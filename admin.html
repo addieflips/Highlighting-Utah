@@ -16281,7 +16281,6 @@ function rmEndStrand(){
   const used = rmCorners.some(function(c){ return (c.band || 0) === rmCurrentBand; });
   if(!used) return false;            /* an empty strand is not a strand */
   rmCurrentBand++;
-  rmLastFaceUsed = null;      /* a new strand is a new part of the roof */
   rmRenderCornerBar();
   const note = document.getElementById('rmCornerNote');
   if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished. The next dot starts a new one.';
@@ -16659,17 +16658,33 @@ function rmPinCorner(i, ray){
    ray wins. */
 const RM_FACE_EDGE_TOL_M = 1.6;   /* how close to a face's roof the ray must pass */
 
-/* ⭐ A GUTTER RUNS ALONG ONE FACE, so the dot after this one is almost
-   certainly on the same face. Owner, on the sky view: "in street view its snug
-   in the corner but sky view its not."
-   Measured on the test house: three dots along one gutter came out at e -7.96,
-   -7.96 and -7.93, and the fourth at -5.63 - two and a third metres deeper
-   into the house, because its ray was matched to a DIFFERENT face's edge. In
-   the street view all four look like one line, because depth is the one thing
-   that view cannot show. From above the fourth is plainly off the roof.
-   So the face the last dot landed on is remembered, and a crossing on that
-   same face is judged more generously before another face is considered. */
-let rmLastFaceUsed = null;
+/* ⚠ DO NOT MAKE CONSECUTIVE DOTS PREFER THE FACE THE LAST ONE LANDED ON.
+   That was tried, shipped, and reverted, and the reasoning behind it was
+   circular in a way worth writing down so it is not tried again.
+
+   The argument was: four dots along one gutter came out at e -7.96, -7.96,
+   -7.93 and -5.63, so the fourth had "jumped to another face" and should be
+   pulled back onto its neighbours' face. Doing that dropped the spread from
+   2.33 m to 0.03 m, which looked like a fix.
+
+   IT MEASURED THE CONSTRAINT IT HAD JUST IMPOSED. Forcing four dots onto one
+   plane and then reporting that they are coplanar proves nothing about whether
+   that plane is the right one - all four can be uniformly wrong and still
+   score perfectly, and from a new angle they all drift together, which is
+   exactly what the owner reported next.
+
+   AND THE HOUSE SAYS THE JUMP WAS REAL. This one steps back: faces 2 and 5
+   reach e -7.96 where n > -0.9, while faces 6, 9 and 10 stop at about -4.2
+   south of that. A dot near that step BELONGS on the far plane. A rule that
+   drags it forward destroys the set-backs - the dormer fronts and depths, the
+   recessed entries - which are the lines the owner most wants caught.
+
+   A single click is a ray. Its depth has to come from somewhere, and every
+   model of the house is wrong by a foot or three; that error is invisible from
+   the camera that placed the dot and obvious from any other. Tightening the
+   model trades one error for another. Seeing the corner from a second place is
+   what removes the model - see rmPinCorner. */
+
 function rmRoofEdgeHit(dir, cam){
   if(!rmFaces || !rmFaces.length || !rmOrigin) return null;
   let best = null;
@@ -16703,18 +16718,8 @@ function rmRoofEdgeHit(dir, cam){
          the dot here is the hovering the owner saw. */
       if(Math.abs(plane.normal.u) < 1e-9) return;
       const roofU = (plane.d - (plane.normal.e * pe + plane.normal.n * pn)) / plane.normal.u;
-      /* ⚠ The face the last dot used is given more room. A gutter is one edge
-         of one face, and the next dot along it is on that same edge - so a
-         crossing there is far more likely to be what was meant than a crossing
-         on some other face that happens to fit the tolerance better. */
-      const sameFace = (rmLastFaceUsed === f);
-      const tol = sameFace ? RM_FACE_EDGE_TOL_M * 2.2 : RM_FACE_EDGE_TOL_M;
-      if(Math.abs(pu - roofU) > tol) return;
-      /* A same-face crossing wins outright unless something else is much
-         nearer, which would mean the ray really has moved to another part of
-         the house. */
-      const score = t * (sameFace ? 0.6 : 1);
-      if(!best || score < best.score) best = {e: pe, n: pn, u: pu, t: t, score: score, face: f};
+      if(Math.abs(pu - roofU) > RM_FACE_EDGE_TOL_M) return;
+      if(!best || t < best.t) best = {e: pe, n: pn, u: pu, t: t};
     });
   });
   return best;
@@ -18109,7 +18114,7 @@ async function rmLoadAddress(){
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
   rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false; rmSnapNote = null;
   rmFramed = false; rmRoadDir = null;
-  rmCorners = []; rmCornerMode = 'dot'; rmSwapFrom = null; rmCurrentBand = 0; rmLastFaceUsed = null;
+  rmCorners = []; rmCornerMode = 'dot'; rmSwapFrom = null; rmCurrentBand = 0;
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
@@ -18889,7 +18894,6 @@ function openRoofMeasure(quoteId){
         best = w2;
         best.u = rmRoofHeightAt(rmToWorld(w2).lat, rmToWorld(w2).lng) ?? rmDatum().m;
       }
-      if(best.face) rmLastFaceUsed = best.face;
       const w = rmToWorld({e: best.e, n: best.n, u: best.u});
       rmAddCorner({lat: w.lat, lng: w.lng, h: best.u,
                    ray: {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir}});

@@ -34330,20 +34330,8 @@ suite('151. Measure Roof - a clicked dot takes its depth from the wall, not the 
     })(),
     'a house is not a box - it is several parts at different depths');
   check('S151', 'a face only counts if the ray is at THAT face roof height there',
-    /Math\.abs\(pu - roofU\) > tol/.test(pick('rmRoofEdgeHit') || '') &&
-    /RM_FACE_EDGE_TOL_M/.test(pick('rmRoofEdgeHit') || ''),
+    /Math\.abs\(pu - roofU\) > RM_FACE_EDGE_TOL_M/.test(pick('rmRoofEdgeHit') || ''),
     'without it a ray flying over a low garage is placed on the garage front');
-  /* ⭐ A GUTTER RUNS ALONG ONE FACE. Measured on the test house: three dots
-     along one gutter came out at e -7.96, -7.96 and -7.93, and the fourth at
-     -5.63 - two and a third metres deeper into the house, because its ray was
-     matched to a different face's edge. In the street view all four look like
-     one line, because depth is the one thing that view cannot show. */
-  check('S151', 'the next dot prefers the face the last one landed on',
-    /const sameFace = \(rmLastFaceUsed === f\);/.test(pick('rmRoofEdgeHit') || '') &&
-    /const score = t \* \(sameFace \? 0\.6 : 1\);/.test(pick('rmRoofEdgeHit') || ''),
-    'one dot jumping to another face is invisible from the street and obvious from above');
-  check('S151', 'and a new strand forgets it, being a new part of the roof',
-    /rmLastFaceUsed = null;      \/\* a new strand is a new part of the roof \*\//.test(admin));
 }
 
 
@@ -34432,6 +34420,79 @@ suite('152. Measure Roof - a dot seen twice is exact, with no model at all');
   check('S152', 'and a pinned dot looks different from a guessed one',
     /if\(c\.pinned\) parts\.push\('<circle/.test(admin),
     'the office should be able to tell at a glance which dots are still guesses');
+}
+
+
+suite('153. Measure Roof - a set-back part of the house keeps its own depth');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "it didnt fix"; "when you move position it stops working right
+     because both positions arent synced like that".
+     A rule that made each dot prefer the face the PREVIOUS dot landed on was
+     tried and reverted. It scored well on the wrong measure - it forced four
+     dots onto one plane and then reported that they were coplanar - and it
+     destroyed the thing that matters most here: houses step back, and the
+     dormer fronts, dormer depths and recessed entries the owner wants caught
+     are exactly the dots that sit on the FAR plane. */
+  const fn = pick('rmRoofEdgeHit');
+  if (!fn) {
+    check('S153', 'the face-depth pick is findable', false, 'rmRoofEdgeHit missing');
+  } else {
+    const F = (minE, maxE, minN, maxN, hM) => ({
+      sw: {lat: 40 + minN/111132, lng: -111 + minE/85300},
+      ne: {lat: 40 + maxN/111132, lng: -111 + maxE/85300},
+      center: {lat: 40 + (minN+maxN)/2/111132, lng: -111 + (minE+maxE)/2/85300},
+      planeHeightM: hM, azimuth: 0, pitch: 0
+    });
+    const api = new Function(
+      'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
+      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test";' + LF_ +
+      (admin.match(/^const RM_FACE_EDGE_TOL_M.*?$/m) || [''])[0] + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM',
+       'rmDatum','rmFacePlane'].map(pick).join(LF_) + LF_ +
+      fn + LF_ +
+      'return {hit: rmRoofEdgeHit, faces: function(f){ rmFaces = f; }};')();
+
+    /* A house that steps back, like the test house: the north half comes out
+       to e = -8, the south half stops at e = -4. Both roofs at 5 m. */
+    const FRONT = F(-8, -4,  0,  6, 5);
+    const BACK  = F(-4,  0, -6,  0, 5);
+    api.faces([FRONT, BACK]);
+    const cam = {e: -30, n: 0, u: 2.5};
+    const aim = t => { const d = {e: t.e-cam.e, n: t.n-cam.n, u: t.u-cam.u};
+      const l = Math.hypot(d.e,d.n,d.u); return {e:d.e/l, n:d.n/l, u:d.u/l}; };
+
+    const front = api.hit(aim({e: -8, n: 3, u: 5}), cam);
+    check('S153', 'a dot on the part that comes forward lands on it',
+      front && Math.abs(front.e - (-8)) < 0.4,
+      front ? 'landed at e=' + front.e.toFixed(2) : 'hit nothing');
+
+    /* ⚠ THE ONE THAT MATTERS. This ray passes clean SOUTH of the front part -
+       nothing of it is in the way - and is aimed at the recessed part's own
+       west edge, four metres further back. */
+    const back = api.hit(aim({e: -4, n: -3, u: 5}), cam);
+    check('S153', 'a dot on the part that is set back keeps its own depth',
+      back && Math.abs(back.e - (-4)) < 0.4,
+      back ? 'landed at e=' + back.e.toFixed(2) +
+             ' (dragging it to -8 is the reverted rule coming back)' : 'hit nothing');
+
+    /* And the two really are at different depths - the whole point. */
+    check('S153', 'the two dots come out four metres apart, not on one plane',
+      front && back && Math.abs(front.e - back.e) > 3,
+      'got ' + (front && back ? Math.abs(front.e - back.e).toFixed(2) : '?') +
+      ' m apart; a rule that flattens this destroys dormer depths and recessed entries');
+  }
+
+  /* The reverted rule must not reappear by name. */
+  check('S153', 'no dot is nudged toward the face the last one used',
+    !/rmLastFaceUsed/.test(admin),
+    'this was shipped once and reverted - see the note by RM_FACE_EDGE_TOL_M');
+  check('S153', 'and why it was wrong is written down where it would be re-added',
+    /DO NOT MAKE CONSECUTIVE DOTS PREFER THE FACE/.test(admin) &&
+    /MEASURED THE CONSTRAINT IT HAD JUST IMPOSED/.test(admin),
+    'a bare revert invites the same idea back next week');
 }
 
 Promise.all(pendingAsync).then(function () {
