@@ -16374,8 +16374,16 @@ function rmEaveSide(eave){
   const lo = Math.hypot(outward.e, outward.n), lr = Math.hypot(toRoad.e, toRoad.n);
   if(lo < 0.5 || lr < 0.5) return 'front';
   const cos = (outward.e * toRoad.e + outward.n * toRoad.n) / (lo * lr);
-  if(cos > 0.45) return 'front';
-  if(cos < -0.45) return 'back';
+  /* ⚠ FRONT MEANS FRONT, NOT "VISIBLE FROM THE ROAD". This was 0.45, which
+     is sixty-three degrees either way - so a face turned sixty degrees off the
+     road still counted as front, and the left side of the house came on by
+     itself. Owner: "in the automatic one you can see it is adding the left
+     side, the left side should not be included just because it is visible from
+     street view." Being able to SEE a wall is not the same as it being the
+     front of the house, and the office is the one who decides to add a side.
+     0.7 is forty-five degrees: the honest quadrant. */
+  if(cos > 0.7) return 'front';
+  if(cos < -0.7) return 'back';
   /* Cross product sign puts it left or right of the line to the road. */
   const cross = toRoad.e * outward.n - toRoad.n * outward.e;
   return cross > 0 ? 'left' : 'right';
