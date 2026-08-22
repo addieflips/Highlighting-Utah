@@ -15018,9 +15018,20 @@ function rmBuildWhenReady(){
      being a guess. */
   rmResideSuggestions();
   rmGuessedCount = guessed;
-  /* Both halves are in by here, so the house's size and the camera's place are
-     both known - which is exactly what framing needs. */
+  /* ⚠ BOTH HALVES ARE IN BY HERE, AND THAT IS STILL NOT ENOUGH.
+     Framing needs the footprint AND a camera standing on the road, and those
+     two arrive from different places at their own speed - the camera usually
+     first, before the roof model, so the attempt on the camera's own move has
+     no footprint to measure, and this attempt sometimes has no camera. It
+     shipped twice doing nothing at all for exactly that reason. So try here,
+     try when the camera moves, and keep trying briefly until one of them has
+     both. rmFramed makes sure only the first success counts. */
   rmFrameHouseInStreet();
+  let frameTries = 0;
+  const frameTimer = setInterval(function(){
+    if(rmFramed || ++frameTries > 8){ clearInterval(frameTimer); return; }
+    rmFrameHouseInStreet();
+  }, 1200);
   /* TWO PICTURES, TWO JOBS, IN THIS ORDER.
      The satellite view says WHERE each gutter is - it has no depth in it, so a
      pixel is a place, and that is what fixes the sideways offset the roof
@@ -15507,6 +15518,66 @@ function rmFaceRidgeMid(face){
   const ed = pick.worst.ed;
   return rmToWorld({e: (ed.a.e + ed.b.e) / 2, n: (ed.a.n + ed.b.n) / 2, u: 0});
 }
+/* ⭐ A CHIMNEY IS NOT A ROOF FACE, AND A SATELLITE DISH IS NOT A GUTTER.
+   Owner: "be sure to have it detect things like satelites or chimnees and know
+   that isnt a spot we are going to hang."
+   Google's roof model describes a chimney, a vent stack or a dish mount as a
+   little plane of its own, with its own pitch and azimuth, indistinguishable
+   in shape from a real roof face - just small. Nobody hangs lights round a
+   chimney, so every edge one produces is a line the office has to switch off.
+
+   ⚠ SIZE IS THE ONLY THING THAT SEPARATES THEM, and the threshold has to sit
+   between a chimney and a DORMER, because a dormer is small and we very much
+   do want it. Measured: a chimney is about two feet square, four to six square
+   feet of plane; the smallest dormer worth hanging is a couple of metres
+   across, thirty square feet and up. Twelve is comfortably between the two and
+   nowhere near either. */
+const RM_MIN_FACE_SQFT = 12;
+function rmFaceIsWorthHanging(face){
+  const area = Number(face && face.areaSqFt);
+  /* An unknown area is NOT a reason to throw a face away - most of the roof
+     would go with it. Only a known, tiny one. */
+  if(!isFinite(area) || area <= 0) return true;
+  return area >= RM_MIN_FACE_SQFT;
+}
+
+/* ⭐ AND A LINE MUST BE ON THE OUTSIDE OF THE HOUSE.
+   Owner: "make sure its only doing the perimeter because theres some lines im
+   noticing that are just on the house but on no perimeter."
+   Where two roof planes meet, each names the shared edge as one of its own -
+   so a valley between two gables, or the join where a wing meets the main
+   roof, is offered as a run. It is real geometry and it is not a gutter:
+   nothing hangs there, and on screen it reads as a line drawn across the
+   middle of the roof for no reason.
+
+   The test is to step OUTWARD from the edge and ask whether the roof carries
+   on. If another face covers that spot, the edge is an interior seam. If
+   nothing is there, it is the edge of the building - a gutter or a rake. */
+const RM_OUTSIDE_PROBE_M = 1.1;
+function rmEdgeIsOnTheOutside(face, line, faces){
+  if(!line || !face || !face.center) return true;
+  const all = faces || rmFaces || [];
+  if(all.length < 2) return true;              /* nothing it could be a seam with */
+  const a = rmToLocal(line.a.lat, line.a.lng, 0);
+  const b = rmToLocal(line.b.lat, line.b.lng, 0);
+  const mid = {e: (a.e + b.e) / 2, n: (a.n + b.n) / 2};
+  const c = rmToLocal(face.center.lat, face.center.lng, 0);
+  let oe = mid.e - c.e, on = mid.n - c.n;
+  const len = Math.hypot(oe, on);
+  if(len < 0.3) return true;                   /* edge through its own centre: cannot say */
+  oe /= len; on /= len;
+  const probe = rmToWorld({e: mid.e + oe * RM_OUTSIDE_PROBE_M,
+                           n: mid.n + on * RM_OUTSIDE_PROBE_M, u: 0});
+  for(let i = 0; i < all.length; i++){
+    const f = all[i];
+    if(f === face || !f.sw || !f.ne) continue;
+    const latIn = probe.lat >= Math.min(f.sw.lat, f.ne.lat) && probe.lat <= Math.max(f.sw.lat, f.ne.lat);
+    const lngIn = probe.lng >= Math.min(f.sw.lng, f.ne.lng) && probe.lng <= Math.max(f.sw.lng, f.ne.lng);
+    if(latIn && lngIn) return false;           /* the roof carries on: a seam */
+  }
+  return true;
+}
+
 /* THE RIDGE OF A FACE - the uphill edge, drawn the same way the gutter is.
    Owner: "it doesnt seem to be drawing a line along every single ridge on the
    front side, make sure that gets fixed." Lights go along a peak as well as a
@@ -15947,6 +16018,74 @@ function rmSnapOffsetM(aLocal, bLocal, sky){
   return {e: nx * moveM, n: -ny * moveM, m: moveM, used: near.length, of: SAMPLES};
 }
 
+/* ⭐ HOW LONG THE GUTTER ACTUALLY IS.
+   Owner: "be sure it does the entire front because I just opened it on another
+   house and it doesnt go across the whole house."
+
+   Sideways was only half the problem. The LENGTH of every suggested line still
+   came from Google's box for that roof face, pulled in by the ratio between
+   the face's true area and its box - a fudge that stops a compass-aligned box
+   hanging past the end of a house at an angle, and which by its nature makes
+   almost every line a little short. On a plain house that shows up as a front
+   line that stops before the corners.
+
+   The satellite can measure it. Having slid the line onto the real edge, walk
+   OUT from each end a few inches at a time and ask whether the edge is still
+   there. Where it stops, that is the corner. The same evidence, the same
+   picture, the same cross-gradient test - just along the line instead of
+   across it.
+
+   ⚠ It only ever grows a line to evidence, and trims one whose end is sitting
+   on nothing. It cannot invent a gutter: every step has to be an edge as
+   strong as the one the line was snapped to in the first place. */
+const RM_END_STEP_M = 0.25;
+const RM_END_MAX_GROW_M = 7;     /* a gutter is not thirty feet longer than the model thinks */
+const RM_END_MAX_TRIM_M = 2.5;
+
+/* Is there still an edge, running the same way, at this spot? */
+function rmEdgeContinues(sky, pt, nx, ny){
+  const q = rmSkyProject(pt, sky.mpp, sky.w, sky.h);
+  /* Look a pixel either side across the line - a gutter is never exactly on
+     the pixel the maths lands on. */
+  for(let o = -1.5; o <= 1.5; o += 0.75){
+    if(rmCrossGrad(sky, q.x + nx * o, q.y + ny * o, nx, ny) >= RM_SNAP_MIN_GRAD) return true;
+  }
+  return false;
+}
+
+/* Walk one end of a line out to where its edge stops. dir is +1 for the b end,
+   -1 for the a end. Returns the metres to move that end (positive grows). */
+function rmEndReach(a, b, sky, dir){
+  const ux = b.e - a.e, uy = b.n - a.n;
+  const len = Math.hypot(ux, uy);
+  if(len < 0.5) return 0;
+  const ex = ux / len, ey = uy / len;                 /* along the line */
+  /* The normal, in PIXELS, which is what rmCrossGrad wants. */
+  const A = rmSkyProject(a, sky.mpp, sky.w, sky.h), B = rmSkyProject(b, sky.mpp, sky.w, sky.h);
+  const px = B.x - A.x, py = B.y - A.y, pl = Math.hypot(px, py);
+  if(pl < 4) return 0;
+  const nx = -py / pl, ny = px / pl;
+  const end = dir > 0 ? b : a;
+  /* GROW while the edge continues. */
+  let grew = 0;
+  for(let d = RM_END_STEP_M; d <= RM_END_MAX_GROW_M; d += RM_END_STEP_M){
+    const pt = {e: end.e + ex * d * dir, n: end.n + ey * d * dir};
+    if(!rmEdgeContinues(sky, pt, nx, ny)) break;
+    grew = d;
+  }
+  if(grew > 0) return grew;
+  /* Otherwise TRIM back to where the edge starts, but only a little: a line
+     whose whole end is missing is more likely a tree over the gutter than a
+     shorter house. */
+  let trim = 0;
+  for(let d = RM_END_STEP_M; d <= RM_END_MAX_TRIM_M; d += RM_END_STEP_M){
+    const pt = {e: end.e - ex * d * dir, n: end.n - ey * d * dir};
+    if(rmEdgeContinues(sky, pt, nx, ny)) return -d;
+    trim = d;
+  }
+  return 0;                                            /* no evidence either way: leave it */
+}
+
 /* Move every suggested line onto the gutter the satellite picture shows. */
 async function rmSnapLinesToSky(){
   if(!rmRuns.length || !rmOrigin) return {ok: false, why: 'nothing to snap'};
@@ -15960,11 +16099,20 @@ async function rmSnapLinesToSky(){
     const b = rmToLocal(r.path[1].lat, r.path[1].lng, 0);
     const off = rmSnapOffsetM(a, b, sky);
     if(!off){ left++; return; }
-    const na = rmToWorld({e: a.e + off.e, n: a.n + off.n, u: 0});
-    const nb = rmToWorld({e: b.e + off.e, n: b.n + off.n, u: 0});
+    /* Sideways first, so the ends are walked along a line that is already on
+       the gutter rather than one running beside it. */
+    const sa = {e: a.e + off.e, n: a.n + off.n};
+    const sb = {e: b.e + off.e, n: b.n + off.n};
+    const ux = sb.e - sa.e, uy = sb.n - sa.n, ul = Math.hypot(ux, uy) || 1;
+    const ex = ux / ul, ey = uy / ul;
+    const growA = rmEndReach(sa, sb, sky, -1);
+    const growB = rmEndReach(sa, sb, sky, +1);
+    const na = rmToWorld({e: sa.e - ex * growA, n: sa.n - ey * growA, u: 0});
+    const nb = rmToWorld({e: sb.e + ex * growB, n: sb.n + ey * growB, u: 0});
     r.path[0].lat = na.lat; r.path[0].lng = na.lng;
     r.path[1].lat = nb.lat; r.path[1].lng = nb.lng;
     r.snapped = Math.round(off.m * 100) / 100;
+    r.grewFt = Math.round((growA + growB) * RM_M_TO_FT * 10) / 10;
     moved++;
   });
   /* The heights are hung off the roof model by position, so they have to be
@@ -16158,12 +16306,39 @@ function rmCamOnRoad(){
   if(!c) return null;
   return Math.hypot(c.e, c.n) >= RM_ROAD_MIN_M ? c : null;
 }
-function rmEaveSide(eave){
+/* ⭐ WHERE THE ROAD IS, DECIDED ONCE AND THEN LEFT ALONE.
+   Owner: "no matter what angle your looking at it should look at every angle
+   to know where to put the lines, the angle we see is just so we can see it
+   and take a picture but you need to catch the front from every angle."
+
+   ⚠ THIS WAS READ FROM THE LIVE CAMERA, and that is why the front changed
+   under her. Every time the panorama moved or turned, "which way is the road"
+   moved with it, so the faces called FRONT were re-decided, the Front/Left/
+   Right/Back counts shuffled, and the run switched on by default became a
+   different run. Looking at a house from further along the street is not a
+   statement about which side of it faces the road.
+
+   The road is a fact about the house. It is fixed the first time the camera
+   genuinely stands on one - Google puts the panorama at the nearest road
+   photo, which is exactly the information wanted - and then never moved
+   again for that address. Where the camera wanders afterwards only decides
+   what is VISIBLE, which is a different question and is answered elsewhere. */
+let rmRoadDir = null;            /* unit vector from the house toward the road */
+function rmRoadDirection(){
+  if(rmRoadDir) return rmRoadDir;
   const cam = rmCamOnRoad();
-  if(!cam) return 'front';                     /* no road to reason from YET */
+  if(!cam) return null;
+  const len = Math.hypot(cam.e, cam.n);
+  if(len < 1) return null;
+  rmRoadDir = {e: cam.e / len, n: cam.n / len};
+  return rmRoadDir;
+}
+function rmEaveSide(eave){
+  const road = rmRoadDirection();
+  if(!road) return 'front';                    /* no road to reason from YET */
   const mid = rmToLocal((eave.a.lat + eave.b.lat) / 2, (eave.a.lng + eave.b.lng) / 2, 0);
   const outward = {e: mid.e, n: mid.n};        /* the frame's origin IS the house */
-  const toRoad = {e: cam.e, n: cam.n};
+  const toRoad = {e: road.e, n: road.n};
   const lo = Math.hypot(outward.e, outward.n), lr = Math.hypot(toRoad.e, toRoad.n);
   if(lo < 0.5 || lr < 0.5) return 'front';
   const cos = (outward.e * toRoad.e + outward.n * toRoad.n) / (lo * lr);
@@ -16231,6 +16406,9 @@ function rmBuildSuggestions(faces){
   };
   const addLine = function(face, line){
     if(!line) return;
+    /* Not a chimney, and not a seam in the middle of the roof. */
+    if(!rmFaceIsWorthHanging(face)) return;
+    if(!rmEdgeIsOnTheOutside(face, line, faces)) return;
     /* ⚠ EVERY kind is deduped now, not just peaks. Two faces that meet share
        the edge between them, and each names it as one of its own - so a gutter
        or a rake between two planes gets offered twice, the footage doubles and
@@ -16629,28 +16807,94 @@ async function rmUsePrice(price){
   } catch(err){ status.textContent = 'Could not save the price onto the quote \u2014 try again.'; }
 }
 /* ---- street view overlay ------------------------------------------------ */
-/* IS THIS RUN ON A SIDE THE CAMERA CAN SEE?
-   Owner: "if the house is in the way you should not be able to see the line."
-   Street View draws onto a flat picture with no idea what is solid, so a line
-   round the back of the house was being painted straight through the roof -
-   and a house with every side switched on looked like a ball of wool.
+/* IS THIS RUN ACTUALLY VISIBLE, OR IS THE HOUSE IN FRONT OF IT?
+   Owner, twice: "if the house is in the way you should not be able to see the
+   line", and then, looking at it again: "make sure that if the house is in the
+   way on the street view you cant see the line because you cant tell what it
+   goes to anyway."
 
-   There is no depth buffer to consult, but there does not need to be: the runs
-   are on the OUTSIDE of a building whose middle we know. A line whose outward
-   direction points away from the camera is round the back, and the house is
-   between. That is a back-face test, and it is the same reasoning as
-   rmEaveSide - which is why both ask the geometry the same way. */
+   ⚠ THE FIRST VERSION WAS AN ANGLE, AND AN ANGLE IS NOT AN ANSWER. It asked
+   whether a run pointed roughly toward the camera and kept anything within
+   about a hundred degrees, deliberately generous. That hides the far wall and
+   nothing else - so a gutter on the near side of the RIDGE, or one behind a
+   projecting gable, was still drawn straight through the roof in front of it.
+   Being generous was the wrong instinct: a line you cannot trace back to an
+   edge is not information, it is clutter, which is the whole complaint.
+
+   So this is a real occlusion test. The house is treated as the box its
+   footprint and its roof describe, and a point is hidden when the straight
+   line from the camera to it goes INTO that box on the way. That is the
+   ordinary slab test, and the box is the one thing about a house Google gets
+   exactly right. */
+const RM_OCCLUDE_SHRINK_M = 0.35;   /* keep a surface from hiding itself */
+
+/* Where a segment from the camera first enters the house box, as a fraction of
+   the way to the target. Returns null when it never enters. */
+function rmBoxEntry(cam, pt, box){
+  let t0 = 0, t1 = 1;
+  const d = {e: pt.e - cam.e, n: pt.n - cam.n, u: pt.u - cam.u};
+  const lo = {e: box.minE, n: box.minN, u: box.minU};
+  const hi = {e: box.maxE, n: box.maxN, u: box.maxU};
+  const axes = ['e', 'n', 'u'];
+  for(let i = 0; i < axes.length; i++){
+    const k = axes[i];
+    if(Math.abs(d[k]) < 1e-9){
+      if(cam[k] < lo[k] || cam[k] > hi[k]) return null;   /* parallel and outside */
+      continue;
+    }
+    let a = (lo[k] - cam[k]) / d[k], b = (hi[k] - cam[k]) / d[k];
+    if(a > b){ const tmp = a; a = b; b = tmp; }
+    if(a > t0) t0 = a;
+    if(b < t1) t1 = b;
+    if(t0 > t1) return null;                              /* misses the box */
+  }
+  return t0;
+}
+
+function rmHouseBox(){
+  if(!rmBuilding || !rmOrigin) return null;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  /* Pulled in a little all round: a gutter sits ON the surface of the house,
+     and a box that reaches it exactly would report every line as hidden
+     behind the very wall it is drawn on. */
+  const k = RM_OCCLUDE_SHRINK_M;
+  const top = rmDatum().m + rmHighestRelM();
+  return {
+    minE: Math.min(sw.e, ne.e) + k, maxE: Math.max(sw.e, ne.e) - k,
+    minN: Math.min(sw.n, ne.n) + k, maxN: Math.max(sw.n, ne.n) - k,
+    minU: 0, maxU: Math.max(0.5, top - k)
+  };
+}
+
+/* How far the roof stands above the lowest eave at its highest point. */
+function rmHighestRelM(){
+  const lo = rmLowestPlaneM();
+  if(lo === null || !rmFaces || !rmFaces.length) return 3;
+  let best = 0;
+  rmFaces.forEach(function(f){
+    if(!isFinite(f.planeHeightM)) return;
+    const rel = f.planeHeightM - lo;
+    if(rel > best) best = rel;
+  });
+  return Math.max(0.5, Math.min(12, best));
+}
+
 function rmRunFacesCamera(r){
   const cam = rmCamOnRoad();
   if(!cam || !r || !r.path || r.path.length < 2) return true;   /* nothing to hide behind */
+  const box = rmHouseBox();
+  if(!box) return true;                                          /* no house to hide behind */
+  /* Judged at the MIDDLE of the run. A line half hidden is exactly the line
+     the owner cannot read - either it is worth drawing or it is not. */
   const a = r.path[0], b = r.path[r.path.length - 1];
   const mid = rmToLocal((a.lat + b.lat) / 2, (a.lng + b.lng) / 2, 0);
-  const lo = Math.hypot(mid.e, mid.n), lr = Math.hypot(cam.e, cam.n);
-  if(lo < 1 || lr < 1) return true;
-  /* ⚠ Generous on purpose. A wall exactly edge-on is still worth seeing, and
-     hiding a line somebody CAN see is worse than showing one they cannot -
-     they would think it had been lost. Only what is clearly round the back. */
-  return (mid.e * cam.e + mid.n * cam.n) / (lo * lr) > -0.25;
+  mid.u = ((a.h || 0) + (b.h || 0)) / 2;
+  const t = rmBoxEntry(cam, mid, box);
+  /* Enters the box before arriving: the house is in the way. A tiny t means
+     the camera itself is inside the box, which cannot happen from the road and
+     is not worth hiding the whole house for. */
+  return !(t !== null && t > 0.02 && t < 0.995);
 }
 function rmPaintStreet(){
   const svg = document.getElementById('rmSvLayer');
@@ -16799,7 +17043,7 @@ async function rmLoadAddress(){
   rmRoofM = null; rmBuilding = null;
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
   rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false; rmSnapNote = null;
-  rmFramed = false;
+  rmFramed = false; rmRoadDir = null;
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
