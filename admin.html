@@ -19530,12 +19530,32 @@ function openRoofMeasure(quoteId){
            the work back on them for a modelling gap that is not their fault. */
         const wall = rmWallPlane();
         const w2 = wall ? rmWallHit(dir, cam, wall) : null;
-        if(!w2){
-          if(note) note.textContent = '⚠ That is not pointing at the house — click on the building itself.';
+        /* ⚠ AND THE FALLBACK WALL IS AN INFINITE PLANE, which is how a click on
+           the SKY used to become a dot. A ray aimed well above the roof still
+           crosses that plane somewhere up in the air, and the crossing was
+           being accepted and given a height off the roof model - so clicking a
+           cloud produced a confident dot at 31 ft, drawn in both views, with
+           nothing anywhere saying it was invented.
+
+           Owner: "you need to make there be 0 margin of error." A click with no
+           surface under it has no depth, and no depth means no height. The one
+           honest answer is to refuse it.
+
+           So the crossing has to be ON the house: below the roof over that
+           spot, and not underground. Past the end of a roof patch it is still
+           accepted - that was the point of having a fallback at all - but past
+           the TOP of the house it is not. */
+        const wu = w2 ? rmRoofHeightAt(rmToWorld(w2).lat, rmToWorld(w2).lng) : null;
+        const roofTop = (wu !== null && isFinite(wu)) ? wu : rmDatum().m;
+        const onHouse = w2 && w2.u > 0.3 && w2.u < roofTop + RM_EAVE_TOL_M;
+        if(!onHouse){
+          if(note) note.textContent = w2
+            ? '⚠ That is above the roofline — there is nothing there to measure. Click on the house itself.'
+            : '⚠ That is not pointing at the house — click on the building itself.';
           return;
         }
         best = w2;
-        best.u = rmRoofHeightAt(rmToWorld(w2).lat, rmToWorld(w2).lng) ?? rmDatum().m;
+        best.u = roofTop;
       }
       const w = rmToWorld({e: best.e, n: best.n, u: best.u});
       rmAddCorner({lat: w.lat, lng: w.lng, h: best.u,
