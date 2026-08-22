@@ -17353,6 +17353,40 @@ function openRoofMeasure(quoteId){
     RM_SIDES.forEach(function(sd){ rmSetSide(sd, !allOn); });
   });
   window.rmRefreshSideButtons = rmRefreshSideButtons;
+  /* A READ-ONLY WINDOW INTO THE MEASURING, for diagnosing placement from the
+     console. It changes nothing and exposes nothing the panel does not already
+     show; it exists because the Street View pane is about 450 pixels wide, and
+     "do these lines sit on the gutter" cannot be answered by looking at a
+     house 150 pixels across. Every number that decides where a line is drawn
+     is here, so a wrong one can be READ rather than guessed at from a
+     screenshot - which is how an afternoon went once. */
+  window.rmDebug = function(){
+    const size = rmPanoSize(), pov = rmPanoPov(), cam = rmCamLocal();
+    return {
+      origin: rmOrigin,
+      cam: cam,
+      camIsOnRoad: !!rmCamOnRoad(),
+      camMetresFromHouse: cam ? Math.hypot(cam.e, cam.n) : null,
+      pov: pov,
+      fovDeg: rmFovDeg(pov.zoom),
+      pane: size,
+      datum: rmDatum(),
+      faces: (rmFaces || []).length,
+      runs: rmRuns.map(function(r, i){
+        return {
+          i: i, on: rmRunIsOn(r), side: r.side, type: r.type,
+          suggested: !!r.suggested, touched: !!r.touched,
+          snappedM: r.snapped === undefined ? null : r.snapped,
+          facesCamera: rmRunFacesCamera(r),
+          feet: Math.round(rmRunFeet(r)),
+          path: r.path.map(function(p){
+            return {lat: p.lat, lng: p.lng, ft: +((p.h || 0) * RM_M_TO_FT).toFixed(1),
+                    px: rmSvProject(p, size.W, size.H, pov, cam)};
+          })
+        };
+      })
+    };
+  };
   document.getElementById('rmDrawBtn').addEventListener('click', function(){ rmSetDrawing(!rmDrawing); });
   /* Clicks are read off the lock layers, which is what lets the views
      underneath be completely inert while a line is being drawn. */
