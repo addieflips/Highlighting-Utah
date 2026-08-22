@@ -38525,11 +38525,36 @@ function printCrewNotes(d, h){
   if(standing) bits.push(standing);
   return bits.join('  \u00b7  ');
 }
+/* ⭐ NOBODY ASKED IS NOT THE SAME AS THEY SAID NO (changed 2026-08-21).
+   This turned a blank into a confident "No", so a customer who wants a timer but was
+   never asked printed as a definite No and did not get one. On a season where the
+   printed sheet is the ONLY thing the crew sees — the employee portal is not in use —
+   that is the sheet quietly answering a question on the customer's behalf.
+
+   ⚠ AN EXPLICIT false IS STILL "No". Somebody ticking no is an answer and must not be
+   turned into a shrug; only an absent value becomes "?".
+
+   ⚠ "?" IS THE MASTER SHEET'S OWN WORD FOR THIS. The Up Plug column holds 112 yes,
+   98 "?", 61 no — the office already writes a question mark when nobody has asked,
+   and the importer already refuses to read it as a no. The paper now says the same
+   thing the spreadsheet does.
+
+   ⚠ THIS IS R-002 WITH A DIFFERENT FACE. That rule exists because silence and "they
+   didn't want it" must never look alike; a defaulted "No" is exactly them looking
+   alike. Same reasoning, same fix.
+
+   ⚠ THE "?" IS INLINE, NOT A CONSTANT BESIDE THIS FUNCTION. Three test harnesses
+   lift printYesNo with extractFn, which takes the function and nothing around it —
+   a const declared next to it is not carried, and the suite dies with a bare
+   ReferenceError naming a name nobody can place. Self-contained is worth more here
+   than a named constant used in exactly one place. */
 function printYesNo(v){
   if(v === true) return 'Yes';
-  if(v === false || v == null || v === '') return 'No';
+  if(v === false) return 'No';
+  if(v == null || v === '') return '?';
   const t = ('' + v).trim();
-  if(!t) return 'No';
+  if(!t) return '?';
+  if(/^\?+$/.test(t)) return '?';   // the sheet's own spelling of it
   if(/^(n|no|none|false)$/i.test(t)) return 'No';
   if(/^(y|yes|true)$/i.test(t)) return 'Yes';
   return t;   // they typed something real, so print it

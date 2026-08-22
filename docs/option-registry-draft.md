@@ -272,3 +272,41 @@ control and the per-customer toggle at `admin.html:31027`. So houses can still b
 marked done from the office and the nightly invoice run still fires. This was
 worth checking: if the portal had been the only writer, not using it would have
 stopped billing silently.
+
+---
+
+## 11. What the printed sheets carry now (2026-08-21)
+
+Both surfaces the office prints this season are finished. The employee portal is
+not in use, so these two sheets are the entire interface to the people doing the
+work.
+
+### Crew sheet
+`# · Cust # · Name · Address · City · Gate · Sides · Plugs/eaves · Timer · Notes · ☐`
+
+One row builder feeds all of it — the Printing tab's crew sheets and the
+Scheduling tab's day and per-crew sheets — so none of them can drift.
+
+- **Gate** and **Sides** are new, and sit BEFORE Notes. Notes is the wide
+  free-text column and anything after it is lost against a wall of writing.
+- **Notes** leads with the two lines that change what the crew *does*:
+  `OUTLET: … · TODAY: … · <the standing note>`.
+- An absent gate code prints `—`, deliberately not "none": the record cannot tell
+  "no gate" from "there is a gate and nobody asked".
+- **An unanswered yes/no prints `?`, not `No`.** A blank used to become a
+  confident No, so a customer who wanted a timer and was never asked printed as a
+  definite No and did not get one. An explicit No is still No.
+
+### Warehouse build sheets (there are two, and they now agree)
+Warehouse tab: `Group · Wire · Type · Customer/Item · Address · Bins · Bundles ·
+Timer · When built, put into`
+Printing tab: `Cust # · Name · Light color · Wire color · Timer · Bundles ·
+When built, put into`
+
+- **Bins** is how many bins the house needs, from `cnBinsForFeet`. Blank when
+  nobody has measured — a confident "1" there is a guess wearing a number.
+- **Customer** carries the number beside the name (`Owen Hale #1421`).
+- **Bundles** replaced Feet, and carries what Feet used to say about itself:
+  `+3` for an add-on, `3 est` where the count was worked back from the price.
+- ⚠ The recycle sheet keeps its own **Bin # to find** — that one IS the painted
+  number, because finding a bin on a shelf is what it is for.

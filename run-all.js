@@ -19315,12 +19315,48 @@ suite('Suite 104. The Printing tab');
     crewBody.indexOf('<th>Timer</th>') < crewBody.indexOf('<th>Notes</th>'),
     'anything after Notes is lost against a wall of writing');
 
+  /* ⭐ NOBODY ASKED IS NOT "No" (2026-08-21). printYesNo turned a blank into a
+     confident No, so a customer who wants a timer and was never asked printed as a
+     definite No and did not get one. With the employee portal out of use this season
+     the printed sheet is the only thing the crew sees, so the sheet was answering a
+     question on the customer's behalf. R-002's reasoning exactly: silence and "they
+     didn't want it" must not look alike. */
+  {
+    const yn = new Function(extractFn(admin, 'printYesNo') + 'return printYesNo;')();
+    check('S104', 'an unanswered yes/no prints "?", not "No"',
+      yn(undefined) === '?' && yn('') === '?' && yn('   ') === '?' && yn(null) === '?',
+      'a defaulted No is the sheet answering for the customer');
+    /* ⚠ AN EXPLICIT NO IS STILL AN ANSWER. Somebody ticking no must not be turned
+       into a shrug — that would be the same fault pointing the other way. */
+    check('S104', 'but a real No is still No',
+      yn('No') === 'No' && yn(false) === 'No' && yn('n') === 'No',
+      'turning an answer into a question mark loses information the office collected');
+    check('S104', 'and a real Yes is still Yes',
+      yn('Yes') === 'Yes' && yn(true) === 'Yes' && yn('y') === 'Yes');
+    /* The master sheet's Up Plug column literally holds "?" for this — 98 of them. */
+    check('S104', 'the sheet\'s own question mark reads as unanswered',
+      yn('?') === '?' && yn('??') === '?',
+      'the importer already refuses to read "?" as a no; the paper now agrees');
+    check('S104', 'and anything actually typed still prints as typed',
+      yn('switched outlet only') === 'switched outlet only',
+      'a real instruction must not be flattened into Yes, No or ?');
+  }
+
   /* ⚠ SAME TRAP, SAME FIX, FOR THE NEW COLUMNS (2026-08-21). A red-check that
      stopped printCrewDayList filling `gate` and `sides` left both headers standing
      with empty cells under them and EVERY other check stayed green — including the
      column-order one and the helpers' own unit checks, which call printGateCode
      directly rather than going through the renderer. The sheet is what the crew
      holds, so the sheet is what gets asserted. */
+  /* ⚠ AND ON THE PAGE, not just in the helper. The fixture's crew-1 house answers
+     the timer and says nothing about eaves, so the sheet must show both states. */
+  check('S104', 'the printed sheet shows "?" where nobody was asked',
+    /<td>\?<\/td>/.test(crewBody),
+    'the eaves question is unanswered for this house and the sheet should say so');
+  check('S104', 'and still shows a real answer where there is one',
+    /<td>Yes<\/td>/.test(crewBody),
+    'the same house answered the timer');
+
   check('S104', 'the Gate column is actually filled in, not just present',
     /<th>Gate<\/th>/.test(crewBody) && /<td>4412<\/td>/.test(crewBody),
     'a Gate header with nothing under it is the crew still stuck at the gate');
