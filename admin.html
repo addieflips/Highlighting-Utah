@@ -15440,8 +15440,12 @@ function rmSvProject(world, W, H, pov, cam){
  * grey, because a line that VANISHES when you click it looks like a delete and
  * cannot be found again.
  */
-function rmFaceEave(face){
-  /* Box corners in the local frame. */
+/* WHICH EDGE OF A FACE IS THE GUTTER, AND WHICH IS THE RIDGE.
+   Extracted so the two callers cannot drift: rmFaceEave draws the line, and
+   the photo solver below needs the OPPOSITE edge as well. Two copies of "which
+   way does this roof slope" is exactly the sort of thing that quietly stops
+   agreeing. */
+function rmFaceEdgePick(face){
   const sw = rmToLocal(face.sw.lat, face.sw.lng, 0);
   const ne = rmToLocal(face.ne.lat, face.ne.lng, 0);
   const corners = {s: sw.n, w: sw.e, n: ne.n, e: ne.e};
@@ -15455,12 +15459,37 @@ function rmFaceEave(face){
     {name: 'west',  out: {e: -1, n: 0}, a: {e: corners.w, n: corners.s}, b: {e: corners.w, n: corners.n}},
     {name: 'east',  out: {e: 1, n: 0},  a: {e: corners.e, n: corners.s}, b: {e: corners.e, n: corners.n}}
   ];
-  /* The eave is the edge pointing the same way the roof slopes down. */
-  let best = null;
+  let best = null, worst = null;
   edges.forEach(function(ed){
     const dot = ed.out.e * down.e + ed.out.n * down.n;
-    if(!best || dot > best.dot) best = {ed: ed, dot: dot};
+    if(!best || dot > best.dot) best = {ed: ed, dot: dot};      /* downhill: the gutter */
+    if(!worst || dot < worst.dot) worst = {ed: ed, dot: dot};   /* uphill: the ridge side */
   });
+  return {corners: corners, down: down, best: best, worst: worst};
+}
+/* The midpoint of a face's UPHILL edge, in the world. Paired with the gutter
+   below, this is what makes a roof identifiable in a photograph. */
+function rmFaceRidgeMid(face){
+  const pick = rmFaceEdgePick(face);
+  if(!pick || !pick.worst) return null;
+  const ed = pick.worst.ed;
+  return rmToWorld({e: (ed.a.e + ed.b.e) / 2, n: (ed.a.n + ed.b.n) / 2, u: 0});
+}
+/* THE RIDGE OF A FACE - the uphill edge, drawn the same way the gutter is.
+   Owner: "it doesnt seem to be drawing a line along every single ridge on the
+   front side, make sure that gets fixed." Lights go along a peak as well as a
+   gutter, and until now only the gutter was ever offered, so every ridge on
+   the house had to be traced by hand. */
+function rmFaceRidge(face){
+  return rmFaceEdgeLine(face, 'worst');
+}
+function rmFaceEave(face){
+  return rmFaceEdgeLine(face, 'best');
+}
+function rmFaceEdgeLine(face, which){
+  const pick = rmFaceEdgePick(face);
+  const corners = pick.corners;
+  let best = pick[which];
   /* ⚠ A FLAT FACE HAS NO GUTTER LINE, and PITCH is the only thing that says
      so. The azimuth of a flat roof is arbitrary, and a box always has an edge
      within 45 degrees of any direction, so the dot product can never rule one
@@ -15497,7 +15526,7 @@ function rmFaceEave(face){
   }
   return {a: rmToWorld({e: best.ed.a.e, n: best.ed.a.n, u: 0}),
           b: rmToWorld({e: best.ed.b.e, n: best.ed.b.n, u: 0}),
-          facing: best.ed.name};
+          facing: best.ed.name, kind: which === 'worst' ? 'ridge' : 'perimeter'};
 }
 /* ============ READING THE ROOFLINE OUT OF THE PHOTOGRAPH ================
    Owner, looking at the guessed lines on a real house: "by the looks of it it
@@ -15580,7 +15609,6 @@ function rmPhotoProject(pt, W, H, pose, cam){
 /* ---- the photograph itself -------------------------------------------- */
 const RM_PHOTO_FOV = 70, RM_PHOTO_PX = 640;
 const RM_EDGE_MIN = 26;          /* below this a "line" is just film grain */
-const RM_DATUM_LOOK_PX = 90;     /* the datum can be several feet out, so look wide */
 const RM_DATUM_MIN_SAMPLES = 3;  /* one gutter-shaped shadow is not evidence */
 const RM_DATUM_SPREAD_M = 0.9;   /* if the samples disagree by more than this, do not believe them */
 
@@ -15633,56 +15661,98 @@ function rmSobel(img){
   return {w: W, h: H, gy: gy, mag: mag};
 }
 
-/* The strongest NEAR-HORIZONTAL edge in a column, close to where the model
-   said the gutter would be.
-   ⚠ Scored on the vertical component alone, on purpose. A photograph of a
-   house is full of strong VERTICAL edges - downpipes, window frames, corner
-   boards, tree trunks - and total gradient would happily snap a gutter onto a
-   drainpipe. A gutter is a near-horizontal edge, so its gradient points up or
-   down, and nothing else in the frame does that as brightly. */
-function rmEdgeRowNear(photo, x, y, lookPx){
+/* ONE SAMPLE'S ANSWER TO "HOW HIGH IS THE EAVE?"
+
+   ⚠ A GUTTER ON ITS OWN CANNOT BE FOUND, AND THE FIRST VERSION PROVED IT.
+   Run on a real house it answered 25 ft to the lowest eave - a two-and-a-half
+   storey building, for an ordinary one. The reason is worth writing down: the
+   strongest near-horizontal edge anywhere near a house is the ROOFLINE AGAINST
+   THE SKY, not the gutter. Roof against sky is the highest-contrast boundary in
+   the frame; a gutter is dark trim against a shaded wall. Scoring on edge
+   strength and searching a wide window, the solver walked up to the sky every
+   time and reported it with total confidence.
+
+   THE FIX IS TO STOP LOOKING FOR ONE LINE. The roof model knows exactly how far
+   the ridge stands above the gutter - that part is pure geometry and always
+   right. So the thing to look for is a PAIR of edges at that known separation.
+   Raise the datum and both predicted lines slide up the photograph together;
+   they only land on real edges simultaneously at one height, and the sky edge
+   has no partner the right distance below it. That is what makes a roof
+   identifiable in a picture when a gutter alone is not.
+
+   The search is also bounded to heights a house actually has. A lowest eave
+   below six feet or above sixteen is not a house we hang lights on, and the
+   old window was wide enough in pixels to reach the sky in the first place. */
+const RM_EAVE_MIN_M = 1.8;      /* ~6 ft */
+const RM_EAVE_MAX_M = 4.9;      /* ~16 ft: a tall two-storey eave */
+const RM_DATUM_STEP_M = 0.04;   /* ~1.5 inches - finer than the photo can tell */
+const RM_PAIR_TOL_PX = 2;       /* an edge is rarely exactly one pixel wide */
+
+/* How strong a near-horizontal edge is at a spot, forgiving a pixel or two. */
+function rmEdgeStrengthAt(photo, x, y){
   const xi = Math.round(x);
-  if(!(xi >= 1 && xi < photo.w - 1)) return null;
-  let best = null;
-  for(let d = -lookPx; d <= lookPx; d++){
+  if(!(xi >= 1 && xi < photo.w - 1)) return 0;
+  let best = 0;
+  for(let d = -RM_PAIR_TOL_PX; d <= RM_PAIR_TOL_PX; d++){
     const yi = Math.round(y) + d;
     if(!(yi >= 1 && yi < photo.h - 1)) continue;
     const v = Math.abs(photo.gy[yi * photo.w + xi]);
-    if(v < RM_EDGE_MIN) continue;
-    /* When two edges are equally bright the nearer one wins: the model was
-       pointing roughly at the right thing, it is the height that is adrift. */
-    const score = v - Math.abs(d) * 0.35;
-    if(!best || score > best.score) best = {y: yi, score: score, mag: v, off: d};
+    if(v > best) best = v;
   }
   return best;
 }
 
-/* ONE SAMPLE'S ANSWER TO "HOW HIGH IS THE EAVE?"
-   The plan position comes from the roof model and the RELATIVE shape of the
-   roof is exact; the only unknown worth solving is the datum - how far the
-   whole roof sits off the ground. Raising the datum slides the point up the
-   photograph, and that is monotonic, so a bisection lands on the height that
-   puts the model's gutter exactly on the photograph's gutter. */
-function rmSolveDatum(sample, photo, cam, pose, lookPx){
-  const at = function(D){
-    return rmPhotoProject({e: sample.e, n: sample.n, u: D + sample.rel}, photo.w, photo.h, pose, cam);
-  };
-  const start = at(rmDatum().m);
-  if(!start) return null;
-  const hit = rmEdgeRowNear(photo, start.x, start.y, lookPx === undefined ? RM_DATUM_LOOK_PX : lookPx);
-  if(!hit) return null;
-  let lo = 0.8, hi = 12;
-  for(let i = 0; i < 30; i++){
-    const m = (lo + hi) / 2;
-    const p = at(m);
-    if(!p) return null;
-    /* Further down the image means the point is too low in the world. */
-    if(p.y > hit.y) lo = m; else hi = m;
+/* Both lines must be there, so the score is the WEAKER of the two. Taking the
+   sum or the average lets one blazing sky edge carry a gutter that is not
+   there at all, which is the whole failure this replaced. */
+function rmScoreDatum(sample, photo, cam, pose, D){
+  const e = rmPhotoProject({e: sample.e, n: sample.n, u: D + sample.rel}, photo.w, photo.h, pose, cam);
+  if(!e) return 0;
+  const eaveEdge = rmEdgeStrengthAt(photo, e.x, e.y);
+  if(eaveEdge < RM_EDGE_MIN) return 0;
+  if(!sample.ridge) return eaveEdge;          /* a flat face has no ridge to pair with */
+  const r = rmPhotoProject({e: sample.ridge.e, n: sample.ridge.n, u: D + sample.ridge.rel}, photo.w, photo.h, pose, cam);
+  if(!r) return 0;
+  const ridgeEdge = rmEdgeStrengthAt(photo, r.x, r.y);
+  if(ridgeEdge < RM_EDGE_MIN) return 0;
+  /* ⚠ The two must be measurably APART in the picture. On a shallow roof seen
+     from the front they can project within a pixel of each other, and then any
+     single edge satisfies both and the pairing proves nothing. */
+  if(Math.abs(r.y - e.y) < 6) return 0;
+  return Math.min(eaveEdge, ridgeEdge);
+}
+
+function rmSolveDatum(sample, photo, cam, pose){
+  /* ⚠ THE ANSWER IS THE MIDDLE OF THE PLATEAU, NOT THE FIRST HEIGHT THAT FITS.
+     An edge is a few pixels thick and rmEdgeStrengthAt forgives a pixel either
+     side, so a whole band of datums score identically. Taking the first one -
+     which is what a plain "is this better than the best so far" loop does -
+     biases every answer to the LOW edge of that band by the whole tolerance.
+     Measured on a fixture with a known answer: 2.24 m against a true 2.35, out
+     by four inches, on a house where the geometry was exactly right. Four
+     inches of roofline is visible. */
+  let bestScore = 0;
+  const hits = [];
+  for(let D = RM_EAVE_MIN_M; D <= RM_EAVE_MAX_M + 1e-9; D += RM_DATUM_STEP_M){
+    const sc = rmScoreDatum(sample, photo, cam, pose, D);
+    if(sc <= 0) continue;
+    if(sc > bestScore + 1e-9){ bestScore = sc; hits.length = 0; }
+    if(sc > bestScore - 1e-9) hits.push(D);
   }
-  const D = (lo + hi) / 2;
-  /* Same sanity as a measured click: an eave underground or on the fourth
-     floor means the edge found was not a gutter. */
-  return (D > 0.9 && D < 11.5) ? {m: D, strength: hit.mag} : null;
+  if(!hits.length) return null;
+  /* ⚠ The band must be CONTIGUOUS. Two separate heights can both fit - a
+     porch roof below the main one will do it - and averaging across the gap
+     lands between them, on neither. Keep the run containing the strongest
+     stretch and average only that. */
+  let runStart = 0, bestRunA = 0, bestRunB = 0;
+  for(let i = 1; i <= hits.length; i++){
+    const broke = (i === hits.length) || (hits[i] - hits[i - 1] > RM_DATUM_STEP_M * 1.5);
+    if(!broke) continue;
+    if((i - runStart) > (bestRunB - bestRunA)){ bestRunA = runStart; bestRunB = i; }
+    runStart = i;
+  }
+  const band = hits.slice(bestRunA, bestRunB);
+  return {m: (band[0] + band[band.length - 1]) / 2, strength: bestScore};
 }
 
 /* The whole roof's datum, read off the photograph and agreed across several
@@ -15768,6 +15838,10 @@ async function rmDatumFromStreetPhoto(){
   /* One sample per suggested gutter, taken at its midpoint - the middle of a
      run is the part least likely to be behind a tree or off the edge of the
      frame. */
+  /* One sample per suggested gutter, taken at its midpoint - the middle of a
+     run is the part least likely to be behind a tree or off the edge of the
+     frame - and EACH ONE CARRIES ITS RIDGE. Without the ridge there is nothing
+     to pair the gutter with, and the search walks up to the skyline. */
   const samples = [];
   rmRuns.forEach(function(r){
     if(!r.suggested || !r.path || r.path.length < 2) return;
@@ -15776,7 +15850,16 @@ async function rmDatumFromStreetPhoto(){
     const rel = rmRoofRelativeAt(mid.lat, mid.lng);
     if(rel === null) return;
     const p = rmToLocal(mid.lat, mid.lng, 0);
-    samples.push({e: p.e, n: p.n, rel: rel});
+    const sample = {e: p.e, n: p.n, rel: rel, ridge: null};
+    const rm = r.face ? rmFaceRidgeMid(r.face) : null;
+    if(rm){
+      const rrel = rmRoofRelativeAt(rm.lat, rm.lng);
+      if(rrel !== null && rrel > rel + 0.3){        /* a ridge really is higher */
+        const rp = rmToLocal(rm.lat, rm.lng, 0);
+        sample.ridge = {e: rp.e, n: rp.n, rel: rrel};
+      }
+    }
+    samples.push(sample);
   });
   const ans = rmDatumFromSamples(samples, photo, cam, pose);
   if(!ans.ok) return {ok: false, why: ans.why};
@@ -15876,27 +15959,45 @@ function rmBuildSuggestions(faces){
   /* kept only as the argument to the ?? above; the datum is the real floor */
   const h = rmDatum().m;
   let made = 0;
-  (faces || []).forEach(function(face){
-    const eave = rmFaceEave(face);
-    if(!eave) return;
+  /* ⚠ TWO FACES SHARE ONE RIDGE. A gable has a plane either side of the peak
+     and both name the same edge as their uphill one, so drawing them all puts
+     two identical lines on every ridge in the house - the footage doubles and
+     the strand count with it. Anything landing on top of a ridge already
+     offered is dropped. */
+  const ridgesSoFar = [];
+  const alreadyHaveRidge = function(line){
+    const a = rmToLocal(line.a.lat, line.a.lng, 0), b = rmToLocal(line.b.lat, line.b.lng, 0);
+    const mid = {e: (a.e + b.e) / 2, n: (a.n + b.n) / 2};
+    const len = Math.hypot(b.e - a.e, b.n - a.n);
+    for(let i = 0; i < ridgesSoFar.length; i++){
+      const o = ridgesSoFar[i];
+      if(Math.hypot(mid.e - o.mid.e, mid.n - o.mid.n) < 1.5 && Math.abs(len - o.len) < 2) return true;
+    }
+    ridgesSoFar.push({mid: mid, len: len});
+    return false;
+  };
+  const addLine = function(face, line){
+    if(!line) return;
+    if(line.kind === 'ridge' && alreadyHaveRidge(line)) return;
     const run = {
-      type: 'perimeter', suggested: true, on: rmFaceFacesTheRoad(eave),
-      facing: eave.facing, side: rmEaveSide(eave),
-      /* Each END gets its own height. An eave is level so both usually agree,
-         but a raked or stepped edge does not, and assuming it does is the same
-         flat-line mistake one level down. */
-      /* Each end at the roof's real height there. ⚠ NEVER `?? 0` - that is
-         exactly how every suggested line ended up on the lawn. The datum
-         guarantees rmRoofHeightAt answers, and if it somehow does not, the
-         assumed one-storey eave is the floor. */
-      path: [{lat: eave.a.lat, lng: eave.a.lng, h: rmRoofHeightAt(eave.a.lat, eave.a.lng) ?? rmDatum().m},
-             {lat: eave.b.lat, lng: eave.b.lng, h: rmRoofHeightAt(eave.b.lat, eave.b.lng) ?? rmDatum().m}],
+      type: line.kind, suggested: true, on: rmFaceFacesTheRoad(line),
+      facing: line.facing, side: rmEaveSide(line),
+      /* Kept so the photo solver can find this gutter's own ridge. */
+      face: face,
+      path: [{lat: line.a.lat, lng: line.a.lng, h: rmRoofHeightAt(line.a.lat, line.a.lng) ?? rmDatum().m},
+             {lat: line.b.lat, lng: line.b.lng, h: rmRoofHeightAt(line.b.lat, line.b.lng) ?? rmDatum().m}],
       line: null, dots: []
     };
-    /* A sliver is noise, not a run somebody wants to see offered. */
-    if(rmRunFeet(run) < 6) return;
+    if(rmRunFeet(run) < 6) return;      /* a sliver is noise, not a run */
     rmRuns.push(run);
     made++;
+  };
+  (faces || []).forEach(function(face){
+    /* The peak first, then the gutter - both through the one builder, so a
+       change to how a suggested line is made cannot reach one and miss the
+       other. */
+    addLine(face, rmFaceRidge(face));
+    addLine(face, rmFaceEave(face));
   });
   rmRuns.forEach(function(r){ if(r.suggested) rmSyncSky(r); });
   if(window.rmRefreshSideButtons) window.rmRefreshSideButtons();
