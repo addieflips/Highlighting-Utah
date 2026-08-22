@@ -49,7 +49,30 @@ function gap(name, fixed, detail) {
   if (fixed) { pass++; console.log('  PASS  ' + name + '  (gap closed)'); }
   else { console.log('  GAP   ' + name + '\n          ' + detail); gaps.push(name + ' — ' + detail); }
 }
-function suite(title) { console.log('\n=== ' + title + ' ==='); }
+/* ⭐ EVERY SUITE SAYS ITS NAME, AND A CRASH SAYS WHOSE (added 2026-08-21).
+ *
+ * A mutation sweep over 44 real functions found 16 whose breakage the suite
+ * DID catch — but as a bare stack trace, naming neither the suite nor the rule.
+ * That is the "an async suite crashed" problem CLAUDE.md already records for
+ * the workbook writer, and it reads as "the tests are broken" rather than
+ * "this one thing is". Diagnosing it costs a bisect every time.
+ *
+ * Most of this file runs synchronously while the module is being evaluated, so
+ * an uncaughtException handler registered HERE — before any suite runs — still
+ * fires for a throw further down. It cannot resume, but it can say where it
+ * was and print the score so far, which is the whole difference. */
+let CURRENT_SUITE = '(before the first suite)';
+function suite(title) { CURRENT_SUITE = title; console.log('\n=== ' + title + ' ==='); }
+process.on('uncaughtException', function (err) {
+  console.log('\n  FAIL  ' + CURRENT_SUITE + ' — crashed partway through');
+  console.log('          ' + ((err && err.stack) || err));
+  console.log('\n' + '='.repeat(55));
+  console.log(pass + ' passed, ' + (fail + 1) + ' failed  (the run stopped here, ' +
+    'so any suite after this one did not get to score)');
+  console.log('\nThe suite named above is the one to look at.');
+  console.log('='.repeat(55) + '\n');
+  process.exit(1);
+});
 /*
  * Most of this suite is synchronous. A few checks have to RUN real app code
  * that is written as `async` (syncPayerInvoice), and an async function's body
@@ -58,6 +81,21 @@ function suite(title) { console.log('\n=== ' + title + ' ==='); }
  * score after the totals and a failure would exit 0.
  */
 const pendingAsync = [];
+/* ⚠ AN ASYNC SUITE'S CRASH SURFACES LATE, long after CURRENT_SUITE has moved
+   on — so the synchronous handler above would name the wrong one, confidently.
+   Each pushed promise remembers the suite that pushed it, and the summary's
+   catch reads that back. No call site changes: the 29 pushes are untouched. */
+{
+  const _push = pendingAsync.push.bind(pendingAsync);
+  pendingAsync.push = function (p) {
+    const where = CURRENT_SUITE;
+    return _push(Promise.resolve(p).catch(function (e) {
+      const err = (e instanceof Error) ? e : new Error(String(e));
+      if (!err.__suite) err.__suite = where;
+      throw err;
+    }));
+  };
+}
 
 const HTML_FILES = ['index.html', 'admin.html', 'employee.html'];
 
@@ -430,7 +468,11 @@ check('logic', 'zero-value invoice is Unpaid', computeInvoiceStatus(0, 0, 0) ===
    holding a URL, which loses text but cannot invent a match. */
 const stripComments = s => (s || '')
   .replace(/(^|[\s;{}()\[\],])\/\*[\s\S]*?\*\//g, '$1')
-  .replace(/\/\/.*$/gm, '');
+  /* ⚠ AND `//` INSIDE A URL IS NOT A COMMENT EITHER. 57 lines in admin.html
+     hold an https:// and were having their tail deleted — same falsely-passing
+     direction as the block-comment bug above, just smaller. Requiring the
+     slashes not to follow a colon keeps every real line comment. */
+  .replace(/(^|[^:])\/\/[^\n]*/gm, '$1');
 const isNewHangUrgentSrc = extractFn(admin, 'isNewHangUrgent');
 eval(isNewHangUrgentSrc);
 const oldCreatedAt = { toDate: () => new Date(Date.now() - 400 * 86400000) };
@@ -30088,6 +30130,128 @@ suite('Suite 135. A house that cannot be invoiced is a job, not a statistic');
     'the office is chasing them for an address');
 }
 
+/* =====================================================================
+ * Suite 136. The three the mutation sweep found unguarded
+ *
+ * A sweep on 2026-08-21 neutered 44 real functions one at a time — inserting an
+ * early return so each still parses but does nothing — and asked whether the
+ * gates noticed. Three did not: every check that mentioned them read source
+ * text, so the words were still there and the suite stayed green while the
+ * function did nothing at all.
+ *
+ * That is the exact failure this repo keeps re-learning: a regex over a file
+ * proves the code EXISTS, which is a weaker claim than it works. All three are
+ * RUN here.
+ * ===================================================================== */
+suite('Suite 136. The three the mutation sweep found unguarded');
+{
+  const money = read('js/money.js');
+  const fns = read('functions/index.js');
+  const admin = read('admin.html');
+
+  /* ---- enrollmentYearOf: which season a customer joined in ------------ */
+  {
+    const src = extractFn(money, 'enrollmentYearOf');
+    check('S136', 'enrollmentYearOf is findable', !!src);
+    if (src) {
+      const F = new Function(src + ';return enrollmentYearOf;')();
+      /* ⚠ FIVE SHAPES, because a createdAt reaches this from five places: a
+         live Firestore Timestamp, one rehydrated from a plain object, a real
+         Date, a millisecond number, and a string from an import. Getting any
+         of them wrong silently mis-dates when somebody joined. */
+      check('S136', 'it reads a Firestore Timestamp',
+        F({ toDate: () => new Date('2024-11-03T12:00:00Z') }) === 2024,
+        'the ordinary case — everything written by the app arrives like this');
+      check('S136', 'and one rehydrated as a plain {seconds} object',
+        F({ seconds: Math.floor(Date.UTC(2023, 10, 3) / 1000) }) === 2023,
+        'a Timestamp that has been through JSON loses its methods and keeps ' +
+        'only seconds — that is how a saved snapshot comes back');
+      check('S136', 'and a real Date, and a millisecond number',
+        F(new Date('2022-01-05T00:00:00Z')) === 2022 &&
+        F(Date.UTC(2021, 5, 1)) === 2021,
+        'both turn up from imports and from code that has already converted');
+      check('S136', 'and a date typed as text',
+        F('2020-12-25') === 2020,
+        'the master sheet is text all the way down');
+      /* ⚠ NULL, NOT A GUESS. This decides which season somebody joined in, and
+         a wrong year is a wrong answer about whether they are a new member —
+         which is $30. Unreadable must mean "I do not know", never a year. */
+      check('S136', 'and anything unreadable is null, never a year',
+        F(null) === null && F(undefined) === null && F('') === null &&
+        F('not a date') === null && F({}) === null,
+        'a guessed year decides whether somebody is charged a join fee');
+      check('S136', 'and it never throws',
+        (function () {
+          try { F({ toDate: function () { throw new Error('boom'); } }); return true; }
+          catch (e) { return false; }
+        })(),
+        'a broken timestamp on one record must not take down the render');
+    }
+  }
+
+  /* ---- todayStrInDenver: what "today" means to the route sweep -------- */
+  {
+    const src = extractFn(fns, 'todayStrInDenver');
+    check('S136', 'todayStrInDenver is findable', !!src);
+    if (src) {
+      const F = new Function(src + ';return todayStrInDenver;')();
+      const got = F();
+      /* ⚠ THIS DECIDES PAST FROM UPCOMING. removeCustomerFromUpcomingRoutes
+         compares a route's date string against it, so a format that does not
+         sort — or an off-by-one timezone — either rewrites a route the crew
+         has already driven or leaves somebody on one they have not. */
+      check('S136', 'it answers in sortable YYYY-MM-DD',
+        /^\d{4}-\d{2}-\d{2}$/.test(got),
+        'got ' + JSON.stringify(got) + ' — the route sweep compares date ' +
+        'strings with <, so any other shape silently compares wrong');
+      check('S136', 'zero-padded, so string order is date order',
+        got.slice(5, 7).length === 2 && got.slice(8, 10).length === 2 &&
+        '2026-02-09' < '2026-02-10' && got > '2020-01-01',
+        'an unpadded month makes "2026-9-01" sort after "2026-10-01"');
+      /* ⚠ MOUNTAIN TIME, NOT THE SERVER'S. Cloud Functions run in UTC, so for
+         the seven hours after 5pm Denver the two calendars disagree — and that
+         window covers the 7pm nightly run. */
+      check('S136', 'and in Denver time, not the server\'s',
+        /America\/Denver/.test(src),
+        'Cloud Functions run UTC; after 5pm Denver the date differs, and the ' +
+        'nightly run is at 7pm');
+      const denver = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+      check('S136', 'and it agrees with the platform about what day that is',
+        got === denver,
+        'got ' + got + ', platform says ' + denver);
+    }
+  }
+
+  /* ---- rsvpTemplateHasAddOn: whether to append the add-on offer ------- */
+  {
+    const src = extractFn(admin, 'rsvpTemplateHasAddOn');
+    check('S136', 'rsvpTemplateHasAddOn is findable', !!src);
+    if (src) {
+      const F = new Function(src + ';return rsvpTemplateHasAddOn;')();
+      /* ⚠ NEUTERING THIS RETURNED undefined — falsy — which means "the template
+         does not place the token itself", so the block is APPENDED as well as
+         substituted and the customer gets the offer twice. Every check on it
+         read the source, so nothing noticed. */
+      check('S136', 'a template that places the token itself says so',
+        F('Hi {{name}} {{addon_block}} bye') === true,
+        'appending on top of a template that already has the token sends the ' +
+        'same offer, with the same two buttons, twice in one email');
+      check('S136', 'and one that does not, does not',
+        F('Hi {{name}}, will you be getting lights again?') === false,
+        'this is the ordinary RSVP template, and it must still get the offer ' +
+        'appended for it');
+      check('S136', 'a missing or empty template does not throw',
+        F('') === false && F(null) === false && F(undefined) === false,
+        'the picker can sit on no template at all');
+      /* ⚠ AND IT MUST NOT MATCH A NEAR MISS, or a template mentioning the token
+         in prose would silently lose its offer. */
+      check('S136', 'and a near miss is not a match',
+        F('{{addon_blocks}}') === false && F('addon_block') === false,
+        'only the real token counts');
+    }
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
@@ -30107,7 +30271,8 @@ Promise.all(pendingAsync).then(function () {
   process.exit(fail ? 1 : 0);
 }).catch(function (e) {
   // An async suite that blew up must never be mistaken for a clean run.
-  console.log('\n  FAIL  an async suite crashed: ' + (e && e.stack || e));
+  console.log('\n  FAIL  ' + ((e && e.__suite) || 'an async suite') + ' — crashed partway through');
+  console.log('          ' + (e && e.stack || e));
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + (fail + 1) + ' failed\n');
   process.exit(1);
