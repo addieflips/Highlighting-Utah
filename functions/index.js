@@ -1476,6 +1476,72 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
  * without the branch below they would look like an ordinary yes, get routed,
  * and the crew would arrive to nothing.
  */
+/* ⭐ WHAT CHANGES WHEN SOMEBODY SAYS YES TO THIS SEASON, wherever the yes came from
+   (2026-08-22). Three routes now produce one: the RSVP link, the office dropdown, and
+   approving a quote. A yes that only sets the status is not a yes — it leaves the
+   warehouse still queued to take their bundle apart and the planner with no reason to
+   give them a day.
+
+   ⚠ CANCELLING THE RECYCLE IS THE HALF THAT IS EASY TO FORGET, and this file's own
+   history says so: the note against the old quote-approval guard warned that flipping
+   somebody to yes "leaves needsLightRecycle set behind them — the record then says two
+   opposite things at once." That is why it is here rather than at each call site.
+
+   ⚠ AND A REBUILD ONLY WHEN THE RECYCLE ACTUALLY HAPPENED. `needsLightRecycle` still
+   standing means the warehouse has not been near their bin — the set is where they
+   left it, and queueing a build makes a SECOND one for a house that already has one.
+   Cleared means it is gone, and putting them on a route without rebuilding sends a
+   crew to an empty bin. Owner, 2026-08-22: "we won't recycle till end of year so
+   shouldn't be taken apart."
+
+   ⭐ AND IT CLEARS maybeNextYear (changed 2026-08-22). Owner: "we shouldn't have to
+   clear a badge to get someone updated. That badge should update once they approve it."
+
+   ⚠ THIS REVERSES THE LINE THAT WAS HERE, which said the badge was the office's alone
+   and clearing it from a customer's click overruled an office decision silently. The
+   argument was not wrong — it was answering the wrong question. The badge does not
+   record an opinion the office holds ABOUT them; it records what they said, and the
+   office set it because that is what they had been told at the time. A newer answer
+   from the customer themselves supersedes an older one taken on their behalf, and
+   leaving it standing meant a customer who had actively re-committed sat out of the
+   season until somebody noticed and clicked something.
+
+   ⚠ maybeNextYearAt GOES WITH IT. It is the date the badge was raised; left behind, a
+   customer reads as not-sitting-out with a date stamped for when they were. Same rule
+   as the office's own un-toggle, which clears it in the same write. */
+function seasonYesUpdates(oldData) {
+  const d = oldData || {};
+  const was = String(d.rsvpStatus || '').trim().toLowerCase();
+  const wasOut = was === 'no' || was === 'backnextyear' || d.maybeNextYear === true;
+  const updates = {
+    rsvpStatus: 'yes',
+    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+    /* A yes CANCELS the collection their no created — see hole G in portalRsvp for why
+       back next year must not, and why this is spelled out per answer. */
+    needsLightRecycle: false,
+    /* An RSVP answer is them telling us what they want, so the "ask them" flag closes. */
+    askSameAsLastYear: false,
+    /* ⚠ UNCONDITIONALLY, and that reverses a narrower version of this written an hour
+       earlier which only wrote it when a badge was already set. A parallel session
+       proved the narrow one wrong from the other end: the RSVP reset sweep leaves
+       maybeNextYear standing while moving everyone to 'unanswered', so the flag and
+       the status drift apart and "is there a badge to clear" stops being answerable
+       from this record alone. Two fields describing one fact are written together,
+       everywhere, on every answer. */
+    maybeNextYear: false,
+    maybeNextYearAt: null
+  };
+  if (was === 'no' && !d.needsLightRecycle) updates.needsLightBuild = true;
+  if (wasOut) {
+    /* Two fields, two jobs. The first is an instruction the planner consumes — put
+       this person on the next day going — and the second is the record the office
+       reads, which has to outlive it or the badge disappears the moment it does any
+       good. See cameBackThisSeason in admin.html. */
+    updates.rejoinedForSeasonAt = admin.firestore.FieldValue.serverTimestamp();
+    updates.cameBackThisSeasonAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+  return updates;
+}
 exports.portalRsvp = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const token = body.token ? String(body.token).trim() : '';
@@ -1495,42 +1561,43 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      so clearing it is all that is needed and nothing has to be rebuilt. */
   const rejoinedAfterRecycle = response === 'yes' && wasNo && !oldData.needsLightRecycle;
 
-  const updates = {
-    rsvpStatus: response,
-    /* ⚠ THE QUESTION HAS A WAY OUT. askSameAsLastYear is set when somebody
-       declines a re-quote and means "ask them what they want"; an RSVP answer IS
-       them telling us, so it closes. Without this they stay on the list for ever
-       and the office mails them again after they have already replied. */
-    askSameAsLastYear: false,
-    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp()
-  };
-  /* ⭐ maybeNextYear MUST NOT OUTLIVE THE ANSWER THAT SET IT (added 2026-08-21).
-     Owner, tracing it herself: "so if they click back next year then no than
-     that person will be put in recycle and in 2027?" Yes, and worse — the flag
-     was sticky. A search of the whole codebase found exactly ONE thing that
-     ever cleared it (the office badge toggle), while rsvpStatus moved freely.
-
-     ⚠ THE DAMAGING SEQUENCE IS BACK NEXT YEAR THEN **YES**. The Yes sheet
-     excludes anyone carrying the flag, so a customer who confirmed for the
-     season was on no confirmed list and still on Contact 2027 — chased next year
-     instead of having their lights hung this one.
-
-     Two fields describing one fact; they are now written together everywhere. */
-  if (response === 'backnextyear') {
-    updates.maybeNextYear = true;
-    updates.maybeNextYearAt = admin.firestore.FieldValue.serverTimestamp();
-  } else {
-    updates.maybeNextYear = false;
-    updates.maybeNextYearAt = null;
+  /* ⭐ ONE ANSWER FOR A YES, THREE DOORS (2026-08-22). See seasonYesUpdates: the RSVP
+     link, the office dropdown and approving a quote all mean the same thing. A no or a
+     back next year is still answered here, because those two are only ever said
+     through this door — and they are NOT symmetrical with a yes, which is why the
+     branch below is spelled out answer by answer rather than shared. */
+  const updates = (response === 'yes')
+    ? seasonYesUpdates(oldData)
+    : {
+        rsvpStatus: response,
+        /* ⚠ THE QUESTION HAS A WAY OUT. askSameAsLastYear is set when somebody
+           declines a re-quote and means "ask them what they want"; an RSVP answer IS
+           them telling us, so it closes. Without this they stay on the list for ever
+           and the office mails them again after they have already replied. */
+        askSameAsLastYear: false,
+        rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+  if (response !== 'yes') {
+    /* ⭐ maybeNextYear MUST NOT OUTLIVE THE ANSWER THAT SET IT. Owner, tracing it
+       herself: "so if they click back next year then no than that person will be put
+       in recycle and in 2027?" Yes, and worse — the flag was sticky. Exactly one thing
+       in the codebase ever cleared it (the office badge toggle) while rsvpStatus moved
+       freely. Two fields describing one fact, so they are written together. */
+    if (response === 'backnextyear') {
+      updates.maybeNextYear = true;
+      updates.maybeNextYearAt = admin.firestore.FieldValue.serverTimestamp();
+    } else {
+      updates.maybeNextYear = false;
+      updates.maybeNextYearAt = null;
+    }
+    /* ⚠ AND THE RECYCLE IS HOLE G'S FIFTH PATH. This used to be
+       `needsLightRecycle: response === 'no'`, which reads as harmless and quietly
+       writes FALSE for backnextyear — wiping a collection that was already owed, so
+       the bin stays on the shelf and nobody is ever told to fetch it. Written only for
+       the answer that genuinely creates one. A yes CANCELS one, and that lives in
+       seasonYesUpdates with the rest of what a yes means. */
+    if (response === 'no') updates.needsLightRecycle = true;
   }
-  /* ⚠ AND THE RECYCLE IS HOLE G'S FIFTH PATH, missed the first time round
-     because the status here is a VARIABLE — `needsLightRecycle: response ===
-     'no'` reads as harmless and quietly writes FALSE for backnextyear, wiping a
-     collection that was already owed. Written only for the two answers that
-     genuinely decide it: 'no' owes one, 'yes' cancels the one their no created,
-     and 'backnextyear' says nothing either way. */
-  if (response === 'no') updates.needsLightRecycle = true;
-  else if (response === 'yes') updates.needsLightRecycle = false;
   if (rejoinedAfterRecycle) updates.needsLightBuild = true;
 
   // Keep the normalised sign-in fields in step with whatever just changed —
@@ -2255,25 +2322,39 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
      ⚠ Best-effort, like every other write in this function: the approval is
      already recorded, and failing it here would make the customer ring up
      about a price they successfully accepted. */
+  /* ⭐ APPROVING A QUOTE IS A YES, EVEN OVER A RECORDED NO (changed 2026-08-22).
+     Owner, asked which way she wanted it and told the trade: "go with option 2."
+
+     ⚠ THIS REVERSES THE 2026-08-19 RULE and the old reasoning is kept so nobody
+     restores it by accident: a recorded "no" was treated as a DELIBERATE answer that
+     outranked one inferred from a price, because a re-quote can be sent to somebody
+     who has already said no — to correct a figure, or to price them for next year —
+     and reading that approval as "I am back in" puts them on a crew day when all they
+     agreed to was the number. That is still the cost. It was put to her in those terms
+     and she chose it, because in practice a re-quote goes to somebody she is trying to
+     bring back, and the alternative is her flipping every one of them by hand.
+
+     ⚠ THE LATEST ANSWER STILL WINS. This is one more way to say yes, not a lock: a no
+     that arrives afterwards, through the link or the office, is a later answer and
+     overrides it. She asked that specifically.
+
+     ⚠ AND IT DOES THE WHOLE JOB. seasonYesUpdates cancels a queued recycle and
+     re-queues a build if the recycle already happened — the old blank-only branch set
+     the status alone, which was safe only BECAUSE it never ran for somebody who had
+     said no. Now that it does, writing the status by itself would leave them in the
+     season and queued to have their lights pulled apart at the same time, which is
+     exactly what the 2026-08-19 note warned about. */
   if (action === 'approve' && memberRef) {
-    const currentRsvp = String((memberRef.data || {}).rsvpStatus || '').trim().toLowerCase();
-    if (!currentRsvp || currentRsvp === 'unanswered') {
-      try {
-        await db.collection('jobAddresses').doc(memberRef.id).update({
-          rsvpStatus: 'yes',
-          rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
-          /* Same rule as portalRsvp: the flag may not outlive the answer. This
-             path fires on a blank or 'unanswered' status, and the RSVP reset
-             sweep deliberately leaves maybeNextYear standing while setting
-             everyone to 'unanswered' — so somebody who sat last season out can
-             reach here still carrying it, and would be kept off the Yes sheet
-             by the very approval that put them back in. */
-          maybeNextYear: false,
-          maybeNextYearAt: null
-        });
-      } catch (err) {
-        console.error('[HU] marking approver as in for the season failed:', err);
-      }
+    /* ⚠ AND THE RSVP RESET SWEEP IS WHY THE BADGE HAS TO BE CLEARED HERE TOO, not
+       only for a blank status: that sweep deliberately leaves maybeNextYear standing
+       while setting everyone to 'unanswered', so somebody who sat last season out can
+       reach this line still carrying it — and would be kept off the Yes sheet by the
+       very approval that put them back in. seasonYesUpdates clears it. */
+    try {
+      await db.collection('jobAddresses').doc(memberRef.id)
+        .update(seasonYesUpdates(memberRef.data || {}));
+    } catch (err) {
+      console.error('[HU] marking approver as in for the season failed:', err);
     }
   }
 
