@@ -4436,6 +4436,7 @@
                   <div style="display:flex; gap:6px; margin-top:6px;">
                     <button type="button" class="btn btn-outline btn-sm" id="rmEndStrandBtn" style="padding:4px 10px; font-size:11px;">End this strand</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmClearDotsBtn" style="padding:4px 10px; font-size:11px;">Clear all dots</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmModelBtn" style="padding:4px 10px; font-size:11px;">Hide assumed house</button>
                   </div>
                 </div>
                 <div id="rmSidesBar" style="display:none; margin-top:10px;">
@@ -16754,6 +16755,389 @@ const RM_FACE_EDGE_TOL_M = 1.6;   /* how close to a face's roof the ray must pas
    model trades one error for another. Seeing the corner from a second place is
    what removes the model - see rmPinCorner. */
 
+/* ============ THE HOUSE AS A SOLID, NOT AS ONE FLAT WALL ================
+   Owner: "it seems to be mixing up depth and height when i click a dot a
+   little deeper the sky view is saying its all a straight line so fix that
+   how when i click a spot on the house further back the map view knows where
+   that is", and "different angles still isnt working so its like im drawing
+   on a 2D picture."
+
+   ⚠ IT LITERALLY WAS A 2D PICTURE, and this is the whole bug. Every click was
+   crossed with ONE vertical plane - the front face of the whole-building
+   bounding box. ON A VERTICAL PLANE, CLICKING HIGHER CANNOT MOVE YOU BACKWARDS.
+   It can only move you UP. So depth never changed no matter where on the house
+   somebody clicked, every dot came out on the same line of longitude, and seen
+   from above the entire roof collapsed into a straight line. Height was doing
+   depth's job. That is the mix-up, said exactly.
+
+   And it is also why the dots would not hold still: a dot whose depth is wrong
+   projects back to the pixel it was placed at from the camera that placed it -
+   depth is the one thing that view cannot show - and slides as soon as you
+   stand anywhere else.
+
+   A HOUSE IS NOT ONE PLANE. Google describes it as a set of roof faces, each
+   with its own patch of ground beneath it, and the parts of a real house step
+   back from one another - on the test house the north half reaches e -7.9
+   while the south half stops at -4.2. So the ray is cast at the house as the
+   SOLID it is:
+
+     - each face's own sloping roof surface, bounded by ITS OWN patch
+     - each face's own vertical walls, standing under that patch up to it
+
+   and the nearest real surface wins. The gutter of a recessed entry is then a
+   wall three metres further back than the garage gutter, which is precisely
+   what makes the map put it three metres further back. */
+const RM_FACE_PAD_M = 0.6;    /* eaves overhang their face's patch a little */
+const RM_EAVE_TOL_M = 0.8;    /* how far above its roof a wall may still count */
+
+/* One roof face's own patch of ground, in the house's local frame. */
+function rmFaceBoxLocal(f){
+  const sw = rmToLocal(f.sw.lat, f.sw.lng, 0);
+  const ne = rmToLocal(f.ne.lat, f.ne.lng, 0);
+  return {minE: Math.min(sw.e, ne.e), maxE: Math.max(sw.e, ne.e),
+          minN: Math.min(sw.n, ne.n), maxN: Math.max(sw.n, ne.n)};
+}
+
+/* How high THIS face's roof is over a given spot. */
+function rmFaceRoofUAt(f, e, n){
+  const plane = rmFacePlane(f);
+  if(!plane || Math.abs(plane.normal.u) < 1e-9) return null;
+  return (plane.d - (plane.normal.e * e + plane.normal.n * n)) / plane.normal.u;
+}
+
+/* ============ A WALL IS A LINE, NOT A HANDFUL OF SEPARATE PIECES =========
+   Owner: "the system thinks there is a indent in the house where the tree is
+   but its not its perpendicular on that whole part so that needs to be fixed
+   using the wall to see where the roof would be."
+
+   ⚠ THE INDENT IS AN ARTEFACT OF THE TREE, NOT THE HOUSE. Google works the roof
+   out from overhead imagery, so where a tree overhangs it simply has no face -
+   and the faces either side of the gap end at the tree. Taken literally that
+   reads as a notch cut into the front of the house, and a ray aimed into the
+   gap sails past the missing wall and lands on whatever is further back. The
+   dot then sits deep inside the building on a part of the wall that is, in
+   life, perfectly straight.
+
+   A WALL IS A STRAIGHT LINE THE WHOLE WAY ALONG. So the face patches that sit
+   on the same line are merged into ONE wall running from the first to the last,
+   gap included, and the roof height over the gap is taken from the nearest face
+   that does have one. That is the owner's instruction exactly: use the wall to
+   work out where the roof would be. */
+const RM_WALL_JOIN_M = 0.7;    /* patches this close to a line are that line */
+const RM_WALL_GAP_M = 6;       /* the widest hole a tree is allowed to have made */
+const RM_WALL_PLANE_TOL_M = 0.6;  /* two patches this alike are one roof */
+
+/* Every face patch edge, gathered into the straight walls they lie on. */
+function rmMergedWalls(){
+  if(!rmFaces || !rmFaces.length || !rmOrigin) return [];
+  const groups = [];
+  const put = function(axis, at, lo, hi, f){
+    for(let i = 0; i < groups.length; i++){
+      const g = groups[i];
+      if(g.axis === axis && Math.abs(g.at - at) <= RM_WALL_JOIN_M){
+        /* Keep the line where most of it actually is. */
+        g.at = (g.at * g.n + at) / (g.n + 1);
+        g.n++;
+        g.lo = Math.min(g.lo, lo); g.hi = Math.max(g.hi, hi);
+        g.faces.push({f: f, lo: lo, hi: hi});
+        return;
+      }
+    }
+    groups.push({axis: axis, at: at, n: 1, lo: lo, hi: hi, faces: [{f: f, lo: lo, hi: hi}]});
+  };
+  rmFaces.forEach(function(f){
+    if(!f.sw || !f.ne) return;
+    const b = rmFaceBoxLocal(f);
+    put('E', b.minE, b.minN, b.maxN, f);      /* the two walls running north-south */
+    put('E', b.maxE, b.minN, b.maxN, f);
+    put('N', b.minN, b.minE, b.maxE, f);      /* the two running east-west */
+    put('N', b.maxN, b.minE, b.maxE, f);
+  });
+  /* ⭐ NOW SPLIT EACH LINE INTO THE RUNS THAT ARE REALLY ONE WALL.
+     A hole in the patches either means a tree hid the roof, or the house
+     genuinely steps in - a doorwell, a recessed entry. WIDTH CANNOT TELL THEM
+     APART: both are two or three metres across. What tells them apart is the
+     ROOF. A tree interrupts ONE CONTINUOUS ROOF, so the patches either side of
+     it lie on the same plane and carry on at the same height. A recess has a
+     roof of its own, at its own height, so they do not.
+     So a gap is bridged only when the roof either side of it agrees across the
+     gap - which is the owner's "use the wall to see where the roof would be",
+     and leaves real set-backs exactly where they are. */
+  const runs = [];
+  groups.forEach(function(g){
+    const ms = g.faces.slice().sort(function(a, b){ return a.lo - b.lo; });
+    let cur = null;
+    ms.forEach(function(m){
+      if(!cur){ cur = {axis: g.axis, at: g.at, lo: m.lo, hi: m.hi, faces: [m]}; return; }
+      const gap = m.lo - cur.hi;
+      let join = gap <= 0;                       /* they touch or overlap */
+      if(!join && gap <= RM_WALL_GAP_M){
+        /* Ask both roofs how high they are in the middle of the hole. */
+        const mid = (cur.hi + m.lo) / 2;
+        const e = g.axis === 'E' ? g.at : mid;
+        const n = g.axis === 'E' ? mid : g.at;
+        const ua = rmFaceRoofUAt(cur.faces[cur.faces.length - 1].f, e, n);
+        const ub = rmFaceRoofUAt(m.f, e, n);
+        join = ua !== null && ub !== null && Math.abs(ua - ub) <= RM_WALL_PLANE_TOL_M;
+        /* ⚠ AND NOTHING MAY BE STANDING IN THE HOLE. A doorwell has a roof of
+           its own a little way back, and that roof fills the gap and ONLY the
+           gap - which is exactly what tells it apart from a tree, where the
+           hole is empty all the way to the body of the house. The body itself
+           runs behind the whole wall, not just the hole, so it never counts. */
+        if(join) join = !rmSomethingInGap(g.axis, g.at, cur.hi, m.lo);
+      }
+      if(join){ cur.hi = Math.max(cur.hi, m.hi); cur.faces.push(m); }
+      else { runs.push(cur); cur = {axis: g.axis, at: g.at, lo: m.lo, hi: m.hi, faces: [m]}; }
+    });
+    if(cur) runs.push(cur);
+  });
+  return runs;
+}
+
+/* Is a piece of house standing in this hole - a porch, a doorwell - rather
+   than the hole simply being a tree? Something counts only if it sits behind
+   the wall line AND fills the hole without running on past it. */
+function rmSomethingInGap(axis, at, gapLo, gapHi){
+  if(!rmFaces) return false;
+  const span = gapHi - gapLo;
+  if(!(span > 0)) return false;
+  for(let i = 0; i < rmFaces.length; i++){
+    const f = rmFaces[i];
+    if(!f.sw || !f.ne) continue;
+    const b = rmFaceBoxLocal(f);
+    const lo = axis === 'E' ? b.minN : b.minE;
+    const hi = axis === 'E' ? b.maxN : b.maxE;
+    /* Does it run on well past the hole? Then it is the body of the house
+       behind the whole wall, not something sitting in the gap. */
+    if(lo < gapLo - 1 || hi > gapHi + 1) continue;
+    if(hi <= gapLo || lo >= gapHi) continue;              /* misses the hole */
+    /* How far behind the wall line it is - a recess, not the far wall. */
+    const near = axis === 'E' ? b.minE : b.minN;
+    const far  = axis === 'E' ? b.maxE : b.maxN;
+    const back = Math.min(Math.abs(near - at), Math.abs(far - at));
+    if(back > RM_WALL_JOIN_M && back < RM_WALL_GAP_M) return true;
+  }
+  return false;
+}
+
+/* How high the roof is over a spot on a merged wall. Inside a face patch that
+   face answers; over a tree gap the nearest patch on the same wall does, which
+   is what carries the roofline straight across instead of dropping it. */
+function rmWallRoofUAt(g, along, e, n){
+  let best = null, bd = Infinity;
+  g.faces.forEach(function(m){
+    /* How far along the wall this patch is from the spot - zero if it covers it. */
+    const d = along < m.lo ? m.lo - along : (along > m.hi ? along - m.hi : 0);
+    if(d < bd){ bd = d; best = m.f; }
+  });
+  if(!best) return null;
+  return rmFaceRoofUAt(best, e, n);
+}
+
+/* The walls, one set per face, each standing only under its own roof.
+   ⭐ THIS IS WHAT GIVES A CLICK ITS DEPTH. A vertical surface is met nearly
+   square on from the street, so where it crosses barely moves when the height
+   is a little out - and because every face brings its own walls at its own
+   set-back, clicking the recessed part of a house lands on the recessed part
+   instead of on the front of the building's bounding box. */
+function rmFaceWallHit(dir, cam){
+  const walls = rmMergedWalls();
+  if(!walls.length) return null;
+  let best = null;
+  walls.forEach(function(g){
+    /* Where the ray crosses this wall's line, and how far along it that is. */
+    let t, pe, pn, along;
+    if(g.axis === 'E'){
+      if(Math.abs(dir.e) < 1e-9) return;            /* running along the wall */
+      t = (g.at - cam.e) / dir.e;
+      if(!(t > 0.5 && t < 200)) return;
+      pe = g.at; pn = cam.n + dir.n * t; along = pn;
+    } else {
+      if(Math.abs(dir.n) < 1e-9) return;
+      t = (g.at - cam.n) / dir.n;
+      if(!(t > 0.5 && t < 200)) return;
+      pn = g.at; pe = cam.e + dir.e * t; along = pe;
+    }
+    /* ⭐ THE WHOLE LENGTH OF THE WALL, tree gap included. This is the fix:
+       the wall runs from the first patch on this line to the last, so a ray
+       aimed where a tree hid the roof still meets the wall that is really
+       there instead of sailing into the building. */
+    if(!(along >= g.lo - RM_FACE_PAD_M && along <= g.hi + RM_FACE_PAD_M)) return;
+    const pu = cam.u + dir.u * t;
+    if(!(pu > 0.3)) return;                          /* underground */
+    /* ⚠ A WALL STOPS AT THE ROOF IT HOLDS UP. Without this, a ray that
+       clears a low garage is caught by the garage's own wall carried up into
+       the sky, and the dot lands metres in front of the thing it was aimed
+       at - the hovering reported earlier. Over a gap the nearest patch on the
+       same wall says how high the roof would be. */
+    const roofU = rmWallRoofUAt(g, along, pe, pn);
+    if(roofU === null || pu > roofU + RM_EAVE_TOL_M) return;
+    if(!best || t < best.t) best = {e: pe, n: pn, u: pu, t: t, kind: 'wall'};
+  });
+  return best;
+}
+
+/* The sloping roof surfaces themselves, each kept inside its own patch.
+   ⚠ ITS OWN PATCH, NOT THE BUILDING'S. Bounding a face by the whole footprint
+   is what let a ray aimed at the recessed half of the house land on the front
+   half's plane carried backwards, which flattens every set-back there is. */
+function rmRoofSurfaceHit(dir, cam){
+  if(!rmFaces || !rmFaces.length || !rmOrigin) return null;
+  let best = null;
+  rmFaces.forEach(function(f){
+    if(!f.sw || !f.ne) return;
+    const plane = rmFacePlane(f);
+    if(!plane) return;
+    const hit = rmPlaneHit3(dir, cam, plane);
+    if(!hit) return;
+    const b = rmFaceBoxLocal(f);
+    if(hit.e < b.minE - RM_FACE_PAD_M || hit.e > b.maxE + RM_FACE_PAD_M) return;
+    if(hit.n < b.minN - RM_FACE_PAD_M || hit.n > b.maxN + RM_FACE_PAD_M) return;
+    if(!(hit.u > 0.3 && hit.u < 25)) return;
+    if(!best || hit.t < best.t) best = {e: hit.e, n: hit.n, u: hit.u, t: hit.t, kind: 'roof'};
+  });
+  return best;
+}
+
+/* ============ THE HOUSE THE SYSTEM THINKS IS THERE ======================
+   Owner: "the first thing the system should do is draw the house as if there
+   were no obstacles using things like walls, not like a literal drawing that I
+   see but where the system will assume the house is."
+
+   ⭐ SO IT IS BUILT FIRST AND IT IS DRAWN. Everything else - where a click
+   lands, how long a run is, which lines are worth offering - rests on what the
+   system believes the building is, and until now that belief was invisible.
+   When it was wrong (a tree read as a notch in the front wall) the only way to
+   find out was that dots came out in odd places. Drawn on screen it can be
+   looked at and argued with in a second.
+
+   IT IS AN ASSUMED HOUSE, NOT A TRACING. Google's roof faces are patches of
+   whatever it could see from above, so trees leave holes and eaves get clipped.
+   The model fills those in the way a builder would read the place: the patches
+   are laid out on a grid, small bites out of the outline are closed up, and
+   what is left is a set of STRAIGHT WALLS. A house is made of straight walls;
+   a gap the width of a tree is a tree, not a bay. */
+/* Is any part of the roof over this spot? */
+function rmCoveredAt(e, n){
+  if(!rmFaces) return false;
+  for(let i = 0; i < rmFaces.length; i++){
+    const f = rmFaces[i];
+    if(!f.sw || !f.ne) continue;
+    const b = rmFaceBoxLocal(f);
+    if(e >= b.minE && e <= b.maxE && n >= b.minN && n <= b.maxN) return true;
+  }
+  return false;
+}
+
+/* The outline of the assumed house: the walls with OUTSIDE on one side of them.
+   ⭐ THE SAME WALLS A CLICK LANDS ON, deliberately. Drawing the model from one
+   set of rules and placing dots by another is how a picture ends up agreeing
+   with nothing; here what is drawn IS what a click will meet, so a wall in the
+   wrong place can be seen instead of having to be inferred from odd dots. */
+const RM_OUTSIDE_STEP_M = 0.35;
+function rmHouseOutline(){
+  const out = [];
+  rmMergedWalls().forEach(function(g){
+    let inLeft = 0, inRight = 0;
+    for(let f = 0.1; f <= 0.91; f += 0.2){
+      const along = g.lo + (g.hi - g.lo) * f;
+      const e = g.axis === 'E' ? g.at : along;
+      const n = g.axis === 'E' ? along : g.at;
+      const de = g.axis === 'E' ? RM_OUTSIDE_STEP_M : 0;
+      const dn = g.axis === 'E' ? 0 : RM_OUTSIDE_STEP_M;
+      if(rmCoveredAt(e - de, n - dn)) inLeft++;
+      if(rmCoveredAt(e + de, n + dn)) inRight++;
+    }
+    /* House on one side, garden on the other. A wall with roof on both sides is
+       where two patches meet in the middle of the building, and drawing those
+       turns the model into a net rather than an outline. */
+    if(!((inLeft === 0 && inRight > 0) || (inRight === 0 && inLeft > 0))) return;
+    if(g.hi - g.lo < 0.9) return;                 /* shorter than a doorway */
+    out.push(g.axis === 'E'
+      ? {a: {e: g.at, n: g.lo}, b: {e: g.at, n: g.hi}}
+      : {a: {e: g.lo, n: g.at}, b: {e: g.hi, n: g.at}});
+  });
+  return out;
+}
+
+/* How high the roof is over a spot on the outline - the gutter the system
+   believes is there. Taken from the face patch nearest the spot, so a length
+   of wall the trees hid still gets the height of the roof either side of it. */
+function rmOutlineEaveU(e, n){
+  if(!rmFaces || !rmFaces.length) return null;
+  let best = null, bd = Infinity;
+  rmFaces.forEach(function(f){
+    if(!f.sw || !f.ne) return;
+    const b = rmFaceBoxLocal(f);
+    const de = e < b.minE ? b.minE - e : (e > b.maxE ? e - b.maxE : 0);
+    const dn = n < b.minN ? b.minN - n : (n > b.maxN ? n - b.maxN : 0);
+    const d = Math.hypot(de, dn);
+    if(d < bd){ bd = d; best = f; }
+  });
+  if(!best || bd > 6) return null;
+  return rmFaceRoofUAt(best, e, n);
+}
+
+/* The assumed house as something drawable: each wall with the height of the
+   roof at both of its ends. */
+function rmHouseWireframe(){
+  return rmHouseOutline().map(function(sd){
+    const ua = rmOutlineEaveU(sd.a.e, sd.a.n);
+    const ub = rmOutlineEaveU(sd.b.e, sd.b.n);
+    if(ua === null || ub === null) return null;
+    return {a: {e: sd.a.e, n: sd.a.n, u: ua}, b: {e: sd.b.e, n: sd.b.n, u: ub}};
+  }).filter(Boolean);
+}
+
+/* Working the outline out means a grid and two passes over it, so it is done
+   once per house rather than on every repaint. */
+let rmModelCache = null, rmModelKey = '';
+let rmShowModel = true;          /* the assumed house is shown by default */
+let rmModelLines = [];
+function rmModel(){
+  const key = (rmFaces ? rmFaces.length : 0) + '|' +
+              (rmOrigin ? rmOrigin.lat.toFixed(6) + ',' + rmOrigin.lng.toFixed(6) : '') + '|' +
+              rmDatum().m.toFixed(3);
+  if(rmModelCache && rmModelKey === key) return rmModelCache;
+  rmModelKey = key;
+  rmModelCache = rmHouseWireframe();
+  return rmModelCache;
+}
+/* The assumed house on the map, as the walls it is made of. */
+function rmSyncModelSky(){
+  if(!rmMap) return;
+  rmModelLines.forEach(function(l){ l.setMap(null); });
+  rmModelLines = [];
+  if(!rmShowModel) return;
+  /* ⚠ THE OUTLINE, NOT THE WIREFRAME. Seen from above a wall is a line on the
+     ground and its height is beside the point - and the wireframe drops any
+     wall whose roof height cannot be worked out, which would silently leave
+     gaps in the plan for a reason that has nothing to do with the plan. */
+  rmHouseOutline().forEach(function(sg){
+    const a = rmToWorld({e: sg.a.e, n: sg.a.n, u: 0}), b = rmToWorld({e: sg.b.e, n: sg.b.n, u: 0});
+    rmModelLines.push(new google.maps.Polyline({
+      map: rmMap, clickable: false, zIndex: 2,
+      path: [{lat: a.lat, lng: a.lng}, {lat: b.lat, lng: b.lng}],
+      strokeColor: '#5BC8F5', strokeWeight: 2, strokeOpacity: .85
+    }));
+  });
+}
+function rmSetShowModel(on){
+  rmShowModel = !!on;
+  const b = document.getElementById('rmModelBtn');
+  if(b) b.textContent = rmShowModel ? 'Hide assumed house' : 'Show assumed house';
+  rmSyncModelSky();
+  rmPaintStreet();
+}
+
+/* Whatever the click is really pointing at: the nearest surface of the solid. */
+function rmHouseHit(dir, cam){
+  const wall = rmFaceWallHit(dir, cam);
+  const roof = rmRoofSurfaceHit(dir, cam);
+  if(wall && roof) return wall.t <= roof.t ? wall : roof;
+  return wall || roof || null;
+}
+
 function rmRoofEdgeHit(dir, cam){
   if(!rmFaces || !rmFaces.length || !rmOrigin) return null;
   let best = null;
@@ -17135,6 +17519,25 @@ const RM_FRAME_FILL = 0.55;    /* how much of the width the house should take */
    zoom back every time the camera nudges is unusable. */
 let rmFramed = false;
 const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 2.3;   /* ~36 degrees: close, never a keyhole */
+/* ⚠ THOSE TWO BOUND THE AUTOMATIC FRAMING, which has to stay wide enough not
+   to end up looking through a keyhole at a blank wall. A hand on the wheel is
+   a different thing - the office is looking at a particular corner and wants
+   to get right in on it - so scrolling is allowed much closer, and back out
+   far enough to see the whole house at once. */
+const RM_WHEEL_ZOOM_MIN = 0.4, RM_WHEEL_ZOOM_MAX = 4;
+/* How far the aim has to swing so the thing under the pointer stays under the
+   pointer while the view narrows. A point sitting at angle t off the axis is
+   drawn at focal*tan(t); the focal length is what zoom changes, so holding the
+   pixel still means shrinking t by exactly the ratio of the two half-angles.
+   Positive when zooming in (lean toward the pointer), negative when zooming
+   out, zero when nothing changes. */
+function rmZoomKeepPoint(fromZoom, toZoom){
+  const a = Math.tan(rmRad(rmFovDeg(fromZoom)) / 2);
+  const b = Math.tan(rmRad(rmFovDeg(toZoom)) / 2);
+  if(!(a > 0) || !isFinite(b)) return 0;
+  return 1 - b / a;
+}
+const RM_SKY_WHEEL_MIN = 17, RM_SKY_WHEEL_MAX = 22;
 function rmFrameHouseInStreet(){
   if(rmFramed) return null;
   if(!rmPano || !rmStreetReady || !rmBuilding || !rmOrigin) return null;
@@ -17995,6 +18398,24 @@ function rmPaintStreet(){
   const pov = rmPanoPov();
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   const parts = [];
+  /* ⭐ THE HOUSE THE SYSTEM THINKS IS THERE, drawn first so it sits under the
+     lines and the dots. Owner: "the first thing the system should do is draw
+     the house as if there were no obstacles using things like walls, not like
+     a literal drawing that I see but where the system will assume the house
+     is." Seeing the assumption is what makes a wrong one - a tree read as a
+     notch in the front wall - obvious in a second rather than three dots
+     later. Thin and dashed, because it is scaffolding and not the job. */
+  if(rmShowModel){
+    rmModel().forEach(function(sg){
+      const a = rmSvProject(rmToWorld(sg.a), W, H, pov, cam);
+      const b = rmSvProject(rmToWorld(sg.b), W, H, pov, cam);
+      if(!a || !b) return;
+      parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
+        '" stroke="rgba(0,0,0,.35)" stroke-width="2.5"/>');
+      parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
+        '" stroke="#5BC8F5" stroke-width="1.1" stroke-dasharray="5 4" opacity=".95"/>');
+    });
+  }
   const shownWall = rmActiveWall();
   if(shownWall){
     const a = rmSvProject({lat:shownWall.a.lat, lng:shownWall.a.lng, h:0}, W, H, pov, cam);
@@ -18287,6 +18708,10 @@ async function rmLoadAddress(){
        first of the two to arrive is what put eight lines on the front of a
        house that only has three. */
     rmFacesReady = true;
+    /* ⭐ THE ASSUMED HOUSE IS THE FIRST THING DRAWN, before a single line is
+       offered - it is what every one of them will be measured against. */
+    rmModelCache = null;
+    rmSyncModelSky();
     rmBuildWhenReady();          /* the footprint the front wall comes from */
     /* Google's plane heights are above SEA LEVEL, so they only become a height
        once the ground under this house is taken off. Both come from Google, so
@@ -18713,6 +19138,8 @@ function rmReset(){
   document.getElementById('rmMaterialPanel').style.display = 'none';
   document.getElementById('rmPricePanel').style.display = 'none';
   rmRoofGrade = ''; rmRoofFacts = null; rmFaces = [];
+  rmModelCache = null; rmModelKey = '';
+  rmModelLines.forEach(function(l){ l.setMap(null); }); rmModelLines = [];
   rmGroundM = null; rmRoofDatumM = null; rmDatumSource = '';
   rmPhotoExtraFeet = 0; rmPhotoRuns = []; rmPhotoRef = null; rmPhotoRefPx = 0; rmPhotoBlob = null;
   document.getElementById('rmPhotoStage').style.display = 'none';
@@ -18819,6 +19246,7 @@ function openRoofMeasure(quoteId){
       rmToggleCorner(i);
     }
   });
+  document.getElementById('rmModelBtn').addEventListener('click', function(){ rmSetShowModel(!rmShowModel); });
   document.getElementById('rmEndStrandBtn').addEventListener('click', function(){ rmEndStrand(); });
   document.getElementById('rmClearDotsBtn').addEventListener('click', function(){
     rmCorners = []; rmCurrentBand = 0; rmSwapFrom = null;
@@ -18934,18 +19362,7 @@ function openRoofMeasure(quoteId){
       /* The part of the house the ray is really pointing at comes first; the
          whole-building outline is the fallback for a house Google has given no
          roof faces for. */
-      let best = rmRoofEdgeHit(dir, cam) || rmFootprintWallHit(dir, cam);
-      if(!best){
-        const fp = rmFootprintBox();
-        (rmFaces || []).forEach(function(f){
-          const plane = rmFacePlane(f);
-          if(!plane) return;
-          const hit = rmPlaneHit3(dir, cam, plane);
-          if(!hit) return;
-          if(fp && !rmInsideFootprint(hit, fp)) return;
-          if(!best || hit.t < best.t) best = hit;
-        });
-      }
+      let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
       const note = document.getElementById('rmCornerNote');
       if(!best){
         /* ⚠ REFUSING A CLICK IS WORSE THAN PLACING IT ROUGHLY. Google's roof
@@ -19060,6 +19477,55 @@ function openRoofMeasure(quoteId){
       if(i >= 0) rmToggleCorner(i);
     });
   });
+  /* ⭐ THE WHEEL ZOOMS, EVEN WHILE PLACING DOTS. Owner: "also add zoom
+     features so i can scroll with my mouse to zoom."
+     Both panes are covered by a transparent sheet while dots are being placed -
+     it is the only way to catch a click, because the map and the panorama
+     swallow their own - and that sheet was eating the wheel with everything
+     else. Google's own scrollwheel is switched off at the same moment, so
+     there was no way to get closer to a corner without leaving dot mode.
+
+     ⚠ AND IT ZOOMS AT THE POINTER, not at the middle. Zooming to the centre
+     throws whatever you were aiming at off the screen, which on a roof corner
+     means finding it again after every notch. */
+  document.getElementById('rmMapLock').addEventListener('wheel', function(e){
+    if(!rmMap) return;
+    e.preventDefault();
+    const z = rmMap.getZoom();
+    const nz = Math.max(RM_SKY_WHEEL_MIN, Math.min(RM_SKY_WHEEL_MAX, z + (e.deltaY < 0 ? 1 : -1)));
+    if(nz === z) return;
+    const r = this.getBoundingClientRect();
+    /* Where the pointer is, measured out from the middle of the pane. */
+    const dx = (e.clientX - r.left) - r.width / 2;
+    const dy = (e.clientY - r.top) - r.height / 2;
+    const scale = Math.pow(2, nz - z);
+    rmMap.setZoom(nz);
+    /* After the zoom that spot sits at dx*scale; pan it back to dx. */
+    rmMap.panBy(dx * (scale - 1), dy * (scale - 1));
+  }, {passive: false});
+
+  document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
+    if(!rmPano) return;
+    e.preventDefault();
+    const pov = rmPanoPov();
+    const nz = Math.max(RM_WHEEL_ZOOM_MIN, Math.min(RM_WHEEL_ZOOM_MAX, pov.zoom + (e.deltaY < 0 ? 0.25 : -0.25)));
+    if(Math.abs(nz - pov.zoom) < 1e-6) return;
+    const r = this.getBoundingClientRect();
+    const {W, H} = rmPanoSize();
+    /* The world direction the pointer is on. Keeping THAT still is what makes
+       the zoom feel like leaning in rather than like the house running away. */
+    const d = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, pov);
+    const wantH = rmDeg(Math.atan2(d.e, d.n));
+    const wantP = rmDeg(Math.asin(Math.max(-1, Math.min(1, d.u))));
+    /* How much narrower the view is about to get. The pointer's angle off the
+       axis has to shrink by the same ratio for it to stay on the same pixel. */
+    const k = rmZoomKeepPoint(pov.zoom, nz);
+    const dh = ((wantH - pov.heading) % 360 + 540) % 360 - 180;
+    rmPano.setZoom(nz);
+    rmPano.setPov({heading: pov.heading + dh * k,
+                   pitch: Math.max(-85, Math.min(85, pov.pitch + (wantP - pov.pitch) * k))});
+    rmPaintStreet();
+  }, {passive: false});
   document.getElementById('rmPanoLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
   /* ⚠ DRAGGING USED TO WORK ONLY ON THE SKY VIEW, which is no use at all when
      Street View is where the work happens - a line an inch off the gutter
