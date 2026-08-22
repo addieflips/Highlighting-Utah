@@ -1766,6 +1766,19 @@
                    customers, which is a list somebody can work through in an afternoon
                    and nobody could find by scrolling. -->
               <div class="form-row"><label>Lights</label><select id="allCustFilterLights"><option value="all">Any</option><option value="soft">On soft (needs switching)</option><option value="none">No colours recorded</option></select></div>
+              <!-- ⭐ WHO CANNOT BE EMAILED (added 2026-08-21). Owner: "just make a
+                   filter in costumer were i can see who has no email."
+                   An invoice only ever goes out by email, and Automation Emails drops
+                   these people from the recipient list before any other filter runs —
+                   so somebody with no address silently misses their bill AND every
+                   RSVP, and no screen in Customers could name them. This is that list.
+                   ⚠ IT ASKS "CAN WE EMAIL THEM", NOT "IS THE FIELD BLANK". Nothing
+                   sends to `email2` — it exists only so a customer can sign in to the
+                   portal with it — so somebody holding a secondary address and no
+                   primary cannot be emailed either, and belongs in this list. They get
+                   their own chip on the row, because "no email" next to a record that
+                   visibly has one reads as a bug rather than as a field to move up. -->
+              <div class="form-row"><label>Email</label><select id="allCustFilterEmail"><option value="all">Any</option><option value="none">No email &mdash; cannot be contacted</option><option value="has">Has an email address</option></select></div>
               <!-- Without a pin a customer cannot be routed and does not appear on the
                    map at all. The bulk import has always flagged these (needsGeocode)
                    and told staff to "search Needs Pin in the customer list" — a search
@@ -1838,6 +1851,17 @@
                 <span style="font-size:11.5px; color:var(--slate); font-weight:400;">Tick if they&rsquo;ve asked not to get texts. Email is unaffected.</span></label>
             </div>
             <div class="form-row"><label>Email</label><input type="email" id="editCustEmail"></div>
+            <!-- ⭐ THE SAME LIST THE SEND PANEL USES. Ticking here is identical to
+                 pressing "Don't send" beside their name in Automation Emails, and
+                 both write `noAutomationEmails` — one fact, two doors, never two
+                 fields drifting apart. The wording deliberately says what it does
+                 NOT stop, because the one dangerous misreading of this box is that
+                 it also stops their bill. -->
+            <div class="form-row" style="display:flex; align-items:flex-start; gap:8px;">
+              <input type="checkbox" id="editCustNoAutoEmails" style="width:auto; margin-top:3px;">
+              <label for="editCustNoAutoEmails" style="font-weight:500; line-height:1.45;">Don&rsquo;t send this customer marketing emails<br>
+                <span style="font-size:11.5px; color:var(--slate); font-weight:400;">Tick if they&rsquo;ve asked not to get RSVPs, nudges and the like. They still get their invoice and account notices.</span></label>
+            </div>
             <div class="form-row"><label>Secondary Email</label><input type="email" id="editCustEmail2"></div>
             <div class="form-row"><label>Enrolled Date</label><input type="date" id="editCustEnrolled"></div>
           </div>
@@ -2992,6 +3016,17 @@
                 <option value="all">All</option>
                 <option value="yes">Installed</option>
                 <option value="no">Not yet installed</option>
+              </select>
+            </div>
+            <!-- ⭐ CHOOSING WHO NOT TO SEND TO. Every other filter here says who TO
+                 write to; this is the only one that says who never gets written to,
+                 whatever the other nine say. "Show who I've excluded" is the manage
+                 view — those rows deliberately render with NO checkbox, so neither a
+                 stray click nor Select All can reach somebody on this list. -->
+            <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Do-not-send list</label>
+              <select id="etFilterDoNotSend" style="padding:8px 10px; font-size:13px;">
+                <option value="hide">Leave them out (normal)</option>
+                <option value="only">Show who I&rsquo;ve excluded</option>
               </select>
             </div>
           </div>
@@ -11795,6 +11830,11 @@ function openEmailSendModal(template){
   let html = '';
   jobAddresses.forEach(addr => {
     if(!addr.data.phone) return;
+    /* ⚠ OFF THIS LIST TOO, not just guarded at send time. The guard in the send loop
+       is the safety net; leaving somebody tickable here means the office selects them,
+       presses send, and is told afterwards that they were skipped — which reads as the
+       button being broken rather than the list being honoured. */
+    if(etNoAutomationEmails(addr.data)) return;
     html += '<label style="display:flex; align-items:center; padding:8px; border-bottom:1px solid var(--line); cursor:pointer;">'+
       '<input type="checkbox" data-sendto="'+addr.data.phone+'" style="margin-right:8px;">'+
       '<div style="flex:1;">'+
@@ -11856,6 +11896,7 @@ document.getElementById('etSendConfirmBtn').addEventListener('click', async func
   statusEl.textContent = 'Sending…';
   let sent = 0;
   let noEmail = 0;
+  let optedOut = 0;
   const failures = [];
   for(const phone of phones){
     const customer = jobAddresses.find(a => a.data.phone === phone);
@@ -11863,6 +11904,11 @@ document.getElementById('etSendConfirmBtn').addEventListener('click', async func
     const name = properName(customer.data.name) || 'there';
     const to = (customer.data.email || '').trim();
     if(!to){ noEmail++; continue; }
+    /* ⚠ THE SAME LIST, HONOURED ON BOTH DOORS. This modal and Preview & Send are two
+       separate senders over the same customers, so a guard in only one of them means
+       the do-not-send list works or not depending on which button the office happened
+       to press — and nobody would ever find out which. */
+    if(etNoAutomationEmails(customer.data)){ optedOut++; continue; }
     statusEl.textContent = 'Sending ' + (sent + failures.length + 1) + ' of ' + phones.length + '… (' + name + ')';
     try {
       /* Tokens are resolved the same way as everywhere else, so buttons and
@@ -11886,6 +11932,7 @@ document.getElementById('etSendConfirmBtn').addEventListener('click', async func
   statusEl.style.color = failures.length ? 'var(--ember)' : '#2E6B3E';
   statusEl.innerHTML = 'Sent to ' + sent + ' customer' + (sent===1?'':'s') + '.' +
     (noEmail ? '<br><span style="color:var(--slate);">' + noEmail + ' skipped — no email address on file.</span>' : '') +
+    (optedOut ? '<br><span style="color:var(--slate);">' + optedOut + ' skipped — on the do-not-send list.</span>' : '') +
     (failures.length ? '<br>Failed: ' + esc(failures.join(' · ')) : '');
   setTimeout(() => {
     document.getElementById('etSendOverlay').style.display = 'none';
@@ -12213,12 +12260,34 @@ let etRsvpAudienceAutoSet = false;
 let etFilterGroup = 'all';
 let etFilterOutlet = 'all';
 let etFilterInstalled = 'all';
+/* ⭐ THE DO-NOT-SEND LIST — AUTOMATION EMAILS ONLY, AND THE NAME SAYS SO
+   (added 2026-08-21). Owner: "This is only for automation emails filters. I should
+   be able to choose who not to send it too."
+   ⚠ THE FIELD IS `noAutomationEmails`, NOT `emailOptedOut`, DELIBERATELY. The
+   obvious name mirrors `smsOptedOut` and is exactly the trap: the next person to
+   read it wires it into the nightly invoice run, and a customer who asked to stop
+   getting marketing silently stops being BILLED. Nobody chases an invoice that was
+   never sent. The name states its scope so that mistake has to be made on purpose.
+   ⚠ ONE READER, AND IT IS THIS PANEL. `sendNightlyInvoices`, `sendQuoteNudges` and
+   the SMS path must never consult it — a refusal to be marketed at is not a refusal
+   to be told what you owe.
+   ⚠ NOT A REPLACEMENT FOR UNTICKING. Unticking already skips somebody for one send;
+   this is the one that STICKS, so Select All cannot quietly pick them back up next
+   time. That is the whole reason it exists. */
+let etFilterDoNotSend = 'hide';
+function etNoAutomationEmails(d){ return (d || {}).noAutomationEmails === true; }
 function etRenderRecipientList(){
   const list = document.getElementById('etRecipientList');
   const countEl = document.getElementById('etRecipientCount');
   if(!list) return;
   const term = etRecipientSearchTerm.toLowerCase();
-  let members = etGetMembers().filter(m => (m.data.email) && (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
+  /* ⚠ NO-EMAIL PEOPLE ARE NOT DROPPED HERE ANY MORE. They used to be filtered out on
+     this line, before any of the ten filters ran — so they could never be counted
+     against the audience the office had actually chosen, and the count line said
+     "312 members match" whether it had quietly dropped nobody or forty. They now flow
+     through every filter and are taken out at the END, where the number that is
+     removed is a number worth printing. See the split below. */
+  let members = etGetMembers().filter(m => (!term || (m.data.name||'').toLowerCase().indexOf(term) !== -1));
   // Gate code
   if(etFilterGateCode === 'missing') members = members.filter(m => !m.data.gateCode);
   else if(etFilterGateCode === 'has') members = members.filter(m => !!m.data.gateCode);
@@ -12271,17 +12340,65 @@ function etRenderRecipientList(){
   // Installed this season
   if(etFilterInstalled === 'yes') members = members.filter(m => m.data.completed === true);
   else if(etFilterInstalled === 'no') members = members.filter(m => m.data.completed !== true);
+  /* ⚠ THE DO-NOT-SEND LIST IS APPLIED LAST, so the count can say what it took out.
+     Filtering these people earlier would make them indistinguishable from everybody
+     the other nine filters legitimately excluded — and a list that is quietly shorter
+     than you expect is the exact failure this panel already has with missing email
+     addresses. Left out, but never left unsaid. */
+  const beforeDoNotSend = members.length;
+  const manageMode = (etFilterDoNotSend === 'only');
+  members = members.filter(m => manageMode ? etNoAutomationEmails(m.data) : !etNoAutomationEmails(m.data));
+  const doNotSendHidden = manageMode ? 0 : (beforeDoNotSend - members.length);
+  /* ⭐ AND THE ONES WITH NO ADDRESS TO SEND TO (added 2026-08-21). Owner asked for
+     this to be said at the moment of sending, not only findable in Customers: "the
+     count line". Excluding them is right — there is nothing to send to — but doing it
+     silently meant an RSVP could miss forty people and read exactly like an RSVP that
+     reached everybody.
+     ⚠ SAME RULE AS THE CUSTOMERS FILTER (`custCanBeEmailed`), deliberately shared, so
+     the number here and the list there can never disagree about who is reachable. It
+     also means somebody whose only address is in the SECONDARY field is counted here,
+     because nothing in the app sends to that field.
+     ⚠ NOT APPLIED IN THE MANAGE VIEW. That list exists to take people back OFF the
+     do-not-send list, and somebody with no email would otherwise be hidden from the
+     one screen that could release them — stuck on the list for ever with no way to
+     reach the button. */
+  let noEmailHidden = 0;
+  if(!manageMode){
+    const beforeNoEmail = members.length;
+    members = members.filter(m => custCanBeEmailed(m.data));
+    noEmailHidden = beforeNoEmail - members.length;
+  }
   const usingLastYear = (etFilterPaidLast !== 'all' || etFilterOrderedLast !== 'all');
   const lastYearMissing = usingLastYear && !audienceHasLastSeason();
   if(countEl){
-    let msg = members.length + ' member' + (members.length===1?'':'s') + ' match' + (members.length===1?'es':'') + ' these filters.';
-    if(lastYearMissing) msg += ' — Note: no saved snapshot from last season yet, so the "last year" filters can\'t match anyone until Start New Season saves one.';
-    if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
-      msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
+    let msg;
+    if(manageMode){
+      msg = members.length + (members.length===1 ? ' person is' : ' people are') + ' on the do-not-send list. They stay out of every automation email until you allow them again — this does not affect their invoice.';
+    } else {
+      msg = members.length + ' member' + (members.length===1?'':'s') + ' match' + (members.length===1?'es':'') + ' these filters.';
+      if(doNotSendHidden) msg += ' — ' + doNotSendHidden + ' left out: on the do-not-send list.';
+      /* ⚠ NAMES WHERE TO GO AND FIX IT. A bare number tells the office something is
+         wrong and not what to do about it; the filter that lists these people by name
+         already exists, so the sentence points at it. */
+      if(noEmailHidden) msg += ' — ' + noEmailHidden + ' left out: no email address on file. Find them under Customers → Filters → Email.';
+      if(lastYearMissing) msg += ' — Note: no saved snapshot from last season yet, so the "last year" filters can\'t match anyone until Start New Season saves one.';
+      if(etRsvpAudienceAutoSet && etFilterNew === 'returning'){
+        msg += ' — New customers are left out automatically, because an RSVP asks whether they want lights AGAIN. Change "New vs returning" above to include them.';
+      }
     }
     countEl.textContent = msg;
   }
-  if(!members.length){ list.innerHTML = '<div class="empty-note">No members match this search and these filters.</div>'; return; }
+  if(!members.length){
+    list.innerHTML = manageMode
+      ? '<div class="empty-note">Nobody is on the do-not-send list. Use &ldquo;Don&rsquo;t send&rdquo; beside a name to add them.</div>'
+      /* ⚠ AN EMPTY LIST WITH A REASON. If everybody who matched was taken out for
+         having no address, "no members match these filters" is actively misleading —
+         they DID match, we just cannot write to them. */
+      : (noEmailHidden
+          ? '<div class="empty-note">No one left to send to. '+noEmailHidden+' matched these filters but '+(noEmailHidden===1?'has':'have')+' no email address on file — find '+(noEmailHidden===1?'them':'them')+' under Customers &rarr; Filters &rarr; Email.</div>'
+          : '<div class="empty-note">No members match this search and these filters.</div>');
+    return;
+  }
   const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
   list.innerHTML = members.map(function(m){
     const checked = previouslyChecked.has(m.id) ? 'checked' : '';
@@ -12295,7 +12412,23 @@ function etRenderRecipientList(){
     if(audiencePaidLastYear(m.data) === 'unpaid') badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[Didn\'t pay last yr]</span>';
     if(grp === 'multi') badges += ' <span style="color:#3a5a8a; font-size:11px; font-weight:600;">[Group payer]</span>';
     else if(grp === 'elsewhere') badges += ' <span style="color:#6a4a8a; font-size:11px; font-weight:600;">[Billed elsewhere]</span>';
-    return '<label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;">'+esc(m.data.name||'(no name)')+badges+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span></label>';
+    const nameCell = esc(m.data.name||'(no name)')+badges+' <span style="color:var(--slate); font-size:12px;">'+esc(m.data.email||'')+'</span>';
+    /* ⚠ THE BUTTON SITS OUTSIDE THE <label>, NOT IN IT. Clicking anywhere inside a
+       label toggles that label's checkbox, so a "Don't send" button nested in the row
+       would tick the very person it is removing on its way out. */
+    if(manageMode){
+      /* ⚠ NO CHECKBOX IN THE MANAGE VIEW, deliberately. This list exists to take
+         people OFF the do-not-send list; a tickable row here would be one Select All
+         away from mailing exactly the people it records as never to be mailed. */
+      return '<div style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;">'+
+        '<span style="flex:1; min-width:0;">'+nameCell+'</span>'+
+        '<button type="button" class="btn btn-outline btn-sm" data-dns="'+m.id+'" data-dnsval="0" style="width:auto; flex:none;">Allow again</button>'+
+      '</div>';
+    }
+    return '<div style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13.5px;">'+
+      '<label style="display:flex; align-items:center; gap:8px; flex:1; min-width:0; margin:0;"><input type="checkbox" class="et-recipient-cb" value="'+m.id+'" '+checked+' style="width:auto;"><span>'+nameCell+'</span></label>'+
+      '<button type="button" class="btn btn-outline btn-sm" data-dns="'+m.id+'" data-dnsval="1" style="width:auto; flex:none;">Don&rsquo;t send</button>'+
+    '</div>';
   }).join('');
 }
 /* Choosing the template is the deliberate act, so it is the moment to set the
@@ -12346,6 +12479,63 @@ function toJsDate(ts){
   if(typeof ts.seconds === 'number') return new Date(ts.seconds * 1000);
   const d = new Date(ts);
   return isNaN(d.getTime()) ? null : d;
+}
+/* ⭐ HOW SOMEBODY HAS ASKED NOT TO BE CONTACTED (added 2026-08-21). Owner: "it
+   should show on invoice and costumers if there is a certain way they don't want
+   to be contacted."
+   ⚠ ONE LIST, THREE SCREENS. The Edit Customer boxes, the All Customers row and the
+   printed invoice all read this one array, so a preference cannot appear on one
+   screen and be missing from another — which is how somebody gets texted by whoever
+   happened to be looking at the screen that did not say.
+   ⚠ IT REPORTS, IT NEVER DECIDES. These helpers hand back TEXT. `buildInvoiceDocHtml`
+   is given a finished string and never sees the flags themselves, so no future edit
+   in there can quietly make a contact preference gate a BILL — the failure this
+   whole feature has been shaped to avoid. Suite 128 asserts the invoice builder
+   names none of the fields directly, which is what keeps that true. */
+const CONTACT_PREFS = [
+  {field: 'smsOptedOut',        chip: 'No texts',            long: 'no text messages'},
+  {field: 'noAutomationEmails', chip: 'No marketing emails', long: 'no marketing emails'}
+];
+function contactPrefsFor(d){
+  const rec = d || {};
+  return CONTACT_PREFS.filter(p => rec[p.field] === true);
+}
+/* ⚠ BLANK WHEN THEY HAVE ASKED FOR NOTHING. "Contact preferences: none" is a line
+   nobody needs to read, and printing it on every invoice trains the eye to skip the
+   place the real ones appear. */
+function contactPrefsNote(d){
+  const on = contactPrefsFor(d);
+  if(!on.length) return '';
+  return 'Contact preferences: ' + on.map(p => p.long).join(' · ') + '.';
+}
+/* ⭐ CAN WE ACTUALLY EMAIL THIS PERSON? (added 2026-08-21)
+   ⚠ ONLY THE PRIMARY `email` COUNTS, and that is not an oversight. Every sender in
+   the app reads `d.email` — the nightly invoice run, both automation-email senders,
+   the quote nudge. `email2` exists so a customer can SIGN IN to the portal with it
+   and is never written to, so a record holding only a secondary address cannot be
+   emailed by anything at all. Asking "is either field filled in" would put those
+   people in the reachable pile and they would go on silently missing their bill,
+   which is the exact failure this filter was asked for.
+   ⚠ ONE ANSWER, TWO READERS — the Customers filter and the chip on the row — so the
+   list and the badge can never contradict each other about one customer. */
+function custCanBeEmailed(d){
+  return !!String((d || {}).email || '').trim();
+}
+/* The one case that looks like a mistake on screen: no primary, but a secondary
+   sitting right there on the record. Without this the row reads "no email" beside a
+   visible address and looks like a bug, when the fix is simply to move it up. */
+function custEmailChip(d){
+  const rec = d || {};
+  if(custCanBeEmailed(rec)) return '';
+  if(String(rec.email2 || '').trim()){
+    return ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Secondary email only &mdash; move it up</span>';
+  }
+  return ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">No email</span>';
+}
+function contactPrefChips(d){
+  return contactPrefsFor(d).map(function(p){
+    return ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">'+esc(p.chip)+'</span>';
+  }).join('');
 }
 function buildInvoiceDocHtml(member){
   const d = member.data;
@@ -12435,6 +12625,11 @@ function buildInvoiceDocHtml(member){
         '<p style="font-size:15px; font-weight:700; color:var(--ink); margin:0 0 4px;">'+esc(d.name||'(no name)')+'</p>'+
         '<p style="font-size:13px; color:var(--slate); margin:0;">'+esc(d.address||'')+'</p>'+
         '<p style="font-size:13px; color:var(--slate); margin:4px 0 0;">'+esc(d.phone||'')+'</p>'+
+        /* ⚠ A FINISHED STRING, and that is the safety argument. This line can print
+           a contact preference and structurally cannot act on one — the builder is
+           never handed the flags, so nothing here can grow into a reason not to
+           send somebody their bill. */
+        (contactPrefsNote(d) ? '<p style="font-size:12px; color:var(--slate); margin:6px 0 0; font-style:italic;">'+esc(contactPrefsNote(d))+'</p>' : '')+
       '</div>'+
       '<table style="width:100%; border-collapse:collapse; margin-bottom:20px;">'+
         '<thead><tr style="border-bottom:1px solid var(--line);">'+
@@ -12610,10 +12805,45 @@ document.getElementById('etRecipientSearch').addEventListener('input', function(
   ['etFilterNew',         v => { etFilterNew = v; etRsvpAudienceAutoSet = false; }],
   ['etFilterGroup',       v => { etFilterGroup = v; }],
   ['etFilterOutlet',      v => { etFilterOutlet = v; }],
-  ['etFilterInstalled',   v => { etFilterInstalled = v; }]
+  ['etFilterInstalled',   v => { etFilterInstalled = v; }],
+  ['etFilterDoNotSend',   v => { etFilterDoNotSend = v; }]
 ].forEach(function(pair){
   const el = document.getElementById(pair[0]);
   if(el) el.addEventListener('change', function(){ pair[1](this.value); etRenderRecipientList(); });
+});
+/* ⭐ ADDING SOMEBODY TO THE DO-NOT-SEND LIST, AND TAKING THEM OFF IT.
+   ⚠ DELEGATED, because the row these buttons live on is rebuilt by innerHTML on
+   every keystroke in the search box and every filter change — a listener bound to
+   the button itself is thrown away with the row it was attached to, leaving a button
+   that renders perfectly and does nothing. That exact failure has shipped in this
+   file before (the recycle "bin says" box, 2026-08-21). */
+document.getElementById('etRecipientList')?.addEventListener('click', async function(e){
+  const btn = e.target && e.target.closest ? e.target.closest('[data-dns]') : null;
+  if(!btn) return;
+  const id = btn.getAttribute('data-dns');
+  const turnOn = btn.getAttribute('data-dnsval') === '1';
+  const member = (jobAddresses||[]).find(x => x.id === id);
+  if(!member) return;
+  /* ⚠ MIRRORED INTO THE LOCAL CACHE BEFORE THE WRITE IS AWAITED. This panel repaints
+     from `jobAddresses`, not from Firestore, so without the mirror the row springs
+     straight back and the office presses it again — two writes in flight for one
+     decision. Same optimistic mirror the rest of admin already does. */
+  const before = member.data.noAutomationEmails === true;
+  member.data.noAutomationEmails = turnOn;
+  etRenderRecipientList();
+  try{
+    await updateDoc(doc(db,'jobAddresses',id), {noAutomationEmails: turnOn});
+    toast(turnOn
+      ? (member.data.name || 'They') + ' will be left out of automation emails. Their invoice is unaffected.'
+      : (member.data.name || 'They') + ' can be sent automation emails again.');
+  } catch(err){
+    /* ⚠ PUT IT BACK. A failed write that leaves the screen showing the change is how
+       somebody gets mailed after being told they never would be. */
+    member.data.noAutomationEmails = before;
+    etRenderRecipientList();
+    console.error('do-not-send write failed', err);
+    toast('Could not save that — ' + (err && err.message ? err.message : 'try again') + '.');
+  }
 });
 document.getElementById('etSelectAllBtn').addEventListener('click', function(){
   document.querySelectorAll('.et-recipient-cb').forEach(cb => { cb.checked = true; });
@@ -12645,10 +12875,17 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
   if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
   emailjs.init(publicKey);
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, optedOut = 0;
   for(const id of selectedIds){
     const member = jobAddresses.find(m => m.id === id);
     if(!member || !member.data.email) { failed++; continue; }
+    /* ⚠ THE LAST GATE, and it is not redundant with the render. The list is rebuilt
+       from `jobAddresses`, but these checkboxes are read straight out of the DOM at
+       send time — so a row ticked a moment before somebody was added to the list is
+       still a ticked id in this array. Checked here, nobody on the list can be mailed
+       by a stale tick. Counted separately from `failed`, because a deliberate
+       exclusion is not a failure and reading it as one hides both. */
+    if(etNoAutomationEmails(member.data)) { optedOut++; continue; }
     // Generate quote token if template uses quote buttons
     if(template.data.body.indexOf('{{quote_') !== -1){
       const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
@@ -12678,7 +12915,7 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
       sent++;
     } catch(err){ failed++; }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + '.';
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.';
 });
 function openSendModal(templateId){
   etPopulateTemplateSelect();
@@ -12698,6 +12935,15 @@ function openSendModal(templateId){
   ['etFilterGateCode','etFilterPayment','etFilterRsvp','etFilterPaidLast','etFilterOrderedLast','etFilterNew','etFilterGroup','etFilterOutlet','etFilterInstalled'].forEach(function(id){
     const el = document.getElementById(id); if(el) el.value = 'all';
   });
+  /* ⚠ RESET TO 'hide', NOT 'all' — and kept out of the loop above for that reason.
+     Every other filter opens wide open; this one opens with the do-not-send list
+     honoured, because "I forgot to re-apply it" must never be a way somebody on it
+     gets mailed. There is no 'all' here on purpose: a mode that showed excluded and
+     sendable people in one tickable list is the one Select All could not be trusted
+     with. */
+  etFilterDoNotSend = 'hide';
+  const dnsSel = document.getElementById('etFilterDoNotSend');
+  if(dnsSel) dnsSel.value = 'hide';
   etRenderRecipientList();
   if(templateId) document.getElementById('etSendTemplateSelect').value = templateId;
   etUpdatePreview();
@@ -28232,6 +28478,8 @@ function renderAllCustomersTable(){
   const mapFilter = document.getElementById('allCustFilterMap').value;
   const lightsEl = document.getElementById('allCustFilterLights');
   const lightsFilter = lightsEl ? lightsEl.value : 'all';
+  const emailEl = document.getElementById('allCustFilterEmail');
+  const emailFilter = emailEl ? emailEl.value : 'all';
   const pinFilter = document.getElementById('allCustFilterPin').value;
   const dateStart = document.getElementById('allCustFilterDateStart').value;
   const dateEnd = document.getElementById('allCustFilterDateEnd').value;
@@ -28272,6 +28520,19 @@ function renderAllCustomersTable(){
   }
   if(mapFilter !== 'all') rows = rows.filter(r => mapFilter === 'has' ? r.hasMap : !r.hasMap);
   if(pinFilter !== 'all') rows = rows.filter(r => pinFilter === 'has' ? r.hasPin : !r.hasPin);
+  /* ⚠ `custCanBeEmailed` IS THE ONE ANSWER, shared with the chip on the row, so the
+     list and the badge can never disagree about the same customer.
+     ⚠ KEPT ABOVE THE LIGHTS BLOCK ON PURPOSE. Suite 73 lifts the lights filter out
+     by searching for where it starts and slicing to the date filter, then runs that
+     slice in a sandbox that knows about nothing else. Anything parked in that gap
+     crashes the whole file with a ReferenceError BEFORE the summary prints, which
+     reads as "the suite is broken" rather than "a filter moved".
+     ⚠ AND DO NOT QUOTE THAT ANCHOR IN A COMMENT ANYWHERE ABOVE IT. The search takes
+     the first match in the file, so a comment repeating the opening line of the
+     lights filter makes the suite slice from inside the comment and die on a syntax
+     error. Both mistakes were made here while adding this filter. */
+  if(emailFilter === 'none') rows = rows.filter(r => !custCanBeEmailed(r.d));
+  else if(emailFilter === 'has') rows = rows.filter(r => custCanBeEmailed(r.d));
   /* ⭐ Owner: soft is kept under its own name "so then we can find them later cause we
      need to switch their lights". This is the finding.
      ⚠ Matched case-insensitively on the stored value, because a colour that came in
@@ -28352,7 +28613,7 @@ function renderAllCustomersTable(){
          but it was neither shown here nor searchable, which meant the one
          identifier staff actually say out loud could not be used to find
          anybody. */
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+'</td>'+
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -28507,6 +28768,7 @@ function openEditCustomerModal(id){
   document.getElementById('editCustPhone').value = d.phone || '';
   document.getElementById('editCustPhone2').value = d.phone2 || '';
   document.getElementById('editCustNoTexts').checked = d.smsOptedOut === true;
+  document.getElementById('editCustNoAutoEmails').checked = d.noAutomationEmails === true;
   document.getElementById('editCustEmail').value = d.email || '';
   document.getElementById('editCustEmail2').value = d.email2 || '';
   document.getElementById('editCustAddress').value = d.address || '';
@@ -29323,7 +29585,8 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   statusEl.textContent = 'Saving…';
   try{
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
-    const addrUpdates = {smsOptedOut: newNoTexts, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    const newNoAutoEmails = document.getElementById('editCustNoAutoEmails').checked;
+    const addrUpdates = {smsOptedOut: newNoTexts, noAutomationEmails: newNoAutoEmails, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
     /* Stamped on every customer save. Without these two the concurrent-edit
        check above has nothing to compare — a customer record carried no
        updatedAt at all, so "has anyone touched this since I opened it?" was
@@ -30049,7 +30312,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
 });
 /* The dropdowns repaint immediately — one click, one render. Only the typed
    search waits for a pause, because that is the one that fires per letter. */
-['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
+/* ⚠ `allCustFilterLights` WAS MISSING FROM THIS LIST and had no listener anywhere
+   else, so picking "On soft (needs switching)" redrew nothing — the filter worked
+   perfectly and could not be reached, and it only appeared to work if you happened
+   to touch another filter or the search box afterwards. Found 2026-08-21 while
+   adding the Email one. Any select added to that panel has to be named here. */
+['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
   const el = document.getElementById(id);
   if(el) el.addEventListener('input', renderAllCustomersTable);
 });
@@ -30067,6 +30335,14 @@ document.getElementById('allCustFilterClear').addEventListener('click', function
   document.getElementById('allCustFilterInvStatus').value = 'all';
   document.getElementById('allCustFilterRoute').value = 'all';
   document.getElementById('allCustFilterMap').value = 'all';
+  /* ⚠ Pin and Lights were never cleared here either, so "Clear Filters" left two of
+     them still applied and the list stayed mysteriously short. Every select in the
+     panel is reset now, this one included. */
+  document.getElementById('allCustFilterPin').value = 'all';
+  const clrLights = document.getElementById('allCustFilterLights');
+  if(clrLights) clrLights.value = 'all';
+  const clrEmail = document.getElementById('allCustFilterEmail');
+  if(clrEmail) clrEmail.value = 'all';
   document.getElementById('allCustFilterDateStart').value = '';
   document.getElementById('allCustFilterDateEnd').value = '';
   document.getElementById('allCustSearchInput').value = '';
