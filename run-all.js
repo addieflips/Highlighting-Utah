@@ -35144,6 +35144,49 @@ suite('165. Measure Roof - loading an address forgets the last house');
     'dropping the array leaves the polylines drawn over the new house');
 }
 
+suite('164. Measure Roof - the camera height is measured, not assumed');
+{
+  /* Owner: "measure height not just legth and depth."
+     ⚠ RM_CAM_HEIGHT_M IS 2.50 AND IT IS WRONG ON EVERY PANORAMA MEASURED: the
+     yard reads 2.391 off its own ground plane, its neighbour 2.46, a third
+     2.39. A constant cannot be right for three different values, and the error
+     lands in EVERY height reported, because a click's height is the camera's
+     height plus whatever the ray does from there. 10.9 cm on the yard, measured
+     twice independently by two sessions. */
+  check('S164', 'the panorama is asked how high its own camera is',
+    /import \{ fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight \}/.test(admin) &&
+    /function rmMeasureCameraHeight\(\)/.test(admin));
+  check('S164', 'and that measurement is what a click uses',
+    /p\.u = \(rmCamHeightM !== null \? rmCamHeightM : RM_CAM_HEIGHT_M\) \+ rmCamGroundDrop;/.test(admin),
+    'measuring it and then not using it is worse than not measuring it');
+  /* ⚠ THE FALLBACK IS THE POINT. This reads an undocumented endpoint. */
+  check('S164', 'it falls back to the old constant rather than failing',
+    /catch\(function\(\)\{ \/\* no depth map here; the constant stands \*\/ \}\)/.test(admin),
+    'an undocumented endpoint must never be able to break the tool');
+  check('S164', 'a silly answer is refused rather than believed',
+    /h > 1\.2 && h < 4/.test(admin),
+    'if the largest horizontal plane is not the road, the number is not a camera height');
+  check('S164', 'it is measured once per panorama, not once per repaint',
+    /if\(!id \|\| id === rmCamHeightPano\) return;/.test(admin),
+    'rmPaintStreet runs on every mouse move of the panorama');
+  /* ⚠ AND IT MUST NOT SURVIVE A MOVE. A stale height from the last panorama is
+     worse than the constant, because it is confidently wrong. */
+  check('S164', 'and it is cleared on arrival so the last one cannot linger',
+    (function(){
+      const i = admin.indexOf('rmCamHeightPano = id;');
+      const j = admin.indexOf('rmCamHeightM = null;', i);
+      return i !== -1 && j > i && (j - i) < 120;
+    })(),
+    'a height from the previous panorama is confidently wrong');
+  check('S164', 'and a late answer for a panorama already left is dropped',
+    /if\(rmCamHeightPano !== id\) return;/.test(admin),
+    'two moves in quick succession would otherwise apply the first answer to the second place');
+  /* Why this one survived the bearing refutation, recorded where it is done. */
+  check('S164', 'why this survives the refuted bearing is written down',
+    /rotation about the vertical does not touch the vertical/.test(admin),
+    'so nobody bins it along with toEastNorth');
+}
+
 
 suite('163. Measure Roof - the street view follows the address');
 {

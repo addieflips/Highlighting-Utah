@@ -4660,6 +4660,7 @@ import {
      and told nobody. */
   applyLightChange, LIGHT_CHANGE_FEE, LIGHT_WINDOW_MS
 } from './js/money.js';
+import { fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight } from './js/svdepth.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
@@ -15326,8 +15327,10 @@ function rmCamLocal(){
   const p = rmToLocal(pos.lat(), pos.lng(), 0);
   /* The camera is on the road. If the house sits above or below the road that
      difference is real feet of error in every height, so it is measured, not
-     assumed - see rmMeasureGroundDrop. */
-  p.u = RM_CAM_HEIGHT_M + rmCamGroundDrop;
+     assumed - see rmMeasureGroundDrop.
+     ⭐ And the camera's OWN height is measured too when the panorama will say.
+     RM_CAM_HEIGHT_M is the fallback now, not the answer. */
+  p.u = (rmCamHeightM !== null ? rmCamHeightM : RM_CAM_HEIGHT_M) + rmCamGroundDrop;
   return p;
 }
 function rmGroundHit(dir, cam){
@@ -17758,6 +17761,44 @@ const RM_FRAME_FILL = 0.55;    /* how much of the width the house should take */
 let rmFramed = false;
 /* How far from the house to look for a panorama when a property is loaded. */
 const RM_STREET_SEARCH_M = 60;
+
+/* ⭐ HOW HIGH THE CAMERA ACTUALLY IS, rather than how high cameras usually are.
+   Owner: "measure height not just legth and depth."
+
+   ⚠ RM_CAM_HEIGHT_M IS 2.50 AND IT IS WRONG ON EVERY PANORAMA MEASURED. The
+   yard's reads 2.391 off its own ground plane, its neighbour 2.46, a third
+   2.39. A constant cannot be right for three different values, and the error
+   lands in EVERY height the tool reports, because a click's height is the
+   camera's height plus whatever the ray does from there. 10.9 cm on the yard.
+
+   The panorama carries the answer: its depth map's ground plane sits exactly
+   the camera's height below it. That needs no compass and no roof model - and
+   it is the ONE thing in the depth map that survived the bearing being
+   refuted, because a rotation about the vertical does not touch the vertical.
+
+   ⚠ AND IT DEGRADES TO THE OLD CONSTANT, ON PURPOSE. This reads an undocumented
+   Google endpoint. If that goes away, or a property has no coverage, the tool
+   works exactly as it did - one assumed constant instead of a measurement,
+   which is where it started. Nothing is built on it that cannot fall back. */
+let rmCamHeightM = null;          /* measured, per panorama; null until known */
+let rmCamHeightPano = '';
+function rmMeasureCameraHeight(){
+  if(!rmPano || !rmPano.getPano) return;
+  const id = rmPano.getPano();
+  if(!id || id === rmCamHeightPano) return;      /* already done this one */
+  rmCamHeightPano = id;
+  rmCamHeightM = null;                            /* unknown until this one is read */
+  rmFetchPano(id).then(function(meta){
+    if(rmCamHeightPano !== id) return;            /* moved on while it was loading */
+    const h = rmDepthCameraHeight(meta.depth);
+    /* A camera on a car is between about 1.2 and 4 m up. Anything else is not
+       the ground plane and is refused rather than believed. */
+    if(h !== null && isFinite(h) && h > 1.2 && h < 4){
+      rmCamHeightM = h;
+      rmPaintStreet();
+    }
+  }).catch(function(){ /* no depth map here; the constant stands */ });
+}
 const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 2.3;   /* ~36 degrees: close, never a keyhole */
 /* ⚠ THOSE TWO BOUND THE AUTOMATIC FRAMING, which has to stay wide enough not
    to end up looking through a keyhole at a blank wall. A hand on the wheel is
@@ -18838,6 +18879,7 @@ function rmEnsurePano(center){
      re-checked and the lines simply redraw from the new place. */
   rmPano.addListener('position_changed', function(){
     rmMeasureGroundDrop().then(rmPaintStreet);
+    rmMeasureCameraHeight();          /* this panorama's own camera height */
     /* The first move is the one that matters: it is Google putting the camera
        on the road, which is the moment front/left/right/back become knowable. */
     rmResideSuggestions();
