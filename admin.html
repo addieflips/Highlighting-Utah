@@ -4345,7 +4345,7 @@
            afterwards. A map that slides under a half-finished line is the
            single most annoying thing about doing this by hand. -->
       <div class="editcust-popup-overlay" id="roofMeasureOverlay" style="display:none;">
-        <div class="editcust-popup" style="max-width:1280px;">
+        <div class="editcust-popup" style="max-width:min(1800px, 97vw);">
           <style>
             #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
             #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
@@ -4353,6 +4353,9 @@
             #roofMeasureOverlay .rm-sidebtn{border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 11px; font-size:11.5px; font-weight:600; cursor:pointer;}
             #roofMeasureOverlay .rm-sidebtn.on{background:var(--gold-dim); border-color:var(--gold-dim);}
             #roofMeasureOverlay .rm-sidebtn:disabled{opacity:.4; cursor:not-allowed;}
+            #roofMeasureOverlay .rm-cornerbtn{border:1px solid var(--line); background:#fff; color:var(--slate); border-radius:7px; min-width:26px; padding:3px 6px; font-size:12px; font-weight:800; cursor:pointer; font-variant-numeric:tabular-nums;}
+            #roofMeasureOverlay .rm-cornerbtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+            #roofMeasureOverlay .rm-cornerbtn.rm-swapping{outline:2px solid var(--gold-dim); outline-offset:1px;}
             #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--paper);}
             #roofMeasureOverlay .rm-panel h4{margin:0 0 2px; font-size:13.5px; font-weight:700;}
             #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 10px; font-size:11.5px; color:var(--slate);}
@@ -4361,6 +4364,16 @@
             #roofMeasureOverlay .rm-runrow{display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; color:var(--slate);}
             #roofMeasureOverlay .rm-runrow button{border:0; background:none; color:var(--ember); cursor:pointer; font-size:13px; line-height:1; padding:0 2px;}
             #roofMeasureOverlay .rm-pane{position:relative; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#e9eef2;}
+            /* ⭐ BIG ENOUGH TO SEE THE HOUSE. Owner: "theres to much going on
+               you cant see the house clearly." Part of that was the drawing,
+               and part was this: the panes were a fixed 430px, so on a 1080p
+               screen a house sat about 150 pixels across and NOBODY could tell
+               whether a line was on the gutter or a foot off it - the office
+               judging a quote, or me checking my own work.
+               They now take the height the window can spare. Floored at 430 so
+               a laptop is no worse off than before, and capped at 760 so the
+               controls beside them do not fall off the bottom. */
+            #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(430px, 62vh, 760px);}
             #roofMeasureOverlay .rm-panehead{position:absolute; left:0; right:0; top:0; z-index:9; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(rgba(12,18,26,.72), rgba(12,18,26,0)); color:#fff; font-size:12px; font-weight:600; pointer-events:none;}
             /* Sits over a pane until its imagery is actually on screen. z-index
                is BELOW the lock layer so it can never swallow a measuring click
@@ -4393,12 +4406,14 @@
             <div style="flex:0 0 276px; min-width:244px; display:flex; flex-direction:column; gap:12px;">
               <div class="rm-panel">
                 <h4>Measurement Tools</h4>
-                <p class="rm-sub">Pick what you are tracing, then click along it in either view.</p>
-                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
-                  <button type="button" class="rm-typebtn on" data-rmtype="perimeter"><span class="rm-dot" style="background:#E0574B;"></span>Perimeter</button>
-                  <button type="button" class="rm-typebtn" data-rmtype="ridge"><span class="rm-dot" style="background:#3B82F6;"></span>Ridge</button>
-                  <button type="button" class="rm-typebtn" data-rmtype="ground"><span class="rm-dot" style="background:#16A34A;"></span>Ground</button>
-                </div>
+                <!-- ⚠ NO TYPE PICKER. Owner: "we only do perimeter so get rid of
+                     the ground and ridge buttons too." Ridge and Ground were
+                     three buttons, a keyboard shortcut each and two rows of
+                     figures, for two kinds of run this business does not sell.
+                     RM_TYPES still knows all three so a quote measured before
+                     today still renders and still prices - nothing new is ever
+                     made as either. -->
+                <p class="rm-sub">Click along the roofline in either view.</p>
                 <button type="button" class="btn btn-gold btn-sm" id="rmDrawBtn" style="width:100%; justify-content:center;">Start Measuring</button>
                 <div style="display:flex; gap:6px; margin-top:6px;">
                   <button type="button" class="btn btn-outline btn-sm" id="rmUndoBtn" style="flex:1; justify-content:center;">Undo</button>
@@ -4408,6 +4423,21 @@
                 <!-- Front is on by default; the rest are one click each. The
                      count on each button is what makes an empty side obvious
                      rather than a button that appears to do nothing. -->
+                <!-- The corners the detector found. Each has a key: press it to
+                     switch that corner in or out of the line. Space swaps
+                     between picking and placing. Shift-click two to swap
+                     their places in the order. -->
+                <div id="rmCornerBar" style="display:none; margin-top:10px;">
+                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">
+                    Corners &mdash; <span id="rmCornerMode">Picking corners &mdash; space to place a dot</span>
+                  </div>
+                  <div id="rmCornerNote" style="font-size:11px; color:var(--dusk); margin-bottom:5px;"></div>
+                  <div id="rmCornerList" style="display:flex; gap:4px; flex-wrap:wrap;"></div>
+                  <div style="display:flex; gap:6px; margin-top:6px;">
+                    <button type="button" class="btn btn-outline btn-sm" id="rmEndStrandBtn" style="padding:4px 10px; font-size:11px;">End this strand</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmClearDotsBtn" style="padding:4px 10px; font-size:11px;">Clear all dots</button>
+                  </div>
+                </div>
                 <div id="rmSidesBar" style="display:none; margin-top:10px;">
                   <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">Sides of the house</div>
                   <div style="display:flex; gap:5px; flex-wrap:wrap;">
@@ -4422,7 +4452,7 @@
                      feature for one person. -->
                 <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
                   <kbd>Enter</kbd> start / finish &middot; <kbd>Esc</kbd> cancel &middot;
-                  <kbd>&#9003;</kbd> undo &middot; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> type &middot;
+                  <kbd>&#9003;</kbd> undo &middot; 
                   <kbd>A</kbd> all suggested on/off &middot; <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
                 </p>
               </div>
@@ -4501,7 +4531,7 @@
               </div>
             </div>
 
-            <div style="flex:1 1 640px; min-width:360px; display:flex; flex-direction:column; gap:10px;">
+            <div style="flex:1 1 900px; min-width:360px; display:flex; flex-direction:column; gap:10px;">
               <!-- ⚠ SIDE BY SIDE WHEREVER THERE IS ROOM. Stacked, the street
                    pane sat below the fold, so a window whose whole point is
                    "mark it in one and see it in the other" opened showing only
@@ -4509,9 +4539,9 @@
                    which is the right answer there - two 200px panes would be
                    worse than one usable one. -->
               <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
-              <div class="rm-pane" style="flex:1 1 430px; min-width:330px;">
+              <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
                 <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span></div>
-                <div id="rmMap" style="width:100%; height:430px;"></div>
+                <div id="rmMap" class="rm-canvas"></div>
                 <!-- ⚠ Tiles take a few seconds. Without this the pane is a
                      blank grey rectangle on open, which reads as broken - it
                      was reported as exactly that within a minute of shipping,
@@ -4521,9 +4551,9 @@
                 <div class="rm-frozen" id="rmMapFrozen" style="display:none;">Frozen while measuring</div>
               </div>
 
-              <div class="rm-pane" style="flex:1 1 430px; min-width:330px;">
+              <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
                 <div class="rm-panehead"><span>&#127968; Street View &mdash; heights, peaks, and the photo</span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span></div>
-                <div id="rmPano" style="width:100%; height:430px;"></div>
+                <div id="rmPano" class="rm-canvas"></div>
                 <svg id="rmSvLayer" class="rm-svlayer"></svg>
                 <div class="rm-busy" id="rmStreetBusy"><span class="rm-spin"></span><span id="rmStreetBusyText">Looking for a street-level photo&hellip;</span></div>
                 <div class="rm-lock" id="rmPanoLock" style="display:none;"></div>
@@ -15069,31 +15099,58 @@ function rmStreetSettle(){
 function rmBuildWhenReady(){
   if(rmSuggestionsBuilt || !rmFacesReady || !rmStreetSettled) return 0;
   rmSuggestionsBuilt = true;
-  const guessed = rmBuildSuggestions(rmFaces);
+  /* ⭐ NOTHING IS GUESSED ANY MORE. Owner: "delete everything for now and give
+     me a tool that I can show you what it should look like by placing dots."
+     Every automatic version of this - roof-model boxes, satellite edge
+     snapping, skyline corner detection - put lines on the house that were
+     close enough to look plausible and wrong enough to be useless, and each
+     round of fixing traded one wrong answer for another. The honest move is to
+     stop guessing and let somebody who knows what a roofline looks like show
+     it, so the next automatic attempt has something true to be measured
+     against instead of my idea of what a roof is.
+     rmBuildSuggestions and the corner detector are both still here and still
+     tested - nothing is deleted - they are simply not run. */
+  const guessed = 0;
   rmRefreshHeights();
   /* The camera exists by now, so this is where front/left/right/back stop
      being a guess. */
   rmResideSuggestions();
-  /* THE PHOTOGRAPH GETS THE LAST WORD ON HEIGHT. Fired here rather than
-     awaited: the lines are on screen immediately at the assumed height, and
-     they lift onto the roof a moment later when the photo has been read. */
-  if(guessed && rmStreetReady){
-    rmDatumFromStreetPhoto().then(function(res){
-      const st = document.getElementById('rmStatus');
-      if(!st) return;
-      st.textContent = res.ok
-        ? guessed + ' roof edges found, and the roof height was read off the street photo (' +
-          Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
-        : guessed + ' roof edges found — the front of the house is already on. ⚠ The height is still assumed: ' +
-          res.why + '. Trace anything in Street View to measure it properly.';
-    });
+  rmGuessedCount = guessed;
+  /* ⚠ BOTH HALVES ARE IN BY HERE, AND THAT IS STILL NOT ENOUGH.
+     Framing needs the footprint AND a camera standing on the road, and those
+     two arrive from different places at their own speed - the camera usually
+     first, before the roof model, so the attempt on the camera's own move has
+     no footprint to measure, and this attempt sometimes has no camera. It
+     shipped twice doing nothing at all for exactly that reason. So try here,
+     try when the camera moves, and keep trying briefly until one of them has
+     both. rmFramed makes sure only the first success counts. */
+  rmFrameHouseInStreet();
+  let frameTries = 0;
+  const frameTimer = setInterval(function(){
+    if(rmFramed || ++frameTries > 8){ clearInterval(frameTimer); return; }
+    rmFrameHouseInStreet();
+  }, 1200);
+  /* TWO PICTURES, TWO JOBS, IN THIS ORDER.
+     The satellite view says WHERE each gutter is - it has no depth in it, so a
+     pixel is a place, and that is what fixes the sideways offset the roof
+     model's compass-aligned boxes cannot. The street view then says how HIGH
+     the roof sits. Sideways first, because the height is read at each line's
+     position and moving a line afterwards would leave its height behind. */
+  if(guessed){
+    rmSnapLinesToSky().then(function(res){
+      if(res && res.ok) rmSnapNote = res;
+      /* THE PHOTOGRAPH GETS THE LAST WORD ON HEIGHT, once there is a road to
+         take it from. Fired rather than awaited: the lines are on screen
+         immediately and settle onto the roof a moment later. */
+      rmTryPhotoDatum();
+    }).catch(function(){ rmTryPhotoDatum(); });
   }
   const status = document.getElementById('rmStatus');
   if(status){
-    status.textContent = !guessed
-      ? 'Google has no roof outline for this house — trace it by hand with Start Measuring.'
-      : guessed + ' roof edges found — the front of the house is already on. Click any line to add or drop it.' +
-        (rmStreetReady ? '' : ' ⚠ No street photo, so these are placed from the map alone — check the heights.');
+    rmRenderCornerBar();
+    status.textContent = 'Click along the roofline in either picture to place dots. ' +
+      'They join up in the order you place them, and each one gets a number you can press to take it out again. ' +
+      'Space stops placing so you can pick instead; + Measure another run starts a second strand.';
   }
   return guessed;
 }
@@ -15518,8 +15575,12 @@ function rmSvProject(world, W, H, pov, cam){
  * grey, because a line that VANISHES when you click it looks like a delete and
  * cannot be found again.
  */
-function rmFaceEave(face){
-  /* Box corners in the local frame. */
+/* WHICH EDGE OF A FACE IS THE GUTTER, AND WHICH IS THE RIDGE.
+   Extracted so the two callers cannot drift: rmFaceEave draws the line, and
+   the photo solver below needs the OPPOSITE edge as well. Two copies of "which
+   way does this roof slope" is exactly the sort of thing that quietly stops
+   agreeing. */
+function rmFaceEdgePick(face){
   const sw = rmToLocal(face.sw.lat, face.sw.lng, 0);
   const ne = rmToLocal(face.ne.lat, face.ne.lng, 0);
   const corners = {s: sw.n, w: sw.e, n: ne.n, e: ne.e};
@@ -15533,12 +15594,113 @@ function rmFaceEave(face){
     {name: 'west',  out: {e: -1, n: 0}, a: {e: corners.w, n: corners.s}, b: {e: corners.w, n: corners.n}},
     {name: 'east',  out: {e: 1, n: 0},  a: {e: corners.e, n: corners.s}, b: {e: corners.e, n: corners.n}}
   ];
-  /* The eave is the edge pointing the same way the roof slopes down. */
-  let best = null;
+  let best = null, worst = null;
   edges.forEach(function(ed){
     const dot = ed.out.e * down.e + ed.out.n * down.n;
-    if(!best || dot > best.dot) best = {ed: ed, dot: dot};
+    if(!best || dot > best.dot) best = {ed: ed, dot: dot};      /* downhill: the gutter */
+    if(!worst || dot < worst.dot) worst = {ed: ed, dot: dot};   /* uphill: the peak */
   });
+  /* The two left over run UP the slope - the rakes. On a gable end, a dormer or
+     a doorway gable, that is the sloping edge lights actually follow, and it is
+     what the owner means by the DEPTH of a dormer as opposed to its front. */
+  const sides = edges.filter(function(ed){ return ed !== best.ed && ed !== worst.ed; })
+                     .map(function(ed){ return {ed: ed, dot: ed.out.e * down.e + ed.out.n * down.n}; });
+  return {corners: corners, down: down, best: best, worst: worst,
+          sideA: sides[0] || null, sideB: sides[1] || null};
+}
+/* The midpoint of a face's UPHILL edge, in the world. Paired with the gutter
+   below, this is what makes a roof identifiable in a photograph. */
+function rmFaceRidgeMid(face){
+  const pick = rmFaceEdgePick(face);
+  if(!pick || !pick.worst) return null;
+  const ed = pick.worst.ed;
+  return rmToWorld({e: (ed.a.e + ed.b.e) / 2, n: (ed.a.n + ed.b.n) / 2, u: 0});
+}
+/* ⭐ A CHIMNEY IS NOT A ROOF FACE, AND A SATELLITE DISH IS NOT A GUTTER.
+   Owner: "be sure to have it detect things like satelites or chimnees and know
+   that isnt a spot we are going to hang."
+   Google's roof model describes a chimney, a vent stack or a dish mount as a
+   little plane of its own, with its own pitch and azimuth, indistinguishable
+   in shape from a real roof face - just small. Nobody hangs lights round a
+   chimney, so every edge one produces is a line the office has to switch off.
+
+   ⚠ SIZE IS THE ONLY THING THAT SEPARATES THEM, and the threshold has to sit
+   between a chimney and a DORMER, because a dormer is small and we very much
+   do want it. Measured: a chimney is about two feet square, four to six square
+   feet of plane; the smallest dormer worth hanging is a couple of metres
+   across, thirty square feet and up. Twelve is comfortably between the two and
+   nowhere near either. */
+const RM_MIN_FACE_SQFT = 12;
+function rmFaceIsWorthHanging(face){
+  const area = Number(face && face.areaSqFt);
+  /* An unknown area is NOT a reason to throw a face away - most of the roof
+     would go with it. Only a known, tiny one. */
+  if(!isFinite(area) || area <= 0) return true;
+  return area >= RM_MIN_FACE_SQFT;
+}
+
+/* ⭐ AND A LINE MUST BE ON THE OUTSIDE OF THE HOUSE.
+   Owner: "make sure its only doing the perimeter because theres some lines im
+   noticing that are just on the house but on no perimeter."
+   Where two roof planes meet, each names the shared edge as one of its own -
+   so a valley between two gables, or the join where a wing meets the main
+   roof, is offered as a run. It is real geometry and it is not a gutter:
+   nothing hangs there, and on screen it reads as a line drawn across the
+   middle of the roof for no reason.
+
+   The test is to step OUTWARD from the edge and ask whether the roof carries
+   on. If another face covers that spot, the edge is an interior seam. If
+   nothing is there, it is the edge of the building - a gutter or a rake. */
+const RM_OUTSIDE_PROBE_M = 1.1;
+function rmEdgeIsOnTheOutside(face, line, faces){
+  if(!line || !face || !face.center) return true;
+  const all = faces || rmFaces || [];
+  if(all.length < 2) return true;              /* nothing it could be a seam with */
+  const a = rmToLocal(line.a.lat, line.a.lng, 0);
+  const b = rmToLocal(line.b.lat, line.b.lng, 0);
+  const mid = {e: (a.e + b.e) / 2, n: (a.n + b.n) / 2};
+  const c = rmToLocal(face.center.lat, face.center.lng, 0);
+  let oe = mid.e - c.e, on = mid.n - c.n;
+  const len = Math.hypot(oe, on);
+  if(len < 0.3) return true;                   /* edge through its own centre: cannot say */
+  oe /= len; on /= len;
+  const probe = rmToWorld({e: mid.e + oe * RM_OUTSIDE_PROBE_M,
+                           n: mid.n + on * RM_OUTSIDE_PROBE_M, u: 0});
+  for(let i = 0; i < all.length; i++){
+    const f = all[i];
+    if(f === face || !f.sw || !f.ne) continue;
+    const latIn = probe.lat >= Math.min(f.sw.lat, f.ne.lat) && probe.lat <= Math.max(f.sw.lat, f.ne.lat);
+    const lngIn = probe.lng >= Math.min(f.sw.lng, f.ne.lng) && probe.lng <= Math.max(f.sw.lng, f.ne.lng);
+    if(latIn && lngIn) return false;           /* the roof carries on: a seam */
+  }
+  return true;
+}
+
+/* THE RIDGE OF A FACE - the uphill edge, drawn the same way the gutter is.
+   Owner: "it doesnt seem to be drawing a line along every single ridge on the
+   front side, make sure that gets fixed." Lights go along a peak as well as a
+   gutter, and until now only the gutter was ever offered, so every ridge on
+   the house had to be traced by hand. */
+/* ⚠ THE PEAK IS NOT OFFERED AS A RUN. Owner, seeing the blue line along the
+   top of the roof: "we dont do ridges, sorry that blue line on top of the peak
+   we dont do." This function stays because the HEIGHT solver needs the ridge -
+   a gutter cannot be found in a photograph except paired with its peak - but
+   nothing puts lights along it. */
+function rmFaceRidge(face){
+  return rmFaceEdgeLine(face, 'worst');
+}
+/* The two sloping edges: a dormer's depth, a gable's rake. */
+function rmFaceRakes(face){
+  return [rmFaceEdgeLine(face, 'sideA'), rmFaceEdgeLine(face, 'sideB')].filter(Boolean);
+}
+function rmFaceEave(face){
+  return rmFaceEdgeLine(face, 'best');
+}
+function rmFaceEdgeLine(face, which){
+  const pick = rmFaceEdgePick(face);
+  const corners = pick.corners;
+  let best = pick[which];
+  if(!best) return null;
   /* ⚠ A FLAT FACE HAS NO GUTTER LINE, and PITCH is the only thing that says
      so. The azimuth of a flat roof is arbitrary, and a box always has an edge
      within 45 degrees of any direction, so the dot product can never rule one
@@ -15575,7 +15737,7 @@ function rmFaceEave(face){
   }
   return {a: rmToWorld({e: best.ed.a.e, n: best.ed.a.n, u: 0}),
           b: rmToWorld({e: best.ed.b.e, n: best.ed.b.n, u: 0}),
-          facing: best.ed.name};
+          facing: best.ed.name, kind: which === 'worst' ? 'ridge' : 'perimeter'};
 }
 /* ============ READING THE ROOFLINE OUT OF THE PHOTOGRAPH ================
    Owner, looking at the guessed lines on a real house: "by the looks of it it
@@ -15658,7 +15820,6 @@ function rmPhotoProject(pt, W, H, pose, cam){
 /* ---- the photograph itself -------------------------------------------- */
 const RM_PHOTO_FOV = 70, RM_PHOTO_PX = 640;
 const RM_EDGE_MIN = 26;          /* below this a "line" is just film grain */
-const RM_DATUM_LOOK_PX = 90;     /* the datum can be several feet out, so look wide */
 const RM_DATUM_MIN_SAMPLES = 3;  /* one gutter-shaped shadow is not evidence */
 const RM_DATUM_SPREAD_M = 0.9;   /* if the samples disagree by more than this, do not believe them */
 
@@ -15696,7 +15857,10 @@ function rmSobel(img){
   const W = img.width, H = img.height, d = img.data;
   const lum = new Float32Array(W * H);
   for(let i = 0, p = 0; i < W * H; i++, p += 4) lum[i] = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
-  const gy = new Float32Array(W * H), mag = new Float32Array(W * H);
+  /* gx as well as gy: the street solver only ever needs horizontal edges, but
+     a roof seen from ABOVE has gutters running in every direction, and which
+     way an edge faces is the whole test there. */
+  const gx = new Float32Array(W * H), gy = new Float32Array(W * H), mag = new Float32Array(W * H);
   for(let y = 1; y < H - 1; y++){
     for(let x = 1; x < W - 1; x++){
       const i = y * W + x;
@@ -15705,62 +15869,104 @@ function rmSobel(img){
       const g = lum[i + W - 1], h = lum[i + W], k = lum[i + W + 1];
       const sx = (c + 2 * f + k) - (a + 2 * e + g);
       const sy = (g + 2 * h + k) - (a + 2 * b + c);
-      gy[i] = sy; mag[i] = Math.hypot(sx, sy);
+      gx[i] = sx; gy[i] = sy; mag[i] = Math.hypot(sx, sy);
     }
   }
-  return {w: W, h: H, gy: gy, mag: mag};
+  return {w: W, h: H, gx: gx, gy: gy, mag: mag, lum: lum};
 }
 
-/* The strongest NEAR-HORIZONTAL edge in a column, close to where the model
-   said the gutter would be.
-   ⚠ Scored on the vertical component alone, on purpose. A photograph of a
-   house is full of strong VERTICAL edges - downpipes, window frames, corner
-   boards, tree trunks - and total gradient would happily snap a gutter onto a
-   drainpipe. A gutter is a near-horizontal edge, so its gradient points up or
-   down, and nothing else in the frame does that as brightly. */
-function rmEdgeRowNear(photo, x, y, lookPx){
+/* ONE SAMPLE'S ANSWER TO "HOW HIGH IS THE EAVE?"
+
+   ⚠ A GUTTER ON ITS OWN CANNOT BE FOUND, AND THE FIRST VERSION PROVED IT.
+   Run on a real house it answered 25 ft to the lowest eave - a two-and-a-half
+   storey building, for an ordinary one. The reason is worth writing down: the
+   strongest near-horizontal edge anywhere near a house is the ROOFLINE AGAINST
+   THE SKY, not the gutter. Roof against sky is the highest-contrast boundary in
+   the frame; a gutter is dark trim against a shaded wall. Scoring on edge
+   strength and searching a wide window, the solver walked up to the sky every
+   time and reported it with total confidence.
+
+   THE FIX IS TO STOP LOOKING FOR ONE LINE. The roof model knows exactly how far
+   the ridge stands above the gutter - that part is pure geometry and always
+   right. So the thing to look for is a PAIR of edges at that known separation.
+   Raise the datum and both predicted lines slide up the photograph together;
+   they only land on real edges simultaneously at one height, and the sky edge
+   has no partner the right distance below it. That is what makes a roof
+   identifiable in a picture when a gutter alone is not.
+
+   The search is also bounded to heights a house actually has. A lowest eave
+   below six feet or above sixteen is not a house we hang lights on, and the
+   old window was wide enough in pixels to reach the sky in the first place. */
+const RM_EAVE_MIN_M = 1.8;      /* ~6 ft */
+const RM_EAVE_MAX_M = 4.9;      /* ~16 ft: a tall two-storey eave */
+const RM_DATUM_STEP_M = 0.04;   /* ~1.5 inches - finer than the photo can tell */
+const RM_PAIR_TOL_PX = 2;       /* an edge is rarely exactly one pixel wide */
+
+/* How strong a near-horizontal edge is at a spot, forgiving a pixel or two. */
+function rmEdgeStrengthAt(photo, x, y){
   const xi = Math.round(x);
-  if(!(xi >= 1 && xi < photo.w - 1)) return null;
-  let best = null;
-  for(let d = -lookPx; d <= lookPx; d++){
+  if(!(xi >= 1 && xi < photo.w - 1)) return 0;
+  let best = 0;
+  for(let d = -RM_PAIR_TOL_PX; d <= RM_PAIR_TOL_PX; d++){
     const yi = Math.round(y) + d;
     if(!(yi >= 1 && yi < photo.h - 1)) continue;
     const v = Math.abs(photo.gy[yi * photo.w + xi]);
-    if(v < RM_EDGE_MIN) continue;
-    /* When two edges are equally bright the nearer one wins: the model was
-       pointing roughly at the right thing, it is the height that is adrift. */
-    const score = v - Math.abs(d) * 0.35;
-    if(!best || score > best.score) best = {y: yi, score: score, mag: v, off: d};
+    if(v > best) best = v;
   }
   return best;
 }
 
-/* ONE SAMPLE'S ANSWER TO "HOW HIGH IS THE EAVE?"
-   The plan position comes from the roof model and the RELATIVE shape of the
-   roof is exact; the only unknown worth solving is the datum - how far the
-   whole roof sits off the ground. Raising the datum slides the point up the
-   photograph, and that is monotonic, so a bisection lands on the height that
-   puts the model's gutter exactly on the photograph's gutter. */
-function rmSolveDatum(sample, photo, cam, pose, lookPx){
-  const at = function(D){
-    return rmPhotoProject({e: sample.e, n: sample.n, u: D + sample.rel}, photo.w, photo.h, pose, cam);
-  };
-  const start = at(rmDatum().m);
-  if(!start) return null;
-  const hit = rmEdgeRowNear(photo, start.x, start.y, lookPx === undefined ? RM_DATUM_LOOK_PX : lookPx);
-  if(!hit) return null;
-  let lo = 0.8, hi = 12;
-  for(let i = 0; i < 30; i++){
-    const m = (lo + hi) / 2;
-    const p = at(m);
-    if(!p) return null;
-    /* Further down the image means the point is too low in the world. */
-    if(p.y > hit.y) lo = m; else hi = m;
+/* Both lines must be there, so the score is the WEAKER of the two. Taking the
+   sum or the average lets one blazing sky edge carry a gutter that is not
+   there at all, which is the whole failure this replaced. */
+function rmScoreDatum(sample, photo, cam, pose, D){
+  const e = rmPhotoProject({e: sample.e, n: sample.n, u: D + sample.rel}, photo.w, photo.h, pose, cam);
+  if(!e) return 0;
+  const eaveEdge = rmEdgeStrengthAt(photo, e.x, e.y);
+  if(eaveEdge < RM_EDGE_MIN) return 0;
+  if(!sample.ridge) return eaveEdge;          /* a flat face has no ridge to pair with */
+  const r = rmPhotoProject({e: sample.ridge.e, n: sample.ridge.n, u: D + sample.ridge.rel}, photo.w, photo.h, pose, cam);
+  if(!r) return 0;
+  const ridgeEdge = rmEdgeStrengthAt(photo, r.x, r.y);
+  if(ridgeEdge < RM_EDGE_MIN) return 0;
+  /* ⚠ The two must be measurably APART in the picture. On a shallow roof seen
+     from the front they can project within a pixel of each other, and then any
+     single edge satisfies both and the pairing proves nothing. */
+  if(Math.abs(r.y - e.y) < 6) return 0;
+  return Math.min(eaveEdge, ridgeEdge);
+}
+
+function rmSolveDatum(sample, photo, cam, pose){
+  /* ⚠ THE ANSWER IS THE MIDDLE OF THE PLATEAU, NOT THE FIRST HEIGHT THAT FITS.
+     An edge is a few pixels thick and rmEdgeStrengthAt forgives a pixel either
+     side, so a whole band of datums score identically. Taking the first one -
+     which is what a plain "is this better than the best so far" loop does -
+     biases every answer to the LOW edge of that band by the whole tolerance.
+     Measured on a fixture with a known answer: 2.24 m against a true 2.35, out
+     by four inches, on a house where the geometry was exactly right. Four
+     inches of roofline is visible. */
+  let bestScore = 0;
+  const hits = [];
+  for(let D = RM_EAVE_MIN_M; D <= RM_EAVE_MAX_M + 1e-9; D += RM_DATUM_STEP_M){
+    const sc = rmScoreDatum(sample, photo, cam, pose, D);
+    if(sc <= 0) continue;
+    if(sc > bestScore + 1e-9){ bestScore = sc; hits.length = 0; }
+    if(sc > bestScore - 1e-9) hits.push(D);
   }
-  const D = (lo + hi) / 2;
-  /* Same sanity as a measured click: an eave underground or on the fourth
-     floor means the edge found was not a gutter. */
-  return (D > 0.9 && D < 11.5) ? {m: D, strength: hit.mag} : null;
+  if(!hits.length) return null;
+  /* ⚠ The band must be CONTIGUOUS. Two separate heights can both fit - a
+     porch roof below the main one will do it - and averaging across the gap
+     lands between them, on neither. Keep the run containing the strongest
+     stretch and average only that. */
+  let runStart = 0, bestRunA = 0, bestRunB = 0;
+  for(let i = 1; i <= hits.length; i++){
+    const broke = (i === hits.length) || (hits[i] - hits[i - 1] > RM_DATUM_STEP_M * 1.5);
+    if(!broke) continue;
+    if((i - runStart) > (bestRunB - bestRunA)){ bestRunA = runStart; bestRunB = i; }
+    runStart = i;
+  }
+  const band = hits.slice(bestRunA, bestRunB);
+  return {m: (band[0] + band[band.length - 1]) / 2, strength: bestScore};
 }
 
 /* The whole roof's datum, read off the photograph and agreed across several
@@ -15784,7 +15990,1237 @@ function rmDatumFromSamples(samples, photo, cam, pose, lookPx){
   return {ok: true, m: mean, used: near.length, of: got.length};
 }
 
+/* ============ PUTTING THE LINES ON THE REAL GUTTERS =====================
+   Owner: "make sure the lines follow the gutters with 0 offset on every and
+   any house."
+
+   ⚠ WHY THIS CANNOT BE DONE FROM THE ROOF MODEL ALONE, however carefully.
+   Google describes each roof face as an AXIS-ALIGNED BOX - a north/south,
+   east/west rectangle. A real roof is a polygon at whatever angle the house
+   was built. Pulling a box in toward its true area helps its LENGTH and does
+   nothing for its shape, and on a house with half a dozen faces the result is
+   a tangle of overlapping rectangles rather than a roofline. No correction
+   turns a rectangle into an outline: the information is not in the box.
+
+   IT IS IN THE PICTURE FROM ABOVE. Seen from overhead a roof edge is a hard
+   bright-to-dark boundary - roof against shadow, roof against grass - and the
+   satellite view has one enormous advantage over the street view: there is no
+   depth in it. A pixel IS a place. Web Mercator gives an exact metres-per-pixel
+   at this latitude and zoom, so a line in the world and a line in the picture
+   are the same thing in two units.
+
+   So the model proposes each gutter and the photograph moves it onto the edge
+   that is really there. Sideways only, along its own normal: the model knows
+   which edge of which face this is and roughly how long, and that part is not
+   in doubt - where it sits, to the foot, is. */
+const RM_SKY_ZOOM = 20, RM_SKY_PX = 640, RM_SKY_SCALE = 2;
+/* ⚠ THE HUNT MUST REACH FURTHER THAN THE LIMIT, or the limit is dead code.
+   These were 1.6 m and 1.5 m: the search could barely reach past what the
+   guard would allow, so the guard could only ever fire in a 10 cm sliver and a
+   red-check found it untestable. Worse, 1.6 m is not far enough - a
+   compass-aligned box on a house turned 30 degrees can miss its own gutter by
+   two metres, which is exactly the offset this exists to fix. So the search
+   looks further, and the limit is what refuses a line being yanked onto the
+   next roof along. */
+const RM_SNAP_LOOK_M = 2.5;      /* how far either side to hunt for the real edge */
+const RM_SNAP_MIN_GRAD = 40;     /* below this it is texture, not an edge */
+const RM_SNAP_KEEP = 0.5;        /* half the samples along a line must agree */
+const RM_SNAP_MAX_MOVE_M = 2.0;  /* further than this and it is a different edge */
+
+/* Metres per pixel, straight out of Web Mercator. Same in both directions -
+   the projection is conformal, so a square of pixels is a square of ground. */
+function rmSkyMpp(lat){
+  return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, RM_SKY_ZOOM) / RM_SKY_SCALE;
+}
+function rmSkyProject(local, mpp, W, H){
+  return {x: W / 2 + local.e / mpp, y: H / 2 - local.n / mpp};
+}
+function rmSkyUnproject(px, py, mpp, W, H){
+  return {e: (px - W / 2) * mpp, n: (H / 2 - py) * mpp};
+}
+
+async function rmSkyEdges(){
+  if(!rmOrigin) return {error: 'no house loaded'};
+  const r = await rmFetchStatic(function(k){
+    return 'https://maps.googleapis.com/maps/api/staticmap?center=' + rmOrigin.lat + ',' + rmOrigin.lng +
+      '&zoom=' + RM_SKY_ZOOM + '&size=' + RM_SKY_PX + 'x' + RM_SKY_PX + '&scale=' + RM_SKY_SCALE +
+      '&maptype=satellite&key=' + k;
+  });
+  if(r.error) return {error: r.error, why: r.why};
+  try{
+    const bmp = await createImageBitmap(r.blob);
+    const cv = document.createElement('canvas');
+    cv.width = bmp.width; cv.height = bmp.height;
+    const cx = cv.getContext('2d', {willReadFrequently: true});
+    cx.drawImage(bmp, 0, 0);
+    const sob = rmSobel(cx.getImageData(0, 0, cv.width, cv.height));
+    sob.mpp = rmSkyMpp(rmOrigin.lat);
+    return sob;
+  } catch(err){
+    return {error: 'tainted', why: String(err && err.message)};
+  }
+}
+
+/* How strongly the picture says "edge, running this way" at a spot. Only the
+   part of the gradient ACROSS the line counts: a gutter running east-west is
+   a north-south change in brightness, and the roof texture running along it
+   is not evidence of anything. */
+function rmCrossGrad(sky, px, py, nx, ny){
+  const xi = Math.round(px), yi = Math.round(py);
+  if(!(xi >= 1 && xi < sky.w - 1 && yi >= 1 && yi < sky.h - 1)) return 0;
+  const i = yi * sky.w + xi;
+  return Math.abs(sky.gx[i] * nx + sky.gy[i] * ny);
+}
+
+/* Slide one line sideways onto the edge the photograph actually shows.
+   Returns metres to move along the normal, or null when the picture does not
+   agree with itself well enough to say. */
+function rmSnapOffsetM(aLocal, bLocal, sky){
+  const A = rmSkyProject(aLocal, sky.mpp, sky.w, sky.h);
+  const B = rmSkyProject(bLocal, sky.mpp, sky.w, sky.h);
+  const dx = B.x - A.x, dy = B.y - A.y;
+  const len = Math.hypot(dx, dy);
+  if(len < 8) return null;                       /* too short to fit anything to */
+  const ux = dx / len, uy = dy / len;
+  const nx = -uy, ny = ux;                       /* unit normal, in pixels */
+  const lookPx = Math.round(RM_SNAP_LOOK_M / sky.mpp);
+  const SAMPLES = 24;
+  const offs = [];
+  for(let i = 0; i < SAMPLES; i++){
+    /* Skip the very ends: corners are where two edges meet and the strongest
+       thing near them is the OTHER edge. */
+    const t = 0.12 + 0.76 * (i / (SAMPLES - 1));
+    const px = A.x + dx * t, py = A.y + dy * t;
+    let best = null;
+    for(let o = -lookPx; o <= lookPx; o++){
+      const g = rmCrossGrad(sky, px + nx * o, py + ny * o, nx, ny);
+      if(g < RM_SNAP_MIN_GRAD) continue;
+      /* Nearer wins between equals: the model was pointing at roughly the
+         right edge, and the next gutter over is not an improvement. */
+      const score = g - Math.abs(o) * 1.5;
+      if(!best || score > best.score) best = {o: o, score: score};
+    }
+    if(best) offs.push(best.o);
+  }
+  if(offs.length < SAMPLES * RM_SNAP_KEEP) return null;
+  const sorted = offs.slice().sort(function(a, b){ return a - b; });
+  const median = sorted[Math.floor(sorted.length / 2)];
+  /* ⚠ THROW OUT THE ONES THAT FOUND SOMETHING ELSE. A chimney, a vent, a
+     parked car and a tree shadow all produce a beautiful edge a foot from the
+     gutter, and the mean of a gutter and a chimney is a line through neither. */
+  const near = offs.filter(function(o){ return Math.abs(o - median) <= 3; });
+  if(near.length < offs.length * RM_SNAP_KEEP) return null;
+  const meanPx = near.reduce(function(a, b){ return a + b; }, 0) / near.length;
+  const moveM = meanPx * sky.mpp;
+  if(Math.abs(moveM) > RM_SNAP_MAX_MOVE_M) return null;   /* that is a different edge */
+  return {e: nx * moveM, n: -ny * moveM, m: moveM, used: near.length, of: SAMPLES};
+}
+
+/* ⭐ HOW LONG THE GUTTER ACTUALLY IS.
+   Owner: "be sure it does the entire front because I just opened it on another
+   house and it doesnt go across the whole house."
+
+   Sideways was only half the problem. The LENGTH of every suggested line still
+   came from Google's box for that roof face, pulled in by the ratio between
+   the face's true area and its box - a fudge that stops a compass-aligned box
+   hanging past the end of a house at an angle, and which by its nature makes
+   almost every line a little short. On a plain house that shows up as a front
+   line that stops before the corners.
+
+   The satellite can measure it. Having slid the line onto the real edge, walk
+   OUT from each end a few inches at a time and ask whether the edge is still
+   there. Where it stops, that is the corner. The same evidence, the same
+   picture, the same cross-gradient test - just along the line instead of
+   across it.
+
+   ⚠ It only ever grows a line to evidence, and trims one whose end is sitting
+   on nothing. It cannot invent a gutter: every step has to be an edge as
+   strong as the one the line was snapped to in the first place. */
+const RM_END_STEP_M = 0.25;
+/* ⚠ THREE METRES, NOT SEVEN. At seven a line could reach right off the
+   building, and on the test house one did: it grew along the FENCE, which in a
+   satellite picture is exactly what a gutter looks like - a long straight
+   bright-to-dark edge running the same way. The result was a line across the
+   whole front, sloping, ending over the lawn. */
+const RM_END_MAX_GROW_M = 3;
+const RM_END_MAX_TRIM_M = 2.5;
+/* ⭐ AND IT MAY NEVER LEAVE THE HOUSE. A gutter is on the building by
+   definition, so growth stops at the footprint however convincing the edge
+   beyond it looks. This is the guard that would have caught the fence, and it
+   is the one that does not depend on getting a threshold right. */
+const RM_STAY_ON_HOUSE_M = 0.8;   /* eaves do overhang the footprint a little */
+
+/* The building's own outline, in the local frame, with the overhang allowed. */
+function rmFootprintBox(){
+  if(!rmBuilding || !rmOrigin) return null;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  const k = RM_STAY_ON_HOUSE_M;
+  return {minE: Math.min(sw.e, ne.e) - k, maxE: Math.max(sw.e, ne.e) + k,
+          minN: Math.min(sw.n, ne.n) - k, maxN: Math.max(sw.n, ne.n) + k};
+}
+function rmInsideFootprint(pt, box){
+  return pt.e >= box.minE && pt.e <= box.maxE && pt.n >= box.minN && pt.n <= box.maxN;
+}
+
+/* Is there still an edge, running the same way, at this spot? */
+function rmEdgeContinues(sky, pt, nx, ny){
+  const q = rmSkyProject(pt, sky.mpp, sky.w, sky.h);
+  /* Look a pixel either side across the line - a gutter is never exactly on
+     the pixel the maths lands on. */
+  for(let o = -1.5; o <= 1.5; o += 0.75){
+    if(rmCrossGrad(sky, q.x + nx * o, q.y + ny * o, nx, ny) >= RM_SNAP_MIN_GRAD) return true;
+  }
+  return false;
+}
+
+/* Walk one end of a line out to where its edge stops. dir is +1 for the b end,
+   -1 for the a end. Returns the metres to move that end (positive grows). */
+function rmEndReach(a, b, sky, dir){
+  const ux = b.e - a.e, uy = b.n - a.n;
+  const len = Math.hypot(ux, uy);
+  if(len < 0.5) return 0;
+  const ex = ux / len, ey = uy / len;                 /* along the line */
+  /* The normal, in PIXELS, which is what rmCrossGrad wants. */
+  const A = rmSkyProject(a, sky.mpp, sky.w, sky.h), B = rmSkyProject(b, sky.mpp, sky.w, sky.h);
+  const px = B.x - A.x, py = B.y - A.y, pl = Math.hypot(px, py);
+  if(pl < 4) return 0;
+  const nx = -py / pl, ny = px / pl;
+  const end = dir > 0 ? b : a;
+  /* GROW while the edge continues AND the point is still on the building. */
+  const box = rmFootprintBox();
+  let grew = 0;
+  for(let d = RM_END_STEP_M; d <= RM_END_MAX_GROW_M; d += RM_END_STEP_M){
+    const pt = {e: end.e + ex * d * dir, n: end.n + ey * d * dir};
+    if(box && !rmInsideFootprint(pt, box)) break;
+    if(!rmEdgeContinues(sky, pt, nx, ny)) break;
+    grew = d;
+  }
+  if(grew > 0) return grew;
+  /* Otherwise TRIM back to where the edge starts, but only a little: a line
+     whose whole end is missing is more likely a tree over the gutter than a
+     shorter house. */
+  let trim = 0;
+  for(let d = RM_END_STEP_M; d <= RM_END_MAX_TRIM_M; d += RM_END_STEP_M){
+    const pt = {e: end.e - ex * d * dir, n: end.n - ey * d * dir};
+    if(rmEdgeContinues(sky, pt, nx, ny)) return -d;
+    trim = d;
+  }
+  return 0;                                            /* no evidence either way: leave it */
+}
+
+/* Move every suggested line onto the gutter the satellite picture shows. */
+async function rmSnapLinesToSky(){
+  if(!rmRuns.length || !rmOrigin) return {ok: false, why: 'nothing to snap'};
+  const sky = await rmSkyEdges();
+  if(sky.error) return {ok: false, why: 'could not read the satellite picture (' + sky.error + ')'};
+  let moved = 0, left = 0;
+  rmRuns.forEach(function(r){
+    /* ⚠ NEVER a line somebody drew or dragged. Theirs is the last word. */
+    if(!r.suggested || r.touched || !r.path || r.path.length < 2) return;
+    const a = rmToLocal(r.path[0].lat, r.path[0].lng, 0);
+    const b = rmToLocal(r.path[1].lat, r.path[1].lng, 0);
+    const off = rmSnapOffsetM(a, b, sky);
+    if(!off){ left++; return; }
+    /* ⚠ SIDEWAYS IS CLAMPED TO THE BUILDING TOO. A two metre slide is enough
+       to take a gutter off the roof and onto a driveway edge or a fence, which
+       in a satellite picture look exactly like gutters. Same guard as growing
+       the ends, for the same reason. */
+    const fp = rmFootprintBox();
+    if(fp && (!rmInsideFootprint({e: a.e + off.e, n: a.n + off.n}, fp) ||
+              !rmInsideFootprint({e: b.e + off.e, n: b.n + off.n}, fp))){ left++; return; }
+    /* Sideways first, so the ends are walked along a line that is already on
+       the gutter rather than one running beside it. */
+    const sa = {e: a.e + off.e, n: a.n + off.n};
+    const sb = {e: b.e + off.e, n: b.n + off.n};
+    const ux = sb.e - sa.e, uy = sb.n - sa.n, ul = Math.hypot(ux, uy) || 1;
+    const ex = ux / ul, ey = uy / ul;
+    const growA = rmEndReach(sa, sb, sky, -1);
+    const growB = rmEndReach(sa, sb, sky, +1);
+    const na = rmToWorld({e: sa.e - ex * growA, n: sa.n - ey * growA, u: 0});
+    const nb = rmToWorld({e: sb.e + ex * growB, n: sb.n + ey * growB, u: 0});
+    r.path[0].lat = na.lat; r.path[0].lng = na.lng;
+    r.path[1].lat = nb.lat; r.path[1].lng = nb.lng;
+    r.snapped = Math.round(off.m * 100) / 100;
+    r.grewFt = Math.round((growA + growB) * RM_M_TO_FT * 10) / 10;
+    moved++;
+  });
+  /* The heights are hung off the roof model by position, so they have to be
+     re-asked now the positions have moved. */
+  rmRefreshHeights();
+  rmRuns.forEach(function(r){ if(r.suggested) rmSyncSky(r); });
+  rmRenderResults(); rmPaintStreet();
+  return {ok: true, moved: moved, left: left};
+}
+
 const rmDeg = r => r * 180 / Math.PI;
+
+/* ⚠ WHAT A DORMER ACTUALLY IS, so nothing here tries to tidy one away.
+   Owner: "dormers normally have 6 sides or 7 corners because they kind of cut
+   in front on both sides and cut deep on both side and on the house on the
+   side closer to the trees has another corner right below the dormer where
+   after it runs deep it has to connect to that next side on top."
+
+   Seven corners, and only some of them are against the sky: the two at the
+   top of its face and the two where its sides begin are on the skyline, but
+   the ones where it meets the main roof below are not - they are roof against
+   roof, a soft edge in a photograph and often no edge at all. That is the
+   honest reason this tool detects what it can SEE and lets somebody place the
+   rest with a click, rather than pretending to work the whole shape out. It is
+   also why the simplifier's tolerance is small: merging two corners a few
+   pixels apart would quietly turn a dormer into a bump. */
+
+/* ============ THE CORNERS THE OFFICE ACTUALLY PICKS =====================
+   Owner: "it should just have a corner detector and not assume which ones you
+   want just assign a number (or letter if 0-9 runs out) where you toggle a
+   corner on or off, and also have a way to add a corner", then: "have it be
+   easy to create a corner, something like space bar toggles select from make a
+   dot", and: "make a way to swap to numbers if you want to change the order
+   then it recalculates all the dots numbers by doing something like hold shift
+   click the number you want and pick the one you want to switch it with."
+
+   So the tool stops guessing which lines somebody wants. It finds every corner
+   it can see and NAMES them - 0 to 9, then A to Z when those run out - and the
+   line is whatever the switched-on corners join up to make, in their numbered
+   order. Picking is one keystroke per corner; adding one is a click; and the
+   order can be rearranged without starting again.
+
+   ⚠ THE ORDER IS THE LINE. Two corners joined in the wrong order run the
+   string diagonally across a roof, so swapping a pair has to renumber
+   everything after it, not just relabel two dots. */
+let rmCorners = [];              /* {lat, lng, h, on} in the order they join */
+let rmCornerMode = 'dot';        /* 'dot' places corners, 'select' picks them */
+let rmSwapFrom = null;           /* the first half of a shift-click swap */
+/* ⭐ WHICH STRAND IS BEING DRAWN. Owner: "give me a way to end the strand."
+   A house is hung as separate runs of string - the top of the house and the
+   bottom are not one continuous line - so dots have to be able to say which
+   run they belong to. Ending a strand simply starts a new number; the dots
+   already placed are untouched. */
+let rmCurrentBand = 0;
+
+const RM_LABELS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function rmCornerLabel(i){ return i < RM_LABELS.length ? RM_LABELS[i] : '?'; }
+function rmCornerAt(label){
+  const i = RM_LABELS.indexOf(String(label).toUpperCase());
+  return (i >= 0 && i < rmCorners.length) ? i : -1;
+}
+
+/* Swap two corners' places in the order. Everything renumbers itself, because
+   the number IS the position - there is nothing else to update. */
+function rmSwapCorners(i, j){
+  if(i < 0 || j < 0 || i >= rmCorners.length || j >= rmCorners.length || i === j) return false;
+  const tmp = rmCorners[i];
+  rmCorners[i] = rmCorners[j];
+  rmCorners[j] = tmp;
+  rmCornersChanged();
+  return true;
+}
+
+/* Which dot is nearest this spot on screen, if any is near enough to have
+   been meant. Used by the right button, which always selects whatever the left
+   one is currently doing. */
+function rmCornerNearPixel(px, py, W, H, pov, cam){
+  let best = -1, bd = 26;
+  rmCorners.forEach(function(c, i){
+    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+    if(!q) return;
+    const d = Math.hypot(q.x - px, q.y - py);
+    if(d < bd){ bd = d; best = i; }
+  });
+  return best;
+}
+function rmToggleCorner(i){
+  if(i < 0 || i >= rmCorners.length) return false;
+  rmCorners[i].on = !rmCorners[i].on;
+  rmCornersChanged();
+  return true;
+}
+
+function rmAddCorner(pt){
+  if(!pt) return false;
+  /* The ray it was seen along is kept, so a second sighting from elsewhere can
+     be crossed with this one and the guess replaced by the real point. */
+  rmCorners.push({lat: pt.lat, lng: pt.lng, h: pt.h || rmDatum().m, on: true,
+                  byHand: true, band: rmCurrentBand, rays: pt.ray ? [pt.ray] : []});
+  rmCornersChanged();
+  return true;
+}
+/* Finish this run of string. The next dot begins a new one. */
+function rmEndStrand(){
+  const used = rmCorners.some(function(c){ return (c.band || 0) === rmCurrentBand; });
+  if(!used) return false;            /* an empty strand is not a strand */
+  rmCurrentBand++;
+  rmRenderCornerBar();
+  const note = document.getElementById('rmCornerNote');
+  if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished. The next dot starts a new one.';
+  return true;
+}
+/* Take the last dot back off. */
+function rmDeleteLastCorner(){
+  if(!rmCorners.length) return false;
+  rmCorners.pop();
+  rmCornersChanged();
+  return true;
+}
+
+function rmRemoveLastCorner(){
+  for(let i = rmCorners.length - 1; i >= 0; i--){
+    if(rmCorners[i].byHand){ rmCorners.splice(i, 1); rmCornersChanged(); return true; }
+  }
+  return false;
+}
+
+/* The switched-on corners, joined in order, ARE the run. */
+function rmCornersToRun(){
+  rmRuns = rmRuns.filter(function(r){
+    if(!r.fromCorners) return true;
+    if(r.line) r.line.setMap(null);
+    (r.dots || []).forEach(function(d){ d.setMap(null); });
+    return false;
+  });
+  /* ⭐ ONE RUN PER ROOF LEVEL - one strand of string each. Joining the top of
+     the house to the bottom draws a line down the middle of the roof that
+     nobody will ever hang, and counts as footage somebody is charged for. */
+  const bands = {};
+  rmCorners.forEach(function(c){
+    if(!c.on) return;
+    const b = c.band || 0;
+    (bands[b] = bands[b] || []).push(c);
+  });
+  let first = null;
+  Object.keys(bands).forEach(function(b){
+    const on = bands[b];
+    if(on.length < 2) return;
+    const run = {
+      type: 'perimeter', fromCorners: true, on: true, suggested: false, touched: true,
+      path: on.map(function(c){ return {lat: c.lat, lng: c.lng, h: c.h}; }),
+      line: null, dots: []
+    };
+    rmRuns.push(run);
+    rmSyncSky(run);
+    if(!first) first = run;
+  });
+  return first;
+}
+
+function rmCornersChanged(){
+  rmCornersToRun();
+  rmRenderResults();
+  rmPaintStreet();
+  rmRenderCornerBar();
+}
+
+/* The strip of numbers under the pictures: what exists, and what is on. */
+function rmRenderCornerBar(){
+  const bar = document.getElementById('rmCornerBar');
+  if(!bar) return;
+  /* ⚠ SHOWN EVEN WITH NOTHING IN IT. The strip carries the MODE as well as
+     the numbers, and hiding it until the first dot exists meant the line
+     saying "space to place a dot" was invisible exactly when somebody needed
+     it - and the label, never having been redrawn, still claimed to be picking
+     while the tool was in fact placing. A control that lies about its own
+     state is worse than no control. */
+  bar.style.display = rmStreetReady || rmSkyReady ? 'block' : 'none';
+  const mode = document.getElementById('rmCornerMode');
+  if(mode) mode.textContent = rmCornerMode === 'dot'
+    ? 'PLACING — click the roofline to drop a dot. Space to stop placing.'
+    : 'PICKING — press a number to take that dot out. Space to place more.';
+  const list = document.getElementById('rmCornerList');
+  if(!list) return;
+  list.innerHTML = rmCorners.map(function(c, i){
+    const sel = rmSwapFrom === i ? ' rm-swapping' : '';
+    return '<button type="button" class="rm-cornerbtn' + (c.on ? ' on' : '') + sel +
+           '" data-rmcorner="' + i + '" title="' + (c.on ? 'on' : 'off') +
+           ' — shift-click to swap its place">' + rmCornerLabel(i) + '</button>';
+  }).join('');
+}
+
+/* ============ FINDING THE CORNERS, FROM THE PHOTOGRAPH ==================
+   Owner: "make it have a corner detector, so its looking for corners from
+   street view and then it just connects them, look for corners at every single
+   angle the you can see the house and then use the logic system to know which
+   ones to use."
+
+   THE INSIGHT THAT MAKES THIS TRACTABLE: the SKYLINE is the roofline. Where a
+   roof meets the sky is the highest-contrast boundary in any photograph of a
+   house - bright, uniform sky above; dark roof below - and it is exactly the
+   line lights are hung along. Its VERTICES are the corners: the peak of every
+   gable, the end of every eave, the step where one roof meets a taller one.
+   That is far easier to find, and far more reliable, than hunting corners
+   anywhere in a picture full of windows, bricks and shrubs.
+
+   ⚠ AND IT IS HOW CHIMNEYS ARE REJECTED. Owner: "be sure to not catch
+   satelites and chineys in a corner detector." A chimney, a vent stack and a
+   dish all break the skyline - but they break it as a NARROW spike, a foot or
+   two wide, where a real roof feature is measured in yards. Width is what
+   separates them, and it is a property of the thing itself rather than a
+   threshold picked to suit one house. */
+const RM_SKY_DROP = 34;          /* how much darker than the sky counts as roof */
+const RM_SKY_CONFIRM_ROWS = 4;   /* it must STAY dark, so a bird is not a roofline */
+const RM_SPIKE_MAX_W_M = 1.2;    /* wider than this and it is a dormer, not a chimney */
+/* ⚠ THESE THREE ARE WHAT KEEPS THE LIST READABLE. Run on a real house the
+   first version found FORTY corners on one roofline - a corner every little
+   wiggle in the shingles - and the naming ran past Z into question marks.
+   Douglas-Peucker keeps a point when the line strays far enough from the
+   straight, which is not the same as the line TURNING there, so a gentle sag
+   over twenty pixels scores as high as a gable peak. A real corner turns
+   sharply and stands apart from its neighbours; both have to be asked. */
+const RM_CORNER_TOL_PX = 5;      /* how far the simplified line may sit from the real one */
+const RM_CORNER_MIN_TURN = 14;   /* degrees: below this the roof is merely sagging */
+const RM_CORNER_MIN_GAP_PX = 10; /* two corners this close are one corner */
+const RM_CORNER_MAX = 36;        /* as many as there are names for */
+
+/* For each column, the row where the sky ends. null where no sky was found -
+   a tree, a wall filling the frame, another house in front. */
+function rmSkylineRows(photo){
+  const W = photo.w, H = photo.h, lum = photo.lum;
+  const rows = new Array(W).fill(null);
+  for(let x = 0; x < W; x++){
+    /* The sky reading for this column: the brightest of the top few rows.
+       Taking one row would be fooled by a wire or a branch. */
+    let sky = 0;
+    for(let y = 0; y < Math.min(12, H); y++){
+      const v = lum[y * W + x];
+      if(v > sky) sky = v;
+    }
+    if(sky < 60) continue;                        /* no sky in this column at all */
+    for(let y = 1; y < H - RM_SKY_CONFIRM_ROWS; y++){
+      if(sky - lum[y * W + x] < RM_SKY_DROP) continue;
+      /* ⚠ CONFIRM IT STAYS DARK. A single dark row is a wire, a branch or a
+         bird, and treating one as the roofline puts a corner in the sky. */
+      let stays = true;
+      for(let k = 1; k <= RM_SKY_CONFIRM_ROWS; k++){
+        if(sky - lum[(y + k) * W + x] < RM_SKY_DROP){ stays = false; break; }
+      }
+      if(stays){ rows[x] = y; break; }
+    }
+  }
+  return rows;
+}
+
+/* Take out the narrow spikes - chimneys, vents, dish mounts - by filling them
+   in from their shoulders. Returns how many were removed, which is worth
+   knowing: a house with six is a house whose skyline is not to be trusted. */
+function rmFillSpikes(rows, maxWidthPx){
+  let removed = 0;
+  const W = rows.length;
+  for(let x = 1; x < W - 1; x++){
+    if(rows[x] === null) continue;
+    /* A spike RISES above its neighbours, so its row number is SMALLER. */
+    let end = x;
+    while(end < W - 1 && rows[end] !== null && rows[x] !== null &&
+          Math.abs(rows[end] - rows[x]) < 6) end++;
+    const width = end - x;
+    if(width > maxWidthPx) { x = end; continue; }
+    const left = rows[x - 1], right = rows[end];
+    if(left === null || right === null) continue;
+    const shoulder = Math.min(left, right);
+    /* ⚠ IT HAS TO STICK UP OUT OF BOTH SHOULDERS, PROPERLY. At five pixels
+       this fired on every ordinary step in a roofline - one house reported
+       EIGHTY-FOUR chimneys, which is not a report anybody can act on and was
+       quietly smoothing away real corners as well. A chimney clears the roof
+       it stands on by a foot or more; a step between two roof levels is a
+       corner and must survive. Measured against the SHALLOWER shoulder, so a
+       bump on a slope is judged by the side it barely clears. */
+    if(shoulder - rows[x] < 12) continue;
+    /* And it must come back DOWN the other side - a spike has two shoulders.
+       A roofline that simply steps up has only one, and is not a chimney. */
+    if(Math.abs(left - right) > Math.max(6, (shoulder - rows[x]) * 0.6)) continue;
+    for(let k = x; k < end; k++){
+      rows[k] = left + (right - left) * ((k - x + 1) / (width + 1));
+    }
+    removed++;
+    x = end;
+  }
+  return removed;
+}
+
+/* Douglas-Peucker: the fewest points that still describe the line. Its output
+   IS the corner list - every kept point is somewhere the roofline changes
+   direction, which is what a corner is. */
+function rmSimplifyLine(pts, tol){
+  if(pts.length < 3) return pts.slice();
+  let worst = 0, at = 0;
+  const a = pts[0], b = pts[pts.length - 1];
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+  for(let i = 1; i < pts.length - 1; i++){
+    const d = Math.abs((pts[i].x - a.x) * dy - (pts[i].y - a.y) * dx) / len;
+    if(d > worst){ worst = d; at = i; }
+  }
+  if(worst <= tol) return [a, b];
+  const left = rmSimplifyLine(pts.slice(0, at + 1), tol);
+  const right = rmSimplifyLine(pts.slice(at), tol);
+  return left.slice(0, -1).concat(right);
+}
+
+/* The corners of the roofline in this photograph, left to right. */
+function rmCornersInPhoto(photo, mppAtHouse){
+  const rows = rmSkylineRows(photo);
+  /* A chimney's width in PIXELS depends how far away the house is, so it is
+     worked out from the scale rather than written down. */
+  const spikePx = Math.max(4, Math.round(RM_SPIKE_MAX_W_M / (mppAtHouse || 0.05)));
+  const spikes = rmFillSpikes(rows, spikePx);
+  /* Break into runs of continuous skyline - a tree in the middle of the house
+     splits it, and joining across the gap would invent a corner in the tree. */
+  const runs = [];
+  let cur = [];
+  for(let x = 0; x < rows.length; x++){
+    if(rows[x] === null){ if(cur.length > 8) runs.push(cur); cur = []; continue; }
+    cur.push({x: x, y: rows[x]});
+  }
+  if(cur.length > 8) runs.push(cur);
+  let corners = [];
+  runs.forEach(function(run){
+    const simple = rmSimplifyLine(run, RM_CORNER_TOL_PX);
+    /* Keep the two ends of each run always - they are where the roof begins
+       and ends, or where a tree cuts it, and both are real corners. */
+    simple.forEach(function(p, i){
+      if(i === 0 || i === simple.length - 1){ corners.push(p); return; }
+      const a = simple[i - 1], b = simple[i + 1];
+      const t1 = Math.atan2(p.y - a.y, p.x - a.x), t2 = Math.atan2(b.y - p.y, b.x - p.x);
+      let turn = Math.abs((t2 - t1) * 180 / Math.PI);
+      if(turn > 180) turn = 360 - turn;
+      if(turn >= RM_CORNER_MIN_TURN) corners.push(p);
+    });
+  });
+  /* Two corners all but on top of each other are one corner seen twice. */
+  corners = corners.filter(function(p, i){
+    return i === 0 || Math.hypot(p.x - corners[i - 1].x, p.y - corners[i - 1].y) >= RM_CORNER_MIN_GAP_PX;
+  });
+  /* ⚠ AND THERE IS A LIMIT, because there are only so many names. Past it the
+     sharpest turns are kept - a roofline nobody can number is not usable, and
+     the office can always add one back with a click. */
+  let trimmed = 0;
+  if(corners.length > RM_CORNER_MAX){
+    trimmed = corners.length - RM_CORNER_MAX;
+    corners = corners.slice(0, RM_CORNER_MAX);
+  }
+  return {corners: corners, runs: runs.length, spikesRemoved: spikes, trimmed: trimmed};
+}
+
+/* ============ PINNING A DOT EXACTLY, WITH NO MODEL AT ALL ===============
+   Owner: "its not exact enough because when I try to do a doorwell and I need
+   to move to a new angle if it moves even a little then it gets in the way so
+   you need to make there be 0 margin of error."
+
+   ⚠ A SINGLE CLICK CANNOT BE EXACT, AND NO AMOUNT OF TUNING WILL MAKE IT SO.
+   A click gives a RAY from the camera, not a point on it. Something has to say
+   how far along that ray the roof is, and every answer available - the roof
+   planes, the footprint, the face boxes - is a model of the house that is
+   close but never right. Whatever error is left lands entirely in the depth,
+   and depth is invisible from the camera that placed the dot and obvious from
+   any other. That is why it looks perfect until you move.
+
+   TWO RAYS FROM TWO PLACES CROSS AT ONE POINT. That is not a model, it is
+   geometry, and it is exact to however well the two clicks were aimed. So a
+   dot placed once is a good guess; click the SAME corner again from another
+   angle and it stops being a guess. More angles narrow it further - every ray
+   is kept and the point that best satisfies all of them is used.
+
+   The solve is the ordinary least-squares meeting point of N lines: each ray
+   contributes (I - ddᵀ), and the point minimising the summed squared distance
+   to all of them falls out of a three-by-three. With two rays it reduces to
+   the midpoint of closest approach, which is what it should be. */
+const RM_PIN_MIN_BASE_M = 3;     /* two clicks nearer than this cannot fix depth */
+const RM_PIN_GRAB_PX = 22;       /* clicking this near a dot means THAT dot */
+
+/* The point that best satisfies every ray it has been seen along. */
+function rmSolveFromRays(rays){
+  if(!rays || rays.length < 2) return null;
+  /* A = sum (I - ddᵀ),  b = sum (I - ddᵀ) c */
+  const A = [[0,0,0],[0,0,0],[0,0,0]];
+  const b = [0,0,0];
+  rays.forEach(function(r){
+    const d = [r.dir.e, r.dir.n, r.dir.u];
+    const c = [r.cam.e, r.cam.n, r.cam.u];
+    for(let i = 0; i < 3; i++){
+      for(let j = 0; j < 3; j++){
+        const m = (i === j ? 1 : 0) - d[i] * d[j];
+        A[i][j] += m;
+        b[i] += m * c[j];
+      }
+    }
+  });
+  /* Solve the 3x3 by elimination, with a guard: rays that are all but parallel
+     make this singular, and a singular solve produces a confident nonsense. */
+  const M = [[A[0][0],A[0][1],A[0][2],b[0]],
+             [A[1][0],A[1][1],A[1][2],b[1]],
+             [A[2][0],A[2][1],A[2][2],b[2]]];
+  for(let col = 0; col < 3; col++){
+    let piv = col;
+    for(let r2 = col + 1; r2 < 3; r2++) if(Math.abs(M[r2][col]) > Math.abs(M[piv][col])) piv = r2;
+    if(Math.abs(M[piv][col]) < 1e-8) return null;        /* too nearly parallel */
+    const tmp = M[col]; M[col] = M[piv]; M[piv] = tmp;
+    for(let r2 = 0; r2 < 3; r2++){
+      if(r2 === col) continue;
+      const f = M[r2][col] / M[col][col];
+      for(let c2 = col; c2 < 4; c2++) M[r2][c2] -= f * M[col][c2];
+    }
+  }
+  const p = {e: M[0][3] / M[0][0], n: M[1][3] / M[1][1], u: M[2][3] / M[2][2]};
+  if(![p.e, p.n, p.u].every(isFinite)) return null;
+  /* How far the rays actually missed each other by - the honest measure of how
+     good this pin is, and worth showing rather than hiding. */
+  let worst = 0;
+  rays.forEach(function(r){
+    const w = {e: p.e - r.cam.e, n: p.n - r.cam.n, u: p.u - r.cam.u};
+    const t = w.e * r.dir.e + w.n * r.dir.n + w.u * r.dir.u;
+    const d = Math.hypot(w.e - r.dir.e * t, w.n - r.dir.n * t, w.u - r.dir.u * t);
+    if(d > worst) worst = d;
+  });
+  return {pt: p, spread: worst};
+}
+
+/* Which existing dot is this click meant for, if any. */
+function rmDotUnderClick(px, py, W, H, pov, cam){
+  let best = -1, bd = RM_PIN_GRAB_PX;
+  rmCorners.forEach(function(c, i){
+    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+    if(!q) return;
+    const d = Math.hypot(q.x - px, q.y - py);
+    if(d < bd){ bd = d; best = i; }
+  });
+  return best;
+}
+
+/* Add another sighting of a dot and re-solve it from all of them. */
+function rmPinCorner(i, ray){
+  const c = rmCorners[i];
+  if(!c) return null;
+  c.rays = (c.rays || []).concat([ray]);
+  /* ⚠ Two sightings from nearly the same spot cannot fix a depth - the rays
+     are almost one ray, and the solve turns a pixel of aim into metres. Say so
+     rather than moving the dot somewhere worse than it already was. */
+  const far = c.rays.some(function(a){
+    return c.rays.some(function(b){
+      return Math.hypot(a.cam.e - b.cam.e, a.cam.n - b.cam.n) >= RM_PIN_MIN_BASE_M;
+    });
+  });
+  if(!far) return {ok: false, why: 'move further along the street first - two views from the same spot cannot fix the depth'};
+  const sol = rmSolveFromRays(c.rays);
+  if(!sol) return {ok: false, why: 'those sightings are too nearly in line to cross'};
+  const w = rmToWorld(sol.pt);
+  c.lat = w.lat; c.lng = w.lng; c.h = sol.pt.u;
+  c.pinned = c.rays.length;
+  c.spread = sol.spread;
+  rmCornersChanged();
+  return {ok: true, sightings: c.rays.length, spread: sol.spread};
+}
+
+/* ============ WHICH PART OF THE HOUSE A CLICK IS POINTING AT ============
+   Owner: "when I moved instead of staying at the gutter it came toward the
+   camera and started hovering."
+
+   ⚠ MEASURED ON THE TEST HOUSE, and the numbers say it plainly. The building's
+   bounding box runs from 8.0 m west of centre to 7.4 m east. The eleven roof
+   faces inside it do NOT: most stop about 4 m west, and only two reach the
+   full 8. So a click at a gutter on a set-back face was being placed on the
+   near face of the WHOLE-BUILDING box - up to four and a half metres in front
+   of the wall the gutter is actually on. From the spot it was placed at that
+   looks right; step sideways and it is floating in the garden.
+
+   A house is not a box. It is several parts at different depths, and Google
+   describes each of them separately. So the ray is tested against every roof
+   FACE, and a face only counts if the ray is at that face's own roof height
+   where it crosses it - which is what stops a ray flying OVER a low garage and
+   being placed on its front wall. The nearest face that really is under the
+   ray wins. */
+const RM_FACE_EDGE_TOL_M = 1.6;   /* how close to a face's roof the ray must pass */
+
+/* ⚠ DO NOT MAKE CONSECUTIVE DOTS PREFER THE FACE THE LAST ONE LANDED ON.
+   That was tried, shipped, and reverted, and the reasoning behind it was
+   circular in a way worth writing down so it is not tried again.
+
+   The argument was: four dots along one gutter came out at e -7.96, -7.96,
+   -7.93 and -5.63, so the fourth had "jumped to another face" and should be
+   pulled back onto its neighbours' face. Doing that dropped the spread from
+   2.33 m to 0.03 m, which looked like a fix.
+
+   IT MEASURED THE CONSTRAINT IT HAD JUST IMPOSED. Forcing four dots onto one
+   plane and then reporting that they are coplanar proves nothing about whether
+   that plane is the right one - all four can be uniformly wrong and still
+   score perfectly, and from a new angle they all drift together, which is
+   exactly what the owner reported next.
+
+   AND THE HOUSE SAYS THE JUMP WAS REAL. This one steps back: faces 2 and 5
+   reach e -7.96 where n > -0.9, while faces 6, 9 and 10 stop at about -4.2
+   south of that. A dot near that step BELONGS on the far plane. A rule that
+   drags it forward destroys the set-backs - the dormer fronts and depths, the
+   recessed entries - which are the lines the owner most wants caught.
+
+   A single click is a ray. Its depth has to come from somewhere, and every
+   model of the house is wrong by a foot or three; that error is invisible from
+   the camera that placed the dot and obvious from any other. Tightening the
+   model trades one error for another. Seeing the corner from a second place is
+   what removes the model - see rmPinCorner. */
+
+function rmRoofEdgeHit(dir, cam){
+  if(!rmFaces || !rmFaces.length || !rmOrigin) return null;
+  let best = null;
+  rmFaces.forEach(function(f){
+    if(!f.sw || !f.ne) return;
+    const plane = rmFacePlane(f);
+    if(!plane) return;
+    const sw = rmToLocal(f.sw.lat, f.sw.lng, 0);
+    const ne = rmToLocal(f.ne.lat, f.ne.lng, 0);
+    const minE = Math.min(sw.e, ne.e), maxE = Math.max(sw.e, ne.e);
+    const minN = Math.min(sw.n, ne.n), maxN = Math.max(sw.n, ne.n);
+    const sides = [
+      {a: {e: minE, n: minN}, b: {e: maxE, n: minN}},
+      {a: {e: maxE, n: minN}, b: {e: maxE, n: maxN}},
+      {a: {e: maxE, n: maxN}, b: {e: minE, n: maxN}},
+      {a: {e: minE, n: maxN}, b: {e: minE, n: minN}}
+    ];
+    sides.forEach(function(sd){
+      const se = sd.b.e - sd.a.e, sn = sd.b.n - sd.a.n;
+      const den = dir.e * sn - dir.n * se;
+      if(Math.abs(den) < 1e-9) return;
+      const t = ((sd.a.e - cam.e) * sn - (sd.a.n - cam.n) * se) / den;
+      if(!(t > 0.5 && t < 200)) return;
+      const pe = cam.e + dir.e * t, pn = cam.n + dir.n * t, pu = cam.u + dir.u * t;
+      const along = Math.abs(se) > Math.abs(sn) ? (pe - sd.a.e) / se : (pn - sd.a.n) / sn;
+      if(!(along >= -0.02 && along <= 1.02)) return;
+      if(!(pu > 0.5 && pu < 18)) return;
+      /* ⚠ THE TEST THAT MATTERS. How high is THIS face's roof where the ray
+         crosses its edge? If the ray is well above it, it is flying over this
+         part of the house on its way to something further back, and placing
+         the dot here is the hovering the owner saw. */
+      if(Math.abs(plane.normal.u) < 1e-9) return;
+      const roofU = (plane.d - (plane.normal.e * pe + plane.normal.n * pn)) / plane.normal.u;
+      if(Math.abs(pu - roofU) > RM_FACE_EDGE_TOL_M) return;
+      if(!best || t < best.t) best = {e: pe, n: pn, u: pu, t: t};
+    });
+  });
+  return best;
+}
+
+/* ============ HOW DEEP A CLICKED POINT IS ===============================
+   Owner: "its way off, the street view will look right but the sky view will
+   be way off."
+
+   ⚠ AND THAT IS THE SIGNATURE OF A DEPTH ERROR, not a drawing error. Every
+   point along the ray from the camera through a pixel projects back to THAT
+   SAME PIXEL, so a dot can sit perfectly on the gutter in the street view and
+   be ten feet into next door's garden on the map. The street view cannot show
+   the mistake; only the map can.
+
+   The depth was coming from Google's ROOF planes - horizontal-ish surfaces
+   whose height rests on the datum. A ray from the street meets one at a
+   shallow angle, so a foot of error in the height slides the crossing several
+   feet along the ray, and all of that error lands in the plan position.
+
+   THE FOOTPRINT IS THE BETTER SURFACE. Its walls are VERTICAL, so a ray from
+   the street meets them nearly square on and an error in height barely moves
+   the crossing at all. And the footprint's plan position is the thing Google
+   is most reliable about - it is the outline of the building, not a guess at
+   how the roof sits on it. A gutter runs above a wall, so a wall is where a
+   gutter's depth comes from. */
+function rmFootprintWallHit(dir, cam){
+  const box = rmFootprintBox();
+  if(!box) return null;
+  /* The four walls, each as a segment in plan. */
+  const sides = [
+    {a: {e: box.minE, n: box.minN}, b: {e: box.maxE, n: box.minN}},
+    {a: {e: box.maxE, n: box.minN}, b: {e: box.maxE, n: box.maxN}},
+    {a: {e: box.maxE, n: box.maxN}, b: {e: box.minE, n: box.maxN}},
+    {a: {e: box.minE, n: box.maxN}, b: {e: box.minE, n: box.minN}}
+  ];
+  let best = null;
+  sides.forEach(function(sd){
+    const se = sd.b.e - sd.a.e, sn = sd.b.n - sd.a.n;
+    /* Where the ray's plan direction crosses this segment's line. */
+    const den = dir.e * sn - dir.n * se;
+    if(Math.abs(den) < 1e-9) return;                 /* running along the wall */
+    const t = ((sd.a.e - cam.e) * sn - (sd.a.n - cam.n) * se) / den;
+    if(!(t > 0.5 && t < 200)) return;                /* behind, or a street away */
+    const pe = cam.e + dir.e * t, pn = cam.n + dir.n * t;
+    /* Is the crossing actually ON the wall, rather than past its end? */
+    const along = Math.abs(se) > Math.abs(sn) ? (pe - sd.a.e) / se : (pn - sd.a.n) / sn;
+    if(!(along >= -0.02 && along <= 1.02)) return;
+    const u = cam.u + dir.u * t;
+    /* A roofline is not underground and not on the fourth floor. */
+    if(!(u > 0.5 && u < 18)) return;
+    if(!best || t < best.t) best = {e: pe, n: pn, u: u, t: t};
+  });
+  return best;
+}
+
+/* ============ WHERE A CORNER IS, FROM THE STREET ALONE ==================
+   Owner: "its using skyview to place corners which is bad it should use street
+   view only to detect where corners are."
+
+   ⚠ AND THAT WAS TRUE. The corners were FOUND in the photograph and then
+   placed by firing the ray at Google's roof planes - and those planes are a
+   sky-view product, the same compass-aligned model whose shortcomings started
+   all of this. A corner detected from the street and then positioned from
+   above is a sky-view corner wearing a street-view coat.
+
+   ONE PHOTOGRAPH CANNOT GIVE DEPTH. Two can. Google has driven the street, so
+   there are usually several panoramas along it, and the same corner seen from
+   two of them gives two rays that cross where the corner is. That is ordinary
+   triangulation, it uses nothing but the street, and it is exactly what the
+   owner asked for earlier: "look for corners at every single angle the you can
+   see the house."
+
+   MATCHING WITHOUT DESCRIPTORS. The usual hard part is knowing which corner in
+   one picture is which in the other. It can be skipped: fire every ray from
+   one view against every ray from the other, and keep the pairs that very
+   nearly MEET. Two rays in space almost never come within a few centimetres by
+   accident, so near-intersection is itself the evidence that the two pixels
+   are the same corner. */
+const RM_TRI_MAX_GAP_M = 0.45;   /* two rays this close are looking at one thing */
+const RM_TRI_MIN_BASE_M = 4;     /* two views closer than this cannot judge depth */
+/* ⚠ MEASURED ON A REAL HOUSE. At 0.7 m the strip came back with seven
+   corners sitting almost on top of each other - 1, 2 and 3 in one blob and A
+   to G in another - which is unpickable however well they are numbered. Two
+   corners a metre and a half apart on a roofline are one corner found twice
+   from two angles, not two features anybody would hang lights round
+   separately. */
+const RM_TRI_MERGE_M = 1.5;      /* corners this close are the same corner */
+/* How far apart two roof levels have to be before they are hung separately.
+   Under this it is one roofline with a bit of a step in it. */
+const RM_STRAND_GAP_M = 1.6;
+
+/* Where two rays come closest, and how far apart they are there. */
+function rmRayClosest(ca, da, cb, db){
+  const wx = ca.e - cb.e, wy = ca.n - cb.n, wz = ca.u - cb.u;
+  const a = da.e * da.e + da.n * da.n + da.u * da.u;
+  const b = da.e * db.e + da.n * db.n + da.u * db.u;
+  const c = db.e * db.e + db.n * db.n + db.u * db.u;
+  const d = da.e * wx + da.n * wy + da.u * wz;
+  const e = db.e * wx + db.n * wy + db.u * wz;
+  const denom = a * c - b * b;
+  if(Math.abs(denom) < 1e-9) return null;          /* parallel: no crossing */
+  const ta = (b * e - c * d) / denom;
+  const tb = (a * e - b * d) / denom;
+  if(ta <= 0.5 || tb <= 0.5) return null;          /* behind one of the cameras */
+  const pa = {e: ca.e + da.e * ta, n: ca.n + da.n * ta, u: ca.u + da.u * ta};
+  const pb = {e: cb.e + db.e * tb, n: cb.n + db.n * tb, u: cb.u + db.u * tb};
+  return {
+    pt: {e: (pa.e + pb.e) / 2, n: (pa.n + pb.n) / 2, u: (pa.u + pb.u) / 2},
+    gap: Math.hypot(pa.e - pb.e, pa.n - pb.n, pa.u - pb.u),
+    ta: ta, tb: tb
+  };
+}
+
+/* Every corner two views agree on. */
+function rmTriangulateCorners(viewA, viewB){
+  const base = Math.hypot(viewA.cam.e - viewB.cam.e, viewA.cam.n - viewB.cam.n);
+  if(base < RM_TRI_MIN_BASE_M) return {points: [], why: 'the two views are too close together to judge depth'};
+  const fp = rmFootprintBox();
+  const hits = [];
+  viewA.corners.forEach(function(ca){
+    const da = rmPhotoRay(ca.x, ca.y, viewA.w, viewA.h, viewA.pose);
+    let best = null;
+    viewB.corners.forEach(function(cb){
+      const db = rmPhotoRay(cb.x, cb.y, viewB.w, viewB.h, viewB.pose);
+      const meet = rmRayClosest(viewA.cam, da, viewB.cam, db);
+      if(!meet || meet.gap > RM_TRI_MAX_GAP_M) return;
+      if(!best || meet.gap < best.gap) best = meet;
+    });
+    if(!best) return;
+    /* ⚠ A corner has to be ON the house and at a height a roof reaches.
+       Two rays can meet perfectly in the middle of the road. */
+    if(fp && !rmInsideFootprint(best.pt, fp)) return;
+    if(!(best.pt.u > 1 && best.pt.u < 16)) return;
+    hits.push(best.pt);
+  });
+  /* The same corner often matches more than once - keep one of each. */
+  const kept = [];
+  hits.forEach(function(p){
+    for(let i = 0; i < kept.length; i++){
+      if(Math.hypot(p.e - kept[i].e, p.n - kept[i].n, p.u - kept[i].u) < RM_TRI_MERGE_M) return;
+    }
+    kept.push(p);
+  });
+  return {points: kept, base: base};
+}
+
+/* A corner in the picture, put back where it is in the world. A skyline
+   corner sits on a roof edge, so the ray from the camera through it meets one
+   of the roof's own planes - the nearest such meeting is the answer. */
+function rmCornerWorld(px, py, photo, cam, pose){
+  const dir = rmPhotoRay(px, py, photo.w, photo.h, pose);
+  const fp = rmFootprintBox();
+  let best = null;
+  (rmFaces || []).forEach(function(f){
+    const plane = rmFacePlane(f);
+    if(!plane) return;
+    const hit = rmPlaneHit3(dir, cam, plane);
+    if(!hit) return;
+    /* ⚠ It has to land ON the house. Roof planes are infinite, so without
+       this a ray skimming past the gable meets the plane half a street away
+       and puts a corner in the neighbour's garden. */
+    if(fp && !rmInsideFootprint(hit, fp)) return;
+    if(!best || hit.t < best.t) best = hit;
+  });
+  if(!best) return null;
+  const w = rmToWorld({e: best.e, n: best.n, u: best.u});
+  return {lat: w.lat, lng: w.lng, h: best.u};
+}
+
+/* ONE VIEWPOINT, READY TO BE TRIANGULATED AGAINST ANOTHER. */
+async function rmCornerView(panoId, camLatLng){
+  if(!rmOrigin) return null;
+  const p = rmToLocal(camLatLng.lat, camLatLng.lng, 0);
+  p.u = RM_CAM_HEIGHT_M + rmCamGroundDrop;
+  const away = Math.max(4, Math.hypot(p.e, p.n));
+  const heading = rmHeadingTo(camLatLng.lat, camLatLng.lng, rmOrigin.lat, rmOrigin.lng);
+  /* Aim halfway up what a house of this height would be. The datum is only
+     used to POINT the camera - nothing measured depends on it, which is the
+     point of triangulating. */
+  const tilt = Math.max(-8, Math.min(28, rmDeg(Math.atan2(4.5 - p.u, away))));
+  const pose = {heading: heading, pitch: tilt, fov: RM_PHOTO_FOV};
+  const photo = await rmPhotoEdges(panoId, heading, tilt);
+  if(photo.error) return null;
+  const focal = (photo.w / 2) / Math.tan(rmRad(pose.fov) / 2);
+  const found = rmCornersInPhoto(photo, away / focal);
+  if(!found.corners.length) return null;
+  return {cam: p, pose: pose, w: photo.w, h: photo.h,
+          corners: found.corners, spikes: found.spikesRemoved};
+}
+
+/* Find several places Google has stood, spread along the street. */
+function rmFindPanosAround(){
+  return new Promise(function(resolve){
+    if(!rmOrigin || !google.maps.StreetViewService){ resolve([]); return; }
+    const road = rmRoadDirection() || {e: 0, n: -1};
+    /* Along the street is across the way we look at the house. */
+    const along = {e: -road.n, n: road.e};
+    const m = rmMetresPerDeg(rmOrigin.lat);
+    /* ⚠ SPREAD MATTERS MORE THAN NUMBER. Two views a metre apart cannot
+       judge depth however good the corners are, so the offsets are far enough
+       apart to give a real baseline against a house thirty metres off. */
+    const spots = [0, -14, 14, -26, 26].map(function(d){
+      return {lat: rmOrigin.lat + (road.n * 22 + along.n * d) / m.lat,
+              lng: rmOrigin.lng + (road.e * 22 + along.e * d) / m.lng};
+    });
+    const svc = new google.maps.StreetViewService();
+    const seen = {}, out = [];
+    let left = spots.length;
+    spots.forEach(function(sp){
+      svc.getPanorama({location: sp, radius: 30, source: 'outdoor'}, function(data, st){
+        if(st === 'OK' && data && data.location && !seen[data.location.pano]){
+          seen[data.location.pano] = true;
+          out.push({pano: data.location.pano,
+                    at: {lat: data.location.latLng.lat(), lng: data.location.latLng.lng()}});
+        }
+        if(--left === 0) resolve(out);
+      });
+    });
+  });
+}
+
+/* Look at the house from every angle Google has, and write down the corners
+   the views AGREE on. */
+async function rmDetectCornersFromStreet(){
+  if(!rmStreetReady || !rmOrigin) return {ok: false, why: 'no street photo to look at'};
+  if(!rmCamOnRoad()) return {ok: false, why: 'the camera is not on the road yet'};
+  const spots = await rmFindPanosAround();
+  if(spots.length < 2){
+    return {ok: false, why: 'Google has only driven past this house once, so there is no second angle to measure depth from'};
+  }
+  const views = [];
+  for(let i = 0; i < spots.length && views.length < 4; i++){
+    const v = await rmCornerView(spots[i].pano, spots[i].at);
+    if(v) views.push(v);
+  }
+  if(views.length < 2) return {ok: false, why: 'only one of the street photos could be read'};
+  /* Every pair, so a corner hidden from one angle is still caught by two
+     others - which is the whole reason for looking from more than two. */
+  const all = [];
+  let bestBase = 0;
+  for(let i = 0; i < views.length; i++){
+    for(let j = i + 1; j < views.length; j++){
+      const t = rmTriangulateCorners(views[i], views[j]);
+      if(t.base && t.base > bestBase) bestBase = t.base;
+      t.points.forEach(function(p){ all.push(p); });
+    }
+  }
+  /* One corner, however many pairs saw it. */
+  const kept = [];
+  all.forEach(function(p){
+    for(let i = 0; i < kept.length; i++){
+      if(Math.hypot(p.e - kept[i].e, p.n - kept[i].n, p.u - kept[i].u) < RM_TRI_MERGE_M) return;
+    }
+    kept.push(p);
+  });
+  if(kept.length < 2) return {ok: false, why: 'the views did not agree on any corner', views: views.length};
+  /* ⚠ THE ORDER FOLLOWS THE ROOFLINE, NOT THE STREET.
+     Owner, counting them on screen: "you have like 20 lines running deep",
+     against the three the house actually has. Sorting left to right sweeps
+     ACROSS the house, so consecutive corners jump between the near edge of the
+     roof and the far one and every jump becomes a line running deep. A
+     roofline is a path, not a ranking.
+
+     So the chain is walked instead: start at one end and go to the NEAREST
+     corner not yet used, over and over. That traces the outline the way string
+     would actually run, and a corner behind another one is picked up on the
+     way past rather than reached across the roof for. */
+  const road = rmRoadDirection() || {e: 0, n: -1};
+  const along = {e: -road.n, n: road.e};
+  /* ⭐ TWO STRANDS, NOT ONE. Owner: "there are only two strands on the house so
+     the whole top should be connected and the whole bottom should be
+     connected." A house at two roof levels is hung as two runs of string, and
+     joining the top to the bottom draws a line down the middle of the roof
+     that nobody will ever hang.
+     Where the split falls is not guessed: the heights are sorted and the
+     BIGGEST GAP between them is the step from one roof to the other. A house
+     all on one level has no such gap and stays one strand. */
+  const byHeight = kept.slice().sort(function(a, b){ return a.u - b.u; });
+  let cut = -1, widest = 0;
+  for(let i = 1; i < byHeight.length; i++){
+    const gap = byHeight[i].u - byHeight[i - 1].u;
+    if(gap > widest){ widest = gap; cut = i; }
+  }
+  const bands = [];
+  if(cut > 0 && widest >= RM_STRAND_GAP_M){
+    bands.push(byHeight.slice(0, cut));    /* the lower roof */
+    bands.push(byHeight.slice(cut));       /* the upper roof */
+  } else {
+    bands.push(byHeight);
+  }
+  kept.length = 0;
+  bands.forEach(function(band, bi){
+    if(band.length < 2){ band.forEach(function(p){ p.band = bi; kept.push(p); }); return; }
+    const remaining = band.slice();
+    remaining.sort(function(a, b){ return (a.e * along.e + a.n * along.n) - (b.e * along.e + b.n * along.n); });
+    const chain = [remaining.shift()];
+    while(remaining.length){
+      const last = chain[chain.length - 1];
+      let bj = 0, bd = Infinity;
+      remaining.forEach(function(p, i){
+        const d = Math.hypot(p.e - last.e, p.n - last.n, p.u - last.u);
+        if(d < bd){ bd = d; bj = i; }
+      });
+      chain.push(remaining.splice(bj, 1)[0]);
+    }
+    chain.forEach(function(p){ p.band = bi; kept.push(p); });
+  });
+  rmCorners = kept.slice(0, RM_CORNER_MAX).map(function(p){
+    const w = rmToWorld(p);
+    return {lat: w.lat, lng: w.lng, h: p.u, on: true, band: p.band || 0};
+  });
+  rmCornersChanged();
+  return {ok: true, corners: rmCorners.length, views: views.length,
+          baseM: Math.round(bestBase), spikes: views.reduce(function(a, v){ return a + v.spikes; }, 0)};
+}
+
+/* ⭐ FRAME THE HOUSE, DO NOT JUST POINT AT IT.
+   Owner: "theres to much going on you cant see the house clearly."
+   Street View opens at zoom 1, which is a NINETY DEGREE field of view - most
+   of a street. From the twenty-nine metres the camera usually sits at, an
+   ordinary house then covers about a seventh of the width of the pane, a
+   hundred and fifty pixels, and at that size a line ON the gutter and a line a
+   foot off it are the same picture. That is not a drawing problem and it is
+   not a pane-size problem: the pane was already using the height the window
+   had. It is the lens.
+
+   So work out how wide the house actually is from where the camera stands, and
+   zoom until it fills most of the frame. Google's relation between the two is
+   fov = 180 / 2^zoom, which inverts to zoom = log2(180 / fov). */
+/* ⚠ MEASURED, NOT TRUSTED. fov = 180 / 2^zoom is the relation everyone
+   quotes for Street View, and on this pane it overshoots: asking for a house
+   to fill 72% produced a FIFTEEN DEGREE view - a keyhole onto one window,
+   with the roofline off both edges. Google's fov depends on the container's
+   shape as well as the zoom, so the formula is an approximation and the
+   safe direction is to under-zoom. A house a little small in the frame is
+   still readable; a close-up of a wall is not. */
+const RM_FRAME_FILL = 0.55;    /* how much of the width the house should take */
+/* ⚠ ONCE PER HOUSE, AND ONLY ONCE. The camera is not on the road at the
+   moment the lines are built - Google opens the panorama at the house and
+   moves it a beat later - so framing has to be tried again when the camera
+   lands, exactly as reading the height does. But it must not keep re-framing
+   after that: the office zooms in to check a gutter, and a tool that yanks the
+   zoom back every time the camera nudges is unusable. */
+let rmFramed = false;
+const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 2.3;   /* ~36 degrees: close, never a keyhole */
+function rmFrameHouseInStreet(){
+  if(rmFramed) return null;
+  if(!rmPano || !rmStreetReady || !rmBuilding || !rmOrigin) return null;
+  const cam = rmCamOnRoad();
+  if(!cam) return null;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  /* ⭐ AIM FIRST, THEN ZOOM. The heading was set ONCE, in the callback that
+     found the panorama, from where the camera stood at that moment - and
+     Google then moves the camera to the nearest road photo. Nothing pointed it
+     at the house again, so on the test house the pane opened looking straight
+     down the street with the house out of frame entirely, and the zoom
+     obligingly framed the empty road.
+     The house is at the origin, so the heading to it from the camera is simply
+     the bearing of the vector back to zero. */
+  const aim = rmDeg(Math.atan2(-cam.e, -cam.n));
+  const away = Math.max(4, Math.hypot(cam.e, cam.n));
+  /* Tilt up enough to hold the roof rather than the lawn. */
+  const roofish = rmDatum().m + rmHighestRelM() * 0.5;
+  const tilt = Math.max(-8, Math.min(28, rmDeg(Math.atan2(roofish - cam.u, away))));
+  rmPano.setPov({heading: aim, pitch: tilt});
+  /* The four corners, so a house at an angle is measured across what the
+     camera actually SEES of it rather than across its north/south box. */
+  const corners = [{e: sw.e, n: sw.n}, {e: ne.e, n: sw.n}, {e: ne.e, n: ne.n}, {e: sw.e, n: ne.n}];
+  let lo = Infinity, hi = -Infinity;
+  corners.forEach(function(c){
+    /* Angle of this corner as seen from the camera, relative to the heading it
+       has just been pointed. */
+    const a = rmDeg(Math.atan2(c.e - cam.e, c.n - cam.n));
+    let rel = a - aim;
+    while(rel > 180) rel -= 360;
+    while(rel < -180) rel += 360;
+    if(rel < lo) lo = rel;
+    if(rel > hi) hi = rel;
+  });
+  const wideDeg = hi - lo;
+  /* A house that somehow subtends nothing, or half the sky, is a measurement
+     gone wrong - leave the zoom alone rather than framing on nonsense. */
+  if(!(wideDeg > 2 && wideDeg < 120)) return null;
+  const wantFov = Math.min(120, wideDeg / RM_FRAME_FILL);
+  const zoom = Math.max(RM_ZOOM_MIN, Math.min(RM_ZOOM_MAX, Math.log2(180 / wantFov)));
+  rmPano.setZoom(zoom);
+  rmFramed = true;
+  return {aim: +aim.toFixed(1), tilt: +tilt.toFixed(1), houseDeg: +wideDeg.toFixed(1), fov: +wantFov.toFixed(1), zoom: +zoom.toFixed(2)};
+}
+
+/* ⚠ THE CAMERA IS NOT ON THE ROAD THE MOMENT STREET VIEW SAYS IT IS READY.
+   Watched live on the test house: the lines were drawn, the sides came out
+   right, and the photo read failed with "the camera is not on the road yet".
+   rmEnsurePano opens the panorama AT the house so something is on screen
+   straight away; Google then moves it to the road photo, and pano_changed
+   fires BEFORE position_changed. So the first attempt reads a camera standing
+   in the living room, and there was nothing to try again afterwards.
+   Now it is attempted whenever the camera moves, until the photograph has
+   actually answered - and a handful of tries is the limit, because a house
+   Google has photographed badly should not be retried all afternoon. */
+let rmGuessedCount = 0, rmPhotoDatumTries = 0, rmPhotoDatumBusy = false, rmSnapNote = null;
+const RM_PHOTO_DATUM_TRIES = 4;
+function rmTryPhotoDatum(){
+  if(rmDatumSource === 'photo') return;              /* already answered */
+  if(rmPhotoDatumBusy || rmPhotoDatumTries >= RM_PHOTO_DATUM_TRIES) return;
+  if(!rmSuggestionsBuilt || !rmStreetReady || !rmGuessedCount) return;
+  if(!rmCamOnRoad()) return;                         /* the whole point */
+  rmPhotoDatumBusy = true;
+  rmPhotoDatumTries++;
+  rmDatumFromStreetPhoto().then(function(res){
+    rmPhotoDatumBusy = false;
+    const st = document.getElementById('rmStatus');
+    if(!st) return;
+    /* ⭐ AND NOW LOOK FOR THE CORNERS. The height has to be right first: a
+       corner is placed by meeting a ray with a roof plane, and the planes sit
+       at the datum, so reading the corners before the height would put every
+       one of them at the assumed ten feet. */
+    if(false) rmDetectCornersFromStreet().then(function(c){
+      const bar = document.getElementById('rmCornerNote');
+      if(bar) bar.textContent = c.ok
+        ? c.corners + ' corners found on the roofline' + (c.spikes ? ' (' + c.spikes + ' chimney or vent ignored)' : '') + '.'
+        : '⚠ No corners could be read from the photo: ' + c.why + '. Place them with space, or use the lines below.';
+    });
+    st.textContent = res.ok
+      ? rmGuessedCount + ' roof edges found, and the roof height was read off the street photo (' +
+        Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
+      : rmGuessedCount + ' roof edges found — the front of the house is already on. ⚠ The height is still assumed: ' +
+        res.why + '. Trace anything in Street View to measure it properly.';
+  }).catch(function(){ rmPhotoDatumBusy = false; });
+}
 
 /* ASK THE PHOTOGRAPH HOW HIGH THE ROOF IS.
    This is the part that makes the lines sit on the house rather than near it.
@@ -15815,6 +17251,10 @@ async function rmDatumFromStreetPhoto(){
   /* One sample per suggested gutter, taken at its midpoint - the middle of a
      run is the part least likely to be behind a tree or off the edge of the
      frame. */
+  /* One sample per suggested gutter, taken at its midpoint - the middle of a
+     run is the part least likely to be behind a tree or off the edge of the
+     frame - and EACH ONE CARRIES ITS RIDGE. Without the ridge there is nothing
+     to pair the gutter with, and the search walks up to the skyline. */
   const samples = [];
   rmRuns.forEach(function(r){
     if(!r.suggested || !r.path || r.path.length < 2) return;
@@ -15823,7 +17263,16 @@ async function rmDatumFromStreetPhoto(){
     const rel = rmRoofRelativeAt(mid.lat, mid.lng);
     if(rel === null) return;
     const p = rmToLocal(mid.lat, mid.lng, 0);
-    samples.push({e: p.e, n: p.n, rel: rel});
+    const sample = {e: p.e, n: p.n, rel: rel, ridge: null};
+    const rm = r.face ? rmFaceRidgeMid(r.face) : null;
+    if(rm){
+      const rrel = rmRoofRelativeAt(rm.lat, rm.lng);
+      if(rrel !== null && rrel > rel + 0.3){        /* a ridge really is higher */
+        const rp = rmToLocal(rm.lat, rm.lng, 0);
+        sample.ridge = {e: rp.e, n: rp.n, rel: rrel};
+      }
+    }
+    samples.push(sample);
   });
   const ans = rmDatumFromSamples(samples, photo, cam, pose);
   if(!ans.ok) return {ok: false, why: ans.why};
@@ -15869,17 +17318,115 @@ function rmCamOnRoad(){
   if(!c) return null;
   return Math.hypot(c.e, c.n) >= RM_ROAD_MIN_M ? c : null;
 }
-function rmEaveSide(eave){
+/* How far the house reaches to each side, measured across the front. */
+function rmHouseHalfWidth(along){
+  if(!rmBuilding || !rmOrigin) return 0;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  let far = 0;
+  [[sw.e, sw.n], [ne.e, sw.n], [ne.e, ne.n], [sw.e, ne.n]].forEach(function(c){
+    const v = Math.abs(c[0] * along.e + c[1] * along.n);
+    if(v > far) far = v;
+  });
+  return far;
+}
+
+/* ⭐ WHERE THE ROAD IS, DECIDED ONCE AND THEN LEFT ALONE.
+   Owner: "no matter what angle your looking at it should look at every angle
+   to know where to put the lines, the angle we see is just so we can see it
+   and take a picture but you need to catch the front from every angle."
+
+   ⚠ THIS WAS READ FROM THE LIVE CAMERA, and that is why the front changed
+   under her. Every time the panorama moved or turned, "which way is the road"
+   moved with it, so the faces called FRONT were re-decided, the Front/Left/
+   Right/Back counts shuffled, and the run switched on by default became a
+   different run. Looking at a house from further along the street is not a
+   statement about which side of it faces the road.
+
+   The road is a fact about the house. It is fixed the first time the camera
+   genuinely stands on one - Google puts the panorama at the nearest road
+   photo, which is exactly the information wanted - and then never moved
+   again for that address. Where the camera wanders afterwards only decides
+   what is VISIBLE, which is a different question and is answered elsewhere. */
+let rmRoadDir = null;            /* unit vector from the house toward the road */
+function rmRoadDirection(){
+  if(rmRoadDir) return rmRoadDir;
   const cam = rmCamOnRoad();
-  if(!cam) return 'front';                     /* no road to reason from YET */
+  if(!cam) return null;
+  const len = Math.hypot(cam.e, cam.n);
+  if(len < 1) return null;
+  rmRoadDir = {e: cam.e / len, n: cam.n / len};
+  return rmRoadDir;
+}
+function rmEaveSide(eave){
+  const road = rmRoadDirection();
+  if(!road) return 'front';                    /* no road to reason from YET */
   const mid = rmToLocal((eave.a.lat + eave.b.lat) / 2, (eave.a.lng + eave.b.lng) / 2, 0);
   const outward = {e: mid.e, n: mid.n};        /* the frame's origin IS the house */
-  const toRoad = {e: cam.e, n: cam.n};
+  const toRoad = {e: road.e, n: road.n};
   const lo = Math.hypot(outward.e, outward.n), lr = Math.hypot(toRoad.e, toRoad.n);
   if(lo < 0.5 || lr < 0.5) return 'front';
+  /* ⭐ A LINE THAT RUNS DEEP IS JUDGED BY WHERE IT SITS ACROSS THE HOUSE.
+     Owner: "when you have a line that runs deep have it check where its
+     located on the roof so it can check if its the left or right side because
+     if it is we dont want to inclide that on default."
+
+     A gutter runs ACROSS the front; a rake runs INTO the house, front to back.
+     Judging a rake the same way as a gutter - by which way its middle lies
+     from the centre of the house - gets it wrong, because a rake out on the
+     left flank still has its middle roughly in front of the centre. So a deep
+     line is sorted by how far ACROSS the house it sits: the ones near the
+     middle are the dormer and gable rakes on the front, and the ones out at
+     the edges are the flanks, which are the left and right sides and are not
+     switched on until somebody asks for them. */
+  const along = {e: -toRoad.n, n: toRoad.e};        /* across the front */
+  const dirE = eave.b.lng - eave.a.lng, dirN = eave.b.lat - eave.a.lat;
+  const dl = Math.hypot(dirE, dirN);
+  if(dl > 1e-12){
+    /* How much of this line runs INTO the house rather than across it. */
+    const d = rmToLocal(eave.b.lat, eave.b.lng, 0), c = rmToLocal(eave.a.lat, eave.a.lng, 0);
+    const ve = d.e - c.e, vn = d.n - c.n, vl = Math.hypot(ve, vn) || 1;
+    const deep = Math.abs((ve * toRoad.e + vn * toRoad.n) / vl);
+    if(deep > 0.7){
+      /* Its distance across the front, against how wide the house is. */
+      const across = mid.e * along.e + mid.n * along.n;
+      const half = rmHouseHalfWidth(along);
+      /* ⚠ WITH NO FOOTPRINT THIS FALLS THROUGH rather than answering "front".
+         "How far across the house" is meaningless without knowing how wide the
+         house is, and returning front for every deep line would switch on the
+         flanks of a house whose bounds Google did not give us - which is the
+         very thing this rule exists to stop. The positional rule below is the
+         weaker answer but it is still an answer. */
+      if(half > 0.5){
+        if(Math.abs(across) / half > 0.55) return across > 0 ? 'left' : 'right';
+        return 'front';
+      }
+    }
+  }
+  /* A line running ACROSS the house is a gutter, and which gutter it is
+     depends only on WHICH SIDE of the house it sits on - not on how far along
+     it sits. The front gutter of a wide house reaches the corners by
+     definition, and judging it by the angle from the centre calls its outer
+     end a side, which is how the front of a long house lost its ends. */
+  const halfDepth = rmHouseHalfWidth(toRoad);
+  if(halfDepth > 0.5){
+    const depthPos = (mid.e * toRoad.e + mid.n * toRoad.n) / halfDepth;
+    if(depthPos > 0.15) return 'front';
+    if(depthPos < -0.15) return 'back';
+    const acrossPos = mid.e * along.e + mid.n * along.n;
+    return acrossPos > 0 ? 'left' : 'right';
+  }
   const cos = (outward.e * toRoad.e + outward.n * toRoad.n) / (lo * lr);
-  if(cos > 0.45) return 'front';
-  if(cos < -0.45) return 'back';
+  /* ⚠ FRONT MEANS FRONT, NOT "VISIBLE FROM THE ROAD". This was 0.45, which
+     is sixty-three degrees either way - so a face turned sixty degrees off the
+     road still counted as front, and the left side of the house came on by
+     itself. Owner: "in the automatic one you can see it is adding the left
+     side, the left side should not be included just because it is visible from
+     street view." Being able to SEE a wall is not the same as it being the
+     front of the house, and the office is the one who decides to add a side.
+     0.7 is forty-five degrees: the honest quadrant. */
+  if(cos > 0.7) return 'front';
+  if(cos < -0.7) return 'back';
   /* Cross product sign puts it left or right of the line to the road. */
   const cross = toRoad.e * outward.n - toRoad.n * outward.e;
   return cross > 0 ? 'left' : 'right';
@@ -15923,27 +17470,52 @@ function rmBuildSuggestions(faces){
   /* kept only as the argument to the ?? above; the datum is the real floor */
   const h = rmDatum().m;
   let made = 0;
-  (faces || []).forEach(function(face){
-    const eave = rmFaceEave(face);
-    if(!eave) return;
+  /* ⚠ TWO FACES SHARE ONE RIDGE. A gable has a plane either side of the peak
+     and both name the same edge as their uphill one, so drawing them all puts
+     two identical lines on every ridge in the house - the footage doubles and
+     the strand count with it. Anything landing on top of a ridge already
+     offered is dropped. */
+  const ridgesSoFar = [];
+  const alreadySeen = function(line){
+    const a = rmToLocal(line.a.lat, line.a.lng, 0), b = rmToLocal(line.b.lat, line.b.lng, 0);
+    const mid = {e: (a.e + b.e) / 2, n: (a.n + b.n) / 2};
+    const len = Math.hypot(b.e - a.e, b.n - a.n);
+    for(let i = 0; i < ridgesSoFar.length; i++){
+      const o = ridgesSoFar[i];
+      if(Math.hypot(mid.e - o.mid.e, mid.n - o.mid.n) < 1.5 && Math.abs(len - o.len) < 2) return true;
+    }
+    ridgesSoFar.push({mid: mid, len: len});
+    return false;
+  };
+  const addLine = function(face, line){
+    if(!line) return;
+    /* Not a chimney, and not a seam in the middle of the roof. */
+    if(!rmFaceIsWorthHanging(face)) return;
+    if(!rmEdgeIsOnTheOutside(face, line, faces)) return;
+    /* ⚠ EVERY kind is deduped now, not just peaks. Two faces that meet share
+       the edge between them, and each names it as one of its own - so a gutter
+       or a rake between two planes gets offered twice, the footage doubles and
+       so does the strand count. */
+    if(alreadySeen(line)) return;
     const run = {
-      type: 'perimeter', suggested: true, on: rmFaceFacesTheRoad(eave),
-      facing: eave.facing, side: rmEaveSide(eave),
-      /* Each END gets its own height. An eave is level so both usually agree,
-         but a raked or stepped edge does not, and assuming it does is the same
-         flat-line mistake one level down. */
-      /* Each end at the roof's real height there. ⚠ NEVER `?? 0` - that is
-         exactly how every suggested line ended up on the lawn. The datum
-         guarantees rmRoofHeightAt answers, and if it somehow does not, the
-         assumed one-storey eave is the floor. */
-      path: [{lat: eave.a.lat, lng: eave.a.lng, h: rmRoofHeightAt(eave.a.lat, eave.a.lng) ?? rmDatum().m},
-             {lat: eave.b.lat, lng: eave.b.lng, h: rmRoofHeightAt(eave.b.lat, eave.b.lng) ?? rmDatum().m}],
+      type: line.kind, suggested: true, on: rmFaceFacesTheRoad(line),
+      facing: line.facing, side: rmEaveSide(line),
+      /* Kept so the photo solver can find this gutter's own ridge. */
+      face: face,
+      path: [{lat: line.a.lat, lng: line.a.lng, h: rmRoofHeightAt(line.a.lat, line.a.lng) ?? rmDatum().m},
+             {lat: line.b.lat, lng: line.b.lng, h: rmRoofHeightAt(line.b.lat, line.b.lng) ?? rmDatum().m}],
       line: null, dots: []
     };
-    /* A sliver is noise, not a run somebody wants to see offered. */
-    if(rmRunFeet(run) < 6) return;
+    if(rmRunFeet(run) < 6) return;      /* a sliver is noise, not a run */
     rmRuns.push(run);
     made++;
+  };
+  (faces || []).forEach(function(face){
+    /* The gutter, then the two sloping edges either side of it. NOT the peak:
+       lights do not go along a ridge. All three through the one builder, so a
+       change to how a suggested line is made cannot reach one and miss another. */
+    addLine(face, rmFaceEave(face));
+    rmFaceRakes(face).forEach(function(rake){ addLine(face, rake); });
   });
   rmRuns.forEach(function(r){ if(r.suggested) rmSyncSky(r); });
   if(window.rmRefreshSideButtons) window.rmRefreshSideButtons();
@@ -16180,8 +17752,15 @@ function rmSetDrawing(on){
   const lock = rmDrawing || rmWallPicking;
   /* Sky takes clicks whenever we are drawing; Street only once the wall is
      pinned, or while the wall is being picked. */
-  const skyLock = rmDrawing && rmSkyReady;
-  const stLock = (rmWallPicking || (rmDrawing && rmActiveWall())) && rmStreetReady;
+  /* ⭐ THE MAP TAKES DOTS TOO. From above a click is exact - there is no depth
+     to get wrong - so the sky view is the better place to show where a gutter
+     really runs, and the street view is the better place to show how high it
+     is. Both should accept a dot. */
+  const skyLock = (rmDrawing || rmCornerMode === 'dot') && rmSkyReady;
+  /* ⭐ AND WHILE PLACING DOTS. The panorama swallows clicks for its own
+     panning, so a transparent sheet over it is the only way to catch one - the
+     same sheet the wall picker and the tracer already use. */
+  const stLock = (rmWallPicking || (rmDrawing && rmActiveWall()) || rmCornerMode === 'dot') && rmStreetReady;
   document.getElementById('rmMapLock').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmMapFrozen').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmPanoLock').style.display = stLock ? 'block' : 'none';
@@ -16194,7 +17773,10 @@ function rmRenderResults(){
   const t = rmTotals();
   const live = rmCurrent && rmCurrent.path.length > 1 ? rmRunFeet(rmCurrent) : 0;
   document.getElementById('rmResults').innerHTML =
-    Object.keys(RM_TYPES).map(function(k){
+    /* Only kinds this house actually HAS. Everything is perimeter now, so on a
+       new quote this is one row - and an old quote that really does carry a
+       ridge run still shows it rather than quietly losing the footage. */
+    Object.keys(RM_TYPES).filter(function(k){ return t[k] > 0; }).map(function(k){
       return '<div class="rm-resultrow"><span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:'+RM_TYPES[k].color+'; margin-right:6px;"></span>'+RM_TYPES[k].label+'</span><strong>'+rmFmtFeet(t[k])+'</strong></div>';
     }).join('') +
     '<div class="rm-resultrow" style="border-top:1px solid var(--line); margin-top:4px; padding-top:7px;"><span style="font-weight:700;">Measured</span><strong style="font-size:15px;">'+rmFmtFeet(t.all)+'</strong></div>' +
@@ -16207,8 +17789,12 @@ function rmRenderResults(){
        whoever packs the van - it is not the same question as total footage.
        Four 40 ft runs and one 160 ft run buy the same wire and need a very
        different set of made-up strands. */
-    (rmRuns.length
-      ? '<div class="rm-resultrow"><span>Separate strands</span><strong>'+rmRuns.length+'</strong></div>' : '') +
+    /* ⚠ ONLY THE ONES SWITCHED ON. rmRuns.length counts every line the roof
+       model offered, including the ones greyed out - so a house with the front
+       on and three sides off reported eight strands for a three-strand job.
+       Whoever packs the van is reading this number. */
+    (rmRuns.filter(rmRunIsOn).length
+      ? '<div class="rm-resultrow"><span>Separate strands</span><strong>'+rmRuns.filter(rmRunIsOn).length+'</strong></div>' : '') +
     (live ? '<div class="rm-runrow" style="color:var(--dusk);">drawing now&hellip; '+rmFmtFeet(live)+'</div>' : '');
 
   const runsBox = document.getElementById('rmRuns');
@@ -16250,7 +17836,7 @@ function rmRenderMaterials(feet){
   const wire = Math.ceil(priced * 1.15);          /* the usual slack allowance */
   document.getElementById('rmMaterials').innerHTML =
     '<div class="rm-mini"><span>Run being priced</span><strong>'+rmFmtFeet(priced)+'</strong></div>'+
-    '<div class="rm-mini"><span>Separate strands</span><strong>'+(rmRuns.length||1)+'</strong></div>'+
+    '<div class="rm-mini"><span>Separate strands</span><strong>'+(rmRuns.filter(rmRunIsOn).length||1)+'</strong></div>'+
     '<div class="rm-mini"><span>Bulbs at '+spacingIn+'&quot;</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
     '<div class="rm-mini"><span>Clips</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
     '<div class="rm-mini"><span>Wire (+15%)</span><strong>'+wire.toLocaleString()+' ft</strong></div>';
@@ -16311,6 +17897,95 @@ async function rmUsePrice(price){
   } catch(err){ status.textContent = 'Could not save the price onto the quote \u2014 try again.'; }
 }
 /* ---- street view overlay ------------------------------------------------ */
+/* IS THIS RUN ACTUALLY VISIBLE, OR IS THE HOUSE IN FRONT OF IT?
+   Owner, twice: "if the house is in the way you should not be able to see the
+   line", and then, looking at it again: "make sure that if the house is in the
+   way on the street view you cant see the line because you cant tell what it
+   goes to anyway."
+
+   ⚠ THE FIRST VERSION WAS AN ANGLE, AND AN ANGLE IS NOT AN ANSWER. It asked
+   whether a run pointed roughly toward the camera and kept anything within
+   about a hundred degrees, deliberately generous. That hides the far wall and
+   nothing else - so a gutter on the near side of the RIDGE, or one behind a
+   projecting gable, was still drawn straight through the roof in front of it.
+   Being generous was the wrong instinct: a line you cannot trace back to an
+   edge is not information, it is clutter, which is the whole complaint.
+
+   So this is a real occlusion test. The house is treated as the box its
+   footprint and its roof describe, and a point is hidden when the straight
+   line from the camera to it goes INTO that box on the way. That is the
+   ordinary slab test, and the box is the one thing about a house Google gets
+   exactly right. */
+const RM_OCCLUDE_SHRINK_M = 0.35;   /* keep a surface from hiding itself */
+
+/* Where a segment from the camera first enters the house box, as a fraction of
+   the way to the target. Returns null when it never enters. */
+function rmBoxEntry(cam, pt, box){
+  let t0 = 0, t1 = 1;
+  const d = {e: pt.e - cam.e, n: pt.n - cam.n, u: pt.u - cam.u};
+  const lo = {e: box.minE, n: box.minN, u: box.minU};
+  const hi = {e: box.maxE, n: box.maxN, u: box.maxU};
+  const axes = ['e', 'n', 'u'];
+  for(let i = 0; i < axes.length; i++){
+    const k = axes[i];
+    if(Math.abs(d[k]) < 1e-9){
+      if(cam[k] < lo[k] || cam[k] > hi[k]) return null;   /* parallel and outside */
+      continue;
+    }
+    let a = (lo[k] - cam[k]) / d[k], b = (hi[k] - cam[k]) / d[k];
+    if(a > b){ const tmp = a; a = b; b = tmp; }
+    if(a > t0) t0 = a;
+    if(b < t1) t1 = b;
+    if(t0 > t1) return null;                              /* misses the box */
+  }
+  return t0;
+}
+
+function rmHouseBox(){
+  if(!rmBuilding || !rmOrigin) return null;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  /* Pulled in a little all round: a gutter sits ON the surface of the house,
+     and a box that reaches it exactly would report every line as hidden
+     behind the very wall it is drawn on. */
+  const k = RM_OCCLUDE_SHRINK_M;
+  const top = rmDatum().m + rmHighestRelM();
+  return {
+    minE: Math.min(sw.e, ne.e) + k, maxE: Math.max(sw.e, ne.e) - k,
+    minN: Math.min(sw.n, ne.n) + k, maxN: Math.max(sw.n, ne.n) - k,
+    minU: 0, maxU: Math.max(0.5, top - k)
+  };
+}
+
+/* How far the roof stands above the lowest eave at its highest point. */
+function rmHighestRelM(){
+  const lo = rmLowestPlaneM();
+  if(lo === null || !rmFaces || !rmFaces.length) return 3;
+  let best = 0;
+  rmFaces.forEach(function(f){
+    if(!isFinite(f.planeHeightM)) return;
+    const rel = f.planeHeightM - lo;
+    if(rel > best) best = rel;
+  });
+  return Math.max(0.5, Math.min(12, best));
+}
+
+function rmRunFacesCamera(r){
+  const cam = rmCamOnRoad();
+  if(!cam || !r || !r.path || r.path.length < 2) return true;   /* nothing to hide behind */
+  const box = rmHouseBox();
+  if(!box) return true;                                          /* no house to hide behind */
+  /* Judged at the MIDDLE of the run. A line half hidden is exactly the line
+     the owner cannot read - either it is worth drawing or it is not. */
+  const a = r.path[0], b = r.path[r.path.length - 1];
+  const mid = rmToLocal((a.lat + b.lat) / 2, (a.lng + b.lng) / 2, 0);
+  mid.u = ((a.h || 0) + (b.h || 0)) / 2;
+  const t = rmBoxEntry(cam, mid, box);
+  /* Enters the box before arriving: the house is in the way. A tiny t means
+     the camera itself is inside the box, which cannot happen from the road and
+     is not worth hiding the whole house for. */
+  return !(t !== null && t > 0.02 && t < 0.995);
+}
 function rmPaintStreet(){
   const svg = document.getElementById('rmSvLayer');
   if(!svg) return;
@@ -16331,7 +18006,14 @@ function rmPaintStreet(){
     const q = rmSvProject(w, W, H, pov, cam);
     if(q) parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="#F4BE55" stroke="#fff" stroke-width="2"/>');
   });
+  /* ⚠ THIN, AND ONLY WHAT IS IN FRONT. Owner: "theres to much going on you
+     cant see the house clearly... it should look clean and crisp though. not
+     messy." An 8-pixel black halo under a 4-pixel line, with a fat white dot at
+     every end, covered more of the roof than it described. The line still needs
+     a dark edge to read against a bright sky, but one pixel of it is enough. */
   rmRuns.concat(rmCurrent ? [rmCurrent] : []).forEach(function(r, idx){
+    const isCurrent = idx >= rmRuns.length;
+    if(!isCurrent && !rmRunFacesCamera(r)) return;      /* the house is in the way */
     const pts = r.path.map(function(p){ return rmSvProject(p, W, H, pov, cam); });
     const vis = pts.filter(Boolean);
     const on = rmRunIsOn(r);
@@ -16339,9 +18021,9 @@ function rmPaintStreet(){
     const known = idx < rmRuns.length ? idx : -1;
     if(pts.length > 1 && vis.length === pts.length){
       const d = pts.map(function(p, i){ return (i?'L':'M')+p.x+' '+p.y; }).join(' ');
-      parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>');
-      parts.push('<path d="'+d+'" fill="none" stroke="'+colour+'" stroke-width="'+(on?4:3)+'"'+
-        (on ? '' : ' stroke-dasharray="8 6"')+' stroke-linejoin="round" stroke-linecap="round"/>');
+      parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="'+(on?4:3)+'" stroke-linejoin="round" stroke-linecap="round"/>');
+      parts.push('<path d="'+d+'" fill="none" stroke="'+colour+'" stroke-width="'+(on?2:1.4)+'"'+
+        (on ? '' : ' stroke-dasharray="6 5" opacity=".65"')+' stroke-linejoin="round" stroke-linecap="round"/>');
       /* ⚠ A FAT INVISIBLE STROKE ON TOP is what makes a 4px line clickable by
          hand. Without it the pick target is the drawn width and nobody hits it.
          Only when NOT drawing, so placing a point never toggles a line instead. */
@@ -16350,15 +18032,67 @@ function rmPaintStreet(){
           'style="pointer-events:stroke; cursor:pointer;" data-rmtoggle="'+known+'"></path>');
       }
     }
+    /* Handles only where there is something to take hold of: a switched-on run
+       you might drag. A dot on every end of every greyed-out suggestion is the
+       clutter, not the lines. ⚠ A run built from corners draws none at all -
+       its corners are drawn once, below, with their numbers on. */
     vis.forEach(function(p){
-      if(r.suggested && !on) return;
-      parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#fff" stroke="'+colour+'" stroke-width="2.5"/>');
+      if(!on || r.fromCorners) return;
+      parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="3" fill="#fff" stroke="'+colour+'" stroke-width="1.5"/>');
     });
+  });
+  /* ⭐ THE CORNERS, WITH THEIR NUMBERS ON. Drawn last so they sit above the
+     lines, and drawn whether they are switched on or not - a corner you cannot
+     see is a corner you cannot pick, which is the whole point of numbering
+     them. Off ones are hollow and pale; on ones are solid. */
+  rmCorners.forEach(function(c, i){
+    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+    if(!q) return;
+    const lit = !!c.on;
+    /* ⚠ SMALL. Owner: "the dots should look clean and small so theyre not
+       hindering the view of the house." A dot big enough to hold its number
+       comfortably is a dot big enough to hide the corner it is marking, which
+       defeats the whole purpose - you cannot judge whether a corner is in the
+       right place if the marker covers the place. So the dot is small and the
+       number sits BESIDE it, and the part that takes the click is invisible
+       and generous, which costs nothing on screen. */
+    /* A pinned dot gets a ring: it has been seen from more than one place and
+       is where it says it is. An unpinned one is still a guess, and the office
+       should be able to tell at a glance which is which. */
+    if(c.pinned) parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="none" stroke="'+
+      (lit ? '#E0574B' : '#8b95a1')+'" stroke-width="1" opacity=".85"/>');
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="3.2" fill="'+(lit ? '#E0574B' : 'rgba(255,255,255,.8)')+
+      '" stroke="'+(lit ? 'rgba(255,255,255,.9)' : '#8b95a1')+'" stroke-width="1.1"/>');
+    parts.push('<text x="'+(q.x + 6)+'" y="'+(q.y - 5)+'" font-size="9" font-weight="700" ' +
+      'fill="'+(lit ? '#E0574B' : '#6b7683')+'" stroke="rgba(255,255,255,.85)" stroke-width="2.2" ' +
+      'paint-order="stroke" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
+      rmCornerLabel(i) + '</text>');
+    /* The height beside the number: a dot at the wrong height is the one thing
+       that makes a dot appear to move, and it is invisible until it is said. */
+    parts.push('<text x="'+(q.x + 6)+'" y="'+(q.y + 5)+'" font-size="7.5" font-weight="600" ' +
+      'fill="'+(lit ? '#8a4038' : '#8b95a1')+'" stroke="rgba(255,255,255,.85)" stroke-width="2" ' +
+      'paint-order="stroke" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
+      Math.round((c.h || 0) * RM_M_TO_FT) + '′</text>');
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="12" fill="rgba(0,0,0,0)" ' +
+      'style="pointer-events:all; cursor:pointer;" data-rmcornerdot="'+i+'"></circle>');
   });
   svg.innerHTML = parts.join('');
   /* The layer ignores the mouse as a whole; only the fat pick strokes take it,
      so panning the panorama still works everywhere else. */
   svg.style.pointerEvents = (rmDrawing || rmWallPicking) ? 'none' : 'none';
+  svg.querySelectorAll('[data-rmcornerdot]').forEach(function(el){
+    el.style.pointerEvents = 'all';
+    el.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      const i = Number(el.dataset.rmcornerdot);
+      if(ev.shiftKey){
+        if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); rmPaintStreet(); }
+        else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
+      } else {
+        rmToggleCorner(i);
+      }
+    });
+  });
   svg.querySelectorAll('[data-rmtoggle]').forEach(function(el){
     el.style.pointerEvents = 'stroke';
     el.addEventListener('click', function(ev){
@@ -16394,6 +18128,10 @@ function rmEnsurePano(center){
     /* The first move is the one that matters: it is Google putting the camera
        on the road, which is the moment front/left/right/back become knowable. */
     rmResideSuggestions();
+    /* The move onto the road is exactly when the photograph becomes readable,
+       and when the house can first be measured as an angle to frame it by. */
+    rmTryPhotoDatum();
+    rmFrameHouseInStreet();
     rmPaintStreet();
   });
 }
@@ -16443,6 +18181,9 @@ async function rmLoadAddress(){
   rmPaneBusy('street', 'Looking for a street-level photo…');
   rmRoofM = null; rmBuilding = null;
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
+  rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false; rmSnapNote = null;
+  rmFramed = false; rmRoadDir = null;
+  rmCorners = []; rmCornerMode = 'dot'; rmSwapFrom = null; rmCurrentBand = 0;
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
@@ -17065,14 +18806,95 @@ function openRoofMeasure(quoteId){
     const allOn = sugg.length > 0 && sugg.every(rmRunIsOn);
     RM_SIDES.forEach(function(sd){ rmSetSide(sd, !allOn); });
   });
+  /* The numbers under the pictures do the same as their keys, because not
+     everybody reaches for a keyboard and the swap needs two clicks anyway. */
+  document.getElementById('rmCornerList').addEventListener('click', function(e){
+    const b = e.target.closest('[data-rmcorner]');
+    if(!b) return;
+    const i = Number(b.dataset.rmcorner);
+    if(e.shiftKey){
+      if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); }
+      else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
+    } else {
+      rmToggleCorner(i);
+    }
+  });
+  document.getElementById('rmEndStrandBtn').addEventListener('click', function(){ rmEndStrand(); });
+  document.getElementById('rmClearDotsBtn').addEventListener('click', function(){
+    rmCorners = []; rmCurrentBand = 0; rmSwapFrom = null;
+    rmCornersChanged();
+    const note = document.getElementById('rmCornerNote');
+    if(note) note.textContent = '';
+  });
   window.rmRefreshSideButtons = rmRefreshSideButtons;
+  /* A READ-ONLY WINDOW INTO THE MEASURING, for diagnosing placement from the
+     console. It changes nothing and exposes nothing the panel does not already
+     show; it exists because the Street View pane is about 450 pixels wide, and
+     "do these lines sit on the gutter" cannot be answered by looking at a
+     house 150 pixels across. Every number that decides where a line is drawn
+     is here, so a wrong one can be READ rather than guessed at from a
+     screenshot - which is how an afternoon went once. */
+  window.rmDebug = function(){
+    const size = rmPanoSize(), pov = rmPanoPov(), cam = rmCamLocal();
+    return {
+      origin: rmOrigin,
+      cam: cam,
+      camIsOnRoad: !!rmCamOnRoad(),
+      camMetresFromHouse: cam ? Math.hypot(cam.e, cam.n) : null,
+      pov: pov,
+      fovDeg: rmFovDeg(pov.zoom),
+      pane: size,
+      datum: rmDatum(),
+      faces: (rmFaces || []).length,
+      runs: rmRuns.map(function(r, i){
+        return {
+          i: i, on: rmRunIsOn(r), side: r.side, type: r.type,
+          suggested: !!r.suggested, touched: !!r.touched,
+          snappedM: r.snapped === undefined ? null : r.snapped,
+          facesCamera: rmRunFacesCamera(r),
+          feet: Math.round(rmRunFeet(r)),
+          path: r.path.map(function(p){
+            return {lat: p.lat, lng: p.lng, ft: +((p.h || 0) * RM_M_TO_FT).toFixed(1),
+                    px: rmSvProject(p, size.W, size.H, pov, cam)};
+          })
+        };
+      })
+    };
+  };
   document.getElementById('rmDrawBtn').addEventListener('click', function(){ rmSetDrawing(!rmDrawing); });
   /* Clicks are read off the lock layers, which is what lets the views
      underneath be completely inert while a line is being drawn. */
   document.getElementById('rmMapLock').addEventListener('click', function(e){
-    if(!rmDrawing || !rmMap) return;
+    if(!rmMap) return;
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
-    if(w) rmAddPoint(w);
+    if(!w) return;
+    if(rmCornerMode === 'dot' && !rmDrawing){
+      /* ⚠ A dot placed from above needs a HEIGHT, and the map cannot give one.
+         It takes the working height the office set, which is what that box has
+         always been for - and a dot can be dragged to the right height in the
+         street view afterwards, where height is the thing you CAN see. */
+      /* ⚠ A DOT THAT SITS AT THE WRONG HEIGHT MOVES ACROSS THE HOUSE THE
+         MOMENT YOU STEP SIDEWAYS. Owner: "when I looked at a different angle
+         the dots didnt stay in the same spot making them get in the way so I
+         couldnt place the rest of them."
+         A dot is stored as a place in the world, so it cannot drift - but if
+         its HEIGHT is wrong it is the wrong place, and parallax swings it
+         against the roof as soon as the camera moves. Every sky-view dot used
+         to take the same flat number, so one meant for a ridge twenty feet up
+         sat at fourteen and slid several feet sideways per step.
+         The roof model knows how high the roof is at each spot, which is the
+         one thing it is genuinely good at, so that is what a dot placed from
+         above takes. A height typed into the box still wins, because somebody
+         typing a number means it. */
+      const roofH = rmRoofHeightAt(w.lat, w.lng);
+      const typed = rmWorkingHeightM();
+      rmAddCorner({lat: w.lat, lng: w.lng, h: typed > 0.3 ? typed : (roofH !== null ? roofH : rmDatum().m)});
+      const note = document.getElementById('rmCornerNote');
+      if(note) note.textContent = rmCorners.length + ' dots — the new one is ' +
+        rmCornerLabel(rmCorners.length - 1) + '. They join in the order you place them.';
+      return;
+    }
+    if(rmDrawing) rmAddPoint(w);
   });
   document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
   document.getElementById('rmPanoLock').addEventListener('click', function(e){
@@ -17081,6 +18903,73 @@ function openRoofMeasure(quoteId){
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
     const dir = rmRay(e.clientX-r.left, e.clientY-r.top, W, H, rmPanoPov());
+    if(rmCornerMode === 'dot'){
+      /* ⭐ A CLICK PLACES A CORNER, on the roof it is pointing at. Owner:
+         "also have a way to add a corner... space bar toggles select from make
+         a dot." The dormer corners that meet the main roof are not against the
+         sky and can never be detected; this is how they get put in. */
+      /* ⭐ THE WALL FIRST, the roof only if there is no footprint. A ray from
+         the street meets a vertical wall nearly square on, so the crossing
+         barely moves when the height is a little out; it meets a roof plane at
+         a shallow angle, where the same error slides the point yards along the
+         ray - and every yard of that lands in the plan position, which is the
+         one the map shows and the street view cannot. */
+      /* ⭐ CLICKING A DOT AGAIN FROM A NEW ANGLE PINS IT EXACTLY. Owner: "you
+         need to make there be 0 margin of error." A single click can only ever
+         be a good guess, because the depth along the ray has to come from a
+         model of the house. Two clicks from two places cross at one point,
+         which is geometry rather than a model - so a second sighting of the
+         same corner replaces the guess with the real thing, and a third
+         narrows it further. */
+      const near = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
+      if(near >= 0){
+        const res = rmPinCorner(near, {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir});
+        const noteEl = document.getElementById('rmCornerNote');
+        if(noteEl) noteEl.textContent = res && res.ok
+          ? 'Dot ' + rmCornerLabel(near) + ' pinned from ' + res.sightings + ' angles — the two lines of sight meet to within ' +
+            (res.spread * RM_M_TO_FT * 12).toFixed(1) + ' inches.'
+          : '⚠ ' + ((res && res.why) || 'that sighting could not be used');
+        return;
+      }
+      /* The part of the house the ray is really pointing at comes first; the
+         whole-building outline is the fallback for a house Google has given no
+         roof faces for. */
+      let best = rmRoofEdgeHit(dir, cam) || rmFootprintWallHit(dir, cam);
+      if(!best){
+        const fp = rmFootprintBox();
+        (rmFaces || []).forEach(function(f){
+          const plane = rmFacePlane(f);
+          if(!plane) return;
+          const hit = rmPlaneHit3(dir, cam, plane);
+          if(!hit) return;
+          if(fp && !rmInsideFootprint(hit, fp)) return;
+          if(!best || hit.t < best.t) best = hit;
+        });
+      }
+      const note = document.getElementById('rmCornerNote');
+      if(!best){
+        /* ⚠ REFUSING A CLICK IS WORSE THAN PLACING IT ROUGHLY. Google's roof
+           planes stop at the boxes it drew, so a real corner just past the end
+           of one is refused - and the office is left clicking at a house that
+           will not take a dot. Falling back to the wall the house presents to
+           the camera puts it close and lets it be corrected; saying no puts
+           the work back on them for a modelling gap that is not their fault. */
+        const wall = rmWallPlane();
+        const w2 = wall ? rmWallHit(dir, cam, wall) : null;
+        if(!w2){
+          if(note) note.textContent = '⚠ That is not pointing at the house — click on the building itself.';
+          return;
+        }
+        best = w2;
+        best.u = rmRoofHeightAt(rmToWorld(w2).lat, rmToWorld(w2).lng) ?? rmDatum().m;
+      }
+      const w = rmToWorld({e: best.e, n: best.n, u: best.u});
+      rmAddCorner({lat: w.lat, lng: w.lng, h: best.u,
+                   ray: {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir}});
+      if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
+        rmCornerLabel(rmCorners.length - 1) + '. Space goes back to picking.';
+      return;
+    }
     if(rmWallPicking){
       const g = rmGroundHit(dir, cam);
       if(!g){
@@ -17142,6 +19031,34 @@ function openRoofMeasure(quoteId){
       document.getElementById('rmHeightNote').textContent =
         'Picked up ' + (Math.round(ft*10)/10) + ' ft from that Street View click.';
     }
+  });
+  /* ⭐ THE RIGHT BUTTON ALWAYS SELECTS. Owner: "make it so right click is
+     always select and left click is place dot if thats what its on but it
+     switches if you click space." Two buttons means never having to change
+     mode just to take one dot out - and the mode only ever governs the LEFT
+     one, which is what space is for. */
+  ['rmPanoLock', 'rmMapLock'].forEach(function(id){
+    document.getElementById(id).addEventListener('contextmenu', function(e){
+      e.preventDefault();
+      if(!rmCorners.length) return;
+      const r = this.getBoundingClientRect();
+      let i = -1;
+      if(id === 'rmPanoLock'){
+        const {W, H} = rmPanoSize();
+        i = rmCornerNearPixel(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), rmCamLocal());
+      } else {
+        /* From above, the nearest dot on the ground is the one meant. */
+        const w = rmMapPixelToWorld(e.clientX, e.clientY, r);
+        if(w){
+          let bd = 4;
+          rmCorners.forEach(function(c, k){
+            const d = Math.hypot((c.lat - w.lat) * 111320, (c.lng - w.lng) * 85000);
+            if(d < bd){ bd = d; i = k; }
+          });
+        }
+      }
+      if(i >= 0) rmToggleCorner(i);
+    });
   });
   document.getElementById('rmPanoLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
   /* ⚠ DRAGGING USED TO WORK ONLY ON THE SKY VIEW, which is no use at all when
@@ -17347,16 +19264,82 @@ function openRoofMeasure(quoteId){
       if(rmWallPicking){ rmWallPicking = false; rmWallPts = []; rmSetDrawing(false); rmPaintStreet(); }
       else if(rmDrawing) rmSetDrawing(false);
       else document.getElementById('rmCloseBtn').click();
-    } else if(k === 'Enter'){
+    } else if(k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown'){
+      /* ⭐ THE ARROWS MOVE, THEY DO NOT TURN. Owner: "the arrow keys are making
+         me turn, I want the arrow keys to make me move right and left."
+         Turning only changes what is in frame, and the frame is already aimed
+         at the house. What somebody needs when a corner is behind a tree is to
+         STAND SOMEWHERE ELSE, so left and right walk along the street and up
+         and down go toward the house and back.
+
+         ⚠ AND THE VIEW IS RE-AIMED AFTER EVERY STEP. Moving without turning
+         back toward the house leaves it off the edge of the frame within two
+         presses, and then the arrows feel broken rather than useful. */
       e.preventDefault();
+      if(!rmPano || !rmOrigin) return;
+      const links = rmPano.getLinks() || [];
+      if(!links.length) return;
+      const toHouse = rmPanoPov().heading;         /* the frame is aimed at it */
+      const want = toHouse + (k === 'ArrowLeft' ? -90 : k === 'ArrowRight' ? 90
+                            : k === 'ArrowUp' ? 0 : 180);
+      let best = null, bd = 999;
+      links.forEach(function(l){
+        const d = Math.abs(((l.heading - want) % 360 + 540) % 360 - 180);
+        if(d < bd){ bd = d; best = l; }
+      });
+      /* ⚠ Only if there really is a way that way. The nearest link to "left"
+         on a dead-end street is the one straight ahead, and stepping to it
+         when somebody pressed left is worse than not moving. */
+      if(!best || bd > 70) return;
+      const wasFramed = rmFramed;
+      rmPano.setPano(best.pano);
+      /* Re-aim once the new place is known. rmFramed is put back so the zoom
+         is left alone - the office has already framed this house. */
+      google.maps.event.addListenerOnce(rmPano, 'position_changed', function(){
+        const pos = rmPano.getPosition();
+        if(!pos) return;
+        rmPano.setPov({heading: rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng),
+                       pitch: rmPanoPov().pitch});
+        rmFramed = wasFramed;
+        rmPaintStreet();
+      });
+    } else if(k === 'Enter'){
+      /* ⭐ END THE STRAND. Owner: "also give me a way to end the strand." The
+         top of a house and the bottom are separate runs of string, so a dot has
+         to be able to say which run it belongs to. */
+      e.preventDefault();
+      if(rmCorners.length){ rmEndStrand(); return; }
       rmSetDrawing(!rmDrawing);                     /* start a run, or finish it */
     } else if(k === 'Backspace' || k === 'Delete'){
       e.preventDefault();
+      /* A dot goes back the way it came. Only while there are dots - otherwise
+         this is still the undo button for a traced run. */
+      if(rmCorners.length){
+        rmDeleteLastCorner();
+        const note = document.getElementById('rmCornerNote');
+        if(note) note.textContent = rmCorners.length + ' dots left.';
+        return;
+      }
       document.getElementById('rmUndoBtn').click(); /* take back one point, then one run */
-    } else if(k === '1' || k === '2' || k === '3'){
+    } else if(k === ' ' || k === 'Spacebar'){
+      /* ⭐ SPACE SWAPS PICKING FOR PLACING. Owner: "have it be easy to create a
+         corner, something like space bar toggles select from make a dot." */
       e.preventDefault();
-      rmFinishRun();
-      rmSetType({'1':'perimeter','2':'ridge','3':'ground'}[k]);
+      rmCornerMode = rmCornerMode === 'dot' ? 'select' : 'dot';
+      rmSwapFrom = null;
+      rmRenderCornerBar();
+      rmPaintStreet();
+    } else if(rmCorners.length && rmCornerAt(k) >= 0){
+      /* A corner's own key switches it in or out of the line. With shift held
+         it is the first or second half of a swap instead. */
+      e.preventDefault();
+      const i = rmCornerAt(k);
+      if(e.shiftKey){
+        if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); }
+        else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
+      } else {
+        rmToggleCorner(i);
+      }
     } else if(k === 'c' || k === 'C'){
       e.preventDefault();
       const b = document.getElementById(rmStreetReady && !rmMap ? 'rmCaptureStreet' : 'rmCaptureSky');
