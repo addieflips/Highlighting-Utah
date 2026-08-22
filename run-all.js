@@ -34998,6 +34998,32 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
       wire.length > 0 && wire.every(sg => isFinite(sg.a.u) && isFinite(sg.b.u) &&
         sg.a.u > 0.5 && sg.a.u < 25),
       'got ' + wire.length + ' walls');
+    /* ⭐ THE GUTTER OF THE ROOF THIS WALL HOLDS UP, not the nearest roof
+       anywhere. Owner: "double check that the lines are red and line up with
+       the gutter from every angle."
+       ⚠ MEASURED ON THE TEST HOUSE: the front wall was being drawn at 10 ft,
+       level with the top of the garage door, because the nearest patch by plain
+       distance was a low roof round the side. That front is two storeys and its
+       gutter is at 16-18 ft. Nearest-by-distance is the wrong question. */
+    (function(){
+      const TALL = F(-8, 0, -6, 6, 9);      /* two storeys, its wall at e = -8 */
+      const LOW  = F(-11, -9, -6, 6, 4);    /* a low roof just OUTSIDE that wall */
+      api.faces([TALL, LOW]);
+      /* Asked at the tall wall, stepping INTO the tall house. */
+      const u = api.eave(-8, 0, {e: 1.6, n: 0});
+      /* datum 5, lowest eave 4, so the tall roof sits at 10 and the low at 5 */
+      check('S157', 'a wall takes the gutter of the roof it holds up',
+        u !== null && Math.abs(u - 10) < 0.7,
+        'got ' + (u === null ? 'null' : u.toFixed(2)) +
+        ' m; 5 means it took the low roof outside the wall, which is the bug');
+      /* And with no inward hint it may still be fooled - that is why the
+         wireframe passes one. */
+      check('S157', 'and the inward step is what makes that possible',
+        /rmOutlineEaveU\(sd\.a\.e, sd\.a\.n, inw\)/.test(admin),
+        'without a direction there is no way to tell inside from outside');
+    })();
+    api.faces([F(-8, -4,  2,  6, 5), F(-8, -4, -6, -2, 5), F(-4, 4, -6, 6, 9)]);
+
     check('S157', 'and the roof over the tree gap is the roof either side of it',
       Math.abs(api.eave(-8, 0) - 5) < 0.6,
       'got ' + api.eave(-8, 0));
