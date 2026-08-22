@@ -8589,7 +8589,7 @@ suite('Suite 27. Short crew-days reach into nearby towns');
   const end = admin.indexOf('/* Top every day up to the cap.', start);
   const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
   check('S27', 'the builder and the nearby helpers are findable',
-    start !== -1 && end > start && nearbyConst !== -1 && !!extract('townCentres') && !!extract('nearbyTowns'));
+    start !== -1 && end > start && nearbyConst !== -1 && !!extract('groupCentres') && !!extract('nearbyGroups'));
 
   if (start !== -1 && end > start && nearbyConst !== -1) {
     global.toDateStr = dt => dt.getFullYear() + '-' +
@@ -8599,9 +8599,9 @@ suite('Suite 27. Short crew-days reach into nearby towns');
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
       'return 2*R*Math.asin(Math.sqrt(q));}\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + '\n' +
+      admin.slice(nearbyConst, admin.indexOf('function groupCentres')) + '\n' +
       'let NEARBY_TOWN_LIST={};' + extract('sameTownName') +
-      extract('townCentres') + '\n' + extract('nearbyTowns') + '\n' +
+      extract('groupCentres') + '\n' + extract('nearbyGroups') + '\n' +
       extract('installPriority') + '\n' + admin.slice(start, end) +
       '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE, crews: CREWS_PER_DAY})');
 
@@ -8767,9 +8767,9 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
       'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) + '\n' +
       'let NEARBY_TOWN_LIST={};' + fn('sameTownName') +
-      fn('townCentres') + fn('nearbyTowns') + fn('installPriority') + admin.slice(planStart, planEnd) +
+      fn('groupCentres') + fn('nearbyGroups') + fn('installPriority') + admin.slice(planStart, planEnd) +
       /* The rebuild now asks pinHorizon whether a day is close enough to be
          SET, so the sandbox needs it and its constant. */
       'const PIN_HONOURED_BUSINESS_DAYS=' + (admin.match(/const PIN_HONOURED_BUSINESS_DAYS=(d+);/)||[])[1] + ';' +
@@ -8965,7 +8965,7 @@ suite('Suite 29. Towns the office says are near each other');
     }
     return null;
   };
-  const need = ['parseNearbyTowns', 'nearbyTownsToText', 'sameTownName', 'nearbyTowns'];
+  const need = ['parseNearbyTowns', 'nearbyTownsToText', 'sameTownName', 'nearbyGroups'];
   check('S29', 'the nearby-town helpers exist', need.every(n => !!fn(n)));
 
   if (need.every(n => !!fn(n))) {
@@ -8976,7 +8976,7 @@ suite('Suite 29. Towns the office says are near each other');
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
       'const NEARBY_TOWN_MILES=8; let NEARBY_TOWN_LIST={};' +
       need.map(fn).join('\n') +
-      'this.parse=parseNearbyTowns;this.text=nearbyTownsToText;this.near=nearbyTowns;' +
+      'this.parse=parseNearbyTowns;this.text=nearbyTownsToText;this.near=nearbyGroups;' +
       'this.set=function(m){NEARBY_TOWN_LIST=m;};'
     ).call(sb);
 
@@ -9000,12 +9000,29 @@ suite('Suite 29. Towns the office says are near each other');
     check('S29', 'with nothing typed, nearness is measured from the map pins',
       JSON.stringify(sb.near('Lehi', centres)) === JSON.stringify(['Highland']));
     sb.set(typed);
-    check('S29', 'a typed list beats the measurement',
-      JSON.stringify(sb.near('Lehi', centres)) === JSON.stringify(['Highland', 'American Fork', 'Alpine']),
-      'the measurement cannot know about a canyon, and a town with no pins cannot be measured at all');
-    check('S29', 'the town name is matched however it was capitalised',
-      JSON.stringify(sb.near('lehi', centres)) === JSON.stringify(sb.near('Lehi', centres)),
-      'it arrives from a textarea, so the casing is whatever somebody typed');
+    /* ⭐ RETIRED 2026-08-22 — THE TYPED LIST NO LONGER OUTRANKS THE MEASUREMENT,
+       because there is no longer anything for it to correct. Owner: "city lines
+       arent a concern", and "the 4 towns rule is gone in this new system."
+
+       Two checks lived here and both are deliberately gone rather than rewritten:
+         - 'a typed list beats the measurement'
+         - 'the town name is matched however it was capitalised'
+
+       WHY THEY WERE RIGHT, so nobody restores them by reflex. A TOWN is not a
+       point. Two town centres can be four miles apart with a canyon or a freeway
+       between them, so the distance between them was a bad guess and somebody had
+       to correct it by hand — that typed list was the correction, and the casing
+       check existed because it arrived from a textarea.
+
+       WHY THEY ARE NOW MEANINGLESS. A BLOCK is not a town: js/grid.js builds it as
+       a compact patch of map, so the distance between two block centres means what
+       it says and there is nothing left to correct. A block has no name, so there
+       is no spelling to match case-insensitively either. `nearbyGroups` measures,
+       full stop.
+
+       The two checks below still apply and are kept — the fallback-to-distance one
+       is now simply the ONLY path, and the caller still must not be handed a list
+       it can mutate. */
     check('S29', 'a town left out still falls back to distance',
       JSON.stringify(sb.near('Draper', centres)) === JSON.stringify(['Highland']),
       'the box has to be useful empty, or it would have to be filled in before anything worked');
@@ -11386,8 +11403,8 @@ suite('Suite 43. Install order and the one-other-town rule');
       const ctx = {};
       new Function(
         admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-        'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) +
+        'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('groupCentres') + fn('nearbyGroups') +
         'function seasonFirstDate(){return new Date(2026,9,1);}' +
         fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
         ';this.plan=planNewCrewDays;'
@@ -12226,8 +12243,8 @@ suite('Suite 47. The two biggest towns get each day');
     const ctx = {};
     new Function(
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('groupCentres') + fn('nearbyGroups') +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
       ';this.plan=planNewCrewDays;'
@@ -12465,8 +12482,8 @@ suite('Suite 48. Days within two working days are set');
       'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
       'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('groupCentres') + fn('nearbyGroups') +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       admin.slice(planStart, planEnd) +
       'const PIN_HONOURED_BUSINESS_DAYS=2;' +
@@ -13295,8 +13312,8 @@ suite('Suite 51. The dribble at the end of the season');
       'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('groupCentres') + fn('nearbyGroups') +
       admin.slice(start, end) +
       '\nreturn {plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE};')();
 
@@ -13570,8 +13587,8 @@ suite('Suite 53. October is a deadline');
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       fn('thanksgivingDate') +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('groupCentres') + fn('nearbyGroups') +
       admin.slice(start, end) +
       '\nreturn {plan: planNewCrewDays};')();
 
@@ -27233,7 +27250,7 @@ suite('120. A day is a cluster, not the top of a list');
                                admin.indexOf('function installPriority'));
     const prelude = ['const NEARBY_TOWN_LIST = {};',
       extractFn(admin, 'haversine'), extractFn(admin, 'sameTownName'),
-      extractFn(admin, 'townCentres'), extractFn(admin, 'nearbyTowns'),
+      extractFn(admin, 'groupCentres'), extractFn(admin, 'nearbyGroups'),
       extractFn(admin, 'extractCleanCity'), extractFn(admin, 'thanksgivingDate')].join(LF_) + LF_;
     const api = eval(prelude + consts + LF_ + extractFn(admin, 'installPriority') + LF_ +
       admin.slice(start, end) + LF_ + ';({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE})');

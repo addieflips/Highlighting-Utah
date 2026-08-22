@@ -4526,6 +4526,16 @@ import {
      and told nobody. */
   applyLightChange, LIGHT_CHANGE_FEE, LIGHT_WINDOW_MS
 } from './js/money.js';
+/* ⭐ WHAT A CREW-DAY IS MADE OF, now that it is not made of towns.
+   Owner, 2026-08-22: "city lines arent a concern". planBlocks cuts the whole book
+   into compact blocks of at most a crew-day in ONE pass, and lifts genuinely
+   isolated houses out first so distance never has to outrank timing — "if a house
+   is really that far out then its for my dad to do".
+   ⚠ THE BUILDER ITSELF STILL TAKES NO DEPENDENCY ON THIS. planNewCrewDays groups
+   on whatever `block` its callers stamp onto each waiting house, exactly as it used
+   to group on `city`, so it stays pure text that run-all.js can lift and run in a
+   sandbox. This import is used by the two CALLERS, and nowhere else. */
+import { planBlocks, replaceability } from './js/grid.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
@@ -31472,15 +31482,17 @@ const DEFAULT_NEARBY_TOWNS = {
   'Cottonwood Hts': ['Holladay', 'Sandy'],
   'Sandy': ['Cottonwood Hts', 'Draper']
 };
-/* The middle of a town, from the houses actually waiting in it. Good enough to
-   tell a neighbouring town from one across the valley, which is all it is for.
-   A town whose houses have no map pin yet gets no centre and is simply never
-   borrowed from — it still gets its own days as before. */
-function townCentres(byCity){
+/* The middle of a group of waiting houses — a BLOCK since 2026-08-22, a town
+   before that. Good enough to tell a neighbouring block from one across the
+   valley, which is all it is for. A group whose houses have no map pin yet gets
+   no centre and is simply never borrowed from — it still gets its own days.
+   ⚠ Deliberately generic: it does not care what the key means, which is what let
+   the container change from town to block without touching this at all. */
+function groupCentres(byGroup){
   const out = {};
-  Object.keys(byCity).forEach(function(city){
+  Object.keys(byGroup).forEach(function(city){
     let n = 0, la = 0, ln = 0;
-    byCity[city].forEach(function(w){
+    byGroup[city].forEach(function(w){
       const s = w && w.stop;
       if(s && typeof s.lat === 'number' && typeof s.lng === 'number'){ la += s.lat; ln += s.lng; n++; }
     });
@@ -31727,16 +31739,27 @@ function nearbyTownsToText(map){
 function sameTownName(a, b){
   return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase();
 }
-/* Towns near `city`, nearest first. */
-function nearbyTowns(city, centres){
-  /* Typed in beats measured. Matched case-insensitively so "west jordan" and
-     "West Jordan" are the same town, which is how they arrive from a textarea. */
-  const key = Object.keys(NEARBY_TOWN_LIST).filter(function(t){ return sameTownName(t, city); })[0];
-  if(key) return NEARBY_TOWN_LIST[key].slice();
-  const here = centres[city];
+/* ⭐ THE GROUPS NEXT DOOR, NEAREST FIRST — MEASURED, NEVER LOOKED UP.
+   Owner, 2026-08-22: "city lines arent a concern."
+
+   This used to consult a hand-typed list of which towns count as neighbours, and
+   only fell back to the tape measure for towns nobody had listed. That list existed
+   because a TOWN is not a point: two towns can be four miles apart with a canyon
+   between them, so raw distance between town centres was a bad guess and somebody
+   had to correct it by hand.
+
+   A block is not a town. It is already a compact patch of map — the grid built it
+   that way — so the distance between two block centres means what it says, and the
+   typed list has nothing left to correct. DEFAULT_NEARBY_TOWNS, NEARBY_TOWN_LIST
+   and the Scheduling-settings box that edited them are gone with it.
+
+   ⚠ STILL BOUNDED. Nearest-first is not the same as near: past NEARBY_TOWN_MILES a
+   crew is not topping up its day, it is driving across the valley to do it. */
+function nearbyGroups(key, centres){
+  const here = centres[key];
   if(!here) return [];
   return Object.keys(centres)
-    .filter(function(c){ return c !== city; })
+    .filter(function(c){ return c !== key; })
     .map(function(c){ return {city: c, miles: haversine(here.lat, here.lng, centres[c].lat, centres[c].lng)}; })
     .filter(function(x){ return x.miles <= NEARBY_TOWN_MILES; })
     .sort(function(a, b){ return a.miles - b.miles; })
@@ -31858,12 +31881,33 @@ function planNewCrewDays(waiting, taken, opts){
   Object.keys(busy).forEach(function(dt){
     Object.keys(busy[dt]).forEach(function(cr){ markTownUsed(dt, busy[dt][cr]); });
   });
-  /* Grouped by town, and within a town by who has waited longest for a slot
-     they are allowed on — new hangs, then October, then no preference. */
+  /* ⭐ GROUPED BY BLOCK, NOT BY TOWN (changed 2026-08-22).
+     Owner: "city lines arent a concern."
+
+     This is the whole change. Everything below it — the priority sort, the urgency
+     rule, the head-count, the borrowing, the tail sweep — is written against "a key
+     with a queue behind it" and did not care what the key MEANT, so none of it had
+     to move. What changed is that the key is now a patch of map instead of a name on
+     a plat: js/grid.js cuts the book into compact blocks of at most a crew-day, and
+     the caller stamps the block onto each waiting house before handing it over.
+
+     ⚠ THE BLOCK IS STAMPED BY THE CALLER, ON PURPOSE. This function takes no
+     dependency on the grid module — it reads a field. That is what keeps it pure
+     text that run-all.js can lift into a sandbox and run a whole season through,
+     which is the only reason any of this is checkable.
+
+     ⚠ AND A HOUSE WITH NO BLOCK IS NOT DROPPED HERE, it simply never had one — the
+     caller has already taken the outliers out and reports them separately, because
+     a house quietly missing from the plan is a customer nobody visits.
+
+     Within a block, still ordered by who has waited longest for a slot they are
+     allowed on — new hangs, then October, then no preference. */
   const byCity = {};
   waiting.forEach(function(w){
-    if(!w || !w.city) return;
-    (byCity[w.city] = byCity[w.city] || []).push(w);
+    if(!w) return;
+    const key = w.block || w.city;   /* city only as a fallback for old callers */
+    if(!key) return;
+    (byCity[key] = byCity[key] || []).push(w);
   });
   Object.keys(byCity).forEach(function(c){
     byCity[c].sort(function(a,b){
@@ -31907,7 +31951,7 @@ function planNewCrewDays(waiting, taken, opts){
      What survives from all of it: One Man Installs still LISTS the short days, and the
      rescue still only fires on genuinely one-man ones. Reporting them was always the
      useful half. */
-  const centres = townCentres(byCity);
+  const centres = groupCentres(byCity);
   const dateOf = function(ds){ return new Date(ds.slice(0,4), Number(ds.slice(5,7)) - 1, ds.slice(8,10)); };
   /* How many are allowed today, and how urgent the most urgent of them is.
      byCity is sorted by priority first, so the first allowed house IS the most
@@ -31948,7 +31992,7 @@ function planNewCrewDays(waiting, taken, opts){
     if(own >= cap) return cap;
     const used = townsUsedOn(ds);
     let best = 0;
-    nearbyTowns(city, centres).forEach(function(other){
+    nearbyGroups(city, centres).forEach(function(other){
       if(other === city || used.indexOf(other) !== -1) return;
       const n = allowedCount(other, ds);
       if(n > best) best = n;
@@ -32044,7 +32088,7 @@ function planNewCrewDays(waiting, taken, opts){
            urgent, with distance breaking a tie only. */
         const towns = [city];
         if(ids.length < cap){
-          const near = nearbyTowns(city, centres);
+          const near = nearbyGroups(city, centres);
           let borrow = null;
           for(let n = 0; n < near.length; n++){
             const other = near[n];
@@ -32113,7 +32157,7 @@ function planNewCrewDays(waiting, taken, opts){
     from: function(id){ return (wById[id] && wById[id].from) || ''; },
     until: function(id){ return (wById[id] && wById[id].until) || ''; },
     townOf: function(id){ return (wById[id] && wById[id].city) || ''; },
-    nearby: function(c){ return nearbyTowns(c, centres); },
+    nearby: function(c){ return nearbyGroups(c, centres); },
     dist: function(a, b){
       const ca = centres[a], cb = centres[b];
       if(!ca || !cb) return null;
