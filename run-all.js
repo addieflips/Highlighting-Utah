@@ -35122,6 +35122,51 @@ suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is
       return i !== -1 && k > i && k < j;      /* it returns before adding */
     })(),
     'placing it anyway is what produced a dot at 31 ft on a cloud');
+  /* ⚠ AND THE FIRST FIX FOR THIS DID NOT WORK, WHICH IS WHY THE GUARD MOVED.
+     Guarding only the fallback was not enough: a ray aimed at the sky meets no
+     wall, but it can still cross a ROOF PLANE carried out to the corner of its
+     own bounding box - Google's patches are axis-aligned boxes bigger than the
+     faces they describe. Verified live after the first fix shipped: a click on
+     open cloud still produced a dot, at 38 ft, on a house whose ridge is 21.
+     So the check belongs where every path meets, just before the dot is made. */
+  check('S160', 'nothing is accepted above the roof, whichever path found it',
+    /if\(top !== null && best\.u > top \+ RM_EAVE_TOL_M\)\{/.test(admin) &&
+    (function(){
+      const i = admin.indexOf('if(top !== null && best.u > top + RM_EAVE_TOL_M){');
+      const j = admin.indexOf('rmAddCorner(', i);
+      const k = admin.indexOf('return;', i);
+      return i !== -1 && j > i && k > i && k < j;   /* refuses before adding */
+    })(),
+    'guarding one path leaves the others open, which is how 38 ft survived the first fix');
+  /* ⭐ AND THE CEILING IS THIS HOUSE'S OWN RIDGE, RUN not grepped. A fixed
+     number would refuse real dots on a tall house and accept sky over a
+     bungalow. */
+  (function(){
+    const LF2 = String.fromCharCode(10);
+    const pick2 = n => extractFn(admin, n);
+    const F2 = (minE, maxE, minN, maxN, hM) => ({
+      sw: {lat: 40 + minN/111132, lng: -111 + minE/85300},
+      ne: {lat: 40 + maxN/111132, lng: -111 + maxE/85300},
+      center: {lat: 40 + (minN+maxN)/2/111132, lng: -111 + (minE+maxE)/2/85300},
+      planeHeightM: hM, azimuth: 0, pitch: 0
+    });
+    const api2 = new Function(
+      'let rmOrigin = {lat: 40, lng: -111};' + LF2 +
+      'let rmFaces = []; let rmRoofDatumM = 3; let rmDatumSource = "test";' + LF2 +
+      ['rmMetresPerDeg','rmToLocal','rmFaceEaveM','rmLowestPlaneM','rmDatum',
+       'rmFacePlane','rmRoofTopM'].map(pick2).join(LF2) + LF2 +
+      'return {top: rmRoofTopM, faces: function(f){ rmFaces = f; }};')();
+    api2.faces([F2(-8, 0, -6, 6, 4), F2(0, 8, -6, 6, 9)]);
+    const t = api2.top();
+    /* datum 3, lowest eave 4, so the tall face sits at 3 + (9-4) = 8 */
+    check('S160', 'the ceiling is the tallest roof this house actually has',
+      t !== null && Math.abs(t - 8) < 0.4,
+      'got ' + (t === null ? 'null' : t.toFixed(2)) + ' m, wanted 8');
+    api2.faces([]);
+    check('S160', 'and with no roof model there is no ceiling to enforce',
+      api2.top() === null,
+      'refusing every click on a house Google has no model for is worse than allowing them');
+  })();
   check('S160', 'past the END of a roof patch is still accepted',
     /Past the end of a roof patch it is still/.test(admin),
     'that is what the fallback is for; only past the TOP is refused');

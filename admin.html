@@ -17275,6 +17275,23 @@ function rmSetShowModel(on){
   rmPaintStreet();
 }
 
+/* The highest the roof of THIS house gets, as the model has it.
+   ⚠ NEEDED BECAUSE A FACE'S PATCH IS BIGGER THAN THE FACE. Google gives each
+   roof segment an axis-aligned BOUNDING box, so a steep plane carried out to
+   the corner of its own box reaches a height the house never does - and a ray
+   aimed at the sky, which meets no wall, can still cross one of those extended
+   planes and be accepted. Measured: a click on open cloud came back as a dot
+   at 38 ft on a house whose ridge is 21. */
+function rmRoofTopM(){
+  let top = null;
+  (rmFaces || []).forEach(function(f){
+    const plane = rmFacePlane(f);
+    if(!plane || !isFinite(plane.point.u)) return;
+    if(top === null || plane.point.u > top) top = plane.point.u;
+  });
+  return top;
+}
+
 /* Whatever the click is really pointing at: the nearest surface of the solid. */
 function rmHouseHit(dir, cam){
   const wall = rmFaceWallHit(dir, cam);
@@ -19556,6 +19573,18 @@ function openRoofMeasure(quoteId){
         }
         best = w2;
         best.u = roofTop;
+      }
+      /* ⭐ NOTHING IS ABOVE THE ROOF. Owner: "you need to make there be 0
+         margin of error." Whichever path found this point - a roof face, a
+         wall, or the fallback - it is only real if it is on the building, and
+         the building stops at its own ridge. A click on the sky that crosses a
+         bounding box carried out past the roof is not a corner; it is nothing,
+         and saying so is the only honest answer. Refusing costs one wasted
+         click. Accepting puts an invented height into a quote. */
+      const top = rmRoofTopM();
+      if(top !== null && best.u > top + RM_EAVE_TOL_M){
+        if(note) note.textContent = '⚠ That is above the roof — there is nothing there to measure. Click on the house itself.';
+        return;
       }
       const w = rmToWorld({e: best.e, n: best.n, u: best.u});
       rmAddCorner({lat: w.lat, lng: w.lng, h: best.u,
