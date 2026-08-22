@@ -16372,8 +16372,17 @@ function rmFillSpikes(rows, maxWidthPx){
     const left = rows[x - 1], right = rows[end];
     if(left === null || right === null) continue;
     const shoulder = Math.min(left, right);
-    /* Only if it really does stick UP out of the roofline either side. */
-    if(shoulder - rows[x] < 5) continue;
+    /* ⚠ IT HAS TO STICK UP OUT OF BOTH SHOULDERS, PROPERLY. At five pixels
+       this fired on every ordinary step in a roofline - one house reported
+       EIGHTY-FOUR chimneys, which is not a report anybody can act on and was
+       quietly smoothing away real corners as well. A chimney clears the roof
+       it stands on by a foot or more; a step between two roof levels is a
+       corner and must survive. Measured against the SHALLOWER shoulder, so a
+       bump on a slope is judged by the side it barely clears. */
+    if(shoulder - rows[x] < 12) continue;
+    /* And it must come back DOWN the other side - a spike has two shoulders.
+       A roofline that simply steps up has only one, and is not a chimney. */
+    if(Math.abs(left - right) > Math.max(6, (shoulder - rows[x]) * 0.6)) continue;
     for(let k = x; k < end; k++){
       rows[k] = left + (right - left) * ((k - x + 1) / (width + 1));
     }
@@ -16471,7 +16480,13 @@ function rmCornersInPhoto(photo, mppAtHouse){
    are the same corner. */
 const RM_TRI_MAX_GAP_M = 0.45;   /* two rays this close are looking at one thing */
 const RM_TRI_MIN_BASE_M = 4;     /* two views closer than this cannot judge depth */
-const RM_TRI_MERGE_M = 0.7;      /* corners this close are the same corner */
+/* ⚠ MEASURED ON A REAL HOUSE. At 0.7 m the strip came back with seven
+   corners sitting almost on top of each other - 1, 2 and 3 in one blob and A
+   to G in another - which is unpickable however well they are numbered. Two
+   corners a metre and a half apart on a roofline are one corner found twice
+   from two angles, not two features anybody would hang lights round
+   separately. */
+const RM_TRI_MERGE_M = 1.5;      /* corners this close are the same corner */
 
 /* Where two rays come closest, and how far apart they are there. */
 function rmRayClosest(ca, da, cb, db){

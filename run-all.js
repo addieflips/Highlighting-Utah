@@ -33797,6 +33797,18 @@ suite('148. Measure Roof - the skyline is the roofline, and its corners are the 
       dirty.spikesRemoved >= 1 && dirty.corners.length === 3,
       'got ' + dirty.corners.length + ' corners and removed ' + dirty.spikesRemoved +
       ' spikes - a chimney would otherwise add two');
+    /* ⚠ AND A STEP BETWEEN TWO ROOF LEVELS IS A CORNER, NOT A CHIMNEY. A house
+       where one roof meets a taller one steps UP and stays up - it has one
+       shoulder, where a chimney has two. At the first threshold this fired on
+       every such step and one real house reported EIGHTY-FOUR chimneys, which
+       is not a report anybody can act on and was smoothing away real corners
+       into the bargain. */
+    const stepUp = x => (x >= 130) ? 40 : gable(x);
+    const stepped = api.rmCornersInPhoto(mk(stepUp), 0.05);
+    check('S148', 'a step up to a taller roof is kept, not filled in as a chimney',
+      stepped.spikesRemoved === 0 && stepped.corners.length >= 3,
+      'removed ' + stepped.spikesRemoved + ' spikes from a roofline that has none');
+
     /* ⚠ AND A DORMER MUST SURVIVE. This is the same shape, only wider - if the
        spike rule is set by height rather than width it takes the dormer too,
        and dormers are exactly what the owner asked to catch. */
