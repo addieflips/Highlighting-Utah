@@ -29252,6 +29252,191 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
     'appended unconditionally it would ride on invoices and receipts too');
 }
 
+/* =====================================================================
+ * Suite 132. Back Next Year neither creates a recycle nor destroys one
+ *
+ * HOLE G, fixed 2026-08-21. Owner, asked what should happen to the bin of
+ * somebody who says Back Next Year: keep it made up.
+ *
+ * ⚠ "DO NOT CREATE ONE" AND "WRITE FALSE" ARE NOT THE SAME THING, and that gap
+ * is the whole bug. Every Back Next Year path wrote needsLightRecycle: false
+ * unconditionally, so it silently CANCELLED a recycle that was already owed.
+ * The way in is ordinary: somebody answers no — the recycle is set and the
+ * warehouse is queued to collect their bin — and then changes to Back Next
+ * Year. The flag is wiped, the bin stays on the shelf, and nobody is ever told
+ * to collect it. A set of lights lost for a year with nothing on any screen to
+ * say why.
+ *
+ * ⚠ FOUR PATHS, THREE OF THEM COPIES OF ONE DECISION. setCustomerSeason
+ * describes itself as "the one place that flips a customer between Confirmed
+ * and Maybe Next Year" and it is not: the server has its own copy and the Edit
+ * Customer save has a third. The fourth is a different route to the same harm —
+ * moving an RSVP from 'no' to 'backnextyear' hit a branch meant for somebody
+ * coming back IN. All four are RUN below rather than read.
+ * ===================================================================== */
+suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
+{
+  const fns = read('functions/index.js');
+  const admin = read('admin.html');
+
+  /* ---- 1. the server path, run ---------------------------------------- */
+  const pullSrc = extractFn(fns, 'pullCustomerFromSeason');
+  check('S132', 'the server Back Next Year path is findable', !!pullSrc);
+  check('S132', 'and is still async in the real file',
+    /async function pullCustomerFromSeason\(/.test(fns),
+    'the lift below puts the keyword back');
+
+  if (pullSrc) {
+    pendingAsync.push((async () => {
+      const runPull = (seed) => {
+        const doc = Object.assign({}, seed);
+        const db = { collection: () => ({ doc: () => ({
+          update: (patch) => { Object.assign(doc, patch); return Promise.resolve(); }
+        }) }) };
+        const fn = new Function('db', 'admin', 'removeCustomerFromUpcomingRoutes',
+          'async ' + pullSrc + '\nreturn pullCustomerFromSeason;')(db,
+          { firestore: { FieldValue: { serverTimestamp: () => '@ts' } } },
+          async () => 0);
+        return fn('c1').then(() => doc);
+      };
+
+      /* ⚠ THE FIXTURE THAT MATTERS: a recycle ALREADY OWED. With it false to
+         begin with, writing false and writing nothing look identical and the
+         check proves nothing — which is exactly why this bug survived. */
+      const owed = await runPull({ needsLightRecycle: true, needsLightBuild: true });
+      check('S132', 'a recycle already owed survives Back Next Year',
+        owed.needsLightRecycle === true,
+        'they said no first, the warehouse was queued to collect their bin, and ' +
+        'then they said back next year — the collection is still owed');
+
+      const intact = await runPull({ needsLightRecycle: false, needsLightBuild: true });
+      check('S132', 'and Back Next Year does not create one',
+        intact.needsLightRecycle === false,
+        'owner: keep the bin made up — breaking it back into stock means ' +
+        'building the whole thing again if they do return');
+
+      /* ⚠ THE BUILD IS STILL CANCELLED, and that is the difference. You do not
+         make a set for somebody sitting the season out. A fix that spared both
+         flags would leave them in the warehouse queue. */
+      check('S132', 'but a queued build IS still cancelled',
+        owed.needsLightBuild === false && intact.needsLightBuild === false,
+        'nothing to build for a season they are not in');
+      check('S132', 'and they are still taken out of the season',
+        owed.rsvpStatus === 'backnextyear' && owed.maybeNextYear === true &&
+        owed.scheduled === false && owed.assignedCrew === null,
+        'the rest of Back Next Year is unchanged — only the recycle was wrong');
+    })());
+  }
+
+  /* ---- 2. the office toggle, run --------------------------------------- */
+  const seasonSrc = extractFn(admin, 'setCustomerSeason');
+  check('S132', 'the office Back Next Year toggle is findable', !!seasonSrc);
+  if (seasonSrc) {
+    pendingAsync.push((async () => {
+      const runToggle = (toMaybe) => {
+        let patch = null;
+        const fn = new Function('updateDoc', 'doc', 'db', 'serverTimestamp',
+          'jobAddresses', 'renderJobAddressPanels', 'toast',
+          'async ' + seasonSrc + '\nreturn setCustomerSeason;')(
+          (ref, p) => { patch = p; return Promise.resolve(); },
+          () => 'ref', {}, () => '@ts', [], () => {}, () => {});
+        return fn('c1', toMaybe).then(() => patch, () => patch);
+      };
+      const on = await runToggle(true);
+      check('S132', 'the office toggle writes no recycle flag either way',
+        on && !('needsLightRecycle' in on),
+        'wrote: ' + JSON.stringify(Object.keys(on || {})) + ' — the badge, the ' +
+        'Edit Customer toggle and the server must not disagree about this');
+      check('S132', 'but still clears the build and the schedule',
+        on && on.needsLightBuild === false && on.scheduled === false &&
+        on.rsvpStatus === 'backnextyear',
+        'the rest of what the toggle does is unchanged');
+    })());
+  }
+
+  /* ---- 3. the Edit Customer save's own copy, run ----------------------- */
+  {
+    const a = admin.indexOf('    if(newSeasonMaybe){');
+    const b = admin.indexOf('    } else if(item.data.maybeNextYear){', a);
+    check('S132', 'the Edit Customer Back Next Year branch is findable',
+      a !== -1 && b > a,
+      'moved or renamed — fix the slice rather than deleting the check');
+    if (a !== -1 && b > a) {
+      const branch = admin.slice(a, b) + '    }';
+      const runBranch = (newSeasonMaybe, data) => {
+        const addrUpdates = {};
+        new Function('newSeasonMaybe', 'item', 'addrUpdates', 'serverTimestamp',
+          branch)(newSeasonMaybe, { data: data }, addrUpdates, () => '@ts');
+        return addrUpdates;
+      };
+      const out = runBranch(true, { needsLightRecycle: true, maybeNextYear: false });
+      check('S132', 'the Edit Customer branch writes no recycle flag',
+        !('needsLightRecycle' in out),
+        'wrote: ' + JSON.stringify(Object.keys(out)) + ' — this is the THIRD ' +
+        'copy of the same decision and the one most easily missed');
+      check('S132', 'and still does the rest of Back Next Year',
+        out.rsvpStatus === 'backnextyear' && out.needsLightBuild === false &&
+        out.scheduled === false && out.assignedCrew === null,
+        'a fix that gutted the branch would pass the check above for the wrong reason');
+    }
+  }
+
+  /* ---- 4. the same harm by another route ------------------------------
+     Moving an RSVP from 'no' to 'backnextyear' hit a branch written for
+     somebody coming back IN. Both are ways of saying not this season, so moving
+     between them changes nothing about whether the lights need collecting. */
+  {
+    const a = admin.indexOf("    if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){");
+    const b = admin.indexOf('/* Rejoining AFTER the recycle', a);
+    check('S132', 'the RSVP recycle branch is findable', a !== -1 && b > a);
+    if (a !== -1 && b > a) {
+      const branch = admin.slice(a, b);
+      const runRsvp = (newRsvp, oldRsvp, had) => {
+        const addrUpdates = {};
+        new Function('newRsvp', 'oldRsvpForRecycle', 'item', 'addrUpdates',
+          branch)(newRsvp, oldRsvp, { data: { needsLightRecycle: had } }, addrUpdates);
+        return addrUpdates;
+      };
+      check('S132', 'moving from No to Back Next Year keeps an owed recycle',
+        !('needsLightRecycle' in runRsvp('backnextyear', 'no', true)),
+        'the same bug by another route — they are still not doing this season, ' +
+        'so their lights still need collecting');
+      /* ⚠ AND THE BRANCH MUST STILL WORK FOR ITS REAL CASE, or the check above
+         passes because the whole thing was gutted. */
+      check('S132', 'but coming back in still cancels it',
+        runRsvp('yes', 'no', true).needsLightRecycle === false,
+        'they are in for the season again, so the recycle their no created goes ' +
+        'with it — that is what this branch is FOR');
+      check('S132', 'and answering No still raises one',
+        runRsvp('no', 'yes', false).needsLightRecycle === true,
+        'the RSVP is the one place that decides somebody is out, and this is ' +
+        'where the recycle actually belongs');
+    }
+  }
+
+  /* ---- 5. no Back Next Year path anywhere writes it -------------------- */
+  /* ⚠ A BACKSTOP FOR A FOURTH COPY NOBODY HAS WRITTEN YET. The three above are
+     checked by running them; this fails if a new one appears with the old
+     mistake in it. Scoped to the same object literal / assignment run, so an
+     unrelated recycle write elsewhere in the file cannot trip it. */
+  /* ⚠ SPLIT ON THE ASSIGNMENT, NOT THE WORD. Splitting on 'backnextyear' alone
+     flagged the branch that CORRECTLY excludes it — `newRsvp !== 'backnextyear'`
+     mentions the status in order to skip it, and the legitimate clear-on-rejoin
+     write sits three lines below. A path that SETS the status is what this is
+     about, so that is what it looks for. */
+  const bnyWrites = (stripComments(admin) + stripComments(fns))
+    .split(/rsvpStatus\s*[:=]\s*'backnextyear'/)
+    .slice(1)
+    .filter(function (chunk) {
+      return /needsLightRecycle\s*[:=]\s*false/.test(chunk.slice(0, 260));
+    });
+  check('S132', 'no Back Next Year path clears the recycle flag',
+    bnyWrites.length === 0,
+    bnyWrites.length + ' path(s) still write needsLightRecycle: false within a ' +
+    'few lines of setting backnextyear — "do not create one" is not the same ' +
+    'thing as "write false"');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

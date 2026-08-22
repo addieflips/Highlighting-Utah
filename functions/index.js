@@ -1530,7 +1530,21 @@ async function pullCustomerFromSeason(customerId) {
     maybeNextYearAt: admin.firestore.FieldValue.serverTimestamp(),
     rsvpStatus: 'backnextyear',
     rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
-    needsLightRecycle: false,
+    /* ⭐ BACK NEXT YEAR NEITHER CREATES A RECYCLE NOR DESTROYS ONE (hole G,
+     fixed 2026-08-21). Owner, asked what happens to their bin: keep it made up.
+
+     ⚠ SO THIS MUST NOT WRITE needsLightRecycle AT ALL. It used to write FALSE
+     unconditionally, which is not the same thing as "do not create one" — it
+     silently CANCELLED a recycle that was already owed. The way in: somebody
+     answers no (the recycle is set, the warehouse is queued to collect their
+     bin), then changes to Back Next Year. The flag is wiped, the bin stays on
+     the shelf, and nobody is ever told to collect it — a set of lights lost for
+     a year with nothing on any screen to say why.
+
+     Leaving the field alone gets both cases right: an owed collection still
+     happens, and a customer whose bin is intact keeps it made up for next
+     season, which is what was asked for. needsLightBuild IS still cleared —
+     you do not build a set for somebody sitting the season out. */
     needsLightBuild: false,
     scheduled: false,
     scheduledDate: null,

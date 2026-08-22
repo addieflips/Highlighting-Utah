@@ -29256,7 +29256,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){
       addrUpdates.needsLightRecycle = true;
-    } else if(newRsvp !== 'no' && oldRsvpForRecycle === 'no' && item.data.needsLightRecycle){
+    } else if(newRsvp !== 'no' && newRsvp !== 'backnextyear' &&
+              oldRsvpForRecycle === 'no' && item.data.needsLightRecycle){
+      /* Undoing their own no: they are coming back IN this season, so the
+         recycle that the no created is cancelled with it.
+
+         ⚠ BUT NOT FOR BACK NEXT YEAR — the same hole G bug by another route.
+         'no' and 'backnextyear' are two ways of saying not this season, so
+         moving between them changes nothing about whether their lights need
+         collecting. Only coming back in does. */
       addrUpdates.needsLightRecycle = false;
     }
     /* Rejoining AFTER the recycle already happened. The flag being false on a
@@ -29313,7 +29321,27 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       if(!item.data.maybeNextYear) addrUpdates.maybeNextYearAt = serverTimestamp();
       addrUpdates.rsvpStatus = 'backnextyear';
       addrUpdates.rsvpRespondedAt = serverTimestamp();
-      addrUpdates.needsLightRecycle = false;
+      /* ⭐ BACK NEXT YEAR NEITHER CREATES A RECYCLE NOR DESTROYS ONE (hole G,
+     fixed 2026-08-21). Owner, asked what happens to their bin: keep it made up.
+
+     ⚠ SO THIS MUST NOT WRITE needsLightRecycle AT ALL. It used to write FALSE
+     unconditionally, which is not the same thing as "do not create one" — it
+     silently CANCELLED a recycle that was already owed. The way in: somebody
+     answers no (the recycle is set, the warehouse is queued to collect their
+     bin), then changes to Back Next Year. The flag is wiped, the bin stays on
+     the shelf, and nobody is ever told to collect it — a set of lights lost for
+     a year with nothing on any screen to say why.
+
+     Leaving the field alone gets both cases right: an owed collection still
+     happens, and a customer whose bin is intact keeps it made up for next
+     season, which is what was asked for. needsLightBuild IS still cleared —
+     you do not build a set for somebody sitting the season out.
+
+         ⚠ AND THIS IS A THIRD COPY of a decision setCustomerSeason calls itself
+         "the one place that flips a customer between Confirmed and Maybe Next
+         Year". It is not. That duplication is why this bug had to be fixed in
+         three files, and it is worth collapsing — but not in the same change
+         that fixes the bug. */
       addrUpdates.needsLightBuild = false;
       addrUpdates.scheduled = false;
       addrUpdates.scheduledDate = null;
@@ -33111,9 +33139,24 @@ async function removeCustomerFromUpcomingRoutes(customerId){
    already done. */
 async function setCustomerSeason(id, toMaybe){
   const updates = toMaybe
+    /* ⭐ BACK NEXT YEAR NEITHER CREATES A RECYCLE NOR DESTROYS ONE (hole G,
+     fixed 2026-08-21). Owner, asked what happens to their bin: keep it made up.
+
+     ⚠ SO THIS MUST NOT WRITE needsLightRecycle AT ALL. It used to write FALSE
+     unconditionally, which is not the same thing as "do not create one" — it
+     silently CANCELLED a recycle that was already owed. The way in: somebody
+     answers no (the recycle is set, the warehouse is queued to collect their
+     bin), then changes to Back Next Year. The flag is wiped, the bin stays on
+     the shelf, and nobody is ever told to collect it — a set of lights lost for
+     a year with nothing on any screen to say why.
+
+     Leaving the field alone gets both cases right: an owed collection still
+     happens, and a customer whose bin is intact keeps it made up for next
+     season, which is what was asked for. needsLightBuild IS still cleared —
+     you do not build a set for somebody sitting the season out. */
     ? { maybeNextYear: true, maybeNextYearAt: serverTimestamp(),
         rsvpStatus: 'backnextyear', rsvpRespondedAt: serverTimestamp(),
-        needsLightRecycle: false, needsLightBuild: false,
+        needsLightBuild: false,
         scheduled: false, scheduledDate: null, assignedCrew: null }
     : { maybeNextYear: false, maybeNextYearAt: null,
         rsvpStatus: '', rsvpRespondedAt: null };
