@@ -32595,7 +32595,10 @@ suite('132. Measure Roof - both views feed one length, and the front is the defa
     const sapi = new Function(
       'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
       'let __cam=null; function rmCamLocal(){ return __cam; }' + LF_ +
-      pick('rmMetresPerDeg') + LF_ + pick('rmToLocal') + LF_ + pick('rmToWorld') + LF_ + sideFn + LF_ +
+      pick('rmMetresPerDeg') + LF_ + pick('rmToLocal') + LF_ + pick('rmToWorld') + LF_ +
+      /* rmEaveSide now asks rmCamOnRoad, not rmCamLocal - a camera still sitting
+         at the house is not a road. Lift it in or the sandbox dies undefined. */
+      'const RM_ROAD_MIN_M = 4;' + LF_ + (pick('rmCamOnRoad') || '') + LF_ + sideFn + LF_ +
       'return {setCam:function(c){__cam=c;}, rmEaveSide, rmToWorld};')();
     /* Camera due south of the house, i.e. the road is south. */
     sapi.setCam({e: 0, n: -20, u: 2.5});
@@ -32647,6 +32650,98 @@ suite('132. Measure Roof - both views feed one length, and the front is the defa
   check('S132', 'and the honest limit is written down, not glossed',
     !!eaveFn && /correction, not a cure/.test(eaveFn),
     'a box cannot say which way a house is turned, and pretending otherwise is how a guess gets trusted too far');
+}
+
+
+suite('141. Measure Roof - the street decides, and it is allowed to be late');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Found by opening the tool on a real house rather than by reading the code.
+     Google answers twice, at its own speed: once with the roof model, once with
+     the road photo. The lines used to be drawn the instant the ROOF MODEL
+     landed - whichever arrived first - so on that house every line was placed
+     with no camera in existence. Owner: "the lines were already positioned
+     before street view got there meaning that its using the sky map to
+     determine where lines should go, not the street view." */
+
+  /* ---- 1. a camera still sitting at the house is not a road ------------- */
+  const onRoad = pick('rmCamOnRoad');
+  if (!onRoad) {
+    check('S141', 'the road test is findable', false, 'rmCamOnRoad renamed or removed');
+  } else {
+    const api = new Function(
+      'let __cam=null; const RM_ROAD_MIN_M = 4;' + LF_ +
+      'function rmCamLocal(){ return __cam; }' + LF_ + onRoad + LF_ +
+      'return {set:function(c){__cam=c;}, rmCamOnRoad};')();
+    api.set(null);
+    check('S141', 'no camera at all is not a road', api.rmCamOnRoad() === null);
+    api.set({e: 0.4, n: -0.3, u: 2.5});
+    check('S141', 'a camera still standing at the house is not a road either',
+      api.rmCamOnRoad() === null,
+      'this is the state the panorama opens in, and it is why all eight lines came out "front"');
+    api.set({e: 0, n: -18, u: 2.5});
+    check('S141', 'a camera out on the street IS a road',
+      !!api.rmCamOnRoad(), 'the real camera must still count, or nothing is ever sided');
+  }
+
+  /* ---- 2. nothing is drawn until BOTH answers are in -------------------- */
+  const gate = pick('rmBuildWhenReady');
+  check('S141', 'the lines wait for the roof model AND the street',
+    !!gate && /!rmFacesReady/.test(gate) && /!rmStreetSettled/.test(gate),
+    'drawing on whichever lands first is the bug this suite exists for');
+  check('S141', 'and they are drawn once, not once per answer',
+    !!gate && /rmSuggestionsBuilt/.test(gate),
+    'both answers arriving would otherwise redraw over picks already made');
+  check('S141', 'the sides are settled after the camera exists, not before',
+    !!gate && gate.indexOf('rmBuildSuggestions') < gate.indexOf('rmResideSuggestions'),
+    'siding before the camera is what produced Front (8) and three empty sides');
+
+  /* ⚠ THE WAIT MUST BE BOUNDED. A street photo that never settles must not
+     leave somebody looking at an empty panel forever. */
+  check('S141', 'the wait gives up after a while and draws anyway',
+    /setTimeout\(rmStreetSettle, 10000\)/.test(admin),
+    'an unbounded wait on a third party is a hang with better manners');
+  check('S141', 'and says so, rather than passing map-only lines off as street-checked',
+    !!gate && /No street photo/.test(gate),
+    'a guess that hides how it was made is worse than one that admits it');
+
+  /* ---- 3. a picked line is never re-picked ----------------------------- */
+  const reside = pick('rmResideSuggestions');
+  check('S141', 're-siding never overrules a line somebody has already touched',
+    !!reside && /if\(!r\.touched\)/.test(reside),
+    'the camera arriving late must not undo work done while it was loading');
+  check('S141', 'and it does nothing at all until there is a road to reason from',
+    !!reside && /if\(!rmCamOnRoad\(\)\) return false;/.test(reside));
+
+  /* ---- 4. one bad lookup is not "no Street View" ------------------------ */
+  /* Watched live: radius 60 answered fine and radius 100 came back
+     UNKNOWN_ERROR seconds later, same street, same key. */
+  check('S141', 'a transient failure is retried, wider',
+    /const RADII = \[60, 100, 160\];/.test(admin) &&
+    /st !== 'ZERO_RESULTS' && i < RADII\.length - 1/.test(admin),
+    'one hiccup used to be reported as "Google has never driven this street"');
+  check('S141', 'but a real ZERO_RESULTS is taken as the answer it is',
+    /if\(st !== 'ZERO_RESULTS' && i < RADII\.length - 1\)\{ askStreetView\(i \+ 1\); return; \}/.test(admin),
+    'retrying a definite no is just a slower no');
+  check('S141', 'and a no still lets the lines be drawn from the map',
+    /rmPaneBusy\('street', 'Google has never driven this street\.', false\);[\s\S]{0,220}rmStreetSettle\(\);/.test(admin),
+    'otherwise a house with no street photo gets no lines at all');
+
+  /* ---- 5. listen before you look --------------------------------------- */
+  /* The panorama had loaded - three canvases, thirteen tiles - with a spinner
+     sitting on top of it saying "Looking for a street-level photo". The
+     listener was attached on the line AFTER setPano, so the event had already
+     gone by. */
+  const iListen = admin.indexOf("addListenerOnce(rmPano, 'pano_changed'");
+  const iSet = admin.indexOf('rmPano.setPano(data.location.pano)');
+  check('S141', 'the pano_changed listener is attached BEFORE setPano',
+    iListen !== -1 && iSet !== -1 && iListen < iSet,
+    'attached after, the event is already gone and the cover never comes off');
+  check('S141', 'and the panorama is asked directly in case the event is missed',
+    /if\(rmPano && rmPano\.getPano\(\)\)\{ rmPaneReady\('street'\);/.test(admin),
+    'a covered-up working panorama is the worst of both');
 }
 
 Promise.all(pendingAsync).then(function () {
