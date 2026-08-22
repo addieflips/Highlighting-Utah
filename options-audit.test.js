@@ -46,10 +46,10 @@ function check(label, ok, detail) {
   }
 
   const { OPTIONS, CONSUMERS, audit, missingAnswers, display, forConsumer,
-          confirmationText, crewSheet, pullList, valueOf } = mod;
+          confirmationText, crewSheet, pullList, valueOf, offerableChoices } = mod;
 
   const required = { OPTIONS, CONSUMERS, audit, missingAnswers, display, forConsumer,
-                     confirmationText, crewSheet, pullList, valueOf };
+                     confirmationText, crewSheet, pullList, valueOf, offerableChoices };
   let missingExport = false;
   for (const name of Object.keys(required)) {
     const ok = required[name] !== undefined;
@@ -108,6 +108,11 @@ function check(label, ok, detail) {
     { type: 'choice', choices: ['A', 'B'], default: 'C' });
   catches('a choice with no choices at all', { type: 'choice' });
   catches('a value reader that is not a function', { value: 'measuredFeet' });
+  catches('offering a value the record may not hold',
+    { type: 'choice', choices: ['A', 'B'], customerChoices: ['A', 'Z'] });
+  catches('narrowing what a customer may pick without being on the quote form',
+    { type: 'choice', choices: ['A', 'B'], customerChoices: ['A'],
+      internal: true, consumers: ['customer'] });
 
   const dup = withRegistry([base(), base()], () => audit());
   check('audit catches: the same option declared twice', dup.length > 0,
@@ -223,6 +228,31 @@ function check(label, ok, detail) {
   check('the confirmation tells them how to fix a wrong answer',
     /member portal/i.test(conf),
     'a list they cannot correct is a list nobody acts on');
+
+  // -------------------------------------------------------------------------
+  // 4b. ACCEPTED IS NOT THE SAME AS OFFERED.
+  //
+  // Addie, 2026-08-21: "I don't want members to have the option for before or
+  // after thanksgiving we only accept these if they ask for them." The record
+  // may hold five install timings; a form may offer three. A quote form reading
+  // `choices` instead of offerableChoices() would advertise a window the season
+  // can only honour for a few customers.
+  // -------------------------------------------------------------------------
+  const timing = OPTIONS.find(o => o.id === 'installPreference');
+  check('the record still accepts both Thanksgiving timings',
+    timing.choices.includes('November - Before Thanksgiving') &&
+    timing.choices.includes('After Thanksgiving'),
+    'the office types these when a customer asks, and the master sheet imports THX');
+  check('but a customer is never OFFERED them',
+    offerableChoices(timing).length === 3 &&
+    !offerableChoices(timing).some(c => /thanksgiving/i.test(c)),
+    'offering them invites every customer into a window built for a few');
+  check('everything offerable is also acceptable',
+    OPTIONS.every(o => offerableChoices(o).every(c => (o.choices || []).includes(c))),
+    'a form offering a value the record cannot hold writes junk');
+  check('an option that narrows nothing offers all of its choices',
+    offerableChoices(OPTIONS.find(o => o.id === 'wireColor')).length === 3,
+    'absent customerChoices must mean "offer them all", not "offer none"');
 
   // -------------------------------------------------------------------------
   // 5. THE READERS — the two options the record does not hold plainly

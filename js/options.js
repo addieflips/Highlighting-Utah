@@ -61,7 +61,11 @@ export const CONSUMERS = [
  *                 read a record directly. Never invent one.
  *   label         what a human sees, on every artifact, spelled once.
  *   type          measure | choice | count | text | yesno
- *   choices       for `choice` and `yesno`
+ *   choices       every value the record may legitimately hold
+ *   customerChoices  the subset a customer-facing form may OFFER, when it is
+ *                 narrower than `choices`. Absent means "offer them all". This
+ *                 is how "we accept it if they ask, we just don't advertise it"
+ *                 gets written down instead of living in somebody's head.
  *   default       must be one of `choices` — audit() enforces it
  *   required      an answer is expected; missingAnswers() reports the gaps
  *   internal      true = the office's, not the customer's. R-003's stated
@@ -195,16 +199,24 @@ export const OPTIONS = [
     id: 'installPreference',
     label: 'Install timing',
     type: 'choice',
-    /* ⚠ FIVE VALUES, AND THE QUOTE FORM ONLY OFFERS THREE. The public form
-       (index.html, name="install_month") offers Normal Schedule / October /
-       November. Admin's own vocabulary (RB_INSTALL_PREF_OPTIONS) has two more,
-       and the scheduler works hard to honour both of them — PRE_THANKSGIVING_DAYS
-       opens a window before the holiday, and After Thanksgiving is held until the
-       day after. So a customer cannot ask for the two timings the season planner
-       tries hardest to respect. One option, two vocabularies: exactly the drift
-       this registry exists to end. Recorded, not silently fixed — widening a
-       customer-facing form is Addie's call. */
+    /* ⚠ FIVE VALID VALUES, THREE OFFERABLE — AND THAT IS DELIBERATE.
+       Addie, 2026-08-21: "I don't want members to have the option for before or
+       after thanksgiving we only accept these if they ask for them."
+
+       So the two Thanksgiving timings are ACCEPTED, not ADVERTISED. They reach a
+       record when a customer asks for one in conversation and the office types
+       it, or from the master sheet (which spells it THX) — never from a form.
+       Putting them on the quote form would invite every customer to pick a
+       window the season can only honour for a few, which is the opposite of what
+       PRE_THANKSGIVING_DAYS exists to protect.
+
+       ⚠ I FIRST RECORDED THIS AS A HOLE — "a customer cannot ask for the two
+       timings the scheduler tries hardest to respect." That was wrong, and it is
+       the shape of mistake worth naming: two vocabularies for one field looked
+       like drift, and was a policy nobody had written down. `customerChoices` is
+       now where that policy lives, so the next reader does not re-report it. */
     choices: ['Normal Schedule', 'October', 'November', 'November - Before Thanksgiving', 'After Thanksgiving'],
+    customerChoices: ['Normal Schedule', 'October', 'November'],
     default: 'Normal Schedule',
     required: true,
     affectsPrice: false,
@@ -323,6 +335,15 @@ export function audit() {
     if ((o.type === 'choice' || o.type === 'yesno') && !Array.isArray(o.choices))
       holes.push(`${o.id}: a ${o.type} with no choices`);
 
+    /* An offerable value the record may not hold is a form that writes junk. */
+    if (Array.isArray(o.customerChoices)) {
+      const strays = o.customerChoices.filter((c) => !(o.choices || []).includes(c));
+      if (strays.length)
+        holes.push(`${o.id}: offers ${strays.join(', ')}, which is not among its own choices`);
+      if (!o.consumers.includes('quote'))
+        holes.push(`${o.id}: narrows what the customer may pick but is never on the quote form`);
+    }
+
     if (o.value != null && typeof o.value !== 'function')
       holes.push(`${o.id}: value must be a function`);
   }
@@ -363,6 +384,13 @@ export function display(option, value) {
   if (value === undefined || value === null || value === '' || value === 0) return 'none';
   if (option.type === 'measure') return `${value} ${option.unit}`;
   return String(value);
+}
+
+/** What a customer-facing form may OFFER for this option — never the full set
+ *  unless the option says so. The quote form must call this rather than reading
+ *  `choices`, or it will advertise timings we only accept on request. */
+export function offerableChoices(option) {
+  return Array.isArray(option.customerChoices) ? option.customerChoices : (option.choices || []);
 }
 
 export function forConsumer(consumer, customer) {

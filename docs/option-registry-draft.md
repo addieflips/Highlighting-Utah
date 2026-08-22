@@ -170,3 +170,40 @@ Raised as **Q-010**. Nothing has been changed.
 
 *Derived 2026-08-21, revised the same day with Addie's answers. `js/options.js`
 still holds its original placeholder set and is still imported by nothing.*
+
+---
+
+## 8. Corrections after review (2026-08-21)
+
+**① The install-timing "hole" was not a hole.** I reported that the quote form
+offers three timings while admin's vocabulary has five, and called it drift —
+one option with two vocabularies. Addie: *"I don't want members to have the
+option for before or after thanksgiving we only accept these if they ask for
+them."*
+
+So the record accepts five and a form offers three, **on purpose**. The two
+Thanksgiving timings reach a record when a customer asks in conversation and the
+office types it, or from the master sheet (`THX`) — never from a form. Offering
+them would invite every customer into a window the season can only honour for a
+few, which is the opposite of what `PRE_THANKSGIVING_DAYS` protects.
+
+That policy now lives in the registry as `customerChoices`, with
+`offerableChoices()` as the accessor a form must use, so the next reader finds
+the answer instead of re-reporting it as a bug. The audit refuses an offerable
+value the record cannot hold, and refuses an option that narrows what a customer
+may pick without being on the quote form.
+
+⚠ Worth naming as a pattern: *two vocabularies for one field looked like drift
+and was an unwritten policy.* The registry's job is as much to record deliberate
+narrowing as to catch accidental gaps.
+
+**② Sides of the house: 1 to 4, and always was.** A customer picks 1, 2, 3 or 4
+— that has been true since 2026-08-19, when four named sides were replaced by a
+count. Nothing limits anyone to one side.
+
+What I flagged is narrower and still stands: when the question has **never been
+answered**, `houseSideCount` returns 1 rather than "not answered". So a house
+nobody asked looks identical to a house that genuinely wants one side, and a
+crew lights one side of a house that may need three. The registry reads an
+unanswered count as undefined so it prints `none`; reconciling that with
+`houseSideCount` moves real customers' sheets and waits for §3.3.
