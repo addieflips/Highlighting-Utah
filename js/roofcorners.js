@@ -1,0 +1,274 @@
+/* roofcorners.js — the corners, offered rather than hunted.
+ *
+ * Owner, 2026-08-22: "also start getting the generated corners and you can click the
+ * ones you want to keep".
+ *
+ * So the tool proposes corners and she picks the ones she wants, instead of finding and
+ * clicking every one by hand on every house.
+ *
+ * ⭐ WHERE THE CORNERS COME FROM. The roofline is already in the Street View depth map,
+ * exactly and for free: plane 0 is sky, so for every column the first row that is NOT
+ * sky is the silhouette of the house against the sky. That is the real roof edge, 512
+ * columns across, with a measured distance at every point. Nothing has to be recognised.
+ * The corners are the places where that line CHANGES DIRECTION.
+ *
+ * ⚠ THIS FILE DOES NOT RETURN A LAT/LNG, AND THAT IS DELIBERATE.
+ * I first proposed that candidates need no north reference because they project straight
+ * back to pixels. lanil-9d corrected me and was right: in this tool a dot IS a world
+ * point — the sky view and the street view share one point set, and a dot survives a
+ * camera move by being stored in the world. Turning (column, row, distance) into a world
+ * point needs the bearing of that column, which is exactly the thing we tried six ways
+ * to establish today and refuted.
+ *
+ * So the work is split where the evidence actually falls:
+ *   THIS FILE knows which pixels are roof edge, how far away they are, how high, and how
+ *   wide a feature is. All of that is azimuth-free and all of it is measured.
+ *   THE CALLER knows where north is, because the rendered panorama does, and turns a
+ *   candidate into a world point through the same path every hand-placed dot uses.
+ *
+ * A function here that returned a lat/lng would be lying, so none does.
+ */
+
+import { rayDirection, distanceAt, cameraHeight } from './svdepth.js';
+
+/* ---------------- the silhouette ---------------- */
+
+/* The house against the sky, one entry per column, null where there is nothing usable.
+ *
+ * ⚠ THE PLANE INDEX IS CARRIED THROUGH, and it is not decoration — see the tree test
+ * below. It is the single most useful thing on this record and it costs nothing.
+ * ⚠ A NULL IS AN HONEST GAP, never a filled-in guess: sky all the way down, or a surface
+ * whose distance cannot be worked out. Joining across a gap would invent a corner where
+ * there is only missing data. */
+export function skylineOf(depth){
+  const out = new Array(depth.width).fill(null);
+  for(let x = 0; x < depth.width; x++){
+    let y = 0;
+    while(y < depth.height && depth.indices[y * depth.width + x] === 0) y++;
+    if(y >= depth.height) continue;
+    const t = distanceAt(depth, x, y);
+    if(t === null) continue;
+    const v = rayDirection(x, y, depth.width, depth.height);
+    out[x] = {
+      x: x, y: y, distance: t,
+      plane: depth.indices[y * depth.width + x],
+      p: [v[0] * t, v[1] * t, v[2] * t]      /* metres, camera at the origin */
+    };
+  }
+  return out;
+}
+
+/* ---------------- geometry ---------------- */
+
+/* Distance from p to the segment ab, in METRES and in three dimensions.
+ * ⚠ NOT IN PIXELS, and that is the whole reason a tolerance means anything here. The
+ * same corner forty metres away subtends a fraction of the pixels it does at ten, so a
+ * pixel tolerance quietly holds a far wing to a far looser standard than the near
+ * garage. Metres hold both to the same real-world standard. */
+export function segmentDistance(p, a, b){
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+  const len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+  let t = len2 > 1e-12 ? (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const c = [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t];
+  return Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]);
+}
+
+/* Douglas-Peucker: keep only the points a straight line cannot account for.
+ * Iterative rather than recursive — a silhouette is not deep, but a recursion that CAN
+ * blow the stack on strange input is a worse trade than a loop that cannot. */
+export function simplifyIndices(points, toleranceM){
+  const n = points.length;
+  if(n < 3) return points.map(function(_, i){ return i; });
+  const keep = new Array(n).fill(false);
+  keep[0] = keep[n - 1] = true;
+  const stack = [[0, n - 1]];
+  let guard = 0;
+  while(stack.length && guard++ < 100000){
+    const span = stack.pop(), lo = span[0], hi = span[1];
+    let worst = -1, worstD = toleranceM;
+    for(let i = lo + 1; i < hi; i++){
+      const d = segmentDistance(points[i].p, points[lo].p, points[hi].p);
+      if(d > worstD){ worstD = d; worst = i; }
+    }
+    if(worst !== -1){ keep[worst] = true; stack.push([lo, worst], [worst, hi]); }
+  }
+  const out = [];
+  for(let i = 0; i < n; i++) if(keep[i]) out.push(i);
+  return out;
+}
+
+/* ---------------- what is not a roof ---------------- */
+
+/* ⭐ THE TREE TEST, and the good version of it is lanil-9d's, not mine.
+ *
+ * My first idea was jaggedness — a roof edge is piecewise straight, foliage is not. That
+ * works but it is weak, because it cannot tell a tree from a genuinely fussy roofline.
+ *
+ * His is better and it is free from data already on the record: A ROOF EDGE HOLDS ONE
+ * PLANE ALONG ITS WHOLE LENGTH. Consecutive silhouette points on a real roof share a
+ * plane index, because they are the top of one flat face. A tree's outline does not —
+ * it wanders between many small planes at slightly different depths, because that is
+ * what a canopy is.
+ *
+ * So this counts how many DISTINCT planes the silhouette uses across a window. One or
+ * two is a roof and its neighbour. Many is a canopy.
+ *
+ * ⚠ IT LOWERS CONFIDENCE, IT DOES NOT DELETE. It cannot prove a tree, and the whole
+ * design is "click the ones you want to keep" — so a candidate the office can see is a
+ * real corner must still be there to click. Deleting on a guess is the one thing this
+ * must not do.
+ * ⚠ AND IT IS UNTESTED ON A REAL TREE. lanil-9d reports the big conifer on the test
+ * house is opaque in the depth map — it returns real vertical planes at 15-25 m, not sky
+ * — so it WILL generate candidates. Whether this rejects them is the first thing to
+ * check against that house. */
+export function planeChurn(line, i, window){
+  const lo = Math.max(0, i - window), hi = Math.min(line.length - 1, i + window);
+  const seen = {};
+  let n = 0;
+  for(let k = lo; k <= hi; k++){
+    if(!line[k]) continue;
+    seen[line[k].plane] = 1; n++;
+  }
+  return n ? {planes: Object.keys(seen).length, samples: n} : null;
+}
+
+/* How far the silhouette wanders from its own local straight line, in metres.
+ * Kept as a second opinion: it catches foliage that happens to sit on few planes, and
+ * plane churn catches foliage that happens to look locally straight. They fail
+ * differently, which is the only reason to have both. */
+/* ⚠ MEASURED ON EACH SIDE SEPARATELY, NOT ACROSS THE POINT. The first version of this
+   spanned the corner itself, so it reported a clean gable peak as "broken up" — of
+   course it did: a corner IS a departure from the straight line through it, and that is
+   the thing we are looking for, not a fault. A real corner has two STRAIGHT sides; a
+   tree has two rough ones. So each side is measured against its own line and the worse
+   of the two is returned. Caught by a synthetic gable scoring 0.11 when it should have
+   scored 1. */
+export function roughnessAt(line, i, window){
+  function sideRoughness(from, to){
+    const a = line[from], b = line[to];
+    if(!a || !b) return null;
+    const lo = Math.min(from, to), hi = Math.max(from, to);
+    if(hi - lo < 2) return null;
+    let sum = 0, n = 0;
+    for(let k = lo; k <= hi; k++){
+      if(!line[k]) continue;
+      sum += segmentDistance(line[k].p, a.p, b.p); n++;
+    }
+    return n ? sum / n : null;
+  }
+  const left = sideRoughness(Math.max(0, i - window), i);
+  const right = sideRoughness(i, Math.min(line.length - 1, i + window));
+  const vals = [left, right].filter(function(v){ return v != null; });
+  if(!vals.length) return null;
+  return Math.max.apply(null, vals);
+}
+
+/* ---------------- the candidates ---------------- */
+
+export const CORNER_TOLERANCE_M = 0.35;   /* how far off a straight line earns a corner */
+export const SPIKE_WINDOW_COLS = 6;       /* narrow against a roofline that runs for dozens */
+export const CHURN_WINDOW = 6;
+export const CHURN_LIMIT = 3;             /* distinct planes across the window before it reads as canopy */
+export const ROUGHNESS_LIMIT_M = 0.30;
+
+/* ⭐ THE CORNERS THIS PANORAMA CAN OFFER, best first.
+ *
+ * Each candidate carries:
+ *   column, row     where it is in the DEPTH MAP — the caller maps this to a screen
+ *                   pixel and from there to a world point. No lat/lng here; see the
+ *                   top. `col` is kept as an alias so either spelling works.
+ *                   ⭐ THIS IS THE AGREED SEAM with lanil-9d's rmCornerCandidates:
+ *                   { column, row, distanceM, heightM, spikeWidthCols } plus the
+ *                   skyline array, and he supplies north from the rendered panorama.
+ *   distanceM       measured, from the depth map
+ *   heightM         measured, above the ground the camera stands on
+ *   spikeWidthCols  how narrow the feature is — small means chimney, vent or aerial
+ *   planes          how many distinct planes the silhouette uses nearby — many means tree
+ *   confidence      0..1
+ *   why             plain words, so a low score can be explained instead of just shown
+ *
+ * ⚠ NOTHING IS AUTO-ACCEPTED, ever. Every one is a suggestion for somebody to click.
+ * That is the instruction and it is also the only safe design — the office can see the
+ * house and this cannot. */
+export function roofCornerCandidates(depth, opts){
+  const o = opts || {};
+  const tol = o.toleranceM == null ? CORNER_TOLERANCE_M : o.toleranceM;
+  const spikeCols = o.spikeWindowCols == null ? SPIKE_WINDOW_COLS : o.spikeWindowCols;
+  const churnLimit = o.churnLimit == null ? CHURN_LIMIT : o.churnLimit;
+  const roughLimit = o.roughnessLimitM == null ? ROUGHNESS_LIMIT_M : o.roughnessLimitM;
+  const camH = (o.cameraHeightM != null) ? Number(o.cameraHeightM) : cameraHeight(depth);
+
+  const line = (o.skyline) ? o.skyline : skylineOf(depth);
+
+  /* Unbroken stretches only. A gap is a real discontinuity. */
+  const runs = [];
+  let cur = [];
+  for(let x = 0; x < line.length; x++){
+    if(line[x]) cur.push(line[x]);
+    else { if(cur.length > 2) runs.push(cur); cur = []; }
+  }
+  if(cur.length > 2) runs.push(cur);
+
+  const out = [];
+  runs.forEach(function(run){
+    simplifyIndices(run, tol).forEach(function(i){
+      /* The ends of a stretch are the edge of what is VISIBLE, not corners of the roof.
+         Offering them puts a dot on the boundary of the picture. */
+      if(i === 0 || i === run.length - 1) return;
+      const pt = run[i];
+      const churn = planeChurn(run, i, CHURN_WINDOW);
+      const rough = roughnessAt(run, i, CHURN_WINDOW);
+
+      /* ⭐ HOW WIDE THE FEATURE IS, measured against a chord that spans WELL BEYOND it.
+         ⚠ THE OBVIOUS VERSION IS BACKWARDS, and I wrote it that way first: "grow the
+         window until the point sits close to its own chord" returns 2 for EVERYTHING,
+         because any point is nearly collinear with its immediate neighbours. A synthetic
+         gable came back as five 2-column spikes, which is what caught it.
+         What actually separates a chimney from a gable is how many CONSECUTIVE columns
+         depart from the surrounding roofline. A chimney lifts two or three columns and
+         the rest of the roof carries straight on; a gable lifts dozens. So: take a chord
+         across a wide span, then count the unbroken block of columns around this point
+         that stand off it. */
+      const far = spikeCols * 3;
+      const a = run[Math.max(0, i - far)], b = run[Math.min(run.length - 1, i + far)];
+      let width = run.length;
+      if(a && b && a !== b){
+        let l = i, r = i;
+        while(l - 1 >= 0 && run[l - 1] && segmentDistance(run[l - 1].p, a.p, b.p) > tol) l--;
+        while(r + 1 < run.length && run[r + 1] && segmentDistance(run[r + 1].p, a.p, b.p) > tol) r++;
+        width = r - l + 1;
+      }
+
+      let confidence = 1;
+      const why = [];
+      if(churn && churn.planes >= churnLimit){
+        confidence *= Math.max(0.15, (churnLimit - 1) / churn.planes);
+        why.push('the outline changes surface ' + churn.planes + ' times just here — ' +
+                 'a roof edge holds one face, so this is likely a tree');
+      }
+      if(rough != null && rough > roughLimit){
+        confidence *= Math.max(0.25, roughLimit / rough);
+        why.push('the outline is broken up rather than straight');
+      }
+      if(width <= spikeCols){
+        confidence *= 0.25;
+        why.push('only ' + width + ' columns wide — likely a chimney, vent or aerial ' +
+                 'rather than a corner of the roof');
+      }
+      out.push({
+        column: pt.x, col: pt.x, row: pt.y,
+        distanceM: pt.distance,
+        heightM: (camH != null) ? camH + pt.p[2] : null,
+        local: {x: pt.p[0], y: pt.p[1], up: pt.p[2]},
+        spikeWidthCols: width,
+        planes: churn ? churn.planes : null,
+        roughnessM: rough,
+        confidence: Math.max(0, Math.min(1, confidence)),
+        why: why.length ? why.join('; ') : 'a clean change of direction in the roofline'
+      });
+    });
+  });
+  return out.sort(function(a, b){ return b.confidence - a.confidence; });
+}

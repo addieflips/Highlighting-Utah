@@ -35151,6 +35151,101 @@ suite('250. The house, measured from the street');
   })());
 }
 
+
+/* ================= Suite 251. The corners, offered rather than hunted ==============
+   Owner, 2026-08-22: "also start getting the generated corners and you can click the
+   ones you want to keep".
+
+   ⚠ THESE FIXTURES ARE SILHOUETTES GIVEN DIRECTLY, not depth-map payloads, and that is
+   deliberate. A first attempt built a synthetic depth map and it tested the FIXTURE, not
+   the code: only 31 of 64 columns' rays actually met the plane, so the roof shape I
+   thought I had built was not there, and the run reported corners in the wrong places.
+   Feeding the silhouette straight in isolates the corner logic from the much harder job
+   of constructing a believable panorama. skylineOf is covered separately in Suite 250's
+   file against real payload bytes. */
+suite('251. The corners, offered rather than hunted');
+{
+  pendingAsync.push((async () => {
+    const rc = await import('./js/roofcorners.js');
+    const D = { width: 64, height: 32, indices: new Uint8Array(0), planes: [], planeCount: 0 };
+    const mk = (h, planeOf) => {
+      const L = [];
+      for (let i = 0; i < 64; i++)
+        L.push({ x: i, y: 0, distance: 12, plane: planeOf ? planeOf(i) : 2, p: [i * 0.25, 12, h(i)] });
+      return L;
+    };
+    const find = (line) => rc.roofCornerCandidates(D, { skyline: line, cameraHeightM: 2.4, toleranceM: 0.3 });
+
+    /* A gable: flat eave, a rise to a peak, a fall, flat eave. Three real corners. */
+    const gable = find(mk(i => i < 20 ? 3.0 : i < 32 ? 3.0 + (i - 20) * 0.25
+                                       : i < 44 ? 3.0 + (44 - i) * 0.25 : 3.0));
+    check('corners', 'a gable offers exactly its three corners',
+      gable.length === 3 && gable.map(c => c.col).sort((a, b) => a - b).join() === '20,32,44',
+      'got ' + gable.map(c => c.col).sort((a, b) => a - b).join());
+
+    check('corners', 'and it is confident about them',
+      gable.every(c => c.confidence > 0.9),
+      'a clean roof must not be hedged — got ' + gable.map(c => c.confidence.toFixed(2)).join(','));
+
+    /* ⚠ THE HEIGHT IS THE POINT OF THE WHOLE FILE. Eave 3.0 m above a camera 2.4 m up. */
+    const peak = gable.find(c => c.col === 32), eave = gable.find(c => c.col === 20);
+    check('corners', 'each corner carries its own measured height',
+      Math.abs(eave.heightM - 5.4) < 0.01 && Math.abs(peak.heightM - 8.4) < 0.01,
+      'eave ' + eave.heightM + ', peak ' + peak.heightM);
+
+    /* A chimney: three columns lifted off an otherwise flat roof. */
+    const chim = find(mk(i => (i >= 30 && i <= 32) ? 4.2 : 3.0));
+    check('corners', 'a chimney is found but demoted, not deleted',
+      chim.length > 0 && chim.every(c => c.confidence < 0.5) &&
+      chim.some(c => /chimney, vent or aerial/.test(c.why)),
+      'the office must still be able to click one it wants — deleting on a guess is the ' +
+      'one thing this must not do. got ' + chim.map(c => c.confidence.toFixed(2)).join(','));
+
+    check('corners', 'and it is reported as only a few columns wide',
+      chim.every(c => c.spikeWidthCols <= 6) && gable.every(c => c.spikeWidthCols > 6),
+      'width is what separates a chimney from a gable — chimney ' +
+      chim.map(c => c.spikeWidthCols).join(',') + ' against gable ' +
+      gable.map(c => c.spikeWidthCols).join(','));
+
+    /* A tree: the silhouette wanders across many planes, which a roof edge never does. */
+    const tree = find(mk(i => 3.0 + Math.sin(i * 1.7) * 0.35, i => 2 + (i % 5)));
+    check('corners', 'a tree is recognised by its surface changing, not by its shape',
+      tree.length > 0 && tree.every(c => c.confidence < 0.25) &&
+      tree.some(c => /likely a tree/.test(c.why)),
+      'lanil-9d\'s test, and better than the roughness one it replaced: a roof edge holds ' +
+      'ONE face along its length and a canopy does not');
+
+    /* ⚠ NOTHING TO OFFER IS A REAL ANSWER. A flat roof has no corners in silhouette, and
+       inventing one would put a dot in the middle of a straight gutter. */
+    check('corners', 'a dead flat roofline offers nothing at all',
+      find(mk(() => 3.0)).length === 0);
+
+    /* ⚠ REGRESSION GUARD FOR TWO BUGS THIS SUITE CAUGHT, both of which scored a perfect
+       synthetic gable as junk (0.11 confidence, five 2-column spikes):
+         - roughness was measured ACROSS the corner, so a corner was penalised for being
+           a corner. It is measured on each side separately now.
+         - width grew the window until the point sat near its own chord, which returns 2
+           for everything, because any point is nearly collinear with its neighbours. */
+    check('corners', 'a corner is not penalised for being a corner',
+      gable.every(c => !/broken up/.test(c.why)),
+      'measuring roughness across the corner reports every clean gable as broken — ' +
+      'got: ' + gable.map(c => c.why).join(' | '));
+
+    /* Ordering is the interface: the caller shows the best first. */
+    check('corners', 'candidates come back best first',
+      chim.every((c, i, a) => i === 0 || a[i - 1].confidence >= c.confidence));
+
+    /* ⛔ AND IT MUST NEVER RETURN A WORLD POSITION. It cannot know one — the bearing of a
+       depth-map column is exactly what was refuted today — and a function that returned a
+       lat/lng would be lying. The caller anchors these through the rendered panorama. */
+    const src = read('js/roofcorners.js');
+    check('corners', 'no candidate claims a lat/lng',
+      gable.every(c => c.lat === undefined && c.lng === undefined) &&
+      !/lat:/.test(src.replace(/\/\*[\s\S]*?\*\//g, '')),
+      'the caller supplies north; this file must not pretend to know it');
+  })());
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
