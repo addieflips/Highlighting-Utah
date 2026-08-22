@@ -33116,35 +33116,205 @@ suite('144. Measure Roof - the peaks are offered too, and only once each');
       check('S144', 'the gutter is downhill and the peak is uphill, not the reverse',
         el.n < rl.n,
         'gutter at n=' + el.n.toFixed(1) + ', peak at n=' + rl.n.toFixed(1) + ' on a south-facing roof');
-      check('S144', 'each is labelled with what it is, so it prices as that kind',
+      check('S144', 'each is labelled with what it is',
         eave.kind === 'perimeter' && ridge.kind === 'ridge',
         'got ' + eave.kind + ' and ' + ridge.kind);
+      const rakes = new Function('let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+        ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEdgePick','rmFaceEdgeLine','rmFaceRakes']
+          .map(pick).join(LF_) + LF_ + 'return rmFaceRakes;')()(face);
+      check('S144', 'a face offers TWO sloping edges - a dormer has two sides',
+        rakes.length === 2, 'got ' + rakes.length);
+      check('S144', 'and both are perimeter, because lights really do run up them',
+        rakes.every(function(x){ return x.kind === 'perimeter'; }),
+        'got ' + rakes.map(function(x){ return x.kind; }).join(', '));
     }
   }
 
-  /* ---- the dedup, which is what stops the footage doubling ------------ */
-  /* ⚠ A GABLE HAS A PLANE EITHER SIDE OF THE PEAK and both name that same edge
-     as their uphill one. Drawn twice, the ridge footage doubles and so does the
-     strand count - the office would be quoted for a run that does not exist. */
+  /* ---- what is offered, and what deliberately is not ------------------ */
   const build = pick('rmBuildSuggestions');
-  check('S144', 'a ridge two faces share is only offered once',
-    !!build && /alreadyHaveRidge/.test(build) && /ridgesSoFar/.test(build),
-    'both halves of every gable name the same peak');
+  /* ⚠ THE PEAK IS NOT A RUN. Owner, seeing the blue line along the top of the
+     roof: "we dont do ridges, sorry that blue line on top of the peak we dont
+     do." rmFaceRidge still EXISTS and must - the height solver cannot find a
+     gutter in a photograph except paired with its own peak - but nothing puts
+     lights along it. */
+  check('S144', 'the peak is never offered as a run',
+    !!build && !/addLine\(face, rmFaceRidge\(face\)\)/.test(build),
+    'lights do not go along a ridge, and a line nobody will hang is work to switch off');
+  check('S144', 'but the peak is still worked out, because the height needs it',
+    !!pick('rmFaceRidge') && !!pick('rmFaceRidgeMid') &&
+    /rmFaceRidgeMid\(r\.face\)/.test(pick('rmDatumFromStreetPhoto') || ''),
+    'removing it would take the pairing with it and the search walks back up to the sky');
+
+  /* ⚠ A DORMER HAS A FRONT AND A DEPTH. Owner: "be sure that with things like
+     doorways and doormers it catches the front and the depth." The gutter is
+     the front; the two sloping edges either side are the depth. */
+  check('S144', 'both sloping edges are offered as well as the gutter',
+    !!build && /addLine\(face, rmFaceEave\(face\)\);/.test(build) &&
+    /rmFaceRakes\(face\)\.forEach\(function\(rake\)\{ addLine\(face, rake\); \}\);/.test(build),
+    'a dormer traced across its front only misses the two edges that give it depth');
+  check('S144', 'and they are built by the SAME builder as the gutter',
+    !!build && /const addLine = function\(face, line\)/.test(build),
+    'two copies of how a suggested line is made is one that quietly falls behind');
+
+  /* ⚠ EVERY kind is deduped, not just peaks. Two faces that meet share the
+     edge between them and each names it as one of its own, so an undeduped
+     gutter or rake is offered twice - the footage doubles and so does the
+     strand count. */
+  check('S144', 'an edge two faces share is only offered once, whatever kind it is',
+    !!build && /if\(alreadySeen\(line\)\) return;/.test(build) && /ridgesSoFar/.test(build),
+    'the seam between two planes belongs to both of them');
   check('S144', 'the dedup matches on position AND length, not position alone',
     !!build && /Math\.abs\(len - o\.len\) < 2/.test(build),
-    'two different runs can share a midpoint - a short peak over a porch sits under a long one');
-  check('S144', 'only ridges are deduped, never gutters',
-    !!build && /line\.kind === 'ridge' && alreadyHaveRidge\(line\)/.test(build),
-    'two gutters really can sit near each other on a stepped roof, and both are real');
-  check('S144', 'the peak and the gutter are built by ONE builder',
-    !!build && /addLine\(face, rmFaceRidge\(face\)\);[\s\S]{0,120}addLine\(face, rmFaceEave\(face\)\);/.test(build),
-    'two copies of how a suggested line is made is one that quietly falls behind');
+    'two different runs can share a midpoint - a short edge over a porch sits under a long one');
   check('S144', 'a sliver is still not offered, whichever kind it is',
     !!build && /if\(rmRunFeet\(run\) < 6\) return;/.test(build),
     'a two-foot peak is noise on the list, not a run somebody wants');
   check('S144', 'and a peak is sided and defaulted the same way a gutter is',
     !!build && /on: rmFaceFacesTheRoad\(line\)/.test(build) && /side: rmEaveSide\(line\)/.test(build),
     'the front of the house means the front of the house, peaks included');
+}
+
+
+suite('145. Measure Roof - the lines are moved onto the gutters the satellite shows');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "make sure the lines follow the gutters with 0 offset on every and
+     any house."
+     The roof model cannot do it: it describes each face as a compass-aligned
+     BOX, and a real roof is a polygon at whatever angle the house was built.
+     The satellite picture can - seen from overhead there is no depth in it, so
+     a pixel IS a place, and Web Mercator gives the metres per pixel exactly. */
+  const NEED = ['rmSkyMpp', 'rmSkyProject', 'rmSkyUnproject', 'rmCrossGrad', 'rmSnapOffsetM'];
+  const missing = NEED.filter(n => !pick(n));
+  if (missing.length) {
+    check('S145', 'the sky snapper is findable', false, 'missing: ' + missing.join(', '));
+  } else {
+    const consts = (admin.match(/^const RM_SKY_ZOOM.*?;/gm) || [])
+      .concat(admin.match(/^const RM_SNAP_LOOK_M.*?;/gm) || [])
+      .concat(admin.match(/^const RM_SNAP_MIN_GRAD.*?;/gm) || [])
+      .concat(admin.match(/^const RM_SNAP_KEEP.*?;/gm) || [])
+      .concat(admin.match(/^const RM_SNAP_MAX_MOVE_M.*?;/gm) || []);
+    check('S145', 'all five snapping thresholds were really found',
+      consts.length === 5, 'found ' + consts.length + ' of 5 - a missing one is undefined, not a failure');
+    const api = new Function(consts.join(LF_) + LF_ + NEED.map(pick).join(LF_) + LF_ +
+      'return {rmSkyMpp, rmSkyProject, rmSkyUnproject, rmCrossGrad, rmSnapOffsetM};')();
+
+    /* ---- 1. a pixel really is a place ------------------------------- */
+    const mpp = api.rmSkyMpp(40.3854);
+    check('S145', 'the scale is Web Mercator, at this latitude, at this zoom',
+      mpp > 0.05 && mpp < 0.07,
+      'got ' + mpp.toFixed(4) + ' m per pixel - about 2 inches is right for zoom 20 at scale 2 in Utah');
+    /* ⚠ Project and unproject must be exact inverses: every snapped line is a
+       pixel measurement turned back into a place on somebody's roof. */
+    let worst = 0;
+    [{e: 0, n: 0}, {e: 12.5, n: -7.25}, {e: -20, n: 18}].forEach(function(p){
+      const q = api.rmSkyProject(p, mpp, 1280, 1280);
+      const back = api.rmSkyUnproject(q.x, q.y, mpp, 1280, 1280);
+      worst = Math.max(worst, Math.hypot(back.e - p.e, back.n - p.n));
+    });
+    check('S145', 'a place sent to a pixel and back lands on itself',
+      worst < 1e-9, 'worst round trip ' + worst.toExponential(2) + ' m');
+    check('S145', 'north is UP in the picture, not down',
+      api.rmSkyProject({e: 0, n: 10}, mpp, 1280, 1280).y < 640,
+      'a flipped axis mirrors every correction to the wrong side of the roof');
+
+    /* ---- 2. it finds the edge, and moves the line onto it ----------- */
+    /* A gutter running east-west, drawn as a hard brightness step, sitting
+       0.6 m NORTH of where the roof model thinks it is. */
+    const W = 400, H = 400;
+    const sky = {w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)};
+    const offsetM = 0.6;
+    const edgeRow = Math.round(H/2 - offsetM/mpp);
+    for (let x = 0; x < W; x++) { const i = edgeRow*W + x; sky.gy[i] = 200; sky.mag[i] = 200; }
+    const a = {e: -6, n: 0}, b = {e: 6, n: 0};
+    const off = api.rmSnapOffsetM(a, b, sky);
+    check('S145', 'a line beside a gutter is moved onto it',
+      off && Math.abs(Math.abs(off.m) - offsetM) < 0.08,
+      off ? 'moved ' + off.m.toFixed(3) + ' m, the gutter was ' + offsetM + ' m away' : 'found nothing');
+    check('S145', 'and it moves the right WAY, toward the edge, not away',
+      off && Math.abs((0 + off.n) - offsetM) < 0.08,
+      off ? 'ended up at n=' + (0 + off.n).toFixed(3) + ', gutter is at n=' + offsetM : 'no offset');
+
+    /* ---- 3. only the change ACROSS the line counts ------------------ */
+    /* ⚠ A roof is full of texture running ALONG a gutter - tile courses, panel
+       seams, the ridge itself. Scoring on total gradient snaps a line onto the
+       nearest stripe. Only the component across the line is evidence. */
+    const striped = {w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)};
+    for (let x = 0; x < W; x++) { const i = edgeRow*W + x; striped.gy[i] = 200; striped.mag[i] = 200; }
+    /* a blazing VERTICAL edge - all gx, no gy - right where the line already is */
+    for (let y = 0; y < H; y++) { const i = y*W + 200; striped.gx[i] = 255; striped.mag[i] = 255; }
+    const off2 = api.rmSnapOffsetM(a, b, striped);
+    check('S145', 'a bright edge running the WRONG way is ignored',
+      off2 && Math.abs(Math.abs(off2.m) - offsetM) < 0.08,
+      off2 ? 'moved ' + off2.m.toFixed(3) : 'found nothing - the crosswise test threw the real gutter away too');
+    check('S145', 'the cross-gradient is what is measured, not the total',
+      /sky\.gx\[i\] \* nx \+ sky\.gy\[i\] \* ny/.test(pick('rmCrossGrad') || ''),
+      'total gradient snaps a roofline onto whatever is brightest nearby');
+
+    /* ---- 4. it refuses rather than guessing ------------------------- */
+    const blank = {w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)};
+    check('S145', 'a blank picture moves nothing',
+      api.rmSnapOffsetM(a, b, blank) === null,
+      'a line nudged onto noise is worse than one left where the model put it');
+    /* An edge much too far away is a DIFFERENT gutter - the next roof along.
+       ⚠ TWO SEPARATE REFUSALS, and they must be tested separately. One edge
+       sits INSIDE the search but beyond the move limit - only the limit can
+       refuse it - and one sits outside the search entirely. The first version
+       only had the far one, so the limit was never exercised and a red-check
+       deleting it passed. */
+    const mkSky = () => ({w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)});
+    const edgeAt = (sky, metres) => {
+      const row = Math.round(H/2 - metres/mpp);
+      for (let x = 0; x < W; x++) { const i = row*W + x; sky.gy[i] = 200; sky.mag[i] = 200; }
+      return sky;
+    };
+    check('S145', 'an edge the search CAN see but that is too far to move to is refused',
+      api.rmSnapOffsetM(a, b, edgeAt(mkSky(), 2.2)) === null,
+      'two metres is the next roof along, and yanking a line that far is worse than leaving it');
+    check('S145', 'and an edge outside the search is not reached at all',
+      api.rmSnapOffsetM(a, b, edgeAt(mkSky(), 4.0)) === null,
+      'four metres away is somebody elses house');
+    check('S145', 'the search reaches FURTHER than the move limit, or the limit is dead code',
+      (function(){
+        const look = Number((admin.match(/const RM_SNAP_LOOK_M = ([\d.]+)/) || [])[1]);
+        const cap = Number((admin.match(/const RM_SNAP_MAX_MOVE_M = ([\d.]+)/) || [])[1]);
+        return look > cap + 0.3;
+      })(),
+      'a guard that only fires in a sliver between the two is a guard nobody is testing');
+    /* Half a gutter behind a tree, half of it clear: the clear half decides. */
+    const treed = {w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)};
+    for (let x = 0; x < W/2; x++) { const i = edgeRow*W + x; treed.gy[i] = 200; treed.mag[i] = 200; }
+    const treedOff = api.rmSnapOffsetM(a, b, treed);
+    check('S145', 'half a gutter under a tree still answers, or honestly does not',
+      treedOff === null || Math.abs(Math.abs(treedOff.m) - offsetM) < 0.12,
+      'it may decline - but it must never split the difference with the tree: got ' +
+      (treedOff ? treedOff.m.toFixed(3) : 'null'));
+
+    /* ---- 5. the outliers are thrown away, not averaged in ----------- */
+    check('S145', 'samples that found something else are discarded, not averaged',
+      /Math\.abs\(o - median\) <= 3/.test(pick('rmSnapOffsetM') || ''),
+      'a chimney and a gutter averaged together is a line through neither');
+    check('S145', 'and the ends of the line are not sampled',
+      /0\.12 \+ 0\.76/.test(pick('rmSnapOffsetM') || ''),
+      'a corner is where two edges meet, and the other one is the strongest thing there');
+  }
+
+  /* ---- 6. what it must never touch ---------------------------------- */
+  const snapAll = pick('rmSnapLinesToSky');
+  check('S145', 'a line somebody drew or dragged is never moved',
+    !!snapAll && /!r\.suggested \|\| r\.touched/.test(snapAll),
+    'their work is the last word - moving it is the one unforgivable thing here');
+  check('S145', 'heights are re-asked after the lines move',
+    !!snapAll && snapAll.indexOf('rmRefreshHeights') > snapAll.indexOf('rmSnapOffsetM'),
+    'a height read at the old position is left behind by the correction');
+  check('S145', 'sideways first, then height',
+    /rmSnapLinesToSky\(\)\.then\([\s\S]{0,400}rmTryPhotoDatum\(\)/.test(admin),
+    'reading the height first and moving the line afterwards leaves the height at the old spot');
+  check('S145', 'and a failed snap still leaves the height to be read',
+    /catch\(function\(\)\{ rmTryPhotoDatum\(\); \}\)/.test(admin),
+    'one picture failing must not cost the other');
 }
 
 Promise.all(pendingAsync).then(function () {
