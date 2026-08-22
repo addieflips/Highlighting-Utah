@@ -32094,9 +32094,19 @@ suite('128. Measure Roof — depth, the derived wall, and the height that follow
   }
 
   /* ---- the panes, and the loading state ------------------------------- */
-  check('S128', 'the two views sit side by side rather than stacked',
-    /flex:1 1 430px; min-width:330px/.test(admin),
-    'stacked, the street pane is below the fold and the window opens showing one view');
+  /* ⚠ ASSERTED AS BEHAVIOUR, NOT AS A NUMBER. This used to match the literal
+     `flex:1 1 430px`, so widening the panes so the office can actually SEE the
+     house failed a check about something else entirely. What matters is that
+     two panes still fit across the window, not what their basis happens to be. */
+  {
+    const bases = (admin.match(/class="rm-pane" style="flex:1 1 (\d+)px/g) || [])
+      .map(m => Number((m.match(/(\d+)px/) || [])[1]));
+    const popup = Number((admin.match(/editcust-popup" style="max-width:min\((\d+)px/) || [])[1]);
+    check('S128', 'the two views sit side by side rather than stacked',
+      bases.length === 2 && popup > 0 && (bases[0] + bases[1] + 40) <= popup,
+      'panes ' + bases.join(' + ') + ' must fit across a ' + popup + 'px window, or the street ' +
+      'pane wraps below the fold and the window opens showing one view');
+  }
   check('S128', 'each pane says what it is doing while its imagery loads',
     /id="rmSkyBusy"/.test(admin) && /id="rmStreetBusy"/.test(admin) &&
     !!extractFn(admin, 'rmPaneBusy') && !!extractFn(admin, 'rmPaneReady'),
