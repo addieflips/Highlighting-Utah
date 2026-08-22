@@ -49,7 +49,71 @@ function gap(name, fixed, detail) {
   if (fixed) { pass++; console.log('  PASS  ' + name + '  (gap closed)'); }
   else { console.log('  GAP   ' + name + '\n          ' + detail); gaps.push(name + ' — ' + detail); }
 }
-function suite(title) { console.log('\n=== ' + title + ' ==='); }
+/* ⚠ THE TITLE IS REMEMBERED, not just printed. An async suite that throws is caught
+   at the very bottom of this file, long after its own output, and reported as one line
+   with a stack full of `eval at build` frames — no suite name anywhere in it. That has
+   cost real diagnosis time three times in one day. Now the crash says which suite. */
+let CURRENT_SUITE = '(before the first suite)';
+function suite(title) { CURRENT_SUITE = title; console.log('\n=== ' + title + ' ==='); }
+
+/* ⭐ WHAT A SANDBOX IS MISSING, SAID OUT LOUD (added 2026-08-22).
+ *
+ * ⚠ THE TRAP THIS CLOSES. Dozens of checks here lift a function out of admin.html or
+ * functions/index.js by name and run it inside `new Function`. If that function calls
+ * a helper the harness did not also lift, the sandbox throws a BARE ReferenceError the
+ * moment the branch runs — and for the async suites that surfaces as
+ * "an async suite crashed: ReferenceError: x is not defined", with no suite, no file
+ * and no indication that the fix is one name in one list. It happened three times on
+ * 2026-08-22 alone (nextInstallDayFor, seasonYesUpdates, and twice before that with
+ * houseDeadline and printGateCode), and CLAUDE.md already warns about it in prose.
+ * Prose does not fail a build.
+ *
+ * ⚠ IT REPORTS, IT DOES NOT AUTO-WIRE. Pulling the missing helper in automatically
+ * would be the obvious fix and it is the wrong one: several harnesses supply a stub on
+ * purpose, and silently replacing it with the real function changes what the test
+ * proves without anybody deciding to. So this names the gap and lets a human choose —
+ * which is also the only way the "LIFT, NOT STUB" rule stays a decision rather than a
+ * default.
+ *
+ * `provided` is everything the sandbox already has by another route: its `new Function`
+ * parameter names, and anything declared in a preamble string. */
+function sandboxDeps(code, src, provided) {
+  const have = new Set(provided || []);
+  /* Declared inside the assembled sandbox itself — any of these is already satisfied. */
+  let m;
+  const declRe = /(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g;
+  while ((m = declRe.exec(code))) have.add(m[1] || m[2]);
+  /* Everything the sandbox calls AS A BARE FUNCTION. ⚠ A method call is not this bug
+     and must not be reported as one: `dt.getDay()` is Date.prototype.getDay, and
+     admin.html happens to define a `getDay` of its own, so a naive scan flagged a
+     sandbox that was completely fine. A check that cries wolf is one somebody deletes.
+     So a name preceded by `.` or `?.` is skipped — and the preceding character is
+     taken from the source rather than from a lookbehind, which not every Node in this
+     project's history supports. */
+  const called = new Set();
+  const callRe = /([A-Za-z_$][\w$]*)\s*\(/g;
+  while ((m = callRe.exec(code))) {
+    const before = code.slice(Math.max(0, m.index - 2), m.index);
+    if (/[.?]$/.test(before)) continue;          // x.foo( or x?.foo(
+    if (/[\w$]$/.test(before)) continue;         // the tail of a longer identifier
+    called.add(m[1]);
+  }
+  /* Only names the SOURCE FILE defines as functions can be the missing-lift case —
+     a call to Math.round or a local variable is not this bug. */
+  const missing = [];
+  called.forEach(function (n) {
+    if (have.has(n)) return;
+    if (src.indexOf('function ' + n + '(') === -1) return;
+    missing.push(n);
+  });
+  return missing.sort();
+}
+/* One check per sandbox. Fails with the names to add, instead of the run dying. */
+function assertSandbox(label, name, code, src, provided) {
+  const missing = sandboxDeps(code, src, provided);
+  check(label, name + ' sandbox has everything it calls', missing.length === 0,
+    'add to its extraction list, or supply a stub deliberately: ' + missing.join(', '));
+}
 /*
  * Most of this suite is synchronous. A few checks have to RUN real app code
  * that is written as `async` (syncPayerInvoice), and an async function's body
@@ -1962,6 +2026,15 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     'renamed or removed — update this test rather than deleting it, or portalRsvp\'s no/back-next-year path cannot run here');
   const fullSrc = [todayStrSrc, seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
+  /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
+     harness died today with a bare "seasonYesUpdates is not defined" and no suite
+     name — the third time this year a hand-maintained extraction list has gone stale
+     and taken the whole run with it. Now the gap is a named FAIL with the missing
+     helper in it, and the run finishes. */
+  assertSandbox('flow', 'portalRsvp', fullSrc, fnSrc,
+    ['admin', 'db', 'HttpsError', 'onCall', 'findByToken', 'contactIndexFields',
+     'exports', 'request', 'console', 'String', 'Number', 'Boolean', 'Object',
+     'Array', 'Date', 'Math', 'JSON', 'Set', 'Map', 'Promise', 'require']);
 
   // Fake Firestore + callable wrapper. update() merges what would have been
   // written; add() records Inbox notes with the collection they landed in;
@@ -11702,6 +11775,29 @@ suite('Suite 46. Nobody is hung before the month they asked for');
   check('S46', 'enforceInstallTiming exists', !!src);
 
   if (src) {
+    /* ⚠ Same guard as the portalRsvp sandbox — this one has gone stale twice
+       (houseDeadline, then nextInstallDayFor), and each time the whole run died on a
+       ReferenceError raised inside a forEach with no suite name attached. */
+    /* The sandbox's parameter names and its assembled body, named once so the guard
+       below can be asked the same question the engine will be. */
+    const SWEEP_PROVIDED = ['SEASON', 'isoOf', 'seasonStartDate', 'dayDate',
+      'houseAllowedFrom', 'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START',
+      'prefSpecificDate', 'routeDayIsLocked', 'String', 'Number', 'Boolean', 'Object',
+      'Array', 'Date', 'Math', 'JSON', 'Set', 'Map'];
+    const SWEEP_BODY =
+      'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+      fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
+      fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
+      src + 'this.run = enforceInstallTiming;';
+    /* ⚠ Same guard as the portalRsvp sandbox — this one has gone stale twice
+       (houseDeadline, then nextInstallDayFor), and each time the whole run died on a
+       ReferenceError raised inside a forEach with no suite name attached.
+       ⚠ routeDayIsLocked is in `provided` DELIBERATELY: nextInstallDayFor guards its
+       call with typeof, so its absence here means the 48-hour clause simply does not
+       run in this sandbox. That is a real gap and it is covered instead by
+       season-state.test.js, which asserts the clause exists. Listing it is how that
+       decision stays visible rather than looking like an oversight. */
+    assertSandbox('S46', 'enforceInstallTiming', SWEEP_BODY, admin, SWEEP_PROVIDED);
     const build = (SEASON) => {
       const sb = {};
       new Function('SEASON', 'isoOf', 'seasonStartDate', 'dayDate', 'houseAllowedFrom',
@@ -29125,7 +29221,11 @@ Promise.all(pendingAsync).then(function () {
   process.exit(fail ? 1 : 0);
 }).catch(function (e) {
   // An async suite that blew up must never be mistaken for a clean run.
-  console.log('\n  FAIL  an async suite crashed: ' + (e && e.stack || e));
+  console.log('\n  FAIL  an async suite crashed in "' + CURRENT_SUITE + '": ' +
+    (e && e.message || e) +
+    '\n        (a bare ReferenceError here almost always means a lifted function ' +
+    'calls a helper the sandbox was never given — see sandboxDeps)' +
+    '\n' + (e && e.stack || ''));
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + (fail + 1) + ' failed\n');
   process.exit(1);
