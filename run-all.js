@@ -31689,6 +31689,245 @@ suite('Suite 136. The three the mutation sweep found unguarded');
   }
 }
 
+/* =====================================================================
+ * Suite 140. A finished fix takes its photo with it
+ *
+ * Job 4. Owner, 2026-08-21: "we want the picture destroyed on the spot. There
+ * is no need for it after we fix the house."
+ *
+ * ⚠ CLEARING fixPhotoUrl WAS NEVER DELETING ANYTHING. Two paths already blanked
+ * the field, which only forgets the address — the image stayed on Cloudinary,
+ * on a public URL, with nothing in the app pointing at it any more. Still out
+ * there AND invisible to the office is the worst of both.
+ *
+ * ⚠ THE DANGEROUS PART IS THE public_id, not the deleting. The caller hands
+ * over a URL and the server works out what to destroy; get that derivation
+ * wrong by one segment and it deletes somebody else's picture, permanently,
+ * with no undo. Most of this suite is that one function, RUN over every URL
+ * shape this app actually produces.
+ * ===================================================================== */
+suite('Suite 140. A finished fix takes its photo with it');
+{
+  const fns = read('functions/index.js');
+  const admin = read('admin.html');
+  const CLOUD = 'highlighting-utah';
+  const base = 'https://res.cloudinary.com/' + CLOUD + '/image/upload/';
+
+  /* ---- 1. which asset, exactly ---------------------------------------- */
+  const idSrc = extractFn(fns, 'cloudinaryPublicId');
+  check('S140', 'the public_id reader is findable', !!idSrc);
+  if (idSrc) {
+    const F = new Function('CLOUDINARY_CLOUD_NAME',
+      idSrc + ';return cloudinaryPublicId;')(CLOUD);
+
+    check('S140', 'a plain upload URL gives its public_id',
+      F(base + 'abc123.jpg') === 'abc123');
+    /* cloudThumb inserts w_440,c_limit,q_auto,f_auto — and the office may have
+       stored a URL that already went through it. */
+    check('S140', 'a transformation segment is not part of it',
+      F(base + 'w_440,c_limit,q_auto,f_auto/abc123.jpg') === 'abc123',
+      'left in, the destroy names an asset that does not exist and the real ' +
+      'photo survives while the record says it is gone');
+    check('S140', 'nor is the version segment',
+      F(base + 'v1712345678/abc123.jpg') === 'abc123');
+    check('S140', 'nor both together',
+      F(base + 'w_440,c_limit/v1712345678/abc123.jpg') === 'abc123');
+    /* ⚠ BUT THE FOLDER IS. Dropping it would name a DIFFERENT asset at the
+       root — the single most expensive way to get this wrong. */
+    check('S140', 'a folder IS part of it',
+      F(base + 'v1/fixes/abc123.jpg') === 'fixes/abc123' &&
+      F(base + 'fixes/2026/abc123.png') === 'fixes/2026/abc123',
+      'dropping the folder names a different asset entirely, and destroys it');
+    check('S140', 'the extension is dropped, a dot in the name is not',
+      F(base + 'my.house.jpg') === 'my.house',
+      'only the last dot is the extension');
+    check('S140', 'a query string or fragment is ignored',
+      F(base + 'abc123.jpg?v=2') === 'abc123' && F(base + 'abc123.jpg#x') === 'abc123');
+
+    /* ---- and what it must REFUSE ------------------------------------- */
+    check('S140', 'a URL on somebody else\'s cloud is refused',
+      F('https://res.cloudinary.com/someone-else/image/upload/abc.jpg') === '',
+      'the caller passes a URL and the server decides what to delete — this is ' +
+      'the only thing standing between that and deleting another account\'s asset');
+    check('S140', 'and anything that is not a Cloudinary upload URL',
+      F('https://example.com/abc.jpg') === '' && F('/local/abc.jpg') === '' &&
+      F('not a url') === '',
+      'photos predate Cloudinary on some records');
+    check('S140', 'blank, null and undefined are refused quietly',
+      F('') === '' && F(null) === '' && F(undefined) === '',
+      'most customers have no fix photo at all — that is not an error');
+    /* ⚠ A .. COULD REACH OUTSIDE THE FOLDER IT NAMES. Nothing we upload makes
+       one; refusing beats reasoning about what Cloudinary would do with it. */
+    check('S140', 'a traversal is refused rather than reasoned about',
+      F(base + 'fixes/../secret.jpg') === '',
+      'nothing we upload produces one, so a URL carrying one was not made here');
+    check('S140', 'and a URL with no name at all',
+      F(base) === '' && F(base + 'v1/') === '');
+  }
+
+  /* ---- 2. the callable's own rules, RUN -------------------------------- */
+  {
+    const a = fns.indexOf('exports.destroyFixPhoto = onCall');
+    const h = fns.indexOf('async (request) => {', a);
+    const end = fns.indexOf('\n);', h);
+    check('S140', 'the destroy callable is where this suite expects it',
+      a !== -1 && h > a && end > h);
+    if (a !== -1 && h > a && end > h && idSrc) {
+      const body = fns.slice(fns.indexOf('{', h) + 1, fns.lastIndexOf('}', end));
+      const run = (request, fetchImpl) => {
+        const calls = [];
+        const fn = new Function('request', 'HttpsError', 'crypto', 'fetch', 'console',
+          'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET',
+          'cloudinaryPublicId', 'URLSearchParams',
+          'return (async () => {' + body + '})();')(
+          request,
+          function (code, msg) { const e = new Error(msg); e.code = code; return e; },
+          require('crypto'),
+          (url, opts) => { calls.push({ url, opts }); return fetchImpl(url, opts); },
+          { error: () => {}, log: () => {} },
+          CLOUD, { value: () => 'KEY' }, { value: () => 'SECRET' },
+          new Function('CLOUDINARY_CLOUD_NAME', idSrc + ';return cloudinaryPublicId;')(CLOUD),
+          URLSearchParams);
+        return fn.then(r => ({ r, calls }), e => ({ threw: e, calls }));
+      };
+      const okFetch = (body) => async () => ({ json: async () => body });
+
+      pendingAsync.push((async () => {
+        /* ⚠ STAFF ONLY. Every other Cloudinary callable here hands out an upload
+           token; this one DESTROYS, so it is the one that must never be
+           reachable without a login. */
+        const anon = await run({ data: { url: base + 'abc.jpg' } }, okFetch({ result: 'ok' }));
+        check('S140', 'an unauthenticated caller is refused',
+          !!anon.threw && !anon.calls.length,
+          'a destroy endpoint open to the internet is somebody deleting every ' +
+          'photo they can guess a URL for');
+
+        const auth = { auth: { uid: 'u1' } };
+        const good = await run(Object.assign({ data: { url: base + 'v1/fixes/abc.jpg' } }, auth),
+          okFetch({ result: 'ok' }));
+        check('S140', 'a signed-in caller destroys the right asset',
+          good.r && good.r.ok === true && good.r.destroyed === true &&
+          good.calls.length === 1 &&
+          good.calls[0].url.indexOf('/v1_1/' + CLOUD + '/image/destroy') !== -1 &&
+          good.calls[0].opts.body.get('public_id') === 'fixes/abc',
+          'sent: ' + (good.calls[0] && good.calls[0].opts.body.get('public_id')));
+        /* The signature is what Cloudinary checks; a wrong one is a refusal
+           that would read as "the photo would not delete". */
+        check('S140', 'and signs public_id and timestamp, in that order',
+          (function () {
+            const b = good.calls[0].opts.body;
+            const want = require('crypto').createHash('sha1')
+              .update('public_id=' + b.get('public_id') + '&timestamp=' + b.get('timestamp') + 'SECRET')
+              .digest('hex');
+            return b.get('signature') === want && b.get('api_key') === 'KEY';
+          })(),
+          'Cloudinary sorts the params alphabetically before signing');
+
+        /* ⚠ "not found" IS SUCCESS — the asset is gone, which is all that was
+           wanted. Calling it a failure leaves the URL on the record for ever,
+           pointing at nothing. */
+        const missing = await run(Object.assign({ data: { url: base + 'abc.jpg' } }, auth),
+          okFetch({ result: 'not found' }));
+        check('S140', 'an asset already gone counts as done',
+          missing.r && missing.r.ok === true && missing.r.destroyed === false,
+          'otherwise the record keeps a URL that points at nothing, for ever');
+
+        const refused = await run(Object.assign({ data: { url: base + 'abc.jpg' } }, auth),
+          okFetch({ result: 'error' }));
+        check('S140', 'a refusal is reported, not swallowed',
+          refused.r && refused.r.ok === false,
+          'the field must stay put so the picture can still be found');
+
+        const blew = await run(Object.assign({ data: { url: base + 'abc.jpg' } }, auth),
+          async () => { throw new Error('network'); });
+        check('S140', 'and a network failure does not throw at the caller',
+          blew.r && blew.r.ok === false && !blew.threw,
+          'marking a fix done must not fail because Cloudinary was unreachable');
+
+        const foreign = await run(Object.assign({ data: { url: 'https://example.com/x.jpg' } }, auth),
+          okFetch({ result: 'ok' }));
+        check('S140', 'a URL that is not ours is answered without calling out',
+          foreign.r && foreign.r.ok === true && foreign.r.destroyed === false &&
+          !foreign.calls.length,
+          'nothing of ours to delete is a clean answer, not an error — and no ' +
+          'request should leave the building for it');
+      })());
+    }
+  }
+
+  /* ---- 3. the browser helper, RUN -------------------------------------- */
+  {
+    const src = extractFn(admin, 'hlxRetireFixPhoto');
+    check('S140', 'the browser helper is findable', !!src);
+    check('S140', 'and is async in the real file',
+      /async function hlxRetireFixPhoto\(/.test(admin));
+    if (src) {
+      pendingAsync.push((async () => {
+        const call = (impl) => new Function('destroyFixPhotoFn', 'console',
+          'async ' + src + ';return hlxRetireFixPhoto;')(impl, { error: () => {} });
+
+        const okd = await call(async () => ({ data: { ok: true, destroyed: true } }))(base + 'a.jpg');
+        check('S140', 'a destroyed photo may have its field cleared',
+          okd.cleared === true && okd.destroyed === true);
+        /* ⚠ A FAILED DESTROY KEEPS THE URL. The picture still exists, so the
+           record should still say where it is and the next Mark Done can try
+           again. Clearing it anyway orphans exactly the asset the owner asked
+           to be rid of. */
+        const bad = await call(async () => ({ data: { ok: false } }))(base + 'a.jpg');
+        check('S140', 'a photo that would not delete keeps its field',
+          bad.cleared === false,
+          'clearing it anyway leaves the picture on Cloudinary with nothing in ' +
+          'the app pointing at it — the exact state this job exists to end');
+        const threw = await call(async () => { throw new Error('offline'); })(base + 'a.jpg')
+          .catch(e => ({ threw: String(e) }));
+        check('S140', 'and a call that throws is caught, not propagated',
+          threw.cleared === false && !threw.threw,
+          'the office is marking a fix done; a dead network must not stop that');
+        const none = await call(async () => { throw new Error('should not be called'); })('');
+        check('S140', 'no photo at all is nothing to do',
+          none.cleared === true && none.destroyed === false,
+          'most fixes have no photo; that must not cost a round trip');
+      })());
+    }
+  }
+
+  /* ---- 4. where it is wired -------------------------------------------- */
+  const doneSrc = stripComments(extractFn(admin, 'hlxMarkJobDone') || '');
+  check('S140', 'the one done-function retires the photo',
+    /kind === 'fix' && done/.test(doneSrc) && /hlxRetireFixPhoto\(url\)/.test(doneSrc),
+    'five doors call hlxMarkJobDone; wiring any one of them instead would leave ' +
+    'the other four keeping photos for ever');
+  /* ⚠ AFTER THE WRITE, NEVER BEFORE. Destroying first and then failing to save
+     loses the picture for a fix that is not marked done — no undo, and the
+     office would not even know. */
+  check('S140', 'and does it AFTER the record is written',
+    doneSrc.indexOf("updateDoc(doc(db, 'jobAddresses', id), fields)") <
+    doneSrc.indexOf('hlxRetireFixPhoto'),
+    'the done state is what matters; the photo is cleaned up behind it');
+  check('S140', 'only when marking done, never when unticking',
+    /kind === 'fix' && done\b/.test(doneSrc) && !/kind === 'fix'\s*\)/.test(doneSrc),
+    'unticking a fix must not destroy the photo the office is about to look at');
+  check('S140', 'and the field is cleared only if the picture really went',
+    /if \(gone\.cleared\) \{/.test(doneSrc),
+    'clearing regardless is how the orphan is created');
+  /* ⚠ AND THE OTHER TWO PATHS GO THROUGH THE SAME HELPER. Both used to blank
+     the field on their own; a path that still does keeps making orphans. */
+  const stripped = stripComments(admin);
+  check('S140', 'no path blanks the field without destroying first',
+    (stripped.match(/fixPhotoUrl\s*=\s*''/g) || []).length ===
+    (stripped.match(/if\(gone\.cleared\) updates\.fixPhotoUrl = ''/g) || []).length +
+    (stripped.match(/fields\.fixPhotoUrl = ''/g) || []).length +
+    (stripped.match(/cached\.data\.fixPhotoUrl = ''/g) || []).length,
+    'every clear must sit behind a successful destroy — a leftover one is a ' +
+    'photo on Cloudinary that nothing in the app can reach any more');
+  /* ⚠ AND IT NEVER TOUCHES THE HOUSE PHOTO, which prints on the new-hang crew
+     sheets. CLAUDE.md calls this out by name. */
+  check('S140', 'and nothing here touches the house photo',
+    !/housePhotoUrl|frontPhotoUrl/.test(doneSrc) &&
+    !/housePhotoUrl|frontPhotoUrl/.test(stripComments(extractFn(admin, 'hlxRetireFixPhoto') || '')),
+    'that one prints on the crew sheet and is not the office\'s to delete here');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

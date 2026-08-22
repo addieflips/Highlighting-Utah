@@ -4625,6 +4625,10 @@ const fbFunctions = getFunctions(app);
 const sendSmsFn = httpsCallable(fbFunctions, 'sendSms');
 const sendInvoicesNowFn = httpsCallable(fbFunctions, 'sendInvoicesNow');
 const runQuoteNudgesNowFn = httpsCallable(fbFunctions, 'runQuoteNudgesNow');
+/* Job 4: the fix photo is destroyed when the fix is done. Server-side because
+   destroying needs the Cloudinary API secret, and a secret in this page is a
+   secret published to anybody who opens it. */
+const destroyFixPhotoFn = httpsCallable(fbFunctions, 'destroyFixPhoto');
 const CLOUDINARY_CLOUD = "highlighting-utah";
 const CLOUDINARY_PRESET = "highlighting_utah";
 /* Ask Cloudinary for a small version of an image instead of the full-size upload.
@@ -24774,7 +24778,9 @@ function attachAddressRowHandlers(container){
      Left as an empty hook rather than deleted, so the intent is visible to whoever
      next wonders where the nesting went. */
   container.querySelectorAll('.status-apply').forEach(function(btn){
-    btn.addEventListener('click', function(){
+    /* async because retiring a fix photo now DESTROYS it server-side (Job 4)
+       and the field may only be cleared once that has actually happened. */
+    btn.addEventListener('click', async function(){
       const id = btn.dataset.id;
       const needsFix = document.querySelector('.status-check[data-field="needsFix"][data-rowid="'+id+'"]').checked;
       const completed = document.querySelector('.status-check[data-field="completed"][data-rowid="'+id+'"]').checked;
@@ -24800,7 +24806,14 @@ function attachAddressRowHandlers(container){
           ? HLX_DONE_KINDS.takedown[removalDone ? 'on' : 'off'](serverTimestamp())
           : {removalDone: removalDone},
         {needsFix: needsFix});
-      if(!needsFix && item && item.data.needsFix){ updates.fixNote = ''; updates.fixPhotoUrl = ''; }
+      /* ⚠ THE PHOTO IS DESTROYED, NOT JUST FORGOTTEN (Job 4). This used to blank
+         fixPhotoUrl, which left the image on Cloudinary for ever with nothing
+         pointing at it. The field is cleared below only if the destroy worked. */
+      if(!needsFix && item && item.data.needsFix){
+        updates.fixNote = '';
+        const gone = await hlxRetireFixPhoto(item.data.fixPhotoUrl);
+        if(gone.cleared) updates.fixPhotoUrl = '';
+      }
       updateDoc(doc(db,'jobAddresses',id), updates).then(function(){
         document.getElementById('statusdrop-'+id).classList.remove('open');
         toast('Status updated');
@@ -29276,6 +29289,31 @@ const HLX_DONE_KINDS = {
     off: function ()   { return {needsFix: true}; }
   }
 };
+/* ⭐ RETIRING A FIX PHOTO MEANS DESTROYING IT (Job 4, 2026-08-21).
+   Owner: "we want the picture destroyed on the spot. There is no need for it
+   after we fix the house."
+
+   ⚠ CLEARING fixPhotoUrl WAS NEVER DELETING ANYTHING. Two paths already blanked
+   the field, which only forgets the address — the image stayed on Cloudinary
+   for ever, on a public URL, with nothing in the app pointing at it any more.
+   Still out there AND invisible to the office is the worst of both.
+
+   Returns whether the field may now be cleared. ⚠ A FAILED DESTROY KEEPS THE
+   URL, deliberately: the picture still exists, so the record should still say
+   where it is and the next Mark Done can try again. Clearing it anyway would
+   orphan exactly the asset the owner asked to be rid of. */
+async function hlxRetireFixPhoto(url){
+  const raw = String(url || '').trim();
+  if(!raw) return {cleared: true, destroyed: false};
+  try{
+    const res = await destroyFixPhotoFn({url: raw});
+    const d = (res && res.data) || {};
+    return {cleared: !!d.ok, destroyed: !!d.destroyed, result: d.result || ''};
+  }catch(err){
+    console.error('[HU] fix photo destroy call failed', err);
+    return {cleared: false, destroyed: false, result: 'error'};
+  }
+}
 async function hlxMarkJobDone(target, kind, done, opts) {
   const o = opts || {};
   const spec = HLX_DONE_KINDS[kind];
@@ -29291,6 +29329,37 @@ async function hlxMarkJobDone(target, kind, done, opts) {
   } catch (err) {
     console.error('[HU] hlxMarkJobDone failed for ' + id, err);
     return {ok: false, id: id, why: (err && err.message) || 'The write was refused.'};
+  }
+  /* ⭐ AND A FINISHED FIX TAKES ITS PHOTO WITH IT (Job 4).
+     ⚠ AFTER the write, never before. Destroying first and then failing to save
+     would lose the picture for a fix that is not marked done — no undo, and the
+     office would not even know it had gone. The done state is what matters; the
+     photo is cleaned up behind it.
+     ⚠ ONLY ON done === true. Unticking a fix must not destroy anything.
+     ⚠ AND THE FIELD IS ONLY CLEARED IF THE PICTURE REALLY WENT. */
+  if (kind === 'fix' && done) {
+    const url = o.fixPhotoUrl !== undefined
+      ? o.fixPhotoUrl
+      : ((target && target.data && target.data.fixPhotoUrl) ||
+         ((typeof jobAddresses !== 'undefined' && (jobAddresses.find(function(a){ return a.id === id; }) || {}).data || {}).fixPhotoUrl) || '');
+    if (url) {
+      const gone = await hlxRetireFixPhoto(url);
+      if (gone.cleared) {
+        try {
+          await updateDoc(doc(db, 'jobAddresses', id), {fixPhotoUrl: ''});
+          const cached = (typeof jobAddresses !== 'undefined')
+            ? jobAddresses.find(function(a){ return a.id === id; }) : null;
+          if (cached && cached.data) cached.data.fixPhotoUrl = '';
+          fields.fixPhotoUrl = '';
+        } catch (e) { console.error('[HU] could not clear fixPhotoUrl for ' + id, e); }
+      } else {
+        /* Said out loud rather than logged. The office asked for the picture to
+           be gone; if it is still there they need to know, and the record still
+           points at it so pressing Mark Done again retries. */
+        try { toast('Fix marked done, but the photo could not be deleted — it is still on the record.'); }
+        catch (e) { /* no toast on this screen */ }
+      }
+    }
   }
   /* Best-effort, and last. With the crew portal out of use everything is done by two
      people in one admin panel, so "who marked this done and when" has no other
@@ -33614,10 +33683,18 @@ function renderRouteOrderedList(ordered){
     });
   });
   listEl.querySelectorAll('[data-togglefix]').forEach(function(btn){
-    btn.addEventListener('click', function(){
+    /* async because clearing a fix now DESTROYS its photo server-side (Job 4)
+       and the field may only be blanked once that has actually happened. */
+    btn.addEventListener('click', async function(){
       const current = btn.dataset.current === '1';
       const updates = {needsFix: !current};
-      if(current){ updates.fixScheduled = false; updates.fixNote = ''; updates.fixPhotoUrl = ''; }
+      if(current){
+        updates.fixScheduled = false;
+        updates.fixNote = '';
+        /* Job 4 — destroyed, not just forgotten. See hlxRetireFixPhoto. */
+        const gone = await hlxRetireFixPhoto(hd.fixPhotoUrl);
+        if(gone.cleared) updates.fixPhotoUrl = '';
+      }
       updateDoc(doc(db,'jobAddresses',btn.dataset.togglefix), updates).then(function(){ renderRouteOrderedList(currentRouteStops); });
     });
   });

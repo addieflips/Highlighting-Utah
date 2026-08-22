@@ -2589,6 +2589,106 @@ exports.cloudinarySignature = onCall(
   }
 );
 
+/* ⭐ THE FIX PHOTO IS DESTROYED WHEN THE FIX IS DONE (Job 4, 2026-08-21).
+ * Owner: "we want the picture destroyed on the spot. There is no need for it
+ * after we fix the house."
+ *
+ * ⚠ CLEARING fixPhotoUrl WAS NEVER DELETING ANYTHING. Two paths already blanked
+ * the field, which only forgets the address — the image stays on Cloudinary for
+ * ever, and Cloudinary URLs are public and unguessable-but-permanent. A photo
+ * of somebody's house, with nothing left in the app pointing at it, is the
+ * worst of both: still out there, and no longer visible to the office.
+ *
+ * ⚠ IT HAS TO BE SERVER-SIDE. Destroying needs the API secret in the signature,
+ * and a secret in admin.html is a secret published to anybody who opens the
+ * page. That is why this is a callable and not four lines in the browser.
+ *
+ * ⚠ AND IT ONLY EVER DESTROYS OUR OWN. cloudinaryPublicId refuses any URL that
+ * is not res.cloudinary.com/<our cloud>/image/upload/, so a caller cannot hand
+ * it somebody else's asset — and the caller never names a public_id directly,
+ * only a URL we then parse. */
+function cloudinaryPublicId(rawUrl) {
+  const url = String(rawUrl == null ? '' : rawUrl).trim();
+  const marker = 'res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME + '/image/upload/';
+  const at = url.indexOf(marker);
+  if (at === -1) return '';
+  let rest = url.slice(at + marker.length);
+  /* Strip the transformation segment cloudThumb inserts (w_440,c_limit,...) and
+     the version segment (v1712345678). Both are optional and neither is part of
+     the public_id. */
+  const parts = rest.split('/').filter(Boolean);
+  while (parts.length > 1 && (/^[a-z]+_[^/]*$/.test(parts[0]) || /^v\d+$/.test(parts[0]))) {
+    parts.shift();
+  }
+  rest = parts.join('/');
+  if (!rest) return '';
+  /* The public_id keeps its folder but loses the file extension. A query string
+     or fragment is not part of it either. */
+  rest = rest.split('?')[0].split('#')[0];
+  const dot = rest.lastIndexOf('.');
+  if (dot > 0) rest = rest.slice(0, dot);
+  /* ⚠ A public_id with a .. in it could reach outside the folder it names.
+     Nothing we upload produces one; refuse it rather than reason about it. */
+  if (!rest || rest.indexOf('..') !== -1) return '';
+  /* ⚠ AND A LEFTOVER VERSION OR TRANSFORMATION SEGMENT IS NOT A FILENAME. The
+     loop above only strips while something follows, so a URL ending at
+     .../upload/v1/ comes out as the public_id "v1" — which would destroy a real
+     asset if one were ever named that. There is no filename here; refuse.
+     Caught by Suite 140, not by reasoning. */
+  if (/^v\d+$/.test(rest) || /^[a-z]+_[^/]*$/.test(rest)) return '';
+  return rest;
+}
+
+exports.destroyFixPhoto = onCall(
+  { cors: true, secrets: [CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET] },
+  async (request) => {
+    /* ⚠ STAFF ONLY. Every other Cloudinary-touching callable here is a signing
+       helper that hands out an upload token; this one DESTROYS, so it is the
+       one that must never be reachable without a login. */
+    if (!request.auth) {
+      throw new HttpsError('permission-denied', 'Sign in first.');
+    }
+    const publicId = cloudinaryPublicId((request.data || {}).url);
+    /* Not one of ours, or not a Cloudinary URL at all. Not an error — the
+       caller passes whatever was on the record, and a blank or an external
+       link simply means there is nothing of ours to delete. */
+    if (!publicId) return { ok: true, destroyed: false, reason: 'not-ours' };
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const secret = CLOUDINARY_API_SECRET.value();
+    /* Cloudinary's signing rule, same as cloudinarySignature above: every
+       param except file/api_key/cloud_name/resource_type, sorted, joined as
+       key=value&key=value, then the secret, then SHA-1. Here that is
+       public_id then timestamp — alphabetical. */
+    const signature = crypto.createHash('sha1')
+      .update('public_id=' + publicId + '&timestamp=' + timestamp + secret)
+      .digest('hex');
+
+    const form = new URLSearchParams();
+    form.set('public_id', publicId);
+    form.set('timestamp', String(timestamp));
+    form.set('api_key', CLOUDINARY_API_KEY.value());
+    form.set('signature', signature);
+
+    try {
+      const res = await fetch(
+        'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD_NAME + '/image/destroy',
+        { method: 'POST', body: form });
+      const body = await res.json().catch(() => ({}));
+      /* ⚠ "not found" IS SUCCESS. The asset is gone, which is all the caller
+         wanted; treating it as a failure would leave the URL on the record for
+         ever, pointing at nothing. */
+      const result = String(body && body.result || '');
+      const gone = result === 'ok' || result === 'not found';
+      if (!gone) console.error('[HU] cloudinary destroy refused:', result, body);
+      return { ok: gone, destroyed: result === 'ok', result: result || 'no-answer' };
+    } catch (err) {
+      console.error('[HU] cloudinary destroy failed:', err);
+      return { ok: false, destroyed: false, result: 'error' };
+    }
+  }
+);
+
 /* --- portalInvoice --------------------------------------------------------
  * The last direct Firestore read the public site did. invoices carried
  * `allow read: if true` purely to support it, which meant every invoice in
