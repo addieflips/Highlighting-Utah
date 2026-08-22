@@ -35398,6 +35398,37 @@ suite('252. The silhouette against a real sky');
         return L;
       })(), cameraHeightM: 2.4, toleranceM: 0.3 }).every(c => !/doubles back/.test(c.why)),
       'plane churn is the better discriminator and stays the default');
+
+    /* ⛔ THE LIMIT OF THE WHOLE DEPTH-MAP APPROACH, measured rather than assumed.
+       Eight residential panoramas top out at 10-15 deg above the horizon; downtown ones
+       on the same decoder reach 83.6. The format is fine — suburban depth maps simply do
+       not contain the houses' upper parts. So a house has to be far enough away for its
+       roofline to fit under that ceiling, and the Salt Lake panorama with the house 5.7 m
+       away had the subject missing entirely while offering a NEIGHBOUR at full
+       confidence. That is the outcome this has to catch. */
+    const lowD = { width: 8, height: 33, planes: [{ n: [0, 0, 1], d: 0 }, { n: [1, 0, 0], d: 5 }],
+                   planeCount: 2, indices: new Uint8Array(8 * 33) };
+    for (let y = 12; y < 33; y++) for (let x = 0; x < 8; x++) lowD.indices[y * 8 + x] = 1;
+    const elev = rc.maxElevationDeg(lowD);
+    check('skyline', 'how high the depth map reaches is measured, not assumed',
+      Math.abs(elev - (90 - 180 * 12 / 32)) < 1e-6,
+      'row 12 of 33 is 22.5 deg above the horizon; got ' + elev);
+
+    check('skyline', 'and it converts to the nearest house it could possibly see',
+      Math.abs(rc.nearestUsableDistanceM(lowD, 6, 2.5) - 3.5 / Math.tan(22.5 * Math.PI / 180)) < 1e-6,
+      '(roof - camera) / tan(coverage) — arithmetic, not a guess');
+
+    const tooClose = rc.describeCandidates(
+      [{ confidence: 1.0, why: 'a clean change of direction in the roofline' }],
+      [{ x: 1 }], { subjectDistanceM: 5.7, nearestUsableM: 16 });
+    check('skyline', 'a house too close for the data says so, DESPITE a confident candidate',
+      tooClose.subjectOutOfRange === true && /belongs to another building/.test(tooClose.message),
+      'this is the dangerous outcome: it does not look like a failure. Candidates come ' +
+      'back, one at 1.00, and they are the neighbours. got: ' + tooClose.message);
+
+    check('skyline', 'and a house comfortably in range is not warned about',
+      rc.describeCandidates([{ confidence: 0.9, why: 'x' }], [{ x: 1 }],
+        { subjectDistanceM: 25, nearestUsableM: 16 }).subjectOutOfRange === false);
   })());
 }
 

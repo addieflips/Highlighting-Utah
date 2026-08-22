@@ -70,6 +70,28 @@ export function groundPlaneIndex(depth){
   return best;
 }
 
+/* ⚠ THE GROUND IS OFTEN MORE THAN ONE RECORD, and rejecting only the biggest leaves the
+   others to be caught by the height floor alone. Found on a Columbus panorama: the plane
+   directly under the camera and the plane groundPlaneIndex chose were DIFFERENT indices
+   at the same 2.50 m — Google had split one road into two records. Every horizontal plane
+   sitting at the camera's own height is ground, however many records it is spread over.
+   A roof is never at the camera's feet, so nothing real is lost. */
+export const GROUND_HEIGHT_TOLERANCE_M = 0.25;
+
+export function groundPlaneIndices(depth, camH){
+  const out = new Set();
+  const h = (camH == null) ? cameraHeight(depth) : camH;
+  const g = groundPlaneIndex(depth);
+  if(g >= 0) out.add(g);
+  if(h == null) return out;
+  for(let i = 1; i < depth.planes.length; i++){
+    const pl = depth.planes[i];
+    if(Math.abs(pl.n[2]) < 0.9) continue;
+    if(Math.abs(Math.abs(pl.d) - h) <= GROUND_HEIGHT_TOLERANCE_M) out.add(i);
+  }
+  return out;
+}
+
 /* Is column x inside the caller's window? A window may wrap past column 0, because
  * a house can straddle the seam of the panorama and nothing about that is exceptional. */
 export function inColumnWindow(x, width, win){
@@ -84,7 +106,7 @@ export function skylineOf(depth, opts){
   const minH = o.minHeightM == null ? SKYLINE_MIN_HEIGHT_M : o.minHeightM;
   const maxD = o.maxDistanceM == null ? SKYLINE_MAX_DISTANCE_M : o.maxDistanceM;
   const camH = (o.cameraHeightM != null) ? Number(o.cameraHeightM) : cameraHeight(depth);
-  const ground = groundPlaneIndex(depth);
+  const ground = groundPlaneIndices(depth, camH);
   const out = new Array(depth.width).fill(null);
   for(let x = 0; x < depth.width; x++){
     if(!inColumnWindow(x, depth.width, win)) continue;
@@ -109,7 +131,7 @@ export function skylineOf(depth, opts){
          - the horizon sits at roughly zero height. A roof does not.
          - past ~60 m a column is 0.74 m wide, so a corner is no longer resolvable
            anyway; those are neighbours’ houses and hillsides, not the subject. */
-    if(idx === ground) continue;
+    if(ground.has(idx)) continue;
     const t = distanceAt(depth, x, y);
     if(t === null || t > maxD) continue;
     const v = rayDirection(x, y, depth.width, depth.height);
@@ -424,12 +446,67 @@ export function roofCornerCandidates(depth, opts){
     });
   });
   out.sort(function(a, b){ return b.confidence - a.confidence; });
-  return (o.limit > 0) ? out.slice(0, o.limit) : out;
+
+  /* ⚠ ONE RING PER PIXEL. Found on the Kaysville panorama: column 201 came back THREE
+     times, identical in every field. Two things put more than one candidate on a column —
+     Douglas-Peucker keeping neighbouring indices that the depth-edge shift then slides
+     onto the SAME near-side point, and separate runs that overlap after that shift. On
+     screen that is three rings stacked on one pixel, and the office clicks what it thinks
+     is one corner and keeps three. Best confidence wins, since the list is already
+     sorted. */
+  const seenCol = new Set();
+  const unique = out.filter(function(c){
+    const key = c.column + ':' + c.row;
+    if(seenCol.has(key)) return false;
+    seenCol.add(key);
+    return true;
+  });
+  return (o.limit > 0) ? unique.slice(0, o.limit) : unique;
 }
 
 /* ---------------- what to tell the office ---------------- */
 
 export const CONFIDENT_AT = 0.6;
+
+/* ⭐ HOW HIGH THIS DEPTH MAP MODELS ANYTHING AT ALL, in degrees above the horizon.
+ *
+ * ⛔ THIS IS THE LIMIT OF THE WHOLE DEPTH-MAP APPROACH AND IT IS WORTH SAYING PLAINLY.
+ * Measured on eight residential panoramas — Lehi, American Fork, Salt Lake City,
+ * Kaysville — the topmost modelled row sits at 106 to 113 of 256 every single time:
+ * 10 to 15 degrees above the horizon, and nothing above it.
+ *
+ * That is NOT the file format running out. Downtown panoramas reach far higher on the
+ * same decoder: Manhattan 83.6 deg, Wall Street 78.0, Chicago 73.8. The format is fine.
+ * Residential depth maps simply do not contain the houses' upper parts, which matches
+ * lanil-9d's finding that they omit vegetation too — coarse plane fits keep roads and
+ * large distant surfaces and drop small near ones.
+ *
+ * ⚠ THE CONSEQUENCE IS ARITHMETIC. A roof edge is only in the data if it subtends less
+ * than the coverage angle, so a house must be at least
+ *        (roofHeight - cameraHeight) / tan(coverage)
+ * away — about 16 m for an ordinary 6 m roofline at 12 degrees. Closer than that and the
+ * roofline is above the ceiling and is not there to be found. On the Salt Lake panorama
+ * with the house 5.7 m away, the subject was absent entirely and every candidate came
+ * from neighbours across the street, one of them at full confidence. That is the failure
+ * this function exists to let the caller catch. */
+export function maxElevationDeg(depth){
+  for(let y = 0; y < depth.height; y++){
+    for(let x = 0; x < depth.width; x++)
+      if(depth.indices[y * depth.width + x] !== 0)
+        return 90 - 180 * y / (depth.height - 1);
+  }
+  return null;
+}
+
+/* The nearest a house can be and still have its roofline inside the depth map. */
+export function nearestUsableDistanceM(depth, roofHeightM, cameraHeightM){
+  const elev = maxElevationDeg(depth);
+  if(elev == null || elev <= 0) return null;
+  const camH = (cameraHeightM == null) ? cameraHeight(depth) : cameraHeightM;
+  const rise = (roofHeightM == null ? 6 : roofHeightM) - (camH == null ? 2.5 : camH);
+  if(!(rise > 0)) return 0;
+  return rise / Math.tan(elev * Math.PI / 180);
+}
 
 /* ⭐ SO THE SCREEN CAN SAY SOMETHING TRUE INSTEAD OF SHOWING RINGS AND HOPING.
  * Real panoramas produce three outcomes and only one of them is "here are your corners":
@@ -439,11 +516,27 @@ export const CONFIDENT_AT = 0.6;
  * The third is not a failure. Two of the ten places tested had no building in range at
  * all, and every candidate was correctly refused; a screen that just showed an empty
  * canvas would read as broken. The office is owed the reason either way. */
-export function describeCandidates(list, skyline){
+export function describeCandidates(list, skyline, opts){
+  const o = opts || {};
   const c = list || [];
   const confident = c.filter(function(x){ return x.confidence >= CONFIDENT_AT; });
   const seen = skyline ? skyline.filter(Boolean).length : null;
   let message;
+  /* ⛔ THE SUBJECT IS TOO CLOSE TO BE IN THE DATA — checked FIRST, because this outcome
+     is the dangerous one. It does not look like a failure: candidates come back, some at
+     full confidence, and they are the neighbours' houses. */
+  if(o.subjectDistanceM != null && o.nearestUsableM != null &&
+     o.subjectDistanceM < o.nearestUsableM){
+    return {
+      total: c.length, confident: confident.length,
+      best: c.length ? c[0].confidence : null, columnsSeen: seen,
+      subjectOutOfRange: true,
+      message: 'This panorama is ' + o.subjectDistanceM.toFixed(0) + ' m from the house, ' +
+               'and its depth map only reaches ' + o.nearestUsableM.toFixed(0) + ' m — the ' +
+               'roofline is above everything it recorded. Anything offered here belongs to ' +
+               'another building. Use a panorama further back, or place the corners by hand.'
+    };
+  }
   if(seen === 0)
     message = 'Nothing within 60 m of the camera to draw — no roofline is in view from here. ' +
               'Try a panorama nearer the house.';
@@ -461,6 +554,7 @@ export function describeCandidates(list, skyline){
     confident: confident.length,
     best: c.length ? c[0].confidence : null,
     columnsSeen: seen,
+    subjectOutOfRange: false,
     message: message
   };
 }
