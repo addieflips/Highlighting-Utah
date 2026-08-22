@@ -1841,6 +1841,16 @@ import {
   getFirestore, collection, doc, addDoc, getDoc, updateDoc, setDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+/* ⭐ THE SAME ROUNDING THE OFFICE USES (added 2026-08-21). This page worked the
+   balance out in plain floating point while js/money.js and the Cloud Function both
+   compared whole cents, so an invoice settled to exactly zero could leave a residue
+   like 2.8e-14 here: the page read it as money owed and printed "Balance Due" above
+   an amount rendered $0.00, with the Venmo link pre-filled for $0.00.
+   ⚠ IMPORTED, NOT COPIED. R-015 is a TARGET precisely because the amount is written
+   out by hand in a dozen places; adding a thirteenth rounding rule here would have
+   been the fourth copy in this file's own history. This script is a module, so it
+   can simply use the real one. */
+import { centsOf } from "./js/money.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
@@ -3231,8 +3241,15 @@ function renderCustomerInvoicePage(raw, opts){
     var invChangeFee = Number(record.changeFees) || 0;
     var invCredits   = Number(record.credits)    || 0;
     var invDeposit   = Number(record.deposit)    || 0;
-    var totalDue = Math.max((invInstall + invRemoval + invChangeFee) - invCredits - invDeposit, 0);
-    var isPaid = totalDue <= 0 && (invInstall > 0 || invRemoval > 0 || invChangeFee > 0);
+    /* ⚠ WHOLE CENTS, like the office screen and the nightly run. Floating point
+       leaves crumbs — 100.04 + 30 is 130.04000000000002, not 130.04 — so a customer
+       who has paid every penny came out a fraction short here and was told they owed
+       money, above a figure printed $0.00. Comparing rounded cents is what
+       js/money.js has always done; this page was the one surface that did not. */
+    var grossCents = centsOf(invInstall) + centsOf(invRemoval) + centsOf(invChangeFee);
+    var dueCents = grossCents - centsOf(invCredits) - centsOf(invDeposit);
+    var totalDue = Math.max(dueCents, 0) / 100;
+    var isPaid = dueCents <= 0 && grossCents > 0;
     document.getElementById('invName').textContent = displayName;
     document.getElementById('infoName').value = displayName;
     document.getElementById('infoPhone').value = record.phone ? formatPhoneDisplay(record.phone) : '';

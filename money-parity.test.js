@@ -314,7 +314,12 @@ function sliceTo(src, site) {
 function amountFn(slice, inputVar, returnExpr) {
   const sandbox = {};
   vm.createContext(sandbox);
+  /* ⚠ centsOf comes along with every slice, LIFTED from js/money.js rather than
+     re-typed. The member portal now rounds to whole cents like the office copy —
+     it is a module, so it imports the real helper — and a slice that calls it
+     needs it in scope here. Harmless for the sites that do not. */
   vm.runInContext(
+    clientCentsSrc + '\n' +
     'this.__fn = function (' + inputVar + ') {\n' + slice + '\nreturn ' + returnExpr + ';\n};',
     sandbox
   );
@@ -520,7 +525,13 @@ const crumb = { install: 100.04, removal: 0, changeFees: 30, credits: 0, deposit
 const crumbDue = portal.fn(recordsFor(portal.input, crumb));
 const crumbStatus = clientStatus(crumb.install, crumb.removal, crumb.deposit, crumb.credits, crumb.changeFees);
 
-gap('the portal balance is cent-rounded the way the office copy is',
+/* ⭐ PROMOTED FROM gap() TO check(), 2026-08-21, the day it was fixed.
+   While the bug was live a gap was right: this suite gates the Cloud Functions
+   deploy, and failing over a bug already in production would have blocked the fix
+   behind itself. That reasoning expires the moment it is fixed — a gap only
+   REPORTS, so leaving it as one meant someone could revert the rounding and the
+   build would stay green. A regression has to fail now. */
+check('the portal balance is cent-rounded the way the office copy is',
   crumbDue === 0,
   'install $100.04 + $30.00 fee - $130.04 paid leaves ' + crumbDue + ' in index.html, ' +
   'which renders as "$0.00" while the code reads it as money owed and shows "Balance Due". ' +

@@ -131,11 +131,17 @@ Parity tests cover the amount, not only the status string and invoice key.
 
 Status 2026-08-21: ~12 hand-inlined implementations exist.
 balanceDueAmount() has 12 callers, all inside admin.html; functions/index.js
-and index.html have no equivalent at all, so the PayPal charge and the
-customer's own portal each compute the amount their own way.
-Phase 0a step 1 landed — money-parity.test.js now runs all 12 sites against
-balanceDueAmount() and they agree. Step 2, the consolidation, has not.
-Until it lands, do not rely on this rule when reviewing a change.
+still has no equivalent, so the PayPal charge computes the amount its own way.
+Phase 0a step 1 landed — money-parity.test.js runs all 12 sites against
+balanceDueAmount() and they agree, and a regression now FAILS rather than
+reporting a gap.
+The member portal was the worst of the three surfaces and is fixed: it imports
+centsOf from js/money.js and compares whole cents like the office copy, so it can
+no longer show "Balance Due" above $0.00. It is a module, so it uses the real
+helper rather than a fourth copy.
+Still outstanding: the ~12 inlined sites in admin.html and functions/index.js.
+Until those collapse onto one helper, do not rely on this rule when reviewing a
+change.
 
 ### R-016 · read
 **Generation beats verification.**
@@ -257,6 +263,7 @@ Every change to this file gets a line. Never silently edit a rule.
 | 2026-08-21 | Replaced R-015, and marked it TARGET | The rule asserted a guard that does not exist. It claimed money is computed in exactly two parity-tested places; `money-parity.test.js` compares only the invoice STATUS string and the invoice KEY, never the AMOUNT OWED. The amount is hand-inlined at ~12 sites across `admin.html`, `functions/index.js` and `index.html` — including the PayPal charge and the member portal. Reviewing a change against the old wording would have passed a fourth implementation as safe. See `docs/open-questions.md` Q-001. |
 | 2026-08-21 | Corrected R-015's own Status paragraph | The rule shipped hours earlier carrying the same "zero callers" error as the amendment below it. Left standing it would be a false fact inside a rule people read to decide things — which is what P-001, proposed the same day, exists to stop. The wording is otherwise Addie's, unchanged; only the factual clause moved. |
 | 2026-08-21 | Corrected the R-015 amendment above | It first said `balanceDueAmount()` "has zero callers". It has 12, all in `admin.html`. The error was a malformed grep that was not re-checked before being written down — which is exactly what P-001 exists to prevent, on the same day P-001 was proposed. The rule change itself stands: the helper is used properly in admin, and the defect is that `functions/index.js` and `index.html` have no equivalent at all. |
+| 2026-08-21 | R-015 status updated — the portal is fixed | The member portal computed the balance in raw floating point while js/money.js and the Cloud Function compared whole cents, so an invoice settled to exactly zero could read as money owed and print "Balance Due" above $0.00, with the Venmo link pre-filled for $0.00. It now imports `centsOf` from js/money.js — the script is a module, so the real helper rather than a thirteenth copy. The parity check for it was promoted from gap() to check() the same day: a gap only reports, and this suite gates the functions deploy, so leaving it as one meant the rounding could be reverted with the build staying green. The rule stays TARGET — the ~12 hand-inlined amount sites are untouched. |
 | 2026-08-21 | R-009 marked ENFORCED | It shipped as a statement of fact that was false: it claimed branch protection was requiring the test workflow, and `main` was unprotected. Addie enabled protection on 2026-08-21 and `main` now reports `protected: true`. Noted in the rule what the check does and does not prove — that protection exists, not which rules it carries. Third rule this session found asserting a guard that did not exist (R-005, R-009, R-015), which is what P-001 was proposed for. |
 | 2026-08-21 | RETIRED R-005 | It required a `disputed` confirmation state that does not exist and is not being built. The confirmation turned out to be the RSVP email (Addie, 2026-08-21), which accepts only `yes`, `no` and `backnextyear` — `portalRsvp` rejects anything else. So R-005 was tier-1 protection against a condition the system cannot produce, which is worse than no rule: it reads as cover while providing none. The behaviour that mattered is already implemented without it — an answered `no` pulls them off upcoming routes and `isOutForSeason` keeps them off. Marked retired in place rather than deleted, so the numbering holds and the history stays readable. A catch-all "something is wrong" reply was considered and rejected in the same conversation. |
 | 2026-08-21 | Proposed P-003 | Addie, deriving the option registry: "Everything saved in crew should also print on the schedule sheet we print off." Three fields reach the crew portal and never print — the gate code and the which-outlet install notes among them. Tier 1, because a crew that cannot get through the gate does not install the lights. Noted in the proposal that it is one-directional and would not catch `useEaves`, which prints and is missing from the portal. |
