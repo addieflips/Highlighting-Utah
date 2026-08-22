@@ -4634,9 +4634,64 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  onSnapshot, query, orderBy, where, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment, arrayUnion
+  onSnapshot as onSnapshotRaw, query, orderBy, where, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+/* ⭐ EVERY LISTENER IS LET GO WHEN THE USER LOGS OUT (added 2026-08-22).
+ * Reported from the office error log:
+ *   @firebase/firestore: Uncaught Error in snapshot listener:
+ *   FirebaseError: [code=permission-denied]: Missing or insufficient permissions.
+ *   Unhandled promise: Missing or insufficient permissions.
+ *
+ * It is NOT a rules problem, and that is worth saying plainly because the message
+ * points straight at one. Every collection this page listens to has a rule, and
+ * every one of those rules is `allow read: if request.auth != null`. The reads
+ * were refused because by the time they ran there was no auth — the listeners
+ * were still open after sign-out.
+ *
+ * Firestore hands an onSnapshot its unsubscribe function and this page threw away
+ * 42 of the 44 it was given, so there was nothing to call and nothing was ever
+ * detached. `signOut` then pulls the token out from under about forty live
+ * listeners at once, Firestore refuses each of them, and each refusal surfaces as
+ * an uncaught error and an unhandled rejection. One log line per open panel.
+ *
+ * ⭐ FIXED BY ALIASING THE IMPORT RATHER THAN EDITING 42 CALL SITES. The wrapper
+ * below is named `onSnapshot`, so every existing call reaches it unchanged and
+ * there is no chance of missing one — which, at 42 sites in a 2.6MB file, is the
+ * likeliest way this gets half-fixed.
+ *
+ * ⚠ AND IT SWALLOWS NOTHING. A listener that fails while somebody IS signed in is
+ * a real fault and still reaches the console. Only the denial that arrives after
+ * sign-out is treated as expected, because at that point it means the detach
+ * raced the refusal, which is normal and is not news. */
+const LIVE_LISTENERS = [];
+let HU_SIGNED_OUT = false;
+function onSnapshot(ref, a, b){
+  /* Firestore takes (ref, onNext, onError) or (ref, observer). Only the plain
+     callback form is used in this file; the observer form is passed straight
+     through untouched rather than half-supported. */
+  let stop;
+  const guard = function(err){
+    if(HU_SIGNED_OUT && err && err.code === 'permission-denied') return;
+    console.error('Snapshot listener failed:', err);
+    if(typeof b === 'function') b(err);
+  };
+  if(typeof a === 'function') stop = onSnapshotRaw(ref, a, guard);
+  else stop = onSnapshotRaw(ref, a, b);
+  if(typeof stop === 'function') LIVE_LISTENERS.push(stop);
+  return stop;
+}
+/* Let every one of them go. Safe to call twice — the list is emptied as it runs,
+   and a listener that has already been detached is simply not in it. */
+function detachAllListeners(){
+  HU_SIGNED_OUT = true;
+  let n = 0;
+  while(LIVE_LISTENERS.length){
+    const stop = LIVE_LISTENERS.pop();
+    try{ stop(); n++; }catch(err){ /* already gone */ }
+  }
+  return n;
+}
 /* Stop a slow write tool being started twice.
  *
  * Add Customer, both bulk pasters and the payment import each await a long
@@ -4810,14 +4865,24 @@ function renderUserChip(user){
   document.getElementById('userChipName').textContent = name;
   document.getElementById('userChipMail').textContent = email;
 }
+/* ⚠ DETACH BEFORE signOut, NOT AFTER. signOut resolves as soon as the token is
+   cleared, and the listeners are refused the instant it is — so detaching in the
+   onAuthStateChanged callback below is already a beat too late for some of them.
+   Both places do it: this one stops the errors happening, and the one below is
+   what covers a session that ends some other way (a token expiring, or being
+   signed out from another tab). */
 document.getElementById('userChipLogout').addEventListener('click', function(){
-  if(confirm('Log out of the admin dashboard?')) signOut(auth);
+  if(confirm('Log out of the admin dashboard?')){ detachAllListeners(); signOut(auth); }
 });
 document.getElementById('logoutBtn').addEventListener('click', function(){
+  detachAllListeners();
   signOut(auth);
 });
 onAuthStateChanged(auth, function(user){
   if(user){
+    /* Signing back in without a reload must not leave the page believing it is
+       still logged out, or every listener it opens from here reports nothing. */
+    HU_SIGNED_OUT = false;
     loginScreen.style.display = 'none';
     appEl.classList.add('show');
     document.getElementById('whoAmI').textContent = user.email;
@@ -4825,6 +4890,10 @@ onAuthStateChanged(auth, function(user){
     restoreLastAdminPanel();
     loadUserPrefs(user).then(function(){ setTimeout(initData, 0); });
   } else {
+    /* ⚠ THE SESSION CAN END WITHOUT THE LOGOUT BUTTON — a token expiring, or a
+       sign-out in another tab. Without this, those cases leave every listener
+       open and produce exactly the permission-denied log this was built for. */
+    detachAllListeners();
     loginScreen.style.display = 'flex';
     appEl.classList.remove('show');
   }

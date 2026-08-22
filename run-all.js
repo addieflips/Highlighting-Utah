@@ -32987,6 +32987,71 @@ suite('142. Measure Roof - the roofline is read off the photograph');
     'a guess that hides how it was made is worse than one that admits it');
 }
 
+
+/* ================= Suite 144. The listeners let go when the session ends ==========
+   From the office error log, 2026-08-22:
+     Uncaught Error in snapshot listener: [code=permission-denied]
+     Unhandled promise: Missing or insufficient permissions.
+
+   ⚠ IT LOOKS LIKE A RULES BUG AND IT IS NOT. Every collection this page listens to
+   has a rule and every one of those rules is `allow read: if request.auth != null`.
+   The reads were refused because there was no auth left when they ran: signOut
+   pulls the token out from under about forty still-open listeners, Firestore
+   refuses each, and each refusal is an uncaught error plus an unhandled rejection.
+   CLAUDE.md already warns that Firestore reports ANY refusal as "insufficient
+   permissions" — this is that warning from the read side. */
+suite('144. The listeners let go when the session ends');
+{
+  const LFC = String.fromCharCode(10);
+  check('S144', 'onSnapshot is wrapped rather than imported raw',
+    /onSnapshot as onSnapshotRaw/.test(admin) && /function onSnapshot\(ref, a, b\)/.test(admin),
+    'aliasing the import is what makes every existing call site reach the wrapper — ' +
+    'editing 42 call sites by hand in a 2.6MB file is how this gets half-fixed');
+  check('S144', 'every unsubscribe is kept',
+    /LIVE_LISTENERS\.push\(stop\)/.test(admin),
+    'Firestore hands back an unsubscribe and this page threw away 42 of 44 — with ' +
+    'nothing kept there is nothing to detach');
+  check('S144', 'and something detaches them',
+    /function detachAllListeners\(\)/.test(admin) && /LIVE_LISTENERS\.pop\(\)/.test(admin));
+
+  /* ⚠ THE ORDER IS THE WHOLE FIX. signOut resolves the moment the token is
+     cleared, so detaching only in onAuthStateChanged is already too late for some
+     listeners — the refusals have started. Both logout buttons detach FIRST. */
+  /* Anchored to the next real structure, never a character count — the suite has
+     its own check forbidding fixed windows, and it is right: a window silently
+     goes stale as the code around it grows. */
+  const chip = admin.indexOf("userChipLogout");
+  const chipBlk = chip === -1 ? '' : admin.slice(chip, admin.indexOf('onAuthStateChanged(auth,', chip));
+  check('S144', 'the logout buttons detach BEFORE signOut, not after',
+    /detachAllListeners\(\); signOut\(auth\)/.test(chipBlk) ||
+    (chipBlk.indexOf('detachAllListeners()') !== -1 &&
+     chipBlk.indexOf('detachAllListeners()') < chipBlk.indexOf('signOut(auth)')),
+    'detaching after the token is gone still produces the log this exists to stop');
+
+  /* A session can end without the button — a token expiring, or a sign-out in
+     another tab. That path has to detach too or the bug simply moves. */
+  const auth = admin.indexOf('onAuthStateChanged(auth, function(user){');
+  const authBlk = auth === -1 ? '' : admin.slice(auth, admin.indexOf('function switchToAdminPanel', auth));
+  check('S144', 'a session that ends any other way still detaches',
+    /\} else \{[\s\S]{0,400}detachAllListeners\(\)/.test(authBlk),
+    'a token expiring leaves every listener open and reproduces the log exactly');
+  check('S144', 'and signing back in clears the signed-out flag',
+    /HU_SIGNED_OUT = false/.test(authBlk),
+    'without it a re-login without a reload silences every real listener error');
+
+  /* ⚠ AND IT MUST NOT SWALLOW A REAL FAULT. Only the denial that arrives AFTER
+     sign-out is expected; one that happens while somebody is signed in is news. */
+  const w = admin.indexOf('function onSnapshot(ref, a, b)');
+  const wBlk = w === -1 ? '' : admin.slice(w, admin.indexOf('function detachAllListeners', w));
+  check('S144', 'a listener failing while signed IN is still reported',
+    /HU_SIGNED_OUT && err && err\.code === 'permission-denied'/.test(wBlk) &&
+    /console\.error\('Snapshot listener failed:'/.test(wBlk),
+    'a blanket catch here would hide a genuine rules regression for ever');
+  check('S144', 'and the caller keeps whatever error handler it passed',
+    /if\(typeof b === 'function'\) b\(err\)/.test(wBlk),
+    'the wrapper inserts its own onError, so a caller-supplied one has to be called on');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
