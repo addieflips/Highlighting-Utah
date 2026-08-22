@@ -5866,6 +5866,104 @@ function billedHousesRows(houses){
 }
 /* Built with a table and inline styles for the same reason {{price_block}} is:
    Outlook ignores nearly all CSS. */
+/* ⭐ AN OUTSTANDING ADD-ON RIDES ALONG WITH THE RSVP (added 2026-08-21).
+   Owner: "Can we have an approve or decline button for RSVP for add ons to?"
+
+   The RSVP is the one email everybody gets each season, so it is the natural
+   place to settle a garage they were quoted for and never answered. They say
+   yes or no to the season at the top and yes or no to the extra underneath.
+
+   ⚠ RESOLVED BY THE EXPLICIT LINK, NEVER BY PHONE. This is the same trap the
+   decline path was fixed for, and it is WORSE here: 17 numbers in the real book
+   are shared and 14 of those are two genuinely different households, so a
+   phone match would print a child's quote and price inside a parent's RSVP
+   email — and hand the parent buttons that answer it. A re-quote is always
+   raised against a live record (existingCustomerId), so the exact link is
+   always available and there is nothing to guess. */
+function pendingAddOnFor(customerId){
+  if(!customerId || typeof quotesCache === 'undefined') return null;
+  return quotesCache.find(function(q){
+    const d = q.data || {};
+    if(!quoteIsAddOn(d)) return false;
+    /* Priced and still waiting. quoteStage is the ONE answer to "where is this
+       quote up to" — an unpriced one has no number to show, and an answered or
+       archived one must not be asked again. */
+    if(quoteStage(d) !== 'send') return false;
+    return String(d.existingCustomerId || d.convertedToCustomerId || '') === String(customerId);
+  }) || null;
+}
+/* Does the saved template already place the add-on block itself? Read by BOTH
+   the send and the preview, so they cannot disagree about whether it gets
+   appended — the same reasoning as rsvpTemplateHasHouses. */
+function rsvpTemplateHasAddOn(template){
+  return String(template||'').indexOf('{{addon_block}}') !== -1;
+}
+/* The block itself. Empty string for the ordinary customer with nothing
+   outstanding, exactly like billedHousesEmailBlock — a paragraph saying "you
+   have no outstanding add-ons" is noise on nine hundred emails. */
+async function addOnEmailBlock(customerId){
+  const q = pendingAddOnFor(customerId);
+  if(!q) return '';
+  /* The buttons are useless without a token, and this block is not covered by
+     the send's own quote-button token generator, which finds a quote by PHONE
+     and so could mint one on the wrong household's. Done here, for the quote we
+     actually resolved.
+     ⚠ NO UNBALANCED BRACES IN THIS COMMENT, not even inside quotes. Suites lift
+     this function by counting braces from the signature, so a stray opening
+     pair in a comment runs the count off the end: the function reads as
+     MISSING and the suite skips rather than failing. Name email tokens in prose
+     here. This warning cost two debugging rounds, the second because the
+     warning itself was first written with the offending characters in it. */
+  if(!q.data.quoteToken){
+    try{
+      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      await updateDoc(doc(db,'quotes', q.id), {quoteToken: token});
+      q.data.quoteToken = token;
+    }catch(err){
+      /* No token, no working buttons — and a block whose buttons do nothing is
+         worse than no block. The RSVP itself still goes. */
+      console.error('[HU] add-on block token write failed', err);
+      return '';
+    }
+  }
+  const labels = quoteButtonLabels(q.data);
+  const base = 'https://highlightingutah.com/#/quote-details?token=' + q.data.quoteToken;
+  const yes = base + quotePortalParam(q.data) + '&action=approve';
+  const no  = base + '&action=decline&addon=1';
+  const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+  const note = String(q.data.requoteKindNote || q.data.requoteReason || '').trim();
+  /* ⚠ quotedPrice ON A RE-QUOTE IS THE NEW TOTAL FOR THE HOUSE, NOT THE
+     ADDITION — showApplyRequoteChoice compares it against their current
+     housePrice to say "up $X". Printing it as "+$180" would tell a customer on
+     $600 that the garage costs $780. Say both numbers and let them read it. */
+  const newPrice = typeof q.data.quotedPrice === 'number' ? q.data.quotedPrice : null;
+  const cust = (typeof jobAddresses !== 'undefined'
+    ? jobAddresses.find(function(a){ return a.id === String(q.data.existingCustomerId || q.data.convertedToCustomerId || ''); })
+    : null);
+  const oldPrice = cust && cust.data ? Number(cust.data.housePrice || 0) : 0;
+  let priceLine = '';
+  if(newPrice !== null){
+    priceLine = oldPrice && oldPrice !== newPrice
+      ? 'Your price for the season would be <strong>' + esc(fmtMoney(newPrice)) +
+        '</strong>, instead of ' + esc(fmtMoney(oldPrice)) + '.'
+      : 'Your price for the season would be <strong>' + esc(fmtMoney(newPrice)) + '</strong>.';
+  }
+  return '<div style="margin-top:22px; padding:16px 18px; background:#F6F3EA; border:1px solid #E2D9C3; border-radius:10px; font-family:Arial,sans-serif; font-size:14px; color:#1E3B2C; line-height:1.6;">'+
+      '<div style="font-weight:bold; margin-bottom:6px;">One more thing \u2014 the extra lights you asked about</div>'+
+      (note ? '<div style="margin-bottom:6px;">' + esc(note) + '</div>' : '')+
+      (priceLine ? '<div style="margin-bottom:10px;">' + priceLine + '</div>' : '')+
+      '<div>'+
+        '<a href="' + yes + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">' + esc(labels.approve) + '</a>'+
+        '<a href="' + no + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">' + esc(labels.decline) + '</a>'+
+      '</div>'+
+      /* ⚠ SAID IN WORDS, because the whole point of the add-on work is that a
+         no here is not a no to the season. Two sets of yes/no buttons in one
+         email is exactly where somebody would assume otherwise. */
+      '<div style="margin-top:10px; font-size:12.5px; color:#5A6B60;">'+
+        'Saying no to this only turns down the extra lights \u2014 it does not change your answer above.'+
+      '</div>'+
+    '</div>';
+}
 function billedHousesEmailBlock(phone){
   const rows = billedHousesRows(billedHousesForContact(phone));
   if(!rows.length) return '';
@@ -5959,6 +6057,12 @@ async function resolveLinkTokens(text, phone, amount, opts){
      use it; the RSVP send appends it by itself when the template does not, so
      nobody has to know the token exists to get the answer. Resolves to nothing
      at all for the ordinary one-house customer. */
+  /* {{addon_block}} offers an outstanding add-on alongside the season answer.
+     Resolves to nothing at all when they have none. Needs opts.customerId —
+     the explicit link, never the phone (see pendingAddOnFor). */
+  if(out.indexOf('{{addon_block}}') !== -1){
+    out = out.split('{{addon_block}}').join(opts.customerId ? await addOnEmailBlock(opts.customerId) : '');
+  }
   if(out.indexOf('{{houses_block}}') !== -1 || out.indexOf('{{houses_list}}') !== -1){
     out = out.split('{{houses_block}}').join(billedHousesEmailBlock(phone));
     out = out.split('{{houses_list}}').join(billedHousesPlainText(phone).trim());
@@ -11858,7 +11962,10 @@ function etResolveVars(item){
   }
   if(!price) price = '—';
   const link = d.portalToken ? ('https://highlightingutah.com/#/payment?token='+d.portalToken) : '';
-  return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal'};
+  /* ⚠ THE RECORD ID TRAVELS WITH THE VARS, so {{addon_block}} can resolve the
+     add-on by its explicit link instead of by phone — which on a shared number
+     would put one household's quote and price in another's email. */
+  return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal', customerId: item.id};
 }
 function getLiveInvoiceStatus(phone){
   const phoneDigits = (phone||'').replace(/\D/g,'');
@@ -11907,9 +12014,15 @@ async function etUpdatePreview(){
   /* autoPlace false: only a template that actually asks for {{photo}} gets the
      photos. A billing or RSVP template never mentioned one and must not
      suddenly grow a picture of the house. */
+  /* ⚠ THE PREVIEW APPENDS IT ON THE SAME CONDITION THE SEND DOES. What is on
+     screen has to be what goes out — an offer that appears only in the real
+     email is one nobody proof-read. Both ask rsvpTemplateHasAddOn, which is why
+     that helper exists rather than the test being written twice. */
+  const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
+    ? await addOnEmailBlock(member.id) : '';
   box.innerHTML = applyQuotePhotoBlock(
     await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
-    quotePhotosForPhone(vars.phone), false);
+    quotePhotosForPhone(vars.phone), false) + addOnBlock;
 }
 /* ---- Audience filters: shared helpers for the Preview & Send picker --------
    Each answers one real-life question about a member from data already on their
@@ -12536,9 +12649,16 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     const vars = etResolveVars(member);
     /* Same treatment as the preview above, so what was on screen is what goes
        out. */
+    /* Appended rather than left to a token, so the saved RSVP template does not
+       have to be edited for anyone to get it — and skipped when the template
+       DOES place the token itself, or the offer would appear twice. Only on an
+       RSVP: an add-on offer at the bottom of an invoice or a receipt is not
+       what either email is for. */
+    const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
+      ? await addOnEmailBlock(member.id) : '';
     const message = applyQuotePhotoBlock(
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
-      quotePhotosForPhone(vars.phone), false);
+      quotePhotosForPhone(vars.phone), false) + addOnBlock;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
     try{
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', message: message });
@@ -12599,7 +12719,9 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
   }
-  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars);
+  const testAddOn = (member && etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
+    ? await addOnEmailBlock(member.id) : '';
+  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars) + testAddOn;
   try{
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateJsId, { to_email: testEmail, to_name: 'Test', message: message });
@@ -12644,6 +12766,7 @@ const IC_CODES = {
     {token:'{{link}}', label:'Quote link (plain URL)'},
     {token:'{{link_button}}', label:'Quote link (button)'},
     {token:'{{quote_yes_button}}', label:'Quote Approve (button)'},
+    {token:'{{addon_block}}', label:'Outstanding add-on: offer + Yes/No (block)'},
     {token:'{{quote_maybe_button}}', label:'Quote Maybe Next Year (button)'},
     {token:'{{quote_decline_button}}', label:'Quote Decline (button)'}
   ]

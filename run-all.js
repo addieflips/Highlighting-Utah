@@ -29016,6 +29016,266 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
     'dragging on the sky view would move the line there and leave Street View behind');
 }
 
+/* =====================================================================
+ * Suite 131. An outstanding add-on rides along with the RSVP
+ *
+ * Owner, 2026-08-21: "Can we have an approve or decline button for RSVP for add
+ * ons to? I don't want a decline on a garage to decline full quote just garage."
+ *
+ * The RSVP is the one email everybody gets each season, so it is where a garage
+ * somebody was quoted for and never answered can finally be settled. Season
+ * yes/no at the top, add-on yes/no underneath.
+ *
+ * ⚠ THE SHARP EDGE IS WHOSE ADD-ON IT IS. Every other quote-email builder in
+ * this file finds its quote by PHONE. That is wrong here and worse than
+ * anywhere else: 17 numbers in the real book are shared and 14 of those are two
+ * genuinely different households, so a phone match would print a child's quote
+ * and price inside a parent's RSVP email — and hand the parent the buttons that
+ * answer it. A re-quote is always raised against a live record, so the explicit
+ * link is always available and nothing has to be guessed.
+ * ===================================================================== */
+suite('Suite 131. An outstanding add-on rides along with the RSVP');
+{
+  const admin = read('admin.html');
+  const lift = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+
+  const NEED = ['pendingAddOnFor', 'addOnEmailBlock', 'rsvpTemplateHasAddOn',
+    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quotePortalParam'];
+  const src = {};
+  NEED.forEach(n => { src[n] = lift(n); });
+  const gone = NEED.filter(n => !src[n]);
+  check('S131', 'every function this suite runs is findable',
+    !gone.length, 'missing: ' + gone.join(', '));
+
+  check('S131', 'addOnEmailBlock is async in the real file',
+    /async function addOnEmailBlock\(/.test(admin),
+    'extractFn drops the keyword, so the lift below puts it back — if it stops ' +
+    'being async there, this suite runs a different shape from production');
+
+  if (!gone.length) {
+    /* quoteStage and quotePortalParam are the REAL ones. quoteStage in
+       particular decides "still waiting for an answer", and a stub of it would
+       agree with itself about the one thing most worth getting wrong. */
+    const body = NEED.map(n =>
+      (n === 'addOnEmailBlock' ? 'async ' : '') + src[n]).join('\n');
+
+    const QUOTE = (over) => Object.assign({
+      requoteKind: 'addition', quotedPrice: 780, quoteToken: 'tok1',
+      existingCustomerId: 'child', requoteKindNote: 'wants the back garage doing as well'
+    }, over || {});
+
+    const world = (quotes, customers) => {
+      const writes = [];
+      const fn = new Function('quotesCache', 'jobAddresses', 'esc', 'fmtMoney',
+        'updateDoc', 'doc', 'db', 'console', 'quoteExistingCustomer',
+        body + ';return {block: addOnEmailBlock, pending: pendingAddOnFor, has: rsvpTemplateHasAddOn};')(
+        quotes, customers,
+        (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
+        (n) => '$' + Number(n || 0).toFixed(2),
+        (ref, patch) => { writes.push({ ref, patch }); return Promise.resolve(); },
+        (dbArg, col, id) => col + '/' + id, {},
+        { error: () => {}, log: () => {} },
+        /* quotePortalParam calls it; a member with no portal token is the
+           ordinary case and yields no &p=. */
+        () => null);
+      return { fn, writes };
+    };
+
+    /* One phone, two real houses — the fixture that makes the trap visible.
+       The add-on belongs to the CHILD. */
+    const CUSTOMERS = [
+      { id: 'parent', data: { name: 'Parent', phone: '(801) 555-0100', address: '10 Elm St', housePrice: 500 } },
+      { id: 'child', data: { name: 'Child', phone: '(801) 555-0100', address: '99 Oak Ave', housePrice: 600 } }
+    ];
+
+    pendingAsync.push((async () => {
+      /* ---- 1. whose add-on it is ------------------------------------- */
+      {
+        const w = world([{ id: 'q1', data: QUOTE() }], CUSTOMERS);
+        check('S131', 'the add-on is found for the customer it was raised against',
+          (w.fn.pending('child') || {}).id === 'q1',
+          'the explicit link is exact — a re-quote always has one');
+        check('S131', 'and NOT for the other household on the same phone',
+          w.fn.pending('parent') === null,
+          'this is the whole risk: a phone match would print the child\'s quote ' +
+          'and price in the parent\'s email, with buttons that answer it');
+
+        const forChild = await w.fn.block('child');
+        const forParent = await w.fn.block('parent');
+        check('S131', 'so the block renders for one of them and not the other',
+          /back garage/.test(forChild) && forParent === '',
+          'rendered for the parent: ' + JSON.stringify(forParent.slice(0, 120)));
+      }
+
+      /* ---- 2. only a live, priced, unanswered add-on --------------- */
+      {
+        const cases = [
+          ['a move re-quote', { requoteKind: 'address' }],
+          ['a price-only re-quote', { requoteKind: 'price' }],
+          ['an ordinary first quote', { requoteKind: '' }],
+          ['one nobody has priced yet', { quotedPrice: undefined }],
+          ['one they already approved', { approvalStatus: 'approved', formCompleted: true }],
+          ['one they already declined', { approvalStatus: 'declined' }],
+          ['one they answered maybe', { approvalStatus: 'maybe_next_year' }],
+          ['an archived one', { quoteArchived: true }],
+          ['a closed one', { status: 'closed' }]
+        ];
+        for (const [label, over] of cases) {
+          const w = world([{ id: 'q1', data: QUOTE(over) }], CUSTOMERS);
+          const out = await w.fn.block('child');
+          check('S131', 'no offer for ' + label, out === '',
+            'asking again about something already settled — or offering a price ' +
+            'that does not exist yet — is worse than not asking');
+        }
+        /* ⚠ AND THE ONE THAT MUST STILL WORK, so the checks above cannot pass
+           by the block being broken outright. */
+        const live = world([{ id: 'q1', data: QUOTE() }], CUSTOMERS);
+        check('S131', 'but a live priced add-on IS offered',
+          (await live.fn.block('child')).length > 100,
+          'if this fails, every "no offer for..." check above proves nothing');
+      }
+
+      /* ---- 3. what it says --------------------------------------------- */
+      {
+        const w = world([{ id: 'q1', data: QUOTE() }], CUSTOMERS);
+        const html = await w.fn.block('child');
+
+        check('S131', 'it carries both buttons, pointed at this quote',
+          html.indexOf('token=tok1&action=approve') !== -1 &&
+          html.indexOf('token=tok1&action=decline&addon=1') !== -1,
+          'the decline must carry the add-on marker or the confirmation page ' +
+          'asks them whether to close out their whole season');
+        check('S131', 'and they are worded as an add-on, not a whole quote',
+          /Yes, add it/.test(html) && /just my usual lights/.test(html) &&
+          !/Decline Quote/.test(html),
+          'the same labels the add-on quote email uses — one rule, read here ' +
+          'through quoteButtonLabels rather than retyped');
+
+        /* ⚠ quotedPrice ON A RE-QUOTE IS THE NEW TOTAL, NOT THE ADDITION.
+           showApplyRequoteChoice compares it against their current housePrice to
+           say "up $X". Printing it as "+$780" would tell a customer on $600 that
+           a garage costs $780. */
+        check('S131', 'the price is given as the new total, against their current one',
+          /\$780\.00/.test(html) && /\$600\.00/.test(html),
+          'quotedPrice is what the house would cost, not what the extra costs — ' +
+          'shown as a delta it reads as a wildly higher quote');
+        check('S131', 'and it does not dress it up as a surcharge',
+          !/\+\s*\$780/.test(html),
+          'a "+" in front of a total is a different number entirely');
+
+        /* ⚠ SAID IN WORDS. Two sets of yes/no buttons in one email is exactly
+           where somebody assumes the second one cancels everything. */
+        check('S131', 'it says plainly that no here is not no to the season',
+          /does not change your answer above/i.test(html),
+          'this sentence is the whole reason the block can safely sit under the ' +
+          'season buttons');
+        check('S131', 'their own note travels with it',
+          /wants the back garage doing as well/.test(html),
+          'without it the customer is asked to approve "the extra lights" with ' +
+          'no reminder of which extra lights');
+      }
+
+      /* ---- 4. a customer with no add-on gets nothing at all ------------ */
+      {
+        const w = world([], CUSTOMERS);
+        check('S131', 'nothing outstanding renders nothing',
+          (await w.fn.block('child')) === '',
+          'a paragraph saying "you have no outstanding add-ons" is noise on ' +
+          'nine hundred emails');
+      }
+      {
+        /* ⚠ THE FIXTURE THAT MAKES THE EMPTY-ID GUARD MEAN SOMETHING. With every
+           quote carrying a link, an empty customerId matches nobody anyway and
+           deleting the guard changes nothing — the red-check caught that. A quote
+           holding NO link is the case the guard is actually for: without it,
+           '' === '' matches, and the preview picker sitting on no member at all
+           would render somebody's add-on offer. */
+        const w = world([{ id: 'q1', data: QUOTE({ existingCustomerId: '' }) }], CUSTOMERS);
+        check('S131', 'and no customer id renders nothing',
+          (await w.fn.block('')) === '' && (await w.fn.block(null)) === '' &&
+          w.fn.pending('') === null,
+          'an unlinked quote must not match an empty id — that is how a preview ' +
+          'with no member picked shows a real customer\'s offer');
+      }
+
+      /* ---- 5. the token ------------------------------------------------ */
+      {
+        const w = world([{ id: 'q1', data: QUOTE({ quoteToken: '' }) }], CUSTOMERS);
+        const html = await w.fn.block('child');
+        check('S131', 'a quote with no token gets one, written to the right doc',
+          w.writes.length === 1 && w.writes[0].ref === 'quotes/q1' &&
+          !!w.writes[0].patch.quoteToken &&
+          html.indexOf(w.writes[0].patch.quoteToken) !== -1,
+          'the send only mints tokens for templates using {{quote_, by PHONE — ' +
+          'which could mint one on the wrong household\'s quote');
+      }
+      {
+        /* ⚠ A BLOCK WHOSE BUTTONS DO NOTHING IS WORSE THAN NO BLOCK. */
+        const w = world([{ id: 'q1', data: QUOTE({ quoteToken: '' }) }], CUSTOMERS);
+        const fn = new Function('quotesCache', 'jobAddresses', 'esc', 'fmtMoney',
+          'updateDoc', 'doc', 'db', 'console', 'quoteExistingCustomer',
+          body + ';return addOnEmailBlock;')(
+          [{ id: 'q1', data: QUOTE({ quoteToken: '' }) }], CUSTOMERS,
+          (t) => String(t == null ? '' : t), (n) => '$' + Number(n || 0).toFixed(2),
+          () => Promise.reject(new Error('denied')), () => 'x', {},
+          { error: () => {}, log: () => {} }, () => null);
+        const out = await fn('child').catch(() => 'THREW');
+        check('S131', 'and a token that will not save drops the block, not the email',
+          out === '',
+          'buttons with no token lead nowhere; the RSVP itself must still go');
+      }
+
+      /* ---- 6. escaping ------------------------------------------------- */
+      {
+        const w = world([{ id: 'q1', data: QUOTE({ requoteKindNote: '<script>x</script>' }) }], CUSTOMERS);
+        const html = await w.fn.block('child');
+        check('S131', 'the office note is escaped',
+          html.indexOf('<script>') === -1,
+          'the note is free text typed into a box and lands in an email');
+      }
+    })());
+  }
+
+  /* ---- 7. where it is appended, and where it must NOT be -------------- */
+  check('S131', 'the office can place the token by hand',
+    /\{\{addon_block\}\}/.test(admin) &&
+    /Outstanding add-on/.test(admin),
+    'a token nothing lists is a token nobody knows exists');
+  check('S131', 'the renderer resolves it from the record id, never the phone',
+    /addOnEmailBlock\(opts\.customerId\)/.test(stripComments(admin)),
+    'opts.phone is right there and is the wrong answer on a shared number');
+  check('S131', 'and the vars carry that id',
+    /customerId: item\.id/.test(stripComments(admin)),
+    'without it the token silently resolves to nothing for everybody');
+
+  /* ⚠ THE SEND AND THE PREVIEW MUST AGREE. An offer that appears only in the
+     real email is one nobody proof-read; one that appears only in the preview
+     is a promise that never arrives. Both ask the same two questions, which is
+     why rsvpTemplateHasAddOn exists rather than the test being written twice. */
+  const appends = stripComments(admin).match(
+    /etTemplateIsRsvp\(template\) && !rsvpTemplateHasAddOn\(template\.data\.body\)/g) || [];
+  check('S131', 'the send, the preview and the test send all append it the same way',
+    appends.length === 3,
+    'found ' + appends.length + ' of 3 — the on-screen preview, the test send ' +
+    'and the real send must produce the same email');
+
+  /* ⚠ ONLY ON AN RSVP. An add-on offer at the foot of an invoice or a receipt
+     is not what either of those emails is for, and a second set of yes/no
+     buttons on a bill is genuinely confusing. */
+  check('S131', 'and only onto an RSVP template',
+    !/^\s*const addOnBlock = await addOnEmailBlock/m.test(stripComments(admin)),
+    'appended unconditionally it would ride on invoices and receipts too');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
