@@ -156,7 +156,7 @@ Work on the branch for the area you are touching. There is a standing branch per
   tab/automation  Automation and Automation Emails: nightly invoicing, templates, SMS, weather
   tab/employees   Responsibilities and Time Logs: staff, crews, timecards, payroll export
   tab/website     Public site content: Reviews, Gallery, Hero Images, FAQ, Site Settings
-Bring the branch up to date from main first (git merge main), work, run the gates, then merge back to main and push. These branches are long-lived — don't delete them after merging. Anything that doesn't fit one of them, or spans several, goes straight to main or onto a one-off claude/... branch.
+Bring the branch up to date from main first (git merge main), work, run the gates, then open a PR against main and merge it — ⚠ main is protected and rejects a direct push, see §1. These branches are long-lived — don't delete them after merging. Anything that doesn't fit one of them, or spans several, goes straight to main or onto a one-off claude/... branch.
 Keep the Project To-Do checklist truthful. Any change that alters what a checklist test (TEST_SEED, in js/test-seed.js since 2026-08-14 — it used to be inline in admin.html) describes — a renamed button, a moved feature, changed behavior — needs that test's wording fixed and its version number bumped in the same change, or it silently goes stale (see §2 and §7). When a change retires a UI term a test used to describe (a renamed button, a removed label), add it to RETIRED_CHECKLIST_TERMS in run-all.js in the same commit — that's what actually fails gate B if this rule gets skipped, not just this sentence.
 
 ⭐ MINIMIZE MANUAL TESTING — the checklist is only for what a human or a live environment must verify (owner's instruction, 2026-08-17: "update testing, it should minimize since you are testing too"). On 2026-08-17 the seed was trimmed from 210 to 108: every row the automated suite already proves — the invoice/credit/fee maths, number & bundle logic, season reset, schedule capacity, quote/route data-flow, sync logic, and the five Member Portal flows the Playwright specs now cover — was removed. What stays is real PayPal/email/Twilio/cron, printed-sheet and mobile appearance, the crew-phone workflow, live Firebase permissions, and the admin CRUD the suite barely touches. Two standing rules follow from this:
@@ -183,14 +183,24 @@ playwright.config.js	Browser test config. Serves the repo statically on :4173, c
 test/fixtures.js	The ONE set of fake customers and invoices (§9.5).
 test/firebase-stub.js	Fakes Firebase and BLOCKS every real backend call (§9.4).
 test/*.spec.js	Browser specs. `npm run test:browser`. NOTE the folder is test/ (singular) in this repo; playwright.config.js and selector-contract.test.js accept either test/ or tests/, so a rename will not break them.
-.github/workflows/tests.yml	CI: the fast suite only. The browser job was removed on 2026-08-14 — reasoning at the top of that file. See §9.14.
+.github/workflows/tests.yml	CI: TWO jobs — "Fast suite (no browser)" and "Browser tests (Playwright)". ⚠ CORRECTED 2026-08-22: this line said "the fast suite only, the browser job was removed on 2026-08-14". Both jobs run, both gate, and both are REQUIRED status checks on main. Reasoning at the top of that file. See §9.14.
 (quote-card.test.js	REMOVED 2026-08-14 — it tested the pre-P1 quote card, and Suite 5 of run-all.js covers the current one. Full reasoning in §3 gate B.)
 system-map.md	Plain-English map of the whole app — regenerate per §6
 Firebase project id: highlighting-utah (billing on).
 Deploy — each surface is separate. Netlify does NOT deploy Firebase, and Firebase does NOT deploy the HTML.
 bash
-# HTML (index/admin/employee): commit + push → Netlify publishes in ~1 min
-git add index.html admin.html employee.html && git commit -m "..." && git push origin main
+# HTML (index/admin/employee): merge to main → Netlify publishes in ~1 min
+# ⚠ CORRECTED 2026-08-22 — YOU CANNOT PUSH TO main. A repository rule rejects it:
+#     GH013: Repository rule violations found for refs/heads/main.
+#     - 2 of 2 required status checks are expected.
+# The two required checks are the GitHub Actions jobs "Fast suite (no browser)"
+# and "Browser tests (Playwright)", and they only run through a PULL REQUEST, so
+# a direct push can never satisfy them however green the suite is locally. The
+# line that used to be here (`git push origin main`) has not worked for a while.
+# The route to production is therefore: branch → push branch → open a PR → both
+# checks go green → merge. Netlify publishes from main once the merge lands.
+git add index.html admin.html employee.html && git commit -m "..."
+git push -u origin <your-branch>          # then open a PR against main and merge it
 # Cloud Functions:
 firebase deploy --only functions
 # Firestore security rules:
@@ -750,7 +760,9 @@ t11 is worth trying before writing any code: index.html reads paymentProvider an
 Two workflows, and it matters which one is the real gate.
 .github/workflows/tests.yml runs on every push to main and on every pull request. Two jobs:
   fast-tests — npm ci then npm test (gate A, selector contract, money parity, run-all.js). No browser, about five seconds.
-  (There is NO browser job in CI. It was removed on 2026-08-14 — the reasoning is written at the top of .github/workflows/tests.yml and is deliberate: a suite nobody acts on is worse than none. Run it by hand with `npm run test:browser`, and do not re-add it to CI without someone who will act on a red run.)
+  browser-tests — npm ci, install Chromium, then `npm run test:browser`. About a minute.
+  ⚠ CORRECTED 2026-08-22. This said "There is NO browser job in CI. It was removed on 2026-08-14." That has not been true for some time — the job is in tests.yml, it gates, and it is one of the two REQUIRED status checks on main. The deletion argument was sound when the specs were permanently red; the premise changed when all eight went green, and the header comment in tests.yml records that resolution in full, including the instruction that if they ever go permanently red again the job should be DELETED rather than given continue-on-error back.
+  ⚠ SO A RED BROWSER RUN NOW BLOCKS EVERY MERGE, including a money fix. It does not gate the functions deploy (deploy-functions.yml runs its own fast-suite job) and it does not gate Netlify directly — but nothing reaches main without it, and Netlify publishes from main. Budget for that before assuming a red browser spec can be left for later.
   ⚠ ALL EIGHT BROWSER SPECS PASS as of 2026-08-14. This section previously said five were red on purpose (t9, t11, t14, t15, t17). None are. THREE of the five were never product bugs at all — they were the harness not matching production, and each cost real time to chase into the page before that was spotted:
     t9 / t14 — every invoice fixture omitted name/phone/email, though INVOICE_READ_FIELDS begins with exactly those three; and the stub returned invoice fields FLAT while production returns {found, record} and takes `key`. index.html reads res.record, so every field came back undefined.
     t11 — the fake PayPal SDK had no FUNDING object. The real one does, and index.html reads FUNDING.PAYPAL, so renderPaypalButtons threw and the container stayed EMPTY.
@@ -763,15 +775,19 @@ THIS is the real gate in this repo, and it is deliberate. Netlify publishes the 
 The deploy gate runs the fast suite only, not the browser suite. Blocking every functions deploy on a known-red suite would just train everyone to bypass the gate — which is how gates die.
 If a functions deploy is ever urgently needed while the fast suite is red: fix the test. It takes seconds to run and there is no legitimate reason to ship money code past a failing money-parity check.
 
-9.15 Browser tests are PARKED — read before re-enabling them (2026-08-14)
-The Playwright specs in test/ are no longer run by CI. The job was removed from tests.yml. The files stay in the repo and still work.
+9.15 Browser tests are NOT parked any more — they gate (corrected 2026-08-22)
+⚠ THIS WHOLE SECTION DESCRIBED THE OPPOSITE OF THE CURRENT SETUP and is kept, corrected, rather than deleted, because the argument in it is still worth reading — it is the case for deleting the job if the specs ever go permanently red again, which is what tests.yml says to do.
+What is true now: the Playwright specs in test/ ARE run by CI, on every push and every pull request, and "Browser tests (Playwright)" is one of the two required status checks on main. They are not parked and they cannot be ignored — a red run stops the merge.
+What was true when this was written, and is not now: the specs were permanently red, so the job could only ever be noise. All eight pass. A green suite that goes red is a signal, not noise.
+The paragraphs below are the ORIGINAL reasoning, left intact deliberately: they explain what to do if that premise flips back.
 The reason is not that they are bad tests. It is that they need a 150MB browser download, a machine to run on, and a local clone kept in step with GitHub — and keeping those in step is exactly what went wrong repeatedly the day they were built. The owner runs a Christmas lights business, not a dev team. A suite that needs babysitting gets ignored, and an ignored suite is worse than no suite because it trains you to dismiss failures.
 What still runs, automatically, on every push: npm test — 269 checks in about five seconds, no browser, no setup. That includes money-parity.test.js, which is the one that actually protects money. The Cloud Functions deploy is still gated on it. That is the safety net, and it needs nothing from anybody.
 Before re-adding the browser job to CI, be honest about one thing: is there a person who will act on a red run? If not, do not re-add it. A permanently-yellow job is noise.
 The right way to pick these up is Claude Code, which can run the specs, read the failure, edit the file and re-run without anything being copied between machines by hand.
 9.16 What testing costs the owner, by design
 Nothing on a schedule. There is no daily or weekly test routine and there should not be one.
-Push to GitHub → CI runs the fast suite by itself. GitHub is set to email on FAILURE ONLY, so no email means it passed. That is the entire feedback loop.
+Push to GitHub → CI runs both jobs by itself (⚠ corrected 2026-08-22: this said "the fast suite" alone). GitHub is set to email on FAILURE ONLY, so no email means it passed. That is the entire feedback loop.
+⚠ But note what changed underneath it: because both jobs are now REQUIRED checks on main, a red run is no longer only an email you can read later — it stops the merge. Nothing reaches the website until both are green.
 `npm test` by hand is optional, for when someone wants to know before pushing rather than after.
 The live business is watched by the nightly billing summary text and the stale-run banner (system-map.md §6), NOT by any of this. Do not let a testing project quietly displace them.
 If a future session is tempted to add visual regression, synthetic monitoring, or anything else that needs regular human attention: ask first, and assume the answer is no unless the owner says otherwise.
