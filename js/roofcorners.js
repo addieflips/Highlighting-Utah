@@ -302,6 +302,48 @@ export function directionReversals(line, i, window){
   return n;
 }
 
+/* ⭐ HOW SHARPLY THE OUTLINE TURNS HERE, IN DEGREES, USING DIRECTION ONLY.
+ *
+ * ⛔ THIS IS THE ANSWER TO THE MODEL-SEAM PROBLEM AND IT IS WORTH THE PARAGRAPH.
+ * lanil-9d measured his ray-cast against the roof solid: within a face it is effectively
+ * exact (median 8 mm, p90 26 mm), but SEVEN times across one house the distance jumps up
+ * to 3.7 m where Google's roof-segment BOUNDING BOXES meet. Those seams are artefacts of
+ * the model being made of overlapping boxes. Most are not house corners — and they
+ * present with clean straight sides either side, which is the signature of a real corner
+ * rather than of a tree, so churn, roughness and reversals all wave them through. Seven
+ * artefacts against about six real corners: the dominant error in the whole path.
+ *
+ * ⚠ AND NEITHER OBVIOUS FIX WORKS. distanceResolutionM does nothing, because a 3.7 m step
+ * is not a quantum. Smoothing the distance per face removes the seam but also removes a
+ * genuine step where a house really does step in — the recessed entry Addie cares about —
+ * so it trades an artefact for a real feature, which is a bad trade at any rate.
+ *
+ * ⭐ WHAT SEPARATES THEM IS THAT A SEAM LIVES ONLY IN THE MODEL. The DIRECTION of each
+ * column comes from the image and knows nothing about Google's boxes, so at a seam the
+ * outline carries straight on while the distance jumps. At a real roof corner the outline
+ * itself turns. Measure the turn in direction space and the model cannot influence it.
+ *
+ * Returns degrees between the incoming and outgoing directions, or null. */
+export function angularKinkDeg(line, i, window){
+  const w = window == null ? 4 : window;
+  const a = line[Math.max(0, i - w)], b = line[i], c = line[Math.min(line.length - 1, i + w)];
+  if(!a || !b || !c || a === b || b === c) return null;
+  const unit = function(q){
+    const L = Math.hypot(q.p[0], q.p[1], q.p[2]);
+    return L > 1e-9 ? [q.p[0] / L, q.p[1] / L, q.p[2] / L] : null;
+  };
+  const ua = unit(a), ub = unit(b), uc = unit(c);
+  if(!ua || !ub || !uc) return null;
+  /* the turn between the two chords, measured on the unit sphere */
+  const v1 = [ub[0] - ua[0], ub[1] - ua[1], ub[2] - ua[2]];
+  const v2 = [uc[0] - ub[0], uc[1] - ub[1], uc[2] - ub[2]];
+  const n1 = Math.hypot(v1[0], v1[1], v1[2]), n2 = Math.hypot(v2[0], v2[1], v2[2]);
+  if(!(n1 > 1e-12 && n2 > 1e-12)) return null;
+  let cos = (v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]) / (n1 * n2);
+  cos = Math.max(-1, Math.min(1, cos));
+  return Math.acos(cos) * 180 / Math.PI;
+}
+
 /* ---------------- the candidates ---------------- */
 
 export const CORNER_TOLERANCE_M = 0.35;   /* how far off a straight line earns a corner */
@@ -310,6 +352,7 @@ export const CHURN_WINDOW = 6;
 export const CHURN_LIMIT = 3;             /* distinct planes across the window before it reads as canopy */
 export const ROUGHNESS_LIMIT_M = 0.30;
 export const DEPTH_EDGE_RATIO = 1.3;      /* neighbours this far apart is an overlap, not a slope */
+export const SEAM_KINK_DEG = 8;           /* below this the outline has not really turned */
 
 /* ⭐ THE CORNERS THIS PANORAMA CAN OFFER, best first.
  *
@@ -356,6 +399,7 @@ export function roofCornerCandidates(depth, opts){
   const spikeCols = o.spikeWindowCols == null ? SPIKE_WINDOW_COLS : o.spikeWindowCols;
   const churnLimit = o.churnLimit == null ? CHURN_LIMIT : o.churnLimit;
   const roughLimit = o.roughnessLimitM == null ? ROUGHNESS_LIMIT_M : o.roughnessLimitM;
+  const seamKinkDeg = o.seamKinkDeg == null ? SEAM_KINK_DEG : o.seamKinkDeg;
   const camH = (o.cameraHeightM != null) ? Number(o.cameraHeightM) : cameraHeight(depth);
 
   const line = (o.skyline) ? o.skyline : skylineOf(depth, o);
@@ -444,11 +488,33 @@ export function roofCornerCandidates(depth, opts){
         why.push('only ' + width + ' columns wide — likely a chimney, vent or aerial ' +
                  'rather than a corner of the roof');
       }
-      if(onDepthEdge) why.push('the outline steps in depth here — two things overlap, ' +
-                               'so this point is taken from the nearer one');
+      /* ⛔ A DEPTH STEP WITH NO TURN IN THE OUTLINE IS THE MODEL, NOT THE HOUSE. The
+         direction comes from the image and cannot know where Google's bounding boxes
+         meet, so a seam shows a distance jump under an outline running dead straight.
+         Demoted hard, never deleted: a real roof CAN end against a further one without
+         the outline turning, and that is a genuine corner. The office can see it faintly
+         and judge, which is the whole point of click-to-keep. */
+      /* ⚠ AND THE GATE IS NOT onDepthEdge — that was my first version and it never fired.
+         A 3.7 m seam at 19 m is a 20% step, well under the 1.3x an overlap needs, so the
+         seams sail past it. The test has to stand on its own: if the outline does not
+         turn, this is not a corner of the roofline, whatever the distance did.
+         ⛔ EXCEPT over a genuine overlap, where a near roof CAN end against a far one
+         with the outline running straight on — and there the depth ratio is large and
+         says so. Measured: real corners turn 48-96 deg, model seams turn 1.7-2.7. */
+      const kink = angularKinkDeg(run, i, Math.max(2, Math.round(spikeCols / 2)));
+      if(!onDepthEdge && kink != null && kink < seamKinkDeg){
+        confidence *= 0.2;
+        why.push('the distance jumps here but the outline does not turn (' +
+                 kink.toFixed(1) + ' deg) — that is where the roof MODEL is joined ' +
+                 'together, not necessarily where the house has a corner');
+      } else if(onDepthEdge){
+        why.push('the outline steps in depth here — two things overlap, ' +
+                 'so this point is taken from the nearer one');
+      }
       out.push({
         column: pt.x, col: pt.x, row: pt.y,
         onDepthEdge: onDepthEdge,
+        kinkDeg: kink,
         distanceM: pt.distance,
         heightM: (camH != null) ? camH + pt.p[2] : null,
         local: {x: pt.p[0], y: pt.p[1], up: pt.p[2]},

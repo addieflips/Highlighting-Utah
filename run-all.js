@@ -35469,6 +35469,50 @@ suite('252. The silhouette against a real sky');
         return L;
       })(), cameraHeightM: 2.5, toleranceM: 0.35, distanceResolutionM: 0.5 }).length === 3,
       'raising it to TWICE the resolution starts deleting real corners, so it is once');
+
+    /* ⛔ THE MODEL-SEAM ARTEFACT — the dominant error in the image path, and the one that
+       defeats every other test here. lanil-9d measured his ray-cast against Google's roof
+       solid: exact within a face (median 8 mm), but SEVEN jumps of up to 3.7 m across one
+       house where the segment BOUNDING BOXES meet. Most are not corners. They present
+       with clean straight sides, so churn, roughness and reversals all pass them.
+       What gives them away is that the OUTLINE does not turn: the direction comes from
+       the image and knows nothing about Google's boxes. Measured on the simulation below,
+       real corners turn 48-96 deg and seams turn 1.7-2.7. */
+    const SEAMS = [[8, 0.6], [17, -0.9], [26, 1.4], [33, -0.5], [41, 3.7], [49, -1.1], [57, 0.8]];
+    const seamed = (withSeams, shape) => {
+      const L = []; let bias = 0;
+      for (let i = 0; i < 64; i++) {
+        for (const sm of SEAMS) if (withSeams && i === sm[0]) bias += sm[1];
+        const e = -6 + i * (12 / 63), n = 18, u = (shape ? shape(i) : 6) - 2.5;
+        const r = Math.hypot(e, n, u), t = r + bias;
+        L.push({ x: i, y: 0, plane: null, distance: t, p: [e / r * t, n / r * t, u / r * t] });
+      }
+      return L;
+    };
+    const gableShape = i => i < 20 ? 5.0 : i < 32 ? 5.0 + (i - 20) * 0.22
+                          : i < 44 ? 5.0 + (44 - i) * 0.22 : 5.0;
+    const conf = (line) => rc.roofCornerCandidates(stub,
+      { skyline: line, cameraHeightM: 2.5, toleranceM: 0.35 }).filter(c => c.confidence >= 0.6);
+
+    check('skyline', 'a seam in the roof model is not confidently offered as a corner',
+      conf(seamed(true)).length === 0,
+      'a straight eave with seven model seams has no corners at all — anything confident ' +
+      'here is Google’s bounding boxes being offered as the house');
+
+    check('skyline', 'and it says which it is, so the office is not guessing',
+      rc.roofCornerCandidates(stub, { skyline: seamed(true), cameraHeightM: 2.5, toleranceM: 0.35 })
+        .some(c => /roof MODEL is joined/.test(c.why)));
+
+    check('skyline', 'while the real corners of a gable survive the same seams',
+      [20, 32, 44].every(col => conf(seamed(true, gableShape)).some(c => c.col === col)),
+      'got ' + conf(seamed(true, gableShape)).map(c => c.col).join(','));
+
+    /* ⚠ AND THE GATE IS NOT "only on a depth step" — that version never fired, because a
+       3.7 m seam at 19 m is a 20% step, under the 1.3x an overlap needs. */
+    check('skyline', 'the turn is measured in direction only, so the model cannot sway it',
+      Math.abs(rc.angularKinkDeg(seamed(true, gableShape), 32, 3) -
+               rc.angularKinkDeg(seamed(false, gableShape), 32, 3)) < 1e-9,
+      'the seams shift every distance on the run and must not move the measured turn at all');
   })());
 }
 
