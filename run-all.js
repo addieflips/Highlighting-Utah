@@ -32015,7 +32015,7 @@ suite('Suite 140. A finished fix takes its photo with it');
 }
 
 
-/* ================= Suite 143. The grid the season is actually cut with =================
+/* ================= Suite 159. The grid the season is actually cut with =================
    ⭐ THIS IS THE ONLY SUITE THAT RUNS THE REAL GRID. Every other harness that
    touches rebuildSeasonDays lifts it into a sandbox WITHOUT planSweeps, so the
    rebuild's own `typeof planSweeps !== 'function'` guard sends them down the
@@ -32029,7 +32029,7 @@ suite('Suite 140. A finished fix takes its photo with it');
    js/grid.js is an ES module, so this IMPORTS it rather than lifting it — the
    functions are run exactly as the browser will run them, with no extraction list
    to fall out of step. */
-suite('143. The grid the season is actually cut with');
+suite('159. The grid the season is actually cut with');
 {
   check('grid', 'admin.html imports the sweep planner it actually calls',
     /import \{[^}]*\bplanSweeps\b[^}]*\} from '\.\/js\/grid\.js'/.test(admin) &&
