@@ -337,7 +337,22 @@ export const DEPTH_EDGE_RATIO = 1.3;      /* neighbours this far apart is an ove
  * house and this cannot. */
 export function roofCornerCandidates(depth, opts){
   const o = opts || {};
-  const tol = o.toleranceM == null ? CORNER_TOLERANCE_M : o.toleranceM;
+  /* ⭐ YOU CANNOT RESOLVE A CORNER FINER THAN YOUR DISTANCE RESOLUTION, and if you try,
+     the rounding itself becomes the corners. Depth-map distances are measured and this
+     never bites; an IMAGE silhouette takes its distance from a modelled roof solid, and
+     a model is quantised. Measured on a dead-straight 12 m eave, 18 m out, with the
+     corner tolerance left at its usual 0.35 m:
+           distance rounded to 0.25 m ->  0 false corners
+           distance rounded to 0.50 m ->  7 false corners
+           distance rounded to 1.00 m ->  4 false corners
+           one constant distance for the whole face -> 1, dead centre, where the
+             constant-distance arc bulges furthest from the true straight line
+           exact + 10 cm of noise -> 0     exact + 30 cm of noise -> 20
+     Raising the tolerance to the resolution itself clears every one of them and still
+     finds all three corners of a gable at quanta of 0.25, 0.5 and 1.0 m. Twice the
+     resolution starts deleting real corners, so it is once, not twice. */
+  const baseTol = o.toleranceM == null ? CORNER_TOLERANCE_M : o.toleranceM;
+  const tol = (o.distanceResolutionM > 0) ? Math.max(baseTol, o.distanceResolutionM) : baseTol;
   const spikeCols = o.spikeWindowCols == null ? SPIKE_WINDOW_COLS : o.spikeWindowCols;
   const churnLimit = o.churnLimit == null ? CHURN_LIMIT : o.churnLimit;
   const roughLimit = o.roughnessLimitM == null ? ROUGHNESS_LIMIT_M : o.roughnessLimitM;

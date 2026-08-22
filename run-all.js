@@ -35429,6 +35429,46 @@ suite('252. The silhouette against a real sky');
     check('skyline', 'and a house comfortably in range is not warned about',
       rc.describeCandidates([{ confidence: 0.9, why: 'x' }], [{ x: 1 }],
         { subjectDistanceM: 25, nearestUsableM: 16 }).subjectOutOfRange === false);
+
+    /* ⭐ THE IMAGE PATH'S OTHER TRAP: its distances come from a MODELLED roof solid, and
+       a model is quantised. On a dead-straight 12 m eave, rounding the distance to half a
+       metre manufactured SEVEN corners out of nothing. On screen that is the tool finding
+       corners all along a plain gutter, and it would read as the corner logic being
+       broken when it is the input that is coarse. */
+    const eave = (round) => {
+      const L = [];
+      for (let i = 0; i < 64; i++) {
+        const e = -6 + i * (12 / 63), n = 18, u = 6 - 2.5;
+        const r = Math.hypot(e, n, u), t = round ? Math.round(r / round) * round : r;
+        L.push({ x: i, y: 0, plane: null, distance: t, p: [e / r * t, n / r * t, u / r * t] });
+      }
+      return L;
+    };
+    check('skyline', 'a straight eave offers nothing when the distances are exact',
+      rc.roofCornerCandidates(stub, { skyline: eave(0), cameraHeightM: 2.5, toleranceM: 0.35 }).length === 0);
+
+    check('skyline', 'and rounding the distance to half a metre invents corners on it',
+      rc.roofCornerCandidates(stub, { skyline: eave(0.5), cameraHeightM: 2.5, toleranceM: 0.35 }).length > 0,
+      'this is the failure the option below exists to prevent — if this ever passes with ' +
+      'zero, the guard underneath has stopped being tested by anything real');
+
+    check('skyline', 'unless the caller says how coarse its distances are',
+      rc.roofCornerCandidates(stub, { skyline: eave(0.5), cameraHeightM: 2.5,
+        toleranceM: 0.35, distanceResolutionM: 0.5 }).length === 0,
+      'you cannot resolve a corner finer than your distance resolution');
+
+    check('skyline', 'and a real gable survives that same guard intact',
+      rc.roofCornerCandidates(stub, { skyline: (function () {
+        const L = [];
+        for (let i = 0; i < 64; i++) {
+          const h = i < 20 ? 5.0 : i < 32 ? 5.0 + (i - 20) * 0.22 : i < 44 ? 5.0 + (44 - i) * 0.22 : 5.0;
+          const e = -6 + i * (12 / 63), n = 18, u = h - 2.5;
+          const r = Math.hypot(e, n, u), t = Math.round(r / 0.5) * 0.5;
+          L.push({ x: i, y: 0, plane: null, distance: t, p: [e / r * t, n / r * t, u / r * t] });
+        }
+        return L;
+      })(), cameraHeightM: 2.5, toleranceM: 0.35, distanceResolutionM: 0.5 }).length === 3,
+      'raising it to TWICE the resolution starts deleting real corners, so it is once');
   })());
 }
 
