@@ -32744,6 +32744,227 @@ suite('141. Measure Roof - the street decides, and it is allowed to be late');
     'a covered-up working panorama is the worst of both');
 }
 
+
+/* A lat/lng that lands at a given point in the test frame - saves restating
+   the projection maths inside every fixture. */
+function rmLatLngAt(api, e, n){ return api.rmToWorld({e: e, n: n, u: 0}); }
+
+suite('142. Measure Roof - the roofline is read off the photograph');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  /* Pull the real constants out of the page rather than restating them here -
+     a test that hardcodes a threshold stops testing it the day it changes. */
+  /* Note the missing $ anchor: these lines carry trailing comments, and
+     requiring the semicolon to end the line silently matched only the one that
+     had none - so the sandbox came up with RM_EDGE_MIN undefined. The count
+     check below is what stops a half-match passing for a whole one. */
+  const constLines = admin.match(/^const RM_(PHOTO_FOV|EDGE_MIN|DATUM_LOOK_PX|DATUM_MIN_SAMPLES|DATUM_SPREAD_M).*?;/gm) || [];
+  const consts = constLines.join(LF_);
+
+  const NEED = ['rmBasis', 'rmPhotoProject', 'rmPhotoRay', 'rmFacePlane', 'rmPlaneHit3',
+                'rmEdgeRowNear', 'rmSolveDatum', 'rmDatumFromSamples'];
+  const missing = NEED.filter(n => !pick(n));
+  check('S142', 'every threshold this suite leans on was really found in the page',
+    constLines.length === 5,
+    'found ' + constLines.length + ' of 5 - a missing one becomes undefined in the sandbox, not a failure');
+  if (missing.length || constLines.length !== 5) {
+    check('S142', 'the photo maths is findable', false, 'missing: ' + missing.join(', ') + (consts ? '' : ' (and the constants)'));
+  } else {
+    const build = extra => new Function(
+      'const rmRad = d => d*Math.PI/180; const rmDeg = r => r*180/Math.PI;' + LF_ +
+      consts + LF_ + (extra || '') + LF_ +
+      NEED.map(pick).join(LF_) + LF_ +
+      'return {rmBasis, rmPhotoProject, rmPhotoRay, rmPlaneHit3, rmEdgeRowNear, rmSolveDatum, rmDatumFromSamples};')();
+
+    /* ---- 1. the lens works both ways ---------------------------------- */
+    const api = build();
+    const W = 640, H = 640, pose = {heading: 0, pitch: 8, fov: 70};   /* the camera is south of the house, so it looks north */
+    const cam = {e: 0, n: -18, u: 2.6};
+    /* ⚠ EXACT INVERSES OR NOTHING. Every corrected line is a pixel sent back
+       out into the world; if project and ray disagree even slightly the lines
+       land somewhere plausible and wrong, which is the hardest kind of wrong
+       to notice. */
+    let worst = 0;
+    [[100, 120], [320, 320], [540, 200], [280, 480]].forEach(function(px){
+      const dir = api.rmPhotoRay(px[0], px[1], W, H, pose);
+      const far = {e: cam.e + dir.e * 40, n: cam.n + dir.n * 40, u: cam.u + dir.u * 40};
+      const back = api.rmPhotoProject(far, W, H, pose, cam);
+      if (back) worst = Math.max(worst, Math.hypot(back.x - px[0], back.y - px[1]));
+      else worst = 9999;
+    });
+    check('S142', 'a pixel sent out and brought back lands on itself',
+      worst < 0.01, 'worst round trip was ' + worst.toFixed(4) + ' px');
+
+    /* A wider lens must spread the same house across more pixels, or the field
+       of view is being ignored and every distance is wrong by a constant. */
+    const near = {e: 0, n: 0, u: 3};
+    const p70 = api.rmPhotoProject(near, W, H, {heading: 0, pitch: 0, fov: 70}, {e: -6, n: -14, u: 2.6});
+    const p40 = api.rmPhotoProject(near, W, H, {heading: 0, pitch: 0, fov: 40}, {e: -6, n: -14, u: 2.6});
+    check('S142', 'the field of view actually changes the picture',
+      p70 && p40 && Math.abs(p40.x - W / 2) > Math.abs(p70.x - W / 2) * 1.5,
+      'a narrower lens must push the same point further from the middle');
+
+    /* ---- 2. a roof face is a real plane ------------------------------- */
+    const planeApi = new Function(
+      'const rmRad = d => d*Math.PI/180;' + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'function rmDatum(){ return {m: 3, source:"assumed"}; }' + LF_ +
+      'function rmLowestPlaneM(){ return 1460; }' + LF_ +
+      pick('rmMetresPerDeg') + LF_ + pick('rmToLocal') + LF_ + pick('rmToWorld') + LF_ +
+      pick('rmFacePlane') + LF_ + pick('rmPlaneHit3') + LF_ +
+      'return {rmFacePlane, rmPlaneHit3, rmToWorld};')();
+    /* A face whose centre is 2 m above the lowest eave, sloping down to the south. */
+    const face = {center: rmLatLngAt(planeApi, 0, 0), planeHeightM: 1462, azimuth: 180, pitch: 30,
+                  sw: {lat: 0, lng: 0}, ne: {lat: 0, lng: 0}};
+    const pl = planeApi.rmFacePlane(face);
+    check('S142', 'a roof face becomes a plane at the right height',
+      pl && Math.abs(pl.point.u - 5) < 0.01,
+      'centre should sit at datum 3 m plus 2 m above the lowest eave, got ' + (pl ? pl.point.u.toFixed(3) : 'null'));
+    /* ⚠ THIS CHECK WAS FIRST WRITTEN TO MATCH THE BUG - it asserted the
+       inverted sign and passed happily. The one below it, walking four metres
+       downhill, is what actually caught it. A check derived from the code it
+       is checking proves only that the code is self-consistent. */
+    check('S142', 'and its normal leans toward the downhill side, never uphill',
+      pl && pl.normal.u > 0 && Math.abs(pl.normal.n - Math.sin(Math.PI / 6) * Math.cos(Math.PI)) < 0.01,
+      'a normal leaning uphill turns every ray intersection inside out');
+    if (pl) {
+      /* Walking DOWNHILL from the centre must lose height at the stated pitch. */
+      const downhill = {e: pl.point.e, n: pl.point.n - 4, u: 0};
+      const onPlane = (pl.d - (pl.normal.e * downhill.e + pl.normal.n * downhill.n)) / pl.normal.u;
+      check('S142', 'four metres downhill loses exactly the pitch in height',
+        Math.abs((pl.point.u - onPlane) - 4 * Math.tan(Math.PI / 6)) < 0.02,
+        'got a drop of ' + (pl.point.u - onPlane).toFixed(3) + ' m');
+      /* ---- 3. a ray lands on the plane, not near it -------------------- */
+      const c2 = {e: 0, n: -20, u: 2.5};
+      const target = {e: 1.5, n: -2, u: 0};
+      target.u = (pl.d - (pl.normal.e * target.e + pl.normal.n * target.n)) / pl.normal.u;
+      const len = Math.hypot(target.e - c2.e, target.n - c2.n, target.u - c2.u);
+      const dir = {e: (target.e - c2.e) / len, n: (target.n - c2.n) / len, u: (target.u - c2.u) / len};
+      const hit = planeApi.rmPlaneHit3(dir, c2, pl);
+      check('S142', 'a ray aimed at the roof lands ON the roof',
+        hit && Math.hypot(hit.e - target.e, hit.n - target.n, hit.u - target.u) < 0.01,
+        hit ? 'off by ' + Math.hypot(hit.e - target.e, hit.n - target.n, hit.u - target.u).toFixed(4) + ' m' : 'no hit at all');
+      check('S142', 'and a ray pointing away from it lands nowhere',
+        planeApi.rmPlaneHit3({e: -dir.e, n: -dir.n, u: -dir.u}, c2, pl) === null,
+        'a plane is infinite, so without the behind-the-camera guard every ray hits something');
+    }
+
+    /* ---- 4. gutters, not drainpipes ---------------------------------- */
+    /* ⚠ THE ONE THAT MATTERS MOST. A photograph of a house is full of bright
+       VERTICAL edges - drainpipes, window frames, corner boards, tree trunks -
+       and they are usually stronger than the gutter. Scoring on total gradient
+       would snap the roofline onto a downpipe. */
+    const mk = (w, h) => ({w: w, h: h, gy: new Float32Array(w * h), mag: new Float32Array(w * h)});
+    const photo = mk(200, 200);
+    /* A gutter: a horizontal edge, moderately bright. */
+    for (let x = 0; x < 200; x++) { const i = 120 * 200 + x; photo.gy[i] = 90; photo.mag[i] = 90; }
+    /* A drainpipe running down the same column, much brighter overall but with
+       no vertical component at all - which is what a vertical edge looks like.
+       It stops short of the gutter row rather than erasing it: the first cut of
+       this fixture overwrote the very pixel the search reads, so the test
+       failed for a reason that had nothing to do with the code. */
+    for (let y = 0; y < 200; y++) {
+      if (y === 120) continue;
+      const i = y * 200 + 100; photo.gy[i] = 0; photo.mag[i] = 240;
+    }
+    const found = api.rmEdgeRowNear(photo, 100, 100, 60);
+    check('S142', 'the gutter is found even with a brighter drainpipe crossing it',
+      found && found.y === 120,
+      found ? 'landed on row ' + found.y + ' instead of 120' : 'found no edge at all');
+    check('S142', 'and faint noise is not mistaken for a roofline',
+      api.rmEdgeRowNear(mk(60, 60), 30, 30, 20) === null,
+      'an empty sky would otherwise produce a confident answer');
+
+    /* ---- 5. the height is recovered from the picture ------------------ */
+    const TRUE_DATUM = 2.35;
+    const sample = {e: 1.2, n: 3.0, rel: 1.4};
+    const solveApi = build('function rmDatum(){ return {m: 3.6, source:"assumed"}; }');
+    const truth = solveApi.rmPhotoProject({e: sample.e, n: sample.n, u: TRUE_DATUM + sample.rel}, 640, 640, pose, cam);
+    const shot = mk(640, 640);
+    for (let x = 0; x < 640; x++) { const i = Math.round(truth.y) * 640 + x; shot.gy[i] = 80; shot.mag[i] = 80; }
+    const got = solveApi.rmSolveDatum(sample, shot, cam, pose);
+    check('S142', 'the roof height is solved back out of the photograph',
+      got && Math.abs(got.m - TRUE_DATUM) < 0.05,
+      got ? 'got ' + got.m.toFixed(3) + ' m, wanted ' + TRUE_DATUM + ' - and it started from a wrong 3.6' : 'solved nothing');
+    /* ⚠ THIS CHECK WAS VACUOUS AND THE RED-CHECK CAUGHT IT. The first version
+       passed a nonsense rel of 400, which put the point off the picture, so no
+       edge was found and null came back for a reason that had nothing to do
+       with the sanity clamp - it passed happily with the clamp deleted.
+       To test the clamp you have to FIND an edge and still refuse the answer:
+       a house a hundred metres off covers far more height per pixel, so an
+       edge high in the frame solves to a roof taller than any house. */
+    const farSample = {e: 0, n: 80, rel: 1.4};
+    const farStart = solveApi.rmPhotoProject({e: 0, n: 80, u: 3.6 + 1.4}, 640, 640, pose, cam);
+    const farShot = mk(640, 640);
+    const farRow = Math.round(farStart.y) - 85;
+    for (let x = 0; x < 640; x++) { const i = farRow * 640 + x; farShot.gy[i] = 80; farShot.mag[i] = 80; }
+    check('S142', 'the far-off fixture really does find an edge, or it proves nothing',
+      !!solveApi.rmEdgeRowNear(farShot, farStart.x, farStart.y, 90),
+      'no edge found, so the next check would pass for the wrong reason');
+    check('S142', 'and a silly answer is refused even though an edge WAS found',
+      solveApi.rmSolveDatum(farSample, farShot, cam, pose) === null,
+      'an eave three storeys up means the edge found was not a gutter');
+
+    /* ---- 6. several gutters must agree ------------------------------- */
+    const three = [1, 2, 3].map(() => sample);
+    check('S142', 'one gutter is not enough to move the whole roof',
+      solveApi.rmDatumFromSamples([sample], shot, cam, pose).ok === false,
+      'a single shadow line would otherwise redefine the height of the house');
+    const agreed = solveApi.rmDatumFromSamples(three, shot, cam, pose);
+    check('S142', 'but several that agree are believed',
+      agreed.ok === true && Math.abs(agreed.m - TRUE_DATUM) < 0.05,
+      JSON.stringify(agreed));
+    /* Samples that disagree wildly must be refused outright, not averaged into
+       a confident-looking middle that matches no gutter on the house. */
+    /* Three gutters that do not agree - each sample sees a different row.
+       ⚠ TWO THINGS THIS FIXTURE GETS WRONG IF WRITTEN CARELESSLY, both of
+       which happened: split the image into three equal bands and two of these
+       samples land in the SAME band, so they agree and nothing is refused; and
+       spread the rows too far apart and the solved heights fall outside the
+       sane range, so the answer is "only 1 gutter found" rather than "they
+       disagreed" - the right verdict for the wrong reason. So the bands are
+       placed at the samples' real pixel columns, and the rows are pulled apart
+       by just more than the tolerance. */
+    const spreadSamples = [{e: -3, n: 3, rel: 1.4}, {e: 1.2, n: 3, rel: 1.4}, {e: 5, n: 3, rel: 1.4}];
+    const cols = spreadSamples.map(function(sm){
+      return solveApi.rmPhotoProject({e: sm.e, n: sm.n, u: TRUE_DATUM + sm.rel}, 640, 640, pose, cam).x;
+    });
+    check('S142', 'the three disagreeing gutters really do sit in different columns',
+      Math.abs(cols[0] - cols[1]) > 40 && Math.abs(cols[1] - cols[2]) > 40,
+      'columns ' + cols.map(c => Math.round(c)).join(', ') + ' - if two overlap the fixture proves nothing');
+    const spread = mk(640, 640);
+    const edge = (x0, x1, row) => {
+      const r = Math.round(row);
+      /* Rounded, and not optional: the band edges are midpoints between two
+         pixel columns, so they are fractions. Looping from a fraction makes
+         every index a fraction too, and a typed array silently ignores a
+         write to gy[358.5] - the fixture drew nothing and the test failed
+         claiming only one gutter was found. */
+      for (let x = Math.max(0, Math.round(x0)); x < Math.min(640, Math.round(x1)); x++) { const i = r * 640 + x; spread.gy[i] = 80; spread.mag[i] = 80; }
+    };
+    const cut1 = (cols[0] + cols[1]) / 2, cut2 = (cols[1] + cols[2]) / 2;
+    edge(0, cut1, truth.y - 25);
+    edge(cut1, cut2, truth.y);
+    edge(cut2, 640, truth.y + 25);
+    const wide = solveApi.rmDatumFromSamples(spreadSamples, spread, cam, pose);
+    check('S142', 'gutters that disagree are refused, not averaged',
+      wide.ok === false && /disagreed/.test(wide.why || ''),
+      'averaging a disagreement produces a number that matches nothing on the house: ' + JSON.stringify(wide));
+  }
+
+  /* ---- 7. the honest bits stay written down ------------------------- */
+  check('S142', 'the tainted-image case is named rather than silently swallowed',
+    /return \{error: 'tainted'/.test(admin) && /silent fallback/.test(admin),
+    'falling back to the sky-view guess without saying so is the exact failure already caught once');
+  check('S142', 'the page still never picks a Google key by hand',
+    !/streetview\?[^']*key=AIza/.test(admin),
+    'two keys live here and only one works - rmFetchStatic is what knows which');
+  check('S142', 'and the status line says when the height is still only assumed',
+    /The height is still assumed/.test(admin),
+    'a guess that hides how it was made is worse than one that admits it');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

@@ -15005,6 +15005,20 @@ function rmBuildWhenReady(){
   /* The camera exists by now, so this is where front/left/right/back stop
      being a guess. */
   rmResideSuggestions();
+  /* THE PHOTOGRAPH GETS THE LAST WORD ON HEIGHT. Fired here rather than
+     awaited: the lines are on screen immediately at the assumed height, and
+     they lift onto the roof a moment later when the photo has been read. */
+  if(guessed && rmStreetReady){
+    rmDatumFromStreetPhoto().then(function(res){
+      const st = document.getElementById('rmStatus');
+      if(!st) return;
+      st.textContent = res.ok
+        ? guessed + ' roof edges found, and the roof height was read off the street photo (' +
+          Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
+        : guessed + ' roof edges found — the front of the house is already on. ⚠ The height is still assumed: ' +
+          res.why + '. Trace anything in Street View to measure it properly.';
+    });
+  }
   const status = document.getElementById('rmStatus');
   if(status){
     status.textContent = !guessed
@@ -15494,6 +15508,275 @@ function rmFaceEave(face){
           b: rmToWorld({e: best.ed.b.e, n: best.ed.b.n, u: 0}),
           facing: best.ed.name};
 }
+/* ============ READING THE ROOFLINE OUT OF THE PHOTOGRAPH ================
+   Owner, looking at the guessed lines on a real house: "by the looks of it it
+   doesnt look like you used street view to make these lines rather it looks
+   like sky view."
+
+   That was right, and it is worth writing down plainly rather than burying:
+   every suggested line starts life as Google's ROOF MODEL, which is a sky-view
+   product. It describes each roof face as a box lined up with the compass, so
+   on a house turned off the compass the lines zigzag across the front instead
+   of following the gutter. No amount of tidying a box makes it into a roof.
+
+   THE PHOTO CAN SETTLE IT. The Street View static image comes back with
+   Access-Control-Allow-Origin: *, so this page is allowed to read its actual
+   pixels. I reported the opposite earlier - that reading the photo was
+   impossible - after testing with the wrong key and no referer. It is not
+   impossible; it is ordinary.
+
+   ⚠ WHICH KEY. Two keys live in this page and only one works for the static
+   APIs. The Maps script-tag key is restricted and answers 403; the Firebase
+   key is allowed. Nothing below picks a key by hand - rmFetchStatic tries both
+   and remembers which one worked.
+
+   THE METHOD: the roof model PROPOSES, the photograph DISPOSES. Every face is
+   a real plane in space - centre, height, pitch and azimuth all come from
+   Solar - so a pixel back-projects onto that plane at exactly one point. Look
+   in the photo near where the model claims the gutter is, find the strongest
+   edge actually there, and back-project it. That is a roofline read off a
+   photograph rather than guessed from above. Sky view keeps the one job only
+   it can do: saying how deep the house is. */
+
+/* A roof face as a PLANE, in the same local frame as everything else. */
+function rmFacePlane(face){
+  if(!face || !face.center || !isFinite(face.planeHeightM)) return null;
+  const lo = rmLowestPlaneM();
+  if(lo === null) return null;
+  const c = rmToLocal(face.center.lat, face.center.lng, 0);
+  /* Solar's heights are above sea level; only the DIFFERENCE from the lowest
+     eave is trustworthy, and the datum turns that into a height off the
+     ground. Same convention as rmRoofRelativeAt, deliberately. */
+  c.u = rmDatum().m + (Number(face.planeHeightM) - lo);
+  const a = (Number(face.azimuth) || 0) * Math.PI / 180;
+  const p = (Number(face.pitch) || 0) * Math.PI / 180;
+  const sp = Math.sin(p), cp = Math.cos(p);
+  /* Up, tilted TOWARD the downhill direction by the pitch - the same downhill
+     vector rmFaceEave uses, (sin a, cos a).
+     ⚠ THE SIGN HERE WAS INVERTED and a test caught it: the normal leaned
+     uphill, so walking four metres down a 30-degree roof GAINED height instead
+     of losing it. Every ray cast at the roof would have landed on the far side
+     of it. A flat roof gives a straight-up normal, which is correct rather
+     than degenerate. */
+  const nrm = {e: sp * Math.sin(a), n: sp * Math.cos(a), u: cp};
+  return {point: c, normal: nrm, d: nrm.e * c.e + nrm.n * c.n + nrm.u * c.u};
+}
+
+/* Where a ray meets a plane in three dimensions. rmWallHit is the flat-wall
+   version and ignores u on purpose; a roof slopes, so it cannot be used here. */
+function rmPlaneHit3(dir, cam, plane){
+  const denom = plane.normal.e * dir.e + plane.normal.n * dir.n + plane.normal.u * dir.u;
+  if(Math.abs(denom) < 1e-9) return null;          /* ray runs along the roof */
+  const t = (plane.d - (plane.normal.e * cam.e + plane.normal.n * cam.n + plane.normal.u * cam.u)) / denom;
+  /* Behind the camera, or so far away it is another street. */
+  if(!(t > 0.5 && t < 200)) return null;
+  return {e: cam.e + dir.e * t, n: cam.n + dir.n * t, u: cam.u + dir.u * t, t: t};
+}
+
+/* The static photo has a stated field of view, where the live panorama has a
+   zoom level. Same maths otherwise, and these two are exact inverses - which
+   is the property worth testing, because everything downstream rides on it. */
+function rmPhotoProject(pt, W, H, pose, cam){
+  const v = {e: pt.e - cam.e, n: pt.n - cam.n, u: pt.u - cam.u};
+  const b = rmBasis(pose.heading, pose.pitch);
+  const f = b.forward.e * v.e + b.forward.n * v.n + b.forward.u * v.u;
+  if(f <= 0.5) return null;                        /* behind, or on, the lens */
+  const r = b.right.e * v.e + b.right.n * v.n + b.right.u * v.u;
+  const u = b.up.e * v.e + b.up.n * v.n + b.up.u * v.u;
+  const focal = (W / 2) / Math.tan(rmRad(pose.fov) / 2);
+  return {x: W / 2 + focal * r / f, y: H / 2 - focal * u / f};
+}
+/* ---- the photograph itself -------------------------------------------- */
+const RM_PHOTO_FOV = 70, RM_PHOTO_PX = 640;
+const RM_EDGE_MIN = 26;          /* below this a "line" is just film grain */
+const RM_DATUM_LOOK_PX = 90;     /* the datum can be several feet out, so look wide */
+const RM_DATUM_MIN_SAMPLES = 3;  /* one gutter-shaped shadow is not evidence */
+const RM_DATUM_SPREAD_M = 0.9;   /* if the samples disagree by more than this, do not believe them */
+
+/* Fetch the street photo and hand back its edges rather than its pixels -
+   nothing above this line needs to know what a Sobel kernel is. */
+async function rmPhotoEdges(panoId, heading, pitch){
+  const r = await rmFetchStatic(function(k){
+    return 'https://maps.googleapis.com/maps/api/streetview?size=' + RM_PHOTO_PX + 'x' + RM_PHOTO_PX +
+      '&pano=' + encodeURIComponent(panoId) +
+      '&heading=' + heading.toFixed(2) + '&pitch=' + pitch.toFixed(2) +
+      '&fov=' + RM_PHOTO_FOV + '&key=' + k;
+  });
+  if(r.error) return {error: r.error, why: r.why};
+  let px;
+  try{
+    const bmp = await createImageBitmap(r.blob);
+    const cv = document.createElement('canvas');
+    cv.width = bmp.width; cv.height = bmp.height;
+    const cx = cv.getContext('2d', {willReadFrequently: true});
+    cx.drawImage(bmp, 0, 0);
+    px = cx.getImageData(0, 0, cv.width, cv.height);
+  } catch(err){
+    /* ⚠ If this ever throws it means the image arrived TAINTED, and the whole
+       method is off. It does not today: the static API answers with
+       Access-Control-Allow-Origin: *. Said out loud because a silent fallback
+       to the sky-view guess is exactly the failure the owner already caught
+       once. */
+    return {error: 'tainted', why: String(err && err.message)};
+  }
+  return rmSobel(px);
+}
+
+/* Vertical and total edge strength, per pixel. */
+function rmSobel(img){
+  const W = img.width, H = img.height, d = img.data;
+  const lum = new Float32Array(W * H);
+  for(let i = 0, p = 0; i < W * H; i++, p += 4) lum[i] = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+  const gy = new Float32Array(W * H), mag = new Float32Array(W * H);
+  for(let y = 1; y < H - 1; y++){
+    for(let x = 1; x < W - 1; x++){
+      const i = y * W + x;
+      const a = lum[i - W - 1], b = lum[i - W], c = lum[i - W + 1];
+      const e = lum[i - 1],                     f = lum[i + 1];
+      const g = lum[i + W - 1], h = lum[i + W], k = lum[i + W + 1];
+      const sx = (c + 2 * f + k) - (a + 2 * e + g);
+      const sy = (g + 2 * h + k) - (a + 2 * b + c);
+      gy[i] = sy; mag[i] = Math.hypot(sx, sy);
+    }
+  }
+  return {w: W, h: H, gy: gy, mag: mag};
+}
+
+/* The strongest NEAR-HORIZONTAL edge in a column, close to where the model
+   said the gutter would be.
+   ⚠ Scored on the vertical component alone, on purpose. A photograph of a
+   house is full of strong VERTICAL edges - downpipes, window frames, corner
+   boards, tree trunks - and total gradient would happily snap a gutter onto a
+   drainpipe. A gutter is a near-horizontal edge, so its gradient points up or
+   down, and nothing else in the frame does that as brightly. */
+function rmEdgeRowNear(photo, x, y, lookPx){
+  const xi = Math.round(x);
+  if(!(xi >= 1 && xi < photo.w - 1)) return null;
+  let best = null;
+  for(let d = -lookPx; d <= lookPx; d++){
+    const yi = Math.round(y) + d;
+    if(!(yi >= 1 && yi < photo.h - 1)) continue;
+    const v = Math.abs(photo.gy[yi * photo.w + xi]);
+    if(v < RM_EDGE_MIN) continue;
+    /* When two edges are equally bright the nearer one wins: the model was
+       pointing roughly at the right thing, it is the height that is adrift. */
+    const score = v - Math.abs(d) * 0.35;
+    if(!best || score > best.score) best = {y: yi, score: score, mag: v, off: d};
+  }
+  return best;
+}
+
+/* ONE SAMPLE'S ANSWER TO "HOW HIGH IS THE EAVE?"
+   The plan position comes from the roof model and the RELATIVE shape of the
+   roof is exact; the only unknown worth solving is the datum - how far the
+   whole roof sits off the ground. Raising the datum slides the point up the
+   photograph, and that is monotonic, so a bisection lands on the height that
+   puts the model's gutter exactly on the photograph's gutter. */
+function rmSolveDatum(sample, photo, cam, pose, lookPx){
+  const at = function(D){
+    return rmPhotoProject({e: sample.e, n: sample.n, u: D + sample.rel}, photo.w, photo.h, pose, cam);
+  };
+  const start = at(rmDatum().m);
+  if(!start) return null;
+  const hit = rmEdgeRowNear(photo, start.x, start.y, lookPx === undefined ? RM_DATUM_LOOK_PX : lookPx);
+  if(!hit) return null;
+  let lo = 0.8, hi = 12;
+  for(let i = 0; i < 30; i++){
+    const m = (lo + hi) / 2;
+    const p = at(m);
+    if(!p) return null;
+    /* Further down the image means the point is too low in the world. */
+    if(p.y > hit.y) lo = m; else hi = m;
+  }
+  const D = (lo + hi) / 2;
+  /* Same sanity as a measured click: an eave underground or on the fourth
+     floor means the edge found was not a gutter. */
+  return (D > 0.9 && D < 11.5) ? {m: D, strength: hit.mag} : null;
+}
+
+/* The whole roof's datum, read off the photograph and agreed across several
+   gutters rather than trusted from one. */
+function rmDatumFromSamples(samples, photo, cam, pose, lookPx){
+  const got = [];
+  (samples || []).forEach(function(sm){
+    const one = rmSolveDatum(sm, photo, cam, pose, lookPx);
+    if(one) got.push(one.m);
+  });
+  if(got.length < RM_DATUM_MIN_SAMPLES) return {ok: false, why: 'only ' + got.length + ' gutters found in the photo', found: got.length};
+  got.sort(function(a, b){ return a - b; });
+  const median = got[Math.floor(got.length / 2)];
+  /* Throw away the ones that clearly found something else - a shadow line, a
+     fence, the top of a car - then insist the survivors actually agree. */
+  const near = got.filter(function(v){ return Math.abs(v - median) <= RM_DATUM_SPREAD_M; });
+  if(near.length < RM_DATUM_MIN_SAMPLES || near.length / got.length < 0.5){
+    return {ok: false, why: 'the edges found disagreed by too much to trust', found: got.length};
+  }
+  const mean = near.reduce(function(a, b){ return a + b; }, 0) / near.length;
+  return {ok: true, m: mean, used: near.length, of: got.length};
+}
+
+const rmDeg = r => r * 180 / Math.PI;
+
+/* ASK THE PHOTOGRAPH HOW HIGH THE ROOF IS.
+   This is the part that makes the lines sit on the house rather than near it.
+   Everything else about a roof face is exact - its shape, its pitch, how far
+   each bit of it stands above the lowest eave - and only the datum, how high
+   the whole thing floats off the ground, was ever a guess. RM_ASSUMED_EAVE_M
+   is ten feet because most houses are; this replaces that guess with a
+   measurement off the street photo, on every house that has one. */
+async function rmDatumFromStreetPhoto(){
+  if(!rmPano || !rmStreetReady || !rmOrigin) return {ok: false, why: 'no street photo to read'};
+  if(!rmFaces || !rmFaces.length) return {ok: false, why: 'no roof model to place'};
+  const panoId = rmPano.getPano();
+  const cam = rmCamOnRoad();
+  const pos = rmPano.getPosition();
+  if(!panoId || !cam || !pos) return {ok: false, why: 'the camera is not on the road yet'};
+  /* Point it at the house, and tilt up far enough to hold the roof instead of
+     the lawn - a photograph of a driveway has no gutters in it. */
+  const heading = rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng);
+  const away = Math.max(4, Math.hypot(cam.e, cam.n));
+  const pitch = Math.max(-10, Math.min(30, rmDeg(Math.atan2((rmDatum().m + 2.5) - cam.u, away))));
+  const pose = {heading: heading, pitch: pitch, fov: RM_PHOTO_FOV};
+  const photo = await rmPhotoEdges(panoId, heading, pitch);
+  if(photo.error){
+    return {ok: false, why: photo.error === 'refused'
+      ? 'Google refused the street photo (' + (photo.why || '').slice(0, 80) + ')'
+      : 'could not read the street photo (' + photo.error + ')'};
+  }
+  /* One sample per suggested gutter, taken at its midpoint - the middle of a
+     run is the part least likely to be behind a tree or off the edge of the
+     frame. */
+  const samples = [];
+  rmRuns.forEach(function(r){
+    if(!r.suggested || !r.path || r.path.length < 2) return;
+    const a = r.path[0], b = r.path[r.path.length - 1];
+    const mid = {lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2};
+    const rel = rmRoofRelativeAt(mid.lat, mid.lng);
+    if(rel === null) return;
+    const p = rmToLocal(mid.lat, mid.lng, 0);
+    samples.push({e: p.e, n: p.n, rel: rel});
+  });
+  const ans = rmDatumFromSamples(samples, photo, cam, pose);
+  if(!ans.ok) return {ok: false, why: ans.why};
+  rmRoofDatumM = ans.m;
+  rmDatumSource = 'photo';
+  /* Every line lifts together, because they all hang off the one datum. */
+  rmRefreshHeights();
+  rmRenderResults(); rmPaintStreet();
+  return {ok: true, m: ans.m, used: ans.used, of: ans.of};
+}
+
+function rmPhotoRay(px, py, W, H, pose){
+  const focal = (W / 2) / Math.tan(rmRad(pose.fov) / 2);
+  const dx = px - W / 2, dy = py - H / 2, b = rmBasis(pose.heading, pose.pitch);
+  const v = {
+    e: b.right.e * dx + b.up.e * (-dy) + b.forward.e * focal,
+    n: b.right.n * dx + b.up.n * (-dy) + b.forward.n * focal,
+    u: b.right.u * dx + b.up.u * (-dy) + b.forward.u * focal
+  };
+  const len = Math.hypot(v.e, v.n, v.u);
+  return {e: v.e / len, n: v.n / len, u: v.u / len};
+}
 /* WHICH SIDE OF THE HOUSE AN EAVE IS ON, relative to the road rather than to
    the compass. "North" means nothing to somebody standing in a driveway; front,
    left, right and back are what a quote is actually written in.
@@ -15616,7 +15899,9 @@ function rmRefreshHeights(){
   const note = document.getElementById('rmDatumNote');
   if(note){
     const d = rmDatum();
-    note.textContent = d.source === 'street'
+    note.textContent = d.source === 'photo'
+      ? 'Roof height read off the street photo — ' + Math.round(d.m * RM_M_TO_FT) + ' ft to the lowest eave.'
+      : d.source === 'street'
       ? 'Roof height measured in Street View — ' + Math.round(d.m * RM_M_TO_FT) + ' ft to the lowest eave.'
       : (d.source === 'typed'
           ? 'Roof height from the box above — ' + Math.round(d.m * RM_M_TO_FT) + ' ft. Trace anything in Street View to measure it properly.'
