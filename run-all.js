@@ -31148,12 +31148,26 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
 
   /* ---- 2. the portal actually sets the flag, run ---------------------- */
   {
+    /* ⚠ LINE ENDINGS, AND THIS IS WHY main WENT RED (fixed 2026-08-22).
+       functions/index.js is stored with CRLF — 3,778 of them, in the git blob
+       itself, so CI sees them too and this was NOT a Windows-only artifact. A
+       multi-line anchor written with \n therefore matched nothing, indexOf returned
+       -1, and the check failed on main for everybody while pointing at a block of
+       code that had never moved.
+       CLAUDE.md §7 says it in as many words: measure the line endings, do not
+       believe them, and write \r?\n in every pattern. An indexOf cannot express
+       that, so the haystack is normalised instead — the slice offsets below are
+       taken from the SAME normalised string, so they stay consistent. */
+    const fnsLF = fns.replace(/\r\n/g, '\n');
     const A = '  {\n    const rebuild = warehouseRebuildFields(oldData, updates);';
-    const a = fns.indexOf(A);
+    const a = fnsLF.indexOf(A);
     check('S133', 'the portal rebuild block is where this suite expects it', a !== -1);
     if (a !== -1 && sSrc && sList) {
-      const b = fns.indexOf("  if (section === 'lights'", a);
-      const blk = fns.slice(a, b);
+      /* ⚠ SAME STRING AS `a` CAME FROM. Mixing a normalised offset with the raw
+         file slices at the wrong byte and hands `new Function` a fragment that
+         either throws or, worse, runs a different rule than the one on disk. */
+      const b = fnsLF.indexOf("  if (section === 'lights'", a);
+      const blk = fnsLF.slice(a, b);
       const run = (oldData, updates) => {
         new Function('oldData', 'updates', 'warehouseRebuildFields',
           blk)(oldData, updates,
@@ -31428,16 +31442,24 @@ suite('Suite 135. A house that cannot be invoiced is a job, not a statistic');
   }
 
   /* ---- 2. the nightly run: the skip path, RUN ------------------------- */
+  /* ⚠ CRLF AGAIN — see the note in Suite 133. `B` spans two lines, so against the
+     real file (which is stored with CRLF, in the blob, so CI too) it matched
+     nothing and this check failed on main for everybody. Normalised haystack, and
+     every offset below is taken from the same normalised string. */
+  const fnsLF = fns.replace(/\r\n/g, '\n');
   const A = '        if (!email) {';
   const B = '          continue;\n        }';
-  const a = fns.indexOf(A);
-  const b = fns.indexOf(B, a);
+  const a = fnsLF.indexOf(A);
+  const b = fnsLF.indexOf(B, a);
   check('S135', 'the no-email skip block is where this suite expects it',
     a !== -1 && b > a,
     'moved or renamed — fix the slice rather than deleting the suite');
 
   if (a !== -1 && b > a) {
-    const blk = fns.slice(a, b) + '\n        }';
+    /* ⚠ Same normalised string `a` and `b` came from — see above. Slicing the raw
+       file with normalised offsets hands `new Function` a fragment cut at the wrong
+       byte, which is how this suite went from failing to crashing outright. */
+    const blk = fnsLF.slice(a, b) + '\n        }';
     const runSkip = (payerData) => {
       const writes = [], msgs = [];
       let skippedNoEmail = 0; const noEmailNames = [];
@@ -34495,6 +34517,70 @@ suite('153. Measure Roof - a set-back part of the house keeps its own depth');
     'a bare revert invites the same idea back next week');
 }
 
+
+/* ================= Suite 158. The listeners let go when the session ends ==========
+   From the office error log, 2026-08-22:
+     Uncaught Error in snapshot listener: [code=permission-denied]
+     Unhandled promise: Missing or insufficient permissions.
+
+   ⚠ IT LOOKS LIKE A RULES BUG AND IT IS NOT. Every collection this page listens to
+   has a rule and every one of those rules is `allow read: if request.auth != null`.
+   The reads were refused because there was no auth left when they ran: signOut
+   pulls the token out from under about forty still-open listeners, Firestore
+   refuses each, and each refusal is an uncaught error plus an unhandled rejection.
+   CLAUDE.md already warns that Firestore reports ANY refusal as "insufficient
+   permissions" — this is that warning from the read side. */
+suite('158. The listeners let go when the session ends');
+{
+  const LFC = String.fromCharCode(10);
+  check('S144', 'onSnapshot is wrapped rather than imported raw',
+    /onSnapshot as onSnapshotRaw/.test(admin) && /function onSnapshot\(ref, a, b\)/.test(admin),
+    'aliasing the import is what makes every existing call site reach the wrapper — ' +
+    'editing 42 call sites by hand in a 2.6MB file is how this gets half-fixed');
+  check('S144', 'every unsubscribe is kept',
+    /LIVE_LISTENERS\.push\(stop\)/.test(admin),
+    'Firestore hands back an unsubscribe and this page threw away 42 of 44 — with ' +
+    'nothing kept there is nothing to detach');
+  check('S144', 'and something detaches them',
+    /function detachAllListeners\(\)/.test(admin) && /LIVE_LISTENERS\.pop\(\)/.test(admin));
+
+  /* ⚠ THE ORDER IS THE WHOLE FIX. signOut resolves the moment the token is
+     cleared, so detaching only in onAuthStateChanged is already too late for some
+     listeners — the refusals have started. Both logout buttons detach FIRST. */
+  /* Anchored to the next real structure, never a character count — the suite has
+     its own check forbidding fixed windows, and it is right: a window silently
+     goes stale as the code around it grows. */
+  const chip = admin.indexOf("userChipLogout");
+  const chipBlk = chip === -1 ? '' : admin.slice(chip, admin.indexOf('onAuthStateChanged(auth,', chip));
+  check('S144', 'the logout buttons detach BEFORE signOut, not after',
+    /detachAllListeners\(\); signOut\(auth\)/.test(chipBlk) ||
+    (chipBlk.indexOf('detachAllListeners()') !== -1 &&
+     chipBlk.indexOf('detachAllListeners()') < chipBlk.indexOf('signOut(auth)')),
+    'detaching after the token is gone still produces the log this exists to stop');
+
+  /* A session can end without the button — a token expiring, or a sign-out in
+     another tab. That path has to detach too or the bug simply moves. */
+  const auth = admin.indexOf('onAuthStateChanged(auth, function(user){');
+  const authBlk = auth === -1 ? '' : admin.slice(auth, admin.indexOf('function switchToAdminPanel', auth));
+  check('S144', 'a session that ends any other way still detaches',
+    /\} else \{[\s\S]{0,400}detachAllListeners\(\)/.test(authBlk),
+    'a token expiring leaves every listener open and reproduces the log exactly');
+  check('S144', 'and signing back in clears the signed-out flag',
+    /HU_SIGNED_OUT = false/.test(authBlk),
+    'without it a re-login without a reload silences every real listener error');
+
+  /* ⚠ AND IT MUST NOT SWALLOW A REAL FAULT. Only the denial that arrives AFTER
+     sign-out is expected; one that happens while somebody is signed in is news. */
+  const w = admin.indexOf('function onSnapshot(ref, a, b)');
+  const wBlk = w === -1 ? '' : admin.slice(w, admin.indexOf('function detachAllListeners', w));
+  check('S144', 'a listener failing while signed IN is still reported',
+    /HU_SIGNED_OUT && err && err\.code === 'permission-denied'/.test(wBlk) &&
+    /console\.error\('Snapshot listener failed:'/.test(wBlk),
+    'a blanket catch here would hide a genuine rules regression for ever');
+  check('S144', 'and the caller keeps whatever error handler it passed',
+    /if\(typeof b === 'function'\) b\(err\)/.test(wBlk),
+    'the wrapper inserts its own onError, so a caller-supplied one has to be called on');
+}
 
 suite('154. Measure Roof - clicking further back goes BACK, not UP');
 {
