@@ -32616,7 +32616,11 @@ suite('132. Measure Roof - both views feed one length, and the front is the defa
       'const RM_ROAD_MIN_M = 4;' + LF_ + (pick('rmCamOnRoad') || '') + LF_ +
       /* The road is now decided ONCE and remembered, so the variable holding it
          and the function that sets it both have to come in. */
-      'let rmRoadDir = null;' + LF_ + (pick('rmRoadDirection') || '') + LF_ + sideFn + LF_ +
+      'let rmRoadDir = null; let rmBuilding = null;' + LF_ + (pick('rmRoadDirection') || '') + LF_ +
+      /* rmEaveSide now measures how far across the house a DEEP line sits, so
+         the width helper comes in too. rmBuilding stays null here, which is
+         the no-footprint case the rule has to tolerate. */
+      (pick('rmHouseHalfWidth') || '') + LF_ + sideFn + LF_ +
       'return {setCam:function(c){__cam=c;}, newHouse:function(){ rmRoadDir = null; }, rmEaveSide, rmToWorld};')();
     /* Camera due south of the house, i.e. the road is south. */
     sapi.setCam({e: 0, n: -20, u: 2.5});
@@ -32630,6 +32634,44 @@ suite('132. Measure Roof - both views feed one length, and the front is the defa
       'got ' + sapi.rmEaveSide(eaveAt(0, 6)));
     const east = sapi.rmEaveSide({a: sapi.rmToWorld({e: 6, n: -3, u: 0}), b: sapi.rmToWorld({e: 6, n: 3, u: 0})});
     const west = sapi.rmEaveSide({a: sapi.rmToWorld({e: -6, n: -3, u: 0}), b: sapi.rmToWorld({e: -6, n: 3, u: 0})});
+    /* ⭐ A LINE THAT RUNS DEEP IS SORTED BY WHERE IT SITS ACROSS THE HOUSE.
+       Owner: "when you have a line that runs deep have it check where its
+       located on the roof so it can check if its the left or right side
+       because if it is we dont want to inclide that on default."
+       A rake out on the left flank still has its middle roughly in front of
+       the centre of the house, so judging it the way a gutter is judged calls
+       it FRONT and switches it on. */
+    const deepApi = new Function(
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'let __cam={e:0,n:-20,u:2.5}; function rmCamLocal(){ return __cam; }' + LF_ +
+      'const RM_ROAD_MIN_M = 4; let rmRoadDir = null; let rmBuilding = null;' + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmCamOnRoad','rmRoadDirection','rmHouseHalfWidth']
+        .map(pick).join(LF_) + LF_ + sideFn + LF_ +
+      'return {side: rmEaveSide, house:function(b){ rmBuilding = b; }, toWorld: rmToWorld};')();
+    {
+      /* A house 20 m across the front and 10 m deep. */
+      const c1 = deepApi.toWorld({e: -10, n: -5, u: 0}), c2 = deepApi.toWorld({e: 10, n: 5, u: 0});
+      deepApi.house({sw: {lat: c1.lat, lng: c1.lng}, ne: {lat: c2.lat, lng: c2.lng}});
+      const deepAt = e => ({a: deepApi.toWorld({e: e, n: -4, u: 0}),
+                            b: deepApi.toWorld({e: e, n: 3, u: 0})});
+      check('S132', 'a deep line near the middle of the front is a FRONT line',
+        deepApi.side(deepAt(1.5)) === 'front',
+        'got ' + deepApi.side(deepAt(1.5)) + ' - the dormer and gable rakes live here');
+      const farLeft = deepApi.side(deepAt(9));
+      const farRight = deepApi.side(deepAt(-9));
+      check('S132', 'but one out on the flank is a side, and the two flanks differ',
+        (farLeft === 'left' || farLeft === 'right') && (farRight === 'left' || farRight === 'right') &&
+        farLeft !== farRight,
+        'got ' + farLeft + ' and ' + farRight);
+      /* ⚠ And a line ACROSS the front is still judged the old way, however far
+         out it sits - that is a gutter, and the front gutter reaches the
+         corners by definition. */
+      const wideGutter = {a: deepApi.toWorld({e: 6, n: -5, u: 0}), b: deepApi.toWorld({e: 10, n: -5, u: 0})};
+      check('S132', 'a gutter across the front stays front even out at the corner',
+        deepApi.side(wideGutter) === 'front',
+        'got ' + deepApi.side(wideGutter) + ' - the front gutter runs the whole width');
+    }
+
     /* ⚠ A WALL YOU CAN SEE IS NOT THE FRONT OF THE HOUSE. Owner: "the left
        side should not be included just because it is visible from street
        view." The threshold was 63 degrees either way, so a face turned sixty
