@@ -15164,11 +15164,34 @@ function thanksgivingDate(year){
    we will change it to only confirmed on the scheduled list eventually." When
    the RSVP email is live and everyone has actually been asked, flip this to
    'confirmed-only'. Nothing else needs touching.
-   It shipped for a few minutes also excluding an explicit RSVP of no; that was
-   overruled, and only the physical rule below survives it. */
+   ⚠ THE NOTE THAT USED TO SIT HERE said an explicit RSVP of "no" had been tried and
+   overruled, leaving only the physical rule. That was reversed on 2026-08-22 at the
+   owner's own instruction and "no" now keeps somebody out on its own — see the
+   reasoning in isOutForSeason. This setting is a separate question: it decides what
+   happens to everybody who has said NOTHING. */
 const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
 function isOutForSeason(d){
   if(!d) return true;
+  const said = String(d.rsvpStatus || '').toLowerCase();
+  /* ⭐ AN RSVP OF "NO" KEEPS THEM OUT UNTIL THEY SAY OTHERWISE (2026-08-22). Owner:
+     "someones that says no should go to recycle. But they can change there decisions
+     to Yes or back next year and it will update."
+
+     ⚠ THIS REVERSES A DECISION FROM 2026-08-15, deliberately, and the old reasoning is
+     kept here so nobody restores it by accident. Back then this line shipped for a few
+     minutes and was overruled, leaving only the PHYSICAL rule below — out while their
+     bundle is queued to be taken apart, in again the moment the warehouse finishes.
+     That made "no" a temporary state: the flag is cleared when the job is done, and
+     the customer silently rejoined the season a week later having never changed their
+     mind. The answer is what decides now; the flag only ever backed it up.
+
+     ⚠ AND IT UPDATES BOTH WAYS, which is the other half of what she asked for. Every
+     route that takes a new answer rewrites rsvpStatus — portalRsvp, the office
+     dropdown, quoteRespond — so changing to Yes puts them straight back in (and
+     rejoinedAfterRecycle re-queues the build if their set was already pulled apart),
+     and changing to Back Next Year moves them to the 2027 tab instead. Nothing here
+     is sticky; it reads the current answer every time it is asked. */
+  if(said === 'no') return true;
   /* ⭐ BACK NEXT YEAR IS OUT, HOWEVER THEY SAID IT (2026-08-22). Owner: "back next
      year should be on 2027 and not split for this year on schedule."
 
@@ -15192,7 +15215,7 @@ function isOutForSeason(d){
      already assumed this rule ("would leave them unroutable behind a Confirmed
      badge"), so it was written for a rule that was not yet true. */
   if(d.maybeNextYear) return true;
-  if(String(d.rsvpStatus || '').toLowerCase() === 'backnextyear') return true;
+  if(said === 'backnextyear') return true;
   /* NOT an RSVP rule — a physical one, which is why it survives the setting
      above. Answering "no" queues the warehouse to take that customer's bundle
      apart (needsLightRecycle), so by the time a crew arrived there would be
@@ -28522,9 +28545,19 @@ function stopProblem(cust, dateStr, routeTowns, routeIsAuto){
      per case, because "taken off Tuesday" with no reason is not a notice. */
   if(d.maybeNextYear) return 'is sitting out this season';
   if(isOutForSeason(d)){
-    return d.needsLightRecycle
-      ? 'said no — their lights are queued to be taken apart'
-      : 'has not confirmed for this season';
+    /* ⚠ NAME THE ACTUAL REASON. "Has not confirmed" is true of somebody nobody has
+       asked and false of somebody who answered no, and since 2026-08-22 an answered
+       no keeps them out whether or not the recycle is still outstanding — so the old
+       two-way split reported the wrong one for anybody whose bundle had already been
+       pulled apart. "Taken off Tuesday" with no reason is not a notice; with the
+       WRONG reason it is worse. */
+    if(String(d.rsvpStatus || '').toLowerCase() === 'no'){
+      return d.needsLightRecycle
+        ? 'said no \u2014 their lights are queued to be taken apart'
+        : 'said no to this season';
+    }
+    if(d.needsLightRecycle) return 'their lights are queued to be taken apart';
+    return 'has not confirmed for this season';
   }
   if(d.completed) return 'is already installed';
   if(toDateStr(earliestAllowedInstallDate(d)) > dateStr){

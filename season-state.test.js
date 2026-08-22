@@ -5,7 +5,16 @@
  * The owner asked, 2026-08-22, in as many words: "back next year will go to 2027
  * right? And won't go to recycle or be approved for this year?", then "yeah a no
  * or cancel should show in recycle. yes if someone moves theyll get requoted for
- * new house."
+ * new house.", and then, correcting the last thing I told her: "someones that says
+ * no should go to recycle. But they can change there decisions to Yes or back next
+ * year and it will update."
+ *
+ * ⭐ THAT LAST ONE REVERSED A DECISION FROM 2026-08-15, deliberately. Until then an
+ * RSVP of "no" kept somebody out only while their bundle was queued to be taken
+ * apart — and the warehouse CLEARS that flag when the job is done, so "no" lasted
+ * exactly as long as the warehouse queue and the customer silently rejoined the
+ * season a week later having never changed their mind. The answer decides now; the
+ * flag only ever backed it up. Two rows below exist for that alone.
  *
  * Those are four sentences describing ONE table: for each thing a customer can
  * say, which of five lists do they land on. Answering it took running five
@@ -126,6 +135,27 @@ const CASES = [
   { name: 'No, set on the office dropdown',
     d: Object.assign({}, withLights, { rsvpStatus: 'no', needsLightRecycle: true }),
     want: { tab2027: false, tabYes: false, inSeason: false, build: false, recycle: true } },
+  /* ⭐ THE CASE THE OWNER CORRECTED, 2026-08-22: "someones that says no should go to
+     recycle. But they can change there decisions to Yes or back next year and it will
+     update." Until then, out-for-the-season leaned on needsLightRecycle — which the
+     warehouse CLEARS the moment the job is done. So "no" lasted exactly as long as
+     the warehouse queue, and the customer silently rejoined the season a week later
+     having never changed their mind. They are off the recycle list here because the
+     lights have already come back; they are still out of the season because that is
+     what they said. */
+  { name: 'No — and the warehouse has finished the recycle',
+    d: Object.assign({}, withLights, { rsvpStatus: 'no', needsLightRecycle: false }),
+    want: { tab2027: false, tabYes: false, inSeason: false, build: false, recycle: false } },
+  /* ⚠ AND THE WAY BACK IN. Nothing about "no" is sticky — every route that takes a new
+     answer rewrites rsvpStatus, so this is the same record after they change their
+     mind. If this row ever fails, a customer cannot rejoin the season by answering. */
+  { name: 'No, then changed their mind to Yes',
+    d: Object.assign({}, withLights, { rsvpStatus: 'yes', needsLightRecycle: false,
+                                       needsLightBuild: true }),
+    want: { tab2027: false, tabYes: true, inSeason: true, build: true, recycle: false } },
+  { name: 'No, then changed their mind to Back Next Year',
+    d: Object.assign({}, withLights, { rsvpStatus: 'backnextyear', needsLightRecycle: false }),
+    want: { tab2027: true, tabYes: false, inSeason: false, build: false, recycle: false } },
   /* ⭐ Owner: "yes if someone moves theyll get requoted for new house." The old set
      comes back AND a new one is built, and they never leave the season — which is
      exactly why recycleKeepingCustomer had to be its own flag. */
@@ -174,11 +204,20 @@ const portalRsvp = portalRsvpAt === -1 ? ''
   : server.slice(portalRsvpAt, server.indexOf('\n});', portalRsvpAt));
 check('functions/index.js still has portalRsvp', !!portalRsvp);
 
-if (portalRsvp) {
+/* ⚠ SCOPED TO THE `updates` OBJECT, not the whole function. portalRsvp also RETURNS
+   `rsvpStatus: response` to the browser, so a loose search for that text passes while
+   the write itself is broken — which a red-check proved: renaming the written field
+   left every check here green. The write is the only half that matters. */
+const updAt = portalRsvp.indexOf('const updates = {');
+const updates = updAt === -1 ? '' : portalRsvp.slice(updAt, portalRsvp.indexOf('};', updAt));
+check('portalRsvp still has an updates object to read', !!updates,
+  'without it the three checks below would silently pass against the return value');
+
+if (portalRsvp && updates) {
   /* ⭐ THIS IS THE LINE THE WHOLE THING TURNS ON. "no" queues the recycle; back next
      year does not, because their bundle is staying in their bin for next season. */
   check('portalRsvp queues the recycle for a "no" and only for a "no"',
-    /needsLightRecycle: response === 'no'/.test(portalRsvp),
+    /needsLightRecycle: response === 'no'/.test(updates),
     'a queue reading the flag correctly is worth nothing if nothing sets it');
   /* ⚠ AND IT WRITES THE STATUS ALONE. This is not a defect to fix — the flag is what
      the OFFICE sets and sees, and writing it from a customer's own answer would badge
@@ -186,7 +225,7 @@ if (portalRsvp) {
      it ever changes, the comments in admin.html that explain why isOutForSeason reads
      BOTH get revisited rather than quietly going stale. */
   check('and portalRsvp writes the status without the office flag',
-    /rsvpStatus: response,/.test(portalRsvp) && !/maybeNextYear/.test(portalRsvp),
+    /rsvpStatus: response,/.test(updates) && !/maybeNextYear/.test(portalRsvp),
     'if this changes, the reasoning in isOutForSeason needs rewriting');
 }
 
@@ -201,6 +240,20 @@ check('the office dropdown queues the recycle on a change to "no"',
 check('and only on the change, not on every save of that record',
   /oldRsvpForRecycle !== 'no'/.test(saveBlk),
   'once the job is under way the warehouse owns the flag');
+
+/* ⭐ AND THE WAY BACK IN IS REAL, not just possible in principle. Owner: "they can
+   change there decisions to Yes or back next year and it will update." portalRsvp
+   writes whatever they answered, and a "yes" from somebody whose set was already
+   pulled apart re-queues the build rather than sending a crew to an empty bin. */
+if (portalRsvp && updates) {
+  check('portalRsvp writes whatever they now say, so no is never sticky',
+    /rsvpStatus: response,/.test(updates),
+    'a customer who cannot change their mind is a customer who rings the office');
+  check('and a yes after the recycle already happened re-queues the build',
+    /rejoinedAfterRecycle[\s\S]{0,200}needsLightBuild = true/.test(portalRsvp),
+    'their bundle was taken apart — putting them back on a route without rebuilding ' +
+    'sends a crew to an empty bin');
+}
 
 /* ⭐ Back Next Year clears both queues: nothing to build, and their set stays in
    their bin. Owner: "back next year ... won't go to recycle." */

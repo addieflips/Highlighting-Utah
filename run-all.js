@@ -5718,17 +5718,34 @@ suite('17. A new customer lands on the next day in their city');
         /no longer a customer/.test(h.problem(null, soon)));
       check('reconcile', 'a customer sitting out the season is a problem',
         /sitting out/.test(h.problem({data:{maybeNextYear:true}}, soon)));
-      /* CHANGED 2026-08-15: an RSVP of 'no' ON ITS OWN no longer strips anybody.
-         The owner's rule is that for now only Maybe Next Year keeps somebody off
-         the list. What still strips them is the physical consequence — answering
-         no queues the warehouse to take their bundle apart — and portalRsvp
-         always writes rsvpStatus and needsLightRecycle in the same update, so
-         the realistic case is the pair, not the status alone. */
+      /* ⭐ REVERSED 2026-08-22. Owner: "someones that says no should go to recycle. But
+         they can change there decisions to Yes or back next year and it will update."
+
+         ⚠ FROM 2026-08-15 UNTIL THEN, an RSVP of 'no' on its own stripped nobody — only
+         the physical consequence did, the queued recycle. That made "no" a TEMPORARY
+         state: the warehouse clears the flag when the job is done, and the customer
+         silently rejoined the season a week later having never changed their mind. The
+         answer decides now; the flag only ever backed it up. */
       check('reconcile', 'a customer whose lights are being taken apart is a problem',
         /taken apart/.test(h.problem({data:{rsvpStatus:'no', needsLightRecycle:true}}, soon)));
-      check('reconcile', 'but an RSVP of no on its own leaves them on the day',
-        h.problem({data:{rsvpStatus:'no'}}, soon) === '',
-        'owner, 2026-08-15: for now everyone but Maybe Next Year is on the list');
+      check('reconcile', 'and an RSVP of no still is once the recycle is finished',
+        /said no to this season/.test(h.problem({data:{rsvpStatus:'no'}}, soon)),
+        'the flag is cleared when the warehouse is done — if that put them back on ' +
+        'the day, "no" would last exactly as long as the warehouse queue');
+      /* ⚠ AND IT NAMES THE RIGHT REASON. "Has not confirmed" is true of somebody
+         nobody has asked and false of somebody who answered no; a notice giving the
+         wrong reason is worse than one giving none. */
+      check('reconcile', 'and never calls an answered no "has not confirmed"',
+        !/has not confirmed/.test(h.problem({data:{rsvpStatus:'no'}}, soon)) &&
+        !/has not confirmed/.test(h.problem({data:{rsvpStatus:'no', needsLightRecycle:true}}, soon)),
+        'they DID confirm — the answer was no. A notice with the wrong reason sends ' +
+        'somebody hunting the wrong problem');
+      /* ⚠ AND THE ONE THAT PHRASE IS ACTUALLY FOR: somebody the flag caught with no
+         answer on file at all, which is what confirmed-only will make common. */
+      check('reconcile', 'and keeps it for somebody who really has not answered',
+        /has not confirmed/.test(h.problem({data:{needsLightRecycle:true, rsvpStatus:''}}, soon)) === false &&
+        /taken apart/.test(h.problem({data:{needsLightRecycle:true, rsvpStatus:''}}, soon)),
+        'a queued recycle with no answer behind it is still the physical rule');
       check('reconcile', 'back next year is still a problem, via the badge it always carries',
         /sitting out/.test(h.problem({data:{maybeNextYear:true, rsvpStatus:'backnextyear'}}, soon)),
         'pullCustomerFromSeason writes both fields in one update');
@@ -6542,10 +6559,27 @@ suite('21. Everyone is in unless they said otherwise');
     'THE bug: ~945 houses have a blank RSVP because nobody has ever been asked');
   check('season', 'a pending RSVP is IN', api.out({ rsvpStatus: 'pending' }) === false);
   check('season', 'a yes is IN', api.out({ rsvpStatus: 'yes' }) === false);
-  check('season', 'an RSVP of no is IN too, so long as their lights are intact',
-    api.out({ rsvpStatus: 'no' }) === false,
-    'owner overruled the first version of this: for now only Maybe Next Year keeps ' +
-    'somebody off the list');
+  /* ⭐ REVERSED 2026-08-22. Owner: "someones that says no should go to recycle. But
+     they can change there decisions to Yes or back next year and it will update."
+
+     ⚠ THIS CHECK USED TO ASSERT THE OPPOSITE, on the owner's 2026-08-15 instruction
+     that for now only Maybe Next Year keeps somebody off the list. The old reasoning
+     is kept here so nobody restores it by accident. What was wrong with it: the
+     physical rule below (out while their bundle is queued to be taken apart) is
+     CLEARED by the warehouse when the job is done, so "no" lasted exactly as long as
+     the warehouse queue and the customer silently rejoined the season having never
+     changed their mind. */
+  check('season', 'an RSVP of no is OUT, and stays out after the recycle is done',
+    api.out({ rsvpStatus: 'no' }) === true &&
+    api.out({ rsvpStatus: 'NO' }) === true &&
+    strict.out({ rsvpStatus: 'no' }) === true,
+    'the answer decides, not the flag — the flag only ever backed it up');
+  /* ⚠ AND IT UPDATES BOTH WAYS, which is the other half of what she asked for. Every
+     route that takes a new answer rewrites rsvpStatus, so nothing here is sticky. */
+  check('season', 'and changing their mind updates them, both ways',
+    api.out({ rsvpStatus: 'yes' }) === false &&
+    api.out({ rsvpStatus: 'backnextyear' }) === true,
+    'no -> yes puts them back in the season; no -> back next year moves them to 2027');
   check('season', 'Maybe Next Year is OUT — the one label the owner named',
     api.out({ maybeNextYear: true }) === true);
   check('season', 'Maybe Next Year is OUT even with an RSVP of yes beside it',

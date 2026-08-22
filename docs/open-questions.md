@@ -598,6 +598,29 @@ which is the whole reason Recycle and Build are two separate buttons.
 | badged by the office | **yes** | no | no | no | no |
 | an ordinary customer, for contrast | no | yes | yes | yes | no |
 
+**④ And an RSVP of "no" now keeps them out on its own — a deliberate reversal.**
+Addie, 2026-08-22: *"someones that says no should go to recycle. But they can
+change there decisions to Yes or back next year and it will update."*
+
+⚠ **This reverses her own 2026-08-15 decision**, which was that only Maybe Next
+Year keeps somebody off the list. Both the old reasoning and this note are kept in
+the code so nobody restores it by accident. What was wrong with the old rule: an
+answered *no* kept somebody out only through the **physical** consequence — the
+queued recycle — and the warehouse **clears that flag when the job is done**. So
+*"no"* lasted exactly as long as the warehouse queue, and the customer silently
+rejoined the season a week later having never changed their mind. The answer
+decides now; the flag only ever backed it up.
+
+The other half of her sentence already worked and is now asserted: nothing about
+*no* is sticky. Every route that takes a new answer rewrites `rsvpStatus`, so
+**no → yes** puts them straight back in (and `rejoinedAfterRecycle` re-queues the
+build, because their bundle was taken apart and a crew would otherwise be sent to
+an empty bin), and **no → Back Next Year** moves them to the 2027 tab.
+
+Fixed on the way past: the reconcile sweep called an answered *no* *"has not
+confirmed for this season"* once the recycle was finished. They did confirm — the
+answer was no. A notice giving the wrong reason is worse than one giving none.
+
 Blocks: the flip itself, which is tier 1 — getting it wrong means nobody is
 scheduled.
 Answer: Q-010b answered 2026-08-22 — a reply is required; assumed yes does not
