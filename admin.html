@@ -12668,6 +12668,24 @@ function houseBundleNeed(d){
    with their number on it, which is what the Bin column already says. On a top-up the
    bundle joins a bin that is already on the shelf with lights in it, and a loose bundle
    nobody can place is the thing that goes wrong in a warehouse. */
+/* How many bins this house's lights go into — one per CN_DOUBLE_BIN_FEET, the same
+   answer Add Customer and the customer-number series use. Imported from js/money.js
+   rather than re-derived, so the sheet cannot disagree with the record (R-014).
+   ⚠ Blank when there is no footage at all: cnBinsForFeet floors at 1, and printing
+   a confident "1" for a house nobody has measured is a guess wearing a number. */
+function whBinsForHouse(d){
+  const feet = Number(d && d.measuredFeet) || 0;
+  return feet ? String(cnBinsForFeet(feet)) : '';
+}
+/* The customer, and the number their bins get labelled with. Owner, 2026-08-21:
+   "costumer # should also show next to costumers name." It used to sit alone in the
+   Bin # column, which is now a quantity — a number with no name beside it is the
+   thing somebody mis-reads at six in the morning. */
+function whWhoLabel(d){
+  const name = (d && d.name) || '(no name)';
+  const num = String((d && d.customerNumber) || '').trim();
+  return num ? (name + ' #' + num) : name;
+}
 function whPutIntoLabel(d){
   const need = houseBundleNeed(d);
   if(!need.topUp) return '';
@@ -25373,10 +25391,9 @@ function whSheetRowsForBuild(){
       group: 'Waiting on light colours',
       wire: whWireLabel(d.wireColor),
       type: 'Blocked',
-      what: d.name || '(no name)',
+      what: whWhoLabel(d),
       address: d.address || '',
-      bin: d.customerNumber || '',
-      feet: '',
+      bins: whBinsForHouse(d),
       bundles: '',
       timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
       putInto: '',
@@ -25401,9 +25418,9 @@ function whSheetRowsForBuild(){
            scans down. A bundle handed to somebody who thinks they are building a house
            gets a new bin made for it, and then there are two bins with one number. */
         type: need.topUp ? 'ADD-ON' : 'House',
-        what: d.name || '(no name)',
+        what: whWhoLabel(d),
         address: d.address || '',
-        bin: d.customerNumber || '',
+        bins: whBinsForHouse(d),
         // Blank rather than 0 when there are no feet — a 0 in a spreadsheet
         // column reads as a measurement, and this is the absence of one.
         /* ⚠ THE MARKERS MOVED HERE WITH THE COLUMN (2026-08-21). Feet came off this
@@ -25433,8 +25450,9 @@ function whSheetRowsForBuild(){
         type: isTimer ? 'Timer' : 'Extra',
         what: g.title ? (isTimer ? 'Timer' : (e.data.pattern || 'Lights')) : (e.data.label || 'Extra stock'),
         address: g.linked ? (g.linked.data.address || '') : '',
-        bin: e.data.customerNumber || '',
-        feet: '',
+        /* ⚠ Buffer stock is not somebody's house, so "how many bins for them" has
+           no answer. Blank, not 0 — a 0 in a count column reads as a decision. */
+        bins: '',
         bundles: Number(e.data.quantity) || 1,
         timer: isTimer ? 'YES' : '',
         putInto: '',
@@ -25577,7 +25595,16 @@ const WH_BUILD_COLUMNS = [
   {key:'type', label:'Type'},
   {key:'what', label:'Customer / Item'},
   {key:'address', label:'Address'},
-  {key:'bin', label:'Bin #', num:true},
+  /* ⭐ HOW MANY BINS, NOT WHICH ONE (changed 2026-08-21). Owner: "Bin # is how many
+     bins were making for them but costumer # should also show next to costumers
+     name." This column held the CUSTOMER number under a header that said Bin # —
+     true in the sense that the bin gets that number painted on it, and useless for
+     the question the warehouse is actually asking, which is how many bins to put
+     this house's lights into. The customer number moved into the Customer column
+     beside the name, where it reads as an identifier instead of a quantity.
+     ⚠ NOT the same column as WH_RECYCLE_COLUMNS' "Bin # to find". That one IS the
+     painted number, because finding a bin on a shelf is exactly what it is for. */
+  {key:'bins', label:'Bins', num:true},
   /* ⭐ BUNDLES ONLY (2026-08-21). Owner: "I don't think we need feet and bundles.
      I think how many bundles is fine for warehouse." Feet is the office's number —
      it prices the job and sizes the bins — and bundles is the one somebody counts

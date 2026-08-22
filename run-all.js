@@ -3985,7 +3985,19 @@ if (!JSDOM) {
     global.whArchivedPending = [];
     /* Same again for the top-up label: whSheetRowsForBuild calls it, and it is
        declared beside houseBundleNeed rather than inside the slices below. */
-    eval(extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel') +
+    /* ⚠ LIFTED, NOT STUBBED (2026-08-21). The build sheet's Bin # column became a
+       COUNT of bins and the customer number moved beside the name, so the row builder
+       calls two new helpers. whBinsForHouse asks cnBinsForFeet — the same one
+       js/money.js gives the app — because "the sheet agrees with the record about
+       bins" is the claim, and a hand-written stub of it proves nothing. */
+    /* cnBinsForFeet comes from js/money.js — the file production imports — read as
+       text and evaluated here rather than re-typed, so R-014 holds: one definition of
+       the 260-foot rule, and this suite cannot drift from it. */
+    eval(fs.readFileSync(path.join(ROOT, 'js', 'money.js'), 'utf8')
+           .replace(/^export /gm, '')
+           .replace(/^import [^;]+;$/gm, ''));
+    eval(extractFn(admin, 'whBinsForHouse') + '\n' + extractFn(admin, 'whWhoLabel') + '\n' +
+      extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel') +
       /* The recycle queue sends people to the number ON THE BIN, which is not always the
          one on the record. Declared beside whRecycleGroups, not inside the slice. */
       '\n' + extractFn(admin, 'whBinNumberFor') +
@@ -4171,12 +4183,28 @@ if (!JSDOM) {
        and bundles. I think how many bundles is fine for warehouse." The Bundles cell
        now carries what Feet used to say about itself — the "+" for an add-on and
        " est" where the count was worked back from the price rather than measured. */
-    check('warehouse', 'a house with no feet on file still gets a bundle count',
-      sheet.rows.find(r => r.what === 'Owen Hale').bundles === '1',
-      'somebody has to make something, and the tab shows the same number');
+    /* ⚠ Owen has NO measuredFeet in this second fixture — that is the point of him.
+       The old check said "leaves the Feet cell empty"; Feet is gone, and the same
+       reasoning now belongs to the Bins count: cnBinsForFeet floors at 1, so printing
+       a confident "1" for a house nobody has measured is a guess wearing a number. */
+    check('warehouse', 'a house with no feet on file leaves the Bins cell empty',
+      (sheet.rows.find(r => /^Owen Hale/.test(r.what)) || {}).bins === '',
+      'rows: ' + JSON.stringify(sheet.rows.map(r => ({what: r.what, bins: r.bins}))));
+    check('warehouse', 'a measured house does get its bin count',
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bins === '1',
+      '240 ft is one bin');
+    /* ⭐ AND THE CUSTOMER NUMBER RIDES BESIDE THE NAME (2026-08-21). Owner: "costumer
+       # should also show next to costumers name." A house with no number yet shows the
+       name alone rather than a stray hash. */
+    check('warehouse', 'the customer number sits next to the name',
+      (sheet.rows.find(r => /^Owen Hale/.test(r.what)) || {}).what === 'Owen Hale #1421',
+      'it used to sit alone in a column headed Bin #, which is now a quantity');
+    check('warehouse', 'and a customer with no number yet shows just their name',
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).what === 'Nadia Brooks',
+      'a trailing # with nothing after it reads as a missing value, not an absent one');
     check('warehouse', 'the bundle count on paper is the same one on screen',
-      sheet.rows.find(r => r.what === 'Nadia Brooks').bundles === '6',
-      'a printout that disagrees with the tab is worse than no printout');
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bundles === '6',
+      'got ' + JSON.stringify((sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bundles));
     /* ⚠ THE SUMMARY MUST STILL ADD UP once the cell can carry a marker. Number("3 est")
        is NaN, which would drop that house out of the morning's total silently. */
     check('warehouse', 'a marked bundle count still totals correctly',
@@ -4184,7 +4212,7 @@ if (!JSDOM) {
       /parseInt\(r\.bundles, 10\)/.test(extractFn(admin, 'whPrintBuildSheet')),
       'the build sheet summary reads the Bundles cell with parseInt, not Number');
     check('warehouse', 'a house that wants a timer says YES in the timer column',
-      sheet.rows.find(r => r.what === 'Nadia Brooks').timer === 'YES');
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).timer === 'YES');
     check('warehouse', 'buffer stock prints its label and quantity',
       sheet.rows[2].what === 'Spare sets' && sheet.rows[2].bundles === 3);
 
@@ -20320,6 +20348,22 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's build sheet counts bundles',
       /key:'bundles'/.test(cols),
       'bundles is what somebody counts off a shelf');
+    /* ⭐ AND Bin # BECAME A COUNT (2026-08-21). Owner: "Bin # is how many bins were
+       making for them but costumer # should also show next to costumers name." The
+       column used to hold the CUSTOMER number under a header reading Bin # — true in
+       the sense that the number gets painted on the bin, and useless for the question
+       the warehouse is asking, which is how many bins this house needs.
+       ⚠ A red-check reverting the header alone went unnoticed until this was added:
+       the row-builder checks below all passed, because they assert what fills the
+       cell and not what the cell is called. */
+    check('S107', 'the Bins column is a count, headed Bins',
+      /key:'bins', label:'Bins'/.test(cols),
+      'got the column list without a Bins key');
+    check('S107', 'and the old Bin # header is gone from the BUILD sheet',
+      !/label:'Bin #'/.test(cols),
+      'Bin # now reads as a quantity, so a header saying it holds a number is a lie. ' +
+      'WH_RECYCLE_COLUMNS keeps its own "Bin # to find" - that one IS the painted ' +
+      'number, because finding a bin on a shelf is what it is for');
     check('S107', 'and does NOT also carry feet',
       !/key:'feet'/.test(cols),
       'feet is the office number - it prices the job and sizes the bins, and bundles ' +
@@ -20390,6 +20434,10 @@ suite('Suite 107. Pricing a re-quote from the popup');
   {
     const sheet = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      /* Lifted with the row builder they belong to: the Bin # column is a COUNT now
+         and the customer number rides beside the name. */
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
@@ -20399,13 +20447,21 @@ suite('Suite 107. Pricing a re-quote from the popup');
       (w) => String(w || 'white'), () => '', []).rows;
     const blockedRow = rows.filter(function(r){ return r.type === 'Blocked'; });
     check('S107', 'and the printed sheet carries them too',
-      blockedRow.length === 1 && blockedRow[0].what === 'Ashley Wray',
+      blockedRow.length === 1 && blockedRow[0].what === 'Ashley Wray #894',
       'a sheet that leaves them off says the work is finished when it is not');
     check('S107', 'and the row says why it cannot be built',
       /NO LIGHT COLOURS ON FILE/.test(blockedRow[0] ? blockedRow[0].notes : ''),
       'a row with a blank Bundles column and no reason reads as a mistake');
-    check('S107', 'and it still carries the bin number, so somebody can find them',
-      blockedRow[0] && blockedRow[0].bin === '894');
+    /* ⭐ THE CUSTOMER NUMBER MOVED (2026-08-21). Owner: "Bin # is how many bins were
+       making for them but costumer # should also show next to costumers name." So the
+       identifier is in the Customer column now, and `bins` is a quantity — for a
+       300 ft house, two. */
+    check('S107', 'and it still carries the customer number, so somebody can find them',
+      blockedRow[0] && /#894/.test(blockedRow[0].what),
+      'got ' + JSON.stringify(blockedRow[0] && blockedRow[0].what));
+    check('S107', 'and the Bins column is a count, not that number',
+      blockedRow[0] && blockedRow[0].bins === '2',
+      '300 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
@@ -21851,6 +21907,8 @@ suite('Suite 112. The number on the bin');
   {
     const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
