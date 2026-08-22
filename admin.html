@@ -15074,6 +15074,7 @@ function rmBuildWhenReady(){
   }
   const status = document.getElementById('rmStatus');
   if(status){
+    rmRenderCornerBar();
     status.textContent = 'Click along the roofline in either picture to place dots. ' +
       'They join up in the order you place them, and each one gets a number you can press to take it out again. ' +
       'Space stops placing so you can pick instead; + Measure another run starts a second strand.';
@@ -16301,10 +16302,17 @@ function rmCornersChanged(){
 function rmRenderCornerBar(){
   const bar = document.getElementById('rmCornerBar');
   if(!bar) return;
-  bar.style.display = rmCorners.length ? 'block' : 'none';
+  /* ⚠ SHOWN EVEN WITH NOTHING IN IT. The strip carries the MODE as well as
+     the numbers, and hiding it until the first dot exists meant the line
+     saying "space to place a dot" was invisible exactly when somebody needed
+     it - and the label, never having been redrawn, still claimed to be picking
+     while the tool was in fact placing. A control that lies about its own
+     state is worse than no control. */
+  bar.style.display = rmStreetReady || rmSkyReady ? 'block' : 'none';
   const mode = document.getElementById('rmCornerMode');
-  if(mode) mode.textContent = rmCornerMode === 'dot' ? 'Placing dots — space to go back to picking'
-                                                     : 'Picking corners — space to place a dot';
+  if(mode) mode.textContent = rmCornerMode === 'dot'
+    ? 'PLACING — click the roofline to drop a dot. Space to stop placing.'
+    : 'PICKING — press a number to take that dot out. Space to place more.';
   const list = document.getElementById('rmCornerList');
   if(!list) return;
   list.innerHTML = rmCorners.map(function(c, i){
