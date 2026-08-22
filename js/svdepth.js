@@ -128,7 +128,48 @@ export function base64UrlToBytes(s){
  * ⚠ SO: distanceAt, cameraHeight and the `up` and `distance` fields of pointAt are
  * measured and usable. The `east` and `north` fields are NOT, until somebody ties this
  * frame to true north. Left in place because the structure is right and the relative
- * result is real; guarded by name so nobody picks it up by accident. */
+ * result is real; guarded by name so nobody picks it up by accident.
+ *
+ * ⚠ AND IT WAS TRIED AGAIN LATER THE SAME DAY, BY ME, HAVING NOT READ THIS PARAGRAPH
+ * PROPERLY. I proposed the wall identity above as a fresh approach and argued to
+ * lanil-9d that it was categorically different from the correlations — it was not, it
+ * is the same equation already recorded here as refuted. The re-run is worth keeping
+ * only because it puts a number on WHY, from 239 matched walls across twelve panoramas:
+ *
+ *       |d_A - d_B| / |P_A - P_B|   median 0.07,  p90 0.24
+ *       walls carrying real information (>0.35):  12 of 238
+ *       roots from those twelve:  sharpness 1.50
+ *
+ * The degeneracy is not incidental, it is structural: on a residential street every
+ * baseline runs along the road and every wall is parallel to it, so the dot product
+ * that carries the signal is ~0 almost everywhere. And using ALL 239 walls it looks
+ * like it WORKED — a 100-vote pile, sharpness 1.82 — which is a pile made of no
+ * information, because when the ratio is ~0 the equation collapses to a constant that
+ * is correlated with itself. That is the trap in this identity: it fails by producing a
+ * confident-looking answer, not by producing none.
+ *
+ * ⛔ AND NONE OF IT WOULD HAVE HELPED, WHICH IS THE THING TO READ BEFORE TRYING A NINTH.
+ * Measured across eight residential panoramas — Lehi, American Fork, Salt Lake City,
+ * Kaysville — the topmost row this decoder finds any surface on is 106 to 113 of 256:
+ * 10 to 15 degrees above the horizon, and nothing above it. It is not the format. The
+ * same decoder on downtown panoramas reaches Manhattan 83.6 deg, Wall Street 78.0,
+ * Chicago 73.8. SUBURBAN DEPTH MAPS DO NOT CONTAIN THE HOUSES' UPPER PARTS, in the same
+ * way they omit vegetation — a coarse plane fit keeps roads and large distant surfaces
+ * and drops small near ones.
+ *
+ * So a roof edge is only in this data if it fits under that ceiling:
+ *       nearest usable distance = (roofHeight - cameraHeight) / tan(coverage)
+ *                               ~ (6 - 2.5) / tan(12 deg)  ~  16 m
+ * A house closer than about sixteen metres is not in its own depth map at all. Verified
+ * on a Salt Lake panorama 5.7 m from the subject: the house was absent entirely and the
+ * candidates were the neighbours across the street, one of them at full confidence.
+ *
+ * ⭐ THE BEARING IS THEREFORE NOT THE BOTTLENECK, AND SOLVING IT WOULD NOT UNLOCK THE
+ * ROOFLINE. Anyone arriving here wanting to try a ninth calibration should know that the
+ * prize is smaller than it looks: it buys the horizon band of houses 16 m or more away,
+ * and nothing else. The rooflines are in the RENDERED IMAGE, where the heading of every
+ * column is exact by construction. See roofcorners.js maxElevationDeg and
+ * nearestUsableDistanceM, which measure this per panorama rather than assuming it. */
 export function toEastNorth(nx, ny, yawDeg){
   /* A rotation by -yaw in the plane-record axes, which is what adds yaw to a compass
      bearing — the two run in opposite directions, and that is precisely the trap. */
