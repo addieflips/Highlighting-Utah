@@ -33728,7 +33728,8 @@ suite('148. Measure Roof - the skyline is the roofline, and its corners are the 
      full of windows and shrubs. */
   const NEED = ['rmSkylineRows', 'rmFillSpikes', 'rmSimplifyLine', 'rmCornersInPhoto'];
   const missing = NEED.filter(n => !pick(n));
-  const consts = ['RM_SKY_DROP', 'RM_SKY_CONFIRM_ROWS', 'RM_SPIKE_MAX_W_M', 'RM_CORNER_TOL_PX']
+  const consts = ['RM_SKY_DROP', 'RM_SKY_CONFIRM_ROWS', 'RM_SPIKE_MAX_W_M', 'RM_CORNER_TOL_PX',
+                  'RM_CORNER_MIN_TURN', 'RM_CORNER_MIN_GAP_PX', 'RM_CORNER_MAX']
     .map(n => (admin.match(new RegExp('^const ' + n + '.*?;', 'm')) || [''])[0]);
   check('S148', 'every skyline threshold was really found in the page',
     consts.every(Boolean), 'missing one of the constants');
@@ -33762,6 +33763,16 @@ suite('148. Measure Roof - the skyline is the roofline, and its corners are the 
       rows[120] + ' want ' + gable(120));
 
     const found = api.rmCornersInPhoto(mk(gable), 0.05);
+    /* ⚠ A ROOF CORNER TURNS SHARPLY. Douglas-Peucker keeps a point when the
+       line strays far enough from straight, which is NOT the same as turning
+       there - so a gentle sag over twenty pixels scored as high as a gable
+       peak, and a real house came back with forty corners. */
+    check('S148', 'a gentle sag is not a corner',
+      (function(){
+        const sag = x => 60 + Math.round(6 * Math.sin(x / W * Math.PI));
+        return api.rmCornersInPhoto(mk(sag), 0.05).corners.length <= 3;
+      })(),
+      'a roofline that merely bows must not be chopped into pieces');
     check('S148', 'a plain gable comes back as three corners: eave, peak, eave',
       found.corners.length === 3,
       'got ' + found.corners.length + ' - ' + JSON.stringify(found.corners.map(c => [c.x, Math.round(c.y)])));
@@ -33956,6 +33967,119 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   check('S149', 'and corners are cleared when a new house is loaded',
     /rmCorners = \[\]; rmCornerMode = 'select'; rmSwapFrom = null;/.test(admin),
     'the next address would otherwise open with the last one roofline on it');
+}
+
+
+suite('150. Measure Roof - a corner is placed from the street, by two views agreeing');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "its using skyview to place corners which is bad it should use
+     street view only to detect where corners are", and "you need depth,
+     height, and length to find the actual size of a line and sky view cant
+     give height."
+     One photograph cannot give depth. Two can: the same corner seen from two
+     places gives two rays that cross where it is. Nothing from above is
+     involved - which is the whole point. */
+  const NEED = ['rmRayClosest', 'rmTriangulateCorners', 'rmPhotoRay', 'rmBasis'];
+  const missing = NEED.filter(n => !pick(n));
+  const consts = ['RM_TRI_MAX_GAP_M', 'RM_TRI_MIN_BASE_M', 'RM_TRI_MERGE_M']
+    .map(n => (admin.match(new RegExp('^const ' + n + '.*?;', 'm')) || [''])[0]);
+  check('S150', 'every triangulation threshold was really found',
+    consts.every(Boolean), 'missing one of the constants');
+  if (missing.length || !consts.every(Boolean)) {
+    check('S150', 'the triangulation is findable', false, 'missing: ' + missing.join(', '));
+  } else {
+    const api = new Function('const rmRad = d => d*Math.PI/180;' + LF_ +
+      consts.join(LF_) + LF_ + ['rmBasis','rmPhotoRay','rmRayClosest'].map(pick).join(LF_) + LF_ +
+      'return {closest: rmRayClosest, ray: rmPhotoRay};')();
+
+    /* ---- two rays that cross ----------------------------------------- */
+    const target = {e: 2, n: 4, u: 6};
+    const camA = {e: -12, n: -20, u: 2.5};
+    const camB = {e: 12, n: -20, u: 2.5};
+    const unit = (c, t) => { const d = {e: t.e-c.e, n: t.n-c.n, u: t.u-c.u};
+      const l = Math.hypot(d.e,d.n,d.u); return {e:d.e/l, n:d.n/l, u:d.u/l}; };
+    const meet = api.closest(camA, unit(camA, target), camB, unit(camB, target));
+    check('S150', 'two rays aimed at one corner meet exactly there',
+      meet && Math.hypot(meet.pt.e-target.e, meet.pt.n-target.n, meet.pt.u-target.u) < 0.01 && meet.gap < 0.01,
+      meet ? 'landed ' + Math.hypot(meet.pt.e-target.e, meet.pt.n-target.n, meet.pt.u-target.u).toFixed(3) +
+             ' m out with a gap of ' + meet.gap.toFixed(3) : 'no crossing found');
+    /* ⚠ THE GAP IS THE EVIDENCE. Two rays in space almost never come within a
+       few centimetres by accident, which is what lets corners be matched
+       between views without describing them at all. */
+    const other = {e: -6, n: 9, u: 3};
+    const wrong = api.closest(camA, unit(camA, target), camB, unit(camB, other));
+    check('S150', 'rays aimed at DIFFERENT corners do not pretend to meet',
+      !wrong || wrong.gap > 0.45,
+      'gap came out ' + (wrong ? wrong.gap.toFixed(2) : 'null') + ' m - if that is small, ' +
+      'every corner matches every other and the whole method collapses');
+    check('S150', 'a ray pointing away from the corner is refused',
+      api.closest(camA, unit(camA, target), camB, {e:-unit(camB,target).e, n:-unit(camB,target).n, u:-unit(camB,target).u}) === null,
+      'a crossing behind the camera is not a crossing');
+    check('S150', 'and two parallel rays never cross',
+      api.closest(camA, {e:0,n:1,u:0}, camB, {e:0,n:1,u:0}) === null);
+
+    /* ---- height comes out of it, which is the whole point ------------ */
+    /* Owner: "sky view cant give height". Two street views can, and this is
+       the check that says so - the corner is six metres up and nothing from
+       above was consulted. */
+    check('S150', 'the HEIGHT of a corner falls out of two street views',
+      meet && Math.abs(meet.pt.u - 6) < 0.01,
+      'got ' + (meet ? meet.pt.u.toFixed(2) : '?') + ' m, the corner is 6 m up');
+
+    /* ---- a baseline is required -------------------------------------- */
+    const triApi = new Function('const rmRad = d => d*Math.PI/180;' + LF_ +
+      consts.join(LF_) + LF_ +
+      'let rmBuilding = null; let rmOrigin = {lat:40.2969,lng:-111.6946};' + LF_ +
+      (admin.match(/^const RM_STAY_ON_HOUSE_M.*?;/m) || [''])[0] + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFootprintBox','rmInsideFootprint',
+       'rmBasis','rmPhotoRay','rmRayClosest','rmTriangulateCorners'].map(pick).join(LF_) + LF_ +
+      'return rmTriangulateCorners;')();
+    const mkView = (cam, pts) => {
+      const W = 400, H = 400, pose = {heading: 0, pitch: 0, fov: 70};
+      const focal = (W/2)/Math.tan(rmRadJs(pose.fov)/2);
+      function rmRadJs(d){ return d*Math.PI/180; }
+      const corners = pts.map(function(t){
+        /* project the target into this view by hand, so the fixture does not
+           lean on the very code it is testing */
+        const v = {e: t.e-cam.e, n: t.n-cam.n, u: t.u-cam.u};
+        const f = v.n, r = v.e, up = v.u;      /* heading 0, pitch 0 */
+        return {x: W/2 + focal*r/f, y: H/2 - focal*up/f};
+      });
+      return {cam: cam, pose: pose, w: W, h: H, corners: corners};
+    };
+    function rmRadJs(d){ return d*Math.PI/180; }
+    const A = mkView(camA, [target]), B = mkView(camB, [target]);
+    const got = triApi(A, B);
+    check('S150', 'two views agree on the corner and place it correctly',
+      got.points.length === 1 &&
+      Math.hypot(got.points[0].e-target.e, got.points[0].n-target.n, got.points[0].u-target.u) < 0.05,
+      JSON.stringify(got.points));
+    /* ⚠ Two views a metre apart cannot judge depth however sharp the corners
+       are - the rays are almost the same ray, and a tiny error in either
+       throws the crossing metres away. */
+    const near = mkView({e: -12.5, n: -20, u: 2.5}, [target]);
+    check('S150', 'two views too close together are refused rather than trusted',
+      triApi(A, near).points.length === 0,
+      'a short baseline turns a pixel of error into metres of depth');
+  }
+
+  /* ---- and the placement no longer asks the roof model -------------- */
+  const det = pick('rmDetectCornersFromStreet');
+  check('S150', 'corner placement never consults the roof planes',
+    !!det && !/rmFacePlane/.test(det),
+    'a corner found in the street and placed from above is a sky-view corner in a street-view coat');
+  check('S150', 'it looks from several places along the road',
+    !!det && /rmFindPanosAround/.test(det) && /views\.length < 4/.test(det),
+    'owner: "look for corners at every single angle the you can see the house"');
+  check('S150', 'and it says so plainly when there is only one angle',
+    !!det && /only driven past this house once/.test(det),
+    'a house with one photo cannot be measured this way, and guessing anyway is the old bug');
+  check('S150', 'every pair of views is tried, not just the first two',
+    !!det && /for\(let j = i \+ 1; j < views\.length; j\+\+\)/.test(det),
+    'a corner hidden from one angle is still caught by two others');
 }
 
 Promise.all(pendingAsync).then(function () {
