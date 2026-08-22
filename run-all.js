@@ -32064,8 +32064,107 @@ suite('Suite 141. The grid the season is actually cut with');
     }
   }
 
+  /* ⭐ THE FAR AWAY TAB IS WIRED THE FOUR WAYS A TAB HAS TO BE (added 2026-08-22).
+     Owner: "if a house is really that far out then its for my dad to do."
+     ⚠ THREE OF THESE FOUR ARE TRAPS CLAUDE.md NAMES BY NAME, because each fails
+     silently in a different way: a pane missing from syncTabs never hides and sits
+     underneath whichever tab is showing; a renderer nothing calls leaves a blank
+     panel with no error; and a button with no pane throws on load. */
+  {
+    check('grid', 'the Far Away tab has a button and a pane',
+      /data-tab=\\"faraway\\"/.test(admin) && /id=\\"pane-faraway\\"/.test(admin) &&
+      /id=\\"farAwayPane\\"/.test(admin),
+      'a button with no pane throws on load; a pane with no button is unreachable');
+    check('grid', 'and the pane is named in syncTabs, or it never hides',
+      /\['schedule','fixes','oneman','faraway','printing','takedowns'\]/.test(admin),
+      'a pane left out of that list stays visible underneath whichever tab is open — ' +
+      'this repo has been bitten by it twice');
+    check('grid', 'and something actually calls renderFarAway',
+      /activeTab==='faraway'\)\{renderFarAway\(\)/.test(admin) &&
+      /function renderFarAway\(/.test(admin),
+      'a renderer nothing calls is a blank panel with no error to explain it');
+    check('grid', 'and it reads the two lists rather than keeping its own',
+      /renderFarAway[\s\S]{0,1200}SEASON_OUTLIERS[\s\S]{0,400}SEASON_THIN/.test(admin),
+      'a stored copy is right the day it is written and wrong every day after — the ' +
+      'same rule One Man Installs follows');
+    check('grid', 'the crew bar is hidden on it, like the other list-only tabs',
+      /activeTab==='oneman'\|\|activeTab==='faraway'\|\|activeTab==='printing'/.test(admin),
+      'there is no crew to pick on a list nobody is rostered for');
+  }
+
   pendingAsync.push((async () => {
     const grid = await import('./js/grid.js');
+
+    /* ⭐ THE CREW SPLIT, RUN ON THE REAL CURVE (added 2026-08-22).
+       Every other harness lifts dayCrewHouses WITHOUT the grid, so dayCrewSplitGeo
+       returns null there and the old town split is what gets exercised. That is
+       deliberate and keeps those checks meaningful — and it means the split the
+       office will actually see is the one path nothing covered. Twice now that gap
+       has hidden a missing import that would have left a feature silently dead in
+       production, so this drives the real function with the real cellOf and
+       hilbertIndex. Only houseStopPoint is stubbed, because reading a coordinate
+       off a customer record is somebody else's test. */
+    {
+      const LF = String.fromCharCode(10);
+      const gs = admin.indexOf('function dayCrewSplitGeo(day){');
+      const ge = admin.indexOf(LF + '}', gs) + 2;
+      if (gs === -1) {
+        check('grid', 'the crew split is findable', false, 'renamed — update this test');
+      } else {
+        const sandbox = {};
+        new Function('cellOf', 'hilbertIndex', 'ctx',
+          'function crewCap(){return 20;}' +
+          'function houseStopPoint(h){return {lat:h.lat,lng:h.lng};}' +
+          admin.slice(gs, ge) +
+          'ctx.split = dayCrewSplitGeo;'
+        )(grid.cellOf, grid.hilbertIndex, sandbox);
+
+        /* Two clumps a few miles apart, fed in deliberately interleaved so a split
+           that simply cuts the list in half would put half of each clump on each
+           crew — which is the failure this exists to catch. */
+        const houses = [];
+        for (let i = 0; i < 8; i++) {
+          houses.push({ name: 'west' + i, lat: 40.38 + i * 0.002, lng: -111.90 + i * 0.002 });
+          houses.push({ name: 'east' + i, lat: 40.44 + i * 0.002, lng: -111.72 + i * 0.002 });
+        }
+        const res = sandbox.split({ houses: houses });
+        check('grid', 'the day is cut into two halves that are each in one place',
+          !!res &&
+          res[0].every(h => /^west/.test(h.name)) && res[1].every(h => /^east/.test(h.name)) ||
+          !!res &&
+          res[0].every(h => /^east/.test(h.name)) && res[1].every(h => /^west/.test(h.name)),
+          'interleaved input must come apart by GEOGRAPHY, not by list position — got ' +
+          (res ? res.map(c => c.map(h => h.name).join('+')).join('  |  ') : 'null'));
+
+        check('grid', 'every house on the day is held by one crew and only one',
+          !!res && res[0].length + res[1].length === houses.length &&
+          new Set(res[0].concat(res[1])).size === houses.length,
+          'a house no crew is holding a sheet for is a house nobody drives to');
+
+        check('grid', 'neither crew is given more than a crew-day',
+          !!res && res[0].length <= 20 && res[1].length <= 20);
+
+        /* ⚠ A HOUSE WITH NO PIN IS STILL SOMEBODY'S. It cannot be placed on the
+           curve, and leaving it out would quietly drop a real customer. */
+        const withBare = houses.concat([{ name: 'nopin', lat: null, lng: null }]);
+        const res2 = sandbox.split({ houses: withBare });
+        check('grid', 'a house with no map pin is still dealt to a crew',
+          !!res2 && res2[0].concat(res2[1]).some(h => h.name === 'nopin') &&
+          res2[0].length + res2[1].length === withBare.length,
+          'it is a real customer somebody has to be holding the sheet for');
+
+        check('grid', 'the same day splits the same way twice',
+          JSON.stringify(sandbox.split({ houses: houses }).map(c => c.map(h => h.name))) ===
+          JSON.stringify(res.map(c => c.map(h => h.name))),
+          'the office comparing two draws should see real differences only');
+
+        check('grid', 'a day with nothing on the map falls back rather than guessing',
+          sandbox.split({ houses: [{ name: 'a' }, { name: 'b' }] }) === null,
+          'null is what sends dayCrewHouses to the old town split, which is the ' +
+          'right answer when there is nothing to measure');
+      }
+    }
+
 
     /* A book shaped like the real one: a dense strip, a second cluster, a thin
        tail, and one house on its own. Deterministic, so a failure is reproducible. */
