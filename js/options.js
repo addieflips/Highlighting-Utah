@@ -167,10 +167,11 @@ export const OPTIONS = [
     type: 'count',
     min: 1,
     max: 4,
-    /* ⚠ NO DEFAULT. The reader below deliberately returns undefined when
-       nothing is recorded, so declaring one here would describe behaviour the
-       reader does not have. */
-    required: true,
+    default: 1,
+    /* ⚠ NOT `required`. It always has a value — see the default below — so
+       listing it would put a row on the office's chase list that can never be
+       actioned. Same reasoning as numberOfBins. */
+    required: false,
     /* ⚠ NOT a price input. Changing it raises a re-quote because the FOOTAGE
        changes, and the footage is what is charged. The comment at
        functions/index.js:1066 says changing sides "changes the PRICE" — true
@@ -178,20 +179,29 @@ export const OPTIONS = [
     affectsPrice: false,
     /* ⚠ THE OLD SHAPE STILL COUNTS. Records saved before 2026-08-19 hold an
        array of side names; newer ones hold a count. Both have to read.
-       ⚠ AND NOTHING RECORDED READS AS NOTHING — undefined, so the sheet prints
-       `none` and missingAnswers() chases it. admin.html's own `houseSideCount`
-       returns HOUSE_SIDES_DEFAULT (1) for a blank instead, which is R-002's
-       failure wearing a different hat: "nobody asked" comes out as "one side",
-       and a crew lights one side of a house that may need three. The registry is
-       the spec and the spec is honest; reconciling the two is part of wiring
-       this up (plan §3.3), and is deliberately NOT done here — changing what
-       houseSideCount returns moves real customers' sheets. */
+
+       ⭐ ONE SIDE IS THE DEFAULT, AND THE DEFAULT IS LOAD-BEARING. Addie,
+       2026-08-21: "if not answered the system can automatically choose 1."
+
+       ⚠ I FIRST WROTE THIS TO RETURN undefined FOR A BLANK, calling the default
+       an R-002 violation — "nobody asked" printing as "one side". That was
+       wrong, and the reason is written at functions/index.js:1079: this value is
+       one half of `updates.houseSides !== before`, which RAISES A RE-QUOTE. A
+       default on one side of that comparison and a blank on the other sends a
+       re-quote to every customer whose sides were never written down, for a
+       change nobody made. An honest-looking undefined here would have been a
+       fourth reading of one field, disagreeing with the three that exist.
+
+       ⚠ SO THIS MUST MATCH, EXACTLY: houseSideCount (admin.html:17643),
+       portalSideCount (index.html:4695) and asCount (functions/index.js:1083).
+       That is now FOUR copies of one normaliser — the same duplication problem
+       as the invoice maths. When this registry is wired (plan §3.3), the other
+       three should call it rather than keeping their own. */
     value: (c) => {
       const v = c.houseSides;
-      if (Array.isArray(v)) return Math.min(4, v.filter(Boolean).length) || undefined;
-      if (v === undefined || v === null || v === '') return undefined;
-      const n = Number(String(v).replace(/[^0-9]/g, ''));
-      return n >= 1 && n <= 4 ? n : undefined;
+      if (Array.isArray(v)) return Math.min(4, v.filter(Boolean).length) || 1;
+      const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
+      return n >= 1 && n <= 4 ? n : 1;
     },
     consumers: ['quote', 'confirmation', 'customer', 'crewSheet', 'routes', 'schedule'],
   },

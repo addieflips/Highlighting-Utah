@@ -201,9 +201,37 @@ narrowing as to catch accidental gaps.
 — that has been true since 2026-08-19, when four named sides were replaced by a
 count. Nothing limits anyone to one side.
 
-What I flagged is narrower and still stands: when the question has **never been
-answered**, `houseSideCount` returns 1 rather than "not answered". So a house
-nobody asked looks identical to a house that genuinely wants one side, and a
-crew lights one side of a house that may need three. The registry reads an
-unanswered count as undefined so it prints `none`; reconciling that with
-`houseSideCount` moves real customers' sheets and waits for §3.3.
+**③ And the side-count default was not a bug either — withdrawn.** I flagged
+`houseSideCount` returning 1 for an unanswered count as R-002's failure in
+disguise. Addie: *"if not answered the system can automatically choose 1."*
+
+She is right, and the reason is stronger than preference. It is written at
+`functions/index.js:1079`: that value is **one half of
+`updates.houseSides !== before`, which raises a re-quote.** A default on one side
+of that comparison and a blank on the other sends a re-quote to every customer
+whose sides were never written down, for a change nobody made. The registry
+briefly returned `undefined` for a blank — which would have been a **fourth**
+reading of one field, disagreeing with the three that exist. That was the bug,
+not the default.
+
+⚠ Which surfaces a real duplication: `houseSideCount` (admin.html:17643),
+`portalSideCount` (index.html:4695), `asCount` (functions/index.js:1083) and now
+the registry are **four copies of one normaliser** — the same shape of problem as
+the invoice maths. When the registry is wired (§3.3), the other three should call
+it instead of keeping their own.
+
+---
+
+## 9. A note on how these three were found
+
+Two of my three "findings" were wrong, and both in the same way: **existing
+behaviour that looked like a defect was a deliberate decision nobody had written
+down.** The Thanksgiving spread was a policy; the side default is load-bearing
+for re-quote stability.
+
+The tell in both cases was available and I did not look for it — a comment
+explaining WHY, a few thousand lines away, in a file I had not opened. The
+working rule for the rest of this plan: before recording existing behaviour as a
+hole, find out why it is that way. `git log -S` and the comment beside the code
+answer it in seconds, and the registry is a better place to record the answer
+than a bug list.

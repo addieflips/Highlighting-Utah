@@ -185,12 +185,26 @@ function check(label, ok, detail) {
   /* Rendered against a customer who answered NOTHING: every line must still be
      present. This is the check that would catch someone "tidying up" the empty
      rows out of a sheet. */
-  const blankCustomer = {};
-  const blankSheet = crewSheet(blankCustomer);
+  const blankSheet = crewSheet({});
   const crewOptions = OPTIONS.filter(o => o.consumers.includes('crewSheet'));
+
   check('a crew sheet for a customer with no answers still prints every line',
-    crewOptions.every(o => blankSheet.includes(o.label + ': none')),
+    crewOptions.every(o => blankSheet.includes(o.label + ':')),
     'an omitted line is an answer nobody can verify');
+
+  /* R-002 is about an option with NO VALUE. One that declares a default always
+     has one, so it prints the default rather than `none` — and should. Splitting
+     the check this way says which rule applies to which option, instead of
+     asserting `none` everywhere and then loosening it when a default appears. */
+  check('every crew-sheet option with no default prints "none" when unanswered (R-002)',
+    crewOptions.filter(o => o.default == null)
+               .every(o => blankSheet.includes(o.label + ': none')),
+    'silence and "they did not want it" must never look alike');
+
+  check('an option with a default prints the default, not "none"',
+    crewOptions.filter(o => o.default != null)
+               .every(o => blankSheet.includes(o.label + ': ' + o.default)),
+    'a declared default that does not render is a default in name only');
 
   // -------------------------------------------------------------------------
   // 4. THE ARTIFACTS RENDER WHAT THEY DECLARE, AND ONLY THAT
@@ -264,16 +278,17 @@ function check(label, ok, detail) {
     valueOf(sides, { houseSides: '2 sides' }) === 2,
     'records saved before 2026-08-19 hold an array — reading only the count loses them');
 
-  /* ⚠ AND NOTHING RECORDED READS AS NOTHING. admin.html's houseSideCount returns
-     1 for a blank, which makes "nobody asked" look like "one side" on a crew
-     sheet — R-002's failure in a different hat. The registry is honest; the two
-     are reconciled when this is wired up (plan §3.3), not before, because
-     changing houseSideCount moves real customers' sheets today. */
-  check('an unrecorded side count is undefined, not silently 1',
-    valueOf(sides, {}) === undefined &&
-    valueOf(sides, { houseSides: '' }) === undefined &&
-    display(sides, valueOf(sides, {})) === 'none',
-    'defaulting a missing answer to 1 lights one side of a house that may need three');
+  /* ⭐ AN UNRECORDED COUNT IS 1, AND MUST BE. This looked like R-002's failure
+     and is not: the value is one half of the comparison that raises a re-quote
+     (functions/index.js:1079), so a blank on one side and a default on the other
+     re-quotes every customer whose sides were never written down. These four
+     readers have to agree — houseSideCount, portalSideCount, asCount, and this. */
+  check('an unrecorded side count defaults to 1, matching the other three readers',
+    valueOf(sides, {}) === 1 &&
+    valueOf(sides, { houseSides: '' }) === 1 &&
+    valueOf(sides, { houseSides: 'nonsense' }) === 1 &&
+    valueOf(sides, { houseSides: 9 }) === 1,
+    'a fourth reading of this field that disagrees with the other three sends spurious re-quotes')
 
   const lights = OPTIONS.find(o => o.id === 'lightsDescription');
   check('light colours read from either field',
