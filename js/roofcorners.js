@@ -323,6 +323,21 @@ export function directionReversals(line, i, window){
  * outline carries straight on while the distance jumps. At a real roof corner the outline
  * itself turns. Measure the turn in direction space and the model cannot influence it.
  *
+ * ⚠ THIS IS A SEPARATOR, NOT A SEAM DETECTOR, AND I FIRST WROTE IT UP AS THE WRONG ONE.
+ * I claimed "model seams turn 1.7 to 2.7 degrees" on the strength of a simulation that
+ * put the seams on a dead-straight eave — where, by construction, there is no corner for
+ * them to coincide with. lanil-9d then measured the live tool on a real house and got the
+ * opposite: of six distance jumps, FOUR turned by 14 to 89 degrees. Google bounds its roof
+ * segments where the roof actually changes, so on a real house a seam very often sits ON
+ * a genuine feature. Only two of the six turned by nothing at all.
+ *
+ * So the table to keep in mind is not "seams look like this", it is:
+ *      jumps in distance AND turns   -> a real corner that happens to sit on a seam. Keep.
+ *      jumps in distance, no turn    -> the model being joined. Demote.
+ * A number above the threshold is the test working, not the test failing. Anyone reading
+ * a high kink on a known seam and concluding it is broken has the same wrong premise I
+ * started with.
+ *
  * Returns degrees between the incoming and outgoing directions, or null. */
 export function angularKinkDeg(line, i, window){
   const w = window == null ? 4 : window;
@@ -500,13 +515,31 @@ export function roofCornerCandidates(depth, opts){
          turn, this is not a corner of the roofline, whatever the distance did.
          ⛔ EXCEPT over a genuine overlap, where a near roof CAN end against a far one
          with the outline running straight on — and there the depth ratio is large and
-         says so. Measured: real corners turn 48-96 deg, model seams turn 1.7-2.7. */
-      const kink = angularKinkDeg(run, i, Math.max(2, Math.round(spikeCols / 2)));
-      if(!onDepthEdge && kink != null && kink < seamKinkDeg){
+         says so.
+
+         ⭐ TWO WINDOWS, BECAUSE THE MARGINAL ONES MOVE. lanil-9d's live measurement:
+         one column read 0.0 deg at three columns and 10.2 at five; another 18.1 against
+         32.5. A candidate sitting near the window boundary gets a very different answer
+         for no good reason, and a wrong 0.0 arrives looking like certainty. So it is
+         measured near and wide, and when the two disagree across the threshold the
+         candidate is marked MARGINAL and demoted gently instead of being buried. Only a
+         point that fails both is treated as the model rather than the house. */
+      const kinkNear = angularKinkDeg(run, i, Math.max(2, Math.round(spikeCols / 2)));
+      const kinkWide = angularKinkDeg(run, i, Math.max(3, spikeCols - 1));
+      const kink = kinkNear;
+      const both = [kinkNear, kinkWide].filter(function(v){ return v != null; });
+      const lowest = both.length ? Math.min.apply(null, both) : null;
+      const highest = both.length ? Math.max.apply(null, both) : null;
+      if(!onDepthEdge && lowest != null && lowest < seamKinkDeg && highest < seamKinkDeg){
         confidence *= 0.2;
         why.push('the distance jumps here but the outline does not turn (' +
-                 kink.toFixed(1) + ' deg) — that is where the roof MODEL is joined ' +
+                 lowest.toFixed(1) + ' deg) — that is where the roof MODEL is joined ' +
                  'together, not necessarily where the house has a corner');
+      } else if(!onDepthEdge && lowest != null && lowest < seamKinkDeg){
+        confidence *= 0.6;
+        why.push('the outline barely turns here — ' + lowest.toFixed(1) + ' deg close in ' +
+                 'but ' + highest.toFixed(1) + ' deg looking wider, so this is a marginal ' +
+                 'call rather than a clear corner');
       } else if(onDepthEdge){
         why.push('the outline steps in depth here — two things overlap, ' +
                  'so this point is taken from the nearer one');
@@ -515,6 +548,9 @@ export function roofCornerCandidates(depth, opts){
         column: pt.x, col: pt.x, row: pt.y,
         onDepthEdge: onDepthEdge,
         kinkDeg: kink,
+        kinkWideDeg: kinkWide,
+        kinkMarginal: (lowest != null && highest != null &&
+                       lowest < seamKinkDeg && highest >= seamKinkDeg),
         distanceM: pt.distance,
         heightM: (camH != null) ? camH + pt.p[2] : null,
         local: {x: pt.p[0], y: pt.p[1], up: pt.p[2]},

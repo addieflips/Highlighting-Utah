@@ -35513,6 +35513,48 @@ suite('252. The silhouette against a real sky');
       Math.abs(rc.angularKinkDeg(seamed(true, gableShape), 32, 3) -
                rc.angularKinkDeg(seamed(false, gableShape), 32, 3)) < 1e-9,
       'the seams shift every distance on the run and must not move the measured turn at all');
+
+    /* ⭐ SIX REAL DISTANCE JUMPS, MEASURED ON THE LIVE TOOL BY lanil-9d, yard house,
+       640 columns. Kept as a fixture because it corrected a premise I had built on:
+       I claimed model seams turn 1.7-2.7 deg, from a simulation that put them on a
+       dead-straight eave where by construction no corner could coincide. On a real house
+       FOUR of these six turn by 14-89 deg — Google bounds its roof segments where the
+       roof actually changes, so a seam usually sits ON a genuine feature.
+       ⚠ A HIGH KINK ON A KNOWN SEAM IS THE TEST WORKING, NOT FAILING. */
+    const LIVE_JUMPS = [
+      { col: 183, jump: 0.55, near: 88.6, wide: 70.1, want: 'corner' },
+      { col: 373, jump: 0.60, near: 0.0, wide: 10.2, want: 'marginal' },
+      { col: 381, jump: 3.70, near: 18.1, wide: 32.5, want: 'corner' },
+      { col: 392, jump: 0.49, near: 14.1, wide: 21.6, want: 'corner' },
+      { col: 399, jump: 0.30, near: 46.1, wide: 28.9, want: 'corner' },
+      { col: 447, jump: 0.62, near: 0.0, wide: 0.0, want: 'model' },
+    ];
+    const verdict = (r) => {
+      const lo = Math.min(r.near, r.wide), hi = Math.max(r.near, r.wide);
+      return (lo < rc.SEAM_KINK_DEG && hi < rc.SEAM_KINK_DEG) ? 'model'
+           : (lo < rc.SEAM_KINK_DEG) ? 'marginal' : 'corner';
+    };
+    check('skyline', 'the seam rule reaches the same verdict a person did on real jumps',
+      LIVE_JUMPS.every(r => verdict(r) === r.want),
+      'six measured jumps: ' + LIVE_JUMPS.map(r => r.col + ' wanted ' + r.want +
+        ' got ' + verdict(r)).join(', '));
+
+    check('skyline', 'and only the jump that turns by nothing at all is called the model',
+      LIVE_JUMPS.filter(r => verdict(r) === 'model').length === 1,
+      'four of six real seams ARE corners — treating seams as artefacts by default ' +
+      'would have thrown away most of this house');
+
+    /* ⚠ THE WINDOW MOVES THE MARGINAL ONES. 0.0 deg at three columns and 10.2 at five is
+       the same point; a wrong 0.0 arriving alone looks like certainty. */
+    check('skyline', 'a call that changes with the window is reported as marginal, not certain',
+      verdict(LIVE_JUMPS[1]) === 'marginal' && LIVE_JUMPS[1].near === 0 &&
+      LIVE_JUMPS[1].wide > rc.SEAM_KINK_DEG,
+      'measuring near and wide is what makes a marginal call visible as marginal');
+
+    const marg = rc.roofCornerCandidates(stub, { skyline: seamed(true, gableShape),
+      cameraHeightM: 2.5, toleranceM: 0.35 });
+    check('skyline', 'and every candidate carries both turns, so the caller can see the spread',
+      marg.every(c => 'kinkDeg' in c && 'kinkWideDeg' in c && 'kinkMarginal' in c));
   })());
 }
 
