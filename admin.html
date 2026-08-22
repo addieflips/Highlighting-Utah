@@ -4353,6 +4353,9 @@
             #roofMeasureOverlay .rm-sidebtn{border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 11px; font-size:11.5px; font-weight:600; cursor:pointer;}
             #roofMeasureOverlay .rm-sidebtn.on{background:var(--gold-dim); border-color:var(--gold-dim);}
             #roofMeasureOverlay .rm-sidebtn:disabled{opacity:.4; cursor:not-allowed;}
+            #roofMeasureOverlay .rm-cornerbtn{border:1px solid var(--line); background:#fff; color:var(--slate); border-radius:7px; min-width:26px; padding:3px 6px; font-size:12px; font-weight:800; cursor:pointer; font-variant-numeric:tabular-nums;}
+            #roofMeasureOverlay .rm-cornerbtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+            #roofMeasureOverlay .rm-cornerbtn.rm-swapping{outline:2px solid var(--gold-dim); outline-offset:1px;}
             #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--paper);}
             #roofMeasureOverlay .rm-panel h4{margin:0 0 2px; font-size:13.5px; font-weight:700;}
             #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 10px; font-size:11.5px; color:var(--slate);}
@@ -4420,6 +4423,17 @@
                 <!-- Front is on by default; the rest are one click each. The
                      count on each button is what makes an empty side obvious
                      rather than a button that appears to do nothing. -->
+                <!-- The corners the detector found. Each has a key: press it to
+                     switch that corner in or out of the line. Space swaps
+                     between picking and placing. Shift-click two to swap
+                     their places in the order. -->
+                <div id="rmCornerBar" style="display:none; margin-top:10px;">
+                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">
+                    Corners &mdash; <span id="rmCornerMode">Picking corners &mdash; space to place a dot</span>
+                  </div>
+                  <div id="rmCornerNote" style="font-size:11px; color:var(--dusk); margin-bottom:5px;"></div>
+                  <div id="rmCornerList" style="display:flex; gap:4px; flex-wrap:wrap;"></div>
+                </div>
                 <div id="rmSidesBar" style="display:none; margin-top:10px;">
                   <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">Sides of the house</div>
                   <div style="display:flex; gap:5px; flex-wrap:wrap;">
@@ -15774,7 +15788,7 @@ function rmSobel(img){
       gx[i] = sx; gy[i] = sy; mag[i] = Math.hypot(sx, sy);
     }
   }
-  return {w: W, h: H, gx: gx, gy: gy, mag: mag};
+  return {w: W, h: H, gx: gx, gy: gy, mag: mag, lum: lum};
 }
 
 /* ONE SAMPLE'S ANSWER TO "HOW HIGH IS THE EAVE?"
@@ -16157,6 +16171,301 @@ async function rmSnapLinesToSky(){
 
 const rmDeg = r => r * 180 / Math.PI;
 
+/* ⚠ WHAT A DORMER ACTUALLY IS, so nothing here tries to tidy one away.
+   Owner: "dormers normally have 6 sides or 7 corners because they kind of cut
+   in front on both sides and cut deep on both side and on the house on the
+   side closer to the trees has another corner right below the dormer where
+   after it runs deep it has to connect to that next side on top."
+
+   Seven corners, and only some of them are against the sky: the two at the
+   top of its face and the two where its sides begin are on the skyline, but
+   the ones where it meets the main roof below are not - they are roof against
+   roof, a soft edge in a photograph and often no edge at all. That is the
+   honest reason this tool detects what it can SEE and lets somebody place the
+   rest with a click, rather than pretending to work the whole shape out. It is
+   also why the simplifier's tolerance is small: merging two corners a few
+   pixels apart would quietly turn a dormer into a bump. */
+
+/* ============ THE CORNERS THE OFFICE ACTUALLY PICKS =====================
+   Owner: "it should just have a corner detector and not assume which ones you
+   want just assign a number (or letter if 0-9 runs out) where you toggle a
+   corner on or off, and also have a way to add a corner", then: "have it be
+   easy to create a corner, something like space bar toggles select from make a
+   dot", and: "make a way to swap to numbers if you want to change the order
+   then it recalculates all the dots numbers by doing something like hold shift
+   click the number you want and pick the one you want to switch it with."
+
+   So the tool stops guessing which lines somebody wants. It finds every corner
+   it can see and NAMES them - 0 to 9, then A to Z when those run out - and the
+   line is whatever the switched-on corners join up to make, in their numbered
+   order. Picking is one keystroke per corner; adding one is a click; and the
+   order can be rearranged without starting again.
+
+   ⚠ THE ORDER IS THE LINE. Two corners joined in the wrong order run the
+   string diagonally across a roof, so swapping a pair has to renumber
+   everything after it, not just relabel two dots. */
+let rmCorners = [];              /* {lat, lng, h, on} in the order they join */
+let rmCornerMode = 'select';     /* 'select' picks corners, 'dot' places them */
+let rmSwapFrom = null;           /* the first half of a shift-click swap */
+
+const RM_LABELS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function rmCornerLabel(i){ return i < RM_LABELS.length ? RM_LABELS[i] : '?'; }
+function rmCornerAt(label){
+  const i = RM_LABELS.indexOf(String(label).toUpperCase());
+  return (i >= 0 && i < rmCorners.length) ? i : -1;
+}
+
+/* Swap two corners' places in the order. Everything renumbers itself, because
+   the number IS the position - there is nothing else to update. */
+function rmSwapCorners(i, j){
+  if(i < 0 || j < 0 || i >= rmCorners.length || j >= rmCorners.length || i === j) return false;
+  const tmp = rmCorners[i];
+  rmCorners[i] = rmCorners[j];
+  rmCorners[j] = tmp;
+  rmCornersChanged();
+  return true;
+}
+
+function rmToggleCorner(i){
+  if(i < 0 || i >= rmCorners.length) return false;
+  rmCorners[i].on = !rmCorners[i].on;
+  rmCornersChanged();
+  return true;
+}
+
+function rmAddCorner(pt){
+  if(!pt) return false;
+  rmCorners.push({lat: pt.lat, lng: pt.lng, h: pt.h || rmDatum().m, on: true, byHand: true});
+  rmCornersChanged();
+  return true;
+}
+
+function rmRemoveLastCorner(){
+  for(let i = rmCorners.length - 1; i >= 0; i--){
+    if(rmCorners[i].byHand){ rmCorners.splice(i, 1); rmCornersChanged(); return true; }
+  }
+  return false;
+}
+
+/* The switched-on corners, joined in order, ARE the run. */
+function rmCornersToRun(){
+  const on = rmCorners.filter(function(c){ return c.on; });
+  rmRuns = rmRuns.filter(function(r){
+    if(!r.fromCorners) return true;
+    if(r.line) r.line.setMap(null);
+    (r.dots || []).forEach(function(d){ d.setMap(null); });
+    return false;
+  });
+  if(on.length < 2) return null;
+  const run = {
+    type: 'perimeter', fromCorners: true, on: true, suggested: false, touched: true,
+    path: on.map(function(c){ return {lat: c.lat, lng: c.lng, h: c.h}; }),
+    line: null, dots: []
+  };
+  rmRuns.push(run);
+  rmSyncSky(run);
+  return run;
+}
+
+function rmCornersChanged(){
+  rmCornersToRun();
+  rmRenderResults();
+  rmPaintStreet();
+  rmRenderCornerBar();
+}
+
+/* The strip of numbers under the pictures: what exists, and what is on. */
+function rmRenderCornerBar(){
+  const bar = document.getElementById('rmCornerBar');
+  if(!bar) return;
+  bar.style.display = rmCorners.length ? 'block' : 'none';
+  const mode = document.getElementById('rmCornerMode');
+  if(mode) mode.textContent = rmCornerMode === 'dot' ? 'Placing dots — space to go back to picking'
+                                                     : 'Picking corners — space to place a dot';
+  const list = document.getElementById('rmCornerList');
+  if(!list) return;
+  list.innerHTML = rmCorners.map(function(c, i){
+    const sel = rmSwapFrom === i ? ' rm-swapping' : '';
+    return '<button type="button" class="rm-cornerbtn' + (c.on ? ' on' : '') + sel +
+           '" data-rmcorner="' + i + '" title="' + (c.on ? 'on' : 'off') +
+           ' — shift-click to swap its place">' + rmCornerLabel(i) + '</button>';
+  }).join('');
+}
+
+/* ============ FINDING THE CORNERS, FROM THE PHOTOGRAPH ==================
+   Owner: "make it have a corner detector, so its looking for corners from
+   street view and then it just connects them, look for corners at every single
+   angle the you can see the house and then use the logic system to know which
+   ones to use."
+
+   THE INSIGHT THAT MAKES THIS TRACTABLE: the SKYLINE is the roofline. Where a
+   roof meets the sky is the highest-contrast boundary in any photograph of a
+   house - bright, uniform sky above; dark roof below - and it is exactly the
+   line lights are hung along. Its VERTICES are the corners: the peak of every
+   gable, the end of every eave, the step where one roof meets a taller one.
+   That is far easier to find, and far more reliable, than hunting corners
+   anywhere in a picture full of windows, bricks and shrubs.
+
+   ⚠ AND IT IS HOW CHIMNEYS ARE REJECTED. Owner: "be sure to not catch
+   satelites and chineys in a corner detector." A chimney, a vent stack and a
+   dish all break the skyline - but they break it as a NARROW spike, a foot or
+   two wide, where a real roof feature is measured in yards. Width is what
+   separates them, and it is a property of the thing itself rather than a
+   threshold picked to suit one house. */
+const RM_SKY_DROP = 34;          /* how much darker than the sky counts as roof */
+const RM_SKY_CONFIRM_ROWS = 4;   /* it must STAY dark, so a bird is not a roofline */
+const RM_SPIKE_MAX_W_M = 1.2;    /* wider than this and it is a dormer, not a chimney */
+const RM_CORNER_TOL_PX = 2.5;    /* how far the simplified line may sit from the real one */
+
+/* For each column, the row where the sky ends. null where no sky was found -
+   a tree, a wall filling the frame, another house in front. */
+function rmSkylineRows(photo){
+  const W = photo.w, H = photo.h, lum = photo.lum;
+  const rows = new Array(W).fill(null);
+  for(let x = 0; x < W; x++){
+    /* The sky reading for this column: the brightest of the top few rows.
+       Taking one row would be fooled by a wire or a branch. */
+    let sky = 0;
+    for(let y = 0; y < Math.min(12, H); y++){
+      const v = lum[y * W + x];
+      if(v > sky) sky = v;
+    }
+    if(sky < 60) continue;                        /* no sky in this column at all */
+    for(let y = 1; y < H - RM_SKY_CONFIRM_ROWS; y++){
+      if(sky - lum[y * W + x] < RM_SKY_DROP) continue;
+      /* ⚠ CONFIRM IT STAYS DARK. A single dark row is a wire, a branch or a
+         bird, and treating one as the roofline puts a corner in the sky. */
+      let stays = true;
+      for(let k = 1; k <= RM_SKY_CONFIRM_ROWS; k++){
+        if(sky - lum[(y + k) * W + x] < RM_SKY_DROP){ stays = false; break; }
+      }
+      if(stays){ rows[x] = y; break; }
+    }
+  }
+  return rows;
+}
+
+/* Take out the narrow spikes - chimneys, vents, dish mounts - by filling them
+   in from their shoulders. Returns how many were removed, which is worth
+   knowing: a house with six is a house whose skyline is not to be trusted. */
+function rmFillSpikes(rows, maxWidthPx){
+  let removed = 0;
+  const W = rows.length;
+  for(let x = 1; x < W - 1; x++){
+    if(rows[x] === null) continue;
+    /* A spike RISES above its neighbours, so its row number is SMALLER. */
+    let end = x;
+    while(end < W - 1 && rows[end] !== null && rows[x] !== null &&
+          Math.abs(rows[end] - rows[x]) < 6) end++;
+    const width = end - x;
+    if(width > maxWidthPx) { x = end; continue; }
+    const left = rows[x - 1], right = rows[end];
+    if(left === null || right === null) continue;
+    const shoulder = Math.min(left, right);
+    /* Only if it really does stick UP out of the roofline either side. */
+    if(shoulder - rows[x] < 5) continue;
+    for(let k = x; k < end; k++){
+      rows[k] = left + (right - left) * ((k - x + 1) / (width + 1));
+    }
+    removed++;
+    x = end;
+  }
+  return removed;
+}
+
+/* Douglas-Peucker: the fewest points that still describe the line. Its output
+   IS the corner list - every kept point is somewhere the roofline changes
+   direction, which is what a corner is. */
+function rmSimplifyLine(pts, tol){
+  if(pts.length < 3) return pts.slice();
+  let worst = 0, at = 0;
+  const a = pts[0], b = pts[pts.length - 1];
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+  for(let i = 1; i < pts.length - 1; i++){
+    const d = Math.abs((pts[i].x - a.x) * dy - (pts[i].y - a.y) * dx) / len;
+    if(d > worst){ worst = d; at = i; }
+  }
+  if(worst <= tol) return [a, b];
+  const left = rmSimplifyLine(pts.slice(0, at + 1), tol);
+  const right = rmSimplifyLine(pts.slice(at), tol);
+  return left.slice(0, -1).concat(right);
+}
+
+/* The corners of the roofline in this photograph, left to right. */
+function rmCornersInPhoto(photo, mppAtHouse){
+  const rows = rmSkylineRows(photo);
+  /* A chimney's width in PIXELS depends how far away the house is, so it is
+     worked out from the scale rather than written down. */
+  const spikePx = Math.max(4, Math.round(RM_SPIKE_MAX_W_M / (mppAtHouse || 0.05)));
+  const spikes = rmFillSpikes(rows, spikePx);
+  /* Break into runs of continuous skyline - a tree in the middle of the house
+     splits it, and joining across the gap would invent a corner in the tree. */
+  const runs = [];
+  let cur = [];
+  for(let x = 0; x < rows.length; x++){
+    if(rows[x] === null){ if(cur.length > 8) runs.push(cur); cur = []; continue; }
+    cur.push({x: x, y: rows[x]});
+  }
+  if(cur.length > 8) runs.push(cur);
+  const corners = [];
+  runs.forEach(function(run){
+    rmSimplifyLine(run, RM_CORNER_TOL_PX).forEach(function(p){ corners.push(p); });
+  });
+  return {corners: corners, runs: runs.length, spikesRemoved: spikes};
+}
+
+/* A corner in the picture, put back where it is in the world. A skyline
+   corner sits on a roof edge, so the ray from the camera through it meets one
+   of the roof's own planes - the nearest such meeting is the answer. */
+function rmCornerWorld(px, py, photo, cam, pose){
+  const dir = rmPhotoRay(px, py, photo.w, photo.h, pose);
+  const fp = rmFootprintBox();
+  let best = null;
+  (rmFaces || []).forEach(function(f){
+    const plane = rmFacePlane(f);
+    if(!plane) return;
+    const hit = rmPlaneHit3(dir, cam, plane);
+    if(!hit) return;
+    /* ⚠ It has to land ON the house. Roof planes are infinite, so without
+       this a ray skimming past the gable meets the plane half a street away
+       and puts a corner in the neighbour's garden. */
+    if(fp && !rmInsideFootprint(hit, fp)) return;
+    if(!best || hit.t < best.t) best = hit;
+  });
+  if(!best) return null;
+  const w = rmToWorld({e: best.e, n: best.n, u: best.u});
+  return {lat: w.lat, lng: w.lng, h: best.u};
+}
+
+/* Look at the house and write down every corner that can be seen. */
+async function rmDetectCornersFromStreet(){
+  if(!rmPano || !rmStreetReady || !rmOrigin) return {ok: false, why: 'no street photo to look at'};
+  if(!rmFaces || !rmFaces.length) return {ok: false, why: 'no roof model to place the corners on'};
+  const cam = rmCamOnRoad();
+  const pos = rmPano.getPosition();
+  if(!cam || !pos) return {ok: false, why: 'the camera is not on the road yet'};
+  const heading = rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng);
+  const away = Math.max(4, Math.hypot(cam.e, cam.n));
+  const tilt = Math.max(-8, Math.min(28, rmDeg(Math.atan2((rmDatum().m + rmHighestRelM() * 0.5) - cam.u, away))));
+  const pose = {heading: heading, pitch: tilt, fov: RM_PHOTO_FOV};
+  const photo = await rmPhotoEdges(rmPano.getPano(), heading, tilt);
+  if(photo.error) return {ok: false, why: 'could not read the street photo (' + photo.error + ')'};
+  /* How big a metre is in this picture, at the house - the chimney rule needs
+     a real size rather than a pixel count. */
+  const focal = (photo.w / 2) / Math.tan(rmRad(pose.fov) / 2);
+  const mppAtHouse = away / focal;
+  const found = rmCornersInPhoto(photo, mppAtHouse);
+  const made = [];
+  found.corners.forEach(function(c){
+    const w = rmCornerWorld(c.x, c.y, photo, cam, pose);
+    if(w) made.push({lat: w.lat, lng: w.lng, h: w.h, on: true});
+  });
+  if(made.length < 2) return {ok: false, why: 'nothing on the skyline could be placed on the roof', found: found.corners.length};
+  rmCorners = made;
+  rmCornersChanged();
+  return {ok: true, corners: made.length, spikes: found.spikesRemoved, runs: found.runs};
+}
+
 /* ⭐ FRAME THE HOUSE, DO NOT JUST POINT AT IT.
    Owner: "theres to much going on you cant see the house clearly."
    Street View opens at zoom 1, which is a NINETY DEGREE field of view - most
@@ -16255,6 +16564,16 @@ function rmTryPhotoDatum(){
     rmPhotoDatumBusy = false;
     const st = document.getElementById('rmStatus');
     if(!st) return;
+    /* ⭐ AND NOW LOOK FOR THE CORNERS. The height has to be right first: a
+       corner is placed by meeting a ray with a roof plane, and the planes sit
+       at the datum, so reading the corners before the height would put every
+       one of them at the assumed ten feet. */
+    if(res.ok) rmDetectCornersFromStreet().then(function(c){
+      const bar = document.getElementById('rmCornerNote');
+      if(bar) bar.textContent = c.ok
+        ? c.corners + ' corners found on the roofline' + (c.spikes ? ' (' + c.spikes + ' chimney or vent ignored)' : '') + '.'
+        : '⚠ No corners could be read from the photo: ' + c.why + '. Place them with space, or use the lines below.';
+    });
     st.textContent = res.ok
       ? rmGuessedCount + ' roof edges found, and the roof height was read off the street photo (' +
         Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
@@ -16794,7 +17113,10 @@ function rmSetDrawing(on){
   /* Sky takes clicks whenever we are drawing; Street only once the wall is
      pinned, or while the wall is being picked. */
   const skyLock = rmDrawing && rmSkyReady;
-  const stLock = (rmWallPicking || (rmDrawing && rmActiveWall())) && rmStreetReady;
+  /* ⭐ AND WHILE PLACING DOTS. The panorama swallows clicks for its own
+     panning, so a transparent sheet over it is the only way to catch one - the
+     same sheet the wall picker and the tracer already use. */
+  const stLock = (rmWallPicking || (rmDrawing && rmActiveWall()) || rmCornerMode === 'dot') && rmStreetReady;
   document.getElementById('rmMapLock').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmMapFrozen').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmPanoLock').style.display = stLock ? 'block' : 'none';
@@ -17068,16 +17390,46 @@ function rmPaintStreet(){
     }
     /* Handles only where there is something to take hold of: a switched-on run
        you might drag. A dot on every end of every greyed-out suggestion is the
-       clutter, not the lines. */
+       clutter, not the lines. ⚠ A run built from corners draws none at all -
+       its corners are drawn once, below, with their numbers on. */
     vis.forEach(function(p){
-      if(!on) return;
+      if(!on || r.fromCorners) return;
       parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="3" fill="#fff" stroke="'+colour+'" stroke-width="1.5"/>');
     });
+  });
+  /* ⭐ THE CORNERS, WITH THEIR NUMBERS ON. Drawn last so they sit above the
+     lines, and drawn whether they are switched on or not - a corner you cannot
+     see is a corner you cannot pick, which is the whole point of numbering
+     them. Off ones are hollow and pale; on ones are solid. */
+  rmCorners.forEach(function(c, i){
+    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+    if(!q) return;
+    const lit = !!c.on;
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="8" fill="'+(lit ? '#E0574B' : 'rgba(255,255,255,.75)')+
+      '" stroke="'+(lit ? '#fff' : '#8b95a1')+'" stroke-width="1.6"/>');
+    parts.push('<text x="'+q.x+'" y="'+(q.y + 3.4)+'" text-anchor="middle" font-size="10" font-weight="800" ' +
+      'fill="'+(lit ? '#fff' : '#41505f')+'" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
+      rmCornerLabel(i) + '</text>');
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="13" fill="rgba(0,0,0,0)" ' +
+      'style="pointer-events:all; cursor:pointer;" data-rmcornerdot="'+i+'"></circle>');
   });
   svg.innerHTML = parts.join('');
   /* The layer ignores the mouse as a whole; only the fat pick strokes take it,
      so panning the panorama still works everywhere else. */
   svg.style.pointerEvents = (rmDrawing || rmWallPicking) ? 'none' : 'none';
+  svg.querySelectorAll('[data-rmcornerdot]').forEach(function(el){
+    el.style.pointerEvents = 'all';
+    el.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      const i = Number(el.dataset.rmcornerdot);
+      if(ev.shiftKey){
+        if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); rmPaintStreet(); }
+        else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
+      } else {
+        rmToggleCorner(i);
+      }
+    });
+  });
   svg.querySelectorAll('[data-rmtoggle]').forEach(function(el){
     el.style.pointerEvents = 'stroke';
     el.addEventListener('click', function(ev){
@@ -17168,6 +17520,7 @@ async function rmLoadAddress(){
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
   rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false; rmSnapNote = null;
   rmFramed = false; rmRoadDir = null;
+  rmCorners = []; rmCornerMode = 'select'; rmSwapFrom = null;
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
@@ -17790,6 +18143,19 @@ function openRoofMeasure(quoteId){
     const allOn = sugg.length > 0 && sugg.every(rmRunIsOn);
     RM_SIDES.forEach(function(sd){ rmSetSide(sd, !allOn); });
   });
+  /* The numbers under the pictures do the same as their keys, because not
+     everybody reaches for a keyboard and the swap needs two clicks anyway. */
+  document.getElementById('rmCornerList').addEventListener('click', function(e){
+    const b = e.target.closest('[data-rmcorner]');
+    if(!b) return;
+    const i = Number(b.dataset.rmcorner);
+    if(e.shiftKey){
+      if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); }
+      else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
+    } else {
+      rmToggleCorner(i);
+    }
+  });
   window.rmRefreshSideButtons = rmRefreshSideButtons;
   /* A READ-ONLY WINDOW INTO THE MEASURING, for diagnosing placement from the
      console. It changes nothing and exposes nothing the panel does not already
@@ -17840,6 +18206,32 @@ function openRoofMeasure(quoteId){
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
     const dir = rmRay(e.clientX-r.left, e.clientY-r.top, W, H, rmPanoPov());
+    if(rmCornerMode === 'dot'){
+      /* ⭐ A CLICK PLACES A CORNER, on the roof it is pointing at. Owner:
+         "also have a way to add a corner... space bar toggles select from make
+         a dot." The dormer corners that meet the main roof are not against the
+         sky and can never be detected; this is how they get put in. */
+      const fp = rmFootprintBox();
+      let best = null;
+      (rmFaces || []).forEach(function(f){
+        const plane = rmFacePlane(f);
+        if(!plane) return;
+        const hit = rmPlaneHit3(dir, cam, plane);
+        if(!hit) return;
+        if(fp && !rmInsideFootprint(hit, fp)) return;
+        if(!best || hit.t < best.t) best = hit;
+      });
+      const note = document.getElementById('rmCornerNote');
+      if(!best){
+        if(note) note.textContent = '⚠ That is not pointing at the roof — click on the house itself.';
+        return;
+      }
+      const w = rmToWorld({e: best.e, n: best.n, u: best.u});
+      rmAddCorner({lat: w.lat, lng: w.lng, h: best.u});
+      if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
+        rmCornerLabel(rmCorners.length - 1) + '. Space goes back to picking.';
+      return;
+    }
     if(rmWallPicking){
       const g = rmGroundHit(dir, cam);
       if(!g){
@@ -18112,10 +18504,25 @@ function openRoofMeasure(quoteId){
     } else if(k === 'Backspace' || k === 'Delete'){
       e.preventDefault();
       document.getElementById('rmUndoBtn').click(); /* take back one point, then one run */
-    } else if(k === '1' || k === '2' || k === '3'){
+    } else if(k === ' ' || k === 'Spacebar'){
+      /* ⭐ SPACE SWAPS PICKING FOR PLACING. Owner: "have it be easy to create a
+         corner, something like space bar toggles select from make a dot." */
       e.preventDefault();
-      rmFinishRun();
-      rmSetType({'1':'perimeter','2':'ridge','3':'ground'}[k]);
+      rmCornerMode = rmCornerMode === 'dot' ? 'select' : 'dot';
+      rmSwapFrom = null;
+      rmRenderCornerBar();
+      rmPaintStreet();
+    } else if(rmCorners.length && rmCornerAt(k) >= 0){
+      /* A corner's own key switches it in or out of the line. With shift held
+         it is the first or second half of a swap instead. */
+      e.preventDefault();
+      const i = rmCornerAt(k);
+      if(e.shiftKey){
+        if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); }
+        else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
+      } else {
+        rmToggleCorner(i);
+      }
     } else if(k === 'c' || k === 'C'){
       e.preventDefault();
       const b = document.getElementById(rmStreetReady && !rmMap ? 'rmCaptureStreet' : 'rmCaptureSky');

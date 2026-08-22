@@ -33714,6 +33714,250 @@ suite('147. Measure Roof - only the outside of the house, and all of it');
   }
 }
 
+
+suite('148. Measure Roof - the skyline is the roofline, and its corners are the corners');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "make it have a corner detector, so its looking for corners from
+     street view and then it just connects them."
+     Where a roof meets the sky is the highest-contrast boundary in any photo
+     of a house, and its vertices ARE the corners - the peak of every gable,
+     the end of every eave. Far more reliable than hunting corners in a picture
+     full of windows and shrubs. */
+  const NEED = ['rmSkylineRows', 'rmFillSpikes', 'rmSimplifyLine', 'rmCornersInPhoto'];
+  const missing = NEED.filter(n => !pick(n));
+  const consts = ['RM_SKY_DROP', 'RM_SKY_CONFIRM_ROWS', 'RM_SPIKE_MAX_W_M', 'RM_CORNER_TOL_PX']
+    .map(n => (admin.match(new RegExp('^const ' + n + '.*?;', 'm')) || [''])[0]);
+  check('S148', 'every skyline threshold was really found in the page',
+    consts.every(Boolean), 'missing one of the constants');
+  if (missing.length || !consts.every(Boolean)) {
+    check('S148', 'the corner detector is findable', false, 'missing: ' + missing.join(', '));
+  } else {
+    const api = new Function(consts.join(LF_) + LF_ + NEED.map(pick).join(LF_) + LF_ +
+      'return {rmSkylineRows, rmFillSpikes, rmSimplifyLine, rmCornersInPhoto};')();
+
+    /* A photograph: bright sky above a dark roof. The roof profile is a gable -
+       up from the left eave to a peak, down to the right eave. */
+    const W = 240, H = 160;
+    const mk = profile => {
+      const lum = new Float32Array(W * H);
+      for (let x = 0; x < W; x++) {
+        const top = profile(x);
+        for (let y = 0; y < H; y++) lum[y * W + x] = (y < top) ? 200 : 90;   /* sky : roof */
+      }
+      return {w: W, h: H, lum: lum};
+    };
+    const gable = x => (x < 120 ? 100 - Math.round(x * 0.4) : 52 + Math.round((x - 120) * 0.4));
+
+    const rows = api.rmSkylineRows(mk(gable));
+    check('S148', 'the sky/roof boundary is found in every column',
+      rows.filter(r => r !== null).length > W * 0.95,
+      'found the skyline in ' + rows.filter(r => r !== null).length + ' of ' + W + ' columns');
+    check('S148', 'and it follows the roof, not the top of the picture',
+      rows[10] !== null && Math.abs(rows[10] - gable(10)) <= 1 &&
+      Math.abs(rows[120] - gable(120)) <= 1,
+      'at x=10 got ' + rows[10] + ' want ' + gable(10) + '; at the peak got ' +
+      rows[120] + ' want ' + gable(120));
+
+    const found = api.rmCornersInPhoto(mk(gable), 0.05);
+    check('S148', 'a plain gable comes back as three corners: eave, peak, eave',
+      found.corners.length === 3,
+      'got ' + found.corners.length + ' - ' + JSON.stringify(found.corners.map(c => [c.x, Math.round(c.y)])));
+    check('S148', 'and the middle one is the peak, at the top of the roof',
+      found.corners.length === 3 && Math.abs(found.corners[1].x - 120) < 4 &&
+      found.corners[1].y < found.corners[0].y && found.corners[1].y < found.corners[2].y,
+      JSON.stringify(found.corners.map(c => [c.x, Math.round(c.y)])));
+
+    /* ---- chimneys ---------------------------------------------------- */
+    /* ⚠ Owner: "be sure to not catch satelites and chineys in a corner
+       detector." A chimney breaks the skyline as a NARROW spike where a real
+       feature is measured in yards. Width is a property of the thing itself,
+       not a threshold chosen to suit one house. */
+    /* ⚠ FLAT-TOPPED ON PURPOSE. The first version sloped its top along with the
+       roof, so the walk that measures a spike's width broke after a few pixels
+       and the WIDTH rule never got to decide anything - a red-check deleting
+       that rule entirely went unnoticed. A chimney really does have a flat top
+       against the sky, and it is the width that has to do the work. */
+    const withChimney = x => (x >= 60 && x < 72) ? gable(60) - 18 : gable(x);
+    const dirty = api.rmCornersInPhoto(mk(withChimney), 0.05);
+    check('S148', 'a chimney is not mistaken for a corner',
+      dirty.spikesRemoved >= 1 && dirty.corners.length === 3,
+      'got ' + dirty.corners.length + ' corners and removed ' + dirty.spikesRemoved +
+      ' spikes - a chimney would otherwise add two');
+    /* ⚠ AND A DORMER MUST SURVIVE. This is the same shape, only wider - if the
+       spike rule is set by height rather than width it takes the dormer too,
+       and dormers are exactly what the owner asked to catch. */
+    /* ⚠ IT HAS TO STICK UP ABOVE THE ROOF ON BOTH SIDES, or the guard that
+       asks "does this rise out of the roofline" rejects it before the WIDTH
+       rule is ever consulted - and then deleting the width rule changes
+       nothing and the red-check passes over it. The first version sat below
+       the right-hand shoulder because the gable climbs that way. */
+    const withDormer = x => (x >= 30 && x < 85) ? 40 : gable(x);
+    const dormer = api.rmCornersInPhoto(mk(withDormer), 0.05);
+    check('S148', 'but a dormer is kept, being wider than a chimney',
+      dormer.corners.length > 3,
+      'got ' + dormer.corners.length + ' corners, removed ' + dormer.spikesRemoved +
+      ' - a dormer is a corner, a chimney is not');
+
+    /* ---- a tree, and a bird ------------------------------------------ */
+    /* A tree covering the middle splits the skyline. Joining across the gap
+       would invent a corner inside the tree. */
+    const treed = mk(gable);
+    for (let x = 100; x < 140; x++) for (let y = 0; y < H; y++) treed.lum[y * W + x] = 70;
+    const split = api.rmCornersInPhoto(treed, 0.05);
+    check('S148', 'a tree splits the roofline rather than being joined across',
+      split.runs === 2,
+      'got ' + split.runs + ' runs - one run would draw a corner inside the tree');
+    /* ⚠ THE SKY IS READ FROM SEVERAL ROWS, not one. A branch or a wire across
+       the very top of the frame makes row zero dark, and a single-row reading
+       then thinks there is no sky in that column at all - so the roofline is
+       lost exactly where something is in front of it. */
+    const branchy = mk(gable);
+    for (let x = 30; x < 90; x++) branchy.lum[0 * W + x] = 55;
+    const bRows = api.rmSkylineRows(branchy);
+    check('S148', 'a branch across the top of the frame does not blind it',
+      bRows[50] !== null && Math.abs(bRows[50] - gable(50)) <= 1,
+      'column 50 came back ' + bRows[50] + ', the roof is at ' + gable(50));
+
+    /* A single dark row is a wire or a bird, not a roof. */
+    const wired = mk(gable);
+    for (let x = 0; x < W; x++) wired.lum[20 * W + x] = 80;
+    const wire = api.rmSkylineRows(wired);
+    check('S148', 'a wire across the sky is not read as the roofline',
+      wire[10] !== null && wire[10] > 25,
+      'the skyline was found at row ' + wire[10] + ', the wire is at 20');
+
+    /* ---- the simplifier ---------------------------------------------- */
+    const straight = [];
+    for (let i = 0; i <= 20; i++) straight.push({x: i * 5, y: 50 + i * 0.05});
+    check('S148', 'a straight run keeps only its two ends',
+      api.rmSimplifyLine(straight, 2.5).length === 2,
+      'a corner every few pixels is not a roofline, it is noise');
+  }
+}
+
+
+suite('149. Measure Roof - corners are named, picked, added and reordered');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "it should just have a corner detector and not assume which ones you
+     want just assign a number (or letter if 0-9 runs out) where you toggle a
+     corner on or off, and also have a way to add a corner", "space bar toggles
+     select from make a dot", and "hold shift click the number you want and
+     pick the one you want to switch it with". */
+  const NEED = ['rmCornerLabel', 'rmCornerAt', 'rmSwapCorners', 'rmToggleCorner',
+                'rmAddCorner', 'rmCornersToRun'];
+  const missing = NEED.filter(n => !pick(n));
+  if (missing.length) {
+    check('S149', 'the corner controls are findable', false, 'missing: ' + missing.join(', '));
+  } else {
+    const api = new Function(
+      "const RM_LABELS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';" + LF_ +
+      'let rmCorners = [], rmRuns = [];' + LF_ +
+      'function rmDatum(){ return {m: 3, source:"assumed"}; }' + LF_ +
+      'function rmSyncSky(){}' + LF_ +
+      'function rmCornersChanged(){ rmCornersToRun(); }' + LF_ +
+      'function rmRenderResults(){}' + LF_ + 'function rmPaintStreet(){}' + LF_ +
+      'function rmRenderCornerBar(){}' + LF_ +
+      NEED.map(pick).join(LF_) + LF_ +
+      'return {L: rmCornerLabel, at: rmCornerAt, swap: rmSwapCorners, toggle: rmToggleCorner,' + LF_ +
+      '        add: rmAddCorner, run: function(){ return rmRuns.filter(function(r){return r.fromCorners;})[0]; },' + LF_ +
+      '        set: function(c){ rmCorners = c; rmCornersToRun(); },' + LF_ +
+'        all: function(){ return rmCorners; }};')();
+
+    /* ---- naming ------------------------------------------------------ */
+    check('S149', 'the first ten corners are numbers',
+      api.L(0) === '0' && api.L(9) === '9');
+    /* ⚠ Owner: "or letter if 0-9 runs out". A house with more than ten corners
+       is ordinary, so this is the common case, not the edge case. */
+    check('S149', 'and then it carries on into letters',
+      api.L(10) === 'A' && api.L(35) === 'Z',
+      'got ' + api.L(10) + ' and ' + api.L(35));
+    check('S149', 'a key finds its own corner, upper or lower case',
+      (function(){
+        api.set([{on:true},{on:true},{on:true},{on:true},{on:true},{on:true},
+                 {on:true},{on:true},{on:true},{on:true},{on:true}]);
+        return api.at('0') === 0 && api.at('a') === 10 && api.at('A') === 10;
+      })());
+    check('S149', 'and a key for a corner that does not exist finds nothing',
+      api.at('Z') === -1 && api.at('!') === -1,
+      'pressing a stray key must not toggle the last corner in the list');
+
+    /* ---- picking ----------------------------------------------------- */
+    const four = () => [
+      {lat: 1, lng: 1, h: 4, on: true}, {lat: 1, lng: 2, h: 5, on: true},
+      {lat: 1, lng: 3, h: 5, on: true}, {lat: 1, lng: 4, h: 4, on: true}];
+    api.set(four());
+    api.toggle(1);
+    check('S149', 'switching a corner off drops it from the line',
+      api.all()[1].on === false && api.run().path.length === 3,
+      'the run should join the three that are left');
+    api.toggle(1);
+    check('S149', 'and switching it back on puts it back where it belongs',
+      api.run().path.length === 4 && api.run().path[1].lng === 2,
+      'it must return to its own place in the order, not the end');
+
+    /* ---- the order IS the line --------------------------------------- */
+    /* ⚠ THIS IS THE ONE THAT MATTERS. Two corners joined in the wrong order run
+       the string diagonally across a roof. Swapping has to move the corners,
+       not just relabel them, so everything after renumbers itself. */
+    api.set(four());
+    api.swap(0, 3);
+    check('S149', 'swapping two corners reorders the line itself',
+      api.run().path[0].lng === 4 && api.run().path[3].lng === 1,
+      'got ' + api.run().path.map(p => p.lng).join(',') + ' - the number IS the position');
+    check('S149', 'and the labels follow the new order automatically',
+      api.L(0) === '0' && api.all()[0].lng === 4,
+      'there is nothing else to renumber: the label is worked out from the place');
+    const before = api.all().length;
+    check('S149', 'a swap with a corner that does not exist changes nothing',
+      api.swap(0, 99) === false && api.swap(-1, 0) === false && api.all().length === before);
+    check('S149', 'and swapping a corner with itself is not an error either',
+      api.swap(2, 2) === false && api.all().length === before);
+
+    /* ---- adding ------------------------------------------------------ */
+    api.set(four());
+    api.add({lat: 9, lng: 9, h: 6});
+    check('S149', 'a corner placed by hand joins the end of the line',
+      api.all().length === 5 && api.all()[4].lat === 9 && api.all()[4].on === true,
+      'a new dot should be in the line straight away, not waiting to be switched on');
+    check('S149', 'and it is marked as placed by hand',
+      api.all()[4].byHand === true,
+      'so the detector re-running cannot silently throw away somebody work');
+    check('S149', 'a corner with nowhere to go is refused rather than guessed',
+      api.add(null) === false);
+
+    /* ---- fewer than two ---------------------------------------------- */
+    api.set([{lat:1,lng:1,h:4,on:true}]);
+    check('S149', 'one corner on its own draws no line',
+      !api.run(), 'a line needs two ends');
+  }
+
+  /* ---- the controls exist on screen -------------------------------- */
+  check('S149', 'space swaps picking for placing',
+    /rmCornerMode = rmCornerMode === 'dot' \? 'select' : 'dot';/.test(admin),
+    'owner asked for space bar to toggle select from make a dot');
+  check('S149', 'a click on the panorama places a corner while in dot mode',
+    /if\(rmCornerMode === 'dot'\)\{/.test(admin) && /rmAddCorner\(\{lat: w\.lat/.test(admin),
+    'the dormer corners that meet the main roof are not against the sky and can only be placed by hand');
+  check('S149', 'the panorama accepts clicks while placing, or nothing lands',
+    /rmCornerMode === 'dot'\) && rmStreetReady/.test(admin),
+    'the panorama swallows clicks for panning unless the sheet is over it');
+  check('S149', 'shift starts and finishes a swap, from the key or the dot',
+    (admin.match(/rmSwapFrom === null/g) || []).length >= 3,
+    'the number strip, the keyboard and the dots themselves all offer it');
+  check('S149', 'a corner is drawn with its number on, whether it is on or off',
+    /data-rmcornerdot/.test(admin) && /rmCornerLabel\(i\)/.test(admin),
+    'a corner you cannot see is a corner you cannot pick');
+  check('S149', 'and corners are cleared when a new house is loaded',
+    /rmCorners = \[\]; rmCornerMode = 'select'; rmSwapFrom = null;/.test(admin),
+    'the next address would otherwise open with the last one roofline on it');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
