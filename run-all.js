@@ -32790,9 +32790,18 @@ suite('141. Measure Roof - the street decides, and it is allowed to be late');
   check('S141', 'the wait gives up after a while and draws anyway',
     /setTimeout\(rmStreetSettle, 10000\)/.test(admin),
     'an unbounded wait on a third party is a hang with better manners');
-  check('S141', 'and says so, rather than passing map-only lines off as street-checked',
-    !!gate && /No street photo/.test(gate),
-    'a guess that hides how it was made is worse than one that admits it');
+  /* ⚠ RETIRED, NOT LOST. Nothing is guessed from the map any more - the owner
+     asked for the automatic lines to be taken out entirely ("delete everything
+     for now and give me a tool that I can show you what it should look like by
+     placing dots"), so there is no map-only line left to warn about. The
+     builder and its warning are still in the file and still tested; they are
+     simply not run. If automatic lines ever come back, so must this. */
+  /* The WARNING went with the status line it lived on - there is no map-only
+     line left to warn about. What must survive is the builder itself, so
+     turning guessing back on is one line rather than a rewrite. */
+  check('S141', 'the roofline builder is kept, ready for guessing to return',
+    !!pick('rmBuildSuggestions') && /NOTHING IS GUESSED ANY MORE/.test(admin),
+    'the automatic path is switched off, not deleted, and the file should say which');
 
   /* ---- 3. a picked line is never re-picked ----------------------------- */
   const reside = pick('rmResideSuggestions');
@@ -33977,8 +33986,15 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
     /data-rmcornerdot/.test(admin) && /rmCornerLabel\(i\)/.test(admin),
     'a corner you cannot see is a corner you cannot pick');
   check('S149', 'and corners are cleared when a new house is loaded',
-    /rmCorners = \[\]; rmCornerMode = 'select'; rmSwapFrom = null;/.test(admin),
+    /rmCorners = \[\]; rmCornerMode = 'dot'; rmSwapFrom = null;/.test(admin),
     'the next address would otherwise open with the last one roofline on it');
+  /* The tool opens READY TO PLACE, because that is now the whole job. */
+  check('S149', 'and it opens ready to place a dot, not ready to pick one',
+    /let rmCornerMode = 'dot';/.test(admin),
+    'nothing is drawn automatically any more, so picking has nothing to pick from');
+  check('S149', 'the map takes dots as well as the street view',
+    /rmCornerMode === 'dot' && !rmDrawing/.test(admin) && /const skyLock = \(rmDrawing \|\| rmCornerMode === 'dot'\)/.test(admin),
+    'from above a click is exact; from the street the height is what you can see');
 }
 
 
