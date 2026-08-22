@@ -29347,6 +29347,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       addrUpdates.scheduledDate = null;
       addrUpdates.assignedCrew = null;
     } else if(item.data.maybeNextYear){
+      /* ⭐ THE FLAG ITSELF, not just its timestamp (fixed 2026-08-21). This
+         branch is "the office has unticked Back Next Year", and it nulled
+         maybeNextYearAt while leaving maybeNextYear true — so unticking it did
+         not actually untick it. They stayed off the Yes sheet and stayed on
+         Contact 2027, with the badge saying Confirmed. Only setCustomerSeason
+         ever cleared this flag, which is why it went unnoticed. */
+      addrUpdates.maybeNextYear = false;
       addrUpdates.maybeNextYearAt = null;
       /* Coming back in with the dropdown still reading Back Next Year would
          leave them unroutable behind a Confirmed badge, so reset it to

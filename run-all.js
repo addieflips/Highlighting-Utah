@@ -2068,9 +2068,39 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
 
     // 4. Back next year is a distinct third answer, never a soft no.
     const back = await runRsvp({ name: 'Sitting Out', rsvpStatus: 'no', needsLightRecycle: false }, 'backnextyear');
+    /* ⚠ CORRECTED 2026-08-21 (hole G, fifth path). This asserted
+       `needsLightRecycle === false`, which is the WRITE — and writing false is
+       exactly the bug: it cancels a collection that was already owed. The title
+       was right all along, "never recycles" meaning never CREATES one; the
+       assertion had quietly become a description of the defect. It must now not
+       be written at all. */
     check('flow', 'back next year never recycles and never rebuilds',
-      back.written.needsLightRecycle === false && back.written.needsLightBuild === undefined &&
-      notes(back.added).length === 0);
+      back.written.needsLightRecycle === undefined && back.written.needsLightBuild === undefined &&
+      notes(back.added).length === 0,
+      'writing false here wipes a recycle the warehouse was already queued for');
+    /* ⚠ AND THE FIXTURE THAT PROVES IT. Starting from false, "wrote false" and
+       "wrote nothing" look identical — which is how this survived. */
+    const backOwed = await runRsvp({ name: 'Owed', rsvpStatus: 'no', needsLightRecycle: true }, 'backnextyear');
+    check('flow', 'and a recycle already owed survives it',
+      backOwed.written.needsLightRecycle === undefined,
+      'they said no first and the warehouse was queued to collect their bin');
+    /* ⭐ THE FLAG AND THE ANSWER MOVE TOGETHER. maybeNextYear used to be sticky —
+       one thing in the whole codebase cleared it — so Back Next Year then Yes
+       left somebody off the Yes sheet and still on Contact 2027. */
+    check('flow', 'back next year sets the maybe-next-year flag',
+      back.written.maybeNextYear === true,
+      'the office badge and the Contact 2027 tab read the flag, the customer ' +
+      'answered the status — they have to agree');
+    const backThenYes = await runRsvp({ name: 'Changed Mind', rsvpStatus: 'backnextyear', maybeNextYear: true, needsLightRecycle: false }, 'yes');
+    check('flow', 'and answering yes afterwards clears it',
+      backThenYes.written.maybeNextYear === false,
+      'the Yes sheet excludes anyone carrying the flag, so a customer who ' +
+      'confirmed would be on no confirmed list and chased again next year');
+    const backThenNo = await runRsvp({ name: 'Out', rsvpStatus: 'backnextyear', maybeNextYear: true, needsLightRecycle: false }, 'no');
+    check('flow', 'as does answering no',
+      backThenNo.written.maybeNextYear === false && backThenNo.written.needsLightRecycle === true,
+      'owner asked this exact sequence: they belong on the recycle list, and ' +
+      'NOT on Contact 2027 as well');
 
     // 5. An ordinary yes from someone who never declined is untouched.
     const plain = await runRsvp({ name: 'Normal', rsvpStatus: '', needsLightRecycle: false }, 'yes');
@@ -29435,6 +29465,37 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
     bnyWrites.length + ' path(s) still write needsLightRecycle: false within a ' +
     'few lines of setting backnextyear — "do not create one" is not the same ' +
     'thing as "write false"');
+
+  /* ⚠ AND A FIFTH PATH THE BACKSTOP ABOVE COULD NEVER SEE, found when the owner
+     traced the sequence herself. portalRsvp writes `rsvpStatus: response` — a
+     VARIABLE — so no literal 'backnextyear' sits near its recycle write, and
+     `needsLightRecycle: response === 'no'` reads as harmless while quietly
+     writing FALSE for backnextyear. A pattern that only catches literals cannot
+     catch the one written as an expression, so this asserts the shape directly. */
+  check('S132', 'the portal does not decide the recycle from a bare comparison',
+    !/needsLightRecycle:\s*response === 'no'/.test(stripComments(fns)),
+    'that expression is false for backnextyear as well as for yes, so it wipes ' +
+    'an owed collection for somebody who never said their lights could come back');
+  check('S132', 'it writes the recycle only for the two answers that decide it',
+    /if \(response === 'no'\) updates\.needsLightRecycle = true;/.test(stripComments(fns)) &&
+    /else if \(response === 'yes'\) updates\.needsLightRecycle = false;/.test(stripComments(fns)),
+    "'no' owes a collection, 'yes' cancels the one their no created, and " +
+    "'backnextyear' says nothing either way");
+
+  /* ---- 6. the flag may not outlive the answer that set it -------------
+     maybeNextYear was sticky: a search of the whole codebase found ONE thing
+     that ever cleared it (the office badge toggle) while rsvpStatus moved
+     freely. Two fields describing one fact, drifting apart. */
+  check('S132', 'unticking Back Next Year in the office clears the flag itself',
+    /addrUpdates\.maybeNextYear = false;/.test(stripComments(admin)),
+    'that branch nulled maybeNextYearAt and left maybeNextYear true, so ' +
+    'unticking it did not untick it — badge said Confirmed, Contact 2027 still ' +
+    'held them, and the Yes sheet did not');
+  check('S132', 'and approving a quote clears it too',
+    /maybeNextYear: false,\s*\r?\n\s*maybeNextYearAt: null/.test(stripComments(fns)),
+    'the RSVP reset leaves the flag standing while setting everyone to ' +
+    'unanswered, so somebody who sat last season out can reach the approve ' +
+    'path still carrying it');
 }
 
 Promise.all(pendingAsync).then(function () {

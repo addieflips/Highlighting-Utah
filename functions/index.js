@@ -1442,9 +1442,35 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
        them telling us, so it closes. Without this they stay on the list for ever
        and the office mails them again after they have already replied. */
     askSameAsLastYear: false,
-    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
-    needsLightRecycle: response === 'no'
+    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp()
   };
+  /* ⭐ maybeNextYear MUST NOT OUTLIVE THE ANSWER THAT SET IT (added 2026-08-21).
+     Owner, tracing it herself: "so if they click back next year then no than
+     that person will be put in recycle and in 2027?" Yes, and worse — the flag
+     was sticky. A search of the whole codebase found exactly ONE thing that
+     ever cleared it (the office badge toggle), while rsvpStatus moved freely.
+
+     ⚠ THE DAMAGING SEQUENCE IS BACK NEXT YEAR THEN **YES**. The Yes sheet
+     excludes anyone carrying the flag, so a customer who confirmed for the
+     season was on no confirmed list and still on Contact 2027 — chased next year
+     instead of having their lights hung this one.
+
+     Two fields describing one fact; they are now written together everywhere. */
+  if (response === 'backnextyear') {
+    updates.maybeNextYear = true;
+    updates.maybeNextYearAt = admin.firestore.FieldValue.serverTimestamp();
+  } else {
+    updates.maybeNextYear = false;
+    updates.maybeNextYearAt = null;
+  }
+  /* ⚠ AND THE RECYCLE IS HOLE G'S FIFTH PATH, missed the first time round
+     because the status here is a VARIABLE — `needsLightRecycle: response ===
+     'no'` reads as harmless and quietly writes FALSE for backnextyear, wiping a
+     collection that was already owed. Written only for the two answers that
+     genuinely decide it: 'no' owes one, 'yes' cancels the one their no created,
+     and 'backnextyear' says nothing either way. */
+  if (response === 'no') updates.needsLightRecycle = true;
+  else if (response === 'yes') updates.needsLightRecycle = false;
   if (rejoinedAfterRecycle) updates.needsLightBuild = true;
 
   // Keep the normalised sign-in fields in step with whatever just changed —
@@ -2175,7 +2201,15 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
       try {
         await db.collection('jobAddresses').doc(memberRef.id).update({
           rsvpStatus: 'yes',
-          rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp()
+          rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+          /* Same rule as portalRsvp: the flag may not outlive the answer. This
+             path fires on a blank or 'unanswered' status, and the RSVP reset
+             sweep deliberately leaves maybeNextYear standing while setting
+             everyone to 'unanswered' — so somebody who sat last season out can
+             reach here still carrying it, and would be kept off the Yes sheet
+             by the very approval that put them back in. */
+          maybeNextYear: false,
+          maybeNextYearAt: null
         });
       } catch (err) {
         console.error('[HU] marking approver as in for the season failed:', err);
