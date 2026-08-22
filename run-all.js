@@ -49,6 +49,13 @@ function gap(name, fixed, detail) {
   if (fixed) { pass++; console.log('  PASS  ' + name + '  (gap closed)'); }
   else { console.log('  GAP   ' + name + '\n          ' + detail); gaps.push(name + ' — ' + detail); }
 }
+/* ⚠ TWO SESSIONS BUILT CRASH ATTRIBUTION ON THE SAME DAY, from opposite ends: one
+   from a mutation sweep that found 16 real breakages reported as bare stack traces,
+   one from three stale extraction lists in a row. The block below is theirs — it is
+   the stronger half, because an uncaughtException handler registered before any suite
+   runs also catches the SYNCHRONOUS crashes, and it prints the score so far. The
+   sandbox guard after it is the other half: it stops the commonest cause of those
+   crashes from being a crash at all. */
 /* ⭐ EVERY SUITE SAYS ITS NAME, AND A CRASH SAYS WHOSE (added 2026-08-21).
  *
  * A mutation sweep over 44 real functions found 16 whose breakage the suite
@@ -73,6 +80,65 @@ process.on('uncaughtException', function (err) {
   console.log('='.repeat(55) + '\n');
   process.exit(1);
 });
+
+/* ⭐ WHAT A SANDBOX IS MISSING, SAID OUT LOUD (added 2026-08-22).
+ *
+ * ⚠ THE TRAP THIS CLOSES. Dozens of checks here lift a function out of admin.html or
+ * functions/index.js by name and run it inside `new Function`. If that function calls
+ * a helper the harness did not also lift, the sandbox throws a BARE ReferenceError the
+ * moment the branch runs — and for the async suites that surfaces as
+ * "an async suite crashed: ReferenceError: x is not defined", with no suite, no file
+ * and no indication that the fix is one name in one list. It happened three times on
+ * 2026-08-22 alone (nextInstallDayFor, seasonYesUpdates, and twice before that with
+ * houseDeadline and printGateCode), and CLAUDE.md already warns about it in prose.
+ * Prose does not fail a build.
+ *
+ * ⚠ IT REPORTS, IT DOES NOT AUTO-WIRE. Pulling the missing helper in automatically
+ * would be the obvious fix and it is the wrong one: several harnesses supply a stub on
+ * purpose, and silently replacing it with the real function changes what the test
+ * proves without anybody deciding to. So this names the gap and lets a human choose —
+ * which is also the only way the "LIFT, NOT STUB" rule stays a decision rather than a
+ * default.
+ *
+ * `provided` is everything the sandbox already has by another route: its `new Function`
+ * parameter names, and anything declared in a preamble string. */
+function sandboxDeps(code, src, provided) {
+  const have = new Set(provided || []);
+  /* Declared inside the assembled sandbox itself — any of these is already satisfied. */
+  let m;
+  const declRe = /(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g;
+  while ((m = declRe.exec(code))) have.add(m[1] || m[2]);
+  /* Everything the sandbox calls AS A BARE FUNCTION. ⚠ A method call is not this bug
+     and must not be reported as one: `dt.getDay()` is Date.prototype.getDay, and
+     admin.html happens to define a `getDay` of its own, so a naive scan flagged a
+     sandbox that was completely fine. A check that cries wolf is one somebody deletes.
+     So a name preceded by `.` or `?.` is skipped — and the preceding character is
+     taken from the source rather than from a lookbehind, which not every Node in this
+     project's history supports. */
+  const called = new Set();
+  const callRe = /([A-Za-z_$][\w$]*)\s*\(/g;
+  while ((m = callRe.exec(code))) {
+    const before = code.slice(Math.max(0, m.index - 2), m.index);
+    if (/[.?]$/.test(before)) continue;          // x.foo( or x?.foo(
+    if (/[\w$]$/.test(before)) continue;         // the tail of a longer identifier
+    called.add(m[1]);
+  }
+  /* Only names the SOURCE FILE defines as functions can be the missing-lift case —
+     a call to Math.round or a local variable is not this bug. */
+  const missing = [];
+  called.forEach(function (n) {
+    if (have.has(n)) return;
+    if (src.indexOf('function ' + n + '(') === -1) return;
+    missing.push(n);
+  });
+  return missing.sort();
+}
+/* One check per sandbox. Fails with the names to add, instead of the run dying. */
+function assertSandbox(label, name, code, src, provided) {
+  const missing = sandboxDeps(code, src, provided);
+  check(label, name + ' sandbox has everything it calls', missing.length === 0,
+    'add to its extraction list, or supply a stub deliberately: ' + missing.join(', '));
+}
 /*
  * Most of this suite is synchronous. A few checks have to RUN real app code
  * that is written as `async` (syncPayerInvoice), and an async function's body
@@ -1743,8 +1809,16 @@ check('flow', 'every newly added house is flagged for the warehouse',
   'a customer added without light colours was flagged false and appeared in no list at ' +
   'all — not the build queue, not the waiting-on-colours block');
 check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
-  /if\(!d\.needsLightBuild \|\| d\.maybeNextYear\) return;[\s\S]{0,200}blocked\.push\(item\)/.test(admin),
+  /if\(!d\.needsLightBuild \|\| \(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\)\) return;[\s\S]{0,200}blocked\.push\(item\)/.test(admin),
   'flagging them is only safe because there is a list for the ones that cannot be built yet');
+/* ⭐ AND THE SEASON RULE IS THE SHARED ONE, NOT d.maybeNextYear (2026-08-22). Owner:
+   "back next year ... won't go to recycle or be approved for this year?" Five places
+   read the FLAG alone while portalRsvp writes the STATUS alone, so a customer who
+   answered Back Next Year through the RSVP link had lights built for them. */
+check('flow', 'and every build list asks the ONE season rule, not the flag on its own',
+  !/needsLightBuild && item\.data\.lightsDescription && !item\.data\.maybeNextYear/.test(admin) &&
+  (admin.match(/isOutForSeason\(item\.data\)/g) || []).length >= 2,
+  'the flag alone cannot see anybody who answered through the RSVP link');
 
 /* --- Convert to Customer: automatic or manual --- */
 const convChoice = extractFn(admin, 'showConvertQuoteChoice') || '';
@@ -2010,11 +2084,25 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   // is a syntax error the moment it actually runs.
   const removeFromRoutesSrc = extractFn(fnSrc, 'removeCustomerFromUpcomingRoutes');
   const todayStrSrc = extractFn(fnSrc, 'todayStrInDenver');
-  check('flow', 'removeCustomerFromUpcomingRoutes and todayStrInDenver found in functions/index.js',
-    !!removeFromRoutesSrc && !!todayStrSrc,
+  /* ⚠ AND seasonYesUpdates (2026-08-22). A "yes" no longer builds its own update
+     object here — three doors share one rule — so leaving it out is a bare
+     ReferenceError the moment a yes runs, which surfaces as "an async suite crashed"
+     with no clue which suite. Same trap as the two above, third time. */
+  const seasonYesSrc = extractFn(fnSrc, 'seasonYesUpdates');
+  check('flow', 'removeCustomerFromUpcomingRoutes, todayStrInDenver and seasonYesUpdates found in functions/index.js',
+    !!removeFromRoutesSrc && !!todayStrSrc && !!seasonYesSrc,
     'renamed or removed — update this test rather than deleting it, or portalRsvp\'s no/back-next-year path cannot run here');
-  const fullSrc = [todayStrSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
+  const fullSrc = [todayStrSrc, seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
+  /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
+     harness died today with a bare "seasonYesUpdates is not defined" and no suite
+     name — the third time this year a hand-maintained extraction list has gone stale
+     and taken the whole run with it. Now the gap is a named FAIL with the missing
+     helper in it, and the run finishes. */
+  assertSandbox('flow', 'portalRsvp', fullSrc, fnSrc,
+    ['admin', 'db', 'HttpsError', 'onCall', 'findByToken', 'contactIndexFields',
+     'exports', 'request', 'console', 'String', 'Number', 'Boolean', 'Object',
+     'Array', 'Date', 'Math', 'JSON', 'Set', 'Map', 'Promise', 'require']);
 
   // Fake Firestore + callable wrapper. update() merges what would have been
   // written; add() records Inbox notes with the collection they landed in;
@@ -4272,7 +4360,19 @@ if (!JSDOM) {
     global.whArchivedPending = [];
     /* Same again for the top-up label: whSheetRowsForBuild calls it, and it is
        declared beside houseBundleNeed rather than inside the slices below. */
-    eval(extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel') +
+    /* ⚠ LIFTED, NOT STUBBED (2026-08-21). The build sheet's Bin # column became a
+       COUNT of bins and the customer number moved beside the name, so the row builder
+       calls two new helpers. whBinsForHouse asks cnBinsForFeet — the same one
+       js/money.js gives the app — because "the sheet agrees with the record about
+       bins" is the claim, and a hand-written stub of it proves nothing. */
+    /* cnBinsForFeet comes from js/money.js — the file production imports — read as
+       text and evaluated here rather than re-typed, so R-014 holds: one definition of
+       the 260-foot rule, and this suite cannot drift from it. */
+    eval(fs.readFileSync(path.join(ROOT, 'js', 'money.js'), 'utf8')
+           .replace(/^export /gm, '')
+           .replace(/^import [^;]+;$/gm, ''));
+    eval(extractFn(admin, 'whBinsForHouse') + '\n' + extractFn(admin, 'whWhoLabel') + '\n' +
+      extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel') +
       /* The recycle queue sends people to the number ON THE BIN, which is not always the
          one on the record. Declared beside whRecycleGroups, not inside the slice. */
       '\n' + extractFn(admin, 'whBinNumberFor') +
@@ -4454,14 +4554,40 @@ if (!JSDOM) {
     check('warehouse', 'the sheet is in the same order as the tab',
       sheet.rows[0].group === sheet.rows[1].group && sheet.rows[2].group !== sheet.rows[0].group,
       'the two houses share a colour group and must stay together, buffer stock after');
-    check('warehouse', 'a house with no feet on file leaves the Feet cell empty',
-      sheet.rows.find(r => r.what === 'Owen Hale').feet === '',
-      'a 0 in a Feet column reads as a measurement — this is the absence of one');
+    /* ⭐ FEET CAME OFF THIS SHEET, 2026-08-21. Owner: "I don't think we need feet
+       and bundles. I think how many bundles is fine for warehouse." The Bundles cell
+       now carries what Feet used to say about itself — the "+" for an add-on and
+       " est" where the count was worked back from the price rather than measured. */
+    /* ⚠ Owen has NO measuredFeet in this second fixture — that is the point of him.
+       The old check said "leaves the Feet cell empty"; Feet is gone, and the same
+       reasoning now belongs to the Bins count: cnBinsForFeet floors at 1, so printing
+       a confident "1" for a house nobody has measured is a guess wearing a number. */
+    check('warehouse', 'a house with no feet on file leaves the Bins cell empty',
+      (sheet.rows.find(r => /^Owen Hale/.test(r.what)) || {}).bins === '',
+      'rows: ' + JSON.stringify(sheet.rows.map(r => ({what: r.what, bins: r.bins}))));
+    check('warehouse', 'a measured house does get its bin count',
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bins === '1',
+      '240 ft is one bin');
+    /* ⭐ AND THE CUSTOMER NUMBER RIDES BESIDE THE NAME (2026-08-21). Owner: "costumer
+       # should also show next to costumers name." A house with no number yet shows the
+       name alone rather than a stray hash. */
+    check('warehouse', 'the customer number sits next to the name',
+      (sheet.rows.find(r => /^Owen Hale/.test(r.what)) || {}).what === 'Owen Hale #1421',
+      'it used to sit alone in a column headed Bin #, which is now a quantity');
+    check('warehouse', 'and a customer with no number yet shows just their name',
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).what === 'Nadia Brooks',
+      'a trailing # with nothing after it reads as a missing value, not an absent one');
     check('warehouse', 'the bundle count on paper is the same one on screen',
-      sheet.rows.find(r => r.what === 'Nadia Brooks').bundles === 6,
-      'a printout that disagrees with the tab is worse than no printout');
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bundles === '6',
+      'got ' + JSON.stringify((sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bundles));
+    /* ⚠ THE SUMMARY MUST STILL ADD UP once the cell can carry a marker. Number("3 est")
+       is NaN, which would drop that house out of the morning's total silently. */
+    check('warehouse', 'a marked bundle count still totals correctly',
+      (parseInt('+3', 10) || 0) === 3 && (parseInt('3 est', 10) || 0) === 3 &&
+      /parseInt\(r\.bundles, 10\)/.test(extractFn(admin, 'whPrintBuildSheet')),
+      'the build sheet summary reads the Bundles cell with parseInt, not Number');
     check('warehouse', 'a house that wants a timer says YES in the timer column',
-      sheet.rows.find(r => r.what === 'Nadia Brooks').timer === 'YES');
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).timer === 'YES');
     check('warehouse', 'buffer stock prints its label and quantity',
       sheet.rows[2].what === 'Spare sets' && sheet.rows[2].bundles === 3);
 
@@ -6009,17 +6135,34 @@ suite('17. A new customer lands on the next day in their city');
         /no longer a customer/.test(h.problem(null, soon)));
       check('reconcile', 'a customer sitting out the season is a problem',
         /sitting out/.test(h.problem({data:{maybeNextYear:true}}, soon)));
-      /* CHANGED 2026-08-15: an RSVP of 'no' ON ITS OWN no longer strips anybody.
-         The owner's rule is that for now only Maybe Next Year keeps somebody off
-         the list. What still strips them is the physical consequence — answering
-         no queues the warehouse to take their bundle apart — and portalRsvp
-         always writes rsvpStatus and needsLightRecycle in the same update, so
-         the realistic case is the pair, not the status alone. */
+      /* ⭐ REVERSED 2026-08-22. Owner: "someones that says no should go to recycle. But
+         they can change there decisions to Yes or back next year and it will update."
+
+         ⚠ FROM 2026-08-15 UNTIL THEN, an RSVP of 'no' on its own stripped nobody — only
+         the physical consequence did, the queued recycle. That made "no" a TEMPORARY
+         state: the warehouse clears the flag when the job is done, and the customer
+         silently rejoined the season a week later having never changed their mind. The
+         answer decides now; the flag only ever backed it up. */
       check('reconcile', 'a customer whose lights are being taken apart is a problem',
         /taken apart/.test(h.problem({data:{rsvpStatus:'no', needsLightRecycle:true}}, soon)));
-      check('reconcile', 'but an RSVP of no on its own leaves them on the day',
-        h.problem({data:{rsvpStatus:'no'}}, soon) === '',
-        'owner, 2026-08-15: for now everyone but Maybe Next Year is on the list');
+      check('reconcile', 'and an RSVP of no still is once the recycle is finished',
+        /said no to this season/.test(h.problem({data:{rsvpStatus:'no'}}, soon)),
+        'the flag is cleared when the warehouse is done — if that put them back on ' +
+        'the day, "no" would last exactly as long as the warehouse queue');
+      /* ⚠ AND IT NAMES THE RIGHT REASON. "Has not confirmed" is true of somebody
+         nobody has asked and false of somebody who answered no; a notice giving the
+         wrong reason is worse than one giving none. */
+      check('reconcile', 'and never calls an answered no "has not confirmed"',
+        !/has not confirmed/.test(h.problem({data:{rsvpStatus:'no'}}, soon)) &&
+        !/has not confirmed/.test(h.problem({data:{rsvpStatus:'no', needsLightRecycle:true}}, soon)),
+        'they DID confirm — the answer was no. A notice with the wrong reason sends ' +
+        'somebody hunting the wrong problem');
+      /* ⚠ AND THE ONE THAT PHRASE IS ACTUALLY FOR: somebody the flag caught with no
+         answer on file at all, which is what confirmed-only will make common. */
+      check('reconcile', 'and keeps it for somebody who really has not answered',
+        /has not confirmed/.test(h.problem({data:{needsLightRecycle:true, rsvpStatus:''}}, soon)) === false &&
+        /taken apart/.test(h.problem({data:{needsLightRecycle:true, rsvpStatus:''}}, soon)),
+        'a queued recycle with no answer behind it is still the physical rule');
       check('reconcile', 'back next year is still a problem, via the badge it always carries',
         /sitting out/.test(h.problem({data:{maybeNextYear:true, rsvpStatus:'backnextyear'}}, soon)),
         'pullCustomerFromSeason writes both fields in one update');
@@ -6833,19 +6976,75 @@ suite('21. Everyone is in unless they said otherwise');
     'THE bug: ~945 houses have a blank RSVP because nobody has ever been asked');
   check('season', 'a pending RSVP is IN', api.out({ rsvpStatus: 'pending' }) === false);
   check('season', 'a yes is IN', api.out({ rsvpStatus: 'yes' }) === false);
-  check('season', 'an RSVP of no is IN too, so long as their lights are intact',
-    api.out({ rsvpStatus: 'no' }) === false,
-    'owner overruled the first version of this: for now only Maybe Next Year keeps ' +
-    'somebody off the list');
+  /* ⭐ REVERSED 2026-08-22. Owner: "someones that says no should go to recycle. But
+     they can change there decisions to Yes or back next year and it will update."
+
+     ⚠ THIS CHECK USED TO ASSERT THE OPPOSITE, on the owner's 2026-08-15 instruction
+     that for now only Maybe Next Year keeps somebody off the list. The old reasoning
+     is kept here so nobody restores it by accident. What was wrong with it: the
+     physical rule below (out while their bundle is queued to be taken apart) is
+     CLEARED by the warehouse when the job is done, so "no" lasted exactly as long as
+     the warehouse queue and the customer silently rejoined the season having never
+     changed their mind. */
+  check('season', 'an RSVP of no is OUT, and stays out after the recycle is done',
+    api.out({ rsvpStatus: 'no' }) === true &&
+    api.out({ rsvpStatus: 'NO' }) === true &&
+    strict.out({ rsvpStatus: 'no' }) === true,
+    'the answer decides, not the flag — the flag only ever backed it up');
+  /* ⚠ AND IT UPDATES BOTH WAYS, which is the other half of what she asked for. Every
+     route that takes a new answer rewrites rsvpStatus, so nothing here is sticky. */
+  check('season', 'and changing their mind updates them, both ways',
+    api.out({ rsvpStatus: 'yes' }) === false &&
+    api.out({ rsvpStatus: 'backnextyear' }) === true,
+    'no -> yes puts them back in the season; no -> back next year moves them to 2027');
   check('season', 'Maybe Next Year is OUT — the one label the owner named',
     api.out({ maybeNextYear: true }) === true);
   check('season', 'Maybe Next Year is OUT even with an RSVP of yes beside it',
     api.out({ maybeNextYear: true, rsvpStatus: 'yes' }) === true,
     'the badge is what the office sets and sees, so it has to win');
-  check('season', 'back next year is OUT, because it never travels alone',
+  check('season', 'back next year is OUT when the office badged them',
     api.out({ maybeNextYear: true, rsvpStatus: 'backnextyear' }) === true,
-    'pullCustomerFromSeason writes both in one update — that is why the RSVP ' +
-    'value itself does not need testing for');
+    'pullCustomerFromSeason and the Edit Customer toggle write both in one update');
+  /* ⭐ AND OUT WHEN THEY ANSWERED IT THEMSELVES (2026-08-22). Owner: "back next year
+     should be on 2027 and not split for this year on schedule."
+
+     ⚠ THE COMMENT HERE USED TO SAY the status "never travels alone" — that
+     pullCustomerFromSeason always sets maybeNextYear beside it. portalRsvp does NOT:
+     it writes rsvpStatus alone, sets needsLightRecycle only for "no", and this file's
+     own Contact 2027 tab says so in as many words. So a customer who used the RSVP
+     link read as fully IN the season, and portalRsvp pulling them off upcoming routes
+     was undone by the next fill putting them back — the same ping-pong the recycle
+     rule exists to stop for "no". */
+  check('season', 'and OUT when they answered it themselves through the RSVP link',
+    api.out({ rsvpStatus: 'backnextyear' }) === true &&
+    strict.out({ rsvpStatus: 'backnextyear' }) === true,
+    'portalRsvp writes the status with NO maybeNextYear flag — that customer was ' +
+    'being routed, built for and scheduled all season');
+  check('season', 'case does not decide that either',
+    api.out({ rsvpStatus: 'BackNextYear' }) === true);
+  /* ⚠ AND THE REASON IT HAD TO BE FIXED HERE rather than by making portalRsvp set the
+     flag: the flag is what the OFFICE sets and sees, and writing it from a customer's
+     own answer would badge them Maybe Next Year without anybody choosing to. The two
+     mean different things; both mean not this season. */
+  {
+    /* Scoped to portalRsvp's own body: maybeNextYear IS written elsewhere in that file
+       (pullCustomerFromSeason), so a file-wide search would find it and call this
+       fine. */
+    const at = fnsSrc.indexOf('exports.portalRsvp');
+    const portalRsvpSrc = at === -1 ? '' : fnsSrc.slice(at, fnsSrc.indexOf('\n});', at));
+    /* ⚠ THIS USED TO ASSERT portalRsvp NEVER TOUCHED maybeNextYear, and it would
+       still pass — but for the wrong reason, which is worse than failing. Since
+       2026-08-22 a yes DOES clear that badge (owner: "we shouldn't have to clear a
+       badge to get someone updated"), and the write simply lives in seasonYesUpdates
+       rather than inline here. A check scoped to this function would report the old
+       rule holding while the behaviour is the opposite.
+       What is still true and worth holding: this door writes a NO or a BACK NEXT YEAR
+       on its own, because those two are only ever said here. The yes side is proved by
+       running seasonYesUpdates, in season-state.test.js. */
+    check('season', 'the server writes a no or a back next year on its own',
+      !!portalRsvpSrc && /rsvpStatus: response,/.test(portalRsvpSrc),
+      'those two answers are only ever given through this door');
+  }
 
   // ---- the physical rule, which survives whichever mode is on -----------
   check('season', 'lights queued to be taken apart means OUT, in either mode',
@@ -6857,16 +7056,54 @@ suite('21. Everyone is in unless they said otherwise');
     'this the fill would put them straight back fifteen minutes later');
 
   // ---- the mode the owner plans to switch to ---------------------------
+  /* ⭐ CONFIRMED MEANS THEY REPLIED (2026-08-22). Owner: "they need a reply either
+     through email or approving through the button. We should be able to approve for
+     them in costumers as well." Every fixture below therefore carries the timestamp
+     the real reply routes stamp. */
+  const said = new Date('2026-09-01T00:00:00Z');
   check('season', 'confirmed-only lets ONLY a yes through',
-    strict.out({ rsvpStatus: 'yes' }) === false &&
+    strict.out({ rsvpStatus: 'yes', rsvpRespondedAt: said }) === false &&
     strict.out({ rsvpStatus: '' }) === true &&
     strict.out({ rsvpStatus: 'pending' }) === true &&
     strict.out({}) === true,
     'the branch the owner will turn on — tested now so it cannot rot until then');
+  /* ⚠ THE FLIP WOULD HAVE BROKEN ITSELF. Converting a quote writes rsvpStatus 'yes'
+     with no rsvpRespondedAt — the office knowing they want lights, nobody having asked
+     them about this season. On the status alone, turning the setting on would have kept
+     in exactly the people it exists to exclude, and looked like it worked. */
+  check('season', 'an ASSUMED yes is OUT — a converted quote is not a reply',
+    strict.out({ rsvpStatus: 'yes' }) === true,
+    'this is the one line in the app that writes yes without a reply, and it is ' +
+    'carried by most of the book the moment the switch is turned on');
+  /* ⚠ AND EVERY REAL REPLY IS STILL IN. portalRsvp, quoteRespond's approval and the
+     office dropdown all stamp the date — that last one is the owner's "approve for
+     them in costumers", and it is why the dropdown was taught to stamp at all. */
+  check('season', 'but every route that takes a real answer keeps them IN',
+    strict.out({ rsvpStatus: 'yes', rsvpRespondedAt: said }) === false &&
+    strict.out({ rsvpStatus: 'yes', rsvpRespondedAt: 1 }) === false,
+    'the RSVP link, the portal button and the office marking it for them over the ' +
+    'phone all stamp rsvpRespondedAt — none of those may be lost');
+  /* ⚠ ONE QUESTION, ONE ANSWER. The Yes sheet has tested the timestamp since it was
+     built and this branch tested the status alone; two places deciding "is this
+     customer confirmed" differently is how the office and the crew hold two lists. */
+  check('season', 'and it asks the same question the Yes sheet asks',
+    /said === 'yes' && d\.rsvpRespondedAt/.test(admin) &&
+    /rsvpStatus \|\| ''\)\.toLowerCase\(\) === 'yes' && !!d\.rsvpRespondedAt/.test(admin),
+    'the Yes sheet and the season list disagreeing about one customer is worse ' +
+    'than either being wrong alone');
+  /* ⚠ A REPLY IS NOT AN ACCEPTANCE. Somebody who answered no, or back next year,
+     replied — the timestamp is stamped for them too — and they are OUT. Testing the
+     date on its own would put every one of them back in the season. */
+  check('season', 'a reply saying no is still OUT, timestamp and all',
+    strict.out({ rsvpStatus: 'no', rsvpRespondedAt: said }) === true &&
+    strict.out({ rsvpStatus: 'backnextyear', rsvpRespondedAt: said }) === true &&
+    strict.out({ rsvpStatus: 'unanswered', rsvpRespondedAt: said }) === true,
+    'they answered, and the answer was not yes');
   check('season', 'confirmed-only still lets Maybe Next Year win',
-    strict.out({ maybeNextYear: true, rsvpStatus: 'yes' }) === true);
+    strict.out({ maybeNextYear: true, rsvpStatus: 'yes', rsvpRespondedAt: said }) === true);
   check('season', 'case does not decide whether somebody gets their lights',
-    strict.out({ rsvpStatus: 'YES' }) === false && strict.out({ rsvpStatus: 'Yes' }) === false);
+    strict.out({ rsvpStatus: 'YES', rsvpRespondedAt: said }) === false &&
+    strict.out({ rsvpStatus: 'Yes', rsvpRespondedAt: said }) === false);
   check('season', 'no record at all is OUT rather than quietly IN',
     api.out(null) === true && api.out(undefined) === true && strict.out(null) === true);
 }
@@ -11391,13 +11628,28 @@ suite('Suite 44. The plan keeps up with the customer list');
       check('S44', 'running it again changes nothing', again.length === 0,
         'a sync that never settles would toast at the office every five minutes: ' + JSON.stringify(again));
 
-      /* OCT vs October must not read as a change. */
-      check('S44', '"OCT" and "October" are the same timing',
+      /* OCT vs October must not read as a change — the sheet and the record spell
+         the same answer differently, and treating that as a change would rewrite
+         every house on every tick. */
+      check('S44', 'the sheet\'s spelling and the record\'s are the same timing',
         sb.prefKey('OCT') === sb.prefKey('October') &&
-        sb.prefKey('NOV') === sb.prefKey('November - Before Thanksgiving') &&
+        sb.prefKey('NOV') === sb.prefKey('November') &&
         sb.prefKey('THX') === sb.prefKey('After Thanksgiving') &&
         sb.prefKey('') === sb.prefKey('Normal Schedule'),
         'the sheet and the record spell these differently; treating that as a change would rewrite every house on every tick');
+
+      /* ⭐ CHANGED 2026-08-21. This line used to read
+             sb.prefKey('NOV') === sb.prefKey('November - Before Thanksgiving')
+         and it was wrong — not as a spelling variant, which is what the check above
+         is for, but as a MEANING. Before Thanksgiving is a different answer from
+         plain November: it carries a deadline. Collapsing them meant the office
+         setting it in Customers read as no change and never reached the plan.
+         Owner, 2026-08-21: it "should go into reassign for that member". */
+      check('S44', 'before and after Thanksgiving and plain November are three answers',
+        sb.prefKey('November') !== sb.prefKey('November - Before Thanksgiving') &&
+        sb.prefKey('November - Before Thanksgiving') !== sb.prefKey('After Thanksgiving') &&
+        sb.prefKey('November') !== sb.prefKey('After Thanksgiving'),
+        'two opposite answers in nearly identical words - this file has collapsed them once before');
     }
   }
 
@@ -11417,9 +11669,21 @@ suite('Suite 44. The plan keeps up with the customer list');
     /if\(__syncTimer\) return;/.test(admin) && /if\(!loaded\) return 0;/.test(admin),
     'syncing into a plan that is not there would throw on a timer, for ever');
 
+  /* ⚠ AND THE REJOIN PLACER JOINED IT (2026-08-22). Every source of news the sync
+     can produce has to be in this condition, or the one left out is either never
+     announced or announced on a tick where nothing happened. */
   check('S44', 'a sync that changes nothing says nothing',
-    admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length) return 0;') > 0,
+    /if\(!moved\.length && !timing\.moved\.length && !timing\.stuck\.length\s*\n?\s*&& !rejoin\.placed\.length && !rejoin\.stuck\.length\) return 0;/
+      .test(admin.replace(/\r/g, '')),
     'a toast every five minutes is how somebody learns to ignore toasts');
+  check('S44', 'and somebody just placed back on a day IS announced',
+    /rejoin\.placed\.length\) bits\.push/.test(admin) &&
+    /rejoin\.stuck\.length\) bits\.push/.test(admin),
+    'a customer appearing on Tuesday with no explanation is how the office stops ' +
+    'trusting the plan');
+  check('S44', 'and the day they landed on is re-ordered for driving',
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| townChanged\)/.test(admin),
+    'a house dropped on the END of a day leaves that day out of driving order');
 }
 
 
@@ -11629,14 +11893,48 @@ suite('Suite 46. Nobody is hung before the month they asked for');
   check('S46', 'enforceInstallTiming exists', !!src);
 
   if (src) {
+    /* ⚠ Same guard as the portalRsvp sandbox — this one has gone stale twice
+       (houseDeadline, then nextInstallDayFor), and each time the whole run died on a
+       ReferenceError raised inside a forEach with no suite name attached. */
+    /* The sandbox's parameter names and its assembled body, named once so the guard
+       below can be asked the same question the engine will be. */
+    const SWEEP_PROVIDED = ['SEASON', 'isoOf', 'seasonStartDate', 'dayDate',
+      'houseAllowedFrom', 'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START',
+      'prefSpecificDate', 'routeDayIsLocked', 'String', 'Number', 'Boolean', 'Object',
+      'Array', 'Date', 'Math', 'JSON', 'Set', 'Map'];
+    const SWEEP_BODY =
+      'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+      fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
+      fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
+      src + 'this.run = enforceInstallTiming;';
+    /* ⚠ Same guard as the portalRsvp sandbox — this one has gone stale twice
+       (houseDeadline, then nextInstallDayFor), and each time the whole run died on a
+       ReferenceError raised inside a forEach with no suite name attached.
+       ⚠ routeDayIsLocked is in `provided` DELIBERATELY: nextInstallDayFor guards its
+       call with typeof, so its absence here means the 48-hour clause simply does not
+       run in this sandbox. That is a real gap and it is covered instead by
+       season-state.test.js, which asserts the clause exists. Listing it is how that
+       decision stays visible rather than looking like an oversight. */
+    assertSandbox('S46', 'enforceInstallTiming', SWEEP_BODY, admin, SWEEP_PROVIDED);
     const build = (SEASON) => {
       const sb = {};
       new Function('SEASON', 'isoOf', 'seasonStartDate', 'dayDate', 'houseAllowedFrom',
-        'extractCleanCity', 'maxStopsPerWorkingDay',
+        'extractCleanCity', 'maxStopsPerWorkingDay', 'BASE_START', 'prefSpecificDate',
         /* ⚠ LIFTED, NOT STUBBED (2026-08-20). The sweep now asks how many towns a
            day already holds before it moves anybody onto it, and a stub of that is a
            stub of the fix itself. CREWS_PER_DAY is left to its own fallback of two. */
+        /* ⚠ houseDeadline is LIFTED, NOT STUBBED (2026-08-21). The sweep now moves a
+           house that is past the day it asked to beat, and a stub of the deadline is a
+           stub of that fix — it would report green over a branch that never ran. It
+           brings thanksgivingDate with it, and BASE_START/prefSpecificDate are supplied
+           below, because that is what the real function reads. */
         'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
+        /* ⚠ AND nextInstallDayFor IS LIFTED TOO (2026-08-22). The sweep no longer
+           chooses the day itself — it asks the shared picker, which the rejoin placer
+           also asks. Leaving it out is a ReferenceError inside a forEach, which
+           surfaces as the whole suite dying with no failure list; stubbing it would
+           make every claim below about WHICH day is chosen a claim about the stub. */
+        fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
@@ -11648,7 +11946,10 @@ suite('Suite 46. Nobody is hung before the month they asked for');
           return startStr;
         },
         (c) => ('' + (c || '')).split(',')[0].trim(),
-        () => 40);
+        () => 40,
+        new Date(2026, 9, 1),
+        /* No named days in these fixtures; the real parser has its own suite. */
+        () => null);
       return sb.run;
     };
 
@@ -11697,6 +11998,116 @@ suite('Suite 46. Nobody is hung before the month they asked for');
         SEASON[0].houses.indexOf(nov) !== -1 && out.stuck.length === 1 &&
         out.stuck[0].notBefore === '2026-11-01',
         'dropping them off the plan silently is worse than leaving them visible');
+    }
+
+    /* ⭐ AND NOBODY IS LEFT PAST THE DAY THEY ASKED TO BEAT (added 2026-08-21).
+       The sweep only ever looked one way — it moved a house scheduled EARLIER than
+       allowed and had no idea a deadline existed. An October customer sitting in
+       November stayed in November. */
+    {
+      const late = { name: 'Late', pref: 'OCT', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 20), houses: [] },
+        { _date: new Date(2026, 10, 12), houses: [late] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a house past its deadline is moved EARLIER, not left there',
+        SEASON[0].houses.indexOf(late) !== -1 && SEASON[1].houses.indexOf(late) === -1 &&
+        out.moved.length === 1,
+        'an October customer hung in November is the thing this was asked to stop');
+    }
+
+    /* ⚠ AND WITH NOWHERE EARLIER, THEY STAY AND ARE REPORTED — the same answer the
+       too-early branch has always given. Owner chose this over crowding a full day:
+       a customer you can see is stuck gets a phone call, an overfilled day gets
+       found by a crew on the road. */
+    {
+      const late = { name: 'Nowhere', pref: 'OCT', city: 'Draper' };
+      const SEASON = [{ _date: new Date(2026, 10, 12), houses: [late] }];
+      const out = build(SEASON)();
+      check('S46', 'past its deadline with nowhere earlier, it stays and is reported',
+        SEASON[0].houses.indexOf(late) !== -1 && out.stuck.length === 1 &&
+        out.stuck[0].late === true && out.stuck[0].notAfter === '2026-10-31',
+        'forcing it onto a full day hides the problem until the crew is on the road');
+    }
+
+    /* ⚠ A HOUSE WITH NO DEADLINE IS NEVER DRAGGED EARLIER. A named day is a floor,
+       never a ceiling, and somebody with no opinion has neither. */
+    {
+      const easy = { name: 'Easy', pref: '', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 20), houses: [] },
+        { _date: new Date(2026, 10, 12), houses: [easy] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a house with no deadline is left exactly where it is',
+        SEASON[1].houses.indexOf(easy) !== -1 && out.moved.length === 0,
+        'moving somebody who never asked for anything is churn, not a fix');
+    }
+
+    /* ⚠ AND IT SETTLES. A house inside its window returns immediately, or the
+       five-minute timer would toast for ever. */
+    {
+      const ok = { name: 'Fine', pref: 'OCT', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 20), houses: [ok] },
+        { _date: new Date(2026, 9, 21), houses: [] }
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a house already inside its window is not moved',
+        SEASON[0].houses.indexOf(ok) !== -1 && out.moved.length === 0 && out.stuck.length === 0,
+        'a sweep that never settles toasts at the office every five minutes');
+    }
+
+    /* ⚠ AND A MOVE NEVER OVERSHOOTS THE DEADLINE. This one was MISSED by the first
+       round of red-checks: with the ceiling taken out of the candidate window, a
+       house sitting too EARLY was happily moved to a day past the day it asked to
+       beat — fixing one violation by creating the opposite one. Before Thanksgiving
+       opens 1 Nov and closes on the holiday (26 Nov in 2026), so a December day is
+       not a legal home however much room it has. */
+    {
+      const pre = { name: 'Pre', pref: 'November - Before Thanksgiving', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 15), houses: [pre] },   // too early
+        { _date: new Date(2026, 11, 5), houses: [] }       // roomy, but past the holiday
+      ];
+      const out = build(SEASON)();
+      check('S46', 'a too-early house is never moved PAST its own deadline',
+        SEASON[0].houses.indexOf(pre) !== -1 && out.moved.length === 0 &&
+        out.stuck.length === 1,
+        'honouring the floor by breaking the ceiling is the same customer missed, the other way round');
+    }
+
+    /* And the legal day inside the window IS taken. */
+    {
+      const pre = { name: 'Pre2', pref: 'November - Before Thanksgiving', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 15), houses: [pre] },
+        { _date: new Date(2026, 10, 20), houses: [] },     // inside the window
+        { _date: new Date(2026, 11, 5), houses: [] }
+      ];
+      build(SEASON)();
+      check('S46', 'and it does land on a day inside the window when one exists',
+        SEASON[1].houses.indexOf(pre) !== -1,
+        'refusing every day would be a sweep that never places anybody');
+    }
+
+    /* ⚠ AND IT NEVER LANDS ON ANOTHER DAY THAT IS STILL TOO EARLY. This is the
+       sweep's ORIGINAL guard, and a red-check found nothing covered it: every
+       too-early fixture happened to offer only legal days, so deleting the floor
+       from the candidate window changed no result. The refactor that added the
+       deadline ceiling moved that guard, so it needs a fixture of its own. */
+    {
+      const nov = { name: 'Floor', pref: 'NOV', city: 'Draper' };
+      const SEASON = [
+        { _date: new Date(2026, 9, 5), houses: [nov] },    // too early
+        { _date: new Date(2026, 9, 20), houses: [] },      // ALSO too early, and roomy
+        { _date: new Date(2026, 10, 5), houses: [] }       // the first legal day
+      ];
+      build(SEASON)();
+      check('S46', 'a too-early house is not moved to another too-early day',
+        SEASON[2].houses.indexOf(nov) !== -1 && SEASON[1].houses.indexOf(nov) === -1,
+        'the earliest day with room is not the same thing as the earliest day they are allowed on');
     }
 
     /* ⚠ A house already done is history. */
@@ -11771,9 +12182,13 @@ suite('Suite 46. Nobody is hung before the month they asked for');
     }
   }
 
+  /* ⚠ THE EARLY RETURN GREW A CLAUSE ON 2026-08-22 (the rejoin placer), so this
+     matches the START of the condition rather than the whole line — what it is
+     asserting is that the sweep is NOT gated on a field having changed, not the
+     exact list of things the sync stays quiet about. S44 owns that list. */
   check('S46', 'the sweep runs on every sync, not only when a field changed',
     admin.indexOf('timing=enforceInstallTiming();') > 0 &&
-    admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length) return 0;') > 0,
+    admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length') > 0,
     'a plan saved before the rule existed is already breaking it, with nothing having changed today');
 }
 
@@ -12059,6 +12474,12 @@ suite('Suite 48. Days within two working days are set');
       'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
       'for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}return d;}' +
       fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
+      /* ⚠ LIFTED, NOT STUBBED (2026-08-22). rebuildSeasonDays now drops houses whose
+         customer has left the season, and the claim being made is that it asks the ONE
+         shared definition rather than a second opinion of its own — a hand-written
+         stub of isOutForSeason would prove the plumbing and nothing about the rule.
+         The live setting comes with it for the same reason. */
+      (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + fn('isOutForSeason') +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
@@ -12115,6 +12536,97 @@ suite('Suite 48. Days within two working days are set');
       check('S48', 'a day well in the future is still rebuilt',
         far.r && !far.r.error && far.r.locked === 0 && far.r.houses === 2,
         JSON.stringify(far.r));
+    }
+
+    /* ⭐ AND ANYBODY WHO HAS LEFT THE SEASON COMES OFF THE PLAN (2026-08-22).
+       Owner: "back next year should be on 2027 and not split for this year on
+       schedule."
+
+       ⚠ EVERY SYNC BEFORE THIS ONE ONLY EVER ADDED. customersMissingFromSeason asks
+       isOutForSeason before putting somebody ON a day and nothing asked again
+       afterwards, so a customer who was placed and THEN sat the season out stayed on
+       the plan through every Recalculate. The routes side has had two ways to drop
+       them and the schedule had none. */
+    {
+      const gone = (city, name, cd) => ({ id: name, name: name, city: city, pref: 'OCT',
+        __cust: { data: Object.assign({ city: city, lat: 40.39, lng: -111.85 }, cd) } });
+      /* ⚠ THE PORTAL-ANSWERED ONE IS THE POINT. portalRsvp writes rsvpStatus alone —
+         no maybeNextYear, no needsLightRecycle — so this fixture is the customer who
+         used the RSVP link, and it is the case that read as fully IN the season. */
+      const out2 = ctx.run([day(new Date(2026, 9, 20), [
+        house('Lehi', 'staying1'), house('Lehi', 'staying2'),
+        gone('Lehi', 'saidbacknextyear', { rsvpStatus: 'backnextyear' }),
+        gone('Lehi', 'badgedmaybe', { maybeNextYear: true })
+      ], 19)]);
+      const names = [];
+      out2.season.forEach(d => (d.houses || []).forEach(h => names.push(h.name)));
+
+      check('S48', 'a customer who answered Back Next Year comes off the plan',
+        names.indexOf('saidbacknextyear') === -1,
+        'still on the plan: portalRsvp writes the status with no maybeNextYear flag, ' +
+        'so this is the one that used the RSVP link rather than the office button');
+      check('S48', 'and so does one badged Maybe Next Year',
+        names.indexOf('badgedmaybe') === -1, 'still on the plan');
+      check('S48', 'and everybody else is untouched',
+        names.indexOf('staying1') !== -1 && names.indexOf('staying2') !== -1 &&
+        names.length === 2,
+        'got ' + JSON.stringify(names));
+      /* ⚠ COUNTED, NOT SILENTLY DROPPED. A house vanishing off the plan with nothing
+         said reads as a bug; the same house with a sentence beside it reads as the
+         button working. */
+      check('S48', 'and it says how many it took off',
+        out2.r && out2.r.left === 2, 'left was ' + (out2.r && out2.r.left));
+
+      /* ⚠ AND NOT TAKEDOWNS OR FIXES. Both are copies made from an install house and
+         are work on lights that are ALREADY UP — somebody sitting this season out may
+         still need theirs taking down, and that is precisely the job. Sweeping those
+         up with the installs would leave lights on a house nobody is coming back to. */
+      const td = gone('Lehi', 'theirtakedown', { rsvpStatus: 'backnextyear' });
+      td.isTakedown = true;
+      const out2b = ctx.run([day(new Date(2026, 9, 20),
+        [house('Lehi', 'normal1'), house('Lehi', 'normal2'), td], 19)]);
+      const n2b = [];
+      out2b.season.forEach(d => (d.houses || []).forEach(h => n2b.push(h.name)));
+      check('S48', 'a takedown for one of them is NOT swept up with the installs',
+        n2b.indexOf('theirtakedown') !== -1 && (out2b.r && out2b.r.left === 0),
+        'their lights are up and still have to come down — dropping it leaves a ' +
+        'house lit that nobody is going back to');
+
+      /* ⚠ FAIL SAFE ON A HOUSE WITH NO CUSTOMER RECORD. Imported CSV rows need not
+         match one at all, and reading "no customer found" as "not coming" would empty
+         most of the plan on the first press. */
+      const orphan = { id: 'orphan', name: 'orphan', city: 'Lehi', pref: 'OCT', __cust: null };
+      const out3 = ctx.run([day(new Date(2026, 9, 20),
+        [house('Lehi', 'kept'), orphan], 19)]);
+      const n3 = [];
+      out3.season.forEach(d => (d.houses || []).forEach(h => n3.push(h.name)));
+      check('S48', 'a house with no customer record is KEPT, not assumed gone',
+        n3.indexOf('orphan') !== -1 && (out3.r && out3.r.left === 0),
+        'an imported row need not match a record — no record, no opinion');
+
+      /* ⚠ AND IT DOES NOT REACH A DAY THAT IS SET. Tue 6 Oct is inside the lock, the
+         crew may be holding that sheet, and a rebuild cannot un-print paper. Reported
+         instead, so the office rings them rather than a crew finding out. */
+      const out4 = ctx.run([day(new Date(2026, 9, 6),
+        [gone('Lehi', 'onaprintedday', { rsvpStatus: 'backnextyear' })], 5),
+        day(new Date(2026, 9, 20), [house('Lehi', 'movable1'), house('Lehi', 'movable2')], 19)]);
+      const n4 = [];
+      out4.season.forEach(d => (d.houses || []).forEach(h => n4.push(h.name)));
+      check('S48', 'somebody on a day already set is left there, not yanked off it',
+        n4.indexOf('onaprintedday') !== -1,
+        'the 48-hour lock outranks this: that sheet is printed and the van is loaded');
+      check('S48', 'but the office is told about them',
+        out4.r && out4.r.stillSet === 1 && out4.r.left === 0,
+        'stillSet ' + (out4.r && out4.r.stillSet) + ', left ' + (out4.r && out4.r.left));
+
+      /* ⚠ AND "EVERY HOUSE IS DONE" WOULD BE A LIE. When the last few waiting houses
+         have all left the season there is nothing to rebuild, and saying they were
+         finished sends somebody hunting a broken button. */
+      const out5 = ctx.run([day(new Date(2026, 9, 20),
+        [gone('Lehi', 'onlyone', { rsvpStatus: 'backnextyear' })], 19)]);
+      check('S48', 'and a season emptied by departures says so, not "every house is done"',
+        out5.r && out5.r.error && /left the season/.test(out5.r.error),
+        JSON.stringify(out5.r));
     }
   }
 }
@@ -18160,7 +18672,20 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
         'const maxStopsPerWorkingDay = function(){ return 40; };' +
         'const houseAllowedFrom = function(h){ return h.from || null; };' +
         'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
-        extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + lim + src +
+        /* ⚠ houseDeadline LIFTED, not stubbed (2026-08-21) — the sweep reads it now.
+           These fixtures carry no `pref`, so every house here has no deadline and the
+           town-limit behaviour this suite is about is unchanged; supplying the real
+           one keeps that true rather than assuming it. */
+        'const BASE_START = new Date(2026, 9, 1);' +
+        'const prefSpecificDate = function(){ return null; };' +
+        extractFn(admin, 'thanksgivingDate') + extractFn(admin, 'houseDeadline') +
+        /* ⚠ AND nextInstallDayFor IS LIFTED TOO (2026-08-22). The sweep no longer
+           chooses the day itself — it asks the shared picker, which the rejoin placer
+           also asks. Leaving it out is a ReferenceError inside a forEach, which
+           surfaces as the whole suite dying with no failure list; stubbing it would
+           make every claim below about WHICH day is chosen a claim about the stub. */
+        extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + lim +
+        extractFn(admin, 'nextInstallDayFor') + src +
         'return {report: enforceInstallTiming(), season: SEASON};')(season);
     };
     const H = (name, city, from) => ({name: name, city: city, from: from || null});
@@ -19030,17 +19555,24 @@ suite('Suite 104. The Printing tab');
     check('S104', 'color changes carry the new color',
       keys('colors') === 'number,name,color',
       'got ' + keys('colors'));
+    /* ⭐ BUNDLES REPLACED FEET, 2026-08-21. Owner: "I don't think we need feet and
+       bundles. I think how many bundles is fine for warehouse." The original
+       instruction did say "feet of the house"; this supersedes it. Bundles is derived
+       from feet, so printing both asked the warehouse to check a sum that was never
+       theirs to check, and bundles is the one they actually count off a shelf. */
     check('S104', 'the build list carries everything the warehouse makes up',
-      keys('build').indexOf('number,name,lights,wire,timer,feet') === 0,
-      'got ' + keys('build') + ' — owner: "customer number, name, light color, ' +
-      'wire color, time(yes/no), and feet of the house"');
+      keys('build').indexOf('number,name,lights,wire,timer,bundles') === 0,
+      'got ' + keys('build'));
+    check('S104', 'and the build list does NOT carry feet',
+      keys('build').indexOf('feet') === -1,
+      'feet is the office number - it prices the job and sizes the bins');
     /* ⭐ AND ONE MORE AFTER THEM (added 2026-08-20). A top-up build joins a bin that
        is already on the shelf, and a finished bundle nobody can place is the thing that
        goes wrong in a warehouse. It is blank on every ordinary row, so the ones that
        need it stand out. NOT written into the blank column on the right, which is where
        the warehouse ticks the row off. */
     check('S104', 'and says whose bin a top-up bundle goes into',
-      keys('build') === 'number,name,lights,wire,timer,feet,putInto',
+      keys('build') === 'number,name,lights,wire,timer,bundles,putInto',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -19049,9 +19581,109 @@ suite('Suite 104. The Printing tab');
        related printing it need to include timer(yes/no), that should come before
        notes." Notes is the wide free-text column and anything after it is lost against
        a wall of writing, so the POSITION is asserted, not just the presence. */
+    /* ⭐ AND GATE AND SIDES JOINED THEM (2026-08-21). Owner: "were not using the
+       employee portal this year... we are only printing on schedules and warehouse."
+       The gate code, the outlet instruction and the one-time note lived ONLY in that
+       portal, so they reached nobody at all — a crew at a gated house with no code.
+       Gate and Sides are short enough to be their own columns; the two prose ones
+       fold into Notes rather than widening the sheet to eleven columns. */
+    /* ⭐ AND BINS JOINED THEM (2026-08-22). Owner: "crew print sheet should also show
+       bin #." A COUNT, not the number on the bin — she settled that vocabulary on
+       2026-08-21 ("Bin # is how many bins were making for them"), and Cust # already
+       carries the label. It sits third, beside the identity columns, because loading
+       the van happens before driving anywhere. */
     check('S104', 'the crew list carries what the van needs, timer before notes',
-      keys('crew') === 'number,name,address,city,eaves,timer,notes',
+      keys('crew') === 'number,name,bins,address,city,gate,sides,eaves,timer,notes',
       'got ' + keys('crew'));
+    check('S104', 'and Bins is a column of its own, not folded into the notes',
+      keys('crew').indexOf('bins') !== -1 &&
+      keys('crew').indexOf('bins') < keys('crew').indexOf('notes'),
+      'how many bins to load is a number, and anything after Notes is lost');
+    check('S104', 'gate and sides sit BEFORE the wide notes column',
+      keys('crew').indexOf('gate,sides') < keys('crew').indexOf('notes'),
+      'anything after Notes is lost against a wall of writing');
+  }
+
+  /* ---- the crew row builder, RUN rather than read ---- */
+  {
+    const need = ['printGateCode', 'printSideCount', 'printCrewNotes', 'printBinCount'];
+    const srcs = need.map(n => extractFn(admin, n));
+    check('S104', 'the crew-sheet helpers are all there', srcs.every(Boolean),
+      need.filter((n, i) => !srcs[i]).join(', ') + ' missing');
+
+    if (srcs.every(Boolean)) {
+      /* ⚠ houseSideCount LIFTED, not stubbed. A hand-written stub would not read the
+         old array shape, and "the sheet agrees with the schedule about sides" is
+         exactly the claim being made here — a stub of it proves nothing. */
+      const sb = new Function(
+        'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
+        /* ⚠ THE REAL cnBinsForFeet, out of js/money.js, not a local ceil. The claim
+           being made is that the crew sheet and the warehouse sheet get the SAME
+           number out of the SAME rule; a second copy of the arithmetic here would
+           agree with itself and prove nothing. */
+        cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
+        extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
+        srcs.join('') + 'return {g: printGateCode, s: printSideCount, ' +
+        'n: printCrewNotes, b: printBinCount};'
+      )();
+
+      check('S104', 'the bin count is the real bin rule, not a second one',
+        sb.b({ measuredFeet: 260 }) === '1' && sb.b({ measuredFeet: 261 }) === '2' &&
+        sb.b({ measuredFeet: 521 }) === '3',
+        'the crew loading two bins for a house the warehouse built one for is a van ' +
+        'that leaves without half the lights');
+      /* ⚠ BLANK, NEVER "1". cnBinsForFeet floors at 1, so an unmeasured house would
+         otherwise print a confident single bin — a guess wearing a number, and the
+         warehouse sheet already refuses to make it. */
+      check('S104', 'a house nobody has measured prints nothing, not a confident 1',
+        sb.b({}) === '' && sb.b({ measuredFeet: 0 }) === '',
+        'got ' + JSON.stringify(sb.b({})));
+      check('S104', 'a moved bin label is named beside the count',
+        sb.b({ measuredFeet: 300, customerNumber: '5051', binLabelNumber: '894' })
+          .indexOf('bin says #894') !== -1,
+        'the Cust # column is exactly the number that will not be found');
+      /* ⚠ AND ONLY WHEN IT REALLY MOVED. Stamping every row with a bin number the
+         crew can already read off the Cust # column is noise, and noise in a column
+         is how the one row that matters stops being noticed. */
+      check('S104', 'and stays quiet when it did not move',
+        sb.b({ measuredFeet: 300, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
+        sb.b({ measuredFeet: 300, customerNumber: '894' }) === '2',
+        'got ' + JSON.stringify(sb.b({ measuredFeet: 300, customerNumber: '894',
+          binLabelNumber: '894' })));
+
+      check('S104', 'a gate code reaches the printed sheet',
+        sb.g({ gateCode: '4412' }) === '4412',
+        'this is the whole point — it lived only in the portal nobody is using');
+      /* ⚠ NOT the word "none". The record cannot tell "no gate" from "there is a
+         gate and nobody asked", so a confident "none" claims a fact we do not have. */
+      check('S104', 'no gate code prints a dash, not a confident "none"',
+        sb.g({}) === '\u2014' && sb.g({ gateCode: '  ' }) === '\u2014',
+        'got ' + JSON.stringify(sb.g({})));
+
+      check('S104', 'the side count always prints, and matches houseSideCount',
+        sb.s({ houseSides: 3 }) === '3' && sb.s({}) === '1' &&
+        sb.s({ houseSides: ['front', 'left'] }) === '2',
+        'the sheet disagreeing with the schedule about sides is two answers for one house');
+
+      const full = sb.n({ specificOutletNotes: 'lower outlet by door',
+                          oneTimeNote: 'ring the bell', notes: 'dog in the back' }, {});
+      check('S104', 'the outlet instruction and the one-time note reach the sheet',
+        full.indexOf('lower outlet by door') !== -1 && full.indexOf('ring the bell') !== -1,
+        'both lived only in the crew portal: ' + full);
+      /* ⚠ ORDER IS THE RULE, not presence. Both change what the crew DOES at the
+         house; buried under a paragraph about the dog they may as well not be there. */
+      check('S104', 'the two actionable lines lead, the standing note follows',
+        full.indexOf('OUTLET') < full.indexOf('dog') &&
+        full.indexOf('TODAY') < full.indexOf('dog'),
+        'got ' + full);
+      check('S104', 'both are labelled, so neither reads as part of the standing note',
+        full.indexOf('OUTLET:') !== -1 && full.indexOf('TODAY:') !== -1, full);
+      check('S104', 'a customer with nothing to say prints an empty note, not labels',
+        sb.n({}, {}) === '', 'got ' + JSON.stringify(sb.n({}, {})));
+      check('S104', 'the plan\'s own note is used when the record has none',
+        sb.n({}, { details: 'from the imported plan' }) === 'from the imported plan',
+        'an imported row carries its note in `details`');
+    }
   }
 
   /* ---- numbered from 1, blank column on the right, every single list ---- */
@@ -19395,6 +20027,20 @@ suite('Suite 104. The Printing tab');
       'const customerForHouse = function(h){ return {data: h.cust || {}}; };' +
       'const customerPhotoList = function(){ return []; };' +
       'const schedOpenPrintPages = function(t, pages){ out.push({title: t, pages: pages}); };' +
+      /* ⚠ LIFTED, NOT STUBBED (2026-08-21). printCrewDayList now fills Gate, Sides
+         and a folded Notes, and a stub of those is a stub of the fix that put the
+         gate code on paper at all. houseSideCount comes with them because
+         printSideCount reads it. */
+      extractFn(admin, 'printGateCode') + extractFn(admin, 'printSideCount') +
+      extractFn(admin, 'printCrewNotes') +
+      /* ⚠ AND THE BIN COUNT, ALL THE WAY DOWN TO cnBinsForFeet OUT OF js/money.js.
+         A stubbed whBinsForHouse would prove the column renders and nothing about
+         whether the crew and the warehouse are told the same number, which is the
+         only claim worth making here. */
+      cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
+      extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
+      extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
+      'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
       extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
@@ -19414,9 +20060,19 @@ suite('Suite 104. The Printing tab');
     {crew: 0, id: 'h1', cust: {customerNumber: '11', name: 'A', street: '1 St',
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
-    {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes'}}],
+    {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
+      gateCode: '4412', houseSides: 3, measuredFeet: 300,
+      specificOutletNotes: 'lower outlet by door',
+      oneTimeNote: 'ring the bell', notes: 'dog in the back'}},
+    /* ⚠ THE BIN THAT WEARS THE OLD NUMBER. This customer moved from #894 to the
+       5000-series when their footage crossed CN_DOUBLE_BIN_FEET, and the bin already
+       on the shelf still says 894 — so the Cust # column is the one number that will
+       not be found in the warehouse. Same crew as h3 so it lands on the printed
+       sheet under test. */
+    {crew: 1, id: 'h5', cust: {customerNumber: '5051', name: 'E', street: '5 St',
+      measuredFeet: 300, binLabelNumber: '894'}}],
     spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D',
-      outletTimer: 'Yes'}}]};
+      outletTimer: 'Yes', gateCode: '7788', measuredFeet: 600}}]};
 
   const crewOut = runSheet('crew', aDay);
   const crewBody = ((crewOut[0] || {}).pages || [{}])[0].body || '';
@@ -19441,6 +20097,74 @@ suite('Suite 104. The Printing tab');
     crewBody.indexOf('<th>Timer</th>') < crewBody.indexOf('<th>Notes</th>'),
     'anything after Notes is lost against a wall of writing');
 
+  /* ⭐ NOBODY ASKED IS NOT "No" (2026-08-21). printYesNo turned a blank into a
+     confident No, so a customer who wants a timer and was never asked printed as a
+     definite No and did not get one. With the employee portal out of use this season
+     the printed sheet is the only thing the crew sees, so the sheet was answering a
+     question on the customer's behalf. R-002's reasoning exactly: silence and "they
+     didn't want it" must not look alike. */
+  {
+    const yn = new Function(extractFn(admin, 'printYesNo') + 'return printYesNo;')();
+    check('S104', 'an unanswered yes/no prints "?", not "No"',
+      yn(undefined) === '?' && yn('') === '?' && yn('   ') === '?' && yn(null) === '?',
+      'a defaulted No is the sheet answering for the customer');
+    /* ⚠ AN EXPLICIT NO IS STILL AN ANSWER. Somebody ticking no must not be turned
+       into a shrug — that would be the same fault pointing the other way. */
+    check('S104', 'but a real No is still No',
+      yn('No') === 'No' && yn(false) === 'No' && yn('n') === 'No',
+      'turning an answer into a question mark loses information the office collected');
+    check('S104', 'and a real Yes is still Yes',
+      yn('Yes') === 'Yes' && yn(true) === 'Yes' && yn('y') === 'Yes');
+    /* The master sheet's Up Plug column literally holds "?" for this — 98 of them. */
+    check('S104', 'the sheet\'s own question mark reads as unanswered',
+      yn('?') === '?' && yn('??') === '?',
+      'the importer already refuses to read "?" as a no; the paper now agrees');
+    check('S104', 'and anything actually typed still prints as typed',
+      yn('switched outlet only') === 'switched outlet only',
+      'a real instruction must not be flattened into Yes, No or ?');
+  }
+
+  /* ⚠ SAME TRAP, SAME FIX, FOR THE NEW COLUMNS (2026-08-21). A red-check that
+     stopped printCrewDayList filling `gate` and `sides` left both headers standing
+     with empty cells under them and EVERY other check stayed green — including the
+     column-order one and the helpers' own unit checks, which call printGateCode
+     directly rather than going through the renderer. The sheet is what the crew
+     holds, so the sheet is what gets asserted. */
+  /* ⚠ AND ON THE PAGE, not just in the helper. The fixture's crew-1 house answers
+     the timer and says nothing about eaves, so the sheet must show both states. */
+  check('S104', 'the printed sheet shows "?" where nobody was asked',
+    /<td>\?<\/td>/.test(crewBody),
+    'the eaves question is unanswered for this house and the sheet should say so');
+  check('S104', 'and still shows a real answer where there is one',
+    /<td>Yes<\/td>/.test(crewBody),
+    'the same house answered the timer');
+
+  check('S104', 'the Gate column is actually filled in, not just present',
+    /<th>Gate<\/th>/.test(crewBody) && /<td>4412<\/td>/.test(crewBody),
+    'a Gate header with nothing under it is the crew still stuck at the gate');
+  check('S104', 'the Sides column is actually filled in',
+    /<th>Sides<\/th>/.test(crewBody) && /<td>3<\/td>/.test(crewBody),
+    'got a Sides header with nothing under it');
+  /* ⚠ SAME TRAP AGAIN: a header with nothing under it. The fixture's house is 300 ft,
+     which is over CN_DOUBLE_BIN_FEET, so the honest answer is 2 — and a van loaded off
+     a blank column leaves with half the lights. */
+  check('S104', 'the Bins column is actually filled in, not just present',
+    /<th>Bins<\/th>/.test(crewBody) && /<td>2<\/td>/.test(crewBody),
+    'a Bins header with nothing under it is a van loaded by guesswork');
+  /* ⚠ AND THE ONE CASE THE Cust # COLUMN GETS WRONG. Sending somebody to find #5051
+     sends them to a bin that does not exist; the label still says 894. */
+  check('S104', 'and it says so when the bin wears the old number',
+    crewBody.indexOf('bin says #894') !== -1,
+    'the crew is the one standing in the warehouse looking for it');
+  check('S104', 'the outlet instruction and the one-time note reach the printed page',
+    crewBody.indexOf('lower outlet by door') !== -1 &&
+    crewBody.indexOf('ring the bell') !== -1,
+    'both lived only in the crew portal, which is not in use this season');
+  check('S104', 'and they lead the standing note on the page itself',
+    crewBody.indexOf('OUTLET:') < crewBody.indexOf('dog in the back') &&
+    crewBody.indexOf('TODAY:') < crewBody.indexOf('dog in the back'),
+    'buried under a paragraph they may as well not be printed');
+
   const dayOut = runSheet('day', aDay);
   const dayBody = ((dayOut[0] || {}).pages || [{}])[0].body || '';
   check('S104', 'the whole-day sheet is split into a block per crew',
@@ -19453,17 +20177,28 @@ suite('Suite 104. The Printing tab');
     dayBody.indexOf('>31<') !== -1,
     'it is already reported on screen as nobody' + String.fromCharCode(8217) + 's; a sheet that drops it ' +
     'silently is how it gets missed on the road');
-  /* ⚠ THAT BLOCK BUILDS ITS OWN ROWS BY HAND, so it drifts from the crew builder
-     silently: a column added to one and not the other prints a header with nothing
-     under it, only on the houses nobody is holding a sheet for. */
+  /* ⭐ IT BUILT ITS OWN ROWS BY HAND UNTIL 2026-08-22, and had drifted exactly the way
+     that invites: it filled seven of the ten columns, so Gate, Sides and Bins printed
+     EMPTY and its Notes column skipped the outlet instruction and the one-time note —
+     and only for the houses nobody has agreed to drive to, which is the last place
+     anybody would look. Both callers go through printCrewRow now. That block's own
+     comment already said the halves must not "read differently depending on which
+     button somebody happened to press"; this is what makes it true.
+
+     ⚠ SCOPED TO THAT BLOCK ON PURPOSE. Counting a filled cell across the whole sheet
+     is satisfied by a crew row and proves nothing about this one — the values below
+     belong to the spare house alone. */
   check('S104', 'and that block is filled in the same as the crew blocks',
     (function () {
       const at = dayBody.indexOf('In neither crew');
       const blk = at === -1 ? '' : dayBody.slice(at);
-      return /<td>Yes<\/td>/.test(blk);
+      return /<td>Yes<\/td>/.test(blk) &&      /* timer  */
+             blk.indexOf('<td>7788</td>') !== -1 &&   /* gate   */
+             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 600 ft */
+             blk.indexOf('<td>1</td>') !== -1;        /* sides  */
     })(),
-    'scoped to that block on purpose — counting Yes across the whole sheet is ' +
-    'satisfied by a crew row and proves nothing about this one');
+    'a column added to the crew builder and not to this one prints a header with ' +
+    'nothing under it, on exactly the houses nobody is holding a sheet for');
 
   /* ⭐ AND THE WHOLE-DAY SHEET CARRIES THE PHOTOS TOO. Owner, having printed this
      exact sheet for 16 November: "ashley wray is on this day but it isnt showing her
@@ -20572,6 +21307,37 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and every row builder fills it in, so no row is short a cell',
       (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 3,
       'houses, extras and the blocked ones all push rows onto that sheet');
+
+    /* ⭐ BUNDLES, NOT FEET, ON THIS SHEET TOO (2026-08-21). Owner: "I don't think we
+       need feet and bundles. I think how many bundles is fine for warehouse."
+       ⚠ A red-check adding Feet back HERE went unnoticed while the same sabotage on
+       the Printing tab's sheet was caught — the exact asymmetry CLAUDE.md already
+       warns about: there are two build sheets and this is the one with thinner
+       cover. Both are asserted now. */
+    check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's build sheet counts bundles',
+      /key:'bundles'/.test(cols),
+      'bundles is what somebody counts off a shelf');
+    /* ⭐ AND Bin # BECAME A COUNT (2026-08-21). Owner: "Bin # is how many bins were
+       making for them but costumer # should also show next to costumers name." The
+       column used to hold the CUSTOMER number under a header reading Bin # — true in
+       the sense that the number gets painted on the bin, and useless for the question
+       the warehouse is asking, which is how many bins this house needs.
+       ⚠ A red-check reverting the header alone went unnoticed until this was added:
+       the row-builder checks below all passed, because they assert what fills the
+       cell and not what the cell is called. */
+    check('S107', 'the Bins column is a count, headed Bins',
+      /key:'bins', label:'Bins'/.test(cols),
+      'got the column list without a Bins key');
+    check('S107', 'and the old Bin # header is gone from the BUILD sheet',
+      !/label:'Bin #'/.test(cols),
+      'Bin # now reads as a quantity, so a header saying it holds a number is a lie. ' +
+      'WH_RECYCLE_COLUMNS keeps its own "Bin # to find" - that one IS the painted ' +
+      'number, because finding a bin on a shelf is what it is for');
+    check('S107', 'and does NOT also carry feet',
+      !/key:'feet'/.test(cols),
+      'feet is the office number - it prices the job and sizes the bins, and bundles ' +
+      'is derived from it, so printing both asks the warehouse to check a sum that ' +
+      'was never theirs');
   }
 
   /* And the Printing tab's list reads the same answer as the warehouse tab. */
@@ -20580,9 +21346,18 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'the printed Needs Building list asks the same function',
       /houseBundleNeed\(d\)/.test(src) && /whPutIntoLabel\(d\)/.test(src),
       'two builders of one list is how a printout starts disagreeing with the screen');
+    /* ⚠ This builder names the flag `isTopUp`; the warehouse tab's names it
+       need.topUp. Matching the warehouse's spelling here failed even though the
+       behaviour was right — a reminder that these two source-shape checks are
+       reading two different functions. */
     check('S107', 'and marks a top-up row with a plus so it cannot read as a whole house',
-      /'\+' \+ need\.feet/.test(src),
-      '120 in the Feet column of a 300 ft house is a wrong number, not a short one');
+      /isTopUp \? '\+' : ''/.test(src) && /need\.bundles/.test(src),
+      '3 in the Bundles column of a 300 ft house is a wrong number, not a short one');
+    /* ⚠ AND SAYS WHEN THE COUNT IS A GUESS. With no measured footage the number is
+       worked back from the price; a warehouse told "3" makes 3 and finds out later. */
+    check('S107', 'and marks an estimated count as an estimate',
+      /need\.estimated \? ' est' : ''/.test(src),
+      'dropping the Feet column dropped this warning with it, once');
   }
 
   /* ⭐ A HOUSE FLAGGED TO BUILD WITH NO COLOURS ON FILE USED TO VANISH. Owner, having
@@ -20593,8 +21368,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
      Needs Building list has never had that filter, so the two screens disagreed about
      the same customer. */
   {
+    /* ⚠ LIFTED, NOT STUBBED. The queue now asks isOutForSeason, and the claim being
+       made below is about WHICH rule it asks — a stub would answer whatever this file
+       wanted to hear. The live setting comes with it. */
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
+      (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
       extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
@@ -20615,6 +21394,27 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and sitting out the season still means nothing is built',
       B([{id: 'c1', data: {name: 'Out', needsLightBuild: true, maybeNextYear: true}}]).blocked.length === 0,
       'Back Next Year has always meant no work, and that must not change');
+    /* ⭐ AND THE ONE THE FLAG COULD NOT SEE (2026-08-22). portalRsvp writes rsvpStatus
+       alone — no maybeNextYear — so somebody who answered Back Next Year through the
+       RSVP link was built for all season. */
+    check('S107', 'and that includes somebody who answered through the RSVP link',
+      (function () {
+        const r = B([{id: 'c2', data: {name: 'Portal', needsLightBuild: true,
+                                       rsvpStatus: 'backnextyear'}}]);
+        return r.blocked.length === 0 && r.keys.length === 0;
+      })(),
+      'the flag alone missed every customer who used the link instead of the office');
+    /* ⚠ AN RSVP OF NO IS OUT TOO: their bundle is queued to be taken apart, so
+       building and recycling at once is two jobs cancelling out. */
+    check('S107', 'and an RSVP of no, whose lights are queued to come back',
+      B([{id: 'c3', data: {name: 'No', needsLightBuild: true, lightsDescription: 'Warm',
+                           needsLightRecycle: true}}]).keys.length === 0);
+    /* ⚠ BUT SOMEBODY WHO MOVED IS NOT OUT. recycleKeepingCustomer is the whole reason
+       Recycle and Build are two buttons — they need both. */
+    check('S107', 'but somebody who MOVED still gets their new set built',
+      B([{id: 'c4', data: {name: 'Moved', needsLightBuild: true, lightsDescription: 'Warm',
+                           needsLightRecycle: true, recycleKeepingCustomer: true}}]).keys.length === 1,
+      'recycling their old set and building a new one is exactly what a mover needs');
     check('S107', 'and somebody not flagged at all is not on it either',
       B([{id: 'd1', data: {name: 'Nothing to do'}}]).blocked.length === 0);
   }
@@ -20628,6 +21428,10 @@ suite('Suite 107. Pricing a re-quote from the popup');
   {
     const sheet = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      /* Lifted with the row builder they belong to: the Bin # column is a COUNT now
+         and the customer number rides beside the name. */
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
@@ -20637,13 +21441,21 @@ suite('Suite 107. Pricing a re-quote from the popup');
       (w) => String(w || 'white'), () => '', []).rows;
     const blockedRow = rows.filter(function(r){ return r.type === 'Blocked'; });
     check('S107', 'and the printed sheet carries them too',
-      blockedRow.length === 1 && blockedRow[0].what === 'Ashley Wray',
+      blockedRow.length === 1 && blockedRow[0].what === 'Ashley Wray #894',
       'a sheet that leaves them off says the work is finished when it is not');
     check('S107', 'and the row says why it cannot be built',
       /NO LIGHT COLOURS ON FILE/.test(blockedRow[0] ? blockedRow[0].notes : ''),
       'a row with a blank Bundles column and no reason reads as a mistake');
-    check('S107', 'and it still carries the bin number, so somebody can find them',
-      blockedRow[0] && blockedRow[0].bin === '894');
+    /* ⭐ THE CUSTOMER NUMBER MOVED (2026-08-21). Owner: "Bin # is how many bins were
+       making for them but costumer # should also show next to costumers name." So the
+       identifier is in the Customer column now, and `bins` is a quantity — for a
+       300 ft house, two. */
+    check('S107', 'and it still carries the customer number, so somebody can find them',
+      blockedRow[0] && /#894/.test(blockedRow[0].what),
+      'got ' + JSON.stringify(blockedRow[0] && blockedRow[0].what));
+    check('S107', 'and the Bins column is a count, not that number',
+      blockedRow[0] && blockedRow[0].bins === '2',
+      '300 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
@@ -21682,6 +22494,7 @@ suite('Suite 116. Deleting the test records');
   {
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
+(admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
@@ -21699,6 +22512,14 @@ suite('Suite 116. Deleting the test records');
       'owner pressed a button and could not tell whether it had worked');
     check('S116', 'and somebody sitting the season out says so',
       ask({name: 'A', needsLightBuild: true, maybeNextYear: true}).state === 'nextyear');
+    /* ⚠ INCLUDING THE ONE THE FLAG COULD NOT SEE. This screen exists to say WHY
+       somebody is not on the build list, so answering "nothing has queued a build"
+       about a customer who is simply out sends the office to press Build Them A New
+       Set — which queues one that the queue then refuses. */
+    check('S116', 'including one who answered Back Next Year through the RSVP link',
+      ask({name: 'A', needsLightBuild: true, rsvpStatus: 'backnextyear'}).state === 'nextyear',
+      'it said "nothing has queued a build for them", which is a different problem ' +
+      'with a different fix');
 
     const words = new Function('name', 'st', extractFn(admin, 'whBuildStatusText') +
       'return whBuildStatusText(name, st);');
@@ -22089,6 +22910,8 @@ suite('Suite 112. The number on the bin');
   {
     const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
@@ -22108,8 +22931,11 @@ suite('Suite 112. The number on the bin');
     check('S112', 'and says in words that it joins a bin they already have',
       !!addOn && /GOES INTO THE BIN THEY ALREADY HAVE/.test(addOn.notes),
       'Notes is what gets read when a row looks unusual');
+    /* ⚠ 120 extra feet is 3 bundles — houseBundleNeed does the subtraction, so this
+       is the add-on's count and not the whole house's. */
     check('S112', 'and still names whose bin, and how much to make',
-      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.feet === '+120');
+      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.bundles === '+3',
+      'got ' + JSON.stringify(addOn && addOn.bundles));
     check('S112', 'and their own note is not thrown away for it',
       /GOES INTO THE BIN[\s\S]*ladder round the back/.test(
         build({name: 'A', customerNumber: '9', needsLightBuild: true,
@@ -22138,6 +22964,7 @@ suite('Suite 112. The number on the bin');
     {
       const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
         'houseBundleNeed', 'whPutIntoLabel',
+        (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
@@ -22151,8 +22978,35 @@ suite('Suite 112. The number on the bin');
         out.length === 1 && /^EXISTING BIN/.test(out[0].putInto) &&
         /Ashley Wray #894/.test(out[0].putInto),
         'two sheets of the same job saying it two ways is how one stops being read');
-      check('S112', 'and marks the footage as an addition',
-        out[0].feet === '+120');
+      /* ⚠ need.bundles is ALREADY the add-on's count — houseBundleNeed does the
+         subtraction — so 120 extra feet is 3 bundles, not the whole house's 8. */
+      check('S112', 'and marks the bundle count as an addition, not the whole house',
+        out[0].bundles === '+3',
+        'got ' + JSON.stringify(out[0].bundles));
+      /* ⭐ AND THIS LIST HAD NO SEASON RULE AT ALL (2026-08-22). Owner: "back next
+         year ... won't be approved for this year?" The warehouse SCREEN dropped them
+         and the printed sheet beside it did not, so the paper listed people the screen
+         had already dropped — including somebody the office had badged Maybe Next
+         Year. Two lists of one job disagreeing is how the one on paper stops being
+         trusted. */
+      {
+        const bag = (extra) => list(
+          [{id: 'z', data: Object.assign({name: 'Out', customerNumber: '9',
+                                          needsLightBuild: true, lightsDescription: 'Warm',
+                                          measuredFeet: 200}, extra)}],
+          () => 'Warm White', () => 'No',
+          new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+          function(){ return ''; });
+        check('S112', 'the printed list drops somebody badged Maybe Next Year',
+          bag({maybeNextYear: true}).length === 0,
+          'the screen beside it has dropped them for a long time');
+        check('S112', 'and somebody who answered Back Next Year through the RSVP link',
+          bag({rsvpStatus: 'backnextyear'}).length === 0,
+          'portalRsvp writes the status with no flag — this is most of them');
+        check('S112', 'but still prints an ordinary house',
+          bag({}).length === 1,
+          'a season rule that empties the sheet is worse than none');
+      }
     }
   }
 
@@ -25081,43 +25935,41 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
      confirmed. */
   {
     const seasonBlock = respond.slice(respond.indexOf('APPROVING IS SAYING YES TO THE SEASON'));
+    /* ⚠ IT NO LONGER WRITES THE STATUS INLINE. Since 2026-08-22 all three doors go
+       through seasonYesUpdates, so what is asserted here is that this door still
+       writes SOMETHING for an approver; what a yes actually does is proved by running
+       that helper, in season-state.test.js. */
     check('S70', 'approving marks an existing member in for the season',
-      /rsvpStatus: 'yes'/.test(seasonBlock),
+      /db\.collection\('jobAddresses'\)\.doc\(memberRef\.id\)/.test(seasonBlock),
       'without it they stay RSVP-pending and get chased by the RSVP email');
 
-    /* ⚠ THE GUARD THAT MATTERS. A recorded "no" or "back next year" is a
-       DELIBERATE answer. Flipping it to yes because a price was accepted puts
-       somebody back on a route they cancelled, and leaves needsLightRecycle set
-       behind them — the record then says two opposite things at once. */
-    /* ⚠ THE GUARD THAT MATTERS, AND IT IS RUN RATHER THAN MATCHED. This was a
-       regex for the literal `if (!currentRsvp)`, which broke the moment a third
-       do-not-overwrite case was added — and a test that fails when correct code grows
-       gets loosened rather than read. The condition itself is lifted and evaluated. */
-    {
-      const cond = (seasonBlock.match(/if \((![\s\S]*?currentRsvp[^)]*)\)/) || [])[1];
-      check('S70', 'the season guard is still one readable condition', !!cond,
-        'if this stops being a single if, test the new shape rather than deleting this');
-      if (cond) {
-        const may = new Function('raw',
-          "const currentRsvp = String(raw || '').trim().toLowerCase();" +
-          'return !!(' + cond + ');');
+    /* ⭐ THE GUARD IS GONE, DELIBERATELY (2026-08-22). Owner, asked which way and
+       told the trade in full: "go with option 2."
 
-        check('S70', 'but never overwrites an answer they already gave',
-          may('no') === false && may('backnextyear') === false && may('yes') === false,
-          'an explicit "no" or "back next year" must outrank one inferred from a ' +
-          'price: flipping it puts somebody back on a route they cancelled, with ' +
-          'needsLightRecycle still set behind them');
-        check('S70', 'a customer nobody has asked yet IS marked',
-          may('') === true && may(null) === true && may('   ') === true);
-        check('S70', 'and so is one who was asked and has not replied',
-          may('unanswered') === true && may('Unanswered') === true,
-          'unanswered is the absence of an answer, not an answer. Every customer is ' +
-          'moved to it right before an RSVP round, so a blank-only guard would stop ' +
-          'marking ANYONE from the first reset onwards — and the symptom would be ' +
-          'the complaint this code was written to fix: members chased to confirm a ' +
-          'season they had just paid to join');
-      }
-    }
+       ⚠ WHAT USED TO BE HERE, so nobody restores it by accident: approving a quote
+       only marked somebody whose RSVP was blank or Unanswered, because a recorded no
+       was a DELIBERATE answer and one inferred from a price should not outrank it —
+       a re-quote can be sent to somebody who has already said no, to correct a figure
+       or to price next year, and reading that approval as "I am back in" puts them on
+       a crew day when all they agreed to was the number. That cost is real and was
+       put to her in those terms. She took it, because in practice a re-quote goes to
+       somebody she is trying to bring back.
+
+       ⚠ THE LATEST ANSWER STILL WINS. This is one more way to say yes, not a lock —
+       a no arriving afterwards, by link or by office, overrides it. She asked that
+       specifically, and the check below is what holds it.
+
+       ⚠ AND IT HAD TO DO THE WHOLE JOB. Setting the status alone was safe only
+       BECAUSE it never ran for somebody who had said no; now that it does, it would
+       leave them in the season with needsLightRecycle still set — in and queued to be
+       taken apart at once, which is exactly what the old note warned about. */
+    check('S70', 'approving a quote now marks them whatever they said before',
+      !/currentRsvp/.test(seasonBlock),
+      'the blank-only guard was removed on purpose — restoring it silently undoes ' +
+      'the owner\'s decision');
+    check('S70', 'and it goes through the shared yes rule, not its own write',
+      /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}\)\)/.test(seasonBlock),
+      'a status-only write leaves them in the season AND queued for recycle');
 
     check('S70', 'and only ever for somebody who is already a customer',
       /if \(action === 'approve' && memberRef\)/.test(seasonBlock),
@@ -25937,8 +26789,11 @@ suite('77. Schedule route generator');
   check('S77', 'the periodic sync re-orders the days it changed',
     /routes=generateAllRoutes\(\)/.test(sync),
     'enforceInstallTiming puts a moved house on the END of its new day');
+  /* ⚠ AND A REJOINER LANDING ON A DAY COUNTS AS A MOVE (added 2026-08-22). They are
+     pushed onto the END of that day, so it is no longer in driving order — exactly
+     the case this trigger exists for. A changed phone number still is not. */
   check('S77', 'but only when a house actually moved day or town',
-    /if\(timing\.moved\.length \|\| townChanged\)/.test(sync),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| townChanged\)/.test(sync),
     'a changed phone number does not alter a route — re-ordering the season every five minutes would');
   check('S77', 'and it happens BEFORE the plan is drawn and saved',
     sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),
@@ -30121,11 +30976,30 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
     !/needsLightRecycle:\s*response === 'no'/.test(stripComments(fns)),
     'that expression is false for backnextyear as well as for yes, so it wipes ' +
     'an owed collection for somebody who never said their lights could come back');
+  /* ⚠ THE YES HALF MOVED, THE RULE DID NOT (merge, 2026-08-22). This required both
+     halves inline: `if (response === 'no') ... else if (response === 'yes') ...`. A
+     parallel change gave a yes ONE server-side definition — seasonYesUpdates, shared
+     by the RSVP link and quote approval — so the cancel now lives there and portalRsvp
+     keeps only the answer that CREATES a collection. Same behaviour, and season-state
+     RUNS the helper to prove it; what is asserted here is that neither half went
+     missing in the move. */
   check('S132', 'it writes the recycle only for the two answers that decide it',
     /if \(response === 'no'\) updates\.needsLightRecycle = true;/.test(stripComments(fns)) &&
-    /else if \(response === 'yes'\) updates\.needsLightRecycle = false;/.test(stripComments(fns)),
+    /needsLightRecycle: false,/.test(stripComments(extractFn(fns, 'seasonYesUpdates') || '')),
     "'no' owes a collection, 'yes' cancels the one their no created, and " +
     "'backnextyear' says nothing either way");
+  /* ⚠ AND backnextyear STILL SAYS NOTHING. The whole point of hole G, asserted from
+     the other side: nothing in that door may write the flag for it. */
+  /* ⚠ SCOPED TO portalRsvp'S OWN BODY. A file-wide count catches an unrelated write
+     in another function and reports a violation that is not one — which it did on the
+     first run. */
+  check('S132', 'and back next year writes no recycle at all, either way',
+    (function () {
+      const at = fns.indexOf('exports.portalRsvp');
+      const body = at === -1 ? '' : stripComments(fns.slice(at, fns.indexOf('\n});', at)));
+      return (body.match(/updates\.needsLightRecycle\s*=/g) || []).length === 1;
+    })(),
+    'portalRsvp should write it in exactly one place — the "no" branch');
 
   /* ---- 6. the flag may not outlive the answer that set it -------------
      maybeNextYear was sticky: a search of the whole codebase found ONE thing
@@ -31074,6 +31948,13 @@ Promise.all(pendingAsync).then(function () {
 }).catch(function (e) {
   // An async suite that blew up must never be mistaken for a clean run.
   console.log('\n  FAIL  ' + ((e && e.__suite) || 'an async suite') + ' — crashed partway through');
+  /* ⚠ A BARE ReferenceError HERE IS ALMOST ALWAYS ONE THING: a lifted function calling
+     a helper its sandbox was never given. Saying so turns a bisect into a one-line fix,
+     and assertSandbox above is what stops most of them reaching this point at all. */
+  if (e instanceof ReferenceError) {
+    console.log('          a lifted function called a helper its sandbox was never ' +
+      'given — add it to that harness\'s extraction list (see sandboxDeps)');
+  }
   console.log('          ' + (e && e.stack || e));
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + (fail + 1) + ' failed\n');
