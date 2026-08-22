@@ -4350,6 +4350,9 @@
             #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
             #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
             #roofMeasureOverlay .rm-typebtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+            #roofMeasureOverlay .rm-sidebtn{border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 11px; font-size:11.5px; font-weight:600; cursor:pointer;}
+            #roofMeasureOverlay .rm-sidebtn.on{background:var(--gold-dim); border-color:var(--gold-dim);}
+            #roofMeasureOverlay .rm-sidebtn:disabled{opacity:.4; cursor:not-allowed;}
             #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--paper);}
             #roofMeasureOverlay .rm-panel h4{margin:0 0 2px; font-size:13.5px; font-weight:700;}
             #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 10px; font-size:11.5px; color:var(--slate);}
@@ -4359,6 +4362,14 @@
             #roofMeasureOverlay .rm-runrow button{border:0; background:none; color:var(--ember); cursor:pointer; font-size:13px; line-height:1; padding:0 2px;}
             #roofMeasureOverlay .rm-pane{position:relative; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#e9eef2;}
             #roofMeasureOverlay .rm-panehead{position:absolute; left:0; right:0; top:0; z-index:9; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(rgba(12,18,26,.72), rgba(12,18,26,0)); color:#fff; font-size:12px; font-weight:600; pointer-events:none;}
+            /* Sits over a pane until its imagery is actually on screen. z-index
+               is BELOW the lock layer so it can never swallow a measuring click
+               if it is ever left showing by mistake. */
+            #roofMeasureOverlay .rm-busy{position:absolute; inset:0; z-index:5; display:flex; align-items:center; justify-content:center; gap:9px; background:#e9eef2; color:var(--slate); font-size:13px; font-weight:600;}
+            #roofMeasureOverlay .rm-busy.done{display:none;}
+            #roofMeasureOverlay .rm-spin{width:15px; height:15px; border:2px solid var(--line); border-top-color:var(--gold-dim); border-radius:50%; animation:rmspin .8s linear infinite;}
+            @keyframes rmspin{to{transform:rotate(360deg);}}
+            @media (prefers-reduced-motion: reduce){ #roofMeasureOverlay .rm-spin{animation:none;} }
             #roofMeasureOverlay .rm-lock{position:absolute; inset:0; z-index:6; cursor:crosshair;}
             #roofMeasureOverlay .rm-svlayer{position:absolute; inset:0; z-index:7; pointer-events:none;}
             #roofMeasureOverlay .rm-frozen{position:absolute; left:10px; bottom:10px; z-index:8; background:rgba(20,28,38,.85); color:#fff; font-size:11px; font-weight:700; padding:4px 9px; border-radius:999px; pointer-events:none;}
@@ -4368,6 +4379,7 @@
             #roofMeasureOverlay .rm-shot .rm-shotacts button{border:0; border-radius:6px; width:22px; height:22px; cursor:pointer; font-size:12px; line-height:1; background:rgba(255,255,255,.92);}
             #roofMeasureOverlay .rm-shot .rm-shotcap{position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,.62); color:#fff; font-size:10.5px; padding:3px 5px;}
             #roofMeasureOverlay .rm-mini{display:flex; justify-content:space-between; font-size:12px; padding:3px 0;}
+            #roofMeasureOverlay kbd{background:#fff; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:1px 5px; font:inherit; font-size:10px; font-weight:700;}
           </style>
           <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
           <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">One set of points, seen from above and from the street. Mark it in either &mdash; it shows up in both.</p>
@@ -4393,6 +4405,26 @@
                   <button type="button" class="btn btn-outline btn-sm" id="rmClearBtn" style="flex:1; justify-content:center;">Clear</button>
                 </div>
                 <p id="rmDrawHint" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Load an address first.</p>
+                <!-- Front is on by default; the rest are one click each. The
+                     count on each button is what makes an empty side obvious
+                     rather than a button that appears to do nothing. -->
+                <div id="rmSidesBar" style="display:none; margin-top:10px;">
+                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">Sides of the house</div>
+                  <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                    <button type="button" class="rm-sidebtn on" data-rmside="front">Front</button>
+                    <button type="button" class="rm-sidebtn" data-rmside="left">Left</button>
+                    <button type="button" class="rm-sidebtn" data-rmside="right">Right</button>
+                    <button type="button" class="rm-sidebtn" data-rmside="back">Back</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmAllSides" style="padding:4px 9px; font-size:11px;">All</button>
+                  </div>
+                </div>
+                <!-- Named on screen on purpose: a shortcut nobody can find is a
+                     feature for one person. -->
+                <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
+                  <kbd>Enter</kbd> start / finish &middot; <kbd>Esc</kbd> cancel &middot;
+                  <kbd>&#9003;</kbd> undo &middot; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> type &middot;
+                  <kbd>A</kbd> all suggested on/off &middot; <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
+                </p>
               </div>
 
               <!-- The height a sky-view click is assumed to be at. Sky view
@@ -4411,6 +4443,7 @@
                   <button type="button" class="btn btn-outline btn-sm" data-rmheight="18" style="padding:4px 9px; font-size:11px;">2 storey</button>
                 </div>
                 <p id="rmHeightNote" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Measure one eave in Street View and this fills itself in.</p>
+                <p id="rmDatumNote" style="font-size:11.5px; color:var(--dusk); margin:6px 0 0; font-weight:600;"></p>
               </div>
 
               <div class="rm-panel" id="rmImagePanel" style="display:none;">
@@ -4446,6 +4479,21 @@
                 <div id="rmMaterials"></div>
               </div>
 
+              <div class="rm-panel" id="rmPricePanel" style="display:none;">
+                <h4>Price</h4>
+                <p class="rm-sub">Your per-foot rate, tilted by how hard the house is.</p>
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:9px;">
+                  <label style="font-size:11.5px; color:var(--slate);">Difficulty</label>
+                  <select id="rmDifficulty" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12.5px;">
+                    <option value="Easy">Easy &times;0.85</option>
+                    <option value="Medium" selected>Medium &times;1</option>
+                    <option value="Hard">Hard &times;1.25</option>
+                  </select>
+                </div>
+                <p id="rmGradeWhy" style="font-size:11px; color:var(--slate); margin:0 0 9px;"></p>
+                <div id="rmPrice" style="font-size:12.5px;"></div>
+              </div>
+
               <div class="rm-panel" id="rmRoofFactsPanel" style="display:none;">
                 <h4>Roof Facts</h4>
                 <p class="rm-sub">From Google's roof model of this address.</p>
@@ -4454,19 +4502,73 @@
             </div>
 
             <div style="flex:1 1 640px; min-width:360px; display:flex; flex-direction:column; gap:10px;">
-              <div class="rm-pane">
+              <!-- ⚠ SIDE BY SIDE WHEREVER THERE IS ROOM. Stacked, the street
+                   pane sat below the fold, so a window whose whole point is
+                   "mark it in one and see it in the other" opened showing only
+                   one of them. They wrap back to stacked on a narrow screen,
+                   which is the right answer there - two 200px panes would be
+                   worse than one usable one. -->
+              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
+              <div class="rm-pane" style="flex:1 1 430px; min-width:330px;">
                 <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span></div>
-                <div id="rmMap" style="width:100%; height:400px;"></div>
+                <div id="rmMap" style="width:100%; height:430px;"></div>
+                <!-- ⚠ Tiles take a few seconds. Without this the pane is a
+                     blank grey rectangle on open, which reads as broken - it
+                     was reported as exactly that within a minute of shipping,
+                     by someone watching a feature that was working fine. -->
+                <div class="rm-busy" id="rmSkyBusy"><span class="rm-spin"></span><span id="rmSkyBusyText">Finding the house&hellip;</span></div>
                 <div class="rm-lock" id="rmMapLock" style="display:none;"></div>
                 <div class="rm-frozen" id="rmMapFrozen" style="display:none;">Frozen while measuring</div>
               </div>
 
-              <div class="rm-pane">
+              <div class="rm-pane" style="flex:1 1 430px; min-width:330px;">
                 <div class="rm-panehead"><span>&#127968; Street View &mdash; heights, peaks, and the photo</span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span></div>
-                <div id="rmPano" style="width:100%; height:360px;"></div>
+                <div id="rmPano" style="width:100%; height:430px;"></div>
                 <svg id="rmSvLayer" class="rm-svlayer"></svg>
+                <div class="rm-busy" id="rmStreetBusy"><span class="rm-spin"></span><span id="rmStreetBusyText">Looking for a street-level photo&hellip;</span></div>
                 <div class="rm-lock" id="rmPanoLock" style="display:none;"></div>
                 <div class="rm-frozen" id="rmPanoFrozen" style="display:none;">Frozen while measuring</div>
+              </div>
+              </div><!-- /the two panes, side by side -->
+
+              <!-- ============ A PHOTO THE CUSTOMER SENT ==================
+                   Street View cannot see the back of a house. When somebody
+                   emails a picture of it, this measures on that picture.
+
+                   ⚠ IT NEEDS ONE KNOWN LENGTH AND THERE IS NO WAY ROUND THAT.
+                   A photograph off a phone carries no camera position, so
+                   nothing in it has a scale until something in it does. Trace
+                   one thing whose length is known - a garage door, a side
+                   already measured from the street - and everything else is
+                   in proportion to it.
+
+                   ⚠ AND THE ANSWER IS A RANGE, DELIBERATELY. One scale is only
+                   exactly right for things the same distance from the camera
+                   and square-on to it. A run further back, or angled away,
+                   reads short. Quoting a single confident number off that would
+                   be pretending to a precision the picture does not hold. -->
+              <div id="rmPhotoBar" style="padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  <label class="btn btn-outline btn-sm" style="cursor:pointer;">Measure on a photo they sent
+                    <input type="file" accept="image/*" id="rmPhotoInput" style="display:none;">
+                  </label>
+                  <span id="rmPhotoStatus" style="font-size:12px; color:var(--slate);">For the back of the house, or anywhere Street View cannot see.</span>
+                </div>
+                <div id="rmPhotoStage" style="display:none; margin-top:10px;">
+                  <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+                    <button type="button" class="btn btn-gold btn-sm" id="rmPhotoRefBtn">1 &middot; Set the scale</button>
+                    <input type="number" id="rmPhotoRefFt" min="1" max="200" step="0.5" placeholder="ft"
+                           style="width:76px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12.5px;">
+                    <button type="button" class="btn btn-outline btn-sm" id="rmPhotoDrawBtn" disabled>2 &middot; Trace a run</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmPhotoUndoBtn">Undo</button>
+                  </div>
+                  <p id="rmPhotoHint" style="font-size:11.5px; color:var(--slate); margin:0 0 8px;">Drag along something you know the length of &mdash; a garage door is usually 16 ft, a single is 8.</p>
+                  <div id="rmPhotoWrap" style="position:relative; display:inline-block; max-width:100%; border:1px solid var(--line); border-radius:10px; overflow:hidden; user-select:none; touch-action:none; cursor:crosshair; background:#000;">
+                    <img id="rmPhotoImg" style="display:block; max-width:100%; max-height:420px; pointer-events:none;">
+                    <svg id="rmPhotoLayer" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></svg>
+                  </div>
+                  <div id="rmPhotoResults" style="margin-top:9px; font-size:12.5px;"></div>
+                </div>
               </div>
 
               <div id="rmWallBar" style="padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
@@ -14853,10 +14955,19 @@ const RM_TYPES = {
   ridge:     {label: 'Ridge',     color: '#3B82F6'},
   ground:    {label: 'Ground',    color: '#16A34A'}
 };
-/* Estimated Feet is the measured run times this. Named rather than a bare 2
-   in the sum, because it is a pricing decision that can change - and when it
-   does, this is the one line to edit. */
-const RM_FEET_MULTIPLIER = 2;
+/* ⚠ THE DOUBLING IS GONE, AND THIS RECORDS WHY so nobody puts it back.
+   It was added because "$2 a foot is nicer than $4" - the footage was inflated
+   so the rate could read low. Then the owner gave the actual numbers: an
+   average house is about 150 ft and should come out at $280-300. Those two
+   cannot both be true - 150 ft doubled at $2 is $600 - and the second is the
+   one measured off real houses. At 150 ft the plain rate lands on $300 by
+   itself, so the inflation was solving a problem that does not exist.
+   Dropping it also ENDS A DISAGREEMENT: everything else in this admin prices
+   estimatedFeet x perFootRate, so a doubled figure quietly meant this screen
+   and the rest of the app never agreed about the same house. Left at 1 rather
+   than deleted, because the multiplier is the thing anyone would reach for if
+   the pricing model changes again. */
+const RM_FEET_MULTIPLIER = 1;
 const RM_STATIC_MAX = 640;
 const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
 const RM_M_TO_FT = 3.280839895;
@@ -14874,6 +14985,63 @@ let rmWall = null;                /* {a:{lat,lng}, b:{lat,lng}} - ground line */
 let rmWallPts = [];
 let rmShots = [], rmCrop = null, rmCropDrag = null;
 let rmSkyReady = false, rmStreetReady = false;
+/* ⚠ THE STREET DECIDES WHERE THE LINES GO. THE MAP ONLY SAYS HOW BIG.
+   Owner: "the lines are being based off sky view not street view meaning that
+   its very wrong" - and then, watching it happen: "the lines were already
+   positioned before street view got there."
+
+   That is exactly what it was doing. Two answers arrive from Google at their
+   own speed - the roof model, and the road photo - and the lines used to be
+   drawn the instant the ROOF MODEL landed, whichever came first. On the test
+   house the roof model won, so every line was placed with no camera in
+   existence: no side to name (all eight came out "front"), no ground drop
+   under the house, and no street to check the height against.
+
+   So wait for BOTH. Whichever lands second is the one that starts the drawing.
+   The wait is bounded - if the road photo never settles the lines are still
+   drawn from the map alone, and the office is TOLD that is what happened,
+   rather than left looking at an empty panel. */
+let rmFacesReady = false, rmStreetSettled = false, rmSuggestionsBuilt = false;
+function rmStreetSettle(){
+  if(rmStreetSettled) return;
+  rmStreetSettled = true;
+  rmBuildWhenReady();
+}
+function rmBuildWhenReady(){
+  if(rmSuggestionsBuilt || !rmFacesReady || !rmStreetSettled) return 0;
+  rmSuggestionsBuilt = true;
+  const guessed = rmBuildSuggestions(rmFaces);
+  rmRefreshHeights();
+  /* The camera exists by now, so this is where front/left/right/back stop
+     being a guess. */
+  rmResideSuggestions();
+  /* THE PHOTOGRAPH GETS THE LAST WORD ON HEIGHT. Fired here rather than
+     awaited: the lines are on screen immediately at the assumed height, and
+     they lift onto the roof a moment later when the photo has been read. */
+  if(guessed && rmStreetReady){
+    rmDatumFromStreetPhoto().then(function(res){
+      const st = document.getElementById('rmStatus');
+      if(!st) return;
+      st.textContent = res.ok
+        ? guessed + ' roof edges found, and the roof height was read off the street photo (' +
+          Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
+        : guessed + ' roof edges found — the front of the house is already on. ⚠ The height is still assumed: ' +
+          res.why + '. Trace anything in Street View to measure it properly.';
+    });
+  }
+  const status = document.getElementById('rmStatus');
+  if(status){
+    status.textContent = !guessed
+      ? 'Google has no roof outline for this house — trace it by hand with Start Measuring.'
+      : guessed + ' roof edges found — the front of the house is already on. Click any line to add or drop it.' +
+        (rmStreetReady ? '' : ' ⚠ No street photo, so these are placed from the map alone — check the heights.');
+  }
+  return guessed;
+}
+let rmRoofGrade = '';           /* what Google's roof model graded this house */
+let rmRoofFacts = null;         /* kept so the grade can be re-cut once the eave height lands */
+let rmFaces = [];               /* Google's roof faces, the guessed lines come from these */
+let rmGroundM = null;           /* ground level at the house, so plane heights become heights */
 
 /* ⚠ THERE ARE TWO GOOGLE KEYS ON THIS PAGE AND THEY ARE NOT INTERCHANGEABLE.
    The map loads from the key on the Maps script tag; Firebase carries its own
@@ -14891,6 +15059,25 @@ let rmSkyReady = false, rmStreetReady = false;
    So rather than name a winner, try each key we have and keep whichever
    Google accepts. Whichever one gets fixed later, this starts working on its
    own with no edit here. */
+/* The two panes each say what they are doing until their imagery is really on
+   screen. ⚠ CLEARED BY THE MAP AND THE PANORAMA THEMSELVES, never by a timer:
+   a timer that guesses short leaves a grey box wearing a "ready" face, and one
+   that guesses long makes a fast connection wait for nothing. */
+function rmPaneBusy(which, msg){
+  const box = document.getElementById(which === 'street' ? 'rmStreetBusy' : 'rmSkyBusy');
+  const txt = document.getElementById(which === 'street' ? 'rmStreetBusyText' : 'rmSkyBusyText');
+  if(!box) return;
+  if(txt && msg) txt.textContent = msg;
+  box.classList.remove('done');
+  /* A message that is an ANSWER ("no Street View here") keeps the pane covered
+     and drops the spinner - there is nothing still happening to spin about. */
+  const spin = box.querySelector('.rm-spin');
+  if(spin) spin.style.display = arguments[2] === false ? 'none' : '';
+}
+function rmPaneReady(which){
+  const box = document.getElementById(which === 'street' ? 'rmStreetBusy' : 'rmSkyBusy');
+  if(box) box.classList.add('done');
+}
 function rmMapsKeys(){
   const out = [];
   const s = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
@@ -15031,10 +15218,202 @@ function rmGroundHit(dir, cam){
   if(t <= 0) return null;
   return {e: cam.e + dir.e*t, n: cam.n + dir.n*t, u: 0};
 }
+/* HOW HIGH THE ROOF IS AT ANY ONE SPOT.
+ *
+ * ⚠ THIS IS WHAT STOPS THE SKY VIEW MEASURING A TRIANGLE AS A FLAT LINE.
+ * Looking straight down, a rake - the sloping edge of a gable - is foreshortened
+ * to its horizontal run, and a run traced across one used to be given a single
+ * flat height for every point on it. A rake climbing from a 10 ft eave to an
+ * 18 ft peak was therefore measured as though both ends were at 10 ft, which is
+ * short by however much the roof rises. On a 6/12 gable that is about 10%.
+ *
+ * ⚠ EAVES AND RIDGES WERE NEVER AFFECTED and it is worth knowing why: both are
+ * LEVEL. A gutter runs horizontally and so does a ridge, so their length has no
+ * vertical component and the flat measurement was already right. Only the
+ * sloping edges were wrong, which is exactly the "triangles" case.
+ *
+ * Each roof face is a plane: Google gives its centre, the height of the plane
+ * at that centre, the pitch, and the azimuth it slopes down toward. Height at
+ * any point is then the centre height minus how far you have walked downhill
+ * from the centre, times the slope. Every point traced on the sky view carries
+ * its own real height, and a rake comes out as the hypotenuse it is.
+ */
+/* HOW HIGH THE ROOF IS AT ANY ONE SPOT — AND WHERE THE DATUM COMES FROM.
+ *
+ * ⚠ THE BUG THIS REPLACES PUT EVERY GUESSED LINE ON THE LAWN, and it could
+ * never have fixed itself. Google's plane heights are metres above SEA LEVEL,
+ * so the first version subtracted the ground elevation to turn them into
+ * heights above the garden — and asked the Elevation API for that ground.
+ * That API REFUSES referrer-restricted keys outright:
+ *     "API keys with referer restrictions cannot be used with this API."
+ * Our Maps key is referrer-locked, correctly, because that is what stops it
+ * being stolen. So the ground was never going to arrive, every height came
+ * back null, and every point fell back to h = 0. Lines on the ground.
+ *
+ * THE FIX IS TO STOP NEEDING SEA LEVEL AT ALL. Face-to-face height
+ * DIFFERENCES are exact without it — subtract the lowest plane and the roof's
+ * whole shape survives, every ridge above every eave by exactly the right
+ * amount. All that is missing is one number: how high the lowest eave sits
+ * above the ground. That is the DATUM, and it comes from the best source we
+ * have rather than from an API that will not answer:
+ *
+ *   1. MEASURED IN STREET VIEW. Trace anything on the pinned wall and its
+ *      height is known from the camera geometry, so the whole roof model is
+ *      pinned to something really observed. This is the good one.
+ *   2. TYPED. The Working Height box, when the office knows the house.
+ *   3. ASSUMED — a one-storey eave. ⚠ NEVER ZERO. A line on the lawn is
+ *      obviously broken and wastes somebody's afternoon; a line two feet low
+ *      is a nudge. Falling back to the ground was the worst possible default
+ *      and it is the one that shipped.
+ */
+const RM_ASSUMED_EAVE_M = 3;      /* ~10 ft: an ordinary single-storey eave */
+let rmRoofDatumM = null;          /* metres from ground to the LOWEST roof plane */
+let rmDatumSource = '';           /* 'street' | 'typed' | 'assumed' */
+/* The lowest EAVE Google's model implies, in its own sea-level numbers.
+   Everything else is measured up from here, so sea level cancels out.
+
+   ⚠ IT IS NOT THE LOWEST planeHeightAtCenterMeters, and using that was wrong
+   by feet. That figure is the height at the face's CENTRE, so the face's own
+   downhill edge — the gutter, the thing lights hang on — sits BELOW it by half
+   the face's depth times the pitch. On a 6/12 roof twelve feet deep that is
+   three feet of error, and it made every relative height negative at the eaves
+   and dragged the datum with it. Dropping to each face's downhill edge first
+   makes the reference a real gutter line, so a datum of "ten feet" means the
+   gutter is ten feet up, which is what anybody would assume it meant. */
+function rmFaceEaveM(f){
+  if(!isFinite(f.planeHeightM)) return null;
+  const sw = rmToLocal(f.sw.lat, f.sw.lng, 0);
+  const ne = rmToLocal(f.ne.lat, f.ne.lng, 0);
+  const a = (Number(f.azimuth) || 0) * Math.PI / 180;
+  /* How far the centre is from the downhill edge, measured along the slope. */
+  const half = Math.abs(Math.sin(a)) * Math.abs(ne.e - sw.e) / 2 +
+               Math.abs(Math.cos(a)) * Math.abs(ne.n - sw.n) / 2;
+  return f.planeHeightM - half * Math.tan((Number(f.pitch) || 0) * Math.PI / 180);
+}
+function rmLowestPlaneM(){
+  let lo = null;
+  (rmFaces || []).forEach(function(f){
+    const e = rmFaceEaveM(f);
+    if(e === null || !isFinite(e)) return;
+    if(lo === null || e < lo) lo = e;
+  });
+  return lo;
+}
+/* What the roof is standing on. Street View beats a typed number beats a
+   guess, and it is recorded so the panel can say which one is in force -
+   a height nobody can trace back is a height nobody can argue with. */
+function rmDatum(){
+  if(rmRoofDatumM !== null) return {m: rmRoofDatumM, source: rmDatumSource || 'street'};
+  const typed = rmWorkingHeightM();
+  if(typed > 0.5) return {m: typed, source: 'typed'};
+  return {m: RM_ASSUMED_EAVE_M, source: 'assumed'};
+}
+/* Pin the whole roof from ONE height really measured in Street View. The point
+   carries its own face's height above the lowest plane, so subtracting that
+   leaves the datum. */
+function rmSetDatumFromStreet(worldPoint){
+  const lo = rmLowestPlaneM();
+  if(lo === null || !worldPoint) return false;
+  const rel = rmRoofRelativeAt(worldPoint.lat, worldPoint.lng);
+  if(rel === null) return false;
+  const datum = worldPoint.h - rel;
+  /* An eave underground, or one on the fourth floor, means the click was not
+     on the roof at all - a bush, the road, the sky. Refuse rather than drag
+     the whole roof model to a silly place off one bad click. */
+  if(!(datum > 0.8 && datum < 12)) return false;
+  rmRoofDatumM = datum;
+  rmDatumSource = 'street';
+  return true;
+}
+/* How far ABOVE THE LOWEST PLANE the roof is at this spot. Pure Solar data,
+   no datum, no sea level - this is the part that is always exact. */
+function rmRoofRelativeAt(lat, lng){
+  if(!rmFaces || !rmFaces.length) return null;
+  const lo = rmLowestPlaneM();
+  if(lo === null) return null;
+  const p = rmToLocal(lat, lng, 0);
+  let best = null;
+  rmFaces.forEach(function(f){
+    if(!f.center || !isFinite(f.planeHeightM)) return;
+    const c = rmToLocal(f.center.lat, f.center.lng, 0);
+    /* Inside this face's own box is a definite answer; otherwise the nearest
+       face is the best guess, and being on the eave of the nearest face is a
+       far better answer than being on the ground. */
+    const inBox = lat >= Math.min(f.sw.lat, f.ne.lat) && lat <= Math.max(f.sw.lat, f.ne.lat) &&
+                  lng >= Math.min(f.sw.lng, f.ne.lng) && lng <= Math.max(f.sw.lng, f.ne.lng);
+    const d = Math.hypot(p.e - c.e, p.n - c.n);
+    const score = (inBox ? 0 : 1000) + d;
+    if(!best || score < best.score) best = {f: f, c: c, score: score};
+  });
+  if(!best) return null;
+  const a = (Number(best.f.azimuth) || 0) * Math.PI / 180;
+  const down = {e: Math.sin(a), n: Math.cos(a)};
+  /* How far downhill of the centre this point is, in metres. */
+  const along = (p.e - best.c.e) * down.e + (p.n - best.c.n) * down.n;
+  const rise = Math.tan((Number(best.f.pitch) || 0) * Math.PI / 180);
+  const rel = (best.f.planeHeightM - along * rise) - lo;
+  /* A roof is not 25 m tall and a face does not dip below the lowest plane by
+     more than a courtyard's worth. Nonsense here would wreck the footage
+     silently, so it is refused and the caller falls back. */
+  if(!(rel > -3 && rel < 15)) return null;
+  return rel;
+}
+/* Height above the ground: the exact relative shape, plus the datum. */
+function rmRoofHeightAt(lat, lng){
+  const rel = rmRoofRelativeAt(lat, lng);
+  if(rel === null) return null;
+  const h = rmDatum().m + rel;
+  if(!(h > 0.3 && h < 25)) return null;
+  return h;
+}
+/* THE FRONT OF THE HOUSE, WORKED OUT RATHER THAN CLICKED.
+ *
+ * Most of the tracing happens in Street View, so making somebody pin the wall
+ * by hand before they can draw a single point put a chore in front of the main
+ * job. Google already knows where this building is: its footprint comes back
+ * with the roof model. The wall facing the camera is simply the edge of that
+ * footprint the camera can see, so it can be derived every time.
+ *
+ * ⚠ WHAT THIS IS RIGHT FOR, AND WHERE IT IS NOT. A gutter line sits directly
+ * above the front wall, so an eave traced in Street View lands exactly. A
+ * RIDGE sits further back than the facade, so intersecting the facade plane
+ * puts it slightly nearer than it really is and its run reads a little short.
+ * Trace ridges on the sky view where they measure true, or pin a wall by hand
+ * along the ridge. The manual Set the Wall button is still there for a
+ * bumped-out garage or a deep porch, and it always overrides this.
+ */
+function rmAutoWall(){
+  if(!rmBuilding || !rmOrigin) return null;
+  const cam = rmCamLocal();
+  if(!cam) return null;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  const corners = [{e: sw.e, n: sw.n}, {e: ne.e, n: sw.n}, {e: ne.e, n: ne.n}, {e: sw.e, n: ne.n}];
+  const mid = {e: (sw.e + ne.e) / 2, n: (sw.n + ne.n) / 2};
+  let best = null;
+  for(let i = 0; i < 4; i++){
+    const a = corners[i], b = corners[(i + 1) % 4];
+    const m = {e: (a.e + b.e) / 2, n: (a.n + b.n) / 2};
+    /* Outward normal: away from the middle of the building. */
+    const out = {e: m.e - mid.e, n: m.n - mid.n};
+    const toCam = {e: cam.e - m.e, n: cam.n - m.n};
+    /* Only an edge the camera is actually on the outside of can be seen. */
+    if(out.e * toCam.e + out.n * toCam.n <= 0) continue;
+    const dist = Math.hypot(toCam.e, toCam.n);
+    if(!best || dist < best.dist) best = {a: a, b: b, dist: dist};
+  }
+  if(!best) return null;
+  const wa = rmToWorld({e: best.a.e, n: best.a.n, u: 0});
+  const wb = rmToWorld({e: best.b.e, n: best.b.n, u: 0});
+  return {a: {lat: wa.lat, lng: wa.lng}, b: {lat: wb.lat, lng: wb.lng}, auto: true};
+}
+/* The wall in force: whatever was pinned by hand, else the derived one. */
+function rmActiveWall(){ return rmWall || rmAutoWall(); }
 function rmWallPlane(){
-  if(!rmWall) return null;
-  const a = rmToLocal(rmWall.a.lat, rmWall.a.lng, 0);
-  const b = rmToLocal(rmWall.b.lat, rmWall.b.lng, 0);
+  const wall = rmActiveWall();
+  if(!wall) return null;
+  const a = rmToLocal(wall.a.lat, wall.a.lng, 0);
+  const b = rmToLocal(wall.b.lat, wall.b.lng, 0);
   const de = b.e-a.e, dn = b.n-a.n, len = Math.hypot(de, dn);
   if(len < 0.5) return null;
   const nrm = {e: dn/len, n: -de/len};
@@ -15060,17 +15439,518 @@ function rmSvProject(world, W, H, pov, cam){
   const focal = (W/2)/Math.tan(rmRad(rmFovDeg(pov.zoom))/2);
   return {x: W/2 + focal*r/f, y: H/2 - focal*u/f};
 }
+/* ================= THE ROOFLINE, GUESSED =========================
+ *
+ * Placing every point by hand is the slow part, and it is work a machine can
+ * do: Google's roof model already knows where each face of this roof is and
+ * which way it slopes. The DOWNSLOPE edge of a face is its eave - the gutter
+ * line, which is exactly where the lights go - so every face yields one
+ * candidate run without anybody clicking anything.
+ *
+ * ⚠ WHY THE AZIMUTH IS THE WHOLE TRICK. A face's bounding box gives FOUR
+ * edges and no way to tell a gutter from a ridge or a rake. The azimuth is the
+ * compass direction the face slopes down toward, so the edge on that side is
+ * the eave and the opposite one is the ridge. Guess without it and half the
+ * suggested lines sit along the peak of the roof.
+ *
+ * ⚠ AND THEY ARE SUGGESTIONS, NEVER FACTS. Every one is a normal run that can
+ * be switched off with a click, dragged, or deleted - a guess you cannot
+ * overrule is worse than no guess. Anything switched off is still drawn, in
+ * grey, because a line that VANISHES when you click it looks like a delete and
+ * cannot be found again.
+ */
+function rmFaceEave(face){
+  /* Box corners in the local frame. */
+  const sw = rmToLocal(face.sw.lat, face.sw.lng, 0);
+  const ne = rmToLocal(face.ne.lat, face.ne.lng, 0);
+  const corners = {s: sw.n, w: sw.e, n: ne.n, e: ne.e};
+  /* Which way is downhill, as a unit vector on the ground. */
+  const a = (Number(face.azimuth) || 0) * Math.PI / 180;
+  const down = {e: Math.sin(a), n: Math.cos(a)};
+  /* The four edges, each with the direction it faces away from the middle. */
+  const edges = [
+    {name: 'south', out: {e: 0, n: -1}, a: {e: corners.w, n: corners.s}, b: {e: corners.e, n: corners.s}},
+    {name: 'north', out: {e: 0, n: 1},  a: {e: corners.w, n: corners.n}, b: {e: corners.e, n: corners.n}},
+    {name: 'west',  out: {e: -1, n: 0}, a: {e: corners.w, n: corners.s}, b: {e: corners.w, n: corners.n}},
+    {name: 'east',  out: {e: 1, n: 0},  a: {e: corners.e, n: corners.s}, b: {e: corners.e, n: corners.n}}
+  ];
+  /* The eave is the edge pointing the same way the roof slopes down. */
+  let best = null;
+  edges.forEach(function(ed){
+    const dot = ed.out.e * down.e + ed.out.n * down.n;
+    if(!best || dot > best.dot) best = {ed: ed, dot: dot};
+  });
+  /* ⚠ A FLAT FACE HAS NO GUTTER LINE, and PITCH is the only thing that says
+     so. The azimuth of a flat roof is arbitrary, and a box always has an edge
+     within 45 degrees of any direction, so the dot product can never rule one
+     out - that guard could not fire and was doing nothing. */
+  if(Number(face.pitch) < 5) return null;
+  if(!best) return null;
+  /* ⚠ HOW FAR OUT THIS CAN BE, AND WHY IT IS PULLED IN.
+     Google gives each roof face an AXIS-ALIGNED bounding box - north/south,
+     east/west - and almost no house is square to the compass. A roof at 30
+     degrees to north has a box noticeably bigger than the roof, and its
+     corners stick out past the real gutter. Used raw, a suggested eave hangs
+     over the end of the house, which is exactly the "offset by a foot" the
+     owner reported.
+     The face's true AREA is also given, so the ratio between it and the box
+     says how much the box overstates, and the line is pulled in toward its own
+     middle by that much. It is a correction, not a cure: it fixes the LENGTH
+     well and the sideways position only partly, because a box cannot say which
+     way the house is turned. Dragging in Street View is what makes a line
+     exact, and this is what stops it starting badly wrong. */
+  const boxE = Math.abs(corners.e - corners.w), boxN = Math.abs(corners.n - corners.s);
+  const boxArea = boxE * boxN;
+  const trueArea = Number(face.areaSqFt) ? Number(face.areaSqFt) / 10.7639 : 0;
+  if(boxArea > 0.5 && trueArea > 0.5 && trueArea < boxArea){
+    /* Never shrink past 70%: below that the ratio is telling us the face is a
+       complicated shape, not a rotated rectangle, and a hard pull-in would
+       make the line far too short. */
+    const k = Math.max(0.7, Math.sqrt(trueArea / boxArea));
+    const mid = {e: (best.ed.a.e + best.ed.b.e) / 2, n: (best.ed.a.n + best.ed.b.n) / 2};
+    best.ed = {
+      name: best.ed.name,
+      a: {e: mid.e + (best.ed.a.e - mid.e) * k, n: mid.n + (best.ed.a.n - mid.n) * k},
+      b: {e: mid.e + (best.ed.b.e - mid.e) * k, n: mid.n + (best.ed.b.n - mid.n) * k}
+    };
+  }
+  return {a: rmToWorld({e: best.ed.a.e, n: best.ed.a.n, u: 0}),
+          b: rmToWorld({e: best.ed.b.e, n: best.ed.b.n, u: 0}),
+          facing: best.ed.name};
+}
+/* ============ READING THE ROOFLINE OUT OF THE PHOTOGRAPH ================
+   Owner, looking at the guessed lines on a real house: "by the looks of it it
+   doesnt look like you used street view to make these lines rather it looks
+   like sky view."
+
+   That was right, and it is worth writing down plainly rather than burying:
+   every suggested line starts life as Google's ROOF MODEL, which is a sky-view
+   product. It describes each roof face as a box lined up with the compass, so
+   on a house turned off the compass the lines zigzag across the front instead
+   of following the gutter. No amount of tidying a box makes it into a roof.
+
+   THE PHOTO CAN SETTLE IT. The Street View static image comes back with
+   Access-Control-Allow-Origin: *, so this page is allowed to read its actual
+   pixels. I reported the opposite earlier - that reading the photo was
+   impossible - after testing with the wrong key and no referer. It is not
+   impossible; it is ordinary.
+
+   ⚠ WHICH KEY. Two keys live in this page and only one works for the static
+   APIs. The Maps script-tag key is restricted and answers 403; the Firebase
+   key is allowed. Nothing below picks a key by hand - rmFetchStatic tries both
+   and remembers which one worked.
+
+   THE METHOD: the roof model PROPOSES, the photograph DISPOSES. Every face is
+   a real plane in space - centre, height, pitch and azimuth all come from
+   Solar - so a pixel back-projects onto that plane at exactly one point. Look
+   in the photo near where the model claims the gutter is, find the strongest
+   edge actually there, and back-project it. That is a roofline read off a
+   photograph rather than guessed from above. Sky view keeps the one job only
+   it can do: saying how deep the house is. */
+
+/* A roof face as a PLANE, in the same local frame as everything else. */
+function rmFacePlane(face){
+  if(!face || !face.center || !isFinite(face.planeHeightM)) return null;
+  const lo = rmLowestPlaneM();
+  if(lo === null) return null;
+  const c = rmToLocal(face.center.lat, face.center.lng, 0);
+  /* Solar's heights are above sea level; only the DIFFERENCE from the lowest
+     eave is trustworthy, and the datum turns that into a height off the
+     ground. Same convention as rmRoofRelativeAt, deliberately. */
+  c.u = rmDatum().m + (Number(face.planeHeightM) - lo);
+  const a = (Number(face.azimuth) || 0) * Math.PI / 180;
+  const p = (Number(face.pitch) || 0) * Math.PI / 180;
+  const sp = Math.sin(p), cp = Math.cos(p);
+  /* Up, tilted TOWARD the downhill direction by the pitch - the same downhill
+     vector rmFaceEave uses, (sin a, cos a).
+     ⚠ THE SIGN HERE WAS INVERTED and a test caught it: the normal leaned
+     uphill, so walking four metres down a 30-degree roof GAINED height instead
+     of losing it. Every ray cast at the roof would have landed on the far side
+     of it. A flat roof gives a straight-up normal, which is correct rather
+     than degenerate. */
+  const nrm = {e: sp * Math.sin(a), n: sp * Math.cos(a), u: cp};
+  return {point: c, normal: nrm, d: nrm.e * c.e + nrm.n * c.n + nrm.u * c.u};
+}
+
+/* Where a ray meets a plane in three dimensions. rmWallHit is the flat-wall
+   version and ignores u on purpose; a roof slopes, so it cannot be used here. */
+function rmPlaneHit3(dir, cam, plane){
+  const denom = plane.normal.e * dir.e + plane.normal.n * dir.n + plane.normal.u * dir.u;
+  if(Math.abs(denom) < 1e-9) return null;          /* ray runs along the roof */
+  const t = (plane.d - (plane.normal.e * cam.e + plane.normal.n * cam.n + plane.normal.u * cam.u)) / denom;
+  /* Behind the camera, or so far away it is another street. */
+  if(!(t > 0.5 && t < 200)) return null;
+  return {e: cam.e + dir.e * t, n: cam.n + dir.n * t, u: cam.u + dir.u * t, t: t};
+}
+
+/* The static photo has a stated field of view, where the live panorama has a
+   zoom level. Same maths otherwise, and these two are exact inverses - which
+   is the property worth testing, because everything downstream rides on it. */
+function rmPhotoProject(pt, W, H, pose, cam){
+  const v = {e: pt.e - cam.e, n: pt.n - cam.n, u: pt.u - cam.u};
+  const b = rmBasis(pose.heading, pose.pitch);
+  const f = b.forward.e * v.e + b.forward.n * v.n + b.forward.u * v.u;
+  if(f <= 0.5) return null;                        /* behind, or on, the lens */
+  const r = b.right.e * v.e + b.right.n * v.n + b.right.u * v.u;
+  const u = b.up.e * v.e + b.up.n * v.n + b.up.u * v.u;
+  const focal = (W / 2) / Math.tan(rmRad(pose.fov) / 2);
+  return {x: W / 2 + focal * r / f, y: H / 2 - focal * u / f};
+}
+/* ---- the photograph itself -------------------------------------------- */
+const RM_PHOTO_FOV = 70, RM_PHOTO_PX = 640;
+const RM_EDGE_MIN = 26;          /* below this a "line" is just film grain */
+const RM_DATUM_LOOK_PX = 90;     /* the datum can be several feet out, so look wide */
+const RM_DATUM_MIN_SAMPLES = 3;  /* one gutter-shaped shadow is not evidence */
+const RM_DATUM_SPREAD_M = 0.9;   /* if the samples disagree by more than this, do not believe them */
+
+/* Fetch the street photo and hand back its edges rather than its pixels -
+   nothing above this line needs to know what a Sobel kernel is. */
+async function rmPhotoEdges(panoId, heading, pitch){
+  const r = await rmFetchStatic(function(k){
+    return 'https://maps.googleapis.com/maps/api/streetview?size=' + RM_PHOTO_PX + 'x' + RM_PHOTO_PX +
+      '&pano=' + encodeURIComponent(panoId) +
+      '&heading=' + heading.toFixed(2) + '&pitch=' + pitch.toFixed(2) +
+      '&fov=' + RM_PHOTO_FOV + '&key=' + k;
+  });
+  if(r.error) return {error: r.error, why: r.why};
+  let px;
+  try{
+    const bmp = await createImageBitmap(r.blob);
+    const cv = document.createElement('canvas');
+    cv.width = bmp.width; cv.height = bmp.height;
+    const cx = cv.getContext('2d', {willReadFrequently: true});
+    cx.drawImage(bmp, 0, 0);
+    px = cx.getImageData(0, 0, cv.width, cv.height);
+  } catch(err){
+    /* ⚠ If this ever throws it means the image arrived TAINTED, and the whole
+       method is off. It does not today: the static API answers with
+       Access-Control-Allow-Origin: *. Said out loud because a silent fallback
+       to the sky-view guess is exactly the failure the owner already caught
+       once. */
+    return {error: 'tainted', why: String(err && err.message)};
+  }
+  return rmSobel(px);
+}
+
+/* Vertical and total edge strength, per pixel. */
+function rmSobel(img){
+  const W = img.width, H = img.height, d = img.data;
+  const lum = new Float32Array(W * H);
+  for(let i = 0, p = 0; i < W * H; i++, p += 4) lum[i] = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+  const gy = new Float32Array(W * H), mag = new Float32Array(W * H);
+  for(let y = 1; y < H - 1; y++){
+    for(let x = 1; x < W - 1; x++){
+      const i = y * W + x;
+      const a = lum[i - W - 1], b = lum[i - W], c = lum[i - W + 1];
+      const e = lum[i - 1],                     f = lum[i + 1];
+      const g = lum[i + W - 1], h = lum[i + W], k = lum[i + W + 1];
+      const sx = (c + 2 * f + k) - (a + 2 * e + g);
+      const sy = (g + 2 * h + k) - (a + 2 * b + c);
+      gy[i] = sy; mag[i] = Math.hypot(sx, sy);
+    }
+  }
+  return {w: W, h: H, gy: gy, mag: mag};
+}
+
+/* The strongest NEAR-HORIZONTAL edge in a column, close to where the model
+   said the gutter would be.
+   ⚠ Scored on the vertical component alone, on purpose. A photograph of a
+   house is full of strong VERTICAL edges - downpipes, window frames, corner
+   boards, tree trunks - and total gradient would happily snap a gutter onto a
+   drainpipe. A gutter is a near-horizontal edge, so its gradient points up or
+   down, and nothing else in the frame does that as brightly. */
+function rmEdgeRowNear(photo, x, y, lookPx){
+  const xi = Math.round(x);
+  if(!(xi >= 1 && xi < photo.w - 1)) return null;
+  let best = null;
+  for(let d = -lookPx; d <= lookPx; d++){
+    const yi = Math.round(y) + d;
+    if(!(yi >= 1 && yi < photo.h - 1)) continue;
+    const v = Math.abs(photo.gy[yi * photo.w + xi]);
+    if(v < RM_EDGE_MIN) continue;
+    /* When two edges are equally bright the nearer one wins: the model was
+       pointing roughly at the right thing, it is the height that is adrift. */
+    const score = v - Math.abs(d) * 0.35;
+    if(!best || score > best.score) best = {y: yi, score: score, mag: v, off: d};
+  }
+  return best;
+}
+
+/* ONE SAMPLE'S ANSWER TO "HOW HIGH IS THE EAVE?"
+   The plan position comes from the roof model and the RELATIVE shape of the
+   roof is exact; the only unknown worth solving is the datum - how far the
+   whole roof sits off the ground. Raising the datum slides the point up the
+   photograph, and that is monotonic, so a bisection lands on the height that
+   puts the model's gutter exactly on the photograph's gutter. */
+function rmSolveDatum(sample, photo, cam, pose, lookPx){
+  const at = function(D){
+    return rmPhotoProject({e: sample.e, n: sample.n, u: D + sample.rel}, photo.w, photo.h, pose, cam);
+  };
+  const start = at(rmDatum().m);
+  if(!start) return null;
+  const hit = rmEdgeRowNear(photo, start.x, start.y, lookPx === undefined ? RM_DATUM_LOOK_PX : lookPx);
+  if(!hit) return null;
+  let lo = 0.8, hi = 12;
+  for(let i = 0; i < 30; i++){
+    const m = (lo + hi) / 2;
+    const p = at(m);
+    if(!p) return null;
+    /* Further down the image means the point is too low in the world. */
+    if(p.y > hit.y) lo = m; else hi = m;
+  }
+  const D = (lo + hi) / 2;
+  /* Same sanity as a measured click: an eave underground or on the fourth
+     floor means the edge found was not a gutter. */
+  return (D > 0.9 && D < 11.5) ? {m: D, strength: hit.mag} : null;
+}
+
+/* The whole roof's datum, read off the photograph and agreed across several
+   gutters rather than trusted from one. */
+function rmDatumFromSamples(samples, photo, cam, pose, lookPx){
+  const got = [];
+  (samples || []).forEach(function(sm){
+    const one = rmSolveDatum(sm, photo, cam, pose, lookPx);
+    if(one) got.push(one.m);
+  });
+  if(got.length < RM_DATUM_MIN_SAMPLES) return {ok: false, why: 'only ' + got.length + ' gutters found in the photo', found: got.length};
+  got.sort(function(a, b){ return a - b; });
+  const median = got[Math.floor(got.length / 2)];
+  /* Throw away the ones that clearly found something else - a shadow line, a
+     fence, the top of a car - then insist the survivors actually agree. */
+  const near = got.filter(function(v){ return Math.abs(v - median) <= RM_DATUM_SPREAD_M; });
+  if(near.length < RM_DATUM_MIN_SAMPLES || near.length / got.length < 0.5){
+    return {ok: false, why: 'the edges found disagreed by too much to trust', found: got.length};
+  }
+  const mean = near.reduce(function(a, b){ return a + b; }, 0) / near.length;
+  return {ok: true, m: mean, used: near.length, of: got.length};
+}
+
+const rmDeg = r => r * 180 / Math.PI;
+
+/* ASK THE PHOTOGRAPH HOW HIGH THE ROOF IS.
+   This is the part that makes the lines sit on the house rather than near it.
+   Everything else about a roof face is exact - its shape, its pitch, how far
+   each bit of it stands above the lowest eave - and only the datum, how high
+   the whole thing floats off the ground, was ever a guess. RM_ASSUMED_EAVE_M
+   is ten feet because most houses are; this replaces that guess with a
+   measurement off the street photo, on every house that has one. */
+async function rmDatumFromStreetPhoto(){
+  if(!rmPano || !rmStreetReady || !rmOrigin) return {ok: false, why: 'no street photo to read'};
+  if(!rmFaces || !rmFaces.length) return {ok: false, why: 'no roof model to place'};
+  const panoId = rmPano.getPano();
+  const cam = rmCamOnRoad();
+  const pos = rmPano.getPosition();
+  if(!panoId || !cam || !pos) return {ok: false, why: 'the camera is not on the road yet'};
+  /* Point it at the house, and tilt up far enough to hold the roof instead of
+     the lawn - a photograph of a driveway has no gutters in it. */
+  const heading = rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng);
+  const away = Math.max(4, Math.hypot(cam.e, cam.n));
+  const pitch = Math.max(-10, Math.min(30, rmDeg(Math.atan2((rmDatum().m + 2.5) - cam.u, away))));
+  const pose = {heading: heading, pitch: pitch, fov: RM_PHOTO_FOV};
+  const photo = await rmPhotoEdges(panoId, heading, pitch);
+  if(photo.error){
+    return {ok: false, why: photo.error === 'refused'
+      ? 'Google refused the street photo (' + (photo.why || '').slice(0, 80) + ')'
+      : 'could not read the street photo (' + photo.error + ')'};
+  }
+  /* One sample per suggested gutter, taken at its midpoint - the middle of a
+     run is the part least likely to be behind a tree or off the edge of the
+     frame. */
+  const samples = [];
+  rmRuns.forEach(function(r){
+    if(!r.suggested || !r.path || r.path.length < 2) return;
+    const a = r.path[0], b = r.path[r.path.length - 1];
+    const mid = {lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2};
+    const rel = rmRoofRelativeAt(mid.lat, mid.lng);
+    if(rel === null) return;
+    const p = rmToLocal(mid.lat, mid.lng, 0);
+    samples.push({e: p.e, n: p.n, rel: rel});
+  });
+  const ans = rmDatumFromSamples(samples, photo, cam, pose);
+  if(!ans.ok) return {ok: false, why: ans.why};
+  rmRoofDatumM = ans.m;
+  rmDatumSource = 'photo';
+  /* Every line lifts together, because they all hang off the one datum. */
+  rmRefreshHeights();
+  rmRenderResults(); rmPaintStreet();
+  return {ok: true, m: ans.m, used: ans.used, of: ans.of};
+}
+
+function rmPhotoRay(px, py, W, H, pose){
+  const focal = (W / 2) / Math.tan(rmRad(pose.fov) / 2);
+  const dx = px - W / 2, dy = py - H / 2, b = rmBasis(pose.heading, pose.pitch);
+  const v = {
+    e: b.right.e * dx + b.up.e * (-dy) + b.forward.e * focal,
+    n: b.right.n * dx + b.up.n * (-dy) + b.forward.n * focal,
+    u: b.right.u * dx + b.up.u * (-dy) + b.forward.u * focal
+  };
+  const len = Math.hypot(v.e, v.n, v.u);
+  return {e: v.e / len, n: v.n / len, u: v.u / len};
+}
+/* WHICH SIDE OF THE HOUSE AN EAVE IS ON, relative to the road rather than to
+   the compass. "North" means nothing to somebody standing in a driveway; front,
+   left, right and back are what a quote is actually written in.
+
+   The road is where the Street View camera is, so the face whose outward
+   direction points most nearly at the camera is the FRONT, the opposite one is
+   the BACK, and the two in between are left and right as seen FROM the road -
+   which is how anybody describes a house they are looking at. */
+/* IS THERE A CAMERA ON A ROAD YET?
+   rmEnsurePano opens the panorama AT the house so something is on screen
+   straight away, and Google moves it to the nearest road photo a moment later.
+   In between, "the direction to the road" is a zero-length vector pointing
+   from the house to itself - and every eave comes out FRONT.
+   That is not a hypothetical: the first real house this was tried on showed
+   Front (8) with Left, Right and Back all empty, because the roof model landed
+   before the road photo did. A camera standing inside the house is not a road.
+   Say so, and re-side once the real one arrives. */
+const RM_ROAD_MIN_M = 4;
+function rmCamOnRoad(){
+  const c = rmCamLocal();
+  if(!c) return null;
+  return Math.hypot(c.e, c.n) >= RM_ROAD_MIN_M ? c : null;
+}
+function rmEaveSide(eave){
+  const cam = rmCamOnRoad();
+  if(!cam) return 'front';                     /* no road to reason from YET */
+  const mid = rmToLocal((eave.a.lat + eave.b.lat) / 2, (eave.a.lng + eave.b.lng) / 2, 0);
+  const outward = {e: mid.e, n: mid.n};        /* the frame's origin IS the house */
+  const toRoad = {e: cam.e, n: cam.n};
+  const lo = Math.hypot(outward.e, outward.n), lr = Math.hypot(toRoad.e, toRoad.n);
+  if(lo < 0.5 || lr < 0.5) return 'front';
+  const cos = (outward.e * toRoad.e + outward.n * toRoad.n) / (lo * lr);
+  if(cos > 0.45) return 'front';
+  if(cos < -0.45) return 'back';
+  /* Cross product sign puts it left or right of the line to the road. */
+  const cross = toRoad.e * outward.n - toRoad.n * outward.e;
+  return cross > 0 ? 'left' : 'right';
+}
+/* ⚠ FRONT ONLY, BY DEFAULT. Owner: "you should only do it for front of house
+   by default but there should be buttons for multiple sides if they want
+   multiple sides." Most jobs are the front, so anything else starts switched
+   off and visible rather than absent - the buttons below turn a side on in one
+   click, and a line nobody can see is a line nobody knows to ask for. */
+const RM_SIDES = ['front', 'left', 'right', 'back'];
+function rmFaceFacesTheRoad(eave){ return rmEaveSide(eave) === 'front'; }
+/* Re-name every suggested line's side now that the road photo has arrived.
+   Lines the office has already picked or dropped are re-SIDED but never
+   re-SWITCHED: once somebody has made a choice, the choice stands. */
+function rmResideSuggestions(){
+  if(!rmCamOnRoad()) return false;
+  let changed = false;
+  rmRuns.forEach(function(r){
+    if(!r.suggested || !r.path || r.path.length < 2) return;
+    const side = rmEaveSide({a: r.path[0], b: r.path[r.path.length - 1]});
+    if(side !== r.side){ r.side = side; changed = true; }
+    if(!r.touched){
+      const on = (side === 'front');
+      if(on !== r.on){ r.on = on; changed = true; rmSyncSky(r); }
+    }
+  });
+  if(changed){
+    if(window.rmRefreshSideButtons) window.rmRefreshSideButtons();
+    rmRenderResults(); rmPaintStreet();
+  }
+  return changed;
+}
+function rmBuildSuggestions(faces){
+  /* Clear only the previous SUGGESTIONS - anything traced by hand stays. */
+  rmRuns = rmRuns.filter(function(r){
+    if(!r.suggested) return true;
+    if(r.line) r.line.setMap(null);
+    (r.dots || []).forEach(function(d){ d.setMap(null); });
+    return false;
+  });
+  /* kept only as the argument to the ?? above; the datum is the real floor */
+  const h = rmDatum().m;
+  let made = 0;
+  (faces || []).forEach(function(face){
+    const eave = rmFaceEave(face);
+    if(!eave) return;
+    const run = {
+      type: 'perimeter', suggested: true, on: rmFaceFacesTheRoad(eave),
+      facing: eave.facing, side: rmEaveSide(eave),
+      /* Each END gets its own height. An eave is level so both usually agree,
+         but a raked or stepped edge does not, and assuming it does is the same
+         flat-line mistake one level down. */
+      /* Each end at the roof's real height there. ⚠ NEVER `?? 0` - that is
+         exactly how every suggested line ended up on the lawn. The datum
+         guarantees rmRoofHeightAt answers, and if it somehow does not, the
+         assumed one-storey eave is the floor. */
+      path: [{lat: eave.a.lat, lng: eave.a.lng, h: rmRoofHeightAt(eave.a.lat, eave.a.lng) ?? rmDatum().m},
+             {lat: eave.b.lat, lng: eave.b.lng, h: rmRoofHeightAt(eave.b.lat, eave.b.lng) ?? rmDatum().m}],
+      line: null, dots: []
+    };
+    /* A sliver is noise, not a run somebody wants to see offered. */
+    if(rmRunFeet(run) < 6) return;
+    rmRuns.push(run);
+    made++;
+  });
+  rmRuns.forEach(function(r){ if(r.suggested) rmSyncSky(r); });
+  if(window.rmRefreshSideButtons) window.rmRefreshSideButtons();
+  rmRenderResults(); rmPaintStreet();
+  return made;
+}
+/* Put every point back at the roof's height. Called when the datum changes,
+   because a datum is the one thing that moves EVERY line at once.
+   ⚠ A point somebody has dragged or measured in Street View is left alone -
+   re-deriving it would throw away the better answer to keep the guess tidy. */
+function rmRefreshHeights(){
+  rmRuns.forEach(function(r){
+    if(r.streetMeasured) return;
+    r.path.forEach(function(p){
+      const h = rmRoofHeightAt(p.lat, p.lng);
+      if(h !== null) p.h = h;
+    });
+    rmSyncSky(r);
+  });
+  rmRenderResults();
+  rmPaintStreet();
+  const note = document.getElementById('rmDatumNote');
+  if(note){
+    const d = rmDatum();
+    note.textContent = d.source === 'photo'
+      ? 'Roof height read off the street photo — ' + Math.round(d.m * RM_M_TO_FT) + ' ft to the lowest eave.'
+      : d.source === 'street'
+      ? 'Roof height measured in Street View — ' + Math.round(d.m * RM_M_TO_FT) + ' ft to the lowest eave.'
+      : (d.source === 'typed'
+          ? 'Roof height from the box above — ' + Math.round(d.m * RM_M_TO_FT) + ' ft. Trace anything in Street View to measure it properly.'
+          : 'Roof height ASSUMED at ' + Math.round(d.m * RM_M_TO_FT) + ' ft (one storey). Trace anything in Street View and it is measured instead.');
+  }
+}
+/* Clicking a suggested line switches it in or out. Works from either view,
+   because both are drawing the same run. */
+function rmToggleRun(i){
+  const r = rmRuns[i];
+  if(!r) return;
+  r.touched = true;
+  r.on = (r.on === false);
+  rmSyncSky(r);
+  rmRenderResults(); rmPaintStreet();
+}
 /* ---- totals ------------------------------------------------------------ */
 function rmRunFeet(run){
   let t = 0;
   for(let i = 1; i < run.path.length; i++) t += rmFeetBetween(run.path[i-1], run.path[i]);
   return t;
 }
+function rmRunIsOn(r){ return r && r.on !== false; }
 function rmTotals(){
   const out = {perimeter:0, ridge:0, ground:0, all:0};
-  rmRuns.forEach(function(r){ const f = rmRunFeet(r); out[r.type] += f; out.all += f; });
+  /* ⚠ A run switched off is still a run - still drawn, still listed, still
+     draggable - it simply is not counted. Deleting it instead would make an
+     accidental click unrecoverable. */
+  rmRuns.forEach(function(r){
+    if(!rmRunIsOn(r)) return;
+    const f = rmRunFeet(r); out[r.type] += f; out.all += f;
+  });
+  /* Footage traced on a photo the customer sent. It has no map position, so it
+     cannot be a run with a path - it is a number, and it is counted here so the
+     price and the material list see the whole house. */
+  if(rmPhotoExtraFeet){ out.perimeter += rmPhotoExtraFeet; out.all += rmPhotoExtraFeet; }
   return out;
 }
+function rmRunsOn(){ return rmRuns.filter(rmRunIsOn); }
 function rmFmtFeet(f){
   if(!f) return '0 ft';
   return (f >= 100 ? Math.round(f) : Math.round(f*10)/10) + ' ft';
@@ -15092,12 +15972,42 @@ function rmApplyFilter(){
   if(p) p.style.filter = css;
 }
 /* ---- drawing ----------------------------------------------------------- */
+/* What Google's roof model says this house is, in metres above ITS OWN ground.
+   Null until the Solar call and the elevation lookup have both come back. */
+let rmRoofM = null;          /* {eave, ridge} */
+let rmBuilding = null;       /* {sw, ne} - the footprint, used to find the front wall */
+
+/* ⚠ THE HEIGHT FOLLOWS WHAT YOU ARE TRACING. This is the whole of "it should
+   always be measuring the house, never the ground": a gutter run is at the
+   eave, a ridge run is at the peak, and only a deliberately-chosen ground run
+   is at zero. Before this, every sky-view click defaulted to zero, so tracing
+   a roofline actually measured its shadow on the lawn - the same length on a
+   flat house and badly wrong the moment the roof is above anything. */
+function rmHeightForType(type){
+  if(type === 'ground') return 0;
+  if(!rmRoofM) return null;                       /* nothing known yet - leave it alone */
+  return type === 'ridge' ? rmRoofM.ridge : rmRoofM.eave;
+}
+function rmApplyTypeHeight(){
+  const m = rmHeightForType(rmType);
+  if(m === null) return;
+  const ft = Math.round(m * RM_M_TO_FT * 2) / 2;
+  document.getElementById('rmHeightFt').value = ft;
+  const note = document.getElementById('rmHeightNote');
+  if(note){
+    note.textContent = rmType === 'ground'
+      ? 'Ground runs sit at zero. Switch to Perimeter or Ridge and this jumps back to the roof.'
+      : 'Google’s roof model puts the ' + (rmType === 'ridge' ? 'peak' : 'eave') +
+        ' about ' + ft + ' ft up. Type over it if you know better.';
+  }
+}
 function rmSetType(type){
   if(!RM_TYPES[type]) return;
   rmType = type;
   document.querySelectorAll('#roofMeasureOverlay .rm-typebtn').forEach(function(b){
     b.classList.toggle('on', b.dataset.rmtype === type);
   });
+  rmApplyTypeHeight();
 }
 function rmDot(run, idx){
   const w = run.path[idx];
@@ -15109,8 +16019,13 @@ function rmDot(run, idx){
   /* Dragging edits the world point, so the street view line moves with it -
      one model, two windows. */
   const move = function(e){
+    run.touched = true;
     run.path[idx].lat = e.latLng.lat();
     run.path[idx].lng = e.latLng.lng();
+    /* Moved across the roof, so its height moves with it - otherwise dragging a
+       point up a gable keeps the height it had at the eave. */
+    const dragH = rmRoofHeightAt(run.path[idx].lat, run.path[idx].lng);
+    if(dragH !== null) run.path[idx].h = dragH;
     if(run.line) run.line.setPath(run.path.map(function(p){ return {lat:p.lat, lng:p.lng}; }));
     rmRenderResults(); rmPaintStreet();
   };
@@ -15121,12 +16036,31 @@ function rmDot(run, idx){
 function rmSyncSky(run){
   if(!rmMap) return;
   const latlngs = run.path.map(function(p){ return {lat:p.lat, lng:p.lng}; });
+  const on = rmRunIsOn(run);
+  const style = {
+    strokeColor: on ? RM_TYPES[run.type].color : '#9aa4b0',
+    strokeWeight: on ? 5 : 3,
+    strokeOpacity: on ? .95 : .75
+  };
   if(!run.line){
-    run.line = new google.maps.Polyline({map: rmMap, clickable:false, zIndex:4,
-      strokeColor: RM_TYPES[run.type].color, strokeWeight:4, strokeOpacity:.95, path: latlngs});
-  } else run.line.setPath(latlngs);
+    /* ⚠ CLICKABLE, which the hand-traced version never needed. Picking a
+       suggested line off the map IS the main interaction now, so the line has
+       to take the click - and while drawing, the lock layer sits over the top
+       and swallows it, so the two never fight. */
+    run.line = new google.maps.Polyline(Object.assign({map: rmMap, clickable:true, zIndex:4, path: latlngs}, style));
+    run.line.addListener('click', function(){
+      const i = rmRuns.indexOf(run);
+      if(i >= 0) rmToggleRun(i);
+    });
+  } else {
+    run.line.setPath(latlngs);
+    run.line.setOptions(style);
+  }
   (run.dots||[]).forEach(function(d){ d.setMap(null); });
-  run.dots = run.path.map(function(_, i){ return rmDot(run, i); });
+  /* A suggested line carries no handles until it is switched on - four dots on
+     every offered edge is a thicket, and nobody nudges a line they have not
+     decided to keep. */
+  run.dots = (run.suggested && !on) ? [] : run.path.map(function(_, i){ return rmDot(run, i); });
 }
 function rmClearDrawing(){
   rmRuns.forEach(function(r){
@@ -15166,20 +16100,29 @@ function rmSetDrawing(on){
     btn.textContent = 'Start Measuring';
     hint.textContent = 'Load an address first.';
   } else if(rmDrawing){
-    btn.textContent = 'Finish Line';
-    hint.textContent = 'Click along the line in either view. Double-click or press Finish Line to end the run. Drag any point afterwards to nudge it.';
+    /* ⚠ THE BUTTON SAYS WHAT PRESSING IT DOES, and it counts as it goes. A
+       control labelled the same before and after is the commonest way somebody
+       ends up with two runs when they wanted one, or one when they wanted two. */
+    const n = rmCurrent ? rmCurrent.path.length : 0;
+    btn.textContent = n > 1 ? ('✓ Done with this run (' + n + ' points)')
+                            : (n === 1 ? '✓ Done with this run' : 'Click the first corner…');
+    hint.innerHTML = n > 1
+      ? 'Keep clicking along it. <strong>Double-click</strong> or press the button to end this run. <strong>Backspace</strong> takes back a point, <strong>Esc</strong> ends the run.'
+      : 'Click along the line in <strong>either</strong> view — it appears in both. Drag any point afterwards to nudge it.';
   } else {
     rmFinishRun();
-    btn.textContent = 'Start Measuring';
-    hint.textContent = rmWall
-      ? 'Press Start Measuring, then click in either view.'
-      : 'Press Start Measuring. Set the wall to measure in Street View too.';
+    /* After a finished run the obvious next thing is another one, so the
+       button says so rather than repeating "Start". */
+    btn.textContent = rmRuns.length ? '+ Measure another run' : 'Start Measuring';
+    hint.innerHTML = rmRuns.length
+      ? 'Add as many runs as the house needs — each one is listed below with its own footage, and the &times; removes it.'
+      : 'Pick what you are tracing above, then press this and click along it.';
   }
   const lock = rmDrawing || rmWallPicking;
   /* Sky takes clicks whenever we are drawing; Street only once the wall is
      pinned, or while the wall is being picked. */
   const skyLock = rmDrawing && rmSkyReady;
-  const stLock = (rmWallPicking || (rmDrawing && rmWall)) && rmStreetReady;
+  const stLock = (rmWallPicking || (rmDrawing && rmActiveWall())) && rmStreetReady;
   document.getElementById('rmMapLock').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmMapFrozen').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmPanoLock').style.display = stLock ? 'block' : 'none';
@@ -15196,20 +16139,35 @@ function rmRenderResults(){
       return '<div class="rm-resultrow"><span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:'+RM_TYPES[k].color+'; margin-right:6px;"></span>'+RM_TYPES[k].label+'</span><strong>'+rmFmtFeet(t[k])+'</strong></div>';
     }).join('') +
     '<div class="rm-resultrow" style="border-top:1px solid var(--line); margin-top:4px; padding-top:7px;"><span style="font-weight:700;">Measured</span><strong style="font-size:15px;">'+rmFmtFeet(t.all)+'</strong></div>' +
-    /* Both numbers, always. The doubling is a pricing rule sitting on top of a
-       measurement; showing only the result leaves someone staring at a figure
-       twice the size of the line they just drew. */
-    (t.all ? '<div class="rm-resultrow" style="color:var(--dusk);"><span>&times;'+RM_FEET_MULTIPLIER+' for pricing</span><strong style="font-size:15px;">'+rmFmtFeet(t.all*RM_FEET_MULTIPLIER)+'</strong></div>' : '') +
+    /* If the pricing footage is ever not the measured footage again, BOTH are
+       shown - a figure that does not match the line just drawn reads as a bug
+       unless the reason is on screen next to it. */
+    (t.all && RM_FEET_MULTIPLIER !== 1
+      ? '<div class="rm-resultrow" style="color:var(--dusk);"><span>&times;'+RM_FEET_MULTIPLIER+' for pricing</span><strong style="font-size:15px;">'+rmFmtFeet(t.all*RM_FEET_MULTIPLIER)+'</strong></div>' : '') +
+    /* ⚠ SEPARATE RUNS ARE SEPARATE STRANDS, and that is a real number for
+       whoever packs the van - it is not the same question as total footage.
+       Four 40 ft runs and one 160 ft run buy the same wire and need a very
+       different set of made-up strands. */
+    (rmRuns.length
+      ? '<div class="rm-resultrow"><span>Separate strands</span><strong>'+rmRuns.length+'</strong></div>' : '') +
     (live ? '<div class="rm-runrow" style="color:var(--dusk);">drawing now&hellip; '+rmFmtFeet(live)+'</div>' : '');
 
   const runsBox = document.getElementById('rmRuns');
   runsBox.innerHTML = rmRuns.map(function(r, i){
     const hs = r.path.map(function(p){ return (p.h||0)*RM_M_TO_FT; });
     const top = Math.round(Math.max.apply(null, hs));
-    return '<div class="rm-runrow"><span>'+RM_TYPES[r.type].label+' '+(i+1)+
-      (top > 1 ? ' <span style="opacity:.6;">('+top+' ft up)</span>' : '')+'</span>'+
+    const on = rmRunIsOn(r);
+    return '<div class="rm-runrow"'+(on ? '' : ' style="opacity:.55;"')+'>'+
+      '<span><label style="cursor:pointer;"><input type="checkbox" data-rmonrun="'+i+'"'+(on ? ' checked' : '')+
+      ' style="margin-right:5px; vertical-align:-1px;">'+
+      RM_TYPES[r.type].label+' '+(i+1)+
+      (r.suggested ? ' <span style="opacity:.6;">'+esc(r.facing || 'suggested')+'</span>' : '')+
+      (top > 1 ? ' <span style="opacity:.6;">('+top+' ft up)</span>' : '')+'</label></span>'+
       '<span>'+rmFmtFeet(rmRunFeet(r))+' <button type="button" data-rmdelrun="'+i+'" title="Delete this line">&#10005;</button></span></div>';
   }).join('');
+  runsBox.querySelectorAll('[data-rmonrun]').forEach(function(cb){
+    cb.addEventListener('change', function(){ rmToggleRun(Number(cb.dataset.rmonrun)); });
+  });
   runsBox.querySelectorAll('[data-rmdelrun]').forEach(function(b){
     b.addEventListener('click', function(){
       const i = Number(b.dataset.rmdelrun), r = rmRuns[i];
@@ -15233,10 +16191,65 @@ function rmRenderMaterials(feet){
   const wire = Math.ceil(priced * 1.15);          /* the usual slack allowance */
   document.getElementById('rmMaterials').innerHTML =
     '<div class="rm-mini"><span>Run being priced</span><strong>'+rmFmtFeet(priced)+'</strong></div>'+
+    '<div class="rm-mini"><span>Separate strands</span><strong>'+(rmRuns.length||1)+'</strong></div>'+
     '<div class="rm-mini"><span>Bulbs at '+spacingIn+'&quot;</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
     '<div class="rm-mini"><span>Clips</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
-    '<div class="rm-mini"><span>Wire (+15%)</span><strong>'+wire.toLocaleString()+' ft</strong></div>'+
-    '<p style="font-size:11px; color:var(--slate); margin:8px 0 0;">Counts only &mdash; pricing stays on the quote, where it already lives.</p>';
+    '<div class="rm-mini"><span>Wire (+15%)</span><strong>'+wire.toLocaleString()+' ft</strong></div>';
+  rmRenderPrice(priced);
+}
+/* WHAT THIS HOUSE COMES TO.
+ *
+ * ⚠ THE RATE IS NOT WRITTEN DOWN HERE. It is the office's own Per Foot Pricing
+ * (Finance -> Per Foot Pricing), so there is exactly ONE place to change what a
+ * foot costs and this screen cannot drift away from the rest of the admin.
+ * Difficulty only TILTS it, which is why Medium is x1: an average house prices
+ * at exactly the rate that is set, and the grade moves it either side.
+ *
+ * ⚠ AND EVERY STEP IS SHOWN. The owner's own figures were ballparks - "adjust
+ * all your numbers as necessary because those arent set averages" - so the one
+ * thing that must not happen is a total appearing with no working behind it.
+ * Anyone can read this and see which number to argue with.
+ */
+function rmRenderPrice(feet){
+  const box = document.getElementById('rmPrice');
+  if(!box) return;
+  if(!feet || !perFootRate){
+    box.innerHTML = perFootRate
+      ? ''
+      : '<p style="font-size:11.5px; color:var(--slate); margin:0;">Set a rate under Finance &rarr; Per Foot Pricing and a price appears here.</p>';
+    return;
+  }
+  const grade = rmCurrentGrade();
+  const mult = (RM_DIFFICULTY_RATE[grade] || 1);
+  const rate = perFootRate * mult;
+  const price = feet * rate;
+  box.innerHTML =
+    '<div class="rm-mini"><span>'+rmFmtFeet(feet)+' at '+fmtMoney(perFootRate)+'/ft</span><strong>'+fmtMoney(feet*perFootRate)+'</strong></div>'+
+    '<div class="rm-mini"><span>'+esc(grade)+' house &times;'+mult+'</span><strong>'+(mult === 1 ? 'no change' : (mult > 1 ? '+' : '')+fmtMoney(price - feet*perFootRate))+'</strong></div>'+
+    '<div class="rm-mini" style="border-top:1px solid var(--line); margin-top:5px; padding-top:6px; font-size:14px;"><span style="font-weight:700;">Suggested price</span><strong>'+fmtMoney(price)+'</strong></div>'+
+    '<button type="button" class="btn btn-gold btn-sm" id="rmUsePriceBtn" style="width:100%; justify-content:center; margin-top:9px;">Use '+fmtMoney(price)+' on this quote</button>'+
+    '<p style="font-size:11px; color:var(--slate); margin:8px 0 0;">A suggestion, not a decision &mdash; nothing is saved until you press it.</p>';
+  const btn = document.getElementById('rmUsePriceBtn');
+  if(btn) btn.addEventListener('click', function(){ rmUsePrice(Math.round(price)); });
+}
+/* The grade in force: whatever Google's roof model said, unless the office has
+   picked something else on this quote. */
+function rmCurrentGrade(){
+  const sel = document.getElementById('rmDifficulty');
+  if(sel && sel.value) return sel.value;
+  return rmRoofGrade || 'Medium';
+}
+async function rmUsePrice(price){
+  if(!rmQuoteId) return;
+  const status = document.getElementById('rmStatus');
+  status.textContent = 'Saving the price\u2026';
+  try{
+    await updateDoc(doc(db, 'quotes', rmQuoteId), {quotedPrice: price});
+    const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+    if(item) item.data.quotedPrice = price;
+    renderQuotesList();
+    status.textContent = 'Quoted price set to ' + fmtMoney(price) + '.';
+  } catch(err){ status.textContent = 'Could not save the price onto the quote \u2014 try again.'; }
 }
 /* ---- street view overlay ------------------------------------------------ */
 function rmPaintStreet(){
@@ -15248,9 +16261,10 @@ function rmPaintStreet(){
   const pov = rmPanoPov();
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   const parts = [];
-  if(rmWall){
-    const a = rmSvProject({lat:rmWall.a.lat, lng:rmWall.a.lng, h:0}, W, H, pov, cam);
-    const b = rmSvProject({lat:rmWall.b.lat, lng:rmWall.b.lng, h:0}, W, H, pov, cam);
+  const shownWall = rmActiveWall();
+  if(shownWall){
+    const a = rmSvProject({lat:shownWall.a.lat, lng:shownWall.a.lng, h:0}, W, H, pov, cam);
+    const b = rmSvProject({lat:shownWall.b.lat, lng:shownWall.b.lng, h:0}, W, H, pov, cam);
     if(a && b) parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#F4BE55" stroke-width="3" stroke-dasharray="7 5" opacity=".9"/>');
   }
   rmWallPts.forEach(function(p){
@@ -15258,19 +16272,41 @@ function rmPaintStreet(){
     const q = rmSvProject(w, W, H, pov, cam);
     if(q) parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="#F4BE55" stroke="#fff" stroke-width="2"/>');
   });
-  rmRuns.concat(rmCurrent ? [rmCurrent] : []).forEach(function(r){
+  rmRuns.concat(rmCurrent ? [rmCurrent] : []).forEach(function(r, idx){
     const pts = r.path.map(function(p){ return rmSvProject(p, W, H, pov, cam); });
     const vis = pts.filter(Boolean);
+    const on = rmRunIsOn(r);
+    const colour = on ? RM_TYPES[r.type].color : '#9aa4b0';
+    const known = idx < rmRuns.length ? idx : -1;
     if(pts.length > 1 && vis.length === pts.length){
       const d = pts.map(function(p, i){ return (i?'L':'M')+p.x+' '+p.y; }).join(' ');
       parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>');
-      parts.push('<path d="'+d+'" fill="none" stroke="'+RM_TYPES[r.type].color+'" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>');
+      parts.push('<path d="'+d+'" fill="none" stroke="'+colour+'" stroke-width="'+(on?4:3)+'"'+
+        (on ? '' : ' stroke-dasharray="8 6"')+' stroke-linejoin="round" stroke-linecap="round"/>');
+      /* ⚠ A FAT INVISIBLE STROKE ON TOP is what makes a 4px line clickable by
+         hand. Without it the pick target is the drawn width and nobody hits it.
+         Only when NOT drawing, so placing a point never toggles a line instead. */
+      if(known >= 0 && !rmDrawing && !rmWallPicking){
+        parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,0)" stroke-width="20" '+
+          'style="pointer-events:stroke; cursor:pointer;" data-rmtoggle="'+known+'"></path>');
+      }
     }
     vis.forEach(function(p){
-      parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#fff" stroke="'+RM_TYPES[r.type].color+'" stroke-width="2.5"/>');
+      if(r.suggested && !on) return;
+      parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#fff" stroke="'+colour+'" stroke-width="2.5"/>');
     });
   });
   svg.innerHTML = parts.join('');
+  /* The layer ignores the mouse as a whole; only the fat pick strokes take it,
+     so panning the panorama still works everywhere else. */
+  svg.style.pointerEvents = (rmDrawing || rmWallPicking) ? 'none' : 'none';
+  svg.querySelectorAll('[data-rmtoggle]').forEach(function(el){
+    el.style.pointerEvents = 'stroke';
+    el.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      rmToggleRun(Number(el.dataset.rmtoggle));
+    });
+  });
 }
 /* ---- loading ----------------------------------------------------------- */
 function rmEnsureMap(center){
@@ -15296,6 +16332,9 @@ function rmEnsurePano(center){
      re-checked and the lines simply redraw from the new place. */
   rmPano.addListener('position_changed', function(){
     rmMeasureGroundDrop().then(rmPaintStreet);
+    /* The first move is the one that matters: it is Google putting the camera
+       on the road, which is the moment front/left/right/back become knowable. */
+    rmResideSuggestions();
     rmPaintStreet();
   });
 }
@@ -15341,9 +16380,19 @@ async function rmLoadAddress(){
   rmCamGroundDrop = 0;
   rmClearDrawing();
   rmWall = null; rmWallPts = []; rmWallPicking = false;
+  rmPaneBusy('sky', 'Finding the house…');
+  rmPaneBusy('street', 'Looking for a street-level photo…');
+  rmRoofM = null; rmBuilding = null;
+  rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
+  /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
+     coming in time to be useful, and a blank panel helps nobody - draw from the
+     map and say so on the status line. */
+  setTimeout(rmStreetSettle, 10000);
   rmEnsureMap(rmOrigin);
   rmEnsurePano(rmOrigin);
   rmSkyReady = true;
+  /* Cleared by the map itself once tiles are really painted. */
+  google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmPaneReady('sky'); });
   if(rmHomeMarker) rmHomeMarker.setMap(null);
   rmHomeMarker = new google.maps.Marker({position: rmOrigin, map: rmMap, clickable:false, zIndex:1, opacity:.55});
   document.getElementById('rmCaptureSky').disabled = false;
@@ -15355,23 +16404,59 @@ async function rmLoadAddress(){
   status.textContent = '';
   /* Point the panorama AT the house rather than wherever the car faced. */
   try{
-    new google.maps.StreetViewService().getPanorama(
-      {location: rmOrigin, radius: 60, source: 'outdoor'},
-      function(data, st){
-        if(st !== 'OK' || !data || !data.location){
-          document.getElementById('rmStreetNote').textContent = 'No Street View at this address';
-          document.getElementById('rmWallStatus').textContent = 'Street View has not driven this street — the sky view still measures.';
-          return;
+    /* ⚠ ONE FAILED LOOKUP IS NOT "NO STREET VIEW".
+       getPanorama returns UNKNOWN_ERROR for an ordinary hiccup, and this used
+       to treat that as a verdict and tell the office Google had never driven
+       the street. Watched live on one house, radius 60 answered fine while
+       radius 100 came back UNKNOWN_ERROR seconds later - the same street, the
+       same key. Only ZERO_RESULTS actually means there is no photo; anything
+       else is worth asking again, a little wider. */
+    const RADII = [60, 100, 160];
+    const askStreetView = function(i){
+      new google.maps.StreetViewService().getPanorama(
+        {location: rmOrigin, radius: RADII[i], source: 'outdoor'},
+        function(data, st){
+          if(st !== 'OK' || !data || !data.location){
+            if(st !== 'ZERO_RESULTS' && i < RADII.length - 1){ askStreetView(i + 1); return; }
+            document.getElementById('rmStreetNote').textContent = 'No Street View at this address';
+            document.getElementById('rmWallStatus').textContent = 'Street View has not driven this street — trace it on the sky view instead.';
+            /* An ANSWER, not a wait: the pane stays covered and the spinner goes,
+               because nothing is still loading. */
+            rmPaneBusy('street', 'Google has never driven this street.', false);
+            /* A no IS an answer. The lines get drawn from the map alone rather
+               than never getting drawn at all. */
+            rmStreetSettle();
+            return;
+          }
+          rmStreetReady = true;
+          document.getElementById('rmCaptureStreet').disabled = false;
+          /* ⚠ LISTEN BEFORE YOU LOOK. setPano fires pano_changed, and this used
+             to attach the listener on the line AFTER the call - so the event
+             had already gone by and the cover never came off. The panorama was
+             fully loaded underneath: three canvases, thirteen tiles, and a
+             spinner on top of it saying "Looking for a street-level photo".
+             Attach first, then set. */
+          google.maps.event.addListenerOnce(rmPano, 'pano_changed', function(){
+            rmPaneReady('street');
+            /* The camera is real now: draw, or re-side what is already drawn. */
+            rmStreetSettle();
+            rmResideSuggestions();
+          });
+          rmPano.setPano(data.location.pano);
+          const p = data.location.latLng;
+          rmPano.setPov({heading: rmHeadingTo(p.lat(), p.lng(), rmOrigin.lat, rmOrigin.lng), pitch: 6});
+          /* And a belt as well as braces: if the event is missed for any reason
+             at all, a covered-up working panorama is the worst of both, so ask
+             the panorama itself a moment later whether it is up. */
+          setTimeout(function(){
+            if(rmPano && rmPano.getPano()){ rmPaneReady('street'); rmStreetSettle(); rmResideSuggestions(); }
+          }, 2500);
+          rmMeasureGroundDrop().then(rmPaintStreet);
+          rmSetDrawing(false);
         }
-        rmStreetReady = true;
-        document.getElementById('rmCaptureStreet').disabled = false;
-        rmPano.setPano(data.location.pano);
-        const p = data.location.latLng;
-        rmPano.setPov({heading: rmHeadingTo(p.lat(), p.lng(), rmOrigin.lat, rmOrigin.lng), pitch: 6});
-        rmMeasureGroundDrop().then(rmPaintStreet);
-        rmSetDrawing(false);
-      }
-    );
+      );
+    };
+    askStreetView(0);
   } catch(err){ /* sky view alone still works */ }
   /* Google's roof model frames the house far better than a fixed zoom on the
      front door, and tells us the pitch, which turns a flat run into a real
@@ -15385,6 +16470,73 @@ async function rmLoadAddress(){
       '<div class="rm-resultrow"><span>Steepest grade</span><strong>'+d.maxGrade+'%</strong></div>'+
       '<div class="rm-resultrow"><span>Suggested difficulty</span><strong>'+esc(d.suggestedDifficulty)+'</strong></div>';
     factsPanel.style.display = 'block';
+    /* Google's grade becomes the starting point, and the office can overrule it
+       on the dropdown - it is a suggestion about somebody's house, not a fact. */
+    rmRoofGrade = d.suggestedDifficulty || 'Medium';
+    rmRoofFacts = {maxGrade: d.maxGrade, peakCount: d.peakCount};
+    const sel = document.getElementById('rmDifficulty');
+    if(sel) sel.value = rmRoofGrade;
+    document.getElementById('rmGradeWhy').textContent = d.difficultyWhy || '';
+    document.getElementById('rmPricePanel').style.display = 'block';
+    rmRenderResults();
+    if(d.bounds) rmBuilding = d.bounds;
+    rmFaces = d.faces || [];
+    /* THE LINES ARE ALREADY THERE - but drawn only once the street photo is in
+       too. This half says the roof's shape; the other half says which way the
+       house faces and how far the ground drops to the road. Drawing on the
+       first of the two to arrive is what put eight lines on the front of a
+       house that only has three. */
+    rmFacesReady = true;
+    rmBuildWhenReady();          /* the footprint the front wall comes from */
+    /* Google's plane heights are above SEA LEVEL, so they only become a height
+       once the ground under this house is taken off. Both come from Google, so
+       neither is a guess - and if the elevation lookup is unavailable the roof
+       height is left unknown rather than invented, which keeps the working
+       height at whatever the office last set instead of a made-up number. */
+    /* ⚠ THE ELEVATION LOOKUP IS GONE, not broken-and-left. It cannot work with
+       a referrer-restricted key and it is no longer needed: heights are built
+       from Solar's own relative planes plus a datum from Street View. Asking
+       anyway would fail on every load and put a red herring in the console. */
+    if(false){
+      try{
+        new google.maps.ElevationService().getElevationForLocations(
+          {locations: [{lat: coords.lat, lng: coords.lng}]},
+          function(res, st){
+            if(st !== 'OK' || !res || !res[0]) return;
+            const ground = res[0].elevation;
+            rmGroundM = ground;
+            const eave = d.planeHeights.lowM - ground;
+            const ridge = d.planeHeights.highM - ground;
+            /* A house is not 60 ft tall and is not underground. A silly answer
+               here would put every traced line at a silly height, so it is
+               refused rather than used. */
+            if(!(eave > 1 && ridge >= eave && ridge < 20)) return;
+            rmRoofM = {eave: eave, ridge: ridge};
+            document.getElementById('rmSkyNote').textContent =
+              'eave ' + Math.round(eave * RM_M_TO_FT) + ' ft · ridge ' + Math.round(ridge * RM_M_TO_FT) + ' ft';
+            /* NOW the eave height is known, so the grade is re-cut with it -
+               a two-storey eave is a harder day than the pitch alone says, and
+               fetchRoofDetails had nothing to work that out from. */
+            if(rmRoofFacts){
+              const g = gradeRoof({maxGrade: rmRoofFacts.maxGrade, peakCount: rmRoofFacts.peakCount,
+                                   eaveFt: eave * RM_M_TO_FT});
+              rmRoofGrade = g.level;
+              const sel2 = document.getElementById('rmDifficulty');
+              if(sel2) sel2.value = g.level;
+              document.getElementById('rmGradeWhy').textContent = g.why;
+            }
+            rmApplyTypeHeight();
+            /* Only if nothing has been switched or dragged yet - re-guessing
+               over somebody's picks would throw their work away. */
+            if(rmFaces.length && rmRuns.every(function(r){ return r.suggested && !r.touched; })){
+              rmBuildSuggestions(rmFaces);
+            }
+            rmRenderResults();
+            rmPaintStreet();
+          }
+        );
+      } catch(err){ /* no elevation available - the height stays as typed */ }
+    }
     if(d.bounds && rmMap){
       rmMap.fitBounds(new google.maps.LatLngBounds(
         new google.maps.LatLng(d.bounds.sw.lat, d.bounds.sw.lng),
@@ -15410,8 +16562,161 @@ function rmMapPixelToWorld(clientX, clientY, rect){
   const lng = (wx/256 - .5)*360;
   const nn = Math.PI - 2*Math.PI*wy/256;
   const lat = 180/Math.PI*Math.atan(.5*(Math.exp(nn)-Math.exp(-nn)));
-  return {lat: lat, lng: lng, h: rmWorkingHeightM()};
+  /* ⚠ THE ROOF'S OWN HEIGHT AT THIS SPOT, not one flat number for the whole
+     run. This is what makes a traced rake come out as the hypotenuse rather
+     than its shadow on the ground. Falls back to the working height only when
+     Google has no plane here - a number the office chose beats a guess. */
+  const roofH = rmRoofHeightAt(lat, lng);
+  return {lat: lat, lng: lng, h: roofH === null ? rmWorkingHeightM() : roofH};
 }
+/* ================= MEASURING ON A PHOTOGRAPH =====================
+ * See the block comment on #rmPhotoBar for why this needs a known length and
+ * why it answers with a range. In short: a phone photo has no camera position,
+ * so nothing in it has a scale until one thing does, and one scale is only
+ * exactly right at the reference's own distance and angle.
+ */
+let rmPhotoRefPx = 0, rmPhotoRefFt = 0;
+let rmPhotoRuns = [];            /* [{px, a:{x,y}, b:{x,y}}] in 0-1 of the image */
+let rmPhotoMode = '';            /* 'ref' | 'run' | '' */
+let rmPhotoDrag = null;
+let rmPhotoBlob = null;
+/* How wrong a photo measurement can honestly be. A run at the reference's own
+   depth and angle is close; anything else foreshortens. ±20% is the spread a
+   single scale across one facade actually covers - tightening it would be
+   inventing confidence, widening it would make the number useless. */
+const RM_PHOTO_SPREAD = 0.2;
+function rmPhotoPoint(e){
+  const r = document.getElementById('rmPhotoWrap').getBoundingClientRect();
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+  return {x: Math.min(1, Math.max(0, (cx-r.left)/r.width)), y: Math.min(1, Math.max(0, (cy-r.top)/r.height))};
+}
+function rmPhotoLenPx(a, b){
+  const el = document.getElementById('rmPhotoImg');
+  const w = el.clientWidth || 1, h = el.clientHeight || 1;
+  return Math.hypot((b.x-a.x)*w, (b.y-a.y)*h);
+}
+function rmPhotoFeet(px){
+  if(!rmPhotoRefPx || !rmPhotoRefFt) return 0;
+  return px * (rmPhotoRefFt / rmPhotoRefPx);
+}
+function rmPhotoPaint(){
+  const svg = document.getElementById('rmPhotoLayer');
+  if(!svg) return;
+  const el = document.getElementById('rmPhotoImg');
+  const w = el.clientWidth || 1, h = el.clientHeight || 1;
+  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+  const line = function(a, b, colour, dash){
+    return '<line x1="'+(a.x*w)+'" y1="'+(a.y*h)+'" x2="'+(b.x*w)+'" y2="'+(b.y*h)+
+      '" stroke="rgba(0,0,0,.55)" stroke-width="7" stroke-linecap="round"/>'+
+      '<line x1="'+(a.x*w)+'" y1="'+(a.y*h)+'" x2="'+(b.x*w)+'" y2="'+(b.y*h)+
+      '" stroke="'+colour+'" stroke-width="4" stroke-linecap="round"'+(dash?' stroke-dasharray="8 5"':'')+'/>';
+  };
+  let out = '';
+  if(rmPhotoRef) out += line(rmPhotoRef.a, rmPhotoRef.b, '#F4BE55', true);
+  rmPhotoRuns.forEach(function(r){ out += line(r.a, r.b, '#E0574B', false); });
+  if(rmPhotoDrag && rmPhotoDrag.b) out += line(rmPhotoDrag.a, rmPhotoDrag.b, rmPhotoMode === 'ref' ? '#F4BE55' : '#E0574B', true);
+  svg.innerHTML = out;
+}
+let rmPhotoRef = null;
+function rmPhotoRenderResults(){
+  const box = document.getElementById('rmPhotoResults');
+  if(!box) return;
+  if(!rmPhotoRuns.length){ box.innerHTML = ''; return; }
+  const total = rmPhotoRuns.reduce(function(sum, r){ return sum + rmPhotoFeet(r.px); }, 0);
+  if(!total){ box.innerHTML = '<p style="color:var(--slate); margin:0;">Set the scale first and these become feet.</p>'; return; }
+  const lo = Math.round(total * (1 - RM_PHOTO_SPREAD));
+  const hi = Math.round(total * (1 + RM_PHOTO_SPREAD));
+  box.innerHTML =
+    rmPhotoRuns.map(function(r, i){
+      return '<div class="rm-mini"><span>Run '+(i+1)+'</span><strong>'+Math.round(rmPhotoFeet(r.px))+' ft</strong></div>';
+    }).join('') +
+    '<div class="rm-mini" style="border-top:1px solid var(--line); margin-top:5px; padding-top:6px; font-size:14px;">'+
+      '<span style="font-weight:700;">Expected range</span><strong>'+lo+'&ndash;'+hi+' ft</strong></div>'+
+    '<p style="font-size:11px; color:var(--slate); margin:7px 0 0;">A photo has no depth, so this is a range, not a measurement. It is tightest when the scale line is on the same wall, at the same distance, as what you traced.</p>'+
+    '<button type="button" class="btn btn-gold btn-sm" id="rmPhotoAddBtn" style="width:100%; justify-content:center; margin-top:9px;">Add '+Math.round(total)+' ft and attach this photo</button>';
+  const add = document.getElementById('rmPhotoAddBtn');
+  if(add) add.addEventListener('click', function(){ rmPhotoAdd(Math.round(total)); });
+}
+/* The photo's footage joins the quote as its own run so it is counted once and
+   can be removed like any other, and the picture itself is staged for upload -
+   the whole point was that the back of the house reaches the quote too. */
+function rmPhotoAdd(feet){
+  rmPhotoExtraFeet = feet;
+  if(rmPhotoBlob){
+    rmShots.push({blob: rmPhotoBlob, preview: URL.createObjectURL(rmPhotoBlob),
+                  label: 'From their photo — about ' + feet + ' ft'});
+    rmRenderStaged();
+  }
+  rmRenderResults();
+  document.getElementById('rmPhotoStatus').textContent =
+    'Added about ' + feet + ' ft, and the photo is queued to go on the quote.';
+}
+let rmPhotoExtraFeet = 0;
+(function wireRoofPhoto(){
+  const input = document.getElementById('rmPhotoInput');
+  if(!input) return;
+  input.addEventListener('change', function(){
+    const f = input.files && input.files[0];
+    if(!f) return;
+    rmPhotoBlob = f;
+    rmPhotoRef = null; rmPhotoRefPx = 0; rmPhotoRuns = []; rmPhotoMode = '';
+    document.getElementById('rmPhotoImg').src = URL.createObjectURL(f);
+    document.getElementById('rmPhotoStage').style.display = 'block';
+    document.getElementById('rmPhotoStatus').textContent = f.name || 'Photo loaded.';
+    document.getElementById('rmPhotoDrawBtn').disabled = true;
+    setTimeout(function(){ rmPhotoPaint(); rmPhotoRenderResults(); }, 80);
+    input.value = '';
+  });
+  document.getElementById('rmPhotoRefBtn').addEventListener('click', function(){
+    rmPhotoMode = 'ref';
+    document.getElementById('rmPhotoHint').textContent =
+      'Drag along the thing you know, then type its length in feet. A double garage door is about 16 ft, a single about 8.';
+  });
+  document.getElementById('rmPhotoDrawBtn').addEventListener('click', function(){
+    rmPhotoMode = 'run';
+    document.getElementById('rmPhotoHint').textContent = 'Drag along a run of roofline. Trace as many as the picture shows.';
+  });
+  document.getElementById('rmPhotoRefFt').addEventListener('input', function(){
+    rmPhotoRefFt = Number(this.value) || 0;
+    document.getElementById('rmPhotoDrawBtn').disabled = !(rmPhotoRefPx && rmPhotoRefFt);
+    rmPhotoRenderResults();
+  });
+  document.getElementById('rmPhotoUndoBtn').addEventListener('click', function(){
+    if(rmPhotoRuns.length) rmPhotoRuns.pop();
+    else { rmPhotoRef = null; rmPhotoRefPx = 0; }
+    rmPhotoPaint(); rmPhotoRenderResults();
+  });
+  const wrap = document.getElementById('rmPhotoWrap');
+  wrap.addEventListener('mousedown', function(e){
+    if(!rmPhotoMode) return;
+    e.preventDefault();
+    rmPhotoDrag = {a: rmPhotoPoint(e), b: null};
+  });
+  window.addEventListener('mousemove', function(e){
+    if(!rmPhotoDrag) return;
+    rmPhotoDrag.b = rmPhotoPoint(e);
+    rmPhotoPaint();
+  });
+  window.addEventListener('mouseup', function(){
+    if(!rmPhotoDrag || !rmPhotoDrag.b){ rmPhotoDrag = null; return; }
+    const px = rmPhotoLenPx(rmPhotoDrag.a, rmPhotoDrag.b);
+    if(px > 8){
+      if(rmPhotoMode === 'ref'){
+        rmPhotoRef = {a: rmPhotoDrag.a, b: rmPhotoDrag.b};
+        rmPhotoRefPx = px;
+        document.getElementById('rmPhotoDrawBtn').disabled = !(rmPhotoRefPx && rmPhotoRefFt);
+        document.getElementById('rmPhotoHint').textContent = rmPhotoRefFt
+          ? 'Scale set. Press Trace a run and drag along the roofline.'
+          : 'Now type how many feet that was.';
+      } else {
+        rmPhotoRuns.push({a: rmPhotoDrag.a, b: rmPhotoDrag.b, px: px});
+      }
+    }
+    rmPhotoDrag = null;
+    rmPhotoPaint(); rmPhotoRenderResults();
+  });
+})();
 /* ---- capture ----------------------------------------------------------- */
 function rmStaticFailMessage(which, res, why){
   if(/not authorized|not enabled/i.test(why)){
@@ -15606,6 +16911,12 @@ function rmReset(){
   document.getElementById('rmImagePanel').style.display = 'none';
   document.getElementById('rmHeightPanel').style.display = 'none';
   document.getElementById('rmMaterialPanel').style.display = 'none';
+  document.getElementById('rmPricePanel').style.display = 'none';
+  rmRoofGrade = ''; rmRoofFacts = null; rmFaces = [];
+  rmGroundM = null; rmRoofDatumM = null; rmDatumSource = '';
+  rmPhotoExtraFeet = 0; rmPhotoRuns = []; rmPhotoRef = null; rmPhotoRefPx = 0; rmPhotoBlob = null;
+  document.getElementById('rmPhotoStage').style.display = 'none';
+  document.getElementById('rmPhotoStatus').textContent = 'For the back of the house, or anywhere Street View cannot see.';
   document.getElementById('rmBright').value = 100;
   document.getElementById('rmContrast').value = 100;
   document.getElementById('rmHeightFt').value = 0;
@@ -15651,11 +16962,51 @@ function openRoofMeasure(quoteId){
     rmApplyFilter();
   });
   document.getElementById('rmSpacing').addEventListener('change', function(){ rmRenderResults(); });
+  document.getElementById('rmDifficulty').addEventListener('change', function(){ rmRenderResults(); });
   document.querySelectorAll('#roofMeasureOverlay [data-rmheight]').forEach(function(b){
     b.addEventListener('click', function(){
       document.getElementById('rmHeightFt').value = b.dataset.rmheight;
     });
   });
+  /* A side button switches every suggested eave on that side at once. It only
+     ever touches SUGGESTED runs - a line traced by hand belongs to whoever
+     drew it, and having it vanish because a side was toggled would be its own
+     small betrayal. */
+  function rmSetSide(side, on){
+    rmRuns.forEach(function(r){
+      if(!r.suggested || r.side !== side) return;
+      r.on = on; r.touched = true; rmSyncSky(r);
+    });
+    rmRefreshSideButtons();
+    rmRenderResults(); rmPaintStreet();
+  }
+  function rmRefreshSideButtons(){
+    const bar = document.getElementById('rmSidesBar');
+    const any = rmRuns.some(function(r){ return r.suggested; });
+    bar.style.display = any ? 'block' : 'none';
+    RM_SIDES.forEach(function(side){
+      const b = bar.querySelector('[data-rmside="' + side + '"]');
+      if(!b) return;
+      const mine = rmRuns.filter(function(r){ return r.suggested && r.side === side; });
+      const on = mine.length > 0 && mine.every(rmRunIsOn);
+      b.classList.toggle('on', on);
+      b.disabled = mine.length === 0;
+      b.textContent = side.charAt(0).toUpperCase() + side.slice(1) + (mine.length ? ' (' + mine.length + ')' : '');
+    });
+  }
+  document.querySelectorAll('#roofMeasureOverlay .rm-sidebtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      const side = b.dataset.rmside;
+      const mine = rmRuns.filter(function(r){ return r.suggested && r.side === side; });
+      rmSetSide(side, !(mine.length && mine.every(rmRunIsOn)));
+    });
+  });
+  document.getElementById('rmAllSides').addEventListener('click', function(){
+    const sugg = rmRuns.filter(function(r){ return r.suggested; });
+    const allOn = sugg.length > 0 && sugg.every(rmRunIsOn);
+    RM_SIDES.forEach(function(sd){ rmSetSide(sd, !allOn); });
+  });
+  window.rmRefreshSideButtons = rmRefreshSideButtons;
   document.getElementById('rmDrawBtn').addEventListener('click', function(){ rmSetDrawing(!rmDrawing); });
   /* Clicks are read off the lock layers, which is what lets the views
      underneath be completely inert while a line is being drawn. */
@@ -15710,6 +17061,18 @@ function openRoofMeasure(quoteId){
       return;
     }
     const world = rmToWorld(hit);
+    /* ⚠ THE FIRST THING TRACED IN STREET VIEW PINS THE WHOLE ROOF.
+       Street View is the only place a height is really OBSERVED - the camera's
+       own geometry gives it - so one point on the wall is enough to place
+       Google's roof model vertically, and every guessed line jumps to where it
+       belongs. Only from an ASSUMED datum: a measurement already taken, or a
+       height the office typed, is not overwritten by a later click. */
+    if(rmDatumSource !== 'street' && rmSetDatumFromStreet(world)){
+      rmRefreshHeights();
+      document.getElementById('rmStatus').textContent =
+        'Roof height set from Street View — ' + Math.round(rmDatum().m * RM_M_TO_FT) +
+        ' ft to the lowest eave. Every line moved to match.';
+    }
     rmAddPoint(world);
     /* Street View just learned a height. Sky view cannot see height at all, so
        it inherits this one for its next click - which is exactly how measuring
@@ -15722,6 +17085,64 @@ function openRoofMeasure(quoteId){
     }
   });
   document.getElementById('rmPanoLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  /* ⚠ DRAGGING USED TO WORK ONLY ON THE SKY VIEW, which is no use at all when
+     Street View is where the work happens - a line an inch off the gutter
+     could be seen and not fixed. Grabbing a dot here moves the point along the
+     pinned wall, so it keeps its real depth and its height comes from where it
+     lands rather than from where it started. */
+  (function(){
+    const layer = document.getElementById('rmSvLayer');
+    const pano = document.getElementById('rmPano');
+    let grab = null;
+    function nearestPoint(px, py){
+      const cam = rmCamLocal();
+      if(!cam) return null;
+      const {W, H} = rmPanoSize();
+      const pov = rmPanoPov();
+      let best = null;
+      rmRuns.forEach(function(r, ri){
+        r.path.forEach(function(p, pi){
+          const q = rmSvProject(p, W, H, pov, cam);
+          if(!q) return;
+          const d = Math.hypot(q.x - px, q.y - py);
+          if(d < 18 && (!best || d < best.d)) best = {ri: ri, pi: pi, d: d};
+        });
+      });
+      return best;
+    }
+    pano.addEventListener('mousedown', function(e){
+      if(rmDrawing || rmWallPicking) return;      /* drawing owns the clicks */
+      const r = pano.getBoundingClientRect();
+      const hit = nearestPoint(e.clientX - r.left, e.clientY - r.top);
+      if(!hit) return;
+      grab = hit;
+      e.preventDefault(); e.stopPropagation();
+      layer.style.cursor = 'grabbing';
+    }, true);
+    window.addEventListener('mousemove', function(e){
+      if(!grab) return;
+      const plane = rmWallPlane(), cam = rmCamLocal();
+      if(!plane || !cam) return;
+      const r = pano.getBoundingClientRect();
+      const {W, H} = rmPanoSize();
+      const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
+      const p = rmWallHit(dir, cam, plane);
+      if(!p) return;
+      const run = rmRuns[grab.ri];
+      if(!run) return;
+      const w = rmToWorld(p);
+      run.path[grab.pi] = w;
+      run.touched = true;
+      run.streetMeasured = true;   /* a real observation now - do not re-derive it */
+      rmSyncSky(run);
+      rmRenderResults(); rmPaintStreet();
+    });
+    window.addEventListener('mouseup', function(){
+      if(!grab) return;
+      grab = null;
+      layer.style.cursor = '';
+    });
+  })();
   document.getElementById('rmWallBtn').addEventListener('click', function(){
     if(!rmStreetReady){ document.getElementById('rmWallStatus').textContent = 'No Street View at this address.'; return; }
     rmWallPicking = true; rmWallPts = []; rmWall = null;
@@ -15845,6 +17266,55 @@ function openRoofMeasure(quoteId){
     } catch(err){
       status.textContent = 'Uploaded, but saving onto the quote failed — try Attach again.';
       btn.disabled = false;
+    }
+  });
+  /* KEYBOARD. ⚠ Every one of these is a SECOND way to reach a button that is
+     already on screen, never the only way - a shortcut nobody can discover is
+     a feature for one person. The legend under the tools names them.
+     ⚠ And they are all ignored while a text box has focus, or typing an
+     address would trigger half of them. */
+  document.addEventListener('keydown', function(e){
+    const ov = document.getElementById('roofMeasureOverlay');
+    if(!ov || ov.style.display !== 'flex') return;
+    const t = e.target;
+    if(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')){
+      /* Esc still gets out of a box, because being stuck in one is worse. */
+      if(e.key === 'Escape') t.blur();
+      return;
+    }
+    const k = e.key;
+    if(k === 'Escape'){
+      e.preventDefault();
+      if(rmWallPicking){ rmWallPicking = false; rmWallPts = []; rmSetDrawing(false); rmPaintStreet(); }
+      else if(rmDrawing) rmSetDrawing(false);
+      else document.getElementById('rmCloseBtn').click();
+    } else if(k === 'Enter'){
+      e.preventDefault();
+      rmSetDrawing(!rmDrawing);                     /* start a run, or finish it */
+    } else if(k === 'Backspace' || k === 'Delete'){
+      e.preventDefault();
+      document.getElementById('rmUndoBtn').click(); /* take back one point, then one run */
+    } else if(k === '1' || k === '2' || k === '3'){
+      e.preventDefault();
+      rmFinishRun();
+      rmSetType({'1':'perimeter','2':'ridge','3':'ground'}[k]);
+    } else if(k === 'c' || k === 'C'){
+      e.preventDefault();
+      const b = document.getElementById(rmStreetReady && !rmMap ? 'rmCaptureStreet' : 'rmCaptureSky');
+      if(b && !b.disabled) b.click();
+    } else if(k === 'v' || k === 'V'){
+      e.preventDefault();
+      const b = document.getElementById('rmCaptureStreet');
+      if(b && !b.disabled) b.click();
+    } else if(k === 'a' || k === 'A'){
+      /* Every suggested line on, or every one off - the two commonest sweeps
+         when the guess is nearly right or nearly wrong. */
+      e.preventDefault();
+      const sugg = rmRuns.filter(function(r){ return r.suggested; });
+      if(!sugg.length) return;
+      const allOn = sugg.every(rmRunIsOn);
+      sugg.forEach(function(r){ r.on = !allOn; r.touched = true; rmSyncSky(r); });
+      rmRenderResults(); rmPaintStreet();
     }
   });
   document.getElementById('rmCloseBtn').addEventListener('click', function(){
@@ -17640,6 +19110,48 @@ function switchRespTab(tabName){
   document.querySelectorAll('#panel-responsibilities .gen-subtab-panel').forEach(p => p.classList.toggle('active', p.id === 'resptab-'+tabName));
 }
 setupDraggableTabBar('respSectionTabs', 'resptab', 'huRespTabOrder', switchRespTab);
+/* HOW HARD THIS HOUSE IS TO WORK, and what it costs.
+ *
+ * ⚠ THE OLD THRESHOLDS CALLED ALMOST EVERY HOUSE HARD. They were 37% for Hard
+ * and 25% for Medium, and grade is a PERCENT, not degrees — 37% is a 4.4/12
+ * pitch and 25% is 3/12, both of them low, comfortably walkable roofs. An
+ * ordinary 6/12 house is 50%, so it graded Hard, and so did nearly everything
+ * else. A scale where every house is the top grade carries no information, and
+ * it was about to start setting prices off that.
+ *
+ * Re-cut in pitch a roofer would recognise: up to 6.6/12 you walk it, 6.6 to
+ * 9.6/12 you watch your footing, past 9.6/12 you are roped on. Two things that
+ * are not pitch also make a day harder, and each bumps the grade once: a lot of
+ * separate roof sections (transitions and ladder moves), and a two-storey eave.
+ */
+/* ⚠ CALIBRATED SO AN ORDINARY HOUSE IS MEDIUM, which is what the owner
+   expects and what makes the grade useful: 6/12 is the commonest pitch on the
+   Wasatch Front, and a scale that files it as Easy is as uninformative as the
+   old one that filed it as Hard. Easy is now a genuinely low roof, Medium
+   covers the 6/12-8/12 middle where most houses sit, and Hard starts at 9/12
+   where you stop walking it. */
+const RM_HARD_GRADE = 75;        /* 9/12 — roped on */
+const RM_MEDIUM_GRADE = 45;      /* 5.4/12 — the ordinary middle starts here */
+const RM_BUSY_SECTIONS = 5;
+const RM_TWO_STOREY_FT = 17;
+/* What a difficulty does to the per-foot rate. Medium is 1 on purpose: the
+   office's own Per Foot Pricing stays the baseline, so there is still ONE rate
+   to change and this only tilts it. */
+const RM_DIFFICULTY_RATE = {Easy: 0.85, Medium: 1, Hard: 1.25};
+function gradeRoof(o){
+  const maxGrade = Math.round(Number(o && o.maxGrade) || 0);
+  const peakCount = Number(o && o.peakCount) || 0;
+  const eaveFt = Number(o && o.eaveFt) || 0;
+  let level = maxGrade >= RM_HARD_GRADE ? 2 : (maxGrade >= RM_MEDIUM_GRADE ? 1 : 0);
+  const why = [];
+  if(level === 2) why.push('steep roof (' + maxGrade + '% grade)');
+  else if(level === 1) why.push('moderate pitch (' + maxGrade + '% grade)');
+  else why.push('low pitch (' + maxGrade + '% grade)');
+  if(peakCount >= RM_BUSY_SECTIONS){ level = Math.min(2, level + 1); why.push(peakCount + ' separate roof sections'); }
+  if(eaveFt >= RM_TWO_STOREY_FT){ level = Math.min(2, level + 1); why.push('two-storey eave (' + Math.round(eaveFt) + ' ft)'); }
+  return {level: ['Easy', 'Medium', 'Hard'][level], why: why.join(', '),
+          rateMultiplier: RM_DIFFICULTY_RATE[['Easy', 'Medium', 'Hard'][level]]};
+}
 async function fetchRoofDetails(lat, lng){
   const url = 'https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude='+lat+'&location.longitude='+lng+'&key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM';
   const res = await fetch(url);
@@ -17668,14 +19180,27 @@ async function fetchRoofDetails(lat, lng){
   // invisible to difficulty just because it's under the peak-count size threshold.
   const allGrades = allSegments.map(seg => pitchPercent(seg.pitchDegrees || 0));
   const maxGrade = allGrades.length ? Math.max(...allGrades) : 0;
-  let suggestedDifficulty;
-  if(maxGrade >= 37){
-    suggestedDifficulty = 'Hard';
-  } else if(maxGrade >= 25 || peakCount >= 3){
-    suggestedDifficulty = 'Medium';
-  } else {
-    suggestedDifficulty = 'Easy';
-  }
+  /* ⚠ THESE THRESHOLDS WERE MILES TOO STRICT AND CALLED ALMOST EVERY HOUSE HARD.
+     They were 37% for Hard and 25% for Medium, and grade is a PERCENT, not
+     degrees: 37% is a 4.4/12 pitch and 25% is 3/12. Both of those are LOW,
+     comfortably walkable roofs. An ordinary 6/12 house — the commonest pitch
+     on the Wasatch Front — is 50%, so it graded Hard, and so did nearly
+     everything else. A scale where every house is the top grade carries no
+     information at all, and it was about to start setting prices.
+
+     Re-cut against what actually changes the work, in pitch a roofer would
+     recognise: up to 6.6/12 you walk it, 6.6–9.6/12 you are careful, past
+     9.6/12 you are roped on. A house is also harder for reasons that are not
+     pitch, so two of those bump it up a grade: a lot of separate sections
+     (more transitions, more ladder moves) and a two-storey eave.
+
+     ⚠ The eave height is NOT known here — this function has the roof planes
+     above sea level and nothing to subtract from them, so it grades without it
+     and the Measure Roof panel re-grades through gradeRoof() once the elevation
+     lookup has come back. One rule, called twice, rather than two rules. */
+  const graded = gradeRoof({maxGrade: maxGrade, peakCount: peakCount});
+  const suggestedDifficulty = graded.level;
+  const difficultyWhy = graded.why;
   /* Google gives the building's own footprint box. Framing the map to that
      puts the whole house on screen at the largest zoom that still fits it,
      which beats a fixed zoom on the geocoded front door - that lands mid-roof
@@ -17686,7 +19211,41 @@ async function fetchRoofDetails(lat, lng){
     bounds = {sw: {lat: bb.sw.latitude, lng: bb.sw.longitude},
               ne: {lat: bb.ne.latitude, lng: bb.ne.longitude}};
   }
-  return {squareFeet, peakCount, peakAngles, maxGrade, suggestedDifficulty, bounds};
+  /* How high off the ground the roof actually is. Google gives each roof
+     plane's height at its centre, ABOVE SEA LEVEL, so on its own it is a
+     number in the thousands and useless - it only becomes a height once the
+     ground under this house is subtracted, which the caller does.
+     ⚠ These are CENTRE heights, so the low one sits a little above the true
+     eave and the high one a little below the true ridge. That is the honest
+     limit of this data and it is still enormously better than assuming zero,
+     which is what "measure the roofline" was silently doing before. */
+  const planes = allSegments
+    .map(function(seg){ return seg.planeHeightAtCenterMeters; })
+    .filter(function(v){ return typeof v === 'number' && isFinite(v); });
+  const planeHeights = planes.length
+    ? {lowM: Math.min.apply(null, planes), highM: Math.max.apply(null, planes)}
+    : null;
+  /* Each roof face, with the box it covers and the compass direction it slopes
+     DOWN toward. That azimuth is what says which edge of the box is the EAVE -
+     the gutter line, where the lights actually go - rather than the ridge or a
+     side. Without it a box gives four candidate lines and no way to choose. */
+  const faces = segments.map(function(seg){
+    const bb = seg.boundingBox;
+    if(!bb || !bb.sw || !bb.ne) return null;
+    const c = seg.center;
+    return {
+      sw: {lat: bb.sw.latitude, lng: bb.sw.longitude},
+      ne: {lat: bb.ne.latitude, lng: bb.ne.longitude},
+      azimuth: Number(seg.azimuthDegrees),
+      pitch: Number(seg.pitchDegrees) || 0,
+      /* The centre and its height are what turn a face into a PLANE. Without
+         them a roof is a flat outline and every sloping edge measures short. */
+      center: c ? {lat: c.latitude, lng: c.longitude} : null,
+      planeHeightM: Number(seg.planeHeightAtCenterMeters),
+      areaSqFt: seg.stats && seg.stats.areaMeters2 ? Math.round(seg.stats.areaMeters2 * 10.7639) : 0
+    };
+  }).filter(function(f){ return f && isFinite(f.azimuth); });
+  return {squareFeet, peakCount, peakAngles, maxGrade, suggestedDifficulty, difficultyWhy, bounds, planeHeights, faces};
 }
 async function fetchRoofAreaSqFt(lat, lng){
   const details = await fetchRoofDetails(lat, lng);
