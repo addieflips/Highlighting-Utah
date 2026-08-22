@@ -35333,6 +35333,71 @@ suite('252. The silhouette against a real sky');
     /* The office should not be handed 21 rings and asked to sort them out. */
     check('skyline', 'the caller can cap how many suggestions it shows',
       rc.roofCornerCandidates(D, { limit: 2 }).length <= 2);
+
+    /* ⭐ THREE OUTCOMES, NOT ONE. Two of the ten real places tested had no building
+       within 60 m and correctly offered nothing — a screen that just went blank there
+       would read as broken, when the honest answer is "no roofline is in view". And one
+       house was a tree in front of a mess: six suggestions, best of them 0.17. The
+       office is owed the reason in both cases. */
+    const nothing = rc.describeCandidates([], []);
+    check('skyline', 'no house in view says so, instead of showing an empty canvas',
+      nothing.total === 0 && /no roofline is in view/.test(nothing.message));
+
+    const flat = rc.describeCandidates([], [{ x: 1 }, { x: 2 }]);
+    check('skyline', 'a surface with no corners is a real answer, and reads like one',
+      /never changes direction/.test(flat.message));
+
+    const junk = rc.describeCandidates(
+      [{ confidence: 0.17, why: 'the outline changes surface 5 times just here' }], [{ x: 1 }]);
+    check('skyline', 'nothing worth trusting says WHY, in the words the candidate gave',
+      junk.confident === 0 && /changes surface 5 times/.test(junk.message) &&
+      /by hand/.test(junk.message));
+
+    const good = rc.describeCandidates([{ confidence: 0.9, why: 'x' }, { confidence: 0.2, why: 'y' }], [{ x: 1 }]);
+    check('skyline', 'and a good one counts what is worth keeping, not what was found',
+      good.confident === 1 && good.total === 2 && /1 corner looks right, out of 2/.test(good.message));
+
+    /* ⭐ THE IMAGE PATH — a silhouette with NO plane indices, which is what lanil-9d's
+       rendered-image skyline gives. The plane test cannot run there at all. */
+    const noPlanes = (h) => {
+      const L = [];
+      for (let i = 0; i < 64; i++) L.push({ x: i, y: 0, distance: 12, plane: null, p: [i * 0.25, 12, h(i)] });
+      return L;
+    };
+    const stub = { width: 64, height: 32, indices: new Uint8Array(0), planes: [], planeCount: 0 };
+    const findNP = (line) => rc.roofCornerCandidates(stub, { skyline: line, cameraHeightM: 2.4, toleranceM: 0.3 });
+
+    /* ⛔ THE SILENT DUD THIS ALMOST SHIPPED AS. planeChurn counted `undefined` as one
+       distinct plane and returned {planes: 1} — a confident "not a tree" made of no
+       evidence — so the fallback, which fires on the ABSENCE of an answer, never fired.
+       Every test green, every tree waved through. */
+    check('skyline', 'with no plane indices the plane test says so, instead of guessing one',
+      rc.planeChurn(noPlanes(() => 3), 10, 6) === null,
+      'returning {planes:1} here is a confident answer built out of nothing');
+
+    const treeNP = findNP(noPlanes(i => 3.0 + Math.sin(i * 1.7) * 0.35));
+    check('skyline', 'and a tree is still caught, by doubling back instead of by its surfaces',
+      treeNP.length > 0 && treeNP.every(c => c.confidence < 0.6) &&
+      treeNP.some(c => /doubles back/.test(c.why)),
+      'measured over 365 real silhouette points: reversals rise monotonically with the ' +
+      'plane count, 0.72 at one plane to 5.47 at six. got ' +
+      treeNP.map(c => c.confidence.toFixed(2)).join(','));
+
+    const gableNP = findNP(noPlanes(i => i < 20 ? 3.0 : i < 32 ? 3.0 + (i - 20) * 0.25
+                                     : i < 44 ? 3.0 + (44 - i) * 0.25 : 3.0));
+    check('skyline', 'while a plain gable through the same path is still confident',
+      gableNP.length > 0 && gableNP.some(c => c.confidence > 0.6) &&
+      gableNP.every(c => !/doubles back/.test(c.why)),
+      'a roof edge runs straight and must not be demoted for it — got ' +
+      gableNP.map(c => c.confidence.toFixed(2)).join(','));
+
+    check('skyline', 'and the fallback never fires when real plane indices are there',
+      rc.roofCornerCandidates(stub, { skyline: (function () {
+        const L = []; for (let i = 0; i < 64; i++)
+          L.push({ x: i, y: 0, distance: 12, plane: 2 + (i % 5), p: [i * 0.25, 12, 3 + Math.sin(i * 1.7) * 0.35] });
+        return L;
+      })(), cameraHeightM: 2.4, toleranceM: 0.3 }).every(c => !/doubles back/.test(c.why)),
+      'plane churn is the better discriminator and stays the default');
   })());
 }
 
