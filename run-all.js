@@ -32630,6 +32630,17 @@ suite('132. Measure Roof - both views feed one length, and the front is the defa
       'got ' + sapi.rmEaveSide(eaveAt(0, 6)));
     const east = sapi.rmEaveSide({a: sapi.rmToWorld({e: 6, n: -3, u: 0}), b: sapi.rmToWorld({e: 6, n: 3, u: 0})});
     const west = sapi.rmEaveSide({a: sapi.rmToWorld({e: -6, n: -3, u: 0}), b: sapi.rmToWorld({e: -6, n: 3, u: 0})});
+    /* ⚠ A WALL YOU CAN SEE IS NOT THE FRONT OF THE HOUSE. Owner: "the left
+       side should not be included just because it is visible from street
+       view." The threshold was 63 degrees either way, so a face turned sixty
+       degrees off the road came on by itself. Forty-five is the honest
+       quadrant, and this fixture sits at fifty - visible from the road, and
+       not the front. */
+    const fifty = sapi.rmEaveSide({a: sapi.rmToWorld({e: 5, n: -4.2, u: 0}),
+                                   b: sapi.rmToWorld({e: 7, n: -5.9, u: 0})});
+    check('S132', 'a wall turned fifty degrees off the road is a SIDE, not the front',
+      fifty === 'left' || fifty === 'right',
+      'got ' + fifty + ' - being able to see a wall is not the same as it facing the road');
     check('S132', 'and the two in between are left and right, not both the same',
       (east === 'left' || east === 'right') && (west === 'left' || west === 'right') && east !== west,
       'got ' + east + ' and ' + west + ' - sides are described from the road, the way a person would');
