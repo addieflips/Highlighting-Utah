@@ -25149,11 +25149,38 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             'we never send them their own gate code, so it must not look lost either');
           check('S70', 'and so does the notes box',
             /keep the notes we already have/i.test(fd.querySelector('[name="notes"]').placeholder));
-          box.fill({lightColors: ['Red','Green'], lightsDescription: 'Red, Green'});
+          box.fill({lightColors: ['Red','Green'], lightsDescription: 'Red, Green',
+                    wireColor: 'Green'});
           check('S70', 'a plain set of colours leaves the pattern builder shut',
             fd.getElementById('qdSpecificPatternToggle').checked === false &&
             (box.simple || []).join(', ') === 'Red, Green',
             'two different colours is a set, not a repeating pattern');
+          /* ⚠ THE 'Any' CASE ABOVE CANNOT PROVE THE WIRE COLOUR IS WRITTEN, and the
+             fixture is not at fault — 'Any' is the FIRST option and carries `selected`
+             on the real page too, so a select nobody touched already reads 'Any'.
+             Deleting the wire-colour line entirely left that check green. This one
+             asserts a value only the prefill can produce. */
+          check('S70', 'and the wire colour is really written, not just left on its default',
+            fd.querySelector('[name="wire_color"]').value === 'Green',
+            'filling it in and not filling it in are indistinguishable on the default ' +
+            'value, so this is the assertion that actually holds the line');
+          /* ⚠ THE TWO DEFENSIVE PATHS, which every fixture above walks straight past.
+             Both were red-checked and neither was caught until these existed. */
+          box.fill({lightColors: ['Red','Green'],
+                    lightsDescription: 'alternating red and green (ladder round the back)'});
+          check('S70', 'a description that is a sentence falls back to the colours they ticked',
+            (box.simple || []).join(', ') === 'Red, Green' &&
+            fd.getElementById('qdSpecificPatternToggle').checked === false,
+            'a repeated colour is moved OUT of lightColors and INTO lightsDescription, ' +
+            'so the description has to be read first — but mining colours out of a ' +
+            'sentence would drop the half that matters, so an unreadable one falls ' +
+            'back to the ticked list rather than guessing at it');
+          fd.querySelector('[name="wire_color"]').value = 'White';
+          box.fill({lightColors: ['Red'], lightsDescription: 'Red', wireColor: 'Purple'});
+          check('S70', 'a wire colour the form does not offer is refused, not written blank',
+            fd.querySelector('[name="wire_color"]').value === 'White',
+            'assigning a select a value it has no option for leaves it showing NOTHING, ' +
+            'which then saves as a blank wire colour over a real one');
         }
       }
 
@@ -25167,6 +25194,79 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
         sbNoToken.freshCalled === true &&
         sbNoToken.freshWith && sbNoToken.freshWith.lightsDescription === 'Red, Green',
         'the customer-facing half of this is NOT IN THE REPO. On 2026-08-21 an index.html push replaced the customer site with a copy of admin.html, which took this with it; index.html was restored from the last good copy, which predates it. Re-push index.html from the session that wrote it and these close by themselves.');
+
+      /* ⚠ AND THE FUNCTION THE BUTTON ACTUALLY CALLS, RUN RATHER THAN READ. Every
+         check above STUBS showQuoteDetailFormFresh, so the real one — the thing that
+         has to put the form on screen and fill it in — was covered by nothing at all.
+         Showing the form without prefilling it, or prefilling without showing it, are
+         both one deleted line. */
+      {
+        const freshSrc = extractFn(idx, 'showQuoteDetailFormFresh');
+        check('S70', 'the fresh answer has a real function behind it',
+          !!freshSrc, 'the button calls it by name');
+        if (freshSrc) {
+          const gdom = new JSDOM(
+            '<div id="quoteLinkConfirm" style="display:block"></div>' +
+            '<div id="quoteLinkConfirmActions" style="display:block"><button></button></div>' +
+            '<div id="quoteDetailFormWrap" style="display:none"></div>' +
+            '<div id="quoteDetailGreeting" style="display:none"></div>');
+          const gd = gdom.window.document;
+          const seen = {};
+          new Function('document', 'seen',
+            'function setQuoteConfirmSub(h){ seen.sub = h; }' +
+            'function qdPrefillFromMember(md){ seen.filledWith = md; }' +
+            freshSrc + 'return showQuoteDetailFormFresh;'
+          )(gd, seen)({lightsDescription: 'Red, Green'});
+          check('S70', 'it puts the install form on screen',
+            gd.getElementById('quoteDetailFormWrap').style.display === 'block',
+            'the whole point of this answer is the form — without this it silently ' +
+            'does nothing at all');
+          check('S70', 'and fills it from what we hold, rather than opening it blank',
+            seen.filledWith && seen.filledWith.lightsDescription === 'Red, Green',
+            'opening it empty makes them retype everything, which is the one thing ' +
+            'this answer exists to save them');
+          check('S70', 'and clears the question away so it cannot be answered twice',
+            gd.getElementById('quoteLinkConfirmActions').style.display === 'none' &&
+            gd.getElementById('quoteLinkConfirmActions').innerHTML === '' &&
+            gd.getElementById('quoteLinkConfirm').style.display === 'none',
+            'the other two answers both take the buttons away; leaving them up under ' +
+            'the form invites a second answer to a question already answered');
+        }
+      }
+
+      /* ⚠ THE WIRING, WHICH THE SANDBOX ABOVE CANNOT SEE. Every check in this block
+         calls offerMemberChangeChoice DIRECTLY and hands it the member details itself,
+         so the page could stop passing what the server sent and all of them would stay
+         green — while the form opened blank for every real customer. Deleting the
+         argument from the real call site was a red-check that nothing caught. These
+         three assert the whole chain instead: the server fills it, the page hands it
+         down, and neither end ever carries a gate code. */
+      check('S70', 'the real quote link hands the member details down',
+        /alreadyMember\)\s*\{[\s\S]{0,500}?offerMemberChangeChoice\([^)]*memberDetails/.test(idx),
+        'the prefill has nothing to fill from unless the alreadyMember branch passes ' +
+        'the details quoteRespond returned');
+      check('S70', 'and the server actually sends them',
+        /memberDetails:\s*\(alreadyMember && memberRef\) \? memberPrefill\(/
+          .test(read('functions/index.js')),
+        'the browser half is useless on its own — this is the write to its read');
+      check('S70', 'and the gate code and house notes are never in what it sends',
+        (() => {
+          const src = read('functions/index.js');
+          const at = src.indexOf('const memberPrefill');
+          if (at === -1) return false;
+          /* Sliced to the arrow function's own closing `  };` rather than a fixed
+             window, which goes stale as the file grows (CLAUDE.md §7). */
+          const end = src.indexOf('\n  };', at);
+          if (end === -1) return false;
+          const body = src.slice(at, end);
+          /* ⚠ NOT a bare /notes/i — specificOutletNotes legitimately travels and
+             would match it, turning this into a check that can never pass. */
+          return !/gateCode/i.test(body) && !/oneTimeNote/i.test(body) &&
+                 !/(^|[^a-zA-Z])notes\s*:/m.test(body);
+        })(),
+        'the empty gate-code and notes boxes on the form are only safe because ' +
+        'neither value ever leaves the server — a quoteToken is minted in the ' +
+        'visitor’s own browser and proves nothing about who they are');
 
       /* Yes = their portal. With no saved login on this device it must fall
          back to the normal, rate-limited, last-name-checked sign-in. */

@@ -2417,6 +2417,144 @@ document.getElementById('qdClearPattern').addEventListener('click', function(){
 });
 renderQdSequence();
 
+/* ---- Quote details: start the form from what we already hold ----------------
+   Owner, 2026-08-21: "when an old house gets requoted I want them to choose
+   whether they want to fill out the form fresh or keep what's already there."
+   A re-quote is nearly always raised because the HOUSE changed, and the
+   portal's change-one-thing screens are the wrong shape for a remodel — so the
+   third answer hands them the whole form, already holding last year's answers.
+
+   ⚠ SELF-CONTAINED ON PURPOSE. Suite 70 lifts this function out by name and
+   runs it in a sandbox holding only document, quoteDetailFormEl, QD_COLOR_HEX,
+   qdSimpleColors/qdSequence and the two renderers. A helper declared beside it
+   would be a ReferenceError there — the exact trap CLAUDE.md §3 records. The
+   readers below are inner declarations for that reason; do not hoist them out
+   without adding them to that suite's sandbox in the same commit.
+
+   ⚠ THE GATE CODE AND THE HOUSE NOTES ARE NEVER SENT DOWN HERE. memberPrefill
+   in functions/index.js deliberately withholds both: a quoteToken is minted in
+   the visitor's own browser, so holding one proves nothing about who they are.
+   Both boxes are therefore left EMPTY and say so, and admin.html will not
+   overwrite a field the customer left blank — so empty MEANS unchanged at both
+   ends. Filling either one in here would hand a stranger a gate code. */
+function qdPrefillFromMember(memberDetails){
+  var md = memberDetails || {};
+  var form = quoteDetailFormEl;
+  if(!form) return;
+
+  /* A colour is only a colour if we actually sell it. Anything else is left
+     alone rather than guessed at — the same rule the warehouse grouping uses. */
+  function canonicalColor(name){
+    var want = String(name == null ? '' : name).trim().toLowerCase();
+    if(!want) return '';
+    for(var key in QD_COLOR_HEX){
+      if(key.toLowerCase() === want) return key;
+    }
+    return '';
+  }
+  /* ⚠ ALL OR NOTHING. A description is read as a colour list only when EVERY
+     comma-separated piece is a colour we know. "Red, Green" is a list;
+     "alternating red and green (ladder round the back)" is a sentence, and
+     mining colours out of it would drop the half that matters. */
+  function colorsFromText(text){
+    var raw = String(text == null ? '' : text).trim();
+    if(!raw) return [];
+    var parts = raw.split(','), out = [];
+    for(var i = 0; i < parts.length; i++){
+      var key = canonicalColor(parts[i]);
+      if(!key) return [];
+      out.push(key);
+    }
+    return out;
+  }
+  function setSelect(name, value){
+    var el = form.querySelector('[name="' + name + '"]');
+    var want = String(value == null ? '' : value).trim();
+    if(!el || !want) return;
+    /* ⚠ Only a value the box actually offers. Assigning one it does not leaves
+       the select showing NOTHING, which saves as blank over a real answer. */
+    for(var i = 0; i < el.options.length; i++){
+      if(el.options[i].value === want){ el.value = want; return; }
+    }
+  }
+  function setRadio(name, value){
+    var want = String(value == null ? '' : value).trim();
+    if(!want) return;
+    form.querySelectorAll('input[name="' + name + '"]').forEach(function(radio){
+      radio.checked = (radio.value === want);
+      /* The pill styling normally rides on a change event, and setting .checked
+         in script does not fire one. */
+      var pill = radio.closest ? radio.closest('.radio-pill') : null;
+      if(pill) pill.classList.toggle('selected', radio.checked);
+    });
+  }
+
+  /* ⚠ BOTH COLOUR FIELDS ARE READ. A repeated colour is moved OUT of
+     lightColors and into lightsDescription (the order is the whole point of a
+     pattern), so an alternating house has an empty colour list — reading the
+     list alone would show them as having chosen nothing. */
+  var seq = colorsFromText(md.lightsDescription);
+  if(!seq.length && Array.isArray(md.lightColors)) {
+    seq = [];
+    md.lightColors.forEach(function(c){
+      var key = canonicalColor(c);
+      if(key) seq.push(key);
+    });
+  }
+  var unique = [];
+  seq.forEach(function(c){ if(unique.indexOf(c) === -1) unique.push(c); });
+  var repeating = seq.length > 1 && unique.length !== seq.length;
+  var toggle = document.getElementById('qdSpecificPatternToggle');
+  var builderWrap = document.getElementById('qdSequenceBuilderWrap');
+  var simpleRow = document.getElementById('qdSimpleColorsRow');
+  if(repeating){
+    /* "White, White, Red" shown as two ticked circles is a different set of
+       lights, so the builder is opened and the ORDER is kept. */
+    qdSequence = seq.slice();
+    qdSimpleColors = unique.slice();
+    if(toggle) toggle.checked = true;
+    if(builderWrap) builderWrap.style.display = 'block';
+    if(simpleRow) simpleRow.style.display = 'none';
+    renderQdSequence();
+  } else {
+    /* ⚠ Reset, never just skip. This runs again if they come back, and a
+       toggle left on from a previous fill shows a pattern nobody chose. */
+    qdSimpleColors = unique.slice();
+    qdSequence = [];
+    if(toggle) toggle.checked = false;
+    if(builderWrap) builderWrap.style.display = 'none';
+    if(simpleRow) simpleRow.style.display = 'flex';
+    renderQdSimpleColors();
+  }
+
+  setSelect('wire_color', md.wireColor);
+  setSelect('install_month', md.installPreference);
+  setRadio('outlet_timer', md.outletTimer);
+  setRadio('specific_outlet', md.specificOutlet);
+
+  var outletNotesWrap = document.getElementById('specificOutletNotesWrap');
+  if(outletNotesWrap) outletNotesWrap.style.display =
+    (String(md.specificOutlet || '').trim() === 'Yes') ? 'block' : 'none';
+  var outletNotes = form.querySelector('[name="specific_outlet_notes"]');
+  if(outletNotes) outletNotes.value = md.specificOutletNotes || '';
+
+  /* Empty, and saying WHY it is empty — otherwise it reads as us having lost
+     their gate code, and they type it in again to be safe. */
+  var gate = form.querySelector('[name="gate_code"]');
+  if(gate){
+    gate.value = '';
+    gate.placeholder = 'Leave blank to keep the code we already have';
+  }
+  var notes = form.querySelector('[name="notes"]');
+  if(notes){
+    notes.value = '';
+    notes.placeholder = 'Leave blank to keep the notes we already have';
+  }
+
+  var mailed = form.querySelector('[name="wants_mailed"]');
+  if(mailed) mailed.checked = md.wantsMailedInvoice === true;
+}
+
 /* =========================================================
    QUOTE FORM PHOTOS — Phase 2 (buildings + per-side photos)
    Built from the approved mockup (claude/multi-address-combined-mockup.html):
@@ -3944,7 +4082,7 @@ function offerQuoteChoice(token){
    (handleRsvpLink's "Do you want to make any changes?"), so a member who
    arrives from either email is asked the same question the same way. */
 var quoteLinkPortalToken = null;
-function offerMemberChangeChoice(contactHint){
+function offerMemberChangeChoice(contactHint, memberDetails){
   var confirmWrap = document.getElementById('quoteLinkConfirm');
   var confirmMsg = document.getElementById('quoteLinkConfirmMsg');
   var actions = document.getElementById('quoteLinkConfirmActions');
@@ -3963,16 +4101,44 @@ function offerMemberChangeChoice(contactHint){
   actions.style.display = 'block';
   actions.innerHTML =
     '<button type="button" class="qbtn qbtn-gold" data-mc="yes">Yes, I\u2019d like to make a change</button>'+
+    '<button type="button" class="qbtn qbtn-plain" data-mc="fresh">Fill everything in again from scratch</button>'+
     '<button type="button" class="qbtn qbtn-plain" data-mc="no">No, keep everything the same</button>';
   actions.querySelectorAll('[data-mc]').forEach(function(btn){
     btn.addEventListener('click', function(){
       if(btn.dataset.mc === 'yes'){ openPortalFromQuote(contactHint); return; }
+      /* \u26a0 ITS OWN BRANCH, ahead of the fallthrough. Everything that is not
+         "yes" used to be the warm ending, so a fresh button without this would
+         render perfectly and tell them they were all set. */
+      if(btn.dataset.mc === 'fresh'){ showQuoteDetailFormFresh(memberDetails); return; }
       actions.style.display = 'none';
       actions.innerHTML = '';
       if(confirmMsg) confirmMsg.textContent = 'Perfect \u2014 you\u2019re all set. \uD83C\uDF84';
       setQuoteConfirmSub('We can\u2019t wait to light up your home again this year. We\u2019ll be in touch to get you on the schedule \u2014 there\u2019s nothing else for you to do.');
     });
   });
+}
+/* "Fill everything in again from scratch" — the whole install form, opened
+   holding last year's answers so a remodel is edited rather than retyped.
+
+   ⚠ IT IS THE SAME FORM AND THE SAME SUBMIT as a brand-new customer's. A second
+   write path here would be the copy that quietly falls behind the one everybody
+   else goes through — and the details it collects are the only place colours,
+   wire and timer are ever asked for. */
+function showQuoteDetailFormFresh(memberDetails){
+  var confirmWrap = document.getElementById('quoteLinkConfirm');
+  var actions = document.getElementById('quoteLinkConfirmActions');
+  var formWrap = document.getElementById('quoteDetailFormWrap');
+  if(actions){ actions.style.display = 'none'; actions.innerHTML = ''; }
+  if(confirmWrap) confirmWrap.style.display = 'none';
+  setQuoteConfirmSub('');
+  document.body.classList.add('quote-minimal');
+  if(formWrap) formWrap.style.display = 'block';
+  qdPrefillFromMember(memberDetails);
+  var greet = document.getElementById('quoteDetailGreeting');
+  if(greet){
+    greet.textContent = 'Here’s what we have on file — change anything that’s different this year.';
+    greet.style.display = 'block';
+  }
 }
 /* "Yes" hands them to their own portal, where every change they could want to
    make already lives.
@@ -4064,7 +4230,10 @@ function handleQuoteLink(token, action, confirmed){
          would otherwise be told "nothing else to do" and never be asked the
          one question we actually want an answer to. */
       if(res.alreadyMember){
-        offerMemberChangeChoice(res.memberContact || '');
+        /* memberDetails is what quoteRespond's memberPrefill sends down — the
+           colours, wire, timer, outlet and timing already on their record, and
+           deliberately NOT the gate code or the house notes. */
+        offerMemberChangeChoice(res.memberContact || '', res.memberDetails);
         return;
       }
       /* Already done it once - no point making them fill it in twice. */
