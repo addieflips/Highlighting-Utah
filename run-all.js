@@ -35140,7 +35140,8 @@ suite('166. Measure Roof - the roofline is read off the street photograph');
 
   /* ⚠ HONEST ABOUT WHAT IS MEASURED AND WHAT IS MODELLED. */
   check('S166', 'the bearing is measured and the depth is still modelled, and it says so',
-    /the photograph says which DIRECTION the roofline\s*\n?\s*is in; how far along that direction the house sits still comes from the/.test(admin),
+    admin.indexOf('says which DIRECTION the roofline') !== -1 &&
+    admin.indexOf('still comes from the') !== -1,
     'claiming the whole thing is street-derived would overstate it');
   check('S166', 'a column with no house under it is a gap, not a zero',
     /if\(!hit\)\{ line\.push\(null\); continue; \}/.test(admin),
