@@ -33350,14 +33350,14 @@ suite('146. Measure Roof - the street view frames the house instead of the stree
     const api = new Function(
       'const rmDeg = r => r * 180 / Math.PI;' + LF_ +
       consts.join(LF_) + LF_ +
-      'let rmOrigin={lat:40.2969,lng:-111.6946}, rmStreetReady=true, rmBuilding=null, __cam=null, __head=0;' + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946}, rmStreetReady=true, rmBuilding=null, __cam=null, __head=0, rmFramed=false;' + LF_ +
       'let rmPano={setZoom:function(z){ __z = z; }};' + LF_ +
       'let __z=null;' + LF_ +
       'function rmCamOnRoad(){ return __cam; }' + LF_ +
       'function rmPanoPov(){ return {heading: __head, pitch: 0, zoom: 1}; }' + LF_ +
       pick('rmMetresPerDeg') + LF_ + pick('rmToLocal') + LF_ + pick('rmToWorld') + LF_ + fn + LF_ +
       'return {run: rmFrameHouseInStreet,' + LF_ +
-      '        setup: function(b, cam, head){ rmBuilding = b; __cam = cam; __head = head; __z = null; },' + LF_ +
+      '        setup: function(b, cam, head){ rmBuilding = b; __cam = cam; __head = head; __z = null; rmFramed = false; },' + LF_ +
       '        zoom: function(){ return __z; },' + LF_ +
       '        toWorld: rmToWorld};')();
 
@@ -33417,6 +33417,29 @@ suite('146. Measure Roof - the street view frames the house instead of the stree
       'RM_ZOOM_MAX is ' + zmax);
   }
 
+  /* Ordering asserted with indexOf rather than a regex spanning a newline: a
+     backslash-n does not survive every route into this file, and a degraded
+     escape gives a broken regex rather than a failing check. */
+  /* ⚠ SCOPED TO THE CAMERA-MOVED LISTENER. rmTryPhotoDatum() is also called
+     where the lines are built, which is EARLIER in the file, so an unscoped
+     indexOf finds that one and measures the distance to a framing call four
+     hundred lines away. Anchor on the comment that marks the listener. */
+  check('S146', 'it is retried when the camera reaches the road',
+    (function(){
+      const a = admin.indexOf('The move onto the road is exactly when');
+      if (a === -1) return false;
+      /* To the end of the listener, not a magic number of characters - the
+         suite has its own check against fixed windows, and it is right: they
+         go stale silently as the code between them grows. */
+      const end = admin.indexOf('});', a);
+      if (end === -1) return false;
+      const near = admin.slice(a, end);
+      return /rmTryPhotoDatum\(\);/.test(near) && /rmFrameHouseInStreet\(\);/.test(near);
+    })(),
+    'the camera is still at the house when the lines are built, so the first try has nothing to measure from');
+  check('S146', 'but it frames only ONCE per house',
+    /if\(rmFramed\) return null;/.test(admin) && /rmFramed = true;/.test(admin) && /rmFramed = false;/.test(admin),
+    'a tool that yanks the zoom back every time the camera nudges cannot be used to check a gutter');
   check('S146', 'framing runs once both the house and the camera are known',
     /rmGuessedCount = guessed;[\s\S]{0,200}rmFrameHouseInStreet\(\);/.test(admin),
     'framed before the footprint lands and there is nothing to frame on');

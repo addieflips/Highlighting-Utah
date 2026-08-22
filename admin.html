@@ -15991,8 +15991,16 @@ const rmDeg = r => r * 180 / Math.PI;
    zoom until it fills most of the frame. Google's relation between the two is
    fov = 180 / 2^zoom, which inverts to zoom = log2(180 / fov). */
 const RM_FRAME_FILL = 0.72;    /* how much of the width the house should take */
+/* ⚠ ONCE PER HOUSE, AND ONLY ONCE. The camera is not on the road at the
+   moment the lines are built - Google opens the panorama at the house and
+   moves it a beat later - so framing has to be tried again when the camera
+   lands, exactly as reading the height does. But it must not keep re-framing
+   after that: the office zooms in to check a gutter, and a tool that yanks the
+   zoom back every time the camera nudges is unusable. */
+let rmFramed = false;
 const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 3.2;
 function rmFrameHouseInStreet(){
+  if(rmFramed) return null;
   if(!rmPano || !rmStreetReady || !rmBuilding || !rmOrigin) return null;
   const cam = rmCamOnRoad();
   if(!cam) return null;
@@ -16019,6 +16027,7 @@ function rmFrameHouseInStreet(){
   const wantFov = Math.min(120, wideDeg / RM_FRAME_FILL);
   const zoom = Math.max(RM_ZOOM_MIN, Math.min(RM_ZOOM_MAX, Math.log2(180 / wantFov)));
   rmPano.setZoom(zoom);
+  rmFramed = true;
   return {houseDeg: +wideDeg.toFixed(1), fov: +wantFov.toFixed(1), zoom: +zoom.toFixed(2)};
 }
 
@@ -16736,8 +16745,10 @@ function rmEnsurePano(center){
     /* The first move is the one that matters: it is Google putting the camera
        on the road, which is the moment front/left/right/back become knowable. */
     rmResideSuggestions();
-    /* The move onto the road is exactly when the photograph becomes readable. */
+    /* The move onto the road is exactly when the photograph becomes readable,
+       and when the house can first be measured as an angle to frame it by. */
     rmTryPhotoDatum();
+    rmFrameHouseInStreet();
     rmPaintStreet();
   });
 }
@@ -16788,6 +16799,7 @@ async function rmLoadAddress(){
   rmRoofM = null; rmBuilding = null;
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
   rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false; rmSnapNote = null;
+  rmFramed = false;
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
