@@ -34069,19 +34069,46 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   /* ⭐ TWO BUTTONS, SO THE MODE ONLY GOVERNS ONE. Owner: "make it so right
      click is always select and left click is place dot if thats what its on
      but it switches if you click space." */
-  /* ⭐ A DOT AT THE WRONG HEIGHT IS AT THE WRONG PLACE, and parallax shows it
-     the moment the camera moves. Owner: "when I looked at a different angle
-     the dots didnt stay in the same spot making them get in the way so I
-     couldnt place the rest of them." Every sky-view dot used to take one flat
-     height, so one meant for a ridge sat feet below it and slid sideways with
-     every step along the street. */
-  check('S149', 'a dot placed from above takes the roof height where it was put',
-    /const roofH = rmRoofHeightAt\(w\.lat, w\.lng\);/.test(admin) &&
-    /typed > 0\.3 \? typed : \(roofH !== null \? roofH : rmDatum\(\)\.m\)/.test(admin),
-    'one flat height for the whole roof puts every ridge dot feet below the ridge');
-  check('S149', 'but a height typed into the box still wins',
-    /const typed = rmWorkingHeightM\(\);/.test(admin),
-    'somebody typing a number means it');
+  /* ⭐ THE MAP DOES NOT PLACE DOTS AT ALL ANY MORE. Owner: "make sure that you
+     use the street view to draw the lines not the sky view", and earlier "its
+     using skyview to place corners which is bad it should use street view only
+     to detect where corners are... sky view cant give height."
+
+     ⚠ THIS REPLACES A TEST THAT PINNED THE OPPOSITE, and the reason the old
+     behaviour could not be rescued is worth writing down. Looking straight
+     down there is no height in the picture, so a dot placed from above had to
+     INVENT one - the typed working height, or the roof model's guess. A dot at
+     the wrong height is at the wrong place, and parallax swings it across the
+     house the moment the camera moves. Making the guess cleverer only makes it
+     a better guess. From the street a click is a ray that meets a real wall
+     and the height falls out of the geometry, so there is nothing to invent. */
+  check('S149', 'the map does not place a corner',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf('addEventListener', i + 40);
+      return i !== -1 && admin.slice(i, j).indexOf('rmAddCorner') === -1;
+    })(),
+    'a dot from above has to invent a height, and an invented height drifts');
+  check('S149', 'and it says where dots do go, rather than doing nothing',
+    /Dots go in from the street view/.test(admin),
+    'a click that silently does nothing reads as broken');
+  /* The street view still does, and takes its height from the ray. */
+  check('S149', 'the street view is what places a corner',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('click'");
+      return i !== -1 && admin.indexOf('rmAddCorner(', i) > i;
+    })(),
+    'that is the only view where a gutter can be told from a chimney');
+  check('S149', 'and its height comes from where the ray met the house',
+    /rmAddCorner\(\{lat: w\.lat, lng: w\.lng, h: best\.u,/.test(admin),
+    'best.u is the crossing, not a number anybody typed');
+  /* The map keeps what it is genuinely better at. */
+  check('S149', 'the map can still be used to pick a dot',
+    (function(){
+      const i = admin.indexOf("['rmPanoLock', 'rmMapLock'].forEach");
+      return i !== -1 && admin.indexOf('rmToggleCorner', i) > i;
+    })(),
+    'right-click still toggles one on or off from above');
   check('S149', 'and every dot shows its own height, so a wrong one is visible',
     /Math\.round\(\(c\.h \|\| 0\) \* RM_M_TO_FT\)/.test(admin),
     'the one thing that makes a dot appear to move is invisible until it is said');
@@ -34871,10 +34898,10 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
     const api = new Function(
       'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
       'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test";' + LF_ +
-      ['RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M','RM_OUTSIDE_STEP_M'].map(n =>
+      ['RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M','RM_OUTLINE_CELL_M'].map(n =>
         (admin.match(new RegExp('^const ' + n + ' = [^;]*;', 'm')) || [''])[0]).join(LF_) + LF_ +
       ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM','rmDatum',
-       'rmFacePlane','rmFaceBoxLocal','rmFaceRoofUAt','rmSomethingInGap','rmMergedWalls'].map(pick).join(LF_) + LF_ +
+       'rmFacePlane','rmFaceBoxLocal','rmFaceRoofUAt','rmSomethingInGap','rmMergedWalls','rmBridgedPatches'].map(pick).join(LF_) + LF_ +
       NEED.map(pick).join(LF_) + LF_ +
       'return {outline: rmHouseOutline, wire: rmHouseWireframe, eave: rmOutlineEaveU,' +
       ' faces: function(f){ rmFaces = f; }};')();
@@ -34918,6 +34945,32 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
     /* Every drawn wall carries the height of the roof over it, or it cannot be
        drawn in the street view at all. */
+    /* ⭐ AN L-SHAPED HOUSE MUST COME OUT L-SHAPED. This is the honest check on
+       the outline, and it is deliberately not an area figure: a collapsed union
+       still scores well on area while being a plain rectangle. A rectangle has
+       four walls. An L has six, and one of them is the inside corner. An
+       earlier version kept only whole face-box edges with house on one side and
+       garden on the other, which is all-or-nothing - a wall outside along half
+       its length and buried along the rest failed and vanished - and every
+       house came out as a bare rectangle. */
+    api.faces([F(-8, 0, -6, 6, 5), F(0, 8, -6, 0, 5)]);     /* an L */
+    const Ls = api.outline();
+    const vert = Ls.filter(sd => Math.abs(sd.a.e - sd.b.e) < 0.01);
+    const horiz = Ls.filter(sd => Math.abs(sd.a.n - sd.b.n) < 0.01);
+    check('S157', 'an L-shaped house comes out with six walls, not four',
+      Ls.length >= 6, 'got ' + Ls.length + ' walls (' + vert.length + ' north-south, ' +
+      horiz.length + ' east-west); four means the shape collapsed to a rectangle');
+    /* The inside corner is the giveaway: a wall part-way across the middle. */
+    const step = horiz.filter(function(sd){
+      const lo = Math.min(sd.a.e, sd.b.e), hi = Math.max(sd.a.e, sd.b.e);
+      return Math.abs(sd.a.n - 0) < 0.4 && hi > 0.4 && lo > -0.4;
+    });
+    check('S157', 'and it has the inside corner where the L steps in',
+      step.length > 0,
+      'no wall found along the step; the notch in the L was filled in');
+    /* Put the real house back for anything after this. */
+    api.faces([F(-8, -4,  2,  6, 5), F(-8, -4, -6, -2, 5), F(-4, 4, -6, 6, 9)]);
+
     const wire = api.wire();
     check('S157', 'every wall drawn carries its roof height',
       wire.length > 0 && wire.every(sg => isFinite(sg.a.u) && isFinite(sg.b.u) &&
@@ -34948,6 +35001,26 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
     /rmModelCache && rmModelKey === key/.test(admin),
     'rmPaintStreet runs on every mouse move of the panorama');
 }
+
+/* =====================================================================
+   TWO SESSIONS APPEND SUITES TO THIS FILE. Both of us used to add ours
+   immediately above the Promise.all summary below, which made every merge
+   conflict land on the same line.
+
+   ⚠ AND THE CONFLICT HAD A TRAP IN IT. Each side's block ends UNCLOSED inside
+   the conflict - both sides share the single '}' that follows - so stripping
+   the markers and keeping both blocks leaves the file ONE BRACE SHORT, and
+   node reports "SyntaxError: Unexpected end of input", which reads like a
+   truncated file rather than a merge artefact. It cost the other session two
+   attempts to spot.
+
+   So we append under our own sentinel and never the same line. Suite numbers
+   are reserved the same way: 150-249 roofline, 250-349 schedule and routing.
+   ===================================================================== */
+
+/* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
+
+/* ===== SCHEDULE SUITES - lanil-0b appends BELOW this line ===== */
 
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
