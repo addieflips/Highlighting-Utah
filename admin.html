@@ -17040,8 +17040,12 @@ function rmSyncModelSky(){
   rmModelLines.forEach(function(l){ l.setMap(null); });
   rmModelLines = [];
   if(!rmShowModel) return;
-  rmModel().forEach(function(sg){
-    const a = rmToWorld(sg.a), b = rmToWorld(sg.b);
+  /* ⚠ THE OUTLINE, NOT THE WIREFRAME. Seen from above a wall is a line on the
+     ground and its height is beside the point - and the wireframe drops any
+     wall whose roof height cannot be worked out, which would silently leave
+     gaps in the plan for a reason that has nothing to do with the plan. */
+  rmHouseOutline().forEach(function(sg){
+    const a = rmToWorld({e: sg.a.e, n: sg.a.n, u: 0}), b = rmToWorld({e: sg.b.e, n: sg.b.n, u: 0});
     rmModelLines.push(new google.maps.Polyline({
       map: rmMap, clickable: false, zIndex: 2,
       path: [{lat: a.lat, lng: a.lng}, {lat: b.lat, lng: b.lng}],
