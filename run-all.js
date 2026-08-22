@@ -32613,8 +32613,11 @@ suite('132. Measure Roof - both views feed one length, and the front is the defa
       pick('rmMetresPerDeg') + LF_ + pick('rmToLocal') + LF_ + pick('rmToWorld') + LF_ +
       /* rmEaveSide now asks rmCamOnRoad, not rmCamLocal - a camera still sitting
          at the house is not a road. Lift it in or the sandbox dies undefined. */
-      'const RM_ROAD_MIN_M = 4;' + LF_ + (pick('rmCamOnRoad') || '') + LF_ + sideFn + LF_ +
-      'return {setCam:function(c){__cam=c;}, rmEaveSide, rmToWorld};')();
+      'const RM_ROAD_MIN_M = 4;' + LF_ + (pick('rmCamOnRoad') || '') + LF_ +
+      /* The road is now decided ONCE and remembered, so the variable holding it
+         and the function that sets it both have to come in. */
+      'let rmRoadDir = null;' + LF_ + (pick('rmRoadDirection') || '') + LF_ + sideFn + LF_ +
+      'return {setCam:function(c){__cam=c;}, newHouse:function(){ rmRoadDir = null; }, rmEaveSide, rmToWorld};')();
     /* Camera due south of the house, i.e. the road is south. */
     sapi.setCam({e: 0, n: -20, u: 2.5});
     const eaveAt = (e, n) => ({a: sapi.rmToWorld({e: e - 3, n: n, u: 0}),
@@ -32630,12 +32633,26 @@ suite('132. Measure Roof - both views feed one length, and the front is the defa
     check('S132', 'and the two in between are left and right, not both the same',
       (east === 'left' || east === 'right') && (west === 'left' || west === 'right') && east !== west,
       'got ' + east + ' and ' + west + ' - sides are described from the road, the way a person would');
-    /* ⚠ The side names must be relative to the ROAD, not the compass: move the
-       camera and the same wall changes side. North means nothing in a driveway. */
-    sapi.setCam({e: 0, n: 20, u: 2.5});
-    check('S132', 'move the road and the front moves with it',
+    /* ⚠ THE SIDES ARE NAMED FROM THE ROAD, AND THE ROAD IS DECIDED ONCE.
+       This check used to assert the opposite - that moving the camera moved
+       the front with it - which was true and was the bug. Owner: "no matter
+       what angle your looking at it should look at every angle to know where
+       to put the lines, the angle we see is just so we can see it and take a
+       picture." Looking at a house from further down the street is not a
+       statement about which side of it faces the road, and re-deciding on
+       every camera move reshuffled the Front/Left/Right/Back counts and
+       changed which run was switched on underneath her. */
+    sapi.setCam({e: 0, n: 20, u: 2.5});      /* camera walks round to the back */
+    check('S132', 'walking the camera round does NOT move the front of the house',
+      sapi.rmEaveSide(eaveAt(0, -6)) === 'front' && sapi.rmEaveSide(eaveAt(0, 6)) === 'back',
+      'the front followed the camera: got ' + sapi.rmEaveSide(eaveAt(0, -6)) +
+      ' and ' + sapi.rmEaveSide(eaveAt(0, 6)));
+    /* But a NEW house starts the question again, or every address after the
+       first would inherit the last one's road. */
+    sapi.newHouse();
+    check('S132', 'though a new address decides its own road afresh',
       sapi.rmEaveSide(eaveAt(0, 6)) === 'front',
-      'sides are being named off the compass instead of off the road');
+      'with the camera now north, the north eave is the front one');
   }
   const facesFn = pick('rmFaceFacesTheRoad');
   check('S132', 'only the front is switched on without being asked',
@@ -33441,8 +33458,153 @@ suite('146. Measure Roof - the street view frames the house instead of the stree
     /if\(rmFramed\) return null;/.test(admin) && /rmFramed = true;/.test(admin) && /rmFramed = false;/.test(admin),
     'a tool that yanks the zoom back every time the camera nudges cannot be used to check a gutter');
   check('S146', 'framing runs once both the house and the camera are known',
-    /rmGuessedCount = guessed;[\s\S]{0,200}rmFrameHouseInStreet\(\);/.test(admin),
+    (function(){
+      const a = admin.indexOf('rmGuessedCount = guessed;');
+      if (a === -1) return false;
+      const end = admin.indexOf('const status = document.getElementById', a);
+      return end !== -1 && admin.slice(a, end).indexOf('rmFrameHouseInStreet();') !== -1;
+    })(),
     'framed before the footprint lands and there is nothing to frame on');
+  check('S146', 'and it keeps trying, because the two halves arrive separately',
+    /if\(rmFramed \|\| \+\+frameTries > \d+\)\{ clearInterval\(frameTimer\); return; \}/.test(admin),
+    'the camera usually lands BEFORE the roof model, so one attempt at each moment is two misses');
+}
+
+
+suite('147. Measure Roof - only the outside of the house, and all of it');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const world = new Function('let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+    ['rmMetresPerDeg','rmToLocal','rmToWorld'].map(pick).join(LF_) + LF_ +
+    'return {toWorld: rmToWorld, toLocal: rmToLocal};')();
+
+  /* ---- 1. a chimney is not a roof face ------------------------------- */
+  /* Owner: "be sure to have it detect things like satelites or chimnees and
+     know that isnt a spot we are going to hang." Google models a chimney as a
+     little plane of its own, the same shape as a real face, just small. */
+  const worth = pick('rmFaceIsWorthHanging');
+  if (!worth) {
+    check('S147', 'the chimney test is findable', false, 'rmFaceIsWorthHanging missing');
+  } else {
+    const api = new Function((admin.match(/^const RM_MIN_FACE_SQFT.*?;/m) || [''])[0] + LF_ +
+      worth + LF_ + 'return rmFaceIsWorthHanging;')();
+    check('S147', 'a chimney-sized plane is not offered', api({areaSqFt: 5}) === false);
+    check('S147', 'nor a satellite dish mount', api({areaSqFt: 2}) === false);
+    /* ⚠ THE THRESHOLD MUST CLEAR A DORMER. A dormer is small and we very much
+       do want it - setting this by eye at "small = skip" throws away exactly
+       the faces the owner asked to have caught. */
+    check('S147', 'but the smallest dormer worth hanging still is',
+      api({areaSqFt: 32}) === true,
+      'a couple of metres across is a dormer, not a chimney');
+    check('S147', 'and an unknown area is never a reason to throw a face away',
+      api({}) === true && api({areaSqFt: 0}) === true,
+      'most of the roof would go with it');
+  }
+
+  /* ---- 2. only the outside ------------------------------------------- */
+  /* Owner: "make sure its only doing the perimeter because theres some lines
+     im noticing that are just on the house but on no perimeter." Where two
+     planes meet, each names the shared edge as one of its own. */
+  const outside = pick('rmEdgeIsOnTheOutside');
+  if (!outside) {
+    check('S147', 'the outside test is findable', false, 'rmEdgeIsOnTheOutside missing');
+  } else {
+    const api = new Function('let rmOrigin={lat:40.2969,lng:-111.6946}; let rmFaces=[];' + LF_ +
+      (admin.match(/^const RM_OUTSIDE_PROBE_M.*?;/m) || [''])[0] + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld'].map(pick).join(LF_) + LF_ + outside + LF_ +
+      'return rmEdgeIsOnTheOutside;')();
+    const mk = (e0, n0, e1, n1) => {
+      const sw = world.toWorld({e: e0, n: n0, u: 0}), ne = world.toWorld({e: e1, n: n1, u: 0});
+      return {sw: {lat: sw.lat, lng: sw.lng}, ne: {lat: ne.lat, lng: ne.lng},
+              center: world.toWorld({e: (e0 + e1) / 2, n: (n0 + n1) / 2, u: 0})};
+    };
+    /* Two faces meeting along n = 0: west face covers n -6..0, east covers 0..6 */
+    const south = mk(-6, -6, 6, 0), north = mk(-6, 0, 6, 6);
+    const lineAt = n => ({a: world.toWorld({e: -5, n: n, u: 0}), b: world.toWorld({e: 5, n: n, u: 0})});
+    check('S147', 'the seam where two roof planes meet is NOT offered',
+      api(south, lineAt(0), [south, north]) === false,
+      'a valley across the middle of a roof is real geometry and nothing hangs on it');
+    check('S147', 'but the outer edge of the same face is',
+      api(south, lineAt(-6), [south, north]) === true,
+      'that is the gutter, and dropping it would take the front of the house with it');
+    check('S147', 'and with only one face on the roof nothing is judged a seam',
+      api(south, lineAt(0), [south]) === true,
+      'a simple house has no seams, and refusing its edges leaves nothing at all');
+  }
+
+  /* ---- 3. the line reaches the corners -------------------------------- */
+  /* Owner: "be sure it does the entire front because I just opened it on
+     another house and it doesnt go across the whole house." */
+  const reach = pick('rmEndReach');
+  const cont = pick('rmEdgeContinues');
+  if (!reach || !cont) {
+    check('S147', 'the end-reach is findable', false, 'rmEndReach or rmEdgeContinues missing');
+  } else {
+    const consts = ['RM_END_STEP_M', 'RM_END_MAX_GROW_M', 'RM_END_MAX_TRIM_M', 'RM_SNAP_MIN_GRAD', 'RM_SKY_ZOOM']
+      .map(n => (admin.match(new RegExp('^const ' + n + '.*?;', 'm')) || [''])[0]);
+    check('S147', 'every end-reach threshold was found in the page',
+      consts.every(Boolean), 'missing: ' + consts.map((c, i) => c ? '' : i).filter(String).join(','));
+    const api = new Function('let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      consts.join(LF_) + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmSkyMpp','rmSkyProject','rmCrossGrad'].map(pick).join(LF_) + LF_ +
+      cont + LF_ + reach + LF_ + 'return {rmEndReach, rmSkyMpp};')();
+    const mpp = api.rmSkyMpp(40.2969), W = 400, H = 400;
+    const sky = {w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)};
+    /* A gutter running east-west across the middle, 12 m long: from e=-6 to +6. */
+    const row = H / 2;
+    const pxPerM = 1 / mpp;
+    for (let e = -6; e <= 6; e += 0.02) {
+      const x = Math.round(W / 2 + e * pxPerM);
+      if (x >= 0 && x < W) { const i = Math.round(row) * W + x; sky.gy[i] = 200; sky.mag[i] = 200; }
+    }
+    /* The model only found the middle 6 m of it. */
+    const a = {e: -3, n: 0}, b = {e: 3, n: 0};
+    const growB = api.rmEndReach(a, b, sky, +1);
+    const growA = api.rmEndReach(a, b, sky, -1);
+    check('S147', 'a line that stops short is grown out to the real corner',
+      growB > 2.4 && growB < 3.6 && growA > 2.4 && growA < 3.6,
+      'grew ' + growA.toFixed(2) + ' and ' + growB.toFixed(2) + ' m, the gutter runs 3 m past each end');
+    /* ⚠ It must not invent gutter where there is none. */
+    const bare = {w: W, h: H, mpp: mpp, gx: new Float32Array(W*H), gy: new Float32Array(W*H), mag: new Float32Array(W*H)};
+    check('S147', 'and never grows a line into a blank picture',
+      api.rmEndReach(a, b, bare, +1) <= 0,
+      'a line grown onto nothing is a made-up measurement somebody will be billed for');
+    /* A line already reaching the full edge is left alone. */
+    const full = api.rmEndReach({e: -6, n: 0}, {e: 6, n: 0}, sky, +1);
+    check('S147', 'a line already at the corner is not stretched further',
+      full <= 0.3,
+      'grew ' + full.toFixed(2) + ' m past an edge that has already ended');
+  }
+
+  /* ---- 4. hidden means hidden ---------------------------------------- */
+  /* Owner: "make sure that if the house is in the way on the street view you
+     cant see the line because you cant tell what it goes to anyway." */
+  const box = pick('rmBoxEntry');
+  if (!box) {
+    check('S147', 'the occlusion test is findable', false, 'rmBoxEntry missing');
+  } else {
+    const api = new Function(box + LF_ + 'return rmBoxEntry;')();
+    const house = {minE: -5, maxE: 5, minN: -4, maxN: 4, minU: 0, maxU: 6};
+    const cam = {e: 0, n: -25, u: 2.5};
+    const behind = {e: 0, n: 6, u: 3};      /* the far gutter */
+    const infront = {e: 0, n: -5, u: 3};    /* the near gutter */
+    const t = api(cam, behind, house);
+    check('S147', 'a line behind the house is found to be behind it',
+      t !== null && t > 0 && t < 1,
+      'entry fraction ' + t);
+    check('S147', 'and one in front of it is not',
+      (function(){ const q = api(cam, infront, house); return q === null || q >= 0.995; })(),
+      'hiding the near gutter would hide the whole job');
+    check('S147', 'a ray that misses the house entirely enters nothing',
+      api(cam, {e: 40, n: 0, u: 3}, house) === null);
+    check('S147', 'the box is pulled in so a gutter does not hide behind its own wall',
+      /const RM_OCCLUDE_SHRINK_M/.test(admin) && /rmHouseBox/.test(admin),
+      'a box that reaches the surface reports every line on it as occluded');
+    check('S147', 'and the run is judged at its middle, not an end',
+      /Judged at the MIDDLE of the run/.test(admin),
+      'half a hidden line is exactly the line that cannot be read');
+  }
 }
 
 Promise.all(pendingAsync).then(function () {
