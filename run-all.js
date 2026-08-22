@@ -18860,9 +18860,18 @@ suite('Suite 104. The Printing tab');
        portal, so they reached nobody at all — a crew at a gated house with no code.
        Gate and Sides are short enough to be their own columns; the two prose ones
        fold into Notes rather than widening the sheet to eleven columns. */
+    /* ⭐ AND BINS JOINED THEM (2026-08-22). Owner: "crew print sheet should also show
+       bin #." A COUNT, not the number on the bin — she settled that vocabulary on
+       2026-08-21 ("Bin # is how many bins were making for them"), and Cust # already
+       carries the label. It sits third, beside the identity columns, because loading
+       the van happens before driving anywhere. */
     check('S104', 'the crew list carries what the van needs, timer before notes',
-      keys('crew') === 'number,name,address,city,gate,sides,eaves,timer,notes',
+      keys('crew') === 'number,name,bins,address,city,gate,sides,eaves,timer,notes',
       'got ' + keys('crew'));
+    check('S104', 'and Bins is a column of its own, not folded into the notes',
+      keys('crew').indexOf('bins') !== -1 &&
+      keys('crew').indexOf('bins') < keys('crew').indexOf('notes'),
+      'how many bins to load is a number, and anything after Notes is lost');
     check('S104', 'gate and sides sit BEFORE the wide notes column',
       keys('crew').indexOf('gate,sides') < keys('crew').indexOf('notes'),
       'anything after Notes is lost against a wall of writing');
@@ -18870,7 +18879,7 @@ suite('Suite 104. The Printing tab');
 
   /* ---- the crew row builder, RUN rather than read ---- */
   {
-    const need = ['printGateCode', 'printSideCount', 'printCrewNotes'];
+    const need = ['printGateCode', 'printSideCount', 'printCrewNotes', 'printBinCount'];
     const srcs = need.map(n => extractFn(admin, n));
     check('S104', 'the crew-sheet helpers are all there', srcs.every(Boolean),
       need.filter((n, i) => !srcs[i]).join(', ') + ' missing');
@@ -18881,8 +18890,39 @@ suite('Suite 104. The Printing tab');
          exactly the claim being made here — a stub of it proves nothing. */
       const sb = new Function(
         'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
-        srcs.join('') + 'return {g: printGateCode, s: printSideCount, n: printCrewNotes};'
+        /* ⚠ THE REAL cnBinsForFeet, out of js/money.js, not a local ceil. The claim
+           being made is that the crew sheet and the warehouse sheet get the SAME
+           number out of the SAME rule; a second copy of the arithmetic here would
+           agree with itself and prove nothing. */
+        cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
+        extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
+        srcs.join('') + 'return {g: printGateCode, s: printSideCount, ' +
+        'n: printCrewNotes, b: printBinCount};'
       )();
+
+      check('S104', 'the bin count is the real bin rule, not a second one',
+        sb.b({ measuredFeet: 260 }) === '1' && sb.b({ measuredFeet: 261 }) === '2' &&
+        sb.b({ measuredFeet: 521 }) === '3',
+        'the crew loading two bins for a house the warehouse built one for is a van ' +
+        'that leaves without half the lights');
+      /* ⚠ BLANK, NEVER "1". cnBinsForFeet floors at 1, so an unmeasured house would
+         otherwise print a confident single bin — a guess wearing a number, and the
+         warehouse sheet already refuses to make it. */
+      check('S104', 'a house nobody has measured prints nothing, not a confident 1',
+        sb.b({}) === '' && sb.b({ measuredFeet: 0 }) === '',
+        'got ' + JSON.stringify(sb.b({})));
+      check('S104', 'a moved bin label is named beside the count',
+        sb.b({ measuredFeet: 300, customerNumber: '5051', binLabelNumber: '894' })
+          .indexOf('bin says #894') !== -1,
+        'the Cust # column is exactly the number that will not be found');
+      /* ⚠ AND ONLY WHEN IT REALLY MOVED. Stamping every row with a bin number the
+         crew can already read off the Cust # column is noise, and noise in a column
+         is how the one row that matters stops being noticed. */
+      check('S104', 'and stays quiet when it did not move',
+        sb.b({ measuredFeet: 300, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
+        sb.b({ measuredFeet: 300, customerNumber: '894' }) === '2',
+        'got ' + JSON.stringify(sb.b({ measuredFeet: 300, customerNumber: '894',
+          binLabelNumber: '894' })));
 
       check('S104', 'a gate code reaches the printed sheet',
         sb.g({ gateCode: '4412' }) === '4412',
@@ -19266,6 +19306,13 @@ suite('Suite 104. The Printing tab');
          printSideCount reads it. */
       extractFn(admin, 'printGateCode') + extractFn(admin, 'printSideCount') +
       extractFn(admin, 'printCrewNotes') +
+      /* ⚠ AND THE BIN COUNT, ALL THE WAY DOWN TO cnBinsForFeet OUT OF js/money.js.
+         A stubbed whBinsForHouse would prove the column renders and nothing about
+         whether the crew and the warehouse are told the same number, which is the
+         only claim worth making here. */
+      cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
+      extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
+      extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
       extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
@@ -19287,10 +19334,18 @@ suite('Suite 104. The Printing tab');
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
     {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
-      gateCode: '4412', houseSides: 3, specificOutletNotes: 'lower outlet by door',
-      oneTimeNote: 'ring the bell', notes: 'dog in the back'}}],
+      gateCode: '4412', houseSides: 3, measuredFeet: 300,
+      specificOutletNotes: 'lower outlet by door',
+      oneTimeNote: 'ring the bell', notes: 'dog in the back'}},
+    /* ⚠ THE BIN THAT WEARS THE OLD NUMBER. This customer moved from #894 to the
+       5000-series when their footage crossed CN_DOUBLE_BIN_FEET, and the bin already
+       on the shelf still says 894 — so the Cust # column is the one number that will
+       not be found in the warehouse. Same crew as h3 so it lands on the printed
+       sheet under test. */
+    {crew: 1, id: 'h5', cust: {customerNumber: '5051', name: 'E', street: '5 St',
+      measuredFeet: 300, binLabelNumber: '894'}}],
     spare: [{id: 'h4', city: 'Levan', cust: {customerNumber: '31', name: 'D',
-      outletTimer: 'Yes'}}]};
+      outletTimer: 'Yes', gateCode: '7788', measuredFeet: 600}}]};
 
   const crewOut = runSheet('crew', aDay);
   const crewBody = ((crewOut[0] || {}).pages || [{}])[0].body || '';
@@ -19363,6 +19418,17 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the Sides column is actually filled in',
     /<th>Sides<\/th>/.test(crewBody) && /<td>3<\/td>/.test(crewBody),
     'got a Sides header with nothing under it');
+  /* ⚠ SAME TRAP AGAIN: a header with nothing under it. The fixture's house is 300 ft,
+     which is over CN_DOUBLE_BIN_FEET, so the honest answer is 2 — and a van loaded off
+     a blank column leaves with half the lights. */
+  check('S104', 'the Bins column is actually filled in, not just present',
+    /<th>Bins<\/th>/.test(crewBody) && /<td>2<\/td>/.test(crewBody),
+    'a Bins header with nothing under it is a van loaded by guesswork');
+  /* ⚠ AND THE ONE CASE THE Cust # COLUMN GETS WRONG. Sending somebody to find #5051
+     sends them to a bin that does not exist; the label still says 894. */
+  check('S104', 'and it says so when the bin wears the old number',
+    crewBody.indexOf('bin says #894') !== -1,
+    'the crew is the one standing in the warehouse looking for it');
   check('S104', 'the outlet instruction and the one-time note reach the printed page',
     crewBody.indexOf('lower outlet by door') !== -1 &&
     crewBody.indexOf('ring the bell') !== -1,
@@ -19384,17 +19450,28 @@ suite('Suite 104. The Printing tab');
     dayBody.indexOf('>31<') !== -1,
     'it is already reported on screen as nobody' + String.fromCharCode(8217) + 's; a sheet that drops it ' +
     'silently is how it gets missed on the road');
-  /* ⚠ THAT BLOCK BUILDS ITS OWN ROWS BY HAND, so it drifts from the crew builder
-     silently: a column added to one and not the other prints a header with nothing
-     under it, only on the houses nobody is holding a sheet for. */
+  /* ⭐ IT BUILT ITS OWN ROWS BY HAND UNTIL 2026-08-22, and had drifted exactly the way
+     that invites: it filled seven of the ten columns, so Gate, Sides and Bins printed
+     EMPTY and its Notes column skipped the outlet instruction and the one-time note —
+     and only for the houses nobody has agreed to drive to, which is the last place
+     anybody would look. Both callers go through printCrewRow now. That block's own
+     comment already said the halves must not "read differently depending on which
+     button somebody happened to press"; this is what makes it true.
+
+     ⚠ SCOPED TO THAT BLOCK ON PURPOSE. Counting a filled cell across the whole sheet
+     is satisfied by a crew row and proves nothing about this one — the values below
+     belong to the spare house alone. */
   check('S104', 'and that block is filled in the same as the crew blocks',
     (function () {
       const at = dayBody.indexOf('In neither crew');
       const blk = at === -1 ? '' : dayBody.slice(at);
-      return /<td>Yes<\/td>/.test(blk);
+      return /<td>Yes<\/td>/.test(blk) &&      /* timer  */
+             blk.indexOf('<td>7788</td>') !== -1 &&   /* gate   */
+             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 600 ft */
+             blk.indexOf('<td>1</td>') !== -1;        /* sides  */
     })(),
-    'scoped to that block on purpose — counting Yes across the whole sheet is ' +
-    'satisfied by a crew row and proves nothing about this one');
+    'a column added to the crew builder and not to this one prints a header with ' +
+    'nothing under it, on exactly the houses nobody is holding a sheet for');
 
   /* ⭐ AND THE WHOLE-DAY SHEET CARRIES THE PHOTOS TOO. Owner, having printed this
      exact sheet for 16 November: "ashley wray is on this day but it isnt showing her

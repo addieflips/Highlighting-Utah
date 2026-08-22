@@ -275,17 +275,22 @@ stopped billing silently.
 
 ---
 
-## 11. What the printed sheets carry now (2026-08-21)
+## 11. What the printed sheets carry now (2026-08-21, extended 2026-08-22)
 
 Both surfaces the office prints this season are finished. The employee portal is
 not in use, so these two sheets are the entire interface to the people doing the
 work.
 
 ### Crew sheet
-`# · Cust # · Name · Address · City · Gate · Sides · Plugs/eaves · Timer · Notes · ☐`
+`# · Cust # · Name · Bins · Address · City · Gate · Sides · Plugs/eaves · Timer · Notes · ☐`
 
-One row builder feeds all of it — the Printing tab's crew sheets and the
-Scheduling tab's day and per-crew sheets — so none of them can drift.
+One row builder — `printCrewRow` — feeds all of it: the Printing tab's crew
+sheets, the Scheduling tab's per-crew sheet, its whole-day sheet, and that
+sheet's "in neither crew's city" block. Until 2026-08-22 the last of those built
+its own rows and had drifted exactly the way that invites — seven of ten columns
+filled, Gate and Sides blank, and a Notes column that skipped the outlet
+instruction and the one-time note. Only for the houses nobody has agreed to
+drive to, which is the last place anybody would look.
 
 - **Gate** and **Sides** are new, and sit BEFORE Notes. Notes is the wide
   free-text column and anything after it is lost against a wall of writing.
@@ -293,6 +298,22 @@ Scheduling tab's day and per-crew sheets — so none of them can drift.
   `OUTLET: … · TODAY: … · <the standing note>`.
 - An absent gate code prints `—`, deliberately not "none": the record cannot tell
   "no gate" from "there is a gate and nobody asked".
+- **Bins** is a COUNT — how many bins to load for that house. Owner's own
+  vocabulary, settled 2026-08-21: *"Bin # is how many bins were making for
+  them."* The number *on* the bin is the Cust # column, already first on the
+  sheet, so a second column of numbers would be two answers to one question.
+  It calls the warehouse sheet's own `whBinsForHouse` → `cnBinsForFeet`, not a
+  second copy of the arithmetic: a crew told to load two bins for a house the
+  warehouse built one for is a van that leaves without half the lights, and
+  nobody finds out until they are at the house. Blank when nobody has measured.
+- ⚠ **And it names the bin when the bin wears a different number.** A customer
+  number can move after the bin is already labelled — Ashley #894 → #5051, with
+  the bin on the shelf still saying 894 because nobody has been to it. The
+  Cust # column is then precisely the number that will not be found, and the
+  crew is the one standing in the warehouse looking for it. The cell reads
+  `2 — bin says #894`. `whBinNumberMoved`'s own comment has said this belongs
+  "on both the screen and the paper" since it was written; the recycle list has
+  said it for a while and the crew sheet never did.
 - **An unanswered yes/no prints `?`, not `No`.** A blank used to become a
   confident No, so a customer who wanted a timer and was never asked printed as a
   definite No and did not get one. An explicit No is still No.

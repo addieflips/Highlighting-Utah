@@ -38413,13 +38413,7 @@ function printDaySheet(dayId){
   });
   const spare=(typeof unassignedHousesFor==='function')?unassignedHousesFor(day):[];
   if(spare.length){
-    const sr=spare.map(function(h){
-      const cd=printCustData(h);
-      return {number:cd.customerNumber||h.cu||'', name:cd.name||h.name||'',
-              address:cd.street||h.address||'', city:h.city||cd.city||'',
-              eaves:printYesNo(cd.useEaves), timer:printYesNo(cd.outletTimer),
-              notes:cd.notes||h.details||''};
-    });
+    const sr=spare.map(function(h){ return printCrewRow(h); });
     blocks.push('<h2>In neither crew’s city — '+sr.length+'</h2>'+
       printTableHtml(sr,PRINT_COLUMNS.crew));
   }
@@ -38508,6 +38502,43 @@ function printGateCode(d){
    the printed sheet must not disagree with the schedule about it. */
 function printSideCount(d){
   return String(houseSideCount(d && d.houseSides));
+}
+/* How many bins this house's lights come in, so the van is loaded right.
+   ⚠ THE SAME ANSWER AS THE WAREHOUSE SHEET, NOT A SECOND ONE. whBinsForHouse is the
+   one rule (cnBinsForFeet, out of js/money.js) and this calls it rather than
+   re-deriving it — a crew told to load two bins for a house the warehouse built one
+   for is a van that leaves without half the lights, and nobody finds out until they
+   are at the house. Blank when nobody has measured them, for the reason that function
+   already gives: a confident "1" is a guess wearing a number.
+
+   ⚠ AND IT SAYS SO WHEN THE BIN WEARS A DIFFERENT NUMBER. whBinNumberMoved is true
+   when a customer's number moved after their bin was already labelled — Ashley #894 →
+   #5051, with the bin on the shelf still saying 894 because nobody has been to it. The
+   Cust # column is then precisely the number that will not be found, and the crew is
+   the one standing in the warehouse looking for it. That helper's own comment says
+   this belongs "on both the screen and the paper"; the recycle list has said it for a
+   while and the crew sheet never did. */
+function printBinCount(d){
+  const n = (typeof whBinsForHouse === 'function') ? whBinsForHouse(d) : '';
+  const moved = (typeof whBinNumberMoved === 'function') && whBinNumberMoved(d);
+  const says = moved && (typeof whBinNumberFor === 'function') ? whBinNumberFor(d) : '';
+  return says ? ((n || '?') + ' — bin says #' + says) : n;
+}
+/* ⭐ ONE ROW, WHEREVER THE CREW SHEET IS PRINTED FROM. The day sheet's per-crew blocks
+   and its "in neither crew's city" block used to build their rows separately, and the
+   second one filled in seven of the ten columns — so Gate, Sides and Bins printed
+   EMPTY for exactly the houses nobody has agreed to drive to, and its Notes column
+   skipped the outlet instruction and the one-time note. That block's own comment
+   already says the halves must not "read differently depending on which button
+   somebody happened to press"; this is what makes that true. */
+function printCrewRow(h){
+  const d = printCustData(h);
+  return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
+          bins: printBinCount(d),
+          address: d.street || h.address || '', city: h.city || d.city || '',
+          gate: printGateCode(d), sides: printSideCount(d),
+          eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
+          notes: printCrewNotes(d, h)};
 }
 /* ⚠ THE ACTIONABLE LINES COME FIRST. Notes is where prose goes, and the install
    instruction and the one-time note are prose — but they are also the two things
@@ -38637,7 +38668,14 @@ const PRINT_COLUMNS = {
      prose. Sides is one digit. The outlet instruction and the one-time note ARE
      prose, so they fold into Notes with a prefix instead of widening the sheet
      to eleven columns nobody can read. */
+  /* ⭐ BINS IS A COUNT, AND IT IS HOW MANY THE VAN LOADS (added 2026-08-22). Owner:
+     "crew print sheet should also show bin #." Bin # means a QUANTITY here, the same
+     thing it means on the warehouse build sheet — the owner settled that vocabulary on
+     2026-08-21: "Bin # is how many bins were making for them." The number ON the bin is
+     the Cust # column, already first on the sheet, so a second column of numbers would
+     be two answers to one question. */
   crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              {k: 'bins', label: 'Bins'},
               {k: 'address', label: 'Address'}, {k: 'city', label: 'City'},
               {k: 'gate', label: 'Gate'}, {k: 'sides', label: 'Sides'},
               {k: 'eaves', label: 'Plugs / eaves'}, {k: 'timer', label: 'Timer'},
@@ -38725,14 +38763,7 @@ function printWarehouseDayList(day){
 }
 function printCrewDayList(day, i){
   const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
-  return mine.map(function(h){
-    const d = printCustData(h);
-    return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
-            address: d.street || h.address || '', city: h.city || d.city || '',
-            gate: printGateCode(d), sides: printSideCount(d),
-            eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
-            notes: printCrewNotes(d, h)};
-  });
+  return mine.map(function(h){ return printCrewRow(h); });
 }
 /* ---------- the paper ---------- */
 
