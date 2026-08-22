@@ -17131,15 +17131,59 @@ function rmOutlineEaveU(e, n){
   return rmFaceRoofUAt(best, e, n);
 }
 
+const RM_OUTSIDE_STEP_M = 0.35;
+/* How square-on to the road a wall has to be to count as the front. A shade
+   under 45 degrees, so the returns at the ends of a front wall come with it and
+   a flank running back from the house does not. */
+const RM_FRONT_COS = 0.34;   /* a step off a wall, to ask which side is outside */
+/* Which way is OUT of the house from this wall? The side with no roof over it. */
+function rmWallOutward(sd){
+  const mE = (sd.a.e + sd.b.e) / 2, mN = (sd.a.n + sd.b.n) / 2;
+  const vertical = Math.abs(sd.a.e - sd.b.e) < 0.01;
+  const de = vertical ? RM_OUTSIDE_STEP_M : 0;
+  const dn = vertical ? 0 : RM_OUTSIDE_STEP_M;
+  const plus = rmCoveredAt(mE + de, mN + dn);
+  const minus = rmCoveredAt(mE - de, mN - dn);
+  if(plus === minus) return null;                 /* buried, or floating free */
+  return plus ? {e: -de, n: -dn} : {e: de, n: dn};
+}
+
 /* The assumed house as something drawable: each wall with the height of the
-   roof at both of its ends. */
-function rmHouseWireframe(){
+   roof at both of its ends, and which way is outside.
+   ⭐ AND ONLY THE WALLS THE CAMERA CAN ACTUALLY SEE. Owner, about the lines:
+   "make sure that if the house is in the way on the street view you cant see
+   the line because you cant tell what it goes to anyway." The same is true of
+   the model, and it was worse there: drawing the far side of the house as well
+   as the near side put a criss-cross of diagonals straight through the middle
+   of the picture, which reads as a mess rather than as a house. A wall whose
+   outside faces away from the camera is behind the building. */
+function rmHouseWireframe(camIn){
+  /* The camera is passed in rather than reached for, so this can be checked
+     from a given standpoint without a live panorama. */
+  const cam = camIn || (typeof rmPano !== 'undefined' && rmPano ? rmCamLocal() : null);
   return rmHouseOutline().map(function(sd){
     const ua = rmOutlineEaveU(sd.a.e, sd.a.n);
     const ub = rmOutlineEaveU(sd.b.e, sd.b.n);
     if(ua === null || ub === null) return null;
-    return {a: {e: sd.a.e, n: sd.a.n, u: ua}, b: {e: sd.b.e, n: sd.b.n, u: ub}};
-  }).filter(Boolean);
+    const out = rmWallOutward(sd);
+    return {a: {e: sd.a.e, n: sd.a.n, u: ua}, b: {e: sd.b.e, n: sd.b.n, u: ub}, out: out};
+  }).filter(Boolean).filter(function(sg){
+    if(!sg.out) return true;                      /* nothing to judge it by */
+    /* ⭐ THE FRONT, BY DEFAULT. Owner: "remember default is front", and before
+       that "the left side should not be included just because it is visible
+       from street view."
+       A wall belongs to the front when its outside faces the ROAD - not when
+       it happens to face the camera. Those are different things, and the
+       difference is the whole point: standing at an angle you can see a good
+       deal of a flank, and drawing it makes the model look like a house nobody
+       asked to light. The road direction is fixed once for the house, so which
+       walls are the front does not change as somebody walks up the street. */
+    const road = rmRoadDirection();
+    const face = road || (cam ? {e: cam.e, n: cam.n} : null);
+    if(!face) return true;
+    const len = Math.hypot(face.e, face.n) || 1;
+    return (sg.out.e * face.e + sg.out.n * face.n) / len > RM_FRONT_COS;
+  });
 }
 
 /* Working the outline out means a grid and two passes over it, so it is done
@@ -18459,7 +18503,10 @@ function rmPaintStreet(){
      notch in the front wall - obvious in a second rather than three dots
      later. Thin and dashed, because it is scaffolding and not the job. */
   if(rmShowModel){
-    rmModel().forEach(function(sg){
+    /* ⚠ NOT rmModel() - which walls are visible depends on where the camera is
+       standing, and the cache is keyed on the house. The outline itself is the
+       expensive part and that is still cached inside. */
+    rmHouseWireframe().forEach(function(sg){
       const a = rmSvProject(rmToWorld(sg.a), W, H, pov, cam);
       const b = rmSvProject(rmToWorld(sg.b), W, H, pov, cam);
       if(!a || !b) return;

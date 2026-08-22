@@ -34497,7 +34497,7 @@ suite('153. Measure Roof - a set-back part of the house keeps its own depth');
     });
     const api = new Function(
       'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
-      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test";' + LF_ +
+      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test"; let rmRoadDir = null; let rmPano = null; let rmCamGroundDrop = 0; const RM_CAM_HEIGHT_M = 2.5; let rmBuilding = null;' + LF_ +
       (admin.match(/^const RM_FACE_EDGE_TOL_M.*?$/m) || [''])[0] + LF_ +
       ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM',
        'rmDatum','rmFacePlane'].map(pick).join(LF_) + LF_ +
@@ -34786,7 +34786,7 @@ suite('156. Measure Roof - a tree does not put an indent in the house');
     });
     const api = new Function(
       'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
-      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test";' + LF_ +
+      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test"; let rmRoadDir = null; let rmPano = null; let rmCamGroundDrop = 0; const RM_CAM_HEIGHT_M = 2.5; let rmBuilding = null;' + LF_ +
       ['RM_FACE_PAD_M','RM_EAVE_TOL_M','RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M'].map(n =>
         (admin.match(new RegExp('^const ' + n + ' = [^;]*;', 'm')) || [''])[0]).join(LF_) + LF_ +
       ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM','rmDatum',
@@ -34897,11 +34897,11 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
     });
     const api = new Function(
       'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
-      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test";' + LF_ +
-      ['RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M','RM_OUTLINE_CELL_M'].map(n =>
+      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test"; let rmRoadDir = null; let rmPano = null; let rmCamGroundDrop = 0; const RM_CAM_HEIGHT_M = 2.5; let rmBuilding = null;' + LF_ +
+      ['RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M','RM_OUTLINE_CELL_M','RM_OUTSIDE_STEP_M','RM_FRONT_COS'].map(n =>
         (admin.match(new RegExp('^const ' + n + ' = [^;]*;', 'm')) || [''])[0]).join(LF_) + LF_ +
       ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM','rmDatum',
-       'rmFacePlane','rmFaceBoxLocal','rmFaceRoofUAt','rmSomethingInGap','rmMergedWalls','rmBridgedPatches'].map(pick).join(LF_) + LF_ +
+       'rmFacePlane','rmFaceBoxLocal','rmFaceRoofUAt','rmSomethingInGap','rmMergedWalls','rmBridgedPatches','rmWallOutward','rmCamLocal','rmCamOnRoad','rmRoadDirection'].map(pick).join(LF_) + LF_ +
       NEED.map(pick).join(LF_) + LF_ +
       'return {outline: rmHouseOutline, wire: rmHouseWireframe, eave: rmOutlineEaveU,' +
       ' faces: function(f){ rmFaces = f; }};')();
@@ -34965,6 +34965,28 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
       const lo = Math.min(sd.a.e, sd.b.e), hi = Math.max(sd.a.e, sd.b.e);
       return Math.abs(sd.a.n - 0) < 0.4 && hi > 0.4 && lo > -0.4;
     });
+    /* ⭐ THE FRONT, BY DEFAULT. Owner: "remember default is front", and
+       "the left side should not be included just because it is visible from
+       street view." A wall is front when its outside faces the ROAD, not when
+       it faces the camera - standing at an angle you can see a good deal of a
+       flank, and drawing it makes the model look like a house nobody asked to
+       light. */
+    (function(){
+      const road = {e: -1, n: 0};                 /* road due west of the house */
+      const wallsFor = function(){
+        return api.wire({e: -30, n: 0, u: 2.5});
+      };
+      api.faces([F(-8, 8, -6, 6, 5)]);            /* one plain rectangle */
+      const shown = wallsFor();
+      const westWall = shown.filter(sg => Math.abs(sg.a.e - sg.b.e) < 0.01 && sg.a.e < -7);
+      const flanks = shown.filter(sg => Math.abs(sg.a.n - sg.b.n) < 0.01);
+      check('S157', 'the wall facing the road is drawn',
+        westWall.length > 0, 'the front is the whole point');
+      check('S157', 'the flanks running back from the road are not, by default',
+        flanks.length === 0,
+        'got ' + flanks.length + ' side wall(s); default is front');
+    })();
+
     check('S157', 'and it has the inside corner where the L steps in',
       step.length > 0,
       'no wall found along the step; the notch in the L was filled in');
@@ -34983,7 +35005,15 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
   /* It is drawn, in both windows, and it can be turned off. */
   check('S157', 'the assumed house is drawn in the street view',
-    /if\(rmShowModel\)\{[\s\S]{0,400}rmModel\(\)\.forEach/.test(admin));
+    /if\(rmShowModel\)\{[\s\S]{0,600}rmHouseWireframe\(\)\.forEach/.test(admin));
+  /* ⚠ NOT the cached rmModel() here. Which walls show depends on where the
+     camera is standing, and the cache is keyed on the house, not the camera. */
+  check('S157', 'and it is rebuilt per camera, not served from the house cache',
+    (function(){
+      /* the comment there mentions rmModel by name, so look for the CALL */
+      return !/rmModel\(\)\.forEach/.test(admin);
+    })(),
+    'a cache keyed on the house would show the far side after you walk round');
   check('S157', 'and on the map',
     /function rmSyncModelSky/.test(admin) && /rmModelLines\.push\(new google\.maps\.Polyline/.test(admin));
   check('S157', 'it is built the moment the roof arrives, before any line is offered',
