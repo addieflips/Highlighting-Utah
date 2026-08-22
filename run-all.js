@@ -460,6 +460,62 @@ check('logic', 'admin preview and the nightly function agree on who is new',
   /chargeNewMemberFee === true/.test(admin) && /chargeNewMemberFee === true/.test(fnsSrc),
   'if these two drift apart, the office sees one invoice total and the customer is billed another');
 
+/* ⭐ WHO IS A NEW MEMBER: BY QUOTE, NOT BY DATE, NOT BY BULK (asserted 2026-08-21).
+   Owner: "since this is new and bulk report runs all the time we should not do new
+   members by dates right now. We should do it by who become a costumer through
+   quotes and not through bulk."
+
+   The date half is already covered by the createdAt check just above. These are the
+   other two halves, which nothing guarded — and the bulk one is the expensive one:
+   Bulk Updates runs constantly against the whole book, so a single line added to an
+   importer would hand a $30 fee to every customer in it. */
+{
+  /* ⚠ COUNTED, AND SCOPED TO THE IMPORTERS. A file-wide search for the field name
+     finds the two legitimate checkboxes and every place that READS it, so it would
+     pass with an importer writing it. This slices out the bulk region and looks for
+     a WRITE specifically. */
+  const bulkStart = admin.indexOf('async function rbApplyTickedAdds(');
+  const bulkEnd = admin.indexOf("document.getElementById('ibImportBtn')");
+  const bulkRegion = (bulkStart !== -1 && bulkEnd > bulkStart)
+    ? admin.slice(bulkStart, admin.indexOf('function', bulkEnd + 2000))
+    : '';
+  check('logic', 'the bulk region was found to scan', !!bulkRegion,
+    'renamed or moved — fix this slice rather than deleting the check');
+  check('logic', 'no bulk importer ever marks somebody a new member',
+    !!bulkRegion && !/chargeNewMemberFee\s*[:=][^=]/.test(bulkRegion),
+    'Bulk Updates runs against the whole book all season — one line here is a $30 ' +
+    'fee on every customer in it, which is the ~945-person overcharge in a new shape');
+
+  /* The "by quote" half, run rather than read. */
+  const setupSrc = extractFn(admin, 'quoteChargesSetupFee');
+  check('logic', 'the quote set-up fee rule exists as ONE function', !!setupSrc,
+    'it was four copies of the same money rule until 2026-08-21');
+  if (setupSrc) {
+    const charges = new Function('return ' + setupSrc + ';quoteChargesSetupFee')();
+    check('logic', 'a quote for somebody who is not yet a customer charges the fee',
+      charges({}) === true,
+      'this is "became a customer through quotes" — the default that makes a new ' +
+      'lead a new member without anybody having to remember a checkbox');
+    check('logic', 'a re-quote against an existing customer does NOT',
+      charges({ existingCustomerId: 'c1' }) === false,
+      'they joined years ago — charging a join fee for a re-quote is the mistake ' +
+      'this default exists to avoid');
+    /* ⚠ BOTH DIRECTIONS. Reading chargeSetupFee as a plain boolean rather than
+       testing !== undefined would silently re-charge every quote the office had
+       deliberately UNticked, and no single-direction check would notice. */
+    check('logic', 'and the office ticking it themselves always wins',
+      charges({ existingCustomerId: 'c1', chargeSetupFee: true }) === true &&
+      charges({ chargeSetupFee: false }) === false,
+      'a deliberate answer on the quote card beats the default in BOTH directions');
+    /* ⚠ THE DEFINITION IS EXCLUDED, or this check fails against its own function
+       body — which is the only place the raw expression is allowed to appear. */
+    check('logic', 'every caller uses that one function',
+      (admin.match(/quoteChargesSetupFee\(/g) || []).length >= 4 &&
+      !/chargeSetupFee !== undefined \?/.test(admin.split(setupSrc).join('')),
+      'a fifth copy is the copy that disagrees with the quote email they are holding');
+  }
+}
+
 /*
  * A separate tool reads a related but NOT identical signal: the Schedule tab's
  * own 🆕 New Members panel (a CSV-imported route-planning tool, isolated in a
@@ -1123,6 +1179,15 @@ if (JSDOM) {
   // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
   // button label and the re-quote wording. Mirrors the real one in admin.html.
   global.isRequote = d => !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
+  /* ⚠ THE REAL FUNCTION, LIFTED — NOT A MIRROR LIKE THE TWO ABOVE. quoteStage and
+     isRequote decide a badge and a button label, so a hand-written copy that drifts
+     costs a wrong word on a card. quoteChargesSetupFee decides whether somebody is
+     charged $30, and a mirror of a money rule is a test that passes while the card
+     and the invoice disagree. Lifting it also means a rename fails loudly here
+     instead of this suite quietly testing a copy of a function that no longer
+     exists. */
+  global.quoteChargesSetupFee = new Function(
+    'return ' + extractFn(admin, 'quoteChargesSetupFee') + ';quoteChargesSetupFee')();
   // quoteAwaitsUs(d) — priced, open, unanswered and never SENT, which is the
   // card's "Priced — not sent yet" branch. Mirrors admin.html. Suite 5b below
   // runs the real one out of the file; this copy only has to keep the render
@@ -1584,8 +1649,13 @@ check('flow', 'found the quote to customer conversion block', conversion.length 
   check('flow', 'conversion carries ' + label, conversion.includes(marker),
     'quote data would be lost when converting to a customer');
 });
+/* ⚠ NOW GOES THROUGH THE ONE SHARED RULE. The four copies of
+   `d.chargeSetupFee !== undefined ? d.chargeSetupFee : !d.existingCustomerId`
+   became quoteChargesSetupFee on 2026-08-21 — owner: "we should do it by who
+   become a costumer through quotes and not through bulk." Matching the old
+   spelling would now go red against perfectly correct code. */
 check('flow', 'conversion carries the $30 set-up fee decision',
-  conversion.includes('addCustNewMemberFee') && /chargeSetupFee/.test(conversion),
+  conversion.includes('addCustNewMemberFee') && /quoteChargesSetupFee\(/.test(conversion),
   'the fee ticked on the quote must be the fee charged on the customer, or the ' +
   'bill disagrees with the quote email they are holding');
 check('flow', 'conversion falls back to the quote wording when no colours are ticked',
@@ -2636,6 +2706,114 @@ suite('10a. Start New Season keeps the books');
   check('season-reset', 'the snapshot is read back before the reset proceeds',
     /getDoc\(doc\(db,'yearlySnapshots'/.test(src) && /savedRows\.length !== snapRows\.length/.test(src),
     '"the write resolved" is not the same as "the data is there" — a silent failure would leave no books and no warning');
+
+  /* ⭐ AND THEY STOP BEING A NEW MEMBER. Owner, 2026-08-21: "if someone came from
+     quotes this year but we are in 2027 than they are no longer a new costumer."
+
+     ⚠ THIS WAS A REPEATING OVERCHARGE, not a tidy-up. The $30 join fee is one-time
+     and is guarded within a season by newMemberFeeApplied on the invoice — which
+     this very handler sets back to false. Nothing anywhere cleared
+     chargeNewMemberFee on the customer, so the guard was released every season while
+     the flag stayed true, and the nightly run charged the join fee again the night
+     their lights went back up. Every year, silently, for as long as they stayed. */
+  check('season-reset', 'a new member stops being new when the season is reset',
+    /chargeNewMemberFee: false/.test(src),
+    'the join fee is one-time; releasing newMemberFeeApplied without retiring this ' +
+    'flag is exactly what made it repeat every season');
+  /* ⚠ IN THE SAME WRITE as the rest of the customer reset, not a second pass. A
+     separate write can fail on its own and leave the guard released and the flag
+     still set — which is the overcharge back again, in a shape nobody would look
+     for a second time. */
+  /* ⚠ THE ACTUAL OBJECT LITERAL, not a proximity window. A regex measuring the
+     distance between the two field names cannot tell "in the same write" from
+     "in a second write a few lines below" — a red-check that moved the field into
+     its own updateDoc stayed green against a 300-character window, because the
+     text was still nearby. This takes the customer-reset object and asks whether
+     the field is inside it. */
+  {
+    const stripped = stripComments(src);
+    const callAt = stripped.indexOf("updateDoc(doc(db,'jobAddresses', a.id), {");
+    let obj = '';
+    if (callAt !== -1) {
+      const open = stripped.indexOf('{', callAt);
+      let depth = 0;
+      for (let i = open; i < stripped.length; i++) {
+        if (stripped[i] === '{') depth++;
+        else if (stripped[i] === '}') { depth--; if (!depth) { obj = stripped.slice(open, i + 1); break; } }
+      }
+    }
+    check('season-reset', 'and in the same write as the rest of the customer reset',
+      !!obj && /invoiceEmailSent:\s*false/.test(obj) && /chargeNewMemberFee:\s*false/.test(obj),
+      'a separate write can fail alone and leave the guard released with the flag set');
+  }
+  /* ⚠ AND IT IS IN THE DRY RUN. This button has no undo, and CLAUDE.md's rule for
+     it is that anything added has to appear in Check First or it is not finished.
+
+     ⚠ RUN, NOT GREPPED. The first version of this check searched the Check First
+     handler for the word "noLongerNew" — and a red-check that replaced the whole
+     conditional's test with `false` left the word standing further along the same
+     expression, so the report rendered nothing and the check stayed green. That is
+     the exact failure this repo has been bitten by repeatedly. It now presses the
+     button against a fake page and reads the HTML that came out. */
+  {
+    const checkStart = admin.indexOf("ssnCheckBtn')?.addEventListener('click'");
+    const checkSrc = checkStart === -1 ? '' : sectionFrom(admin, checkStart);
+    const body = checkSrc.slice(checkSrc.indexOf('{') + 1, checkSrc.lastIndexOf('}'));
+    check('season-reset', 'the Check First handler was found to run', !!body);
+    if (body) {
+      const els = {};
+      const el = (id) => els[id] || (els[id] = { id: id, innerHTML: '', textContent: '', style: {} });
+      const fakePlan = {
+        houses: [{ id: 'a' }, { id: 'b' }],
+        invoices: [{ id: '1', name: 'Someone', lastPaid: 0, newInstall: 100, removal: 0, fee: 0 }],
+        totalArchive: 0, totalOwed: 100,
+        noLongerNew: [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+      };
+      new Function('ssnBuildPlan', 'document', 'esc', 'fmtMoney', body)(
+        () => fakePlan,
+        { getElementById: el },
+        (s) => String(s == null ? '' : s),
+        (n) => '$' + (Number(n) || 0).toFixed(2));
+      const html = (els.ssnReport || {}).innerHTML || '';
+      check('season-reset', 'and the dry run says how many people that is',
+        html.indexOf('3 customers stop counting as new members') !== -1,
+        'a change to what people are charged, on a button with no undo, has to be ' +
+        'visible before it is pressed');
+      /* ⚠ AND IT SAYS NOTHING WHEN THERE IS NOTHING TO SAY. A line claiming
+         "0 customers stop counting" on every reset is the kind of noise that
+         teaches the office to skip the report. */
+      fakePlan.noLongerNew = [];
+      els.ssnReport.innerHTML = '';
+      new Function('ssnBuildPlan', 'document', 'esc', 'fmtMoney', body)(
+        () => fakePlan,
+        { getElementById: el },
+        (s) => String(s == null ? '' : s),
+        (n) => '$' + (Number(n) || 0).toFixed(2));
+      check('season-reset', 'and stays quiet when nobody is affected',
+        ((els.ssnReport || {}).innerHTML || '').indexOf('stop counting as new') === -1,
+        'a nil line on every run is what trains people to stop reading the report');
+    }
+  }
+  /* Run the planner itself, rather than reading it — the count on screen has to be
+     the people who actually carry the flag. */
+  {
+    const planSrc = extractFn(admin, 'ssnBuildPlan');
+    check('season-reset', 'the season planner was found to run', !!planSrc);
+    if (planSrc) {
+      const plan = new Function('ssnScopeHouses', 'ssnInvoiceKeyForHouse', 'allInvoicesCache',
+        planSrc + ';return ssnBuildPlan();')(
+        () => [
+          { id: 'a', data: { chargeNewMemberFee: true, phone: '1' } },
+          { id: 'b', data: { phone: '2' } },
+          { id: 'c', data: { chargeNewMemberFee: false, phone: '3' } }
+        ],
+        (d) => d.phone, []);
+      check('season-reset', 'and it counts exactly the people carrying the flag',
+        plan.noLongerNew.length === 1 && plan.noLongerNew[0].id === 'a',
+        'an unticked box and a missing one are both "not a new member" — counting ' +
+        'them would promise the office a change that is not going to happen');
+    }
+  }
   check('season-reset', 'a snapshot too big to store stops the whole reset',
     /ssnSnapshotTooBig/.test(src) && /NOTHING has been changed/.test(src),
     'a truncated snapshot is worse than none: it would look like a complete record');
@@ -4505,6 +4683,20 @@ if (!JSDOM) {
   // fails if the actual formatting rule ever changes underneath it.
   const fmtMoneySrc = extractFn(money, 'fmtMoney');
 
+  /* The invoice prints the customer's contact preferences, so the sandbox needs
+     that helper. ⚠ LIFTED REAL, NOT STUBBED — a stub would make the printed line
+     untestable while reporting green (CLAUDE.md §3). CONTACT_PREFS is a const
+     array, so it is matched rather than extractFn'd. */
+  const contactPrefsConst = (admin.match(/const CONTACT_PREFS = \[[\s\S]*?\n\];/) || [''])[0];
+  const contactPrefsSrc = contactPrefsConst +
+    '\n' + (extractFn(admin, 'contactPrefsFor') || '') +
+    '\n' + (extractFn(admin, 'contactPrefsNote') || '');
+  check('invoice-doc', 'the contact-preferences helper is available to the invoice sandbox',
+    !!contactPrefsConst && /function contactPrefsFor/.test(contactPrefsSrc) &&
+    /function contactPrefsNote/.test(contactPrefsSrc),
+    'renamed or removed — the invoice prints this line, so supply the real one ' +
+    'rather than stubbing it');
+
   function makeInvoiceHarness(invoiceOverrides) {
     const ctx = {
       allInvoicesCache: [{
@@ -4529,7 +4721,7 @@ if (!JSDOM) {
     };
     const names = Object.keys(ctx);
     const fn = new Function(...names,
-      fmtMoneySrc + '\n' + biSrc + '\nreturn buildInvoiceDocHtml;'
+      fmtMoneySrc + '\n' + contactPrefsSrc + '\n' + biSrc + '\nreturn buildInvoiceDocHtml;'
     )(...names.map(n => ctx[n]));
     return fn;
   }
@@ -4936,9 +5128,19 @@ if (!JSDOM) {
   const psSrc = psStart > -1 ? sectionFrom(fnsSrc, psStart) : '';
   check('light-fee-race', 'portalSave found in functions/index.js', psStart > -1,
     'renamed or removed — update this test rather than deleting it');
+  /* ⚠ THE TRANSACTION NOW READS THE CUSTOMER TOO (2026-08-21). The free window
+     moved onto the customer record — see applyLightChange — so the decision needs
+     both documents, and both reads must still happen inside the transaction or
+     the race this suite exists for is back. The invoice read is conditional,
+     because a customer with no phone and no email has no invoice to charge but
+     must still be locked off the routes. */
   check('light-fee-race', 'the $30 light-change fee read-decide-write happens inside a transaction',
-    /db\.runTransaction\(async \(t\) => \{[\s\S]{0,50}const invSnap = await t\.get\(invRef\)/.test(psSrc),
+    /db\.runTransaction\(async \(t\) => \{[\s\S]{0,400}await t\.get\(custRef\)[\s\S]{0,200}await t\.get\(invRef\)/.test(psSrc),
     'a plain get()-then-set() lets two near-simultaneous saves both read the same pre-charge changeFees and each add $30');
+  check('light-fee-race', 'and the customer write is inside it as well',
+    /t\.set\(custRef, custWrite, \{ merge: true \}\)/.test(psSrc),
+    'the fee and the window that decides the NEXT fee have to be written together, ' +
+    'or a retry can charge against a window that was never opened');
   check('light-fee-race', 'the write inside the transaction uses t.set, not the outer invRef.set',
     /t\.set\(invRef, invWrite, \{ merge: true \}\);/.test(psSrc),
     'writing via invRef.set() instead of t.set() outside the transaction would defeat the whole point of wrapping it');
@@ -5377,6 +5579,14 @@ check('leftovers', 'the panel closes itself once nothing is left',
     global.renderLeftovers = () => {};
     global.renderAll = () => {};
     global.toast = m => { global._toast = m; };
+    /* ⭐ A SPY, NOT A NO-OP (added 2026-08-21, Job 2). applyLeftoverPicks is the
+       office saying which houses the crew MISSED, so it writes both directions —
+       done for the ones they did, not-done for the ones they did not. That has to
+       reach the customer now, or a house the crew never got to stays ticked and is
+       invoiced tonight. Recording the calls lets the checks below read what it
+       actually did rather than trusting that it called something. */
+    global._ticks = [];
+    global.planTickCustomer = (h, done) => { global._ticks.push({ id: h.id, done: done }); };
     const api = eval(admin.slice(areaStart, areaEnd) + '\n' +
       admin.slice(stateStart, stateEnd) +
       '\n;({open: openLeftovers, apply: applyLeftoverPicks,' +
@@ -5411,12 +5621,30 @@ check('leftovers', 'the panel closes itself once nothing is left',
     SEASON = [ day(fresh()) ];
     api.open('d1');
     api.pick(2);
+    /* ⚠ CLEARED IMMEDIATELY BEFORE THE PRESS this block is about. Earlier applies in
+       this same suite have already recorded ticks, and counting those as well makes
+       the assertions below pass or fail for reasons that have nothing to do with
+       this fixture. */
+    global._ticks = [];
     api.apply('d1');
     check('leftovers', 'Continue marks the ticked house not done and every other one done',
       SEASON[0].houses.map(h => h.name + (h.done ? ':done' : ':miss')).join() === 'A:done,B:miss,C:done',
       'a tick on this step means NOT finished — the opposite of the tick boxes on the day itself');
     check('leftovers', 'and hands over to the two ways out',
       api.mode() === 'ask');
+    /* ⭐ AND IT REACHES THE CUSTOMER, BOTH WAYS (2026-08-21, Job 2). Before today
+       this wrote the plan and nothing else, so a house the crew missed stayed
+       whatever it was on the customer record — and the nightly run bills on that. */
+    check('leftovers', 'Continue marks the customers too, not just the plan',
+      global._ticks.length === 3,
+      'the plan flag is not what the nightly run bills on');
+    check('leftovers', 'the two the crew did are marked done',
+      global._ticks.filter(t => t.done).map(t => t.id).sort().join() === '1,3');
+    /* ⚠ THE OTHER DIRECTION IS THE ONE THAT COSTS MONEY. A one-way version leaves a
+       house ticked that the crew never reached, and it is invoiced that night. */
+    check('leftovers', 'and the one they missed is marked NOT done',
+      global._ticks.filter(t => !t.done).map(t => t.id).join() === '2',
+      'a house the crew never reached must not stay ticked, or it is billed tonight');
 
     global._toast = '';
     SEASON = [ day(fresh()) ];
@@ -16340,23 +16568,40 @@ suite('Suite 69. A customer as a row of the master sheet');
   const admin = read("admin.html");
   const fns = read("functions/index.js");
 
-  /* ⭐ A COLOUR CHANGE IS A NEW CUSTOMER NOW. Owner, 2026-08-19: "get rid of color
-     change fee and just make it new customer fee", then, asked whether that should
-     include going out first: "Its fine they can be treated as a new customer do it." */
-  check('S69', 'a colour change charges the new-customer fee, not its own',
-    /updates\.chargeNewMemberFee = true;/.test(fns) &&
-    !/reason: .Light color change./.test(fns),
-    'two fees for one change is the money bug the transaction around it exists to prevent');
-  /* ⚠ AND IT MUST NOT ALSO WRITE changeFees. That would charge thirty dollars twice. */
-  check('S69', 'and does not also add a change fee',
-    !/invWrite\.changeFees = newFees;/.test(fns),
-    'this replaces the fee, it does not add to it');
+  /* ⭐ THE TWO FEES ARE SEPARATE AGAIN, AND THEY STACK (2026-08-21). This REVERSES
+     the 2026-08-19 decision above, on the owner's own instruction: "new member fee
+     and change light fees are seperate but should get charged seperetly for this so
+     if new member changes lights again after 48 hours of being a new member than
+     they should get charged for light change and new member fee which would put
+     them at 6[0] dollars."
+
+     ⚠ THESE CHECKS USED TO ASSERT THE OPPOSITE and were inverted rather than
+     deleted — the coverage is still wanted, it is the expectation that flipped. The
+     old wording is left in the comment above so nobody re-reverses it by accident. */
+  check('S69', 'a colour change charges its OWN fee, not the new-customer one',
+    /invWrite\.changeFees = \(Number\(inv\.changeFees\) \|\| 0\) \+ d\.feeAmount;/.test(fns) &&
+    !/updates\.chargeNewMemberFee = true;/.test(fns),
+    'the two $30 fees are separate and stack — a new member who changes colours ' +
+    'outside their window pays both');
+  /* ⚠ AND THE FEE MUST REACH FIRESTORE. The reason this was worth inverting rather
+     than deleting: the old line assigned to `updates`, an object written to the
+     database sixty-three lines EARLIER, so the portal charged nobody anything for
+     two days while telling them $30 had been added to their balance. */
+  /* ⚠ COMMENTS STRIPPED. Why the old line was wrong is written down in the code,
+     right where somebody would next be tempted to put it back — so a plain search
+     finds the explanation and reports it as the violation it is warning about. */
+  check('S69', 'and the fee is written inside the transaction, not onto a stale object',
+    !/updates\.chargeNewMemberFee/.test(stripComments(fns)) &&
+    /t\.set\(invRef, invWrite, \{ merge: true \}\)/.test(fns),
+    'assigning to `updates` after it has already been written charges nobody');
   /* ⚠ THE 48-HOUR ROUTE LOCK SURVIVES. It has nothing to do with the fee: it keeps a
      customer off an install route while their pattern may still move, and losing it
-     would let a crew hang lights that are about to change. */
+     would let a crew hang lights that are about to change. It moved from
+     jobAddrLightUpdate into the transaction's custWrite when the window moved onto
+     the customer record. */
   check('S69', 'and the route lock is untouched',
-    /jobAddrLightUpdate\.lightsLockedUntil/.test(fns) &&
-    /lightsChangedAfterAssign = true/.test(fns),
+    /custWrite\.lightsLockedUntil = admin\.firestore\.Timestamp\.fromMillis\(d\.lightsLockedUntil\)/.test(fns) &&
+    /lightsChangedAfterAssign: true/.test(fns),
     'the lock is about the crew, not about money');
 
   /* ⭐ PREPAID READS AS PAID. Owner, shown the Paid/Unpaid column: "change their tag
@@ -19020,7 +19265,13 @@ suite('Suite 104. The Printing tab');
     admin.indexOf('printDaySheet(') !== -1);
 
   /* ---- the columns she asked for, list by list ---- */
-  const cssAt = admin.indexOf('const PRINT_SHEET_CSS =');
+  /* ⚠ THE SLICE STARTS AT PRINT_PHOTO_CSS, NOT PRINT_SHEET_CSS (widened 2026-08-21).
+     The photo rules were lifted out into their own constant so the whole-plan printer
+     — which carries a second copy of the stylesheet — could share them instead of
+     growing a third. They sit just above PRINT_SHEET_CSS, so a slice that still began
+     at PRINT_SHEET_CSS stopped containing the very rules these four checks are about,
+     and all four went red on a change that broke nothing. */
+  const cssAt = admin.indexOf('const PRINT_PHOTO_CSS =');
   const css = cssAt === -1 ? '' : admin.slice(cssAt,
     admin.indexOf('function schedOpenPrintPages(', cssAt));
   const colsAt = admin.indexOf('const PRINT_COLUMNS = {');
@@ -19694,6 +19945,135 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the whole-day sheet puts each crew’s new hangs under their own block',
     /printPhotosHtml\(printCrewPhotos\(day,i\)\)/.test(extractFn(admin, 'printDaySheet')),
     'the half they are handed has to carry the houses on it');
+
+  /* ⭐ AND SO DOES PRINT WHOLE PLAN (added 2026-08-21). The crew sheet, the whole-day
+     sheet and the Scheduling per-day button all carry the new hangs' photos. Print
+     Whole Plan was the last printer without them, so the one sheet that covers the
+     whole season was the one with no pictures on it.
+
+     ⚠ RUN, NOT READ. The plan for this job says so in as many words, and this is
+     exactly the shape that has burned this repo: a check for `photos.forEach` survives
+     having the list sliced to nothing, and a check for the call survives the result
+     being dropped on the floor. Everything below reads the HTML that came out. */
+  const runWholePlan = function (days) {
+    const out = [];
+    new Function('days', 'out',
+      'const CREWS = [{}, {}];' +
+      'const esc = function(s){ return (\"\" + s).replace(/[&<>\"]/g, function(c){' +
+      '  return ({\"&\":\"&amp;\",\"<\":\"&lt;\",\">\":\"&gt;\",\"\\u0022\":\"&quot;\"})[c]; }); };' +
+      'const WD = [\"Sun\",\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\",\"Sat\"];' +
+      'const MO = {10: \"Oct\", 11: \"Nov\"};' +
+      'const orderedDays = function(){ return days; };' +
+      'const dayDate = function(d){ return d._date; };' +
+      'const dlabel = function(dt){ return {wd: WD[dt.getDay()],' +
+      '  full: MO[dt.getMonth() + 1] + \" \" + dt.getDate()}; };' +
+      'const schedRouteRows = function(d){ return (d.houses || []).map(function(h){' +
+      '  return {date: \"x\", weekday: \"Mon\", route: \"R\", stop: 1, cu: h.cu || \"\",' +
+      '          name: (h.cust || {}).name || \"\", address: \"\", city: \"\", phone: \"\",' +
+      '          type: \"Install\", price: \"\", details: \"\", done: \"\"}; }); };' +
+      'const crewHousesFor = function(i, d){ return (d.houses || [])' +
+      '  .filter(function(h){ return h.crew === i; }); };' +
+      'const customerForHouse = function(h){ return {data: h.cust || {}}; };' +
+      'const customerPhotoList = function(d){ return d.photos || []; };' +
+      'const schedOpenPrint = function(t, s, body, empty){' +
+      '  out.push({title: t, summary: s, body: body, empty: empty}); };' +
+      admin.slice(admin.indexOf('const SCHED_DAY_COLUMNS=['),
+                  admin.indexOf('function schedSheetTable(')) +
+      extractFn(admin, 'schedSheetTable') +
+      extractFn(admin, 'printCustData') + extractFn(admin, 'printIsNewHang') +
+      extractFn(admin, 'printCrewPhotos') + extractFn(admin, 'printPhotosHtml') +
+      extractFn(admin, 'printDayLabel') + extractFn(admin, 'printWholePlan') +
+      'printWholePlan();')(days, out);
+    return (out[0] || {}).body || '';
+  };
+
+  /* ⚠ THE NEW HANG AND THE RETURNING HOUSE BOTH HAVE PHOTOS ON FILE. If only the new
+     hang had any, "the returning house's photo is absent" would pass against a builder
+     that printed every photo it could find, because there would be nothing else to
+     print. The whole question is whether printIsNewHang is being consulted. */
+  /* ⚠ THE PHOTOS HANG OFF THE CUSTOMER, NOT THE HOUSE. printCrewPhotos resolves the
+     house to its customer record with printCustData and asks customerPhotoList about
+     THAT. A fixture that puts them on the house returns no photos at all — and then
+     "the returning house's photo is absent" passes for the wrong reason. */
+  const planDays = [
+    {_date: new Date(2026, 9, 12), houses: [
+      {crew: 0, cu: '11', cust: {name: 'New Hang', customerNumber: '11',
+        chargeNewMemberFee: true, photos: [{url: 'http://x/new-hang.jpg'}]}},
+      {crew: 1, cu: '12', cust: {name: 'Returning', customerNumber: '12',
+        photos: [{url: 'http://x/returning.jpg'}]}}]},
+    /* A whole day of returning houses — the common case late in the season. */
+    {_date: new Date(2026, 9, 13), houses: [
+      {crew: 0, cu: '13', cust: {name: 'Also Returning', customerNumber: '13',
+        photos: [{url: 'http://x/also-returning.jpg'}]}}]}
+  ];
+  const planBody = runWholePlan(planDays);
+
+  check('S104', 'Print Whole Plan carries the new hangs’ photos',
+    planBody.indexOf('new-hang.jpg') !== -1,
+    'the sheet that covers the whole season was the only printer without them');
+  check('S104', 'and not the returning houses’',
+    planBody.indexOf('returning.jpg') === -1 && planBody.indexOf('also-returning.jpg') === -1,
+    'a photo of a house the crew has hung before is ink spent saying nothing');
+  check('S104', 'the photos come after the table, not instead of it',
+    planBody.indexOf('<table') !== -1 &&
+    planBody.indexOf('<table') < planBody.indexOf('class="photos"'),
+    'the table is the sheet; the photos are an appendix to it');
+  /* ⚠ THE ONE PROPERTY THIS SHEET EXISTS FOR. SCHED_PLAN_COLUMNS repeats the date and
+     route on every row so the whole plan can be sorted and filtered like a spreadsheet.
+     Breaking it into a table per day to hang photos under each would have paid for the
+     pictures with exactly that. */
+  check('S104', 'and the plan is still ONE sortable table',
+    (planBody.split('<table').length - 1) === 1,
+    'a table per day would have bought the photos with the sorting');
+  check('S104', 'each photo block names its own day',
+    planBody.indexOf('New hangs · Mon, Oct 12') !== -1,
+    'many days on one document — "New hangs on this sheet" repeated down the page ' +
+    'says nothing about which day');
+  /* ⚠ AN EMPTY HEADING IS WORSE THAN NO BLOCK. Most days late in the season have no
+     new hangs at all, and a page of blank headings is what makes people stop reading
+     the sheet. */
+  check('S104', 'and a day with no new hangs gets no heading at all',
+    planBody.indexOf('Oct 13') === -1,
+    'a run of empty headings is how a sheet trains people to skip it');
+
+  /* ⚠ EMITTING THE PHOTOS WAS ONLY HALF THE JOB. schedOpenPrint carries its OWN copy
+     of the stylesheet — it is not schedOpenPrintPages — and that copy had never had
+     the photo rules in it. Without them the browser falls back to its defaults: a
+     full-size phone photo with the caption running beside it, which is precisely the
+     "overlaps with words" and "uses a lot of ink" the sizing was written to prevent.
+     Run for real and read the <style> that came out. */
+  const wholePlanStyle = (function () {
+    let html = '';
+    new Function(
+      'const esc = function(s){ return \"\" + s; };' +
+      'const toast = function(){};' +
+      'const setTimeout = function(){};' +
+      'const window = {open: function(){ return {document: {' +
+      '  write: function(h){ globalThis.__huSheet = h; }, close: function(){}},' +
+      '  focus: function(){}, print: function(){}}; }};' +
+      admin.slice(admin.indexOf('const PRINT_PHOTO_CSS ='),
+                  admin.indexOf('const PRINT_SHEET_CSS =')) +
+      extractFn(admin, 'schedOpenPrint') +
+      'schedOpenPrint(\"t\", \"\", \"<table></table>\", \"\");')();
+    html = globalThis.__huSheet || '';
+    delete globalThis.__huSheet;
+    return html;
+  })();
+  /* ⚠ NOT whitespace-stripped. `.photos img{` collapses to `.photosimg{`, which no
+     selector-shaped regex then matches — the check goes red against a stylesheet that
+     is perfectly correct. */
+  check('S104', 'the whole-plan stylesheet carries the photo rules',
+    /\.photos img\{[^}]*height:1\.5in/.test(wholePlanStyle) &&
+    /\.photos img\{[^}]*width:2\.5in/.test(wholePlanStyle) &&
+    /\.photos figcaption\{/.test(wholePlanStyle),
+    'a second stylesheet with no photo rules prints a full-size phone photo with the ' +
+    'caption alongside it');
+  check('S104', 'and it is the SAME copy the crew sheets use',
+    admin.indexOf('const PRINT_PHOTO_CSS =') !== -1 &&
+    (admin.match(/PRINT_PHOTO_CSS/g) || []).length >= 3 &&
+    (admin.match(/height:1\.5in/g) || []).length === 1,
+    'two copies of the crop size is one copy drifting the next time it is tuned — ' +
+    'the owner has already had this size corrected once');
 
 
   /* ---- the tab is wired up ---- */
@@ -22499,6 +22879,8 @@ suite('Suite 108. The Edit Customer save, actually run');
       focus(){}, click(){}});
     const writes = [];
     const errs = [];
+    /* What the office was asked before anything was charged. */
+    const asked = [];
     const ctx = {
       document: {getElementById: elm, querySelectorAll: () => [], querySelector: () => null,
                  createElement: () => elm('_t')},
@@ -22540,14 +22922,31 @@ suite('Suite 108. The Edit Customer save, actually run');
       houseSideCount: () => 1, quoteStage: () => 'send',
       removeCustomerFromUpcomingRoutes: async () => {},
       resyncSavedRouteStops: async () => {}, syncPayerInvoice: async () => {},
-      requoteRestoreSaveLabel: () => {}
+      requoteRestoreSaveLabel: () => {},
+      /* ⭐ THE REAL COLOUR-CHANGE RULE, LIFTED OUT OF js/money.js — not a stub.
+         A stub here would make every fee branch below untestable while reporting
+         green, which is the failure mode this whole suite exists to avoid. The
+         same rule the portal runs; money-parity proves the two copies agree. */
+      applyLightChange: new Function('LIGHT_CHANGE_FEE', 'LIGHT_WINDOW_MS',
+        'return ' + extractFn(money, 'applyLightChange') + ';applyLightChange')(30, 48 * 3600000),
+      lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
+        ';lightsLockMillis')(),
+      LIGHT_CHANGE_FEE: 30, LIGHT_WINDOW_MS: 48 * 3600000,
+      fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2),
+      /* The popup CANNOT be real — it waits for a click. Stubbed, but it records
+         that it was asked and what it was asked about, so the checks below can
+         prove the office is consulted rather than charged silently. */
+      askLightChangeFee: async (who, oldL, newL, dest) => {
+        asked.push({who: who, oldLights: oldL, newLights: newL, dest: dest});
+        return o.feeAnswer || 'charge';
+      }
     };
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
       const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
       const quote = writes.find(w => w.col === 'quotes');
-      return {writes: writes, errs: errs, cust: cust, quote: quote,
+      return {writes: writes, errs: errs, cust: cust, quote: quote, asked: asked,
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
@@ -22591,8 +22990,12 @@ suite('Suite 108. The Edit Customer save, actually run');
       const saved = handlerSrc;
       return null;
     })();
+    /* ⚠ COMMENTS STRIPPED. The old wording is quoted in a comment on the cancel path,
+       explaining that a ReferenceError there turned a clean "cancelled" message into
+       that one — exactly where somebody would next be tempted to reintroduce it. A
+       plain search finds the warning and reports it as the violation. */
     check('S108', 'the catch no longer swallows the error',
-      !/Something went wrong/.test(handlerSrc) &&
+      !/Something went wrong/.test(stripComments(handlerSrc)) &&
       /console\.error\('Edit Customer save failed:'/.test(handlerSrc) &&
       /Nothing was saved/.test(handlerSrc),
       'five grey words and no console line is not something anybody can act on, ' +
@@ -22631,6 +23034,132 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and re-saving the same colours does not',
       !!same.cust && same.cust.payload.needsLightBuild !== true,
       'opening a record to fix a phone number must not re-queue their lights');
+
+    /* ⭐ THE OFFICE COLOUR CHANGE NOW CHARGES, LOCKS AND TELLS THE CREW
+       (added 2026-08-21). Until today this handler wrote lightsChangedAt and
+       needsLightBuild and nothing else — no fee, no 48-hour window, no note —
+       while the member portal did all four. The office doing it on the phone is
+       the common case, and the only case now the crew portal is out of use.
+
+       ⚠ RUN, NOT READ, and against the REAL rule lifted out of js/money.js. */
+    const feeRun = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Warm White', scheduled: true, invoiceEmailSent: false}});
+    const feeInv = feeRun.writes.find(w => w.col === 'invoices' && w.op === 'set' &&
+      w.payload && w.payload.changeFees);
+
+    check('S108', 'the office is ASKED before anybody is charged',
+      feeRun.asked.length === 1 && feeRun.asked[0].dest === 'invoice',
+      'the portal has warned its own customer for months; whoever is on the phone ' +
+      'deserves the same warning before it lands on a bill');
+    check('S108', 'a colour change adds the $30 to their invoice',
+      !!feeInv && feeInv.payload.changeFees === 30,
+      'this path wrote no fee at all until today');
+    check('S108', 'as its own line, not a silent movement in the total',
+      !!feeInv && Array.isArray(feeInv.payload.changeFeeNotes) &&
+      feeInv.payload.changeFeeNotes.length === 1 &&
+      feeInv.payload.changeFeeNotes[0].amount === 30,
+      'a $30 change in a total with no line against it is a support call');
+    check('S108', 'and sets the 48-hour window so they cannot be routed yet',
+      !!feeRun.cust && !!feeRun.cust.payload.lightsLockedUntil,
+      'owner: they must not be scheduled while their pattern may still move');
+    check('S108', 'and flags a customer who is ALREADY on a route',
+      feeRun.writes.some(w => w.col === 'jobAddresses' &&
+        w.payload && w.payload.lightsChangedAfterAssign === true),
+      'the crew is holding a card that no longer matches the house');
+    check('S108', 'and raises exactly one System note about it',
+      feeRun.writes.filter(w => w.col === 'messages' && w.op === 'add' &&
+        w.payload && w.payload.folder === 'System').length === 1,
+      'two notes for one change is how the System folder stops being read');
+
+    /* ⚠ THE FEE IS WRITTEN LAST, AFTER syncPayerInvoice. That resync rebuilds the
+       invoice from the houses, so a fee written before it is written on top of a
+       total that is about to be recalculated. */
+    check('S108', 'and the fee is written after the customer record, not before',
+      !!feeInv && feeRun.writes.indexOf(feeInv) >
+        feeRun.writes.indexOf(feeRun.writes.find(w => w.col === 'jobAddresses' && w.op === 'update')),
+      'syncPayerInvoice rebuilds the invoice; a fee written before it is overwritten');
+
+    /* Waived — for the office correcting its own typo. */
+    const waived = await runSave({noRequote: true, lights: 'Red, Green', feeAnswer: 'waive',
+      cust: {lightsDescription: 'Warm White', scheduled: true, invoiceEmailSent: false}});
+    check('S108', 'waiving the fee charges nothing',
+      !waived.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'waivable at the point of saving — nobody goes back to undo a fee later');
+    check('S108', 'but STILL sets the window and still tells the crew',
+      !!waived.cust && !!waived.cust.payload.lightsLockedUntil &&
+      waived.writes.some(w => w.col === 'messages' && w.op === 'add'),
+      'the lock is about the crew, not about money — only the money is waived');
+
+    /* Cancelled — nothing at all is saved, not even the rest of the form. */
+    const cancelled = await runSave({noRequote: true, lights: 'Red, Green', feeAnswer: 'cancel',
+      cust: {lightsDescription: 'Warm White', invoiceEmailSent: false}});
+    /* ⚠ THE MESSAGE IS PART OF THE ASSERTION, and that is not decoration. The first
+       version checked only that nothing was written — which is equally true when the
+       handler CANCELS cleanly and when it THROWS, so it sailed straight over a
+       ReferenceError on this exact path (a `btn.disabled = false` in a handler with
+       no `btn` in scope). The office would have been told the save went wrong when
+       they had simply cancelled. Asserting the status text is what tells the two
+       apart. */
+    check('S108', 'cancelling the fee popup saves nothing at all, and says so',
+      !cancelled.cust && !cancelled.writes.some(w => w.col === 'invoices') &&
+      /cancelled/i.test(cancelled.status) && !/went wrong/i.test(cancelled.status),
+      'asking after the record has been written would leave the lights changed and ' +
+      'the fee refused');
+
+    /* Their bill has already gone out, so it rides to next season instead. */
+    const billed = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Warm White', invoiceEmailSent: true}});
+    check('S108', 'once their bill has been sent the $30 goes to next season',
+      !!billed.cust && billed.cust.payload.carryoverCharge === 30 &&
+      !billed.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'nothing re-opens a sent invoice, so a fee added there would never be posted');
+    check('S108', 'and the office is told which of the two it is',
+      billed.asked.length === 1 && billed.asked[0].dest === 'nextSeason',
+      'the popup names where the money is going, because the two are different answers');
+
+    /* Inside the window: free, and the window does not move. */
+    const inWindow = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Warm White', invoiceEmailSent: false,
+             lightsLockedUntil: {seconds: Math.floor((Date.now() + 5 * 3600000) / 1000)}}});
+    check('S108', 'a change inside the 48-hour window is free and asks nothing',
+      inWindow.asked.length === 0 &&
+      !inWindow.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'they are still inside the window they already had');
+    check('S108', 'and does not push that window further out',
+      !!inWindow.cust && inWindow.cust.payload.lightsLockedUntil === undefined,
+      'a window that renews on every save never closes, and they are never scheduled');
+
+    /* First-time colours are not a change — the trap that once swept twelve
+       ordinary new customers onto the Color Changes sheet. */
+    const firstTime = await runSave({noRequote: true, lights: 'Warm White',
+      cust: {lightsDescription: '', invoiceEmailSent: false}});
+    check('S108', 'filling colours in for the first time charges nothing',
+      firstTime.asked.length === 0 &&
+      !firstTime.writes.some(w => w.col === 'invoices' && w.payload && w.payload.changeFees),
+      'charging somebody for filling in their own colours is what the non-empty ' +
+      'test on both sides exists to prevent');
+    check('S108', 'and is not marked as a colour change',
+      !!firstTime.cust && firstTime.cust.payload.lightsChangedAt === undefined,
+      'this is what put twelve ordinary new customers on the Color Changes sheet');
+    check('S108', 'but the warehouse is still told to build it',
+      !!firstTime.cust && firstTime.cust.payload.needsLightBuild === true,
+      'not a CHANGE is not the same as no WORK');
+
+    /* Saving the same colours must cost nothing and lock nobody. */
+    check('S108', 're-saving the same colours charges nothing and locks nobody',
+      same.asked.length === 0 && !!same.cust &&
+      same.cust.payload.lightsLockedUntil === undefined &&
+      same.cust.payload.lightsChangedAt === undefined,
+      'opening a record to fix a phone number must not cost the customer $30');
+
+    /* ⚠ THE HOUSE PHOTO IS NOT A FIX PHOTO AND IS NOT A LIGHT FIELD. None of the
+       above may touch it — it is what prints on the new-hang crew sheets, so
+       losing it shows up on paper rather than on screen. */
+    check('S108', 'and none of this touches the house photo',
+      !feeRun.cust.payload.hasOwnProperty('housePhotoUrl') &&
+      !feeRun.cust.payload.hasOwnProperty('housePhotos') &&
+      !waived.cust.payload.hasOwnProperty('housePhotoUrl'),
+      'the house photo prints on the crew sheet — losing it is discovered on paper');
 
     /* And somebody with no colours and no build owed does not acquire one. */
     const idle = await runSave({noRequest: true, noRequote: true, cust: {}});
@@ -25337,11 +25866,38 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             'we never send them their own gate code, so it must not look lost either');
           check('S70', 'and so does the notes box',
             /keep the notes we already have/i.test(fd.querySelector('[name="notes"]').placeholder));
-          box.fill({lightColors: ['Red','Green'], lightsDescription: 'Red, Green'});
+          box.fill({lightColors: ['Red','Green'], lightsDescription: 'Red, Green',
+                    wireColor: 'Green'});
           check('S70', 'a plain set of colours leaves the pattern builder shut',
             fd.getElementById('qdSpecificPatternToggle').checked === false &&
             (box.simple || []).join(', ') === 'Red, Green',
             'two different colours is a set, not a repeating pattern');
+          /* ⚠ THE 'Any' CASE ABOVE CANNOT PROVE THE WIRE COLOUR IS WRITTEN, and the
+             fixture is not at fault — 'Any' is the FIRST option and carries `selected`
+             on the real page too, so a select nobody touched already reads 'Any'.
+             Deleting the wire-colour line entirely left that check green. This one
+             asserts a value only the prefill can produce. */
+          check('S70', 'and the wire colour is really written, not just left on its default',
+            fd.querySelector('[name="wire_color"]').value === 'Green',
+            'filling it in and not filling it in are indistinguishable on the default ' +
+            'value, so this is the assertion that actually holds the line');
+          /* ⚠ THE TWO DEFENSIVE PATHS, which every fixture above walks straight past.
+             Both were red-checked and neither was caught until these existed. */
+          box.fill({lightColors: ['Red','Green'],
+                    lightsDescription: 'alternating red and green (ladder round the back)'});
+          check('S70', 'a description that is a sentence falls back to the colours they ticked',
+            (box.simple || []).join(', ') === 'Red, Green' &&
+            fd.getElementById('qdSpecificPatternToggle').checked === false,
+            'a repeated colour is moved OUT of lightColors and INTO lightsDescription, ' +
+            'so the description has to be read first — but mining colours out of a ' +
+            'sentence would drop the half that matters, so an unreadable one falls ' +
+            'back to the ticked list rather than guessing at it');
+          fd.querySelector('[name="wire_color"]').value = 'White';
+          box.fill({lightColors: ['Red'], lightsDescription: 'Red', wireColor: 'Purple'});
+          check('S70', 'a wire colour the form does not offer is refused, not written blank',
+            fd.querySelector('[name="wire_color"]').value === 'White',
+            'assigning a select a value it has no option for leaves it showing NOTHING, ' +
+            'which then saves as a blank wire colour over a real one');
         }
       }
 
@@ -25355,6 +25911,79 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
         sbNoToken.freshCalled === true &&
         sbNoToken.freshWith && sbNoToken.freshWith.lightsDescription === 'Red, Green',
         'the customer-facing half of this is NOT IN THE REPO. On 2026-08-21 an index.html push replaced the customer site with a copy of admin.html, which took this with it; index.html was restored from the last good copy, which predates it. Re-push index.html from the session that wrote it and these close by themselves.');
+
+      /* ⚠ AND THE FUNCTION THE BUTTON ACTUALLY CALLS, RUN RATHER THAN READ. Every
+         check above STUBS showQuoteDetailFormFresh, so the real one — the thing that
+         has to put the form on screen and fill it in — was covered by nothing at all.
+         Showing the form without prefilling it, or prefilling without showing it, are
+         both one deleted line. */
+      {
+        const freshSrc = extractFn(idx, 'showQuoteDetailFormFresh');
+        check('S70', 'the fresh answer has a real function behind it',
+          !!freshSrc, 'the button calls it by name');
+        if (freshSrc) {
+          const gdom = new JSDOM(
+            '<div id="quoteLinkConfirm" style="display:block"></div>' +
+            '<div id="quoteLinkConfirmActions" style="display:block"><button></button></div>' +
+            '<div id="quoteDetailFormWrap" style="display:none"></div>' +
+            '<div id="quoteDetailGreeting" style="display:none"></div>');
+          const gd = gdom.window.document;
+          const seen = {};
+          new Function('document', 'seen',
+            'function setQuoteConfirmSub(h){ seen.sub = h; }' +
+            'function qdPrefillFromMember(md){ seen.filledWith = md; }' +
+            freshSrc + 'return showQuoteDetailFormFresh;'
+          )(gd, seen)({lightsDescription: 'Red, Green'});
+          check('S70', 'it puts the install form on screen',
+            gd.getElementById('quoteDetailFormWrap').style.display === 'block',
+            'the whole point of this answer is the form — without this it silently ' +
+            'does nothing at all');
+          check('S70', 'and fills it from what we hold, rather than opening it blank',
+            seen.filledWith && seen.filledWith.lightsDescription === 'Red, Green',
+            'opening it empty makes them retype everything, which is the one thing ' +
+            'this answer exists to save them');
+          check('S70', 'and clears the question away so it cannot be answered twice',
+            gd.getElementById('quoteLinkConfirmActions').style.display === 'none' &&
+            gd.getElementById('quoteLinkConfirmActions').innerHTML === '' &&
+            gd.getElementById('quoteLinkConfirm').style.display === 'none',
+            'the other two answers both take the buttons away; leaving them up under ' +
+            'the form invites a second answer to a question already answered');
+        }
+      }
+
+      /* ⚠ THE WIRING, WHICH THE SANDBOX ABOVE CANNOT SEE. Every check in this block
+         calls offerMemberChangeChoice DIRECTLY and hands it the member details itself,
+         so the page could stop passing what the server sent and all of them would stay
+         green — while the form opened blank for every real customer. Deleting the
+         argument from the real call site was a red-check that nothing caught. These
+         three assert the whole chain instead: the server fills it, the page hands it
+         down, and neither end ever carries a gate code. */
+      check('S70', 'the real quote link hands the member details down',
+        /alreadyMember\)\s*\{[\s\S]{0,500}?offerMemberChangeChoice\([^)]*memberDetails/.test(idx),
+        'the prefill has nothing to fill from unless the alreadyMember branch passes ' +
+        'the details quoteRespond returned');
+      check('S70', 'and the server actually sends them',
+        /memberDetails:\s*\(alreadyMember && memberRef\) \? memberPrefill\(/
+          .test(read('functions/index.js')),
+        'the browser half is useless on its own — this is the write to its read');
+      check('S70', 'and the gate code and house notes are never in what it sends',
+        (() => {
+          const src = read('functions/index.js');
+          const at = src.indexOf('const memberPrefill');
+          if (at === -1) return false;
+          /* Sliced to the arrow function's own closing `  };` rather than a fixed
+             window, which goes stale as the file grows (CLAUDE.md §7). */
+          const end = src.indexOf('\n  };', at);
+          if (end === -1) return false;
+          const body = src.slice(at, end);
+          /* ⚠ NOT a bare /notes/i — specificOutletNotes legitimately travels and
+             would match it, turning this into a check that can never pass. */
+          return !/gateCode/i.test(body) && !/oneTimeNote/i.test(body) &&
+                 !/(^|[^a-zA-Z])notes\s*:/m.test(body);
+        })(),
+        'the empty gate-code and notes boxes on the form are only safe because ' +
+        'neither value ever leaves the server — a quoteToken is minted in the ' +
+        'visitor’s own browser and proves nothing about who they are');
 
       /* Yes = their portal. With no saved login on this device it must fall
          back to the normal, rate-limited, last-name-checked sign-in. */
@@ -25935,6 +26564,350 @@ suite('77. Schedule route generator');
       /routehead spare/.test(html) && html.indexOf('<stop>N1#1</stop>') > -1,
       'a stop nobody holds a sheet for is a stop nobody drives to');
     panel.setCrews(null);
+  }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Suite 117. The colour-change fee, actually charged
+ *
+ * Owner, 2026-08-21: "new member fee and change light fees are seperate but should
+ * get charged seperetly for this so if new member changes lights again after 48 hours
+ * of being a new member than they should get charged for light change and new member
+ * fee which would put them at 6[0] dollars. So new member should not be assigned on
+ * routes within 48 hours." And: "if invoice has already been sent out but they change
+ * there lights after invoice is sent out than the 30 dollars will be charged for next
+ * season but if invoice hasn't been sent out than it will be charged on there current
+ * invoice."
+ *
+ * ⚠ THE HOLE THIS CLOSES IS THAT THE FEE WAS NEVER CHARGED AT ALL. From 2026-08-19
+ * this block ended with `updates.chargeNewMemberFee = true`, and `updates` is written
+ * to Firestore sixty-three lines EARLIER — so the flag landed on an object nobody
+ * saved again, it is not in PORTAL_READ_FIELDS so it never reached the browser
+ * either, and every colour change a member made in their own portal charged nothing
+ * while the portal told them in red that $30 had been added to their balance.
+ *
+ * ⚠ AND EVERY CHECK THAT EXISTED PASSED THROUGHOUT, because they all read the source
+ * as text and the text was there. This suite RUNS the shipped block against a fake
+ * Firestore and reads the documents that came out. That is the only way this class of
+ * bug is visible: a write that never happens looks identical to one that does, from a
+ * regex.
+ * ------------------------------------------------------------------------- */
+suite('Suite 117. The colour-change fee, actually charged');
+
+{
+  const fns = read('functions/index.js');
+
+  /* The real shipped block, sliced between the same two anchors it lives between,
+     and run as-is. Not a paraphrase of it. */
+  const A = '  let lightFeeInfo = null;';
+  const B = "  // The Info tab also keeps the customer's invoice record in sync.";
+  const a = fns.indexOf(A), b = fns.indexOf(B);
+  check('S117', 'the lights block is where this suite expects it',
+    a !== -1 && b !== -1 && b > a,
+    'renamed or moved — fix this slice rather than deleting the suite');
+
+  /* ⭐ FOUND IN THE SELF-AUDIT, 2026-08-21 — two things that were written and never
+     connected to anything. Both are the "who READS it?" question from the hole-hunt,
+     asked of my own work. */
+  {
+    const admin2 = read('admin.html');
+    /* ⚠ A CHARGE PARKED FOR NEXT SEASON WAS INVISIBLE. carryoverCharge was written by
+       the portal and by Edit Customer, and read ONLY by the nightly run — so nobody in
+       the office could see why next year's bill would be higher, answer a customer who
+       rang about it, or spot one added by mistake. It sits beside carryoverCredit,
+       which is where somebody already looks to answer "why is this number what it is". */
+    check('S117', 'a charge carried to next season is shown to the office',
+      /carryChargeForPanel/.test(admin2) &&
+      /Carried to NEXT season/.test(admin2),
+      'written by two paths and read only by the nightly run is money nobody can see');
+
+    /* ⚠ AND THE SCHEDULE MUST HONOUR THE 48 HOURS, not just Routes. Owner: "we won't
+       schedule them within that 48 hours so they can change there lights again if
+       they choose." customersMissingFromSeason is the ONE path that puts a brand-new
+       customer onto a day, and it checked only isOutForSeason — which stopped being
+       harmless the moment Add Customer began opening a window for every new customer.
+       Run, not read: the guard is what matters, not the words. */
+    const missSrc = extractFn(admin2, 'customersMissingFromSeason');
+    check('S117', 'the schedule adder is findable', !!missSrc);
+    if (missSrc) {
+      const soon = { toMillis: () => Date.now() + 3600000 };
+      const past = { toMillis: () => Date.now() - 3600000 };
+      const book = [
+        { id: 'free', data: {} },
+        { id: 'locked', data: { lightsLockedUntil: soon } },
+        { id: 'expired', data: { lightsLockedUntil: past } }
+      ];
+      const out = new Function('jobAddresses', 'seasonCustomerIds', 'isOutForSeason',
+        'isLightsLocked', missSrc + ';return customersMissingFromSeason();')(
+        book, () => new Set(), () => false,
+        (d) => !!(d.lightsLockedUntil && d.lightsLockedUntil.toMillis() > Date.now()));
+      check('S117', 'a customer inside their 48 hours is NOT put on a schedule day',
+        !out.some(x => x.id === 'locked'),
+        'the crew would hang a pattern that is still free to change — the exact thing ' +
+        'the window exists to prevent');
+      /* ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, so they
+         must arrive by themselves once the window closes. */
+      check('S117', 'but is added once that window has closed',
+        out.some(x => x.id === 'expired') && out.some(x => x.id === 'free'),
+        'a customer held back for ever is worse than one scheduled early');
+    }
+  }
+
+  const ruleSrc = extractFn(fns, 'applyLightChangeServer');
+  const toMillisSrc = extractFn(fns, 'toMillis');
+  check('S117', 'and the rule and the timestamp reader are both findable',
+    !!ruleSrc && !!toMillisSrc,
+    'extracted rather than stubbed on purpose: a stub would agree with itself');
+
+  if (a !== -1 && b > a && ruleSrc && toMillisSrc) {
+    const blockSrc = fns.slice(a, b);
+
+    /* A fake Firestore that records what was written. Deliberately small, and
+       deliberately NOT clever: every write is kept exactly as the code sent it, so
+       an assertion below reads the document the customer would really have. */
+    /* ⚠ SHALLOW-COPIED, NOT JSON ROUND-TRIPPED. A Firestore Timestamp is an
+       object with methods on it, and JSON.stringify throws those away — so a
+       seeded lightsLockedUntil arrived with no toMillis, the server's toMillis
+       helper read it as 0, and a customer sitting comfortably inside their free
+       window was charged $30 by the test harness. The bug was mine, but it is
+       exactly the shape of the real one, so the fake now keeps what Firestore
+       would hand back. */
+    function makeDb(seed) {
+      const docs = {};
+      Object.keys(seed || {}).forEach(function (k) { docs[k] = Object.assign({}, seed[k]); });
+      const messages = [];
+      const ref = (path) => ({
+        _path: path,
+        update: function (o) {
+          if (!docs[path]) return Promise.reject(new Error('no such doc ' + path));
+          Object.assign(docs[path], o);
+          return Promise.resolve();
+        }
+      });
+      const db = {
+        _docs: docs, _messages: messages,
+        collection: function (c) {
+          return {
+            doc: function (id) { return ref(c + '/' + id); },
+            add: function (o) { if (c === 'messages') messages.push(o); return Promise.resolve({}); }
+          };
+        },
+        runTransaction: function (fn) {
+          const t = {
+            get: function (r) {
+              return Promise.resolve({
+                exists: Object.prototype.hasOwnProperty.call(docs, r._path),
+                data: function () { return docs[r._path]; }
+              });
+            },
+            set: function (r, o) { docs[r._path] = Object.assign({}, docs[r._path] || {}, o); },
+            update: function (r, o) { docs[r._path] = Object.assign({}, docs[r._path] || {}, o); }
+          };
+          return Promise.resolve(fn(t));
+        }
+      };
+      return db;
+    }
+
+    const NOWISH = Date.now();
+    const HOUR = 3600000;
+    /* ⚠ A FAITHFUL FAKE TIMESTAMP, and it matters. The server reads a stored
+       timestamp through toMillis(), which tests toDate() and .seconds — the two
+       things a real Firestore Timestamp actually has. A fake carrying only a
+       toMillis() method read as 0, so a customer sitting inside their free window
+       looked to the harness like somebody who had never had one and was charged.
+       The production code was right; the fake was lying. Build fixtures from the
+       same helper the code under test would have been handed. */
+    const ts = function (m) {
+      return {
+        __ms: m,
+        seconds: Math.floor(m / 1000),
+        nanoseconds: (m % 1000) * 1e6,
+        toMillis: function () { return m; },
+        toDate: function () { return new Date(m); }
+      };
+    };
+    const fakeAdmin = {
+      firestore: {
+        Timestamp: { fromMillis: ts },
+        FieldValue: { serverTimestamp: function () { return '__SERVER_TS__'; } }
+      }
+    };
+
+    /* Runs the real block. `cust` and `inv` are the documents as they stand before
+       the save; `newLights` is what the member picked. */
+    const runLights = function (cust, inv, newLights) {
+      const seed = { 'jobAddresses/c1': Object.assign({}, cust) };
+      if (inv) seed['invoices/8015550100'] = Object.assign({}, inv);
+      const db = makeDb(seed);
+      const updates = { lightsDescription: newLights };
+      return new Function('db', 'admin', 'toMillis', 'section', 'updates', 'oldData',
+        'oldKey', 'match', 'console',
+        ruleSrc + '\nconst LIGHT_CHANGE_FEE = 30;\nconst LIGHT_WINDOW_MS = 48*60*60*1000;\n' +
+        'return (async function(){\n' + blockSrc + '\nreturn lightFeeInfo;\n})();')
+        (db, fakeAdmin, new Function('return ' + toMillisSrc + ';toMillis')(),
+         'lights', updates, cust, inv ? '8015550100' : '', { id: 'c1' }, console)
+        .then(function (info) {
+          return { info: info, cust: db._docs['jobAddresses/c1'],
+                   inv: db._docs['invoices/8015550100'], messages: db._messages };
+        });
+    };
+
+    pendingAsync.push((async function () {
+      /* ---- 1. A returning member changes colours, bill not yet sent ---- */
+      const r1 = await runLights(
+        { name: 'Returning', lightsDescription: 'Warm White', invoiceEmailSent: false },
+        { changeFees: 0, install: 400 }, 'Red, Green');
+
+      check('S117', 'a colour change actually writes the $30 to the invoice',
+        (r1.inv || {}).changeFees === 30,
+        'this is the bug: the old code set the flag on an object that had already ' +
+        'been written, so the fee never reached Firestore at all');
+      check('S117', 'and it lands as its own line, naming itself',
+        Array.isArray((r1.inv || {}).changeFeeNotes) &&
+        r1.inv.changeFeeNotes.length === 1 &&
+        r1.inv.changeFeeNotes[0].amount === 30,
+        'a $30 movement in a total with no line against it is a support call');
+      check('S117', 'and it does NOT set the new-member fee',
+        (r1.cust || {}).chargeNewMemberFee === undefined,
+        'the two fees are separate now — writing both would charge $60 for one change');
+      check('S117', 'and the 48-hour route lock is set on the customer',
+        !!(r1.cust || {}).lightsLockedUntil &&
+        r1.cust.lightsLockedUntil.__ms > NOWISH + 47 * HOUR,
+        'owner: they must not be scheduled while their pattern may still move');
+      check('S117', 'and they are marked as a colour change',
+        (r1.cust || {}).lightsChangedAt === '__SERVER_TS__',
+        'this is what puts them on the Color Changes sheet');
+      check('S117', 'and the portal is told the fee hit their current balance',
+        r1.info && r1.info.feeCharged === true && r1.info.chargedToNextSeason === false,
+        'the note the customer reads has to match the invoice they can open');
+
+      /* ---- 2. The same change, but their invoice has already gone out ---- */
+      const r2 = await runLights(
+        { name: 'Billed', lightsDescription: 'Warm White', invoiceEmailSent: true },
+        { changeFees: 0, install: 400 }, 'Red, Green');
+
+      check('S117', 'once the bill has been sent the $30 goes to NEXT season',
+        (r2.cust || {}).carryoverCharge === 30 && (r2.inv || {}).changeFees !== 30,
+        'nothing re-opens a sent invoice — invoiceEmailSent is only cleared by Start ' +
+        'New Season, so a fee added there would never be posted to anybody');
+      check('S117', 'and it is parked on the CUSTOMER, which Start New Season does not wipe',
+        Array.isArray((r2.cust || {}).carryoverChargeNotes) &&
+        r2.cust.carryoverChargeNotes.length === 1,
+        'Start New Season zeroes changeFees and changeFeeNotes on every invoice, so a ' +
+        'charge parked there is deleted rather than carried');
+      check('S117', 'and the portal says next season, not "added to your balance"',
+        r2.info && r2.info.chargedToNextSeason === true,
+        'they can open their invoice in thirty seconds and see the total has not moved');
+
+      /* ---- 3. Inside the window: free, and the window does not move ---- */
+      const lockAt = ts(NOWISH + 5 * HOUR);
+      const r3 = await runLights(
+        { name: 'New', lightsDescription: 'Warm White', invoiceEmailSent: false,
+          lightsLockedUntil: lockAt },
+        { changeFees: 0 }, 'Red, Green');
+
+      check('S117', 'a change inside the 48-hour window is free',
+        !((r3.inv || {}).changeFees) && !((r3.cust || {}).carryoverCharge),
+        'owner: "we won\'t schedule them within that 48 hours so they can change ' +
+        'there lights again if they choose"');
+      check('S117', 'and it does not push the window further out',
+        (r3.cust || {}).lightsLockedUntil.__ms === NOWISH + 5 * HOUR,
+        'a window that renews on every free save never closes, and they are never ' +
+        'scheduled at all');
+
+      /* ---- 4. First-time colours: not a change, no fee, no Color Changes row ---- */
+      const r4 = await runLights(
+        { name: 'Brand New', lightsDescription: '', invoiceEmailSent: false },
+        { changeFees: 0 }, 'Warm White');
+
+      check('S117', 'filling colours in for the first time is not charged',
+        !((r4.inv || {}).changeFees) && !((r4.cust || {}).carryoverCharge),
+        'today\'s code charged them, because it tested only that the value differed');
+      check('S117', 'and does not mark them as a colour change',
+        (r4.cust || {}).lightsChangedAt === undefined,
+        'this is what swept twelve ordinary new customers onto the Color Changes sheet');
+      check('S117', 'and does not lock them off the routes',
+        (r4.cust || {}).lightsLockedUntil === undefined,
+        'they have not changed anything — locking them delays a house for no reason');
+
+      /* ---- 5. Saving the same colours does nothing at all ---- */
+      const r5 = await runLights(
+        { name: 'Same', lightsDescription: 'Warm White', invoiceEmailSent: false },
+        { changeFees: 0 }, 'Warm White');
+      check('S117', 'saving the same colours charges nothing and locks nothing',
+        !((r5.inv || {}).changeFees) && (r5.cust || {}).lightsLockedUntil === undefined &&
+        (r5.cust || {}).lightsChangedAt === undefined,
+        'opening the Lights tab and pressing Save must not cost anybody $30');
+
+      /* ---- 6. Already on a route: exactly one System note ---- */
+      const r6 = await runLights(
+        { name: 'Routed', lightsDescription: 'Warm White', invoiceEmailSent: false,
+          scheduled: true },
+        { changeFees: 0 }, 'Red, Green');
+      check('S117', 'a customer already on a route gets exactly one System note',
+        r6.messages.length === 1 && r6.messages[0].folder === 'System' &&
+        r6.messages[0].needsReassign === true,
+        'the crew is holding a card that no longer matches the house');
+      check('S117', 'and is flagged on their own record too',
+        (r6.cust || {}).lightsChangedAfterAssign === true,
+        'the note is in the inbox; the badge is on the customer, and Routes reads it');
+      check('S117', 'while an unrouted customer gets no note at all',
+        r1.messages.length === 0,
+        'a note per colour change would make the System folder unreadable');
+
+      /* ---- 7. No invoice document at all — still locked ---- */
+      const r7 = await runLights(
+        { name: 'No Contact', lightsDescription: 'Warm White', invoiceEmailSent: false },
+        null, 'Red, Green');
+      check('S117', 'a customer with no invoice is still locked off the routes',
+        !!(r7.cust || {}).lightsLockedUntil,
+        'no phone and no email means nothing to charge — but their pattern is still ' +
+        'moving, and the lock is about the crew, not about money');
+
+      /* ---- 8. Joining opens the window — and ONLY joining ----
+         Owner: "48 hours will be from when they become a costumer and we won't
+         schedule them within that 48 hours so they can change there lights again
+         if they choose."
+
+         ⚠ THE SECOND HALF IS THE DANGEROUS ONE. Six places create a jobAddresses
+         document. If the bulk importers set this too, importing the existing book
+         of ~960 customers locks the ENTIRE season out of the scheduler for two
+         days — and it would look like the scheduler being broken, not like a
+         flag being set. Counted, so a sixth caller cannot be added quietly. */
+      const admin2 = read('admin.html');
+      /* ⚠ MATCHED ON THE VALUE, NOT ON ONE SYNTAX. The first version of this counted
+         the object-literal form only — `lightsLockedUntil: new Date(...)` — and a
+         red-check that added the very thing it guards against, as an assignment
+         (`doc2.lightsLockedUntil = new Date(...)`) in the bulk importer, sailed
+         straight through it. Anything that opens a FRESH window from the clock is
+         counted however it is spelled. The Edit Customer path is deliberately not
+         caught: it writes a window the rule already worked out, not a new one. */
+      const lockWrites = (admin2.match(/lightsLockedUntil[^\n]*Date\.now\(\)\s*\+\s*LIGHT_WINDOW_MS/g) || []).length;
+      check('S117', 'exactly one place opens the window on joining',
+        lockWrites === 1,
+        'the bulk importers, the sheet sync and the two test builders must never ' +
+        'set it — importing the book is not 960 people joining');
+      check('S117', 'and it is the Add Customer form, not an importer',
+        (function () {
+          const at = admin2.indexOf("lightsLockedUntil: new Date(Date.now() + LIGHT_WINDOW_MS)");
+          if (at === -1) return false;
+          const before = admin2.slice(0, at);
+          const form = before.lastIndexOf("document.getElementById('routeAddressForm')");
+          const bulk = Math.max(before.lastIndexOf("rbImportBtn"), before.lastIndexOf("ibImportBtn"),
+                                before.lastIndexOf("function rbApplyTickedAdds"),
+                                before.lastIndexOf("function buildTestPerson"));
+          return form > bulk;
+        })(),
+        'a test record that cannot be routed cannot be used to test routing');
+
+      /* ---- 9. A fee never lands in both places at once ---- */
+      check('S117', 'a fee is charged in exactly one place, never both',
+        ((r1.inv || {}).changeFees === 30 && (r1.cust || {}).carryoverCharge === undefined) &&
+        ((r2.cust || {}).carryoverCharge === 30 && !((r2.inv || {}).changeFees)),
+        'billing the invoice AND next season for one change is $60 for a $30 fee');
+    })());
   }
 }
 
@@ -26795,7 +27768,1304 @@ suite('125. The schedule keeps off Thanksgiving, not just off weekends');
     'a day that moved off Thanksgiving moved for a different reason than a weekend');
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Suite 126. One place a job is marked done
+ *
+ * Owner, 2026-08-21: "Schedules should mark routes as complete automatically.
+ * However that does not mean takedown is done." Asked whether ticking one stop or
+ * finishing a day should do it: ticking ONE stop marks that customer complete.
+ *
+ * ⚠ WHAT THIS PROTECTS. Ticking a house in Schedule set `done` on the plan document
+ * and nothing else — the tab's own footer said so. The nightly run bills on
+ * `completed` on the CUSTOMER, so with the crew portal out of use this season,
+ * working the season off Schedule billed nobody at all.
+ *
+ * Everything below RUNS the function and reads the write that came out. A check that
+ * the call exists survives the result being dropped on the floor.
+ * ------------------------------------------------------------------------- */
+suite('Suite 126. One place a job is marked done');
+
+{
+  const admin = read('admin.html');
+
+  const kindsSrc = admin.slice(admin.indexOf('const HLX_DONE_KINDS = {'),
+                               admin.indexOf('async function hlxMarkJobDone('));
+  const markSrc = extractFn(admin, 'hlxMarkJobDone');
+  check('S126', 'the shared done-function and its field table are findable',
+    !!kindsSrc && !!markSrc,
+    'renamed or removed — update this suite rather than deleting it');
+  check('S126', 'and it is async in the real file',
+    /async function hlxMarkJobDone\(/.test(admin),
+    'extractFn drops the async keyword, so the body alone cannot prove this');
+
+  if (kindsSrc && markSrc) {
+    /* Run it against a fake Firestore and keep what it wrote. */
+    const runMark = function (kind, done, opts) {
+      const writes = [];
+      const logs = [];
+      const fn = new (Object.getPrototypeOf(async function () {}).constructor)(
+        'updateDoc', 'doc', 'db', 'serverTimestamp', 'logActivity', 'console', 'writes', 'logs',
+        kindsSrc + 'async ' + markSrc +
+        ';return hlxMarkJobDone(' + JSON.stringify(opts && opts.target || { id: 'c1' }) +
+        ', ' + JSON.stringify(kind) + ', ' + JSON.stringify(done) + ', {});')
+        ;
+      return fn(
+        async (ref, payload) => {
+          if (opts && opts.breakWrite) throw new Error('Missing or insufficient permissions.');
+          writes.push({ col: ref.col, id: ref.id, payload: payload });
+        },
+        (db, col, id) => ({ col: col, id: id }), {},
+        () => 'NOW',
+        async (what, area, refId) => { logs.push({ what, area, refId }); },
+        { error: () => {} }, writes, logs)
+        .then(res => ({ res: res, writes: writes, logs: logs }));
+    };
+
+    pendingAsync.push((async function () {
+      const inst = await runMark('install', true);
+      const p = (inst.writes[0] || {}).payload || {};
+      check('S126', 'marking an install done writes completed and the timestamp',
+        p.completed === true && p.completedAt === 'NOW');
+      /* ⚠ THE ONE-OFF NOTE IS CLEARED. It is the "say this to them once" note the
+         route editor and the crew portal both clear on completion; carrying it over
+         repeats a one-off instruction next season. */
+      check('S126', 'and clears the one-time note',
+        p.oneTimeNote === '',
+        'a one-off instruction that survives is repeated next season');
+      /* ⭐ THE INDEPENDENCE RULE, BOTH DIRECTIONS. This is the whole reason the kinds
+         are split, and the customer-row dropdown used to break it. */
+      check('S126', 'and NEVER touches the takedown',
+        !('removalDone' in p) && !('removalDoneAt' in p),
+        'owner: "that does not mean takedown is done"');
+
+      const take = await runMark('takedown', true);
+      const tp = (take.writes[0] || {}).payload || {};
+      check('S126', 'marking a takedown done writes removalDone and the timestamp',
+        tp.removalDone === true && tp.removalDoneAt === 'NOW');
+      check('S126', 'and NEVER touches the install',
+        !('completed' in tp) && !('completedAt' in tp) && !('oneTimeNote' in tp),
+        'a house whose lights came down has not un-had them hung');
+
+      const undo = await runMark('install', false);
+      const up = (undo.writes[0] || {}).payload || {};
+      check('S126', 'unticking an install clears it and its timestamp',
+        up.completed === false && up.completedAt === null);
+      check('S126', 'and still leaves the takedown alone',
+        !('removalDone' in up),
+        'this is the exact pairing the customer-row dropdown used to break');
+
+      const undoTake = await runMark('takedown', false);
+      const utp = (undoTake.writes[0] || {}).payload || {};
+      check('S126', 'unticking a takedown clears it and leaves the install alone',
+        utp.removalDone === false && utp.removalDoneAt === null && !('completed' in utp));
+
+      const fix = await runMark('fix', true);
+      const fp = (fix.writes[0] || {}).payload || {};
+      check('S126', 'marking a fix done clears the flag, the marker and the note',
+        fp.needsFix === false && fp.fixScheduled === false && fp.fixNote === '',
+        'clearing needsFix is also what releases the nightly billing HOLD on that ' +
+        'payer\'s whole group');
+      /* ⚠ JOB 4 OWNS THE PHOTO. Destroying a Cloudinary asset with no undo behind it
+         is not something to slip into this job. */
+      check('S126', 'and deliberately leaves the fix photo for Job 4',
+        !('fixPhotoUrl' in fp),
+        'park-then-destroy has not been built or decided — do not destroy an asset ' +
+        'with no undo behind it');
+
+      /* ⚠ THE HOUSE PHOTO. It prints on the new-hang crew sheets, so losing one is
+         discovered on paper. Its own check, on every kind. */
+      check('S126', 'no kind ever touches the house photo',
+        [p, tp, up, utp, fp].every(x =>
+          !('housePhotos' in x) && !('housePhotoUrl' in x) &&
+          !('housePhotoOriginal' in x) && !('housePhotoMarkup' in x)),
+        'the house photo is what prints on the crew sheet — losing it shows up on paper');
+
+      check('S126', 'an unknown kind writes nothing at all',
+        (await runMark('nonsense', true)).writes.length === 0,
+        'a typo in a caller must not quietly write a half-record');
+
+      /* ⚠ IT NEVER THROWS. Every caller is a click handler that has other things to
+         finish; a rejected promise there loses the rest of the handler silently.
+
+         ⚠ THE REJECTION IS CAUGHT HERE ON PURPOSE. Letting it escape makes the whole
+         async suite die as "an async suite crashed", which fails the build but names
+         nothing — a red-check that removed the catch went red on a DIFFERENT check
+         and left this one looking untested. */
+      const broke = await runMark('install', true, { breakWrite: true })
+        .catch(() => ({ res: { ok: false, threw: true }, writes: [], logs: [] }));
+      check('S126', 'a refused write is reported, not thrown',
+        broke.res.ok === false && !broke.res.threw && !!broke.res.why,
+        'a throw inside a click handler loses whatever the handler was doing next');
+
+      check('S126', 'and a successful mark is written to the activity log',
+        inst.logs.length === 1 && inst.logs[0].refId === 'c1',
+        'two people in one admin panel: "who marked this done" has no other answer');
+      check('S126', 'while a refused one logs nothing',
+        broke.logs.length === 0,
+        'a log line for a write that did not happen is worse than none');
+    })());
+  }
+
+  /* ---- which customer a plan house is ---- */
+  const resolveSrc = extractFn(admin, 'hlxResolvePlanHouse');
+  check('S126', 'the plan-house resolver is findable', !!resolveSrc);
+  if (resolveSrc) {
+    const BOOK = [
+      { id: 'abc123', data: { name: 'Real Customer', customerNumber: '479' } },
+      { id: 'zzz999', data: { name: 'Reused Number', customerNumber: '479' } }
+    ];
+    const resolve = new Function('jobAddresses', 'customerForHouse',
+      resolveSrc + ';return hlxResolvePlanHouse;')(
+      BOOK,
+      /* the imported-CSV fallback: number, then phone */
+      (h) => BOOK.find(a => String(a.data.customerNumber) === String(h.cu)) || null);
+
+    check('S126', 'a synced house resolves by its document id',
+      (resolve({ id: 'cust-abc123', cu: '479' }) || {}).id === 'abc123',
+      'houseFromCustomer builds cust-<id>; that is exact and everything else is a guess');
+    /* ⚠ THE REUSED-NUMBER TRAP. Numbers go back to the pool on a recycle and are
+       handed out again, so the number must never override an id that is present. */
+    check('S126', 'and the id wins over a customer number that now belongs to somebody else',
+      (resolve({ id: 'cust-zzz999', cu: '479' }) || {}).id === 'zzz999',
+      'a stale row holding #479 must not mark a different household complete');
+    check('S126', 'an imported row with no id falls back to the number',
+      (resolve({ id: '17', cu: '479' }) || {}).id === 'abc123',
+      'CSV rows have their own ids and no link — the number is all there is');
+    /* ⚠ A DELETED CUSTOMER IS AN ANSWER, NOT A REASON TO GUESS. */
+    check('S126', 'a cust- id nobody matches resolves to nothing, it does not fall through',
+      resolve({ id: 'cust-gone', cu: '479' }) === null,
+      'falling through to the number here would mark a different customer complete');
+    check('S126', 'a row matching nothing at all reports nothing',
+      resolve({ id: '17', cu: '0000' }) === null,
+      'a tick that wrote nothing looks identical to one that worked — the caller has ' +
+      'to be able to say so');
+    /* ⭐ TAKEDOWN ROWS CARRY THE INSTALL HOUSE'S ID. seedTakedowns copies name,
+       address and number off the install house; without srcId every takedown tick
+       depended on the reused-number guess. */
+    check('S126', 'a takedown copy resolves by the house it was copied from',
+      (resolve({ id: 't3', srcId: 'cust-zzz999', cu: '479' }) || {}).id === 'zzz999',
+      'a takedown must resolve exactly the way its install does');
+    check('S126', 'and seedTakedowns actually puts that id on the copy',
+      /srcId:h\.id/.test(admin),
+      'the resolver can only use it if the copy carries it');
+  }
+
+  /* ---- the five doors all go through the one function ---- */
+  {
+    const doorFor = (needle, endNeedle) => {
+      const a = admin.indexOf(needle);
+      if (a === -1) return '';
+      const b = endNeedle ? admin.indexOf(endNeedle, a) : a + 900;
+      return admin.slice(a, b === -1 ? a + 900 : b);
+    };
+    /* ⚠ SCOPED TO EACH HANDLER. A bare search for the function name stays green when
+       one call site is deleted, because the other four still match. */
+    const doors = [
+      ['the Schedule tick', doorFor("t.type==='checkbox'&&t.dataset.id!=null", 'return;}'), 'planTickCustomer'],
+      ['Schedule All done', doorFor('if(t.dataset.allbtn)', 'return;}'), 'planTickCustomer'],
+      ['the leftover flow', extractFn(admin, 'applyLeftoverPicks'), 'planTickCustomer'],
+      ['the Routes stop', doorFor("listEl.querySelectorAll('[data-togglecomplete]')", 'renderTextOutSection'), 'hlxMarkJobDone'],
+      ['the customer row', doorFor("container.querySelectorAll('.status-apply')", 'edithousedetails'), 'HLX_DONE_KINDS']
+    ];
+    doors.forEach(([name, src, needs]) => {
+      check('S126', name + ' goes through the shared rule',
+        !!src && src.indexOf(needs) !== -1,
+        'a private copy of what "done" means is the copy that stops matching the others');
+    });
+
+    /* ⭐ THE TWO CONFIRMS, RUN RATHER THAN READ (2026-08-21). The first version of
+       these matched `confirm(` and the word "invoiced" in the source — and a
+       red-check that disabled the whole guard with `if(false && ...)` left every one
+       of those words standing, so the checks stayed green while a whole day could be
+       billed with no warning. The branches are lifted out and executed against fake
+       controls, and what is asserted is whether the dialog was ASKED and whether the
+       write happened after it was refused. */
+    /* ⚠ INCLUDES THE TERMINATOR, unlike doorFor. These two slices are EXECUTED, so
+       stopping just before the closing `return;}` leaves the `if` unclosed and the
+       whole suite dies on a SyntaxError rather than reporting anything. */
+    const branchFor = (needle, endNeedle) => {
+      const a = admin.indexOf(needle);
+      if (a === -1) return '';
+      const b = admin.indexOf(endNeedle, a);
+      return b === -1 ? '' : admin.slice(a, b + endNeedle.length);
+    };
+    const allBtn = branchFor('if(t.dataset.allbtn)', 'renderAll();return;}');
+    /* ⚠ STARTS AT `if(`, not at the condition. Slicing from the condition alone
+       begins the source mid-expression and the compile fails on the stray `)`. */
+    const oneTick = branchFor("if(t.type==='checkbox'&&t.dataset.id!=null)", 'renderAll();}return;}');
+
+    const runBranch = function (src, ctx) {
+      const asked = [];
+      const ticked = [];
+      const env = Object.assign({
+        confirm: (m) => { asked.push(m); return ctx.answer !== false; },
+        planTickCustomer: (h, done) => ticked.push({ id: h.id, done: done }),
+        planAlreadyBilled: () => !!ctx.billed,
+        /* The real one reads h.isFix / h.isTakedown; the fixture sets those, so this
+           mirrors it rather than hard-coding 'install' — otherwise the takedown case
+           below would be testing nothing. */
+        planHouseKind: (h) => (h && h.isFix) ? 'fix' : ((h && h.isTakedown) ? 'takedown' : 'install'),
+        renderAll: () => {},
+        findHouse: (id) => ctx.house ? { house: ctx.house } : null,
+        getDay: () => ctx.day
+      }, ctx.extra || {});
+      const names = Object.keys(env);
+      new Function('t', ...names, 'function __b(){ ' + src + ' } __b();')(
+        ctx.t, ...names.map(n => env[n]));
+      return { asked: asked, ticked: ticked };
+    };
+
+    if (allBtn && oneTick) {
+      const day = { id: 'd1', houses: [{ id: 1, done: false }, { id: 2, done: false }] };
+      const allYes = runBranch(allBtn, { t: { dataset: { allbtn: 'd1' } }, day: day });
+      check('S126', 'All done confirms and says they will be invoiced tonight',
+        allYes.asked.length === 1 && /invoiced/i.test(allYes.asked[0]) &&
+        /\b2\b/.test(allYes.asked[0]),
+        'one press can bill forty people — that is the intent, and it is new');
+      check('S126', 'and marks them once it is agreed to',
+        allYes.ticked.length === 2 && allYes.ticked.every(x => x.done === true));
+
+      const day2 = { id: 'd1', houses: [{ id: 1, done: false }, { id: 2, done: false }] };
+      const allNo = runBranch(allBtn, { t: { dataset: { allbtn: 'd1' } }, day: day2, answer: false });
+      check('S126', 'and cancelling it writes nothing at all',
+        allNo.ticked.length === 0 && day2.houses.every(h => h.done === false),
+        'a confirm whose answer is ignored is worse than no confirm');
+
+      /* The single tick is deliberately silent — the office is looking straight at
+         the one house, and a dialog per tick is noise. */
+      const one = runBranch(oneTick, { t: { type: 'checkbox', checked: true, dataset: { id: '1' } },
+        house: { id: 1, name: 'A', done: false } });
+      check('S126', 'the single tick stays silent and marks the customer',
+        one.asked.length === 0 && one.ticked.length === 1 && one.ticked[0].done === true,
+        'a dialog on every tick is what makes people stop reading dialogs');
+
+      /* ⚠ UNTICKING CANNOT UN-SEND. invoiceEmailSent is only cleared by Start New
+         Season, so without a warning the screen and their inbox quietly disagree. */
+      const untickBilled = runBranch(oneTick, {
+        t: { type: 'checkbox', checked: false, dataset: { id: '1' } },
+        house: { id: 1, name: 'A', done: true }, billed: true, answer: false });
+      check('S126', 'unticking a billed house warns first',
+        untickBilled.asked.length === 1 && /invoice/i.test(untickBilled.asked[0]),
+        'unticking cannot un-send an invoice that has already gone');
+      check('S126', 'and refusing that warning leaves them ticked and unwritten',
+        untickBilled.ticked.length === 0,
+        'the warning has to be able to stop the change, or it is decoration');
+      const untickPlain = runBranch(oneTick, {
+        t: { type: 'checkbox', checked: false, dataset: { id: '1' } },
+        house: { id: 1, name: 'A', done: true }, billed: false });
+      check('S126', 'while unticking an unbilled house asks nothing',
+        untickPlain.asked.length === 0 && untickPlain.ticked.length === 1,
+        'most unticks are an ordinary correction and must not be interrogated');
+
+      /* ⚠ THE INVOICE WARNING IS ABOUT THE INSTALL, AND ONLY THE INSTALL. One
+         listener and one row renderer serve all three tabs, so this branch also runs
+         for takedowns and fixes — where "you have already been invoiced for this" is
+         simply untrue: removal is not billed at all, and a fix is a visit rather
+         than a charge. Said on the two kinds where it would come up most often. */
+      const untickTakedown = runBranch(oneTick, {
+        t: { type: 'checkbox', checked: false, dataset: { id: '9' } },
+        house: { id: 9, name: 'T', done: true, isTakedown: true }, billed: true });
+      check('S126', 'unticking a TAKEDOWN never claims they were invoiced for it',
+        untickTakedown.asked.length === 0 && untickTakedown.ticked.length === 1,
+        'removal is not billed — warning about an invoice here is telling them ' +
+        'something that is not true');
+      const untickFix = runBranch(oneTick, {
+        t: { type: 'checkbox', checked: false, dataset: { id: '8' } },
+        house: { id: 8, name: 'F', done: true, isFix: true }, billed: true });
+      check('S126', 'and neither does unticking a FIX',
+        untickFix.asked.length === 0 && untickFix.ticked.length === 1,
+        'a fix is a visit, not a charge');
+    }
+
+    /* ⭐ INSTALL AND TAKEDOWN ARE INDEPENDENT ON THE CUSTOMER ROW TOO. */
+    const row = doorFor("container.querySelectorAll('.status-apply')", 'edithousedetails');
+    /* ⚠ COMMENTS STRIPPED. The old expression is quoted in two comments — one over
+       the handler and one over hlxMarkJobDone — precisely where somebody would be
+       tempted to put it back, so a plain search finds the warning and reports it as
+       the violation it is warning about. */
+    check('S126', 'the customer row no longer nests removal under completed',
+      !/removalDone: completed \? removalDone : false/.test(stripComments(admin)),
+      'unticking Install Complete used to silently clear the removal as well');
+    /* ⚠ SCOPED TO THAT ONE LABEL. A file-wide search for "disabled" matches dozens of
+       unrelated controls, and the first version of this used a regex that did not
+       match the real markup at all — so a red-check that put the greying-out back
+       sailed through it. This slices the removalDone label and asks whether anything
+       in it can disable the box. */
+    const rmLabel = (function () {
+      const a = admin.indexOf('data-field="removalDone"');
+      if (a === -1) return '';
+      const b = admin.indexOf('Removal Done</label>', a);
+      return b === -1 ? '' : admin.slice(a, b);
+    })();
+    check('S126', 'the removal checkbox markup was found', !!rmLabel);
+    check('S126', 'and the removal box is not greyed out when the install is unticked',
+      !!rmLabel && rmLabel.indexOf('disabled') === -1,
+      'greying it out was the visible half of the same wrong assumption');
+  }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Suite 127. Whether a house is done is the customer's answer (Job 3)
+ *
+ * Job 2 made ticking a house write `completed` to the customer. That left TWO
+ * copies of one fact — the plan's own `done` flag and the customer record — and
+ * they disagree the first time somebody uses the other screen: mark a house
+ * complete from Routes or the customer row, and Schedule still showed it
+ * outstanding, counted it in "left", put it back in the movable pile and printed
+ * it on a crew sheet.
+ *
+ * ⚠ THE REGRESSION IS THE POINT OF THIS SUITE. Two dozen callers read h.done —
+ * the crew split, the hand-back that makes the sheets 20/20, the near-empty-day
+ * rescue, One Man Installs, unfinishedOn, the leftover flow, the day progress
+ * bar, the CSV and every print sheet. None of them was touched; the value is
+ * refreshed before they read it. What has to be proved is that they all still
+ * behave exactly as they did.
+ * ------------------------------------------------------------------------- */
+suite('Suite 127. Whether a house is done is the customer\'s answer');
+
+{
+  const admin = read('admin.html');
+  const derivedSrc = extractFn(admin, 'derivedDoneFor');
+  const refreshSrc = extractFn(admin, 'refreshDerivedDone');
+  const kindSrc = extractFn(admin, 'planHouseKind');
+  check('S127', 'the derivation and the per-render refresh are findable',
+    !!derivedSrc && !!refreshSrc && !!kindSrc,
+    'renamed or removed — update this suite rather than deleting it');
+
+  if (derivedSrc && refreshSrc && kindSrc) {
+    /* One place builds the sandbox, so every check below runs the real code
+       against a resolver we control. `looks` counts resolutions so the
+       once-per-render claim can be asserted rather than assumed. */
+    const build = function (book) {
+      const looks = { n: 0 };
+      const env = new Function('SEASON', 'BOOK', 'looks',
+        kindSrc + derivedSrc + refreshSrc +
+        'function hlxResolvePlanHouse(h){ looks.n++; ' +
+        '  const id = String((h.srcId != null && h.srcId !== "") ? h.srcId : h.id);' +
+        '  if(id.indexOf("cust-") === 0){ const k = id.slice(5);' +
+        '    return BOOK[k] ? {id: k, data: BOOK[k]} : null; }' +
+        '  return null; }' +
+        ';return {refresh: refreshDerivedDone, derived: derivedDoneFor, looks: looks};');
+      return env;
+    };
+
+    const season = () => ([{
+      id: 'd1', houses: [
+        { id: 'cust-a', done: false },
+        { id: 'cust-b', done: true },
+        { id: 'imported-9', cu: '77', done: true },     // nobody behind it
+        { id: 'cust-t', srcId: 'cust-a', isTakedown: true, done: false },
+        { id: 'cust-f', srcId: 'cust-b', isFix: true, done: false }
+      ]
+    }]);
+
+    /* ---- 1. the customer's answer wins, in both directions ---- */
+    {
+      const S = season();
+      const BOOK = {
+        a: { completed: true,  removalDone: false, needsFix: false },
+        b: { completed: false, removalDone: false, needsFix: true }
+      };
+      const api = build(BOOK)(S, BOOK, { n: 0 });
+      api.refresh();
+      const byId = (id) => S[0].houses.find(h => h.id === id);
+      check('S127', 'a house completed on another screen reads as done in Schedule',
+        byId('cust-a').done === true,
+        'marking it complete from Routes or the customer row used to leave Schedule ' +
+        'still counting it as outstanding');
+      check('S127', 'and one un-completed there reads as NOT done',
+        byId('cust-b').done === false,
+        'the correction has to travel both ways or the plan drifts the other way');
+    }
+
+    /* ---- 2. the three kinds read three different fields ---- */
+    {
+      const S = season();
+      /* ⚠ EACH FIELD IS SET SO THAT READING THE WRONG ONE GIVES THE WRONG ANSWER.
+         A fixture where completed/removalDone/needsFix happen to agree would pass
+         against a derivation that read the same field for all three kinds. */
+      const BOOK = {
+        a: { completed: false, removalDone: true,  needsFix: false },
+        /* ⚠ needsFix:true WITH completed:true, and that pairing is the whole check.
+           The first version had needsFix:false here, so `!needsFix` and `completed`
+           both came out true — a sabotage swapping the fix rule for the install one
+           gave the identical answer and the check stayed green. The two fields must
+           DISAGREE for the fix row's customer or this proves nothing. */
+        b: { completed: true,  removalDone: false, needsFix: true }
+      };
+      const api = build(BOOK)(S, BOOK, { n: 0 });
+      api.refresh();
+      const byId = (id) => S[0].houses.find(h => h.id === id);
+      check('S127', 'an install reads completed',
+        byId('cust-a').done === false && byId('cust-b').done === true);
+      check('S127', 'a takedown reads removalDone, not completed',
+        byId('cust-t').done === true,
+        'its source customer has completed:false and removalDone:true — reading ' +
+        'completed here would say not done');
+      check('S127', 'and a fix reads needsFix, inverted',
+        byId('cust-f').done === false,
+        'its source customer has completed:true but still needsFix — a fix is done ' +
+        'when the house no longer needs one, so this must read NOT done');
+    }
+
+    /* ---- 3. a house with nobody behind it keeps the plan's own flag ---- */
+    {
+      const S = season();
+      const api = build({})(S, {}, { n: 0 });
+      api.refresh();
+      const byId = (id) => S[0].houses.find(h => h.id === id);
+      /* ⚠ THE WHOLE IMPORTED PLAN DEPENDS ON THIS. An imported CSV row never
+         matched anybody, so there is nothing to derive from. Returning false for
+         those instead of null would un-tick every one of them on the next render —
+         on an imported plan, that is most of the season's progress. */
+      check('S127', 'an unmatched imported row keeps its stored flag',
+        byId('imported-9').done === true,
+        'returning false for "nobody behind it" would blank an imported season');
+      check('S127', 'and so does every house while the customer list is still loading',
+        byId('cust-a').done === false && byId('cust-b').done === true,
+        'before jobAddresses arrives nothing resolves — the screen must be exactly ' +
+        'what it was, not blanked for the second between login and the first snapshot');
+      check('S127', 'derivedDoneFor says "no answer" rather than "not done"',
+        api.derived({ id: 'cust-nobody' }) === null,
+        'null and false are different answers and only one of them is safe');
+    }
+
+    /* ---- 4. resolved once per render, not once per read ---- */
+    {
+      const S = season();
+      const BOOK = { a: { completed: true }, b: { completed: false } };
+      const looks = { n: 0 };
+      const api = build(BOOK)(S, BOOK, looks);
+      api.looks.n = 0;
+      api.refresh();
+      /* Five houses, five resolutions. A dozen readers each asking for themselves
+         would be a lookup per house PER READER — the shape that once locked the
+         screen up on every keystroke, which is why custById exists. */
+      check('S127', 'one resolution per house per render, not one per reader',
+        api.looks.n === 5,
+        'resolved ' + api.looks.n + ' times for 5 houses — a lookup per house per ' +
+        'caller is what the customer indexes exist to prevent');
+    }
+
+    /* ---- 5. THE REGRESSION. Everything that reads h.done still behaves. ---- */
+    {
+      /* The readers are unchanged code, so what has to be proved is that the value
+         they read is the same one they would have read before. Two fixtures: one
+         where the customer agrees with the stored flag (the ordinary case — output
+         must be byte-identical), and one where nobody resolves (the imported case —
+         output must be byte-identical too). */
+      const shape = (S) => S[0].houses.map(h => h.id + ':' + (h.done ? 'done' : 'left')).join(',');
+
+      const agreeing = season();
+      const before = shape(agreeing);
+      const BOOK = {
+        a: { completed: false, removalDone: false, needsFix: true },
+        b: { completed: true,  removalDone: false, needsFix: true }
+      };
+      build(BOOK)(agreeing, BOOK, { n: 0 }).refresh();
+      check('S127', 'a plan already agreeing with the customers is left untouched',
+        shape(agreeing) === before,
+        'the ordinary case must produce exactly what it produced before: ' +
+        before + '  ->  ' + shape(agreeing));
+
+      const orphaned = season();
+      const beforeOrphan = shape(orphaned);
+      build({})(orphaned, {}, { n: 0 }).refresh();
+      check('S127', 'and an imported plan nobody resolves is left untouched too',
+        shape(orphaned) === beforeOrphan,
+        'every counter, the crew split and the printed sheets read this — an ' +
+        'imported season must look exactly as it did');
+
+      check('S127', 'the refresh reports how many it actually changed',
+        (function () {
+          const S = season();
+          const B = { a: { completed: true }, b: { completed: true } };
+          return build(B)(S, B, { n: 0 }).refresh() === 1;
+        })(),
+        'only cust-a moves (false->true); cust-b is already true, the takedown has ' +
+        'no removalDone, and the fix row is left alone because its customer carries ' +
+        'no needsFix at all');
+
+      /* ⭐ A PLAN-ONLY FIX KEEPS ITS OWN FLAG, and this is the sharpest edge in the
+         whole job. Job 3's plan says a fix derives from `!needsFix` — but that
+         assumes Job 4 has already made Schedule's fix list derive from that flag,
+         and it has not. Today a fix reaches the plan through FIXLIST, which is
+         plan-only: nothing in the Schedule module writes needsFix to a customer.
+
+         So the plain inversion would read `!undefined` as TRUE and render EVERY
+         outstanding fix as already done — out of the fix counters, out of
+         unfinishedOn, and off the printed fix sheets, silently. */
+      /* ⚠ THE TWO CASES START FROM OPPOSITE STORED FLAGS, and that is what makes
+         each one sensitive to its own sabotage. Both assert `false`, but for
+         different reasons: the first keeps a stored false (so the plain !needsFix
+         inversion, which returns true, flips it and goes red), the second overrides
+         a stored true (so returning null, which keeps it, goes red). Starting both
+         from the same flag left one of them green against the very bug it names. */
+      {
+        const S = season();                                     // fix row starts done:false
+        const B = { b: { completed: true } };                   // never flagged for a fix
+        build(B)(S, B, { n: 0 }).refresh();
+        check('S127', 'a fix whose customer was never flagged keeps the plan\'s flag',
+          S[0].houses.find(h => h.id === 'cust-f').done === false,
+          'the plain !needsFix inversion reads a missing field as DONE and hides ' +
+          'every outstanding fix on the schedule');
+      }
+      {
+        const S = season();
+        S[0].houses.find(h => h.id === 'cust-f').done = true;   // same starting point
+        const B = { b: { completed: true, needsFix: true } };
+        build(B)(S, B, { n: 0 }).refresh();
+        check('S127', 'but an explicitly flagged customer overrides it',
+          S[0].houses.find(h => h.id === 'cust-f').done === false,
+          'needsFix:true is a real answer and means there is still a fix outstanding, ' +
+          'whatever the plan had ticked');
+      }
+    }
+  }
+
+  /* ---- wired into the one render entry point, before anything reads ---- */
+  {
+    const ra = extractFn(admin, 'renderAll');
+    check('S127', 'renderAll refreshes before it counts, draws or saves',
+      !!ra && /refreshDerivedDone\(\)\s*;\s*computeDates\(\)/.test(ra),
+      'renderStats counts what is left and scheduleSave writes the plan back — ' +
+      'refreshing after either is refreshing too late');
+    /* ⚠ THE OPTIMISTIC MIRROR. The Firestore write is asynchronous and the tick is
+       now DERIVED, so without this renderAll re-derives from the stale cache and the
+       tick visibly springs back — and the office presses it again. */
+    const tick = extractFn(admin, 'planTickCustomer');
+    check('S127', 'a tick mirrors into the local customer cache before awaiting',
+      !!tick && /cust\.data\.completed = done/.test(tick) &&
+      /cust\.data\.removalDone = done/.test(tick) &&
+      /cust\.data\.needsFix = !done/.test(tick),
+      'the panel repaints from the cache, not from Firestore — without the mirror ' +
+      'the tick springs back and gets pressed twice');
+    /* ⚠ AND THE MIRROR HAS TO COVER ALL THREE KINDS, or ticking a takedown looks
+       like it did nothing. */
+    check('S127', 'and the mirror is by kind, not always completed',
+      !!tick && tick.indexOf("kind === 'takedown'") !== -1 &&
+      tick.indexOf("kind === 'fix'") !== -1,
+      'mirroring completed for a takedown tick shows the wrong row changing');
+  }
+
+  /* ⭐ THE BULK TICKS REPORT ONCE, NOT ONCE PER HOUSE. All done and the leftover
+     flow run planTickCustomer over every house on a day, and on an imported plan
+     that has not been through Recalculate everything NOTHING resolves — so a loud
+     toast per house was forty identical messages stacked for one press, which is
+     how a warning stops being read at all. The single tick stays loud: one house,
+     and the office is looking straight at it. */
+  {
+    const tick = extractFn(admin, 'planTickCustomer');
+    check('S127', 'planTickCustomer can be told to stay quiet, and reports back',
+      !!tick && /opts && opts\.quiet/.test(tick) && /return false;/.test(tick) &&
+      /return true;/.test(tick),
+      'a caller that runs it over forty houses needs to know how many missed');
+    const allBtn = admin.slice(admin.indexOf('if(t.dataset.allbtn)'),
+                               admin.indexOf('renderAll();return;}', admin.indexOf('if(t.dataset.allbtn)')));
+    check('S127', 'All done counts the unlinked stops and says it once',
+      /\{quiet:true\}/.test(allBtn) && /unlinked\+\+/.test(allBtn) &&
+      /if\(unlinked\)/.test(allBtn),
+      'forty identical toasts for one press is how a warning stops being read');
+    const leftover = extractFn(admin, 'applyLeftoverPicks');
+    check('S127', 'and so does the leftover flow',
+      !!leftover && /\{quiet:true\}/.test(leftover) && /leftoverUnlinked/.test(leftover),
+      'it runs over every house on the day, so it has the same problem');
+    /* ⚠ A FAILED WRITE IS STILL ALWAYS SAID. It is rare, and it means the money did
+       not move — only the "nobody behind this row" case is summarised. */
+    check('S127', 'but a failed write is never silenced',
+      !!tick && /could not be updated/.test(tick) &&
+      tick.indexOf('could not be updated') > tick.indexOf('opts.quiet'),
+      'a write that failed is rare and means the money did not move');
+  }
+
+  /* ---- the id index that keeps this cheap ---- */
+  check('S127', 'customers are indexed by document id',
+    /custById\.set\(a\.id, a\)/.test(admin) && /let custById = new Map\(\)/.test(admin),
+    'this runs once per house per render; a .find() over ~1,000 customers is the ' +
+    'lock-up the other customer indexes were built to stop');
+  check('S127', 'and the resolver uses it',
+    /custById\.has\(docId\)/.test(admin),
+    'an index nothing reads is just memory');
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Suite 128. The do-not-send list — automation emails only.
+ *
+ * Owner, 2026-08-21: "This is only for automation emails filters. I should be
+ * able to choose who not to send it too."
+ *
+ * Every other filter in Preview & Send says who TO write to. This is the only
+ * one that says who never gets written to, whatever the other nine say — and it
+ * STICKS, which is the whole reason it exists. Unticking somebody already skips
+ * them for one send; the failure this closes is Select All quietly picking them
+ * back up on the next one.
+ *
+ * ⚠ THE SAFETY PROPERTY IS THE FIELD NAME. It is `noAutomationEmails`, not
+ * `emailOptedOut`, because the obvious name invites the next person to wire it
+ * into the nightly invoice run — and a customer who asked to stop being
+ * marketed at would silently stop being BILLED. Nobody chases an invoice that
+ * was never sent. The checks below assert that the billing and SMS paths have
+ * never heard of the field, which is the half that protects money.
+ *
+ * ⚠ THESE CHECKS RUN THE RENDERER. A regex proving the words are in the file is
+ * a weaker claim and this repo has been burned by it repeatedly — most recently
+ * the ledger row whose message was built correctly and then overwritten by a
+ * default on the line below (CLAUDE.md §5). The list is rendered against a fake
+ * DOM and the HTML it produces is what gets asserted.
+ * ------------------------------------------------------------------------- */
+suite('Suite 128. The do-not-send list — automation emails only');
+
+{
+  const flagSrc = extractFn(admin, 'etNoAutomationEmails');
+  const renderSrc = extractFn(admin, 'etRenderRecipientList');
+  check('S128', 'the flag reader and the recipient renderer are findable',
+    !!flagSrc && !!renderSrc,
+    'renamed or removed — update this suite rather than deleting it');
+
+  if (flagSrc && renderSrc) {
+    /* One builder, so every check runs the REAL renderer. The helpers stubbed
+       here (invoice status, billing group, "is new") are not what this suite is
+       about and every filter that reads them is left on 'all'; the do-not-send
+       logic itself is the shipped code, unmodified. */
+    const render = function (book, mode) {
+      const list = { innerHTML: '', querySelectorAll: () => [] };
+      const countEl = { textContent: '' };
+      const doc = {
+        getElementById: function (id) {
+          if (id === 'etRecipientList') return list;
+          if (id === 'etRecipientCount') return countEl;
+          return null;
+        }
+      };
+      /* ⚠ LIFTED REAL, NOT STUBBED. The renderer takes the no-email people out at the
+         end and counts them, and this is the rule that decides who those are — a stub
+         would make the count untestable while reporting green (CLAUDE.md §3). */
+      const canEmailSrc = extractFn(admin, 'custCanBeEmailed') || '';
+      const env = new Function('document', 'MEMBERS', 'MODE',
+        canEmailSrc + flagSrc +
+        'let etRecipientSearchTerm = "";' +
+        'let etFilterGateCode = "all", etFilterPayment = "all", etFilterRsvp = "all";' +
+        'let etFilterPaidLast = "all", etFilterOrderedLast = "all", etFilterNew = "all";' +
+        'let etFilterGroup = "all", etFilterOutlet = "all", etFilterInstalled = "all";' +
+        'let etRsvpAudienceAutoSet = false;' +
+        'let etFilterDoNotSend = MODE;' +
+        'function etGetMembers(){ return MEMBERS; }' +
+        'function etRsvpAnswered(){ return true; }' +
+        'function getLiveInvoiceStatus(){ return "Paid in Full"; }' +
+        'function audienceBillingGroup(){ return "own"; }' +
+        'function audienceIsNew(){ return false; }' +
+        'function audiencePaidLastYear(){ return "paid"; }' +
+        'function audienceHasLastSeason(){ return true; }' +
+        'function esc(s){ return String(s == null ? "" : s); }' +
+        renderSrc +
+        ';return etRenderRecipientList;');
+      env(doc, book, mode)();
+      return { html: list.innerHTML, count: countEl.textContent };
+    };
+
+    /* Ann is excluded, Bob is not. Both are otherwise identical and both have an
+       email, so nothing except the flag can account for a difference. */
+    const book = () => ([
+      { id: 'a1', data: { name: 'Ann Excluded', email: 'ann@x.com', phone: '8015550001', noAutomationEmails: true } },
+      { id: 'b2', data: { name: 'Bob Sendable', email: 'bob@x.com', phone: '8015550002' } }
+    ]);
+
+    /* ---- 1. the normal list leaves them out, and says that it did ---- */
+    {
+      const r = render(book(), 'hide');
+      check('S128', 'somebody on the do-not-send list is not in the normal list',
+        r.html.indexOf('Ann Excluded') === -1,
+        'the whole point — they must not be selectable, because Select All ticks ' +
+        'every row that renders');
+      check('S128', 'and everybody else still is',
+        r.html.indexOf('Bob Sendable') !== -1,
+        'the filter must not take out anyone it was not asked to');
+      /* ⚠ SILENTLY SHORTER IS THE FAILURE THIS PANEL ALREADY HAS with missing
+         email addresses. Left out, but never left unsaid. */
+      check('S128', 'the count line says how many it left out',
+        /1 left out: on the do-not-send list/.test(r.count),
+        'a list quietly shorter than expected is indistinguishable from a filter bug');
+      check('S128', 'and still reports the people who DID match',
+        /^1 member matches these filters\./.test(r.count),
+        'the exclusion note must not replace the count it is annotating');
+    }
+
+    /* ---- 2. the manage view shows exactly the other half ---- */
+    {
+      const r = render(book(), 'only');
+      check('S128', 'the manage view lists the excluded person',
+        r.html.indexOf('Ann Excluded') !== -1,
+        'there has to be a way to see who is on the list');
+      check('S128', 'and nobody else',
+        r.html.indexOf('Bob Sendable') === -1,
+        'it is a list of the excluded, not a list with them highlighted');
+      /* ⚠ THE SELECT ALL SAFETY. A tickable row in the manage view is one press
+         of Select All away from mailing exactly the people it records as never
+         to be mailed. */
+      check('S128', 'the manage view renders NO send checkbox',
+        r.html.indexOf('et-recipient-cb') === -1,
+        'a tickable row here is one Select All away from mailing the people on ' +
+        'the do-not-send list');
+      check('S128', 'and offers to put them back',
+        /data-dnsval="0"/.test(r.html),
+        'a list you cannot get off is a trap, not a feature');
+      check('S128', 'the manage count explains itself and disclaims the invoice',
+        /on the do-not-send list/.test(r.count) && /does not affect their invoice/.test(r.count),
+        'the office has to be able to tell this apart from stopping somebody being billed');
+    }
+
+    /* ---- 2b. the people with no address to send to are COUNTED, not just gone ---- */
+    /* Owner asked for this to be said at the moment of sending rather than only being
+       findable in Customers. Excluding them is right; doing it silently meant an RSVP
+       could miss forty people and read exactly like one that reached everybody. */
+    {
+      const book2 = () => ([
+        { id: 'b2', data: { name: 'Bob Sendable',  email: 'bob@x.com',      phone: '2' } },
+        { id: 'c3', data: { name: 'Cara Noemail',                           phone: '3' } },
+        /* ⚠ NOTHING IN THE APP SENDS TO email2 — it exists so a customer can sign in
+           with it — so this person cannot be written to either, and the shared rule
+           has to say so here exactly as it does in the Customers filter. */
+        { id: 'd4', data: { name: 'Dan Secondary', email2: 'dan@x.com',     phone: '4' } }
+      ]);
+      const r = render(book2(), 'hide');
+      check('S128', 'somebody with no email is not offered as a recipient',
+        r.html.indexOf('Cara Noemail') === -1 && r.html.indexOf('Bob Sendable') !== -1,
+        'there is nothing to send to — excluding them is right, it is the silence ' +
+        'that was the bug');
+      check('S128', 'and so is somebody holding only a SECONDARY address',
+        r.html.indexOf('Dan Secondary') === -1,
+        'no sender in the app reads email2, so this person cannot be written to ' +
+        'either — the send panel and the Customers filter share one rule');
+      check('S128', 'the count line says how many were left out for that',
+        /2 left out: no email address on file/.test(r.count),
+        'the whole point: "312 members match" read the same whether it dropped ' +
+        'nobody or forty');
+      check('S128', 'and says where to go and fix it',
+        /Customers . Filters . Email/.test(r.count),
+        'a bare number says something is wrong and not what to do about it');
+      check('S128', 'the people who DID match are still counted correctly',
+        /^1 member matches these filters\./.test(r.count),
+        'the exclusion note annotates the count, it does not replace it');
+    }
+
+    /* ⚠ THE TRAP THIS GUARD EXISTS FOR. Somebody with no email who is ALSO on the
+       do-not-send list must still appear in the manage view, or they are stuck on
+       that list for ever with no screen able to release them. */
+    {
+      const r = render([
+        { id: 'e5', data: { name: 'Eve Stuck', phone: '5', noAutomationEmails: true } }
+      ], 'only');
+      check('S128', 'a no-email person on the list can still be taken off it',
+        r.html.indexOf('Eve Stuck') !== -1 && /data-dnsval="0"/.test(r.html),
+        'the manage view is not a send list; filtering it by sendability would hide ' +
+        'them from the one screen that could release them');
+    }
+
+    /* ⚠ AN EMPTY LIST WITH A REASON. "No members match these filters" is actively
+       untrue when they DID match and simply cannot be written to. */
+    {
+      const r = render([{ id: 'f6', data: { name: 'Fay Only', phone: '6' } }], 'hide');
+      check('S128', 'an empty list explains itself when everyone lacked an address',
+        /no email address on file/.test(r.html) && r.html.indexOf('No members match') === -1,
+        'they did match — saying they did not sends the office looking at the filters');
+    }
+
+    /* ---- 3. the control that adds somebody, and where it sits ---- */
+    {
+      const r = render(book(), 'hide');
+      check('S128', 'a normal row offers a way onto the list',
+        /data-dnsval="1"/.test(r.html),
+        'the owner asked to be able to choose who not to send to; this is that control');
+      /* ⚠ A BUTTON INSIDE A <label> TOGGLES THAT LABEL'S CHECKBOX. Nested, the
+         "Don't send" button would tick the very person it is removing on its way
+         out — which renders perfectly and is wrong. */
+      const label = r.html.slice(r.html.indexOf('<label'), r.html.indexOf('</label>'));
+      check('S128', 'and that control sits OUTSIDE the row label',
+        label.indexOf('data-dns') === -1,
+        'a button inside a label toggles that label checkbox, so excluding ' +
+        'somebody would tick them at the same time');
+    }
+  }
+
+  /* ---- 4. both LIVE senders honour it ---- */
+  /* ⚠ TWO DOORS, ONE LIST. Preview & Send and the older Send Template modal are
+     separate senders over the same customers, so a guard in only one means the
+     list works or not depending which button was pressed — and nobody would find
+     out which. */
+  {
+    const previewSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendToSelectedBtn')"));
+    const templateSend = sectionFrom(admin, admin.indexOf("document.getElementById('etSendConfirmBtn')"));
+    check('S128', 'Preview & Send refuses to mail somebody on the list',
+      /etNoAutomationEmails\(member\.data\)/.test(previewSend),
+      'the checkboxes are read out of the DOM at send time, so a row ticked just ' +
+      'before somebody was added to the list is still a ticked id');
+    check('S128', 'and counts them apart from real failures',
+      /optedOut\+\+/.test(previewSend) && /do-not-send list/.test(previewSend),
+      'a deliberate exclusion is not a failure, and reading it as one hides both');
+    check('S128', 'the Send Template modal refuses too',
+      /etNoAutomationEmails\(customer\.data\)/.test(templateSend),
+      'a guard on one of two doors is a list that works by accident');
+    check('S128', 'and its member list leaves them out to begin with',
+      /etNoAutomationEmails\(addr\.data\)/.test(sectionFrom(admin, admin.indexOf('function openEmailSendModal'))),
+      'being told after pressing send that they were skipped reads as a broken button');
+  }
+
+  /* ---- 5. THE MONEY GUARD: billing has never heard of the field ---- */
+  /* ⚠ THIS IS THE CHECK THAT PROTECTS THE BUSINESS, not the customer. If this
+     ever fails, somebody has wired a marketing preference into billing and a
+     customer has stopped being invoiced without anyone deciding that. */
+  {
+    const fns = read('functions/index.js');
+    check('S128', 'the server has never heard of noAutomationEmails',
+      fns.indexOf('noAutomationEmails') === -1,
+      'nightly invoicing, the quote nudge and the SMS path all live here — a ' +
+      'refusal to be marketed at is not a refusal to be told what you owe');
+    /* The invoice the customer is actually shown and emailed. Anchored on a
+       function that really exists, so this cannot pass by slicing nothing. */
+    const invDoc = sectionFrom(admin, admin.indexOf('function buildInvoiceDocHtml'));
+    check('S128', 'the invoice document builder is findable',
+      invDoc.length > 200,
+      'renamed — repoint this check rather than dropping it, it is the money guard');
+    check('S128', 'and no invoice path in admin consults it either',
+      invDoc.indexOf('noAutomationEmails') === -1,
+      'same reason — this list must never be able to stop a bill going out');
+  }
+
+  /* ---- 6. it opens honoured, every time ---- */
+  {
+    const openSrc = extractFn(admin, 'openSendModal');
+    check('S128', 'opening the modal resets the list filter to "hide", not "all"',
+      /etFilterDoNotSend = 'hide'/.test(openSrc || ''),
+      '"I forgot to re-apply it" must never be a way somebody on the list gets mailed');
+    check('S128', 'and it is kept out of the reset-everything-to-all loop',
+      !/'etFilterDoNotSend'[^\]]*\]\.forEach/.test(openSrc || '') &&
+      (openSrc || '').indexOf("'etFilterInstalled'].forEach") !== -1,
+      'that loop sets every id it names to "all"; there is no "all" here on purpose');
+  }
+
+  /* ---- 7. the control survives a re-render ---- */
+  /* ⚠ THE ROW IS REBUILT BY innerHTML ON EVERY KEYSTROKE. A listener bound to the
+     button is thrown away with the row it was attached to, leaving a button that
+     renders perfectly and does nothing — which has shipped in this file before
+     (the recycle "bin says" box, 2026-08-21). */
+  {
+    const delegated = sectionFrom(admin, admin.indexOf("document.getElementById('etRecipientList')?.addEventListener"));
+    check('S128', 'the add/remove control is delegated to the list container',
+      delegated.indexOf('[data-dns]') !== -1,
+      'a per-button listener dies with the row on the next keystroke');
+    check('S128', 'it writes the field the renderer reads',
+      /updateDoc\(doc\(db,'jobAddresses',id\), \{noAutomationEmails: turnOn\}\)/.test(delegated),
+      'something must write what something else reads — CLAUDE.md §1');
+    /* ⚠ THE PANEL REPAINTS FROM THE CACHE, NOT FROM FIRESTORE. Without the mirror
+       the row springs back and the office presses it again, putting two writes in
+       flight for one decision. */
+    /* ⚠ THE PRESENCE TEST IS LOAD-BEARING, and this check was caught being vacuous
+       by its own red-check: with the mirror line DELETED, indexOf returns -1, and
+       -1 is less than the position of the await, so an ordering-only comparison
+       reported PASS against code that had no mirror at all. */
+    const mirrorAt = delegated.indexOf('member.data.noAutomationEmails = turnOn');
+    const awaitAt = delegated.indexOf('await updateDoc');
+    check('S128', 'and mirrors into the local cache before awaiting the write',
+      mirrorAt !== -1 && awaitAt !== -1 && mirrorAt < awaitAt,
+      'this panel repaints from jobAddresses, so an unmirrored tick springs back');
+    check('S128', 'a failed write puts it back',
+      /member\.data\.noAutomationEmails = before/.test(delegated),
+      'a failed write that leaves the change on screen is how somebody gets mailed ' +
+      'after being told they never would be');
+  }
+
+  /* ---- 8. the preference is VISIBLE where the office works ---- */
+  /* Owner: "we should be able to tick those in costumers and it should show on
+     invoice and costumers if there is a certain way they don't want to be
+     contacted." One array feeds all three screens, so a preference cannot show up
+     on one and be missing from another. */
+  {
+    const prefsFor = extractFn(admin, 'contactPrefsFor');
+    const note = extractFn(admin, 'contactPrefsNote');
+    const chips = extractFn(admin, 'contactPrefChips');
+    check('S128', 'the contact-preference helpers exist',
+      !!prefsFor && !!note && !!chips,
+      'renamed — the invoice, the customer row and Edit Customer all read these');
+
+    if (prefsFor && note && chips) {
+      const constSrc = (admin.match(/const CONTACT_PREFS = \[[\s\S]*?\n\];/) || [''])[0];
+      const run = new Function('esc',
+        constSrc + prefsFor + note + chips +
+        ';return {note: contactPrefsNote, chips: contactPrefChips};')(s => String(s == null ? '' : s));
+
+      check('S128', 'somebody who has asked for nothing gets no line at all',
+        run.note({}) === '' && run.chips({}) === '',
+        '"Contact preferences: none" on every invoice trains the eye to skip the ' +
+        'place the real ones appear');
+      check('S128', 'the no-texts preference is named',
+        /no text messages/.test(run.note({ smsOptedOut: true })),
+        'the owner asked for ANY way they do not want to be contacted, not just email');
+      check('S128', 'the no-marketing-email preference is named',
+        /no marketing emails/.test(run.note({ noAutomationEmails: true })),
+        'this is the flag the do-not-send list sets');
+      check('S128', 'and both together read as one sentence',
+        (run.note({ smsOptedOut: true, noAutomationEmails: true }).match(/no /g) || []).length === 2,
+        'somebody can refuse both, and the invoice has to say so once');
+      /* ⚠ THE WORDING IS THE SAFETY FEATURE HERE. The dangerous misreading of a
+         no-contact note on a BILL is that it stopped the bill. */
+      check('S128', 'the tickbox says what it does not stop',
+        /still get their invoice and account notices/.test(admin),
+        'the one dangerous misreading of this box is that it stops their bill too');
+    }
+
+    /* ⚠ THE INVOICE IS HANDED A STRING, NEVER THE FLAGS. This is what makes the
+       printed line structurally incapable of becoming a reason not to bill
+       somebody — the builder cannot branch on what it never receives. */
+    const invDoc2 = sectionFrom(admin, admin.indexOf('function buildInvoiceDocHtml'));
+    check('S128', 'the invoice prints the preference',
+      invDoc2.indexOf('contactPrefsNote(d)') !== -1,
+      'the owner asked for it to show on the invoice');
+    check('S128', 'and is never handed the raw flags to branch on',
+      invDoc2.indexOf('smsOptedOut') === -1 && invDoc2.indexOf('noAutomationEmails') === -1,
+      'a builder that can see the flag is a builder that can be made to gate a bill');
+
+    check('S128', 'the customer row shows it too',
+      sectionFrom(admin, admin.indexOf('function renderAllCustomersTable')).indexOf('contactPrefChips(r.d)') !== -1,
+      'a preference nobody can see from the customer list gets broken by whoever ' +
+      'is looking at the screen that does not say');
+
+    /* The tick the owner asked for, and the write behind it. */
+    check('S128', 'Edit Customer offers the tickbox',
+      admin.indexOf('id="editCustNoAutoEmails"') !== -1,
+      'owner: "we should be able to tick those in costumers"');
+    check('S128', 'it is filled in from the record when the form opens',
+      /editCustNoAutoEmails'\)\.checked = d\.noAutomationEmails === true/.test(admin),
+      'a box that never shows the saved value reads as the setting not sticking');
+    check('S128', 'and saving writes the same field the send panel reads',
+      /noAutomationEmails: newNoAutoEmails/.test(admin),
+      'two doors onto one fact — a second field here is the one that drifts');
+  }
+
+  /* ---- 9. finding who has no email, from Customers ---- */
+  /* Owner: "just make a filter in costumer were i can see who has no email."
+     An invoice only ever goes by email and Automation Emails drops these people
+     before any other filter runs, so somebody with no address silently misses their
+     bill AND every RSVP — and no screen in Customers could name them. */
+  {
+    const canSrc = extractFn(admin, 'custCanBeEmailed');
+    const chipSrc = extractFn(admin, 'custEmailChip');
+    check('S128', 'the can-we-email-them rule and its chip are findable',
+      !!canSrc && !!chipSrc,
+      'renamed — the Customers filter and the row badge both read these');
+
+    if (canSrc && chipSrc) {
+      const api = new Function('esc', canSrc + chipSrc +
+        ';return {can: custCanBeEmailed, chip: custEmailChip};')(s => String(s == null ? '' : s));
+
+      check('S128', 'a customer with an email can be emailed',
+        api.can({ email: 'a@b.com' }) === true);
+      check('S128', 'a blank one cannot',
+        api.can({}) === false && api.can({ email: '   ' }) === false,
+        'whitespace is not an address; the send would fail on it');
+      /* ⚠ THE WHOLE POINT OF THE RULE. Nothing in the app sends to email2 — it
+         exists so a customer can SIGN IN with it — so a record holding only a
+         secondary address cannot be emailed by anything at all. Counting it as
+         reachable puts exactly the people this filter was asked for back into the
+         reachable pile, still silently missing their bill. */
+      check('S128', 'a SECONDARY-only address still counts as unreachable',
+        api.can({ email2: 'only@secondary.com' }) === false,
+        'no sender in the app reads email2 — the nightly invoice run, both ' +
+        'automation-email senders and the quote nudge all read `email`');
+      check('S128', 'and that case is badged differently, not just as "No email"',
+        /Secondary email only/.test(api.chip({ email2: 'only@secondary.com' })) &&
+        /No email/.test(api.chip({})),
+        '"no email" beside a record with a visible address reads as a bug rather ' +
+        'than as a field that needs moving up');
+      check('S128', 'somebody reachable gets no chip at all',
+        api.chip({ email: 'a@b.com' }) === '',
+        'a badge on every row is a badge nobody reads');
+    }
+
+    const render = sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()'));
+    check('S128', 'the Customers table reads the Email filter',
+      /allCustFilterEmail/.test(render) && /custCanBeEmailed\(r\.d\)/.test(render),
+      'the control has to be read where the rows are filtered, not just exist');
+    check('S128', 'and shows the chip on the row',
+      /custEmailChip\(r\.d\)/.test(render),
+      'the filter finds them; the chip is how you spot one without filtering');
+
+    /* ⚠ A SELECT WITH NO LISTENER RENDERS PERFECTLY AND DOES NOTHING. This is not
+       hypothetical: allCustFilterLights shipped that way and was found here, on
+       2026-08-21, while the Email one was being added — picking "On soft" redrew
+       nothing unless you happened to touch another filter afterwards. Every select
+       in that panel is asserted wired, so the next one cannot repeat it. */
+    const wiring = (admin.match(/\['allCustFilterCity'[\s\S]*?\]\.forEach/) || [''])[0];
+    ['allCustFilterEmail', 'allCustFilterLights', 'allCustFilterPin', 'allCustFilterMap',
+     'allCustFilterCity', 'allCustFilterDifficulty', 'allCustFilterInvStatus', 'allCustFilterRoute']
+      .forEach(function (id) {
+        check('S128', 'the ' + id.replace('allCustFilter', '') + ' filter actually redraws when changed',
+          wiring.indexOf("'" + id + "'") !== -1,
+          'it is in the markup and read by the renderer, but nothing listens to it');
+      });
+
+    const clear = sectionFrom(admin, admin.indexOf("document.getElementById('allCustFilterClear')"));
+    ['allCustFilterEmail', 'allCustFilterLights', 'allCustFilterPin'].forEach(function (id) {
+      check('S128', 'Clear Filters resets ' + id.replace('allCustFilter', ''),
+        clear.indexOf(id) !== -1,
+        'a filter left applied by Clear Filters leaves the list mysteriously short');
+    });
+  }
+
+  /* ---- 10. the four dead senders are still dead ---- */
+  /* ⚠ NOT DECORATION. sendRsvpEmailBtn, sendBulkUpdateEmailBtn and the two pib*
+     buttons all send email to customers and NONE of them has any markup — every
+     id is in KNOWN_MISSING_IDS, so the handlers return at their first line. That
+     is the only reason they need no guard. If one is ever built, this check fails
+     and whoever builds it has to decide about the do-not-send list first.
+     Same pattern as Suite 72 and for the same reason. */
+  {
+    ['sendRsvpEmailBtn', 'sendBulkUpdateEmailBtn', 'pibSendUnpaidBtn', 'pibSendPaidBtn'].forEach(function (id) {
+      check('S128', 'the dead sender ' + id + ' still has no markup',
+        admin.indexOf('id="' + id + '"') === -1,
+        'it sends email to customers. Building it means deciding whether the ' +
+        'do-not-send list applies — see this suite, section 4');
+    });
+  }
+}
 // A check that scores after this summary is a check that cannot fail the build.
+
+suite('126. Measure Roof — sky view and Street View are one set of points');
+{
+  /* ⚠ THIS SUITE RUNS THE MATHS, it does not read it. Every earlier version of
+     a check on this feature matched source text and passed while the two views
+     were on scales 0.25% apart — see the earth-model note in rmFeetBetween.
+     CLAUDE.md §5: a message that is in the source is not a message on screen,
+     and a number that is in the source is not a number that was computed. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFeetBetween',
+                 'rmFovDeg', 'rmBasis', 'rmRay', 'rmGroundHit', 'rmWallHit',
+                 'rmSvProject', 'rmMercator', 'rmPointOnStatic'];
+  const missing = NAMES.filter(n => !pick(n));
+  if (missing.length) {
+    check('S126', 'the Measure Roof maths is findable', false,
+      'missing: ' + missing.join(', ') + ' — renamed or removed; update this test rather than deleting it');
+  } else {
+    /* rmOrigin is module state the lifted functions close over, so it is
+       declared in the sandbox rather than stubbed — a stub would make the
+       frame untestable while reporting green. */
+    const prelude = 'let rmOrigin = {lat: 40.2969, lng: -111.6946};' + LF_ +
+      'const RM_M_TO_FT = 3.280839895;' + LF_ +
+      'const RM_CAM_HEIGHT_M = 2.5;' + LF_ +
+      'const rmRad = d => d * Math.PI / 180;' + LF_;
+    const api = new Function(prelude + NAMES.map(pick).join(LF_) + LF_ +
+      'return {rmToLocal, rmToWorld, rmFeetBetween, rmRay, rmGroundHit, rmWallHit,' +
+      ' rmSvProject, rmFovDeg, rmMetresPerDeg, rmPointOnStatic};')();
+
+    const near = (a, b, tol) => Math.abs(a - b) <= tol;
+    const M_TO_FT = 3.280839895;
+
+    /* ---- one earth model ------------------------------------------------
+       ⚠ THE REGRESSION THIS EXISTS FOR. The frame places points with the
+       ELLIPSOID (85,023 m per degree of longitude at this latitude) and
+       rmFeetBetween once measured them with a haversine on a SPHERE (84,832).
+       Ten metres came back as 32.73 ft instead of 32.81 — 0.25%, three inches
+       per hundred feet, and only ever in the direction that made a wall
+       measured from the street disagree with the same wall traced from above.
+       Nothing on screen would have said a word. */
+    const origin = api.rmToWorld({e: 0, n: 0, u: 0});
+    const tenEast = api.rmToWorld({e: 10, n: 0, u: 0});
+    check('S126', 'ten metres east measures ten metres, not 0.25% short',
+      near(api.rmFeetBetween(origin, tenEast), 10 * M_TO_FT, 0.01),
+      'got ' + api.rmFeetBetween(origin, tenEast).toFixed(4) + ' ft, expected ' + (10 * M_TO_FT).toFixed(4) +
+      ' — the frame and the ruler are on different earths again');
+    const tenNorth = api.rmToWorld({e: 0, n: 10, u: 0});
+    check('S126', 'and ten metres north measures the same as ten east',
+      near(api.rmFeetBetween(origin, tenNorth), api.rmFeetBetween(origin, tenEast), 0.001),
+      'a frame that is not square makes a diagonal wall measure differently from a straight one');
+
+    /* ---- height is part of the distance -------------------------------- */
+    const tenUpAndOut = api.rmToWorld({e: 10, n: 0, u: 6});
+    check('S126', 'a run that rises is measured as the hypotenuse, not the flat run',
+      near(api.rmFeetBetween(origin, tenUpAndOut), Math.hypot(10, 6) * M_TO_FT, 0.01),
+      'a sloping peak measured as its flat run is short by exactly the thing Street View was added to see');
+    check('S126', 'a pure rise is not zero',
+      near(api.rmFeetBetween(origin, api.rmToWorld({e: 0, n: 0, u: 6})), 6 * M_TO_FT, 0.01),
+      'two points one above the other must not measure as the same place');
+
+    /* ---- the frame round-trips ------------------------------------------ */
+    const rt = api.rmToWorld(api.rmToLocal(40.29712, -111.69488, 5.4));
+    check('S126', 'world to local and back is the same place',
+      near(rt.lat, 40.29712, 1e-11) && near(rt.lng, -111.69488, 1e-11) && near(rt.h, 5.4, 1e-11),
+      'a point drifts every time it crosses between the views');
+
+    /* ---- Street View: pixel to ray -------------------------------------- */
+    const W = 1000, H = 600, POV = {heading: 0, pitch: 0, zoom: 1};
+    check('S126', 'zoom 1 is 90 degrees across', near(api.rmFovDeg(1), 90, 1e-9));
+    const centre = api.rmRay(W / 2, H / 2, W, H, POV);
+    check('S126', 'a click dead centre points exactly where the camera faces',
+      near(centre.n, 1, 1e-9) && near(centre.e, 0, 1e-9) && near(centre.u, 0, 1e-9));
+    const right45 = api.rmRay(W / 2 + 500, H / 2, W, H, POV);
+    check('S126', '500 px right at 90 degrees across is exactly 45 degrees round',
+      near(Math.atan2(right45.e, right45.n) * 180 / Math.PI, 45, 1e-6),
+      'the lens model is wrong, so every street measurement is wrong with it');
+
+    /* ---- the ground, which is what pins the wall ------------------------ */
+    const cam = {e: 0, n: -12, u: 2.5};   /* camera across the street, on the road */
+    const down45 = api.rmRay(W / 2, H / 2 + 500, W, H, POV);
+    const hit = api.rmGroundHit(down45, cam);
+    check('S126', '45 degrees down lands one camera-height out',
+      hit && near(hit.n - cam.n, 2.5, 1e-6) && near(hit.u, 0, 1e-9),
+      'the ground plane is the only thing giving a photograph any depth at all');
+    check('S126', 'a ray at the horizon is refused rather than landing at infinity',
+      api.rmGroundHit(centre, cam) === null,
+      'a horizon click must not silently produce a point miles away');
+    check('S126', 'and a ray above the horizon is refused too',
+      api.rmGroundHit(api.rmRay(W / 2, H / 2 - 300, W, H, POV), cam) === null);
+    /* ⚠ THE CASE THE HORIZON GUARD ACTUALLY EXISTS FOR, and the one a naive
+       sabotage misses: a ray at EXACTLY the horizon is already caught by the
+       t<=0 guard below it, so removing the horizon test looks harmless. A ray
+       a hair BELOW the horizon is not - it divides by almost nothing and lands
+       a couple of billion metres away, with a positive t, sailing through both
+       guards. That is a wall pinned on the far side of the planet. */
+    const grazing = api.rmGroundHit({e: 0, n: Math.sqrt(1 - 1e-18), u: -1e-9}, cam);
+    check('S126', 'a ray grazing just under the horizon is refused, not landed billions of metres away',
+      grazing === null,
+      grazing ? 'came back ' + Math.round(Math.hypot(grazing.e, grazing.n - cam.n) / 1000) +
+                ' km from the camera' : '');
+
+    /* ---- the wall, and the round trip that proves the views agree ------- */
+    const gL = api.rmGroundHit(api.rmRay(W / 2 - 300, H / 2 + 180, W, H, POV), cam);
+    const gR = api.rmGroundHit(api.rmRay(W / 2 + 300, H / 2 + 180, W, H, POV), cam);
+    const de = gR.e - gL.e, dn = gR.n - gL.n, len = Math.hypot(de, dn);
+    const nrm = {e: dn / len, n: -de / len};
+    const plane = {a: gL, b: gR, normal: nrm, d: nrm.e * gL.e + nrm.n * gL.n, lengthM: len};
+    const eave = api.rmWallHit(api.rmRay(W / 2, H / 2 - 220, W, H, POV), cam, plane);
+    check('S126', 'a click above the wall line lands on the wall',
+      !!eave && near(nrm.e * eave.e + nrm.n * eave.n, plane.d, 1e-9),
+      'without this a Street View click has nothing to land on and no length can exist');
+    check('S126', 'and it is above the ground, not on it',
+      eave && eave.u > 1, 'an eave that comes back at ground level is the plane maths collapsing');
+
+    /* ⚠ THIS IS THE WHOLE CLAIM OF THE FEATURE. A point marked in one view is
+       a place in the world, so projecting it back must return the pixel that
+       was clicked. If this drifts, the two views are two drawings again. */
+    const back = api.rmSvProject(api.rmToWorld(eave), W, H, POV, cam);
+    check('S126', 'a Street View point projects back to the exact pixel clicked',
+      back && near(back.x, W / 2, 1e-5) && near(back.y, H / 2 - 220, 1e-5),
+      'got ' + (back ? Math.round(back.x) + ',' + Math.round(back.y) : 'null') +
+      ' — a point marked in Street View no longer lands where it was put');
+
+    /* A point that exists only as lat/lng/height — the sky-view case — must
+       appear in Street View at the right place. This is the other direction of
+       the same claim, and it is the one a sky-view click actually exercises. */
+    const skyMarked = {lat: api.rmToWorld(eave).lat, lng: api.rmToWorld(eave).lng, h: eave.u};
+    const inStreet = api.rmSvProject(skyMarked, W, H, POV, cam);
+    check('S126', 'a point marked on the sky view shows up in Street View',
+      inStreet && near(inStreet.x, W / 2, 1e-5) && near(inStreet.y, H / 2 - 220, 1e-5),
+      'marking a corner from above does not appear on the photograph');
+
+    /* ---- turning your head must not move the house --------------------- */
+    const TURNED = {heading: 31, pitch: -7, zoom: 2};
+    const moved = api.rmSvProject(api.rmToWorld(eave), W, H, TURNED, cam);
+    check('S126', 'looking elsewhere moves the point on screen',
+      moved && Math.abs(moved.x - back.x) > 5,
+      'the overlay is painted in screen coordinates and is not following the view');
+    const eaveWorld = api.rmToWorld(eave);
+    const eave2 = api.rmToWorld(eave);
+    check('S126', 'but the measurement itself is unchanged by where you look',
+      near(api.rmFeetBetween(eaveWorld, api.rmToWorld({e: eave.e + 3, n: eave.n, u: eave.u})),
+           3 * M_TO_FT, 0.01),
+      'a length that depends on the point of view is not a length');
+
+    /* ---- a point behind the camera is dropped, not drawn wrong ---------- */
+    check('S126', 'a point behind the camera is refused rather than mirrored in front',
+      api.rmSvProject(api.rmToWorld({e: 0, n: cam.n - 5, u: 0}), W, H, POV, cam) === null,
+      'a house behind you drawn in front of you is worse than not drawn');
+
+    /* ---- the captured picture puts the lines where they were drawn ------ */
+    const centreOfShot = api.rmPointOnStatic({lat: 40.2969, lng: -111.6946},
+      {lat: 40.2969, lng: -111.6946}, 20, 640, 400, 2);
+    check('S126', 'the map centre lands dead centre of the captured picture',
+      near(centreOfShot.x, 640, 1e-6) && near(centreOfShot.y, 400, 1e-6),
+      'the traced lines will be burned into the wrong part of the image');
+  }
+
+  /* ---- the pricing multiplier ------------------------------------------
+     ⚠ The doubling is a business rule, not a measurement. It has to be a
+     named constant so the number can be found and changed, and BOTH figures
+     have to reach the screen — a total twice the size of the line just drawn,
+     with no working shown, reads as a bug in the measuring. */
+  const mult = admin.match(/const RM_FEET_MULTIPLIER = (\d+)/);
+  check('S126', 'the doubling is a named constant, not a bare 2 in the sum',
+    !!mult, 'RM_FEET_MULTIPLIER is gone — the rule is now buried where nobody will find it');
+  check('S126', 'and it is set to 2', mult && mult[1] === '2',
+    'changed deliberately? update this check in the same commit');
+  /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
+     0 and slices from the top of the file — which still contains enough words
+     to make a loose check pass. Two of these three were doing exactly that. */
+  const useFeet = sectionFrom(admin, admin.indexOf("document.getElementById('rmUseFeetBtn').addEventListener"));
+  check('S126', 'Estimated Feet is saved as the measured run times that constant',
+    /RM_FEET_MULTIPLIER/.test(useFeet) && /estimatedFeet:\s*feet/.test(useFeet),
+    'the button either stopped doubling or started doubling somewhere else');
+  check('S126', 'and it reports the measured figure alongside the doubled one',
+    /measured/.test(useFeet),
+    'a number twice the size of the traced line, with no working, reads as a fault');
+
+  /* ---- the button actually does something ------------------------------
+     Owner's standing request: "just make sure that if i click a button the
+     function that is supposed to happen actually does." */
+  check('S126', 'the quote card carries a Measure Roof button',
+    /data-measureroof="'\+item\.id\+'/.test(admin),
+    'the button is gone from the card, so nothing can open the tool');
+  const wiring = sectionFrom(admin, admin.indexOf("list.querySelectorAll('[data-measureroof]')"));
+  check('S126', 'and it is wired to a function that exists',
+    /openRoofMeasure\(btn\.dataset\.measureroof\)/.test(wiring) && !!extractFn(admin, 'openRoofMeasure'),
+    'a button with no handler, or a handler calling something that is not there');
+
+  /* ---- two keys, and the one that works wins ---------------------------
+     ⚠ THE BUG THIS EXISTS FOR. admin.html carries TWO Google keys in
+     different Cloud projects: the map's, on the Maps script tag, and
+     Firebase's own. On 2026-08-21 the static-image APIs were switched on for
+     the Firebase one and not the map one, so capture kept refusing while the
+     map rendered perfectly six inches above the error. Trying only one key
+     makes that unfixable from here. */
+  const keysFn = extractFn(admin, 'rmMapsKeys');
+  check('S126', 'both Google keys on the page are collected, not just the map one',
+    !!keysFn && /script\[src\*="maps\.googleapis/.test(keysFn) && /firebaseConfig/.test(keysFn),
+    'only one key is looked at, so a permission on the other is unreachable');
+  const fetchFn = extractFn(admin, 'rmFetchStatic');
+  check('S126', 'a refused key falls through to the next one',
+    !!fetchFn && /for\s*\(let i = 0; i < keys\.length/.test(fetchFn),
+    'the first refusal ends it, and the key that would have worked is never tried');
+  check('S126', 'but only a permission refusal is retried, not a 404',
+    !!fetchFn && /not authorized\|not enabled/.test(fetchFn) && /break/.test(fetchFn),
+    'retrying every failure on every key just makes a missing photo slower to report');
+  check('S126', 'and the key that worked is remembered for the next capture',
+    !!fetchFn && /rmGoodKey = keys\[i\]/.test(fetchFn),
+    'every capture pays for the refusal again');
+  const failMsg = extractFn(admin, 'rmStaticFailMessage');
+  check('S126', 'and the refusal message says there is more than one key',
+    !!failMsg && /more than one key/.test(failMsg) && /different Google Cloud projects/.test(failMsg),
+    'a message naming "the key" sends somebody to fix the one they can see — which is the trap that cost a round of this');
+
+  /* ---- the freeze, which is the control complaint this was built for ---- */
+  const setDrawing = extractFn(admin, 'rmSetDrawing');
+  check('S126', 'starting a line freezes the sky view',
+    !!setDrawing && /rmMap\.setOptions\(\{draggable: !skyLock/.test(setDrawing),
+    'the map can pan under a half-drawn line again');
+  check('S126', 'and freezes Street View',
+    !!setDrawing && /rmPano\.setOptions\(/.test(setDrawing) && /stLock/.test(setDrawing),
+    'the panorama can swing away mid-trace again — the exact thing that was reported');
+
+  /* ---- placed points stay editable ------------------------------------- */
+  const dot = extractFn(admin, 'rmDot');
+  check('S126', 'a placed point can be dragged afterwards',
+    !!dot && /draggable:\s*true/.test(dot),
+    'a corner put slightly wrong means starting the line again');
+  check('S126', 'and dragging it moves the world point, so both views follow',
+    !!dot && /run\.path\[idx\]\.lat/.test(dot) && /rmPaintStreet\(\)/.test(dot),
+    'dragging on the sky view would move the line there and leave Street View behind');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

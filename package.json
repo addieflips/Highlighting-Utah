@@ -1,4 +1,5 @@
 {
+  "name": "highlighting-utah",
   "scripts": {
     "verify": "node verify-syntax.js",
     "test:selectors": "node selector-contract.test.js",

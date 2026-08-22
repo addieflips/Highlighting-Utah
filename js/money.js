@@ -87,6 +87,102 @@ export function computeInvoiceStatus(install, removal, deposit, credits, changeF
   return 'Partial Payment';
 }
 
+/* ⭐ THE ONE LIGHT-CHANGE RULE (added 2026-08-21).
+ *
+ * Owner, asked whether a colour change is a new-member fee or its own line:
+ * "new member fee and change light fees are seperate but should get charged
+ * seperetly for this so if new member changes lights again after 48 hours of
+ * being a new member than they should get charged for light change and new
+ * member fee which would put them at 6[0] dollars. So new member should not be
+ * assigned on routes within 48 hours."
+ *
+ * ⚠ THIS REVERSES THE 2026-08-19 DECISION, deliberately and on her instruction.
+ * That day the separate colour-change fee was removed and portalSave was changed
+ * to set chargeNewMemberFee instead. The two fees are separate again, and they
+ * STACK: a new member who changes colours outside their window pays both, $60.
+ *
+ * ⭐ AND THE FREE WINDOW AND THE ROUTE LOCK ARE THE SAME 48 HOURS. Owner: "48
+ * hours will be from when they become a costumer and we won't schedule them
+ * within that 48 hours so they can change there lights again if they choose",
+ * and "if an old costumer or a new costumer outside the 48 hour window changes
+ * lights than they should not be scheduled for another 48 hours."
+ *
+ * So there is ONE field — lightsLockedUntil on the customer — and it answers
+ * both questions: are they still free to change, and may they be routed. They
+ * are the same fact said twice, and keeping two fields for it is how they end
+ * up disagreeing. Two events open a window: becoming a customer, and a charged
+ * colour change.
+ *
+ * ⚠ THE WINDOW LIVES ON THE CUSTOMER, NOT THE INVOICE. It used to be
+ * lastLightChangeFeeAt on the invoice document, which cannot work now: a brand
+ * new customer's window has to exist before any invoice does. It is also the
+ * more correct home — lights belong to a house, and a payer with two houses
+ * should not have one house's colour change close the other's window.
+ *
+ * ⚠ A FIRST-TIME COLOUR IS NOT A CHANGE. Both `oldLights` and `newLights` must
+ * be non-empty. Getting this wrong charges $30 to somebody filling their
+ * colours in for the first time, and sweeps every new customer onto the Color
+ * Changes sheet — which has happened once already, with twelve people.
+ *
+ * Pure on purpose: no clock, no Firestore, no document. Everything it needs is
+ * passed in, so both copies can be fed identical inputs and compared.
+ *
+ * ⚠ functions/index.js has its own copy (applyLightChangeServer). Change both,
+ * in the same push — money-parity.test.js runs them side by side and fails if
+ * they ever disagree. */
+export const LIGHT_CHANGE_FEE = 30;
+export const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+export function applyLightChange(o) {
+  const opts = o || {};
+  const now = Number(opts.nowMs) || 0;
+  const oldLights = String(opts.oldLights == null ? '' : opts.oldLights);
+  const newLights = String(opts.newLights == null ? '' : opts.newLights);
+  const lockedUntil = Number(opts.lockedUntil) || 0;
+
+  const differs = newLights !== oldLights;
+  /* Both halves non-empty: filling colours in for the first time is not a
+     change, and clearing them is not one either. */
+  const isChange = differs && !!oldLights && !!newLights;
+  /* One window, both meanings — see above. No window at all (0) reads as
+     "not inside one", which is right for an old customer who has never had one. */
+  const withinFreeWindow = lockedUntil > now;
+  const charge = isChange && !withinFreeWindow;
+
+  return {
+    isChange: isChange,
+    withinFreeWindow: withinFreeWindow,
+    feeAmount: charge ? LIGHT_CHANGE_FEE : 0,
+    /* Owner: "if invoice has already been sent out but they change there lights
+       after invoice is sent out than the 30 dollars will be charged for next
+       season but if invoice hasn't been sent out than it will be charged on
+       there current invoice."
+
+       ⚠ THIS IS WHY NOTHING HAS TO RE-OPEN A SENT BILL. invoiceEmailSent is
+       only ever cleared by Start New Season, so a fee added to an already-sent
+       invoice would sit there and never be posted to anybody. Sending it to
+       next season is the answer that reaches the customer. */
+    feeDestination: !charge ? 'none' : (opts.invoiceSent ? 'nextSeason' : 'invoice'),
+    feeReason: charge ? 'Light change' : '',
+    /* A change INSIDE the window is free and does NOT extend the window — the
+       customer is still inside the one they already had. Only a charged change
+       opens a new one. 0 means "leave lightsLockedUntil exactly as it is";
+       writing the old value back would be the same thing said less clearly. */
+    opensNewWindow: charge,
+    lightsLockedUntil: charge ? (now + LIGHT_WINDOW_MS) : 0,
+    /* What to TELL them — the end of whichever window they are now in. Never
+       written to a document; the UI says "you can keep changing until X". */
+    windowEndsAt: charge ? (now + LIGHT_WINDOW_MS) : lockedUntil,
+    /* ⚠ DELIBERATELY WIDER THAN isChange, to preserve what the server already
+       does. Colours recorded for the FIRST time on a customer a crew has
+       already been given is still a card that changed under them, and narrowing
+       this to isChange would lose that notification. It is a note, not a
+       charge, so the cost of being wide is an extra line in the Inbox. */
+    raiseReassignNote: differs && !!newLights && !!opts.scheduled,
+    setLightsChangedAt: isChange
+  };
+}
+
 /* The CSS class that colours a status pill on screen. */
 export function statusClass(status) {
   if (status === 'Paid in Full') return 'status-paid';
