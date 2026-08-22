@@ -4300,6 +4300,212 @@
           </div>
         </div>
       </div>
+            <!-- ============ MEASURE ROOF (from a quote) =======================
+           Sky view and Street View of the same house, kept in step, because
+           neither one can answer the whole question on its own.
+
+           ONE SET OF POINTS, TWO WINDOWS ONTO IT. A measured point is not a
+           mark on a picture - it is a place in the world: a latitude, a
+           longitude and a height. Each view simply draws that place from
+           where it happens to stand. Click a corner on the sky view and it
+           appears in Street View standing on the right spot; click an eave in
+           Street View and it appears on the sky view at the right place on
+           the roof. There is nothing to keep "in sync" because there are not
+           two drawings - there is one, seen twice.
+
+           WHAT EACH VIEW IS ACTUALLY FOR. Sky view knows latitude and
+           longitude exactly and height not at all: looking straight down, the
+           picture is flat at roof scale, so horizontal gutter run - the thing
+           Christmas lights are priced on - measures true. Street View is the
+           opposite: it is the only one that can tell you how high an eave is,
+           and how long a peak really is once it stops being flat.
+
+           Together they give something neither gives alone. Measure one eave
+           height in Street View and every line traced on the sky view at that
+           height stops being a flat horizontal run and becomes a true length.
+
+           HOW A PHOTOGRAPH CAN BE MEASURED AT ALL. It cannot, alone: two
+           points 100 pixels apart could be five feet or fifty apart depending
+           how far away the wall is. What rescues it is that Google publishes
+           where the camera stood, which way it faced and how wide the lens
+           was - so a pixel is a known RAY from a known point. Click the two
+           places where the wall meets the ground; those rays land on the
+           ground plane and pin the wall down in the world. After that every
+           pixel on that wall is a ray crossing a known surface.
+
+           BOTH VIEWS FREEZE WHILE YOU DRAW, and placed points stay draggable
+           afterwards. A map that slides under a half-finished line is the
+           single most annoying thing about doing this by hand. -->
+      <div class="editcust-popup-overlay" id="roofMeasureOverlay" style="display:none;">
+        <div class="editcust-popup" style="max-width:1280px;">
+          <style>
+            #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
+            #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
+            #roofMeasureOverlay .rm-typebtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
+            #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--paper);}
+            #roofMeasureOverlay .rm-panel h4{margin:0 0 2px; font-size:13.5px; font-weight:700;}
+            #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 10px; font-size:11.5px; color:var(--slate);}
+            #roofMeasureOverlay .rm-resultrow{display:flex; justify-content:space-between; align-items:center; gap:8px; padding:5px 0; font-size:13px; border-bottom:1px dotted var(--line);}
+            #roofMeasureOverlay .rm-resultrow:last-child{border-bottom:0;}
+            #roofMeasureOverlay .rm-runrow{display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; color:var(--slate);}
+            #roofMeasureOverlay .rm-runrow button{border:0; background:none; color:var(--ember); cursor:pointer; font-size:13px; line-height:1; padding:0 2px;}
+            #roofMeasureOverlay .rm-pane{position:relative; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#e9eef2;}
+            #roofMeasureOverlay .rm-panehead{position:absolute; left:0; right:0; top:0; z-index:9; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(rgba(12,18,26,.72), rgba(12,18,26,0)); color:#fff; font-size:12px; font-weight:600; pointer-events:none;}
+            #roofMeasureOverlay .rm-lock{position:absolute; inset:0; z-index:6; cursor:crosshair;}
+            #roofMeasureOverlay .rm-svlayer{position:absolute; inset:0; z-index:7; pointer-events:none;}
+            #roofMeasureOverlay .rm-frozen{position:absolute; left:10px; bottom:10px; z-index:8; background:rgba(20,28,38,.85); color:#fff; font-size:11px; font-weight:700; padding:4px 9px; border-radius:999px; pointer-events:none;}
+            #roofMeasureOverlay .rm-shot{position:relative; border:1px solid var(--line); border-radius:10px; overflow:hidden; width:132px; flex:0 0 auto; background:#000;}
+            #roofMeasureOverlay .rm-shot img{width:100%; display:block;}
+            #roofMeasureOverlay .rm-shot .rm-shotacts{position:absolute; top:4px; right:4px; display:flex; gap:4px;}
+            #roofMeasureOverlay .rm-shot .rm-shotacts button{border:0; border-radius:6px; width:22px; height:22px; cursor:pointer; font-size:12px; line-height:1; background:rgba(255,255,255,.92);}
+            #roofMeasureOverlay .rm-shot .rm-shotcap{position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,.62); color:#fff; font-size:10.5px; padding:3px 5px;}
+            #roofMeasureOverlay .rm-mini{display:flex; justify-content:space-between; font-size:12px; padding:3px 0;}
+          </style>
+          <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
+          <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">One set of points, seen from above and from the street. Mark it in either &mdash; it shows up in both.</p>
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+            <input type="text" id="rmAddress" placeholder="Enter property address&hellip;" style="flex:1 1 320px; min-width:220px; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-size:13.5px;">
+            <button type="button" class="btn btn-gold" id="rmLoadBtn">Load Property</button>
+          </div>
+
+          <div id="rmWorkStage" style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+            <div style="flex:0 0 276px; min-width:244px; display:flex; flex-direction:column; gap:12px;">
+              <div class="rm-panel">
+                <h4>Measurement Tools</h4>
+                <p class="rm-sub">Pick what you are tracing, then click along it in either view.</p>
+                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+                  <button type="button" class="rm-typebtn on" data-rmtype="perimeter"><span class="rm-dot" style="background:#E0574B;"></span>Perimeter</button>
+                  <button type="button" class="rm-typebtn" data-rmtype="ridge"><span class="rm-dot" style="background:#3B82F6;"></span>Ridge</button>
+                  <button type="button" class="rm-typebtn" data-rmtype="ground"><span class="rm-dot" style="background:#16A34A;"></span>Ground</button>
+                </div>
+                <button type="button" class="btn btn-gold btn-sm" id="rmDrawBtn" style="width:100%; justify-content:center;">Start Measuring</button>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                  <button type="button" class="btn btn-outline btn-sm" id="rmUndoBtn" style="flex:1; justify-content:center;">Undo</button>
+                  <button type="button" class="btn btn-outline btn-sm" id="rmClearBtn" style="flex:1; justify-content:center;">Clear</button>
+                </div>
+                <p id="rmDrawHint" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Load an address first.</p>
+              </div>
+
+              <!-- The height a sky-view click is assumed to be at. Sky view
+                   cannot see height, so it has to be told once - and Street
+                   View is what tells it. -->
+              <div class="rm-panel" id="rmHeightPanel" style="display:none;">
+                <h4>Working Height</h4>
+                <p class="rm-sub">What height a click on the sky view sits at.</p>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input type="number" id="rmHeightFt" value="0" min="0" max="60" step="0.5" style="width:80px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+                  <span style="font-size:12px; color:var(--slate);">ft off the ground</span>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn btn-outline btn-sm" data-rmheight="0" style="padding:4px 9px; font-size:11px;">Ground</button>
+                  <button type="button" class="btn btn-outline btn-sm" data-rmheight="9" style="padding:4px 9px; font-size:11px;">1 storey</button>
+                  <button type="button" class="btn btn-outline btn-sm" data-rmheight="18" style="padding:4px 9px; font-size:11px;">2 storey</button>
+                </div>
+                <p id="rmHeightNote" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Measure one eave in Street View and this fills itself in.</p>
+              </div>
+
+              <div class="rm-panel" id="rmImagePanel" style="display:none;">
+                <h4>Make It Easier to See</h4>
+                <p class="rm-sub">Applies to the picture you attach, too.</p>
+                <label style="font-size:11.5px; color:var(--slate); display:block;">Brightness</label>
+                <input type="range" id="rmBright" min="60" max="180" value="100" style="width:100%;">
+                <label style="font-size:11.5px; color:var(--slate); display:block; margin-top:6px;">Contrast</label>
+                <input type="range" id="rmContrast" min="60" max="220" value="100" style="width:100%;">
+                <button type="button" class="btn btn-outline btn-sm" id="rmImageReset" style="width:100%; justify-content:center; margin-top:8px;">Reset</button>
+              </div>
+
+              <div class="rm-panel">
+                <h4>Distance Results</h4>
+                <p class="rm-sub">Real ground distance, not pixels.</p>
+                <div id="rmResults"></div>
+                <div id="rmRuns" style="margin-top:8px;"></div>
+                <button type="button" class="btn btn-outline btn-sm" id="rmUseFeetBtn" style="width:100%; justify-content:center; margin-top:10px; display:none;">Use as Estimated Feet</button>
+              </div>
+
+              <div class="rm-panel" id="rmMaterialPanel" style="display:none;">
+                <h4>Quick Material Estimate</h4>
+                <p class="rm-sub">Off the measured run, at your spacing.</p>
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                  <label style="font-size:11.5px; color:var(--slate);">Spacing</label>
+                  <select id="rmSpacing" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12.5px;">
+                    <option value="8">8"</option>
+                    <option value="12" selected>12"</option>
+                    <option value="15">15"</option>
+                    <option value="18">18"</option>
+                  </select>
+                </div>
+                <div id="rmMaterials"></div>
+              </div>
+
+              <div class="rm-panel" id="rmRoofFactsPanel" style="display:none;">
+                <h4>Roof Facts</h4>
+                <p class="rm-sub">From Google's roof model of this address.</p>
+                <div id="rmRoofFacts" style="font-size:12.5px;"></div>
+              </div>
+            </div>
+
+            <div style="flex:1 1 640px; min-width:360px; display:flex; flex-direction:column; gap:10px;">
+              <div class="rm-pane">
+                <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span></div>
+                <div id="rmMap" style="width:100%; height:400px;"></div>
+                <div class="rm-lock" id="rmMapLock" style="display:none;"></div>
+                <div class="rm-frozen" id="rmMapFrozen" style="display:none;">Frozen while measuring</div>
+              </div>
+
+              <div class="rm-pane">
+                <div class="rm-panehead"><span>&#127968; Street View &mdash; heights, peaks, and the photo</span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span></div>
+                <div id="rmPano" style="width:100%; height:360px;"></div>
+                <svg id="rmSvLayer" class="rm-svlayer"></svg>
+                <div class="rm-lock" id="rmPanoLock" style="display:none;"></div>
+                <div class="rm-frozen" id="rmPanoFrozen" style="display:none;">Frozen while measuring</div>
+              </div>
+
+              <div id="rmWallBar" style="padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  <button type="button" class="btn btn-gold btn-sm" id="rmWallBtn">Set the Wall</button>
+                  <span id="rmWallStatus" style="font-size:12px; color:var(--slate);">Street View needs the wall pinned once before it can measure.</span>
+                </div>
+                <p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Click where the wall meets the ground at each end of the house. That is what gives a flat photograph its depth &mdash; without it, a picture cannot be measured at all.</p>
+              </div>
+
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <button type="button" class="btn btn-gold" id="rmCaptureSky" disabled>Capture Sky View</button>
+                <button type="button" class="btn btn-gold" id="rmCaptureStreet" disabled>Capture Street View</button>
+                <span style="font-size:11.5px; color:var(--slate);">Capture as many as you like &mdash; crop each one before it goes on.</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="rmCropStage" style="display:none;">
+            <div class="rm-panel" style="margin-bottom:10px;">
+              <h4>Crop This Capture</h4>
+              <p class="rm-sub">Drag a box over the part you want. Leave it alone to keep the whole picture.</p>
+              <div id="rmCropWrap" style="position:relative; display:inline-block; max-width:100%; border:1px solid var(--line); border-radius:10px; overflow:hidden; user-select:none; touch-action:none; cursor:crosshair; background:#000;">
+                <img id="rmCropImg" style="display:block; max-width:100%; max-height:460px; pointer-events:none;">
+                <div id="rmCropBox" style="position:absolute; display:none; border:2px solid var(--gold-dim); background:rgba(244,190,85,.18); box-shadow:0 0 0 9999px rgba(0,0,0,.42); pointer-events:none;"></div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-gold" id="rmCropUseBtn">Add to Quote List</button>
+                <button type="button" class="btn btn-outline" id="rmCropResetBtn">Reset Crop</button>
+                <button type="button" class="btn btn-outline" id="rmCropBackBtn">Back to the House</button>
+                <span id="rmCropStatus" style="font-size:12.5px; color:var(--slate);"></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="rmStagedPanel" style="display:none; margin-top:12px;">
+            <div style="font-size:12.5px; font-weight:700; margin-bottom:6px;">Ready to attach <span id="rmStagedCount" style="font-weight:400; color:var(--slate);"></span></div>
+            <div id="rmStaged" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+          </div>
+
+          <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:12px;">
+            <button type="button" class="btn btn-gold" id="rmAttachBtn" disabled>Attach to Quote</button>
+            <button type="button" class="btn btn-outline" id="rmCloseBtn">Close</button>
+            <span id="rmStatus" style="font-size:13px; color:var(--slate);"></span>
+          </div>
+        </div>
+      </div>
 <div class="toast" id="toast"></div>
 <script type="module">
 import {
@@ -9670,6 +9876,10 @@ function renderQuoteRows(filtered){
               : '')+
             '<label class="btn btn-outline btn-sm" style="cursor:pointer;">'+(photos.length ? 'Add More Photos' : 'Add Photo')+
               '<input type="file" accept="image/*" multiple class="quote-photo-input" data-photofor="'+item.id+'" style="display:none;"></label>'+
+            /* Straight to the satellite picture of this address: measure the
+               roofline on it and the picture lands in this same list, without
+               ever being downloaded to the computer on the way. */
+            '<button type="button" class="btn btn-outline btn-sm" data-measureroof="'+item.id+'" style="margin-left:6px;">Measure Roof</button>'+
             (cur
               ? '<button type="button" class="btn btn-outline btn-sm" data-markupphoto="'+item.id+'" style="margin-left:6px;">Mark Up This Photo</button>'+
                 '<label class="btn btn-outline btn-sm" style="cursor:pointer; margin-left:6px;">Replace This One'+
@@ -10059,6 +10269,9 @@ function renderQuoteRows(filtered){
       if(box) box.value = b.dataset.preset;
       saveQuotePhotoLabel(id, b.dataset.preset);
     });
+  });
+  list.querySelectorAll('[data-measureroof]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openRoofMeasure(btn.dataset.measureroof); });
   });
   list.querySelectorAll('[data-markupphoto]').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -14346,6 +14559,1025 @@ function qmFlattenToBlob(imageUrl){
     }
   });
 })();
+/* ================= MEASURE ROOF (from a quote) =====================
+ *
+ * See the block comment on #roofMeasureOverlay for what this is and why the
+ * two views are not two drawings. In short: a measured point is a place in
+ * the world - latitude, longitude, height - and each view draws that place
+ * from where it stands. Sync is not a feature here, it is a consequence.
+ *
+ * EVERYTHING IS ANCHORED TO THE HOUSE, not to the camera. The local frame has
+ * its origin at the geocoded address with the ground at u = 0, east and north
+ * in metres. The Street View camera is just another thing with a position in
+ * that frame, which is why walking the camera down the street does not
+ * invalidate a single measurement - the earlier version threw the whole trace
+ * away on a camera move, and it did not need to.
+ */
+const RM_TYPES = {
+  perimeter: {label: 'Perimeter', color: '#E0574B'},
+  ridge:     {label: 'Ridge',     color: '#3B82F6'},
+  ground:    {label: 'Ground',    color: '#16A34A'}
+};
+/* Estimated Feet is the measured run times this. Named rather than a bare 2
+   in the sum, because it is a pricing decision that can change - and when it
+   does, this is the one line to edit. */
+const RM_FEET_MULTIPLIER = 2;
+const RM_STATIC_MAX = 640;
+const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
+const RM_M_TO_FT = 3.280839895;
+
+let rmQuoteId = null;
+let rmOrigin = null;              /* {lat, lng} - the local frame's origin */
+let rmMap = null, rmPano = null, rmHomeMarker = null;
+let rmCamGroundDrop = 0;          /* house ground minus camera ground, metres */
+let rmType = 'perimeter';
+let rmDrawing = false;
+let rmWallPicking = false;
+let rmRuns = [];                  /* {type, path:[{lat,lng,h}], line, dots} */
+let rmCurrent = null;
+let rmWall = null;                /* {a:{lat,lng}, b:{lat,lng}} - ground line */
+let rmWallPts = [];
+let rmShots = [], rmCrop = null, rmCropDrag = null;
+let rmSkyReady = false, rmStreetReady = false;
+
+/* ⚠ THERE ARE TWO GOOGLE KEYS ON THIS PAGE AND THEY ARE NOT INTERCHANGEABLE.
+   The map loads from the key on the Maps script tag; Firebase carries its own
+   in firebaseConfig. They live in DIFFERENT Google Cloud projects.
+
+   On 2026-08-21 the two static-image APIs were switched on for the FIREBASE
+   key and not the map one. That is an easy mistake and a nasty one: the Cloud
+   console shows a single project holding a single key, the map's key is not in
+   it, so the console looks right while the capture keeps refusing. Worse, the
+   map went on rendering perfectly six inches above the error - so it read as a
+   bug in the capture rather than as a key one line away with the permissions
+   already on it. Measured at the time: the map key did Maps JS and Solar and
+   was refused Static; the Firebase key was refused nothing.
+
+   So rather than name a winner, try each key we have and keep whichever
+   Google accepts. Whichever one gets fixed later, this starts working on its
+   own with no edit here. */
+function rmMapsKeys(){
+  const out = [];
+  const s = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+  if(s){
+    try{ const k = new URL(s.src).searchParams.get('key'); if(k) out.push(k); } catch(err){ /* malformed tag */ }
+  }
+  if(typeof firebaseConfig === 'object' && firebaseConfig && firebaseConfig.apiKey) out.push(firebaseConfig.apiKey);
+  return out.filter(function(k, i){ return k && out.indexOf(k) === i; });
+}
+/* The key that worked last time is tried first, so the second capture does
+   not pay for the first one's refusal all over again. */
+let rmGoodKey = null;
+async function rmFetchStatic(makeUrl){
+  const all = rmMapsKeys();
+  const keys = rmGoodKey ? [rmGoodKey].concat(all.filter(function(k){ return k !== rmGoodKey; })) : all;
+  if(!keys.length) return {error: 'nokey'};
+  let last = null;
+  for(let i = 0; i < keys.length; i++){
+    let res;
+    try{ res = await fetch(makeUrl(keys[i])); }
+    catch(err){ return {error: 'network'}; }
+    if(res.ok){ rmGoodKey = keys[i]; return {blob: await res.blob()}; }
+    last = {status: res.status, why: (await res.text()) || ''};
+    /* Only a PERMISSION refusal is worth spending another key on. A 404 (no
+       imagery at this spot) or a 400 (bad request) would say exactly the same
+       thing on every key we own, and retrying would just be slower. */
+    if(!/not authorized|not enabled/i.test(last.why)) break;
+  }
+  return {error: 'refused', status: last.status, why: last.why};
+}
+/* ---- the local frame -------------------------------------------------- */
+/* Metres per degree, properly - not the flat 111320 approximation. At this
+   latitude the longitude figure is out by nearly a kilometre per degree if
+   you skip the cosine terms, which is feet of error across a house. */
+function rmMetresPerDeg(latDeg){
+  const p = latDeg * Math.PI/180;
+  return {
+    lat: 111132.92 - 559.82*Math.cos(2*p) + 1.175*Math.cos(4*p) - 0.0023*Math.cos(6*p),
+    lng: 111412.84*Math.cos(p) - 93.5*Math.cos(3*p) + 0.118*Math.cos(5*p)
+  };
+}
+function rmToLocal(lat, lng, h){
+  const m = rmMetresPerDeg(rmOrigin.lat);
+  return {e: (lng - rmOrigin.lng)*m.lng, n: (lat - rmOrigin.lat)*m.lat, u: h || 0};
+}
+function rmToWorld(p){
+  const m = rmMetresPerDeg(rmOrigin.lat);
+  return {lat: rmOrigin.lat + p.n/m.lat, lng: rmOrigin.lng + p.e/m.lng, h: p.u};
+}
+/* True length between two world points: the horizontal run and the change in
+   height, together. A peak traced on the sky view alone is only the flat run;
+   give it a height difference and it becomes the real thing. */
+function rmFeetBetween(a, b){
+  /* Measured in the house's own local frame, NOT by haversine.
+     ⚠ THE TWO ARE NOT THE SAME EARTH. rmMetresPerDeg is the ellipsoid
+     (85,023 m per degree of longitude here); a haversine on the usual mean
+     radius is a sphere (84,832 m). Using one to PLACE a point and the other
+     to MEASURE it put sky view and Street View on scales 0.25% apart - three
+     inches per hundred feet, silently, and only in the direction that made a
+     street-measured wall disagree with the same wall traced from above.
+     One model everywhere. At house scale a flat frame is the more accurate
+     of the two anyway; the curvature it ignores is microns across a roof. */
+  if(rmOrigin){
+    const p = rmToLocal(a.lat, a.lng, a.h||0);
+    const q = rmToLocal(b.lat, b.lng, b.h||0);
+    return Math.hypot(q.e-p.e, q.n-p.n, q.u-p.u) * RM_M_TO_FT;
+  }
+  /* No frame yet (nothing is loaded) - fall back rather than divide by a
+     null, so a stray call cannot throw. */
+  const R = 20902231, toRad = Math.PI/180;
+  const dLat = (b.lat-a.lat)*toRad, dLng = (b.lng-a.lng)*toRad;
+  const s = Math.sin(dLat/2)*Math.sin(dLat/2) +
+            Math.cos(a.lat*toRad)*Math.cos(b.lat*toRad)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  const flat = 2*R*Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+  const rise = ((b.h||0) - (a.h||0)) * RM_M_TO_FT;
+  return Math.hypot(flat, rise);
+}
+/* ---- web mercator, for putting world points on a flat captured map ----- */
+function rmMercator(lat, lng){
+  const siny = Math.min(Math.max(Math.sin(lat*Math.PI/180), -0.9999), 0.9999);
+  return {x: 256*(0.5+lng/360), y: 256*(0.5 - Math.log((1+siny)/(1-siny))/(4*Math.PI))};
+}
+function rmPointOnStatic(pt, center, zoom, w, h, scale){
+  const s = Math.pow(2, zoom);
+  const c = rmMercator(center.lat, center.lng), p = rmMercator(pt.lat, pt.lng);
+  return {x: ((p.x-c.x)*s + w/2)*scale, y: ((p.y-c.y)*s + h/2)*scale};
+}
+/* ---- street view: pixel <-> ray <-> world ------------------------------ */
+const rmRad = d => d*Math.PI/180;
+function rmFovDeg(zoom){ return 180 / Math.pow(2, zoom); }
+function rmBasis(headingDeg, pitchDeg){
+  const h = rmRad(headingDeg), p = rmRad(pitchDeg);
+  return {
+    forward: {e: Math.sin(h)*Math.cos(p), n: Math.cos(h)*Math.cos(p), u: Math.sin(p)},
+    right:   {e: Math.cos(h),             n: -Math.sin(h),            u: 0},
+    up:      {e: -Math.sin(h)*Math.sin(p), n: -Math.cos(h)*Math.sin(p), u: Math.cos(p)}
+  };
+}
+/* Built from the camera's basis vectors rather than by adding a yaw and a
+   pitch separately - that shortcut is only right when the camera is level. */
+function rmRay(px, py, W, H, pov){
+  const focal = (W/2)/Math.tan(rmRad(rmFovDeg(pov.zoom))/2);
+  const dx = px - W/2, dy = py - H/2, b = rmBasis(pov.heading, pov.pitch);
+  const v = {
+    e: b.right.e*dx + b.up.e*(-dy) + b.forward.e*focal,
+    n: b.right.n*dx + b.up.n*(-dy) + b.forward.n*focal,
+    u: b.right.u*dx + b.up.u*(-dy) + b.forward.u*focal
+  };
+  const len = Math.hypot(v.e, v.n, v.u);
+  return {e: v.e/len, n: v.n/len, u: v.u/len};
+}
+function rmPanoPov(){
+  if(!rmPano) return {heading:0, pitch:0, zoom:1};
+  const p = rmPano.getPov() || {};
+  let z = rmPano.getZoom();
+  if(typeof z !== 'number' || !isFinite(z)) z = 1;
+  return {heading: p.heading||0, pitch: p.pitch||0, zoom: z};
+}
+function rmPanoSize(){
+  const el = document.getElementById('rmPano');
+  return {W: el.clientWidth||1, H: el.clientHeight||1};
+}
+/* Where the camera sits in the house's frame. */
+function rmCamLocal(){
+  if(!rmPano || !rmOrigin) return null;
+  const pos = rmPano.getPosition();
+  if(!pos) return null;
+  const p = rmToLocal(pos.lat(), pos.lng(), 0);
+  /* The camera is on the road. If the house sits above or below the road that
+     difference is real feet of error in every height, so it is measured, not
+     assumed - see rmMeasureGroundDrop. */
+  p.u = RM_CAM_HEIGHT_M + rmCamGroundDrop;
+  return p;
+}
+function rmGroundHit(dir, cam){
+  if(dir.u >= -1e-6) return null;                    /* at or above the horizon */
+  const t = -cam.u / dir.u;
+  if(t <= 0) return null;
+  return {e: cam.e + dir.e*t, n: cam.n + dir.n*t, u: 0};
+}
+function rmWallPlane(){
+  if(!rmWall) return null;
+  const a = rmToLocal(rmWall.a.lat, rmWall.a.lng, 0);
+  const b = rmToLocal(rmWall.b.lat, rmWall.b.lng, 0);
+  const de = b.e-a.e, dn = b.n-a.n, len = Math.hypot(de, dn);
+  if(len < 0.5) return null;
+  const nrm = {e: dn/len, n: -de/len};
+  return {a: a, b: b, normal: nrm, d: nrm.e*a.e + nrm.n*a.n, lengthM: len};
+}
+function rmWallHit(dir, cam, plane){
+  const denom = plane.normal.e*dir.e + plane.normal.n*dir.n;
+  if(Math.abs(denom) < 1e-9) return null;            /* ray runs along the wall */
+  const t = (plane.d - (plane.normal.e*cam.e + plane.normal.n*cam.n)) / denom;
+  if(t <= 0) return null;                            /* behind the camera */
+  return {e: cam.e + dir.e*t, n: cam.n + dir.n*t, u: cam.u + dir.u*t};
+}
+/* World point -> street view screen. Null when it is behind the camera, which
+   is how lines correctly disappear as you turn away from them. */
+function rmSvProject(world, W, H, pov, cam){
+  const p = rmToLocal(world.lat, world.lng, world.h);
+  const v = {e: p.e-cam.e, n: p.n-cam.n, u: p.u-cam.u};
+  const b = rmBasis(pov.heading, pov.pitch);
+  const f = b.forward.e*v.e + b.forward.n*v.n + b.forward.u*v.u;
+  if(f <= 0.5) return null;
+  const r = b.right.e*v.e + b.right.n*v.n + b.right.u*v.u;
+  const u = b.up.e*v.e + b.up.n*v.n + b.up.u*v.u;
+  const focal = (W/2)/Math.tan(rmRad(rmFovDeg(pov.zoom))/2);
+  return {x: W/2 + focal*r/f, y: H/2 - focal*u/f};
+}
+/* ---- totals ------------------------------------------------------------ */
+function rmRunFeet(run){
+  let t = 0;
+  for(let i = 1; i < run.path.length; i++) t += rmFeetBetween(run.path[i-1], run.path[i]);
+  return t;
+}
+function rmTotals(){
+  const out = {perimeter:0, ridge:0, ground:0, all:0};
+  rmRuns.forEach(function(r){ const f = rmRunFeet(r); out[r.type] += f; out.all += f; });
+  return out;
+}
+function rmFmtFeet(f){
+  if(!f) return '0 ft';
+  return (f >= 100 ? Math.round(f) : Math.round(f*10)/10) + ' ft';
+}
+function rmWorkingHeightM(){
+  const v = parseFloat(document.getElementById('rmHeightFt').value);
+  return (isFinite(v) ? v : 0) / RM_M_TO_FT;
+}
+/* ---- filters ----------------------------------------------------------- */
+function rmFilterCss(){
+  const b = document.getElementById('rmBright').value;
+  const c = document.getElementById('rmContrast').value;
+  return 'brightness(' + (b/100) + ') contrast(' + (c/100) + ')';
+}
+function rmApplyFilter(){
+  const css = rmFilterCss();
+  const m = document.getElementById('rmMap'), p = document.getElementById('rmPano');
+  if(m) m.style.filter = css;
+  if(p) p.style.filter = css;
+}
+/* ---- drawing ----------------------------------------------------------- */
+function rmSetType(type){
+  if(!RM_TYPES[type]) return;
+  rmType = type;
+  document.querySelectorAll('#roofMeasureOverlay .rm-typebtn').forEach(function(b){
+    b.classList.toggle('on', b.dataset.rmtype === type);
+  });
+}
+function rmDot(run, idx){
+  const w = run.path[idx];
+  const mk = new google.maps.Marker({
+    position: {lat: w.lat, lng: w.lng}, map: rmMap, draggable: true, zIndex: 6, crossOnDrag: false,
+    icon: {path: google.maps.SymbolPath.CIRCLE, scale: 5.5, fillColor: '#fff',
+           fillOpacity: 1, strokeColor: RM_TYPES[run.type].color, strokeWeight: 2.5}
+  });
+  /* Dragging edits the world point, so the street view line moves with it -
+     one model, two windows. */
+  const move = function(e){
+    run.path[idx].lat = e.latLng.lat();
+    run.path[idx].lng = e.latLng.lng();
+    if(run.line) run.line.setPath(run.path.map(function(p){ return {lat:p.lat, lng:p.lng}; }));
+    rmRenderResults(); rmPaintStreet();
+  };
+  mk.addListener('drag', move);
+  mk.addListener('dragend', move);
+  return mk;
+}
+function rmSyncSky(run){
+  if(!rmMap) return;
+  const latlngs = run.path.map(function(p){ return {lat:p.lat, lng:p.lng}; });
+  if(!run.line){
+    run.line = new google.maps.Polyline({map: rmMap, clickable:false, zIndex:4,
+      strokeColor: RM_TYPES[run.type].color, strokeWeight:4, strokeOpacity:.95, path: latlngs});
+  } else run.line.setPath(latlngs);
+  (run.dots||[]).forEach(function(d){ d.setMap(null); });
+  run.dots = run.path.map(function(_, i){ return rmDot(run, i); });
+}
+function rmClearDrawing(){
+  rmRuns.forEach(function(r){
+    if(r.line) r.line.setMap(null);
+    (r.dots||[]).forEach(function(d){ d.setMap(null); });
+  });
+  rmRuns = [];
+  rmDropCurrent();
+  rmPaintStreet();
+}
+function rmDropCurrent(){
+  if(rmCurrent){
+    if(rmCurrent.line) rmCurrent.line.setMap(null);
+    (rmCurrent.dots||[]).forEach(function(d){ d.setMap(null); });
+  }
+  rmCurrent = null;
+}
+function rmAddPoint(world){
+  if(!rmCurrent) rmCurrent = {type: rmType, path: [], line: null, dots: []};
+  rmCurrent.path.push(world);
+  rmSyncSky(rmCurrent);
+  rmRenderResults(); rmPaintStreet();
+}
+function rmFinishRun(){
+  if(rmCurrent && rmCurrent.path.length > 1){ rmRuns.push(rmCurrent); rmCurrent = null; }
+  else rmDropCurrent();
+  rmRenderResults(); rmPaintStreet();
+}
+/* The freeze. Both views go inert and a transparent layer takes the clicks,
+   so nothing can pan, swing or zoom out from under a half-drawn line. */
+function rmSetDrawing(on){
+  rmDrawing = !!on;
+  const btn = document.getElementById('rmDrawBtn');
+  const hint = document.getElementById('rmDrawHint');
+  if(!rmSkyReady && !rmStreetReady){
+    rmDrawing = false;
+    btn.textContent = 'Start Measuring';
+    hint.textContent = 'Load an address first.';
+  } else if(rmDrawing){
+    btn.textContent = 'Finish Line';
+    hint.textContent = 'Click along the line in either view. Double-click or press Finish Line to end the run. Drag any point afterwards to nudge it.';
+  } else {
+    rmFinishRun();
+    btn.textContent = 'Start Measuring';
+    hint.textContent = rmWall
+      ? 'Press Start Measuring, then click in either view.'
+      : 'Press Start Measuring. Set the wall to measure in Street View too.';
+  }
+  const lock = rmDrawing || rmWallPicking;
+  /* Sky takes clicks whenever we are drawing; Street only once the wall is
+     pinned, or while the wall is being picked. */
+  const skyLock = rmDrawing && rmSkyReady;
+  const stLock = (rmWallPicking || (rmDrawing && rmWall)) && rmStreetReady;
+  document.getElementById('rmMapLock').style.display = skyLock ? 'block' : 'none';
+  document.getElementById('rmMapFrozen').style.display = skyLock ? 'block' : 'none';
+  document.getElementById('rmPanoLock').style.display = stLock ? 'block' : 'none';
+  document.getElementById('rmPanoFrozen').style.display = stLock ? 'block' : 'none';
+  if(rmMap) rmMap.setOptions({draggable: !skyLock, scrollwheel: !skyLock, disableDoubleClickZoom: skyLock});
+  if(rmPano) rmPano.setOptions({clickToGo: !stLock, scrollwheel: !stLock, linksControl: !stLock, disableDoubleClickZoom: stLock});
+}
+/* ---- results and materials --------------------------------------------- */
+function rmRenderResults(){
+  const t = rmTotals();
+  const live = rmCurrent && rmCurrent.path.length > 1 ? rmRunFeet(rmCurrent) : 0;
+  document.getElementById('rmResults').innerHTML =
+    Object.keys(RM_TYPES).map(function(k){
+      return '<div class="rm-resultrow"><span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:'+RM_TYPES[k].color+'; margin-right:6px;"></span>'+RM_TYPES[k].label+'</span><strong>'+rmFmtFeet(t[k])+'</strong></div>';
+    }).join('') +
+    '<div class="rm-resultrow" style="border-top:1px solid var(--line); margin-top:4px; padding-top:7px;"><span style="font-weight:700;">Measured</span><strong style="font-size:15px;">'+rmFmtFeet(t.all)+'</strong></div>' +
+    /* Both numbers, always. The doubling is a pricing rule sitting on top of a
+       measurement; showing only the result leaves someone staring at a figure
+       twice the size of the line they just drew. */
+    (t.all ? '<div class="rm-resultrow" style="color:var(--dusk);"><span>&times;'+RM_FEET_MULTIPLIER+' for pricing</span><strong style="font-size:15px;">'+rmFmtFeet(t.all*RM_FEET_MULTIPLIER)+'</strong></div>' : '') +
+    (live ? '<div class="rm-runrow" style="color:var(--dusk);">drawing now&hellip; '+rmFmtFeet(live)+'</div>' : '');
+
+  const runsBox = document.getElementById('rmRuns');
+  runsBox.innerHTML = rmRuns.map(function(r, i){
+    const hs = r.path.map(function(p){ return (p.h||0)*RM_M_TO_FT; });
+    const top = Math.round(Math.max.apply(null, hs));
+    return '<div class="rm-runrow"><span>'+RM_TYPES[r.type].label+' '+(i+1)+
+      (top > 1 ? ' <span style="opacity:.6;">('+top+' ft up)</span>' : '')+'</span>'+
+      '<span>'+rmFmtFeet(rmRunFeet(r))+' <button type="button" data-rmdelrun="'+i+'" title="Delete this line">&#10005;</button></span></div>';
+  }).join('');
+  runsBox.querySelectorAll('[data-rmdelrun]').forEach(function(b){
+    b.addEventListener('click', function(){
+      const i = Number(b.dataset.rmdelrun), r = rmRuns[i];
+      if(r){ if(r.line) r.line.setMap(null); (r.dots||[]).forEach(function(d){ d.setMap(null); }); }
+      rmRuns.splice(i, 1);
+      rmRenderResults(); rmPaintStreet();
+    });
+  });
+  const useBtn = document.getElementById('rmUseFeetBtn');
+  useBtn.style.display = t.all > 0 ? 'inline-flex' : 'none';
+  useBtn.textContent = 'Use ' + rmFmtFeet(Math.round(t.all*RM_FEET_MULTIPLIER)) + ' as Estimated Feet';
+  rmRenderMaterials(t.all);
+}
+function rmRenderMaterials(feet){
+  const panel = document.getElementById('rmMaterialPanel');
+  if(!feet){ panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  const spacingIn = Number(document.getElementById('rmSpacing').value) || 12;
+  const priced = feet * RM_FEET_MULTIPLIER;
+  const bulbs = Math.ceil(priced * 12 / spacingIn);
+  const wire = Math.ceil(priced * 1.15);          /* the usual slack allowance */
+  document.getElementById('rmMaterials').innerHTML =
+    '<div class="rm-mini"><span>Run being priced</span><strong>'+rmFmtFeet(priced)+'</strong></div>'+
+    '<div class="rm-mini"><span>Bulbs at '+spacingIn+'&quot;</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
+    '<div class="rm-mini"><span>Clips</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
+    '<div class="rm-mini"><span>Wire (+15%)</span><strong>'+wire.toLocaleString()+' ft</strong></div>'+
+    '<p style="font-size:11px; color:var(--slate); margin:8px 0 0;">Counts only &mdash; pricing stays on the quote, where it already lives.</p>';
+}
+/* ---- street view overlay ------------------------------------------------ */
+function rmPaintStreet(){
+  const svg = document.getElementById('rmSvLayer');
+  if(!svg) return;
+  const cam = rmCamLocal();
+  if(!rmPano || !cam || !rmOrigin){ svg.innerHTML = ''; return; }
+  const {W, H} = rmPanoSize();
+  const pov = rmPanoPov();
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  const parts = [];
+  if(rmWall){
+    const a = rmSvProject({lat:rmWall.a.lat, lng:rmWall.a.lng, h:0}, W, H, pov, cam);
+    const b = rmSvProject({lat:rmWall.b.lat, lng:rmWall.b.lng, h:0}, W, H, pov, cam);
+    if(a && b) parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#F4BE55" stroke-width="3" stroke-dasharray="7 5" opacity=".9"/>');
+  }
+  rmWallPts.forEach(function(p){
+    const w = rmToWorld(p);
+    const q = rmSvProject(w, W, H, pov, cam);
+    if(q) parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="#F4BE55" stroke="#fff" stroke-width="2"/>');
+  });
+  rmRuns.concat(rmCurrent ? [rmCurrent] : []).forEach(function(r){
+    const pts = r.path.map(function(p){ return rmSvProject(p, W, H, pov, cam); });
+    const vis = pts.filter(Boolean);
+    if(pts.length > 1 && vis.length === pts.length){
+      const d = pts.map(function(p, i){ return (i?'L':'M')+p.x+' '+p.y; }).join(' ');
+      parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>');
+      parts.push('<path d="'+d+'" fill="none" stroke="'+RM_TYPES[r.type].color+'" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>');
+    }
+    vis.forEach(function(p){
+      parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#fff" stroke="'+RM_TYPES[r.type].color+'" stroke-width="2.5"/>');
+    });
+  });
+  svg.innerHTML = parts.join('');
+}
+/* ---- loading ----------------------------------------------------------- */
+function rmEnsureMap(center){
+  if(rmMap){ rmMap.setCenter(center); return; }
+  rmMap = new google.maps.Map(document.getElementById('rmMap'), {
+    center: center, zoom: 20, mapTypeId: 'satellite', tilt: 0, gestureHandling: 'greedy',
+    streetViewControl: false, fullscreenControl: false, mapTypeControl: false,
+    rotateControl: false, keyboardShortcuts: false
+  });
+  google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmMap.setTilt(0); });
+}
+function rmEnsurePano(center){
+  if(rmPano){ rmPano.setPosition(center); return; }
+  rmPano = new google.maps.StreetViewPanorama(document.getElementById('rmPano'), {
+    position: center, pov: {heading:0, pitch:0}, zoom: 1, addressControl: false,
+    fullscreenControl: false, motionTracking: false, motionTrackingControl: false,
+    showRoadLabels: false, zoomControl: true
+  });
+  rmPano.addListener('pov_changed', rmPaintStreet);
+  rmPano.addListener('zoom_changed', rmPaintStreet);
+  /* Moving the camera does NOT invalidate anything: every point is stored
+     against the house, not the camera. The elevation under the new spot is
+     re-checked and the lines simply redraw from the new place. */
+  rmPano.addListener('position_changed', function(){
+    rmMeasureGroundDrop().then(rmPaintStreet);
+    rmPaintStreet();
+  });
+}
+/* The camera stands on the road; the house may not be at road level. Ignoring
+   that difference biases every height by however much it is, so it is looked
+   up rather than assumed. Silently falls back to level ground. */
+function rmMeasureGroundDrop(){
+  return new Promise(function(resolve){
+    if(!rmPano || !rmOrigin || !google.maps.ElevationService){ resolve(); return; }
+    const pos = rmPano.getPosition();
+    if(!pos){ resolve(); return; }
+    try{
+      new google.maps.ElevationService().getElevationForLocations({
+        locations: [{lat: rmOrigin.lat, lng: rmOrigin.lng}, {lat: pos.lat(), lng: pos.lng()}]
+      }, function(res, status){
+        if(status === 'OK' && res && res.length === 2){
+          const drop = res[0].elevation - res[1].elevation;
+          if(isFinite(drop) && Math.abs(drop) < 30) rmCamGroundDrop = drop;
+          const note = document.getElementById('rmStreetNote');
+          if(note && Math.abs(rmCamGroundDrop) > 0.3){
+            note.textContent = (rmCamGroundDrop > 0 ? '+' : '') + (rmCamGroundDrop*RM_M_TO_FT).toFixed(1) + ' ft vs road';
+          }
+        }
+        resolve();
+      });
+    } catch(err){ resolve(); }
+  });
+}
+async function rmLoadAddress(){
+  const addr = document.getElementById('rmAddress').value.trim();
+  const status = document.getElementById('rmStatus');
+  if(!addr){ status.textContent = 'Type an address first.'; return; }
+  status.textContent = 'Finding that address…';
+  let coords;
+  try{ coords = await geocodeAddress(addr); }
+  catch(err){
+    status.textContent = /Maps not loaded/i.test((err && err.message) || '')
+      ? 'Google Maps did not load on this page — reload the admin page and try again.'
+      : 'Could not find that address on the map — check the spelling, or add the city.';
+    return;
+  }
+  rmOrigin = {lat: coords.lat, lng: coords.lng};
+  rmCamGroundDrop = 0;
+  rmClearDrawing();
+  rmWall = null; rmWallPts = []; rmWallPicking = false;
+  rmEnsureMap(rmOrigin);
+  rmEnsurePano(rmOrigin);
+  rmSkyReady = true;
+  if(rmHomeMarker) rmHomeMarker.setMap(null);
+  rmHomeMarker = new google.maps.Marker({position: rmOrigin, map: rmMap, clickable:false, zIndex:1, opacity:.55});
+  document.getElementById('rmCaptureSky').disabled = false;
+  document.getElementById('rmImagePanel').style.display = 'block';
+  document.getElementById('rmHeightPanel').style.display = 'block';
+  rmApplyFilter();
+  rmSetDrawing(false);
+  rmRenderResults();
+  status.textContent = '';
+  /* Point the panorama AT the house rather than wherever the car faced. */
+  try{
+    new google.maps.StreetViewService().getPanorama(
+      {location: rmOrigin, radius: 60, source: 'outdoor'},
+      function(data, st){
+        if(st !== 'OK' || !data || !data.location){
+          document.getElementById('rmStreetNote').textContent = 'No Street View at this address';
+          document.getElementById('rmWallStatus').textContent = 'Street View has not driven this street — the sky view still measures.';
+          return;
+        }
+        rmStreetReady = true;
+        document.getElementById('rmCaptureStreet').disabled = false;
+        rmPano.setPano(data.location.pano);
+        const p = data.location.latLng;
+        rmPano.setPov({heading: rmHeadingTo(p.lat(), p.lng(), rmOrigin.lat, rmOrigin.lng), pitch: 6});
+        rmMeasureGroundDrop().then(rmPaintStreet);
+        rmSetDrawing(false);
+      }
+    );
+  } catch(err){ /* sky view alone still works */ }
+  /* Google's roof model frames the house far better than a fixed zoom on the
+     front door, and tells us the pitch, which turns a flat run into a real
+     slope length. */
+  const factsPanel = document.getElementById('rmRoofFactsPanel');
+  try{
+    const d = await fetchRoofDetails(coords.lat, coords.lng);
+    document.getElementById('rmRoofFacts').innerHTML =
+      '<div class="rm-resultrow"><span>Roof area</span><strong>'+d.squareFeet.toLocaleString()+' sq ft</strong></div>'+
+      '<div class="rm-resultrow"><span>Roof sections</span><strong>'+d.peakCount+'</strong></div>'+
+      '<div class="rm-resultrow"><span>Steepest grade</span><strong>'+d.maxGrade+'%</strong></div>'+
+      '<div class="rm-resultrow"><span>Suggested difficulty</span><strong>'+esc(d.suggestedDifficulty)+'</strong></div>';
+    factsPanel.style.display = 'block';
+    if(d.bounds && rmMap){
+      rmMap.fitBounds(new google.maps.LatLngBounds(
+        new google.maps.LatLng(d.bounds.sw.lat, d.bounds.sw.lng),
+        new google.maps.LatLng(d.bounds.ne.lat, d.bounds.ne.lng)), 36);
+    } else if(rmMap) rmMap.setZoom(20);
+  } catch(err){ factsPanel.style.display = 'none'; if(rmMap) rmMap.setZoom(20); }
+}
+function rmHeadingTo(lat1, lng1, lat2, lng2){
+  const t = Math.PI/180;
+  const y = Math.sin((lng2-lng1)*t)*Math.cos(lat2*t);
+  const x = Math.cos(lat1*t)*Math.sin(lat2*t) - Math.sin(lat1*t)*Math.cos(lat2*t)*Math.cos((lng2-lng1)*t);
+  return (Math.atan2(y, x)*180/Math.PI + 360) % 360;
+}
+/* Screen pixel on the sky view -> world, through the map's own bounds so it
+   stays correct at any zoom or centre. */
+function rmMapPixelToWorld(clientX, clientY, rect){
+  const b = rmMap.getBounds();
+  if(!b) return null;
+  const ne = b.getNorthEast(), sw = b.getSouthWest();
+  const fx = (clientX-rect.left)/rect.width, fy = (clientY-rect.top)/rect.height;
+  const nw = rmMercator(ne.lat(), sw.lng()), se = rmMercator(sw.lat(), ne.lng());
+  const wx = nw.x + (se.x-nw.x)*fx, wy = nw.y + (se.y-nw.y)*fy;
+  const lng = (wx/256 - .5)*360;
+  const nn = Math.PI - 2*Math.PI*wy/256;
+  const lat = 180/Math.PI*Math.atan(.5*(Math.exp(nn)-Math.exp(-nn)));
+  return {lat: lat, lng: lng, h: rmWorkingHeightM()};
+}
+/* ---- capture ----------------------------------------------------------- */
+function rmStaticFailMessage(which, res, why){
+  if(/not authorized|not enabled/i.test(why)){
+    const api = which === 'street' ? 'Street View Static API' : 'Maps Static API';
+    /* Every key on the page has already been tried by the time this shows, so
+       naming the count matters - "the key" sends somebody to fix the one they
+       can see, which is exactly the trap that cost a round of this once. */
+    return 'Google will not hand over the picture: none of the ' + rmMapsKeys().length +
+      ' Google keys on this page is allowed to use the ' + api + '. ' +
+      '⚠ There is more than one key here and they sit in different Google Cloud projects — the map loads from the key on the Maps script tag, Firebase uses its own. ' +
+      'Adding the API to whichever key the console happens to show does nothing if it is the other one. ' +
+      'Cloud Console → APIs & Services → Credentials → open the key → API restrictions → add "' + api + '". ' +
+      'Measuring is unaffected and your lines are still here.';
+  }
+  if(res.status === 404 || /ZERO_RESULTS|NOT_FOUND/i.test(why)){
+    return 'Google has no picture for this exact spot — nudge the view slightly and capture again.';
+  }
+  return 'Google refused the picture (' + res.status + '). Measuring still works; only the capture is blocked.';
+}
+async function rmCapture(which){
+  const status = document.getElementById('rmStatus');
+  rmFinishRun();
+  status.textContent = 'Capturing…';
+  const el = document.getElementById(which === 'street' ? 'rmPano' : 'rmMap');
+  const ratio = (el.clientWidth||640) / (el.clientHeight||400);
+  let w, h;
+  if(ratio >= 1){ w = RM_STATIC_MAX; h = Math.max(160, Math.round(RM_STATIC_MAX/ratio)); }
+  else { h = RM_STATIC_MAX; w = Math.max(160, Math.round(RM_STATIC_MAX*ratio)); }
+  const scale = 2;
+  let makeUrl, center, zoom, pov, cam;
+  if(which === 'street'){
+    if(!rmPano || !rmStreetReady){ status.textContent = 'Street View is not available at this address.'; return; }
+    pov = rmPanoPov();
+    cam = rmCamLocal();
+    const pos = rmPano.getPosition();
+    makeUrl = function(key){
+      return 'https://maps.googleapis.com/maps/api/streetview?size='+w+'x'+h+'&scale='+scale+
+        '&location='+pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+
+        '&heading='+pov.heading.toFixed(2)+'&pitch='+pov.pitch.toFixed(2)+
+        '&fov='+rmFovDeg(pov.zoom).toFixed(2)+'&return_error_code=true&key='+key;
+    };
+  } else {
+    if(!rmMap){ status.textContent = 'Load an address first.'; return; }
+    center = {lat: rmMap.getCenter().lat(), lng: rmMap.getCenter().lng()};
+    zoom = Math.round(rmMap.getZoom());
+    makeUrl = function(key){
+      return 'https://maps.googleapis.com/maps/api/staticmap?center='+center.lat.toFixed(7)+','+center.lng.toFixed(7)+
+        '&zoom='+zoom+'&size='+w+'x'+h+'&scale='+scale+'&maptype=satellite&format=jpg&key='+key;
+    };
+  }
+  const got = await rmFetchStatic(makeUrl);
+  if(got.error === 'nokey'){
+    status.textContent = 'Could not find a Google key on this page, so the picture cannot be fetched. Measuring still works.';
+    return;
+  }
+  if(got.error === 'network'){
+    status.textContent = 'Could not reach Google for the picture — check the connection and try again.';
+    return;
+  }
+  if(got.error){ status.textContent = rmStaticFailMessage(which, {status: got.status}, got.why); return; }
+  const blob = got.blob;
+  const img = new Image();
+  const objUrl = URL.createObjectURL(blob);
+  const loaded = await new Promise(function(resolve){
+    img.onload = function(){ resolve(true); };
+    img.onerror = function(){ resolve(false); };
+    img.src = objUrl;
+  });
+  if(!loaded){ URL.revokeObjectURL(objUrl); status.textContent = 'The picture came back unreadable — try again.'; return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  /* Same brightness and contrast the screen is showing, so what you attach is
+     what you were looking at when you decided it looked right. */
+  ctx.filter = rmFilterCss();
+  ctx.drawImage(img, 0, 0);
+  ctx.filter = 'none';
+  URL.revokeObjectURL(objUrl);
+  const drawRun = function(pts, color){
+    if(pts.length < 2) return;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    /* dark halo under the colour, so a red line stays readable over a
+       red-brown roof */
+    [{c:'rgba(0,0,0,.55)', lw:9}, {c:color, lw:5}].forEach(function(pass){
+      ctx.beginPath();
+      pts.forEach(function(p, i){ if(i===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+      ctx.strokeStyle = pass.c; ctx.lineWidth = pass.lw; ctx.stroke();
+    });
+    pts.forEach(function(p){
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.stroke();
+    });
+  };
+  rmRuns.forEach(function(r){
+    let pts;
+    if(which === 'street'){
+      pts = r.path.map(function(p){ return rmSvProject(p, w, h, pov, cam); });
+      if(pts.some(function(p){ return !p; })) return;      /* partly behind the camera */
+      pts = pts.map(function(p){ return {x: p.x*scale, y: p.y*scale}; });
+    } else {
+      pts = r.path.map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
+    }
+    drawRun(pts, RM_TYPES[r.type].color);
+  });
+  rmCrop = {canvas: canvas, box: null, which: which};
+  document.getElementById('rmCropImg').src = canvas.toDataURL('image/jpeg', .92);
+  document.getElementById('rmCropBox').style.display = 'none';
+  document.getElementById('rmCropStatus').textContent = '';
+  document.getElementById('rmWorkStage').style.display = 'none';
+  document.getElementById('rmCropStage').style.display = 'block';
+  status.textContent = '';
+}
+/* ---- crop -------------------------------------------------------------- */
+function rmCropPoint(e){
+  const r = document.getElementById('rmCropWrap').getBoundingClientRect();
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+  return {x: Math.min(1, Math.max(0, (cx-r.left)/r.width)), y: Math.min(1, Math.max(0, (cy-r.top)/r.height))};
+}
+function rmPaintCropBox(){
+  const box = document.getElementById('rmCropBox');
+  if(!rmCrop || !rmCrop.box){ box.style.display = 'none'; return; }
+  const b = rmCrop.box;
+  box.style.display = 'block';
+  box.style.left = (b.x*100)+'%'; box.style.top = (b.y*100)+'%';
+  box.style.width = (b.w*100)+'%'; box.style.height = (b.h*100)+'%';
+}
+function rmCroppedBlob(){
+  return new Promise(function(resolve){
+    if(!rmCrop){ resolve(null); return; }
+    const src = rmCrop.canvas, b = rmCrop.box;
+    if(!b || b.w < .02 || b.h < .02){ src.toBlob(function(bl){ resolve(bl); }, 'image/jpeg', .92); return; }
+    const sx = Math.round(b.x*src.width), sy = Math.round(b.y*src.height);
+    const sw = Math.max(1, Math.round(b.w*src.width)), sh = Math.max(1, Math.round(b.h*src.height));
+    const out = document.createElement('canvas');
+    out.width = sw; out.height = sh;
+    out.getContext('2d').drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh);
+    out.toBlob(function(bl){ resolve(bl); }, 'image/jpeg', .92);
+  });
+}
+function rmRenderStaged(){
+  const strip = document.getElementById('rmStaged');
+  const attach = document.getElementById('rmAttachBtn');
+  document.getElementById('rmStagedPanel').style.display = rmShots.length ? 'block' : 'none';
+  document.getElementById('rmStagedCount').textContent = rmShots.length ? '— ' + rmShots.length + ' picture' + (rmShots.length === 1 ? '' : 's') : '';
+  strip.innerHTML = rmShots.map(function(s, i){
+    return '<div class="rm-shot"><img src="'+s.preview+'" alt="">'+
+      '<div class="rm-shotacts">'+
+        '<button type="button" data-rmshotdl="'+i+'" title="Download this one to the computer">&#8681;</button>'+
+        '<button type="button" data-rmshotdel="'+i+'" title="Remove">&#10005;</button>'+
+      '</div><div class="rm-shotcap">'+esc(s.label)+'</div></div>';
+  }).join('');
+  strip.querySelectorAll('[data-rmshotdel]').forEach(function(b){
+    b.addEventListener('click', function(){
+      const i = Number(b.dataset.rmshotdel);
+      URL.revokeObjectURL(rmShots[i].preview);
+      rmShots.splice(i, 1); rmRenderStaged();
+    });
+  });
+  strip.querySelectorAll('[data-rmshotdl]').forEach(function(b){
+    b.addEventListener('click', function(){
+      const s = rmShots[Number(b.dataset.rmshotdl)];
+      const a = document.createElement('a');
+      a.href = s.preview;
+      a.download = (s.label||'roof-measurement').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '.jpg';
+      document.body.appendChild(a); a.click(); a.remove();
+    });
+  });
+  attach.disabled = !rmShots.length;
+  attach.textContent = rmShots.length ? 'Attach ' + rmShots.length + ' to Quote' : 'Attach to Quote';
+}
+function rmBackToHouse(){
+  document.getElementById('rmCropStage').style.display = 'none';
+  document.getElementById('rmWorkStage').style.display = 'flex';
+  setTimeout(function(){
+    if(rmMap) google.maps.event.trigger(rmMap, 'resize');
+    if(rmPano) google.maps.event.trigger(rmPano, 'resize');
+    rmPaintStreet();
+  }, 50);
+}
+function rmReset(){
+  rmClearDrawing();
+  rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
+  rmShots = []; rmCrop = null; rmCropDrag = null;
+  rmWall = null; rmWallPts = []; rmWallPicking = false;
+  rmSkyReady = false; rmStreetReady = false; rmCamGroundDrop = 0;
+  rmSetType('perimeter');
+  rmRenderStaged(); rmRenderResults(); rmBackToHouse();
+  document.getElementById('rmStatus').textContent = '';
+  document.getElementById('rmRoofFactsPanel').style.display = 'none';
+  document.getElementById('rmImagePanel').style.display = 'none';
+  document.getElementById('rmHeightPanel').style.display = 'none';
+  document.getElementById('rmMaterialPanel').style.display = 'none';
+  document.getElementById('rmBright').value = 100;
+  document.getElementById('rmContrast').value = 100;
+  document.getElementById('rmHeightFt').value = 0;
+  document.getElementById('rmWallBtn').textContent = 'Set the Wall';
+  document.getElementById('rmWallStatus').textContent = 'Street View needs the wall pinned once before it can measure.';
+  document.getElementById('rmStreetNote').textContent = '';
+  document.getElementById('rmSkyNote').textContent = '';
+  document.getElementById('rmCaptureSky').disabled = true;
+  document.getElementById('rmCaptureStreet').disabled = true;
+  rmApplyFilter();
+  rmSetDrawing(false);
+}
+function openRoofMeasure(quoteId){
+  const item = quotesCache.find(function(q){ return q.id === quoteId; });
+  if(!item) return;
+  rmQuoteId = quoteId;
+  rmReset();
+  document.getElementById('rmTitle').textContent = 'Measure Roof — ' + (item.data.name || 'Quote');
+  document.getElementById('rmAddress').value = item.data.address || '';
+  document.getElementById('roofMeasureOverlay').style.display = 'flex';
+  setTimeout(function(){
+    if(rmMap) google.maps.event.trigger(rmMap, 'resize');
+    if(rmPano) google.maps.event.trigger(rmPano, 'resize');
+  }, 60);
+  if(item.data.address) setTimeout(rmLoadAddress, 0);
+}
+(function wireRoofMeasure(){
+  const overlay = document.getElementById('roofMeasureOverlay');
+  if(!overlay) return;
+  document.querySelectorAll('#roofMeasureOverlay .rm-typebtn').forEach(function(b){
+    b.addEventListener('click', function(){ rmFinishRun(); rmSetType(b.dataset.rmtype); });
+  });
+  document.getElementById('rmLoadBtn').addEventListener('click', rmLoadAddress);
+  document.getElementById('rmAddress').addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){ e.preventDefault(); rmLoadAddress(); }
+  });
+  ['rmBright','rmContrast'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', rmApplyFilter);
+  });
+  document.getElementById('rmImageReset').addEventListener('click', function(){
+    document.getElementById('rmBright').value = 100;
+    document.getElementById('rmContrast').value = 100;
+    rmApplyFilter();
+  });
+  document.getElementById('rmSpacing').addEventListener('change', function(){ rmRenderResults(); });
+  document.querySelectorAll('#roofMeasureOverlay [data-rmheight]').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.getElementById('rmHeightFt').value = b.dataset.rmheight;
+    });
+  });
+  document.getElementById('rmDrawBtn').addEventListener('click', function(){ rmSetDrawing(!rmDrawing); });
+  /* Clicks are read off the lock layers, which is what lets the views
+     underneath be completely inert while a line is being drawn. */
+  document.getElementById('rmMapLock').addEventListener('click', function(e){
+    if(!rmDrawing || !rmMap) return;
+    const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
+    if(w) rmAddPoint(w);
+  });
+  document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  document.getElementById('rmPanoLock').addEventListener('click', function(e){
+    const cam = rmCamLocal();
+    if(!cam) return;
+    const r = this.getBoundingClientRect();
+    const {W, H} = rmPanoSize();
+    const dir = rmRay(e.clientX-r.left, e.clientY-r.top, W, H, rmPanoPov());
+    if(rmWallPicking){
+      const g = rmGroundHit(dir, cam);
+      if(!g){
+        document.getElementById('rmWallStatus').textContent = 'That is at or above the horizon — click lower, where the wall actually meets the ground.';
+        return;
+      }
+      rmWallPts.push(g);
+      if(rmWallPts.length === 2){
+        const a = rmToWorld(rmWallPts[0]), b = rmToWorld(rmWallPts[1]);
+        const span = Math.hypot(rmWallPts[0].e-rmWallPts[1].e, rmWallPts[0].n-rmWallPts[1].n);
+        if(span < 0.5){
+          document.getElementById('rmWallStatus').textContent = 'Those two points are too close to fix a wall — try the far ends of the house.';
+          rmWallPts = [];
+        } else {
+          rmWall = {a: {lat:a.lat, lng:a.lng}, b: {lat:b.lat, lng:b.lng}};
+          rmWallPicking = false;
+          rmWallPts = [];
+          document.getElementById('rmWallBtn').textContent = 'Set the Wall Again';
+          document.getElementById('rmWallStatus').textContent =
+            'Wall set — ' + Math.round(span*RM_M_TO_FT) + ' ft of frontage. Street View can measure now.';
+        }
+      } else {
+        document.getElementById('rmWallStatus').textContent = 'Now the other end of the wall, where it meets the ground.';
+      }
+      rmSetDrawing(false); rmPaintStreet();
+      return;
+    }
+    if(!rmDrawing) return;
+    const plane = rmWallPlane();
+    if(!plane){
+      document.getElementById('rmStatus').textContent = 'Set the wall first — a photo has no depth until you do.';
+      return;
+    }
+    const hit = rmWallHit(dir, cam, plane);
+    if(!hit){
+      document.getElementById('rmStatus').textContent = 'That direction never crosses the wall you set — try a point on the house.';
+      return;
+    }
+    const world = rmToWorld(hit);
+    rmAddPoint(world);
+    /* Street View just learned a height. Sky view cannot see height at all, so
+       it inherits this one for its next click - which is exactly how measuring
+       one eave makes every later sky-view trace a true length. */
+    const ft = world.h * RM_M_TO_FT;
+    if(ft > 1){
+      document.getElementById('rmHeightFt').value = Math.round(ft*2)/2;
+      document.getElementById('rmHeightNote').textContent =
+        'Picked up ' + (Math.round(ft*10)/10) + ' ft from that Street View click.';
+    }
+  });
+  document.getElementById('rmPanoLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  document.getElementById('rmWallBtn').addEventListener('click', function(){
+    if(!rmStreetReady){ document.getElementById('rmWallStatus').textContent = 'No Street View at this address.'; return; }
+    rmWallPicking = true; rmWallPts = []; rmWall = null;
+    document.getElementById('rmWallStatus').textContent = 'Click where the wall meets the ground at one end of the house.';
+    rmSetDrawing(false); rmPaintStreet();
+  });
+  document.getElementById('rmUndoBtn').addEventListener('click', function(){
+    if(rmCurrent && rmCurrent.path.length){
+      rmCurrent.path.pop();
+      const d = (rmCurrent.dots||[]).pop();
+      if(d) d.setMap(null);
+      if(!rmCurrent.path.length) rmDropCurrent();
+      else rmSyncSky(rmCurrent);
+    } else {
+      const last = rmRuns.pop();
+      if(last){
+        if(last.line) last.line.setMap(null);
+        (last.dots||[]).forEach(function(d){ d.setMap(null); });
+      }
+    }
+    rmRenderResults(); rmPaintStreet();
+  });
+  document.getElementById('rmClearBtn').addEventListener('click', function(){ rmClearDrawing(); rmRenderResults(); });
+  document.getElementById('rmCaptureSky').addEventListener('click', function(){ rmCapture('sky'); });
+  document.getElementById('rmCaptureStreet').addEventListener('click', function(){ rmCapture('street'); });
+  document.getElementById('rmCropBackBtn').addEventListener('click', rmBackToHouse);
+  document.getElementById('rmCropResetBtn').addEventListener('click', function(){
+    if(rmCrop) rmCrop.box = null;
+    rmPaintCropBox();
+    document.getElementById('rmCropStatus').textContent = 'Crop cleared — the whole picture will be used.';
+  });
+  const cropWrap = document.getElementById('rmCropWrap');
+  function cropDown(e){
+    if(!rmCrop) return;
+    e.preventDefault();
+    const p = rmCropPoint(e);
+    rmCropDrag = p; rmCrop.box = {x:p.x, y:p.y, w:0, h:0};
+    rmPaintCropBox();
+  }
+  function cropMove(e){
+    if(!rmCropDrag || !rmCrop) return;
+    e.preventDefault();
+    const p = rmCropPoint(e);
+    rmCrop.box = {x: Math.min(rmCropDrag.x,p.x), y: Math.min(rmCropDrag.y,p.y),
+                  w: Math.abs(p.x-rmCropDrag.x), h: Math.abs(p.y-rmCropDrag.y)};
+    rmPaintCropBox();
+  }
+  function cropUp(){
+    if(!rmCropDrag) return;
+    rmCropDrag = null;
+    if(rmCrop && rmCrop.box && (rmCrop.box.w < .02 || rmCrop.box.h < .02)){ rmCrop.box = null; rmPaintCropBox(); }
+    document.getElementById('rmCropStatus').textContent = rmCrop && rmCrop.box
+      ? 'Cropped. Drag again to change it, or Reset Crop for the whole picture.' : '';
+  }
+  cropWrap.addEventListener('mousedown', cropDown);
+  window.addEventListener('mousemove', cropMove);
+  window.addEventListener('mouseup', cropUp);
+  cropWrap.addEventListener('touchstart', cropDown, {passive:false});
+  cropWrap.addEventListener('touchmove', cropMove, {passive:false});
+  window.addEventListener('touchend', cropUp);
+  document.getElementById('rmCropUseBtn').addEventListener('click', async function(){
+    const blob = await rmCroppedBlob();
+    if(!blob){ document.getElementById('rmCropStatus').textContent = 'Could not read that capture back — try capturing again.'; return; }
+    const t = rmTotals();
+    const from = rmCrop && rmCrop.which === 'street' ? 'Front of house' : 'Roofline from above';
+    rmShots.push({
+      blob: blob, preview: URL.createObjectURL(blob),
+      label: rmRuns.length ? (from + ' — ' + rmFmtFeet(Math.round(t.all))) : from
+    });
+    rmRenderStaged(); rmBackToHouse();
+    document.getElementById('rmStatus').textContent = 'Added. Capture another view, or attach what you have.';
+  });
+  document.getElementById('rmUseFeetBtn').addEventListener('click', async function(){
+    if(!rmQuoteId) return;
+    const measured = rmTotals().all;
+    const feet = Math.round(measured * RM_FEET_MULTIPLIER);
+    const status = document.getElementById('rmStatus');
+    status.textContent = 'Saving the footage…';
+    try{
+      await updateDoc(doc(db, 'quotes', rmQuoteId), {estimatedFeet: feet});
+      const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+      if(item) item.data.estimatedFeet = feet;
+      renderQuotesList();
+      status.textContent = 'Estimated Feet set to ' + feet + ' (' + rmFmtFeet(measured) + ' measured, doubled).';
+    } catch(err){ status.textContent = 'Could not save the footage onto the quote — try again.'; }
+  });
+  document.getElementById('rmAttachBtn').addEventListener('click', async function(){
+    if(!rmQuoteId || !rmShots.length) return;
+    const btn = this, status = document.getElementById('rmStatus');
+    const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+    if(!item){ status.textContent = 'That quote is no longer on screen — close this and try again.'; return; }
+    btn.disabled = true;
+    /* Re-read the list rather than holding the one from when this opened: a
+       photo could have been added on the card behind, and writing a stale list
+       back would drop it. */
+    const photos = quotePhotoList(item.data);
+    const failed = [];
+    let added = 0;
+    for(let i = 0; i < rmShots.length; i++){
+      status.textContent = rmShots.length > 1 ? ('Uploading ' + (i+1) + ' of ' + rmShots.length + '…') : 'Uploading…';
+      try{
+        const file = new File([rmShots[i].blob], 'roof-measurement.jpg', {type:'image/jpeg'});
+        const ready = await shrinkImageFileIfTooLarge(file, 9*1024*1024, 2000, .85);
+        const url = await uploadOneToCloudinary(ready);
+        photos.push({url: url, original: url, markup: [], label: rmShots[i].label});
+        added++;
+      } catch(err){ failed.push(i+1); }
+    }
+    if(!added){ status.textContent = 'Nothing uploaded — try again.'; btn.disabled = false; return; }
+    try{
+      const updates = quotePhotoUpdates(photos);
+      await updateDoc(doc(db, 'quotes', rmQuoteId), updates);
+      Object.assign(item.data, updates);
+      renderQuotesList();
+      rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
+      rmShots = []; rmRenderStaged();
+      status.textContent = '';
+      toast(added === 1 ? 'Picture added to the quote' : (added + ' pictures added to the quote'));
+      if(failed.length) status.textContent = 'Could not upload ' + failed.length + ' of them.';
+      else document.getElementById('roofMeasureOverlay').style.display = 'none';
+    } catch(err){
+      status.textContent = 'Uploaded, but saving onto the quote failed — try Attach again.';
+      btn.disabled = false;
+    }
+  });
+  document.getElementById('rmCloseBtn').addEventListener('click', function(){
+    if(rmShots.length && !confirm('Close without attaching?\n\n' + rmShots.length + ' captured picture' + (rmShots.length === 1 ? '' : 's') + ' will be thrown away.')) return;
+    overlay.style.display = 'none';
+    rmSetDrawing(false);
+  });
+})();
 /* ---------------- DASHBOARD & EXPENSES ---------------- */
 function fmtLogTimeAdmin(ts){
   if(!ts || !ts.toDate) return '—';
@@ -16104,7 +17336,17 @@ async function fetchRoofDetails(lat, lng){
   } else {
     suggestedDifficulty = 'Easy';
   }
-  return {squareFeet, peakCount, peakAngles, maxGrade, suggestedDifficulty};
+  /* Google gives the building's own footprint box. Framing the map to that
+     puts the whole house on screen at the largest zoom that still fits it,
+     which beats a fixed zoom on the geocoded front door - that lands mid-roof
+     on a big house and half a street away on a flag lot. */
+  let bounds = null;
+  const bb = data.boundingBox;
+  if(bb && bb.sw && bb.ne){
+    bounds = {sw: {lat: bb.sw.latitude, lng: bb.sw.longitude},
+              ne: {lat: bb.ne.latitude, lng: bb.ne.longitude}};
+  }
+  return {squareFeet, peakCount, peakAngles, maxGrade, suggestedDifficulty, bounds};
 }
 async function fetchRoofAreaSqFt(lat, lng){
   const details = await fetchRoofDetails(lat, lng);
