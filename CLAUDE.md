@@ -180,6 +180,8 @@ money-parity.test.js	Proves the browser and server copies of the invoice maths s
 verify-syntax.js	Verification gate A (inline JS parses, <div> tags balance). `npm run verify`. Lives at the REPO ROOT alongside run-all.js, not in a scripts/ folder.
 selector-contract.test.js	Checks every #id a browser spec uses still exists in the page it drives. `npm run test:selectors`. No browser needed — see §9.3.
 js/options.js	THE OPTION REGISTRY — one list of the 14 things a customer can ask for and which of eight artifacts each must reach. Derived from the code and corrected by the owner 2026-08-21; the working is in docs/option-registry-draft.md. ⚠ NOT WIRED YET (plan §3.3): nothing imports it, so it is the SPEC and the artifacts are still hand-written — a change here does not reach a screen. R-001 and R-003 rest on it.
+season-state.test.js	⭐ WHERE EACH RSVP ANSWER ENDS UP (added 2026-08-22). `npm run test:season`. One table, six rows, five lists: for each thing a customer can say — Back Next Year (through the RSVP link OR badged by the office), No (either way), cancelled to the archive, moved, ordinary — which of Contact 2027 / the Yes tab / in-the-season / the build queue / the recycle queue do they land on. Its own file per R-018. ⚠ It RUNS the real predicates lifted out of admin.html, never a copy: the failure it exists to catch is two lists answering "is this customer in the season" differently, and a second opinion written in the test would agree with itself and prove nothing. ⚠ AND IT CHECKS THE WRITERS TOO — a queue reading `needsLightRecycle` correctly is worth nothing if nothing sets it, which is exactly how the Contact 2027 tab shipped reading a field nobody wrote. Seven sabotages red-checked.
+  ⚠ THE THING IT WAS BUILT FROM: on 2026-08-22 SIX places decided "is this customer out for the season" by reading `d.maybeNextYear` — and `portalRsvp` writes `rsvpStatus: 'backnextyear'` with NO flag. So every customer who answered Back Next Year through the RSVP link stayed fully in the season: routed, scheduled, and built for. `isOutForSeason` now reads both, and `whBuildQueueGroups`, the warehouse colour totals, `computePendingHouseCount`, `whHouseBuildStatus` and `printNeedsBuildList` all ask it rather than the flag. That last one had no season rule at all, so the printed sheet listed people the screen beside it had already dropped.
 options-audit.test.js	The blocking gate for the registry. `npm run test:options`. Its own file rather than a run-all.js section, per R-018. ⚠ It proves the registry is COHERENT, not that any screen obeys it. A frozen AGREED map holds the owner's destination answers, because a red-check proved audit() cannot catch a destination being quietly dropped — `consumers` is the declaration, so deleting one is coherent and wrong. Change that map only when she changes her mind.
 playwright.config.js	Browser test config. Serves the repo statically on :4173, chromium, no retries.
 test/fixtures.js	The ONE set of fake customers and invoices (§9.5).
@@ -697,8 +699,9 @@ The highest-value monitor already exists and predates all of this: the nightly b
 bash
 npm install                    # once per machine
 npx playwright install chromium # once per machine, ONLY for browser tests (~150MB)
-npm test                       # gate A + selectors + money parity + option audit + run-all.js. No browser. ~8 seconds.
+npm test                       # gate A + selectors + money parity + option audit + season state + run-all.js. No browser. ~8 seconds.
 npm run test:options           # the option registry audit on its own
+npm run test:season            # where each RSVP answer ends up, on its own
 npm run test:browser           # Playwright specs. Needs the chromium install above.
 npm run test:all               # both
 npm run test:browser:headed    # watch a browser test run, for debugging
