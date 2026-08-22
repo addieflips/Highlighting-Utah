@@ -15026,7 +15026,18 @@ function rmStreetSettle(){
 function rmBuildWhenReady(){
   if(rmSuggestionsBuilt || !rmFacesReady || !rmStreetSettled) return 0;
   rmSuggestionsBuilt = true;
-  const guessed = rmBuildSuggestions(rmFaces);
+  /* ⭐ NOTHING IS GUESSED ANY MORE. Owner: "delete everything for now and give
+     me a tool that I can show you what it should look like by placing dots."
+     Every automatic version of this - roof-model boxes, satellite edge
+     snapping, skyline corner detection - put lines on the house that were
+     close enough to look plausible and wrong enough to be useless, and each
+     round of fixing traded one wrong answer for another. The honest move is to
+     stop guessing and let somebody who knows what a roofline looks like show
+     it, so the next automatic attempt has something true to be measured
+     against instead of my idea of what a roof is.
+     rmBuildSuggestions and the corner detector are both still here and still
+     tested - nothing is deleted - they are simply not run. */
+  const guessed = 0;
   rmRefreshHeights();
   /* The camera exists by now, so this is where front/left/right/back stop
      being a guess. */
@@ -15063,10 +15074,9 @@ function rmBuildWhenReady(){
   }
   const status = document.getElementById('rmStatus');
   if(status){
-    status.textContent = !guessed
-      ? 'Google has no roof outline for this house — trace it by hand with Start Measuring.'
-      : guessed + ' roof edges found — the front of the house is already on. Click any line to add or drop it.' +
-        (rmStreetReady ? '' : ' ⚠ No street photo, so these are placed from the map alone — check the heights.');
+    status.textContent = 'Click along the roofline in either picture to place dots. ' +
+      'They join up in the order you place them, and each one gets a number you can press to take it out again. ' +
+      'Space stops placing so you can pick instead; + Measure another run starts a second strand.';
   }
   return guessed;
 }
@@ -16205,7 +16215,7 @@ const rmDeg = r => r * 180 / Math.PI;
    string diagonally across a roof, so swapping a pair has to renumber
    everything after it, not just relabel two dots. */
 let rmCorners = [];              /* {lat, lng, h, on} in the order they join */
-let rmCornerMode = 'select';     /* 'select' picks corners, 'dot' places them */
+let rmCornerMode = 'dot';        /* 'dot' places corners, 'select' picks them */
 let rmSwapFrom = null;           /* the first half of a shift-click swap */
 
 const RM_LABELS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -16831,7 +16841,7 @@ function rmTryPhotoDatum(){
        corner is placed by meeting a ray with a roof plane, and the planes sit
        at the datum, so reading the corners before the height would put every
        one of them at the assumed ten feet. */
-    if(res.ok) rmDetectCornersFromStreet().then(function(c){
+    if(false) rmDetectCornersFromStreet().then(function(c){
       const bar = document.getElementById('rmCornerNote');
       if(bar) bar.textContent = c.ok
         ? c.corners + ' corners found on the roofline' + (c.spikes ? ' (' + c.spikes + ' chimney or vent ignored)' : '') + '.'
@@ -17375,7 +17385,11 @@ function rmSetDrawing(on){
   const lock = rmDrawing || rmWallPicking;
   /* Sky takes clicks whenever we are drawing; Street only once the wall is
      pinned, or while the wall is being picked. */
-  const skyLock = rmDrawing && rmSkyReady;
+  /* ⭐ THE MAP TAKES DOTS TOO. From above a click is exact - there is no depth
+     to get wrong - so the sky view is the better place to show where a gutter
+     really runs, and the street view is the better place to show how high it
+     is. Both should accept a dot. */
+  const skyLock = (rmDrawing || rmCornerMode === 'dot') && rmSkyReady;
   /* ⭐ AND WHILE PLACING DOTS. The panorama swallows clicks for its own
      panning, so a transparent sheet over it is the only way to catch one - the
      same sheet the wall picker and the tracer already use. */
@@ -17791,7 +17805,7 @@ async function rmLoadAddress(){
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
   rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false; rmSnapNote = null;
   rmFramed = false; rmRoadDir = null;
-  rmCorners = []; rmCornerMode = 'select'; rmSwapFrom = null;
+  rmCorners = []; rmCornerMode = 'dot'; rmSwapFrom = null;
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
@@ -18466,9 +18480,21 @@ function openRoofMeasure(quoteId){
   /* Clicks are read off the lock layers, which is what lets the views
      underneath be completely inert while a line is being drawn. */
   document.getElementById('rmMapLock').addEventListener('click', function(e){
-    if(!rmDrawing || !rmMap) return;
+    if(!rmMap) return;
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
-    if(w) rmAddPoint(w);
+    if(!w) return;
+    if(rmCornerMode === 'dot' && !rmDrawing){
+      /* ⚠ A dot placed from above needs a HEIGHT, and the map cannot give one.
+         It takes the working height the office set, which is what that box has
+         always been for - and a dot can be dragged to the right height in the
+         street view afterwards, where height is the thing you CAN see. */
+      rmAddCorner({lat: w.lat, lng: w.lng, h: rmWorkingHeightM() || rmDatum().m});
+      const note = document.getElementById('rmCornerNote');
+      if(note) note.textContent = rmCorners.length + ' dots — the new one is ' +
+        rmCornerLabel(rmCorners.length - 1) + '. They join in the order you place them.';
+      return;
+    }
+    if(rmDrawing) rmAddPoint(w);
   });
   document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
   document.getElementById('rmPanoLock').addEventListener('click', function(e){
