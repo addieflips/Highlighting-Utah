@@ -35096,6 +35096,57 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
+suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is quiet');
+{
+  /* ⭐ CLICKING THE SKY USED TO PLACE A DOT. Found by the other session driving
+     the deployed tool: a click on cloud above the roof produced a confident dot
+     numbered 0 at 31 ft, drawn in BOTH views, agreeing with itself.
+
+     The cause: when no roof face is hit, the fallback crosses the ray with the
+     wall the house presents to the camera - and that is an INFINITE PLANE. A
+     ray aimed well above the roof still crosses it, somewhere up in the air.
+
+     Owner: "you need to make there be 0 margin of error." A click with no
+     surface under it has no depth, and no depth means no height. Refusing is
+     the only honest answer, and a confident wrong dot is worse than a refusal
+     because nothing about it looks wrong. */
+  check('S160', 'the fallback wall crossing has to be ON the house',
+    /const onHouse = w2 && w2\.u > 0\.3 && w2\.u < roofTop \+ RM_EAVE_TOL_M;/.test(admin),
+    'an infinite plane is crossed by a ray aimed at the sky');
+  check('S160', 'and a click above the roofline is refused, not placed',
+    /That is above the roofline/.test(admin) &&
+    (function(){
+      const i = admin.indexOf('const onHouse = w2 &&');
+      const j = admin.indexOf('rmAddCorner(', i);
+      const k = admin.indexOf('return;', i);
+      return i !== -1 && k > i && k < j;      /* it returns before adding */
+    })(),
+    'placing it anyway is what produced a dot at 31 ft on a cloud');
+  check('S160', 'past the END of a roof patch is still accepted',
+    /Past the end of a roof patch it is still/.test(admin),
+    'that is what the fallback is for; only past the TOP is refused');
+
+  /* ⭐ AND THE SCAFFOLDING NO LONGER SHOUTS OVER THE WORK. Opening the tool
+     showed a cyan outline and a yellow ground line and no red anywhere, so the
+     scaffolding read as the job. Owner: "double check that the lines are red",
+     and on the model itself "we outline from street view not sky view which is
+     clearly not what your doing". */
+  check('S160', 'the assumed house is off until it is built from the street',
+    /let rmShowModel = false;/.test(admin),
+    'it is drawn from overhead roof segments, which is the source she ruled out');
+  check('S160', 'and the button offers it rather than hiding it',
+    /id="rmModelBtn"[^>]*>Show assumed house</.test(admin),
+    'the label has to match the state it starts in');
+  check('S160', 'why it is off is written down, so it can be turned back on',
+    /OFF BY DEFAULT, AND THIS RECORDS WHY/.test(admin) &&
+    /axis-aligned\s*\n?\s*BOUNDING boxes/.test(admin),
+    'she asked for it drawn; it comes back when it is worth looking at');
+  check('S160', 'the yellow ground guide belongs to the wall picker only',
+    /const shownWall = \(rmWallPicking \|\| rmCornerMode !== 'dot'\) \? rmActiveWall\(\) : null;/.test(admin),
+    'across the lawn it reads as a proposed run of lights along the grass');
+}
+
+
 /* ===== SCHEDULE SUITES - lanil-0b appends BELOW this line ===== */
 
 Promise.all(pendingAsync).then(function () {
