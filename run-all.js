@@ -34317,13 +34317,21 @@ suite('151. Measure Roof - a clicked dot takes its depth from the wall, not the 
       api.hit(aim({e: 0, n: -5.8, u: 5}), cam) === null);
   }
 
-  check('S151', 'the wall is tried before the roof planes',
+  /* ⚠ AND THE FACE COMES BEFORE THE WHOLE BUILDING. Measured on the test
+     house: the building box runs 8.0 m west of centre, but most of the roof
+     faces inside it stop about 4 m west. A click at a gutter on a set-back
+     face was landing on the near face of the WHOLE-BUILDING box, up to four
+     and a half metres in front of the wall it belongs to - which looks right
+     from where it was placed and floats in the garden from anywhere else. */
+  check('S151', 'the part of the house the ray points at is tried first',
     (function(){
-      const i = admin.indexOf('let best = rmFootprintWallHit(dir, cam);');
-      const j = admin.indexOf('const plane = rmFacePlane(f);', i);
-      return i !== -1 && j > i;
+      const i = admin.indexOf('let best = rmRoofEdgeHit(dir, cam) || rmFootprintWallHit(dir, cam);');
+      return i !== -1;
     })(),
-    'the roof is the fallback, because its height is the uncertain part');
+    'a house is not a box - it is several parts at different depths');
+  check('S151', 'a face only counts if the ray is at THAT face roof height there',
+    /Math\.abs\(pu - roofU\) > RM_FACE_EDGE_TOL_M/.test(pick('rmRoofEdgeHit') || ''),
+    'without it a ray flying over a low garage is placed on the garage front');
 }
 
 Promise.all(pendingAsync).then(function () {
