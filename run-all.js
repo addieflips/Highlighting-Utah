@@ -34253,6 +34253,79 @@ suite('150. Measure Roof - a corner is placed from the street, by two views agre
     'a corner hidden from one angle is still caught by two others');
 }
 
+
+suite('151. Measure Roof - a clicked dot takes its depth from the wall, not the roof');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "its way off, the street view will look right but the sky view will
+     be way off."
+     That is the signature of a DEPTH error. Every point along the ray from the
+     camera through a pixel projects back to that same pixel, so a dot can sit
+     perfectly on the gutter in the street view and be ten feet into next
+     door's garden on the map. The street view cannot show the mistake. */
+  const fn = pick('rmFootprintWallHit');
+  if (!fn) {
+    check('S151', 'the wall depth is findable', false, 'rmFootprintWallHit missing');
+  } else {
+    const api = new Function(
+      'let rmOrigin={lat:40.2969,lng:-111.6946}; let rmBuilding=null;' + LF_ +
+      (admin.match(/^const RM_STAY_ON_HOUSE_M.*?;/m) || [''])[0] + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFootprintBox'].map(pick).join(LF_) + LF_ +
+      fn + LF_ +
+      'return {hit: rmFootprintWallHit, house: function(b){ rmBuilding = b; }, toWorld: rmToWorld};')();
+    /* A house 20 m across and 10 m deep, camera 25 m to the south. */
+    const c1 = api.toWorld({e: -10, n: -5, u: 0}), c2 = api.toWorld({e: 10, n: 5, u: 0});
+    api.house({sw: {lat: c1.lat, lng: c1.lng}, ne: {lat: c2.lat, lng: c2.lng}});
+    const cam = {e: 0, n: -25, u: 2.5};
+    /* Aimed at a gutter above the middle of the front wall, 5 m up. The front
+       wall (with the overhang allowed) sits at n = -5.8. */
+    const aim = (t) => { const d = {e: t.e-cam.e, n: t.n-cam.n, u: t.u-cam.u};
+      const l = Math.hypot(d.e,d.n,d.u); return {e:d.e/l, n:d.n/l, u:d.u/l}; };
+    const got = api.hit(aim({e: 0, n: -5.8, u: 5}), cam);
+    check('S151', 'a ray aimed at the front gutter lands on the front wall',
+      got && Math.abs(got.n - (-5.8)) < 0.05 && Math.abs(got.e) < 0.05,
+      got ? 'landed at e=' + got.e.toFixed(2) + ' n=' + got.n.toFixed(2) : 'hit nothing');
+    check('S151', 'and its height comes out of the same crossing',
+      got && Math.abs(got.u - 5) < 0.05,
+      got ? 'height ' + got.u.toFixed(2) + ' m' : 'no hit');
+
+    /* ⚠ THE WHOLE POINT: a wall is met nearly square on, so an error in the
+       aim barely moves the PLAN position. A roof plane is met at a shallow
+       angle, where the same error slides the crossing yards along the ray -
+       and every yard of that lands on the map. */
+    const nudged = api.hit(aim({e: 0, n: -5.8, u: 5.6}), cam);
+    check('S151', 'aiming half a metre high barely moves it in plan',
+      nudged && Math.hypot(nudged.e - got.e, nudged.n - got.n) < 0.35,
+      'moved ' + (nudged ? Math.hypot(nudged.e - got.e, nudged.n - got.n).toFixed(2) : '?') +
+      ' m in plan - on a roof plane the same nudge moves it several times that');
+
+    /* It has to be ON the wall, not past its end. */
+    check('S151', 'a ray past the end of the house hits nothing',
+      api.hit(aim({e: 40, n: -5.8, u: 5}), cam) === null,
+      'the wall is a segment, not an infinite line, and a dot beyond it is not on the house');
+    check('S151', 'a ray pointing away from the house hits nothing',
+      api.hit({e: 0, n: -1, u: 0}, cam) === null);
+    /* A roofline is not underground and not on the fourth floor. */
+    check('S151', 'a crossing at a silly height is refused',
+      api.hit(aim({e: 0, n: -5.8, u: 40}), cam) === null,
+      'a dot forty metres up is a ray that missed everything real');
+    /* With no footprint there is nothing to measure against. */
+    api.house(null);
+    check('S151', 'and with no footprint it says so rather than guessing',
+      api.hit(aim({e: 0, n: -5.8, u: 5}), cam) === null);
+  }
+
+  check('S151', 'the wall is tried before the roof planes',
+    (function(){
+      const i = admin.indexOf('let best = rmFootprintWallHit(dir, cam);');
+      const j = admin.indexOf('const plane = rmFacePlane(f);', i);
+      return i !== -1 && j > i;
+    })(),
+    'the roof is the fallback, because its height is the uncertain part');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
