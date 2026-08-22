@@ -4628,6 +4628,16 @@ import {
      and told nobody. */
   applyLightChange, LIGHT_CHANGE_FEE, LIGHT_WINDOW_MS
 } from './js/money.js';
+/* ⭐ WHAT A CREW-DAY IS MADE OF, now that it is not made of towns.
+   Owner, 2026-08-22: "city lines arent a concern". planBlocks cuts the whole book
+   into compact blocks of at most a crew-day in ONE pass, and lifts genuinely
+   isolated houses out first so distance never has to outrank timing — "if a house
+   is really that far out then its for my dad to do".
+   ⚠ THE BUILDER ITSELF STILL TAKES NO DEPENDENCY ON THIS. planNewCrewDays groups
+   on whatever `block` its callers stamp onto each waiting house, exactly as it used
+   to group on `city`, so it stays pure text that run-all.js can lift and run in a
+   sandbox. This import is used by the two CALLERS, and nowhere else. */
+import { planSweeps, planBlocks, replaceability, cellOf, hilbertIndex } from './js/grid.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
@@ -32219,6 +32229,12 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
    two arguments and gets exactly the open-ended route it got before; only a
    caller that names a finish is measured on the drive home. */
 function twoOptImprove(ordered, startPoint, endPoint){
+  /* ⚠ SELF-CONTAINED ON PURPOSE. Several suites lift this function out of the file
+     and run it in a sandbox, where any name from the surrounding page is a
+     ReferenceError that takes the whole suite down rather than failing one check.
+     The typeof guard keeps a lifted orderer behaving exactly like the shipped one. */
+  const hardRate = (typeof HARD_FIRST_MILES_PER_PLACE === 'number') ? HARD_FIRST_MILES_PER_PLACE : 0.2;
+  const hardOf = function(p){ return (typeof stopHardness === 'function') ? stopHardness(p) : 0; };
   if(ordered.length < 4) return ordered;
   const n = ordered.length;
   function dist(a, b){ return haversine(a.lat, a.lng, b.lat, b.lng); }
@@ -32238,7 +32254,26 @@ function twoOptImprove(ordered, startPoint, endPoint){
         const next = j === n - 1 ? (endPoint || null) : ordered[j+1];
         const currentDist = dist(prev, a) + (next ? dist(b, next) : 0);
         const newDist = dist(prev, b) + (next ? dist(a, next) : 0);
-        if(newDist < currentDist - 0.0005){
+        /* ⭐ AND WHAT THE REVERSAL DOES TO THE ORDER THE HARD HOUSES ARE DONE IN.
+           Owner, 2026-08-22: "have the route generator form a petrol efficient
+           route while still doing hardest first."
+
+           Reversing the segment [i..j] sends the stop at position p to position
+           (i + j - p), so the change in "how late the hard houses are" is exact
+           and costs one pass of the segment to compute — no need to re-price the
+           whole route. Positive means the swap pushes hard work later.
+
+           Priced in MILES through HARD_FIRST_MILES_PER_PLACE so the two aims are
+           in one currency and the optimiser can actually trade them: a reversal
+           that saves real driving still wins, and one that saves almost nothing
+           while delaying the house nobody can reschedule now loses. */
+        let lateDelta = 0;
+        for(let p = i; p <= j; p++){
+          const hard = hardOf(ordered[p]);
+          if(hard) lateDelta += hard * ((i + j - p) - p);
+        }
+        const cost = (newDist - currentDist) + lateDelta * hardRate;
+        if(cost < -0.0005){
           const segment = ordered.slice(i, j+1).reverse();
           ordered.splice(i, j - i + 1, ...segment);
           improved = true;
@@ -32248,7 +32283,58 @@ function twoOptImprove(ordered, startPoint, endPoint){
   }
   return ordered;
 }
+/* ⭐ THE YARD, IN MAIN-APP SCOPE (added 2026-08-22).
+   Owner: "have it remember the starting position is 209 S 850 W and the end
+   position is 209 S 850 W Lehi Utah."
+
+   ⚠ IT LIVES HERE, NOT IN THE SCHEDULE WIDGET, and that placement is the whole
+   point. `routeHomePoint` is declared inside the widget, so the main app cannot
+   call it — a call from out here throws "is not defined" and kills whatever
+   handler it was in. run-all.js has a check whose only job is to catch exactly
+   that leak, and it caught this one. The coordinate therefore sits in the outer
+   scope where BOTH can read it, and the widget's routeHomePoint uses it as its
+   verified fallback rather than carrying a second copy.
+
+   Geocoded 2026-08-22 through the same Maps geocoder the app uses: ROOFTOP
+   accuracy, and both spellings of the address returned the identical point.
+   ⚠ IF THE YARD MOVES, RE-GEOCODE AND CHANGE IT HERE — and keep it in step with
+   ROUTE_HOME_ADDRESS in the widget, which is the human-readable half. */
+const YARD_POINT = {lat: 40.385409, lng: -111.862718};
+function routeYardPoint(){ return {lat: YARD_POINT.lat, lng: YARD_POINT.lng}; }
+
+/* ⭐ HOW MUCH A HARD HOUSE IS WORTH IN MILES (added 2026-08-22).
+   Owner: "have the route generator form a petrol efficient route while still
+   doing hardest first."
+
+   Those two pull against each other, so one has to be expressed in the other's
+   units or there is nothing to trade. This is the exchange rate: moving a
+   maximally hard house one place earlier is worth this many miles of extra
+   driving, and no more.
+
+   ⚠ SMALL ON PURPOSE. Fuel is the objective; hardest-first is the tie-breaker
+   among routes that cost about the same. At a fifth of a mile a hard house wins
+   every near-tie and never sends a crew across town for the privilege — which is
+   what "while still" means in her sentence. Raise it and the route stops being
+   petrol efficient; drop it to zero and the order is pure distance again. */
+const HARD_FIRST_MILES_PER_PLACE = 0.2;
+
+/* What makes a stop hard to do on any other day, 0 (easy) to 1 (hard).
+   ⚠ SUPPLIED BY THE CALLER, never worked out here. Hardness is a scheduling
+   question — deadlines, how much company a house has, whether its named day has
+   already passed — and those rules live with the rest of the scheduling rules.
+   This keeps the orderer pure geometry plus one number, which is what lets
+   run-all.js lift it into a sandbox and drive a whole season through it. */
+function stopHardness(p){
+  const h = p && p.hardness;
+  return (typeof h === 'number' && isFinite(h)) ? Math.max(0, Math.min(1, h)) : 0;
+}
 function reorderFlatStops(flatStops, startPoint, endPoint){
+  /* ⚠ SELF-CONTAINED ON PURPOSE. Several suites lift this function out of the file
+     and run it in a sandbox, where any name from the surrounding page is a
+     ReferenceError that takes the whole suite down rather than failing one check.
+     The typeof guard keeps a lifted orderer behaving exactly like the shipped one. */
+  const hardRate = (typeof HARD_FIRST_MILES_PER_PLACE === 'number') ? HARD_FIRST_MILES_PER_PLACE : 0.2;
+  const hardOf = function(p){ return (typeof stopHardness === 'function') ? stopHardness(p) : 0; };
   /* Two ways an unorderable list gets here, both from the reconcile sweep:
        - a day whose LAST stop has just come off (recycled, deleted, or a town
          corrected) is re-ordered with nothing left in it;
@@ -32298,7 +32384,11 @@ function reorderFlatStops(flatStops, startPoint, endPoint){
   while(remaining.length){
     let bestIdx = 0, bestDist = Infinity;
     remaining.forEach(function(p,i){
-      const d = haversine(current.lat, current.lng, p.lat, p.lng);
+      /* Nearest, with a hard house counted as slightly nearer than it is — the
+         same exchange rate the 2-opt below trades at, so the seed and the
+         improver cannot disagree about what a good day looks like. */
+      const d = haversine(current.lat, current.lng, p.lat, p.lng)
+              - hardOf(p) * hardRate;
       if(d < bestDist){ bestDist = d; bestIdx = i; }
     });
     const next = remaining.splice(bestIdx,1)[0];
@@ -32836,16 +32926,57 @@ function stillInWindow(d, dateStr){
    `okOn` is optional — without it, rank 1 and 2 collapse into "one of last
    year's", which is the behaviour before windows were considered. Returns -1
    for an empty list. */
+/* How easily this customer would find a seat on some other day. Higher is safer
+   to bump. Counts the company they have in their own grid cell — a house on a
+   street with twenty others is on somebody's day again within the week; one
+   nearly alone may wait a fortnight for a crew to be sent that way.
+   ⚠ FAILS TO ZERO, and every caller must treat zero as "no opinion" rather than
+   as "impossible to re-place". Without a map pin, without the grid module, or
+   inside a lifted sandbox there is nothing to measure, and the answer has to be
+   the OLD behaviour rather than a confident wrong number. */
+function stopReplaceability(d){
+  if(!d || typeof d.lat !== 'number' || typeof d.lng !== 'number') return 0;
+  if(typeof replaceability !== 'function' || typeof jobAddresses === 'undefined') return 0;
+  try{
+    return replaceability({lat: d.lat, lng: d.lng}, jobAddresses.map(function(c){
+      const cd = (c && c.data) || {};
+      return {lat: cd.lat, lng: cd.lng};
+    }));
+  }catch(err){ return 0; }
+}
 function bumpCandidateIndex(stops, custData, okOn){
   const test = okOn || function(){ return true; };
-  let best = -1, bestRank = 99;
+  /* ⭐ AND AMONG EQUALS, THE ONE THAT WILL MOST EASILY FIT SOMEWHERE ELSE
+     (changed 2026-08-22). Owner: "it should evict the one that will be best fit in
+     a route for another day."
+
+     The four ranks below are unchanged and still decide first — they are the older
+     rule that a returning customer gives way before a new hang, and that keeping
+     somebody inside their window beats losing it. What changed is the tie-break
+     INSIDE a rank. It used to be "whoever is last in driving order", which is a
+     fact about this morning's route and says nothing about whether that house will
+     ever get another chance. So the house at the end of the road got bumped over
+     and over while the one that was hard to reach stayed put — the exact mechanism
+     that leaves a scatter of stranded houses at the end of the season.
+
+     Now the house with the most company is bumped, because that is the one
+     guaranteed a seat somewhere else. Driving order is still the LAST word, so
+     with nothing to measure — no pins, a lifted sandbox — this behaves exactly as
+     it did before.
+
+     ⚠ THE EARLY BREAK HAD TO GO. It stopped at the first rank-1 house it met,
+     which was right when any rank-1 would do and is wrong now that they have to be
+     compared with each other. */
+  let best = -1, bestRank = 99, bestEase = -1;
   for(let i = stops.length - 1; i >= 0; i--){
     const d = custData(stops[i].id);
     const returning = !isNewHangHouse(d);
     const keeps = test(stops[i].id);
     const rank = returning ? (keeps ? 1 : 2) : (keeps ? 3 : 4);
-    if(rank < bestRank){ bestRank = rank; best = i; }
-    if(bestRank === 1) break;   // nothing can beat rank 1; stop looking
+    const ease = (typeof stopReplaceability === 'function') ? stopReplaceability(d) : 0;
+    if(rank < bestRank || (rank === bestRank && ease > bestEase)){
+      bestRank = rank; bestEase = ease; best = i;
+    }
   }
   return best;
 }
@@ -33031,15 +33162,17 @@ const DEFAULT_NEARBY_TOWNS = {
   'Cottonwood Hts': ['Holladay', 'Sandy'],
   'Sandy': ['Cottonwood Hts', 'Draper']
 };
-/* The middle of a town, from the houses actually waiting in it. Good enough to
-   tell a neighbouring town from one across the valley, which is all it is for.
-   A town whose houses have no map pin yet gets no centre and is simply never
-   borrowed from — it still gets its own days as before. */
-function townCentres(byCity){
+/* The middle of a group of waiting houses — a BLOCK since 2026-08-22, a town
+   before that. Good enough to tell a neighbouring block from one across the
+   valley, which is all it is for. A group whose houses have no map pin yet gets
+   no centre and is simply never borrowed from — it still gets its own days.
+   ⚠ Deliberately generic: it does not care what the key means, which is what let
+   the container change from town to block without touching this at all. */
+function groupCentres(byGroup){
   const out = {};
-  Object.keys(byCity).forEach(function(city){
+  Object.keys(byGroup).forEach(function(city){
     let n = 0, la = 0, ln = 0;
-    byCity[city].forEach(function(w){
+    byGroup[city].forEach(function(w){
       const s = w && w.stop;
       if(s && typeof s.lat === 'number' && typeof s.lng === 'number'){ la += s.lat; ln += s.lng; n++; }
     });
@@ -33286,16 +33419,27 @@ function nearbyTownsToText(map){
 function sameTownName(a, b){
   return String(a == null ? '' : a).trim().toLowerCase() === String(b == null ? '' : b).trim().toLowerCase();
 }
-/* Towns near `city`, nearest first. */
-function nearbyTowns(city, centres){
-  /* Typed in beats measured. Matched case-insensitively so "west jordan" and
-     "West Jordan" are the same town, which is how they arrive from a textarea. */
-  const key = Object.keys(NEARBY_TOWN_LIST).filter(function(t){ return sameTownName(t, city); })[0];
-  if(key) return NEARBY_TOWN_LIST[key].slice();
-  const here = centres[city];
+/* ⭐ THE GROUPS NEXT DOOR, NEAREST FIRST — MEASURED, NEVER LOOKED UP.
+   Owner, 2026-08-22: "city lines arent a concern."
+
+   This used to consult a hand-typed list of which towns count as neighbours, and
+   only fell back to the tape measure for towns nobody had listed. That list existed
+   because a TOWN is not a point: two towns can be four miles apart with a canyon
+   between them, so raw distance between town centres was a bad guess and somebody
+   had to correct it by hand.
+
+   A block is not a town. It is already a compact patch of map — the grid built it
+   that way — so the distance between two block centres means what it says, and the
+   typed list has nothing left to correct. DEFAULT_NEARBY_TOWNS, NEARBY_TOWN_LIST
+   and the Scheduling-settings box that edited them are gone with it.
+
+   ⚠ STILL BOUNDED. Nearest-first is not the same as near: past NEARBY_TOWN_MILES a
+   crew is not topping up its day, it is driving across the valley to do it. */
+function nearbyGroups(key, centres){
+  const here = centres[key];
   if(!here) return [];
   return Object.keys(centres)
-    .filter(function(c){ return c !== city; })
+    .filter(function(c){ return c !== key; })
     .map(function(c){ return {city: c, miles: haversine(here.lat, here.lng, centres[c].lat, centres[c].lng)}; })
     .filter(function(x){ return x.miles <= NEARBY_TOWN_MILES; })
     .sort(function(a, b){ return a.miles - b.miles; })
@@ -33417,12 +33561,33 @@ function planNewCrewDays(waiting, taken, opts){
   Object.keys(busy).forEach(function(dt){
     Object.keys(busy[dt]).forEach(function(cr){ markTownUsed(dt, busy[dt][cr]); });
   });
-  /* Grouped by town, and within a town by who has waited longest for a slot
-     they are allowed on — new hangs, then October, then no preference. */
+  /* ⭐ GROUPED BY BLOCK, NOT BY TOWN (changed 2026-08-22).
+     Owner: "city lines arent a concern."
+
+     This is the whole change. Everything below it — the priority sort, the urgency
+     rule, the head-count, the borrowing, the tail sweep — is written against "a key
+     with a queue behind it" and did not care what the key MEANT, so none of it had
+     to move. What changed is that the key is now a patch of map instead of a name on
+     a plat: js/grid.js cuts the book into compact blocks of at most a crew-day, and
+     the caller stamps the block onto each waiting house before handing it over.
+
+     ⚠ THE BLOCK IS STAMPED BY THE CALLER, ON PURPOSE. This function takes no
+     dependency on the grid module — it reads a field. That is what keeps it pure
+     text that run-all.js can lift into a sandbox and run a whole season through,
+     which is the only reason any of this is checkable.
+
+     ⚠ AND A HOUSE WITH NO BLOCK IS NOT DROPPED HERE, it simply never had one — the
+     caller has already taken the outliers out and reports them separately, because
+     a house quietly missing from the plan is a customer nobody visits.
+
+     Within a block, still ordered by who has waited longest for a slot they are
+     allowed on — new hangs, then October, then no preference. */
   const byCity = {};
   waiting.forEach(function(w){
-    if(!w || !w.city) return;
-    (byCity[w.city] = byCity[w.city] || []).push(w);
+    if(!w) return;
+    const key = w.block || w.city;   /* city only as a fallback for old callers */
+    if(!key) return;
+    (byCity[key] = byCity[key] || []).push(w);
   });
   Object.keys(byCity).forEach(function(c){
     byCity[c].sort(function(a,b){
@@ -33466,7 +33631,7 @@ function planNewCrewDays(waiting, taken, opts){
      What survives from all of it: One Man Installs still LISTS the short days, and the
      rescue still only fires on genuinely one-man ones. Reporting them was always the
      useful half. */
-  const centres = townCentres(byCity);
+  const centres = groupCentres(byCity);
   const dateOf = function(ds){ return new Date(ds.slice(0,4), Number(ds.slice(5,7)) - 1, ds.slice(8,10)); };
   /* How many are allowed today, and how urgent the most urgent of them is.
      byCity is sorted by priority first, so the first allowed house IS the most
@@ -33507,7 +33672,7 @@ function planNewCrewDays(waiting, taken, opts){
     if(own >= cap) return cap;
     const used = townsUsedOn(ds);
     let best = 0;
-    nearbyTowns(city, centres).forEach(function(other){
+    nearbyGroups(city, centres).forEach(function(other){
       if(other === city || used.indexOf(other) !== -1) return;
       const n = allowedCount(other, ds);
       if(n > best) best = n;
@@ -33603,7 +33768,7 @@ function planNewCrewDays(waiting, taken, opts){
            urgent, with distance breaking a tie only. */
         const towns = [city];
         if(ids.length < cap){
-          const near = nearbyTowns(city, centres);
+          const near = nearbyGroups(city, centres);
           let borrow = null;
           for(let n = 0; n < near.length; n++){
             const other = near[n];
@@ -33672,7 +33837,7 @@ function planNewCrewDays(waiting, taken, opts){
     from: function(id){ return (wById[id] && wById[id].from) || ''; },
     until: function(id){ return (wById[id] && wById[id].until) || ''; },
     townOf: function(id){ return (wById[id] && wById[id].city) || ''; },
-    nearby: function(c){ return nearbyTowns(c, centres); },
+    nearby: function(c){ return nearbyGroups(c, centres); },
     dist: function(a, b){
       const ca = centres[a], cb = centres[b];
       if(!ca || !cb) return null;
@@ -34420,7 +34585,11 @@ async function reconcileUpcomingRoutes(){
       for(let i = 0; i < newDays.length; i++){
         const nd = newDays[i];
         const docId = nd.date + '_install_' + nd.crew;
-        const stops = reorderFlatStops(nd.ids.map(function(id){ return stopById[id]; }), null);
+        /* Out of the yard and back to it — see routeHomePoint. A day built here
+           used to be ordered with no fixed ends at all, so the drive out and the
+           drive home were the two legs nobody counted. */
+        const ndHome = (typeof routeYardPoint === 'function') ? routeYardPoint() : null;
+        const stops = reorderFlatStops(nd.ids.map(function(id){ return stopById[id]; }), ndHome, ndHome);
         try{
           await setDoc(doc(db,'scheduledRoutes', docId), {
             date: nd.date, type: 'install', crew: nd.crew, stops: stops,
@@ -39827,7 +39996,7 @@ function attachDeleteHandlers(container){
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
   const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n";
-  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"faraway\">\ud83d\ude9a Far Away</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-faraway\" hidden><div class=\"tray\" id=\"farAwayPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
 /* ISO date of the CSV import this plan was built from — see serialize(). */
@@ -39948,6 +40117,15 @@ function computeDates(){
 function dayDate(day){return day._date;}
 function getDay(id){return SEASON.find(d=>d.id===id);}
 function orderedDays(){return ORDER.slice();}
+/* ⭐ THE TWO LISTS THE GRID PRODUCES THAT ARE NOT DAYS (added 2026-08-22).
+   SEASON_OUTLIERS is the owner's father's list: houses too far from everybody for
+   any crew-day to make sense. SEASON_THIN is houses with company on the ground but
+   not company going out the same month — they still get a day, it is just a short
+   one, and naming them is what stops a short day reading as a mistake.
+   ⚠ REBUILT BY rebuildSeasonDays, never stored. Same rule One Man Installs
+   follows: a stored list is right on the day it is written and wrong every day
+   after, and both of these move as customers are added and worked. */
+let SEASON_OUTLIERS = [], SEASON_THIN = [];
 function installDays(){return ORDER.filter(d=>!d.isFixRoute&&!d.isTakedown);}
 function fixerRoutes(){return ORDER.filter(d=>d.isFixRoute);}
 function takedownDays(){return ORDER.filter(d=>d.isTakedown);}
@@ -40164,9 +40342,83 @@ function crewCap(){
   return (typeof MAX_STOPS_PER_ROUTE === 'number' && MAX_STOPS_PER_ROUTE > 0)
     ? MAX_STOPS_PER_ROUTE : 20;
 }
+/* ⭐ WHICH CREW DRIVES WHAT, DECIDED ON THE MAP (added 2026-08-22).
+   Owner: "city lines arent a concern", and "the 4 towns rule is gone in this new
+   system."
+
+   The town split had to go, and not merely because towns stopped being the
+   container. It could REFUSE. Its rule was one dominant town plus at most one
+   NEIGHBOUR, and anything no crew could legally take stayed unassigned on purpose
+   — sound while a day was built out of towns, and actively wrong now. A block is a
+   tight patch of map that can easily touch three or four town names, so the cap
+   would look at a perfectly compact day and hand part of it to nobody. A house no
+   crew is holding a sheet for is a house nobody drives to.
+
+   So the day is cut where it is actually spread out. The houses are laid along the
+   same space-filling curve the grid is built with and cut in the middle, which
+   gives two halves that are each contiguous on the ground — the property that
+   makes the blocks work, applied to one day. No town is consulted and no pairing
+   has to be declared anywhere.
+
+   ⚠ IT IS DERIVED, NEVER STORED. Same rule the town split followed and for the
+   same reason: a day pushed later after an iced-off morning, or added to by hand,
+   still describes itself correctly instead of insisting on the split it was born
+   with.
+   ⚠ EVERY HOUSE IS HELD BY SOMEBODY. Houses with no map pin cannot be placed on
+   the curve, so they are dealt to the lighter crew rather than left out — they are
+   real customers and somebody has to be holding their sheet.
+   ⚠ AND IT RETURNS NULL WHEN IT CANNOT ANSWER — no pins at all, or the grid module
+   missing because this has been lifted into a sandbox. The caller then falls back
+   to the old town split, so nothing here can make a day WORSE than it was. */
+function dayCrewSplitGeo(day){
+  const houses = ((day && day.houses) || []);
+  if(houses.length < 2) return null;
+  if(typeof houseStopPoint !== 'function' ||
+     typeof cellOf !== 'function' || typeof hilbertIndex !== 'function') return null;
+  const pinned = [], bare = [];
+  houses.forEach(function(h){
+    let p = null;
+    try{ p = houseStopPoint(h); }catch(err){ p = null; }
+    if(p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+       isFinite(p.lat) && isFinite(p.lng)) pinned.push({h: h, lat: p.lat, lng: p.lng});
+    else bare.push(h);
+  });
+  if(pinned.length < 2) return null;
+  pinned.forEach(function(p){
+    const c = cellOf(p.lat, p.lng, 1 / 16);
+    p.d = hilbertIndex(c.cx, c.cy);
+  });
+  /* Ties broken on the house's own position in the day so the same day always
+     splits the same way — the office comparing two draws should see real
+     differences only. */
+  pinned.sort(function(a, b){ return (a.d - b.d) || (houses.indexOf(a.h) - houses.indexOf(b.h)); });
+  const cap = (typeof crewCap === 'function') ? crewCap() : 20;
+  /* Half each, and never more than a crew-day on either side. */
+  let cut = Math.ceil(pinned.length / 2);
+  if(cut > cap) cut = cap;
+  if(pinned.length - cut > cap) cut = pinned.length - cap;
+  const out = [pinned.slice(0, cut).map(function(p){ return p.h; }),
+               pinned.slice(cut).map(function(p){ return p.h; })];
+  bare.forEach(function(h){ out[out[0].length <= out[1].length ? 0 : 1].push(h); });
+  return out;
+}
 function dayCrewHouses(day){
   const out=[[],[]];
   if(!day||!day.houses) return out;
+  /* The map decides it where it can — see dayCrewSplitGeo. The town split below
+     stays as the answer for a day with no pins on it at all, and for the sandboxes
+     that lift this function without the grid. */
+  const geo = (typeof dayCrewSplitGeo === 'function') ? dayCrewSplitGeo(day) : null;
+  if(geo){
+    out[0] = geo[0]; out[1] = geo[1];
+    if(typeof dayCrewCount === 'function' && dayCrewCount(day) === 1){
+      const solo1 = (typeof daySoloCrew === 'function') ? daySoloCrew(day) : 0;
+      const all1 = out[0].concat(out[1]);
+      out[0] = []; out[1] = [];
+      out[solo1] = all1;
+    }
+    return out;
+  }
   [0,1].forEach(function(i){
     const towns=crewTownsFor(i,day);
     out[i]=towns.length
@@ -40291,7 +40543,69 @@ function houseStopPoint(h){
   const cust=customerForHouse(h);
   const d=(cust&&cust.data)||{};
   const p=houseGeoPoint(h,d);
-  return {ref:h, lat:p.lat, lng:p.lng, estimated:p.estimated, how:p.how};
+  return {ref:h, lat:p.lat, lng:p.lng, estimated:p.estimated, how:p.how,
+          hardness: houseHardness(h, d)};
+}
+/* ⭐ HOW HARD THIS HOUSE WOULD BE TO DO ON ANY OTHER DAY, 0 to 1 (added 2026-08-22).
+   Owner: "make sure the route generator is organizing them in a way where they are
+   doing the best route but also doing the houses that would be hard to do any other
+   day first."
+
+   ⚠ THIS IS NOT PRIORITY, AND CONFUSING THE TWO WOULD BE A REAL BUG. Priority is
+   who deserves to go out soonest — a new hang, an October customer — and it is
+   already settled long before a route is ordered, by houseInstallPriority and the
+   builder. This is a different question asked of a day that has ALREADY been
+   chosen: if the crew runs out of daylight and half this sheet rolls to tomorrow,
+   which houses are the expensive ones to have left behind? Those go early.
+
+   Two things make a house expensive to leave:
+
+   1. A CLOSING WINDOW. A house with a deadline that is nearly here has almost
+      nowhere left to go — an October customer on 29 October cannot roll into
+      November, that is the whole rule. A house with no deadline can go out any day
+      for the rest of the season and costs nothing to postpone. Scaled over the last
+      three weeks so it climbs as the date nears rather than switching on.
+
+   2. NOBODY NEARBY. A house with plenty of company in its own grid cell will be on
+      somebody's day again within the week. One with almost none may not get another
+      chance for a fortnight, because a crew has to be sent out that way for it.
+      This is the same measure the eviction rule uses, and deliberately so: the
+      house that is cheapest to bump is the one that is cheapest to leave.
+
+   ⚠ WEIGHTED, NOT SUMMED TO WHATEVER. The two are capped at 1 together so the
+      exchange rate in HARD_FIRST_MILES_PER_PLACE means what it says: 1 is "worth a
+      fifth of a mile per place", and nothing can quietly become worth more.
+   ⚠ AND IT FAILS TO ZERO. Anything it cannot work out — no deadline field, no map
+      pin, no customer record behind the plan row — reads as "not hard", which
+      leaves the route ordered purely on distance. That is the old behaviour, which
+      is the right thing to fall back to. */
+function houseHardness(h, custData){
+  let deadline = 0, alone = 0;
+  try{
+    const until = (typeof houseDeadline === 'function') ? houseDeadline(h) : '';
+    if(until){
+      const now = new Date(); now.setHours(0,0,0,0);
+      const end = new Date(until.slice(0,4), Number(until.slice(5,7)) - 1, until.slice(8,10));
+      const daysLeft = Math.round((end - now) / 86400000);
+      /* Three weeks of runway is comfortable; the day itself is as tight as it gets.
+         Past the deadline stays at 1 rather than going negative — a house already
+         late is the most expensive one to leave behind, not the least. */
+      deadline = Math.max(0, Math.min(1, 1 - (daysLeft / 21)));
+    }
+  }catch(err){ deadline = 0; }
+  try{
+    const d = custData || {};
+    if(typeof replaceability === 'function' && typeof d.lat === 'number' && typeof d.lng === 'number'){
+      const pool = (typeof jobAddresses !== 'undefined' ? jobAddresses : []).map(function(c){
+        const cd = (c && c.data) || {};
+        return {lat: cd.lat, lng: cd.lng};
+      });
+      const company = replaceability({lat: d.lat, lng: d.lng}, pool);
+      /* Ten in the same square mile is plenty of company; none is as alone as it gets. */
+      alone = Math.max(0, Math.min(1, 1 - (company / 10)));
+    }
+  }catch(err){ alone = 0; }
+  return Math.max(0, Math.min(1, deadline * 0.6 + alone * 0.4));
 }
 /* ⭐ AND THE ONES IT COULD NOT PLACE ARE COUNTED (added 2026-08-21). A house
    with no map pin cannot be put in driving order — it has no position to be in
@@ -40338,6 +40652,29 @@ function routeHomePoint(){
          isFinite(d.lat) && isFinite(d.lng)) return {lat: d.lat, lng: d.lng};
     }catch(err){ /* fall through to the grid */ }
   }
+  /* ⭐ AND A VERIFIED PIN FOR THE YARD, SO THIS CAN NO LONGER COME BACK NULL
+     (added 2026-08-22). Owner, asking for it a second time: "have it remember the
+     starting position is 209 S 850 W and the end position is 209 S 850 W Lehi
+     Utah."
+
+     The note above says a null here is "slightly worse, never broken" — true of one
+     day, and not true of a season. Null means the day is ordered with no fixed
+     start OR end, which is exactly the failure that comment describes: the drive
+     out and the drive home stop being counted and the van finishes on the far side
+     of the valley. And the grid estimate it depended on needs enough known houses
+     in Lehi to learn from, which is not a thing this should be betting the whole
+     route generator on.
+
+     ⚠ IT RANKS ABOVE THE GRID ESTIMATE AND BELOW A REAL RECORD, which is the same
+     rule the block above states — a measured pin beats a calculated one. This IS a
+     measured pin: geocoded 2026-08-22 through the same Maps geocoder the app uses,
+     ROOFTOP accuracy, and both spellings of the address returned the identical
+     point. The grid estimate stays underneath it as the answer for a yard that has
+     moved and not been re-geocoded.
+     ⚠ IF THE YARD MOVES, RE-GEOCODE AND CHANGE IT HERE, in step with
+     ROUTE_HOME_ADDRESS above. */
+  const known = (typeof routeYardPoint === 'function') ? routeYardPoint() : null;
+  if(known && isFinite(known.lat) && isFinite(known.lng)) return known;
   const est = (typeof estimatedPinFromAddress === 'function')
     ? estimatedPinFromAddress(ROUTE_HOME_ADDRESS, ROUTE_HOME_CITY) : null;
   return est ? {lat: est.lat, lng: est.lng} : null;
@@ -40579,7 +40916,21 @@ function renderStats(){
   const done=installs.filter(h=>h.done).length, remaining=installs.length-done;
   const rev=installs.reduce((a,h)=>a+(typeof h.price==='number'?h.price:0),0), pct=installs.length?Math.round(done/installs.length*100):0;
   const fixesTotal=routedFixes().length+FIXLIST.length, fixesDone=routedFixes().filter(h=>h.done).length;
+  /* ⭐ THE SEASON'S DRIVING, on the same bar as everything else it should be
+     weighed against. Owner: "total mile per crew, per day, and per season."
+     Guarded so a page without the mileage helpers still renders the other five. */
+  let milesCell = '';
+  try{
+    if(typeof seasonMilesTotal === 'function'){
+      const sm = seasonMilesTotal();
+      milesCell = fmtMiles(sm.miles) +
+        (sm.total && sm.pinned < sm.total
+          ? ' <span style="font-size:14px;color:var(--muted)">/ ' + sm.pinned + ' of ' + sm.total + ' on the map</span>'
+          : '');
+    }
+  }catch(err){ milesCell = ''; }
   const s=[['Houses',installs.length,''],['Remaining',remaining,'remain'],['Completed',done+' <span style="font-size:14px;color:var(--muted)">/ '+pct+'%</span>','bar'],['Revenue','$'+rev.toLocaleString(),''],['New members',newHouses().length,''],['Fixes done',fixesDone+' <span style="font-size:14px;color:var(--muted)">/ '+fixesTotal+'</span>','']];
+  if(milesCell) s.push(['Season driving', milesCell, '']);
   RT.getElementById('stats').innerHTML=s.map(x=>'<div class="stat '+(x[2]==='remain'?'remain':'')+'"><div class="n">'+x[1]+'</div><div class="l">'+x[0]+'</div>'+(x[2]==='bar'?'<div class="obar"><i style="width:'+pct+'%"></i></div>':'')+'</div>').join('');
 }
 function renderSeasonBar(){
@@ -40731,6 +41082,93 @@ function dayRouteGroups(day){
   const spare = houses.filter(function(x){ return !seen.has(x); });
   if(spare.length) out.push({label: 'Not on either crew’s route', houses: spare, spare: true});
   return out;
+}
+/* ⭐ WHAT A DAY ACTUALLY COSTS IN MILES (added 2026-08-22).
+   Owner: "have it tell you total miles driven for the day for each crew so we can
+   track that", and "total mile per crew, per day, and per season."
+
+   ⚠ IT MEASURES THE ROUND TRIP, not the distance between the houses. The drive out
+   of the yard and the drive home are the two legs nobody was counting, and on this
+   book they are the MAJORITY of the mileage — measured 2026-08-22 over the whole
+   season: 749 of 1,385 miles, 54%. A figure that leaves them out would say a far
+   crew-day of eleven houses was cheap, when it is the most expensive kind there is.
+
+   ⚠ IT MEASURES THE ORDER THE CREW WILL ACTUALLY DRIVE, by asking the same
+   orderHousesForDriving the printed sheet uses. Measuring the day in whatever order
+   the houses happen to sit in would report a number nobody drives, and would drift
+   away from the sheet the moment the orderer changed.
+
+   ⚠ HOUSES WITH NO MAP PIN ARE SKIPPED, NOT GUESSED. They are real customers and
+   they are still on the sheet; there is simply no way to know what they add. So the
+   number is a floor, and `pinned` says how much of the day it covers — a mileage
+   figure that quietly ignored a third of a day would be worse than none.
+
+   Straight-line miles, deliberately: this is for comparing days and seasons against
+   each other, and every route asks the same tape measure. Real road miles would be
+   larger by roughly a fifth and would need a paid API call per leg. */
+function routeMilesForPoints(points){
+  const pts = (points || []).filter(function(p){
+    return p && typeof p.lat === 'number' && typeof p.lng === 'number' &&
+           isFinite(p.lat) && isFinite(p.lng);
+  });
+  if(!pts.length) return 0;
+  const home = (typeof routeHomePoint === 'function') ? routeHomePoint() : null;
+  let miles = 0;
+  if(home) miles += haversine(home.lat, home.lng, pts[0].lat, pts[0].lng);
+  for(let i = 1; i < pts.length; i++){
+    miles += haversine(pts[i-1].lat, pts[i-1].lng, pts[i].lat, pts[i].lng);
+  }
+  if(home) miles += haversine(pts[pts.length-1].lat, pts[pts.length-1].lng, home.lat, home.lng);
+  return miles;
+}
+/* One crew's day: the houses they hold, in the order they will drive them. */
+function crewDayMiles(day, i){
+  if(!day) return {miles: 0, pinned: 0, total: 0};
+  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  if(!mine.length) return {miles: 0, pinned: 0, total: 0};
+  const ordered = (typeof orderHousesForDriving === 'function') ? orderHousesForDriving(mine) : mine;
+  const pts = ordered.map(function(h){
+    return (typeof houseStopPoint === 'function') ? houseStopPoint(h) : null;
+  }).filter(Boolean);
+  const pinned = pts.filter(function(p){
+    return typeof p.lat === 'number' && isFinite(p.lat);
+  }).length;
+  return {miles: routeMilesForPoints(pts), pinned: pinned, total: mine.length};
+}
+/* The whole day — both crews, each driving their own round trip out of the yard.
+   ⚠ SUMMED PER CREW, never as one list. Two crews leave the yard separately and
+   come back separately, so a day of two crews pays the commute TWICE; treating the
+   day as a single tour would report about half the real cost. */
+function dayMilesTotal(day){
+  let miles = 0, pinned = 0, total = 0;
+  if(!day) return {miles: 0, pinned: 0, total: 0};
+  if(day.isFixRoute){
+    const one = crewDayMiles(day, 0);
+    return one.total ? one : {miles: routeMilesForPoints((day.houses || []).map(function(h){
+      return (typeof houseStopPoint === 'function') ? houseStopPoint(h) : null;
+    }).filter(Boolean)), pinned: 0, total: (day.houses || []).length};
+  }
+  (typeof CREWS !== 'undefined' ? CREWS : [0,1]).forEach(function(c, i){
+    const m = crewDayMiles(day, i);
+    miles += m.miles; pinned += m.pinned; total += m.total;
+  });
+  return {miles: miles, pinned: pinned, total: total};
+}
+/* Every install day of the season. Takedowns and fixer routes are their own trips
+   and are counted separately rather than folded in — a season total that silently
+   mixed hanging with taking down could not be compared with last year's. */
+function seasonMilesTotal(){
+  const days = (typeof installDays === 'function') ? installDays() : [];
+  let miles = 0, pinned = 0, total = 0;
+  days.forEach(function(d){
+    const m = dayMilesTotal(d);
+    miles += m.miles; pinned += m.pinned; total += m.total;
+  });
+  return {miles: miles, pinned: pinned, total: total, days: days.length};
+}
+function fmtMiles(m){
+  if(!isFinite(m) || m <= 0) return '0 mi';
+  return (m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString()) + ' mi';
 }
 const ROUTE_PIC_COLOURS = ['var(--green)', 'var(--gold)', '#2b6cb0', '#7b3fa0'];
 function routePictureHTML(day){
@@ -41023,6 +41461,28 @@ function renderPanelInto(elId,day){
        straight to the two ways out. */
     ((n&&left>0)?'<button class="mini warn" data-leftover="'+day.id+'">'+(dc>0?left+' not done — reschedule…':'Not all of them got '+(td?'removed':'done')+'…')+'</button>':'')+
     '<button class="mini" data-printday="'+day.id+'">Print This Day</button>'+
+    /* ⭐ WHAT THIS DAY COSTS TO DRIVE, per crew and in total. Owner: "have it tell
+       you total miles driven for the day for each crew so we can track that."
+       Read-only, worked out at draw time, and never stored — it follows whatever
+       the day currently holds, so moving a house changes it immediately. */
+    (function(){
+      try{
+        if(typeof dayMilesTotal !== 'function') return '';
+        const dm = dayMilesTotal(day);
+        if(!dm.total) return '';
+        const perCrew = (day.isFixRoute || typeof CREWS === 'undefined') ? [] :
+          CREWS.map(function(c, i){
+            const m = crewDayMiles(day, i);
+            return m.total ? esc(crewName(i)) + ' ' + fmtMiles(m.miles) : '';
+          }).filter(Boolean);
+        return '<span class="read" style="margin-left:8px;font-weight:600" title="Out of the yard, round the day, and back — straight-line miles">' +
+          '⛽ ' + fmtMiles(dm.miles) +
+          (perCrew.length > 1 ? ' <span style="font-weight:500;color:var(--muted)">(' + perCrew.join(' · ') + ')</span>' : '') +
+          (dm.pinned < dm.total ? ' <span style="font-weight:500;color:var(--muted)">· ' +
+            (dm.total - dm.pinned) + ' not on the map</span>' : '') +
+          '</span>';
+      }catch(err){ return ''; }
+    })()+
     /* One sheet per crew, headed with that crew's name, so each gets only
        their own city's stops. Offered only when that crew actually has
        something on this day — a button that prints an empty page is worse
@@ -41085,6 +41545,7 @@ function renderActive(){
     if(q)renderSearch(q);else{let d=getDay(selSchedule);if(!d||d.isFixRoute||d.isTakedown)d=installDays()[0];selSchedule=d?d.id:null;renderPanelInto('panel',d);}}
   else if(activeTab==='fixes'){renderFixTray();const fr=fixerRoutes();if(!fr.find(d=>d.id===selFix))selFix=fr[0]?fr[0].id:null;renderDayList('fixDays',fr,selFix,'fix');renderPanelInto('fixPanel',getDay(selFix));}
   else if(activeTab==='oneman'){renderOneMan();renderDayMaps(null);}
+  else if(activeTab==='faraway'){renderFarAway();renderDayMaps(null);}
   else if(activeTab==='printing'){renderPrinting();renderDayMaps(null);}
   else{renderTakedownBar();const td=takedownDays();if(!td.find(d=>d.id===selTake))selTake=td[0]?td[0].id:null;renderDayList('takeDays',td,selTake,'take');renderPanelInto('takePanel',getDay(selTake));}
   renderCrewBar();
@@ -41242,6 +41703,74 @@ function renderLeftovers(){
 
    The reschedule control is deliberately the SAME one the day panel uses, so a day can
    be dealt with from here without hunting for it in the calendar. */
+/* ⭐ THE HOUSES NO CREW-DAY CAN BE BUILT AROUND (added 2026-08-22).
+   Owner: "if a house is really that far out then its for my dad to do... if they
+   are a real outlier they arent in the grid at all."
+
+   That instruction is what lets distance stop competing with timing everywhere
+   else: the houses that would have forced the trade-off are lifted out of the pool
+   before the grid is cut. But lifting somebody out of the schedule and saying
+   nothing is how a customer never gets visited, so this is the other half of it —
+   the list somebody actually works from.
+
+   TWO KINDS, and they are genuinely different jobs, which is why they are not one
+   list:
+     - FAR AWAY (SEASON_OUTLIERS). Not enough houses within reach for a crew-day to
+       exist, this season or any season. Levan is the standing example. These are
+       never scheduled; somebody drives out and does them.
+     - A SHORT DAY (SEASON_THIN). Plenty of company on the ground, just not company
+       going out the same MONTH. They keep their day and it is simply a small one.
+       Moving them to another sweep would break the month gate, so they are named
+       rather than moved — "one crews are fine" applies, and a short day nobody
+       warned you about is what reads as a mistake.
+
+   ⚠ NEVER STORED, and worked out at draw time. Same rule One Man Installs follows:
+   both lists move as customers are added, worked and rebuilt, so a stored copy is
+   right on the day it is written and wrong every day after. Both are refilled by
+   rebuildSeasonDays, so this tab reflects the last Recalculate.
+   ⚠ AND IT SAYS SO WHEN IT HAS NOTHING TO SAY. An empty tab that looks identical
+   before the first Recalculate and after a clean one is a tab nobody trusts. */
+function renderFarAway(){
+  const el = RT.getElementById('farAwayPane');
+  if(!el) return;
+  const far = (typeof SEASON_OUTLIERS !== 'undefined' && SEASON_OUTLIERS) ? SEASON_OUTLIERS : [];
+  const thin = (typeof SEASON_THIN !== 'undefined' && SEASON_THIN) ? SEASON_THIN : [];
+  const lead = '<h3>🚚 Far away</h3>' +
+    '<div class="traynote">Houses with too few others near them for a crew-day to ' +
+    'make sense — these are <b>not scheduled</b> and somebody drives out to them. ' +
+    'Underneath, houses that do have neighbours but none going out the same month, ' +
+    'so their day is simply a short one. Both lists work themselves out every time ' +
+    'this tab is drawn, and are refilled by ⚙ Recalculate everything.</div>';
+  const row = function(h){
+    return '<div class="newrow"><div>' +
+      '<div class="meta"><b>' + esc(personName(h.name, h)) + '</b> · ' +
+      esc(extractCleanCity(h.city) || 'no town') + ' · ' + esc(h.address || '') +
+      (h.phone ? ' · ' + esc(fmtPhone(h.phone)) : '') + '</div>' +
+      '</div></div>';
+  };
+  let html = lead;
+  if(!far.length && !thin.length){
+    html += '<div class="traynote">Nothing is out on its own right now. If this ' +
+      'season has not been recalculated yet, press ⚙ Recalculate everything on ' +
+      'the Scheduling tab — these two lists are filled in by that.</div>';
+    el.innerHTML = html;
+    return;
+  }
+  if(far.length){
+    html += '<h3>Somebody has to drive out · ' + far.length +
+      ' <span class="cnt">' + far.length + '</span></h3>' + far.map(row).join('');
+  } else {
+    html += '<div class="traynote">No house is far enough out to need its own trip.</div>';
+  }
+  if(thin.length){
+    html += '<h3>On a short day · ' + thin.length +
+      ' <span class="cnt">' + thin.length + '</span></h3>' +
+      '<div class="traynote">These are scheduled as normal. They are listed only so ' +
+      'a thin day is expected rather than looking like something went wrong.</div>' +
+      thin.map(row).join('');
+  }
+  el.innerHTML = html;
+}
 function renderOneMan(){
   const el = RT.getElementById('oneManPane');
   if(!el) return;
@@ -41289,7 +41818,7 @@ function renderOneMan(){
 function renderCrewBar(){
   const bar=RT.getElementById('crewBar'); if(!bar) return;
   /* There is no crew to pick on a day that one person is doing alone. */
-  if(activeTab==='oneman'||activeTab==='printing'){bar.style.display='none';return;}
+  if(activeTab==='oneman'||activeTab==='faraway'||activeTab==='printing'){bar.style.display='none';return;}
   bar.style.display='';
   const day=currentDay();
   const cities=planCities();
@@ -41355,7 +41884,7 @@ function renderImportedAt(){
      changes, so the older it is the further it has drifted from the real list. */
   el.style.color = days > 14 ? 'var(--ember)' : 'var(--muted)';
 }
-function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','printing','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
+function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','faraway','printing','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
 function switchTab(name){activeTab=name;syncTabs();renderActive();}
 /* ---------- persistence (Firestore) ---------- */
 function serialize(){
@@ -41466,6 +41995,36 @@ function houseAllowedFrom(h, startStr){
    Returns '' where there is no deadline. Only the tail sweep reads it, and
    only to decide whether somebody may be moved to a LATER day than the one
    they already have. */
+/* ⭐ WHICH SWEEP OF THE GRID THIS HOUSE RIDES (added 2026-08-22).
+   Owner: "make sure the grid is designed to be gone over twice, for november and
+   october and also kinda a third for thanksgiving and special dates but try to get
+   those in the November grid sweep if possible."
+
+   The grid is walked once per sweep and every block is timing-pure, so something
+   has to say which sweep a house belongs to — and the honest answer is already
+   computed: the MONTH IT OPENS. `houseAllowedFrom` is the one place that knows
+   when a house may first go out, and keying the sweep off it means this function
+   holds no timing rules of its own to drift out of step with that one.
+
+   ⭐ AND THAT IS WHAT GETS THANKSGIVING INTO THE NOVEMBER SWEEP BY ITSELF, which
+   is the part she asked for. "Before Thanksgiving" opens PRE_THANKSGIVING_DAYS
+   before the holiday and "After Thanksgiving" opens the day after it — both are
+   dates in NOVEMBER, so both land in November's sweep without anybody special
+   casing them. So does a named day like 11/9. A third sweep therefore happens
+   only when a house genuinely cannot open until December, which is the one case
+   where riding November was never possible.
+
+   ⚠ HOUSES INSIDE ONE SWEEP STILL HAVE DIFFERENT FLOORS, and that is fine — it is
+   not what timing-pure means. The gate this protects is the MONTH one: an October
+   house is not hung in November and a November house is not hung in October. A
+   block whose houses open on the 1st and the 20th is worked when the 1st-openers
+   are eligible and revisited later for the rest, which is exactly the owner's
+   "they will just need to come back to that one". `allowedStats` already filters
+   on `from`, so none of that is new. */
+function houseSweepKey(h, startStr){
+  const from = houseAllowedFrom(h, startStr);
+  return (''+(from || startStr || '')).slice(0, 7) || 'any';   /* YYYY-MM */
+}
 function houseDeadline(h){
   const p=(''+((h&&h.pref)||'')).trim().toUpperCase();
   if(p.indexOf('AFTER THANKS') !== -1 || p === 'THX') return '';
@@ -41664,6 +42223,8 @@ function rebuildSeasonDays(){
                spelling — 1-Nov, 11/1, 11/9+ all come through as pref. */
             named:!!prefSpecificDate((h&&h.pref)||'', BASE_START.getFullYear()),
             from:houseAllowedFrom(h,startStr),
+            /* Which pass of the grid this house rides — see houseSweepKey. */
+            sweep:houseSweepKey(h,startStr),
             /* '' for almost everybody. Only "October" and "Before Thanksgiving"
                name a last day, and only the tail sweep reads it. */
             until:houseDeadline(h),
@@ -41679,8 +42240,55 @@ function rebuildSeasonDays(){
             stop:(typeof houseGeoPoint==='function' ? houseGeoPoint(h,d)
                   : {lat:(typeof d.lat==='number'?d.lat:null), lng:(typeof d.lng==='number'?d.lng:null)})};
   });
-  const homeless=waiting.filter(function(w){return !w.city;});
-  const placeable=waiting.filter(function(w){return w.city;});
+  /* ⭐ CUT THE POOL INTO BLOCKS BEFORE ANY OF IT IS SCHEDULED (added 2026-08-22).
+     Owner: "city lines arent a concern", and "the 4 towns rule is gone in this new
+     system."
+
+     This is where the town stops being the container. planSweeps walks the grid
+     once per sweep — October, then November, then whatever genuinely cannot open
+     until later — and hands back a block for every house, so `planNewCrewDays` has
+     something to group on that is a patch of map rather than a name on a plat.
+
+     ⚠ EVERY HOUSE COMES BACK SOMEWHERE, AND THE THREE PLACES ARE DIFFERENT THINGS:
+       - a BLOCK: scheduled normally, exactly as a town used to be;
+       - an OUTLIER: too far from everybody for any crew-day to make sense, this
+         season or any season — the owner's "if a house is really that far out then
+         its for my dad to do". NOT scheduled, and NOT silently dropped;
+       - THIN: it has company on the ground but not company going out the same
+         month. It stays in its own sweep and simply makes a short day, because
+         moving it to the next sweep would break the month gate.
+     ⚠ A house the grid could not place at all still keeps its old town grouping
+     below, so the failure mode is the OLD behaviour rather than no day at all. */
+  const gridPlan = (function(){
+    if(typeof planSweeps !== 'function') return null;
+    try{
+      return planSweeps(waiting.map(function(w){
+        return {id:w.id, lat:(w.stop&&w.stop.lat), lng:(w.stop&&w.stop.lng), sweep:w.sweep};
+      }), {cap: MAX_STOPS_PER_ROUTE,
+           sweepOrder: [...new Set(waiting.map(function(w){return w.sweep;}))].sort(),
+           /* Where the vans leave from, so the grid can put the short block at the
+              end of a run nearest the yard rather than wherever it happened to fall
+              — see the depot note in cutIntoBlocks. Over half the season's mileage
+              is the commute, so which end is short is worth real fuel. */
+           depot: (typeof routeYardPoint === 'function') ? routeYardPoint() : null});
+    }catch(err){ console.error('The grid could not be built — falling back to towns:', err); return null; }
+  })();
+  /* The ids handed to the grid ARE the waiting keys, so everything it gives back
+     maps straight onto this pool with no second lookup to get wrong. */
+  const outlierKeys = {};
+  if(gridPlan){
+    const blockOf = {};
+    gridPlan.blocks.forEach(function(b){ b.ids.forEach(function(id){ blockOf[id] = b.id; }); });
+    waiting.forEach(function(w){ if(blockOf[w.id]) w.block = blockOf[w.id]; });
+    gridPlan.outliers.forEach(function(o){ outlierKeys[o.house.id] = true; });
+    SEASON_OUTLIERS = gridPlan.outliers.map(function(o){ return byId[o.house.id]; }).filter(Boolean);
+    SEASON_THIN = gridPlan.thin.map(function(t){ return byId[t.house.id]; }).filter(Boolean);
+  } else { SEASON_OUTLIERS = []; SEASON_THIN = []; }
+  /* ⚠ AN OUTLIER IS NOT SCHEDULED, so it must not reach the builder — but it must
+     not vanish either. It is held out here and reported by the Dad's list. */
+  const schedulable = waiting.filter(function(w){ return !outlierKeys[w.id]; });
+  const homeless=schedulable.filter(function(w){return !w.block && !w.city;});
+  const placeable=schedulable.filter(function(w){return w.block || w.city;});
   /* New days start after the last day that was actually worked, and never
      before today. Building from 1 October again would put a fresh crew-day on
      top of a day the crew has already been out on. */
@@ -42775,6 +43383,37 @@ RT.addEventListener('click',e=>{const t=e.target;
        un-print paper, and pretending otherwise is worse than saying so. */
     if(r.stillSet) parts.push(r.stillSet+' out for the season but still on a day that is set — check those by hand');
     parts.push(routes.days?('routes generated for '+routes.days+' day'+(routes.days===1?'':'s')):'no routes needed generating');
+    /* ⭐ AND WHAT THE SEASON NOW COSTS TO DRIVE. Owner, 2026-08-22: "total mile per
+       crew, per day, and per season", and "be sure that all this calculations happens
+       when you click the button recalculate everything."
+
+       ⚠ IT IS MEASURED HERE, AFTER generateAllRoutes, and that ordering is the whole
+       point: mileage depends on the ORDER the crews drive, so a figure taken before
+       the routes were regenerated would describe the plan that has just been thrown
+       away. Everything this button changes — the grid, the blocks, the crew split,
+       the driving order — is already done by the time this line runs.
+
+       ⚠ AND IT IS REPORTED RATHER THAN ONLY DRAWN. The number is on the stats bar
+       either way, but a season that quietly got 200 miles worse after a rebuild is
+       exactly the thing nobody notices on a bar they have stopped reading. Saying it
+       in the same sentence as "rebuilt 27 days" puts the cost next to the change
+       that caused it.
+       ⚠ The far-away list is named here for the same reason: those houses were taken
+       OUT of the schedule, and a customer silently leaving the plan is the one
+       outcome of this button nobody could otherwise explain. */
+    try{
+      if(typeof seasonMilesTotal === 'function'){
+        const sm = seasonMilesTotal();
+        if(sm.miles > 0){
+          parts.push('about ' + fmtMiles(sm.miles) + ' of driving across the season' +
+            (sm.total && sm.pinned < sm.total ? ' (' + (sm.total - sm.pinned) + ' not on the map)' : ''));
+        }
+      }
+      const nFar = (typeof SEASON_OUTLIERS !== 'undefined' && SEASON_OUTLIERS) ? SEASON_OUTLIERS.length : 0;
+      const nThin = (typeof SEASON_THIN !== 'undefined' && SEASON_THIN) ? SEASON_THIN.length : 0;
+      if(nFar) parts.push(nFar + ' too far out to schedule — see Far Away');
+      if(nThin) parts.push(nThin + ' on a short day — see Far Away');
+    }catch(err){ console.error('Could not total the season mileage:', err); }
     /* ⭐ AND IT NAMES WHAT IT COULD NOT PUT IN ORDER. See houseHasPin: these are
        on their day and on the sheet, just at the bottom of it, because there is
        no map pin to order them against. Saying so is the difference between a

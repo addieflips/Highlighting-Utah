@@ -8589,7 +8589,7 @@ suite('Suite 27. Short crew-days reach into nearby towns');
   const end = admin.indexOf('/* Top every day up to the cap.', start);
   const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
   check('S27', 'the builder and the nearby helpers are findable',
-    start !== -1 && end > start && nearbyConst !== -1 && !!extract('townCentres') && !!extract('nearbyTowns'));
+    start !== -1 && end > start && nearbyConst !== -1 && !!extract('groupCentres') && !!extract('nearbyGroups'));
 
   if (start !== -1 && end > start && nearbyConst !== -1) {
     global.toDateStr = dt => dt.getFullYear() + '-' +
@@ -8599,9 +8599,9 @@ suite('Suite 27. Short crew-days reach into nearby towns');
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
       'return 2*R*Math.asin(Math.sqrt(q));}\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + '\n' +
+      admin.slice(nearbyConst, admin.indexOf('function groupCentres')) + '\n' +
       'let NEARBY_TOWN_LIST={};' + extract('sameTownName') +
-      extract('townCentres') + '\n' + extract('nearbyTowns') + '\n' +
+      extract('groupCentres') + '\n' + extract('nearbyGroups') + '\n' +
       extract('installPriority') + '\n' + admin.slice(start, end) +
       '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE, crews: CREWS_PER_DAY})');
 
@@ -8767,14 +8767,22 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
       'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) + '\n' +
       'let NEARBY_TOWN_LIST={};' + fn('sameTownName') +
-      fn('townCentres') + fn('nearbyTowns') + fn('installPriority') + admin.slice(planStart, planEnd) +
+      fn('groupCentres') + fn('nearbyGroups') + fn('installPriority') + admin.slice(planStart, planEnd) +
       /* The rebuild now asks pinHorizon whether a day is close enough to be
          SET, so the sandbox needs it and its constant. */
       'const PIN_HONOURED_BUSINESS_DAYS=' + (admin.match(/const PIN_HONOURED_BUSINESS_DAYS=(d+);/)||[])[1] + ';' +
       fn('pinHorizon') +
       fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
+      /* ⭐ WHICH SWEEP OF THE GRID A HOUSE RIDES (added 2026-08-22). rebuildSeasonDays
+         stamps it on every waiting house, so a lift without it throws on the first
+         one and takes the whole suite down — the exact shape CLAUDE.md warns about.
+         ⚠ planSweeps is deliberately NOT lifted: it is an imported ES module and the
+         rebuild guards on `typeof planSweeps !== 'function'`, so these sandboxes
+         exercise the FALLBACK path — the old town grouping — which is what keeps
+         every existing check in them meaningful. */
+      fn('houseSweepKey') +
       'function cityOf(h){return (h.city||"").trim();}' +
       'function sameCity(a,b){return (""+a).trim().toLowerCase()===(""+b).trim().toLowerCase();}' +
       /* ⚠ dayCrewTowns NOW CAPS A CREW AT TWO TOWNS and tests whether a second one
@@ -8965,7 +8973,7 @@ suite('Suite 29. Towns the office says are near each other');
     }
     return null;
   };
-  const need = ['parseNearbyTowns', 'nearbyTownsToText', 'sameTownName', 'nearbyTowns'];
+  const need = ['parseNearbyTowns', 'nearbyTownsToText', 'sameTownName', 'nearbyGroups'];
   check('S29', 'the nearby-town helpers exist', need.every(n => !!fn(n)));
 
   if (need.every(n => !!fn(n))) {
@@ -8976,7 +8984,7 @@ suite('Suite 29. Towns the office says are near each other');
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
       'const NEARBY_TOWN_MILES=8; let NEARBY_TOWN_LIST={};' +
       need.map(fn).join('\n') +
-      'this.parse=parseNearbyTowns;this.text=nearbyTownsToText;this.near=nearbyTowns;' +
+      'this.parse=parseNearbyTowns;this.text=nearbyTownsToText;this.near=nearbyGroups;' +
       'this.set=function(m){NEARBY_TOWN_LIST=m;};'
     ).call(sb);
 
@@ -9000,12 +9008,29 @@ suite('Suite 29. Towns the office says are near each other');
     check('S29', 'with nothing typed, nearness is measured from the map pins',
       JSON.stringify(sb.near('Lehi', centres)) === JSON.stringify(['Highland']));
     sb.set(typed);
-    check('S29', 'a typed list beats the measurement',
-      JSON.stringify(sb.near('Lehi', centres)) === JSON.stringify(['Highland', 'American Fork', 'Alpine']),
-      'the measurement cannot know about a canyon, and a town with no pins cannot be measured at all');
-    check('S29', 'the town name is matched however it was capitalised',
-      JSON.stringify(sb.near('lehi', centres)) === JSON.stringify(sb.near('Lehi', centres)),
-      'it arrives from a textarea, so the casing is whatever somebody typed');
+    /* ⭐ RETIRED 2026-08-22 — THE TYPED LIST NO LONGER OUTRANKS THE MEASUREMENT,
+       because there is no longer anything for it to correct. Owner: "city lines
+       arent a concern", and "the 4 towns rule is gone in this new system."
+
+       Two checks lived here and both are deliberately gone rather than rewritten:
+         - 'a typed list beats the measurement'
+         - 'the town name is matched however it was capitalised'
+
+       WHY THEY WERE RIGHT, so nobody restores them by reflex. A TOWN is not a
+       point. Two town centres can be four miles apart with a canyon or a freeway
+       between them, so the distance between them was a bad guess and somebody had
+       to correct it by hand — that typed list was the correction, and the casing
+       check existed because it arrived from a textarea.
+
+       WHY THEY ARE NOW MEANINGLESS. A BLOCK is not a town: js/grid.js builds it as
+       a compact patch of map, so the distance between two block centres means what
+       it says and there is nothing left to correct. A block has no name, so there
+       is no spelling to match case-insensitively either. `nearbyGroups` measures,
+       full stop.
+
+       The two checks below still apply and are kept — the fallback-to-distance one
+       is now simply the ONLY path, and the caller still must not be handed a list
+       it can mutate. */
     check('S29', 'a town left out still falls back to distance',
       JSON.stringify(sb.near('Draper', centres)) === JSON.stringify(['Highland']),
       'the box has to be useful empty, or it would have to be filled in before anything worked');
@@ -11386,8 +11411,8 @@ suite('Suite 43. Install order and the one-other-town rule');
       const ctx = {};
       new Function(
         admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-        'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) +
+        'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('groupCentres') + fn('nearbyGroups') +
         'function seasonFirstDate(){return new Date(2026,9,1);}' +
         fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
         ';this.plan=planNewCrewDays;'
@@ -12226,8 +12251,8 @@ suite('Suite 47. The two biggest towns get each day');
     const ctx = {};
     new Function(
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('groupCentres') + fn('nearbyGroups') +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
       ';this.plan=planNewCrewDays;'
@@ -12465,8 +12490,8 @@ suite('Suite 48. Days within two working days are set');
       'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
       'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('groupCentres') + fn('nearbyGroups') +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       admin.slice(planStart, planEnd) +
       'const PIN_HONOURED_BUSINESS_DAYS=2;' +
@@ -12474,6 +12499,14 @@ suite('Suite 48. Days within two working days are set');
       'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
       'for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}return d;}' +
       fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
+      /* ⭐ WHICH SWEEP OF THE GRID A HOUSE RIDES (added 2026-08-22). rebuildSeasonDays
+         stamps it on every waiting house, so a lift without it throws on the first
+         one and takes the whole suite down — the exact shape CLAUDE.md warns about.
+         ⚠ planSweeps is deliberately NOT lifted: it is an imported ES module and the
+         rebuild guards on `typeof planSweeps !== 'function'`, so these sandboxes
+         exercise the FALLBACK path — the old town grouping — which is what keeps
+         every existing check in them meaningful. */
+      fn('houseSweepKey') +
       /* ⚠ LIFTED, NOT STUBBED (2026-08-22). rebuildSeasonDays now drops houses whose
          customer has left the season, and the claim being made is that it asks the ONE
          shared definition rather than a second opinion of its own — a hand-written
@@ -13295,8 +13328,8 @@ suite('Suite 51. The dribble at the end of the season');
       'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('groupCentres') + fn('nearbyGroups') +
       admin.slice(start, end) +
       '\nreturn {plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE};')();
 
@@ -13570,8 +13603,8 @@ suite('Suite 53. October is a deadline');
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       fn('thanksgivingDate') +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function groupCentres')) +
+      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('groupCentres') + fn('nearbyGroups') +
       admin.slice(start, end) +
       '\nreturn {plan: planNewCrewDays};')();
 
@@ -26618,8 +26651,17 @@ suite('77. Schedule route generator');
 
     const day = mkDay();
     const n = gen.day(day);
+    /* ⚠ ORDER CHANGED 2026-08-22 AND THE TOUR DID NOT. routeHomePoint now carries
+       a verified pin for the yard instead of coming back null in this sandbox, so
+       these days are anchored at 209 S 850 W at BOTH ends — which is what the
+       owner asked for twice. Every expectation below is the exact REVERSE of what
+       it was: the same tour, driven in the direction that is cheaper to leave from
+       and come back to. That reversal is the evidence the change is right rather
+       than a scramble; if one of these ever changes to something that is NOT a
+       clean reversal, the orderer is broken and this comment is the thing to
+       re-read. */
     check('S77', 'a day comes back as two routes, one town each, in driving order',
-      day.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2',
+      day.houses.map(h => h.name).join() === 'L2,L4,L3,L1,A2,A3,A1',
       'got [' + day.houses.map(h => h.name).join() + '] — a crew handed the input order drives the town twice');
     check('S77', 'the crews are not interleaved',
       day.houses.slice(0, 4).every(h => h.city === 'Lehi') &&
@@ -26640,7 +26682,7 @@ suite('77. Schedule route generator');
        different length, which the guard turns into "leave the day alone". Only
        the full order tells those two apart. */
     check('S77', 'a house in neither crew\'s town is kept, on the end, and the day is still ordered',
-      d2.houses.map(h => h.name).join() === 'L1,L3,L4,L2,A1,A3,A2,Nowhere',
+      d2.houses.map(h => h.name).join() === 'L2,L4,L3,L1,A2,A3,A1,Nowhere',
       'it still has to be driven to — got [' + d2.houses.map(h => h.name).join() + ']');
 
     /* A plan imported today has no coordinates on anything. It must come back
@@ -26672,7 +26714,7 @@ suite('77. Schedule route generator');
       soon.houses.map(h => h.name).join() === 'soon-a,soon-b,soon-c',
       'the crew is already holding that sheet on paper');
     check('S77', 'a day further out is ordered',
-      later.houses.map(h => h.name).join() === 'later-a,later-c,later-b',
+      later.houses.map(h => h.name).join() === 'later-b,later-c,later-a',
       'got [' + later.houses.map(h => h.name).join() + ']');
     check('S77', 'a day already gone is left alone too',
       past.houses.map(h => h.name).join() === 'past-a,past-b,past-c',
@@ -26696,7 +26738,7 @@ suite('77. Schedule route generator');
       'got nopin=' + bareRes.nopin + ' — a handful of houses sitting at the bottom of ' +
         'every sheet reads as a broken button, not as a known gap');
     check('S77', 'and the rest of that day is still put in driving order',
-      bareOne.houses.slice(0, 3).map(h => h.name).join() === 'bare-a,bare-c,bare-b',
+      bareOne.houses.slice(0, 3).map(h => h.name).join() === 'bare-b,bare-c,bare-a',
       'the un-pinned house must not drag the pinned ones out of order — got [' +
         bareOne.houses.map(h => h.name).join() + ']');
     check('S77', 'and the un-pinned house is still on the day',
@@ -27233,7 +27275,7 @@ suite('120. A day is a cluster, not the top of a list');
                                admin.indexOf('function installPriority'));
     const prelude = ['const NEARBY_TOWN_LIST = {};',
       extractFn(admin, 'haversine'), extractFn(admin, 'sameTownName'),
-      extractFn(admin, 'townCentres'), extractFn(admin, 'nearbyTowns'),
+      extractFn(admin, 'groupCentres'), extractFn(admin, 'nearbyGroups'),
       extractFn(admin, 'extractCleanCity'), extractFn(admin, 'thanksgivingDate')].join(LF_) + LF_;
     const api = eval(prelude + consts + LF_ + extractFn(admin, 'installPriority') + LF_ +
       admin.slice(start, end) + LF_ + ';({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE})');
@@ -27731,16 +27773,33 @@ suite('123. The two crew maps, actually rendered');
       check('S123', 'a two-crew day really does build two maps',
         built.length === 2 && visible().length === 2,
         'built ' + built.length + ', showing ' + visible().length);
-      check('S123', 'each map gets its own crew’s stops and nobody else’s',
-        api.panes[0].markers.length === 10 && api.panes[1].markers.length === 10,
+      /* ⭐ TEN HOUSES AND THE YARD (changed 2026-08-22). This expected ten, with a
+         comment saying "no yard in this fixture" — true when routeHomePoint could
+         come back null, which it did here because the sandbox has neither a customer
+         record at the yard nor enough Lehi houses to estimate a grid from. It now
+         carries a verified pin for 209 S 850 W and can no longer return null, so the
+         yard is drawn on every route map. That is the point of it: the owner asked
+         twice for the day to start and end there, and a map that omits the one fixed
+         end of the trip is showing a shape the crew never drives. */
+      check('S123', 'each map gets its own crew’s stops, nobody else’s, and the yard',
+        api.panes[0].markers.length === 11 && api.panes[1].markers.length === 11,
         'got ' + api.panes.map(p => p.markers.length).join(' and ') +
-        ' — no yard in this fixture, so ten each');
+        ' — ten houses plus the yard is eleven');
+      /* ⚠ markers[0] IS THE YARD NOW, not the first house (changed 2026-08-22 -
+         see the marker-count check above). So this asks the question it always
+         meant to ask: of the pins that carry a STOP number, does each crew's
+         numbering start at one? Reading markers[0] would now be testing the
+         depot's label, which is not a stop and is not numbered. */
+      const stopLabels = pane => pane.markers
+        .map(m => m.o && m.o.label && m.o.label.text)
+        .filter(t => /^[0-9]+$/.test(String(t)));
       check('S123', 'the pins are numbered from 1 for each crew',
-        api.panes[0].markers[0].o.label.text === '1' &&
-        api.panes[1].markers[0].o.label.text === '1',
-        'a crew reads their own numbering, not their block of somebody else\'s');
-      check('S123', 'each route is drawn as a line',
-        !!api.panes[0].line && api.panes[0].line.o.path.length === 10);
+        stopLabels(api.panes[0])[0] === '1' && stopLabels(api.panes[1])[0] === '1',
+        'each crew reads their own numbering, not a block of somebody elses');
+      check('S123', 'each route is drawn as a line, out of the yard and back',
+        !!api.panes[0].line && api.panes[0].line.o.path.length === 12,
+        'ten houses, with the yard at both ends of the line — got ' +
+        (api.panes[0].line ? api.panes[0].line.o.path.length : 'no line'));
       check('S123', 'the headings name each crew',
         /Route 1 . Dad \+ Ty/.test(boxes()[0].innerHTML) &&
         /Route 2 . Crew 2/.test(boxes()[1].innerHTML),
@@ -31148,12 +31207,26 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
 
   /* ---- 2. the portal actually sets the flag, run ---------------------- */
   {
+    /* ⚠ LINE ENDINGS, AND THIS IS WHY main WENT RED (fixed 2026-08-22).
+       functions/index.js is stored with CRLF — 3,778 of them, in the git blob
+       itself, so CI sees them too and this was NOT a Windows-only artifact. A
+       multi-line anchor written with \n therefore matched nothing, indexOf returned
+       -1, and the check failed on main for everybody while pointing at a block of
+       code that had never moved.
+       CLAUDE.md §7 says it in as many words: measure the line endings, do not
+       believe them, and write \r?\n in every pattern. An indexOf cannot express
+       that, so the haystack is normalised instead — the slice offsets below are
+       taken from the SAME normalised string, so they stay consistent. */
+    const fnsLF = fns.replace(/\r\n/g, '\n');
     const A = '  {\n    const rebuild = warehouseRebuildFields(oldData, updates);';
-    const a = fns.indexOf(A);
+    const a = fnsLF.indexOf(A);
     check('S133', 'the portal rebuild block is where this suite expects it', a !== -1);
     if (a !== -1 && sSrc && sList) {
-      const b = fns.indexOf("  if (section === 'lights'", a);
-      const blk = fns.slice(a, b);
+      /* ⚠ SAME STRING AS `a` CAME FROM. Mixing a normalised offset with the raw
+         file slices at the wrong byte and hands `new Function` a fragment that
+         either throws or, worse, runs a different rule than the one on disk. */
+      const b = fnsLF.indexOf("  if (section === 'lights'", a);
+      const blk = fnsLF.slice(a, b);
       const run = (oldData, updates) => {
         new Function('oldData', 'updates', 'warehouseRebuildFields',
           blk)(oldData, updates,
@@ -31428,16 +31501,24 @@ suite('Suite 135. A house that cannot be invoiced is a job, not a statistic');
   }
 
   /* ---- 2. the nightly run: the skip path, RUN ------------------------- */
+  /* ⚠ CRLF AGAIN — see the note in Suite 133. `B` spans two lines, so against the
+     real file (which is stored with CRLF, in the blob, so CI too) it matched
+     nothing and this check failed on main for everybody. Normalised haystack, and
+     every offset below is taken from the same normalised string. */
+  const fnsLF = fns.replace(/\r\n/g, '\n');
   const A = '        if (!email) {';
   const B = '          continue;\n        }';
-  const a = fns.indexOf(A);
-  const b = fns.indexOf(B, a);
+  const a = fnsLF.indexOf(A);
+  const b = fnsLF.indexOf(B, a);
   check('S135', 'the no-email skip block is where this suite expects it',
     a !== -1 && b > a,
     'moved or renamed — fix the slice rather than deleting the suite');
 
   if (a !== -1 && b > a) {
-    const blk = fns.slice(a, b) + '\n        }';
+    /* ⚠ Same normalised string `a` and `b` came from — see above. Slicing the raw
+       file with normalised offsets hands `new Function` a fragment cut at the wrong
+       byte, which is how this suite went from failing to crashing outright. */
+    const blk = fnsLF.slice(a, b) + '\n        }';
     const runSkip = (payerData) => {
       const writes = [], msgs = [];
       let skippedNoEmail = 0; const noEmailNames = [];
@@ -31931,6 +32012,338 @@ suite('Suite 140. A finished fix takes its photo with it');
     !/housePhotoUrl|frontPhotoUrl/.test(doneSrc) &&
     !/housePhotoUrl|frontPhotoUrl/.test(stripComments(extractFn(admin, 'hlxRetireFixPhoto') || '')),
     'that one prints on the crew sheet and is not the office\'s to delete here');
+}
+
+
+/* ================= Suite 143. The grid the season is actually cut with =================
+   ⭐ THIS IS THE ONLY SUITE THAT RUNS THE REAL GRID. Every other harness that
+   touches rebuildSeasonDays lifts it into a sandbox WITHOUT planSweeps, so the
+   rebuild's own `typeof planSweeps !== 'function'` guard sends them down the
+   fallback path — the old town grouping. That is deliberate and it keeps those
+   checks meaningful, but it means the code the office will actually run is the one
+   path nothing exercised. On 2026-08-22 that gap hid a real bug for several
+   minutes: admin.html imported `planBlocks` while the rebuild called `planSweeps`,
+   so the grid would have silently never engaged in production and every test would
+   have stayed green.
+
+   js/grid.js is an ES module, so this IMPORTS it rather than lifting it — the
+   functions are run exactly as the browser will run them, with no extraction list
+   to fall out of step. */
+suite('143. The grid the season is actually cut with');
+{
+  check('grid', 'admin.html imports the sweep planner it actually calls',
+    /import \{[^}]*\bplanSweeps\b[^}]*\} from '\.\/js\/grid\.js'/.test(admin) &&
+    /planSweeps\(/.test(admin),
+    'the rebuild guards on typeof planSweeps, so importing the wrong name makes the ' +
+    'grid silently never engage and leaves every suite green');
+
+  /* ⭐ AND THE HARDEST-FIRST TERM ACTUALLY MOVES HOUSES (added 2026-08-22).
+     Owner: "have the route generator form a petrol efficient route while still
+     doing hardest first."
+     ⚠ RUN, NOT READ. A weight that is wired up but never reaches the comparison is
+     invisible to any source check and leaves the feature purely decorative — which
+     is what it was for about ten minutes, because nothing set `hardness` on a stop.
+     So this drives the REAL orderer twice over the same stops and requires the
+     marked house to come out earlier the second time. */
+  {
+    const LF = String.fromCharCode(10);
+    const havS = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
+    const havE = admin.indexOf(LF + '}', havS) + 2;
+    const ordS = admin.indexOf('function twoOptImprove(');
+    const ordE = admin.indexOf('function nearestNeighborOrder(', ordS);
+    const hardS = admin.indexOf('function stopHardness(');
+    const hardE = admin.indexOf(LF + '}', hardS) + 2;
+    if (havS === -1 || ordS === -1 || hardS === -1 || ordE < ordS) {
+      check('grid', 'the route orderer and its hardness rule are findable', false,
+        'renamed — update this test');
+    } else {
+      const api = eval(admin.slice(havS, havE) + LF + admin.slice(hardS, hardE) + LF +
+        admin.slice(ordS, ordE) + LF + ';({reorder: reorderFlatStops})');
+      const HOME = { lat: 40.3854, lng: -111.8627 };
+      const mk = (hardness) => {
+        const out = [];
+        for (let i = 0; i < 10; i++) {
+          out.push({ id: 's' + i, lat: 40.38 + i * 0.010, lng: -111.86 + i * 0.008,
+                     hardness: (i === 9 ? hardness : 0) });
+        }
+        return out;
+      };
+      const posOf = (list) => list.findIndex(x => x.id === 's9');
+      const plain = api.reorder(mk(0), HOME, HOME);
+      const hard  = api.reorder(mk(1), HOME, HOME);
+      check('grid', 'a hard house is driven earlier than it otherwise would be',
+        posOf(hard) < posOf(plain),
+        'the far house sat at place ' + posOf(plain) + ' on distance alone and ' +
+        posOf(hard) + ' once marked hard — if these are equal the weight never ' +
+        'reaches the comparison and hardest-first is decorative');
+      check('grid', 'and nothing is dropped to achieve it',
+        hard.length === 10 && new Set(hard.map(x => x.id)).size === 10,
+        'a lost stop is a customer nobody visits');
+      /* ⚠ AND IT STAYS A TIE-BREAKER. Fuel is the objective — a hard house must not
+         be worth crossing the valley for. With every stop equally hard the order
+         must be exactly the distance-only order again, because a constant hardness
+         cancels out of every comparison. */
+      const allHard = api.reorder(mk(1).map(s => Object.assign(s, { hardness: 1 })), HOME, HOME);
+      check('grid', 'hardness is a tie-breaker, not a second objective',
+        allHard.map(x => x.id).join() === plain.map(x => x.id).join(),
+        'when everybody is equally hard the route must be the petrol-efficient one — ' +
+        'got [' + allHard.map(x => x.id).join() + ']');
+    }
+  }
+
+  /* ⭐ THE FAR AWAY TAB IS WIRED THE FOUR WAYS A TAB HAS TO BE (added 2026-08-22).
+     Owner: "if a house is really that far out then its for my dad to do."
+     ⚠ THREE OF THESE FOUR ARE TRAPS CLAUDE.md NAMES BY NAME, because each fails
+     silently in a different way: a pane missing from syncTabs never hides and sits
+     underneath whichever tab is showing; a renderer nothing calls leaves a blank
+     panel with no error; and a button with no pane throws on load. */
+  {
+    check('grid', 'the Far Away tab has a button and a pane',
+      /data-tab=\\"faraway\\"/.test(admin) && /id=\\"pane-faraway\\"/.test(admin) &&
+      /id=\\"farAwayPane\\"/.test(admin),
+      'a button with no pane throws on load; a pane with no button is unreachable');
+    check('grid', 'and the pane is named in syncTabs, or it never hides',
+      /\['schedule','fixes','oneman','faraway','printing','takedowns'\]/.test(admin),
+      'a pane left out of that list stays visible underneath whichever tab is open — ' +
+      'this repo has been bitten by it twice');
+    check('grid', 'and something actually calls renderFarAway',
+      /activeTab==='faraway'\)\{renderFarAway\(\)/.test(admin) &&
+      /function renderFarAway\(/.test(admin),
+      'a renderer nothing calls is a blank panel with no error to explain it');
+    check('grid', 'and it reads the two lists rather than keeping its own',
+      /renderFarAway[\s\S]{0,1200}SEASON_OUTLIERS[\s\S]{0,400}SEASON_THIN/.test(admin),
+      'a stored copy is right the day it is written and wrong every day after — the ' +
+      'same rule One Man Installs follows');
+    check('grid', 'the crew bar is hidden on it, like the other list-only tabs',
+      /activeTab==='oneman'\|\|activeTab==='faraway'\|\|activeTab==='printing'/.test(admin),
+      'there is no crew to pick on a list nobody is rostered for');
+  }
+
+  /* ⭐ WHAT A DAY COSTS TO DRIVE (added 2026-08-22). Owner: "total mile per crew,
+     per day, and per season."
+     ⚠ RUN, NOT READ. The two mistakes here both UNDERSTATE, which is the dangerous
+     direction — a mileage figure that looks plausible and is 40% low is worse than
+     no figure, because it gets believed. */
+  {
+    const LF = String.fromCharCode(10);
+    const hs = admin.indexOf('function haversine(lat1, lng1, lat2, lng2)');
+    const he = admin.indexOf(LF + '}', hs) + 2;
+    const ms = admin.indexOf('function routeMilesForPoints(points){');
+    const me = admin.indexOf(LF + '}', ms) + 2;
+    if (hs === -1 || ms === -1) {
+      check('grid', 'the mileage maths is findable', false, 'renamed — update this test');
+    } else {
+      const HOME = { lat: 40.385409, lng: -111.862718 };
+      const api = eval(admin.slice(hs, he) + LF +
+        'function routeHomePoint(){return ' + JSON.stringify(HOME) + ';}' + LF +
+        admin.slice(ms, me) + LF + ';({miles: routeMilesForPoints, hav: haversine})');
+      const one = { lat: 40.42, lng: -111.86 };
+      const legOut = api.hav(HOME.lat, HOME.lng, one.lat, one.lng);
+      /* ⚠ THE ROUND TRIP IS THE POINT. Counting only the distance BETWEEN houses
+         reports a single-stop day as zero miles, and reports a far crew-day of
+         eleven houses as cheap when it is the most expensive kind there is. On the
+         real book these two legs are 54% of the whole season's driving. */
+      check('grid', 'a day is measured out of the yard and back, not house to house',
+        Math.abs(api.miles([one]) - legOut * 2) < 0.001,
+        'one stop must cost the drive there AND the drive home — got ' +
+        api.miles([one]).toFixed(2) + ' against ' + (legOut * 2).toFixed(2));
+      check('grid', 'houses with no map pin are skipped rather than guessed at',
+        Math.abs(api.miles([one, { lat: null, lng: null }]) - api.miles([one])) < 0.001,
+        'there is no way to know what they add, so the number is a floor and the ' +
+        'screen says how much of the day it covers');
+      check('grid', 'a day with nothing on the map is zero, not an error',
+        api.miles([{ lat: null, lng: null }]) === 0 && api.miles([]) === 0);
+      /* ⚠ TWO CREWS PAY THE COMMUTE TWICE. They leave the yard separately and come
+         back separately, so a day summed as ONE tour reports roughly half the real
+         cost. dayMilesTotal sums per crew for exactly this reason. */
+      const a = { lat: 40.42, lng: -111.86 }, b = { lat: 40.45, lng: -111.80 };
+      const asTwoCrews = api.miles([a]) + api.miles([b]);
+      const asOneTour = api.miles([a, b]);
+      check('grid', 'two crews on one day pay the drive out twice',
+        asTwoCrews > asOneTour + 1,
+        'summing a two-crew day as a single tour understates it badly — two crews ' +
+        asTwoCrews.toFixed(1) + ' mi against one tour ' + asOneTour.toFixed(1) + ' mi');
+      check('grid', 'and dayMilesTotal really does sum per crew',
+        /function dayMilesTotal[\s\S]{0,900}CREWS[\s\S]{0,200}crewDayMiles\(day, i\)/.test(admin),
+        'a single-tour implementation would pass every other check here');
+    }
+  }
+
+  /* ⭐ RECALCULATE EVERYTHING REALLY DOES RECALCULATE EVERYTHING (added 2026-08-22).
+     Owner: "be sure that all this calculations happens when you click the button
+     recalculate everything."
+     ⚠ THE ORDER IS THE CHECK, not merely the presence. Mileage depends on the ORDER
+     the crews drive, so a total taken BEFORE generateAllRoutes would describe the
+     plan that has just been thrown away — and it would look completely plausible. */
+  {
+    const btn = admin.indexOf("if(t.id==='recalcBtn'){");
+    const end = admin.indexOf('preRebuild=before;', btn);
+    const body = btn === -1 ? '' : admin.slice(btn, admin.indexOf('undoRebuildBtn', btn) + 4000);
+    check('grid', 'Recalculate rebuilds the season and regenerates the routes',
+      /rebuildSeasonDays\(\)/.test(body) && /generateAllRoutes\(\)/.test(body),
+      'the grid, the blocks and the crew split all happen inside rebuildSeasonDays');
+    check('grid', 'and totals the mileage AFTER the routes are regenerated',
+      body.indexOf('generateAllRoutes()') !== -1 &&
+      body.indexOf('seasonMilesTotal()') > body.indexOf('generateAllRoutes()'),
+      'measured first, it reports the mileage of the plan that was just replaced');
+    check('grid', 'and it names what came out of the schedule entirely',
+      /SEASON_OUTLIERS[\s\S]{0,400}too far out to schedule/.test(body),
+      'a customer silently leaving the plan is the one outcome of this button ' +
+      'nobody could otherwise explain');
+  }
+
+  pendingAsync.push((async () => {
+    const grid = await import('./js/grid.js');
+
+    /* ⭐ THE CREW SPLIT, RUN ON THE REAL CURVE (added 2026-08-22).
+       Every other harness lifts dayCrewHouses WITHOUT the grid, so dayCrewSplitGeo
+       returns null there and the old town split is what gets exercised. That is
+       deliberate and keeps those checks meaningful — and it means the split the
+       office will actually see is the one path nothing covered. Twice now that gap
+       has hidden a missing import that would have left a feature silently dead in
+       production, so this drives the real function with the real cellOf and
+       hilbertIndex. Only houseStopPoint is stubbed, because reading a coordinate
+       off a customer record is somebody else's test. */
+    {
+      const LF = String.fromCharCode(10);
+      const gs = admin.indexOf('function dayCrewSplitGeo(day){');
+      const ge = admin.indexOf(LF + '}', gs) + 2;
+      if (gs === -1) {
+        check('grid', 'the crew split is findable', false, 'renamed — update this test');
+      } else {
+        const sandbox = {};
+        new Function('cellOf', 'hilbertIndex', 'ctx',
+          'function crewCap(){return 20;}' +
+          'function houseStopPoint(h){return {lat:h.lat,lng:h.lng};}' +
+          admin.slice(gs, ge) +
+          'ctx.split = dayCrewSplitGeo;'
+        )(grid.cellOf, grid.hilbertIndex, sandbox);
+
+        /* Two clumps a few miles apart, fed in deliberately interleaved so a split
+           that simply cuts the list in half would put half of each clump on each
+           crew — which is the failure this exists to catch. */
+        const houses = [];
+        for (let i = 0; i < 8; i++) {
+          houses.push({ name: 'west' + i, lat: 40.38 + i * 0.002, lng: -111.90 + i * 0.002 });
+          houses.push({ name: 'east' + i, lat: 40.44 + i * 0.002, lng: -111.72 + i * 0.002 });
+        }
+        const res = sandbox.split({ houses: houses });
+        check('grid', 'the day is cut into two halves that are each in one place',
+          !!res &&
+          res[0].every(h => /^west/.test(h.name)) && res[1].every(h => /^east/.test(h.name)) ||
+          !!res &&
+          res[0].every(h => /^east/.test(h.name)) && res[1].every(h => /^west/.test(h.name)),
+          'interleaved input must come apart by GEOGRAPHY, not by list position — got ' +
+          (res ? res.map(c => c.map(h => h.name).join('+')).join('  |  ') : 'null'));
+
+        check('grid', 'every house on the day is held by one crew and only one',
+          !!res && res[0].length + res[1].length === houses.length &&
+          new Set(res[0].concat(res[1])).size === houses.length,
+          'a house no crew is holding a sheet for is a house nobody drives to');
+
+        check('grid', 'neither crew is given more than a crew-day',
+          !!res && res[0].length <= 20 && res[1].length <= 20);
+
+        /* ⚠ A HOUSE WITH NO PIN IS STILL SOMEBODY'S. It cannot be placed on the
+           curve, and leaving it out would quietly drop a real customer. */
+        const withBare = houses.concat([{ name: 'nopin', lat: null, lng: null }]);
+        const res2 = sandbox.split({ houses: withBare });
+        check('grid', 'a house with no map pin is still dealt to a crew',
+          !!res2 && res2[0].concat(res2[1]).some(h => h.name === 'nopin') &&
+          res2[0].length + res2[1].length === withBare.length,
+          'it is a real customer somebody has to be holding the sheet for');
+
+        check('grid', 'the same day splits the same way twice',
+          JSON.stringify(sandbox.split({ houses: houses }).map(c => c.map(h => h.name))) ===
+          JSON.stringify(res.map(c => c.map(h => h.name))),
+          'the office comparing two draws should see real differences only');
+
+        check('grid', 'a day with nothing on the map falls back rather than guessing',
+          sandbox.split({ houses: [{ name: 'a' }, { name: 'b' }] }) === null,
+          'null is what sends dayCrewHouses to the old town split, which is the ' +
+          'right answer when there is nothing to measure');
+      }
+    }
+
+
+    /* A book shaped like the real one: a dense strip, a second cluster, a thin
+       tail, and one house on its own. Deterministic, so a failure is reproducible. */
+    let s = 4242;
+    const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const houses = [];
+    let n = 0;
+    const push = (lat, lng, sweep) => houses.push({ id: 'g' + (++n), lat, lng, sweep });
+    for (let i = 0; i < 240; i++) { const t = rnd();
+      push(40.20 + t * 0.22 + (rnd() - 0.5) * 0.02, -111.85 + t * 0.18 + (rnd() - 0.5) * 0.02,
+           i % 3 === 0 ? '2026-10' : '2026-11'); }
+    for (let i = 0; i < 90; i++)
+      push(40.55 + (rnd() - 0.5) * 0.12, -111.90 + (rnd() - 0.5) * 0.14, i % 2 ? '2026-10' : '2026-11');
+    for (let i = 0; i < 22; i++)
+      push(40.02 + (rnd() - 0.5) * 0.10, -111.68 + (rnd() - 0.5) * 0.10, '2026-11');
+    push(39.5547, -111.8607, '2026-11');            // Levan, alone
+    const lone = houses[houses.length - 1].id;
+
+    const res = grid.planSweeps(houses, { cap: 20, sweepOrder: ['2026-10', '2026-11'] });
+
+    check('grid', 'a house too far from everybody is not scheduled at all',
+      res.outliers.some(o => o.house.id === lone) &&
+      !res.blocks.some(b => b.ids.indexOf(lone) !== -1),
+      'the owner\'s "if a house is really that far out then its for my dad to do" — ' +
+      'scheduling it is a crew driving twenty miles for one house');
+
+    check('grid', 'every house is placed, an outlier, or named as a short day',
+      new Set(res.blocks.flatMap(b => b.ids)).size + res.outliers.length + res.thin.length
+        === houses.length,
+      'a house that is in none of the three is a customer nobody visits, and nothing ' +
+      'on screen would say so');
+
+    /* ⚠ THE ONE THAT MATTERS MOST. A block is worked as a unit, so a block holding
+       an October and a November house cannot be worked without breaking one of them. */
+    const sweepOf = {};
+    houses.forEach(h => { sweepOf[h.id] = h.sweep; });
+    check('grid', 'no block mixes two sweeps',
+      res.blocks.every(b => new Set(b.ids.map(id => sweepOf[id])).size === 1),
+      'timing is a hard gate — a mixed block is an October customer hung in November ' +
+      'or a November customer dragged forward');
+
+    check('grid', 'block ids never collide between sweeps',
+      new Set(res.blocks.map(b => b.id)).size === res.blocks.length,
+      'the builder GROUPS on the block id, so a collision silently welds an October ' +
+      'block onto a November one');
+
+    check('grid', 'no block is a one-man day',
+      res.blocks.every(b => b.count > 8),
+      'ONE_MAN_MAX_HOUSES is 8 — this whole design exists to stop the season ending ' +
+      'in a scatter of them');
+
+    check('grid', 'and none is over a crew-day',
+      res.blocks.every(b => b.count <= 20), 'MAX_STOPS_PER_ROUTE is twenty');
+
+    /* Owner, 2026-08-22: "try to size the grids so most of them will fit about 20
+       houses." Most, not all — a sweep's last block is allowed to be short. */
+    const full = res.blocks.filter(b => b.count === 20).length;
+    check('grid', 'most blocks are a full crew-day',
+      full * 2 >= res.blocks.length,
+      'only ' + full + ' of ' + res.blocks.length + ' reached twenty — splitRun should ' +
+      'fill to the cap and even only a one-man tail');
+
+    check('grid', 'the same book gives the same plan twice',
+      JSON.stringify(grid.planSweeps(houses, { cap: 20, sweepOrder: ['2026-10', '2026-11'] })
+        .blocks.map(b => b.ids)) === JSON.stringify(res.blocks.map(b => b.ids)),
+      'the office comparing two rebuilds should see real differences only');
+
+    /* Owner: "when you get furthur out where they become more sparse grid sizes can
+       change slightly too." */
+    check('grid', 'the curve cut stretches where the book is sparse',
+      grid.localJumpMiles({ id: 'a' }, { id: 'b' }, { a: 1.5, b: 1.5 }) >
+      grid.localJumpMiles({ id: 'a' }, { id: 'b' }, { a: 0.03, b: 0.03 }),
+      'a flat threshold is a town rule in different clothes — three miles is a real ' +
+      'break in Orem and the ordinary gap between neighbours past Santaquin');
+
+    check('grid', 'but never past the ceiling',
+      grid.localJumpMiles({ id: 'a' }, { id: 'b' }, { a: 99, b: 99 }) === grid.MAX_CURVE_JUMP_CEILING,
+      'one lonely pair must not drag a run across a county');
+  })());
 }
 
 
