@@ -32260,6 +32260,118 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
     'without this, typing an address triggers half the shortcuts');
 }
 
+
+suite('130. Measure Roof — a triangle is not a flat line');
+{
+  /* ⚠ THE COMPLAINT THIS EXISTS FOR, in the owner's words: "when we measure
+     sky view it reads it like a flat line when most houses roof have triangles
+     and dimensions that dont stay flat". Looking straight down, a RAKE — the
+     sloping edge of a gable — is foreshortened to its horizontal run, and it
+     used to be given one flat height for its whole length. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFeetBetween', 'rmRoofHeightAt'];
+  const missing = NAMES.filter(n => !pick(n));
+  if (missing.length) {
+    check('S130', 'the roof-plane model is findable', false, 'missing: ' + missing.join(', '));
+  } else {
+    const api = new Function(
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'let rmFaces=[], rmGroundM=null;' + LF_ +
+      'const RM_M_TO_FT=3.280839895;' + LF_ +
+      NAMES.map(pick).join(LF_) + LF_ +
+      'return {set:function(f,g){rmFaces=f; rmGroundM=g;}, rmRoofHeightAt, rmToLocal, rmToWorld, rmFeetBetween};')();
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+
+    /* A gable facing south. Ground at 1400 m. The face runs 6 m from ridge to
+       eave, at a 6/12 pitch (26.57 deg), with its centre plane height 1408 m —
+       so the ridge is ~1409.5 and the eave ~1406.5, i.e. 6.5 m and 3.5 m up. */
+    const PITCH = 26.565;
+    const face = {
+      sw: ll(-8, -6), ne: ll(8, 6),
+      azimuth: 180, pitch: PITCH,
+      center: ll(0, 0), planeHeightM: 1408, areaSqFt: 600
+    };
+    api.set([face], 1400);
+
+    const atRidge = api.rmRoofHeightAt(ll(0, 3).lat, ll(0, 3).lng);   /* 3 m uphill */
+    const atEave  = api.rmRoofHeightAt(ll(0, -3).lat, ll(0, -3).lng); /* 3 m downhill */
+    check('S130', 'the roof is higher at the ridge than at the eave',
+      atRidge !== null && atEave !== null && atRidge > atEave + 2,
+      'ridge ' + (atRidge === null ? 'null' : atRidge.toFixed(2)) + ' m, eave ' +
+      (atEave === null ? 'null' : atEave.toFixed(2)) + ' m — a roof read as one flat height is the whole bug');
+    const expectedRise = 6 * Math.tan(PITCH * Math.PI / 180);
+    check('S130', 'and the rise across it matches the pitch',
+      Math.abs((atRidge - atEave) - expectedRise) < 0.05,
+      'got ' + (atRidge - atEave).toFixed(3) + ' m over 6 m, expected ' + expectedRise.toFixed(3) +
+      ' — the plane is not being tilted by the pitch');
+
+    /* NOW THE ACTUAL COMPLAINT. A rake traced across that gable: 4 m sideways
+       and 6 m up the slope in plan. Flat, it is the horizontal run. With real
+       heights it is the hypotenuse. */
+    const a = {lat: ll(-4, -3).lat, lng: ll(-4, -3).lng, h: api.rmRoofHeightAt(ll(-4, -3).lat, ll(-4, -3).lng)};
+    const b = {lat: ll(0, 3).lat,  lng: ll(0, 3).lng,  h: api.rmRoofHeightAt(ll(0, 3).lat, ll(0, 3).lng)};
+    const flatA = {lat: a.lat, lng: a.lng, h: 3}, flatB = {lat: b.lat, lng: b.lng, h: 3};
+    const sloped = api.rmFeetBetween(a, b);
+    const flat = api.rmFeetBetween(flatA, flatB);
+    check('S130', 'a rake measured with real heights is LONGER than the flat run',
+      sloped > flat + 0.5,
+      'sloped ' + sloped.toFixed(1) + ' ft vs flat ' + flat.toFixed(1) +
+      ' ft — if these are equal the triangle is being read as a flat line again');
+    check('S130', 'and it is longer by roughly the rise, not by some arbitrary amount',
+      Math.abs(sloped - Math.hypot(flat, (b.h - a.h) * 3.280839895)) < 0.2,
+      'the extra length must be the actual climb, not a fudge factor');
+
+    /* ⚠ AND THE THINGS THAT WERE NEVER WRONG MUST STAY RIGHT. An eave and a
+       ridge are both LEVEL, so their flat measurement was always correct — a
+       "fix" that started adding rise to them would break working behaviour. */
+    const e1 = ll(-6, -6), e2 = ll(6, -6);      /* along the eave, same downhill distance */
+    const h1 = api.rmRoofHeightAt(e1.lat, e1.lng), h2 = api.rmRoofHeightAt(e2.lat, e2.lng);
+    check('S130', 'two points along the same eave come out at the same height',
+      h1 !== null && h2 !== null && Math.abs(h1 - h2) < 0.02,
+      'got ' + h1 + ' and ' + h2 + ' — a level gutter that slopes is the model tilting the wrong way');
+    const r1 = ll(-6, 6), r2 = ll(6, 6);
+    const rh1 = api.rmRoofHeightAt(r1.lat, r1.lng), rh2 = api.rmRoofHeightAt(r2.lat, r2.lng);
+    check('S130', 'and so do two points along the ridge',
+      rh1 !== null && rh2 !== null && Math.abs(rh1 - rh2) < 0.02);
+    check('S130', 'the ridge sits above the eave', rh1 > h1 + 2);
+
+    /* ---- it refuses rather than inventing -------------------------------- */
+    api.set([], 1400);
+    check('S130', 'with no roof model it returns null instead of a made-up height',
+      api.rmRoofHeightAt(ll(0, 0).lat, ll(0, 0).lng) === null,
+      'a guessed height silently changes every footage on the quote');
+    api.set([face], null);
+    check('S130', 'and with no ground level it also refuses',
+      api.rmRoofHeightAt(ll(0, 0).lat, ll(0, 0).lng) === null,
+      'plane heights are above SEA level — without the ground they are a number in the thousands');
+    /* A nonsense plane must not produce a nonsense height. */
+    api.set([{sw: ll(-8, -6), ne: ll(8, 6), azimuth: 180, pitch: PITCH,
+              center: ll(0, 0), planeHeightM: 1480, areaSqFt: 600}], 1400);
+    check('S130', 'an 80 m high "roof" is refused as nonsense',
+      api.rmRoofHeightAt(ll(0, 0).lat, ll(0, 0).lng) === null,
+      'a bad plane height would put a traced point 260 ft up and wreck the footage silently');
+  }
+
+  /* ---- and the sky-view click actually uses it ------------------------- */
+  const px2w = pick('rmMapPixelToWorld');
+  check('S130', 'a sky-view click takes its height from the roof, not one flat number',
+    !!px2w && /rmRoofHeightAt/.test(px2w),
+    'this is the fix — without it every point on a run shares one height again');
+  check('S130', 'but falls back to the typed height when Google has no plane there',
+    !!px2w && /rmWorkingHeightM/.test(px2w),
+    'a number the office chose beats refusing to place the point at all');
+  const dot = extractFn(admin, 'rmDot');
+  /* ⚠ THIS CHECK WAS VACUOUS AT FIRST and a red-check caught it: matching
+     `rmRoofHeightAt` alone stayed green when the ASSIGNMENT below it was
+     disabled, because the call on the line above survived. The lookup happening
+     is not the claim — the height being STORED is. */
+  check('S130', 'and dragging a point up the roof updates its height',
+    !!dot && /if\(dragH !== null\)\s*run\.path\[idx\]\.h = dragH;/.test(dot),
+    'otherwise dragging a point from the eave to the ridge keeps the eave height');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

@@ -14961,6 +14961,7 @@ let rmSkyReady = false, rmStreetReady = false;
 let rmRoofGrade = '';           /* what Google's roof model graded this house */
 let rmRoofFacts = null;         /* kept so the grade can be re-cut once the eave height lands */
 let rmFaces = [];               /* Google's roof faces, the guessed lines come from these */
+let rmGroundM = null;           /* ground level at the house, so plane heights become heights */
 
 /* ⚠ THERE ARE TWO GOOGLE KEYS ON THIS PAGE AND THEY ARE NOT INTERCHANGEABLE.
    The map loads from the key on the Maps script tag; Firebase carries its own
@@ -15137,6 +15138,56 @@ function rmGroundHit(dir, cam){
   if(t <= 0) return null;
   return {e: cam.e + dir.e*t, n: cam.n + dir.n*t, u: 0};
 }
+/* HOW HIGH THE ROOF IS AT ANY ONE SPOT.
+ *
+ * ⚠ THIS IS WHAT STOPS THE SKY VIEW MEASURING A TRIANGLE AS A FLAT LINE.
+ * Looking straight down, a rake - the sloping edge of a gable - is foreshortened
+ * to its horizontal run, and a run traced across one used to be given a single
+ * flat height for every point on it. A rake climbing from a 10 ft eave to an
+ * 18 ft peak was therefore measured as though both ends were at 10 ft, which is
+ * short by however much the roof rises. On a 6/12 gable that is about 10%.
+ *
+ * ⚠ EAVES AND RIDGES WERE NEVER AFFECTED and it is worth knowing why: both are
+ * LEVEL. A gutter runs horizontally and so does a ridge, so their length has no
+ * vertical component and the flat measurement was already right. Only the
+ * sloping edges were wrong, which is exactly the "triangles" case.
+ *
+ * Each roof face is a plane: Google gives its centre, the height of the plane
+ * at that centre, the pitch, and the azimuth it slopes down toward. Height at
+ * any point is then the centre height minus how far you have walked downhill
+ * from the centre, times the slope. Every point traced on the sky view carries
+ * its own real height, and a rake comes out as the hypotenuse it is.
+ */
+function rmRoofHeightAt(lat, lng){
+  if(!rmFaces || !rmFaces.length || rmGroundM === null) return null;
+  const p = rmToLocal(lat, lng, 0);
+  let best = null;
+  rmFaces.forEach(function(f){
+    if(!f.center || !isFinite(f.planeHeightM)) return;
+    const c = rmToLocal(f.center.lat, f.center.lng, 0);
+    /* Inside this face's own box is a definite answer; otherwise the nearest
+       face is the best guess, and being on the eave of the nearest face is a
+       far better answer than being on the ground. */
+    const inBox = lat >= Math.min(f.sw.lat, f.ne.lat) && lat <= Math.max(f.sw.lat, f.ne.lat) &&
+                  lng >= Math.min(f.sw.lng, f.ne.lng) && lng <= Math.max(f.sw.lng, f.ne.lng);
+    const d = Math.hypot(p.e - c.e, p.n - c.n);
+    const score = (inBox ? 0 : 1000) + d;
+    if(!best || score < best.score) best = {f: f, c: c, score: score};
+  });
+  if(!best) return null;
+  const a = (Number(best.f.azimuth) || 0) * Math.PI / 180;
+  const down = {e: Math.sin(a), n: Math.cos(a)};
+  /* How far downhill of the centre this point is, in metres. */
+  const along = (p.e - best.c.e) * down.e + (p.n - best.c.n) * down.n;
+  const rise = Math.tan((Number(best.f.pitch) || 0) * Math.PI / 180);
+  const aboveSea = best.f.planeHeightM - along * rise;
+  const h = aboveSea - rmGroundM;
+  /* A house is not underground and is not a tower block. A silly answer here
+     would put a traced point at a silly height and quietly wreck the footage,
+     so it is refused and the caller falls back to the working height. */
+  if(!(h > 0.5 && h < 20)) return null;
+  return h;
+}
 /* THE FRONT OF THE HOUSE, WORKED OUT RATHER THAN CLICKED.
  *
  * Most of the tracing happens in Street View, so making somebody pin the wall
@@ -15292,7 +15343,11 @@ function rmBuildSuggestions(faces){
     if(!eave) return;
     const run = {
       type: 'perimeter', suggested: true, on: rmFaceFacesTheRoad(eave), facing: eave.facing,
-      path: [{lat: eave.a.lat, lng: eave.a.lng, h: h}, {lat: eave.b.lat, lng: eave.b.lng, h: h}],
+      /* Each END gets its own height. An eave is level so both usually agree,
+         but a raked or stepped edge does not, and assuming it does is the same
+         flat-line mistake one level down. */
+      path: [{lat: eave.a.lat, lng: eave.a.lng, h: rmRoofHeightAt(eave.a.lat, eave.a.lng) ?? h},
+             {lat: eave.b.lat, lng: eave.b.lng, h: rmRoofHeightAt(eave.b.lat, eave.b.lng) ?? h}],
       line: null, dots: []
     };
     /* A sliver is noise, not a run somebody wants to see offered. */
@@ -15408,6 +15463,10 @@ function rmDot(run, idx){
     run.touched = true;
     run.path[idx].lat = e.latLng.lat();
     run.path[idx].lng = e.latLng.lng();
+    /* Moved across the roof, so its height moves with it - otherwise dragging a
+       point up a gable keeps the height it had at the eave. */
+    const dragH = rmRoofHeightAt(run.path[idx].lat, run.path[idx].lng);
+    if(dragH !== null) run.path[idx].h = dragH;
     if(run.line) run.line.setPath(run.path.map(function(p){ return {lat:p.lat, lng:p.lng}; }));
     rmRenderResults(); rmPaintStreet();
   };
@@ -15843,6 +15902,7 @@ async function rmLoadAddress(){
           function(res, st){
             if(st !== 'OK' || !res || !res[0]) return;
             const ground = res[0].elevation;
+            rmGroundM = ground;
             const eave = d.planeHeights.lowM - ground;
             const ridge = d.planeHeights.highM - ground;
             /* A house is not 60 ft tall and is not underground. A silly answer
@@ -15900,7 +15960,12 @@ function rmMapPixelToWorld(clientX, clientY, rect){
   const lng = (wx/256 - .5)*360;
   const nn = Math.PI - 2*Math.PI*wy/256;
   const lat = 180/Math.PI*Math.atan(.5*(Math.exp(nn)-Math.exp(-nn)));
-  return {lat: lat, lng: lng, h: rmWorkingHeightM()};
+  /* ⚠ THE ROOF'S OWN HEIGHT AT THIS SPOT, not one flat number for the whole
+     run. This is what makes a traced rake come out as the hypotenuse rather
+     than its shadow on the ground. Falls back to the working height only when
+     Google has no plane here - a number the office chose beats a guess. */
+  const roofH = rmRoofHeightAt(lat, lng);
+  return {lat: lat, lng: lng, h: roofH === null ? rmWorkingHeightM() : roofH};
 }
 /* ================= MEASURING ON A PHOTOGRAPH =====================
  * See the block comment on #rmPhotoBar for why this needs a known length and
@@ -16246,6 +16311,7 @@ function rmReset(){
   document.getElementById('rmMaterialPanel').style.display = 'none';
   document.getElementById('rmPricePanel').style.display = 'none';
   rmRoofGrade = ''; rmRoofFacts = null; rmFaces = [];
+  rmGroundM = null;
   rmPhotoExtraFeet = 0; rmPhotoRuns = []; rmPhotoRef = null; rmPhotoRefPx = 0; rmPhotoBlob = null;
   document.getElementById('rmPhotoStage').style.display = 'none';
   document.getElementById('rmPhotoStatus').textContent = 'For the back of the house, or anywhere Street View cannot see.';
@@ -18455,11 +18521,16 @@ async function fetchRoofDetails(lat, lng){
   const faces = segments.map(function(seg){
     const bb = seg.boundingBox;
     if(!bb || !bb.sw || !bb.ne) return null;
+    const c = seg.center;
     return {
       sw: {lat: bb.sw.latitude, lng: bb.sw.longitude},
       ne: {lat: bb.ne.latitude, lng: bb.ne.longitude},
       azimuth: Number(seg.azimuthDegrees),
       pitch: Number(seg.pitchDegrees) || 0,
+      /* The centre and its height are what turn a face into a PLANE. Without
+         them a roof is a flat outline and every sloping edge measures short. */
+      center: c ? {lat: c.latitude, lng: c.longitude} : null,
+      planeHeightM: Number(seg.planeHeightAtCenterMeters),
       areaSqFt: seg.stats && seg.stats.areaMeters2 ? Math.round(seg.stats.areaMeters2 * 10.7639) : 0
     };
   }).filter(function(f){ return f && isFinite(f.azimuth); });
