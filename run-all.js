@@ -31207,12 +31207,26 @@ suite('Suite 133. A wire or timer change reaches the warehouse');
 
   /* ---- 2. the portal actually sets the flag, run ---------------------- */
   {
+    /* ⚠ LINE ENDINGS, AND THIS IS WHY main WENT RED (fixed 2026-08-22).
+       functions/index.js is stored with CRLF — 3,778 of them, in the git blob
+       itself, so CI sees them too and this was NOT a Windows-only artifact. A
+       multi-line anchor written with \n therefore matched nothing, indexOf returned
+       -1, and the check failed on main for everybody while pointing at a block of
+       code that had never moved.
+       CLAUDE.md §7 says it in as many words: measure the line endings, do not
+       believe them, and write \r?\n in every pattern. An indexOf cannot express
+       that, so the haystack is normalised instead — the slice offsets below are
+       taken from the SAME normalised string, so they stay consistent. */
+    const fnsLF = fns.replace(/\r\n/g, '\n');
     const A = '  {\n    const rebuild = warehouseRebuildFields(oldData, updates);';
-    const a = fns.indexOf(A);
+    const a = fnsLF.indexOf(A);
     check('S133', 'the portal rebuild block is where this suite expects it', a !== -1);
     if (a !== -1 && sSrc && sList) {
-      const b = fns.indexOf("  if (section === 'lights'", a);
-      const blk = fns.slice(a, b);
+      /* ⚠ SAME STRING AS `a` CAME FROM. Mixing a normalised offset with the raw
+         file slices at the wrong byte and hands `new Function` a fragment that
+         either throws or, worse, runs a different rule than the one on disk. */
+      const b = fnsLF.indexOf("  if (section === 'lights'", a);
+      const blk = fnsLF.slice(a, b);
       const run = (oldData, updates) => {
         new Function('oldData', 'updates', 'warehouseRebuildFields',
           blk)(oldData, updates,
@@ -31487,16 +31501,24 @@ suite('Suite 135. A house that cannot be invoiced is a job, not a statistic');
   }
 
   /* ---- 2. the nightly run: the skip path, RUN ------------------------- */
+  /* ⚠ CRLF AGAIN — see the note in Suite 133. `B` spans two lines, so against the
+     real file (which is stored with CRLF, in the blob, so CI too) it matched
+     nothing and this check failed on main for everybody. Normalised haystack, and
+     every offset below is taken from the same normalised string. */
+  const fnsLF = fns.replace(/\r\n/g, '\n');
   const A = '        if (!email) {';
   const B = '          continue;\n        }';
-  const a = fns.indexOf(A);
-  const b = fns.indexOf(B, a);
+  const a = fnsLF.indexOf(A);
+  const b = fnsLF.indexOf(B, a);
   check('S135', 'the no-email skip block is where this suite expects it',
     a !== -1 && b > a,
     'moved or renamed — fix the slice rather than deleting the suite');
 
   if (a !== -1 && b > a) {
-    const blk = fns.slice(a, b) + '\n        }';
+    /* ⚠ Same normalised string `a` and `b` came from — see above. Slicing the raw
+       file with normalised offsets hands `new Function` a fragment cut at the wrong
+       byte, which is how this suite went from failing to crashing outright. */
+    const blk = fnsLF.slice(a, b) + '\n        }';
     const runSkip = (payerData) => {
       const writes = [], msgs = [];
       let skippedNoEmail = 0; const noEmailNames = [];
