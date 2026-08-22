@@ -35096,6 +35096,44 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
+suite('162. Measure Roof - the first dot on a wall measures the roof height');
+{
+  /* Owner: "measure height not just legth and depth". The panel has promised
+     this for weeks - "Trace anything in Street View and it is measured instead"
+     - and it was only ever wired to the OLD TRACING path. Once the work moved to
+     dots the datum stopped being measured on every house: four addresses checked
+     in a row, all four said "assumed". */
+  check('S162', 'placing a dot can set the roof height',
+    (function(){
+      const i = admin.indexOf("rmAddCorner({lat: w.lat, lng: w.lng, h: best.u,");
+      const j = admin.lastIndexOf('rmSetDatumFromStreet(w)', i);
+      return i !== -1 && j !== -1 && j < i && (i - j) < 900;
+    })(),
+    'it was wired to rmAddPoint only, which the dot workflow never calls');
+
+  /* ⚠ AND ONLY FROM A WALL, WHICH IS THE WHOLE ARGUMENT. */
+  check('S162', 'and only from a WALL hit, never a roof hit',
+    /best\.kind === 'wall' && rmDatumSource !== 'street' && rmSetDatumFromStreet\(w\)/.test(admin),
+    'a wall height comes from the camera and the ray, which know nothing about the datum; ' +
+    'a roof height comes from a plane the datum PLACED, so using it would be measuring ' +
+    'the assumption and calling it a measurement');
+  check('S162', 'a measurement already taken is not overwritten by a later click',
+    /rmDatumSource !== 'street'/.test(admin),
+    'the first real observation stands; later clicks do not drift it');
+  /* The two kinds have to be distinguishable at all for that test to mean anything. */
+  check('S162', 'the solid-cast says which kind of surface it hit',
+    /kind: 'wall'/.test(admin) && /kind: 'roof'/.test(admin),
+    'without the label the wall-only rule cannot be enforced');
+  check('S162', 'and the heights are refreshed so every line moves with it',
+    (function(){
+      const i = admin.indexOf("best.kind === 'wall' && rmDatumSource !== 'street'");
+      const j = admin.indexOf('rmRefreshHeights();', i);
+      return i !== -1 && j > i && (j - i) < 200;
+    })(),
+    'a new datum that nothing redraws is a number in a variable');
+}
+
+
 suite('161. Measure Roof - corners are offered, and only the ones clicked count');
 {
   const LF_ = String.fromCharCode(10);
