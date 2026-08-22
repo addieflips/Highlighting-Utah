@@ -27867,7 +27867,77 @@ suite('Suite 128. The do-not-send list — automation emails only');
       'two doors onto one fact — a second field here is the one that drifts');
   }
 
-  /* ---- 9. the four dead senders are still dead ---- */
+  /* ---- 9. finding who has no email, from Customers ---- */
+  /* Owner: "just make a filter in costumer were i can see who has no email."
+     An invoice only ever goes by email and Automation Emails drops these people
+     before any other filter runs, so somebody with no address silently misses their
+     bill AND every RSVP — and no screen in Customers could name them. */
+  {
+    const canSrc = extractFn(admin, 'custCanBeEmailed');
+    const chipSrc = extractFn(admin, 'custEmailChip');
+    check('S128', 'the can-we-email-them rule and its chip are findable',
+      !!canSrc && !!chipSrc,
+      'renamed — the Customers filter and the row badge both read these');
+
+    if (canSrc && chipSrc) {
+      const api = new Function('esc', canSrc + chipSrc +
+        ';return {can: custCanBeEmailed, chip: custEmailChip};')(s => String(s == null ? '' : s));
+
+      check('S128', 'a customer with an email can be emailed',
+        api.can({ email: 'a@b.com' }) === true);
+      check('S128', 'a blank one cannot',
+        api.can({}) === false && api.can({ email: '   ' }) === false,
+        'whitespace is not an address; the send would fail on it');
+      /* ⚠ THE WHOLE POINT OF THE RULE. Nothing in the app sends to email2 — it
+         exists so a customer can SIGN IN with it — so a record holding only a
+         secondary address cannot be emailed by anything at all. Counting it as
+         reachable puts exactly the people this filter was asked for back into the
+         reachable pile, still silently missing their bill. */
+      check('S128', 'a SECONDARY-only address still counts as unreachable',
+        api.can({ email2: 'only@secondary.com' }) === false,
+        'no sender in the app reads email2 — the nightly invoice run, both ' +
+        'automation-email senders and the quote nudge all read `email`');
+      check('S128', 'and that case is badged differently, not just as "No email"',
+        /Secondary email only/.test(api.chip({ email2: 'only@secondary.com' })) &&
+        /No email/.test(api.chip({})),
+        '"no email" beside a record with a visible address reads as a bug rather ' +
+        'than as a field that needs moving up');
+      check('S128', 'somebody reachable gets no chip at all',
+        api.chip({ email: 'a@b.com' }) === '',
+        'a badge on every row is a badge nobody reads');
+    }
+
+    const render = sectionFrom(admin, admin.indexOf('function renderAllCustomersTable()'));
+    check('S128', 'the Customers table reads the Email filter',
+      /allCustFilterEmail/.test(render) && /custCanBeEmailed\(r\.d\)/.test(render),
+      'the control has to be read where the rows are filtered, not just exist');
+    check('S128', 'and shows the chip on the row',
+      /custEmailChip\(r\.d\)/.test(render),
+      'the filter finds them; the chip is how you spot one without filtering');
+
+    /* ⚠ A SELECT WITH NO LISTENER RENDERS PERFECTLY AND DOES NOTHING. This is not
+       hypothetical: allCustFilterLights shipped that way and was found here, on
+       2026-08-21, while the Email one was being added — picking "On soft" redrew
+       nothing unless you happened to touch another filter afterwards. Every select
+       in that panel is asserted wired, so the next one cannot repeat it. */
+    const wiring = (admin.match(/\['allCustFilterCity'[\s\S]*?\]\.forEach/) || [''])[0];
+    ['allCustFilterEmail', 'allCustFilterLights', 'allCustFilterPin', 'allCustFilterMap',
+     'allCustFilterCity', 'allCustFilterDifficulty', 'allCustFilterInvStatus', 'allCustFilterRoute']
+      .forEach(function (id) {
+        check('S128', 'the ' + id.replace('allCustFilter', '') + ' filter actually redraws when changed',
+          wiring.indexOf("'" + id + "'") !== -1,
+          'it is in the markup and read by the renderer, but nothing listens to it');
+      });
+
+    const clear = sectionFrom(admin, admin.indexOf("document.getElementById('allCustFilterClear')"));
+    ['allCustFilterEmail', 'allCustFilterLights', 'allCustFilterPin'].forEach(function (id) {
+      check('S128', 'Clear Filters resets ' + id.replace('allCustFilter', ''),
+        clear.indexOf(id) !== -1,
+        'a filter left applied by Clear Filters leaves the list mysteriously short');
+    });
+  }
+
+  /* ---- 10. the four dead senders are still dead ---- */
   /* ⚠ NOT DECORATION. sendRsvpEmailBtn, sendBulkUpdateEmailBtn and the two pib*
      buttons all send email to customers and NONE of them has any markup — every
      id is in KNOWN_MISSING_IDS, so the handlers return at their first line. That

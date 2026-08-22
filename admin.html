@@ -1766,6 +1766,19 @@
                    customers, which is a list somebody can work through in an afternoon
                    and nobody could find by scrolling. -->
               <div class="form-row"><label>Lights</label><select id="allCustFilterLights"><option value="all">Any</option><option value="soft">On soft (needs switching)</option><option value="none">No colours recorded</option></select></div>
+              <!-- ⭐ WHO CANNOT BE EMAILED (added 2026-08-21). Owner: "just make a
+                   filter in costumer were i can see who has no email."
+                   An invoice only ever goes out by email, and Automation Emails drops
+                   these people from the recipient list before any other filter runs —
+                   so somebody with no address silently misses their bill AND every
+                   RSVP, and no screen in Customers could name them. This is that list.
+                   ⚠ IT ASKS "CAN WE EMAIL THEM", NOT "IS THE FIELD BLANK". Nothing
+                   sends to `email2` — it exists only so a customer can sign in to the
+                   portal with it — so somebody holding a secondary address and no
+                   primary cannot be emailed either, and belongs in this list. They get
+                   their own chip on the row, because "no email" next to a record that
+                   visibly has one reads as a bug rather than as a field to move up. -->
+              <div class="form-row"><label>Email</label><select id="allCustFilterEmail"><option value="all">Any</option><option value="none">No email &mdash; cannot be contacted</option><option value="has">Has an email address</option></select></div>
               <!-- Without a pin a customer cannot be routed and does not appear on the
                    map at all. The bulk import has always flagged these (needsGeocode)
                    and told staff to "search Needs Pin in the customer list" — a search
@@ -12032,6 +12045,30 @@ function contactPrefsNote(d){
   const on = contactPrefsFor(d);
   if(!on.length) return '';
   return 'Contact preferences: ' + on.map(p => p.long).join(' · ') + '.';
+}
+/* ⭐ CAN WE ACTUALLY EMAIL THIS PERSON? (added 2026-08-21)
+   ⚠ ONLY THE PRIMARY `email` COUNTS, and that is not an oversight. Every sender in
+   the app reads `d.email` — the nightly invoice run, both automation-email senders,
+   the quote nudge. `email2` exists so a customer can SIGN IN to the portal with it
+   and is never written to, so a record holding only a secondary address cannot be
+   emailed by anything at all. Asking "is either field filled in" would put those
+   people in the reachable pile and they would go on silently missing their bill,
+   which is the exact failure this filter was asked for.
+   ⚠ ONE ANSWER, TWO READERS — the Customers filter and the chip on the row — so the
+   list and the badge can never contradict each other about one customer. */
+function custCanBeEmailed(d){
+  return !!String((d || {}).email || '').trim();
+}
+/* The one case that looks like a mistake on screen: no primary, but a secondary
+   sitting right there on the record. Without this the row reads "no email" beside a
+   visible address and looks like a bug, when the fix is simply to move it up. */
+function custEmailChip(d){
+  const rec = d || {};
+  if(custCanBeEmailed(rec)) return '';
+  if(String(rec.email2 || '').trim()){
+    return ' <span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Secondary email only &mdash; move it up</span>';
+  }
+  return ' <span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">No email</span>';
 }
 function contactPrefChips(d){
   return contactPrefsFor(d).map(function(p){
@@ -26752,6 +26789,8 @@ function renderAllCustomersTable(){
   const mapFilter = document.getElementById('allCustFilterMap').value;
   const lightsEl = document.getElementById('allCustFilterLights');
   const lightsFilter = lightsEl ? lightsEl.value : 'all';
+  const emailEl = document.getElementById('allCustFilterEmail');
+  const emailFilter = emailEl ? emailEl.value : 'all';
   const pinFilter = document.getElementById('allCustFilterPin').value;
   const dateStart = document.getElementById('allCustFilterDateStart').value;
   const dateEnd = document.getElementById('allCustFilterDateEnd').value;
@@ -26792,6 +26831,19 @@ function renderAllCustomersTable(){
   }
   if(mapFilter !== 'all') rows = rows.filter(r => mapFilter === 'has' ? r.hasMap : !r.hasMap);
   if(pinFilter !== 'all') rows = rows.filter(r => pinFilter === 'has' ? r.hasPin : !r.hasPin);
+  /* ⚠ `custCanBeEmailed` IS THE ONE ANSWER, shared with the chip on the row, so the
+     list and the badge can never disagree about the same customer.
+     ⚠ KEPT ABOVE THE LIGHTS BLOCK ON PURPOSE. Suite 73 lifts the lights filter out
+     by searching for where it starts and slicing to the date filter, then runs that
+     slice in a sandbox that knows about nothing else. Anything parked in that gap
+     crashes the whole file with a ReferenceError BEFORE the summary prints, which
+     reads as "the suite is broken" rather than "a filter moved".
+     ⚠ AND DO NOT QUOTE THAT ANCHOR IN A COMMENT ANYWHERE ABOVE IT. The search takes
+     the first match in the file, so a comment repeating the opening line of the
+     lights filter makes the suite slice from inside the comment and die on a syntax
+     error. Both mistakes were made here while adding this filter. */
+  if(emailFilter === 'none') rows = rows.filter(r => !custCanBeEmailed(r.d));
+  else if(emailFilter === 'has') rows = rows.filter(r => custCanBeEmailed(r.d));
   /* ⭐ Owner: soft is kept under its own name "so then we can find them later cause we
      need to switch their lights". This is the finding.
      ⚠ Matched case-insensitively on the stored value, because a colour that came in
@@ -26872,7 +26924,7 @@ function renderAllCustomersTable(){
          but it was neither shown here nor searchable, which meant the one
          identifier staff actually say out loud could not be used to find
          anybody. */
-      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+contactPrefChips(r.d)+'</td>'+
+      '<td style="padding:8px 10px;"><strong>'+esc(r.d.name||'(no name)')+'</strong>'+custNumChip(r.d)+binBadge+custSheetChips(r.d)+'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.address||'')+'</span>'+propLabelChip(r.d)+(r.d.phone?'<br><span style="font-size:12px; color:var(--slate);">'+esc(r.d.phone)+'</span>':'')+custEmailChip(r.d)+contactPrefChips(r.d)+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(r.enrolled||'—')+'</td>'+
       '<td style="padding:8px 10px;">'+routeCell+'</td>'+
       '<td style="padding:8px 10px; font-size:12.5px;">'+esc(timingLabel)+'</td>'+
@@ -28529,7 +28581,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
 });
 /* The dropdowns repaint immediately — one click, one render. Only the typed
    search waits for a pause, because that is the one that fires per letter. */
-['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
+/* ⚠ `allCustFilterLights` WAS MISSING FROM THIS LIST and had no listener anywhere
+   else, so picking "On soft (needs switching)" redrew nothing — the filter worked
+   perfectly and could not be reached, and it only appeared to work if you happened
+   to touch another filter or the search box afterwards. Found 2026-08-21 while
+   adding the Email one. Any select added to that panel has to be named here. */
+['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
   const el = document.getElementById(id);
   if(el) el.addEventListener('input', renderAllCustomersTable);
 });
@@ -28547,6 +28604,14 @@ document.getElementById('allCustFilterClear').addEventListener('click', function
   document.getElementById('allCustFilterInvStatus').value = 'all';
   document.getElementById('allCustFilterRoute').value = 'all';
   document.getElementById('allCustFilterMap').value = 'all';
+  /* ⚠ Pin and Lights were never cleared here either, so "Clear Filters" left two of
+     them still applied and the list stayed mysteriously short. Every select in the
+     panel is reset now, this one included. */
+  document.getElementById('allCustFilterPin').value = 'all';
+  const clrLights = document.getElementById('allCustFilterLights');
+  if(clrLights) clrLights.value = 'all';
+  const clrEmail = document.getElementById('allCustFilterEmail');
+  if(clrEmail) clrEmail.value = 'all';
   document.getElementById('allCustFilterDateStart').value = '';
   document.getElementById('allCustFilterDateEnd').value = '';
   document.getElementById('allCustSearchInput').value = '';
