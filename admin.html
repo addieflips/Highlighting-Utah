@@ -6530,7 +6530,10 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              moment the new season empties the plan, and the placer would drop the
              whole book onto the earliest days one at a time instead of letting the
              builder lay it out by town. */
-          rejoinedForSeasonAt: null
+          rejoinedForSeasonAt: null,
+          /* The badge is season-scoped: left standing it would say somebody changed
+             their mind this year when they did it last year. */
+          cameBackThisSeasonAt: null
         });
       }));
       hdone += chunk.length;
@@ -13836,6 +13839,9 @@ function renderInvoicesList(){
     const rsvpPill = rsvp === 'yes' ? ' <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E;">RSVP: Yes</span>'
       : rsvp === 'no' ? ' <span class="status-pill" style="background:#FDECEA; color:#E0574B;">RSVP: No</span>'
       : ' <span class="status-pill" style="background:var(--paper); color:var(--slate);">RSVP: ' + rsvpStatusLabel(rsvp) + '</span>';
+    /* ⚠ BESIDE the RSVP pill, not instead of it. They ARE a yes; the badge says how
+       they got there, which is the bit the office would otherwise have to remember. */
+    const backPill = cameBackBadge(d);
     const billedHouses = (d.billedHouseIds||[]).map(function(hid){
       const h = jobAddresses.find(a => a.id === hid);
       if(!h) return '';
@@ -13844,7 +13850,7 @@ function renderInvoicesList(){
     const billedNote = billedHouses.length ? '<div class="rtext" style="margin-top:2px;"><strong>Includes:</strong> '+billedHouses.join(', ')+'</div>' : '';
     html += '<div class="row-item">'+
       '<div class="rmain">'+
-        '<h4>'+esc(invoiceDisplayName(item.id, d.name))+' <span class="status-pill '+statusClass(liveStatus)+'">'+liveStatus+'</span>'+(overdue ? ' <span class="status-pill status-due">&#9888; Overdue</span>' : '')+(needsReview ? ' <span class="status-pill status-due">&#9888; Needs Price Review</span>' : '')+rsvpPill+'</h4>'+
+        '<h4>'+esc(invoiceDisplayName(item.id, d.name))+' <span class="status-pill '+statusClass(liveStatus)+'">'+liveStatus+'</span>'+(overdue ? ' <span class="status-pill status-due">&#9888; Overdue</span>' : '')+(needsReview ? ' <span class="status-pill status-due">&#9888; Needs Price Review</span>' : '')+rsvpPill + backPill+'</h4>'+
         '<div class="rmeta" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">'+
           '<span>'+esc(d.phone)+'</span>'+(d.phone ? '<button type="button" class="copy-field-btn" data-copyval="'+esc(d.phone)+'" title="Copy phone number">'+copyIcon()+'</button>' : '')+
           (d.email ? ' &middot; <span>'+esc(d.email)+'</span><button type="button" class="copy-field-btn" data-copyval="'+esc(d.email)+'" title="Copy email">'+copyIcon()+'</button>' : '')+
@@ -26211,6 +26217,29 @@ let dashRsvpFilterPayment = 'all';
    by hand, so adding a fourth status meant finding all three — and the one that was
    missed would show the new tag as "Pending", which is the status it exists to be
    distinguished from. */
+/* ⭐ DID THEY CHANGE THEIR MIND THIS SEASON (added 2026-08-22). Owner, told the
+   rejoin marker was invisible: "I thought this was already visable."
+
+   ⚠ TWO FIELDS, AND THEY ARE NOT THE SAME FACT. `rejoinedForSeasonAt` is an
+   INSTRUCTION to the planner — put this person on the next day going — and it is
+   consumed: placeRejoinersOnNextDay clears it the moment they have one, which is what
+   stops the whole book being dribbled onto the earliest days after Start New Season.
+   `cameBackThisSeasonAt` is a RECORD, and it has to outlive the instruction or the
+   badge would vanish the instant it did any good. One is a to-do, the other is
+   history; a single field cannot be both without one job breaking the other.
+
+   ⚠ AND IT IS SEASON-SCOPED. Start New Season clears both, in the same write as the
+   rest of the customer reset — a badge that survives the reset says somebody changed
+   their mind this year when they did it last year. */
+function cameBackThisSeason(d){
+  return !!(d && (d.cameBackThisSeasonAt || d.rejoinedForSeasonAt));
+}
+/* The badge, in one place because three screens draw it and the one that gets
+   missed is the one that quietly stops matching the others. */
+function cameBackBadge(d){
+  if(!cameBackThisSeason(d)) return '';
+  return ' <span class="status-pill" style="background:#EAF1FB; color:#2C5AA0; font-size:10.5px;">Came back in</span>';
+}
 function rsvpStatusLabel(v){
   const t = String(v == null ? '' : v).toLowerCase();
   if(t === 'yes') return 'Yes';
@@ -26237,7 +26266,12 @@ function renderDashRsvpPanel(){
     {key:'no', label:'No', list:noList, color:'#9A2A1F'},
     {key:'backnextyear', label:'Back Next Year', list:backList, color:'#8a6d1f'},
     {key:'unanswered', label:'Unanswered', list:unansweredList, color:'#8a6d1f'},
-    {key:'pending', label:'Pending', list:pendingList, color:'#5b6472'}
+    {key:'pending', label:'Pending', list:pendingList, color:'#5b6472'},
+    /* ⭐ A LABEL WITH NO WAY TO SEARCH IT IS A LABEL, NOT A LIST — the same rule the
+       soft-lights filter was built under. The badge says who; this says how many, and
+       gives the office one click to see all of them. It is NOT one of the five states
+       (they are all a "Yes"), so it sits last and cuts across the others. */
+    {key:'cameback', label:'Came Back In', list:withPhoneOrName.filter(a => cameBackThisSeason(a.data)), color:'#2C5AA0'}
   ];
   cardsEl.innerHTML = cardDefs.map(function(c){
     const active = dashRsvpFilter === c.key;
@@ -26269,13 +26303,19 @@ function renderDashRsvpPanel(){
     const d = item.data;
     const statusLabel = rsvpStatusLabel(d.rsvpStatus);
     const statusColor = d.rsvpStatus === 'yes' ? '#2E6B3E' : (d.rsvpStatus === 'no' ? '#9A2A1F' : (d.rsvpStatus === 'backnextyear' ? '#8a6d1f' : '#5b6472'));
-    const respondedLine = d.rsvpRespondedAt ? '<div class="rtext">Responded '+fmtDate(d.rsvpRespondedAt)+'</div>' : '';
+    /* ⚠ "Responded 14 Oct" on somebody who said no in September and yes in October
+       is the date of the SECOND answer and says nothing about the first. Naming the
+       change is the whole point of the badge. */
+    const respondedLine = d.rsvpRespondedAt
+      ? ('<div class="rtext">Responded '+fmtDate(d.rsvpRespondedAt)+
+         (cameBackThisSeason(d) ? ' \u2014 after saying no or Back Next Year earlier' : '')+'</div>')
+      : '';
     const payStatus = getLiveInvoiceStatus(d.phone);
     const gateBadge = d.gateCode ? ' <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-size:10.5px;">Gate Code: '+esc(d.gateCode)+'</span>' : ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">No Gate Code</span>';
     const payBadge = payStatus === 'Unpaid' ? ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">Unpaid</span>' : (payStatus === 'Partial Payment' ? ' <span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-size:10.5px;">Partial</span>' : '');
     return '<div class="row-item">'+
       '<div class="rmain">'+
-        '<h4 style="margin:0;">'+esc(d.name||'(no name)')+' <span class="status-pill" style="background:#FFF8E9; color:'+statusColor+'; font-weight:700;">'+statusLabel+'</span>'+gateBadge+payBadge+'</h4>'+
+        '<h4 style="margin:0;">'+esc(d.name||'(no name)')+' <span class="status-pill" style="background:#FFF8E9; color:'+statusColor+'; font-weight:700;">'+statusLabel+'</span>'+cameBackBadge(d)+gateBadge+payBadge+'</h4>'+
         (d.phone ? '<div class="rtext">'+esc(d.phone)+'</div>' : '')+
         (d.address ? '<div class="rtext">'+esc(d.address)+'</div>' : '')+
         respondedLine+
@@ -29450,6 +29490,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     if(newRsvp === 'yes' && (oldRsvpForRecycle === 'no' || oldRsvpForRecycle === 'backnextyear' ||
                              item.data.maybeNextYear === true)){
       addrUpdates.rejoinedForSeasonAt = serverTimestamp();
+      addrUpdates.cameBackThisSeasonAt = serverTimestamp();
     }
     /* Rejoining AFTER the recycle already happened. The flag being false on a
        record still reading no is the only signal it completed: the warehouse

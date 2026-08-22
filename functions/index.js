@@ -1453,8 +1453,14 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
     rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
     needsLightRecycle: response === 'no'
   };
-  if (response === 'yes' && wasOut) updates.rejoinedForSeasonAt =
-    admin.firestore.FieldValue.serverTimestamp();
+  if (response === 'yes' && wasOut) {
+    /* Two fields, two jobs — see cameBackThisSeason in admin.html. The first is an
+       instruction the planner consumes; the second is the record the office reads,
+       and it has to outlive the instruction or the badge disappears the moment it
+       does any good. */
+    updates.rejoinedForSeasonAt = admin.firestore.FieldValue.serverTimestamp();
+    updates.cameBackThisSeasonAt = admin.firestore.FieldValue.serverTimestamp();
+  }
   /* ⚠ AND IT STILL DOES NOT TOUCH maybeNextYear, which the first version of this did.
      season-state.test.js caught it, and the check was right: that badge is what the
      OFFICE sets and sees, and clearing it from a customer's own click would overrule

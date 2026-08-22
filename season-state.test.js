@@ -352,17 +352,55 @@ if (portalRsvp && updates) {
    will actually arrive. A flag written by only one of them works in testing and
    silently does nothing for half the real cases. */
 {
-  const svrStamp = /if \(response === 'yes' && wasOut\) updates\.rejoinedForSeasonAt/.test(portalRsvp);
+  const svrStamp = /if \(response === 'yes' && wasOut\) \{[\s\S]{0,600}updates\.rejoinedForSeasonAt/
+    .test(portalRsvp);
   check('the RSVP link marks somebody who has just come back in', svrStamp,
     'without the flag the planner has no way to tell a rejoiner from anybody else');
+  /* ⭐ AND WRITES THE DURABLE RECORD BESIDE IT (2026-08-22). Owner, told the marker
+     was invisible: "I thought this was already visable." Two fields, two jobs — the
+     instruction is consumed by the planner, the record is what the badge reads, and
+     one field cannot be both without one job breaking the other. */
+  check('and writes the record the badge reads, not just the instruction',
+    /updates\.cameBackThisSeasonAt = admin\.firestore\.FieldValue\.serverTimestamp\(\);/
+      .test(portalRsvp),
+    'the instruction clears the moment they are scheduled — a badge reading it would ' +
+    'vanish exactly when it started being true');
   check('and it counts BOTH ways out — an RSVP of no and Back Next Year',
     /const wasOut = wasNo \|\|[\s\S]{0,180}backnextyear/.test(portalRsvp),
     'they are different states — one recycles, one does not — but coming back from ' +
     'either one is the same event');
-  check('and the office dropdown stamps it too',
+  /* ⚠ AND THE BADGE IS DRAWN WHERE THE OFFICE ACTUALLY LOOKS. A record nothing
+     renders is the invisible marker all over again. Three surfaces, one helper —
+     three hand-written copies is how one of them quietly stops matching. */
+  check('one helper answers "did they change their mind"',
+    !!fn('cameBackThisSeason') && !!fn('cameBackBadge'),
+    'three screens drawing it by hand is three chances to disagree');
+  check('and it reads the RECORD, falling back to the instruction',
+    /cameBackThisSeasonAt \|\| d\.rejoinedForSeasonAt/.test(admin),
+    'reading only the instruction makes the badge vanish once they are scheduled; ' +
+    'the fallback is what covers somebody stamped before this existed');
+  check('the customer row shows it beside the RSVP pill',
+    /rsvpPill \+ backPill/.test(admin) && /const backPill = cameBackBadge\(d\)/.test(admin),
+    'built and never rendered is the bug this whole change exists to fix');
+  check('the RSVP panel row shows it too',
+    /statusLabel\+'<\/span>'\+cameBackBadge\(d\)/.test(admin),
+    'that panel is where the office reads RSVP state');
+  /* ⚠ AND IT CAN BE SEARCHED. Same rule the soft-lights filter was built under:
+     keeping a label without a way to list everybody who has it is a label, not a
+     list. */
+  check('and there is a card to list all of them',
+    /key:'cameback'[\s\S]{0,200}cameBackThisSeason\(a\.data\)/.test(admin),
+    'a badge you cannot filter by means opening every customer to find them');
+  check('and Start New Season clears the record as well as the instruction',
+    /rejoinedForSeasonAt: null,[\s\S]{0,400}cameBackThisSeasonAt: null/.test(admin),
+    'a badge that survives the reset says they changed their mind this year when ' +
+    'they did it last year');
+
+  check('and the office dropdown stamps BOTH fields too',
     /newRsvp === 'yes' && \(oldRsvpForRecycle === 'no' \|\| oldRsvpForRecycle === 'backnextyear'/
-      .test(admin) && /addrUpdates\.rejoinedForSeasonAt = serverTimestamp\(\)/.test(admin),
-    'an answer taken over the phone is how most of these will arrive');
+      .test(admin) && /addrUpdates\.rejoinedForSeasonAt = serverTimestamp\(\);[\s\S]{0,120}addrUpdates\.cameBackThisSeasonAt = serverTimestamp\(\);/.test(admin),
+    'an answer taken over the phone is how most of these will arrive, and it has to ' +
+    'raise the badge as well as the instruction');
 
   /* ⚠ AND IT IS A ONE-SHOT INSTRUCTION, NOT A LABEL. Left standing it would fire
      again after Start New Season — when everybody is off the plan — and drop the
