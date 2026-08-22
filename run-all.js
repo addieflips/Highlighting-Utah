@@ -1952,10 +1952,15 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   // is a syntax error the moment it actually runs.
   const removeFromRoutesSrc = extractFn(fnSrc, 'removeCustomerFromUpcomingRoutes');
   const todayStrSrc = extractFn(fnSrc, 'todayStrInDenver');
-  check('flow', 'removeCustomerFromUpcomingRoutes and todayStrInDenver found in functions/index.js',
-    !!removeFromRoutesSrc && !!todayStrSrc,
+  /* ⚠ AND seasonYesUpdates (2026-08-22). A "yes" no longer builds its own update
+     object here — three doors share one rule — so leaving it out is a bare
+     ReferenceError the moment a yes runs, which surfaces as "an async suite crashed"
+     with no clue which suite. Same trap as the two above, third time. */
+  const seasonYesSrc = extractFn(fnSrc, 'seasonYesUpdates');
+  check('flow', 'removeCustomerFromUpcomingRoutes, todayStrInDenver and seasonYesUpdates found in functions/index.js',
+    !!removeFromRoutesSrc && !!todayStrSrc && !!seasonYesSrc,
     'renamed or removed — update this test rather than deleting it, or portalRsvp\'s no/back-next-year path cannot run here');
-  const fullSrc = [todayStrSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
+  const fullSrc = [todayStrSrc, seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
 
   // Fake Firestore + callable wrapper. update() merges what would have been
@@ -25681,43 +25686,41 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
      confirmed. */
   {
     const seasonBlock = respond.slice(respond.indexOf('APPROVING IS SAYING YES TO THE SEASON'));
+    /* ⚠ IT NO LONGER WRITES THE STATUS INLINE. Since 2026-08-22 all three doors go
+       through seasonYesUpdates, so what is asserted here is that this door still
+       writes SOMETHING for an approver; what a yes actually does is proved by running
+       that helper, in season-state.test.js. */
     check('S70', 'approving marks an existing member in for the season',
-      /rsvpStatus: 'yes'/.test(seasonBlock),
+      /db\.collection\('jobAddresses'\)\.doc\(memberRef\.id\)/.test(seasonBlock),
       'without it they stay RSVP-pending and get chased by the RSVP email');
 
-    /* ⚠ THE GUARD THAT MATTERS. A recorded "no" or "back next year" is a
-       DELIBERATE answer. Flipping it to yes because a price was accepted puts
-       somebody back on a route they cancelled, and leaves needsLightRecycle set
-       behind them — the record then says two opposite things at once. */
-    /* ⚠ THE GUARD THAT MATTERS, AND IT IS RUN RATHER THAN MATCHED. This was a
-       regex for the literal `if (!currentRsvp)`, which broke the moment a third
-       do-not-overwrite case was added — and a test that fails when correct code grows
-       gets loosened rather than read. The condition itself is lifted and evaluated. */
-    {
-      const cond = (seasonBlock.match(/if \((![\s\S]*?currentRsvp[^)]*)\)/) || [])[1];
-      check('S70', 'the season guard is still one readable condition', !!cond,
-        'if this stops being a single if, test the new shape rather than deleting this');
-      if (cond) {
-        const may = new Function('raw',
-          "const currentRsvp = String(raw || '').trim().toLowerCase();" +
-          'return !!(' + cond + ');');
+    /* ⭐ THE GUARD IS GONE, DELIBERATELY (2026-08-22). Owner, asked which way and
+       told the trade in full: "go with option 2."
 
-        check('S70', 'but never overwrites an answer they already gave',
-          may('no') === false && may('backnextyear') === false && may('yes') === false,
-          'an explicit "no" or "back next year" must outrank one inferred from a ' +
-          'price: flipping it puts somebody back on a route they cancelled, with ' +
-          'needsLightRecycle still set behind them');
-        check('S70', 'a customer nobody has asked yet IS marked',
-          may('') === true && may(null) === true && may('   ') === true);
-        check('S70', 'and so is one who was asked and has not replied',
-          may('unanswered') === true && may('Unanswered') === true,
-          'unanswered is the absence of an answer, not an answer. Every customer is ' +
-          'moved to it right before an RSVP round, so a blank-only guard would stop ' +
-          'marking ANYONE from the first reset onwards — and the symptom would be ' +
-          'the complaint this code was written to fix: members chased to confirm a ' +
-          'season they had just paid to join');
-      }
-    }
+       ⚠ WHAT USED TO BE HERE, so nobody restores it by accident: approving a quote
+       only marked somebody whose RSVP was blank or Unanswered, because a recorded no
+       was a DELIBERATE answer and one inferred from a price should not outrank it —
+       a re-quote can be sent to somebody who has already said no, to correct a figure
+       or to price next year, and reading that approval as "I am back in" puts them on
+       a crew day when all they agreed to was the number. That cost is real and was
+       put to her in those terms. She took it, because in practice a re-quote goes to
+       somebody she is trying to bring back.
+
+       ⚠ THE LATEST ANSWER STILL WINS. This is one more way to say yes, not a lock —
+       a no arriving afterwards, by link or by office, overrides it. She asked that
+       specifically, and the check below is what holds it.
+
+       ⚠ AND IT HAD TO DO THE WHOLE JOB. Setting the status alone was safe only
+       BECAUSE it never ran for somebody who had said no; now that it does, it would
+       leave them in the season with needsLightRecycle still set — in and queued to be
+       taken apart at once, which is exactly what the old note warned about. */
+    check('S70', 'approving a quote now marks them whatever they said before',
+      !/currentRsvp/.test(seasonBlock),
+      'the blank-only guard was removed on purpose — restoring it silently undoes ' +
+      'the owner\'s decision');
+    check('S70', 'and it goes through the shared yes rule, not its own write',
+      /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}\)\)/.test(seasonBlock),
+      'a status-only write leaves them in the season AND queued for recycle');
 
     check('S70', 'and only ever for somebody who is already a customer',
       /if \(action === 'approve' && memberRef\)/.test(seasonBlock),

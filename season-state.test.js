@@ -204,63 +204,90 @@ const portalRsvp = portalRsvpAt === -1 ? ''
   : server.slice(portalRsvpAt, server.indexOf('\n});', portalRsvpAt));
 check('functions/index.js still has portalRsvp', !!portalRsvp);
 
-/* ⚠ SCOPED TO THE `updates` OBJECT, not the whole function. portalRsvp also RETURNS
-   `rsvpStatus: response` to the browser, so a loose search for that text passes while
-   the write itself is broken — which a red-check proved: renaming the written field
-   left every check here green. The write is the only half that matters. */
-const updAt = portalRsvp.indexOf('const updates = {');
-const updates = updAt === -1 ? '' : portalRsvp.slice(updAt, portalRsvp.indexOf('};', updAt));
-check('portalRsvp still has an updates object to read', !!updates,
-  'without it the three checks below would silently pass against the return value');
+/* ⭐ ONE ANSWER FOR A YES, THREE DOORS (2026-08-22). The RSVP link, the office
+   dropdown and approving a quote all mean the same thing, and seasonYesUpdates is the
+   one place that says what a yes does. RUN, not read: a yes that only sets the status
+   leaves the warehouse still queued to take their bundle apart, and that is a fact
+   about behaviour, not about text. */
+const yesAt = server.indexOf('function seasonYesUpdates');
+const yesSrc = yesAt === -1 ? '' : server.slice(yesAt, server.indexOf('\n}', yesAt) + 2);
+check('the server has one rule for what a yes does', !!yesSrc,
+  'three doors writing their own version is three chances for one to do half the job');
 
-if (portalRsvp && updates) {
-  /* ⭐ THIS IS THE LINE THE WHOLE THING TURNS ON. "no" queues the recycle; back next
-     year does not, because their bundle is staying in their bin for next season. */
-  check('portalRsvp queues the recycle for a "no" and only for a "no"',
-    /needsLightRecycle: response === 'no'/.test(updates),
-    'a queue reading the flag correctly is worth nothing if nothing sets it');
-  /* ⚠ AND IT WRITES THE STATUS ALONE. This is not a defect to fix — the flag is what
-     the OFFICE sets and sees, and writing it from a customer's own answer would badge
-     them Maybe Next Year without anybody choosing to. It is recorded here so that if
-     it ever changes, the comments in admin.html that explain why isOutForSeason reads
-     BOTH get revisited rather than quietly going stale. */
-  /* ⚠ IT MUST NOT WRITE maybeNextYear — READING IT IS FINE. The first version of
-     this banned the WORD anywhere in the function, and on 2026-08-22 that fired on a
-     perfectly correct read (`oldData.maybeNextYear === true`, deciding whether this
-     is somebody coming back in). A check that cannot tell a read from a write is a
-     check that gets edited away the first time it cries wolf.
-     The pattern below catches an object-literal `maybeNextYear:` and an assignment
-     `updates.maybeNextYear =`, and deliberately does NOT catch `===`. */
-  check('and portalRsvp writes the status without the office flag',
-    /rsvpStatus: response,/.test(updates) && !/maybeNextYear\s*[:=][^=]/.test(portalRsvp),
-    'that badge is what the OFFICE sets and sees — writing it from a customer\'s own ' +
-    'click overrules an office decision silently');
+if (yesSrc) {
+  const fakeAdmin = { firestore: { FieldValue: { serverTimestamp: () => 'NOW' } } };
+  const yes = new Function('admin', yesSrc + 'return seasonYesUpdates;')(fakeAdmin);
+
+  check('a yes sets the status and stamps when they answered',
+    yes({}).rsvpStatus === 'yes' && yes({}).rsvpRespondedAt === 'NOW');
+  /* ⚠ THE HALF THAT IS EASY TO FORGET. This file's own history warns that flipping
+     somebody to yes "leaves needsLightRecycle set behind them — the record then says
+     two opposite things at once": in the season and queued to be taken apart. */
+  check('and cancels a queued recycle, always',
+    yes({ rsvpStatus: 'no', needsLightRecycle: true }).needsLightRecycle === false &&
+    yes({}).needsLightRecycle === false,
+    'in the season and queued to have their lights pulled apart is two opposite ' +
+    'things on one record');
+  /* ⚠ AND A REBUILD ONLY WHEN THE RECYCLE ACTUALLY HAPPENED. Owner: "we won\'t
+     recycle till end of year so shouldn\'t be taken apart." */
+  check('and re-queues the build ONLY when the recycle really happened',
+    yes({ rsvpStatus: 'no', needsLightRecycle: false }).needsLightBuild === true &&
+    yes({ rsvpStatus: 'no', needsLightRecycle: true }).needsLightBuild === undefined,
+    'their set is still in the bin mid-season — a build makes a second one');
+  check('and marks a rejoiner from EITHER way out',
+    !!yes({ rsvpStatus: 'no' }).rejoinedForSeasonAt &&
+    !!yes({ rsvpStatus: 'backnextyear' }).rejoinedForSeasonAt &&
+    !!yes({ maybeNextYear: true }).rejoinedForSeasonAt,
+    'they are different states — one recycles, one does not — but coming back from ' +
+    'either is the same event');
+  check('and writes the record the badge reads, not just the instruction',
+    !!yes({ rsvpStatus: 'no' }).cameBackThisSeasonAt,
+    'the instruction clears the moment they are scheduled — a badge reading it ' +
+    'would vanish exactly when it started being true');
+  /* ⚠ SOMEBODY WHO NEVER LEFT IS NOT A REJOINER. Marking every yes would badge the
+     whole book and hand the placer the entire customer list. */
+  check('but somebody who never said otherwise is not marked',
+    yes({ rsvpStatus: '' }).rejoinedForSeasonAt === undefined &&
+    yes({ rsvpStatus: 'yes' }).cameBackThisSeasonAt === undefined,
+    'a badge everybody has is a badge nobody reads');
+  /* ⚠ AND IT NEVER WRITES maybeNextYear — reading it is fine. That badge is what the
+     OFFICE sets and sees; clearing it from a customer\'s own click overrules an office
+     decision silently. The pattern catches a literal and an assignment, not `===`. */
+  check('and it never writes the office badge',
+    !/maybeNextYear\s*[:=][^=]/.test(yesSrc),
+    'that badge is what the OFFICE sets and sees');
+
+  /* ⭐ ALL THREE DOORS GO THROUGH IT. A helper nothing calls is the most expensive
+     kind of green — this repo has shipped exactly that. */
+  check('the RSVP link answers a yes through it',
+    /\(response === 'yes'\)\s*\n?\s*\? seasonYesUpdates\(oldData\)/.test(portalRsvp),
+    'it used to be the only door that did the whole job');
+  check('and approving a quote goes through it too',
+    /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}\)\)/.test(server),
+    'owner, 2026-08-22: "go with option 2" — approving a quote is a yes now, and a ' +
+    'status-only write would leave them in the season AND queued for recycle');
+  /* ⚠ THE LATEST ANSWER STILL WINS, which she asked about specifically: yes then no
+     is a no. The quote path only ever writes a yes, so a later no through the link or
+     the office overrides it — there is no branch here that could pin somebody. */
+  check('and nothing in it can pin somebody as a yes',
+    !/rsvpStatus: response/.test(yesSrc) && yes({ rsvpStatus: 'no' }).rsvpStatus === 'yes',
+    'a yes then a no must still be a no — this writes one answer, it does not lock one');
 }
 
-const saveAt = admin.indexOf("const oldRsvpForRecycle");
-const saveBlk = saveAt === -1 ? '' : admin.slice(saveAt, saveAt + 4000);
-check('the office dropdown queues the recycle on a change to "no"',
-  /newRsvp === 'no' && oldRsvpForRecycle !== 'no'[\s\S]{0,120}needsLightRecycle = true/.test(saveBlk),
-  'the two ways of saying no have to reach the same queue');
-/* ⚠ ON THE CHANGE, NOT ON EVERY SAVE. Re-deriving it each time put a customer whose
-   recycle was long finished straight back in the queue with no lights left to pull,
-   months later, because somebody fixed their phone number. */
-check('and only on the change, not on every save of that record',
-  /oldRsvpForRecycle !== 'no'/.test(saveBlk),
-  'once the job is under way the warehouse owns the flag');
-
 /* ⭐ AND THE WAY BACK IN IS REAL, not just possible in principle. Owner: "they can
-   change there decisions to Yes or back next year and it will update." portalRsvp
-   writes whatever they answered, and a "yes" from somebody whose set was already
-   pulled apart re-queues the build rather than sending a crew to an empty bin. */
-if (portalRsvp && updates) {
+   change there decisions to Yes or back next year and it will update."
+
+   ⚠ THE YES SIDE IS PROVED ABOVE, by running seasonYesUpdates. What is left to check
+   is the OTHER branch: a no and a back next year are only ever said through this door,
+   and portalRsvp has to keep writing whatever they answered or nothing is sticky in
+   either direction. */
+if (portalRsvp) {
   check('portalRsvp writes whatever they now say, so no is never sticky',
-    /rsvpStatus: response,/.test(updates),
+    /rsvpStatus: response,\n\s*rsvpRespondedAt/.test(portalRsvp),
     'a customer who cannot change their mind is a customer who rings the office');
-  check('and a yes after the recycle already happened re-queues the build',
-    /rejoinedAfterRecycle[\s\S]{0,200}needsLightBuild = true/.test(portalRsvp),
-    'their bundle was taken apart — putting them back on a route without rebuilding ' +
-    'sends a crew to an empty bin');
+  check('and a no through the link still queues the recycle',
+    /needsLightRecycle: response === 'no'/.test(portalRsvp),
+    'that is the half of the answer the warehouse acts on');
 }
 
 /* ⭐ CHANGING YOUR MIND BEFORE THE RECYCLE HAS HAPPENED (added 2026-08-22). Owner:
@@ -352,23 +379,11 @@ if (portalRsvp && updates) {
    will actually arrive. A flag written by only one of them works in testing and
    silently does nothing for half the real cases. */
 {
-  const svrStamp = /if \(response === 'yes' && wasOut\) \{[\s\S]{0,600}updates\.rejoinedForSeasonAt/
-    .test(portalRsvp);
-  check('the RSVP link marks somebody who has just come back in', svrStamp,
-    'without the flag the planner has no way to tell a rejoiner from anybody else');
-  /* ⭐ AND WRITES THE DURABLE RECORD BESIDE IT (2026-08-22). Owner, told the marker
-     was invisible: "I thought this was already visable." Two fields, two jobs — the
-     instruction is consumed by the planner, the record is what the badge reads, and
-     one field cannot be both without one job breaking the other. */
-  check('and writes the record the badge reads, not just the instruction',
-    /updates\.cameBackThisSeasonAt = admin\.firestore\.FieldValue\.serverTimestamp\(\);/
-      .test(portalRsvp),
-    'the instruction clears the moment they are scheduled — a badge reading it would ' +
-    'vanish exactly when it started being true');
-  check('and it counts BOTH ways out — an RSVP of no and Back Next Year',
-    /const wasOut = wasNo \|\|[\s\S]{0,180}backnextyear/.test(portalRsvp),
-    'they are different states — one recycles, one does not — but coming back from ' +
-    'either one is the same event');
+  /* ⚠ THE THREE CHECKS THAT USED TO SIT HERE read portalRsvp's own inline `updates`
+     literal — that it stamped the rejoin flag, that it wrote the durable record
+     beside it, and that it counted both ways out. All three moved into
+     seasonYesUpdates on 2026-08-22 and are asserted above by RUNNING it, which is
+     both stronger and no longer tied to one door's spelling. */
   /* ⚠ AND THE BADGE IS DRAWN WHERE THE OFFICE ACTUALLY LOOKS. A record nothing
      renders is the invisible marker all over again. Three surfaces, one helper —
      three hand-written copies is how one of them quietly stops matching. */
