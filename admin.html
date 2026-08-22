@@ -19696,6 +19696,27 @@ function openRoofMeasure(quoteId){
         return;
       }
       const w = rmToWorld({e: best.e, n: best.n, u: best.u});
+      /* ⭐ THE FIRST DOT PUT ON A WALL MEASURES THE ROOF HEIGHT. Owner: "measure
+         height not just legth and depth", and the panel has been promising this
+         for weeks - "Trace anything in Street View and it is measured instead."
+
+         ⚠ IT WAS ONLY EVER WIRED TO THE OLD TRACING PATH, so once the work moved
+         to dots the datum stopped being measured on every house. Four addresses
+         checked in a row, all four said "assumed".
+
+         ⚠ AND ONLY FROM A WALL HIT, WHICH IS THE PART THAT MATTERS. A wall
+         crossing gets its height from the camera and the ray - geometry that
+         knows nothing about the datum - so it can be used to set one. A ROOF
+         crossing gets its height from the roof plane, which is placed BY the
+         datum, so setting the datum from it would be measuring the assumption
+         and calling it a measurement. That is the circular move that cost a
+         revert earlier today and it is not repeated here. */
+      if(best.kind === 'wall' && rmDatumSource !== 'street' && rmSetDatumFromStreet(w)){
+        rmRefreshHeights();
+        const st = document.getElementById('rmStatus');
+        if(st) st.textContent = 'Roof height measured from Street View — ' +
+          Math.round(rmDatum().m * RM_M_TO_FT) + ' ft to the lowest eave.';
+      }
       rmAddCorner({lat: w.lat, lng: w.lng, h: best.u,
                    ray: {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir}});
       if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
