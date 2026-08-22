@@ -1026,6 +1026,53 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
   };
 });
 
+/* ⭐ WHAT THE WAREHOUSE ACTUALLY BUILDS FROM — ONE ANSWER (added 2026-08-21,
+   known holes C and D). Owner: "Can you make sure it hits the warehouse that is
+   very important."
+
+ * ⚠ THE HOLE: only a COLOUR change ever reached the build queue. A member could
+ * change their WIRE COLOUR or their TIMER in their own portal, the record
+ * updated, an inbox message went up — and needsLightBuild was never set, so they
+ * never appeared in Needs Building. The office side was no better: Edit
+ * Customer computed needsLightBuild from lightsDescription alone.
+ *
+ * ⚠ AND BOTH GENUINELY CHANGE WHAT GETS MADE, which is why this is not cosmetic:
+ *   - WIRE IS PART OF THE GROUP KEY. whGroupKey(lightsDescription, wireColor) —
+ *     the same pattern on white wire and on green wire are two different
+ *     bundles on two different shelves. A bundle already made on the old wire
+ *     is simply the wrong bundle.
+ *   - THE TIMERS LIST IS DERIVED FROM THE BUILD. whBuildQueueGroups collects
+ *     timerHouses while walking the queue, so somebody not IN the queue is not
+ *     on the timer list — add a timer after their bundle is finished and no
+ *     timer is ever put in it.
+ *
+ * ⚠ hasOwnProperty ON THE INCOMING OBJECT IS LOAD-BEARING. Every caller here
+ * sends a PARTIAL update — the portal's preferences section carries no
+ * lightsDescription at all — and reading an absent field as "" would report a
+ * cleared pattern on every single save, re-queueing the whole book.
+ *
+ * ⚠ A BLANK TIMER IS "NO", not a third state. index.html has always compared it
+ * as (outletTimer || 'No'), so treating blank and No as different would make an
+ * untouched record look changed for ever.
+ *
+ * ⚠ ONE RULE, TWO COPIES, ASSERTED IDENTICAL — the browser cannot run the
+ * server's. run-all.js runs both over the same table of cases and fails if they
+ * ever disagree, the money-parity pattern. */
+const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
+function warehouseRebuildFields(oldData, newData) {
+  const o = oldData || {}, n = newData || {};
+  const norm = function (field, d) {
+    const raw = String(d[field] == null ? '' : d[field]).trim().toLowerCase();
+    /* Blank means no timer; see above. */
+    if (field === 'outletTimer') return raw === 'yes' ? 'yes' : 'no';
+    return raw;
+  };
+  return WAREHOUSE_BUILD_FIELDS.filter(function (f) {
+    if (!Object.prototype.hasOwnProperty.call(n, f)) return false;
+    return norm(f, n) !== norm(f, o);
+  });
+}
+
 /* --- portalSave -----------------------------------------------------------
  * Input: { token, section, data }
  *   section = 'info' | 'preferences' | 'lights' | 'cancel'
@@ -1133,6 +1180,15 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
      customer straight to the Warehouse queue, the same way an admin-side change
      does. The queue is a live view of this flag, so changing colours twice just
      moves them between patterns — it can never queue the same house twice. */
+  /* ⭐ WIRE AND TIMER REACH THE WAREHOUSE TOO (holes C and D). Deliberately
+     ABOVE the lights block and written with |=, never =: it may only ever turn
+     the queue flag ON. The lights block below has its own careful rule about
+     when a build is owed — including that blank colours mean the build cannot
+     be DONE yet, not that it is not owed — and this must not overwrite it. */
+  {
+    const rebuild = warehouseRebuildFields(oldData, updates);
+    if (rebuild.length) updates.needsLightBuild = true;
+  }
   if (section === 'lights' && updates.lightsDescription !== undefined) {
     const changed = updates.lightsDescription !== (oldData.lightsDescription || '');
     if (!updates.lightsDescription) {

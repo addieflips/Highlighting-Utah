@@ -22255,6 +22255,15 @@ suite('Suite 108. The Edit Customer save, actually run');
          same rule the portal runs; money-parity proves the two copies agree. */
       applyLightChange: new Function('LIGHT_CHANGE_FEE', 'LIGHT_WINDOW_MS',
         'return ' + extractFn(money, 'applyLightChange') + ';applyLightChange')(30, 48 * 3600000),
+      /* ⚠ THE REAL RULE, LIFTED OUT OF admin.html — not a stub. It decides
+         whether the office changing a wire colour or a timer reaches the
+         warehouse (holes C and D), and a stub would agree with itself about
+         exactly the thing under test. Joined this list 2026-08-21, in the same
+         commit that made the save handler call it — the extraction-list trap
+         CLAUDE.md describes, hit again and caught again by the suite. */
+      warehouseRebuildFields: new Function('WAREHOUSE_BUILD_FIELDS',
+        'return ' + extractFn(admin, 'warehouseRebuildFields') + ';warehouseRebuildFields')(
+        ['lightsDescription', 'wireColor', 'outletTimer']),
       lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
         ';lightsLockMillis')(),
       LIGHT_CHANGE_FEE: 30, LIGHT_WINDOW_MS: 48 * 3600000,
@@ -29496,6 +29505,182 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
     'the RSVP reset leaves the flag standing while setting everyone to ' +
     'unanswered, so somebody who sat last season out can reach the approve ' +
     'path still carrying it');
+}
+
+/* =====================================================================
+ * Suite 133. A wire or timer change reaches the warehouse
+ *
+ * Known holes C and D. Owner: "Can you make sure it hits the warehouse that is
+ * very important."
+ *
+ * ⚠ THE HOLE: only a COLOUR change ever set needsLightBuild. A member could
+ * change their WIRE COLOUR or their TIMER in their own portal, the record
+ * updated, an inbox message went up — and they never appeared in Needs
+ * Building. needsLightBuild appeared ZERO times in index.html. The office side
+ * was no better: Edit Customer computed the flag from lightsDescription alone.
+ *
+ * ⚠ AND BOTH GENUINELY CHANGE WHAT GETS MADE, which is why this is not cosmetic:
+ *   - whGroupKey(lightsDescription, wireColor) — the same pattern on white wire
+ *     and on green wire are two different bundles on two different shelves.
+ *   - whBuildQueueGroups collects timerHouses while walking the QUEUE, so
+ *     somebody not in the queue is not on the timer list at all.
+ * ===================================================================== */
+suite('Suite 133. A wire or timer change reaches the warehouse');
+{
+  const fns = read('functions/index.js');
+  const admin = read('admin.html');
+
+  /* ---- 1. the two copies of the rule agree ---------------------------- */
+  const bSrc = extractFn(admin, 'warehouseRebuildFields');
+  const sSrc = extractFn(fns, 'warehouseRebuildFields');
+  const bList = admin.match(/const WAREHOUSE_BUILD_FIELDS = (\[[^\]]*\]);/);
+  const sList = fns.match(/const WAREHOUSE_BUILD_FIELDS = (\[[^\]]*\]);/);
+  check('S133', 'both copies of the rule and its field list are findable',
+    !!bSrc && !!sSrc && !!bList && !!sList,
+    'renamed or moved — fix the lift rather than deleting the parity check');
+
+  if (bSrc && sSrc && bList && sList) {
+    check('S133', 'and both build from the same three fields',
+      bList[1].replace(/\s/g, '') === sList[1].replace(/\s/g, ''),
+      'browser: ' + bList[1] + ' server: ' + sList[1] + ' — a field on one side ' +
+      'only is a change the other half of the app never notices');
+
+    const mk = (src, list) => new Function('WAREHOUSE_BUILD_FIELDS',
+      src + ';return warehouseRebuildFields;')(JSON.parse(list.replace(/'/g, '"')));
+    const B = mk(bSrc, bList[1]), S = mk(sSrc, sList[1]);
+
+    /* Every shape that has caused trouble in this file: a partial update, a
+       blank, a stray case, whitespace from a paste, and the timer's three
+       spellings of two states. */
+    const CASES = [
+      [{}, {}],
+      [{ wireColor: 'White' }, { wireColor: 'Green' }],
+      [{ wireColor: 'White' }, { wireColor: 'white' }],
+      [{ wireColor: 'White' }, { wireColor: ' White ' }],
+      [{ wireColor: '' }, { wireColor: 'Green' }],
+      [{ wireColor: 'Green' }, { wireColor: '' }],
+      [{ outletTimer: 'No' }, { outletTimer: 'Yes' }],
+      [{ outletTimer: 'Yes' }, { outletTimer: 'No' }],
+      [{ outletTimer: '' }, { outletTimer: 'No' }],
+      [{ outletTimer: undefined }, { outletTimer: 'No' }],
+      [{ outletTimer: 'No' }, { outletTimer: '' }],
+      [{ lightsDescription: 'Warm White' }, { lightsDescription: 'Red, Green' }],
+      [{ lightsDescription: 'Warm White', wireColor: 'White' }, { notes: 'hi' }],
+      [{ lightsDescription: 'Warm White' }, { wireColor: 'Green', outletTimer: 'Yes' }],
+      [{ wireColor: 'White', outletTimer: 'No', lightsDescription: 'A' },
+       { wireColor: 'Green', outletTimer: 'Yes', lightsDescription: 'B' }],
+      [null, null], [undefined, { wireColor: 'Green' }]
+    ];
+    const tryRun = (fn, c) => { try { return JSON.stringify(fn(c[0], c[1])); } catch (e) { return 'THREW: ' + (e && e.message); } };
+    const disagreed = CASES.filter(c => tryRun(B, c) !== tryRun(S, c));
+    check('S133', 'the browser and the server agree what needs rebuilding',
+      !disagreed.length,
+      'disagreed on: ' + JSON.stringify(disagreed) + ' — the office would ' +
+      'requeue and the portal would not, or the other way round');
+
+    /* ⚠ AND THE ANSWERS ARE RIGHT, not merely equal. Two copies wrong in the
+       same way agree perfectly — the lesson money-parity already carries. */
+    check('S133', 'a wire change needs a rebuild',
+      S({ wireColor: 'White' }, { wireColor: 'Green' }).join() === 'wireColor',
+      'wire is part of whGroupKey, so the bundle already made is on the wrong shelf');
+    check('S133', 'a timer change needs a rebuild',
+      S({ outletTimer: 'No' }, { outletTimer: 'Yes' }).join() === 'outletTimer',
+      'the Timers list is collected while walking the build queue, so somebody ' +
+      'not in the queue never gets a timer put in their bundle');
+    check('S133', 'and a colour change still does',
+      S({ lightsDescription: 'A' }, { lightsDescription: 'B' }).join() === 'lightsDescription',
+      'the one case that already worked must keep working');
+
+    /* ⚠ hasOwnProperty IS LOAD-BEARING. Every caller sends a PARTIAL update —
+       the portal's preferences section carries no lightsDescription at all — and
+       reading an absent field as "" would report a cleared pattern on every
+       save and re-queue the entire book. */
+    check('S133', 'a field the update does not mention is not a change',
+      S({ lightsDescription: 'Warm White', wireColor: 'White' }, { notes: 'hi' }).length === 0,
+      'every save is partial; an absent field read as blank re-queues everybody');
+    check('S133', 'nor is re-saving the same values',
+      S({ wireColor: 'White', outletTimer: 'No' },
+        { wireColor: 'white', outletTimer: ' NO ' }).length === 0,
+      'case and pasted whitespace are not a decision anybody made');
+    /* ⚠ A BLANK TIMER IS "NO", not a third state — index.html has always
+       compared it as (outletTimer || 'No'). Treating them as different makes an
+       untouched record look changed for ever. */
+    check('S133', 'a blank timer and No are the same thing',
+      S({ outletTimer: '' }, { outletTimer: 'No' }).length === 0 &&
+      S({}, { outletTimer: 'No' }).length === 0,
+      'otherwise every customer who never answered the timer question re-queues ' +
+      'on their next save, for ever');
+    check('S133', 'but a blank wire and a real wire are not',
+      S({ wireColor: '' }, { wireColor: 'Green' }).join() === 'wireColor',
+      'their bundle was made on whatever the default was; green is a real change');
+    check('S133', 'and several at once are all reported',
+      S({ wireColor: 'White', outletTimer: 'No', lightsDescription: 'A' },
+        { wireColor: 'Green', outletTimer: 'Yes', lightsDescription: 'B' }).length === 3,
+      'reporting only the first would hide the other two from anything that ' +
+      'later wants to say WHAT changed');
+    /* ⚠ CAUGHT, so this fails AS ITSELF. Dropping the `|| {}` guards makes the
+       call THROW, and an uncaught throw in a synchronous suite takes the whole
+       run down with a stack trace that names neither the suite nor the rule —
+       the red-check hit exactly that. CLAUDE.md carries the same lesson from
+       the workbook-writer suite. */
+    const safely = (a, b) => { try { return S(a, b); } catch (e) { return { threw: String(e && e.message) }; } };
+    check('S133', 'and a missing record either side does not throw',
+      Array.isArray(safely(null, null)) && safely(null, null).length === 0 &&
+      Array.isArray(safely(undefined, { wireColor: 'Green' })) &&
+      safely(undefined, { wireColor: 'Green' }).join() === 'wireColor',
+      'a save must never die because a cache was still loading');
+  }
+
+  /* ---- 2. the portal actually sets the flag, run ---------------------- */
+  {
+    const A = '  {\n    const rebuild = warehouseRebuildFields(oldData, updates);';
+    const a = fns.indexOf(A);
+    check('S133', 'the portal rebuild block is where this suite expects it', a !== -1);
+    if (a !== -1 && sSrc && sList) {
+      const b = fns.indexOf("  if (section === 'lights'", a);
+      const blk = fns.slice(a, b);
+      const run = (oldData, updates) => {
+        new Function('oldData', 'updates', 'warehouseRebuildFields',
+          blk)(oldData, updates,
+          new Function('WAREHOUSE_BUILD_FIELDS', sSrc + ';return warehouseRebuildFields;')(
+            JSON.parse(sList[1].replace(/'/g, '"'))));
+        return updates;
+      };
+      check('S133', 'changing the wire in the portal queues the warehouse',
+        run({ wireColor: 'White' }, { wireColor: 'Green' }).needsLightBuild === true,
+        'this is the hole: the record changed, a note went to the inbox, and ' +
+        'they never appeared in Needs Building');
+      check('S133', 'and so does changing the timer',
+        run({ outletTimer: 'No' }, { outletTimer: 'Yes' }).needsLightBuild === true,
+        'no timer would ever be put in their bundle');
+      check('S133', 'but an unrelated save does not',
+        run({ wireColor: 'White' }, { notes: 'gate code is 1234' }).needsLightBuild === undefined,
+        're-queueing on every save would drown the real ones');
+      /* ⚠ IT MAY ONLY EVER TURN THE FLAG ON. The lights block below it carries
+         its own hard-won rule — blank colours mean the build cannot be DONE yet,
+         not that it is not owed — and this must not overwrite it. */
+      check('S133', 'and it never turns the flag off',
+        run({ wireColor: 'White' }, { wireColor: 'White', needsLightBuild: true })
+          .needsLightBuild === true,
+        'writing false here would bring back the bug where saving a customer ' +
+        'with no colours silently cleared the build they were owed');
+    }
+  }
+
+  /* ---- 3. and the office side does too -------------------------------- */
+  check('S133', 'the office save asks the same question',
+    /if\(warehouseRebuildFields\(item\.data, addrUpdates\)\.length\) addrUpdates\.needsLightBuild = true;/
+      .test(stripComments(admin)),
+    'a member can change their wire in the portal and the office can change it ' +
+    'on their record — both have to reach the same queue');
+  /* ⚠ AFTER the existing lights expression, never before or instead of it. */
+  const admStripped = stripComments(admin);
+  const iLights = admStripped.indexOf('addrUpdates.needsLightBuild = newLightsDescription');
+  const iWire = admStripped.indexOf('if(warehouseRebuildFields(item.data, addrUpdates).length)');
+  check('S133', 'and does it after the colour rule, not instead of it',
+    iLights !== -1 && iWire > iLights,
+    'that expression is what keeps a build OWED for a customer with no colours ' +
+    'on file; running before it, or replacing it, loses that');
 }
 
 Promise.all(pendingAsync).then(function () {
