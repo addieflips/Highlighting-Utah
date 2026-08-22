@@ -19228,29 +19228,33 @@ function openRoofMeasure(quoteId){
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
     if(rmCornerMode === 'dot' && !rmDrawing){
-      /* ⚠ A dot placed from above needs a HEIGHT, and the map cannot give one.
-         It takes the working height the office set, which is what that box has
-         always been for - and a dot can be dragged to the right height in the
-         street view afterwards, where height is the thing you CAN see. */
-      /* ⚠ A DOT THAT SITS AT THE WRONG HEIGHT MOVES ACROSS THE HOUSE THE
-         MOMENT YOU STEP SIDEWAYS. Owner: "when I looked at a different angle
-         the dots didnt stay in the same spot making them get in the way so I
-         couldnt place the rest of them."
-         A dot is stored as a place in the world, so it cannot drift - but if
-         its HEIGHT is wrong it is the wrong place, and parallax swings it
-         against the roof as soon as the camera moves. Every sky-view dot used
-         to take the same flat number, so one meant for a ridge twenty feet up
-         sat at fourteen and slid several feet sideways per step.
-         The roof model knows how high the roof is at each spot, which is the
-         one thing it is genuinely good at, so that is what a dot placed from
-         above takes. A height typed into the box still wins, because somebody
-         typing a number means it. */
-      const roofH = rmRoofHeightAt(w.lat, w.lng);
-      const typed = rmWorkingHeightM();
-      rmAddCorner({lat: w.lat, lng: w.lng, h: typed > 0.3 ? typed : (roofH !== null ? roofH : rmDatum().m)});
+      /* ⭐ THE MAP DOES NOT PLACE CORNERS. Owner: "make sure that you use the
+         street view to draw the lines not the sky view", and before that "its
+         using skyview to place corners which is bad it should use street view
+         only to detect where corners are", and "sky view is only used to
+         calculate the length of lines but still it shouldnt be used that much
+         because you need depth, height, and length to find the actual size of
+         a line and sky view cant give height."
+
+         ⚠ AND SHE IS RIGHT ON THE GEOMETRY, not just the workflow. Looking
+         straight down there is no height in the picture at all, so a dot
+         placed from above had to INVENT one - it took the typed working height
+         or the roof model's guess. A dot at the wrong height is at the wrong
+         place, and parallax swings it across the house the moment the camera
+         moves, which is the drifting she has been reporting all along. There
+         is no version of a sky-view click that does not guess.
+
+         From the street a click is a ray that meets the actual wall, so the
+         height falls out of the geometry instead of being supplied. That is
+         also the only view where a gutter can be told apart from a chimney, a
+         satellite dish or a tree.
+
+         The map keeps everything it is genuinely better at: seeing where a run
+         really lies, measuring its true length, and picking a dot to work with
+         (right-click still toggles one on or off). It just no longer invents
+         one. */
       const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = rmCorners.length + ' dots — the new one is ' +
-        rmCornerLabel(rmCorners.length - 1) + '. They join in the order you place them.';
+      if(note) note.textContent = '⚠ Dots go in from the street view — that is the only place a gutter can be told from a chimney, and the only place a height is real rather than guessed. The map is for checking where they landed.';
       return;
     }
     if(rmDrawing) rmAddPoint(w);
