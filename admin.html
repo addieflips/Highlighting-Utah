@@ -17744,6 +17744,12 @@ function rmPaintStreet(){
       'fill="'+(lit ? '#E0574B' : '#6b7683')+'" stroke="rgba(255,255,255,.85)" stroke-width="2.2" ' +
       'paint-order="stroke" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
       rmCornerLabel(i) + '</text>');
+    /* The height beside the number: a dot at the wrong height is the one thing
+       that makes a dot appear to move, and it is invisible until it is said. */
+    parts.push('<text x="'+(q.x + 6)+'" y="'+(q.y + 5)+'" font-size="7.5" font-weight="600" ' +
+      'fill="'+(lit ? '#8a4038' : '#8b95a1')+'" stroke="rgba(255,255,255,.85)" stroke-width="2" ' +
+      'paint-order="stroke" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
+      Math.round((c.h || 0) * RM_M_TO_FT) + '′</text>');
     parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="12" fill="rgba(0,0,0,0)" ' +
       'style="pointer-events:all; cursor:pointer;" data-rmcornerdot="'+i+'"></circle>');
   });
@@ -18544,7 +18550,22 @@ function openRoofMeasure(quoteId){
          It takes the working height the office set, which is what that box has
          always been for - and a dot can be dragged to the right height in the
          street view afterwards, where height is the thing you CAN see. */
-      rmAddCorner({lat: w.lat, lng: w.lng, h: rmWorkingHeightM() || rmDatum().m});
+      /* ⚠ A DOT THAT SITS AT THE WRONG HEIGHT MOVES ACROSS THE HOUSE THE
+         MOMENT YOU STEP SIDEWAYS. Owner: "when I looked at a different angle
+         the dots didnt stay in the same spot making them get in the way so I
+         couldnt place the rest of them."
+         A dot is stored as a place in the world, so it cannot drift - but if
+         its HEIGHT is wrong it is the wrong place, and parallax swings it
+         against the roof as soon as the camera moves. Every sky-view dot used
+         to take the same flat number, so one meant for a ridge twenty feet up
+         sat at fourteen and slid several feet sideways per step.
+         The roof model knows how high the roof is at each spot, which is the
+         one thing it is genuinely good at, so that is what a dot placed from
+         above takes. A height typed into the box still wins, because somebody
+         typing a number means it. */
+      const roofH = rmRoofHeightAt(w.lat, w.lng);
+      const typed = rmWorkingHeightM();
+      rmAddCorner({lat: w.lat, lng: w.lng, h: typed > 0.3 ? typed : (roofH !== null ? roofH : rmDatum().m)});
       const note = document.getElementById('rmCornerNote');
       if(note) note.textContent = rmCorners.length + ' dots — the new one is ' +
         rmCornerLabel(rmCorners.length - 1) + '. They join in the order you place them.';
@@ -18576,8 +18597,20 @@ function openRoofMeasure(quoteId){
       });
       const note = document.getElementById('rmCornerNote');
       if(!best){
-        if(note) note.textContent = '⚠ That is not pointing at the roof — click on the house itself.';
-        return;
+        /* ⚠ REFUSING A CLICK IS WORSE THAN PLACING IT ROUGHLY. Google's roof
+           planes stop at the boxes it drew, so a real corner just past the end
+           of one is refused - and the office is left clicking at a house that
+           will not take a dot. Falling back to the wall the house presents to
+           the camera puts it close and lets it be corrected; saying no puts
+           the work back on them for a modelling gap that is not their fault. */
+        const wall = rmWallPlane();
+        const w2 = wall ? rmWallHit(dir, cam, wall) : null;
+        if(!w2){
+          if(note) note.textContent = '⚠ That is not pointing at the house — click on the building itself.';
+          return;
+        }
+        best = w2;
+        best.u = rmRoofHeightAt(rmToWorld(w2).lat, rmToWorld(w2).lng) ?? rmDatum().m;
       }
       const w = rmToWorld({e: best.e, n: best.n, u: best.u});
       rmAddCorner({lat: w.lat, lng: w.lng, h: best.u});
