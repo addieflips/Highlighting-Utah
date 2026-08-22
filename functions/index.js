@@ -575,6 +575,10 @@ const PORTAL_READ_FIELDS = [
      job will do. In the read list so the portal cannot contradict the office
      about a question that is still open. */
   'askSameAsLastYear',
+  /* Set by the nightly run when there is no email anywhere on their bill. In
+     the read list so the portal cannot show a customer as settled while the
+     office is chasing them for an address. */
+  'cannotBillNoEmail',
   'quoteDetailQuoteId',
   /* The end of their current free-change window, which is also the window in
      which they are deliberately not put on a route. The portal needs it BEFORE
@@ -2933,7 +2937,59 @@ async function runInvoiceBatch(triggeredBy) {
         if (!email) {
           skippedNoEmail++;
           noEmailNames.push(payer.data.name || payer.data.address || payer.id);
+          /* ⭐ AND IT LANDS ON THE CUSTOMER, NOT ONLY IN LAST NIGHT'S TEXT
+             (hole H, 2026-08-21). Counting them fixed the "0 sent, 0 errors"
+             lie; it did not make the work findable. A number in a nightly
+             summary is the same number every night, so it reads as background
+             noise while an installed house — materials, a crew's day, a bundle
+             made — goes unbilled all season.
+
+             With the flag on the record the office can filter All Customers,
+             see who they are and go and get an email address.
+
+             ⚠ SET AND CLEARED BY THE SAME RUN, so it cannot go stale the way
+             maybeNextYear did — one writer, one rule. A customer who gains an
+             email is cleared on the next nightly pass, and the office screen
+             does not even wait for that: the tag also checks live that they
+             still have no email, so it disappears the moment one is typed.
+             Stored flag, derived display — the same shape as derivedDoneFor.
+
+             ⚠ AND THE NOTE GOES UP ONCE, not nightly. Guarded on the flag not
+             already being set: a note every night for the same house is how
+             somebody learns to ignore the folder. */
+          if (!payer.data.cannotBillNoEmail) {
+            await tryFirestore('no-email flag', () =>
+              db.collection('jobAddresses').doc(payer.id).update({
+                cannotBillNoEmail: true,
+                cannotBillNoEmailAt: admin.firestore.FieldValue.serverTimestamp()
+              }));
+            await tryFirestore('no-email note', () =>
+              db.collection('messages').add({
+                topic: 'Cannot Be Billed', folder: 'System',
+                name: payer.data.name || '', phone: payer.data.phone || '', email: '',
+                contactMethod: '',
+                message: (payer.data.name || 'A customer') + ' has no email address ' +
+                         'anywhere on their bill, so tonight\'s invoice could not be ' +
+                         'sent and they have not been charged for work already done. ' +
+                         'They are in All Customers under the "Cannot Be Billed" ' +
+                         'filter. Adding an email address clears this by itself.',
+                autoQueuedToWarehouse: false, needsReassign: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+              }));
+          }
           continue;
+        }
+
+        /* ⚠ THE SAME RUN CLEARS IT. A flag with only one way in is the sticky
+           bug this file has already been bitten by; the writer that sets it is
+           the only thing that should decide it is over. Written only when it is
+           actually set, so an ordinary night writes nothing extra to ~960
+           records. */
+        if (payer.data.cannotBillNoEmail) {
+          await tryFirestore('no-email flag clear', () =>
+            db.collection('jobAddresses').doc(payer.id).update({
+              cannotBillNoEmail: false, cannotBillNoEmailAt: null
+            }));
         }
 
         const phone = digitsOnly(payer.data.phone);

@@ -413,7 +413,24 @@ check('logic', 'zero-value invoice is Unpaid', computeInvoiceStatus(0, 0, 0) ===
 // Comments are stripped before any "does this code still mention X" test below.
 // Both of these functions carry a comment explaining the createdAt trap they
 // exist to avoid, and a naive source search matches that explanation and fails.
-const stripComments = s => (s || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+/* ⚠ A `/*` ONLY STARTS A COMMENT WHERE A COMMENT COULD START (fixed
+   2026-08-21). This was a bare /\/\*[\s\S]*?\*\//g, and admin.html contains
+   accept="image/*" — so the match opened there and ran to the next real `*/`
+   hundreds of lines later. Measured: ONE such match swallowed 272,306
+   characters, and the whole strip was deleting 36% of the file.
+
+   That direction of failure is the dangerous one. A positive check
+   (/x/.test(stripped)) just fails and gets noticed; a NEGATIVE one
+   (!/x/.test(stripped)) passes for free over code it never looked at, which is
+   a guarantee that quietly stopped guarding anything.
+
+   Requiring the `/*` to follow a start-of-line, whitespace, or one of ;{}()[],
+   keeps every real comment and skips the ones inside attributes and strings.
+   The `//` rule is left alone deliberately: it eats the tail of any line
+   holding a URL, which loses text but cannot invent a match. */
+const stripComments = s => (s || '')
+  .replace(/(^|[\s;{}()\[\],])\/\*[\s\S]*?\*\//g, '$1')
+  .replace(/\/\/.*$/gm, '');
 const isNewHangUrgentSrc = extractFn(admin, 'isNewHangUrgent');
 eval(isNewHangUrgentSrc);
 const oldCreatedAt = { toDate: () => new Date(Date.now() - 400 * 86400000) };
@@ -29865,6 +29882,210 @@ suite('Suite 134. Everyone added from the sheet gets a number and a build');
     /given a customer number/.test(admin),
     'a number handed out is a bin label somebody has to write and a build ' +
     'queued is a bundle somebody has to make — automatic is fine, invisible is not');
+}
+
+/* =====================================================================
+ * Suite 135. A house that cannot be invoiced is a job, not a statistic
+ *
+ * Known hole H. The nightly run used to hit a bare `continue` for a payer with
+ * no email — not counted as sent, skipped or errored — so the summary read
+ * "0 sent, 0 errors" while an installed house went unbilled all season. That
+ * half was already fixed: they are counted and the first three are named in the
+ * nightly text.
+ *
+ * ⚠ COUNTED IS NOT ACTIONABLE. It is the same number every night, so it reads
+ * as background noise; nothing sat on the customer, so the office could not
+ * find out WHO; and nothing changed when an email was finally added. Meanwhile
+ * the materials, the crew's day and the bundle are already spent.
+ *
+ * ⚠ AND THE FLAG MUST NOT GO STICKY. maybeNextYear had exactly one way out and
+ * cost a customer a whole season (Suite 132). This one is set AND cleared by
+ * the same nightly run — one writer, one rule — and the office screen does not
+ * even wait for that: the tag checks live that they still have no email, so it
+ * disappears the moment one is typed. Stored fact, derived display.
+ * ===================================================================== */
+suite('Suite 135. A house that cannot be invoiced is a job, not a statistic');
+{
+  const fns = read('functions/index.js');
+  const admin = read('admin.html');
+
+  /* ---- 1. the rule the office screen reads, RUN ----------------------- */
+  const ruleSrc = extractFn(admin, 'custCannotBeBilled');
+  check('S135', 'the office rule is findable', !!ruleSrc);
+  if (ruleSrc) {
+    const R = new Function(ruleSrc + ';return custCannotBeBilled;')();
+    check('S135', 'flagged and still no email reads as cannot-be-billed',
+      R({ cannotBillNoEmail: true }) === true &&
+      R({ cannotBillNoEmail: true, email: '', email2: '  ' }) === true,
+      'this is the state the nightly run left them in');
+    /* ⚠ THE LIVE HALF. The flag is written once a night, so on the stored value
+       alone the tag would sit there all day after somebody typed an email in —
+       and the office would go looking for a gap that is already closed. */
+    check('S135', 'but an email typed since clears it on screen at once',
+      R({ cannotBillNoEmail: true, email: 'a@b.com' }) === false &&
+      R({ cannotBillNoEmail: true, email2: 'a@b.com' }) === false,
+      'waiting until tomorrow night to stop showing it is how a fixed thing ' +
+      'keeps being worked on');
+    /* ⚠ AND IT NEVER SHOWS FOR SOMEBODY WHO SIMPLY HAS NO EMAIL YET. The flag is
+       what says the run actually tried and failed. Plenty of records have no
+       email; tagging all of them would bury the dozen that matter. */
+    check('S135', 'and a customer the run never tried is not tagged',
+      R({ email: '' }) === false && R({}) === false &&
+      R({ cannotBillNoEmail: false, email: '' }) === false,
+      'a tag on every record with a blank email is a tag on nothing');
+    /* ⚠ CAUGHT, so this fails AS ITSELF. Dropping the `|| {}` makes the call
+       THROW, and an uncaught throw in a synchronous suite takes the whole run
+       down with a stack trace naming neither the suite nor the rule — the
+       red-check hit exactly that, for the fourth time in this session. */
+    const safeR = v => { try { return R(v); } catch (e) { return 'THREW: ' + (e && e.message); } };
+    check('S135', 'a missing record does not throw',
+      safeR(null) === false && safeR(undefined) === false,
+      'the row draws while the cache is still loading');
+  }
+
+  /* ---- 2. the nightly run: the skip path, RUN ------------------------- */
+  const A = '        if (!email) {';
+  const B = '          continue;\n        }';
+  const a = fns.indexOf(A);
+  const b = fns.indexOf(B, a);
+  check('S135', 'the no-email skip block is where this suite expects it',
+    a !== -1 && b > a,
+    'moved or renamed — fix the slice rather than deleting the suite');
+
+  if (a !== -1 && b > a) {
+    const blk = fns.slice(a, b) + '\n        }';
+    const runSkip = (payerData) => {
+      const writes = [], msgs = [];
+      let skippedNoEmail = 0; const noEmailNames = [];
+      const db = {
+        collection: (c) => c === 'messages'
+          ? { add: (m) => { msgs.push(m); return Promise.resolve({}); } }
+          : { doc: (id) => ({ update: (p) => { writes.push({ id, p }); return Promise.resolve(); } }) }
+      };
+      /* tryFirestore is the real contract: it returns, never throws. */
+      const tryFirestore = async (label, fn) => {
+        try { return { ok: true, value: await fn() }; } catch (e) { return { ok: false }; }
+      };
+      const body = 'return (async () => { let skippedNoEmail = 0; const noEmailNames = [];' +
+        blk.replace('continue;', '') +
+        ' return {skippedNoEmail, noEmailNames}; })();';
+      return new Function('email', 'payer', 'db', 'admin', 'tryFirestore', body)(
+        '', { id: 'c1', data: payerData }, db,
+        { firestore: { FieldValue: { serverTimestamp: () => '@ts' } } }, tryFirestore
+      ).then(counts => ({ counts, writes, msgs }));
+    };
+
+    pendingAsync.push((async () => {
+      {
+        const r = await runSkip({ name: 'Phone Only', phone: '8015550100' });
+        check('S135', 'a payer with no email is still counted and named',
+          r.counts.skippedNoEmail === 1 && r.counts.noEmailNames[0] === 'Phone Only',
+          'the half that was already fixed must keep working — it is what stops ' +
+          'the summary reading "0 sent, 0 errors"');
+        check('S135', 'and now the flag lands on their record',
+          r.writes.length === 1 && r.writes[0].id === 'c1' &&
+          r.writes[0].p.cannotBillNoEmail === true,
+          'without it the office cannot find out WHO could not be billed');
+        check('S135', 'and a note names them and says how to clear it',
+          r.msgs.length === 1 && r.msgs[0].folder === 'System' &&
+          /Phone Only/.test(r.msgs[0].message) &&
+          /Cannot Be Billed/.test(r.msgs[0].message) &&
+          /clears this by itself/.test(r.msgs[0].message),
+          'a note that reports a problem without naming the screen to fix it on ' +
+          'is one more thing to work out at 7pm');
+        check('S135', 'and it counts on the sidebar badge',
+          r.msgs[0].read === undefined,
+          'the badge counts unread messages whatever the folder — a note marked ' +
+          'read on arrival is invisible');
+      }
+      /* ⚠ ONCE, NOT NIGHTLY. The same note every night for the same house is how
+         somebody learns to ignore the folder — and this runs 365 times a year. */
+      {
+        const r = await runSkip({ name: 'Already Flagged', cannotBillNoEmail: true });
+        check('S135', 'a customer already flagged is not written to again',
+          r.writes.length === 0 && r.msgs.length === 0,
+          'a nightly repeat trains the office to ignore the one folder that ' +
+          'carries real work');
+        check('S135', 'but they are still counted in the nightly summary',
+          r.counts.skippedNoEmail === 1,
+          'the count is tonight\'s truth; the note is the first-time alert. ' +
+          'Suppressing the count too would put the "0 errors" lie straight back');
+      }
+      /* ⚠ AND THE REPORTER CANNOT BECOME THE FAILURE. Everything here runs
+         through tryFirestore, so a refused write is reported, never thrown —
+         one un-billable customer must not stop the other 959 being invoiced. */
+      {
+        const writes = [];
+        const blown = new Function('email', 'payer', 'db', 'admin', 'tryFirestore',
+          'return (async () => { let skippedNoEmail = 0; const noEmailNames = [];' +
+          blk.replace('continue;', '') + ' return skippedNoEmail; })();')(
+          '', { id: 'c1', data: { name: 'X' } },
+          { collection: () => ({ doc: () => ({ update: () => Promise.reject(new Error('denied')) }),
+                                 add: () => Promise.reject(new Error('denied')) }) },
+          { firestore: { FieldValue: { serverTimestamp: () => '@ts' } } },
+          async (l, fn) => { try { return { ok: true, value: await fn() }; } catch (e) { return { ok: false }; } });
+        const out = await blown.catch(e => 'THREW: ' + e.message);
+        check('S135', 'a refused write does not stop the rest of the run',
+          out === 1,
+          'got ' + JSON.stringify(out) + ' — one un-billable customer must never ' +
+          'take the other 959 invoices down with it');
+      }
+    })());
+  }
+
+  /* ---- 3. the same run clears it -------------------------------------- */
+  /* ⚠ ANCHORED ON THE COMMENT, NOT ON THE GUARD. Slicing from
+     'if (payer.data.cannotBillNoEmail) {' meant a sabotage of that very line —
+     the "clears unconditionally" case this exists to catch — destroyed the
+     anchor, so the findability check went red instead and the real one never
+     ran. The slice has to survive the change it is watching for. */
+  const clearStart = fns.indexOf('⚠ THE SAME RUN CLEARS IT');
+  const clearSrc = clearStart === -1 ? '' : fns.slice(
+    fns.lastIndexOf('        /*', clearStart),
+    fns.indexOf('        const phone = digitsOnly(payer.data.phone);', clearStart));
+  check('S135', 'the clear block is findable', clearSrc.length > 50 && clearSrc.length < 900);
+  if (clearSrc.length > 50 && clearSrc.length < 900) {
+    pendingAsync.push((async () => {
+      const runClear = (payerData) => {
+        const writes = [];
+        return new Function('payer', 'db', 'tryFirestore',
+          'return (async () => {' + clearSrc + '})();')(
+          { id: 'c1', data: payerData },
+          { collection: () => ({ doc: (id) => ({ update: (p) => { writes.push({ id, p }); return Promise.resolve(); } }) }) },
+          async (l, fn) => { try { return { ok: true, value: await fn() }; } catch (e) { return { ok: false }; } }
+        ).then(() => writes);
+      };
+      check('S135', 'a payer who now has an email is cleared',
+        (await runClear({ cannotBillNoEmail: true }))[0].p.cannotBillNoEmail === false,
+        'a flag with only one way in is the sticky bug maybeNextYear already ' +
+        'cost a customer a whole season for');
+      /* ⚠ AND AN ORDINARY NIGHT WRITES NOTHING EXTRA. Clearing unconditionally
+         would be ~960 pointless writes every single night. */
+      check('S135', 'but an ordinary payer is not written to at all',
+        (await runClear({})).length === 0,
+        'clearing a flag nobody has is a write to every customer, nightly');
+    })());
+  }
+
+  /* ---- 4. the office can work the list -------------------------------- */
+  check('S135', 'there is a filter for them in All Customers',
+    /id="filterCannotBill"/.test(admin) &&
+    /activeCannotBillFilter = document\.getElementById\('filterCannotBill'\)\.checked;/.test(stripComments(admin)) &&
+    /if\(activeCannotBillFilter\) filtered = filtered\.filter\(a => custCannotBeBilled\(a\.data\)\);/.test(stripComments(admin)),
+    'a checkbox with no filter behind it, or a filter no checkbox reaches, is ' +
+    'worse than neither — this repo has shipped both');
+  check('S135', 'the filter and the row tag ask the same question',
+    (stripComments(admin).match(/custCannotBeBilled\(/g) || []).length >= 3,
+    'the tag, the filter and the rule itself — a second definition is how a row ' +
+    'shows a tag the filter cannot find');
+  check('S135', 'and the active-filter line names it',
+    /parts\.push\('Cannot Be Billed'\)/.test(stripComments(admin)),
+    'a filter silently narrowing the list is how somebody concludes half their ' +
+    'customers have vanished');
+  check('S135', 'the portal can read the flag',
+    /'cannotBillNoEmail'/.test(fns),
+    'in PORTAL_READ_FIELDS so the portal cannot show a customer as settled while ' +
+    'the office is chasing them for an address');
 }
 
 Promise.all(pendingAsync).then(function () {

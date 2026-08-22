@@ -3335,6 +3335,7 @@
                 <label><input type="checkbox" id="filterCompleted"> Done</label>
                 <label><input type="checkbox" id="filterNotCompleted"> Not Done Yet</label>
                 <label><input type="checkbox" id="filterNeedsRemoval"> Needs Removal</label>
+                <label><input type="checkbox" id="filterCannotBill"> Cannot Be Billed</label>
               </div>
               <button type="button" class="btn btn-gold btn-sm" id="applyFilterBtn" style="width:100%; margin-top:10px;">Apply</button>
             </div>
@@ -24045,6 +24046,26 @@ let activeNeedsFixFilter = false;
 let activeUnscheduledFilter = false;
 let activeCompletedFilter = false;
 let activeNotCompletedFilter = false;
+/* ⭐ WHO COULD NOT BE BILLED LAST NIGHT (hole H, 2026-08-21).
+   The nightly run sets cannotBillNoEmail when there is no email anywhere on a
+   payer's bill — an installed house that cannot be invoiced.
+
+   ⚠ THE STORED FLAG IS ONLY HALF THE ANSWER. It is written once a night, so on
+   its own the tag would sit there all day after somebody typed an email in.
+   Checking live that they STILL have no email makes it disappear the moment the
+   gap is closed, while the flag stays the thing that decided it — stored fact,
+   derived display, the same shape as derivedDoneFor.
+
+   ⚠ AND IT NEVER SHOWS FOR SOMEBODY WHO SIMPLY HAS NO EMAIL YET. The flag is
+   what says the nightly run actually tried and failed; ~960 customers have no
+   email on some record somewhere, and tagging all of them would bury the dozen
+   that matter. */
+function custCannotBeBilled(d){
+  const dd = d || {};
+  if(!dd.cannotBillNoEmail) return false;
+  return !String(dd.email || '').trim() && !String(dd.email2 || '').trim();
+}
+let activeCannotBillFilter = false;
 let activeNeedsRemovalFilter = false;
 let activeCityFilter = 'all';
 let searchTerm = '';
@@ -24288,7 +24309,7 @@ function buildAddressRowHtml(item){
       timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
-        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
+        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(custCannotBeBilled(d) ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Cannot Be Billed \u2014 no email</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         priceLine+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+
@@ -24828,6 +24849,7 @@ function renderRouteAddressList(){
   if(activeCompletedFilter) filtered = filtered.filter(a => a.data.completed);
   if(activeNotCompletedFilter) filtered = filtered.filter(a => !a.data.completed);
   if(activeNeedsRemovalFilter) filtered = filtered.filter(a => a.data.completed && !a.data.removalDone);
+  if(activeCannotBillFilter) filtered = filtered.filter(a => custCannotBeBilled(a.data));
   if(searchTerm){
     const t = searchTerm.toLowerCase();
     filtered = filtered.filter(a =>
@@ -24917,6 +24939,7 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   activeCompletedFilter = document.getElementById('filterCompleted').checked;
   activeNotCompletedFilter = document.getElementById('filterNotCompleted').checked;
   activeNeedsRemovalFilter = document.getElementById('filterNeedsRemoval').checked;
+  activeCannotBillFilter = document.getElementById('filterCannotBill').checked;
   const parts = [];
   if(activeDiffFilters.length) parts.push(activeDiffFilters.join('/'));
   if(activeNeedsFixFilter) parts.push('Needs Fix');
@@ -24924,6 +24947,7 @@ document.getElementById('applyFilterBtn').addEventListener('click', function(){
   if(activeCompletedFilter) parts.push('Done');
   if(activeNotCompletedFilter) parts.push('Not Done');
   if(activeNeedsRemovalFilter) parts.push('Needs Removal');
+  if(activeCannotBillFilter) parts.push('Cannot Be Billed');
   document.getElementById('activeFilterSummary').textContent = parts.length ? parts.join(', ') : '';
   document.getElementById('filterDropdown').classList.remove('open');
   renderRouteAddressList();
