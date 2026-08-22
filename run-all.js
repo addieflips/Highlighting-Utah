@@ -34054,11 +34054,21 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
     /\['rmPanoLock', 'rmMapLock'\]\.forEach/.test(admin));
   /* ⭐ ARROW KEYS FOR ANOTHER ANGLE. Owner: "I cant place dot from multiple
      angles make it so I can use my arrow keys to do that." */
-  check('S149', 'left and right turn the view',
-    /rmPano\.setPov\(\{heading: pv\.heading \+ \(k === 'ArrowRight' \? 12 : -12\)/.test(admin));
-  check('S149', 'and up and down MOVE it, which is what changes what is hidden',
-    /rmPano\.getLinks\(\)/.test(admin) && /rmPano\.setPano\(best\.pano\)/.test(admin),
+  /* ⚠ THE ARROWS MOVE, THEY DO NOT TURN. This check used to assert the
+     opposite. Owner: "the arrow keys are making me turn, I want the arrow keys
+     to make me move right and left." Turning only changes what is in frame,
+     and the frame is already aimed at the house - what somebody needs when a
+     corner is behind a tree is to stand somewhere else. */
+  check('S149', 'left and right WALK ALONG the street rather than turning',
+    /k === 'ArrowLeft' \? -90 : k === 'ArrowRight' \? 90/.test(admin) &&
+    /rmPano\.setPano\(best\.pano\)/.test(admin),
     'turning changes what is in frame; only moving changes what is behind what');
+  check('S149', 'and the view is re-aimed at the house after every step',
+    /addListenerOnce\(rmPano, 'position_changed'[\s\S]{0,300}rmHeadingTo\(pos\.lat\(\)/.test(admin),
+    'moving without turning back leaves the house off the frame within two presses');
+  check('S149', 'a step that is not really in that direction is refused',
+    /if\(!best \|\| bd > 70\) return;/.test(admin),
+    'the nearest link to "left" on a dead-end street is the one straight ahead');
   check('S149', 'there is a button to end a strand as well as a key',
     /id="rmEndStrandBtn"/.test(admin) && /rmEndStrandBtn'\)\.addEventListener/.test(admin),
     'not everybody reaches for a keyboard');
