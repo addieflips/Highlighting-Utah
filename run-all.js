@@ -34334,6 +34334,94 @@ suite('151. Measure Roof - a clicked dot takes its depth from the wall, not the 
     'without it a ray flying over a low garage is placed on the garage front');
 }
 
+
+suite('152. Measure Roof - a dot seen twice is exact, with no model at all');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "its not exact enough because when I try to do a doorwell and I
+     need to move to a new angle if it moves even a little then it gets in the
+     way so you need to make there be 0 margin of error."
+     A single click gives a RAY, not a point. Something has to say how far
+     along it the roof is, and every available answer is a model of the house
+     that is close but never right - and all of that error lands in the depth,
+     which is invisible from the camera that placed the dot and obvious from
+     any other. Two rays from two places cross at ONE point. That is geometry,
+     not a model. */
+  const solve = pick('rmSolveFromRays');
+  if (!solve) {
+    check('S152', 'the pinning solve is findable', false, 'rmSolveFromRays missing');
+  } else {
+    const api = new Function(solve + LF_ + 'return rmSolveFromRays;')();
+    const unit = (c, t) => { const d = {e: t.e-c.e, n: t.n-c.n, u: t.u-c.u};
+      const l = Math.hypot(d.e,d.n,d.u); return {e:d.e/l, n:d.n/l, u:d.u/l}; };
+    const truth = {e: 1.5, n: 3.25, u: 5.75};
+    const camA = {e: -14, n: -22, u: 2.5};
+    const camB = {e: 11, n: -21, u: 2.5};
+    const camC = {e: -2, n: -30, u: 2.5};
+
+    const two = api([{cam: camA, dir: unit(camA, truth)}, {cam: camB, dir: unit(camB, truth)}]);
+    check('S152', 'two clean sightings land exactly on the corner',
+      two && Math.hypot(two.pt.e-truth.e, two.pt.n-truth.n, two.pt.u-truth.u) < 1e-6,
+      two ? 'off by ' + Math.hypot(two.pt.e-truth.e, two.pt.n-truth.n, two.pt.u-truth.u).toExponential(2) + ' m'
+          : 'solved nothing');
+    check('S152', 'and it reports the rays met, which is how good the pin is',
+      two && two.spread < 1e-6,
+      'the spread is the honest measure of the pin and is shown to the office');
+
+    /* ⚠ THE HEIGHT COMES OUT TOO, from the street alone. Nothing above was
+       consulted - no datum, no roof plane, no footprint. */
+    check('S152', 'the height falls out of the crossing with no model involved',
+      two && Math.abs(two.pt.u - 5.75) < 1e-6,
+      'got ' + (two ? two.pt.u.toFixed(4) : '?'));
+
+    /* A third sighting must not make a good answer worse. */
+    const three = api([{cam: camA, dir: unit(camA, truth)}, {cam: camB, dir: unit(camB, truth)},
+                       {cam: camC, dir: unit(camC, truth)}]);
+    check('S152', 'a third sighting keeps it exact rather than dragging it',
+      three && Math.hypot(three.pt.e-truth.e, three.pt.n-truth.n, three.pt.u-truth.u) < 1e-6);
+
+    /* ⚠ AIMING ERROR MUST NOT EXPLODE. A click is never perfect, so the thing
+       that matters is how a small mis-aim behaves - it should stay small, not
+       slide yards along the ray the way a model-derived depth does. */
+    const wobble = (c, t, dx) => { const d = unit(c, {e: t.e + dx, n: t.n, u: t.u}); return {cam: c, dir: d}; };
+    const off = api([wobble(camA, truth, 0.15), wobble(camB, truth, -0.15)]);
+    check('S152', 'a small mis-aim gives a small error, not a large one',
+      off && Math.hypot(off.pt.e-truth.e, off.pt.n-truth.n, off.pt.u-truth.u) < 0.3,
+      'off by ' + (off ? Math.hypot(off.pt.e-truth.e, off.pt.n-truth.n, off.pt.u-truth.u).toFixed(3) : '?') + ' m');
+    check('S152', 'and the spread reports the disagreement honestly',
+      off && off.spread > 0,
+      'a pin that cannot admit its own error is worse than none');
+
+    /* Nonsense in, nothing out. */
+    check('S152', 'one sighting alone is refused - that is the whole problem',
+      api([{cam: camA, dir: unit(camA, truth)}]) === null,
+      'a single ray has no crossing, which is exactly why a single click cannot be exact');
+    const par = {e: 0, n: 1, u: 0};
+    check('S152', 'two parallel sightings are refused rather than solved',
+      api([{cam: camA, dir: par}, {cam: {e: camA.e + 3, n: camA.n, u: camA.u}, dir: par}]) === null,
+      'a singular solve produces a confident nonsense');
+  }
+
+  /* ---- the rule about moving far enough ---------------------------- */
+  const pin = pick('rmPinCorner');
+  check('S152', 'two sightings from nearly the same spot are refused',
+    !!pin && /RM_PIN_MIN_BASE_M/.test(pin) && /move further along the street first/.test(pin),
+    'the rays are almost one ray, and the solve turns a pixel of aim into metres');
+  check('S152', 'every sighting is kept, so more angles narrow it',
+    !!pin && /c\.rays = \(c\.rays \|\| \[\]\)\.concat\(\[ray\]\);/.test(pin),
+    'throwing away the earlier ones would make the third click no better than the second');
+  check('S152', 'a dot remembers the ray it was first placed along',
+    /rays: pt\.ray \? \[pt\.ray\] : \[\]/.test(admin),
+    'without it the second sighting has nothing to cross with');
+  check('S152', 'clicking an existing dot pins it rather than adding another',
+    /const near = rmDotUnderClick\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
+  check('S152', 'and a pinned dot looks different from a guessed one',
+    /if\(c\.pinned\) parts\.push\('<circle/.test(admin),
+    'the office should be able to tell at a glance which dots are still guesses');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

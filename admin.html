@@ -16269,8 +16269,10 @@ function rmToggleCorner(i){
 
 function rmAddCorner(pt){
   if(!pt) return false;
+  /* The ray it was seen along is kept, so a second sighting from elsewhere can
+     be crossed with this one and the guess replaced by the real point. */
   rmCorners.push({lat: pt.lat, lng: pt.lng, h: pt.h || rmDatum().m, on: true,
-                  byHand: true, band: rmCurrentBand});
+                  byHand: true, band: rmCurrentBand, rays: pt.ray ? [pt.ray] : []});
   rmCornersChanged();
   return true;
 }
@@ -16525,6 +16527,115 @@ function rmCornersInPhoto(photo, mppAtHouse){
     corners = corners.slice(0, RM_CORNER_MAX);
   }
   return {corners: corners, runs: runs.length, spikesRemoved: spikes, trimmed: trimmed};
+}
+
+/* ============ PINNING A DOT EXACTLY, WITH NO MODEL AT ALL ===============
+   Owner: "its not exact enough because when I try to do a doorwell and I need
+   to move to a new angle if it moves even a little then it gets in the way so
+   you need to make there be 0 margin of error."
+
+   ⚠ A SINGLE CLICK CANNOT BE EXACT, AND NO AMOUNT OF TUNING WILL MAKE IT SO.
+   A click gives a RAY from the camera, not a point on it. Something has to say
+   how far along that ray the roof is, and every answer available - the roof
+   planes, the footprint, the face boxes - is a model of the house that is
+   close but never right. Whatever error is left lands entirely in the depth,
+   and depth is invisible from the camera that placed the dot and obvious from
+   any other. That is why it looks perfect until you move.
+
+   TWO RAYS FROM TWO PLACES CROSS AT ONE POINT. That is not a model, it is
+   geometry, and it is exact to however well the two clicks were aimed. So a
+   dot placed once is a good guess; click the SAME corner again from another
+   angle and it stops being a guess. More angles narrow it further - every ray
+   is kept and the point that best satisfies all of them is used.
+
+   The solve is the ordinary least-squares meeting point of N lines: each ray
+   contributes (I - ddᵀ), and the point minimising the summed squared distance
+   to all of them falls out of a three-by-three. With two rays it reduces to
+   the midpoint of closest approach, which is what it should be. */
+const RM_PIN_MIN_BASE_M = 3;     /* two clicks nearer than this cannot fix depth */
+const RM_PIN_GRAB_PX = 22;       /* clicking this near a dot means THAT dot */
+
+/* The point that best satisfies every ray it has been seen along. */
+function rmSolveFromRays(rays){
+  if(!rays || rays.length < 2) return null;
+  /* A = sum (I - ddᵀ),  b = sum (I - ddᵀ) c */
+  const A = [[0,0,0],[0,0,0],[0,0,0]];
+  const b = [0,0,0];
+  rays.forEach(function(r){
+    const d = [r.dir.e, r.dir.n, r.dir.u];
+    const c = [r.cam.e, r.cam.n, r.cam.u];
+    for(let i = 0; i < 3; i++){
+      for(let j = 0; j < 3; j++){
+        const m = (i === j ? 1 : 0) - d[i] * d[j];
+        A[i][j] += m;
+        b[i] += m * c[j];
+      }
+    }
+  });
+  /* Solve the 3x3 by elimination, with a guard: rays that are all but parallel
+     make this singular, and a singular solve produces a confident nonsense. */
+  const M = [[A[0][0],A[0][1],A[0][2],b[0]],
+             [A[1][0],A[1][1],A[1][2],b[1]],
+             [A[2][0],A[2][1],A[2][2],b[2]]];
+  for(let col = 0; col < 3; col++){
+    let piv = col;
+    for(let r2 = col + 1; r2 < 3; r2++) if(Math.abs(M[r2][col]) > Math.abs(M[piv][col])) piv = r2;
+    if(Math.abs(M[piv][col]) < 1e-8) return null;        /* too nearly parallel */
+    const tmp = M[col]; M[col] = M[piv]; M[piv] = tmp;
+    for(let r2 = 0; r2 < 3; r2++){
+      if(r2 === col) continue;
+      const f = M[r2][col] / M[col][col];
+      for(let c2 = col; c2 < 4; c2++) M[r2][c2] -= f * M[col][c2];
+    }
+  }
+  const p = {e: M[0][3] / M[0][0], n: M[1][3] / M[1][1], u: M[2][3] / M[2][2]};
+  if(![p.e, p.n, p.u].every(isFinite)) return null;
+  /* How far the rays actually missed each other by - the honest measure of how
+     good this pin is, and worth showing rather than hiding. */
+  let worst = 0;
+  rays.forEach(function(r){
+    const w = {e: p.e - r.cam.e, n: p.n - r.cam.n, u: p.u - r.cam.u};
+    const t = w.e * r.dir.e + w.n * r.dir.n + w.u * r.dir.u;
+    const d = Math.hypot(w.e - r.dir.e * t, w.n - r.dir.n * t, w.u - r.dir.u * t);
+    if(d > worst) worst = d;
+  });
+  return {pt: p, spread: worst};
+}
+
+/* Which existing dot is this click meant for, if any. */
+function rmDotUnderClick(px, py, W, H, pov, cam){
+  let best = -1, bd = RM_PIN_GRAB_PX;
+  rmCorners.forEach(function(c, i){
+    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+    if(!q) return;
+    const d = Math.hypot(q.x - px, q.y - py);
+    if(d < bd){ bd = d; best = i; }
+  });
+  return best;
+}
+
+/* Add another sighting of a dot and re-solve it from all of them. */
+function rmPinCorner(i, ray){
+  const c = rmCorners[i];
+  if(!c) return null;
+  c.rays = (c.rays || []).concat([ray]);
+  /* ⚠ Two sightings from nearly the same spot cannot fix a depth - the rays
+     are almost one ray, and the solve turns a pixel of aim into metres. Say so
+     rather than moving the dot somewhere worse than it already was. */
+  const far = c.rays.some(function(a){
+    return c.rays.some(function(b){
+      return Math.hypot(a.cam.e - b.cam.e, a.cam.n - b.cam.n) >= RM_PIN_MIN_BASE_M;
+    });
+  });
+  if(!far) return {ok: false, why: 'move further along the street first - two views from the same spot cannot fix the depth'};
+  const sol = rmSolveFromRays(c.rays);
+  if(!sol) return {ok: false, why: 'those sightings are too nearly in line to cross'};
+  const w = rmToWorld(sol.pt);
+  c.lat = w.lat; c.lng = w.lng; c.h = sol.pt.u;
+  c.pinned = c.rays.length;
+  c.spread = sol.spread;
+  rmCornersChanged();
+  return {ok: true, sightings: c.rays.length, spread: sol.spread};
 }
 
 /* ============ WHICH PART OF THE HOUSE A CLICK IS POINTING AT ============
@@ -17849,6 +17960,11 @@ function rmPaintStreet(){
        right place if the marker covers the place. So the dot is small and the
        number sits BESIDE it, and the part that takes the click is invisible
        and generous, which costs nothing on screen. */
+    /* A pinned dot gets a ring: it has been seen from more than one place and
+       is where it says it is. An unpinned one is still a guess, and the office
+       should be able to tell at a glance which is which. */
+    if(c.pinned) parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="none" stroke="'+
+      (lit ? '#E0574B' : '#8b95a1')+'" stroke-width="1" opacity=".85"/>');
     parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="3.2" fill="'+(lit ? '#E0574B' : 'rgba(255,255,255,.8)')+
       '" stroke="'+(lit ? 'rgba(255,255,255,.9)' : '#8b95a1')+'" stroke-width="1.1"/>');
     parts.push('<text x="'+(q.x + 6)+'" y="'+(q.y - 5)+'" font-size="9" font-weight="700" ' +
@@ -18702,6 +18818,23 @@ function openRoofMeasure(quoteId){
          a shallow angle, where the same error slides the point yards along the
          ray - and every yard of that lands in the plan position, which is the
          one the map shows and the street view cannot. */
+      /* ⭐ CLICKING A DOT AGAIN FROM A NEW ANGLE PINS IT EXACTLY. Owner: "you
+         need to make there be 0 margin of error." A single click can only ever
+         be a good guess, because the depth along the ray has to come from a
+         model of the house. Two clicks from two places cross at one point,
+         which is geometry rather than a model - so a second sighting of the
+         same corner replaces the guess with the real thing, and a third
+         narrows it further. */
+      const near = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
+      if(near >= 0){
+        const res = rmPinCorner(near, {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir});
+        const noteEl = document.getElementById('rmCornerNote');
+        if(noteEl) noteEl.textContent = res && res.ok
+          ? 'Dot ' + rmCornerLabel(near) + ' pinned from ' + res.sightings + ' angles — the two lines of sight meet to within ' +
+            (res.spread * RM_M_TO_FT * 12).toFixed(1) + ' inches.'
+          : '⚠ ' + ((res && res.why) || 'that sighting could not be used');
+        return;
+      }
       /* The part of the house the ray is really pointing at comes first; the
          whole-building outline is the fallback for a house Google has given no
          roof faces for. */
@@ -18735,7 +18868,8 @@ function openRoofMeasure(quoteId){
         best.u = rmRoofHeightAt(rmToWorld(w2).lat, rmToWorld(w2).lng) ?? rmDatum().m;
       }
       const w = rmToWorld({e: best.e, n: best.n, u: best.u});
-      rmAddCorner({lat: w.lat, lng: w.lng, h: best.u});
+      rmAddCorner({lat: w.lat, lng: w.lng, h: best.u,
+                   ray: {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir}});
       if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
         rmCornerLabel(rmCorners.length - 1) + '. Space goes back to picking.';
       return;
