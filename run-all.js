@@ -33498,9 +33498,14 @@ suite('146. Measure Roof - the street view frames the house instead of the stree
 
     /* The bounds are a house, not a range of numbers. */
     const zmax = Number((admin.match(/RM_ZOOM_MAX = ([\d.]+)/) || [])[1]);
+    /* ⚠ THE CAP CAME DOWN, and the check has to come with it. At 3.2 the pane
+       showed a FIFTEEN DEGREE view - one window, roofline off both edges -
+       because fov = 180 / 2^zoom is only an approximation and Google's real
+       field of view depends on the container's shape too. Under-zooming is
+       the safe direction: a house a little small is readable, a wall is not. */
     check('S146', 'the zoom is capped so it cannot end up inside a brick',
-      zmax >= 2.5 && zmax <= 4,
-      'RM_ZOOM_MAX is ' + zmax);
+      zmax >= 1.8 && zmax <= 2.6,
+      'RM_ZOOM_MAX is ' + zmax + ' - above about 2.4 the view becomes a keyhole on this pane');
   }
 
   /* Ordering asserted with indexOf rather than a regex spanning a newline: a
