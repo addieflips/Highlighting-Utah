@@ -16315,7 +16315,17 @@ function rmRenderCornerBar(){
 const RM_SKY_DROP = 34;          /* how much darker than the sky counts as roof */
 const RM_SKY_CONFIRM_ROWS = 4;   /* it must STAY dark, so a bird is not a roofline */
 const RM_SPIKE_MAX_W_M = 1.2;    /* wider than this and it is a dormer, not a chimney */
-const RM_CORNER_TOL_PX = 2.5;    /* how far the simplified line may sit from the real one */
+/* ⚠ THESE THREE ARE WHAT KEEPS THE LIST READABLE. Run on a real house the
+   first version found FORTY corners on one roofline - a corner every little
+   wiggle in the shingles - and the naming ran past Z into question marks.
+   Douglas-Peucker keeps a point when the line strays far enough from the
+   straight, which is not the same as the line TURNING there, so a gentle sag
+   over twenty pixels scores as high as a gable peak. A real corner turns
+   sharply and stands apart from its neighbours; both have to be asked. */
+const RM_CORNER_TOL_PX = 5;      /* how far the simplified line may sit from the real one */
+const RM_CORNER_MIN_TURN = 14;   /* degrees: below this the roof is merely sagging */
+const RM_CORNER_MIN_GAP_PX = 10; /* two corners this close are one corner */
+const RM_CORNER_MAX = 36;        /* as many as there are names for */
 
 /* For each column, the row where the sky ends. null where no sky was found -
    a tree, a wall filling the frame, another house in front. */
@@ -16407,11 +16417,115 @@ function rmCornersInPhoto(photo, mppAtHouse){
     cur.push({x: x, y: rows[x]});
   }
   if(cur.length > 8) runs.push(cur);
-  const corners = [];
+  let corners = [];
   runs.forEach(function(run){
-    rmSimplifyLine(run, RM_CORNER_TOL_PX).forEach(function(p){ corners.push(p); });
+    const simple = rmSimplifyLine(run, RM_CORNER_TOL_PX);
+    /* Keep the two ends of each run always - they are where the roof begins
+       and ends, or where a tree cuts it, and both are real corners. */
+    simple.forEach(function(p, i){
+      if(i === 0 || i === simple.length - 1){ corners.push(p); return; }
+      const a = simple[i - 1], b = simple[i + 1];
+      const t1 = Math.atan2(p.y - a.y, p.x - a.x), t2 = Math.atan2(b.y - p.y, b.x - p.x);
+      let turn = Math.abs((t2 - t1) * 180 / Math.PI);
+      if(turn > 180) turn = 360 - turn;
+      if(turn >= RM_CORNER_MIN_TURN) corners.push(p);
+    });
   });
-  return {corners: corners, runs: runs.length, spikesRemoved: spikes};
+  /* Two corners all but on top of each other are one corner seen twice. */
+  corners = corners.filter(function(p, i){
+    return i === 0 || Math.hypot(p.x - corners[i - 1].x, p.y - corners[i - 1].y) >= RM_CORNER_MIN_GAP_PX;
+  });
+  /* ⚠ AND THERE IS A LIMIT, because there are only so many names. Past it the
+     sharpest turns are kept - a roofline nobody can number is not usable, and
+     the office can always add one back with a click. */
+  let trimmed = 0;
+  if(corners.length > RM_CORNER_MAX){
+    trimmed = corners.length - RM_CORNER_MAX;
+    corners = corners.slice(0, RM_CORNER_MAX);
+  }
+  return {corners: corners, runs: runs.length, spikesRemoved: spikes, trimmed: trimmed};
+}
+
+/* ============ WHERE A CORNER IS, FROM THE STREET ALONE ==================
+   Owner: "its using skyview to place corners which is bad it should use street
+   view only to detect where corners are."
+
+   ⚠ AND THAT WAS TRUE. The corners were FOUND in the photograph and then
+   placed by firing the ray at Google's roof planes - and those planes are a
+   sky-view product, the same compass-aligned model whose shortcomings started
+   all of this. A corner detected from the street and then positioned from
+   above is a sky-view corner wearing a street-view coat.
+
+   ONE PHOTOGRAPH CANNOT GIVE DEPTH. Two can. Google has driven the street, so
+   there are usually several panoramas along it, and the same corner seen from
+   two of them gives two rays that cross where the corner is. That is ordinary
+   triangulation, it uses nothing but the street, and it is exactly what the
+   owner asked for earlier: "look for corners at every single angle the you can
+   see the house."
+
+   MATCHING WITHOUT DESCRIPTORS. The usual hard part is knowing which corner in
+   one picture is which in the other. It can be skipped: fire every ray from
+   one view against every ray from the other, and keep the pairs that very
+   nearly MEET. Two rays in space almost never come within a few centimetres by
+   accident, so near-intersection is itself the evidence that the two pixels
+   are the same corner. */
+const RM_TRI_MAX_GAP_M = 0.45;   /* two rays this close are looking at one thing */
+const RM_TRI_MIN_BASE_M = 4;     /* two views closer than this cannot judge depth */
+const RM_TRI_MERGE_M = 0.7;      /* corners this close are the same corner */
+
+/* Where two rays come closest, and how far apart they are there. */
+function rmRayClosest(ca, da, cb, db){
+  const wx = ca.e - cb.e, wy = ca.n - cb.n, wz = ca.u - cb.u;
+  const a = da.e * da.e + da.n * da.n + da.u * da.u;
+  const b = da.e * db.e + da.n * db.n + da.u * db.u;
+  const c = db.e * db.e + db.n * db.n + db.u * db.u;
+  const d = da.e * wx + da.n * wy + da.u * wz;
+  const e = db.e * wx + db.n * wy + db.u * wz;
+  const denom = a * c - b * b;
+  if(Math.abs(denom) < 1e-9) return null;          /* parallel: no crossing */
+  const ta = (b * e - c * d) / denom;
+  const tb = (a * e - b * d) / denom;
+  if(ta <= 0.5 || tb <= 0.5) return null;          /* behind one of the cameras */
+  const pa = {e: ca.e + da.e * ta, n: ca.n + da.n * ta, u: ca.u + da.u * ta};
+  const pb = {e: cb.e + db.e * tb, n: cb.n + db.n * tb, u: cb.u + db.u * tb};
+  return {
+    pt: {e: (pa.e + pb.e) / 2, n: (pa.n + pb.n) / 2, u: (pa.u + pb.u) / 2},
+    gap: Math.hypot(pa.e - pb.e, pa.n - pb.n, pa.u - pb.u),
+    ta: ta, tb: tb
+  };
+}
+
+/* Every corner two views agree on. */
+function rmTriangulateCorners(viewA, viewB){
+  const base = Math.hypot(viewA.cam.e - viewB.cam.e, viewA.cam.n - viewB.cam.n);
+  if(base < RM_TRI_MIN_BASE_M) return {points: [], why: 'the two views are too close together to judge depth'};
+  const fp = rmFootprintBox();
+  const hits = [];
+  viewA.corners.forEach(function(ca){
+    const da = rmPhotoRay(ca.x, ca.y, viewA.w, viewA.h, viewA.pose);
+    let best = null;
+    viewB.corners.forEach(function(cb){
+      const db = rmPhotoRay(cb.x, cb.y, viewB.w, viewB.h, viewB.pose);
+      const meet = rmRayClosest(viewA.cam, da, viewB.cam, db);
+      if(!meet || meet.gap > RM_TRI_MAX_GAP_M) return;
+      if(!best || meet.gap < best.gap) best = meet;
+    });
+    if(!best) return;
+    /* ⚠ A corner has to be ON the house and at a height a roof reaches.
+       Two rays can meet perfectly in the middle of the road. */
+    if(fp && !rmInsideFootprint(best.pt, fp)) return;
+    if(!(best.pt.u > 1 && best.pt.u < 16)) return;
+    hits.push(best.pt);
+  });
+  /* The same corner often matches more than once - keep one of each. */
+  const kept = [];
+  hits.forEach(function(p){
+    for(let i = 0; i < kept.length; i++){
+      if(Math.hypot(p.e - kept[i].e, p.n - kept[i].n, p.u - kept[i].u) < RM_TRI_MERGE_M) return;
+    }
+    kept.push(p);
+  });
+  return {points: kept, base: base};
 }
 
 /* A corner in the picture, put back where it is in the world. A skyline
@@ -16437,33 +16551,105 @@ function rmCornerWorld(px, py, photo, cam, pose){
   return {lat: w.lat, lng: w.lng, h: best.u};
 }
 
-/* Look at the house and write down every corner that can be seen. */
-async function rmDetectCornersFromStreet(){
-  if(!rmPano || !rmStreetReady || !rmOrigin) return {ok: false, why: 'no street photo to look at'};
-  if(!rmFaces || !rmFaces.length) return {ok: false, why: 'no roof model to place the corners on'};
-  const cam = rmCamOnRoad();
-  const pos = rmPano.getPosition();
-  if(!cam || !pos) return {ok: false, why: 'the camera is not on the road yet'};
-  const heading = rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng);
-  const away = Math.max(4, Math.hypot(cam.e, cam.n));
-  const tilt = Math.max(-8, Math.min(28, rmDeg(Math.atan2((rmDatum().m + rmHighestRelM() * 0.5) - cam.u, away))));
+/* ONE VIEWPOINT, READY TO BE TRIANGULATED AGAINST ANOTHER. */
+async function rmCornerView(panoId, camLatLng){
+  if(!rmOrigin) return null;
+  const p = rmToLocal(camLatLng.lat, camLatLng.lng, 0);
+  p.u = RM_CAM_HEIGHT_M + rmCamGroundDrop;
+  const away = Math.max(4, Math.hypot(p.e, p.n));
+  const heading = rmHeadingTo(camLatLng.lat, camLatLng.lng, rmOrigin.lat, rmOrigin.lng);
+  /* Aim halfway up what a house of this height would be. The datum is only
+     used to POINT the camera - nothing measured depends on it, which is the
+     point of triangulating. */
+  const tilt = Math.max(-8, Math.min(28, rmDeg(Math.atan2(4.5 - p.u, away))));
   const pose = {heading: heading, pitch: tilt, fov: RM_PHOTO_FOV};
-  const photo = await rmPhotoEdges(rmPano.getPano(), heading, tilt);
-  if(photo.error) return {ok: false, why: 'could not read the street photo (' + photo.error + ')'};
-  /* How big a metre is in this picture, at the house - the chimney rule needs
-     a real size rather than a pixel count. */
+  const photo = await rmPhotoEdges(panoId, heading, tilt);
+  if(photo.error) return null;
   const focal = (photo.w / 2) / Math.tan(rmRad(pose.fov) / 2);
-  const mppAtHouse = away / focal;
-  const found = rmCornersInPhoto(photo, mppAtHouse);
-  const made = [];
-  found.corners.forEach(function(c){
-    const w = rmCornerWorld(c.x, c.y, photo, cam, pose);
-    if(w) made.push({lat: w.lat, lng: w.lng, h: w.h, on: true});
+  const found = rmCornersInPhoto(photo, away / focal);
+  if(!found.corners.length) return null;
+  return {cam: p, pose: pose, w: photo.w, h: photo.h,
+          corners: found.corners, spikes: found.spikesRemoved};
+}
+
+/* Find several places Google has stood, spread along the street. */
+function rmFindPanosAround(){
+  return new Promise(function(resolve){
+    if(!rmOrigin || !google.maps.StreetViewService){ resolve([]); return; }
+    const road = rmRoadDirection() || {e: 0, n: -1};
+    /* Along the street is across the way we look at the house. */
+    const along = {e: -road.n, n: road.e};
+    const m = rmMetresPerDeg(rmOrigin.lat);
+    /* ⚠ SPREAD MATTERS MORE THAN NUMBER. Two views a metre apart cannot
+       judge depth however good the corners are, so the offsets are far enough
+       apart to give a real baseline against a house thirty metres off. */
+    const spots = [0, -14, 14, -26, 26].map(function(d){
+      return {lat: rmOrigin.lat + (road.n * 22 + along.n * d) / m.lat,
+              lng: rmOrigin.lng + (road.e * 22 + along.e * d) / m.lng};
+    });
+    const svc = new google.maps.StreetViewService();
+    const seen = {}, out = [];
+    let left = spots.length;
+    spots.forEach(function(sp){
+      svc.getPanorama({location: sp, radius: 30, source: 'outdoor'}, function(data, st){
+        if(st === 'OK' && data && data.location && !seen[data.location.pano]){
+          seen[data.location.pano] = true;
+          out.push({pano: data.location.pano,
+                    at: {lat: data.location.latLng.lat(), lng: data.location.latLng.lng()}});
+        }
+        if(--left === 0) resolve(out);
+      });
+    });
   });
-  if(made.length < 2) return {ok: false, why: 'nothing on the skyline could be placed on the roof', found: found.corners.length};
-  rmCorners = made;
+}
+
+/* Look at the house from every angle Google has, and write down the corners
+   the views AGREE on. */
+async function rmDetectCornersFromStreet(){
+  if(!rmStreetReady || !rmOrigin) return {ok: false, why: 'no street photo to look at'};
+  if(!rmCamOnRoad()) return {ok: false, why: 'the camera is not on the road yet'};
+  const spots = await rmFindPanosAround();
+  if(spots.length < 2){
+    return {ok: false, why: 'Google has only driven past this house once, so there is no second angle to measure depth from'};
+  }
+  const views = [];
+  for(let i = 0; i < spots.length && views.length < 4; i++){
+    const v = await rmCornerView(spots[i].pano, spots[i].at);
+    if(v) views.push(v);
+  }
+  if(views.length < 2) return {ok: false, why: 'only one of the street photos could be read'};
+  /* Every pair, so a corner hidden from one angle is still caught by two
+     others - which is the whole reason for looking from more than two. */
+  const all = [];
+  let bestBase = 0;
+  for(let i = 0; i < views.length; i++){
+    for(let j = i + 1; j < views.length; j++){
+      const t = rmTriangulateCorners(views[i], views[j]);
+      if(t.base && t.base > bestBase) bestBase = t.base;
+      t.points.forEach(function(p){ all.push(p); });
+    }
+  }
+  /* One corner, however many pairs saw it. */
+  const kept = [];
+  all.forEach(function(p){
+    for(let i = 0; i < kept.length; i++){
+      if(Math.hypot(p.e - kept[i].e, p.n - kept[i].n, p.u - kept[i].u) < RM_TRI_MERGE_M) return;
+    }
+    kept.push(p);
+  });
+  if(kept.length < 2) return {ok: false, why: 'the views did not agree on any corner', views: views.length};
+  /* Left to right as the road sees them, so the numbers run the way somebody
+     standing in the street would count them. */
+  const road = rmRoadDirection() || {e: 0, n: -1};
+  const along = {e: -road.n, n: road.e};
+  kept.sort(function(a, b){ return (a.e * along.e + a.n * along.n) - (b.e * along.e + b.n * along.n); });
+  rmCorners = kept.slice(0, RM_CORNER_MAX).map(function(p){
+    const w = rmToWorld(p);
+    return {lat: w.lat, lng: w.lng, h: p.u, on: true};
+  });
   rmCornersChanged();
-  return {ok: true, corners: made.length, spikes: found.spikesRemoved, runs: found.runs};
+  return {ok: true, corners: rmCorners.length, views: views.length,
+          baseM: Math.round(bestBase), spikes: views.reduce(function(a, v){ return a + v.spikes; }, 0)};
 }
 
 /* ⭐ FRAME THE HOUSE, DO NOT JUST POINT AT IT.
