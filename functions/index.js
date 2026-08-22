@@ -1430,10 +1430,21 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
    crew to an empty bin. Owner, 2026-08-22: "we won't recycle till end of year so
    shouldn't be taken apart."
 
-   ⚠ IT DOES NOT WRITE maybeNextYear. That badge is what the OFFICE sets and sees, and
-   clearing it from a customer's own click overrules an office decision silently. So an
-   office-badged customer who says yes here is stamped as having come back but stays
-   out until the office clears the badge — at which point the planner picks them up. */
+   ⭐ AND IT CLEARS maybeNextYear (changed 2026-08-22). Owner: "we shouldn't have to
+   clear a badge to get someone updated. That badge should update once they approve it."
+
+   ⚠ THIS REVERSES THE LINE THAT WAS HERE, which said the badge was the office's alone
+   and clearing it from a customer's click overruled an office decision silently. The
+   argument was not wrong — it was answering the wrong question. The badge does not
+   record an opinion the office holds ABOUT them; it records what they said, and the
+   office set it because that is what they had been told at the time. A newer answer
+   from the customer themselves supersedes an older one taken on their behalf, and
+   leaving it standing meant a customer who had actively re-committed sat out of the
+   season until somebody noticed and clicked something.
+
+   ⚠ maybeNextYearAt GOES WITH IT. It is the date the badge was raised; left behind, a
+   customer reads as not-sitting-out with a date stamped for when they were. Same rule
+   as the office's own un-toggle, which clears it in the same write. */
 function seasonYesUpdates(oldData) {
   const d = oldData || {};
   const was = String(d.rsvpStatus || '').trim().toLowerCase();
@@ -1443,6 +1454,7 @@ function seasonYesUpdates(oldData) {
     rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
     needsLightRecycle: false
   };
+  if (d.maybeNextYear) { updates.maybeNextYear = false; updates.maybeNextYearAt = null; }
   if (was === 'no' && !d.needsLightRecycle) updates.needsLightBuild = true;
   if (wasOut) {
     /* Two fields, two jobs. The first is an instruction the planner consumes — put

@@ -250,12 +250,33 @@ if (yesSrc) {
     yes({ rsvpStatus: '' }).rejoinedForSeasonAt === undefined &&
     yes({ rsvpStatus: 'yes' }).cameBackThisSeasonAt === undefined,
     'a badge everybody has is a badge nobody reads');
-  /* ⚠ AND IT NEVER WRITES maybeNextYear — reading it is fine. That badge is what the
-     OFFICE sets and sees; clearing it from a customer\'s own click overrules an office
-     decision silently. The pattern catches a literal and an assignment, not `===`. */
-  check('and it never writes the office badge',
-    !/maybeNextYear\s*[:=][^=]/.test(yesSrc),
-    'that badge is what the OFFICE sets and sees');
+  /* ⭐ AND IT CLEARS THE MAYBE NEXT YEAR BADGE (changed 2026-08-22). Owner: "we
+     shouldn't have to clear a badge to get someone updated. That badge should update
+     once they approve it."
+
+     ⚠ THIS CHECK USED TO ASSERT THE OPPOSITE — that the badge was the office's alone
+     and a customer's click must never touch it. Kept as history because the argument
+     is worth reading and was answering the wrong question: the badge does not record
+     an opinion the office holds ABOUT them, it records what they SAID, and the office
+     set it from what it had been told at the time. A newer answer from the customer
+     supersedes an older one taken on their behalf. Left standing, somebody who had
+     actively re-committed sat out the season until a human noticed. */
+  check('and it clears the Maybe Next Year badge, so nobody has to',
+    yes({ maybeNextYear: true }).maybeNextYear === false,
+    'a customer who has re-committed should not wait for somebody to notice a badge');
+  /* ⚠ AND THE DATE GOES WITH IT. Left behind, a customer reads as not-sitting-out
+     with a date stamped for when they were — the same pair the office's own un-toggle
+     clears in one write. */
+  check('and the date the badge was raised goes with it',
+    yes({ maybeNextYear: true }).maybeNextYearAt === null,
+    'not-sitting-out with a sitting-out date on it is two answers on one record');
+  /* ⚠ AND ONLY WHEN THERE IS ONE TO CLEAR. Writing false onto every yes is a field
+     touched on ~960 records for nothing, and it makes the write look like a decision
+     where none was made. */
+  check('but it does not touch the badge when there is none',
+    !('maybeNextYear' in yes({ rsvpStatus: '' })) &&
+    !('maybeNextYearAt' in yes({ rsvpStatus: 'no' })),
+    'writing false onto everybody is a decision written where none was made');
 
   /* ⭐ ALL THREE DOORS GO THROUGH IT. A helper nothing calls is the most expensive
      kind of green — this repo has shipped exactly that. */

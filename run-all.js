@@ -6848,17 +6848,18 @@ suite('21. Everyone is in unless they said otherwise');
        fine. */
     const at = fnsSrc.indexOf('exports.portalRsvp');
     const portalRsvpSrc = at === -1 ? '' : fnsSrc.slice(at, fnsSrc.indexOf('\n});', at));
-    /* ⚠ IT MUST NOT WRITE maybeNextYear — READING IT IS FINE, and on 2026-08-22 this
-       fired on a correct read (portalRsvp now checks `oldData.maybeNextYear === true`
-       to tell whether somebody is coming back in). A check that cannot tell a read
-       from a write is one that gets edited away the first time it cries wolf. The
-       pattern catches a literal `maybeNextYear:` and an assignment, and deliberately
-       does not catch `===`. */
-    check('season', 'the server really does write the status on its own',
-      !!portalRsvpSrc && /rsvpStatus: response,/.test(portalRsvpSrc) &&
-      !/maybeNextYear\s*[:=][^=]/.test(portalRsvpSrc),
-      'that badge is what the OFFICE sets and sees — writing it from a customer\'s ' +
-      'own click overrules an office decision silently');
+    /* ⚠ THIS USED TO ASSERT portalRsvp NEVER TOUCHED maybeNextYear, and it would
+       still pass — but for the wrong reason, which is worse than failing. Since
+       2026-08-22 a yes DOES clear that badge (owner: "we shouldn't have to clear a
+       badge to get someone updated"), and the write simply lives in seasonYesUpdates
+       rather than inline here. A check scoped to this function would report the old
+       rule holding while the behaviour is the opposite.
+       What is still true and worth holding: this door writes a NO or a BACK NEXT YEAR
+       on its own, because those two are only ever said here. The yes side is proved by
+       running seasonYesUpdates, in season-state.test.js. */
+    check('season', 'the server writes a no or a back next year on its own',
+      !!portalRsvpSrc && /rsvpStatus: response,/.test(portalRsvpSrc),
+      'those two answers are only ever given through this door');
   }
 
   // ---- the physical rule, which survives whichever mode is on -----------
