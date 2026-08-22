@@ -16170,7 +16170,14 @@ const rmDeg = r => r * 180 / Math.PI;
    So work out how wide the house actually is from where the camera stands, and
    zoom until it fills most of the frame. Google's relation between the two is
    fov = 180 / 2^zoom, which inverts to zoom = log2(180 / fov). */
-const RM_FRAME_FILL = 0.72;    /* how much of the width the house should take */
+/* ⚠ MEASURED, NOT TRUSTED. fov = 180 / 2^zoom is the relation everyone
+   quotes for Street View, and on this pane it overshoots: asking for a house
+   to fill 72% produced a FIFTEEN DEGREE view - a keyhole onto one window,
+   with the roofline off both edges. Google's fov depends on the container's
+   shape as well as the zoom, so the formula is an approximation and the
+   safe direction is to under-zoom. A house a little small in the frame is
+   still readable; a close-up of a wall is not. */
+const RM_FRAME_FILL = 0.55;    /* how much of the width the house should take */
 /* ⚠ ONCE PER HOUSE, AND ONLY ONCE. The camera is not on the road at the
    moment the lines are built - Google opens the panorama at the house and
    moves it a beat later - so framing has to be tried again when the camera
@@ -16178,7 +16185,7 @@ const RM_FRAME_FILL = 0.72;    /* how much of the width the house should take */
    after that: the office zooms in to check a gutter, and a tool that yanks the
    zoom back every time the camera nudges is unusable. */
 let rmFramed = false;
-const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 3.2;
+const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 2.3;   /* ~36 degrees: close, never a keyhole */
 function rmFrameHouseInStreet(){
   if(rmFramed) return null;
   if(!rmPano || !rmStreetReady || !rmBuilding || !rmOrigin) return null;
