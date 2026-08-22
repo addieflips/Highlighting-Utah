@@ -34525,11 +34525,11 @@ suite('154. Measure Roof - clicking further back goes BACK, not UP');
     const api = new Function(
       'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
       'let rmFaces = []; let rmRoofDatumM = 4; let rmDatumSource = "test";' + LF_ +
-      ['RM_FACE_PAD_M','RM_EAVE_TOL_M'].map(n =>
+      ['RM_FACE_PAD_M','RM_EAVE_TOL_M','RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M'].map(n =>
         (admin.match(new RegExp('^const ' + n + ' = [^;]*;', 'm')) || [''])[0]).join(LF_) + LF_ +
       ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM','rmDatum',
        'rmFacePlane','rmPlaneHit3','rmFaceBoxLocal','rmFaceRoofUAt',
-       'rmFaceWallHit','rmRoofSurfaceHit'].map(pick).join(LF_) + LF_ +
+       'rmSomethingInGap','rmMergedWalls','rmWallRoofUAt','rmFaceWallHit','rmRoofSurfaceHit'].map(pick).join(LF_) + LF_ +
       fn + LF_ +
       'return {hit: rmHouseHit, faces: function(f){ rmFaces = f; }};')();
 
@@ -34644,6 +34644,223 @@ suite('155. Measure Roof - the wheel zooms, at the pointer, while placing dots')
   check('S155', 'the wheel is allowed closer than the automatic framing is',
     /RM_WHEEL_ZOOM_MAX = 4/.test(admin) && /RM_ZOOM_MAX = 2\.3/.test(admin),
     'the framing stays wide so it never ends up looking at a blank wall; a hand on the wheel is deliberate');
+}
+
+
+suite('156. Measure Roof - a tree does not put an indent in the house');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "the system thinks there is a indent in the house where the tree is
+     but its not its perpendicular on that whole part so that needs to be fixed
+     using the wall to see where the roof would be."
+
+     Google works the roof out from overhead imagery, so where a tree overhangs
+     it has no face at all and the faces either side stop at the tree. Read
+     literally that is a notch cut into the front of the house, and a ray aimed
+     into the gap sails past the missing wall to land on something further
+     back - the dot ends up deep inside a wall that is in life dead straight. */
+  const fn = pick('rmFaceWallHit');
+  if (!fn) {
+    check('S156', 'the wall pick is findable', false, 'rmFaceWallHit missing');
+  } else {
+    const F = (minE, maxE, minN, maxN, hM) => ({
+      sw: {lat: 40 + minN/111132, lng: -111 + minE/85300},
+      ne: {lat: 40 + maxN/111132, lng: -111 + maxE/85300},
+      center: {lat: 40 + (minN+maxN)/2/111132, lng: -111 + (minE+maxE)/2/85300},
+      planeHeightM: hM, azimuth: 0, pitch: 0
+    });
+    const api = new Function(
+      'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
+      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test";' + LF_ +
+      ['RM_FACE_PAD_M','RM_EAVE_TOL_M','RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M'].map(n =>
+        (admin.match(new RegExp('^const ' + n + ' = [^;]*;', 'm')) || [''])[0]).join(LF_) + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM','rmDatum',
+       'rmFacePlane','rmPlaneHit3','rmFaceBoxLocal','rmFaceRoofUAt',
+       'rmSomethingInGap','rmMergedWalls','rmWallRoofUAt'].map(pick).join(LF_) + LF_ +
+      fn + LF_ +
+      'return {hit: rmFaceWallHit, walls: rmMergedWalls, faces: function(f){ rmFaces = f; }};')();
+
+    /* One straight front wall at e = -8, with a TREE over the middle of it, so
+       Google gives a patch above and a patch below and nothing between. The
+       body of the house sits four metres back. */
+    const ABOVE = F(-8, -4,  2,  6, 5);
+    const BELOW = F(-8, -4, -6, -2, 5);
+    const BODY  = F(-4,  4, -6,  6, 9);
+    api.faces([ABOVE, BELOW, BODY]);
+    const cam = {e: -30, n: 0, u: 2.5};
+    const aim = t => { const d = {e: t.e-cam.e, n: t.n-cam.n, u: t.u-cam.u};
+      const l = Math.hypot(d.e,d.n,d.u); return {e:d.e/l, n:d.n/l, u:d.u/l}; };
+
+    /* The wall really does run the whole way, gap and all. */
+    const front = api.walls().filter(g => g.axis === 'E' && Math.abs(g.at - (-8)) < 0.5);
+    check('S156', 'the two patches either side of the tree are one wall',
+      front.length === 1 && front[0].lo < -5.5 && front[0].hi > 5.5,
+      front.length === 1 ? 'runs ' + front[0].lo.toFixed(1) + ' to ' + front[0].hi.toFixed(1)
+                         : 'found ' + front.length + ' separate walls on that line');
+
+    /* ⭐ THE ONE THE OWNER ASKED FOR. Aimed straight into the gap the tree made. */
+    const inGap = api.hit(aim({e: -8, n: 0, u: 4.6}), cam);
+    check('S156', 'a dot where the tree is lands on the wall, not inside the house',
+      inGap && Math.abs(inGap.e - (-8)) < 0.5,
+      inGap ? 'landed at e=' + inGap.e.toFixed(2) +
+              ' (-4 means it fell through the gap into the body of the house)' : 'hit nothing');
+    /* And it comes out at the height the roof would be, taken from next door. */
+    check('S156', 'and the roof over the gap is taken from the nearest real patch',
+      inGap && Math.abs(inGap.u - 4.6) < 0.6,
+      inGap ? 'height ' + inGap.u.toFixed(2) + ' m' : 'no hit');
+
+    /* It must agree with the same click just off to the side, where there IS a
+       face - a wall that changes depth as you slide along it is not a wall. */
+    const beside = api.hit(aim({e: -8, n: 3, u: 4.6}), cam);
+    check('S156', 'the gap and the wall beside it come out at the same depth',
+      inGap && beside && Math.abs(inGap.e - beside.e) < 0.2,
+      'that whole part is perpendicular, so it cannot step in and out');
+
+    /* ⚠ AND MERGING MUST NOT GLUE TOGETHER WALLS THAT REALLY ARE DIFFERENT.
+       The body is four metres back and stays four metres back. */
+    const deep = api.walls().filter(g => g.axis === 'E' && Math.abs(g.at - (-4)) < 0.5);
+    check('S156', 'a wall that really is set back is left where it is',
+      deep.length >= 1,
+      'joining every wall into one would flatten the house the other way');
+    const onBody = api.hit(aim({e: -4, n: 0, u: 8.6}), cam);
+    check('S156', 'so a dot on the part that is genuinely further back still is',
+      onBody && Math.abs(onBody.e - (-4)) < 0.5,
+      onBody ? 'landed at e=' + onBody.e.toFixed(2) : 'hit nothing');
+
+    /* ⚠ AND THE OTHER HALF, which is what protects a doorwell. Same shape of
+       hole in the front wall - same width, same place - but this time there IS
+       a roof over it, sitting lower because it is a recessed entry. Width alone
+       cannot tell this from the tree; the roof can, and must. */
+    const PORCH = F(-6, -4, -2, 2, 3);      /* its own roof, two metres lower */
+    api.faces([ABOVE, BELOW, PORCH, BODY]);
+    const front2 = api.walls().filter(g => g.axis === 'E' && Math.abs(g.at - (-8)) < 0.5);
+    check('S156', 'a recess with its own roof is NOT bridged over',
+      front2.length === 2,
+      'the front wall came back as ' + front2.length + ' run(s); one means the doorwell was paved over');
+    const inPorch = api.hit(aim({e: -6, n: 0, u: 2.8}), cam);
+    check('S156', 'so a dot in the doorwell lands in the doorwell',
+      inPorch && Math.abs(inPorch.e - (-6)) < 0.6,
+      inPorch ? 'landed at e=' + inPorch.e.toFixed(2) + ' (-8 means it was bridged flat)' : 'hit nothing');
+
+    /* ⚠ AND AN EMPTY HOLE IS STILL NOT ALWAYS A TREE. Here nothing stands in
+       the gap, but the roof on one side is a single storey and on the other it
+       is two - so what the roofline does in between is genuinely unknown, and
+       inventing a wall straight across it would invent a gutter with it.
+       Guessing is only safe where the roof carries on at the same height. */
+    const LOW  = F(-8, -4,  2,  6, 5);
+    const HIGH = F(-8, -4, -6, -2, 9);
+    api.faces([LOW, HIGH, BODY]);
+    const split = api.walls().filter(g => g.axis === 'E' && Math.abs(g.at - (-8)) < 0.5);
+    check('S156', 'a hole between two roofs at different heights is left alone',
+      split.length === 2,
+      'came back as ' + split.length + ' run(s); bridging a storey change invents a gutter that is not there');
+  }
+}
+
+
+suite('157. Measure Roof - the house the system assumes, drawn before anything else');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "the first thing the system should do is draw the house as if there
+     were no obstacles using things like walls, not like a literal drawing that
+     I see but where the system will assume the house is."
+     Google's roof faces are patches of whatever it could see from overhead, so
+     a tree leaves a hole. Read literally that is a notch in the front wall. A
+     house is made of straight walls; a gap the width of a tree is a tree. */
+  const NEED = ['rmCoveredAt','rmHouseOutline','rmOutlineEaveU','rmHouseWireframe'];
+  const missing = NEED.filter(n => !pick(n));
+  if (missing.length) {
+    check('S157', 'the assumed-house model is findable', false, 'missing: ' + missing.join(', '));
+  } else {
+    const F = (minE, maxE, minN, maxN, hM) => ({
+      sw: {lat: 40 + minN/111132, lng: -111 + minE/85300},
+      ne: {lat: 40 + maxN/111132, lng: -111 + maxE/85300},
+      center: {lat: 40 + (minN+maxN)/2/111132, lng: -111 + (minE+maxE)/2/85300},
+      planeHeightM: hM, azimuth: 0, pitch: 0
+    });
+    const api = new Function(
+      'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
+      'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test";' + LF_ +
+      ['RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M','RM_OUTSIDE_STEP_M'].map(n =>
+        (admin.match(new RegExp('^const ' + n + ' = [^;]*;', 'm')) || [''])[0]).join(LF_) + LF_ +
+      ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM','rmDatum',
+       'rmFacePlane','rmFaceBoxLocal','rmFaceRoofUAt','rmSomethingInGap','rmMergedWalls'].map(pick).join(LF_) + LF_ +
+      NEED.map(pick).join(LF_) + LF_ +
+      'return {outline: rmHouseOutline, wire: rmHouseWireframe, eave: rmOutlineEaveU,' +
+      ' faces: function(f){ rmFaces = f; }};')();
+
+    /* A straight front wall at e = -8 with a TREE over four metres of it, and
+       the body of the house genuinely four metres further back. */
+    api.faces([F(-8, -4,  2,  6, 5), F(-8, -4, -6, -2, 5), F(-4, 4, -6, 6, 9)]);
+    const segs = api.outline();
+    check('S157', 'the assumed house has an outline at all', segs.length > 0);
+
+    /* ⭐ THE TREE GAP IS CLOSED. If the notch survived there would be wall
+       running north-south part-way in, at the back of the bite. */
+    const notch = segs.filter(function(sd){
+      const vertical = Math.abs(sd.a.e - sd.b.e) < 0.01;
+      if(!vertical) return false;
+      if(!(sd.a.e > -7.4 && sd.a.e < -4.6)) return false;      /* part-way in */
+      const lo = Math.min(sd.a.n, sd.b.n), hi = Math.max(sd.a.n, sd.b.n);
+      return hi > -2.2 && lo < 2.2;                            /* in the gap */
+    });
+    check('S157', 'a tree does not become a notch in the front wall',
+      notch.length === 0,
+      'found ' + notch.length + ' piece(s) of wall inside the gap - that whole part is perpendicular');
+
+    /* And the front wall really does run the whole way across. */
+    const front = segs.filter(sd => Math.abs(sd.a.e - sd.b.e) < 0.01 && sd.a.e < -7.4);
+    const cover = front.reduce((a, sd) => a + Math.abs(sd.b.n - sd.a.n), 0);
+    check('S157', 'the front wall runs the whole width, gap included',
+      cover > 11, 'the front covers ' + cover.toFixed(1) + ' m of the 12 m it should');
+
+    /* ⚠ AND A REAL SET-BACK MUST SURVIVE. Closing small bites must not swallow
+       the genuine step the house actually has, or the model flattens the other
+       way and every recessed entry is lost. */
+    const stepped = segs.filter(function(sd){
+      const horizontal = Math.abs(sd.a.n - sd.b.n) < 0.01;
+      const lo = Math.min(sd.a.e, sd.b.e), hi = Math.max(sd.a.e, sd.b.e);
+      return horizontal && lo < -7 && hi > -4.5;              /* runs across the step */
+    });
+    check('S157', 'a genuine step in the house is kept',
+      stepped.length > 0,
+      'the front is four metres proud of the body and must stay that way');
+
+    /* Every drawn wall carries the height of the roof over it, or it cannot be
+       drawn in the street view at all. */
+    const wire = api.wire();
+    check('S157', 'every wall drawn carries its roof height',
+      wire.length > 0 && wire.every(sg => isFinite(sg.a.u) && isFinite(sg.b.u) &&
+        sg.a.u > 0.5 && sg.a.u < 25),
+      'got ' + wire.length + ' walls');
+    check('S157', 'and the roof over the tree gap is the roof either side of it',
+      Math.abs(api.eave(-8, 0) - 5) < 0.6,
+      'got ' + api.eave(-8, 0));
+  }
+
+  /* It is drawn, in both windows, and it can be turned off. */
+  check('S157', 'the assumed house is drawn in the street view',
+    /if\(rmShowModel\)\{[\s\S]{0,400}rmModel\(\)\.forEach/.test(admin));
+  check('S157', 'and on the map',
+    /function rmSyncModelSky/.test(admin) && /rmModelLines\.push\(new google\.maps\.Polyline/.test(admin));
+  check('S157', 'it is built the moment the roof arrives, before any line is offered',
+    (function(){
+      const i = admin.indexOf('rmFacesReady = true;');
+      const j = admin.indexOf('rmSyncModelSky();', i);
+      const k = admin.indexOf('rmBuildWhenReady();', i);
+      return i !== -1 && j > i && k > j;
+    })(),
+    'everything else is measured against it, so it comes first');
+  check('S157', 'and it can be turned off when it is in the way',
+    /id="rmModelBtn"/.test(admin) && /function rmSetShowModel/.test(admin));
+  /* Working it out is a grid and two passes, so not on every repaint. */
+  check('S157', 'the outline is worked out once per house, not every repaint',
+    /rmModelCache && rmModelKey === key/.test(admin),
+    'rmPaintStreet runs on every mouse move of the panorama');
 }
 
 Promise.all(pendingAsync).then(function () {
