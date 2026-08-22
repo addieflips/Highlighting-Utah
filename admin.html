@@ -15169,10 +15169,30 @@ function thanksgivingDate(year){
 const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
 function isOutForSeason(d){
   if(!d) return true;
-  /* Covers 'backnextyear' as well: the only thing that writes that status
-     (pullCustomerFromSeason) sets maybeNextYear in the same update, so the two
-     always travel together. */
+  /* ⭐ BACK NEXT YEAR IS OUT, HOWEVER THEY SAID IT (2026-08-22). Owner: "back next
+     year should be on 2027 and not split for this year on schedule."
+
+     ⚠ THE COMMENT THAT USED TO BE HERE WAS WRONG, AND IT WAS THE BUG. It read
+     "covers 'backnextyear' as well: the only thing that writes that status
+     (pullCustomerFromSeason) sets maybeNextYear in the same update, so the two always
+     travel together" — and portalRsvp writes the STATUS ALONE. A customer who answered
+     Back Next Year through the RSVP link therefore carried no flag, no
+     needsLightRecycle (that is set for "no", not for this), and read as fully IN the
+     season: the route generator, the nightly fill and the schedule's own
+     add-missing-customers all took them. The Contact 2027 tab in this same file already
+     says as much in its own comment — two comments in one file contradicting each
+     other, and this is the one that decides who gets a crew.
+
+     ⚠ AND IT IS A PING-PONG, WHICH IS WHY IT LOOKED INTERMITTENT. portalRsvp pulls
+     them off upcoming routes the moment they answer; the fill put them straight back.
+     The same trap the needsLightRecycle rule below exists to close for "no".
+
+     ⚠ COMING BACK IN STILL WORKS. The office un-toggling Maybe Next Year clears the
+     dropdown as well when it still reads Back Next Year — that branch's own comment
+     already assumed this rule ("would leave them unroutable behind a Confirmed
+     badge"), so it was written for a rule that was not yet true. */
   if(d.maybeNextYear) return true;
+  if(String(d.rsvpStatus || '').toLowerCase() === 'backnextyear') return true;
   /* NOT an RSVP rule — a physical one, which is why it survives the setting
      above. Answering "no" queues the warehouse to take that customer's bundle
      apart (needsLightRecycle), so by the time a crew arrived there would be
@@ -37361,6 +37381,56 @@ function rebuildSeasonDays(){
        drop it rather than leaving an empty day in the calendar. */
     if(done.length){ d.houses=done; keep.push(d); }
   });
+  /* ⭐ AND ANYBODY WHO HAS LEFT THE SEASON COMES OFF IT (added 2026-08-22). Owner:
+     "back next year should be on 2027 and not split for this year on schedule."
+
+     ⚠ EVERY SYNC BEFORE THIS ONE ONLY EVER ADDED. customersMissingFromSeason asks
+     isOutForSeason before putting somebody ON a day, and nothing anywhere asked it
+     again afterwards — so a customer who was on the plan and THEN said Back Next Year
+     or was badged Maybe Next Year stayed on it through every Recalculate, for ever.
+     The routes side has had two ways to drop them (stopProblem's sweep and
+     removeCustomerFromUpcomingRoutes) and the schedule had none, which is precisely
+     the two-halves-disagreeing failure this file keeps warning about.
+
+     ⚠ IT ASKS isOutForSeason AND DOES NOT RE-DECIDE. A second opinion about who is
+     coming, living in the schedule, is how the plan and the crew start holding
+     different lists — the same reason customersMissingFromSeason defers to it.
+
+     ⚠ IT FAILS SAFE ON A HOUSE WITH NO CUSTOMER. Imported CSV rows need not match a
+     record at all, and treating "no customer found" as "not coming" would empty most
+     of the plan on the first press. No record, no opinion — the house stays.
+
+     ⚠ ONLY OUT OF THE MOVABLE PILE. A house already ticked done is history; a day
+     inside the 48-hour lock is printed and loaded, and un-printing paper is not
+     something a rebuild can do. Those are reported instead, below, so the office rings
+     them rather than finding out from a crew.
+
+     ⚠ AND NOT TAKEDOWNS OR FIXES. Both are copies made from an install house and are
+     work on lights that are already up — somebody sitting the season out may still
+     need theirs taking down. */
+  const left=[];
+  for(let i=movable.length-1;i>=0;i--){
+    const h=movable[i];
+    if(h.isTakedown||h.isFix) continue;
+    const cust=(typeof customerForHouse==='function')?customerForHouse(h):null;
+    const cd=(cust&&cust.data)||null;
+    if(!cd) continue;
+    if(typeof isOutForSeason==='function' && isOutForSeason(cd)){
+      left.push(h);
+      movable.splice(i,1);
+    }
+  }
+  /* The ones nothing can be done about: still on a day that is set or already worked.
+     Counted rather than moved, because the crew may already be holding that sheet. */
+  let stillSet=0;
+  locked.forEach(function(d){
+    (d.houses||[]).forEach(function(h){
+      if(h.done||h.isTakedown||h.isFix) return;
+      const cust=(typeof customerForHouse==='function')?customerForHouse(h):null;
+      const cd=(cust&&cust.data)||null;
+      if(cd && typeof isOutForSeason==='function' && isOutForSeason(cd)) stillSet++;
+    });
+  });
   /* ⭐ AND ANYBODY THE PLAN HAS NEVER HEARD OF JOINS THE POOL HERE. Added before
      the count below is taken, so a season whose only outstanding work is a brand-new
      customer rebuilds instead of reporting there is nothing to do. */
@@ -37375,7 +37445,12 @@ function rebuildSeasonDays(){
       });
     }catch(err){ console.error('Could not add new customers to the plan:',err); }
   }
-  if(!movable.length) return {error: locked.length
+  /* \u26a0 AND IF THEY WERE THE ONLY THING LEFT, SAY SO. "Every house is done" is a lie
+     when the truth is that the last few sat the season out, and it is the kind of lie
+     that gets somebody hunting a broken button. */
+  if(!movable.length) return {left: left.length, stillSet: stillSet, error: left.length
+    ? ('Nothing left to rebuild \u2014 the ' + left.length + ' house(s) still waiting have all left the season.')
+    : locked.length
     ? ('Nothing to rebuild \u2014 every house left is on one of the ' + locked.length + ' day(s) already set for the next two working days.')
     : 'Every house is done or already on a day that has been worked.'};
   const byId={};
@@ -37473,6 +37548,7 @@ function rebuildSeasonDays(){
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length,
+          left:left.length, stillSet:stillSet,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
           first:dates[0], last:dates[dates.length-1]};
 }
@@ -38199,6 +38275,16 @@ RT.addEventListener('click',e=>{const t=e.target;
        people who were not on the plan" are different pieces of news, and the second
        one is the answer to "why is Rachel not in the schedule". */
     if(r.joined) parts.push(r.joined+' new customer'+(r.joined===1?'':'s')+' added to the plan');
+    /* ⭐ AND THE ONES WHO LEFT ARE NAMED TOO. Owner: "back next year should be on
+       2027 and not split for this year on schedule." A house quietly disappearing off
+       the plan reads as a bug; the same house with a sentence beside it reads as the
+       button working. */
+    if(r.left) parts.push(r.left+' taken off — '+(r.left===1?'that customer is':'those customers are')+
+      ' out for the season');
+    /* ⚠ AND THE ONES IT COULD NOT TAKE OFF. They are on a day inside the 48-hour lock
+       or one already worked, so the crew may be holding that sheet — a rebuild cannot
+       un-print paper, and pretending otherwise is worse than saying so. */
+    if(r.stillSet) parts.push(r.stillSet+' out for the season but still on a day that is set — check those by hand');
     parts.push(routes.days?('routes generated for '+routes.days+' day'+(routes.days===1?'':'s')):'no routes needed generating');
     /* ⭐ AND IT NAMES WHAT IT COULD NOT PUT IN ORDER. See houseHasPin: these are
        on their day and on the sheet, just at the bottom of it, because there is

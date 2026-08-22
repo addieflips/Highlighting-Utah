@@ -6543,10 +6543,42 @@ suite('21. Everyone is in unless they said otherwise');
   check('season', 'Maybe Next Year is OUT even with an RSVP of yes beside it',
     api.out({ maybeNextYear: true, rsvpStatus: 'yes' }) === true,
     'the badge is what the office sets and sees, so it has to win');
-  check('season', 'back next year is OUT, because it never travels alone',
+  check('season', 'back next year is OUT when the office badged them',
     api.out({ maybeNextYear: true, rsvpStatus: 'backnextyear' }) === true,
-    'pullCustomerFromSeason writes both in one update — that is why the RSVP ' +
-    'value itself does not need testing for');
+    'pullCustomerFromSeason and the Edit Customer toggle write both in one update');
+  /* ⭐ AND OUT WHEN THEY ANSWERED IT THEMSELVES (2026-08-22). Owner: "back next year
+     should be on 2027 and not split for this year on schedule."
+
+     ⚠ THE COMMENT HERE USED TO SAY the status "never travels alone" — that
+     pullCustomerFromSeason always sets maybeNextYear beside it. portalRsvp does NOT:
+     it writes rsvpStatus alone, sets needsLightRecycle only for "no", and this file's
+     own Contact 2027 tab says so in as many words. So a customer who used the RSVP
+     link read as fully IN the season, and portalRsvp pulling them off upcoming routes
+     was undone by the next fill putting them back — the same ping-pong the recycle
+     rule exists to stop for "no". */
+  check('season', 'and OUT when they answered it themselves through the RSVP link',
+    api.out({ rsvpStatus: 'backnextyear' }) === true &&
+    strict.out({ rsvpStatus: 'backnextyear' }) === true,
+    'portalRsvp writes the status with NO maybeNextYear flag — that customer was ' +
+    'being routed, built for and scheduled all season');
+  check('season', 'case does not decide that either',
+    api.out({ rsvpStatus: 'BackNextYear' }) === true);
+  /* ⚠ AND THE REASON IT HAD TO BE FIXED HERE rather than by making portalRsvp set the
+     flag: the flag is what the OFFICE sets and sees, and writing it from a customer's
+     own answer would badge them Maybe Next Year without anybody choosing to. The two
+     mean different things; both mean not this season. */
+  {
+    /* Scoped to portalRsvp's own body: maybeNextYear IS written elsewhere in that file
+       (pullCustomerFromSeason), so a file-wide search would find it and call this
+       fine. */
+    const at = fnsSrc.indexOf('exports.portalRsvp');
+    const portalRsvpSrc = at === -1 ? '' : fnsSrc.slice(at, fnsSrc.indexOf('\n});', at));
+    check('season', 'the server really does write the status on its own',
+      !!portalRsvpSrc && /rsvpStatus: response,/.test(portalRsvpSrc) &&
+      !/maybeNextYear/.test(portalRsvpSrc),
+      'if portalRsvp ever starts setting maybeNextYear too, the comment above needs ' +
+      'rewriting — but the rule stays either way');
+  }
 
   // ---- the physical rule, which survives whichever mode is on -----------
   check('season', 'lights queued to be taken apart means OUT, in either mode',
@@ -11925,6 +11957,12 @@ suite('Suite 48. Days within two working days are set');
       'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
       'for(let i=0;i<PIN_HONOURED_BUSINESS_DAYS;i++){d=addDays(d,1);while(isWeekend(d))d=addDays(d,1);}return d;}' +
       fn('seasonStartDate') + fn('prefSpecificDate') + fn('houseAllowedFrom') + fn('houseDeadline') + fn('houseInstallPriority') +
+      /* ⚠ LIFTED, NOT STUBBED (2026-08-22). rebuildSeasonDays now drops houses whose
+         customer has left the season, and the claim being made is that it asks the ONE
+         shared definition rather than a second opinion of its own — a hand-written
+         stub of isOutForSeason would prove the plumbing and nothing about the rule.
+         The live setting comes with it for the same reason. */
+      (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + fn('isOutForSeason') +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
@@ -11981,6 +12019,97 @@ suite('Suite 48. Days within two working days are set');
       check('S48', 'a day well in the future is still rebuilt',
         far.r && !far.r.error && far.r.locked === 0 && far.r.houses === 2,
         JSON.stringify(far.r));
+    }
+
+    /* ⭐ AND ANYBODY WHO HAS LEFT THE SEASON COMES OFF THE PLAN (2026-08-22).
+       Owner: "back next year should be on 2027 and not split for this year on
+       schedule."
+
+       ⚠ EVERY SYNC BEFORE THIS ONE ONLY EVER ADDED. customersMissingFromSeason asks
+       isOutForSeason before putting somebody ON a day and nothing asked again
+       afterwards, so a customer who was placed and THEN sat the season out stayed on
+       the plan through every Recalculate. The routes side has had two ways to drop
+       them and the schedule had none. */
+    {
+      const gone = (city, name, cd) => ({ id: name, name: name, city: city, pref: 'OCT',
+        __cust: { data: Object.assign({ city: city, lat: 40.39, lng: -111.85 }, cd) } });
+      /* ⚠ THE PORTAL-ANSWERED ONE IS THE POINT. portalRsvp writes rsvpStatus alone —
+         no maybeNextYear, no needsLightRecycle — so this fixture is the customer who
+         used the RSVP link, and it is the case that read as fully IN the season. */
+      const out2 = ctx.run([day(new Date(2026, 9, 20), [
+        house('Lehi', 'staying1'), house('Lehi', 'staying2'),
+        gone('Lehi', 'saidbacknextyear', { rsvpStatus: 'backnextyear' }),
+        gone('Lehi', 'badgedmaybe', { maybeNextYear: true })
+      ], 19)]);
+      const names = [];
+      out2.season.forEach(d => (d.houses || []).forEach(h => names.push(h.name)));
+
+      check('S48', 'a customer who answered Back Next Year comes off the plan',
+        names.indexOf('saidbacknextyear') === -1,
+        'still on the plan: portalRsvp writes the status with no maybeNextYear flag, ' +
+        'so this is the one that used the RSVP link rather than the office button');
+      check('S48', 'and so does one badged Maybe Next Year',
+        names.indexOf('badgedmaybe') === -1, 'still on the plan');
+      check('S48', 'and everybody else is untouched',
+        names.indexOf('staying1') !== -1 && names.indexOf('staying2') !== -1 &&
+        names.length === 2,
+        'got ' + JSON.stringify(names));
+      /* ⚠ COUNTED, NOT SILENTLY DROPPED. A house vanishing off the plan with nothing
+         said reads as a bug; the same house with a sentence beside it reads as the
+         button working. */
+      check('S48', 'and it says how many it took off',
+        out2.r && out2.r.left === 2, 'left was ' + (out2.r && out2.r.left));
+
+      /* ⚠ AND NOT TAKEDOWNS OR FIXES. Both are copies made from an install house and
+         are work on lights that are ALREADY UP — somebody sitting this season out may
+         still need theirs taking down, and that is precisely the job. Sweeping those
+         up with the installs would leave lights on a house nobody is coming back to. */
+      const td = gone('Lehi', 'theirtakedown', { rsvpStatus: 'backnextyear' });
+      td.isTakedown = true;
+      const out2b = ctx.run([day(new Date(2026, 9, 20),
+        [house('Lehi', 'normal1'), house('Lehi', 'normal2'), td], 19)]);
+      const n2b = [];
+      out2b.season.forEach(d => (d.houses || []).forEach(h => n2b.push(h.name)));
+      check('S48', 'a takedown for one of them is NOT swept up with the installs',
+        n2b.indexOf('theirtakedown') !== -1 && (out2b.r && out2b.r.left === 0),
+        'their lights are up and still have to come down — dropping it leaves a ' +
+        'house lit that nobody is going back to');
+
+      /* ⚠ FAIL SAFE ON A HOUSE WITH NO CUSTOMER RECORD. Imported CSV rows need not
+         match one at all, and reading "no customer found" as "not coming" would empty
+         most of the plan on the first press. */
+      const orphan = { id: 'orphan', name: 'orphan', city: 'Lehi', pref: 'OCT', __cust: null };
+      const out3 = ctx.run([day(new Date(2026, 9, 20),
+        [house('Lehi', 'kept'), orphan], 19)]);
+      const n3 = [];
+      out3.season.forEach(d => (d.houses || []).forEach(h => n3.push(h.name)));
+      check('S48', 'a house with no customer record is KEPT, not assumed gone',
+        n3.indexOf('orphan') !== -1 && (out3.r && out3.r.left === 0),
+        'an imported row need not match a record — no record, no opinion');
+
+      /* ⚠ AND IT DOES NOT REACH A DAY THAT IS SET. Tue 6 Oct is inside the lock, the
+         crew may be holding that sheet, and a rebuild cannot un-print paper. Reported
+         instead, so the office rings them rather than a crew finding out. */
+      const out4 = ctx.run([day(new Date(2026, 9, 6),
+        [gone('Lehi', 'onaprintedday', { rsvpStatus: 'backnextyear' })], 5),
+        day(new Date(2026, 9, 20), [house('Lehi', 'movable1'), house('Lehi', 'movable2')], 19)]);
+      const n4 = [];
+      out4.season.forEach(d => (d.houses || []).forEach(h => n4.push(h.name)));
+      check('S48', 'somebody on a day already set is left there, not yanked off it',
+        n4.indexOf('onaprintedday') !== -1,
+        'the 48-hour lock outranks this: that sheet is printed and the van is loaded');
+      check('S48', 'but the office is told about them',
+        out4.r && out4.r.stillSet === 1 && out4.r.left === 0,
+        'stillSet ' + (out4.r && out4.r.stillSet) + ', left ' + (out4.r && out4.r.left));
+
+      /* ⚠ AND "EVERY HOUSE IS DONE" WOULD BE A LIE. When the last few waiting houses
+         have all left the season there is nothing to rebuild, and saying they were
+         finished sends somebody hunting a broken button. */
+      const out5 = ctx.run([day(new Date(2026, 9, 20),
+        [gone('Lehi', 'onlyone', { rsvpStatus: 'backnextyear' })], 19)]);
+      check('S48', 'and a season emptied by departures says so, not "every house is done"',
+        out5.r && out5.r.error && /left the season/.test(out5.r.error),
+        JSON.stringify(out5.r));
     }
   }
 }

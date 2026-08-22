@@ -528,6 +528,43 @@ asked yet"*, i.e. the input to Q-010a. Left alone rather than changed silently: 
 is a status tally, and whether it should show replies-only is a display decision,
 not a correctness one.
 
+### ⚠ Found while checking this: Back Next Year did not keep anybody out
+
+Addie, 2026-08-22: *"back next year should be on 2027 and not split for this year
+on schedule."* The **2027** half was already right — the Excel Contact 2027 tab
+reads both the flag and the status, and has since 2026-08-20. The **schedule**
+half was not, in two separate places.
+
+**① `isOutForSeason` only read the flag.** Its comment claimed the status "never
+travels alone" — that `pullCustomerFromSeason` always sets `maybeNextYear` beside
+it. `portalRsvp` does **not**: it writes `rsvpStatus` alone, and sets
+`needsLightRecycle` only for a *"no"*. So a customer who answered Back Next Year
+**through the RSVP link** carried no flag and read as fully in the season — routed,
+built for and scheduled. And because `portalRsvp` pulls them off upcoming routes
+the moment they answer, while the nightly fill put them straight back, it looked
+intermittent rather than broken. That is the same ping-pong the `needsLightRecycle`
+rule exists to stop for *"no"*.
+
+⚠ Two comments in one file contradicted each other — the Contact 2027 tab says
+*"portalRsvp writes the status alone, and only the office button writes both"* —
+and the one that was wrong is the one deciding who gets a crew.
+
+⚠ Fixed in `isOutForSeason`, **not** by making `portalRsvp` set the flag: the flag
+is what the office sets and sees, and writing it from a customer's own answer would
+badge them Maybe Next Year without anybody choosing to. The two mean different
+things; both mean not this season.
+
+**② Nothing ever took anybody OFF the plan.** `customersMissingFromSeason` asks
+`isOutForSeason` before putting somebody **on** a day, and nothing asked again
+afterwards — so a customer placed on the plan who *then* left the season stayed on
+it through every Recalculate, for ever. The routes side has had two ways to drop
+them (`stopProblem`'s sweep, `removeCustomerFromUpcomingRoutes`); the schedule had
+none. `rebuildSeasonDays` now drops them out of the movable pile, asks the shared
+rule rather than growing its own, keeps a house whose customer cannot be found
+(imported rows need not match one), never touches takedowns or fixes, and reports
+both what it took off and anybody it could not — a day inside the 48-hour lock is
+printed and loaded, and a rebuild cannot un-print paper.
+
 Blocks: the flip itself, which is tier 1 — getting it wrong means nobody is
 scheduled.
 Answer: Q-010b answered 2026-08-22 — a reply is required; assumed yes does not
