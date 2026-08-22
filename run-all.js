@@ -6843,11 +6843,17 @@ suite('21. Everyone is in unless they said otherwise');
        fine. */
     const at = fnsSrc.indexOf('exports.portalRsvp');
     const portalRsvpSrc = at === -1 ? '' : fnsSrc.slice(at, fnsSrc.indexOf('\n});', at));
+    /* ⚠ IT MUST NOT WRITE maybeNextYear — READING IT IS FINE, and on 2026-08-22 this
+       fired on a correct read (portalRsvp now checks `oldData.maybeNextYear === true`
+       to tell whether somebody is coming back in). A check that cannot tell a read
+       from a write is one that gets edited away the first time it cries wolf. The
+       pattern catches a literal `maybeNextYear:` and an assignment, and deliberately
+       does not catch `===`. */
     check('season', 'the server really does write the status on its own',
       !!portalRsvpSrc && /rsvpStatus: response,/.test(portalRsvpSrc) &&
-      !/maybeNextYear/.test(portalRsvpSrc),
-      'if portalRsvp ever starts setting maybeNextYear too, the comment above needs ' +
-      'rewriting — but the rule stays either way');
+      !/maybeNextYear\s*[:=][^=]/.test(portalRsvpSrc),
+      'that badge is what the OFFICE sets and sees — writing it from a customer\'s ' +
+      'own click overrules an office decision silently');
   }
 
   // ---- the physical rule, which survives whichever mode is on -----------
@@ -11466,9 +11472,21 @@ suite('Suite 44. The plan keeps up with the customer list');
     /if\(__syncTimer\) return;/.test(admin) && /if\(!loaded\) return 0;/.test(admin),
     'syncing into a plan that is not there would throw on a timer, for ever');
 
+  /* ⚠ AND THE REJOIN PLACER JOINED IT (2026-08-22). Every source of news the sync
+     can produce has to be in this condition, or the one left out is either never
+     announced or announced on a tick where nothing happened. */
   check('S44', 'a sync that changes nothing says nothing',
-    admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length) return 0;') > 0,
+    /if\(!moved\.length && !timing\.moved\.length && !timing\.stuck\.length\s*\n?\s*&& !rejoin\.placed\.length && !rejoin\.stuck\.length\) return 0;/
+      .test(admin.replace(/\r/g, '')),
     'a toast every five minutes is how somebody learns to ignore toasts');
+  check('S44', 'and somebody just placed back on a day IS announced',
+    /rejoin\.placed\.length\) bits\.push/.test(admin) &&
+    /rejoin\.stuck\.length\) bits\.push/.test(admin),
+    'a customer appearing on Tuesday with no explanation is how the office stops ' +
+    'trusting the plan');
+  check('S44', 'and the day they landed on is re-ordered for driving',
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| townChanged\)/.test(admin),
+    'a house dropped on the END of a day leaves that day out of driving order');
 }
 
 
@@ -11691,7 +11709,12 @@ suite('Suite 46. Nobody is hung before the month they asked for');
            brings thanksgivingDate with it, and BASE_START/prefSpecificDate are supplied
            below, because that is what the real function reads. */
         'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
-        fn('thanksgivingDate') + fn('houseDeadline') +
+        /* ⚠ AND nextInstallDayFor IS LIFTED TOO (2026-08-22). The sweep no longer
+           chooses the day itself — it asks the shared picker, which the rejoin placer
+           also asks. Leaving it out is a ReferenceError inside a forEach, which
+           surfaces as the whole suite dying with no failure list; stubbing it would
+           make every claim below about WHICH day is chosen a claim about the stub. */
+        fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
         src + 'this.run = enforceInstallTiming;'
       ).call(sb, SEASON,
         (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
@@ -11939,9 +11962,13 @@ suite('Suite 46. Nobody is hung before the month they asked for');
     }
   }
 
+  /* ⚠ THE EARLY RETURN GREW A CLAUSE ON 2026-08-22 (the rejoin placer), so this
+     matches the START of the condition rather than the whole line — what it is
+     asserting is that the sweep is NOT gated on a field having changed, not the
+     exact list of things the sync stays quiet about. S44 owns that list. */
   check('S46', 'the sweep runs on every sync, not only when a field changed',
     admin.indexOf('timing=enforceInstallTiming();') > 0 &&
-    admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length) return 0;') > 0,
+    admin.indexOf('if(!moved.length && !timing.moved.length && !timing.stuck.length') > 0,
     'a plan saved before the rule existed is already breaking it, with nothing having changed today');
 }
 
@@ -18418,7 +18445,13 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
         'const BASE_START = new Date(2026, 9, 1);' +
         'const prefSpecificDate = function(){ return null; };' +
         extractFn(admin, 'thanksgivingDate') + extractFn(admin, 'houseDeadline') +
-        extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + lim + src +
+        /* ⚠ AND nextInstallDayFor IS LIFTED TOO (2026-08-22). The sweep no longer
+           chooses the day itself — it asks the shared picker, which the rejoin placer
+           also asks. Leaving it out is a ReferenceError inside a forEach, which
+           surfaces as the whole suite dying with no failure list; stubbing it would
+           make every claim below about WHICH day is chosen a claim about the stub. */
+        extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + lim +
+        extractFn(admin, 'nextInstallDayFor') + src +
         'return {report: enforceInstallTiming(), season: SEASON};')(season);
     };
     const H = (name, city, from) => ({name: name, city: city, from: from || null});
@@ -26504,8 +26537,11 @@ suite('77. Schedule route generator');
   check('S77', 'the periodic sync re-orders the days it changed',
     /routes=generateAllRoutes\(\)/.test(sync),
     'enforceInstallTiming puts a moved house on the END of its new day');
+  /* ⚠ AND A REJOINER LANDING ON A DAY COUNTS AS A MOVE (added 2026-08-22). They are
+     pushed onto the END of that day, so it is no longer in driving order — exactly
+     the case this trigger exists for. A changed phone number still is not. */
   check('S77', 'but only when a house actually moved day or town',
-    /if\(timing\.moved\.length \|\| townChanged\)/.test(sync),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| townChanged\)/.test(sync),
     'a changed phone number does not alter a route — re-ordering the season every five minutes would');
   check('S77', 'and it happens BEFORE the plan is drawn and saved',
     sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),

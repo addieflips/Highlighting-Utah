@@ -224,9 +224,17 @@ if (portalRsvp && updates) {
      them Maybe Next Year without anybody choosing to. It is recorded here so that if
      it ever changes, the comments in admin.html that explain why isOutForSeason reads
      BOTH get revisited rather than quietly going stale. */
+  /* ⚠ IT MUST NOT WRITE maybeNextYear — READING IT IS FINE. The first version of
+     this banned the WORD anywhere in the function, and on 2026-08-22 that fired on a
+     perfectly correct read (`oldData.maybeNextYear === true`, deciding whether this
+     is somebody coming back in). A check that cannot tell a read from a write is a
+     check that gets edited away the first time it cries wolf.
+     The pattern below catches an object-literal `maybeNextYear:` and an assignment
+     `updates.maybeNextYear =`, and deliberately does NOT catch `===`. */
   check('and portalRsvp writes the status without the office flag',
-    /rsvpStatus: response,/.test(updates) && !/maybeNextYear/.test(portalRsvp),
-    'if this changes, the reasoning in isOutForSeason needs rewriting');
+    /rsvpStatus: response,/.test(updates) && !/maybeNextYear\s*[:=][^=]/.test(portalRsvp),
+    'that badge is what the OFFICE sets and sees — writing it from a customer\'s own ' +
+    'click overrules an office decision silently');
 }
 
 const saveAt = admin.indexOf("const oldRsvpForRecycle");
@@ -328,6 +336,108 @@ if (portalRsvp && updates) {
           .every(next => both({ rsvpStatus: st, needsLightRecycle: fl }, next).agree)),
       'one of the two would build a set nobody needs, or skip one somebody does');
   }
+}
+
+/* ⭐ COMING BACK IN EARNS THE NEXT SLOT GOING (added 2026-08-22). Owner: "The ones
+   that are marked as a yes after saying no should be scheduled at next available time
+   for schedule for crews", and "Same with saying yes after pressing back next year."
+
+   ⚠ SAYING NO OR BACK NEXT YEAR TAKES THEM OFF THE PLAN, and until this was built,
+   saying yes again put them back in the SEASON without putting them back on a DAY —
+   the only route onto one was somebody pressing Recalculate everything. The screen
+   said they were in the season the whole time, which is the worst version of it.
+
+   ⚠ BOTH WRITERS HAVE TO STAMP IT. The RSVP link is one route in; an answer taken
+   over the phone and typed into Edit Customer is the other, and is how most of these
+   will actually arrive. A flag written by only one of them works in testing and
+   silently does nothing for half the real cases. */
+{
+  const svrStamp = /if \(response === 'yes' && wasOut\) updates\.rejoinedForSeasonAt/.test(portalRsvp);
+  check('the RSVP link marks somebody who has just come back in', svrStamp,
+    'without the flag the planner has no way to tell a rejoiner from anybody else');
+  check('and it counts BOTH ways out — an RSVP of no and Back Next Year',
+    /const wasOut = wasNo \|\|[\s\S]{0,180}backnextyear/.test(portalRsvp),
+    'they are different states — one recycles, one does not — but coming back from ' +
+    'either one is the same event');
+  check('and the office dropdown stamps it too',
+    /newRsvp === 'yes' && \(oldRsvpForRecycle === 'no' \|\| oldRsvpForRecycle === 'backnextyear'/
+      .test(admin) && /addrUpdates\.rejoinedForSeasonAt = serverTimestamp\(\)/.test(admin),
+    'an answer taken over the phone is how most of these will arrive');
+
+  /* ⚠ AND IT IS A ONE-SHOT INSTRUCTION, NOT A LABEL. Left standing it would fire
+     again after Start New Season — when everybody is off the plan — and drop the
+     whole book onto the earliest days one at a time instead of letting the builder
+     lay the season out by town. */
+  const placer = fn('placeRejoinersOnNextDay');
+  check('the planner has a placer to run', !!placer);
+  /* ⚠ BOTH HALVES, and this file has been bitten before by matching only one: the
+     flag is cleared in the LOCAL cache and in Firestore, and a check that finds
+     either one alone stays green with the other deleted. The mirror is what stops a
+     second pass in the same session double-placing them while the write is still in
+     flight; the write is what stops it surviving a reload. */
+  check('and it clears the flag once they have a day — in the cache AND in Firestore',
+    /d\.rejoinedForSeasonAt = null;/.test(placer) &&
+    /updateDoc\([\s\S]{0,80}\{rejoinedForSeasonAt: null\}\)/.test(placer),
+    'an instruction that is never withdrawn is a label, and this one would empty ' +
+    'the whole book onto the first days of next season');
+  check('and Start New Season clears it in the same write as the rest of the reset',
+    /chargeNewMemberFee: false,[\s\S]{0,600}rejoinedForSeasonAt: null/.test(admin),
+    'a separate write can fail on its own and carry the flag into the new season');
+  check('it never places somebody who is out for the season',
+    /isOutForSeason\(d\)\) return;/.test(placer),
+    'the flag can outlive the answer — somebody who rejoined and then said no again ' +
+    'must not be scheduled off a stale instruction');
+  check('and never places somebody already on the plan',
+    /have\.has\(item\.id\)\) return;/.test(placer),
+    'a second day for one house is a crew sent to a house another crew already did');
+  /* ⚠ NEVER FORCES A DAY. nextInstallDayFor returns null rather than crowding one. */
+  check('and reports anybody no day can take, rather than crowding one',
+    /if\(!target\)\{ stuck\.push/.test(placer),
+    'owner, 2026-08-20: "we should never have a day with 5 towns no exceptions"');
+
+  /* ⭐ AND SOMETHING ACTUALLY CALLS IT. Owner has asked for this class of check by
+     name: "just make sure that if i click a button the function that is supposed to
+     happen actually does." A red-check proved it was missing — the placer could be
+     unhooked from the sync entirely and every other check here stayed green, because
+     they all read the function rather than its caller. A feature nothing runs is the
+     most expensive kind of green. */
+  const syncAt = admin.indexOf('window.scheduleSyncFromCustomers=function');
+  const sync = syncAt === -1 ? '' : admin.slice(syncAt, admin.indexOf('\n  };', syncAt));
+  check('the periodic sync is still findable', !!sync,
+    'without it nothing below can prove the placer is wired to anything');
+  check('and the sync actually runs the placer',
+    /rejoin=placeRejoinersOnNextDay\(\)/.test(sync),
+    'unhooked, every other check in this section still passes and no rejoiner is ' +
+    'ever scheduled');
+  /* ⚠ BEFORE THE TIMING SWEEP, so a house placed this tick is held to its own
+     timing in the same pass rather than sitting on a wrong day until the next one. */
+  check('and runs it BEFORE the timing sweep',
+    sync.indexOf('placeRejoinersOnNextDay()') < sync.indexOf('enforceInstallTiming()'),
+    'placed after it, a rejoiner waits five minutes to be checked against their ' +
+    'own install timing');
+  /* ⚠ AND A THROW IN IT CANNOT TAKE THE SYNC DOWN, same as the two beside it. */
+  check('and a failure in it cannot take the sync down',
+    /try\{ rejoin=placeRejoinersOnNextDay\(\); \}catch/.test(sync),
+    'the town sync and the timing sweep either side of it are both wrapped');
+
+  /* ⭐ ONE RULE FOR WHICH DAY. The timing sweep and the placer run minutes apart on
+     the same timer; two copies of "which day can take this house" is two answers. */
+  const picker = fn('nextInstallDayFor');
+  const sweep = fn('enforceInstallTiming');
+  check('the day-picker is shared, not copied', !!picker &&
+    /nextInstallDayFor\(h\)/.test(placer) && /nextInstallDayFor\(h, \{exclude: day\}\)/.test(sweep),
+    'the timing sweep and the placer must not disagree about which day is available');
+  /* ⚠ AND IT NEVER DROPS A HOUSE ONTO A PRINTED SHEET. This was a real gap in the
+     timing sweep: it could move a house onto a day inside the 48-hour lock — a stop
+     appearing on a sheet already printed and a van already loaded. */
+  check('and it refuses a day inside the 48-hour lock',
+    /routeDayIsLocked\(ts\)\) return false;/.test(picker),
+    'every other writer in the planner honours that lock; this was the one that did not');
+  check('and it still prefers a day already working their town',
+    /extractCleanCity\(x\.city\) === town/.test(picker) &&
+    picker.indexOf('sameTown || roomy') !== -1,
+    'the crew is driving there anyway — and a stray house in a town nobody is ' +
+    'visiting is the thing the town rules exist to prevent');
 }
 
 /* ⭐ Back Next Year clears both queues: nothing to build, and their set stays in

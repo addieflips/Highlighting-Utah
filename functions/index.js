@@ -1431,11 +1431,40 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      so clearing it is all that is needed and nothing has to be rebuilt. */
   const rejoinedAfterRecycle = response === 'yes' && wasNo && !oldData.needsLightRecycle;
 
+  /* ⭐ CHANGING THEIR MIND BACK TO YES EARNS THE NEXT SLOT GOING (2026-08-22).
+     Owner: "The ones that are marked as a yes after saying no should be scheduled at
+     next available time for schedule for crews", and "Same with saying yes after
+     pressing back next year."
+
+     ⚠ SAYING NO TAKES THEM OFF THE PLAN, and until now saying yes again put them back
+     in the season without putting them back on a DAY — the only route onto one was
+     somebody pressing Recalculate everything. This flag is what the planner's
+     placeRejoinersOnNextDay looks for, and it CLEARS it once they have a day, so it
+     is an instruction rather than a permanent label.
+
+     ⚠ BOTH ANSWERS COUNT. "no" and "back next year" are different states — one
+     recycles, one does not — but coming back from either one is the same event. */
+  const wasOut = wasNo ||
+    String(oldData.rsvpStatus || '').toLowerCase() === 'backnextyear' ||
+    oldData.maybeNextYear === true;
+
   const updates = {
     rsvpStatus: response,
     rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
     needsLightRecycle: response === 'no'
   };
+  if (response === 'yes' && wasOut) updates.rejoinedForSeasonAt =
+    admin.firestore.FieldValue.serverTimestamp();
+  /* ⚠ AND IT STILL DOES NOT TOUCH maybeNextYear, which the first version of this did.
+     season-state.test.js caught it, and the check was right: that badge is what the
+     OFFICE sets and sees, and clearing it from a customer's own click would overrule
+     an office decision silently. It is not needed for what was asked either —
+     somebody who pressed Back Next Year THEMSELVES only ever got the status, so
+     answering yes brings them straight back with the flag untouched.
+     The one case it does not cover is a customer the office badged by hand who then
+     answers yes through the link: they stay out until the office clears the badge,
+     which the Edit Customer form already does. The flag above is still stamped for
+     them, so the moment it is cleared they are placed on the next day going. */
   if (rejoinedAfterRecycle) updates.needsLightBuild = true;
 
   // Keep the normalised sign-in fields in step with whatever just changed —

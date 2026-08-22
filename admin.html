@@ -6524,7 +6524,13 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              invoice's newMemberFeeApplied guard IS released a few lines above — so
              the one-time $30 join fee was charged again every single season. See
              ssnBuildPlan for the full reasoning. */
-          chargeNewMemberFee: false
+          chargeNewMemberFee: false,
+          /* ⚠ IN THE SAME WRITE, for the same reason as the fee flag above. Left
+             standing, every customer in the book would look like a rejoiner the
+             moment the new season empties the plan, and the placer would drop the
+             whole book onto the earliest days one at a time instead of letting the
+             builder lay it out by town. */
+          rejoinedForSeasonAt: null
         });
       }));
       hdone += chunk.length;
@@ -29429,6 +29435,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     } else if(newRsvp !== 'no' && oldRsvpForRecycle === 'no' && item.data.needsLightRecycle){
       addrUpdates.needsLightRecycle = false;
     }
+    /* ⭐ AND COMING BACK IN EARNS THE NEXT SLOT GOING (2026-08-22). Owner: "The ones
+       that are marked as a yes after saying no should be scheduled at next available
+       time for schedule for crews", and "Same with saying yes after pressing back
+       next year." Same flag portalRsvp writes, read by placeRejoinersOnNextDay, and
+       cleared by it once they have a day.
+       ⚠ THE OFFICE ROUTE MATTERS AS MUCH AS THE LINK: an answer taken over the phone
+       is how most of these will actually arrive.
+       ⚠ ITS OWN STATEMENT, NOT PART OF THE CHAIN ABOVE. The first version of this sat
+       where the `else if` was and swallowed it, so somebody coming back in was marked
+       a rejoiner and LEFT ON THE RECYCLE QUEUE — in the season and queued to have
+       their lights pulled apart at the same time. Caught by the existing check that
+       the two branches do different jobs; they are independent and must stay so. */
+    if(newRsvp === 'yes' && (oldRsvpForRecycle === 'no' || oldRsvpForRecycle === 'backnextyear' ||
+                             item.data.maybeNextYear === true)){
+      addrUpdates.rejoinedForSeasonAt = serverTimestamp();
+    }
     /* Rejoining AFTER the recycle already happened. The flag being false on a
        record still reading no is the only signal it completed: the warehouse
        clears it as it pulls the bundle and returns the number to the pool. So
@@ -39908,6 +39930,106 @@ function dayTownList(day){
   return Object.keys(seen);
 }
 function dayTownCount(day){ return dayTownList(day).length; }
+/* ⭐ THE ONE ANSWER TO "WHICH EXISTING DAY CAN THIS HOUSE GO ON NEXT" (2026-08-22).
+   Lifted out of enforceInstallTiming when the rejoin placer needed the same answer.
+   A second copy of this would be the copy that keeps a house out of a day the other
+   one would have allowed — and the two run minutes apart on the same timer.
+
+   The rule, in order:
+     · inside the house's own window — houseAllowedFrom is the floor, houseDeadline
+       the ceiling, and a house with no deadline has no ceiling
+     · the day is not full (a crew-day is MAX_STOPS_PER_ROUTE × CREWS_PER_DAY)
+     · ⭐ THE DAY IS NOT ALREADY LOCKED. Added here, and it is a real change to the
+       timing sweep as well: that sweep could move a house ONTO a day inside the
+       48-hour window, which is a stop appearing on a sheet that is already printed
+       and a van that is already loaded. Every other writer in the planner honours
+       that lock; this was the one that did not.
+     · a day already working their town wins — the crew is driving there anyway
+     · failing that, a day still under the town limit, so honouring the timing does
+       not quietly hand a crew a third town
+     · and if neither exists it returns null. There is no last resort: the caller
+       reports it and the office decides. Owner, 2026-08-20: "we should never have a
+       day with 5 towns no exceptions." */
+function nextInstallDayFor(h, opts){
+  const o = opts || {};
+  if(typeof SEASON === 'undefined' || !SEASON.length) return null;
+  const startStr = isoOf(seasonStartDate());
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  const cap = (typeof maxStopsPerWorkingDay === 'function') ? maxStopsPerWorkingDay() : 40;
+  const from = houseAllowedFrom(h, startStr);
+  const until = houseDeadline(h);
+  const town = extractCleanCity(h.city);
+  const room = SEASON
+    .filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
+    .sort(function(a, b){ return dayStr(a) < dayStr(b) ? -1 : (dayStr(a) > dayStr(b) ? 1 : 0); })
+    .filter(function(t){
+      const ts = dayStr(t);
+      if(t === o.exclude) return false;
+      if((t.houses || []).length >= cap) return false;
+      if(from && ts < from) return false;
+      if(until && ts > until) return false;
+      if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(ts)) return false;
+      return true;
+    });
+  const sameTown = room.filter(function(t){
+    return (t.houses || []).some(function(x){ return extractCleanCity(x.city) === town; });
+  })[0];
+  const roomy = room.filter(function(t){ return dayTownCount(t) < maxTownsPerDay(); })[0];
+  return sameTown || roomy || null;
+}
+/* ⭐ SOMEBODY WHO CHANGED THEIR MIND BACK TO YES GETS THE NEXT SLOT GOING (2026-08-22).
+   Owner: "The ones that are marked as a yes after saying no should be scheduled at
+   next available time for schedule for crews", and "Same with saying yes after
+   pressing back next year."
+
+   ⚠ WITHOUT THIS THEY WERE ON NO DAY AT ALL. Saying no or back next year takes them
+   off the plan; saying yes again puts them back in the season, and the only route
+   from there onto a DAY was somebody pressing Recalculate everything. So a customer
+   who rejoined in October stayed unscheduled until the next full rebuild, and the
+   screen said they were in the season the whole time.
+
+   ⚠ THE NEXT AVAILABLE DAY, NOT THE BACK OF THE QUEUE. A rebuild lays the season out
+   by town from the start; this slots one house into the soonest day that can legally
+   take it, which is what "next available time for the crews" means.
+
+   ⚠ IT IS A ONE-SHOT INSTRUCTION AND THE FLAG IS CLEARED WHEN IT IS OBEYED. Left
+   standing, it would fire again after Start New Season — when everybody is off the
+   plan — and drop the whole book onto next season's earliest days one at a time
+   instead of letting the builder lay it out by town. Start New Season clears it too,
+   so a failed write here cannot carry it over.
+
+   ⚠ AND IT NEVER FORCES A DAY. nextInstallDayFor returns null rather than crowding
+   one, and a customer nobody can place is reported, not hidden — the rebuild will
+   put them somewhere, and until then the office can see who is waiting. */
+function placeRejoinersOnNextDay(){
+  const placed = [], stuck = [];
+  if(typeof SEASON === 'undefined' || !SEASON.length) return {placed: placed, stuck: stuck};
+  if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return {placed: placed, stuck: stuck};
+  const have = (typeof seasonCustomerIds === 'function') ? seasonCustomerIds() : new Set();
+  jobAddresses.forEach(function(item){
+    const d = (item && item.data) || {};
+    if(!d.rejoinedForSeasonAt) return;
+    if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
+    if(have.has(item.id)) return;
+    const h = (typeof houseFromCustomer === 'function') ? houseFromCustomer(item) : null;
+    if(!h) return;
+    const target = nextInstallDayFor(h);
+    if(!target){ stuck.push({name: d.name || '(no name)'}); return; }
+    target.houses.push(h);
+    have.add(item.id);
+    placed.push({name: d.name || '(no name)', toDate: isoOf(dayDate(target))});
+    /* Local mirror first, so a second pass in the same session cannot double-place
+       them even if the write is still in flight — the same optimistic mirror the
+       rest of admin uses. A failed write is logged, never thrown: they ARE on a day
+       now, and the flag standing costs one wasted look next tick. */
+    d.rejoinedForSeasonAt = null;
+    try{
+      updateDoc(doc(db, 'jobAddresses', item.id), {rejoinedForSeasonAt: null})
+        .catch(function(err){ console.error('Could not clear the rejoin flag:', err); });
+    }catch(err){ console.error('Could not clear the rejoin flag:', err); }
+  });
+  return {placed: placed, stuck: stuck};
+}
 function enforceInstallTiming(){
   const moved = [], stuck = [];
   if(typeof SEASON === 'undefined' || !SEASON.length) return {moved: moved, stuck: stuck};
@@ -39945,54 +40067,21 @@ function enforceInstallTiming(){
       const tooEarly = !!from && here < from;
       const tooLate  = !!until && here > until;
       if(!tooEarly && !tooLate) return;   // allowed to be here
-      const town = extractCleanCity(h.city);
-      const room = installs.filter(function(t){
-        const ts = dayStr(t);
-        if(!ts || t === day || (t.houses || []).length >= cap) return false;
-        if(from && ts < from) return false;
-        if(until && ts > until) return false;
-        return true;
-      });
-      /* A day already working this town first, so honouring the timing does not
-         quietly break the one-town rule as well. */
-      const sameTown = room.filter(function(t){
-        return (t.houses || []).some(function(x){ return extractCleanCity(x.city) === town; });
-      })[0];
-      /* ⭐ AND FAILING THAT, A DAY THAT CAN AFFORD A NEW TOWN (added 2026-08-20).
-         Owner: "4 days were built before the current rules and carry too many towns...
-         why is this here, everything should recalculate to the new rules".
+      /* ⭐ ONE RULE, ASKED (2026-08-22). This block used to choose the day itself;
+         placeRejoinersOnNextDay needs the identical answer minutes later on the same
+         timer, and two copies of "which day can take this house" is two answers. The
+         reasoning for each clause now lives on nextInstallDayFor. */
 
-         They were not built that way. The BUILDER cannot make a day like that: it
-         gives each crew its own town plus at most one borrowed, so two crews can only
-         ever produce four. THIS is what made them. The fallback was sameTown ||
-         room[0] — the earliest day with a free slot, with no regard at all for the
-         towns already on it — so a legal four-town day quietly became five.
-
-         And because this sweep runs on the five-minute customer sync, LONG AFTER the
-         rebuild, pressing Recalculate everything fixed it and the next sync broke it
-         again. That is why the warning kept coming back on its own.
-
-         Preferring a day that is under the limit costs nothing: the house still lands
-         on the earliest day it is allowed on that has room, just not on one already
-         carrying as many towns as a crew can drive. */
-      const roomy = room.filter(function(t){ return dayTownCount(t) < maxTownsPerDay(); })[0];
-      /* ⭐ AND IF NOTHING CAN TAKE IT, IT IS NOT MOVED. CHANGED 2026-08-20 — this
-         shipped hours earlier as `sameTown || roomy || room[0]`, which crowded a day
-         as a last resort and reported it. Owner: "we should never have a day with 5
-         towns no exceptions." So there is no last resort: the house is reported as
-         stuck, exactly like one with no later day at all, and the office decides.
-         A customer sitting on a day earlier than they asked for is visible and
-         fixable; a crew handed a six-town sheet finds out on the road. */
-      const target = sameTown || roomy;
+      const target = nextInstallDayFor(h, {exclude: day});
       if(!target){
         /* `notBefore` is kept for the too-early case that has always been here;
            `notAfter` and `late` are what the office needs to read a deadline miss,
-           which is a different sentence — "no EARLIER day has room", not later. */
-        stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from,
-                    notAfter: until, late: tooLate});
-        return;
-      }
-      if(!target){
+           which is a different sentence — "no EARLIER day has room", not later.
+           ⚠ AND THERE IS NO LAST RESORT. Shipped once as `sameTown || roomy ||
+           room[0]`, which crowded a day rather than reporting it. Owner,
+           2026-08-20: "we should never have a day with 5 towns no exceptions." A
+           customer on a day earlier than they asked for is visible and fixable; a
+           crew handed a six-town sheet finds out on the road. */
         stuck.push({name: h.name || '(no name)', pref: h.pref || '', notBefore: from,
                     notAfter: until, late: tooLate});
         return;
@@ -41489,9 +41578,15 @@ function exportCSV(){
        the job — the house is still sitting on the old day. Runs even when the
        sync itself found nothing, because a plan saved earlier can already be
        breaking the rule. */
+    /* ⭐ AND ANYBODY WHO HAS JUST COME BACK IN GETS A DAY (2026-08-22). Runs BEFORE
+       the timing sweep so a house placed here is held to its own timing in the same
+       pass rather than sitting wrong until the next tick. */
+    let rejoin={placed:[],stuck:[]};
+    try{ rejoin=placeRejoinersOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
     let timing={moved:[],stuck:[]};
     try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
-    if(!moved.length && !timing.moved.length && !timing.stuck.length) return 0;
+    if(!moved.length && !timing.moved.length && !timing.stuck.length
+       && !rejoin.placed.length && !rejoin.stuck.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
        enforceInstallTiming puts it on the END of its new day, and a corrected
        town can hand it to the other crew — either way the driving order the day
@@ -41504,7 +41599,9 @@ function exportCSV(){
        cannot quietly renumber a sheet the crew is already holding. */
     const townChanged=moved.some(function(c){ return c.field==='town'; });
     let routes={days:0};
-    if(timing.moved.length || townChanged){
+    /* A house dropped onto a day is on the END of it, so that day is no longer in
+       driving order — the same reason a timing move triggers this. */
+    if(timing.moved.length || rejoin.placed.length || townChanged){
       try{ routes=generateAllRoutes(); }catch(err){ console.error('Route generation failed:',err); }
     }
     computeDates(); renderAll(); scheduleSave();
@@ -41514,6 +41611,14 @@ function exportCSV(){
         ? (moved[0].name+"\u2019s "+moved[0].field+" changed")
         : (moved.length+" changes picked up from the customer list"));
       if(timing.moved.length) bits.push(timing.moved.length+" moved to a day their timing allows");
+      /* ⭐ NAMED, NOT SILENT. "Somebody appeared on Tuesday" with no explanation is
+         how the office stops trusting the plan. One name when it is one person,
+         because that is the case they will want to check. */
+      if(rejoin.placed.length) bits.push(rejoin.placed.length===1
+        ? (rejoin.placed[0].name+" is back in \u2014 scheduled "+rejoin.placed[0].toDate)
+        : (rejoin.placed.length+" back in \u2014 scheduled on the next day with room"));
+      if(rejoin.stuck.length) bits.push(rejoin.stuck.length+
+        " back in but no day has room \u2014 press Recalculate everything");
       if(timing.stuck.length){
         /* ⚠ WHICH WAY THEY ARE STUCK IS THE WHOLE MESSAGE. This read "no later day
            has room" for everybody, which is exactly backwards for a customer who has
