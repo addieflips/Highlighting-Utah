@@ -33889,7 +33889,7 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   } else {
     const api = new Function(
       "const RM_LABELS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';" + LF_ +
-      'let rmCorners = [], rmRuns = [];' + LF_ +
+      'let rmCorners = [], rmRuns = [], rmCurrentBand = 0;' + LF_ +
       'function rmDatum(){ return {m: 3, source:"assumed"}; }' + LF_ +
       'function rmSyncSky(){}' + LF_ +
       'function rmCornersChanged(){ rmCornersToRun(); }' + LF_ +
@@ -33969,6 +33969,41 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
       !api.run(), 'a line needs two ends');
   }
 
+    /* ---- strands, and taking a dot back ------------------------------ */
+    /* Owner: "also give me a way to end the strand", and "make backspace
+       delete a dot". The top of a house and the bottom are separate runs of
+       string, so a dot has to be able to say which run it belongs to. */
+    const strandApi = new Function(
+      "const RM_LABELS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';" + LF_ +
+      'let rmCorners = [], rmRuns = [], rmCurrentBand = 0;' + LF_ +
+      'function rmDatum(){ return {m: 3, source:"assumed"}; }' + LF_ +
+      'function rmSyncSky(){}' + LF_ + 'function rmRenderResults(){}' + LF_ +
+      'function rmPaintStreet(){}' + LF_ + 'function rmRenderCornerBar(){}' + LF_ +
+      'function rmCornersChanged(){ rmCornersToRun(); }' + LF_ +
+      'const document = {getElementById: function(){ return null; }};' + LF_ +
+      ['rmCornerLabel','rmAddCorner','rmEndStrand','rmDeleteLastCorner','rmCornersToRun']
+        .map(pick).join(LF_) + LF_ +
+      'return {add: rmAddCorner, end: rmEndStrand, del: rmDeleteLastCorner,' + LF_ +
+      '        all: function(){ return rmCorners; }, runs: function(){ return rmRuns; }};')();
+    strandApi.add({lat: 1, lng: 1, h: 4});
+    strandApi.add({lat: 1, lng: 2, h: 4});
+    check('S149', 'dots start out on the first strand',
+      strandApi.all().every(function(c){ return c.band === 0; }));
+    check('S149', 'ending a strand starts the next dot on a new one',
+      strandApi.end() === true && (strandApi.add({lat: 2, lng: 1, h: 8}), strandApi.all()[2].band === 1),
+      'the top of the house and the bottom are not one continuous line');
+    strandApi.add({lat: 2, lng: 2, h: 8});
+    check('S149', 'and each strand becomes its own run',
+      strandApi.runs().filter(function(r){ return r.fromCorners; }).length === 2,
+      'got ' + strandApi.runs().length + ' runs from two strands');
+    /* ⚠ An empty strand is not a strand - pressing end twice must not leave a
+       gap in the numbering that nothing will ever fill. */
+    check('S149', 'ending twice in a row does nothing the second time',
+      strandApi.end() === true && strandApi.end() === false);
+    const had = strandApi.all().length;
+    check('S149', 'backspace takes the last dot back off',
+      strandApi.del() === true && strandApi.all().length === had - 1);
+
   /* ---- the controls exist on screen -------------------------------- */
   check('S149', 'space swaps picking for placing',
     /rmCornerMode = rmCornerMode === 'dot' \? 'select' : 'dot';/.test(admin),
@@ -34009,6 +34044,24 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
       return a !== -1 && b !== -1 && b > a && (b - a) < 60;
     })(),
     'an unrefreshed label says PICKING while the tool is PLACING');
+  /* ⭐ TWO BUTTONS, SO THE MODE ONLY GOVERNS ONE. Owner: "make it so right
+     click is always select and left click is place dot if thats what its on
+     but it switches if you click space." */
+  check('S149', 'the right button always selects, whatever the mode',
+    /addEventListener\('contextmenu'/.test(admin) && /rmCornerNearPixel/.test(admin),
+    'having to change mode just to take one dot out is the friction this removes');
+  check('S149', 'and it works over the map as well as the panorama',
+    /\['rmPanoLock', 'rmMapLock'\]\.forEach/.test(admin));
+  /* ⭐ ARROW KEYS FOR ANOTHER ANGLE. Owner: "I cant place dot from multiple
+     angles make it so I can use my arrow keys to do that." */
+  check('S149', 'left and right turn the view',
+    /rmPano\.setPov\(\{heading: pv\.heading \+ \(k === 'ArrowRight' \? 12 : -12\)/.test(admin));
+  check('S149', 'and up and down MOVE it, which is what changes what is hidden',
+    /rmPano\.getLinks\(\)/.test(admin) && /rmPano\.setPano\(best\.pano\)/.test(admin),
+    'turning changes what is in frame; only moving changes what is behind what');
+  check('S149', 'there is a button to end a strand as well as a key',
+    /id="rmEndStrandBtn"/.test(admin) && /rmEndStrandBtn'\)\.addEventListener/.test(admin),
+    'not everybody reaches for a keyboard');
   check('S149', 'the map takes dots as well as the street view',
     /rmCornerMode === 'dot' && !rmDrawing/.test(admin) && /const skyLock = \(rmDrawing \|\| rmCornerMode === 'dot'\)/.test(admin),
     'from above a click is exact; from the street the height is what you can see');
