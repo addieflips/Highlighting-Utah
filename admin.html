@@ -16831,7 +16831,7 @@ const RM_WALL_PLANE_TOL_M = 0.6;  /* two patches this alike are one roof */
 function rmMergedWalls(){
   if(!rmFaces || !rmFaces.length || !rmOrigin) return [];
   const groups = [];
-  const put = function(axis, at, lo, hi, f){
+  const put = function(axis, at, lo, hi, f, depth){
     for(let i = 0; i < groups.length; i++){
       const g = groups[i];
       if(g.axis === axis && Math.abs(g.at - at) <= RM_WALL_JOIN_M){
@@ -16839,19 +16839,19 @@ function rmMergedWalls(){
         g.at = (g.at * g.n + at) / (g.n + 1);
         g.n++;
         g.lo = Math.min(g.lo, lo); g.hi = Math.max(g.hi, hi);
-        g.faces.push({f: f, lo: lo, hi: hi});
+        g.faces.push({f: f, lo: lo, hi: hi, depth: depth});
         return;
       }
     }
-    groups.push({axis: axis, at: at, n: 1, lo: lo, hi: hi, faces: [{f: f, lo: lo, hi: hi}]});
+    groups.push({axis: axis, at: at, n: 1, lo: lo, hi: hi, faces: [{f: f, lo: lo, hi: hi, depth: depth}]});
   };
   rmFaces.forEach(function(f){
     if(!f.sw || !f.ne) return;
     const b = rmFaceBoxLocal(f);
-    put('E', b.minE, b.minN, b.maxN, f);      /* the two walls running north-south */
-    put('E', b.maxE, b.minN, b.maxN, f);
-    put('N', b.minN, b.minE, b.maxE, f);      /* the two running east-west */
-    put('N', b.maxN, b.minE, b.maxE, f);
+    put('E', b.minE, b.minN, b.maxN, f, b.maxE);  /* the two walls running north-south */
+    put('E', b.maxE, b.minN, b.maxN, f, b.minE);
+    put('N', b.minN, b.minE, b.maxE, f, b.maxN);  /* the two running east-west */
+    put('N', b.maxN, b.minE, b.maxE, f, b.minE);
   });
   /* ⭐ NOW SPLIT EACH LINE INTO THE RUNS THAT ARE REALLY ONE WALL.
      A hole in the patches either means a tree hid the roof, or the house
@@ -17029,35 +17029,88 @@ function rmCoveredAt(e, n){
   return false;
 }
 
-/* The outline of the assumed house: the walls with OUTSIDE on one side of them.
-   ⭐ THE SAME WALLS A CLICK LANDS ON, deliberately. Drawing the model from one
-   set of rules and placing dots by another is how a picture ends up agreeing
-   with nothing; here what is drawn IS what a click will meet, so a wall in the
-   wrong place can be seen instead of having to be inferred from odd dots. */
-const RM_OUTSIDE_STEP_M = 0.35;
-function rmHouseOutline(){
+/* The holes a tree made, as patches of house to put back. Where rmMergedWalls
+   decided a gap was a tree rather than a doorwell, the house really does carry
+   on across it, so the ground under it counts as covered. */
+function rmBridgedPatches(){
   const out = [];
   rmMergedWalls().forEach(function(g){
-    let inLeft = 0, inRight = 0;
-    for(let f = 0.1; f <= 0.91; f += 0.2){
-      const along = g.lo + (g.hi - g.lo) * f;
-      const e = g.axis === 'E' ? g.at : along;
-      const n = g.axis === 'E' ? along : g.at;
-      const de = g.axis === 'E' ? RM_OUTSIDE_STEP_M : 0;
-      const dn = g.axis === 'E' ? 0 : RM_OUTSIDE_STEP_M;
-      if(rmCoveredAt(e - de, n - dn)) inLeft++;
-      if(rmCoveredAt(e + de, n + dn)) inRight++;
+    const ms = g.faces.slice().sort(function(a, b){ return a.lo - b.lo; });
+    for(let i = 1; i < ms.length; i++){
+      const gapLo = ms[i-1].hi, gapHi = ms[i].lo;
+      if(!(gapHi > gapLo)) continue;                 /* they touch; nothing to fill */
+      const d = ms[i-1].depth;
+      const a = Math.min(g.at, d), b = Math.max(g.at, d);
+      out.push(g.axis === 'E'
+        ? {minE: a, maxE: b, minN: gapLo, maxN: gapHi}
+        : {minE: gapLo, maxE: gapHi, minN: a, maxN: b});
     }
-    /* House on one side, garden on the other. A wall with roof on both sides is
-       where two patches meet in the middle of the building, and drawing those
-       turns the model into a net rather than an outline. */
-    if(!((inLeft === 0 && inRight > 0) || (inRight === 0 && inLeft > 0))) return;
-    if(g.hi - g.lo < 0.9) return;                 /* shorter than a doorway */
-    out.push(g.axis === 'E'
-      ? {a: {e: g.at, n: g.lo}, b: {e: g.at, n: g.hi}}
-      : {a: {e: g.lo, n: g.at}, b: {e: g.hi, n: g.at}});
   });
   return out;
+}
+
+/* ⭐ THE OUTLINE, TRACED RATHER THAN PICKED. An earlier version kept whole
+   face-box edges that had house on one side and garden on the other, which was
+   all-or-nothing: a wall that is outside along half its length and buried
+   along the rest failed the test and vanished, and the outline came out as a
+   bare rectangle on a house that plainly steps. Laying the patches on a grid
+   and walking the edge handles a part-outside wall correctly, which is most of
+   them on a real roof. */
+const RM_OUTLINE_CELL_M = 0.25;
+function rmHouseOutline(){
+  if(!rmFaces || !rmFaces.length || !rmOrigin) return [];
+  const boxes = [];
+  rmFaces.forEach(function(f){ if(f.sw && f.ne) boxes.push(rmFaceBoxLocal(f)); });
+  if(!boxes.length) return [];
+  rmBridgedPatches().forEach(function(b){ boxes.push(b); });
+  const c = RM_OUTLINE_CELL_M;
+  const minE = Math.min.apply(null, boxes.map(b => b.minE)) - c;
+  const maxE = Math.max.apply(null, boxes.map(b => b.maxE)) + c;
+  const minN = Math.min.apply(null, boxes.map(b => b.minN)) - c;
+  const maxN = Math.max.apply(null, boxes.map(b => b.maxN)) + c;
+  const w = Math.ceil((maxE - minE) / c), h = Math.ceil((maxN - minN) / c);
+  if(!(w > 1 && h > 1 && w * h < 400000)) return [];
+  const on = new Uint8Array(w * h);
+  for(let j = 0; j < h; j++){
+    const n = minN + (j + 0.5) * c;
+    for(let i = 0; i < w; i++){
+      const e = minE + (i + 0.5) * c;
+      for(let k = 0; k < boxes.length; k++){
+        const b = boxes[k];
+        if(e >= b.minE && e <= b.maxE && n >= b.minN && n <= b.maxN){ on[j*w + i] = 1; break; }
+      }
+    }
+  }
+  const at = (i, j) => (i < 0 || i >= w || j < 0 || j >= h) ? 0 : on[j*w + i];
+  const segs = [];
+  /* Walls running north-south: a vertical cell edge with house on one side. */
+  for(let i = 0; i <= w; i++){
+    let run = null;
+    for(let j = 0; j <= h; j++){
+      const edge = j < h && (at(i-1, j) !== at(i, j));
+      if(edge){ if(!run) run = {a: j, b: j + 1}; else run.b = j + 1; }
+      else if(run){
+        segs.push({a: {e: minE + i*c, n: minN + run.a*c}, b: {e: minE + i*c, n: minN + run.b*c}});
+        run = null;
+      }
+    }
+  }
+  /* Walls running east-west. */
+  for(let j = 0; j <= h; j++){
+    let run = null;
+    for(let i = 0; i <= w; i++){
+      const edge = i < w && (at(i, j-1) !== at(i, j));
+      if(edge){ if(!run) run = {a: i, b: i + 1}; else run.b = i + 1; }
+      else if(run){
+        segs.push({a: {e: minE + run.a*c, n: minN + j*c}, b: {e: minE + run.b*c, n: minN + j*c}});
+        run = null;
+      }
+    }
+  }
+  /* A wall shorter than a doorway is grid noise, not a wall. */
+  return segs.filter(function(sd){
+    return Math.hypot(sd.b.e - sd.a.e, sd.b.n - sd.a.n) >= 0.9;
+  });
 }
 
 /* How high the roof is over a spot on the outline - the gutter the system

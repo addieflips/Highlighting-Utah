@@ -34898,10 +34898,10 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
     const api = new Function(
       'let rmOrigin = {lat: 40, lng: -111};' + LF_ +
       'let rmFaces = []; let rmRoofDatumM = 5; let rmDatumSource = "test";' + LF_ +
-      ['RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M','RM_OUTSIDE_STEP_M'].map(n =>
+      ['RM_WALL_JOIN_M','RM_WALL_GAP_M','RM_WALL_PLANE_TOL_M','RM_OUTLINE_CELL_M'].map(n =>
         (admin.match(new RegExp('^const ' + n + ' = [^;]*;', 'm')) || [''])[0]).join(LF_) + LF_ +
       ['rmMetresPerDeg','rmToLocal','rmToWorld','rmFaceEaveM','rmLowestPlaneM','rmDatum',
-       'rmFacePlane','rmFaceBoxLocal','rmFaceRoofUAt','rmSomethingInGap','rmMergedWalls'].map(pick).join(LF_) + LF_ +
+       'rmFacePlane','rmFaceBoxLocal','rmFaceRoofUAt','rmSomethingInGap','rmMergedWalls','rmBridgedPatches'].map(pick).join(LF_) + LF_ +
       NEED.map(pick).join(LF_) + LF_ +
       'return {outline: rmHouseOutline, wire: rmHouseWireframe, eave: rmOutlineEaveU,' +
       ' faces: function(f){ rmFaces = f; }};')();
@@ -34945,6 +34945,32 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
     /* Every drawn wall carries the height of the roof over it, or it cannot be
        drawn in the street view at all. */
+    /* ⭐ AN L-SHAPED HOUSE MUST COME OUT L-SHAPED. This is the honest check on
+       the outline, and it is deliberately not an area figure: a collapsed union
+       still scores well on area while being a plain rectangle. A rectangle has
+       four walls. An L has six, and one of them is the inside corner. An
+       earlier version kept only whole face-box edges with house on one side and
+       garden on the other, which is all-or-nothing - a wall outside along half
+       its length and buried along the rest failed and vanished - and every
+       house came out as a bare rectangle. */
+    api.faces([F(-8, 0, -6, 6, 5), F(0, 8, -6, 0, 5)]);     /* an L */
+    const Ls = api.outline();
+    const vert = Ls.filter(sd => Math.abs(sd.a.e - sd.b.e) < 0.01);
+    const horiz = Ls.filter(sd => Math.abs(sd.a.n - sd.b.n) < 0.01);
+    check('S157', 'an L-shaped house comes out with six walls, not four',
+      Ls.length >= 6, 'got ' + Ls.length + ' walls (' + vert.length + ' north-south, ' +
+      horiz.length + ' east-west); four means the shape collapsed to a rectangle');
+    /* The inside corner is the giveaway: a wall part-way across the middle. */
+    const step = horiz.filter(function(sd){
+      const lo = Math.min(sd.a.e, sd.b.e), hi = Math.max(sd.a.e, sd.b.e);
+      return Math.abs(sd.a.n - 0) < 0.4 && hi > 0.4 && lo > -0.4;
+    });
+    check('S157', 'and it has the inside corner where the L steps in',
+      step.length > 0,
+      'no wall found along the step; the notch in the L was filled in');
+    /* Put the real house back for anything after this. */
+    api.faces([F(-8, -4,  2,  6, 5), F(-8, -4, -6, -2, 5), F(-4, 4, -6, 6, 9)]);
+
     const wire = api.wire();
     check('S157', 'every wall drawn carries its roof height',
       wire.length > 0 && wire.every(sg => isFinite(sg.a.u) && isFinite(sg.b.u) &&
