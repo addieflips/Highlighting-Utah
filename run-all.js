@@ -35052,6 +35052,105 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
 /* ===== SCHEDULE SUITES - lanil-0b appends BELOW this line ===== */
 
+
+/* ================= Suite 250. The house, measured from the street ==================
+   Owner, 2026-08-22: "measure height not just legth and depth", and the standing rule
+   "we outline from street view not sky view".
+
+   js/svdepth.js reads the depth map every Street View panorama ships. It is an ES
+   module and pure, so this IMPORTS and RUNS it rather than lifting it — no extraction
+   list to fall out of step with, and no browser needed.
+
+   ⚠ THE PAYLOADS HERE ARE SYNTHETIC AND BUILT BYTE BY BYTE, on purpose. A fixture
+   fetched from Google would make this suite depend on the network and on an
+   undocumented endpoint staying up. Building the bytes means the decoder is tested
+   against the format as documented in the file, and a change to either shows up here. */
+suite('250. The house, measured from the street');
+{
+  pendingAsync.push((async () => {
+    const sv = await import('./js/svdepth.js');
+
+    /* Encode a depth map the way Google does, so the decoder is exercised for real. */
+    function makePayload(W, H, planes, idxFn){
+      const off = 8, n = planes.length;
+      const buf = new Uint8Array(off + W * H + n * 16);
+      buf[0] = 8; buf[1] = n & 255; buf[2] = n >> 8;
+      buf[3] = W & 255; buf[4] = W >> 8; buf[5] = H & 255; buf[6] = H >> 8; buf[7] = off;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) buf[off + y * W + x] = idxFn(x, y);
+      const dv = new DataView(buf.buffer, off + W * H);
+      planes.forEach((pl, i) => {
+        dv.setFloat32(i * 16, pl.n[0], true); dv.setFloat32(i * 16 + 4, pl.n[1], true);
+        dv.setFloat32(i * 16 + 8, pl.n[2], true); dv.setFloat32(i * 16 + 12, pl.d, true);
+      });
+      return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    const CAM = 2.4;
+    const planes = [
+      { n: [0, 0, 0], d: 0 },        // 0 = sky, never a surface
+      { n: [0, 0, -1], d: CAM },     // ground, camera CAM metres above it
+      { n: [-1, 0, 0], d: -10 }      // a wall 10 m ahead
+    ];
+    const W = 8, H = 4;
+    const b64 = makePayload(W, H, planes, (x, y) => (y === 0 ? 0 : y === 3 ? 1 : 2));
+    const d = sv.decodeDepthPayload(b64);
+
+    check('svdepth', 'the depth payload decodes to the size its header claims',
+      d.width === W && d.height === H && d.planeCount === 3,
+      'got ' + d.width + 'x' + d.height + ' with ' + d.planeCount + ' planes');
+
+    /* ⚠ A SHORT PAYLOAD MUST THROW, NOT RETURN SOMETHING PLAUSIBLE. Reading past the
+       end yields zeros, and a zeroed plane is a surface at the origin — a measurement
+       that looks like a number and is not one. */
+    let threw = false;
+    try { sv.decodeDepthPayload(b64.slice(0, 12)); } catch (e) { threw = true; }
+    check('svdepth', 'a truncated payload throws rather than measuring zeros',
+      threw, 'silent garbage here becomes a confident wrong height on a real house');
+
+    check('svdepth', 'the camera height is measured off the ground plane',
+      Math.abs(sv.cameraHeight(d) - CAM) < 1e-6,
+      'the tool assumes 2.50; real panoramas come back 2.39-2.46, and every height ' +
+      'derived from it inherits that error — got ' + sv.cameraHeight(d));
+
+    const noGround = sv.decodeDepthPayload(makePayload(W, H, [planes[0], planes[2]], () => 1));
+    check('svdepth', 'and it returns null rather than guessing when no ground is in view',
+      sv.cameraHeight(noGround) === null);
+
+    check('svdepth', 'sky has no distance',
+      sv.distanceAt(d, 0, 0) === null,
+      'plane 0 is sky; treating it as a surface puts a dot on a cloud');
+
+    /* ⭐ THE ONE THE WHOLE FILE EXISTS FOR. Height must come out right, and it must NOT
+       depend on the north calibration — a rotation about the vertical leaves the
+       vertical alone, which is why this survived that being withdrawn. */
+    const hGround = sv.heightAboveGround(d, 0, 3);
+    check('svdepth', 'a point on the ground measures about zero above the ground',
+      hGround !== null && Math.abs(hGround) < 0.35,
+      'got ' + hGround);
+
+    const hWall = sv.heightAboveGround(d, 0, 1);
+    check('svdepth', 'a point up on the wall measures higher than one on the ground',
+      hWall !== null && hGround !== null && hWall > hGround + 1,
+      'wall ' + hWall + ' against ground ' + hGround);
+
+    check('svdepth', 'height is unchanged by the panorama yaw',
+      Math.abs(sv.heightAboveGround(d, 0, 1) - hWall) < 1e-9 &&
+      Math.abs((sv.pointAt(d, 0, 1, 0) || {}).up - (sv.pointAt(d, 0, 1, 137) || {}).up) < 1e-9,
+      'a rotation about the vertical axis cannot change a vertical measurement — if ' +
+      'this fails, height has been coupled to the bearing and inherits its refutation');
+
+    check('svdepth', 'a click on the sky has no height',
+      sv.heightAboveGround(d, 0, 0) === null);
+
+    /* ⛔ The bearing half is WITHDRAWN and this check exists to keep it withdrawn. */
+    const src = read('js/svdepth.js');
+    check('svdepth', 'the withdrawn bearing result stays marked as withdrawn',
+      /WITHDRAWN 2026-08-22/.test(src) && /0\.0%/.test(src) &&
+      /toEastNorth/.test(src),
+      'six approaches were tried and refuted; without this note the next person ' +
+      'repeats them, or worse, picks the bearing up believing it was measured');
+  })());
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
