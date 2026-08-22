@@ -235,3 +235,40 @@ working rule for the rest of this plan: before recording existing behaviour as a
 hole, find out why it is that way. `git log -S` and the comment beside the code
 answer it in seconds, and the registry is a better place to record the answer
 than a bug list.
+
+---
+
+## 10. ⚠ THE EMPLOYEE PORTAL IS NOT IN USE THIS SEASON (2026-08-21)
+
+Addie: *"FYI were not using the employee portal this year."* This changes three
+findings above and makes one of them considerably worse.
+
+**Four fields now reach NOBODY.** Each of these lives in the crew portal and has
+no column on any printed sheet, so with the portal out of use there is no channel
+left at all:
+
+| Field | crew portal | printed sheet | reaches |
+|---|---|---|---|
+| `gateCode` | ✓ | ✗ | **nobody** |
+| `specificOutletNotes` | ✓ | ✗ | **nobody** |
+| `oneTimeNote` | ✓ | ✗ | **nobody** |
+| `difficulty` | ✓ | ✗ | **nobody** |
+
+Hole (a) in §3 was written as *"a crew working off the printed sheet arrives at a
+gated house with no code."* It is now simply *"nobody has the code."*
+
+**Hole (b) is withdrawn.** `useEaves` printing but missing from the crew portal
+was a real asymmetry when both surfaces were in use. Paper is now the only
+surface, and `useEaves` prints, so there is nothing to fix.
+
+**P-003's framing changes, its substance does not.** It was written as "keep the
+two crew surfaces in step". The rule that matters this season is simpler: **paper
+is the only surface, so anything the crew needs must print.** Worth rewording
+before it is promoted.
+
+**✅ Billing is NOT affected, checked rather than assumed.** `completed: true` is
+written by the crew portal (`employee.html:2873`) *and* by admin — the Mark Done
+control and the per-customer toggle at `admin.html:31027`. So houses can still be
+marked done from the office and the nightly invoice run still fires. This was
+worth checking: if the portal had been the only writer, not using it would have
+stopped billing silently.
