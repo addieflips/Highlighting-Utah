@@ -16186,15 +16186,29 @@ function rmFrameHouseInStreet(){
   if(!cam) return null;
   const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
   const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  /* ⭐ AIM FIRST, THEN ZOOM. The heading was set ONCE, in the callback that
+     found the panorama, from where the camera stood at that moment - and
+     Google then moves the camera to the nearest road photo. Nothing pointed it
+     at the house again, so on the test house the pane opened looking straight
+     down the street with the house out of frame entirely, and the zoom
+     obligingly framed the empty road.
+     The house is at the origin, so the heading to it from the camera is simply
+     the bearing of the vector back to zero. */
+  const aim = rmDeg(Math.atan2(-cam.e, -cam.n));
+  const away = Math.max(4, Math.hypot(cam.e, cam.n));
+  /* Tilt up enough to hold the roof rather than the lawn. */
+  const roofish = rmDatum().m + rmHighestRelM() * 0.5;
+  const tilt = Math.max(-8, Math.min(28, rmDeg(Math.atan2(roofish - cam.u, away))));
+  rmPano.setPov({heading: aim, pitch: tilt});
   /* The four corners, so a house at an angle is measured across what the
      camera actually SEES of it rather than across its north/south box. */
   const corners = [{e: sw.e, n: sw.n}, {e: ne.e, n: sw.n}, {e: ne.e, n: ne.n}, {e: sw.e, n: ne.n}];
   let lo = Infinity, hi = -Infinity;
   corners.forEach(function(c){
     /* Angle of this corner as seen from the camera, relative to the heading it
-       is already pointing. */
+       has just been pointed. */
     const a = rmDeg(Math.atan2(c.e - cam.e, c.n - cam.n));
-    let rel = a - rmPanoPov().heading;
+    let rel = a - aim;
     while(rel > 180) rel -= 360;
     while(rel < -180) rel += 360;
     if(rel < lo) lo = rel;
@@ -16208,7 +16222,7 @@ function rmFrameHouseInStreet(){
   const zoom = Math.max(RM_ZOOM_MIN, Math.min(RM_ZOOM_MAX, Math.log2(180 / wantFov)));
   rmPano.setZoom(zoom);
   rmFramed = true;
-  return {houseDeg: +wideDeg.toFixed(1), fov: +wantFov.toFixed(1), zoom: +zoom.toFixed(2)};
+  return {aim: +aim.toFixed(1), tilt: +tilt.toFixed(1), houseDeg: +wideDeg.toFixed(1), fov: +wantFov.toFixed(1), zoom: +zoom.toFixed(2)};
 }
 
 /* ⚠ THE CAMERA IS NOT ON THE ROAD THE MOMENT STREET VIEW SAYS IT IS READY.

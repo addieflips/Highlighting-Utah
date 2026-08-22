@@ -33421,14 +33421,19 @@ suite('146. Measure Roof - the street view frames the house instead of the stree
       'const rmDeg = r => r * 180 / Math.PI;' + LF_ +
       consts.join(LF_) + LF_ +
       'let rmOrigin={lat:40.2969,lng:-111.6946}, rmStreetReady=true, rmBuilding=null, __cam=null, __head=0, rmFramed=false;' + LF_ +
-      'let rmPano={setZoom:function(z){ __z = z; }};' + LF_ +
+      /* Framing now AIMS before it zooms, so the pov setter and the height
+         helpers it uses to work out the tilt have to be here too. */
+      'let rmPano={setZoom:function(z){ __z = z; }, setPov:function(p){ __pov = p; }};' + LF_ +
+      'let __pov=null;' + LF_ +
+      'function rmDatum(){ return {m: 3, source:"assumed"}; }' + LF_ +
+      'function rmHighestRelM(){ return 3; }' + LF_ +
       'let __z=null;' + LF_ +
       'function rmCamOnRoad(){ return __cam; }' + LF_ +
       'function rmPanoPov(){ return {heading: __head, pitch: 0, zoom: 1}; }' + LF_ +
       pick('rmMetresPerDeg') + LF_ + pick('rmToLocal') + LF_ + pick('rmToWorld') + LF_ + fn + LF_ +
       'return {run: rmFrameHouseInStreet,' + LF_ +
       '        setup: function(b, cam, head){ rmBuilding = b; __cam = cam; __head = head; __z = null; rmFramed = false; },' + LF_ +
-      '        zoom: function(){ return __z; },' + LF_ +
+      '        zoom: function(){ return __z; }, pov: function(){ return __pov; },' + LF_ +
       '        toWorld: rmToWorld};')();
 
     /* A 14 m wide house, camera 29 m away looking straight at it. */
@@ -33445,6 +33450,17 @@ suite('146. Measure Roof - the street view frames the house instead of the stree
     /* Tolerance 0.01, not 0.001: the returned figure is rounded to two places
        for reporting while the panorama is given the full one, and comparing
        those at 0.001 fails on a correct answer. */
+    /* ⭐ AIM BEFORE ZOOM. The heading was set once, in the callback that found
+       the panorama, and Google then moves the camera to the nearest road
+       photo - so the pane opened looking down the street with the house out
+       of frame, and the zoom obligingly framed the empty road. */
+    check('S146', 'the panorama is pointed AT the house, not left where it was',
+      api.pov() && Math.abs(api.pov().heading - 0) < 1,
+      'camera due south of the house must look due north: got ' +
+      (api.pov() ? api.pov().heading.toFixed(1) : 'no pov set'));
+    check('S146', 'and tilted up enough to hold the roof rather than the lawn',
+      api.pov() && api.pov().pitch > 0 && api.pov().pitch < 28,
+      'pitch ' + (api.pov() ? api.pov().pitch.toFixed(1) : 'none'));
     check('S146', 'the zoom is actually applied to the panorama, not just returned',
       api.zoom() !== null && Math.abs(api.zoom() - far.zoom) < 0.01,
       'a computed zoom nobody sets changes nothing on screen (set ' + api.zoom() + ', returned ' + far.zoom + ')');
