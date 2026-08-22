@@ -4345,7 +4345,7 @@
            afterwards. A map that slides under a half-finished line is the
            single most annoying thing about doing this by hand. -->
       <div class="editcust-popup-overlay" id="roofMeasureOverlay" style="display:none;">
-        <div class="editcust-popup" style="max-width:1280px;">
+        <div class="editcust-popup" style="max-width:min(1800px, 97vw);">
           <style>
             #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
             #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
@@ -4361,6 +4361,16 @@
             #roofMeasureOverlay .rm-runrow{display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; color:var(--slate);}
             #roofMeasureOverlay .rm-runrow button{border:0; background:none; color:var(--ember); cursor:pointer; font-size:13px; line-height:1; padding:0 2px;}
             #roofMeasureOverlay .rm-pane{position:relative; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#e9eef2;}
+            /* ⭐ BIG ENOUGH TO SEE THE HOUSE. Owner: "theres to much going on
+               you cant see the house clearly." Part of that was the drawing,
+               and part was this: the panes were a fixed 430px, so on a 1080p
+               screen a house sat about 150 pixels across and NOBODY could tell
+               whether a line was on the gutter or a foot off it - the office
+               judging a quote, or me checking my own work.
+               They now take the height the window can spare. Floored at 430 so
+               a laptop is no worse off than before, and capped at 760 so the
+               controls beside them do not fall off the bottom. */
+            #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(430px, 62vh, 760px);}
             #roofMeasureOverlay .rm-panehead{position:absolute; left:0; right:0; top:0; z-index:9; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(rgba(12,18,26,.72), rgba(12,18,26,0)); color:#fff; font-size:12px; font-weight:600; pointer-events:none;}
             /* Sits over a pane until its imagery is actually on screen. z-index
                is BELOW the lock layer so it can never swallow a measuring click
@@ -4503,7 +4513,7 @@
               </div>
             </div>
 
-            <div style="flex:1 1 640px; min-width:360px; display:flex; flex-direction:column; gap:10px;">
+            <div style="flex:1 1 900px; min-width:360px; display:flex; flex-direction:column; gap:10px;">
               <!-- ⚠ SIDE BY SIDE WHEREVER THERE IS ROOM. Stacked, the street
                    pane sat below the fold, so a window whose whole point is
                    "mark it in one and see it in the other" opened showing only
@@ -4511,9 +4521,9 @@
                    which is the right answer there - two 200px panes would be
                    worse than one usable one. -->
               <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
-              <div class="rm-pane" style="flex:1 1 430px; min-width:330px;">
+              <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
                 <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span></div>
-                <div id="rmMap" style="width:100%; height:430px;"></div>
+                <div id="rmMap" class="rm-canvas"></div>
                 <!-- ⚠ Tiles take a few seconds. Without this the pane is a
                      blank grey rectangle on open, which reads as broken - it
                      was reported as exactly that within a minute of shipping,
@@ -4523,9 +4533,9 @@
                 <div class="rm-frozen" id="rmMapFrozen" style="display:none;">Frozen while measuring</div>
               </div>
 
-              <div class="rm-pane" style="flex:1 1 430px; min-width:330px;">
+              <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
                 <div class="rm-panehead"><span>&#127968; Street View &mdash; heights, peaks, and the photo</span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span></div>
-                <div id="rmPano" style="width:100%; height:430px;"></div>
+                <div id="rmPano" class="rm-canvas"></div>
                 <svg id="rmSvLayer" class="rm-svlayer"></svg>
                 <div class="rm-busy" id="rmStreetBusy"><span class="rm-spin"></span><span id="rmStreetBusyText">Looking for a street-level photo&hellip;</span></div>
                 <div class="rm-lock" id="rmPanoLock" style="display:none;"></div>
