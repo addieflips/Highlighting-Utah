@@ -35096,6 +35096,49 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
+suite('163. Measure Roof - the street view follows the address');
+{
+  /* ⚠ LOADING A SECOND ADDRESS LEFT THE STREET VIEW ON THE FIRST HOUSE.
+     Reproduced live: load Sandy, then load Lehi. rmPano.getPosition() comes
+     back as the Lehi panorama and every number agrees - origin, distance,
+     heading - but the picture on screen is still the Sandy house. Somebody
+     would place dots on the wrong building with nothing anywhere saying so.
+
+     ⭐ AND IT ONLY SHOWS UP ON THE SECOND ADDRESS. A fresh page load renders
+     the right house every time, which is why four addresses tested one at a
+     time never caught it, and why the owner asking to test many addresses in
+     one sitting is what found it. */
+  check('S163', 'a property load names the panorama outright',
+    /svc\.getPanorama\(\{location: center, radius: RM_STREET_SEARCH_M\}/.test(admin) &&
+    /rmPano\.setPano\(data\.location\.pano\);/.test(admin),
+    'setPosition asks the panorama to find its own way and does not reliably repaint');
+  check('S163', 'and only falls back to setPosition when there is no imagery',
+    (function(){
+      const i = admin.indexOf('svc.getPanorama({location: center, radius: RM_STREET_SEARCH_M}');
+      const j = admin.indexOf('rmPano.setPosition(center);', i);
+      const k = admin.indexOf('} else {', i);
+      return i !== -1 && j > i && k > i && k < j;    /* setPosition is the else */
+    })(),
+    'it is the fallback, not the path');
+  check('S163', 'the listener is attached before the pano is changed',
+    (function(){
+      const i = admin.indexOf("svc.getPanorama({location: center, radius: RM_STREET_SEARCH_M}");
+      const l = admin.indexOf("addListenerOnce(rmPano, 'pano_changed'", i);
+      const p = admin.indexOf('rmPano.setPano(data.location.pano);', i);
+      return i !== -1 && l > i && p > l;
+    })(),
+    'attached after, the event has gone and the new house is never framed');
+  check('S163', 'and the new house is framed from scratch rather than inheriting',
+    (function(){
+      const i = admin.indexOf("svc.getPanorama({location: center, radius: RM_STREET_SEARCH_M}");
+      const f = admin.indexOf('rmFramed = false;', i);
+      const p = admin.indexOf('rmPano.setPano(data.location.pano);', i);
+      return i !== -1 && f > i && f < p;
+    })(),
+    'keeping the previous framing points the camera at where the last house was');
+}
+
+
 suite('162. Measure Roof - the first dot on a wall measures the roof height');
 {
   /* Owner: "measure height not just legth and depth". The panel has promised

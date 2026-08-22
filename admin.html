@@ -17756,6 +17756,8 @@ const RM_FRAME_FILL = 0.55;    /* how much of the width the house should take */
    after that: the office zooms in to check a gutter, and a tool that yanks the
    zoom back every time the camera nudges is unusable. */
 let rmFramed = false;
+/* How far from the house to look for a panorama when a property is loaded. */
+const RM_STREET_SEARCH_M = 60;
 const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 2.3;   /* ~36 degrees: close, never a keyhole */
 /* ⚠ THOSE TWO BOUND THE AUTOMATIC FRAMING, which has to stay wide enough not
    to end up looking through a keyhole at a blank wall. A hand on the wheel is
@@ -18793,7 +18795,37 @@ function rmEnsureMap(center){
   google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmMap.setTilt(0); });
 }
 function rmEnsurePano(center){
-  if(rmPano){ rmPano.setPosition(center); return; }
+  if(rmPano){
+    /* ⚠ LOADING A SECOND ADDRESS LEFT THE STREET VIEW ON THE FIRST HOUSE.
+       Reproduced: load Sandy, then load Lehi. rmPano.getPosition() comes back
+       as the Lehi panorama and every number in rmDebug agrees - distance,
+       heading, origin - but the picture on screen is still the Sandy house.
+       Somebody would place dots on the wrong building with nothing anywhere
+       saying so, which is the worst kind of wrong this tool can be.
+
+       setPosition asks the panorama to find its own way to the nearest imagery
+       and it does not reliably repaint when it is already showing something.
+       Naming the panorama outright does. The arrow keys have always used
+       setPano and have always worked, which is the clue this was the fix. */
+    const svc = new google.maps.StreetViewService();
+    svc.getPanorama({location: center, radius: RM_STREET_SEARCH_M}, function(data, status){
+      if(status === 'OK' && data && data.location && data.location.pano){
+        /* ⚠ LISTEN BEFORE YOU LOOK. setPano fires pano_changed, and attaching
+           afterwards means the event has already gone by - the same mistake
+           that once left a working panorama under a "looking for a photo"
+           cover. The new house has to be framed and repainted from scratch,
+           so both are hung on the event before it can happen. */
+        google.maps.event.addListenerOnce(rmPano, 'pano_changed', function(){
+          rmFramed = false;
+          rmPaintStreet();
+        });
+        rmPano.setPano(data.location.pano);
+      } else {
+        rmPano.setPosition(center);      /* no imagery there; ask it to try */
+      }
+    });
+    return;
+  }
   rmPano = new google.maps.StreetViewPanorama(document.getElementById('rmPano'), {
     position: center, pov: {heading:0, pitch:0}, zoom: 1, addressControl: false,
     fullscreenControl: false, motionTracking: false, motionTrackingControl: false,
