@@ -565,6 +565,39 @@ rule rather than growing its own, keeps a house whose customer cannot be found
 both what it took off and anybody it could not — a day inside the 48-hour lock is
 printed and loaded, and a rebuild cannot un-print paper.
 
+**③ And the warehouse still built for them — five sites, one shared rule now.**
+Addie, 2026-08-22, asking for confirmation: *"back next year will go to 2027
+right? And won't go to recycle or be approved for this year?"* Checking that
+turned up the same flag-only test in five more places, all reading
+`d.maybeNextYear` while `portalRsvp` writes the status alone:
+
+| Site | Was | Now |
+|---|---|---|
+| `whBuildQueueGroups` — the build queue | `d.maybeNextYear` | `isOutForSeason(d)` |
+| the warehouse colour totals | `!item.data.maybeNextYear` | `!isOutForSeason(…)` |
+| `computePendingHouseCount` | `!item.data.maybeNextYear` | `!isOutForSeason(…)` |
+| `whHouseBuildStatus` — *"why isn't she here"* | `d.maybeNextYear` | `isOutForSeason(d)` |
+| `printNeedsBuildList` — the printed sheet | **no season rule at all** | `isOutForSeason(d)` |
+
+That last row is the worst of them: the printed Needs Building sheet listed people
+the warehouse screen beside it had already dropped, including anybody the office
+had badged Maybe Next Year. Two lists of one job disagreeing is how the one on
+paper stops being trusted.
+
+⚠ Using the shared rule also stops a house being built for an RSVP of **no**,
+whose bundle is queued to be taken apart — building and recycling at once is two
+jobs cancelling out, and the comment at that site already said as much. Somebody
+who **moved** (`recycleKeepingCustomer`) is *not* out and still gets their new set,
+which is the whole reason Recycle and Build are two separate buttons.
+
+**Confirmed by running the real predicates**, both shapes, 2026-08-22:
+
+| | 2027 tab | Yes tab | in season | build queue | recycle queue |
+|---|---|---|---|---|---|
+| answered through the RSVP link | **yes** | no | no | no | no |
+| badged by the office | **yes** | no | no | no | no |
+| an ordinary customer, for contrast | no | yes | yes | yes | no |
+
 Blocks: the flip itself, which is tier 1 — getting it wrong means nobody is
 scheduled.
 Answer: Q-010b answered 2026-08-22 — a reply is required; assumed yes does not

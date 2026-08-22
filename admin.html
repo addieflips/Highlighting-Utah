@@ -24475,7 +24475,10 @@ function computeColorDemand(){
     });
   }
   jobAddresses.forEach(function(item){
-    if(item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear) addPattern(item.data.lightsDescription, 1);
+    /* Same season rule as whBuildQueueGroups — see the note there. The flag alone
+       missed anybody who answered Back Next Year through the RSVP link, so the colour
+       totals ordered lights for people who are not having any. */
+    if(item.data.needsLightBuild && item.data.lightsDescription && !isOutForSeason(item.data)) addPattern(item.data.lightsDescription, 1);
   });
   warehouseExtras.forEach(function(item){
     addPattern(item.data.pattern, Number(item.data.quantity)||0);
@@ -24483,7 +24486,8 @@ function computeColorDemand(){
   return colorCounts;
 }
 function computePendingHouseCount(){
-  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription && !item.data.maybeNextYear; }).length;
+  /* Same season rule again — this count and the list it summarises have to agree. */
+  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription && !isOutForSeason(item.data); }).length;
   warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
   return total;
 }
@@ -24762,8 +24766,17 @@ function whBuildQueueGroups(){
   jobAddresses.forEach(function(item){
     const d = item.data;
     /* Sitting out the season means nothing gets built for them, even if a
-       needsLightBuild flag was already set before they answered. */
-    if(!d.needsLightBuild || d.maybeNextYear) return;
+       needsLightBuild flag was already set before they answered.
+       ⭐ ASKS isOutForSeason, NOT d.maybeNextYear (2026-08-22). Owner: "back next year
+       ... won't go to recycle or be approved for this year?" It read the FLAG alone,
+       and portalRsvp writes the STATUS alone — so a customer who answered Back Next
+       Year through the RSVP link had lights built for them all the same. The comment
+       above was already the intent; it just could not see half the people it meant.
+       ⚠ It also catches an RSVP of "no", whose bundle is queued to be taken apart:
+       building for them and recycling them at the same time is two jobs cancelling
+       out. Somebody who MOVED is not out (recycleKeepingCustomer), so they still
+       build — which is the whole reason those two buttons were split. */
+    if(!d.needsLightBuild || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
     if(!d.lightsDescription){ blocked.push(item); return; }
     const key = whGroupKey(d.lightsDescription, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
@@ -24841,7 +24854,14 @@ function whHouseBuildStatus(item){
   if((built.blocked || []).some(function(h){ return h.id === id; })){
     return {state: 'blocked'};
   }
-  if(d.maybeNextYear) return {state: 'nextyear'};
+  /* ⚠ THE FLAG ALONE ANSWERED THE WRONG QUESTION HERE TOO. This screen exists to say
+     WHY somebody is not on the build list, so telling the office "nothing has queued a
+     build" about a customer who is simply out for the season sends them off to press
+     Build Them A New Set — which queues one, and the queue then refuses it. */
+  if(typeof isOutForSeason === 'function' && isOutForSeason(d)){
+    const bny = !!d.maybeNextYear || String(d.rsvpStatus || '').toLowerCase() === 'backnextyear';
+    return {state: 'nextyear', why: bny ? 'Back Next Year' : ''};
+  }
   if(!d.needsLightBuild) return {state: 'notqueued'};
   return {state: 'unknown'};
 }
@@ -24851,7 +24871,10 @@ function whBuildStatusText(name, st){
   if(st.state === 'building') return who + ' IS on the build list \u2014 under \u201c' + st.where + '\u201d. Open that heading to see them.';
   if(st.state === 'extra') return who + ' is on the list as an extra request \u2014 under \u201c' + st.where + '\u201d.';
   if(st.state === 'blocked') return who + ' is queued to build but has NO LIGHT COLOURS on file, so they are in \u201cWaiting on light colours\u201d at the top. Add their colours and they join a build group.';
-  if(st.state === 'nextyear') return who + ' is marked Back Next Year, so nothing is being built for them this season.';
+  if(st.state === 'nextyear') return who + (st.why === 'Back Next Year'
+    ? ' is marked Back Next Year'
+    : ' is out for this season — their lights are queued to be recycled') +
+    ', so nothing is being built for them.';
   if(st.state === 'notqueued') return who + ' is NOT on the build list \u2014 nothing has queued a build for them. Open their record and press \u201cBuild Them A New Set\u201d.';
   return who + ' is queued to build but is not showing in any group. That should not happen \u2014 tell somebody.';
 }
@@ -38836,6 +38859,11 @@ function printNeedsBuildList(){
   if(typeof jobAddresses === 'undefined') return [];
   return jobAddresses.filter(function(a){
       const d = a.data || {};
+      /* ⚠ AND THIS ONE HAD NO SEASON RULE AT ALL, so the printed sheet listed people
+         the warehouse SCREEN beside it had already dropped — including somebody the
+         office had badged Maybe Next Year. Two lists of one job disagreeing is how the
+         one on paper stops being trusted. Same shared rule as the screen. */
+      if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return false;
       return d.needsLightBuild || d.chargeNewMemberFee === true || d.requoteAppliedAt;
     })
     .map(function(a){

@@ -1607,8 +1607,16 @@ check('flow', 'every newly added house is flagged for the warehouse',
   'a customer added without light colours was flagged false and appeared in no list at ' +
   'all — not the build queue, not the waiting-on-colours block');
 check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
-  /if\(!d\.needsLightBuild \|\| d\.maybeNextYear\) return;[\s\S]{0,200}blocked\.push\(item\)/.test(admin),
+  /if\(!d\.needsLightBuild \|\| \(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\)\) return;[\s\S]{0,200}blocked\.push\(item\)/.test(admin),
   'flagging them is only safe because there is a list for the ones that cannot be built yet');
+/* ⭐ AND THE SEASON RULE IS THE SHARED ONE, NOT d.maybeNextYear (2026-08-22). Owner:
+   "back next year ... won't go to recycle or be approved for this year?" Five places
+   read the FLAG alone while portalRsvp writes the STATUS alone, so a customer who
+   answered Back Next Year through the RSVP link had lights built for them. */
+check('flow', 'and every build list asks the ONE season rule, not the flag on its own',
+  !/needsLightBuild && item\.data\.lightsDescription && !item\.data\.maybeNextYear/.test(admin) &&
+  (admin.match(/isOutForSeason\(item\.data\)/g) || []).length >= 2,
+  'the flag alone cannot see anybody who answered through the RSVP link');
 
 /* --- Convert to Customer: automatic or manual --- */
 const convChoice = extractFn(admin, 'showConvertQuoteChoice') || '';
@@ -20679,8 +20687,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
      Needs Building list has never had that filter, so the two screens disagreed about
      the same customer. */
   {
+    /* ⚠ LIFTED, NOT STUBBED. The queue now asks isOutForSeason, and the claim being
+       made below is about WHICH rule it asks — a stub would answer whatever this file
+       wanted to hear. The live setting comes with it. */
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
+      (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
       extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
@@ -20701,6 +20713,27 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and sitting out the season still means nothing is built',
       B([{id: 'c1', data: {name: 'Out', needsLightBuild: true, maybeNextYear: true}}]).blocked.length === 0,
       'Back Next Year has always meant no work, and that must not change');
+    /* ⭐ AND THE ONE THE FLAG COULD NOT SEE (2026-08-22). portalRsvp writes rsvpStatus
+       alone — no maybeNextYear — so somebody who answered Back Next Year through the
+       RSVP link was built for all season. */
+    check('S107', 'and that includes somebody who answered through the RSVP link',
+      (function () {
+        const r = B([{id: 'c2', data: {name: 'Portal', needsLightBuild: true,
+                                       rsvpStatus: 'backnextyear'}}]);
+        return r.blocked.length === 0 && r.keys.length === 0;
+      })(),
+      'the flag alone missed every customer who used the link instead of the office');
+    /* ⚠ AN RSVP OF NO IS OUT TOO: their bundle is queued to be taken apart, so
+       building and recycling at once is two jobs cancelling out. */
+    check('S107', 'and an RSVP of no, whose lights are queued to come back',
+      B([{id: 'c3', data: {name: 'No', needsLightBuild: true, lightsDescription: 'Warm',
+                           needsLightRecycle: true}}]).keys.length === 0);
+    /* ⚠ BUT SOMEBODY WHO MOVED IS NOT OUT. recycleKeepingCustomer is the whole reason
+       Recycle and Build are two buttons — they need both. */
+    check('S107', 'but somebody who MOVED still gets their new set built',
+      B([{id: 'c4', data: {name: 'Moved', needsLightBuild: true, lightsDescription: 'Warm',
+                           needsLightRecycle: true, recycleKeepingCustomer: true}}]).keys.length === 1,
+      'recycling their old set and building a new one is exactly what a mover needs');
     check('S107', 'and somebody not flagged at all is not on it either',
       B([{id: 'd1', data: {name: 'Nothing to do'}}]).blocked.length === 0);
   }
@@ -21780,6 +21813,7 @@ suite('Suite 116. Deleting the test records');
   {
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
+(admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
@@ -21797,6 +21831,14 @@ suite('Suite 116. Deleting the test records');
       'owner pressed a button and could not tell whether it had worked');
     check('S116', 'and somebody sitting the season out says so',
       ask({name: 'A', needsLightBuild: true, maybeNextYear: true}).state === 'nextyear');
+    /* ⚠ INCLUDING THE ONE THE FLAG COULD NOT SEE. This screen exists to say WHY
+       somebody is not on the build list, so answering "nothing has queued a build"
+       about a customer who is simply out sends the office to press Build Them A New
+       Set — which queues one that the queue then refuses. */
+    check('S116', 'including one who answered Back Next Year through the RSVP link',
+      ask({name: 'A', needsLightBuild: true, rsvpStatus: 'backnextyear'}).state === 'nextyear',
+      'it said "nothing has queued a build for them", which is a different problem ' +
+      'with a different fix');
 
     const words = new Function('name', 'st', extractFn(admin, 'whBuildStatusText') +
       'return whBuildStatusText(name, st);');
@@ -22241,6 +22283,7 @@ suite('Suite 112. The number on the bin');
     {
       const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
         'houseBundleNeed', 'whPutIntoLabel',
+        (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
@@ -22259,6 +22302,30 @@ suite('Suite 112. The number on the bin');
       check('S112', 'and marks the bundle count as an addition, not the whole house',
         out[0].bundles === '+3',
         'got ' + JSON.stringify(out[0].bundles));
+      /* ⭐ AND THIS LIST HAD NO SEASON RULE AT ALL (2026-08-22). Owner: "back next
+         year ... won't be approved for this year?" The warehouse SCREEN dropped them
+         and the printed sheet beside it did not, so the paper listed people the screen
+         had already dropped — including somebody the office had badged Maybe Next
+         Year. Two lists of one job disagreeing is how the one on paper stops being
+         trusted. */
+      {
+        const bag = (extra) => list(
+          [{id: 'z', data: Object.assign({name: 'Out', customerNumber: '9',
+                                          needsLightBuild: true, lightsDescription: 'Warm',
+                                          measuredFeet: 200}, extra)}],
+          () => 'Warm White', () => 'No',
+          new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+          function(){ return ''; });
+        check('S112', 'the printed list drops somebody badged Maybe Next Year',
+          bag({maybeNextYear: true}).length === 0,
+          'the screen beside it has dropped them for a long time');
+        check('S112', 'and somebody who answered Back Next Year through the RSVP link',
+          bag({rsvpStatus: 'backnextyear'}).length === 0,
+          'portalRsvp writes the status with no flag — this is most of them');
+        check('S112', 'but still prints an ordinary house',
+          bag({}).length === 1,
+          'a season rule that empties the sheet is worse than none');
+      }
     }
   }
 
