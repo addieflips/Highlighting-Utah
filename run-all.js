@@ -18790,17 +18790,24 @@ suite('Suite 104. The Printing tab');
     check('S104', 'color changes carry the new color',
       keys('colors') === 'number,name,color',
       'got ' + keys('colors'));
+    /* ⭐ BUNDLES REPLACED FEET, 2026-08-21. Owner: "I don't think we need feet and
+       bundles. I think how many bundles is fine for warehouse." The original
+       instruction did say "feet of the house"; this supersedes it. Bundles is derived
+       from feet, so printing both asked the warehouse to check a sum that was never
+       theirs to check, and bundles is the one they actually count off a shelf. */
     check('S104', 'the build list carries everything the warehouse makes up',
-      keys('build').indexOf('number,name,lights,wire,timer,feet') === 0,
-      'got ' + keys('build') + ' — owner: "customer number, name, light color, ' +
-      'wire color, time(yes/no), and feet of the house"');
+      keys('build').indexOf('number,name,lights,wire,timer,bundles') === 0,
+      'got ' + keys('build'));
+    check('S104', 'and the build list does NOT carry feet',
+      keys('build').indexOf('feet') === -1,
+      'feet is the office number - it prices the job and sizes the bins');
     /* ⭐ AND ONE MORE AFTER THEM (added 2026-08-20). A top-up build joins a bin that
        is already on the shelf, and a finished bundle nobody can place is the thing that
        goes wrong in a warehouse. It is blank on every ordinary row, so the ones that
        need it stand out. NOT written into the blank column on the right, which is where
        the warehouse ticks the row off. */
     check('S104', 'and says whose bin a top-up bundle goes into',
-      keys('build') === 'number,name,lights,wire,timer,feet,putInto',
+      keys('build') === 'number,name,lights,wire,timer,bundles,putInto',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -20293,6 +20300,21 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and every row builder fills it in, so no row is short a cell',
       (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 3,
       'houses, extras and the blocked ones all push rows onto that sheet');
+
+    /* ⭐ BUNDLES, NOT FEET, ON THIS SHEET TOO (2026-08-21). Owner: "I don't think we
+       need feet and bundles. I think how many bundles is fine for warehouse."
+       ⚠ A red-check adding Feet back HERE went unnoticed while the same sabotage on
+       the Printing tab's sheet was caught — the exact asymmetry CLAUDE.md already
+       warns about: there are two build sheets and this is the one with thinner
+       cover. Both are asserted now. */
+    check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's build sheet counts bundles',
+      /key:'bundles'/.test(cols),
+      'bundles is what somebody counts off a shelf');
+    check('S107', 'and does NOT also carry feet',
+      !/key:'feet'/.test(cols),
+      'feet is the office number - it prices the job and sizes the bins, and bundles ' +
+      'is derived from it, so printing both asks the warehouse to check a sum that ' +
+      'was never theirs');
   }
 
   /* And the Printing tab's list reads the same answer as the warehouse tab. */
@@ -20302,8 +20324,8 @@ suite('Suite 107. Pricing a re-quote from the popup');
       /houseBundleNeed\(d\)/.test(src) && /whPutIntoLabel\(d\)/.test(src),
       'two builders of one list is how a printout starts disagreeing with the screen');
     check('S107', 'and marks a top-up row with a plus so it cannot read as a whole house',
-      /'\+' \+ need\.feet/.test(src),
-      '120 in the Feet column of a 300 ft house is a wrong number, not a short one');
+      /'\+' \+ need\.bundles/.test(src),
+      '3 in the Bundles column of a 300 ft house is a wrong number, not a short one');
   }
 
   /* ⭐ A HOUSE FLAGGED TO BUILD WITH NO COLOURS ON FILE USED TO VANISH. Owner, having
@@ -21872,8 +21894,11 @@ suite('Suite 112. The number on the bin');
         out.length === 1 && /^EXISTING BIN/.test(out[0].putInto) &&
         /Ashley Wray #894/.test(out[0].putInto),
         'two sheets of the same job saying it two ways is how one stops being read');
-      check('S112', 'and marks the footage as an addition',
-        out[0].feet === '+120');
+      /* ⚠ need.bundles is ALREADY the add-on's count — houseBundleNeed does the
+         subtraction — so 120 extra feet is 3 bundles, not the whole house's 8. */
+      check('S112', 'and marks the bundle count as an addition, not the whole house',
+        out[0].bundles === '+3',
+        'got ' + JSON.stringify(out[0].bundles));
     }
   }
 

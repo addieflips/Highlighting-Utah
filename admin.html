@@ -25571,7 +25571,11 @@ const WH_BUILD_COLUMNS = [
   {key:'what', label:'Customer / Item'},
   {key:'address', label:'Address'},
   {key:'bin', label:'Bin #', num:true},
-  {key:'feet', label:'Feet', num:true},
+  /* ⭐ BUNDLES ONLY (2026-08-21). Owner: "I don't think we need feet and bundles.
+     I think how many bundles is fine for warehouse." Feet is the office's number —
+     it prices the job and sizes the bins — and bundles is the one somebody counts
+     off a shelf. Bundles is derived from feet, so printing both asked the warehouse
+     to check a sum that was never theirs to check. */
   {key:'bundles', label:'Bundles', num:true},
   {key:'timer', label:'Timer'},
   /* ⚠ A COLUMN, NOT A NOTE IN THE BLANK ONE. The owner's first thought was to put
@@ -38541,7 +38545,14 @@ const PRINT_COLUMNS = {
      where the warehouse ticks the row off. */
   build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
-              {k: 'timer', label: 'Timer'}, {k: 'feet', label: 'Feet'},
+              /* ⭐ BUNDLES, NOT FEET (2026-08-21). Owner: "I don't think we need feet
+                 and bundles. I think how many bundles is fine for warehouse." Feet is
+                 what the office measures and prices; bundles is what somebody actually
+                 counts off a shelf, and it is derived from the feet anyway
+                 (houseBundleNeed), so printing both put a sum on the sheet nobody was
+                 being asked to do. A top-up shows the ADD-ON's bundles, not the whole
+                 house's — that is the number they are making today. */
+              {k: 'timer', label: 'Timer'}, {k: 'bundles', label: 'Bundles'},
               {k: 'putInto', label: 'When built, put into'}],
   warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
   /* ⭐ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET (added 2026-08-20). Owner: "i
@@ -38627,7 +38638,11 @@ function printNeedsBuildList(){
       return {number: d.customerNumber || '', name: d.name || '',
               lights: printLightColor(d), wire: d.wireColor || '',
               timer: printYesNo(d.outletTimer),
-              feet: isTopUp ? ('+' + need.feet) : ((d.measuredFeet === 0 || d.measuredFeet) ? d.measuredFeet : ''),
+              /* ⚠ On a top-up `need.bundles` is already the ADD-ON's count, not the
+                 whole house's — houseBundleNeed does that subtraction. The + marks it
+                 as an addition to a bin that already exists, which the Type column and
+                 the put-into column also say. */
+              bundles: need ? (isTopUp ? ('+' + need.bundles) : String(need.bundles)) : '',
               /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
                  sheets of the same job saying it two ways is how one of them stops
                  being read. */
