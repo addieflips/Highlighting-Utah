@@ -497,3 +497,71 @@ Blocks: the flip itself, which is tier 1 — getting it wrong means nobody is
 scheduled.
 Answer:
 Resulting map change:
+
+---
+
+## Q-011 · intent · open · 2026-08-21
+An admin sets "Before Thanksgiving" in Customers. Should that re-place them on
+the schedule — and is it worth what it costs?
+
+Addie, 2026-08-21: *"that should only be assigned by admins in admin portal
+through customers and then that should go into reassign for that member … before
+thanksgiving or after thanksgiving depending on what they choose."*
+
+**The two halves behave completely differently today. Verified by executing the
+real code, not by reading it.**
+
+### After Thanksgiving — already works
+`prefKey('After Thanksgiving')` → `'thx'`, distinct from `'nov'`. So the
+five-minute customer sync sees the change and pushes it to the plan, and
+`houseAllowedFrom` gives it a floor that `enforceInstallTiming` honours by moving
+the house LATER. Nothing to build.
+
+### Before Thanksgiving — broken in two places
+
+**① The change never reaches the schedule.** `prefKey` returns `'nov'` for BOTH
+`'November'` and `'November - Before Thanksgiving'` — the `NOV` prefix match
+catches it. `SCHEDULE_SYNC_FIELDS`'s `pref` entry compares with
+`prefKey(a) === prefKey(b)`, so setting Before Thanksgiving on a November
+customer reads as *no change* and is silently dropped.
+
+⚠ **That collapse is deliberate and asserted** at `run-all.js:11053`, with the
+reason given: *"the sheet and the record spell these differently; treating that
+as a change would rewrite every house on every tick."* The master sheet can only
+say `OCT` / `NOV` / `THX` / `ANY` — it cannot express Before Thanksgiving at all —
+so a plan house imported from the sheet says `NOV` while the record may say the
+long form. Distinguishing them makes the sync push the long form onto the plan.
+My reading is that this converges after one pass rather than churning for ever
+(unlike OCT vs October, which is a true spelling variant) — but it would rewrite
+every such house once, and it overturns an assertion a previous session wrote
+deliberately. **That is the cost, and it is Addie's to accept.**
+
+**② Even if it arrived, nobody gets moved earlier.** `enforceInstallTiming` acts
+only on houses scheduled BEFORE they are allowed:
+
+```js
+const from = houseAllowedFrom(h, startStr);
+if (!from || here >= from) return;   // allowed to be here
+```
+
+There is no deadline branch — `houseDeadline` appears **zero times** in that
+function. So a Before-Thanksgiving customer sitting on 10 December is never
+pulled earlier, and misses the holiday they asked to beat.
+
+Adding a deadline branch is genuinely new behaviour in a sweep that runs every
+five minutes over the saved plan, and CLAUDE.md records that sweep breaking
+things before. It also needs its own answer: **when nothing earlier has room, what
+happens?** Move them anyway and overfill a day, leave them and report them stuck
+(what the too-early branch does today), or bump a house with no deadline to make
+space?
+
+### What I recommend
+Do ① and ② together or neither — ① alone makes the value arrive somewhere that
+still cannot act on it, which looks fixed and is not. And take the "nothing has
+room" answer as *report them stuck*, matching the existing branch, because a
+customer visibly stuck is fixable and a silently overfilled day is found on the
+road.
+
+Blocks: nothing shipping today; the behaviour Addie asked for is not built.
+Answer:
+Resulting map change:
