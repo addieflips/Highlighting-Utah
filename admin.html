@@ -2958,6 +2958,7 @@
                 <option value="no">No</option>
                 <option value="backnextyear">Back Next Year</option>
                 <option value="pending">Not answered yet (incl. Unanswered)</option>
+                <option value="declinedrequote">Declined a re-quote \u2014 ask about last year</option>
               </select>
             </div>
             <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Billing group</label>
@@ -12236,6 +12237,17 @@ function etRenderRecipientList(){
      nobody at all, on the one send where the whole list needs it.
      A send to nobody looks exactly like a send that worked. */
   else if(etFilterRsvp === 'pending') members = members.filter(m => !etRsvpAnswered(m.data));
+  /* ⭐ THE PEOPLE WAITING ON ONE QUESTION (added 2026-08-21). Owner: "if an
+     existing costumer denies a requote, than can we mark them as email or
+     something like that were we can ask them if they just want us to do what we
+     did last year of there house", and "we can email them asking them if they
+     want to do there normal lights with there normal bill instead."
+
+     Set by the server when a member declines a re-quote. It is deliberately NOT
+     an rsvpStatus of its own: they have not answered the season question at all,
+     and giving them a status would take them out of the Pending list they still
+     belong in. Cleared the moment they RSVP — that answer IS them telling us. */
+  else if(etFilterRsvp === 'declinedrequote') members = members.filter(m => !!m.data.askSameAsLastYear);
   // Paid last year (from last season's saved snapshot)
   if(etFilterPaidLast === 'paid') members = members.filter(m => audiencePaidLastYear(m.data) === 'paid');
   else if(etFilterPaidLast === 'unpaid') members = members.filter(m => audiencePaidLastYear(m.data) === 'unpaid');
@@ -24221,7 +24233,7 @@ function buildAddressRowHtml(item){
       timingBadgesHtml+
       '<button type="button" class="fix-toggle-btn" data-toggledetails="'+item.id+'" style="margin-top:8px;">Show Details &#9662;</button>'+
       '<div id="rowdetails-'+item.id+'" style="display:none; margin-top:10px;">'+
-        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
+        '<div style="margin-bottom:8px;"><span class="status-pill diff-'+diff+'">'+diff+'</span>'+(d.scheduled ? ' <span class="status-pill status-paid">Install Scheduled</span>' : '')+(needsFix ? ' <span class="status-pill diff-Fix">Needs Fix</span>'+(d.fixScheduled ? ' <span class="status-pill status-paid">Fix Scheduled</span>' : '') : '')+(completed ? ' <span class="status-pill status-paid">&#10003; Done</span>' : '')+(needsRemoval ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Removal</span>' : '')+(d.removalDone ? ' <span class="status-pill status-paid">&#10003; Removed</span>' : '')+(seasonStatusLabel ? ' <span class="status-pill '+seasonStatusClasses[d.seasonStatus]+'">'+seasonStatusLabel+'</span>' : '')+(d.askSameAsLastYear ? ' <span class="status-pill" style="background:#FDECEA; color:#8A2318;">Ask about last year</span>' : '')+(needsQuote ? ' <span class="status-pill" style="background:#E0E7FF; color:#4338CA;">Needs Quote</span>' : '')+'</div>'+
         (d.phone ? '<div class="row-phone-line">'+esc(d.phone)+'</div>' : '')+
         priceLine+
         (crewLines.length ? '<div class="row-phone-line">'+crewLines.join(' &middot; ')+'</div>' : '')+

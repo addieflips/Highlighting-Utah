@@ -571,6 +571,10 @@ const PORTAL_READ_FIELDS = [
   'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
   'seasonStatus', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
+  /* Set when they decline a re-quote: somebody has to ask whether last year's
+     job will do. In the read list so the portal cannot contradict the office
+     about a question that is still open. */
+  'askSameAsLastYear',
   'quoteDetailQuoteId',
   /* The end of their current free-change window, which is also the window in
      which they are deliberately not put on a route. The portal needs it BEFORE
@@ -1433,6 +1437,11 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
 
   const updates = {
     rsvpStatus: response,
+    /* ⚠ THE QUESTION HAS A WAY OUT. askSameAsLastYear is set when somebody
+       declines a re-quote and means "ask them what they want"; an RSVP answer IS
+       them telling us, so it closes. Without this they stay on the list for ever
+       and the office mails them again after they have already replied. */
+    askSameAsLastYear: false,
     rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
     needsLightRecycle: response === 'no'
   };
@@ -1703,101 +1712,105 @@ async function quoteCustomerRef(quoteData) {
   return null;
 }
 
-/* ⭐ A DECLINE HAS TO REACH THE CUSTOMER, NOT JUST THE QUOTE (hole A, fixed
-   2026-08-21).
+/* ⭐ A DECLINE ASKS A QUESTION, IT DOES NOT CANCEL THEIR SEASON (hole A, fixed
+   2026-08-21; rewritten the same day when the owner read the first version).
  *
- * ⚠ THE HARM: an existing member who declined kept rsvpStatus 'yes', was never
- * recycled, stayed on the Yes sheet and stayed on any route already built — so
- * a crew drove to a house that had said no. The quote was archived and nothing
- * else happened at all.
+ * ⚠ WHAT THE HOLE WAS: declining set quoteArchived and NOTHING else, so an
+ * existing member who declined kept rsvpStatus 'yes' and stayed on any route
+ * already built — a crew drove to a house that had said no.
  *
- * This is deliberately the SAME meaning "no" already has everywhere else in the
- * app — portalRsvp('no') and the office's own toggle both write it: they are out
- * for the season, their lights come back, and they come off the routes.
+ * ⚠ AND WHAT THE FIRST FIX GOT WRONG: it treated a decline as an RSVP "no" —
+ * out for the season, lights flagged to come back, off the routes. Owner:
+ * "if an existing costumer denies a requote, than can we mark them as email or
+ * something like that were we can ask them if they just want us to do what we
+ * did last year of there house." She is right, and it is obvious once said:
+ * somebody turning down a NEW price or a NEW scope has not said they want no
+ * lights. Most of them want exactly what they had last year. Recycling their
+ * set and cancelling their season is the one answer nobody asked for, and it is
+ * expensive to undo — the bin is broken back into stock and their route is gone.
  *
- * ⚠ IT IS NOT pullCustomerFromSeason. That one writes needsLightRecycle:FALSE —
- * right for "back next year", and exactly wrong here: it would clear a recycle
- * that was already owed and leave the bin on the shelf with nobody coming for it.
+ * ⚠ SO NO DECLINE ANYWHERE RECYCLES ANY MORE, and that is deliberate rather
+ * than an omission. Leaving the season is said through the RSVP — portalRsvp
+ * ('no') still flags the recycle, still pulls them off the routes, and is the
+ * one place that decides somebody is out. A quote answer and a season answer
+ * are different questions and only one of them was ever asked here.
  *
- * ⚠ AND IT NEVER TOUCHES A NEW LEAD. Somebody who is not a customer yet has no
- * season to be pulled out of; quoteCustomerRef returns null and this does
- * nothing. */
-async function declineReachesCustomer(quoteData, quoteId) {
+ * ⚠ AND IT NEVER TOUCHES A NEW LEAD. Somebody who is not a customer has no last
+ * year to be asked about; quoteCustomerRef returns null and this does nothing
+ * but leave the quote archived — which is all the owner wanted for them
+ * ("we won't have an info for them yet"). */
+async function declineAsksAboutLastYear(quoteData, quoteId) {
   const problems = [];
-  /* ⚠ "COULD NOT TELL" IS NOT "NOT A CUSTOMER", and until 2026-08-21 those were
-     the same line of code — the resolver caught its own read errors and returned
-     null, so a Firestore blip made a real member look like a first-time lead and
-     this did nothing at all, silently. They are opposite outcomes: one is
-     correct and needs no action, the other needs somebody told. */
-  let cust = null;
+  /* ⚠ "COULD NOT TELL" IS NOT "NOT A CUSTOMER". The resolver used to catch its
+     own read errors and return null — the same answer it gives for a first-time
+     lead — so a Firestore blip made a real member look like a stranger and this
+     did nothing at all, silently. */
   const look = await tryFirestore('decline customer lookup', () => quoteCustomerRef(quoteData));
   if (!look.ok) {
-    await flagQuoteFollowUp(quoteId, ['could not look up the customer, so their ' +
-      'decline has NOT been applied to their record — check their RSVP, their ' +
-      'recycle flag and any upcoming route by hand']);
-    return { pulled: false, followUpFlagged: true };
+    await flagQuoteFollowUp(quoteId, ['could not look up the customer, so nobody ' +
+      'has been marked to ask whether they want the same as last year — check ' +
+      'this quote by hand']);
+    return { reached: false, followUpFlagged: true };
   }
-  cust = look.value;
-  if (!cust) return { pulled: false };
-  {
-    const wrote = await tryFirestore('decline customer update', () =>
-      db.collection('jobAddresses').doc(cust.id).update({
-      rsvpStatus: 'no',
-      rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
-      /* Their lights are coming back — the same thing an RSVP "no" means. */
-      needsLightRecycle: true,
-      /* Nothing left to build for a season they are not in. */
-      needsLightBuild: false,
-      scheduled: false,
-      scheduledDate: null,
-      assignedCrew: null
-      }));
-    if (!wrote.ok) {
-      /* ⚠ NOTHING IS CLAIMED THAT DID NOT HAPPEN. Saying "we took them out of
-         the season" when we did not sends the office looking for a bin that is
-         not coming back — so no System note here, only the flag. */
-      await flagQuoteFollowUp(quoteId, [(cust.data && cust.data.name ? cust.data.name : 'A customer') +
-        ' declined but their record could NOT be updated — they still read as ' +
-        'in for the season. Mark them No and flag their lights by hand']);
-      return { pulled: false, followUpFlagged: true };
-    }
+  const cust = look.value;
+  if (!cust) return { reached: false };
+
+  const updates = {
+    /* The one new fact: somebody has to ask them whether last year's job will
+       do. Read by the Automation Emails audience picker, so the office can mail
+       the whole group at once, and shown on their row in All Customers. */
+    askSameAsLastYear: true,
+    askSameAsLastYearAt: admin.firestore.FieldValue.serverTimestamp()
+  };
+  /* The portal sets seasonStatus to needs_changes (or address_changed) when it
+     raises a re-quote, and only an ANSWER clears it — "no thanks" is an answer.
+     Left set they sit in Needs Changes for ever with nothing anywhere to clear
+     it, which is the same hole deleting a re-quote had.
+     ⚠ ONLY THOSE TWO VALUES: a cancellation request was put there by something
+     that is not this quote, and clearing it would un-cancel somebody. */
+  const was = String((cust.data || {}).seasonStatus || '');
+  if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) updates.seasonStatus = 'confirmed';
+
+  const wrote = await tryFirestore('decline customer update', () =>
+    db.collection('jobAddresses').doc(cust.id).update(updates));
+  if (!wrote.ok) {
+    /* ⚠ NOTHING IS CLAIMED THAT DID NOT HAPPEN — no note here, only the flag. */
+    await flagQuoteFollowUp(quoteId, [(cust.data && cust.data.name ? cust.data.name : 'A customer') +
+      ' declined their re-quote but their record could NOT be updated — nobody ' +
+      'is marked to ask them whether last year\'s job will do']);
+    return { reached: false, followUpFlagged: true };
   }
-  /* Off any route a crew has already been handed. Past routes are history and
-     are left exactly as they are. */
-  let removedFrom = 0;
-  {
-    const swept = await tryFirestore('decline route removal', () =>
-      removeCustomerFromUpcomingRoutes(cust.id));
-    if (swept.ok) removedFrom = swept.value || 0;
-    else problems.push('they could not be taken off their upcoming routes — a ' +
-      'crew may still be sent to a house that has said no');
-  }
-  /* ⚠ AND SOMEBODY IS TOLD. A decline arrives by email with nobody watching, and
-     it has just taken a customer out of the season and flagged their lights for
-     recycling. Without this the first anyone knows is a bin nobody collected.
-     Best-effort: the customer's answer is already recorded and must not fail
-     because a note could not be written. */
+
+  /* ⚠ AND SOMEBODY IS TOLD. Nothing else about this customer moved — they are
+     still in for the season, still on their route — so without a note there is
+     no trace at all that a question is outstanding. Best-effort: the answer is
+     recorded and must not be lost because a note could not be written. */
+  const who = (cust.data && cust.data.name) || quoteData.name || 'A customer';
   const noted = await tryFirestore('decline note', () =>
     db.collection('messages').add({
-      topic: 'Quote Declined', folder: 'System',
+      topic: 'Re-quote Declined', folder: 'System',
       name: (cust.data && cust.data.name) || quoteData.name || '',
       phone: (cust.data && cust.data.phone) || quoteData.phone || '',
       email: (cust.data && cust.data.email) || quoteData.email || '',
       contactMethod: '',
-      message: ((cust.data && cust.data.name) || 'A customer') + ' declined their quote, so they ' +
-               'have been marked as not coming this season and their lights are flagged for ' +
-               'recycling.' + (removedFrom ? ' They were taken off ' + removedFrom + ' upcoming route' +
-               (removedFrom === 1 ? '' : 's') + '.' : '') +
-               ' If they only meant to turn down an addition rather than the whole season, put ' +
-               'their RSVP back to Yes and clear the recycle flag.',
+      /* ⚠ IN HER OWN WORDS. Owner: "we can email them asking them if they want
+         to do there normal lights with there normal bill instead." A note that
+         says "declined" and stops is one somebody acts on as a cancellation. */
+      message: who + ' turned down their re-quote. This is NOT a cancellation — ' +
+               'they are still in for the season, their lights are unchanged and ' +
+               'they stay on their route. Email them and ask whether they just ' +
+               'want their normal lights at their normal bill instead: pick ' +
+               '"Declined a re-quote" in the Automation Emails audience list to ' +
+               'reach everyone waiting on that question.',
       autoQueuedToWarehouse: false,
       needsReassign: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     }));
-  if (!noted.ok) problems.push('the office could not be sent a note about this ' +
-    'decline, so nobody has been told');
+  if (!noted.ok) problems.push(who + ' declined their re-quote and the office ' +
+    'could not be sent a note, so nobody has been told to ask them about last year');
   await flagQuoteFollowUp(quoteId, problems);
-  return { pulled: true, removedFromRoutes: removedFrom, followUpFlagged: !!problems.length };
+
+  return { reached: true, askedAboutLastYear: true, followUpFlagged: !!problems.length };
 }
 
 /* ⭐ WHAT KIND OF RE-QUOTE IS THIS — ONE ANSWER (added 2026-08-21).
@@ -1844,10 +1857,10 @@ function quoteButtonLabelsServer(quoteData) {
    keep all of it... I don't want a decline on a garage to decline full quote
    just garage."
  *
- * ⚠ SO IT MUST NOT CALL declineReachesCustomer. That one is the right answer
- * for every other decline and the wrong one here: it would mark them out for
- * the season, flag lights that are staying up for recycling, and pull a house
- * the crew is still hanging off its route — because they turned down a garage.
+ * ⚠ SO IT MUST NOT CALL declineAsksAboutLastYear. That one marks them to be
+ * asked whether last year's job will do — a sensible question after a move or a
+ * price change, and a baffling one to somebody who has just told us plainly
+ * that they do not want the garage. They have answered; do not ask again.
  *
  * What it DOES do is close the question. The portal sets seasonStatus to
  * needs_changes (or address_changed) when it raises a re-quote, and that is
@@ -1868,7 +1881,7 @@ const QUOTE_RAISED_STATUSES_SERVER = ['needs_changes', 'address_changed'];
 async function declineAddOnOnly(quoteData, quoteId) {
   const problems = [];
   /* ⚠ SAME RULE AS THE SEASON DECLINE: a lookup that could not run is not the
-     same answer as "they are not a customer". See declineReachesCustomer. */
+     same answer as "they are not a customer". See declineAsksAboutLastYear. */
   const look = await tryFirestore('add-on decline customer lookup', () => quoteCustomerRef(quoteData));
   if (!look.ok) {
     await flagQuoteFollowUp(quoteId, ['could not look up the customer, so their ' +
@@ -1990,8 +2003,8 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
       await declineAddOnOnly(quoteData, quoteId);
       declinedAddOnOnly = true;
     } else {
-      const res = await declineReachesCustomer(quoteData, quoteId);
-      declinedCustomer = !!res.pulled;
+      const res = await declineAsksAboutLastYear(quoteData, quoteId);
+      declinedCustomer = !!res.reached;
     }
   }
 
