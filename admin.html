@@ -1383,7 +1383,7 @@
               <div class="form-row"><label>Measured Feet</label><input type="number" id="addCustFeet" min="0" step="0.5" placeholder="0"></div>
               <div class="form-row"><label>Total Price ($)</label><input type="number" id="addCustPrice" min="0" step="1" placeholder="0"></div>
             </div>
-            <p id="addCustFeetNote" style="font-size:12px; margin:6px 0 0;">Enter Measured Feet to bill automatically at your Per Foot Pricing rate &mdash; you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.</p>
+            <p id="addCustFeetNote" style="font-size:12px; margin:6px 0 0;">Enter Measured Feet to bill automatically at your Per Foot Pricing rate &mdash; you can still adjust Total Price by hand afterward. The amount they have paid can be recorded later from the Invoices tab.</p>
             <div class="form-grid-2" style="margin-top:14px;">
               <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="addCustBillTo" placeholder="Leave blank to bill this house"></div>
               <div class="form-row"><label>People They Referred</label><input type="number" id="addCustReferralCount" min="0" step="1" placeholder="0"></div>
@@ -18139,7 +18139,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
     addCustQuoteColorsSnapshot = [];
     document.getElementById('addCustWantsMailed').checked = false;
     document.getElementById('addCustFeet').value = '';
-    document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. Deposit and removal fee can be added later from the Invoices tab if needed.';
+    document.getElementById('addCustFeetNote').textContent = 'Enter Measured Feet to bill automatically at your Per Foot Pricing rate — you can still adjust Total Price by hand afterward. The amount they have paid can be recorded later from the Invoices tab.';
     document.getElementById('addCustEmail').value = '';
     document.getElementById('addCustPropertyLabel').value = '';
     document.getElementById('addCustPhone2').value = '';
