@@ -35134,6 +35134,23 @@ suite('165. Measure Roof - loading an address forgets the last house');
     check('S165', 'it forgets ' + pair[0], pair[1].test(forget),
       'anything remembered here is reported against the NEXT house');
   });
+  /* ⚠ AND THE ONE THAT COSTS MONEY. rmPhotoExtraFeet is added straight into
+     the total, so feet measured off a photograph of the BACK of one house were
+     still in the total after loading a different address. A quote longer than
+     the house, with nothing on screen to explain where the extra came from.
+     ⭐ FOUND BY AUDITING EVERY PIECE OF PER-HOUSE STATE rather than waiting for
+     a fourth report. Three leaks had already been fixed one at a time; nobody
+     had noticed this one, and it is the only one that changes a price. */
+  ['rmPhotoExtraFeet = 0', 'rmPhotoRuns = []', 'rmPhotoRef = null',
+   'rmPhotoRefPx = 0', 'rmPhotoRefFt = 0', 'rmPhotoBlob = null'].forEach(function(bit){
+    check('S165', 'it forgets the photo measurement: ' + bit,
+      forget.indexOf(bit) !== -1,
+      'those feet are added to the total for whatever house is loaded next');
+  });
+  check('S165', 'and the photo feet really do reach the total',
+    admin.indexOf('out.perimeter += rmPhotoExtraFeet') !== -1,
+    'if this stops being true the checks above are guarding nothing');
+
   /* The bar has to redraw, or the numbers stay on screen after the dots are gone. */
   check('S165', 'and the dot list on screen is redrawn',
     /rmRenderCornerBar\(\);/.test(forget),

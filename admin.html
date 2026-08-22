@@ -18947,6 +18947,14 @@ function rmForgetLastHouse(){
   rmCamHeightM = null; rmCamHeightPano = '';
   /* which way the road runs, and whether the camera has been aimed yet */
   rmFramed = false; rmRoadDir = null;
+  /* ⚠ AND THE PHOTOGRAPH, WHICH IS THE ONE THAT COSTS MONEY. rmPhotoExtraFeet
+     is added straight into the total - "out.perimeter += rmPhotoExtraFeet" -
+     so feet measured off a photo of the BACK of one house were still in the
+     total after loading a different address. A quote longer than the house,
+     with nothing on screen to explain the difference. */
+  rmPhotoExtraFeet = 0; rmPhotoRuns = []; rmPhotoRef = null;
+  rmPhotoRefPx = 0; rmPhotoRefFt = 0; rmPhotoBlob = null;
+  rmPhotoMode = ''; rmPhotoDrag = null;
 }
 
 async function rmLoadAddress(){
