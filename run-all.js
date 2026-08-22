@@ -33327,6 +33327,101 @@ suite('145. Measure Roof - the lines are moved onto the gutters the satellite sh
     'one picture failing must not cost the other');
 }
 
+
+suite('146. Measure Roof - the street view frames the house instead of the street');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "theres to much going on you cant see the house clearly."
+     Part of that was the drawing and part was the pane, but the biggest part
+     was the LENS. Street View opens at zoom 1 - a ninety degree field of view,
+     most of a street - and from the ~29 m the camera usually sits at an
+     ordinary house then covers about a seventh of the pane. At that size a
+     line ON the gutter and a line a foot off it are the same picture. */
+  const fn = pick('rmFrameHouseInStreet');
+  const consts = (admin.match(/^const RM_FRAME_FILL.*?;/gm) || [])
+    .concat(admin.match(/^const RM_ZOOM_MIN.*?;/gm) || []);
+  if (!fn || consts.length !== 2) {
+    check('S146', 'the framing is findable', false,
+      'rmFrameHouseInStreet or its constants are missing (' + consts.length + ' of 2)');
+  } else {
+    let setZoomTo = null;
+    const api = new Function(
+      'const rmDeg = r => r * 180 / Math.PI;' + LF_ +
+      consts.join(LF_) + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946}, rmStreetReady=true, rmBuilding=null, __cam=null, __head=0;' + LF_ +
+      'let rmPano={setZoom:function(z){ __z = z; }};' + LF_ +
+      'let __z=null;' + LF_ +
+      'function rmCamOnRoad(){ return __cam; }' + LF_ +
+      'function rmPanoPov(){ return {heading: __head, pitch: 0, zoom: 1}; }' + LF_ +
+      pick('rmMetresPerDeg') + LF_ + pick('rmToLocal') + LF_ + pick('rmToWorld') + LF_ + fn + LF_ +
+      'return {run: rmFrameHouseInStreet,' + LF_ +
+      '        setup: function(b, cam, head){ rmBuilding = b; __cam = cam; __head = head; __z = null; },' + LF_ +
+      '        zoom: function(){ return __z; },' + LF_ +
+      '        toWorld: rmToWorld};')();
+
+    /* A 14 m wide house, camera 29 m away looking straight at it. */
+    const sw = api.toWorld({e: -7, n: -5, u: 0}), ne = api.toWorld({e: 7, n: 5, u: 0});
+    const house = {sw: {lat: sw.lat, lng: sw.lng}, ne: {lat: ne.lat, lng: ne.lng}};
+    api.setup(house, {e: 0, n: -29, u: 2.5}, 0);
+    const far = api.run();
+    check('S146', 'a house 29 m away is measured as a real angle, not guessed',
+      far && far.houseDeg > 20 && far.houseDeg < 40,
+      far ? 'house subtends ' + far.houseDeg + ' deg' : 'framed nothing');
+    check('S146', 'and the lens is narrowed until the house fills the frame',
+      far && far.fov < 60 && far.zoom > 1.2,
+      far ? 'fov ' + far.fov + ' deg at zoom ' + far.zoom + ' - 90 deg is the whole street' : 'no framing');
+    /* Tolerance 0.01, not 0.001: the returned figure is rounded to two places
+       for reporting while the panorama is given the full one, and comparing
+       those at 0.001 fails on a correct answer. */
+    check('S146', 'the zoom is actually applied to the panorama, not just returned',
+      api.zoom() !== null && Math.abs(api.zoom() - far.zoom) < 0.01,
+      'a computed zoom nobody sets changes nothing on screen (set ' + api.zoom() + ', returned ' + far.zoom + ')');
+
+    /* ⚠ CLOSER MUST MEAN WIDER, not narrower. Getting this backwards frames a
+       house you are standing next to as if it were down the road. */
+    api.setup(house, {e: 0, n: -12, u: 2.5}, 0);
+    const near = api.run();
+    check('S146', 'standing closer opens the lens rather than closing it',
+      near && near.fov > far.fov && near.zoom < far.zoom,
+      'near: fov ' + (near && near.fov) + ' zoom ' + (near && near.zoom) +
+      ' vs far: fov ' + far.fov + ' zoom ' + far.zoom);
+
+    /* ⚠ MEASURED ACROSS WHAT THE CAMERA SEES. A house at an angle to the
+       compass is wider from the corner than its north/south box suggests, and
+       framing on the box crops the ends off. */
+    api.setup(house, {e: -25, n: -25, u: 2.5}, 45);
+    const corner = api.run();
+    check('S146', 'seen from the corner the house is measured across the diagonal',
+      corner && corner.houseDeg > far.houseDeg * 0.7,
+      'from the corner it subtends ' + (corner && corner.houseDeg) + ' deg');
+
+    /* Nonsense in, nothing out - never frame on a bad measurement. */
+    const tiny = api.toWorld({e: -0.05, n: -0.05, u: 0}), tiny2 = api.toWorld({e: 0.05, n: 0.05, u: 0});
+    api.setup({sw: {lat: tiny.lat, lng: tiny.lng}, ne: {lat: tiny2.lat, lng: tiny2.lng}}, {e: 0, n: -29, u: 2.5}, 0);
+    check('S146', 'a house that subtends almost nothing is left alone',
+      api.run() === null && api.zoom() === null,
+      'zooming to 3 degrees on a bad footprint shows somebody a brick');
+    api.setup(house, null, 0);
+    check('S146', 'and with no camera on the road it does not guess',
+      api.run() === null);
+    api.setup(null, {e: 0, n: -29, u: 2.5}, 0);
+    check('S146', 'nor with no footprint',
+      api.run() === null);
+
+    /* The bounds are a house, not a range of numbers. */
+    const zmax = Number((admin.match(/RM_ZOOM_MAX = ([\d.]+)/) || [])[1]);
+    check('S146', 'the zoom is capped so it cannot end up inside a brick',
+      zmax >= 2.5 && zmax <= 4,
+      'RM_ZOOM_MAX is ' + zmax);
+  }
+
+  check('S146', 'framing runs once both the house and the camera are known',
+    /rmGuessedCount = guessed;[\s\S]{0,200}rmFrameHouseInStreet\(\);/.test(admin),
+    'framed before the footprint lands and there is nothing to frame on');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

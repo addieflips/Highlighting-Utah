@@ -15018,6 +15018,9 @@ function rmBuildWhenReady(){
      being a guess. */
   rmResideSuggestions();
   rmGuessedCount = guessed;
+  /* Both halves are in by here, so the house's size and the camera's place are
+     both known - which is exactly what framing needs. */
+  rmFrameHouseInStreet();
   /* TWO PICTURES, TWO JOBS, IN THIS ORDER.
      The satellite view says WHERE each gutter is - it has no depth in it, so a
      pixel is a place, and that is what fixes the sideways offset the roof
@@ -15973,6 +15976,51 @@ async function rmSnapLinesToSky(){
 }
 
 const rmDeg = r => r * 180 / Math.PI;
+
+/* ⭐ FRAME THE HOUSE, DO NOT JUST POINT AT IT.
+   Owner: "theres to much going on you cant see the house clearly."
+   Street View opens at zoom 1, which is a NINETY DEGREE field of view - most
+   of a street. From the twenty-nine metres the camera usually sits at, an
+   ordinary house then covers about a seventh of the width of the pane, a
+   hundred and fifty pixels, and at that size a line ON the gutter and a line a
+   foot off it are the same picture. That is not a drawing problem and it is
+   not a pane-size problem: the pane was already using the height the window
+   had. It is the lens.
+
+   So work out how wide the house actually is from where the camera stands, and
+   zoom until it fills most of the frame. Google's relation between the two is
+   fov = 180 / 2^zoom, which inverts to zoom = log2(180 / fov). */
+const RM_FRAME_FILL = 0.72;    /* how much of the width the house should take */
+const RM_ZOOM_MIN = 0.6, RM_ZOOM_MAX = 3.2;
+function rmFrameHouseInStreet(){
+  if(!rmPano || !rmStreetReady || !rmBuilding || !rmOrigin) return null;
+  const cam = rmCamOnRoad();
+  if(!cam) return null;
+  const sw = rmToLocal(rmBuilding.sw.lat, rmBuilding.sw.lng, 0);
+  const ne = rmToLocal(rmBuilding.ne.lat, rmBuilding.ne.lng, 0);
+  /* The four corners, so a house at an angle is measured across what the
+     camera actually SEES of it rather than across its north/south box. */
+  const corners = [{e: sw.e, n: sw.n}, {e: ne.e, n: sw.n}, {e: ne.e, n: ne.n}, {e: sw.e, n: ne.n}];
+  let lo = Infinity, hi = -Infinity;
+  corners.forEach(function(c){
+    /* Angle of this corner as seen from the camera, relative to the heading it
+       is already pointing. */
+    const a = rmDeg(Math.atan2(c.e - cam.e, c.n - cam.n));
+    let rel = a - rmPanoPov().heading;
+    while(rel > 180) rel -= 360;
+    while(rel < -180) rel += 360;
+    if(rel < lo) lo = rel;
+    if(rel > hi) hi = rel;
+  });
+  const wideDeg = hi - lo;
+  /* A house that somehow subtends nothing, or half the sky, is a measurement
+     gone wrong - leave the zoom alone rather than framing on nonsense. */
+  if(!(wideDeg > 2 && wideDeg < 120)) return null;
+  const wantFov = Math.min(120, wideDeg / RM_FRAME_FILL);
+  const zoom = Math.max(RM_ZOOM_MIN, Math.min(RM_ZOOM_MAX, Math.log2(180 / wantFov)));
+  rmPano.setZoom(zoom);
+  return {houseDeg: +wideDeg.toFixed(1), fov: +wantFov.toFixed(1), zoom: +zoom.toFixed(2)};
+}
 
 /* ⚠ THE CAMERA IS NOT ON THE ROAD THE MOMENT STREET VIEW SAYS IT IS READY.
    Watched live on the test house: the lines were drawn, the sides came out
