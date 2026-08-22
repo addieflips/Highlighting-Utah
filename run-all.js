@@ -35096,6 +35096,71 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
 
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
+suite('165. Measure Roof - loading an address forgets the last house');
+{
+  /* Owner, after loading a few addresses: "well thats just completely wrong now."
+
+     ⚠ MEASURED, NOT INFERRED. rmReset ran only when the overlay OPENED, never
+     when Load Property was clicked. Loading a house in Salt Lake City after one
+     in Holladay - four kilometres apart, different roof, different everything -
+     left FOUR DOTS on screen and a roof height of 3.03 m still labelled
+     "street", i.e. measured. Both were drawn and reported against the new
+     house.
+
+     ⚠ THE DATUM IS THE DANGEROUS ONE. Dots in the wrong place look wrong. A
+     roof height carried over looks RIGHT - it says measured, it is a plausible
+     number - and it silently scales every line on the new roof. */
+  check('S165', 'loading an address forgets the last house',
+    /function rmForgetLastHouse\(\)/.test(admin) &&
+    /rmOrigin = \{lat: coords\.lat, lng: coords\.lng\};\s*\n\s*rmForgetLastHouse\(\);/.test(admin),
+    'rmReset only ever ran when the overlay opened');
+
+  /* Each thing that leaked, named, so adding a new one without clearing it fails here. */
+  const forget = extractFn(admin, 'rmForgetLastHouse') || '';
+  const mustClear = [
+    ['the dots', /rmCorners = \[\]/],
+    ['which strand is being drawn', /rmCurrentBand = 0/],
+    ['the corners offered', /rmCandidates = \[\]/],
+    ['the roof model', /rmFaces = \[\]/],
+    ['the building outline', /rmBuilding = null/],
+    ['the assumed-house cache', /rmModelCache = null/],
+    ['the roof height', /rmRoofDatumM = null/],
+    ['and how it was arrived at', /rmDatumSource = ''/],
+    ['the measured camera height', /rmCamHeightM = null/],
+    ['which way the road runs', /rmRoadDir = null/],
+    ['whether the camera has been aimed', /rmFramed = false/]
+  ];
+  mustClear.forEach(function(pair){
+    check('S165', 'it forgets ' + pair[0], pair[1].test(forget),
+      'anything remembered here is reported against the NEXT house');
+  });
+  /* ⚠ AND THE ONE THAT COSTS MONEY. rmPhotoExtraFeet is added straight into
+     the total, so feet measured off a photograph of the BACK of one house were
+     still in the total after loading a different address. A quote longer than
+     the house, with nothing on screen to explain where the extra came from.
+     ⭐ FOUND BY AUDITING EVERY PIECE OF PER-HOUSE STATE rather than waiting for
+     a fourth report. Three leaks had already been fixed one at a time; nobody
+     had noticed this one, and it is the only one that changes a price. */
+  ['rmPhotoExtraFeet = 0', 'rmPhotoRuns = []', 'rmPhotoRef = null',
+   'rmPhotoRefPx = 0', 'rmPhotoRefFt = 0', 'rmPhotoBlob = null'].forEach(function(bit){
+    check('S165', 'it forgets the photo measurement: ' + bit,
+      forget.indexOf(bit) !== -1,
+      'those feet are added to the total for whatever house is loaded next');
+  });
+  check('S165', 'and the photo feet really do reach the total',
+    admin.indexOf('out.perimeter += rmPhotoExtraFeet') !== -1,
+    'if this stops being true the checks above are guarding nothing');
+
+  /* The bar has to redraw, or the numbers stay on screen after the dots are gone. */
+  check('S165', 'and the dot list on screen is redrawn',
+    /rmRenderCornerBar\(\);/.test(forget),
+    'clearing the array but not the bar leaves numbered buttons for dots that no longer exist');
+  /* The map overlay for the old house has to come off the map, not just be dropped. */
+  check('S165', 'the old assumed-house lines are taken off the map',
+    /rmModelLines\.forEach\(function\(l\)\{ l\.setMap\(null\); \}\)/.test(forget),
+    'dropping the array leaves the polylines drawn over the new house');
+}
+
 suite('164. Measure Roof - the camera height is measured, not assumed');
 {
   /* Owner: "measure height not just legth and depth."

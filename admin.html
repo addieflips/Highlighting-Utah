@@ -18915,6 +18915,48 @@ function rmMeasureGroundDrop(){
     } catch(err){ resolve(); }
   });
 }
+/* ⭐ EVERYTHING THAT BELONGED TO THE LAST HOUSE, FORGOTTEN.
+   Owner, looking at the screen after a few addresses: "well thats just
+   completely wrong now."
+
+   ⚠ rmReset RAN ONLY WHEN THE OVERLAY OPENED, never when Load Property was
+   clicked. So typing a new address kept the previous house's state, and
+   MEASURED: four dots and a roof height of 3.03 m marked "street" survived a
+   change from a house in Holladay to one in Salt Lake City four kilometres
+   away. The dots were drawn on the new house. The height was reported as
+   measured. Neither had anything to do with the building on screen.
+
+   ⚠ THE DATUM IS THE DANGEROUS ONE. Dots in the wrong place look wrong. A roof
+   height carried over from another house looks RIGHT - it says "measured from
+   Street View" and it is a plausible number - and it silently scales every
+   line on the new roof.
+
+   Only this function knows what is per-house, so it is the one place to add to
+   when something new is remembered. */
+function rmForgetLastHouse(){
+  rmCamGroundDrop = 0;
+  /* the dots and what was offered */
+  rmCorners = []; rmCurrentBand = 0; rmCandidates = [];
+  rmRenderCornerBar();
+  /* the roof model and everything derived from it */
+  rmFaces = []; rmBuilding = null; rmRoofGrade = ''; rmRoofFacts = null;
+  rmModelCache = null; rmModelKey = '';
+  rmModelLines.forEach(function(l){ l.setMap(null); }); rmModelLines = [];
+  /* ⚠ and the heights, which are the ones that look right while being wrong */
+  rmGroundM = null; rmRoofDatumM = null; rmDatumSource = '';
+  rmCamHeightM = null; rmCamHeightPano = '';
+  /* which way the road runs, and whether the camera has been aimed yet */
+  rmFramed = false; rmRoadDir = null;
+  /* ⚠ AND THE PHOTOGRAPH, WHICH IS THE ONE THAT COSTS MONEY. rmPhotoExtraFeet
+     is added straight into the total - "out.perimeter += rmPhotoExtraFeet" -
+     so feet measured off a photo of the BACK of one house were still in the
+     total after loading a different address. A quote longer than the house,
+     with nothing on screen to explain the difference. */
+  rmPhotoExtraFeet = 0; rmPhotoRuns = []; rmPhotoRef = null;
+  rmPhotoRefPx = 0; rmPhotoRefFt = 0; rmPhotoBlob = null;
+  rmPhotoMode = ''; rmPhotoDrag = null;
+}
+
 async function rmLoadAddress(){
   const addr = document.getElementById('rmAddress').value.trim();
   const status = document.getElementById('rmStatus');
@@ -18929,7 +18971,7 @@ async function rmLoadAddress(){
     return;
   }
   rmOrigin = {lat: coords.lat, lng: coords.lng};
-  rmCamGroundDrop = 0;
+  rmForgetLastHouse();
   rmClearDrawing();
   rmWall = null; rmWallPts = []; rmWallPicking = false;
   rmPaneBusy('sky', 'Finding the house…');
