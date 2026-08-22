@@ -388,9 +388,27 @@ if (portalRsvp && updates) {
   /* ⚠ AND IT CAN BE SEARCHED. Same rule the soft-lights filter was built under:
      keeping a label without a way to list everybody who has it is a label, not a
      list. */
-  check('and there is a card to list all of them',
-    /key:'cameback'[\s\S]{0,200}cameBackThisSeason\(a\.data\)/.test(admin),
+  /* ⚠ AND IT IS A FILTER, NOT A SIXTH STAT CARD. The five cards PARTITION the book —
+     every customer is in exactly one and they sum to the total. Everybody who changed
+     their mind is also a Yes, so as a card it stopped the numbers adding up, and a
+     tally that does not add up looks broken whichever number you check. It belongs
+     with Gate Code and Payment, which cut across the states the same way. */
+  check('and there is a filter to list all of them',
+    /id="dashRsvpFilterCameBack"/.test(admin) &&
+    /dashRsvpFilterCameBack === 'yes'\) activeList = activeList\.filter\(a => cameBackThisSeason\(a\.data\)\)/.test(admin),
     'a badge you cannot filter by means opening every customer to find them');
+  check('and that dropdown is actually listened to',
+    /getElementById\('dashRsvpFilterCameBack'\)\.addEventListener\('change'/.test(admin),
+    'a select that renders and does nothing when used is worse than not offering one');
+  check('and it is NOT a sixth stat card',
+    !/key:'cameback'/.test(admin),
+    'the five cards partition the book and must keep summing to the total');
+  /* ⚠ AND THE WORDING CANNOT BE READ AS "next season". The owner read "Came back in"
+     as somebody returning NEXT year — which is Back Next Year, the opposite state and
+     the one thing this badge must never be confused with. */
+  check('the badge says "Changed to Yes", which can only mean one thing',
+    /Changed to Yes<\/span>/.test(admin) && !/Came back in<\/span>/.test(admin),
+    '"came back" reads as next season, which is the opposite state');
   check('and Start New Season clears the record as well as the instruction',
     /rejoinedForSeasonAt: null,[\s\S]{0,400}cameBackThisSeasonAt: null/.test(admin),
     'a badge that survives the reset says they changed their mind this year when ' +

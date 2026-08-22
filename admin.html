@@ -2632,6 +2632,12 @@
               <option value="has">Has Gate Code</option>
             </select>
           </div>
+          <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Changed Their Mind</label>
+            <select id="dashRsvpFilterCameBack" style="padding:8px 10px; font-size:13px;">
+              <option value="all">All</option>
+              <option value="yes">Changed to Yes this season</option>
+            </select>
+          </div>
           <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Payment</label>
             <select id="dashRsvpFilterPayment" style="padding:8px 10px; font-size:13px;">
               <option value="all">All</option>
@@ -26212,6 +26218,7 @@ function computePendingHouseCount(){
 let dashRsvpFilter = 'all';
 let dashRsvpSearchTerm = '';
 let dashRsvpFilterGateCode = 'all';
+let dashRsvpFilterCameBack = 'all';
 let dashRsvpFilterPayment = 'all';
 /* ⭐ ONE PLACE DECIDES WHAT AN RSVP TAG IS CALLED. Three screens spelled this out
    by hand, so adding a fourth status meant finding all three — and the one that was
@@ -26238,7 +26245,12 @@ function cameBackThisSeason(d){
    missed is the one that quietly stops matching the others. */
 function cameBackBadge(d){
   if(!cameBackThisSeason(d)) return '';
-  return ' <span class="status-pill" style="background:#EAF1FB; color:#2C5AA0; font-size:10.5px;">Came back in</span>';
+  /* ⚠ THE WORDING MATTERS AND THE FIRST ONE WAS WRONG. It read "Came back in", and
+     the owner read that as somebody coming back NEXT season — which is Back Next Year,
+     the opposite state, and the one thing this badge must never be confused with.
+     "Changed to Yes" can only mean the one thing: they said no or Back Next Year
+     earlier THIS season and have since said yes. */
+  return ' <span class="status-pill" style="background:#EAF1FB; color:#2C5AA0; font-size:10.5px;">Changed to Yes</span>';
 }
 function rsvpStatusLabel(v){
   const t = String(v == null ? '' : v).toLowerCase();
@@ -26266,12 +26278,14 @@ function renderDashRsvpPanel(){
     {key:'no', label:'No', list:noList, color:'#9A2A1F'},
     {key:'backnextyear', label:'Back Next Year', list:backList, color:'#8a6d1f'},
     {key:'unanswered', label:'Unanswered', list:unansweredList, color:'#8a6d1f'},
-    {key:'pending', label:'Pending', list:pendingList, color:'#5b6472'},
-    /* ⭐ A LABEL WITH NO WAY TO SEARCH IT IS A LABEL, NOT A LIST — the same rule the
-       soft-lights filter was built under. The badge says who; this says how many, and
-       gives the office one click to see all of them. It is NOT one of the five states
-       (they are all a "Yes"), so it sits last and cuts across the others. */
-    {key:'cameback', label:'Came Back In', list:withPhoneOrName.filter(a => cameBackThisSeason(a.data)), color:'#2C5AA0'}
+    {key:'pending', label:'Pending', list:pendingList, color:'#5b6472'}
+    /* ⚠ AND NOTHING ELSE GOES IN THIS ROW. These five PARTITION the book — every
+       customer is in exactly one and they add up to the total, which is the only
+       reason a row of counts is readable at a glance. "Changed to Yes" shipped here
+       for about an hour and was wrong: everybody in it is also in Yes, so the numbers
+       stopped summing, and a tally that does not add up looks broken whichever number
+       you check. It is a CROSS-CUTTING filter, so it lives with Gate Code and Payment,
+       which are the same shape. */
   ];
   cardsEl.innerHTML = cardDefs.map(function(c){
     const active = dashRsvpFilter === c.key;
@@ -26289,6 +26303,7 @@ function renderDashRsvpPanel(){
   let activeList = dashRsvpFilter === 'all' ? withPhoneOrName : (cardDefs.find(c => c.key === dashRsvpFilter) || {}).list || [];
   const term = dashRsvpSearchTerm.toLowerCase();
   if(term) activeList = activeList.filter(a => (a.data.name||'').toLowerCase().indexOf(term) !== -1);
+  if(dashRsvpFilterCameBack === 'yes') activeList = activeList.filter(a => cameBackThisSeason(a.data));
   if(dashRsvpFilterGateCode === 'missing') activeList = activeList.filter(a => !a.data.gateCode);
   else if(dashRsvpFilterGateCode === 'has') activeList = activeList.filter(a => !!a.data.gateCode);
   if(dashRsvpFilterPayment === 'unpaid') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data.phone) === 'Unpaid');
@@ -26325,6 +26340,10 @@ function renderDashRsvpPanel(){
 }
 document.getElementById('dashRsvpSearch').addEventListener('input', function(){
   dashRsvpSearchTerm = this.value.trim();
+  renderDashRsvpPanel();
+});
+document.getElementById('dashRsvpFilterCameBack').addEventListener('change', function(){
+  dashRsvpFilterCameBack = this.value;
   renderDashRsvpPanel();
 });
 document.getElementById('dashRsvpFilterGateCode').addEventListener('change', function(){
