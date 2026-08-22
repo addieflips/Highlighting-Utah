@@ -34047,6 +34047,25 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   /* ⭐ TWO BUTTONS, SO THE MODE ONLY GOVERNS ONE. Owner: "make it so right
      click is always select and left click is place dot if thats what its on
      but it switches if you click space." */
+  /* ⭐ A DOT AT THE WRONG HEIGHT IS AT THE WRONG PLACE, and parallax shows it
+     the moment the camera moves. Owner: "when I looked at a different angle
+     the dots didnt stay in the same spot making them get in the way so I
+     couldnt place the rest of them." Every sky-view dot used to take one flat
+     height, so one meant for a ridge sat feet below it and slid sideways with
+     every step along the street. */
+  check('S149', 'a dot placed from above takes the roof height where it was put',
+    /const roofH = rmRoofHeightAt\(w\.lat, w\.lng\);/.test(admin) &&
+    /typed > 0\.3 \? typed : \(roofH !== null \? roofH : rmDatum\(\)\.m\)/.test(admin),
+    'one flat height for the whole roof puts every ridge dot feet below the ridge');
+  check('S149', 'but a height typed into the box still wins',
+    /const typed = rmWorkingHeightM\(\);/.test(admin),
+    'somebody typing a number means it');
+  check('S149', 'and every dot shows its own height, so a wrong one is visible',
+    /Math\.round\(\(c\.h \|\| 0\) \* RM_M_TO_FT\)/.test(admin),
+    'the one thing that makes a dot appear to move is invisible until it is said');
+  check('S149', 'a click that misses the roof model still places a dot',
+    /const wall = rmWallPlane\(\);/.test(admin) && /REFUSING A CLICK IS WORSE/.test(admin),
+    'Google roof planes stop at its own boxes, and refusing puts that gap on the office');
   check('S149', 'the right button always selects, whatever the mode',
     /addEventListener\('contextmenu'/.test(admin) && /rmCornerNearPixel/.test(admin),
     'having to change mode just to take one dot out is the friction this removes');
