@@ -14975,6 +14975,45 @@ let rmWall = null;                /* {a:{lat,lng}, b:{lat,lng}} - ground line */
 let rmWallPts = [];
 let rmShots = [], rmCrop = null, rmCropDrag = null;
 let rmSkyReady = false, rmStreetReady = false;
+/* ⚠ THE STREET DECIDES WHERE THE LINES GO. THE MAP ONLY SAYS HOW BIG.
+   Owner: "the lines are being based off sky view not street view meaning that
+   its very wrong" - and then, watching it happen: "the lines were already
+   positioned before street view got there."
+
+   That is exactly what it was doing. Two answers arrive from Google at their
+   own speed - the roof model, and the road photo - and the lines used to be
+   drawn the instant the ROOF MODEL landed, whichever came first. On the test
+   house the roof model won, so every line was placed with no camera in
+   existence: no side to name (all eight came out "front"), no ground drop
+   under the house, and no street to check the height against.
+
+   So wait for BOTH. Whichever lands second is the one that starts the drawing.
+   The wait is bounded - if the road photo never settles the lines are still
+   drawn from the map alone, and the office is TOLD that is what happened,
+   rather than left looking at an empty panel. */
+let rmFacesReady = false, rmStreetSettled = false, rmSuggestionsBuilt = false;
+function rmStreetSettle(){
+  if(rmStreetSettled) return;
+  rmStreetSettled = true;
+  rmBuildWhenReady();
+}
+function rmBuildWhenReady(){
+  if(rmSuggestionsBuilt || !rmFacesReady || !rmStreetSettled) return 0;
+  rmSuggestionsBuilt = true;
+  const guessed = rmBuildSuggestions(rmFaces);
+  rmRefreshHeights();
+  /* The camera exists by now, so this is where front/left/right/back stop
+     being a guess. */
+  rmResideSuggestions();
+  const status = document.getElementById('rmStatus');
+  if(status){
+    status.textContent = !guessed
+      ? 'Google has no roof outline for this house — trace it by hand with Start Measuring.'
+      : guessed + ' roof edges found — the front of the house is already on. Click any line to add or drop it.' +
+        (rmStreetReady ? '' : ' ⚠ No street photo, so these are placed from the map alone — check the heights.');
+  }
+  return guessed;
+}
 let rmRoofGrade = '';           /* what Google's roof model graded this house */
 let rmRoofFacts = null;         /* kept so the grade can be re-cut once the eave height lands */
 let rmFaces = [];               /* Google's roof faces, the guessed lines come from these */
@@ -15463,9 +15502,24 @@ function rmFaceEave(face){
    direction points most nearly at the camera is the FRONT, the opposite one is
    the BACK, and the two in between are left and right as seen FROM the road -
    which is how anybody describes a house they are looking at. */
+/* IS THERE A CAMERA ON A ROAD YET?
+   rmEnsurePano opens the panorama AT the house so something is on screen
+   straight away, and Google moves it to the nearest road photo a moment later.
+   In between, "the direction to the road" is a zero-length vector pointing
+   from the house to itself - and every eave comes out FRONT.
+   That is not a hypothetical: the first real house this was tried on showed
+   Front (8) with Left, Right and Back all empty, because the roof model landed
+   before the road photo did. A camera standing inside the house is not a road.
+   Say so, and re-side once the real one arrives. */
+const RM_ROAD_MIN_M = 4;
+function rmCamOnRoad(){
+  const c = rmCamLocal();
+  if(!c) return null;
+  return Math.hypot(c.e, c.n) >= RM_ROAD_MIN_M ? c : null;
+}
 function rmEaveSide(eave){
-  const cam = rmCamLocal();
-  if(!cam) return 'front';                     /* no road to reason from */
+  const cam = rmCamOnRoad();
+  if(!cam) return 'front';                     /* no road to reason from YET */
   const mid = rmToLocal((eave.a.lat + eave.b.lat) / 2, (eave.a.lng + eave.b.lng) / 2, 0);
   const outward = {e: mid.e, n: mid.n};        /* the frame's origin IS the house */
   const toRoad = {e: cam.e, n: cam.n};
@@ -15485,6 +15539,27 @@ function rmEaveSide(eave){
    click, and a line nobody can see is a line nobody knows to ask for. */
 const RM_SIDES = ['front', 'left', 'right', 'back'];
 function rmFaceFacesTheRoad(eave){ return rmEaveSide(eave) === 'front'; }
+/* Re-name every suggested line's side now that the road photo has arrived.
+   Lines the office has already picked or dropped are re-SIDED but never
+   re-SWITCHED: once somebody has made a choice, the choice stands. */
+function rmResideSuggestions(){
+  if(!rmCamOnRoad()) return false;
+  let changed = false;
+  rmRuns.forEach(function(r){
+    if(!r.suggested || !r.path || r.path.length < 2) return;
+    const side = rmEaveSide({a: r.path[0], b: r.path[r.path.length - 1]});
+    if(side !== r.side){ r.side = side; changed = true; }
+    if(!r.touched){
+      const on = (side === 'front');
+      if(on !== r.on){ r.on = on; changed = true; rmSyncSky(r); }
+    }
+  });
+  if(changed){
+    if(window.rmRefreshSideButtons) window.rmRefreshSideButtons();
+    rmRenderResults(); rmPaintStreet();
+  }
+  return changed;
+}
 function rmBuildSuggestions(faces){
   /* Clear only the previous SUGGESTIONS - anything traced by hand stays. */
   rmRuns = rmRuns.filter(function(r){
@@ -15962,6 +16037,9 @@ function rmEnsurePano(center){
      re-checked and the lines simply redraw from the new place. */
   rmPano.addListener('position_changed', function(){
     rmMeasureGroundDrop().then(rmPaintStreet);
+    /* The first move is the one that matters: it is Google putting the camera
+       on the road, which is the moment front/left/right/back become knowable. */
+    rmResideSuggestions();
     rmPaintStreet();
   });
 }
@@ -16010,6 +16088,11 @@ async function rmLoadAddress(){
   rmPaneBusy('sky', 'Finding the house…');
   rmPaneBusy('street', 'Looking for a street-level photo…');
   rmRoofM = null; rmBuilding = null;
+  rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
+  /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
+     coming in time to be useful, and a blank panel helps nobody - draw from the
+     map and say so on the status line. */
+  setTimeout(rmStreetSettle, 10000);
   rmEnsureMap(rmOrigin);
   rmEnsurePano(rmOrigin);
   rmSkyReady = true;
@@ -16026,27 +16109,59 @@ async function rmLoadAddress(){
   status.textContent = '';
   /* Point the panorama AT the house rather than wherever the car faced. */
   try{
-    new google.maps.StreetViewService().getPanorama(
-      {location: rmOrigin, radius: 60, source: 'outdoor'},
-      function(data, st){
-        if(st !== 'OK' || !data || !data.location){
-          document.getElementById('rmStreetNote').textContent = 'No Street View at this address';
-          document.getElementById('rmWallStatus').textContent = 'Street View has not driven this street — trace it on the sky view instead.';
-          /* An ANSWER, not a wait: the pane stays covered and the spinner goes,
-             because nothing is still loading. */
-          rmPaneBusy('street', 'Google has never driven this street.', false);
-          return;
+    /* ⚠ ONE FAILED LOOKUP IS NOT "NO STREET VIEW".
+       getPanorama returns UNKNOWN_ERROR for an ordinary hiccup, and this used
+       to treat that as a verdict and tell the office Google had never driven
+       the street. Watched live on one house, radius 60 answered fine while
+       radius 100 came back UNKNOWN_ERROR seconds later - the same street, the
+       same key. Only ZERO_RESULTS actually means there is no photo; anything
+       else is worth asking again, a little wider. */
+    const RADII = [60, 100, 160];
+    const askStreetView = function(i){
+      new google.maps.StreetViewService().getPanorama(
+        {location: rmOrigin, radius: RADII[i], source: 'outdoor'},
+        function(data, st){
+          if(st !== 'OK' || !data || !data.location){
+            if(st !== 'ZERO_RESULTS' && i < RADII.length - 1){ askStreetView(i + 1); return; }
+            document.getElementById('rmStreetNote').textContent = 'No Street View at this address';
+            document.getElementById('rmWallStatus').textContent = 'Street View has not driven this street — trace it on the sky view instead.';
+            /* An ANSWER, not a wait: the pane stays covered and the spinner goes,
+               because nothing is still loading. */
+            rmPaneBusy('street', 'Google has never driven this street.', false);
+            /* A no IS an answer. The lines get drawn from the map alone rather
+               than never getting drawn at all. */
+            rmStreetSettle();
+            return;
+          }
+          rmStreetReady = true;
+          document.getElementById('rmCaptureStreet').disabled = false;
+          /* ⚠ LISTEN BEFORE YOU LOOK. setPano fires pano_changed, and this used
+             to attach the listener on the line AFTER the call - so the event
+             had already gone by and the cover never came off. The panorama was
+             fully loaded underneath: three canvases, thirteen tiles, and a
+             spinner on top of it saying "Looking for a street-level photo".
+             Attach first, then set. */
+          google.maps.event.addListenerOnce(rmPano, 'pano_changed', function(){
+            rmPaneReady('street');
+            /* The camera is real now: draw, or re-side what is already drawn. */
+            rmStreetSettle();
+            rmResideSuggestions();
+          });
+          rmPano.setPano(data.location.pano);
+          const p = data.location.latLng;
+          rmPano.setPov({heading: rmHeadingTo(p.lat(), p.lng(), rmOrigin.lat, rmOrigin.lng), pitch: 6});
+          /* And a belt as well as braces: if the event is missed for any reason
+             at all, a covered-up working panorama is the worst of both, so ask
+             the panorama itself a moment later whether it is up. */
+          setTimeout(function(){
+            if(rmPano && rmPano.getPano()){ rmPaneReady('street'); rmStreetSettle(); rmResideSuggestions(); }
+          }, 2500);
+          rmMeasureGroundDrop().then(rmPaintStreet);
+          rmSetDrawing(false);
         }
-        rmStreetReady = true;
-        document.getElementById('rmCaptureStreet').disabled = false;
-        rmPano.setPano(data.location.pano);
-        const p = data.location.latLng;
-        rmPano.setPov({heading: rmHeadingTo(p.lat(), p.lng(), rmOrigin.lat, rmOrigin.lng), pitch: 6});
-        google.maps.event.addListenerOnce(rmPano, 'pano_changed', function(){ rmPaneReady('street'); });
-        rmMeasureGroundDrop().then(rmPaintStreet);
-        rmSetDrawing(false);
-      }
-    );
+      );
+    };
+    askStreetView(0);
   } catch(err){ /* sky view alone still works */ }
   /* Google's roof model frames the house far better than a fixed zoom on the
      front door, and tells us the pitch, which turns a flat run into a real
@@ -16071,15 +16186,13 @@ async function rmLoadAddress(){
     rmRenderResults();
     if(d.bounds) rmBuilding = d.bounds;
     rmFaces = d.faces || [];
-    /* THE LINES ARE ALREADY THERE. Guessed the moment the roof model lands, so
-       the window opens with the roofline drawn and the job is picking, not
-       tracing. Re-run once the eave height arrives so they sit at the gutter
-       rather than on the ground. */
-    const guessed = rmBuildSuggestions(rmFaces);
-    rmRefreshHeights();
-    document.getElementById('rmStatus').textContent = guessed
-      ? guessed + ' roof edges found — the ones facing the road are already on. Click any line to add or drop it.'
-      : 'Google has no roof outline for this house — trace it by hand with Start Measuring.';          /* the footprint the front wall comes from */
+    /* THE LINES ARE ALREADY THERE - but drawn only once the street photo is in
+       too. This half says the roof's shape; the other half says which way the
+       house faces and how far the ground drops to the road. Drawing on the
+       first of the two to arrive is what put eight lines on the front of a
+       house that only has three. */
+    rmFacesReady = true;
+    rmBuildWhenReady();          /* the footprint the front wall comes from */
     /* Google's plane heights are above SEA LEVEL, so they only become a height
        once the ground under this house is taken off. Both come from Google, so
        neither is a guess - and if the elevation lookup is unavailable the roof
