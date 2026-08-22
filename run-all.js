@@ -32965,6 +32965,72 @@ suite('142. Measure Roof - the roofline is read off the photograph');
     'a guess that hides how it was made is worse than one that admits it');
 }
 
+
+suite('143. Measure Roof - strands you are running, and a photo read that waits for the road');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* ---- 1. the strand count is the job, not the offer ------------------ */
+  /* Seen live: the front of the house switched on, three lines, and the panel
+     said "Separate strands 8" - it was counting every line the roof model had
+     offered, greyed-out ones included. Whoever packs the van reads that. */
+  const onFn = pick('rmRunIsOn');
+  if (!onFn) {
+    check('S143', 'the switched-on test is findable', false, 'rmRunIsOn renamed or removed');
+  } else {
+    const api = new Function(
+      onFn + LF_ +
+      'function count(runs){ return runs.filter(rmRunIsOn).length; }' + LF_ +
+      'return {count, rmRunIsOn};')();
+    const runs = [{on: true}, {on: false}, {on: false}, {}, {on: false}];
+    check('S143', 'only the lines switched on are counted as strands',
+      api.count(runs) === 2,
+      'got ' + api.count(runs) + ' of 5, expected 2 - a run with no flag at all counts as on');
+    check('S143', 'and the results panel counts them that way',
+      /rmRuns\.filter\(rmRunIsOn\)\.length[\s\S]{0,140}Separate strands/.test(admin) ||
+      /Separate strands<\/span><strong>'\+rmRuns\.filter\(rmRunIsOn\)\.length/.test(admin),
+      'rmRuns.length counts the greyed-out lines too');
+    check('S143', 'and so does the material list',
+      /Separate strands<\/span><strong>'\+\(rmRuns\.filter\(rmRunIsOn\)\.length\|\|1\)/.test(admin),
+      'the van gets packed off this number');
+    check('S143', 'the raw run count is no longer used for strands anywhere',
+      !/Separate strands<\/span><strong>'\+rmRuns\.length/.test(admin) &&
+      !/Separate strands<\/span><strong>'\+\(rmRuns\.length\|\|1\)/.test(admin),
+      'one of the two panels was left counting every line');
+  }
+
+  /* ---- 2. the photo read waits for a road ---------------------------- */
+  /* Seen live on the test house: lines drawn, sides correct, and the status
+     line honestly reporting "the height is still assumed: the camera is not on
+     the road yet". pano_changed fires before position_changed, so the first
+     attempt read a camera still standing at the house - and nothing tried
+     again once it moved. */
+  const tryFn = pick('rmTryPhotoDatum');
+  check('S143', 'the photo read refuses to run without a road',
+    !!tryFn && /if\(!rmCamOnRoad\(\)\) return;/.test(tryFn),
+    'reading the photo from a camera standing in the living room measures nothing');
+  check('S143', 'it is retried when the camera moves onto the road',
+    /rmResideSuggestions\(\);[\s\S]{0,180}rmTryPhotoDatum\(\);/.test(admin),
+    'the move onto the road is the moment the photograph becomes readable');
+  check('S143', 'it stops once the photograph has answered',
+    !!tryFn && /if\(rmDatumSource === 'photo'\) return;/.test(tryFn),
+    're-reading a settled answer would fetch a photo on every camera nudge');
+  check('S143', 'and it gives up rather than retrying all afternoon',
+    !!tryFn && /rmPhotoDatumTries >= RM_PHOTO_DATUM_TRIES/.test(tryFn) &&
+    /const RM_PHOTO_DATUM_TRIES = \d+;/.test(admin),
+    'a house Google photographed badly would otherwise be retried forever');
+  check('S143', 'two reads never overlap',
+    !!tryFn && /rmPhotoDatumBusy/.test(tryFn),
+    'a second fetch starting mid-flight would race the first one to set the datum');
+  check('S143', 'a thrown fetch releases the latch instead of jamming it',
+    !!tryFn && /catch\(function\(\)\{ rmPhotoDatumBusy = false; \}\)/.test(tryFn),
+    'a network error would otherwise leave it permanently busy and never retry');
+  check('S143', 'and every counter is reset per house',
+    /rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false;/.test(admin),
+    'the second address of the day would start with the first one used up');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

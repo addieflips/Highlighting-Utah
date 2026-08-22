@@ -15005,20 +15005,11 @@ function rmBuildWhenReady(){
   /* The camera exists by now, so this is where front/left/right/back stop
      being a guess. */
   rmResideSuggestions();
-  /* THE PHOTOGRAPH GETS THE LAST WORD ON HEIGHT. Fired here rather than
-     awaited: the lines are on screen immediately at the assumed height, and
-     they lift onto the roof a moment later when the photo has been read. */
-  if(guessed && rmStreetReady){
-    rmDatumFromStreetPhoto().then(function(res){
-      const st = document.getElementById('rmStatus');
-      if(!st) return;
-      st.textContent = res.ok
-        ? guessed + ' roof edges found, and the roof height was read off the street photo (' +
-          Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
-        : guessed + ' roof edges found — the front of the house is already on. ⚠ The height is still assumed: ' +
-          res.why + '. Trace anything in Street View to measure it properly.';
-    });
-  }
+  rmGuessedCount = guessed;
+  /* THE PHOTOGRAPH GETS THE LAST WORD ON HEIGHT, once there is a road to take
+     it from. Fired rather than awaited: the lines are on screen immediately at
+     the assumed height and lift onto the roof a moment later. */
+  rmTryPhotoDatum();
   const status = document.getElementById('rmStatus');
   if(status){
     status.textContent = !guessed
@@ -15717,6 +15708,37 @@ function rmDatumFromSamples(samples, photo, cam, pose, lookPx){
 
 const rmDeg = r => r * 180 / Math.PI;
 
+/* ⚠ THE CAMERA IS NOT ON THE ROAD THE MOMENT STREET VIEW SAYS IT IS READY.
+   Watched live on the test house: the lines were drawn, the sides came out
+   right, and the photo read failed with "the camera is not on the road yet".
+   rmEnsurePano opens the panorama AT the house so something is on screen
+   straight away; Google then moves it to the road photo, and pano_changed
+   fires BEFORE position_changed. So the first attempt reads a camera standing
+   in the living room, and there was nothing to try again afterwards.
+   Now it is attempted whenever the camera moves, until the photograph has
+   actually answered - and a handful of tries is the limit, because a house
+   Google has photographed badly should not be retried all afternoon. */
+let rmGuessedCount = 0, rmPhotoDatumTries = 0, rmPhotoDatumBusy = false;
+const RM_PHOTO_DATUM_TRIES = 4;
+function rmTryPhotoDatum(){
+  if(rmDatumSource === 'photo') return;              /* already answered */
+  if(rmPhotoDatumBusy || rmPhotoDatumTries >= RM_PHOTO_DATUM_TRIES) return;
+  if(!rmSuggestionsBuilt || !rmStreetReady || !rmGuessedCount) return;
+  if(!rmCamOnRoad()) return;                         /* the whole point */
+  rmPhotoDatumBusy = true;
+  rmPhotoDatumTries++;
+  rmDatumFromStreetPhoto().then(function(res){
+    rmPhotoDatumBusy = false;
+    const st = document.getElementById('rmStatus');
+    if(!st) return;
+    st.textContent = res.ok
+      ? rmGuessedCount + ' roof edges found, and the roof height was read off the street photo (' +
+        Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
+      : rmGuessedCount + ' roof edges found — the front of the house is already on. ⚠ The height is still assumed: ' +
+        res.why + '. Trace anything in Street View to measure it properly.';
+  }).catch(function(){ rmPhotoDatumBusy = false; });
+}
+
 /* ASK THE PHOTOGRAPH HOW HIGH THE ROOF IS.
    This is the part that makes the lines sit on the house rather than near it.
    Everything else about a roof face is exact - its shape, its pitch, how far
@@ -16138,8 +16160,12 @@ function rmRenderResults(){
        whoever packs the van - it is not the same question as total footage.
        Four 40 ft runs and one 160 ft run buy the same wire and need a very
        different set of made-up strands. */
-    (rmRuns.length
-      ? '<div class="rm-resultrow"><span>Separate strands</span><strong>'+rmRuns.length+'</strong></div>' : '') +
+    /* ⚠ ONLY THE ONES SWITCHED ON. rmRuns.length counts every line the roof
+       model offered, including the ones greyed out - so a house with the front
+       on and three sides off reported eight strands for a three-strand job.
+       Whoever packs the van is reading this number. */
+    (rmRuns.filter(rmRunIsOn).length
+      ? '<div class="rm-resultrow"><span>Separate strands</span><strong>'+rmRuns.filter(rmRunIsOn).length+'</strong></div>' : '') +
     (live ? '<div class="rm-runrow" style="color:var(--dusk);">drawing now&hellip; '+rmFmtFeet(live)+'</div>' : '');
 
   const runsBox = document.getElementById('rmRuns');
@@ -16181,7 +16207,7 @@ function rmRenderMaterials(feet){
   const wire = Math.ceil(priced * 1.15);          /* the usual slack allowance */
   document.getElementById('rmMaterials').innerHTML =
     '<div class="rm-mini"><span>Run being priced</span><strong>'+rmFmtFeet(priced)+'</strong></div>'+
-    '<div class="rm-mini"><span>Separate strands</span><strong>'+(rmRuns.length||1)+'</strong></div>'+
+    '<div class="rm-mini"><span>Separate strands</span><strong>'+(rmRuns.filter(rmRunIsOn).length||1)+'</strong></div>'+
     '<div class="rm-mini"><span>Bulbs at '+spacingIn+'&quot;</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
     '<div class="rm-mini"><span>Clips</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
     '<div class="rm-mini"><span>Wire (+15%)</span><strong>'+wire.toLocaleString()+' ft</strong></div>';
@@ -16325,6 +16351,8 @@ function rmEnsurePano(center){
     /* The first move is the one that matters: it is Google putting the camera
        on the road, which is the moment front/left/right/back become knowable. */
     rmResideSuggestions();
+    /* The move onto the road is exactly when the photograph becomes readable. */
+    rmTryPhotoDatum();
     rmPaintStreet();
   });
 }
@@ -16374,6 +16402,8 @@ async function rmLoadAddress(){
   rmPaneBusy('street', 'Looking for a street-level photo…');
   rmRoofM = null; rmBuilding = null;
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
+  rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false;
+  /* gone */
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
