@@ -21590,10 +21590,32 @@ suite('Suite 107. Pricing a re-quote from the popup');
 
   /* And the Printing tab's list reads the same answer as the warehouse tab. */
   {
-    const src = extractFn(admin, 'printNeedsBuildList');
-    check('S107', 'the printed Needs Building list asks the same function',
-      /houseBundleNeed\(d\)/.test(src) && /whPutIntoLabel\(d\)/.test(src),
+    /* ⭐ THERE IS ONE BUILD SHEET NOW, PRINTED FROM TWO BUTTONS (2026-08-24). Addie:
+       "everyone on the warehouse tab should be printed." These two checks used to
+       assert that two separate builders agreed — by both calling houseBundleNeed and
+       whPutIntoLabel — which is the weaker claim, and it was TRUE the whole time the
+       two lists held different PEOPLE: the filters were never what they compared.
+       The Printing tab now takes its rows from whSheetRowsForBuild, so agreement is
+       structural rather than something two copies have to keep up. */
+    const src = extractFn(admin, 'printNeedsBuildSheet');
+    check('S107', 'the printed Needs Building sheet IS the warehouse tab\'s sheet',
+      /whSheetRowsForBuild\(\)/.test(src),
       'two builders of one list is how a printout starts disagreeing with the screen');
+    /* ⚠ AND IT MUST NOT GROW A FILTER OF ITS OWN — that is precisely how it drifted
+       before. `chargeNewMemberFee` and `requoteAppliedAt` are STAMPS that nothing ever
+       clears, so a sheet filtering on them lists every new member and every applied
+       re-quote for ever, months after their bundle was built. */
+    check('S107', 'and decides for itself who is on it',
+      !/needsLightBuild|chargeNewMemberFee|requoteAppliedAt|jobAddresses/.test(src),
+      'whBuildQueueGroups is the one place that decides what is in the build queue');
+    /* ⚠ AND THE COUNT BESIDE IT COMES FROM THE SHEET THAT WAS PRINTED. Building it
+       twice re-reads the whole book to count what was just built, and a write landing
+       between the two prints a sheet whose own summary disagrees with it. */
+    const btn = admin.slice(admin.indexOf("printOneList('build'") - 400,
+                            admin.indexOf("printOneList('build'") + 300);
+    check('S107', 'and the summary counts the rows actually printed',
+      /buildSheet\.rows\.length/.test(btn) && !/printNeedsBuildList\(\)\.length/.test(btn),
+      'a sheet whose own summary disagrees with it is worse than no summary');
     /* ⭐ THE MARKERS MOVED INTO whPullPresenters (2026-08-24) — ONE COPY, SHARED BY
        BOTH BUILD SHEETS. They used to be written out separately in each builder, and
        this pair of checks read only the Printing tab's copy, with a comment noting
@@ -21615,10 +21637,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
       extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whWireLabel') +
       extractFn(admin, 'whPullPresenters') +
       'return sheetRow("pullList", d, whPullPresenters(d));');
-    check('S107', 'both build sheets read one set of presenters',
-      /whPullPresenters\(d\)/.test(src) &&
+    /* The one remaining builder still reads the one set of presenters. This is what
+       keeps the spec half of every row — Bins, Wire, Bundles, Timer — generated from
+       the registry rather than written out per sheet. */
+    check('S107', 'the build sheet reads the shared presenters',
       /whPullPresenters\(d\)/.test(extractFn(admin, 'whSheetRowsForBuild')),
-      'two builders of one list is how a printout starts disagreeing with the screen');
+      'the markers that say a count is a guess live in there, and only in there');
     check('S107', 'and marks a top-up row with a plus so it cannot read as a whole house',
       present({ measuredFeet: 300, buildTopUpFromFeet: 180 }).measuredFeet.indexOf('+') === 0,
       '3 in the Bundles column of a 300 ft house is a wrong number, not a short one — ' +
@@ -21716,6 +21740,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
       extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
       extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whPullPresenters') +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
+      /* ⭐ AND THE BADGE (2026-08-24). Every sheet row now carries a Why cell, so the
+         label renderer and the rule behind it are part of building a row. Lifted, not
+         stubbed: a stub here makes the badge untestable while reporting green, and it
+         is the one cell on this sheet that is inferred rather than read. */
+      (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\n\};/) || [''])[0] +
+      extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
@@ -21740,6 +21770,64 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and the Bins column is a count, not that number',
       blockedRow[0] && blockedRow[0].numberOfBins === '2',
       '300 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].numberOfBins));
+
+    /* ⭐ THE BADGE REACHES PAPER (added 2026-08-24). Addie: "I need paper to carry
+       badge too." ⚠ RUN, NOT MATCHED. A search for the word REQUEST in admin.html
+       finds the WH_BUILD_REASONS table itself and passes while no row carries a Why
+       cell at all — which is exactly the shape of check this suite has been caught by
+       three times. These build real rows and read the cell. */
+    const paper = function(data){
+      return sheet([{id: 'x1', data: Object.assign({name: 'Test', needsLightBuild: true,
+        lightsDescription: 'Warm White', measuredFeet: 200}, data)}],
+        [], (p, w) => p + '|' + (w || ''), (d) => ({feet: 0, bundles: 1}),
+        (w) => String(w || 'white'), () => '', []).rows
+        .filter(function(r){ return r.type !== 'Extra' && r.type !== 'Timer'; })[0] || {};
+    };
+    /* The sheet carries its own column list, so ask IT rather than a variable from
+       another block — the sheet is what gets printed. */
+    const sheetCols = new Function(OPTIONS_SANDBOX_SRC() + '\nreturn ' +
+      admin.slice(admin.indexOf('const WH_BUILD_COLUMNS = [') + 'const WH_BUILD_COLUMNS = '.length,
+                  admin.indexOf('\n]);', admin.indexOf('const WH_BUILD_COLUMNS = [')) + 3) + ';')();
+    check('S107', 'the printed build sheet has a Why column',
+      sheetCols.some(function(c){ return /^why$/i.test(c.label || ''); }),
+      'the badge on screen and nothing on the paper the warehouse actually works from');
+    /* ⚠ AND IT SITS BESIDE TYPE. Notes is the wide free-text column and anything put
+       after it is lost against a wall of writing — the same argument that fixes the
+       Timer column's position on every crew sheet. */
+    check('S107', 'and it sits beside Type, not after Notes',
+      sheetCols.findIndex(c => /^why$/i.test(c.label || '')) ===
+      sheetCols.findIndex(c => /^type$/i.test(c.label || '')) + 1,
+      'got ' + JSON.stringify(sheetCols.map(c => c.label)));
+    [['a new quote', {chargeNewMemberFee: true}, 'NEW'],
+     ['a house that moved', {requoteAppliedAt: 1, requoteKind: 'address'}, 'OLD-REBUILD'],
+     ['a change they made themselves', {lightsChangedAt: 1, lightsChangedVia: 'portal'}, 'MEMBER PORTAL'],
+     ['a change we typed in', {lightsChangedAt: 1, lightsChangedVia: 'office'}, 'REQUEST'],
+     ['an ordinary rebuild', {}, '']
+    ].forEach(function(c){
+      check('S107', 'and ' + c[0] + ' prints as ' + (c[2] || 'no badge'),
+        paper(c[1]).reason === c[2],
+        'got ' + JSON.stringify(paper(c[1]).reason));
+    });
+    /* ⚠ A BLOCKED ROW STILL SAYS WHERE IT CAME FROM. Type says it cannot be built;
+       Why says whose job it is. Losing the second on exactly the rows somebody has to
+       chase up is the wrong place to lose it. */
+    check('S107', 'and a blocked row keeps its badge',
+      blockedRow[0] && typeof blockedRow[0].reason === 'string',
+      'the rows most likely to need chasing are the ones that lost it');
+    /* ⚠ AND BUFFER STOCK CLAIMS NOTHING. There is no customer behind it, so a badge
+       on that row is a claim about somebody who does not exist. */
+    const withExtra = sheet([], [{id: 'e1', data: {pattern: 'Warm White', quantity: 4}}],
+      (p, w) => p + '|' + (w || ''), (d) => ({feet: 0, bundles: 1}),
+      (w) => String(w || 'white'), () => '', []).rows;
+    check('S107', 'and buffer stock carries no badge at all',
+      withExtra.length === 1 && withExtra[0].reason === '',
+      'got ' + JSON.stringify(withExtra.map(function(r){ return r.reason; })));
+    /* ⭐ AND BUFFER STOCK IS ON THE PRINTED SHEET AT ALL, which is half of
+       "everyone on the warehouse tab should be printed" — the Printing tab's own
+       builder knew nothing about extras and left every one of them off. */
+    check('S107', 'and buffer stock reaches the paper',
+      withExtra.length === 1 && withExtra[0].type === 'Extra',
+      'it is on the tab, so it prints; got ' + JSON.stringify(withExtra.map(r => r.type)));
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:

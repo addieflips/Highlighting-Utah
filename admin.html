@@ -31669,6 +31669,16 @@ function whBuildReasonKey(d){
   }
   return '';
 }
+/* ⭐ THE SAME BADGE IN WORDS, FOR PAPER (added 2026-08-24). Addie: "I need paper to
+   carry badge too." A chip is a coloured pill and a printed sheet is black on white,
+   so the two cannot share a renderer — but they MUST share the rule, or the screen and
+   the sheet printed from it start making different claims about where a job came from,
+   which is the exact failure this repo keeps being bitten by. Both call
+   whBuildReasonKey and neither decides anything of its own. */
+function whBuildReasonLabel(d){
+  const r = WH_BUILD_REASONS[whBuildReasonKey(d)];
+  return r ? r.label : '';
+}
 function whBuildReasonChip(d){
   const r = WH_BUILD_REASONS[whBuildReasonKey(d)];
   if(!r) return '';
@@ -32393,6 +32403,7 @@ function whSheetRowsForBuild(){
     rows.push(Object.assign(optSheetRow('pullList', d, whPullPresenters(d)), {
       group: 'Waiting on light colours',
       type: 'Blocked',
+      reason: whBuildReasonLabel(d),
       what: whWhoLabel(d),
       address: d.address || '',
       measuredFeet: '',
@@ -32422,6 +32433,10 @@ function whSheetRowsForBuild(){
            scans down. A bundle handed to somebody who thinks they are building a house
            gets a new bin made for it, and then there are two bins with one number. */
         type: need.topUp ? 'ADD-ON' : 'House',
+        /* ⚠ A BLOCKED OR ADD-ON ROW STILL HAS A REASON. Type and Why answer two
+           different questions and neither substitutes for the other: an add-on for
+           somebody who extended their house is an ADD-ON that is an OLD-REBUILD. */
+        reason: whBuildReasonLabel(d),
         what: whWhoLabel(d),
         address: d.address || '',
         /* ⚠ Bins, Bundles and Timer are NOT set here any more — they come from the
@@ -32452,6 +32467,10 @@ function whSheetRowsForBuild(){
         group: groupName,
         wireColor: isTimer ? '' : (e.data.wireColor || ''),
         type: isTimer ? 'Timer' : 'Extra',
+        /* ⚠ Buffer stock has no customer behind it, so it has no provenance to
+           claim. Blank, never one of the five — a badge on a row nobody asked for
+           is a claim about somebody who does not exist. */
+        reason: '',
         what: g.title ? (isTimer ? 'Timer' : (e.data.pattern || 'Lights')) : (e.data.label || 'Extra stock'),
         address: g.linked ? (g.linked.data.address || '') : '',
         /* ⚠ Buffer stock is not somebody's house, so "how many bins for them" has
@@ -32723,6 +32742,12 @@ function whPullPresenters(d){
 const WH_BUILD_COLUMNS = [
   {key:'group', label:'Group'},
   {key:'type', label:'Type'},
+  /* ⭐ WHY THIS BUNDLE IS BEING BUILT, ON PAPER (added 2026-08-24). Addie: "I need
+     paper to carry badge too." It sits beside Type deliberately: Type says WHAT the
+     row is (a house, an add-on, a blocked one) and Why says where it came from, and
+     an eye scanning one column picks up the other. Blank on buffer stock, which has
+     no customer behind it and so no provenance to claim. */
+  {key:'reason', label:'Why'},
   {key:'what', label:'Customer / Item'},
   {key:'address', label:'Address'}
 ].concat(optSheetColumns('pullList')
@@ -46034,8 +46059,13 @@ RT.addEventListener('change',e=>{const t=e.target;
       return;
     }
     if(what === 'build'){
-      printOneList('build', 'Needs building', printNeedsBuildList(),
-        printNeedsBuildList().length + ' to make up', 'Nothing needs building.');
+      /* Built ONCE. Calling it twice re-reads the whole book to count what it just
+         built, and a write landing between the two would print a sheet whose own
+         summary disagreed with it. */
+      const buildSheet = printNeedsBuildSheet();
+      printOneList('build', 'Needs building', buildSheet.rows,
+        buildSheet.rows.length + ' to make up', 'Nothing needs building.',
+        buildSheet.columns);
       return;
     }
     if(what === 'recycle'){
@@ -46704,38 +46734,32 @@ function printColorChangeList(){
 /* Everything the warehouse has to make up: a first-time hang, or anything the office
    has flagged as needing building. A colour change needs building too — they are
    getting different lights — so this one does NOT use printIsNewHang. */
-function printNeedsBuildList(){
-  if(typeof jobAddresses === 'undefined') return [];
-  return jobAddresses.filter(function(a){
-      const d = a.data || {};
-      /* ⚠ AND THIS ONE HAD NO SEASON RULE AT ALL, so the printed sheet listed people
-         the warehouse SCREEN beside it had already dropped — including somebody the
-         office had badged Maybe Next Year. Two lists of one job disagreeing is how the
-         one on paper stops being trusted. Same shared rule as the screen. */
-      if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return false;
-      return d.needsLightBuild || d.chargeNewMemberFee === true || d.requoteAppliedAt;
-    })
-    .map(function(a){
-      const d = a.data || {};
-      /* The same top-up answer as the warehouse tab, worked out by the same function.
-         Two builders of the same list is how a printout starts disagreeing with the
-         screen it was printed from. */
-      const need = (typeof houseBundleNeed === 'function') ? houseBundleNeed(d) : null;
-      const isTopUp = !!(need && need.topUp);
-      /* The answers come from the registry, keyed by the real field name, so this
-         builder names no option at all and cannot be the place a new one is
-         forgotten. Only the bin instruction below is written out — that is
-         logistics about a shelf, not something a customer can ask for. */
-      return Object.assign({number: d.customerNumber || '', name: d.name || ''},
-        optSheetRow('pullList', d, whPullPresenters(d)), {
-              /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
-                 sheets of the same job saying it two ways is how one of them stops
-                 being read. */
-              putInto: (isTopUp && typeof whPutIntoLabel === 'function')
-                ? ('EXISTING BIN \u2014 ' + whPutIntoLabel(d)) : ''});
-    })
-    .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
+/* ⭐ THE PRINTED LIST IS THE WAREHOUSE TAB'S LIST, BY CONSTRUCTION (rewritten
+   2026-08-24). Addie: "everyone on the warehouse tab should be printed."
+
+   ⚠ IT WAS A SECOND OPINION, AND IT DISAGREED IN BOTH DIRECTIONS. This filtered
+   `needsLightBuild || chargeNewMemberFee === true || requoteAppliedAt` while the tab
+   asks `needsLightBuild` alone — and those other two are STAMPS, not flags. The
+   warehouse clears needsLightBuild when the bundle is actually made; nothing ever
+   clears the other two. So every new member and every applied re-quote stayed on the
+   printed Needs Building sheet FOR EVER, long after their bundle was built, and
+   somebody working off that paper makes a second set for a house that already has
+   one. In the other direction it knew nothing about buffer stock or a member's extra
+   request, both of which are on the tab and neither of which reached the paper.
+
+   ⚠ SO IT IS NOT TWO MATCHING FILTERS — matching filters drift the first time one
+   is edited, which is exactly the history above. There is ONE sheet now, printed
+   from two buttons: whSheetRowsForBuild reads whBuildQueueGroups, which is the
+   function this file already calls "one place that decides what is in the build
+   queue". The Printing tab's copy gains that sheet's Group, Type, Why, Address and
+   Notes columns, which is what the warehouse has been reading all along. */
+function printNeedsBuildSheet(){
+  if(typeof whSheetRowsForBuild !== 'function') return {rows: [], columns: PRINT_COLUMNS.build};
+  const built = whSheetRowsForBuild();
+  return {rows: built.rows || [], columns: built.columns || PRINT_COLUMNS.build};
 }
+/* Kept as the row list on its own, for the count on the Printing tab. */
+function printNeedsBuildList(){ return printNeedsBuildSheet().rows; }
 function printWarehouseDayList(day){
   return ((day && day.houses) || []).map(function(h){
     const d = printCustData(h);
@@ -46966,9 +46990,12 @@ function printDayLabel(day){
   return l.wd + ', ' + l.full;
 }
 /* ---------- the buttons ---------- */
-function printOneList(kind, title, rows, summary, empty){
+/* `columns` overrides PRINT_COLUMNS[kind]. The build sheet passes its own, because
+   it is the warehouse tab's sheet rather than a second one built here — see
+   printNeedsBuildSheet. */
+function printOneList(kind, title, rows, summary, empty, columns){
   schedOpenPrintPages(title, [{title: title, summary: summary,
-    body: printTableHtml(rows, PRINT_COLUMNS[kind]), empty: empty}]);
+    body: printTableHtml(rows, columns || PRINT_COLUMNS[kind]), empty: empty}]);
 }
 function printCrewSheetPage(day, i){
   const rows = printCrewDayList(day, i);
