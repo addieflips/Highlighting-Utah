@@ -428,6 +428,42 @@ const statusClassSrc = extractFn(money, 'statusClass');
 // eval'd alongside it. Lifted from the real file, never stubbed here — a stub
 // would keep the tests green through a change to the actual rounding rule.
 const centsOfSrc = extractFn(money, 'centsOf');
+
+/* ⭐ THE OPTION REGISTRY, FOR THE SANDBOXES (added 2026-08-24).
+ *
+ * Five artifacts in admin.html now take their field list from js/options.js —
+ * the crew sheet, both build sheets, the invoice and the RSVP confirmation — so
+ * any sandbox lifting one of those renderers needs the registry with it, exactly
+ * as the money sandboxes need cnBinsForFeet.
+ *
+ * ⚠ THE WHOLE FILE, NOT extractFn PER FUNCTION. sheetRow calls valueOf calls
+ * display, and sheetOptions reads OPTIONS, CONSUMERS, TABLE_CONSUMERS and
+ * SHEET_ORDER_DEFAULT — lifting that web name by name is the stale-extraction-
+ * list trap CLAUDE.md §3 describes, and it fails as a bare ReferenceError inside
+ * an eval with no line number anybody can place. Stripping the module syntax off
+ * the real file cannot go stale.
+ *
+ * ⚠ AND IT IS THE REAL FILE, NEVER A STUB. The claim these suites make is that
+ * the printed sheet and the registry agree; a stub would agree with itself. */
+const optionsRegistrySrc = read('js/options.js')
+  .replace(/^import[\s\S]*?from '\.\/money\.js';$/m, '')   // money.js is supplied below
+  .replace(/^export \{[^}]*\};$/m, '')                     // the re-export of those two
+  .replace(/^export /gm, '');
+/* The aliases admin.html imports the registry under. Named here so a sandbox
+   gets the same spellings the real file uses and nothing has to be rewritten. */
+const OPTIONS_SANDBOX_SRC = () =>
+  'const CN_DOUBLE_BIN_FEET = ' + CN_DOUBLE_BIN_FEET + ';' +
+  cnBinsForFeetSrc + optionsRegistrySrc +
+  /* ⚠ `var`, NOT `const`, and that is not a style choice. Several suites reach the
+     registry through a direct eval() rather than a new Function body, and a `const`
+     declared in a direct eval stays inside that eval's own scope — so the NEXT
+     eval, the one holding the admin slice that actually calls optSheetColumns,
+     would not see it and would die with a bare ReferenceError. `var` hoists out to
+     the enclosing function, which is how the existing money.js evals already work. */
+  'var optSheetColumns = sheetColumns, optSheetRow = sheetRow,' +
+  '    optForConsumer = forConsumer, optDisplay = display, optValueOf = valueOf,' +
+  '    optInvoiceOptions = invoiceOptions, optMissingAnswers = missingAnswers,' +
+  '    HU_OPTIONS = OPTIONS;';
 const whGroupKeySrc      = extractFn(admin, 'whGroupKey');
 const whNormalizeLightsSrc = extractFn(admin, 'whNormalizeLights');
 const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
@@ -4371,12 +4407,30 @@ if (!JSDOM) {
     eval(fs.readFileSync(path.join(ROOT, 'js', 'money.js'), 'utf8')
            .replace(/^export /gm, '')
            .replace(/^import [^;]+;$/gm, ''));
+    /* ⭐ AND THE OPTION REGISTRY (2026-08-24). The build sheet's columns and its
+       answer cells are generated from js/options.js now, so the slice eval'd below
+       calls optSheetColumns and optSheetRow. Same treatment as money.js on the line
+       above and for the same reason: the real file, module syntax stripped, never a
+       stub — the claim being made is that the sheet and the registry agree. */
+    eval(OPTIONS_SANDBOX_SRC());
     eval(extractFn(admin, 'whBinsForHouse') + '\n' + extractFn(admin, 'whWhoLabel') + '\n' +
       extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel') +
       /* The recycle queue sends people to the number ON THE BIN, which is not always the
          one on the record. Declared beside whRecycleGroups, not inside the slice. */
       '\n' + extractFn(admin, 'whBinNumberFor') +
-      '\n' + extractFn(admin, 'whBinNumberMoved'));
+      '\n' + extractFn(admin, 'whBinNumberMoved') +
+      /* ⭐ THE BUILD SHEET'S PRESENTERS (2026-08-24). whPullPresenters is what says
+         how the registry's answers are SPELLED on a build sheet — feet as bundles,
+         the two colour fields read together, the office's own yes/no spellings —
+         and it is shared with the Printing tab's build sheet so the two cannot
+         drift. It calls these three, so they are lifted with it.
+         ⚠ LIFTED, NOT STUBBED. A stubbed printLightColor would not read lightColors
+         when lightsDescription is empty, and "an alternating house is not called
+         undecorated" is one of the things this suite is here to hold. */
+      '\n' + extractFn(admin, 'printLightColor') +
+      '\n' + extractFn(admin, 'printYesNo') +
+      '\n' + extractFn(admin, 'printOptionYesNo') +
+      '\n' + extractFn(admin, 'whPullPresenters'));
     eval(admin.slice(whStart, buildStart) + '\n' + admin.slice(buildStart, buildEnd) + '\n' +
          admin.slice(recycleStart, recycleEnd) + '\n' +
          (formEnd > formStart ? admin.slice(formStart, formEnd) : '') + '\n');
@@ -4562,11 +4616,17 @@ if (!JSDOM) {
        The old check said "leaves the Feet cell empty"; Feet is gone, and the same
        reasoning now belongs to the Bins count: cnBinsForFeet floors at 1, so printing
        a confident "1" for a house nobody has measured is a guess wearing a number. */
-    check('warehouse', 'a house with no feet on file leaves the Bins cell empty',
-      (sheet.rows.find(r => /^Owen Hale/.test(r.what)) || {}).bins === '',
-      'rows: ' + JSON.stringify(sheet.rows.map(r => ({what: r.what, bins: r.bins}))));
+    /* ⚠ `none`, NOT AN EMPTY CELL, since 2026-08-24 — and the KEY is the registry's
+       own field name, because the column is generated now. R-002: silence and "they
+       didn't want it" must never look alike on a printed sheet, and an empty cell is
+       exactly them looking alike. The reasoning behind the old empty cell is
+       unchanged and still holds: cnBinsForFeet floors at 1, so a confident "1" for a
+       house nobody has measured is a guess wearing a number. */
+    check('warehouse', 'a house with no feet on file says none in the Bins cell',
+      (sheet.rows.find(r => /^Owen Hale/.test(r.what)) || {}).numberOfBins === 'none',
+      'rows: ' + JSON.stringify(sheet.rows.map(r => ({what: r.what, bins: r.numberOfBins}))));
     check('warehouse', 'a measured house does get its bin count',
-      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bins === '1',
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).numberOfBins === '1',
       '240 ft is one bin');
     /* ⭐ AND THE CUSTOMER NUMBER RIDES BESIDE THE NAME (2026-08-21). Owner: "costumer
        # should also show next to costumers name." A house with no number yet shows the
@@ -4578,18 +4638,24 @@ if (!JSDOM) {
       (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).what === 'Nadia Brooks',
       'a trailing # with nothing after it reads as a missing value, not an absent one');
     check('warehouse', 'the bundle count on paper is the same one on screen',
-      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bundles === '6',
-      'got ' + JSON.stringify((sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).bundles));
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).measuredFeet === '6',
+      'got ' + JSON.stringify((sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).measuredFeet));
     /* ⚠ THE SUMMARY MUST STILL ADD UP once the cell can carry a marker. Number("3 est")
        is NaN, which would drop that house out of the morning's total silently. */
     check('warehouse', 'a marked bundle count still totals correctly',
       (parseInt('+3', 10) || 0) === 3 && (parseInt('3 est', 10) || 0) === 3 &&
-      /parseInt\(r\.bundles, 10\)/.test(extractFn(admin, 'whPrintBuildSheet')),
-      'the build sheet summary reads the Bundles cell with parseInt, not Number');
-    check('warehouse', 'a house that wants a timer says YES in the timer column',
-      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).timer === 'YES');
+      /parseInt\(r\.measuredFeet, 10\)/.test(extractFn(admin, 'whPrintBuildSheet')),
+      'the build sheet summary reads the Bundles cell with parseInt, not Number — ' +
+      'and reads it under the key the generated column actually uses');
+    /* ⚠ "Yes", NOT "YES", since 2026-08-24. Both build sheets render the timer
+       through one presenter now; this one used to print YES-or-BLANK and the
+       Printing tab's printed Yes/No/?, so one sheet could not tell "no timer" from
+       "nobody asked" and the other could. One answer, and it is the one that can
+       say all three things. */
+    check('warehouse', 'a house that wants a timer says so in the timer column',
+      (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).outletTimer === 'Yes');
     check('warehouse', 'buffer stock prints its label and quantity',
-      sheet.rows[2].what === 'Spare sets' && sheet.rows[2].bundles === 3);
+      sheet.rows[2].what === 'Spare sets' && sheet.rows[2].measuredFeet === 3);
 
     const table = whSheetTable(sheet.rows, sheet.columns);
     /* Numeric columns carry class="num" so they right-align on paper, which is
@@ -4909,7 +4975,14 @@ if (!JSDOM) {
       PAYMENT_TERMS_DAYS: 14
     };
     const names = Object.keys(ctx);
+    /* ⭐ THE OPTION REGISTRY (2026-08-24). The invoice's footage line takes its unit
+       from the registry, and its standing instructions — "Mailed invoice: Yes" —
+       are generated from every `invoice` option that does not affect the price. So
+       the real registry goes into this sandbox rather than a stub: the claim worth
+       making is that a customer who asked for a posted bill sees it ON the bill,
+       and a stub would happily agree with itself about that. */
     const fn = new Function(...names,
+      OPTIONS_SANDBOX_SRC() + '\n' +
       fmtMoneySrc + '\n' + contactPrefsSrc + '\n' + biSrc + '\nreturn buildInvoiceDocHtml;'
     )(...names.map(n => ctx[n]));
     return fn;
@@ -19545,8 +19618,15 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the column definitions are there', colsAt !== -1);
 
   if (colsAt !== -1) {
-    const COLS = eval('(' + admin.slice(admin.indexOf('{', colsAt),
-      admin.indexOf(String.fromCharCode(10) + '};', colsAt) + 2) + ')');
+    /* ⚠ THE LITERAL IS NOT A LITERAL ANY MORE (2026-08-24). Every option column on
+       these sheets is `optSheetColumns(...)` now, so evaluating the block needs the
+       registry with it. Supplied explicitly through new Function rather than left to
+       whatever an earlier suite happened to leave lying around in the global scope —
+       a check that passes because of another suite's leak is one that fails the day
+       somebody reorders the file, which is the trap CLAUDE.md warns about. */
+    const COLS = new Function(OPTIONS_SANDBOX_SRC() + '\nreturn (' +
+      admin.slice(admin.indexOf('{', colsAt),
+        admin.indexOf(String.fromCharCode(10) + '};', colsAt) + 2) + ');')();
     const keys = (k) => (COLS[k] || []).map(c => c.k).join(',');
 
     check('S104', 'recycle is just the name and the number',
@@ -19560,19 +19640,30 @@ suite('Suite 104. The Printing tab');
        instruction did say "feet of the house"; this supersedes it. Bundles is derived
        from feet, so printing both asked the warehouse to check a sum that was never
        theirs to check, and bundles is the one they actually count off a shelf. */
+    /* ⚠ THE KEYS ARE THE REGISTRY'S FIELD NAMES NOW (2026-08-24), because the
+       columns are generated: `lights` is `lightsDescription`, `wire` is `wireColor`,
+       `timer` is `outletTimer`, `bundles` is `measuredFeet` — feet as the warehouse
+       is asked to read it — and Bins joined the sheet, which the Warehouse tab has
+       carried since 2026-08-21 and this one never did. */
     check('S104', 'the build list carries everything the warehouse makes up',
-      keys('build').indexOf('number,name,lights,wire,timer,bundles') === 0,
+      keys('build') ===
+        'number,name,numberOfBins,lightsDescription,wireColor,measuredFeet,outletTimer,putInto',
       'got ' + keys('build'));
+    /* ⚠ STILL NO FOOTAGE ON THE SHEET. The check has to be about what PRINTS, not
+       about the key: `measuredFeet` is the key of the Bundles column, so searching
+       the keys for "feet" now matches the very column that replaced it. The label is
+       what the warehouse reads. */
     check('S104', 'and the build list does NOT carry feet',
-      keys('build').indexOf('feet') === -1,
-      'feet is the office number - it prices the job and sizes the bins');
+      (COLS.build || []).every(c => !/feet|ft\b/i.test(c.label)),
+      'feet is the office number - it prices the job and sizes the bins; got ' +
+        (COLS.build || []).map(c => c.label).join(','));
     /* ⭐ AND ONE MORE AFTER THEM (added 2026-08-20). A top-up build joins a bin that
        is already on the shelf, and a finished bundle nobody can place is the thing that
        goes wrong in a warehouse. It is blank on every ordinary row, so the ones that
        need it stand out. NOT written into the blank column on the right, which is where
        the warehouse ticks the row off. */
     check('S104', 'and says whose bin a top-up bundle goes into',
-      keys('build') === 'number,name,lights,wire,timer,bundles,putInto',
+      keys('build').endsWith(',putInto'),
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -19592,96 +19683,146 @@ suite('Suite 104. The Printing tab');
        2026-08-21 ("Bin # is how many bins were making for them"), and Cust # already
        carries the label. It sits third, beside the identity columns, because loading
        the van happens before driving anywhere. */
+    /* ⚠ REGISTRY FIELD NAMES, same as the build sheet above. The ORDER is still the
+       thing being asserted, and it is now declared in js/options.js as `sheetOrder`
+       rather than by the position of a line in a column list — so this check is what
+       stops somebody reordering the registry and quietly moving Notes into the
+       middle of the sheet. */
     check('S104', 'the crew list carries what the van needs, timer before notes',
-      keys('crew') === 'number,name,bins,address,city,gate,sides,eaves,timer,notes',
+      keys('crew') ===
+        'number,name,numberOfBins,address,city,gateCode,houseSides,useEaves,outletTimer,notes',
       'got ' + keys('crew'));
     check('S104', 'and Bins is a column of its own, not folded into the notes',
-      keys('crew').indexOf('bins') !== -1 &&
-      keys('crew').indexOf('bins') < keys('crew').indexOf('notes'),
+      keys('crew').indexOf('numberOfBins') !== -1 &&
+      keys('crew').indexOf('numberOfBins') < keys('crew').indexOf('notes'),
       'how many bins to load is a number, and anything after Notes is lost');
     check('S104', 'gate and sides sit BEFORE the wide notes column',
-      keys('crew').indexOf('gate,sides') < keys('crew').indexOf('notes'),
+      keys('crew').indexOf('gateCode,houseSides') < keys('crew').indexOf('notes'),
       'anything after Notes is lost against a wall of writing');
+    /* ⭐ AND THE TWO PROSE ANSWERS ARE STILL FOLDED, NOT GIVEN COLUMNS (2026-08-24).
+       Addie refused an eleven-column sheet; the which-outlet instruction and the
+       one-time note fold into Notes. Now that columns are generated, "somebody
+       removes foldInto" is a one-word edit that widens the printed sheet, so the
+       absence is asserted rather than assumed. */
+    check('S104', 'the prose answers fold into Notes instead of taking columns',
+      keys('crew').indexOf('specificOutlet') === -1 &&
+      keys('crew').indexOf('oneTimeNote') === -1,
+      'got ' + keys('crew') + ' — the sheet is a fixed width of paper');
   }
 
-  /* ---- the crew row builder, RUN rather than read ---- */
+  /* ---- the crew row builder, RUN rather than read ----
+     ⭐ REWRITTEN 2026-08-24. This used to lift four small helpers — printGateCode,
+     printSideCount, printCrewNotes, printBinCount — and test each on its own.
+     Three of them are gone: the registry renders the gate code, the side count and
+     the folded note, so testing them separately would be testing code that no
+     longer decides anything. What is tested here is the ROW THAT ACTUALLY PRINTS,
+     which is the stronger claim and the one the four helpers were only ever proxies
+     for. The registry goes in whole, never stubbed: "the crew sheet and the
+     warehouse sheet get the same bin count out of the same rule" is the point, and
+     a stub would agree with itself. */
   {
-    const need = ['printGateCode', 'printSideCount', 'printCrewNotes', 'printBinCount'];
-    const srcs = need.map(n => extractFn(admin, n));
-    check('S104', 'the crew-sheet helpers are all there', srcs.every(Boolean),
-      need.filter((n, i) => !srcs[i]).join(', ') + ' missing');
+    const rowSrc = extractFn(admin, 'printCrewRow');
+    check('S104', 'the crew row builder is there', !!rowSrc,
+      'printCrewRow missing — the crew sheet has no rows');
 
-    if (srcs.every(Boolean)) {
-      /* ⚠ houseSideCount LIFTED, not stubbed. A hand-written stub would not read the
-         old array shape, and "the sheet agrees with the schedule about sides" is
-         exactly the claim being made here — a stub of it proves nothing. */
+    if (rowSrc) {
       const sb = new Function(
+        OPTIONS_SANDBOX_SRC() +
         'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
-        /* ⚠ THE REAL cnBinsForFeet, out of js/money.js, not a local ceil. The claim
-           being made is that the crew sheet and the warehouse sheet get the SAME
-           number out of the SAME rule; a second copy of the arithmetic here would
-           agree with itself and prove nothing. */
-        cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
+        extractFn(admin, 'whBinsForHouse') +
         extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
-        srcs.join('') + 'return {g: printGateCode, s: printSideCount, ' +
-        'n: printCrewNotes, b: printBinCount};'
+        extractFn(admin, 'printBinCount') + extractFn(admin, 'printYesNo') +
+        extractFn(admin, 'printOptionYesNo') +
+        'const printCustData = function(h){ return (h && h.cust) || {}; };' +
+        rowSrc + 'return printCrewRow;'
       )();
+      const row = (cust, plan) => sb(Object.assign({ cust: cust || {} }, plan || {}));
 
       check('S104', 'the bin count is the real bin rule, not a second one',
-        sb.b({ measuredFeet: 260 }) === '1' && sb.b({ measuredFeet: 261 }) === '2' &&
-        sb.b({ measuredFeet: 521 }) === '3',
+        row({ measuredFeet: 260 }).numberOfBins === '1' &&
+        row({ measuredFeet: 261 }).numberOfBins === '2' &&
+        row({ measuredFeet: 521 }).numberOfBins === '3',
         'the crew loading two bins for a house the warehouse built one for is a van ' +
         'that leaves without half the lights');
-      /* ⚠ BLANK, NEVER "1". cnBinsForFeet floors at 1, so an unmeasured house would
-         otherwise print a confident single bin — a guess wearing a number, and the
-         warehouse sheet already refuses to make it. */
-      check('S104', 'a house nobody has measured prints nothing, not a confident 1',
-        sb.b({}) === '' && sb.b({ measuredFeet: 0 }) === '',
-        'got ' + JSON.stringify(sb.b({})));
+      /* ⚠ NEVER A CONFIDENT "1". cnBinsForFeet floors at 1, so an unmeasured house
+         would otherwise print a single bin — a guess wearing a number, and the
+         warehouse sheet has always refused to make it.
+         ⚠ It says `none` rather than printing nothing at all since 2026-08-24: an
+         empty cell is exactly the silence R-002 exists to stop, and the missing
+         fact here is the FOOTAGE, which is required in its own right. */
+      check('S104', 'a house nobody has measured says none, not a confident 1',
+        row({}).numberOfBins === 'none' && row({ measuredFeet: 0 }).numberOfBins === 'none',
+        'got ' + JSON.stringify(row({}).numberOfBins));
       check('S104', 'a moved bin label is named beside the count',
-        sb.b({ measuredFeet: 300, customerNumber: '5051', binLabelNumber: '894' })
-          .indexOf('bin says #894') !== -1,
+        row({ measuredFeet: 300, customerNumber: '5051', binLabelNumber: '894' })
+          .numberOfBins.indexOf('bin says #894') !== -1,
         'the Cust # column is exactly the number that will not be found');
       /* ⚠ AND ONLY WHEN IT REALLY MOVED. Stamping every row with a bin number the
          crew can already read off the Cust # column is noise, and noise in a column
          is how the one row that matters stops being noticed. */
       check('S104', 'and stays quiet when it did not move',
-        sb.b({ measuredFeet: 300, customerNumber: '894', binLabelNumber: '894' }) === '2' &&
-        sb.b({ measuredFeet: 300, customerNumber: '894' }) === '2',
-        'got ' + JSON.stringify(sb.b({ measuredFeet: 300, customerNumber: '894',
-          binLabelNumber: '894' })));
+        row({ measuredFeet: 300, customerNumber: '894', binLabelNumber: '894' }).numberOfBins === '2' &&
+        row({ measuredFeet: 300, customerNumber: '894' }).numberOfBins === '2',
+        'got ' + JSON.stringify(row({ measuredFeet: 300, customerNumber: '894',
+          binLabelNumber: '894' }).numberOfBins));
 
       check('S104', 'a gate code reaches the printed sheet',
-        sb.g({ gateCode: '4412' }) === '4412',
+        row({ gateCode: '4412' }).gateCode === '4412',
         'this is the whole point — it lived only in the portal nobody is using');
-      /* ⚠ NOT the word "none". The record cannot tell "no gate" from "there is a
-         gate and nobody asked", so a confident "none" claims a fact we do not have. */
-      check('S104', 'no gate code prints a dash, not a confident "none"',
-        sb.g({}) === '\u2014' && sb.g({ gateCode: '  ' }) === '\u2014',
-        'got ' + JSON.stringify(sb.g({})));
+      /* ⚠ `none`, WHERE THIS ONCE PRINTED AN EM DASH. The old reasoning was that the
+         record cannot tell "no gate" from "there is a gate and nobody asked", so a
+         confident "none" claims a fact we do not have — a fair point, and the reason
+         three different spellings of nothing existed on one sheet. R-002 and plan
+         §3.4 both name `none`, and it is now one word in ONE place (NO_ANSWER in
+         js/options.js), so changing Addie's mind about it is a single edit. What
+         must never come back is a BLANK cell. */
+      check('S104', 'no gate code says none, and never a blank cell',
+        row({}).gateCode === 'none' && row({ gateCode: '  ' }).gateCode === 'none',
+        'got ' + JSON.stringify(row({}).gateCode));
 
       check('S104', 'the side count always prints, and matches houseSideCount',
-        sb.s({ houseSides: 3 }) === '3' && sb.s({}) === '1' &&
-        sb.s({ houseSides: ['front', 'left'] }) === '2',
+        row({ houseSides: 3 }).houseSides === '3' && row({}).houseSides === '1' &&
+        row({ houseSides: ['front', 'left'] }).houseSides === '2',
         'the sheet disagreeing with the schedule about sides is two answers for one house');
 
-      const full = sb.n({ specificOutletNotes: 'lower outlet by door',
-                          oneTimeNote: 'ring the bell', notes: 'dog in the back' }, {});
+      /* ⚠ AN UNANSWERED YES/NO IS NOT A NO. Addie, 2026-08-21 — this turned a blank
+         into a confident No, so a customer who wanted a timer and was never asked
+         printed as a definite No and did not get one. On a season where the printed
+         sheet is the ONLY thing the crew sees, that is the paper answering a question
+         on the customer's behalf. */
+      check('S104', 'an answered yes/no prints the answer',
+        row({ outletTimer: 'Yes' }).outletTimer === 'Yes' &&
+        row({ useEaves: false }).useEaves === 'No',
+        'an explicit no is an answer and must not be turned into a shrug');
+      check('S104', 'and an unanswered one never prints a confident No',
+        row({}).outletTimer === 'none' && row({}).useEaves === 'none',
+        'got ' + JSON.stringify(row({}).outletTimer));
+
+      const full = row({ specificOutlet: 'Yes', specificOutletNotes: 'lower outlet by door',
+                         oneTimeNote: 'ring the bell', notes: 'dog in the back' }).notes;
       check('S104', 'the outlet instruction and the one-time note reach the sheet',
         full.indexOf('lower outlet by door') !== -1 && full.indexOf('ring the bell') !== -1,
         'both lived only in the crew portal: ' + full);
       /* ⚠ ORDER IS THE RULE, not presence. Both change what the crew DOES at the
-         house; buried under a paragraph about the dog they may as well not be there. */
+         house; buried under a paragraph about the dog they may as well not be there.
+         It is declared in js/options.js now (foldInto / foldPrefix) rather than in a
+         hand-written notes builder, and this is what holds it there. */
       check('S104', 'the two actionable lines lead, the standing note follows',
         full.indexOf('OUTLET') < full.indexOf('dog') &&
         full.indexOf('TODAY') < full.indexOf('dog'),
         'got ' + full);
       check('S104', 'both are labelled, so neither reads as part of the standing note',
         full.indexOf('OUTLET:') !== -1 && full.indexOf('TODAY:') !== -1, full);
-      check('S104', 'a customer with nothing to say prints an empty note, not labels',
-        sb.n({}, {}) === '', 'got ' + JSON.stringify(sb.n({}, {})));
+      /* ⚠ AND A CUSTOMER WHO SAID NO TO A SPECIFIC OUTLET FOLDS NOTHING. "OUTLET: No"
+         tells the crew nothing — using the nearest outlet is what happens with no
+         instruction at all — so the fold carries the INSTRUCTION or nothing. */
+      check('S104', 'a No to the outlet question folds nothing into the note',
+        row({ specificOutlet: 'No', notes: 'dog in the back' }).notes === 'dog in the back',
+        'got ' + JSON.stringify(row({ specificOutlet: 'No', notes: 'dog in the back' }).notes));
+      check('S104', 'a customer with nothing to say still prints none, never a blank',
+        row({}).notes === 'none', 'got ' + JSON.stringify(row({}).notes));
       check('S104', 'the plan\'s own note is used when the record has none',
-        sb.n({}, { details: 'from the imported plan' }) === 'from the imported plan',
+        row({}, { details: 'from the imported plan' }).notes === 'from the imported plan',
         'an imported row carries its note in `details`');
     }
   }
@@ -20027,21 +20168,25 @@ suite('Suite 104. The Printing tab');
       'const customerForHouse = function(h){ return {data: h.cust || {}}; };' +
       'const customerPhotoList = function(){ return []; };' +
       'const schedOpenPrintPages = function(t, pages){ out.push({title: t, pages: pages}); };' +
-      /* ⚠ LIFTED, NOT STUBBED (2026-08-21). printCrewDayList now fills Gate, Sides
-         and a folded Notes, and a stub of those is a stub of the fix that put the
-         gate code on paper at all. houseSideCount comes with them because
-         printSideCount reads it. */
-      extractFn(admin, 'printGateCode') + extractFn(admin, 'printSideCount') +
-      extractFn(admin, 'printCrewNotes') +
+      /* ⚠ LIFTED, NOT STUBBED (2026-08-21). printCrewDayList fills Gate, Sides and a
+         folded Notes, and a stub of those is a stub of the fix that put the gate
+         code on paper at all.
+         ⭐ THE THREE SMALL HELPERS THAT USED TO BE LIFTED HERE ARE GONE (2026-08-24)
+         — printGateCode, printSideCount and printCrewNotes. The registry renders all
+         three, so the REGISTRY is what comes in instead, whole and unstubbed. It has
+         to be first: PRINT_COLUMNS below calls optSheetColumns while it is being
+         evaluated, not later. */
+      OPTIONS_SANDBOX_SRC() +
       /* ⚠ AND THE BIN COUNT, ALL THE WAY DOWN TO cnBinsForFeet OUT OF js/money.js.
          A stubbed whBinsForHouse would prove the column renders and nothing about
          whether the crew and the warehouse are told the same number, which is the
          only claim worth making here. */
-      cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
+      extractFn(admin, 'whBinsForHouse') +
       extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
       extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
-      extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +
+      extractFn(admin, 'printYesNo') + extractFn(admin, 'printOptionYesNo') +
+      extractFn(admin, 'printCustData') +
       extractFn(admin, 'printIsNewHang') + extractFn(admin, 'printCrewPhotos') +
       extractFn(admin, 'printDensityClass') +
       extractFn(admin, 'printPhotosHtml') + extractFn(admin, 'printTableHtml') +
@@ -20132,9 +20277,21 @@ suite('Suite 104. The Printing tab');
      holds, so the sheet is what gets asserted. */
   /* ⚠ AND ON THE PAGE, not just in the helper. The fixture's crew-1 house answers
      the timer and says nothing about eaves, so the sheet must show both states. */
-  check('S104', 'the printed sheet shows "?" where nobody was asked',
-    /<td>\?<\/td>/.test(crewBody),
+  /* ⚠ "none", NOT "?", SINCE 2026-08-24 — and the claim is unchanged: the sheet
+     must SAY that nobody was asked, rather than leaving a blank cell or, worse,
+     printing a confident No. Three spellings of nothing used to share this one
+     sheet ("?" for a yes/no, an em dash for the gate code, an empty cell for the
+     bins); they are one word from one place now, so Addie changing her mind about
+     which word is a single edit in js/options.js. */
+  check('S104', 'the printed sheet says so where nobody was asked',
+    /<td>none<\/td>/.test(crewBody),
     'the eaves question is unanswered for this house and the sheet should say so');
+  /* ⚠ NO CHECK HERE FOR "no cell is ever blank", though it is tempting. The
+     IDENTITY columns — address, city — are legitimately blank on a plan row that
+     carries only a name, and R-002 governs OPTIONS, not identity. A file-wide scan
+     for an empty cell fails on that and teaches everyone to ignore it. The rule is
+     asserted where it can be stated precisely: on the generated row, in the crew-row
+     block above ("a customer with nothing to say still prints none"). */
   check('S104', 'and still shows a real answer where there is one',
     /<td>Yes<\/td>/.test(crewBody),
     'the same house answered the timer');
@@ -21314,9 +21471,34 @@ suite('Suite 107. Pricing a re-quote from the popup');
        the Printing tab's sheet was caught — the exact asymmetry CLAUDE.md already
        warns about: there are two build sheets and this is the one with thinner
        cover. Both are asserted now. */
+    /* ⚠ EVALUATED, NOT MATCHED, SINCE 2026-08-24. Every answer column on this sheet
+       is generated from js/options.js, so there is no `key:'bundles'` in the source
+       to find — searching for one reports the column missing while it prints
+       perfectly. What the warehouse reads is the LABEL, so that is what is asserted;
+       the key underneath it is the registry's field name (`measuredFeet` — feet as
+       the warehouse is asked to read it, which is bundles). */
+    const WHCOLS = new Function(OPTIONS_SANDBOX_SRC() + '\nreturn ' +
+      admin.slice(admin.indexOf('const WH_BUILD_COLUMNS = [') + 'const WH_BUILD_COLUMNS = '.length,
+                  admin.indexOf('\n]);', admin.indexOf('const WH_BUILD_COLUMNS = [')) + 3) + ';')();
+    const whLabels = WHCOLS.map(c => c.label);
+    const whKeys = WHCOLS.map(c => c.key);
     check('S107', 'the warehouse tab' + String.fromCharCode(8217) + 's build sheet counts bundles',
-      /key:'bundles'/.test(cols),
-      'bundles is what somebody counts off a shelf');
+      whLabels.indexOf('Bundles') !== -1,
+      'bundles is what somebody counts off a shelf; got ' + whLabels.join(','));
+    /* ⭐ AND BOTH BUILD SHEETS CARRY THE SAME ANSWER COLUMNS (2026-08-24). This is
+       the check the two-build-sheets warning above has wanted all along: they are
+       generated from one list now, so they cannot drift, and this fails if either
+       one goes back to writing its own. */
+    check('S107', 'and both build sheets carry the same answer columns',
+      (function(){
+        const reg = new Function(OPTIONS_SANDBOX_SRC() +
+          "return sheetColumns('pullList').map(function(c){ return c.label; });")();
+        /* Every registry column reaches this sheet except the light colour, which is
+           the GROUP heading here — the rows are grouped by pattern, so a column
+           repeating it on every row is the sum nobody was asked to check. */
+        return reg.filter(l => l !== 'Light color').every(l => whLabels.indexOf(l) !== -1);
+      })(),
+      'got ' + whLabels.join(','));
     /* ⭐ AND Bin # BECAME A COUNT (2026-08-21). Owner: "Bin # is how many bins were
        making for them but costumer # should also show next to costumers name." The
        column used to hold the CUSTOMER number under a header reading Bin # — true in
@@ -21326,15 +21508,18 @@ suite('Suite 107. Pricing a re-quote from the popup');
        the row-builder checks below all passed, because they assert what fills the
        cell and not what the cell is called. */
     check('S107', 'the Bins column is a count, headed Bins',
-      /key:'bins', label:'Bins'/.test(cols),
-      'got the column list without a Bins key');
+      whLabels.indexOf('Bins') !== -1 && whKeys.indexOf('numberOfBins') !== -1,
+      'got ' + whLabels.join(','));
     check('S107', 'and the old Bin # header is gone from the BUILD sheet',
-      !/label:'Bin #'/.test(cols),
+      whLabels.indexOf('Bin #') === -1,
       'Bin # now reads as a quantity, so a header saying it holds a number is a lie. ' +
       'WH_RECYCLE_COLUMNS keeps its own "Bin # to find" - that one IS the painted ' +
       'number, because finding a bin on a shelf is what it is for');
+    /* ⚠ THE LABEL AGAIN, NOT THE KEY. `measuredFeet` IS the key of the Bundles
+       column now, so a key search for "feet" matches the very column that replaced
+       the one being guarded against. */
     check('S107', 'and does NOT also carry feet',
-      !/key:'feet'/.test(cols),
+      whLabels.every(l => !/feet|ft\b/i.test(l)),
       'feet is the office number - it prices the job and sizes the bins, and bundles ' +
       'is derived from it, so printing both asks the warehouse to check a sum that ' +
       'was never theirs');
@@ -21346,18 +21531,46 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'the printed Needs Building list asks the same function',
       /houseBundleNeed\(d\)/.test(src) && /whPutIntoLabel\(d\)/.test(src),
       'two builders of one list is how a printout starts disagreeing with the screen');
-    /* ⚠ This builder names the flag `isTopUp`; the warehouse tab's names it
-       need.topUp. Matching the warehouse's spelling here failed even though the
-       behaviour was right — a reminder that these two source-shape checks are
-       reading two different functions. */
+    /* ⭐ THE MARKERS MOVED INTO whPullPresenters (2026-08-24) — ONE COPY, SHARED BY
+       BOTH BUILD SHEETS. They used to be written out separately in each builder, and
+       this pair of checks read only the Printing tab's copy, with a comment noting
+       the two spellings had already disagreed once. That is the drift; it is gone.
+       ⚠ RUN, NOT MATCHED. A source check for the "+" passed while the whole cell was
+       keyed wrongly and printed undefined — which is how the build-sheet summary
+       came to total 0 bundles for a full morning during this very change. */
+    const present = new Function('d',
+      OPTIONS_SANDBOX_SRC() +
+      /* ⚠ THE SAFETY MARGIN COMES WITH estimateFeetFromPrice. It is a bare const
+         declared beside the function rather than inside it, so lifting the function
+         alone dies with a ReferenceError naming something nobody can place — the
+         exact shape sandboxDeps was built to report. Read out of the real file, not
+         typed here, so it cannot drift from the value production uses. */
+      (admin.match(/const FEET_ESTIMATE_SAFETY = [\d.]+;/) || [''])[0] +
+      'const perFootRate = 4;' + (admin.match(/const FEET_PER_BUNDLE = \d+;/) || [''])[0] +
+      extractFn(admin, 'estimateFeetFromPrice') + extractFn(admin, 'houseBundleNeed') +
+      extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
+      extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whWireLabel') +
+      extractFn(admin, 'whPullPresenters') +
+      'return sheetRow("pullList", d, whPullPresenters(d));');
+    check('S107', 'both build sheets read one set of presenters',
+      /whPullPresenters\(d\)/.test(src) &&
+      /whPullPresenters\(d\)/.test(extractFn(admin, 'whSheetRowsForBuild')),
+      'two builders of one list is how a printout starts disagreeing with the screen');
     check('S107', 'and marks a top-up row with a plus so it cannot read as a whole house',
-      /isTopUp \? '\+' : ''/.test(src) && /need\.bundles/.test(src),
-      '3 in the Bundles column of a 300 ft house is a wrong number, not a short one');
+      present({ measuredFeet: 300, buildTopUpFromFeet: 180 }).measuredFeet.indexOf('+') === 0,
+      '3 in the Bundles column of a 300 ft house is a wrong number, not a short one — ' +
+      'got ' + JSON.stringify(present({ measuredFeet: 300, buildTopUpFromFeet: 180 }).measuredFeet));
     /* ⚠ AND SAYS WHEN THE COUNT IS A GUESS. With no measured footage the number is
        worked back from the price; a warehouse told "3" makes 3 and finds out later. */
     check('S107', 'and marks an estimated count as an estimate',
-      /need\.estimated \? ' est' : ''/.test(src),
-      'dropping the Feet column dropped this warning with it, once');
+      / est$/.test(present({ housePrice: 800 }).measuredFeet),
+      'dropping the Feet column dropped this warning with it, once — got ' +
+      JSON.stringify(present({ housePrice: 800 }).measuredFeet));
+    /* ⚠ AND A PLAIN HOUSE CARRIES NEITHER MARKER, or every row wears the warning and
+       the two that mean something stop being noticed. */
+    check('S107', 'and an ordinary measured house is marked with neither',
+      /^\d+$/.test(present({ measuredFeet: 300 }).measuredFeet),
+      'got ' + JSON.stringify(present({ measuredFeet: 300 }).measuredFeet));
   }
 
   /* ⭐ A HOUSE FLAGGED TO BUILD WITH NO COLOURS ON FILE USED TO VANISH. Owner, having
@@ -21429,8 +21642,16 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const sheet = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
       /* Lifted with the row builder they belong to: the Bin # column is a COUNT now
-         and the customer number rides beside the name. */
-      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+         and the customer number rides beside the name.
+         ⭐ AND THE REGISTRY (2026-08-24), because the answer cells on this sheet are
+         generated. ⚠ The hand-written cnBinsForFeet that used to sit here has gone
+         with it: the registry brings the real one out of js/money.js, and a local
+         copy of the 260-foot rule beside it is exactly the duplicated constant R-014
+         forbids — two definitions, and this one would keep the suite green through a
+         change to the real one. */
+      OPTIONS_SANDBOX_SRC() +
+      extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
+      extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whPullPresenters') +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
@@ -21454,8 +21675,8 @@ suite('Suite 107. Pricing a re-quote from the popup');
       blockedRow[0] && /#894/.test(blockedRow[0].what),
       'got ' + JSON.stringify(blockedRow[0] && blockedRow[0].what));
     check('S107', 'and the Bins column is a count, not that number',
-      blockedRow[0] && blockedRow[0].bins === '2',
-      '300 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].bins));
+      blockedRow[0] && blockedRow[0].numberOfBins === '2',
+      '300 ft is two bins - got ' + JSON.stringify(blockedRow[0] && blockedRow[0].numberOfBins));
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
@@ -22910,7 +23131,13 @@ suite('Suite 112. The number on the bin');
   {
     const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
-      'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
+      /* ⭐ THE REGISTRY, and the real cnBinsForFeet with it (2026-08-24). The local
+         copy of the 260-foot rule that used to sit here was a second definition of a
+         business constant — R-014 — and would have kept this suite green through a
+         change to the real one. */
+      OPTIONS_SANDBOX_SRC() +
+      extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
+      extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whPullPresenters') +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
@@ -22934,8 +23161,8 @@ suite('Suite 112. The number on the bin');
     /* ⚠ 120 extra feet is 3 bundles — houseBundleNeed does the subtraction, so this
        is the add-on's count and not the whole house's. */
     check('S112', 'and still names whose bin, and how much to make',
-      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.bundles === '+3',
-      'got ' + JSON.stringify(addOn && addOn.bundles));
+      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.measuredFeet === '+3',
+      'got ' + JSON.stringify(addOn && addOn.measuredFeet));
     check('S112', 'and their own note is not thrown away for it',
       /GOES INTO THE BIN[\s\S]*ladder round the back/.test(
         build({name: 'A', customerNumber: '9', needsLightBuild: true,
@@ -22962,15 +23189,25 @@ suite('Suite 112. The number on the bin');
 
     /* And the Printing tab's copy of the same list. */
     {
-      const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
+      /* ⚠ printLightColor AND printYesNo ARE NO LONGER PARAMETERS (2026-08-24). This
+         list renders its answers through the registry and whPullPresenters, which are
+         the same presenters the warehouse tab's sheet uses — so the REAL ones come in
+         rather than the two stubs that used to be passed here. That is the point of
+         the change: the two build sheets could not previously be shown to spell one
+         answer the same way, and stubbing them here is exactly how that stayed
+         invisible. */
+      const list = new Function('jobAddresses',
         'houseBundleNeed', 'whPutIntoLabel',
+        OPTIONS_SANDBOX_SRC() +
+        extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
+        extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whWireLabel') +
+        extractFn(admin, 'whPullPresenters') +
         (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
                           needsLightBuild: true, measuredFeet: 300,
-                          buildTopUpFromFeet: 180}}],
-        () => 'Warm White', () => 'No',
+                          buildTopUpFromFeet: 180, lightsDescription: 'Warm White'}}],
         new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
         new Function('d', extractFn(admin, 'houseBundleNeed') +
           extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'));
@@ -22981,8 +23218,8 @@ suite('Suite 112. The number on the bin');
       /* ⚠ need.bundles is ALREADY the add-on's count — houseBundleNeed does the
          subtraction — so 120 extra feet is 3 bundles, not the whole house's 8. */
       check('S112', 'and marks the bundle count as an addition, not the whole house',
-        out[0].bundles === '+3',
-        'got ' + JSON.stringify(out[0].bundles));
+        out[0].measuredFeet === '+3',
+        'got ' + JSON.stringify(out[0].measuredFeet));
       /* ⭐ AND THIS LIST HAD NO SEASON RULE AT ALL (2026-08-22). Owner: "back next
          year ... won't be approved for this year?" The warehouse SCREEN dropped them
          and the printed sheet beside it did not, so the paper listed people the screen
@@ -22994,7 +23231,6 @@ suite('Suite 112. The number on the bin');
           [{id: 'z', data: Object.assign({name: 'Out', customerNumber: '9',
                                           needsLightBuild: true, lightsDescription: 'Warm',
                                           measuredFeet: 200}, extra)}],
-          () => 'Warm White', () => 'No',
           new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
           function(){ return ''; });
         check('S112', 'the printed list drops somebody badged Maybe Next Year',
@@ -24489,12 +24725,40 @@ suite('Suite 80. A blank is a blank, and a default is a default');
     "customer who never read the question was recorded as having said no to it. Once " +
     "that is on the record it cannot be told apart from a real answer");
 
-  check('S80', 'and an unanswered one is stored blank, not as a No',
-    /outletTimer: fd.get\(.outlet_timer.\) \|\| ..,/.test(idx) &&
-    /specificOutlet: fd.get\(.specific_outlet.\) \|\| ..,/.test(idx) &&
-    !/fd.get\(.outlet_timer.\) \|\| .No./.test(idx),
-    'owner: yes and no questions dont have a default answer though just leave ' +
-    'those blank if unanswered');
+  /* ⚠ REWRITTEN 2026-08-24, WHEN THE FORM STARTED GENERATING ITSELF. This used to
+     match the two source lines `outletTimer: fd.get('outlet_timer') || ''` — a
+     source-string assertion, which R-017 says not to make and which went red the
+     moment those lines stopped existing, on a change that did not break the rule.
+     The RULE is what is asserted now, in the two places that can still break it:
+     the registry gives neither question a default, and the payload builder never
+     substitutes a hard-coded No for a missing answer. */
+  check('S80', 'neither yes/no question carries a default in the registry',
+    (function(){
+      const reg = new Function(OPTIONS_SANDBOX_SRC() + 'return OPTIONS;')();
+      const timer = reg.find(o => o.id === 'outletTimer');
+      const outlet = reg.find(o => o.id === 'specificOutlet');
+      return !!timer && !!outlet && timer.default == null && outlet.default == null;
+    })(),
+    'a default here is applied by valueOf() everywhere, so declaring one turns ' +
+    '"nobody asked them" into a definite answer on every artifact at once');
+  /* ⚠ SCOPED TO THE SUBMIT HANDLER, and with comments stripped. File-wide, this
+     matched two innocent things: the note above the payload builder explaining what
+     the old code used to do, and `(existing.outletTimer || 'No') !== newOutletTimer`
+     in the portal's change-lights flow — which COMPARES rather than stores, and is
+     how that screen tells whether the answer moved. A check that flags the
+     explanation of a fix as the fix being missing is worse than no check. */
+  {
+    const subAt = idx.indexOf("quoteDetailFormEl.addEventListener('submit'");
+    const submitHandler = subAt === -1 ? '' : idx.slice(subAt, idx.indexOf('\n});', subAt))
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    check('S80', 'the quote submit handler was found', submitHandler.length > 0,
+      'the check below silently passes on nothing if this anchor moves');
+    check('S80', 'and an unanswered one is stored blank, not as a No',
+      submitHandler.length > 0 && !/\|\|\s*['"]No['"]/.test(submitHandler),
+      'owner: yes and no questions dont have a default answer though just leave ' +
+      'those blank if unanswered');
+  }
   check('S80', 'and reading one back does not invent an answer either',
     !/loadedOutletTimer = addrDoc.outletTimer === .Yes. \? .Yes. : .No.;/.test(idx),
     "coercing a blank to No on load writes it back as No the moment they save " +
@@ -26110,26 +26374,40 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             '<form id="f">' +
             '<div id="qdSimpleColorsRow"></div><div id="qdSequenceBuilderWrap"></div>' +
             '<input type="checkbox" id="qdSpecificPatternToggle">' +
-            '<select name="wire_color"><option value="Any"></option><option value="White"></option><option value="Green"></option></select>' +
-            '<select name="install_month"><option value="Normal Schedule"></option><option value="October"></option><option value="November"></option></select>' +
-            '<label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"></label>' +
-            '<label class="radio-pill"><input type="radio" name="outlet_timer" value="No"></label>' +
-            '<label class="radio-pill"><input type="radio" name="specific_outlet" value="Yes"></label>' +
-            '<label class="radio-pill"><input type="radio" name="specific_outlet" value="No"></label>' +
+            /* ⚠ THE FIELDS ARE NAMED FOR THE REGISTRY FIELD THEY WRITE (2026-08-24).
+               The form used to carry its own spellings — install_month, wants_mailed —
+               and the submit handler translated them by hand, which only ever worked
+               for the fields somebody remembered to put in the translation table. The
+               generated form names each input after the field it writes, so a fixture
+               using the old names silently matches nothing and every assertion below
+               it reads a blank input as "the prefill did not run". */
+            '<select name="wireColor"><option value="Any"></option><option value="White"></option><option value="Green"></option></select>' +
+            '<select name="installPreference"><option value="Normal Schedule"></option><option value="October"></option><option value="November"></option></select>' +
+            '<label class="radio-pill"><input type="radio" name="outletTimer" value="Yes"></label>' +
+            '<label class="radio-pill"><input type="radio" name="outletTimer" value="No"></label>' +
+            '<label class="radio-pill"><input type="radio" name="specificOutlet" value="Yes"></label>' +
+            '<label class="radio-pill"><input type="radio" name="specificOutlet" value="No"></label>' +
+            '<label class="radio-pill"><input type="radio" name="useEaves" value="Yes"></label>' +
+            '<label class="radio-pill"><input type="radio" name="useEaves" value="No"></label>' +
             '<div id="specificOutletNotesWrap" style="display:none"><textarea name="specific_outlet_notes"></textarea></div>' +
-            '<input name="gate_code"><textarea name="notes"></textarea>' +
-            '<input type="checkbox" name="wants_mailed">' +
+            '<textarea name="gateCode"></textarea><textarea name="notes"></textarea>' +
+            '<label class="radio-pill"><input type="radio" name="wantsMailedInvoice" value="Yes"></label>' +
+            '<label class="radio-pill"><input type="radio" name="wantsMailedInvoice" value="No"></label>' +
             '</form>');
           const fd = fdom.window.document;
           const box = {};
           new Function('document', 'quoteDetailFormEl', 'QD_COLOR_HEX', 'sb',
+            /* The prefill walks the registry now, so the registry comes with it —
+               the real file, not a stub: which fields it fills, and in what order,
+               IS the thing under test. */
+            OPTIONS_SANDBOX_SRC() + 'var optQuoteFields = quoteFields;' +
             'var qdSimpleColors = [], qdSequence = [];' +
             'function renderQdSimpleColors(){ sb.simple = qdSimpleColors.slice(); }' +
             'function renderQdSequence(){ sb.seq = qdSequence.slice(); }' +
             prefillSrc + 'this.fill = qdPrefillFromMember;'
           ).call(box, fd, fd.getElementById('f'),
                  {'Warm White':1,'Pure White':1,'Red':1,'Green':1,'Blue':1,'Purple':1,'Orange':1,'Pink':1,'Multi':1}, box);
-          fd.querySelector('[name="gate_code"]').value = 'should be cleared';
+          fd.querySelector('[name="gateCode"]').value = 'should be cleared';
           box.fill({lightColors: ['Pure White','Red'], lightsDescription: 'Pure White, Pure White, Red',
                     wireColor: 'Any', outletTimer: 'Yes', specificOutlet: 'Yes',
                     specificOutletNotes: 'back patio', installPreference: 'October',
@@ -26139,15 +26417,15 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             (box.seq || []).join(', ') === 'Pure White, Pure White, Red',
             '"White, White, Red" shown as two ticked circles is a different set of lights');
           check('S70', 'the wire colour, timing and timer they already have are filled in',
-            fd.querySelector('[name="wire_color"]').value === 'Any' &&
-            fd.querySelector('[name="install_month"]').value === 'October' &&
-            fd.querySelector('input[name="outlet_timer"][value="Yes"]').checked === true);
+            fd.querySelector('[name="wireColor"]').value === 'Any' &&
+            fd.querySelector('[name="installPreference"]').value === 'October' &&
+            fd.querySelector('input[name="outletTimer"][value="Yes"]').checked === true);
           check('S70', 'and the outlet box is opened because they use a specific one',
             fd.getElementById('specificOutletNotesWrap').style.display === 'block' &&
             fd.querySelector('[name="specific_outlet_notes"]').value === 'back patio');
           check('S70', 'the gate code box is empty and says an empty box keeps what we have',
-            fd.querySelector('[name="gate_code"]').value === '' &&
-            /keep the code we already have/i.test(fd.querySelector('[name="gate_code"]').placeholder),
+            fd.querySelector('[name="gateCode"]').value === '' &&
+            /keep the gate code we already have/i.test(fd.querySelector('[name="gateCode"]').placeholder),
             'we never send them their own gate code, so it must not look lost either');
           check('S70', 'and so does the notes box',
             /keep the notes we already have/i.test(fd.querySelector('[name="notes"]').placeholder));
@@ -26163,7 +26441,7 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
              Deleting the wire-colour line entirely left that check green. This one
              asserts a value only the prefill can produce. */
           check('S70', 'and the wire colour is really written, not just left on its default',
-            fd.querySelector('[name="wire_color"]').value === 'Green',
+            fd.querySelector('[name="wireColor"]').value === 'Green',
             'filling it in and not filling it in are indistinguishable on the default ' +
             'value, so this is the assertion that actually holds the line');
           /* ⚠ THE TWO DEFENSIVE PATHS, which every fixture above walks straight past.
@@ -26177,10 +26455,10 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
             'so the description has to be read first — but mining colours out of a ' +
             'sentence would drop the half that matters, so an unreadable one falls ' +
             'back to the ticked list rather than guessing at it');
-          fd.querySelector('[name="wire_color"]').value = 'White';
+          fd.querySelector('[name="wireColor"]').value = 'White';
           box.fill({lightColors: ['Red'], lightsDescription: 'Red', wireColor: 'Purple'});
           check('S70', 'a wire colour the form does not offer is refused, not written blank',
-            fd.querySelector('[name="wire_color"]').value === 'White',
+            fd.querySelector('[name="wireColor"]').value === 'White',
             'assigning a select a value it has no option for leaves it showing NOTHING, ' +
             'which then saves as a blank wire colour over a real one');
         }

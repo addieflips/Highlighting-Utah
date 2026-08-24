@@ -718,3 +718,74 @@ October day has room.
 **Resulting map change:** none to the registry — this is scheduler behaviour.
 Covered by six new checks in run-all.js Suite 46 and a rewritten assertion in
 Suite 44.
+
+---
+
+## Q-012 · intent · open · 2026-08-24
+When an option has no answer, what word should the printed sheets use — `none`,
+`?`, or an em dash?
+
+**Blocks:** nothing. `none` is shipped. This is a one-word change if the answer
+differs, and it is asked because it changed paper the crew reads.
+
+**Why it is being asked.** Before Phase 1, one crew sheet carried THREE spellings
+of "we have no answer", each with its own reasoning written down beside it:
+
+- `?` for a yes/no. Addie, 2026-08-21, and her reasoning is the strongest of the
+  three: a defaulted "No" is a question answered on the customer's behalf, and
+  `?` is the master sheet's own word for it — the Up Plug column holds 112 yes,
+  98 `?` and 61 no, so the office already writes a question mark when nobody has
+  asked.
+- an em dash for the gate code, argued in the code as: the record cannot tell
+  "no gate" from "there is a gate and nobody asked", so a confident `none` claims
+  a fact we do not have.
+- an empty cell for the bin count — which is the one nobody defends, and is
+  exactly the silence R-002 exists to stop.
+
+**What was shipped, and why.** `none`, everywhere, from one place. R-002 names
+that word, plan §3.4 names it, and the existing gate test asserts it literally.
+All three spellings mean the same thing operationally — never blank, never a
+defaulted answer — so the tie was broken on the written rule rather than on
+taste. The gain is that there is now ONE spelling in ONE place (`display()` in
+`js/options.js`) instead of three in three files.
+
+**What it costs.** `none` on a yes/no is weaker than `?`: a tired reader can take
+"Timer: none" as "no timer" where "Timer: ?" cannot be misread. That is a real
+loss on the one sheet the crew actually works from, and it is the reason this is
+being asked rather than assumed.
+
+**Answer:**
+
+**Resulting registry change:** if Addie prefers `?` for yes/no questions, it is a
+branch on `option.type` inside `display()` — one function, one place, and every
+artifact follows. The existing assertions that name `none` move with it.
+
+---
+
+## Q-013 · intent · open · 2026-08-24
+The crew sheet now prints a Bins column that the frozen AGREED map said it should
+not. Confirming that is what she wants, since the map is the record of her
+answers.
+
+**Blocks:** nothing — it is shipped, and it matches the sheet the crews have been
+given since 2026-08-22.
+
+The AGREED map in `options-audit.test.js` was frozen on 2026-08-21 and lists
+`numberOfBins` as reaching the customer record, the pull list, routes and the
+schedule — not the crew sheet. On 2026-08-22, the day AFTER, she asked for "crew
+print sheet should also show bin #", meaning a quantity (her own vocabulary from
+the day before: "Bin # is how many bins were making for them"). The sheet has
+carried the column since. So the registry was the half that was out of date, not
+the paper, and wiring the sheet to the registry without amending the map would
+have DELETED a column the crew uses to load the van.
+
+The map was updated, deliberately and with the reasoning written in beside it.
+It is raised here because that file says in as many words: "Update it when she
+changes her mind, never to make a red run go away." This was the first kind and
+not the second, but the file is right that it should be said out loud.
+
+**Answer:**
+
+**Resulting registry change:** none if confirmed — the map and `consumers` already
+agree. If she meant the number ON the bin rather than how many, that is a
+different field (`binLabelNumber`) and a different column.
