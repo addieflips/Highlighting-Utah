@@ -2410,7 +2410,23 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
 
   const quoteId = snap.docs[0].id;
   const str = (v, max) => String(v == null ? '' : v).slice(0, max || 500);
-  const yesNo = v => (String(v) === 'Yes' ? 'Yes' : 'No');
+  /* ⚠ A BLANK STAYS BLANK (fixed 2026-08-24). This read
+     `v => (String(v) === 'Yes' ? 'Yes' : 'No')`, so anything that was not the word
+     Yes — including no answer at all — was written as a definite "No".
+     Addie, 2026-08-20: "yes and no questions dont have a default answer though
+     just leave those blank if unanswered." The BROWSER has honoured that since
+     that day; this function did not, and it is the route an emailed quote link
+     takes, so the same customer filling in the same form got a different answer
+     recorded depending on which door they came in by. A "No" nobody said is
+     indistinguishable from one they did say, and the crew sheet then prints a
+     confident No for a customer who wanted a timer.
+     ⚠ AND IT IS WHY outletTimer HAS NO `default` IN THE REGISTRY. Blank means
+     nobody has asked them, which is a different fact from No and has to stay one. */
+  const yesNo = (v) => {
+    const t = String(v == null ? '' : v).trim();
+    if (!t) return '';
+    return t === 'Yes' ? 'Yes' : 'No';
+  };
 
   /* Only the fields the form is allowed to set, each trimmed to a sane length.
      Nothing here can touch price, status or approval. */
@@ -2425,6 +2441,15 @@ exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
     lightsDescription: str(details.lightsDescription, 400),
     wireColor: str(details.wireColor, 40) || 'Any',
     outletTimer: yesNo(details.outletTimer),
+    /* ⚠ ADDED 2026-08-24. js/options.js declares `useEaves` as a quote-form option
+       and the generated form asks for it — and this whitelist did not carry it, so
+       the customer's answer was collected and dropped on the way to the record.
+       ⚠ THE REGISTRY CANNOT REACH THIS FILE. Cloud Functions deploy only the
+       functions/ directory, so there is no importing js/options.js from here; the
+       list below is a second copy by necessity, exactly like the invoice maths.
+       options-audit.test.js compares the two and FAILS the build when they drift,
+       which is what makes forgetting the next one loud instead of silent. */
+    useEaves: yesNo(details.useEaves),
     specificOutlet: specific,
     specificOutletNotes: specific === 'Yes' ? str(details.specificOutletNotes, 500) : '',
     notes: str(details.notes, 1500),

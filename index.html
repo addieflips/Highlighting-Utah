@@ -1259,7 +1259,12 @@
                through to the customer record when the quote is converted.
                ⚠ The four names are the same four the photo buttons already use
                below, so "Right side" means one thing on this page. -->
-          <div class="form-row" id="quoteSidesRow">
+          <!-- The one OPTION on the public request form; everything else here is
+               identity (name, address, how to reach them). Tagged so the registry
+               can confirm it is present — see qdCheckRequestFields — and so an
+               option that moves to `quoteStage: 'request'` renders beside it
+               instead of silently reaching neither form. -->
+          <div class="form-row" id="quoteSidesRow" data-option="houseSides">
             <label>Which sides would you like lit?</label>
             <p class="form-note" style="margin:0 0 8px;">Tick any that apply &mdash; most people have just the front. You can change this later.</p>
             <div style="display:flex; flex-wrap:wrap; gap:10px;">
@@ -1320,20 +1325,16 @@
         <div id="quoteDetailFormWrap">
           <div id="quoteDetailGreeting" style="display:none; font-size:15px; font-weight:600; margin-bottom:16px; color:var(--dusk);"></div>
           <form id="quoteDetailForm">
-            <div class="form-row">
+            <!-- The bespoke control for lightsDescription. It stays written out
+                 because swatches and a pattern builder are not something a generic
+                 renderer can produce - but it is ADOPTED into its registry position
+                 by qdRenderOptionFields, and its swatches are built from the
+                 registry's own palette, so a colour added there appears here. -->
+            <div class="form-row" data-option="lightsDescription">
               <label>Which light color(s) would you like?</label>
               <p class="form-note" style="margin:0 0 8px;">Tap the color(s) you want.</p>
-              <div id="qdSimpleColorsRow" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-                <button type="button" class="qd-simple-swatch" data-color="Warm White" title="Warm White" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#F5EFDD; border:2px solid var(--line); padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Pure White" title="Pure White" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#FFFFFF; border:2px solid var(--line); padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Red" title="Red" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#C23B2E; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Green" title="Green" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#3E7D46; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Blue" title="Blue" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#2E5FA3; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Purple" title="Purple" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#6B4A8F; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Orange" title="Orange" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Pink" title="Pink" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:2px solid transparent; padding:0;"></button>
-                <button type="button" class="qd-simple-swatch" data-color="Multi" title="Multi" style="width:36px; height:36px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:2px solid transparent; padding:0;"></button>
-              </div>
+              <!-- Generated from the registry palette by qdRenderSwatches. -->
+              <div id="qdSimpleColorsRow" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;"></div>
 
               <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--slate); cursor:pointer; margin-top:10px; padding-top:14px; border-top:1px solid var(--line);">
                 <input type="checkbox" id="qdSpecificPatternToggle" style="width:auto;">
@@ -1344,60 +1345,29 @@
                 <p class="form-note" style="margin:0 0 8px;">Tap colors in order to build your exact pattern &mdash; it repeats along your roofline.</p>
                 <div id="qdSequenceRow" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:40px; padding:10px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px;"></div>
                 <div style="display:flex; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
-                  <button type="button" class="qd-swatch" data-color="Warm White" title="Warm White" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#F5EFDD; border:1px solid var(--line); padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Pure White" title="Pure White" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#FFFFFF; border:1px solid var(--line); padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Red" title="Red" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#C23B2E; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Green" title="Green" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#3E7D46; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Blue" title="Blue" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#2E5FA3; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Purple" title="Purple" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#6B4A8F; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Orange" title="Orange" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Pink" title="Pink" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:none; padding:0;"></button>
-                  <button type="button" class="qd-swatch" data-color="Multi" title="Multi" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
+                  <span id="qdPatternSwatchRow" style="display:contents;"></span>
                   <button type="button" class="btn btn-outline btn-sm" id="qdClearPattern" style="margin-left:auto;">Clear</button>
                 </div>
                 <div id="qdPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
               </div>
             </div>
-            <div class="form-row">
-              <label>Installation Timing</label>
-              <select name="install_month">
-                <option value="Normal Schedule" selected>Any</option>
-                <option value="October">October</option>
-                <option value="November">November</option>
-              </select>
-              <p class="form-note">Not sure? Leave it on Any &mdash; we'll reach out with timing options.</p>
+            <!-- ============================================================
+                 EVERY OTHER QUESTION ON THIS FORM IS GENERATED from js/options.js
+                 (2026-08-24). There is deliberately no markup here: a hand-written
+                 field is one the registry does not know about, and the whole point
+                 of the registry is that an option cannot exist on the form and be
+                 missing from the crew sheet.
+                 ============================================================= -->
+            <div id="qdOptionFields"></div>
+            <!-- The follow-up input for "do you have a specific outlet". It is a
+                 companion to that answer rather than an option of its own, so it
+                 lives here and is moved into the generated row by the renderer -
+                 which keeps this markup, and the reveal listener, exactly as they
+                 were. -->
+            <div class="form-row" id="specificOutletNotesWrap" data-followup="specificOutlet" style="display:none; margin-top:12px;">
+              <label>Which outlet?</label>
+              <textarea name="specific_outlet_notes" rows="3" placeholder="e.g. the outlet on the back patio, or under the eave near the garage"></textarea>
             </div>
-            <div class="form-row">
-              <label>Wire Color</label>
-              <select name="wire_color">
-                <option value="Any" selected>Any</option>
-                <option value="White">White</option>
-                <option value="Green">Green</option>
-              </select>
-              <p class="form-note">The color of the cord itself, not the bulbs &mdash; leave on Any and we'll pick whichever blends best with your roofline.</p>
-            </div>
-            <div class="form-row">
-              <label>Would you like an outlet timer?</label>
-              <div class="radio-row">
-                <label class="radio-pill"><input type="radio" name="outlet_timer" value="Yes"> Yes</label>
-                <label class="radio-pill"><input type="radio" name="outlet_timer" value="No"> No</label>
-              </div>
-              <p class="form-note">Automatically turns your lights on and off at set times each night.</p>
-            </div>
-            <div class="form-row">
-              <label>Do you have a specific outlet you want us to use?</label>
-              <div class="radio-row">
-                <label class="radio-pill"><input type="radio" name="specific_outlet" value="Yes"> Yes</label>
-                <label class="radio-pill"><input type="radio" name="specific_outlet" value="No"> No</label>
-              </div>
-              <div class="form-row" id="specificOutletNotesWrap" style="display:none; margin-top:12px;">
-                <label>Which outlet?</label>
-                <textarea name="specific_outlet_notes" rows="3" placeholder="e.g. the outlet on the back patio, or under the eave near the garage"></textarea>
-              </div>
-            </div>
-            <div class="form-row"><label for="infoGateCode">Gate Code (optional)</label><input type="text" name="gate_code" placeholder="If your community or property is gated"></div>
-            <div class="form-row"><label>Additional Notes</label><textarea name="notes" rows="4" placeholder="Roof height, specific requests, etc."></textarea></div>
-            <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin:-6px 0 20px;"><input type="checkbox" name="wants_mailed" style="width:auto;"> I'd also like my invoice mailed to me (postal mail)</label>
             <button type="submit" class="btn btn-gold btn-block">Submit Details</button>
           </form>
         </div>
@@ -1841,6 +1811,22 @@ import {
   getFirestore, collection, doc, addDoc, getDoc, updateDoc, setDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, where, getDocs, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+/* ⭐ THE OPTION REGISTRY (wired 2026-08-24, implementation plan §3.3). Both quote
+   forms — the public request and the detail form a customer fills in after
+   approving — build their question list from js/options.js. Adding an option there
+   puts a question on the right form with no change in this file, and the office's
+   crew sheet, build sheet, invoice and confirmation grow the same answer at the
+   same time. That is the whole point: forgetting one of them used to produce no
+   error at all. R-001, R-003.
+   ⚠ offerableChoices, NOT `choices`. A record may legitimately hold five install
+   timings; a customer may only be OFFERED three. Addie, 2026-08-21: "I don't want
+   members to have the option for before or after thanksgiving we only accept these
+   if they ask for them." Reading `choices` here would advertise a window the season
+   can only honour for a handful of people. */
+import {
+  quoteFields as optQuoteFields, offerableChoices as optOfferableChoices,
+  missingAnswers as optMissingAnswers, OPTIONS as HU_OPTIONS
+} from './js/options.js';
 /* ⭐ THE SAME ROUNDING THE OFFICE USES (added 2026-08-21). This page worked the
    balance out in plain floating point while js/money.js and the Cloud Function both
    compared whole cents, so an invoice settled to exactly zero could leave a residue
@@ -2350,20 +2336,130 @@ async function geocodeForStreetView(addressText){
 
 var quoteFormEl = document.getElementById('quoteForm');
 var quoteDetailFormEl = document.getElementById('quoteDetailForm');
-quoteDetailFormEl.querySelectorAll('input[name="outlet_timer"]').forEach(function(radio){
-  radio.addEventListener('change', function(){
-    quoteDetailFormEl.querySelectorAll('input[name="outlet_timer"]').forEach(function(r){
-      r.closest('.radio-pill').classList.toggle('selected', r.checked);
+
+/* ===========================================================================
+   THE QUOTE FORM, GENERATED FROM THE REGISTRY (2026-08-24, plan §3.3)
+   ===========================================================================
+   Every question below comes from js/options.js. Adding an option there puts a
+   question here AND a column on the crew sheet AND a line on the confirmation,
+   in one edit — which is the point: each of those was a separate place to
+   remember, and forgetting one produced no error, just a truck arriving without
+   the timer.
+
+   ⚠ THE FIELD NAME IS THE OPTION ID. The old form used its own spellings
+   (`install_month` for installPreference, `wants_mailed` for wantsMailedInvoice)
+   and the submit handler translated between them by hand — a translation table
+   that only worked for the fields somebody remembered to add to it. The input is
+   named for the field it writes, so there is nothing to translate.
+   ⚠ EXCEPT the two the SERVER still names: quoteSaveDetails has its own
+   whitelist and reads `specificOutletNotes`, so that companion keeps its name.
+=========================================================================== */
+function qdControlFor(o){
+  var wrap = document.createElement('div');
+  wrap.className = 'form-row';
+  wrap.setAttribute('data-option', o.id);
+  var lab = document.createElement('label');
+  lab.textContent = o.label + (o.required ? ' *' : '');
+  wrap.appendChild(lab);
+
+  if(o.type === 'yesno'){
+    /* Radios, not a checkbox, and NEITHER IS PRE-TICKED. Addie, 2026-08-20: "yes
+       and no questions dont have a default answer though just leave those blank
+       if unanswered." A pre-ticked No records an answer nobody gave, and once it
+       is on the record it is indistinguishable from a real one. */
+    var row = document.createElement('div');
+    row.className = 'radio-row';
+    optOfferableChoices(o).forEach(function(c){
+      var pill = document.createElement('label');
+      pill.className = 'radio-pill';
+      var input = document.createElement('input');
+      input.type = 'radio'; input.name = o.id; input.value = c;
+      pill.appendChild(input);
+      pill.appendChild(document.createTextNode(' ' + c));
+      row.appendChild(pill);
     });
-  });
-});
-quoteDetailFormEl.querySelectorAll('input[name="specific_outlet"]').forEach(function(radio){
-  radio.addEventListener('change', function(){
-    quoteDetailFormEl.querySelectorAll('input[name="specific_outlet"]').forEach(function(r){
-      r.closest('.radio-pill').classList.toggle('selected', r.checked);
+    wrap.appendChild(row);
+  } else if(o.type === 'choice'){
+    var sel = document.createElement('select');
+    sel.name = o.id;
+    optOfferableChoices(o).forEach(function(c){
+      var opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      if(o.default === c) opt.selected = true;
+      sel.appendChild(opt);
     });
-    document.getElementById('specificOutletNotesWrap').style.display = (radio.value === 'Yes' && radio.checked) ? 'block' : 'none';
+    wrap.appendChild(sel);
+  } else if(o.type === 'count'){
+    var crow = document.createElement('div');
+    crow.style.display = 'flex'; crow.style.flexWrap = 'wrap'; crow.style.gap = '10px';
+    for(var n = (o.min || 1); n <= (o.max || 4); n++){
+      var cp = document.createElement('label');
+      cp.className = 'quote-side-pick';
+      var ci = document.createElement('input');
+      ci.type = 'radio'; ci.name = o.id; ci.value = String(n);
+      cp.appendChild(ci);
+      cp.appendChild(document.createTextNode(' ' + n));
+      crow.appendChild(cp);
+    }
+    wrap.appendChild(crow);
+  } else {
+    /* text, and anything a future type has not taught this renderer about yet.
+       A textarea rather than an input: it holds a one-line answer perfectly well,
+       and the reverse is not true. */
+    var ta = document.createElement('textarea');
+    ta.name = o.id; ta.rows = 3;
+    wrap.appendChild(ta);
+  }
+  return wrap;
+}
+/* Builds the detail form's questions, in registry order.
+   ⚠ IT ADOPTS RATHER THAN REPLACES. An option whose control is already written
+   out in the markup — the colour swatches — is MOVED into its registry position
+   instead of being regenerated, so a bespoke control keeps its behaviour and its
+   listeners while still being ordered and placed by the registry. */
+function qdRenderOptionFields(){
+  var host = document.getElementById('qdOptionFields');
+  if(!host || !quoteDetailFormEl) return;
+  host.innerHTML = '';
+  optQuoteFields('details').forEach(function(o){
+    var existing = quoteDetailFormEl.querySelector('[data-option="' + o.id + '"]');
+    host.appendChild(existing || qdControlFor(o));
+    /* A companion input that belongs to this answer — the which-outlet box.
+       Moved in after its own question so it reveals in the right place. */
+    var followUp = quoteDetailFormEl.querySelector('[data-followup="' + o.id + '"]');
+    if(followUp) host.appendChild(followUp);
   });
+}
+/* The public request form asks for the house before anything is priced. It holds
+   exactly one option today, written out with its own wording; this reports any
+   `quoteStage: 'request'` option that has no control there, rather than silently
+   generating a half-styled one into the middle of somebody's address. */
+function qdCheckRequestFields(){
+  if(!quoteFormEl) return;
+  optQuoteFields('request').forEach(function(o){
+    if(!quoteFormEl.querySelector('[data-option="' + o.id + '"]')){
+      console.warn('[HU] quote request form has no control for option: ' + o.id);
+    }
+  });
+}
+qdRenderOptionFields();
+qdCheckRequestFields();
+
+/* ⚠ DELEGATED, because the fields are generated now and a listener bound at load
+   time would bind to nothing. `change` bubbles, so one listener on the form
+   covers every radio it will ever hold — including one added to the registry
+   tomorrow. */
+quoteDetailFormEl.addEventListener('change', function(e){
+  var t = e.target;
+  if(!t || t.type !== 'radio') return;
+  quoteDetailFormEl.querySelectorAll('input[name="' + t.name + '"]').forEach(function(r){
+    var pill = r.closest('.radio-pill');
+    if(pill) pill.classList.toggle('selected', r.checked);
+  });
+  if(t.name === 'specificOutlet'){
+    var wrap = document.getElementById('specificOutletNotesWrap');
+    if(wrap) wrap.style.display = (t.value === 'Yes' && t.checked) ? 'block' : 'none';
+  }
 });
 /* ---- Quote details: light color swatch + pattern builder (mirrors Member Portal Change Lights) ---- */
 var QD_COLOR_HEX = {'Warm White':'#F5EFDD','Pure White':'#FFFFFF','Red':'#C23B2E','Green':'#3E7D46','Blue':'#2E5FA3','Purple':'#6B4A8F','Orange':'#D97D2B','Pink':'#D97BA0','Multi':'linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%)'};
@@ -2382,14 +2478,53 @@ function renderQdSimpleColors(){
     btn.style.boxShadow = selected ? '0 0 0 2px var(--gold)' : 'none';
   });
 }
-document.querySelectorAll('.qd-simple-swatch').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    var color = btn.dataset.color;
-    var idx = qdSimpleColors.indexOf(color);
-    if(idx === -1) qdSimpleColors.push(color); else qdSimpleColors.splice(idx, 1);
-    renderQdSimpleColors();
+/* ⭐ THE SWATCHES ARE BUILT FROM THE REGISTRY'S PALETTE (2026-08-24). They used
+   to be eighteen hand-written buttons - nine here and nine again in the pattern
+   builder - so adding a colour meant editing both lists and remembering that
+   admin.html keeps its own copy in LIGHTS_COLOR_OPTIONS. `palette` on the
+   lightsDescription option was declared for exactly this and nothing read it,
+   which is a dead end by R-010's definition.
+   ⚠ A COLOUR WITH NO HEX IS SKIPPED, LOUDLY. A swatch rendered with `undefined`
+   as its background is an invisible button: the customer taps nothing, and the
+   colour they wanted silently never reaches the order. */
+function qdPaletteColors(){
+  var o = HU_OPTIONS.find(function(x){ return x.id === 'lightsDescription'; });
+  var list = (o && Array.isArray(o.palette)) ? o.palette : [];
+  return list.filter(function(c){
+    if(QD_COLOR_HEX[c]) return true;
+    console.warn('[HU] palette colour has no swatch colour defined, skipped: ' + c);
+    return false;
   });
-});
+}
+function qdRenderSwatches(){
+  var simple = document.getElementById('qdSimpleColorsRow');
+  var pattern = document.getElementById('qdPatternSwatchRow');
+  qdPaletteColors().forEach(function(c){
+    if(simple){
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'qd-simple-swatch';
+      b.dataset.color = c; b.title = c;
+      b.style.cssText = 'width:36px; height:36px; border-radius:50%; flex-shrink:0; background:' +
+        QD_COLOR_HEX[c] + '; border:' + (QD_COLOR_BORDER[c] || '2px solid transparent') + '; padding:0;';
+      b.addEventListener('click', function(){
+        var idx = qdSimpleColors.indexOf(c);
+        if(idx === -1) qdSimpleColors.push(c); else qdSimpleColors.splice(idx, 1);
+        renderQdSimpleColors();
+      });
+      simple.appendChild(b);
+    }
+    if(pattern){
+      var p = document.createElement('button');
+      p.type = 'button'; p.className = 'qd-swatch';
+      p.dataset.color = c; p.title = c;
+      p.style.cssText = 'width:32px; height:32px; border-radius:50%; flex-shrink:0; background:' +
+        QD_COLOR_HEX[c] + '; border:' + (QD_COLOR_BORDER[c] || 'none') + '; padding:0;';
+      p.addEventListener('click', function(){ qdSequence.push(c); renderQdSequence(); });
+      pattern.appendChild(p);
+    }
+  });
+}
+qdRenderSwatches();
 document.getElementById('qdSpecificPatternToggle').addEventListener('change', function(){
   var wrap = document.getElementById('qdSequenceBuilderWrap');
   var simpleRow = document.getElementById('qdSimpleColorsRow');
@@ -2423,12 +2558,6 @@ function renderQdSequence(){
     });
   });
 }
-document.querySelectorAll('.qd-swatch').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    qdSequence.push(btn.dataset.color);
-    renderQdSequence();
-  });
-});
 document.getElementById('qdClearPattern').addEventListener('click', function(){
   qdSequence = [];
   renderQdSequence();
@@ -2545,32 +2674,46 @@ function qdPrefillFromMember(memberDetails){
     renderQdSimpleColors();
   }
 
-  setSelect('wire_color', md.wireColor);
-  setSelect('install_month', md.installPreference);
-  setRadio('outlet_timer', md.outletTimer);
-  setRadio('specific_outlet', md.specificOutlet);
+  /* ⭐ THE PREFILL WALKS THE REGISTRY TOO (2026-08-24). It used to name each
+     field by hand, in the form's own spellings, which made it the fourth place
+     an option had to be remembered — and the one where forgetting is quietest,
+     because a field simply comes back empty and the customer types it again.
+     ⚠ THE COLOURS ARE ALREADY HANDLED ABOVE, so they are skipped here; the
+     pattern builder has state a value assignment cannot express. */
+  optQuoteFields('details').forEach(function(o){
+    if(o.quoteControl === 'colors') return;
+    var val = md[o.id];
+    if(o.type === 'choice') { setSelect(o.id, val); return; }
+    if(o.type === 'yesno'){
+      /* ⚠ SOME OF THESE ARE STORED AS BOOLEANS, some as the words. The mailed
+         invoice is written `wantsMailedInvoice === true` by the server and read
+         `!!d.wantsMailedInvoice` by admin, while the timer holds "Yes"/"No"/blank.
+         A radio whose value is "Yes" never matches the string "true", so without
+         this the answer we already hold silently fails to come back and the
+         customer is asked again. Blank stays blank — that is nobody having asked. */
+      if(val === true || val === false) val = val ? 'Yes' : 'No';
+      setRadio(o.id, val);
+      return;
+    }
+    if(o.type === 'count') { setRadio(o.id, val); return; }
+    /* ⚠ FREE TEXT COMES BACK EMPTY, ON PURPOSE, and says why. Anything they type
+       REPLACES what we hold, so pre-filling last year's notes invites them to
+       add a sentence to a paragraph they cannot see the end of. Left blank with
+       no placeholder it reads as us having lost their gate code, and they type
+       it in again to be safe. */
+    var field = form.querySelector('[name="' + o.id + '"]');
+    if(field){
+      field.value = '';
+      field.placeholder = 'Leave blank to keep the ' + o.label.toLowerCase() +
+        ' we already have';
+    }
+  });
 
   var outletNotesWrap = document.getElementById('specificOutletNotesWrap');
   if(outletNotesWrap) outletNotesWrap.style.display =
     (String(md.specificOutlet || '').trim() === 'Yes') ? 'block' : 'none';
   var outletNotes = form.querySelector('[name="specific_outlet_notes"]');
   if(outletNotes) outletNotes.value = md.specificOutletNotes || '';
-
-  /* Empty, and saying WHY it is empty — otherwise it reads as us having lost
-     their gate code, and they type it in again to be safe. */
-  var gate = form.querySelector('[name="gate_code"]');
-  if(gate){
-    gate.value = '';
-    gate.placeholder = 'Leave blank to keep the code we already have';
-  }
-  var notes = form.querySelector('[name="notes"]');
-  if(notes){
-    notes.value = '';
-    notes.placeholder = 'Leave blank to keep the notes we already have';
-  }
-
-  var mailed = form.querySelector('[name="wants_mailed"]');
-  if(mailed) mailed.checked = md.wantsMailedInvoice === true;
 }
 
 /* =========================================================
@@ -2870,27 +3013,73 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
   var submitBtn = quoteDetailFormEl.querySelector('button[type="submit"]');
   submitBtn.disabled = true;
   submitBtn.textContent = 'Submitting…';
+  /* ⭐ THE PAYLOAD IS BUILT FROM THE REGISTRY (2026-08-24). Every option on this
+     form contributes its own field, named for the field it writes, so a new
+     option is collected without this handler being edited. What is written out
+     below it is the two things the registry cannot do: the colours, which come
+     from the swatch control rather than a form input, and the which-outlet
+     companion, which is a follow-up to an answer rather than an answer.
+
+     ⚠ A YES/NO WITH NO ANSWER STAYS BLANK. Addie, 2026-08-20: "yes and no
+     questions dont have a default answer though just leave those blank if
+     unanswered." Both of these used to read `|| 'No'` with the radios pre-ticked
+     on No, so a customer who never read the question was recorded as having said
+     no to it — an answer nobody gave, and once on the record indistinguishable
+     from a real one. `fd.get` returns null for an untouched radio group, which
+     is exactly the blank we want, so nothing here coerces it.
+     ⚠ AND A DECLARED DEFAULT IS STILL APPLIED, because a default is a choice made
+     once and written down — which is a different thing from silence. That is why
+     the wire colour comes out "Any" and the timer comes out blank. */
   var detailPayload = {
     lightColors: lightColors,
-    lightsDescription: lightsDescription,
-    wireColor: fd.get('wire_color') || 'Any',
-    /* ⭐ A YES/NO WITH NO ANSWER STAYS BLANK (changed 2026-08-20). Owner: "yes and
-       no questions dont have a default answer though just leave those blank if
-       unanswered."
-       Both of these used to read `|| 'No'`, and both radios came pre-ticked on No —
-       so a customer who never read the question was recorded as having said no to it.
-       That is an answer nobody gave, and once it is on the record it is
-       indistinguishable from a real one.
-       ⚠ Blank still behaves as no timer everywhere it matters (the audience filter
-       tests for 'Yes'), so nothing starts installing timers — the difference is only
-       that we stop claiming they were asked. */
-    outletTimer: fd.get('outlet_timer') || '',
-    specificOutlet: fd.get('specific_outlet') || '',
-    specificOutletNotes: fd.get('specific_outlet') === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '',
-    notes: fd.get('notes') || '', gateCode: fd.get('gate_code') || '',
-    installPreference: fd.get('install_month') || 'Normal Schedule',
-    wantsMailedInvoice: fd.get('wants_mailed') === 'on'
+    lightsDescription: lightsDescription
   };
+  optQuoteFields('details').forEach(function(o){
+    if(o.quoteControl === 'colors') return;          // handled above
+    var raw = fd.get(o.id);
+    if(o.type === 'yesno' || o.type === 'choice'){
+      detailPayload[o.id] = raw == null ? (o.default != null ? o.default : '') : String(raw);
+    } else if(o.type === 'count'){
+      var n = Number(raw);
+      detailPayload[o.id] = (n >= (o.min || 1) && n <= (o.max || 4)) ? n : (o.default != null ? o.default : '');
+    } else {
+      detailPayload[o.id] = raw == null ? '' : String(raw);
+    }
+  });
+  /* The follow-up to "do you have a specific outlet", kept only when they said
+     yes — otherwise a note they typed and then changed their mind about would
+     travel to the crew as an instruction. */
+  detailPayload.specificOutletNotes =
+    detailPayload.specificOutlet === 'Yes' ? (fd.get('specific_outlet_notes') || '').trim() : '';
+  /* ⚠ wantsMailedInvoice IS A BOOLEAN on the record, not the string a radio
+     yields — functions/index.js writes `details.wantsMailedInvoice === true` and
+     admin reads `!!d.wantsMailedInvoice`. Normalised here rather than left for
+     the server to guess at. */
+  detailPayload.wantsMailedInvoice = detailPayload.wantsMailedInvoice === 'Yes';
+
+  /* R-002 / plan §3.5: a required option must not be left undefined. Reported
+     rather than blocked for anything but the colours, which the form has always
+     refused to submit without — the office can chase a missing timer answer, and
+     a form that refuses to submit loses the answers they DID give. */
+  var stillMissing = optMissingAnswers(detailPayload)
+    .filter(function(id){ return id !== 'measuredFeet'; });
+  if(stillMissing.length){
+    var names = stillMissing.map(function(id){
+      var o = HU_OPTIONS.find(function(x){ return x.id === id; });
+      return o ? o.label : id;
+    });
+    if(!confirm('We still have no answer for: ' + names.join(', ') +
+                '.\n\nSubmit anyway? You can always change it later in your member portal.')) {
+      /* ⚠ THE BUTTON IS ALREADY DISABLED by the time we get here, so backing out
+         has to put it back — otherwise saying "let me fill that in" leaves the
+         customer looking at a dead Submitting… button with no way to send the
+         form at all. */
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Details';
+      return;
+    }
+  }
+
   try{
     if(!quoteDetailToken && quoteDetailQuoteId){
       /* No token means the direct write below, which Firestore will refuse.
