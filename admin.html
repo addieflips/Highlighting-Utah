@@ -7605,6 +7605,26 @@ function quoteStage(d){
      customer record anyway. So the office saying yes on their behalf stands in for the
      form, and the card moves on. */
   if(d.approvalStatus === 'approved' && (d.formCompleted || d.approvedByOffice)) return 'form';
+  /* ⭐ AWAITING RESPONSE MEANS THEY WERE ACTUALLY ASKED. Owner: "it should only
+     move them to the awaiting responce if they recieved a email and under no
+     other circumstance."
+
+     ⚠ PRICED AND SENT ARE NOT THE SAME STATE, and this folder has been treating
+     them as one. The price box on a quote card saves quotedPrice on its own, so
+     typing a price and stopping there is an ordinary thing to do - and it moved
+     the card into Awaiting Response, where it sat looking like the customer was
+     the one holding things up. Nobody had written to them. It was waiting on US.
+
+     The Awaiting Response COUNT was already fixed to require this (see
+     quoteHasBeenSent and the note above it); the FOLDER was not, so the number
+     and the tab could disagree. Now both ask the same question.
+
+     ⚠ AND CONVERTING IS NOT AFFECTED. Owner, in the same breath: "but you still
+     can directly convert them to customer." The Convert button is rendered off
+     the quote itself, not off which folder it is filed in, so a priced quote
+     sitting in New converts exactly as it always did - somebody who says yes on
+     the phone never needs an email to exist. */
+  if(!quoteHasBeenSent(d)) return 'new';
   return 'send';
 }
 /* Which of the three quote templates a card should use. Names are picked in
@@ -10051,10 +10071,14 @@ function testQuoteStageUpdates(stage){
   const f = {};
   if(stage === 'new') return f;
   f.quotedPrice = 250;
-  /* Awaiting Response: priced and sent, still waiting on them. */
+  /* Awaiting Response: priced AND SENT, still waiting on them.
+     ⚠ quoteSentAt is what makes it sent - quoteManuallySent alone is a flag
+     about HOW it went, not THAT it went, and a card built without a timestamp
+     now files under New, which is correct and was the bug being fixed. */
   if(stage === 'send'){
     f.approvalStatus = 'pending';
     f.quoteManuallySent = true;
+    f.quoteSentAt = serverTimestamp();
     return f;
   }
   /* Ready to Convert: approved, and the office answered for them so no form is
@@ -16804,7 +16828,18 @@ function rmCornersInPhoto(photo, mppAtHouse){
    to all of them falls out of a three-by-three. With two rays it reduces to
    the midpoint of closest approach, which is what it should be. */
 const RM_PIN_MIN_BASE_M = 3;     /* two clicks nearer than this cannot fix depth */
-const RM_PIN_GRAB_PX = 22;       /* clicking this near a dot means THAT dot */
+/* ⚠ WAS 22 PIXELS, AND THAT IS WHY TWO CORNERS COULD NOT BE PLACED CLOSE
+   TOGETHER. Owner: "it doesnt let me place dots if they are to close fix that."
+   A click within this distance of an existing dot PINS that dot instead of
+   placing a new one, so on a house filling the pane, 22 px is about a metre -
+   and the two sides of a dormer cheek, or the two ends of a short return, are
+   closer together than that. The second dot silently became a second sighting
+   of the first, which reads as the tool refusing to place it.
+   Small enough now that two dots a hand's breadth apart both land, and pinning
+   still works because it only needs a click ON the dot - which the wheel zoom
+   makes easy, since zooming in pushes real corners further apart in pixels
+   without moving them an inch on the house. */
+const RM_PIN_GRAB_PX = 8;
 
 /* The point that best satisfies every ray it has been seen along. */
 function rmSolveFromRays(rays){
@@ -17448,6 +17483,12 @@ function rmSyncModelSky(){
     }));
   });
 }
+/* ⚠ AND TURNING EITHER ONE OFF TAKES IT OFF BOTH VIEWS. Owner: "assumed house
+   should go away once you click off assumed house or suggessted corners."
+   The street view is redrawn from scratch every paint, so it clears itself; the
+   MAP is not - its polylines are objects that stay on the map until something
+   takes them off. Clearing the array without calling setMap(null) leaves the
+   old house drawn over the new one. */
 function rmSetShowModel(on){
   rmShowModel = !!on;
   const b = document.getElementById('rmModelBtn');
@@ -19288,7 +19329,10 @@ async function rmLoadAddress(){
                a two-storey eave is a harder day than the pitch alone says, and
                fetchRoofDetails had nothing to work that out from. */
             if(rmRoofFacts){
-              const g = gradeRoof({maxGrade: rmRoofFacts.maxGrade, peakCount: rmRoofFacts.peakCount,
+              const g = gradeRoof({maxGrade: rmRoofFacts.maxGrade,
+                                   typicalGrade: rmRoofFacts.typicalGrade,
+                                   steepShare: rmRoofFacts.steepShare,
+                                   peakCount: rmRoofFacts.peakCount,
                                    eaveFt: eave * RM_M_TO_FT});
               rmRoofGrade = g.level;
               const sel2 = document.getElementById('rmDifficulty');
@@ -19793,7 +19837,13 @@ function openRoofMeasure(quoteId){
     }
   });
   document.getElementById('rmSuggestBtn').addEventListener('click', function(){
-    if(rmCandidates.length){ rmCandidates = []; rmPaintStreet();
+    if(rmCandidates.length){
+      rmCandidates = [];
+      /* ⭐ AND THE ASSUMED HOUSE GOES WITH THEM. They are both scaffolding, and
+         leaving one behind when the other is dismissed is what makes the view
+         feel like it is not listening. */
+      if(rmShowModel) rmSetShowModel(false);
+      rmPaintStreet();
       const n = document.getElementById('rmCornerNote');
       if(n) n.textContent = 'Suggestions cleared. The dots you kept stay.';
       return; }
@@ -22280,21 +22330,55 @@ setupDraggableTabBar('respSectionTabs', 'resptab', 'huRespTabOrder', switchRespT
    where you stop walking it. */
 const RM_HARD_GRADE = 75;        /* 9/12 — roped on */
 const RM_MEDIUM_GRADE = 45;      /* 5.4/12 — the ordinary middle starts here */
-const RM_BUSY_SECTIONS = 5;
+/* ⚠ WAS 5, AND 5 IS AN ORDINARY HOUSE, NOT A BUSY ONE. Google's "sections" are
+   FACETS, not peaks - the comment above fetchRoofDetails already says they read
+   higher than a crew would count. A plain hip roof is 4 facets on its own; add
+   an attached garage and one dormer and an unremarkable house is 8. So every
+   such house was being bumped a whole grade for being shaped like a house.
+   Busy means noticeably more transitions than that. */
+const RM_BUSY_SECTIONS = 10;
+/* How much of the roof has to be steep before the whole house counts as steep.
+   A steep patch is a steep patch; a steep ROOF is a day roped on. */
+const RM_STEEP_SHARE = 0.15;
 const RM_TWO_STOREY_FT = 17;
 /* What a difficulty does to the per-foot rate. Medium is 1 on purpose: the
    office's own Per Foot Pricing stays the baseline, so there is still ONE rate
    to change and this only tilts it. */
 const RM_DIFFICULTY_RATE = {Easy: 0.85, Medium: 1, Hard: 1.25};
+/* ⭐ THE GRADE IS WHAT THE ROOF IS MOSTLY LIKE, NOT ITS WORST SQUARE FOOT.
+   Owner, on a house the tool called Hard: "that house is medium difficulty its
+   currently hard meaning the grading system could use some love."
+
+   ⚠ MEASURED ON THAT HOUSE. Eleven facets: one at 88% grade (10.6/12) and the
+   other ten at 63% and below, most of them 51-56% - an ordinary 6/12 roof with
+   one steep piece. The old rule took the STEEPEST facet, so 88% set the grade
+   for all 2,185 square feet and the house came out Hard on pitch alone, before
+   the section count had even been counted.
+
+   A crew does not rope up for the whole day because one 183 sq ft face is
+   steep. So the base grade is the AREA-WEIGHTED pitch - the roof as a whole,
+   weighted by how much of it there is - which on that house is 54% and lands on
+   Medium, where the owner puts it.
+
+   ⚠ AND A STEEP PATCH IS STILL NOT INVISIBLE, which was the right instinct in
+   the rule this replaces. If a real SHARE of the roof is steep it bumps the
+   grade up. On that house the steep face is 8.4% of the area, under the share,
+   so it does not - and a house that is genuinely half steep still grades Hard. */
 function gradeRoof(o){
   const maxGrade = Math.round(Number(o && o.maxGrade) || 0);
   const peakCount = Number(o && o.peakCount) || 0;
   const eaveFt = Number(o && o.eaveFt) || 0;
-  let level = maxGrade >= RM_HARD_GRADE ? 2 : (maxGrade >= RM_MEDIUM_GRADE ? 1 : 0);
+  const typical = Math.round(Number(o && o.typicalGrade) || maxGrade);
+  const steepShare = Number(o && o.steepShare) || 0;
+  let level = typical >= RM_HARD_GRADE ? 2 : (typical >= RM_MEDIUM_GRADE ? 1 : 0);
   const why = [];
-  if(level === 2) why.push('steep roof (' + maxGrade + '% grade)');
-  else if(level === 1) why.push('moderate pitch (' + maxGrade + '% grade)');
-  else why.push('low pitch (' + maxGrade + '% grade)');
+  if(level === 2) why.push('steep roof (' + typical + '% grade)');
+  else if(level === 1) why.push('moderate pitch (' + typical + '% grade)');
+  else why.push('low pitch (' + typical + '% grade)');
+  if(steepShare >= RM_STEEP_SHARE && level < 2){
+    level = Math.min(2, level + 1);
+    why.push(Math.round(steepShare * 100) + '% of it steeper than ' + RM_HARD_GRADE + '%');
+  }
   if(peakCount >= RM_BUSY_SECTIONS){ level = Math.min(2, level + 1); why.push(peakCount + ' separate roof sections'); }
   if(eaveFt >= RM_TWO_STOREY_FT){ level = Math.min(2, level + 1); why.push('two-storey eave (' + Math.round(eaveFt) + ' ft)'); }
   return {level: ['Easy', 'Medium', 'Hard'][level], why: why.join(', '),
@@ -22328,6 +22412,18 @@ async function fetchRoofDetails(lat, lng){
   // invisible to difficulty just because it's under the peak-count size threshold.
   const allGrades = allSegments.map(seg => pitchPercent(seg.pitchDegrees || 0));
   const maxGrade = allGrades.length ? Math.max(...allGrades) : 0;
+  /* ⭐ WHAT THE ROOF IS MOSTLY LIKE, weighted by how much of it there is, and
+     what SHARE of it is genuinely steep. The steepest single facet is kept for
+     the record but no longer sets the grade on its own - see gradeRoof. */
+  const segArea = seg => (seg.stats && seg.stats.areaMeters2) ? seg.stats.areaMeters2 : 0;
+  const totalArea = allSegments.reduce((a, seg) => a + segArea(seg), 0);
+  const typicalGrade = totalArea > 0
+    ? allSegments.reduce((a, seg) => a + pitchPercent(seg.pitchDegrees || 0) * segArea(seg), 0) / totalArea
+    : maxGrade;
+  const steepShare = totalArea > 0
+    ? allSegments.filter(seg => pitchPercent(seg.pitchDegrees || 0) >= RM_HARD_GRADE)
+                 .reduce((a, seg) => a + segArea(seg), 0) / totalArea
+    : 0;
   /* ⚠ THESE THRESHOLDS WERE MILES TOO STRICT AND CALLED ALMOST EVERY HOUSE HARD.
      They were 37% for Hard and 25% for Medium, and grade is a PERCENT, not
      degrees: 37% is a 4.4/12 pitch and 25% is 3/12. Both of those are LOW,
@@ -22346,7 +22442,8 @@ async function fetchRoofDetails(lat, lng){
      above sea level and nothing to subtract from them, so it grades without it
      and the Measure Roof panel re-grades through gradeRoof() once the elevation
      lookup has come back. One rule, called twice, rather than two rules. */
-  const graded = gradeRoof({maxGrade: maxGrade, peakCount: peakCount});
+  const graded = gradeRoof({maxGrade: maxGrade, typicalGrade: typicalGrade,
+                            steepShare: steepShare, peakCount: peakCount});
   const suggestedDifficulty = graded.level;
   const difficultyWhy = graded.why;
   /* Google gives the building's own footprint box. Framing the map to that
@@ -22393,7 +22490,7 @@ async function fetchRoofDetails(lat, lng){
       areaSqFt: seg.stats && seg.stats.areaMeters2 ? Math.round(seg.stats.areaMeters2 * 10.7639) : 0
     };
   }).filter(function(f){ return f && isFinite(f.azimuth); });
-  return {squareFeet, peakCount, peakAngles, maxGrade, suggestedDifficulty, difficultyWhy, bounds, planeHeights, faces};
+  return {squareFeet, peakCount, peakAngles, maxGrade, typicalGrade, steepShare, suggestedDifficulty, difficultyWhy, bounds, planeHeights, faces};
 }
 async function fetchRoofAreaSqFt(lat, lng){
   const details = await fetchRoofDetails(lat, lng);

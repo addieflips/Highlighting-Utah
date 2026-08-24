@@ -2082,10 +2082,14 @@ check('flow', 'quote is closed when converted to a customer',
 /* ⚠ AND THE FOLDER ACTUALLY CALLS IT. A collapse nothing calls is the most expensive
    kind of green — the list renders exactly as it always did and every behavioural check
    above still passes, because they run the function directly. Scoped to the closed
-   branch so it cannot be satisfied by the declaration alone. */
-check('flow', 'and the Converted & Closed folder runs the collapse',
-  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
-  'unwired, every house is listed once per closed quote exactly as before');
+   branch so it cannot be satisfied by the declaration alone. */
+
+check('flow', 'and the Converted & Closed folder runs the collapse',
+
+  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
+
+  'unwired, every house is listed once per closed quote exactly as before');
+
 check('flow', 'nothing closes a quote except converting it',
   (admin.match(/status: 'closed'/g) || []).length === 2 &&
   /status: 'closed', convertedToCustomerAt/.test(admin),
@@ -17963,7 +17967,7 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
      too rather than stubbing it: a stub would make the "already a customer"
      branch untestable while still reporting green. */
   const src = ['quoteHasBeenSent', 'quoteAwaitsCustomer', 'quoteAwaitsUs',
-               'isFreshAwaiting', 'isStaleUnresponsive', 'quoteStage', 'daysSince',
+               'isFreshAwaiting', 'isStaleUnresponsive', 'quoteStage', 'quoteHasBeenSent', 'daysSince',
                'quoteAlreadyACustomer', 'quoteMatchAddress', 'quoteCustomerKeys']
     .map(n => extractFn(admin, n));
   check('S68', 'the awaiting helpers are all still in admin.html',
@@ -18027,7 +18031,7 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
   {
     const src2 = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteAlreadyACustomer',
                   'quoteAwaitsCustomer', 'quoteAwaitsUs', 'quoteHasBeenSent',
-                  'quoteStage', 'isRequote', 'daysSince'].map(n => extractFn(admin, n));
+                  'quoteStage', 'quoteHasBeenSent', 'isRequote', 'daysSince'].map(n => extractFn(admin, n));
     check('S68', 'the already-a-customer net is all still there', src2.every(Boolean));
     if (src2.every(Boolean)) {
       const b2 = {};
@@ -22527,7 +22531,7 @@ suite('Suite 110. Approving it for them, with no email');
 
 {
   const stage = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
-    extractFn(admin, 'quoteStage') + 'return quoteStage(d);');
+    extractFn(admin, 'quoteStage') + extractFn(admin, 'quoteHasBeenSent') + 'return quoteStage(d);');
   const St = (d) => stage(d, () => false, () => false);
 
   check('S110', 'approved through the portal with the form done is ready to convert',
@@ -22536,10 +22540,23 @@ suite('Suite 110. Approving it for them, with no email');
   check('S110', 'approved in the office is ready to convert too, with no form',
     St({quotedPrice: 600, approvalStatus: 'approved', approvedByOffice: true}) === 'form',
     'there is no form coming — nobody was ever emailed');
+  /* ⚠ AND THIS ONE CARRIES quoteSentAt, because approving through the PORTAL
+     means they were emailed a link - that is the only way they reach it.
+     Awaiting Response now requires the email to have gone out, so a fixture
+     without it would be describing a state that cannot happen. */
   check('S110', 'but approved with neither still waits',
-    St({quotedPrice: 600, approvalStatus: 'approved'}) === 'send',
+    St({quotedPrice: 600, approvalStatus: 'approved', quoteSentAt: {toDate: function(){ return new Date(); }}}) === 'send',
     'a customer who approved through the portal and has not filled the form in yet ' +
     'is genuinely not ready, and that is what the form stage is for');
+  /* ⭐ AND THE NEW RULE ITSELF. Owner: "it should only move them to the awaiting
+     responce if they recieved a email and under no other circumstance." */
+  check('S110', 'a priced quote nobody sent is NOT awaiting their response',
+    St({quotedPrice: 600, approvalStatus: 'pending'}) === 'new',
+    'typing a price and stopping there is an ordinary thing to do, and it was ' +
+    'filing the card under Awaiting Response as though the customer were the holdup');
+  check('S110', 'and the same quote once sent is',
+    St({quotedPrice: 600, approvalStatus: 'pending', quoteSentAt: {toDate: function(){ return new Date(); }}}) === 'send',
+    'the email is the whole difference between waiting on us and waiting on them');
   check('S110', 'and the override does not rescue a declined quote',
     St({quotedPrice: 600, approvalStatus: 'declined', approvedByOffice: true}) === 'closed',
     'declined is closed however it got there');
@@ -23087,11 +23104,16 @@ suite('Suite 113. Build Test Customer');
 {
   /* All three, because the whole-card view is composed from the other two — created
      plain and then staged, which is what the rules force. */
-  const fields = new Function('stage', 'TEST_QUOTE_BASE',
+  /* serverTimestamp is a Firestore primitive, not app logic, so it is provided
+     rather than extracted - and it has to answer toDate(), because that is what
+     quoteHasBeenSent asks it. */
+  const fields = new Function('stage', 'TEST_QUOTE_BASE', 'serverTimestamp',
     extractFn(admin, 'testQuoteCreateFields') + extractFn(admin, 'testQuoteStageUpdates') +
-    extractFn(admin, 'testQuoteFieldsFor') + 'return testQuoteFieldsFor(stage);');
+    extractFn(admin, 'testQuoteFieldsFor') + 'return testQuoteFieldsFor(stage);')
+    .bind(null);
+  const STAMP = function(){ const now = new Date(); return {toDate: function(){ return now; }}; };
   const folder = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
-    extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'quoteStage') + extractFn(admin, 'quoteHasBeenSent') + extractFn(admin, 'isRequote') +
     extractFn(admin, 'quoteFolder') + 'return quoteFolder(d);');
 
   const base = (function(){
@@ -23113,7 +23135,7 @@ suite('Suite 113. Build Test Customer');
     'reach the build queue, which is half of what she is testing');
   check('S113', 'and every priced stage carries the $250',
     ['send', 'form', 'requote', 'closed'].every(function(st){
-      return fields(st, base).quotedPrice === 250;
+      return fields(st, base, STAMP).quotedPrice === 250;
     }));
 
   /* ⭐ AND THE CREATE HAS TO SATISFY THE FIRESTORE RULE. Owner, 2026-08-21: "in requotes
@@ -23178,7 +23200,7 @@ suite('Suite 113. Build Test Customer');
   /* ⚠ AND THE ROUND TRIP. */
   const stages = ['new', 'send', 'form', 'requote', 'closed'];
   stages.forEach(function(st){
-    const f = fields(st, base);
+    const f = fields(st, base, STAMP);
     /* Re-quotes is the one that needs a customer behind it, which the button builds
        first and links — a re-quote with nothing behind it is an ordinary quote. */
     if(st === 'requote') f.existingCustomerId = 'c1';
@@ -23196,7 +23218,7 @@ suite('Suite 113. Build Test Customer');
      build a second customer instead of updating the first. That is the half of the
      re-quote flow she would be testing. */
   check('S113', 'the card is filed on the re-quote count alone',
-    folder(fields('requote', base), function(){ return false; }, function(){ return true; }) === 'requote',
+    folder(fields('requote', base, STAMP), function(){ return false; }, function(){ return true; }) === 'requote',
     'isRequote takes either the count or the customer link');
   check('S113', 'but converting only updates when a live customer is behind it',
     /const stillACustomer = d\.existingCustomerId/.test(extractFn(admin, 'showConvertQuoteChoice')) &&
@@ -23207,7 +23229,7 @@ suite('Suite 113. Build Test Customer');
   /* ⚠ AND EVERY ONE IS FINDABLE AGAIN. They are real documents in the real collection,
      which is the whole point, so there has to be a way to sweep them up. */
   check('S113', 'every test record is marked as one',
-    stages.every(function(st){ return fields(st, base).isTestRecord === true; }),
+    stages.every(function(st){ return fields(st, base, STAMP).isTestRecord === true; }),
     'a test row that cannot be told from a customer is a customer');
   /* ⭐ A REAL ADDRESS, ON PURPOSE. Owner, 2026-08-21: "also test customers should be at
      209 S 850 W Lehi Utah." This replaced a deliberately fake one, and the trade is
@@ -30993,7 +31015,7 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
   };
 
   const NEED = ['pendingAddOnFor', 'addOnEmailBlock', 'rsvpTemplateHasAddOn',
-    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quotePortalParam'];
+    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteHasBeenSent', 'quotePortalParam'];
   const src = {};
   NEED.forEach(n => { src[n] = lift(n); });
   const gone = NEED.filter(n => !src[n]);
@@ -31012,8 +31034,13 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
     const body = NEED.map(n =>
       (n === 'addOnEmailBlock' ? 'async ' : '') + src[n]).join('\n');
 
+    /* ⚠ quoteSentAt IS PART OF WHAT MAKES THIS A LIVE ADD-ON. Awaiting Response
+       now means the customer was actually emailed - a priced quote nobody sent
+       files under New, because it is waiting on US. An add-on the customer is
+       being asked to approve has by definition gone out. */
+    const SENT = (function(){ const t = new Date(); return {toDate: function(){ return t; }}; })();
     const QUOTE = (over) => Object.assign({
-      requoteKind: 'addition', quotedPrice: 780, quoteToken: 'tok1',
+      requoteKind: 'addition', quotedPrice: 780, quoteToken: 'tok1', quoteSentAt: SENT,
       existingCustomerId: 'child', requoteKindNote: 'wants the back garage doing as well'
     }, over || {});
 
@@ -32591,9 +32618,9 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
        this suite held 80/55 while admin.html had moved to 75/45, so it was
        testing its own numbers and reported a failure against code that was
        right. A constant asserted from a copy of itself is not asserted. */
-    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE)\s*=.*$/gm) || []);
-    check('S129', 'the grading constants are findable in the source', constLines.length === 5,
-      'found ' + constLines.length + ' of 5 — this suite would silently fall back to guessing them');
+    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE|STEEP_SHARE)\s*=.*$/gm) || []);
+    check('S129', 'the grading constants are findable in the source', constLines.length === 6,
+      'found ' + constLines.length + ' of 6 — this suite would silently fall back to guessing them');
     const g = new Function(constLines.join(LF_) + LF_ + gradeFn + LF_ + 'return gradeRoof;')();
     /* ⚠ THE BUG THIS EXISTS FOR: the old thresholds were 37% for Hard and 25%
        for Medium. Grade is a PERCENT — 37% is a 4.4/12 pitch. An ordinary 6/12
@@ -32603,11 +32630,38 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
       'got ' + g({maxGrade: 50, peakCount: 2}).level + ' — this is the miscalibration that called every house Hard');
     check('S129', 'a low 4/12 roof is Easy', g({maxGrade: 33, peakCount: 2}).level === 'Easy');
     check('S129', 'a genuinely steep 10/12 roof is Hard', g({maxGrade: 83, peakCount: 2}).level === 'Hard');
+    /* ⚠ WAS 6 SECTIONS, AND 6 IS AN ORDINARY HOUSE. A plain hip roof is 4 facets;
+       add a garage and a dormer and an unremarkable house is 8, so every such
+       house was bumped a grade for being shaped like a house. Busy is more. */
     check('S129', 'a busy roof is bumped up a grade',
-      g({maxGrade: 33, peakCount: 6}).level === 'Medium',
+      g({maxGrade: 33, peakCount: 11}).level === 'Medium',
       'lots of separate sections is more ladder moves, whatever the pitch');
+    check('S129', 'but an ordinary 8-facet house is not "busy"',
+      g({maxGrade: 33, peakCount: 8}).level === 'Easy',
+      'a hip roof plus a garage plus a dormer is 8 facets and is not a hard day');
     check('S129', 'and a two-storey eave bumps it too',
       g({maxGrade: 33, peakCount: 2, eaveFt: 19}).level === 'Medium');
+
+    /* ⭐ THE REAL HOUSE THAT CAUSED THIS. Owner: "that house is medium difficulty
+       its currently hard meaning the grading system could use some love."
+       209 S 850 W, Lehi, measured off Google's own roof segments: eleven facets,
+       ONE at 88% grade covering 183 of 2,185 sq ft, and the other ten at 63% and
+       below - mostly 51-56%, an ordinary 6/12 roof with one steep piece.
+       Area-weighted that is 54%, and the steep face is 8.4% of the roof. */
+    const LEHI = {maxGrade: 88, typicalGrade: 54, steepShare: 0.084, peakCount: 8};
+    check('S129', 'the house the owner called Medium comes out Medium',
+      g(LEHI).level === 'Medium',
+      'got ' + g(LEHI).level + ' — the steepest single facet was setting the grade for ' +
+      'all 2,185 sq ft, so one 183 sq ft face made the whole day Hard');
+    /* ⚠ AND THE STEEP PATCH IS STILL NOT INVISIBLE, which was the right instinct
+       in the rule this replaces. A roof that is genuinely steep over a real
+       share of its area still grades Hard. */
+    check('S129', 'but a roof that is steep over a third of its area IS Hard',
+      g({maxGrade: 88, typicalGrade: 54, steepShare: 0.33, peakCount: 8}).level === 'Hard',
+      'a steep patch is a patch; a steep roof is a day roped on');
+    check('S129', 'and with no weighted figure it falls back to the steepest',
+      g({maxGrade: 88, peakCount: 2}).level === 'Hard',
+      'an old cached roof record has no typicalGrade, and guessing low would be worse');
     check('S129', 'but nothing goes past Hard',
       g({maxGrade: 95, peakCount: 9, eaveFt: 24}).level === 'Hard',
       'a fourth grade would appear that no rate multiplier knows about');
