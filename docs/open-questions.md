@@ -1212,3 +1212,44 @@ The trade:
   of who still has old stock is gone for good.
 - **Both** — group and build them as Warm White, and add a separate field marking
   the old stock so the list survives. More work, loses nothing.
+
+---
+
+## Answered 2026-08-24 — the colour rulings
+
+Addie went through the list and ruled on every one. All applied.
+
+**The one that changed behaviour, not just coverage:** a repeated single letter is a
+*count*. *"R is Red, RR is Red, Red"*, *"bbb is Blue, Blue, Blue rrr is Red, Red,
+Red, ggg is Green, Green, Green"*. They used to collapse to one colour, so `rr` and
+`rrr` were the same build. They are different strands now.
+
+That fits what the code already believed: `pure/pure` has always been two pures, and
+a repeat is what marks a description as an alternating pattern. `rr` is the same
+idea in a shorter notation.
+
+⚠ **WW and PW are initials, not repeats** — she gave both in the same message.
+
+**A consequence worth knowing:** the group heading used to sort colours
+alphabetically, so `rrgg` and `rgrg` — the same four bulbs, two different strands —
+would have become one heading. A plain set still sorts (so two people typing the
+same two colours land together); a list with a repeat in it now keeps its order.
+
+**Her rulings:** `pur` → Pure White (not Purple — that is the one I would have got
+wrong), `clear` / `cool white` / `bright white` → Pure White, `orng` → Orange,
+`pnk` → Pink, `blu` → Blue, `grn` → Green, `rainbow` → Multi, plurals → the
+singular colour, and anything multi-something → Multi.
+
+### Q-021 · what does `mc` mean? · intent
+
+Addie: *"mc lets come back to this one."* Left unmapped deliberately — it falls
+through to its own heading, which is visible and correctable, rather than being
+guessed at. A check holds it there so nobody expands it plausibly later.
+
+### Q-022 · are the letters ever run together, like `rrgg` in one cell? · factual-ish
+
+`rr` and `gg` are read correctly on their own, and `rr/gg` or `rr,gg` works. A
+single cell reading `rrgg` with no separator is **not** understood — it would need
+letter-run parsing, which is a guess about where one colour ends and the next
+begins, and `rrgg` is equally plausible as a typo. Worth one look at the real
+Lights column; if that spelling appears, it is a small change to make.

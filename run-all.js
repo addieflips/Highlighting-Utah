@@ -465,7 +465,11 @@ const OPTIONS_SANDBOX_SRC = () =>
   '    optInvoiceOptions = invoiceOptions, optMissingAnswers = missingAnswers,' +
   '    HU_OPTIONS = OPTIONS;';
 const whGroupKeySrc      = extractFn(admin, 'whGroupKey');
-const whNormalizeLightsSrc = extractFn(admin, 'whNormalizeLights');
+/* whNormalizeLights sorts a plain set but keeps a repeating strand in the order it
+   was written — that rule lives in whOrderColors and comes with it. */
+const whOrderColorsSrc = extractFn(admin, 'whOrderColors');
+const whNormalizeLightsFnSrc = extractFn(admin, 'whNormalizeLights');
+const whNormalizeLightsSrc = whOrderColorsSrc + '\n' + whNormalizeLightsFnSrc;
 const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
 /* whNormalizeLights reads the colour vocabulary through whColorsFromWords, so
    both have to come across or it throws the moment it is called. Lifted from
@@ -477,9 +481,12 @@ const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
    dependencies are folded into this one const so every sandbox that already lifts the
    function gets them, rather than eleven call sites each having to remember. */
 const whColorAliasSrc = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
+/* The multi rule is a REGEX, not a table row — "anything multi something is Multi"
+   cannot be nine more keys — so it travels with the vocabulary everywhere. */
+const whMultiSrc = (admin.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + extractFn(admin, 'rbLooksMulti');
 const whColorVocabSrc = (admin.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\n\}\)\(\);/) || [''])[0];
 const whColorsFromWordsFnSrc = extractFn(admin, 'whColorsFromWords');
-const whColorsFromWordsSrc = whColorAliasSrc + '\n' + whColorVocabSrc + '\n' + whColorsFromWordsFnSrc;
+const whColorsFromWordsSrc = whColorAliasSrc + '\n' + whMultiSrc + '\n' + whColorVocabSrc + '\n' + whColorsFromWordsFnSrc;
 const whLightColorsSrc = (admin.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
 /* The colour options and aliases, read out of admin.html rather than restated,
    so a change to what the app accepts as a colour reaches the tests too. */
@@ -1156,7 +1163,7 @@ if (typeof whGroupKey === 'function') {
   const empNorm = extractFn(empSrc, 'whNormalizeLights');
   check('logic', 'employee.html sorts colours the same way admin does',
     !!empNorm && empNorm.replace(/\s+/g, ' ') ===
-      (whNormalizeLightsSrc || '').replace(/\s+/g, ' '),
+      (whNormalizeLightsFnSrc || '').replace(/\s+/g, ' '),
     'admin.html and employee.html have drifted — the crew would group houses differently');
   /* whNormalizeLights matching is not enough on its own any more: it now leans
      on a helper and a colour list, and employee.html could match line for line
@@ -1179,6 +1186,12 @@ if (typeof whGroupKey === 'function') {
   check('logic', 'and builds that vocabulary the same way',
     !!empVocab && empVocab.replace(/\s+/g, ' ') === (whColorVocabSrc || '').replace(/\s+/g, ' '),
     'longest-match-first and the value-as-key rule both live in there');
+  /* whOrderColors holds "a set sorts, a strand keeps its order" — the rule that
+     stops rrgg and rgrg becoming one heading. New 2026-08-24 and easy to miss. */
+  const empOrder = extractFn(empSrc, 'whOrderColors');
+  check('logic', 'employee.html keeps a repeating strand in order the same way',
+    !!empOrder && empOrder.replace(/\s+/g, ' ') === (whOrderColorsSrc || '').replace(/\s+/g, ' '),
+    'rrgg and rgrg are two builds; one screen merging them is the drift that matters');
   const empColors = (empSrc.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
   check('logic', 'employee.html knows the same colours admin does',
     !!empColors && empColors.replace(/\s+/g, ' ') === (whLightColorsSrc || '').replace(/\s+/g, ' '),
@@ -15689,6 +15702,9 @@ suite('Suite 60. The colours as the office actually writes them');
   };
   const consts = 'const RB_LIGHT_COLOR_OPTIONS = ' + JSON.stringify(RB_COLOR_OPTS) + ';' +
                  'const RB_COLOR_ALIASES = ' + JSON.stringify(RB_COLOR_ALIAS) + ';';
+  /* rbNormalizeColors asks the multi rule now — "anything multi something is Multi"
+     is a shape rather than a table row, so it cannot be rebuilt from RB_COLOR_ALIAS. */
+  const multiRule = whMultiSrc;
   const norm = fn('rbNormalizeColors');
   const detect = fn('rbDetectColorsAndPattern');
   const notesGuard = fn('rbNotesLooksLikeColors');
@@ -15696,18 +15712,27 @@ suite('Suite 60. The colours as the office actually writes them');
 
   if (norm && detect && notesGuard) {
     const sb = {};
-    new Function(consts + norm + detect + notesGuard +
+    new Function(consts + multiRule + norm + detect + notesGuard +
       'this.n = rbNormalizeColors; this.d = rbDetectColorsAndPattern; this.g = rbNotesLooksLikeColors;').call(sb);
 
-    /* ⭐ THE OWNER'S OWN EXAMPLE. */
-    check('S60', '"pure/pure/rr/gg" is read',
-      sb.n('pure/pure/rr/gg').join('|') === 'Pure White|Pure White|Red|Green',
+    /* ⭐ THE OWNER'S OWN EXAMPLE — AND THE COUNT CHANGED ON 2026-08-24.
+       She wrote pure/pure/rr/gg on 2026-08-18 and it was read as four colours:
+       two Pures, one Red, one Green. Asked directly on the 24th what the doubled
+       letters meant, she said: "R is Red, RR is Red, Red", "bbb is Blue, Blue, Blue
+       rrr is Red, Red, Red, ggg is Green, Green, Green". So rr is TWO reds — which
+       makes the whole example read one way instead of two: pure/pure is two pures
+       and rr is two reds, the same idea written twice.
+       ⚠ The old expectation is left here in words on purpose. Reverting it would
+       merge rr and rrr into one build again, which is what she was correcting. */
+    check('S60', '"pure/pure/rr/gg" is read, with the doubles counted',
+      sb.n('pure/pure/rr/gg').join('|') ===
+        'Pure White|Pure White|Red|Red|Green|Green',
       'got ' + JSON.stringify(sb.n('pure/pure/rr/gg')));
     check('S60', 'and the repeat makes it an alternating pattern, not a plain set',
       (function(){
         const r = sb.d('pure/pure/rr/gg');
         return r.colors.join('|') === 'Pure White|Red|Green' &&
-               r.pattern === 'Pure White, Pure White, Red, Green';
+               r.pattern === 'Pure White, Pure White, Red, Red, Green, Green';
       })(),
       JSON.stringify(sb.d('pure/pure/rr/gg')));
 
@@ -15717,9 +15742,22 @@ suite('Suite 60. The colours as the office actually writes them');
     check('S60', 'single letters r, g, b, o',
       sb.n('r').join('') === 'Red' && sb.n('g').join('') === 'Green' &&
       sb.n('b').join('') === 'Blue' && sb.n('o').join('') === 'Orange');
-    check('S60', 'doubled letters rr, gg, ww',
-      sb.n('rr').join('') === 'Red' && sb.n('gg').join('') === 'Green' &&
-      sb.n('ww').join('') === 'Warm White');
+    /* ⚠ A DOUBLED SINGLE LETTER IS A COUNT; WW IS NOT. Addie gave both in the same
+       message on 2026-08-24 — "WW Warm White W is Warm White" alongside "RR is Red,
+       Red" — because WW is the initials of Warm White and RR is two reds. Reading
+       WW as two warm whites would put every warm-white house into a pattern group. */
+    check('S60', 'doubled colour letters count up: rr, gg, bb',
+      sb.n('rr').join('|') === 'Red|Red' && sb.n('gg').join('|') === 'Green|Green' &&
+      sb.n('bb').join('|') === 'Blue|Blue',
+      'got ' + JSON.stringify([sb.n('rr'), sb.n('gg'), sb.n('bb')]));
+    check('S60', 'and three of them means three',
+      sb.n('rrr').join('|') === 'Red|Red|Red' &&
+      sb.n('ggg').join('|') === 'Green|Green|Green' &&
+      sb.n('bbb').join('|') === 'Blue|Blue|Blue',
+      'got ' + JSON.stringify([sb.n('rrr'), sb.n('ggg'), sb.n('bbb')]));
+    check('S60', 'but WW and PW are initials, not repeats',
+      sb.n('ww').join('|') === 'Warm White' && sb.n('pw').join('|') === 'Pure White',
+      'got ' + JSON.stringify([sb.n('ww'), sb.n('pw')]));
     check('S60', 'and the spellings in between',
       sb.n('warm w').join('') === 'Warm White' && sb.n('wwarm').join('') === 'Warm White' &&
       sb.n('warmwhite').join('') === 'Warm White' && sb.n('purewhite').join('') === 'Pure White');

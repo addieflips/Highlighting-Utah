@@ -1407,15 +1407,30 @@ const RB_COLOR_ALIASES = {
   'warm':'Warm White', 'ww':'Warm White', 'warmwhite':'Warm White', 'warm w':'Warm White',
   'warm white':'Warm White', 'wwarm':'Warm White',
   'pure':'Pure White', 'pw':'Pure White', 'purewhite':'Pure White', 'pure white':'Pure White',
-  'r':'Red', 'rr':'Red', 'rrr':'Red', 'red':'Red',
-  'g':'Green', 'gg':'Green', 'ggg':'Green', 'green':'Green',
-  'b':'Blue', 'bb':'Blue', 'bbb':'Blue', 'blue':'Blue',
+  /* ⭐ A REPEATED LETTER IS A COUNT (2026-08-24). Addie, asked what bbb meant:
+     "R is Red, RR is Red, Red", "bbb is Blue, Blue, Blue rrr is Red, Red, Red, ggg is
+     Green, Green, Green". Five examples, letter-count matching word-count in every
+     one — so RR is two reds in a repeating strand, not a second way to spell Red.
+     They used to collapse to a single colour, which merged rr and rrr into one build.
+     ⚠ WW AND PW ARE NOT REPEATS — they are initials, Warm White and Pure White, and
+     she gave both explicitly in the same message. Only the single-letter colour codes
+     r, g and b count up.
+     ⚠ bb and gg are not written out in her message; they are the middle terms of a
+     rule she gave at one, two and three letters for r. Applying it is following the
+     rule, not extending it.
+     ⚠ THE REPEAT IS WHAT MAKES IT A PATTERN. rbDetectColorsAndPattern reads a repeated
+     colour as an alternating strand and moves it into lightsDescription, where the
+     ORDER is kept — which is why these have to be lists and must never be deduped. */
+  'r':'Red', 'rr':['Red','Red'], 'rrr':['Red','Red','Red'], 'red':'Red',
+  'g':'Green', 'gg':['Green','Green'], 'ggg':['Green','Green','Green'], 'green':'Green',
+  'b':'Blue', 'bb':['Blue','Blue'], 'bbb':['Blue','Blue','Blue'], 'blue':'Blue',
   'purple':'Purple', 'purp':'Purple',
   'o':'Orange', 'orange':'Orange',
   'pink':'Pink', 'pk':'Pink',
-  'multi':'Multi', 'multicolor':'Multi', 'multicolour':'Multi', 'multi color':'Multi',
-  'multi colour':'Multi', 'multi-color':'Multi', 'multi-colour':'Multi',
-  'multicolored':'Multi', 'multicoloured':'Multi',
+  /* ⚠ NO multi ROWS HERE ANY MORE. "Anything multi something is Multi" is a SHAPE, so
+     it lives in rbLooksMulti below and both normalisers ask it. Nine table rows saying
+     the same thing meant the rule could be deleted with nothing failing — a red-check
+     caught exactly that. One mechanism, and removing it is now loud. */
   /* ⭐ THE FOUR THE OFFICE HAD TO RULE ON. These sat unmapped for weeks because a
      wrong guess writes the wrong lights onto a house; the owner settled them all on
      2026-08-19.
@@ -1448,8 +1463,23 @@ const RB_COLOR_ALIASES = {
      can see and correct. That is the whole design and it beats guessing. */
   'reds':'Red', 'greens':'Green', 'blues':'Blue', 'pinks':'Pink',
   'purples':'Purple', 'oranges':'Orange',
-  'warm whites':'Warm White', 'pure whites':'Pure White'
+  'warm whites':'Warm White', 'pure whites':'Pure White',
+  /* ⭐ RULED ON BY ADDIE, 2026-08-24, having been asked which of these appear in the
+     real sheet. Every one is her answer, not a guess.
+     ⚠ `pur` IS PURE WHITE, NOT PURPLE. That is the one I would have got wrong and the
+     reason it was brought to her rather than assumed — "pur" reads as the front of
+     "purple" and is not.
+     ⚠ `mc` IS STILL DELIBERATELY UNMAPPED: "lets come back to this one". Leave it
+     falling through to its own heading until she rules. */
+  'pur':'Pure White', 'clear':'Pure White',
+  'cool white':'Pure White', 'bright white':'Pure White',
+  'orng':'Orange', 'pnk':'Pink', 'blu':'Blue', 'grn':'Green',
+  'rainbow':'Multi'
 };
+const RB_MULTI_RE = /^multi[\s-]?(colou?r(ed|s)?)?$/;
+function rbLooksMulti(text){
+  return RB_MULTI_RE.test(String(text || '').toLowerCase().replace(/\s+/g, ' ').trim());
+}
 const WH_COLOR_WORDS = (function(){
   const map = {};
   WH_LIGHT_COLORS.forEach(function(c){ map[c.toLowerCase()] = [c]; });
@@ -1475,6 +1505,8 @@ function whColorsFromWords(token){
   let rest = String(token || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const found = [];
   while(rest){
+    /* The multi rule first: it is a shape, not a word, so no table row can hold it. */
+    if(rbLooksMulti(rest)){ found.push('Multi'); rest = ''; continue; }
     const hit = WH_COLOR_WORDS.keys.find(function(k){
       return rest === k || rest.indexOf(k + ' ') === 0;
     });
@@ -1484,7 +1516,19 @@ function whColorsFromWords(token){
   }
   return found.length ? found : null;
 }
-function whNormalizeLights(text){
+function whOrderColors(list){
+  const seen = {};
+  const repeats = list.some(function(c){
+    const k = String(c).toLowerCase();
+    if(seen[k]) return true;
+    seen[k] = 1;
+    return false;
+  });
+  if(repeats) return list.slice();
+  return list.slice().sort(function(a, b){
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  });
+}function whNormalizeLights(text){
   const raw = String(text || '');
   if(!raw.trim()) return raw;
   /* ⚠ THE WHOLE DESCRIPTION FIRST. The reader below pulls a trailing (...) off as a
@@ -1494,9 +1538,7 @@ function whNormalizeLights(text){
      the alias, and the note was then put back on the end. Asking about the whole
      string first costs one lookup and makes normalising idempotent. */
   const whole = whColorsFromWords(raw.trim());
-  if(whole) return whole.slice().sort(function(a, b){
-    return a.toLowerCase().localeCompare(b.toLowerCase());
-  }).join(', ');
+  if(whole) return whOrderColors(whole).join(', ');
   const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
   const main  = m ? m[1].trim() : raw.trim();
   const notes = m ? m[2].trim() : '';
@@ -1517,9 +1559,7 @@ function whNormalizeLights(text){
     else colors.push(t);
   });
   if(!colors.length) return raw.trim();
-  const sorted = colors.slice().sort(function(a,b){
-    return a.toLowerCase().localeCompare(b.toLowerCase());
-  });
+  const sorted = whOrderColors(colors);
   return sorted.join(', ') + (notes ? ' (' + notes + ')' : '');
 }
 function whGroupKey(lightsDescription, wire){

@@ -331,7 +331,7 @@ check('a re-quote with no stated kind writes nothing',
 const aliases = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
 const whColors = (admin.match(/const WH_LIGHT_COLORS = \[[\s\S]*?\];/) || [''])[0];
 const splitter = (aliases && whColors && fn('rbNormalizeColors') && fn('rbDetectColorsAndPattern'))
-  ? new Function(aliases + whColors + fn('rbNormalizeColors') + fn('rbDetectColorsAndPattern') +
+  ? new Function(aliases + whColors + (admin.match(/const RB_MULTI_RE = [^\n]*\n/)||[''])[0] + fn('rbLooksMulti') + (admin.match(/const RB_LIGHT_COLOR_OPTIONS = \[[\s\S]*?\];/)||[''])[0] + fn('rbNormalizeColors') + fn('rbDetectColorsAndPattern') +
       'return rbDetectColorsAndPattern;')()
   : null;
 check('the sheet splitter can still be found and run', !!splitter,
@@ -403,6 +403,9 @@ if (splitter) {
    key proves nothing about the side that never read the table. */
 const aliasSrc = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
 const vocabSrc = (admin.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\n\}\)\(\);/) || [''])[0];
+/* ⚠ The multi rule is a REGEX, not a table row — "anything multi something is Multi"
+   cannot be spelled out as nine keys — so it travels with the vocabulary. */
+const multiSrc = (admin.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + fn('rbLooksMulti');
 const whListSrc = (admin.match(/const WH_LIGHT_COLORS = \[[\s\S]*?\];/) || [''])[0];
 const rbListSrc = (admin.match(/const RB_LIGHT_COLOR_OPTIONS = \[[\s\S]*?\];/) || [''])[0];
 const haveVocab = !!(aliasSrc && vocabSrc && whListSrc && rbListSrc &&
@@ -411,9 +414,9 @@ check('the colour tables and both normalisers can be found', haveVocab,
   'this block is the whole answer to "are any other colours having problems"');
 
 if (haveVocab) {
-  const groupOf = new Function(whListSrc + aliasSrc + vocabSrc + fn('whColorsFromWords') +
-    fn('whWireLabel') + fn('whNormalizeLights') + 'return whNormalizeLights;')();
-  const importOf = new Function(aliasSrc + rbListSrc + whListSrc + fn('rbNormalizeColors') +
+  const groupOf = new Function(whListSrc + aliasSrc + multiSrc + vocabSrc + fn('whColorsFromWords') +
+    fn('whOrderColors') + fn('whWireLabel') + fn('whNormalizeLights') + 'return whNormalizeLights;')();
+  const importOf = new Function(aliasSrc + rbListSrc + whListSrc + multiSrc + fn('rbNormalizeColors') +
     'return rbNormalizeColors;')();
 
   /* Every key the import understands must reach the same colour in the warehouse. */
@@ -423,15 +426,39 @@ if (haveVocab) {
     const grouped = groupOf(k).split(', ').slice().sort().join(', ');
     return imported !== grouped;
   });
+  /* ⚠ AND THE MULTI RULE IS ASSERTED ON BOTH SIDES SEPARATELY. It is a regex rather
+     than table rows, so the alias-key sweep above cannot reach it — and a red-check
+     proved that: deleting the rule from the import changed nothing, because table
+     rows were quietly doing the same job. The rows are gone and these are the guard. */
+  ['multi', 'multicolor', 'multicolour', 'multi color', 'multi colour',
+   'multi-color', 'multi-colour', 'multicolored', 'multicoloured'].forEach(function(t){
+    check('the import reads "' + t + '" as Multi',
+      importOf(t).join('|') === 'Multi', 'got ' + JSON.stringify(importOf(t)));
+    check('and the warehouse groups "' + t + '" as Multi',
+      groupOf(t) === 'Multi', 'got ' + JSON.stringify(groupOf(t)));
+  });
   check('every word the import knows, the warehouse groups the same way',
     disagree.length === 0,
     'two headings for one build: ' + JSON.stringify(disagree));
 
   /* The specific ones Addie named, and the abbreviations the office actually types. */
+  /* ⭐ EVERY ONE OF THESE IS ADDIE'S OWN RULING, 2026-08-24, given when she was asked
+     which spellings really appear in the sheet. Do not change one without her.
+     ⚠ A REPEATED SINGLE LETTER IS A COUNT: "R is Red, RR is Red, Red", "bbb is Blue,
+     Blue, Blue". They used to collapse to one colour, which merged rr and rrr into one
+     build. WW and PW are initials, NOT repeats, and she gave both in the same breath. */
   [['warm', 'Warm White'], ['Warm', 'Warm White'], ['ww', 'Warm White'], ['w', 'Warm White'],
    ['warm white', 'Warm White'], ['pure', 'Pure White'], ['p', 'Pure White'],
-   ['pw', 'Pure White'], ['r', 'Red'], ['rr', 'Red'], ['bbb', 'Blue'],
-   ['multi-colour', 'Multi'], ['multi colour', 'Multi'], ['reds', 'Red']
+   ['pw', 'Pure White'],
+   ['r', 'Red'], ['rr', 'Red, Red'], ['rrr', 'Red, Red, Red'],
+   ['b', 'Blue'], ['bb', 'Blue, Blue'], ['bbb', 'Blue, Blue, Blue'],
+   ['g', 'Green'], ['gg', 'Green, Green'], ['ggg', 'Green, Green, Green'],
+   ['pur', 'Pure White'], ['clear', 'Pure White'],
+   ['cool white', 'Pure White'], ['bright white', 'Pure White'],
+   ['orng', 'Orange'], ['pnk', 'Pink'], ['blu', 'Blue'], ['grn', 'Green'],
+   ['rainbow', 'Multi'], ['multi', 'Multi'], ['multicolour', 'Multi'],
+   ['multi-colour', 'Multi'], ['multi colour', 'Multi'], ['multi coloured', 'Multi'],
+   ['reds', 'Red'], ['greens', 'Green'], ['warm whites', 'Warm White']
   ].forEach(function(pair){
     check('the warehouse groups "' + pair[0] + '" as ' + pair[1],
       groupOf(pair[0]) === pair[1],
@@ -442,7 +469,10 @@ if (haveVocab) {
      made ENTIRELY of words we know is rewritten; anything else is kept exactly as
      typed and shows as its own heading, which somebody can see and correct. Guessing
      would put a bundle of the wrong colour on a real house. */
-  [['Red with tinsel'], ['Green garland'], ['pur'], ['rainbow']].forEach(function(t){
+  /* ⚠ `mc` IS IN THIS LIST DELIBERATELY. Addie, asked: "mc lets come back to this
+     one" — so it is not yet ruled on and must NOT be guessed at. Moving it out of
+     here needs her answer, not a plausible expansion. */
+  [['Red with tinsel'], ['Green garland'], ['mc'], ['multi red something']].forEach(function(t){
     check('"' + t[0] + '" is left exactly as typed, not guessed at',
       groupOf(t[0]) === t[0],
       'got ' + JSON.stringify(groupOf(t[0])));
@@ -460,6 +490,28 @@ if (haveVocab) {
       JSON.stringify(once) + ' became ' + JSON.stringify(groupOf(once)));
   });
 
+  /* ⭐ A SET SORTS, A PATTERN KEEPS ITS ORDER (2026-08-24). Sorting exists so two
+     people typing the same two colours land in one group. Since RR means two reds,
+     order now carries information: rrgg and rgrg are the same four bulbs and two
+     different strands, and sorting flattens both to one heading. */
+  check('two colours in either order are one group',
+    groupOf('red, green') === groupOf('green, red'),
+    'got ' + JSON.stringify([groupOf('red, green'), groupOf('green, red')]));
+  check('but a repeating strand keeps the order it was written in',
+    groupOf('rr,gg') === 'Red, Red, Green, Green' &&
+    groupOf('r,g,r,g') === 'Red, Green, Red, Green',
+    'got ' + JSON.stringify([groupOf('rr,gg'), groupOf('r,g,r,g')]));
+  check('so two different strands are two different builds',
+    groupOf('rr,gg') !== groupOf('r,g,r,g'),
+    'one heading for two builds sends the warehouse to make the wrong thing');
+  /* ⚠ AND THE REPEAT REACHES THE PATTERN FIELD. rbDetectColorsAndPattern is what the
+     master-sheet sync writes through: a repeat has to land in lightsDescription, where
+     the order is kept, and NOT be flattened into the colour list. */
+  if (splitter) {
+    check('a repeated letter is written as a pattern, not a plain colour',
+      splitter('rr').pattern === 'Red, Red' && splitter('rrr').pattern === 'Red, Red, Red',
+      'got ' + JSON.stringify([splitter('rr'), splitter('rrr')]));
+  }
   /* ⚠ LONGEST MATCH FIRST, or "warm" eats the front of "warm white" and the leftover
      "white" comes back as a second colour — which would put every warm-white house
      into a three-colour group. */
@@ -486,8 +538,9 @@ if (haveVocab) {
     !!(empAlias && empVocab && empList && empFn('whColorsFromWords') && empFn('whNormalizeLights')),
     'it grouped by the nine full names alone and knew none of the abbreviations');
   if (empAlias && empVocab && empList && empFn('whNormalizeLights')) {
-    const empGroup = new Function(empList + empAlias + empVocab + empFn('whColorsFromWords') +
-      empFn('whWireLabel') + empFn('whNormalizeLights') + 'return whNormalizeLights;')();
+    const empMulti = (emp.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + empFn('rbLooksMulti');
+    const empGroup = new Function(empList + empAlias + empMulti + empVocab + empFn('whColorsFromWords') +
+      empFn('whOrderColors') + empFn('whWireLabel') + empFn('whNormalizeLights') + 'return whNormalizeLights;')();
     const differ = ['ww', 'w', 'warm', 'p', 'pure', 'r', 'bbb', 'white', 'soft',
                     'Red with tinsel', 'Red, Green']
       .filter(function(t){ return empGroup(t) !== groupOf(t); });
