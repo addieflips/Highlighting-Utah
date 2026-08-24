@@ -432,6 +432,45 @@ if (!THX_CONST) throw new Error('PRE_THANKSGIVING_DAYS has gone from admin.html'
    can be tested on their own. extractFn matches "function name(" which is still
    there inside "export function name(", so the same helper reads either file.
    If a rule ever moves back into admin.html, these two reads are what to fix. */
+
+/* ⭐ THE DAY BUILDER MOVED OUT OF admin.html (2026-08-24) into js/schedule-rules.js,
+   where planNewCrewDays and the half of rebuildSeasonDays that used to reach it
+   through a runtime typeof check finally live together. Harnesses that used to
+   slice the builder out of the page slice it out of here instead; `export ` is
+   stripped so those slices still run in a bare new Function sandbox exactly as they
+   did before, which keeps this a move rather than a rewrite of a dozen harnesses. */
+const scheduleSrc = read('js/schedule-rules.js').replace(/^export /gm, '');
+const scheduleRules = require('./js/schedule-rules.js');
+
+/* The builder trio, which is exactly what `SCHED_BUILDER_SRC` used to cover:
+   planNewCrewDays, renumberCrewsByDate and packTailCrewDays sat consecutively in
+   admin.html and the slice ran from the first to the end of the last. */
+const SCHED_BUILDER_SRC = ['planNewCrewDays', 'renumberCrewsByDate', 'packTailCrewDays']
+  .map(n => extractFn(scheduleSrc, n)).join('\n');
+
+/* ⚠ THESE FOUR USED TO ARRIVE BY ACCIDENT. Every harness below slices admin.html
+   from `const MAX_STOPS_PER_ROUTE` to `function installPriority`, and seasonFirstDate,
+   isThanksgivingDay, isWorkingDay and nextWorkingDay happened to sit inside that
+   range — so the sandboxes got them without ever asking. Two harnesses even define
+   their own stubs of seasonFirstDate/nextWorkingDay FIRST, which the real ones then
+   silently overrode. Now that the four have moved into js/schedule-rules.js they are
+   appended explicitly, in the same position, so behaviour is unchanged and the
+   dependency is stated rather than inherited from page order. */
+const SCHED_DAY_HELPERS = ['seasonFirstDate', 'isThanksgivingDay', 'isWorkingDay', 'nextWorkingDay']
+  .map(n => extractFn(scheduleSrc, n)).join('\n');
+
+const SCHED_TOWN_HELPERS = ['sameTownName', 'townCentres', 'nearbyTowns']
+  .map(n => extractFn(scheduleSrc, n)).join('\n');
+
+/* ⚠ THIS SLICE USED TO RUN FROM THE RADIUS CONSTANT TO `function townCentres`. Both
+   ends were in admin.html; townCentres has moved to js/schedule-rules.js, so
+   indexOf returned -1 and slice(x, -1) quietly swallowed the rest of the HTML file
+   into the sandbox — SyntaxError: Unexpected token '<'. Only the constant was ever
+   wanted, so only the constant is taken, straight from the page so it cannot drift
+   from the radius the real scheduler uses. */
+const MILES_CONST_SRC = (admin.match(/const NEARBY_TOWN_MILES = \d+;/) || [''])[0];
+if (!MILES_CONST_SRC) throw new Error('NEARBY_TOWN_MILES has gone from admin.html');
+
 const money = read('js/money.js');
 const computeInvoiceStatusSrc = extractFn(money, 'computeInvoiceStatus');
 /* ⚠ THE CONSTANT TRAVELS WITH THE FUNCTION. cnBinsForFeet reads CN_DOUBLE_BIN_FEET,
@@ -6118,6 +6157,13 @@ suite('17. A new customer lands on the next day in their city');
        is ever flipped this harness follows rather than quietly testing a rule
        production no longer uses. */
     const helpers = 'const isOutForSeason = __isOutForSeason;\n'
+      /* The sweep tops routes up by calling the day builder, which now lives in
+         js/schedule-rules.js — so the engine and the helpers it needs come from
+         there rather than from admin.html. */
+      /* ⚠ NEARBY_TOWN_MILES and NEARBY_TOWN_LIST are NOT declared here: the reconcile
+         slice below already carries both, and a second `const` of either is a
+         SyntaxError that takes the whole suite down. */
+      + SCHED_TOWN_HELPERS + '\n' + SCHED_DAY_HELPERS + '\n' + SCHED_BUILDER_SRC + '\n'
       + NEEDED.map(n => extractFn(admin, n)).join('\n');
     const src = helpers + '\n' + admin.slice(recStart, recEnd);
 
@@ -7342,8 +7388,8 @@ check('season', 'the waiting summary counts rather than lists',
  */
 suite('22. Building the crew-days the season needs');
 {
-  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const start = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = scheduleSrc.length;
   if (start === -1 || end < start) {
     check('build', 'the day builder is findable', false,
       'renamed or removed — update this test rather than deleting it');
@@ -7351,7 +7397,7 @@ suite('22. Building the crew-days the season needs');
     global.toDateStr = dt => dt.getFullYear() + '-' +
       String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
     const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
-                               admin.indexOf('function installPriority'));
+                               admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS;
     /* ⚠ WITHOUT THESE A CREW CANNOT BORROW A TOWN AT ALL. nearbyTowns works its
        neighbours out by measuring town centres, so it needs haversine, and it looks
        for a typed-in list first, so NEARBY_TOWN_LIST has to exist. The harness gave it
@@ -7360,10 +7406,18 @@ suite('22. Building the crew-days the season needs');
        towns reached the live book with this suite green. The list is left EMPTY on
        purpose: these fixtures test the MEASURED rule, and a typed-in one overrides it. */
     const LF_ = String.fromCharCode(10);
-    const prelude = 'const NEARBY_TOWN_LIST = {};' + LF_ +
-      extractFn(admin, 'haversine') + LF_ + extractFn(admin, 'sameTownName') + LF_;
+    /* Taken from admin.html rather than restated, or this test goes on passing
+       against a radius the real scheduler no longer uses. */
+    const MILES_CONST = (admin.match(/const NEARBY_TOWN_MILES = \d+;/) || [''])[0];
+    check('build', 'the nearby-town radius is still one line in admin.html', !!MILES_CONST);
+    const prelude = 'const NEARBY_TOWN_LIST = {};' + LF_ + MILES_CONST + LF_ +
+      extractFn(admin, 'haversine') + LF_ + extractFn(admin, 'thanksgivingDate') + LF_ +
+      /* the town helpers moved into js/schedule-rules.js with the builder; nearbyTowns
+         measures town centres, so townCentres has to come with it or a crew can never
+         borrow a town at all — the exact silent hole the comment above describes */
+      SCHED_TOWN_HELPERS + LF_;
     const api = eval(prelude + consts + '\n' +
-      extractFn(admin, 'installPriority') + '\n' + admin.slice(start, end) +
+      extractFn(admin, 'installPriority') + '\n' + SCHED_BUILDER_SRC +
       '\n;({plan: planNewCrewDays, pri: installPriority, cap: MAX_STOPS_PER_ROUTE,' +
       ' crews: CREWS_PER_DAY, firstDate: seasonFirstDate, working: isWorkingDay})');
 
@@ -7518,7 +7572,7 @@ suite('22. Building the crew-days the season needs');
        The evidence for what went wrong is from the live book, not from here: on 27
        October each crew held THREE towns (Cottonwood Hts + Holladay + Midvale, and
        Murray + Santaquin + Payson). Own town, plus one borrowed, plus one more. */
-    const rescueSrc = admin.slice(start, end);
+    const rescueSrc = SCHED_BUILDER_SRC;
     check('build', 'a crew that already has two towns is refused a third',
       /towns\.length \+ planned\.length >= 2\s*\) continue/.test(rescueSrc),
       'this replaced `score = towns.length < 2 ? 1 : 2`, whose own comment called the ' +
@@ -7586,7 +7640,7 @@ suite('22. Building the crew-days the season needs');
        still tuned to fire only on genuinely one-man ones. That is the half of all this
        that survived. */
     check('build', 'a wasted morning still means a one-man day, not a quiet one',
-      /ONE_MAN_MAX_HOUSES/.test(admin.slice(start, end)),
+      /ONE_MAN_MAX_HOUSES/.test(SCHED_BUILDER_SRC),
       'this is the mechanism she is relying on to turn one-man days into crews');
 
     /* ⭐ THE CREW GOES WHERE A FULL DAY IS, NOT WHERE THE MOST HOUSES ARE (added
@@ -7626,7 +7680,7 @@ suite('22. Building the crew-days the season needs');
        never in the same town on one date, so a neighbour that is already taken lends
        nothing and must not make a town look fillable. */
     check('build', 'a neighbour the other crew has taken does not count as fillable',
-      admin.indexOf("if(other === city || used.indexOf(other) !== -1) return;") !== -1,
+      scheduleSrc.indexOf("if(other === city || used.indexOf(other) !== -1) return;") !== -1,
       'otherwise the crew is sent to a town on the promise of houses it cannot have');
 
     /* ⚠ A TOWN THAT FITS IN ONE DAY IS LEFT ALONE. There is no stub to avoid, and
@@ -7791,6 +7845,86 @@ suite('22. Building the crew-days the season needs');
       'there is no day to build for a town nobody named');
   }
 }
+
+/* ---------------------------------------------------------------------------
+   22b. The bridge between the settings screen and the day builder.
+
+   ⭐ THIS SUITE EXISTS BECAUSE A RED-CHECK FOUND NOTHING (2026-08-24). When the
+   builder moved into js/schedule-rules.js it stopped reading admin.html's constants
+   directly and started being HANDED them. Sabotaging that hand-off — deleting the
+   crew count, deleting the nearby-town list, deleting setScheduleDeps entirely —
+   broke no test at all.
+
+   That is the whole failure this move was meant to end, reappearing in the fix for
+   it: the builder would quietly run on its defaults (two crews, no typed town list,
+   an eight-mile tape measure) and the office would see a season that looked
+   plausible and was built from settings nobody chose. CLAUDE.md §1 in one line —
+   something writes it, something reads it, and something proves the two are joined.
+   --------------------------------------------------------------------------- */
+{
+  const R = scheduleRules;
+
+  /* ---- the module end: does a setting actually reach the engine? ---- */
+  const before = R.getScheduleSettings();
+  R.setScheduleSettings({ crewsPerDay: 1 });
+  check('build', 'a saved crew count reaches the builder', R.getScheduleSettings().crewsPerDay === 1,
+    'the office setting would be accepted and then ignored');
+  R.setScheduleSettings({ nearbyTownList: { Lehi: ['American Fork'] } });
+  check('build', 'a typed nearby-town list reaches the builder',
+    (R.getScheduleSettings().nearbyTownList.Lehi || [])[0] === 'American Fork',
+    'towns would pair off the eight-mile tape measure instead of the office list');
+
+  /* ⚠ AN EMPTY LIST IS NOT A DECISION, IT IS A BLANK. Accepting {} would silently
+     switch every pairing back to the tape measure, which on the Wasatch Front is
+     most of the valley — the 2026-08-20 "too many cities marked as close" report. */
+  R.setScheduleSettings({ nearbyTownList: {} });
+  check('build', 'an empty nearby-town list does not wipe the one already set',
+    (R.getScheduleSettings().nearbyTownList.Lehi || [])[0] === 'American Fork');
+
+  R.setScheduleSettings({ crewsPerDay: before.crewsPerDay,
+                          nearbyTownList: before.nearbyTownList });
+
+  /* ---- the injected helpers ---- */
+  /* ⚠ UNSET, THEY MUST THROW. A distance function that quietly returned 0 would
+     pair every town with every other and read as a scheduling bug for a week. */
+  check('build', 'an unsupplied helper throws rather than answering plausibly',
+    (function () {
+      try { require('./js/schedule-rules.js'); } catch (e) { return false; }
+      const src = read('js/schedule-rules.js');
+      return /was never supplied/.test(src) && /throw new Error/.test(src);
+    })(),
+    'a silent fallback here is worse than a crash — it produces a plausible season');
+
+  /* ---- the admin.html end: is the hand-off actually made? ---- */
+  check('build', 'admin.html hands the builder its settings',
+    /setScheduleSettings\(\{[\s\S]{0,400}?crewsPerDay: CREWS_PER_DAY/.test(admin) &&
+    /nearbyTownList: NEARBY_TOWN_LIST/.test(admin),
+    'the builder would run on its own defaults and nobody would be told');
+  check('build', 'and hands it the three shared helpers',
+    /setScheduleDeps\(\{ haversine, toDateStr, thanksgivingDate \}\)/.test(admin),
+    'unset they throw, so this is the line between a working season and none');
+  /* ⚠ BOTH PATHS. A failed settings read must still leave the builder wired, or one
+     bad network moment silently reverts the whole season to defaults. */
+  check('build', 'on the settings-read path AND on the failure path',
+    (admin.match(/pushScheduleSettings\(\);/g) || []).length >= 2,
+    'a builder left unwired after a failed read is a season built from defaults');
+  check('build', 'the one-man ceiling is where the builder can reach it',
+    /^const ONE_MAN_MAX_HOUSES = 8;/m.test(admin),
+    'declared inside the Schedule widget it is invisible to packTailCrewDays, which ' +
+    'then silently used its own fallback — which is what it did until 2026-08-24');
+
+  /* ---- and the guard the whole move was for ---- */
+  /* ⚠ COMMENTS STRIPPED. The removed guard is quoted verbatim in the comment that
+     replaced it — that history is worth keeping, and a plain search finds the
+     explanation and calls it a violation. Suite 58 already had to learn this. */
+  check('build', 'the runtime typeof guard on the day builder is gone',
+    !/typeof planNewCrewDays\s*!==\s*'function'/.test(stripComments(admin)),
+    'a name lookup against a global is what let the two halves come apart');
+  check('build', 'the widget imports the builder instead',
+    /import \{[\s\S]{0,300}?planNewCrewDays[\s\S]{0,300}?\} from '\.\/js\/schedule-rules\.js'/.test(admin),
+    'a missing engine must fail on deploy, not at 7pm on a Friday');
+}
+
 /* Dropping to one crew: the days that now have one town too many. */
 {
   const s2 = admin.indexOf('function surplusCrewDays(routes, crews)');
@@ -8580,7 +8714,7 @@ suite('Suite 25. A day is only SET if it is within two business days');
          the holiday rule has to come with it. Lifted from the real file rather
          than stubbed, or the harness proves the horizon skips a day it does not. */
       extractFn(admin, 'thanksgivingDate') + '\n' +
-      extractFn(admin, 'isThanksgivingDay') + '\n' +
+      extractFn(scheduleSrc, 'isThanksgivingDay') + '\n' +
       extractFn(admin, 'isThanksgiving') + '\n' +
       extractFn(admin, 'isDayOff') + '\n' +
       admin.slice(constStart, admin.indexOf('function pinHorizon')) +
@@ -8776,11 +8910,11 @@ suite('Suite 27. Short crew-days reach into nearby towns');
     }
     return null;
   };
-  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const start = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = scheduleSrc.length;
   const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
   check('S27', 'the builder and the nearby helpers are findable',
-    start !== -1 && end > start && nearbyConst !== -1 && !!extract('townCentres') && !!extract('nearbyTowns'));
+    start !== -1 && end > start && nearbyConst !== -1 && !!extractFn(scheduleSrc, 'townCentres') && !!extractFn(scheduleSrc, 'nearbyTowns'));
 
   if (start !== -1 && end > start && nearbyConst !== -1) {
     global.toDateStr = dt => dt.getFullYear() + '-' +
@@ -8789,11 +8923,10 @@ suite('Suite 27. Short crew-days reach into nearby towns');
       'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
       'return 2*R*Math.asin(Math.sqrt(q));}\n' +
-      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + '\n' +
-      'let NEARBY_TOWN_LIST={};' + extract('sameTownName') +
-      extract('townCentres') + '\n' + extract('nearbyTowns') + '\n' +
-      extract('installPriority') + '\n' + admin.slice(start, end) +
+      (admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS) + '\n' +
+      MILES_CONST_SRC + '\n' +
+      'let NEARBY_TOWN_LIST={};' + SCHED_TOWN_HELPERS + '\n' +
+      extract('installPriority') + '\n' + SCHED_BUILDER_SRC +
       '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE, crews: CREWS_PER_DAY})');
 
     const at = {
@@ -8926,8 +9059,8 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
     }
     return null;
   };
-  const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-  const planEnd = admin.indexOf('/* Top every day up to the cap.', planStart);
+  const planStart = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const planEnd = scheduleSrc.length;
   const need = ['seasonStartDate', 'houseAllowedFrom', 'houseInstallPriority', 'rebuildSeasonDays', 'crewTownsFor'];
   check('S28', 'the rebuild and its helpers are findable', need.every(n => !!fn(n)) && planStart !== -1);
 
@@ -8957,10 +9090,10 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       'function planCities(){return [];}' +
       'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
       'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
-      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') +
-      fn('townCentres') + fn('nearbyTowns') + fn('installPriority') + admin.slice(planStart, planEnd) +
+      (admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS) + '\n' +
+      MILES_CONST_SRC + '\n' +
+      'let NEARBY_TOWN_LIST={};' + extractFn(scheduleSrc, 'sameTownName') +
+      extractFn(scheduleSrc, 'townCentres') + extractFn(scheduleSrc, 'nearbyTowns') + fn('installPriority') + SCHED_BUILDER_SRC +
       /* The rebuild now asks pinHorizon whether a day is close enough to be
          SET, so the sandbox needs it and its constant. */
       'const PIN_HONOURED_BUSINESS_DAYS=' + (admin.match(/const PIN_HONOURED_BUSINESS_DAYS=(d+);/)||[])[1] + ';' +
@@ -9156,10 +9289,14 @@ suite('Suite 29. Towns the office says are near each other');
     }
     return null;
   };
-  const need = ['parseNearbyTowns', 'nearbyTownsToText', 'sameTownName', 'nearbyTowns'];
-  check('S29', 'the nearby-town helpers exist', need.every(n => !!fn(n)));
+  /* parseNearbyTowns and nearbyTownsToText belong to the settings screen and stayed
+     in admin.html; sameTownName and nearbyTowns went with the builder. */
+  const need = ['parseNearbyTowns', 'nearbyTownsToText'];
+  const needSched = ['sameTownName', 'nearbyTowns'];
+  const haveNearby = need.every(n => !!fn(n)) && needSched.every(n => !!extractFn(scheduleSrc, n));
+  check('S29', 'the nearby-town helpers exist', haveNearby);
 
-  if (need.every(n => !!fn(n))) {
+  if (haveNearby) {
     const sb = {};
     new Function(
       'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
@@ -9167,6 +9304,10 @@ suite('Suite 29. Towns the office says are near each other');
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
       'const NEARBY_TOWN_MILES=8; let NEARBY_TOWN_LIST={};' +
       need.map(fn).join('\n') +
+      /* sameTownName and nearbyTowns moved into js/schedule-rules.js with the builder;
+         townCentres comes too, because nearbyTowns measures town centres. */
+      needSched.map(n => extractFn(scheduleSrc, n)).join('\n') +
+      extractFn(scheduleSrc, 'townCentres') + '\n' +
       'this.parse=parseNearbyTowns;this.text=nearbyTownsToText;this.near=nearbyTowns;' +
       'this.set=function(m){NEARBY_TOWN_LIST=m;};'
     ).call(sb);
@@ -11570,17 +11711,17 @@ suite('Suite 43. Install order and the one-other-town rule');
 
   /* ---- the builder, run for real ---- */
   {
-    const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-    const planEnd = admin.indexOf('/* Top every day up to the cap');
+    const planStart = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const planEnd = scheduleSrc.length;
     check('S43', 'planNewCrewDays found', planStart > 0 && planEnd > planStart);
     if (planStart > 0 && planEnd > planStart) {
       const ctx = {};
       new Function(
-        admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-        admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-        'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+        (admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS) +
+        MILES_CONST_SRC +
+        'let NEARBY_TOWN_LIST={};' + extractFn(scheduleSrc, 'sameTownName') + fn('haversine') + extractFn(scheduleSrc, 'townCentres') + extractFn(scheduleSrc, 'nearbyTowns') +
         'function seasonFirstDate(){return new Date(2026,9,1);}' +
-        fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
+        fn('toDateStr') + extractFn(scheduleSrc, 'nextWorkingDay') + SCHED_BUILDER_SRC +
         ';this.plan=planNewCrewDays;'
       ).call(ctx);
 
@@ -12409,18 +12550,18 @@ suite('Suite 47. The two biggest towns get each day');
     }
     return '';
   };
-  const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-  const planEnd = admin.indexOf('/* Top every day up to the cap');
+  const planStart = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const planEnd = scheduleSrc.length;
   check('S47', 'planNewCrewDays found', planStart > 0 && planEnd > planStart);
 
   if (planStart > 0 && planEnd > planStart) {
     const ctx = {};
     new Function(
-      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+      (admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS) +
+      MILES_CONST_SRC +
+      'let NEARBY_TOWN_LIST={};' + extractFn(scheduleSrc, 'sameTownName') + fn('haversine') + extractFn(scheduleSrc, 'townCentres') + extractFn(scheduleSrc, 'nearbyTowns') +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
-      fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
+      fn('toDateStr') + extractFn(scheduleSrc, 'nextWorkingDay') + SCHED_BUILDER_SRC +
       ';this.plan=planNewCrewDays;'
     ).call(ctx);
 
@@ -12632,8 +12773,8 @@ suite('Suite 48. Days within two working days are set');
 
   /* ---- run it ---- */
   {
-    const planStart = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-    const planEnd = admin.indexOf('/* Top every day up to the cap');
+    const planStart = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const planEnd = scheduleSrc.length;
     const ctx = {};
     /* Today is fixed so the horizon is predictable: Mon 5 Oct 2026, which makes
        the next two working days Tue 6 and Wed 7. */
@@ -12655,11 +12796,11 @@ suite('Suite 48. Days within two working days are set');
       'function computeDates(){SEASON.forEach(d=>{if(d.base!=null)d._date=addDays(BASE_START,d.base);});}' +
       'var CREWS=[{name:"Crew 1",city:""},{name:"Crew 2",city:""}];' +
       'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
-      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      (admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS) + '\n' +
+      MILES_CONST_SRC + '\n' +
+      'let NEARBY_TOWN_LIST={};' + SCHED_TOWN_HELPERS +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
-      admin.slice(planStart, planEnd) +
+      SCHED_BUILDER_SRC +
       'const PIN_HONOURED_BUSINESS_DAYS=2;' +
       /* pinHorizon and "today" both pinned to the fixed date */
       'function pinHorizon(){let d=new Date(__TODAY);d.setHours(0,0,0,0);' +
@@ -13101,7 +13242,7 @@ suite('Suite 51. The dribble at the end of the season');
     return '';
   };
 
-  const src = fn('packTailCrewDays');
+  const src = extractFn(scheduleSrc, 'packTailCrewDays');
   check('S51', 'packTailCrewDays exists', !!src);
 
   if (src) {
@@ -13436,7 +13577,7 @@ suite('Suite 51. The dribble at the end of the season');
 
   /* ---- the crew numbers, closed up ---- */
   {
-    const rsrc = fn('renumberCrewsByDate');
+    const rsrc = extractFn(scheduleSrc, 'renumberCrewsByDate');
     check('S51', 'renumberCrewsByDate exists', !!rsrc);
     if (rsrc) {
       const rb = {};
@@ -13470,12 +13611,12 @@ suite('Suite 51. The dribble at the end of the season');
 
   /* ---- end to end, through the real builder ---- */
   {
-    const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-    const end = admin.indexOf('/* Top every day up to the cap.', start);
+    const start = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const end = scheduleSrc.length;
     check('S51', 'the builder runs the packer before handing the plan back',
-      /if\(o\.pack === false\) return out;/.test(admin) &&
-      /const packed = packTailCrewDays\(out, \{/.test(admin) &&
-      /return renumberCrewsByDate\(packed\.days, taken \|\| \{\}\);/.test(admin));
+      /if\(o\.pack === false\) return out;/.test(scheduleSrc) &&
+      /const packed = packTailCrewDays\(out, \{/.test(scheduleSrc) &&
+      /return renumberCrewsByDate\(packed\.days, taken \|\| \{\}\);/.test(scheduleSrc));
 
     const api = new Function(
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
@@ -13485,10 +13626,10 @@ suite('Suite 51. The dribble at the end of the season');
       'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
       'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
-      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
-      admin.slice(start, end) +
+      (admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS) +
+      MILES_CONST_SRC +
+      'let NEARBY_TOWN_LIST={};' + SCHED_TOWN_HELPERS +
+      SCHED_BUILDER_SRC +
       '\nreturn {plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE};')();
 
     const at = { Bluffdale: [40.489, -111.939], 'South Jordan': [40.562, -111.929],
@@ -13555,9 +13696,9 @@ suite('Suite 52. Thanksgiving');
   /* ---- ⭐ the crew does not go out on the holiday ---- */
   {
     const tgSrc = fn('thanksgivingDate');
-    const isTg = fn('isThanksgivingDay');
-    const wdSrc = fn('isWorkingDay');
-    const nextSrc = fn('nextWorkingDay');
+    const isTg = extractFn(scheduleSrc, 'isThanksgivingDay');
+    const wdSrc = extractFn(scheduleSrc, 'isWorkingDay');
+    const nextSrc = extractFn(scheduleSrc, 'nextWorkingDay');
     check('S52', 'isThanksgivingDay exists', !!isTg);
     check('S52', 'isWorkingDay and nextWorkingDay found', !!wdSrc && !!nextSrc);
 
@@ -13751,8 +13892,8 @@ suite('Suite 53. October is a deadline');
 
   /* ---- ⭐ the builder reaches the small towns while it is still October ---- */
   {
-    const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-    const end = admin.indexOf('/* Top every day up to the cap.', start);
+    const start = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+    const end = scheduleSrc.length;
     const api = new Function(
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
       'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
@@ -13760,10 +13901,10 @@ suite('Suite 53. October is a deadline');
       'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       fn('thanksgivingDate') +
-      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
-      admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
-      admin.slice(start, end) +
+      (admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS) +
+      MILES_CONST_SRC +
+      'let NEARBY_TOWN_LIST={};' + SCHED_TOWN_HELPERS +
+      SCHED_BUILDER_SRC +
       '\nreturn {plan: planNewCrewDays};')();
 
     const AT = { Lehi: [40.391, -111.851], Highland: [40.425, -111.795],
@@ -13830,7 +13971,7 @@ suite('Suite 53. October is a deadline');
 
   /* ---- ⭐ moving somebody to a LATER day, and the line it must not cross ---- */
   {
-    const src = fn('packTailCrewDays');
+    const src = extractFn(scheduleSrc, 'packTailCrewDays');
     check('S53', 'packTailCrewDays found', !!src);
     if (src) {
       const sb = {};
@@ -13944,7 +14085,7 @@ suite('Suite 53. October is a deadline');
       }
 
       check('S53', 'and the builder hands the deadlines through',
-        /until: function\(id\)\{ return \(wById\[id\] && wById\[id\]\.until\) \|\| ''; \},/.test(admin) &&
+        /until: function\(id\)\{ return \(wById\[id\] && wById\[id\]\.until\) \|\| ''; \},/.test(scheduleSrc) &&
         /until:houseDeadline\(h\),/.test(admin),
         'the packer cannot work them out for itself — it never sees the customer record');
     }
@@ -19281,8 +19422,7 @@ suite('Suite 100. One crew days, and who works them');
     'saved and never read is the same as not saved');
 
   /* ---- the rescue only saves one-man days now ---- */
-  const plan = admin.slice(admin.indexOf('function planNewCrewDays(waiting, taken, opts)'),
-                           admin.indexOf('/* Top every day up to the cap.'));
+  const plan = SCHED_BUILDER_SRC;
   check('S100', 'a wasted morning means a one man day, not a quiet one',
     /wastedDay = o\.wastedDay == null/.test(plan) && /ONE_MAN_MAX_HOUSES/.test(plan),
     'it was 12, so days of nine, ten and eleven — perfectly good one-crew days — ' +
@@ -27418,8 +27558,8 @@ suite('Suite 117. The colour-change fee, actually charged');
  */
 suite('120. A day is a cluster, not the top of a list');
 {
-  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
-  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const start = scheduleSrc.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = scheduleSrc.length;
   if (start === -1 || end < start) {
     check('S120', 'the day builder is findable', false,
       'renamed or removed — update this test rather than deleting it');
@@ -27428,13 +27568,13 @@ suite('120. A day is a cluster, not the top of a list');
     global.toDateStr = dt => dt.getFullYear() + '-' +
       String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
     const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
-                               admin.indexOf('function installPriority'));
+                               admin.indexOf('function installPriority')) + SCHED_DAY_HELPERS;
     const prelude = ['const NEARBY_TOWN_LIST = {};',
-      extractFn(admin, 'haversine'), extractFn(admin, 'sameTownName'),
-      extractFn(admin, 'townCentres'), extractFn(admin, 'nearbyTowns'),
+      extractFn(admin, 'haversine'), extractFn(scheduleSrc, 'sameTownName'),
+      extractFn(scheduleSrc, 'townCentres'), extractFn(scheduleSrc, 'nearbyTowns'),
       extractFn(admin, 'extractCleanCity'), extractFn(admin, 'thanksgivingDate')].join(LF_) + LF_;
     const api = eval(prelude + consts + LF_ + extractFn(admin, 'installPriority') + LF_ +
-      admin.slice(start, end) + LF_ + ';({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE})');
+      SCHED_BUILDER_SRC + LF_ + ';({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE})');
 
     /* ⚠ THE TWO ENDS OF TOWN INTERLEAVE IN THE QUEUE, which is the whole point of
        the fixture. Clumped in the queue, "take the front twenty" gives a tidy day
