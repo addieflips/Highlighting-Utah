@@ -386,14 +386,20 @@ function check(label, ok, detail) {
                for the other a few lines up. */
             wireColor:         /wire: whWireLabel\(d\.wireColor\)[\s\S]*wire: whWireLabel\(d\.wireColor\)/,
             outletTimer:       /timer: String\(d\.outletTimer[\s\S]*timer: String\(d\.outletTimer/,
-            /* ⚠ FEET AND BINS REACH THE WAREHOUSE AS BUNDLES, deliberately. Owner,
+            /* ⚠ FEET REACHES THE WAREHOUSE AS BUNDLES, deliberately. Owner,
                2026-08-21: "I don't think we need feet and bundles. I think how many
-               bundles is fine for warehouse." Bundles are computed from the footage
-               (houseBundleNeed), so the answer does arrive — as the number somebody
-               counts off a shelf. Asserting a feet column here would fail a sheet
-               that is right, which is how a good gate teaches people to delete it. */
+               bundles is fine for warehouse", and 2026-08-24: "on warehouse it should
+               say bundles but on quotes we should be measuring the feet." Bundles are
+               computed from the footage (houseBundleNeed), so the answer does arrive —
+               as the number somebody counts off a shelf. Asserting a feet column here
+               would fail a sheet that is right, which is how a good gate gets deleted. */
             measuredFeet:      /bundles: \(need\.topUp/,
-            numberOfBins:      /bundles: \(need\.topUp/,
+            /* ⚠ BINS IS ITS OWN COLUMN HERE, not bundles. The first version of this
+               mapped it to the bundle count as well, which was lazy and wrong — bins
+               are what the warehouse LABELS, bundles are what they make, and one is
+               not evidence of the other. Mapping two options to one column also means
+               losing that column fails two checks and gaining it passes two. */
+            numberOfBins:      /bins: whBinsForHouse\(d\)[\s\S]*bins: whBinsForHouse\(d\)/,
           },
         },
         {
@@ -404,7 +410,19 @@ function check(label, ok, detail) {
             wireColor:         /wire: d\.wireColor/,
             outletTimer:       /timer: printYesNo\(d\.outletTimer\)/,
             measuredFeet:      /bundles: need/,
-            numberOfBins:      /bundles: need/,
+            /* ⚠ AND IT IS GENUINELY NOT ON THE PRINTED SHEET — recorded, not papered
+               over. The Warehouse tab's list shows a bins column; the printed one never
+               has, through every revision of it (git log -S). So the person reading the
+               screen is told how many bins to label and the person carrying the paper is
+               not. That is a real difference between two sheets doing one job, and it is
+               the owner's call rather than mine: adding a column to a sheet she trimmed
+               herself is exactly the kind of guess this registry exists to stop.
+               ⚠ IT IS NOT SILENT. `except` makes the check say so on every run, so the
+               difference is visible until somebody decides — a missing entry would just
+               look like nobody had got to it. */
+            numberOfBins:      { except: 'the printed build sheet has no bins column; ' +
+                                 'the Warehouse tab list does. Owner to decide whether ' +
+                                 'the paper should match the screen.' },
           },
         },
       ],
@@ -421,6 +439,14 @@ function check(label, ok, detail) {
           'failing at once is the shape to distrust first');
         declared.forEach((o) => {
           const rule = surface.by[o.id];
+          /* ⚠ A RECORDED EXCEPTION IS REPORTED, NEVER SILENT. An option a surface
+             deliberately does not carry is a decision somebody made; leaving it out of
+             this map entirely would be indistinguishable from nobody having wired it. */
+          if (rule && rule.except) {
+            console.log('  note  ' + surface.name + ': ' + o.id + ' is deliberately not ' +
+                        'carried \u2014 ' + rule.except);
+            return;
+          }
           /* ⚠ THIS IS THE ONE THAT MAKES THE REGISTRY LOAD-BEARING. Add an option
              declaring this destination and the build fails right here, on every
              surface of it, until somebody says how it gets there. */
@@ -436,6 +462,7 @@ function check(label, ok, detail) {
         /* ⚠ AND NOTHING IS WIRED THAT THE REGISTRY DOES NOT ASK FOR. A leftover rule
            is one nobody is checking, against a destination nobody declared. */
         Object.keys(surface.by).forEach((id) => {
+          if (surface.by[id] && surface.by[id].except) return;
           check(surface.name + ': the wiring for ' + id + ' matches a declared destination',
             declared.some(o => o.id === id),
             id + ' is wired here but the registry does not send it to the ' + consumer);
