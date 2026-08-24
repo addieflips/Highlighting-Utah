@@ -617,26 +617,49 @@ check('logic', 'admin preview and the nightly function agree on who is new',
     'it was four copies of the same money rule until 2026-08-21');
   if (setupSrc) {
     const charges = new Function('return ' + setupSrc + ';quoteChargesSetupFee')();
-    check('logic', 'a quote for somebody who is not yet a customer charges the fee',
-      charges({}) === true,
-      'this is "became a customer through quotes" — the default that makes a new ' +
-      'lead a new member without anybody having to remember a checkbox');
-    check('logic', 'a re-quote against an existing customer does NOT',
+    /* ⭐ REVERSED 2026-08-24, and the old rule is written out here so nobody restores
+       it as a "fix". Owner: "we need to tick the 30 dollar fee it can't tick itself
+       even if a house has a badge old."
+
+       ⚠ THE OLD DEFAULT WAS `!existingCustomerId` — charge unless this is a re-quote —
+       and the check below asserted it. It was wrong because existingCustomerId is set
+       ONLY on a re-quote raised through the portal: an existing customer whose quote
+       was typed in by hand, or raised fresh against a house already on the books,
+       carries no such field and was charged the join fee automatically. The card was
+       already flagging those people as existing customers by a different test
+       (quoteAlreadyACustomer, address plus contact) and this rule never asked it.
+
+       ⚠ AND THE FLAG NOW MEANS "APPROVED FOR THIS SEASON" TOO, so a wrong tick stopped
+       being only a $30 overcharge and became an RSVP answered on somebody's behalf. */
+    check('logic', 'nothing ticks the join fee by itself',
+      charges({}) === false && charges({ name: 'A new lead' }) === false,
+      'owner 2026-08-24: "it can\'t tick itself". A default that invents an answer ' +
+      'nobody gave bills $30 and answers the RSVP at the same time');
+    check('logic', 'and a re-quote against an existing customer still does not',
       charges({ existingCustomerId: 'c1' }) === false,
       'they joined years ago — charging a join fee for a re-quote is the mistake ' +
-      'this default exists to avoid');
-    /* ⚠ BOTH DIRECTIONS. Reading chargeSetupFee as a plain boolean rather than
-       testing !== undefined would silently re-charge every quote the office had
-       deliberately UNticked, and no single-direction check would notice. */
-    check('logic', 'and the office ticking it themselves always wins',
+      'this has always avoided, and it still does');
+    /* ⚠ THE CASE THAT PROMPTED THE CHANGE: an existing customer with NO
+       existingCustomerId. Under the old default this returned true. */
+    check('logic', 'nor a quote from a customer the portal never linked',
+      charges({ convertedToCustomerAt: 1 }) === false &&
+      charges({ address: '12 Main St', phone: '8015550123' }) === false,
+      'this is the one the owner reported — the card knew they were an existing ' +
+      'customer and the fee ticked itself anyway');
+    /* ⚠ THE OFFICE'S ANSWER IS NOW THE ONLY WAY IT GOES ON, which is the point — but
+       it must still work in both directions, including ON a re-quote. A member who
+       genuinely should pay a join fee is rare and the office can still say so. */
+    check('logic', 'and the office ticking it themselves is what turns it on',
       charges({ existingCustomerId: 'c1', chargeSetupFee: true }) === true &&
+      charges({ chargeSetupFee: true }) === true &&
       charges({ chargeSetupFee: false }) === false,
-      'a deliberate answer on the quote card beats the default in BOTH directions');
+      'a deliberate answer on the quote card is the whole rule now');
     /* ⚠ THE DEFINITION IS EXCLUDED, or this check fails against its own function
        body — which is the only place the raw expression is allowed to appear. */
     check('logic', 'every caller uses that one function',
       (admin.match(/quoteChargesSetupFee\(/g) || []).length >= 4 &&
-      !/chargeSetupFee !== undefined \?/.test(admin.split(setupSrc).join('')),
+      !/chargeSetupFee !== undefined \?/.test(admin.split(setupSrc).join('')) &&
+      !/!\w*\.existingCustomerId\s*;/.test(admin.split(setupSrc).join('')),
       'a fifth copy is the copy that disagrees with the quote email they are holding');
   }
 }
@@ -1643,12 +1666,14 @@ if (JSDOM) {
         thinTxt.includes('Email') && thinTxt.includes('House Picture') &&
         thinTxt.includes('Total Price'),
         'automatic would save a customer with none of this and nothing would have said so');
-      /* A brand new quote with the box never touched still charges the fee —
-         that is the default for anyone who is not an existing customer, and it
-         is what the quote card itself shows ticked. */
-      check('render', 'convert popup — a new quote with no fee box set still charges it',
-        thinTxt.includes('$30 set-up fee'),
-        'the quote card shows the fee ticked by default, so the popup must agree with it');
+      /* ⭐ REVERSED 2026-08-24 with the rule above. A brand new quote with the box
+         never touched now charges NOTHING, and the popup has to say so — it is the
+         last screen before the customer is created, so a popup still promising a fee
+         the record will not carry is exactly the card-says-one-thing-invoice-says-
+         another split that putting this rule in one function was meant to end. */
+      check('render', 'convert popup — a new quote with no fee box set charges nothing',
+        !thinTxt.includes('$30 set-up fee'),
+        'nothing ticks the fee by itself any more, so the popup must not promise it');
 
       /* A re-quote is an existing customer, so the set-up fee defaults OFF —
          they already paid it the year they joined. Charging it again is the
