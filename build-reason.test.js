@@ -100,6 +100,13 @@ const sandbox = new Function(
 )();
 const { WH_BUILD_REASONS, whBuildReasonKey, whBuildReasonChip } = sandbox;
 
+/* ⚠ DECLARED HERE, ABOVE EVERY BLOCK THAT USES THEM. Both are rules rather than table
+   rows — "anything multi something is Multi" and "rrgg is two reds and two greens" —
+   so no sandbox can rebuild them from the alias table alone. */
+const multiSrc = (admin.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + fn('rbLooksMulti');
+/* The run reader travels with it: "rrgg" is a shape too, and both normalisers ask. */
+const runSrc = (admin.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0] + fn('rbLetterRun');
+
 // ---------------------------------------------------------------------------
 // THE TABLE. One row per thing that can bring a house to the warehouse.
 // ---------------------------------------------------------------------------
@@ -331,7 +338,7 @@ check('a re-quote with no stated kind writes nothing',
 const aliases = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
 const whColors = (admin.match(/const WH_LIGHT_COLORS = \[[\s\S]*?\];/) || [''])[0];
 const splitter = (aliases && whColors && fn('rbNormalizeColors') && fn('rbDetectColorsAndPattern'))
-  ? new Function(aliases + whColors + (admin.match(/const RB_MULTI_RE = [^\n]*\n/)||[''])[0] + fn('rbLooksMulti') + (admin.match(/const RB_LIGHT_COLOR_OPTIONS = \[[\s\S]*?\];/)||[''])[0] + fn('rbNormalizeColors') + fn('rbDetectColorsAndPattern') +
+  ? new Function(aliases + whColors + (admin.match(/const RB_MULTI_RE = [^\n]*\n/)||[''])[0] + fn('rbLooksMulti') + runSrc + (admin.match(/const RB_LIGHT_COLOR_OPTIONS = \[[\s\S]*?\];/)||[''])[0] + fn('rbNormalizeColors') + fn('rbDetectColorsAndPattern') +
       'return rbDetectColorsAndPattern;')()
   : null;
 check('the sheet splitter can still be found and run', !!splitter,
@@ -405,7 +412,6 @@ const aliasSrc = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''
 const vocabSrc = (admin.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\n\}\)\(\);/) || [''])[0];
 /* ⚠ The multi rule is a REGEX, not a table row — "anything multi something is Multi"
    cannot be spelled out as nine keys — so it travels with the vocabulary. */
-const multiSrc = (admin.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + fn('rbLooksMulti');
 const whListSrc = (admin.match(/const WH_LIGHT_COLORS = \[[\s\S]*?\];/) || [''])[0];
 const rbListSrc = (admin.match(/const RB_LIGHT_COLOR_OPTIONS = \[[\s\S]*?\];/) || [''])[0];
 const haveVocab = !!(aliasSrc && vocabSrc && whListSrc && rbListSrc &&
@@ -414,9 +420,9 @@ check('the colour tables and both normalisers can be found', haveVocab,
   'this block is the whole answer to "are any other colours having problems"');
 
 if (haveVocab) {
-  const groupOf = new Function(whListSrc + aliasSrc + multiSrc + vocabSrc + fn('whColorsFromWords') +
+  const groupOf = new Function(whListSrc + aliasSrc + multiSrc + runSrc + vocabSrc + fn('whColorsFromWords') +
     fn('whOrderColors') + fn('whWireLabel') + fn('whNormalizeLights') + 'return whNormalizeLights;')();
-  const importOf = new Function(aliasSrc + rbListSrc + whListSrc + multiSrc + fn('rbNormalizeColors') +
+  const importOf = new Function(aliasSrc + rbListSrc + whListSrc + multiSrc + runSrc + fn('rbNormalizeColors') +
     'return rbNormalizeColors;')();
 
   /* Every key the import understands must reach the same colour in the warehouse. */
@@ -490,6 +496,53 @@ if (haveVocab) {
       JSON.stringify(once) + ' became ' + JSON.stringify(groupOf(once)));
   });
 
+  /* ⭐ LETTERS RUN TOGETHER ARE A STRAND (2026-08-24). Addie, asked whether a cell
+     reading `rrgg` meant the same as `rr/gg`: "That is still Red, Red, Green, Green
+     all of those ways." The separator is optional. */
+  ['rrgg', 'rr/gg', 'rr, gg', 'RRGG'].forEach(function(t){
+    check('the import reads "' + t + '" as two reds and two greens',
+      importOf(t).join('|') === 'Red|Red|Green|Green', 'got ' + JSON.stringify(importOf(t)));
+    check('and the warehouse groups "' + t + '" the same',
+      groupOf(t) === 'Red, Red, Green, Green', 'got ' + JSON.stringify(groupOf(t)));
+  });
+  check('and a run keeps the order it was written in',
+    groupOf('rgrg') === 'Red, Green, Red, Green' && groupOf('rrgg') !== groupOf('rgrg'),
+    'got ' + JSON.stringify([groupOf('rrgg'), groupOf('rgrg')]));
+  check('a longer run still reads one letter at a time',
+    importOf('rrggbb').join('|') === 'Red|Red|Green|Green|Blue|Blue',
+    'got ' + JSON.stringify(importOf('rrggbb')));
+
+  /* ⚠ w AND p ARE EXCLUDED, AND THAT LIMIT IS THE WHOLE SAFETY OF THE RULE. WW and PW
+     are INITIALS — Warm White and Pure White — both ruled on by Addie in the same
+     message as the counts. A reader that expanded every letter would turn ww into two
+     warm whites, which is the opposite of what she said, and `wwrr` is genuinely
+     ambiguous with no way to tell. Left as typed, visible, correctable. */
+  check('ww and pw are still initials, not runs',
+    groupOf('ww') === 'Warm White' && groupOf('pw') === 'Pure White',
+    'got ' + JSON.stringify([groupOf('ww'), groupOf('pw')]));
+  ['wwrr', 'pwrr', 'mc'].forEach(function(t){
+    check('"' + t + '" is left exactly as typed rather than guessed at',
+      groupOf(t) === t && importOf(t).join('|') === t,
+      'got ' + JSON.stringify([groupOf(t), importOf(t)]));
+  });
+  check('one letter on its own is not a run — the table answers it',
+    groupOf('r') === 'Red' && groupOf('o') === 'Orange',
+    'got ' + JSON.stringify([groupOf('r'), groupOf('o')]));
+
+  /* ⚠ AND THE TWO READERS AGREE WHERE BOTH CAN READ A TOKEN. rr, rrr, gg, ggg, bb and
+     bbb are alias keys AND valid runs; if they ever disagreed the answer would be
+     decided by call order, which is not a rule anybody could look up. */
+  const aliasTable = new Function(aliasSrc + 'return RB_COLOR_ALIASES;')();
+  const runner = new Function(runSrc + 'return rbLetterRun;')();
+  const clash = Object.keys(aliasTable).filter(function(k){
+    const run = runner(k);
+    if (!run) return false;
+    const table = [].concat(aliasTable[k]);
+    return table.join('|') !== run.join('|');
+  });
+  check('the alias table and the run reader never disagree about a token',
+    clash.length === 0, 'both can read these and they differ: ' + JSON.stringify(clash));
+
   /* ⭐ A SET SORTS, A PATTERN KEEPS ITS ORDER (2026-08-24). Sorting exists so two
      people typing the same two colours land in one group. Since RR means two reds,
      order now carries information: rrgg and rgrg are the same four bulbs and two
@@ -538,7 +591,8 @@ if (haveVocab) {
     !!(empAlias && empVocab && empList && empFn('whColorsFromWords') && empFn('whNormalizeLights')),
     'it grouped by the nine full names alone and knew none of the abbreviations');
   if (empAlias && empVocab && empList && empFn('whNormalizeLights')) {
-    const empMulti = (emp.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + empFn('rbLooksMulti');
+    const empMulti = (emp.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + empFn('rbLooksMulti') +
+      (emp.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0] + empFn('rbLetterRun');
     const empGroup = new Function(empList + empAlias + empMulti + empVocab + empFn('whColorsFromWords') +
       empFn('whOrderColors') + empFn('whWireLabel') + empFn('whNormalizeLights') + 'return whNormalizeLights;')();
     const differ = ['ww', 'w', 'warm', 'p', 'pure', 'r', 'bbb', 'white', 'soft',

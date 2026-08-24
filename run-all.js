@@ -484,9 +484,12 @@ const whColorAliasSrc = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/)
 /* The multi rule is a REGEX, not a table row — "anything multi something is Multi"
    cannot be nine more keys — so it travels with the vocabulary everywhere. */
 const whMultiSrc = (admin.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + extractFn(admin, 'rbLooksMulti');
+/* And the run reader — "rrgg is Red, Red, Green, Green" is a shape too, so it cannot
+   be rebuilt from the alias table either. */
+const whRunSrc = (admin.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0] + extractFn(admin, 'rbLetterRun');
 const whColorVocabSrc = (admin.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\n\}\)\(\);/) || [''])[0];
 const whColorsFromWordsFnSrc = extractFn(admin, 'whColorsFromWords');
-const whColorsFromWordsSrc = whColorAliasSrc + '\n' + whMultiSrc + '\n' + whColorVocabSrc + '\n' + whColorsFromWordsFnSrc;
+const whColorsFromWordsSrc = whColorAliasSrc + '\n' + whMultiSrc + '\n' + whRunSrc + '\n' + whColorVocabSrc + '\n' + whColorsFromWordsFnSrc;
 const whLightColorsSrc = (admin.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
 /* The colour options and aliases, read out of admin.html rather than restated,
    so a change to what the app accepts as a colour reaches the tests too. */
@@ -1188,6 +1191,17 @@ if (typeof whGroupKey === 'function') {
     'longest-match-first and the value-as-key rule both live in there');
   /* whOrderColors holds "a set sorts, a strand keeps its order" — the rule that
      stops rrgg and rgrg becoming one heading. New 2026-08-24 and easy to miss. */
+  /* rbLetterRun decides that rrgg is two reds and two greens, and that w and p are
+     excluded from runs because WW and PW are initials. A crew screen without it reads
+     rrgg as its own heading while the office builds two piles from it. */
+  const empRun = extractFn(empSrc, 'rbLetterRun');
+  check('logic', 'employee.html reads letters run together the same way',
+    !!empRun && empRun.replace(/\s+/g, ' ') === extractFn(admin, 'rbLetterRun').replace(/\s+/g, ' '),
+    'rrgg would be two piles in the office and one unknown heading on the crew screen');
+  const empRunTbl = (empSrc.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0];
+  check('logic', 'and from the same letters',
+    !!empRunTbl && empRunTbl === (admin.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0],
+    'w and p must stay out of it on both sides — WW and PW are initials, not repeats');
   const empOrder = extractFn(empSrc, 'whOrderColors');
   check('logic', 'employee.html keeps a repeating strand in order the same way',
     !!empOrder && empOrder.replace(/\s+/g, ' ') === (whOrderColorsSrc || '').replace(/\s+/g, ' '),
@@ -15704,7 +15718,7 @@ suite('Suite 60. The colours as the office actually writes them');
                  'const RB_COLOR_ALIASES = ' + JSON.stringify(RB_COLOR_ALIAS) + ';';
   /* rbNormalizeColors asks the multi rule now — "anything multi something is Multi"
      is a shape rather than a table row, so it cannot be rebuilt from RB_COLOR_ALIAS. */
-  const multiRule = whMultiSrc;
+  const multiRule = whMultiSrc + whRunSrc;
   const norm = fn('rbNormalizeColors');
   const detect = fn('rbDetectColorsAndPattern');
   const notesGuard = fn('rbNotesLooksLikeColors');

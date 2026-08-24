@@ -1253,3 +1253,30 @@ single cell reading `rrgg` with no separator is **not** understood — it would 
 letter-run parsing, which is a guess about where one colour ends and the next
 begins, and `rrgg` is equally plausible as a typo. Worth one look at the real
 Lights column; if that spelling appears, it is a small change to make.
+
+---
+
+## Answered 2026-08-24 — Q-022, letters run together
+
+Addie: *"That is still Red, Red, Green, Green all of those ways."*
+
+So `rrgg`, `rr/gg` and `rr, gg` are one thing — the separator is optional. `rbLetterRun`
+reads the letters one at a time and both normalisers ask it.
+
+⚠ **Only `r`, `g`, `b` and `o`**, and that limit is the whole safety of the rule.
+`w` and `p` are excluded because **WW and PW are initials, not repeats** — she ruled on
+both in the same message as the counts. A reader that expanded every letter would turn
+`ww` into two warm whites, which is the opposite of what she said. And `wwrr` is
+genuinely ambiguous — Warm White then two reds, or two warm whites then two reds — so
+it is left exactly as typed, visible and correctable.
+
+The alias table and the run reader agree on every token both can read, and that is
+asserted rather than arranged: a clashing alias fails the build instead of being
+silently resolved.
+
+### Q-023 · what is `C`? · intent
+
+Her message ended with a bare `C` on its own line. In a list of colour codes it most
+plausibly means Clear — which she has already ruled is Pure White — but that is a
+guess, and guessing a colour code is the one thing this whole exercise has avoided.
+Left unmapped until she says. It falls through to its own heading, which is visible.

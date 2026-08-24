@@ -24302,6 +24302,32 @@ const RB_COLOR_ALIASES = {
    named colour in it, and reading that as plain Multi would put the wrong bundle on
    the house. Only multi, and multi followed by a spelling of colour, count.
    ⚠ Both normalisers ask it, so the import and the warehouse cannot disagree. */
+/* ⭐ LETTERS RUN TOGETHER ARE A STRAND (2026-08-24). Addie, asked whether a single
+   cell reading `rrgg` meant the same as `rr/gg`: "That is still Red, Red, Green, Green
+   all of those ways." So the separator is optional and the letters are read one at a
+   time.
+
+   ⚠ ONLY r, g, b AND o, AND THAT LIMIT IS THE WHOLE SAFETY OF IT. `w` and `p` are
+   excluded because WW and PW are INITIALS, not repeats — Warm White and Pure White,
+   both ruled on by her in the same message as the counts. A reader that expanded every
+   letter would turn `ww` into two warm whites and `pw` into a pure and a warm, which is
+   the opposite of what she said. Worse, `wwrr` is genuinely ambiguous — is that Warm
+   White then two reds, or two warm whites then two reds — and there is no way to tell.
+   Anything holding a w or a p is left exactly as typed and shows as its own heading,
+   which somebody can see and correct.
+
+   ⚠ ONE LETTER IS NOT A RUN. `r`, `g`, `b` and `o` are already in the alias table and
+   must keep answering from there, so this starts at two.
+
+   ⚠ AND IT AGREES WITH THE TABLE WHERE THEY OVERLAP. rr, rrr, gg, ggg, bb and bbb are
+   all alias keys AND all valid runs, and both give the same answer — asserted, because
+   two readers of one token that disagreed would be decided by call order. */
+const RB_RUN_LETTERS = {r:'Red', g:'Green', b:'Blue', o:'Orange'};
+function rbLetterRun(text){
+  const t = String(text || '').toLowerCase().trim();
+  if(t.length < 2 || !/^[rgbo]+$/.test(t)) return null;
+  return t.split('').map(function(ch){ return RB_RUN_LETTERS[ch]; });
+}
 const RB_MULTI_RE = /^multi[\s-]?(colou?r(ed|s)?)?$/;
 function rbLooksMulti(text){
   return RB_MULTI_RE.test(String(text || '').toLowerCase().replace(/\s+/g, ' ').trim());
@@ -24322,8 +24348,15 @@ function rbNormalizeColors(raw){
       const counted = low.match(/^\d+\s*(.+)$/);
       const key = counted ? counted[1].trim() : low;
       if(rbLooksMulti(key)) return 'Multi';
+      /* ⚠ PRECEDENCE IS THE ORDER OF THIS EXPRESSION: a ruling in the table beats the
+         general run rule. It makes no difference today — every token both can read,
+         they read the same, and build-reason.test.js asserts exactly that — so a
+         separate guard for it would be a branch that can never fire, which this file
+         has been bitten by before. If the two ever DO disagree the right outcome is a
+         failing build and a human deciding, not a line here quietly picking one. */
       return RB_COLOR_ALIASES[key] ||
              (RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === key; })) ||
+             rbLetterRun(key) ||
              c;
     })
     /* ⚠ ONE WORD CAN MEAN TWO COLOURS. "white" is warm AND pure, because nobody
@@ -31560,6 +31593,12 @@ function whColorsFromWords(token){
   while(rest){
     /* The multi rule first: it is a shape, not a word, so no table row can hold it. */
     if(rbLooksMulti(rest)){ found.push('Multi'); rest = ''; continue; }
+    /* ⚠ ASKED BEFORE THE TABLE, AND IT DOES NOT MATTER — every token both can read,
+       they read the same, and that agreement is asserted rather than arranged. The
+       guard that used to sit here checked the table first and could never change an
+       answer; a red-check proved it, so it is gone rather than left looking load-bearing. */
+    const run = rbLetterRun(rest);
+    if(run){ found.push.apply(found, run); rest = ''; continue; }
     const hit = WH_COLOR_WORDS.keys.find(function(k){
       return rest === k || rest.indexOf(k + ' ') === 0;
     });

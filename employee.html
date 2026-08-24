@@ -1476,6 +1476,12 @@ const RB_COLOR_ALIASES = {
   'orng':'Orange', 'pnk':'Pink', 'blu':'Blue', 'grn':'Green',
   'rainbow':'Multi'
 };
+const RB_RUN_LETTERS = {r:'Red', g:'Green', b:'Blue', o:'Orange'};
+function rbLetterRun(text){
+  const t = String(text || '').toLowerCase().trim();
+  if(t.length < 2 || !/^[rgbo]+$/.test(t)) return null;
+  return t.split('').map(function(ch){ return RB_RUN_LETTERS[ch]; });
+}
 const RB_MULTI_RE = /^multi[\s-]?(colou?r(ed|s)?)?$/;
 function rbLooksMulti(text){
   return RB_MULTI_RE.test(String(text || '').toLowerCase().replace(/\s+/g, ' ').trim());
@@ -1507,6 +1513,12 @@ function whColorsFromWords(token){
   while(rest){
     /* The multi rule first: it is a shape, not a word, so no table row can hold it. */
     if(rbLooksMulti(rest)){ found.push('Multi'); rest = ''; continue; }
+    /* ⚠ ASKED BEFORE THE TABLE, AND IT DOES NOT MATTER — every token both can read,
+       they read the same, and that agreement is asserted rather than arranged. The
+       guard that used to sit here checked the table first and could never change an
+       answer; a red-check proved it, so it is gone rather than left looking load-bearing. */
+    const run = rbLetterRun(rest);
+    if(run){ found.push.apply(found, run); rest = ''; continue; }
     const hit = WH_COLOR_WORDS.keys.find(function(k){
       return rest === k || rest.indexOf(k + ' ') === 0;
     });
