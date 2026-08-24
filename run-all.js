@@ -616,44 +616,97 @@ check('logic', 'admin preview and the nightly function agree on who is new',
   check('logic', 'the quote set-up fee rule exists as ONE function', !!setupSrc,
     'it was four copies of the same money rule until 2026-08-21');
   if (setupSrc) {
-    const charges = new Function('return ' + setupSrc + ';quoteChargesSetupFee')();
-    /* ⭐ REVERSED 2026-08-24, and the old rule is written out here so nobody restores
-       it as a "fix". Owner: "we need to tick the 30 dollar fee it can't tick itself
-       even if a house has a badge old."
+    /* ⚠ THE REAL HELPERS, LIFTED — not stubbed. The extraction-list trap CLAUDE.md
+       describes, hit again and caught again: this sandbox supplied none of them, and
+       the suite died with "isRequote is not defined" the moment the rule started
+       asking. quoteAlreadyACustomer IS the question here ("is this house already on
+       the books"), so a stub would make the test agree with itself about the very
+       thing under test.
 
-       ⚠ THE OLD DEFAULT WAS `!existingCustomerId` — charge unless this is a re-quote —
-       and the check below asserted it. It was wrong because existingCustomerId is set
-       ONLY on a re-quote raised through the portal: an existing customer whose quote
-       was typed in by hand, or raised fresh against a house already on the books,
-       carries no such field and was charged the join fee automatically. The card was
-       already flagging those people as existing customers by a different test
-       (quoteAlreadyACustomer, address plus contact) and this rule never asked it.
+       ⚠ `book` IS A REAL ARRAY, MUTATED IN PLACE, and that is not a style choice. The
+       first version handed the sandbox a Proxy so the fixtures could swap the list
+       out — and quoteCustomerKeys came back EMPTY every time, because
+       Array.prototype.forEach asks `has` before reading each index and the Proxy's
+       target was still the empty array it was built around. Every fee then read as
+       "book not loaded", every check went green, and the rule under test was never
+       actually exercised. */
+    /* ⚠ AND A FRESH SANDBOX PER FIXTURE, because quoteCustomerKeys caches on the LIST
+       OBJECT (`quoteCustKeyCacheFor === list`). Mutating one array in place is served
+       the stale map and the not-yet-loaded case silently tests the loaded one — which
+       it did, and failed, which is how this was found. Rebuilding is what the real page
+       does too: jobAddresses is replaced on every snapshot, never edited. */
+    const withBook = (rows) => new Function('jobAddresses',
+      'let quoteCustKeyCache = null, quoteCustKeyCacheFor = null;' +
+      extractFn(admin, 'quoteMatchAddress') +
+      extractFn(admin, 'quoteCustomerKeys') +
+      extractFn(admin, 'isRequote') +
+      extractFn(admin, 'quoteAlreadyACustomer') +
+      setupSrc + ';return quoteChargesSetupFee;')(rows);
+    const ONE = [{ data: { address: '12 Main St, Lehi, UT', phone: '(801) 555-0123' } }];
+    let charges = withBook(ONE);
+    const setBook = (rows) => { charges = withBook(rows); };
 
-       ⚠ AND THE FLAG NOW MEANS "APPROVED FOR THIS SEASON" TOO, so a wrong tick stopped
-       being only a $30 overcharge and became an RSVP answered on somebody's behalf. */
-    check('logic', 'nothing ticks the join fee by itself',
-      charges({}) === false && charges({ name: 'A new lead' }) === false,
-      'owner 2026-08-24: "it can\'t tick itself". A default that invents an answer ' +
-      'nobody gave bills $30 and answers the RSVP at the same time');
-    check('logic', 'and a re-quote against an existing customer still does not',
-      charges({ existingCustomerId: 'c1' }) === false,
-      'they joined years ago — charging a join fee for a re-quote is the mistake ' +
-      'this has always avoided, and it still does');
-    /* ⚠ THE CASE THAT PROMPTED THE CHANGE: an existing customer with NO
-       existingCustomerId. Under the old default this returned true. */
-    check('logic', 'nor a quote from a customer the portal never linked',
-      charges({ convertedToCustomerAt: 1 }) === false &&
-      charges({ address: '12 Main St', phone: '8015550123' }) === false,
-      'this is the one the owner reported — the card knew they were an existing ' +
-      'customer and the fee ticked itself anyway');
-    /* ⚠ THE OFFICE'S ANSWER IS NOW THE ONLY WAY IT GOES ON, which is the point — but
-       it must still work in both directions, including ON a re-quote. A member who
-       genuinely should pay a join fee is rare and the office can still say so. */
-    check('logic', 'and the office ticking it themselves is what turns it on',
+    /* ⭐ REVERSED AGAIN 2026-08-24, hours after the reversal above, and BOTH old rules
+       are written out here so neither is restored as a "fix". Owner: "new quotes
+       should have a 30 dollar fee. Nothing else should have a 30 dollar fee", and
+       "a 30 dollar new costumer fee for clarificiation".
+
+       RULE 1, until 2026-08-24: default `!existingCustomerId` — charge unless this is
+       a re-quote. Wrong because existingCustomerId is set ONLY on a re-quote raised
+       through the portal, so an existing customer whose quote was typed in by hand was
+       charged a join fee automatically. That is what the owner reported as "it can't
+       tick itself even if a house has a badge old".
+
+       RULE 2, for a few hours: `chargeSetupFee === true` — nothing ticks it but a
+       person. That fixed the overcharge and went one step too far: a genuinely new
+       customer then had to be remembered every single time, and forgetting quietly
+       under-charges.
+
+       RULE 3, now: a NEW customer is charged by default; anybody already on the books
+       never is. Which is what both of her sentences say together — the fee is a NEW
+       CUSTOMER fee, so it follows whether they are a new customer, not whether
+       somebody remembered a checkbox. */
+    setBook(ONE);
+    check('logic', 'a genuinely new customer is charged the join fee by default',
+      charges({ address: '99 New Rd, Lehi, UT', phone: '8015559999' }) === true,
+      'owner: "new quotes should have a 30 dollar fee" — it is a NEW CUSTOMER fee, ' +
+      'so it follows whether they are a new customer');
+    /* ⚠ AND NOBODY ELSE IS. This is the half the owner reported, and the three ways a
+       quote can belong to somebody already on the books are all asked. */
+    check('logic', 'but a house already on the books is not',
+      charges({ address: '12 Main St, Lehi, UT', phone: '8015550123' }) === false,
+      'the card already flagged these people as existing customers by this exact ' +
+      'test, and the fee ticked itself anyway — that is what she reported');
+    check('logic', 'nor a re-quote',
+      charges({ existingCustomerId: 'c1' }) === false &&
+      charges({ requoteCount: 1 }) === false,
+      'they joined once and paid it once');
+    check('logic', 'nor a quote already converted',
+      charges({ convertedToCustomerAt: 1 }) === false,
+      'converting is what makes somebody a customer — it cannot make them new again');
+    /* ⚠ THE MATCH IS ADDRESS **AND** CONTACT. A phone-only match would refuse the fee
+       to a genuinely new customer quoted against a relative's number: 17 numbers in
+       the real book are shared and 14 of those are two different houses. */
+    check('logic', 'a new house on a phone number a relative already uses is still new',
+      charges({ address: '77 Other Way, Lehi, UT', phone: '8015550123' }) === true,
+      'a shared phone is a parent and a child at two addresses, not one customer');
+    /* ⚠ NO BOOK, NO CHARGE. The quote cards can draw before jobAddresses lands, and
+       with an empty book EVERY quote looks new — the wrong answer for exactly the
+       people this rule protects. Under-charging for a moment is recoverable; billing
+       an existing customer a join fee is the thing that was reported. */
+    setBook([]);
+    check('logic', 'and nothing is charged while the customer list is still loading',
+      charges({ address: '99 New Rd, Lehi, UT', phone: '8015559999' }) === false,
+      'with an empty book every quote looks like a new customer, which is the wrong ' +
+      'answer for the people this rule exists to protect');
+    setBook(ONE);
+    /* ⚠ THE OFFICE'S ANSWER STILL WINS, in both directions, and `!== undefined` rather
+       than truthiness — read as a plain boolean, a box they deliberately UNticked
+       would be silently re-charged. */
+    check('logic', 'the office overrules it either way',
       charges({ existingCustomerId: 'c1', chargeSetupFee: true }) === true &&
-      charges({ chargeSetupFee: true }) === true &&
-      charges({ chargeSetupFee: false }) === false,
-      'a deliberate answer on the quote card is the whole rule now');
+      charges({ address: '99 New Rd, Lehi, UT', chargeSetupFee: false }) === false,
+      'a deliberate answer on the quote card beats the default in both directions');
     /* ⚠ THE DEFINITION IS EXCLUDED, or this check fails against its own function
        body — which is the only place the raw expression is allowed to appear. */
     check('logic', 'every caller uses that one function',
@@ -1370,6 +1423,19 @@ if (JSDOM) {
   global.openEditCustomerModal = () => {};
   global.toast = () => {};
   global.requoteBeingConverted = null;
+  /* ⚠ THE HELPERS quoteChargesSetupFee NOW REACHES FOR (added 2026-08-24). The join-fee
+     rule started asking whether the house is already on the books, and this sandbox
+     supplied none of them — the whole suite died with "quoteCustomerKeys is not
+     defined". The extraction-list trap CLAUDE.md names, hit twice in one change.
+     Lifted, not stubbed: the card's own "already a customer" warning is drawn from the
+     same functions, so a stub here would make two of these checks agree with a fiction.
+     The module-level cache they close over has to be declared as well. */
+  global.quoteCustKeyCache = null;
+  global.quoteCustKeyCacheFor = null;
+  eval(extractFn(admin, 'quoteMatchAddress') + '\nglobal.quoteMatchAddress = quoteMatchAddress;');
+  eval(extractFn(admin, 'quoteCustomerKeys') + '\nglobal.quoteCustomerKeys = quoteCustomerKeys;');
+  eval(extractFn(admin, 'isRequote') + '\nglobal.isRequote = isRequote;');
+  eval(extractFn(admin, 'quoteAlreadyACustomer') + '\nglobal.quoteAlreadyACustomer = quoteAlreadyACustomer;');
 
   // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
   // the data-pricingtoggle click handler is actually live for the toggle test.
@@ -10957,7 +11023,12 @@ suite('Suite 38. Panels draw when they are opened');
 
     /* ⚠ THE ONE THAT MATTERS. A typo here does not throw and does not show up
        until somebody opens that tab and finds it blank. */
-    const realPanels = new Set([...admin.matchAll(/<div class="panel"[^>]*id="panel-([a-zA-Z0-9_-]+)"/g)].map(m => m[1]));
+    /* ⚠ `class="panel[^"]*"` — the panel that happens to be open on load carries
+       class="panel active", and requiring the bare class made this report a REAL panel
+       as missing the first time a mapped render pointed at one (quotes, 2026-08-24).
+       A check that fails on a correct entry gets "fixed" by deleting the entry, which
+       is the opposite of what it is for. */
+    const realPanels = new Set([...admin.matchAll(/<div class="panel[^"]*"[^>]*id="panel-([a-zA-Z0-9_-]+)"/g)].map(m => m[1]));
     const badPanel = entries.filter(([, p]) => !realPanels.has(p));
     check('S38', 'every panel named in the map is a real panel',
       badPanel.length === 0,

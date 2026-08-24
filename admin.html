@@ -7698,7 +7698,25 @@ function isRequote(d){
    the quote email and the invoice cannot tell the customer three different things. */
 function quoteChargesSetupFee(d){
   const q = d || {};
-  return q.chargeSetupFee === true;
+  /* ⭐ THE OFFICE'S OWN ANSWER ALWAYS WINS, in both directions. `!== undefined` rather
+     than truthiness, or a box they deliberately UNticked would be silently re-charged.
+     Everything below is only what to do when nobody has answered. */
+  if(q.chargeSetupFee !== undefined) return !!q.chargeSetupFee;
+  /* ⚠ A RE-QUOTE IS NEVER A JOIN. They joined once and paid it once. */
+  if(isRequote(q) || q.convertedToCustomerAt) return false;
+  /* ⚠ AND WE HAVE TO KNOW THE BOOK BEFORE WE CAN SAY SOMEBODY IS NOT IN IT. The quote
+     cards can draw before jobAddresses lands, and with an empty book EVERY quote looks
+     like a new customer — which is precisely the wrong answer for the people this rule
+     exists to protect. No book, no charge: under-charging for a moment is recoverable,
+     billing an existing customer a join fee is what the owner reported. It corrects
+     itself the moment the list loads, because the quote list now redraws on a customer
+     change (see the RENDER_PANEL entry added with this). */
+  if(!quoteCustomerKeys().size) return false;
+  /* ⚠ ADDRESS **AND** CONTACT, which is what quoteAlreadyACustomer asks. Never the
+     phone alone: 17 numbers in the real book are shared and 14 of those are a parent
+     and a child at two different houses, so a phone match would refuse the fee to a
+     genuinely new customer quoted against a relative's number. */
+  return !quoteAlreadyACustomer(q);
 }
 /* ⭐ ONE ROW PER HOUSE IN CONVERTED & CLOSED (added 2026-08-24). Owner: "every house
    should only come up once in coverted & closed. For example we had to requote Ashley
@@ -30472,6 +30490,7 @@ const RENDER_PANEL = {
   invPreview: 'automation',
   allCustomersTable: 'addcustomer',
   billingGroups: 'addcustomer',
+  quotes: 'quotes',
   scheduleSync: 'schedule'
 };
 const pendingRenders = new Map();   // label -> the function to run when its panel opens
@@ -30544,6 +30563,14 @@ function renderJobAddressPanels(){
        has to redraw it or the office is looking at yesterday's groups while the
        customer's portal already shows today's. */
     safeRender('billingGroups', typeof renderBillingGroups === 'function' ? renderBillingGroups : null);
+    /* ⭐ THE QUOTE CARDS READ THE CUSTOMER BOOK (added 2026-08-24). Three things on a
+       quote card are answered from jobAddresses: whether the $30 new-customer fee
+       applies, whether the button says Convert to Customer or Apply Re-quote, and the
+       "already a customer" warning. All three were drawn once and never corrected, so
+       a card rendered before the book landed kept a stale answer until something else
+       happened to redraw it. Deferred like everything else here — if the Quotes panel
+       is not open this is remembered, not run. */
+    safeRender('quotes', typeof renderQuotesList === 'function' ? renderQuotesList : null);
     /* The Schedule tab keeps its own copy of every house, so a customer edit
        has to be pulled across or the plan quietly works from stale towns and
        stale timings. Goes through safeRender so it follows the same rule as
