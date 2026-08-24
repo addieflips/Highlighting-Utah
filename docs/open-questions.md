@@ -1274,9 +1274,8 @@ The alias table and the run reader agree on every token both can read, and that 
 asserted rather than arranged: a clashing alias fails the build instead of being
 silently resolved.
 
-### Q-023 · what is `C`? · intent
+### Q-023 · what is `C`? · ANSWERED, it was a typo
 
-Her message ended with a bare `C` on its own line. In a list of colour codes it most
-plausibly means Clear — which she has already ruled is Pure White — but that is a
-guess, and guessing a colour code is the one thing this whole exercise has avoided.
-Left unmapped until she says. It falls through to its own heading, which is visible.
+Her message ended with a bare `C`. Asked: *"Oh I accidently typed a c"*. Nothing to
+map, nothing was added, and no code changed. Recorded rather than deleted so nobody
+reads the earlier message and goes looking for a rule that never existed.
