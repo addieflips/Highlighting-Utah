@@ -4417,8 +4417,7 @@ if (!JSDOM) {
       extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel') +
       /* The recycle queue sends people to the number ON THE BIN, which is not always the
          one on the record. Declared beside whRecycleGroups, not inside the slice. */
-      '\n' + extractFn(admin, 'whBinNumberFor') +
-      '\n' + extractFn(admin, 'whBinNumberMoved') +
+
       /* ⭐ THE BUILD SHEET'S PRESENTERS (2026-08-24). whPullPresenters is what says
          how the registry's answers are SPELLED on a build sheet — feet as bundles,
          the two colour fields read together, the office's own yes/no spellings —
@@ -4518,21 +4517,27 @@ if (!JSDOM) {
       !!rList.querySelector('button[data-whrecycledone]') &&
       !!rList.querySelector('button[data-wheditcust]'));
 
-    /* ⚠ AND WHEN THE NUMBER HAS MOVED, IT SENDS THEM TO THE BIN, NOT THE RECORD. Owner,
-       looking at Ashley Wray: "this shows the updated cusotmer number not the old one, we
-       need the old one in the recycle section because thats how they find it." */
+    /* ⭐ ONE NUMBER, AND IT IS THEIRS (2026-08-24). Addie: "get rid of bin #'s and
+       keep costumer #'s." Between 2026-08-21 and then the row showed whichever number
+       the BIN had been labelled with before their customer number moved — Ashley Wray
+       #894 → #5051, bin still saying 894. That second number is retired; a moved
+       number means the bin is relabelled.
+       ⚠ A STALE binLabelNumber ON THE FIXTURE IS THE POINT OF THIS ONE. Real records
+       still carry the old field — it was deliberately not deleted from the database —
+       so the row must ignore it rather than quietly keep reading it. */
     global.jobAddresses = [
       { id: 'r2', data: { name: 'Ashley Wray', address: '9991 Red Cedar Ln',
           needsLightRecycle: true, customerNumber: '5051', binLabelNumber: '894' } }
     ];
     renderWarehouseRecycleQueue();
     const mList = document.getElementById('warehouseRecycleQueueList');
-    check('warehouse', 'the recycle row names the number ON THE BIN',
-      /894/.test(mList.innerHTML),
-      'sending somebody to find #5051 sends them to a bin that does not exist');
-    check('warehouse', 'and says the record disagrees, so the list does not look wrong',
-      /5051/.test(mList.innerHTML) && /labelled/i.test(mList.innerHTML),
-      'somebody reading the customer record will see a different number');
+    check('warehouse', 'the recycle row names the customer number',
+      /5051/.test(mList.innerHTML),
+      'one number, and it is the one on their record');
+    check('warehouse', 'and a leftover bin label on the record is ignored',
+      !/894/.test(mList.innerHTML),
+      'the field still exists on real records; reading it is the retired behaviour ' +
+      'coming back through the back door');
 
     /* --- Add From Inbox: the amount fills itself in, and a member gets ONE
        request rather than two competing ones. The bundle figure has to come from
@@ -19707,11 +19712,11 @@ suite('Suite 104. The Printing tab');
       keys('crew').indexOf('gateCode,houseSides') < keys('crew').indexOf('notes'),
       'anything after Notes is lost against a wall of writing');
     /* ⚠ AND THE NUMBER COLUMN IS FIRST AND SINGLE. Addie: "The cosumer # and bin #
-       are the same thing" — one number, and printCrewRow reads whBinNumberFor so
-       it is the number physically on the bin. */
+       are the same thing", then "get rid of bin #'s and keep costumer #'s" — one
+       number, read straight off the record with no indirection. */
     check('S104', 'there is exactly one number column, and it leads',
       keys('crew').indexOf('number') === 0 &&
-      /whBinNumberFor\(d\)[\s\S]{0,40}\|\| h\.cu/.test(extractFn(admin, 'printCrewRow')),
+      /number: d\.customerNumber \|\| h\.cu/.test(extractFn(admin, 'printCrewRow')),
       'two number columns would be two answers to one question');
     /* ⭐ AND THE TWO PROSE ANSWERS ARE STILL FOLDED, NOT GIVEN COLUMNS (2026-08-24).
        Addie refused an eleven-column sheet; the which-outlet instruction and the
@@ -19744,7 +19749,6 @@ suite('Suite 104. The Printing tab');
         OPTIONS_SANDBOX_SRC() +
         'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
         extractFn(admin, 'whBinsForHouse') +
-        extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
         'const fmtPhone = function(p){ return String(p || \'\'); };' +
         'const printCustData = function(h){ return (h && h.cust) || {}; };' +
         rowSrc + 'return printCrewRow;'
@@ -19759,12 +19763,13 @@ suite('Suite 104. The Printing tab');
       check('S104', 'the number column is the number painted on the bin',
         row({ customerNumber: '894' }).number === '894',
         'this is the number they hunt for on the shelf');
-      /* ⚠ AND IT FOLLOWS THE BIN, NOT THE RECORD. A customer whose footage pushed
-         them into the 5000 series still has a bin wearing the old number, and
-         sending the crew after 5051 is sending them after a bin that does not
-         exist. This is the whole reason the column reads whBinNumberFor. */
-      check('S104', 'and it follows the bin when their number has moved',
-        row({ customerNumber: '5051', binLabelNumber: '894' }).number === '894',
+      /* ⚠ AND A LEFTOVER BIN LABEL IS IGNORED (2026-08-24). Real records still carry
+         `binLabelNumber` from the three days the second number existed — it was
+         deliberately not deleted from the database — so the sheet must read straight
+         past it. Reading it would be the retired behaviour coming back on live data
+         without a line of code being added. */
+      check('S104', 'and a leftover bin label on the record is ignored',
+        row({ customerNumber: '5051', binLabelNumber: '894' }).number === '5051',
         'got ' + JSON.stringify(row({ customerNumber: '5051', binLabelNumber: '894' }).number));
       check('S104', 'an imported row with no customer behind it still shows its own number',
         sb({ cust: {}, cu: '312' }).number === '312',
@@ -20114,7 +20119,6 @@ suite('Suite 104. The Printing tab');
     const photosOf2 = (houses) => new Function('day',
       'const crewHousesFor = function(){ return day; };' +
       'const printCustData = function(h){ return h.cust || {}; };' +
-      extractFn(admin, 'whBinNumberFor') +
       extractFn(admin, 'customerPhotoList') + extractFn(admin, 'printIsNewHang') +
       extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos(day, 0);')(houses);
 
@@ -20241,9 +20245,8 @@ suite('Suite 104. The Printing tab');
          whether the crew and the warehouse are told the same number, which is the
          only claim worth making here. */
       extractFn(admin, 'whBinsForHouse') +
-      extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
-      /* printBinCount went with the Bins column on 2026-08-24 — what the crew
-         needs from a number is which bin to pick up, which is whBinNumberFor. */
+      /* printBinCount went with the Bins column on 2026-08-24, and the second
+         number went the same day — the crew row reads customerNumber directly. */
       'const fmtPhone = function(p){ return String(p || \'\'); };' +
       extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
@@ -20368,14 +20371,12 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the Sides column is actually filled in',
     /<th>Sides<\/th>/.test(crewBody) && /<td>3<\/td>/.test(crewBody),
     'got a Sides header with nothing under it');
-  /* ⚠ THE ONE CASE THE NUMBER COLUMN USED TO GET WRONG. This customer moved from
-     #894 to the 5000 series when their footage crossed CN_DOUBLE_BIN_FEET, and the
-     bin on the shelf still says 894 — so printing 5051 sends the crew after a bin
-     that does not exist. Since 2026-08-24 the column IS the bin's number, so the
-     right answer is now the cell itself rather than a note beside it. */
-  check('S104', 'the number column sends them to the bin that is really there',
-    crewBody.indexOf('<td>894</td>') !== -1 && crewBody.indexOf('<td>5051</td>') === -1,
-    'Addie: "The cosumer # and bin # are the same thing"');
+  /* ⚠ ONE NUMBER ON THE PAPER TOO. The fixture's h5 carries a stale binLabelNumber
+     of 894 from the three days a second number existed; the sheet must print their
+     customer number and read straight past it. */
+  check('S104', 'the printed sheet shows the customer number, not a stale bin label',
+    crewBody.indexOf('<td>5051</td>') !== -1 && crewBody.indexOf('<td>894</td>') === -1,
+    'Addie: "get rid of bin #\'s and keep costumer #\'s"');
   check('S104', 'the outlet instruction and the one-time note reach the printed page',
     crewBody.indexOf('lower outlet by door') !== -1 &&
     crewBody.indexOf('ring the bell') !== -1,
@@ -23110,302 +23111,77 @@ suite('Suite 113. Build Test Customer');
   }
 }
 
-suite('Suite 112. The number on the bin');
+suite('Suite 112. One number, and it is the customer\'s');
 
+/* ⭐ REWRITTEN 2026-08-24. This suite used to prove a SECOND number worked: from
+   2026-08-21 the record carried `binLabelNumber`, remembering what a bin had been
+   labelled before its customer's number moved, so the recycle queue could send
+   somebody to the right box. Addie retired it: "get rid of bin #'s and keep costumer
+   #'s." A moved number now means the bin gets RELABELLED — a job in the warehouse
+   rather than a second field on the record.
+
+   ⚠ SO THIS SUITE NOW ASSERTS THE ABSENCE. Deleting the checks with the feature would
+   leave nothing to stop it growing back one screen at a time, and the reasoning that
+   put it there was good — it just cost more than it was worth. */
 {
-  const num = new Function('d', extractFn(admin, 'whBinNumberFor') + 'return whBinNumberFor(d);');
-  const moved = new Function('d', extractFn(admin, 'whBinNumberMoved') + 'return whBinNumberMoved(d);');
+  check('S112', 'the second number is gone from the code entirely',
+    !/binLabelNumber\s*[:.]/.test(admin) &&
+    !/function whBinNumberFor/.test(admin) &&
+    !/function whBinNumberMoved/.test(admin),
+    'one number, and a bin whose customer has moved gets relabelled instead');
 
-  check('S112', 'an ordinary customer is found by their own number',
-    num({customerNumber: '2210'}) === '2210' && moved({customerNumber: '2210'}) === false);
-  check('S112', 'somebody whose number moved is found by the OLD one',
-    num({customerNumber: '5051', binLabelNumber: '894'}) === '894',
-    'that is what is written on the bin, and how they find it');
-  check('S112', 'and that difference is worth saying out loud',
-    moved({customerNumber: '5051', binLabelNumber: '894'}) === true,
-    'somebody reading the customer record sees 5051 and thinks the list is wrong');
-  check('S112', 'a label matching the record is not a move',
-    moved({customerNumber: '894', binLabelNumber: '894'}) === false,
-    'saying it moved when it did not is noise, and noise gets ignored');
-  check('S112', 'and no number anywhere comes back blank, not "undefined"',
-    num({}) === '' && moved({}) === false);
+  /* ⚠ NOTHING MAY WRITE IT EITHER. A reader is obvious when it breaks; a writer that
+     quietly stamps a field nobody reads is the dead end R-010 is about, and it is how
+     this would creep back — one save handler at a time. */
+  check('S112', 'and nothing writes it on a save',
+    !/addrUpdates\.binLabelNumber/.test(admin) &&
+    !/binLabelNumber:\s*(null|value|oldCustNumber)/.test(admin),
+    'a field written and never read is a dead end (R-010)');
 
-  /* ⚠ WRITTEN ONCE. If the number moves twice before the set comes back, the bin still
-     wears the first label. */
+  /* ⚠ AND THE HAND-CORRECTION BOX WENT WITH IT. It existed only because the label was
+     stamped from 2026-08-21 onwards, so anyone whose number had ALREADY moved needed a
+     way to type in what the bin really said. With one number there is nothing to
+     correct — and a box that writes a field nobody reads is worse than none. */
+  check('S112', 'the "bin says" correction box is gone from the recycle queue',
+    !/data-whbinlabel/.test(admin),
+    'it wrote a field that no longer exists');
+
+  /* The recycle queue is what the whole thing was built for, so it is what proves the
+     replacement works: it still names a number, and that number is their own. */
   {
-    const at = admin.indexOf('    if(oldCustNumber && addrUpdates.customerNumber !== oldCustNumber');
-    const blk = at > 0 ? admin.slice(at, admin.indexOf('}', admin.indexOf('binLabelNumber = oldCustNumber', at))) : '';
-    check('S112', 'the save stamps what the bin says before the number moves', !!blk);
-    check('S112', 'and only when there is not already a label recorded',
-      /!String\(d\.binLabelNumber \|\| ''\)\.trim\(\)/.test(blk),
-      'moving 894 to 5051 to 6000 leaves the bin still saying 894');
-
-    const stamp = new Function('oldCustNumber', 'addrUpdates', 'd',
-      blk + '}' + 'return addrUpdates;');
-    check('S112', 'a number that moves records the old one',
-      stamp('894', {customerNumber: '5051'}, {}).binLabelNumber === '894');
-    check('S112', 'a number that did not move records nothing',
-      stamp('894', {customerNumber: '894'}, {}).binLabelNumber === undefined,
-      'every ordinary save would otherwise stamp a label nobody needs');
-    check('S112', 'and a second move leaves the first label alone',
-      stamp('5051', {customerNumber: '6000'}, {binLabelNumber: '894'}).binLabelNumber === undefined,
-      'the bin still says 894 — nobody has been to it');
-    check('S112', 'somebody who never had a number stamps nothing',
-      stamp('', {customerNumber: '5051'}, {}).binLabelNumber === undefined);
+    const src = extractFn(admin, 'renderWarehouseRecycleQueue');
+    check('S112', 'the recycle queue still names a number to look for',
+      /customerNumber/.test(src) && /no number/.test(src),
+      'they find the bin by its number — that has not changed, only which number');
+    check('S112', 'and it is the customer\'s own, read straight off the record',
+      /const binNum = String\(d\.customerNumber \|\| ''\)\.trim\(\)/.test(src),
+      'any indirection here is the second number growing back');
   }
 
-  /* ⭐ AND BOTH PRINTED RECYCLE LISTS SEND THEM TO THE SAME PLACE. Three sabotages got
-     through here on the first pass — the warehouse sheet, the Printing tab's list and
-     the sheet's columns each had no check at all, so putting the record's number back on
-     the paper broke nothing. The paper is what they actually carry. */
-  {
-    const cols = admin.slice(admin.indexOf('const WH_RECYCLE_COLUMNS = ['),
-                             admin.indexOf(']', admin.indexOf('const WH_RECYCLE_COLUMNS = [')));
-    check('S112', 'the warehouse recycle sheet leads with the bin number',
-      /key:'bin'/.test(cols) && /Bin # to find/.test(cols),
-      'it is the first thing they look for');
-    check('S112', 'and does not talk about the pattern or the wire',
-      !/Pattern/.test(cols),
-      'owner: "they dont need to know the color here they just need the customer ' +
-      'number and name"');
-  }
-
-  {
-    const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
-      'whWireLabel', 'whArchivedPending', 'whBinNumberFor', 'whBinNumberMoved',
-      'WH_RECYCLE_COLUMNS',
-      extractFn(admin, 'whRecycleGroups') + extractFn(admin, 'whSheetRowsForRecycle') +
-      'return whSheetRowsForRecycle();');
-    const out = rows(
-      [{id: 'a894', data: {name: 'Ashley Wray', address: '9991 Red Cedar Ln',
-                           needsLightRecycle: true, customerNumber: '5051',
-                           binLabelNumber: '894'}}],
-      [], (p, w) => p + '|' + (w || ''), (w) => String(w || 'white'), [],
-      new Function('d', extractFn(admin, 'whBinNumberFor') + 'return whBinNumberFor(d);'),
-      new Function('d', extractFn(admin, 'whBinNumberMoved') + 'return whBinNumberMoved(d);'),
-      []).rows;
-  /* ⭐ AN ADD-ON HAS TO LOOK LIKE AN ADD-ON. Owner, 2026-08-21: "when it builds an add on
-     it should somehow indicate to the warehouse that what they built needs to go into a
-     bin that already exists." The Put into column already named the bin, but the row
-     still read Type: House with a Feet of +120 — and Type is the column an eye scans
-     down. A bundle handed to somebody who thinks they are building a house gets a new
-     bin made for it, and then two bins wear one number. */
-  {
-    const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
-      'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
-      /* ⭐ THE REGISTRY, and the real cnBinsForFeet with it (2026-08-24). The local
-         copy of the 260-foot rule that used to sit here was a second definition of a
-         business constant — R-014 — and would have kept this suite green through a
-         change to the real one. */
-      OPTIONS_SANDBOX_SRC() +
-      extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
-      extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whPullPresenters') +
-      extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
-      'return whSheetRowsForBuild();');
-    const build = function(cust){
-      return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
-        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
-        (w) => String(w || 'white'),
-        new Function('d', extractFn(admin, 'houseBundleNeed') +
-          extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'),
-        []).rows.filter(function(r){ return r.type !== 'Blocked'; })[0];
-    };
-    const addOn = build({name: 'Ashley Wray', customerNumber: '894',
-      needsLightBuild: true, lightsDescription: 'Warm White',
-      measuredFeet: 300, buildTopUpFromFeet: 180});
-    check('S112', 'an add-on row says ADD-ON in the Type column',
-      !!addOn && addOn.type === 'ADD-ON',
-      'Type: House on a row that is not a house is how a second bin gets made');
-    check('S112', 'and says in words that it joins a bin they already have',
-      !!addOn && /GOES INTO THE BIN THEY ALREADY HAVE/.test(addOn.notes),
-      'Notes is what gets read when a row looks unusual');
-    /* ⚠ 120 extra feet is 3 bundles — houseBundleNeed does the subtraction, so this
-       is the add-on's count and not the whole house's. */
-    check('S112', 'and still names whose bin, and how much to make',
-      !!addOn && addOn.putInto === 'Ashley Wray #894' && addOn.measuredFeet === '+3',
-      'got ' + JSON.stringify(addOn && addOn.measuredFeet));
-    check('S112', 'and their own note is not thrown away for it',
-      /GOES INTO THE BIN[\s\S]*ladder round the back/.test(
-        build({name: 'A', customerNumber: '9', needsLightBuild: true,
-               lightsDescription: 'Warm White', measuredFeet: 300,
-               buildTopUpFromFeet: 180, notes: 'ladder round the back'}).notes),
-      'the crew still needs what the customer told them');
-
-    const ordinary = build({name: 'Plain', customerNumber: '5', needsLightBuild: true,
-      lightsDescription: 'Warm White', measuredFeet: 300});
-    check('S112', 'an ordinary build is untouched by any of this',
-      !!ordinary && ordinary.type === 'House' && ordinary.putInto === '' &&
-      !/GOES INTO THE BIN/.test(ordinary.notes),
-      'a marker on every row is a marker nobody sees');
-
-    /* ⚠ AND THE SCREEN SAYS IT TOO. The warehouse works off the tab as often as off the
-       paper, and a sabotage removing the badge broke nothing until this was written. */
-    check('S112', 'the warehouse tab badges an add-on row',
-      /ADD-ON \\u2014 into the bin they already have/.test(
-        extractFn(admin, 'renderWarehouseQueue')),
-      'it sits with the Timer and wire chips, where somebody building looks');
-    check('S112', 'and only on an add-on row',
-      /need\.topUp[\s\S]{0,600}ADD-ON/.test(extractFn(admin, 'renderWarehouseQueue')),
-      'a badge on every row is a badge nobody sees');
-
-    /* And the Printing tab's copy of the same list. */
-    {
-      /* ⚠ printLightColor AND printYesNo ARE NO LONGER PARAMETERS (2026-08-24). This
-         list renders its answers through the registry and whPullPresenters, which are
-         the same presenters the warehouse tab's sheet uses — so the REAL ones come in
-         rather than the two stubs that used to be passed here. That is the point of
-         the change: the two build sheets could not previously be shown to spell one
-         answer the same way, and stubbing them here is exactly how that stayed
-         invisible. */
-      const list = new Function('jobAddresses',
-        'houseBundleNeed', 'whPutIntoLabel',
-        OPTIONS_SANDBOX_SRC() +
-        extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
-        extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whWireLabel') +
-        extractFn(admin, 'whPullPresenters') +
-        (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
-        extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
-      const out = list(
-        [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
-                          needsLightBuild: true, measuredFeet: 300,
-                          buildTopUpFromFeet: 180, lightsDescription: 'Warm White'}}],
-        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
-        new Function('d', extractFn(admin, 'houseBundleNeed') +
-          extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'));
-      check('S112', 'the printed Needs Building list says EXISTING BIN',
-        out.length === 1 && /^EXISTING BIN/.test(out[0].putInto) &&
-        /Ashley Wray #894/.test(out[0].putInto),
-        'two sheets of the same job saying it two ways is how one stops being read');
-      /* ⚠ need.bundles is ALREADY the add-on's count — houseBundleNeed does the
-         subtraction — so 120 extra feet is 3 bundles, not the whole house's 8. */
-      check('S112', 'and marks the bundle count as an addition, not the whole house',
-        out[0].measuredFeet === '+3',
-        'got ' + JSON.stringify(out[0].measuredFeet));
-      /* ⭐ AND THIS LIST HAD NO SEASON RULE AT ALL (2026-08-22). Owner: "back next
-         year ... won't be approved for this year?" The warehouse SCREEN dropped them
-         and the printed sheet beside it did not, so the paper listed people the screen
-         had already dropped — including somebody the office had badged Maybe Next
-         Year. Two lists of one job disagreeing is how the one on paper stops being
-         trusted. */
-      {
-        const bag = (extra) => list(
-          [{id: 'z', data: Object.assign({name: 'Out', customerNumber: '9',
-                                          needsLightBuild: true, lightsDescription: 'Warm',
-                                          measuredFeet: 200}, extra)}],
-          new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
-          function(){ return ''; });
-        check('S112', 'the printed list drops somebody badged Maybe Next Year',
-          bag({maybeNextYear: true}).length === 0,
-          'the screen beside it has dropped them for a long time');
-        check('S112', 'and somebody who answered Back Next Year through the RSVP link',
-          bag({rsvpStatus: 'backnextyear'}).length === 0,
-          'portalRsvp writes the status with no flag — this is most of them');
-        check('S112', 'but still prints an ordinary house',
-          bag({}).length === 1,
-          'a season rule that empties the sheet is worse than none');
-      }
-    }
-  }
-
-    check('S112', 'the printed warehouse sheet names the bin, not the record',
-      out.length === 1 && out[0].bin === '894',
-      'the sheet is what they carry to the shelf');
-    check('S112', 'and the row says the record disagrees',
-      /record says #5051/.test(out[0] ? out[0].notes : ''),
-      'otherwise the sheet and the customer record look like a contradiction');
-  }
-
-  {
-    const list = new Function('jobAddresses', 'whArchivedPending', 'whBinNumberFor',
-      extractFn(admin, 'printRecycleList') + 'return printRecycleList();');
-    const out = list(
-      [{id: 'a', data: {name: 'Ashley Wray', needsLightRecycle: true,
-                        customerNumber: '5051', binLabelNumber: '894'}}],
-      [],
-      new Function('d', extractFn(admin, 'whBinNumberFor') + 'return whBinNumberFor(d);'));
-    check('S112', 'and so does the Printing tab’s recycle list',
-      out.length === 1 && out[0].number === '894' && out[0].name === 'Ashley Wray',
-      'two lists of the same job that name different bins is worse than one list');
-  }
-
-  /* ⭐ AND THE BIN NUMBER IS CORRECTABLE BY HAND. binLabelNumber is only stamped when a
-     number moves from now on, so everybody whose number ALREADY moved has no label
-     recorded and falls back to the number on their record — which is the wrong one, and
-     which includes Ashley Wray, the customer this whole thing came from. A fix that
-     cannot reach the case that prompted it is not finished.
-
-     ⚠ AND THE CONTROL HAS TO BE WIRED. The first version of this rendered the input
-     and never attached the handler, because the patch that added the listener silently
-     did not apply — a box you can type in that saves nothing, which looks identical to
-     a working one. Owner has asked for exactly this check before: "just make sure to
-     double check that if i click a button the function that is supposed to happen
-     actually does." */
-  {
-    const render = extractFn(admin, 'renderWarehouseRecycleQueue');
-    check('S112', 'the recycle row has a box for what the bin actually says',
-      /data-whbinlabel=/.test(render),
-      'without it the ones who moved before this existed can never be corrected');
-    check('S112', 'and something is listening to it',
-      /querySelectorAll\('\[data-whbinlabel\]'\)/.test(render) &&
-      /addEventListener\('change'/.test(render),
-      'a box that saves nothing looks exactly like one that works');
-    check('S112', 'and it writes the field the recycle list reads',
-      /\{binLabelNumber: value\}/.test(render),
-      'writing anything else is a control that appears to work and does not');
-
-    /* ⚠ AND TO THE RIGHT COLLECTION. The queue lists people already removed alongside
-       people still on the book, and writing to jobAddresses for an archived record
-       changes nothing at all, silently. */
-    check('S112', 'and to the collection they are actually in',
-      /'archivedCustomers' : 'jobAddresses'/.test(render),
-      'the same trap Mark Recycled already has a branch for');
-
-    check('S112', 'a number that is not digits is refused rather than stored',
-      /!\/\^\[0-9\]\+\$\/\.test\(typed\)/.test(render),
-      'a bin label of "about 900" sends nobody anywhere');
-    check('S112', 'and typing their own number back stores no label at all',
-      /typed === onRecord\) \? null : typed/.test(render),
-      'a label saying the same as the record would read as a move that never happened');
-  }
-
-  /* And it is cleared when the set actually comes back, or a new one is built. */
-  check('S112', 'Mark Recycled clears the label, because the bin is empty now',
-    /binLabelNumber: null,/.test(admin),
-    'a stale label would send somebody to a bin that is already back');
-  check('S112', 'and finishing a build clears it too',
-    /needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null/.test(admin) &&
-    (admin.match(/binLabelNumber:null/g) || []).length >= 2,
-    'both the single Mark Done and the bulk one write their own update');
-
-  /* ⭐ AND CONVERTING MOVES THE NUMBER WITHOUT ASKING. Owner: "when I click convert to
-     customer, if the number changes that happens automatically so I dont have to manaily
-     change the number, but before that happens they put it in recycle while it still has
-     the old number."
-
-     ⚠ THE PROMPT EXISTED FOR ONE REASON AND THAT REASON IS NOW HANDLED — it warned
-     that the bin is labelled with the old number. The recycle queue sends them to that
-     label now, so the change is no longer silent, it is just no longer a question. */
+  /* ⭐ CONVERTING STILL MOVES THE NUMBER WITHOUT ASKING, and now it matters MORE. The
+     prompt was dropped on 2026-08-21 because the system remembered the old label;
+     nothing remembers it now, so the toast naming both numbers is the only thing that
+     tells anyone a bin needs re-marking. */
   {
     const at = admin.indexOf('        const autoMove = !!requoteBeingConverted;');
-    /* To the end of the branch, not a fixed window — a count of characters goes
-       stale the moment a comment is edited. */
     const blk = at > 0 ? admin.slice(at, admin.indexOf('addrUpdates.numberOfBins', at)) : '';
+    check('S112', 'the conversion branch was found', blk.length > 0,
+      'the checks below silently pass on an empty string if this anchor moves');
     check('S112', 'a conversion moves the number with no dialog',
       /if\(autoMove \|\| confirm\(msg\)\)/.test(blk),
       'she should not have to answer a question she has already answered by pressing ' +
       'Convert');
     check('S112', 'and an ordinary edit still asks',
       /confirm\(msg\)/.test(blk) && /!!requoteBeingConverted/.test(blk),
-      'moving a live customer’s number underneath them without asking is a ' +
+      'moving a live customer\u2019s number underneath them without asking is a ' +
       'different thing, and she asked for this on the conversion');
     /* ⚠ TIED TO THE BRANCH THAT FIRES IT. A search for the toast's wording survived
        the whole `if(autoMove)` being switched off — the words were still sitting there
        inside a branch that never runs. */
-    check('S112', 'and the automatic move says what it did, and where the bin is',
-      /if\(autoMove\)\{[\s\S]{0,400}toast\('#' \+ existingNum/.test(blk) &&
-      /which is what their bin is labelled/.test(blk),
-      'a number changing by itself with nothing said is the bug this replaces');
+    check('S112', 'and it says BOTH numbers, so somebody can go and re-mark the bin',
+      /if\(autoMove\)\{[\s\S]{0,400}toast\('#' \+ existingNum/.test(blk),
+      'with nothing remembering the old label, this toast is the only warning that a ' +
+      'bin in the warehouse is now wearing the wrong number');
   }
 }
 

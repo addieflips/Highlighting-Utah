@@ -854,6 +854,21 @@ The vocabulary differs by sheet, which is what made this easy to get wrong:
 | Warehouse build sheet | how many bins they are making — a quantity |
 | Crew sheet | the number on the bin — an identifier |
 
+⚠ **AND ON 2026-08-24 THE SECOND NUMBER WAS RETIRED ALTOGETHER.** Asked what the
+difference between the two numbers actually was, and shown that they are the same
+for almost everybody and differ only when a customer's number moves after their
+bin is labelled, Addie's answer was: *"get rid of bin #'s and keep costumer #'s."*
+`binLabelNumber`, `whBinNumberFor` and `whBinNumberMoved` are gone, along with the
+"bin says" correction box. **A moved number now means the bin gets relabelled** —
+one number in the software, one number on the box, and they are the same number.
+
+The trade, stated plainly: nothing warns anybody that a bin on the shelf is
+wearing an old number, except the toast shown when a re-quote is converted, which
+names both numbers. Any bin already carrying an old label needs relabelling by
+hand. The stored `binLabelNumber` values were left on the records — inert, and a
+mass write over live customers is hers to press — so every reader is tested
+against a record that still carries one.
+
 **Resulting registry change:** `numberOfBins` is back to
 `customer, pullList, routes, schedule` — the frozen map was right all along.
 What DID change, and is the fix the instruction was really asking for: the crew

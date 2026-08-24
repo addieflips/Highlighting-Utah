@@ -27029,7 +27029,7 @@ async function rbApplyTickedAdds(statusEl){
 
          ⚠ AND ONLY ON AN ADD. A pairedSite row is an existing record being
          corrected; renumbering somebody whose bin is already on a shelf under
-         their old label is exactly the harm binLabelNumber exists to describe. */
+         their old label is exactly the harm this guard exists to describe. */
       if(!doc2.customerNumber && !r.pairedSite){
         const want = (Number(doc2.numberOfBins) || 1) >= 2 ? 'double' : 'regular';
         doc2.customerNumber = cnAlloc.take(want).number;
@@ -30133,33 +30133,24 @@ function whWatchArchivedPending(){
     });
   } catch(err){ console.error("[HU] archived recycle watch failed", err); }
 }
-/* ⭐ THE NUMBER THAT IS PHYSICALLY ON THE BIN. Owner, 2026-08-21, looking at Ashley
-   Wray in the recycle queue: "as you can see this shows the updated cusotmer number not
-   the old one, we need the old one in the recycle section because thats how they find
-   it."
+/* ⭐ ONE NUMBER, AND IT IS THE CUSTOMER'S (2026-08-24). Addie: "get rid of bin #'s
+   and keep costumer #'s."
 
-   ⚠ A CUSTOMER NUMBER CAN MOVE AFTER THE BIN IS ALREADY LABELLED. Ashley re-measured
-   at 300 ft, which is two bins, so she moved from #894 to the 5000-series and the
-   record now says #5051. The bin sitting on the shelf with her old set in it still says
-   ’894’, because nobody has been to it. Sending somebody to find #5051 sends them to a
-   bin that does not exist.
-
-   ⚠ AND THE FIRST LABEL IS THE ONE THAT COUNTS. If the number moves twice before the
-   set comes back, the bin still wears the original — so binLabelNumber is written
-   once and not overwritten, and it is cleared when the set actually comes back (Mark
-   Recycled) or when a new one is built under the current number (Mark Done). */
-function whBinNumberFor(d){
-  const dd = d || {};
-  return String(dd.binLabelNumber || dd.customerNumber || '').trim();
-}
-/* True when the bin they are looking for is not the number on the record, which is the
-   case worth saying out loud on both the screen and the paper. */
-function whBinNumberMoved(d){
-  const dd = d || {};
-  const label = String(dd.binLabelNumber || '').trim();
-  const now = String(dd.customerNumber || '').trim();
-  return !!(label && now && label !== now);
-}
+   ⚠ WHAT THIS REPLACED, so nobody rebuilds it by accident. `binLabelNumber`,
+   `whBinNumberFor` and `whBinNumberMoved` existed from 2026-08-21 to remember what a
+   bin was labelled BEFORE a customer's number moved — Ashley Wray re-measured at
+   300 ft, crossed CN_DOUBLE_BIN_FEET into the 5000 series, and her bin on the shelf
+   still said 894. The system carried the old label so the recycle queue could send
+   somebody to the right box.
+   ⚠ THE COST IT TRADED AWAY: two numbers for one customer, on three screens and two
+   printed sheets, and a hand-correction box for everyone whose number moved before
+   the field existed. The answer now is the simple one — if a number moves, the bin
+   gets relabelled — so the software holds one number and the warehouse holds one
+   number and they are the same number.
+   ⚠ OLD VALUES MAY STILL BE ON RECORDS. Nothing reads or writes `binLabelNumber` any
+   more; the stored values are inert and were deliberately NOT deleted, because a
+   mass write over real customers is Addie's to press (CLAUDE.md §5) and leaving them
+   costs nothing. */
 function whRecycleGroups(){
   const groups = {};
   jobAddresses.forEach(function(item){
@@ -30195,9 +30186,10 @@ function whRecycleGroups(){
    bringing it back, and the colour inside is not how they find it. One flat list,
    ordered by name, with the bin number beside it.
 
-   ⚠ AND THE NUMBER SHOWN IS THE ONE ON THE BIN, NOT THE ONE ON THE RECORD — see
-   whBinNumberFor. Ashley moved from #894 to #5051 when her footage changed; her bin
-   still says 894. */
+   ⚠ THE NUMBER SHOWN IS THE CUSTOMER'S OWN, which is what is painted on the bin.
+   Between 2026-08-21 and 2026-08-24 it was whichever number the bin had been given
+   BEFORE their customer number moved; Addie retired that — a moved number now means
+   the bin is relabelled. See the note above whRecycleGroups. */
 function renderWarehouseRecycleQueue(){
   const list = document.getElementById('warehouseRecycleQueueList');
   if(!list) return;
@@ -30214,28 +30206,14 @@ function renderWarehouseRecycleQueue(){
     '<div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">';
   houses.forEach(function(h){
     const d = h.data || {};
-    const binNum = whBinNumberFor(d);
+    /* Their own number, which is what is on the bin. */
+    const binNum = String(d.customerNumber || '').trim();
     html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; gap:10px;">'+
       '<span style="font-size:13.5px;">'+
         '<strong style="font-variant-numeric:tabular-nums;">'+esc(binNum || 'no number')+'</strong>'+
         ' &mdash; '+esc(d.name||'(no name)')+propLabelChip(d)+
-        /* Said out loud, because somebody reading the customer record will see a
-           different number and think the list is wrong. */
-        (whBinNumberMoved(d)
-          ? '<span style="display:block; font-size:12px; color:#8A6100;">Bin is labelled '+esc(binNum)+' &mdash; their record now says #'+esc(String(d.customerNumber||''))+'</span>'
-          : '')+
       '</span>'+
       '<span style="display:flex; gap:6px; flex:0 0 auto; align-items:center;">'+
-        /* ⭐ AND IT CAN BE CORRECTED BY HAND. binLabelNumber is only stamped when a
-           number moves from now on, so everybody whose number ALREADY moved — Ashley
-           among them, which is the customer that started this — has no label recorded
-           and falls back to the number on their record, which is the wrong one. There
-           has to be a way to say what the bin actually says. Blank clears it. */
-        '<label style="font-size:11px; color:var(--slate); display:flex; align-items:center; gap:4px;">bin says'+
-          '<input type="text" inputmode="numeric" data-whbinlabel="'+h.id+'" value="'+esc(binNum)+'" '+
-            'style="width:64px; padding:3px 6px; font-size:12px; text-align:right; '+
-            'border:1px solid var(--line); border-radius:6px; font-variant-numeric:tabular-nums;">'+
-        '</label>'+
         '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
         '<button type="button" class="btn btn-outline btn-sm" data-whrecycledone="'+h.id+'">Mark Recycled</button>'+
       '</span>'+
@@ -30247,36 +30225,6 @@ function renderWarehouseRecycleQueue(){
     el.addEventListener('click', function(e){
       e.stopPropagation();
       whToggleGroup(el.dataset.whrecycletoggle);
-    });
-  });
-  /* ⚠ THE ROW MAY BE AN ARCHIVED ONE, so the write goes to whichever collection they
-     are actually in — the recycle queue lists people already removed alongside people
-     still on the book, and writing to jobAddresses for an archived record silently
-     changes nothing at all. */
-  list.querySelectorAll('[data-whbinlabel]').forEach(function(input){
-    input.addEventListener('change', function(){
-      const id = input.dataset.whbinlabel;
-      const typed = String(input.value || '').trim();
-      if(typed && !/^[0-9]+$/.test(typed)){
-        toast('A bin number is digits only \u2014 leave it blank if you do not know it.');
-        return;
-      }
-      const archived = (whArchivedPending || []).some(function(a){ return a.id === id; });
-      const col = archived ? 'archivedCustomers' : 'jobAddresses';
-      const rec = archived
-        ? (whArchivedPending || []).find(function(a){ return a.id === id; })
-        : (jobAddresses || []).find(function(a){ return a.id === id; });
-      const onRecord = String(((rec && rec.data) || {}).customerNumber || '').trim();
-      /* Storing the number they already hold would be a label that says nothing, and
-         whBinNumberMoved would then have to treat it as a move. Blank it instead. */
-      const value = (!typed || typed === onRecord) ? null : typed;
-      updateDoc(doc(db, col, id), {binLabelNumber: value}).then(function(){
-        if(rec && rec.data) rec.data.binLabelNumber = value;
-        toast(value ? ('Bin recorded as #' + value) : 'Bin number cleared \u2014 back to their own number.');
-        renderWarehouseRecycleQueue();
-      }).catch(function(){
-        toast('Could not save that \u2014 check your connection and try again.');
-      });
     });
   });
   list.querySelectorAll('[data-wheditcust]').forEach(function(btn){
@@ -30331,9 +30279,6 @@ function renderWarehouseRecycleQueue(){
         try{
           await updateDoc(doc(db,'jobAddresses', custId), {
             needsLightRecycle: false, recycleKeepingCustomer: false,
-            /* The set is back and the bin is empty, so its old label means nothing
-               now. See whBinNumberFor. */
-            binLabelNumber: null,
             lightsRecycledAt: serverTimestamp() });
           toast((d.name || 'They') + ' recycled \u2014 still a customer.');
           logActivity('Recycled the old lights for ' + (d.name || custId) +
@@ -31988,10 +31933,8 @@ function renderWarehouseQueue(){
       /* ⚠ AND IT IS NO LONGER A TOP-UP. The extra bundle is in their bin, so the bin
          now holds their full footage. Leaving buildTopUpFromFeet set would make every
          future build for this house read as "they already have 180 ft" for ever. */
-      /* A new bin has been made up under the number they hold now, so the old label
-         is gone with the old set. See whBinNumberFor. */
       updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
-        {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null})
+        {needsLightBuild:false, buildTopUpFromFeet:null})
         .catch(function(){});
     });
   });
@@ -32048,7 +31991,7 @@ function renderWarehouseQueue(){
         if(remaining <= 0) break;
         // Same clear as the single Mark Done above - see the note there.
         await updateDoc(doc(db,'jobAddresses', h.id),
-          {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null});
+          {needsLightBuild:false, buildTopUpFromFeet:null});
         remaining--;
       }
       for(const ex of g.extras){
@@ -32478,13 +32421,11 @@ function whSheetRowsForRecycle(){
         address: d.address || '',
         // The number is the whole point of recycling a house — it comes off
         // them and goes back in the pool — so it gets its own column here too.
-        bin: whBinNumberFor(d),
+        bin: String(d.customerNumber || '').trim(),
         feet: '',
         bundles: '',
         timer: '',
-        notes: (whBinNumberMoved(d)
-          ? ('bin says ' + whBinNumberFor(d) + ', record says #' + String(d.customerNumber || ''))
-          : (d.notes ? String(d.notes).trim() : ''))
+        notes: (d.notes ? String(d.notes).trim() : '')
       });
     });
   });
@@ -32757,8 +32698,7 @@ const WH_BUILD_COLUMNS = [
 ]);
 /* ⚠ NO PATTERN COLUMN. Owner: "they dont need to know the color here they just need
    the customer number and name." Nobody builds anything off this sheet — they find a
-   bin by its number and bring it in. The number is the one ON THE BIN (whBinNumberFor),
-   which is not always the one on the record. */
+   bin by its number and bring it in, and that number is the customer's own. */
 const WH_RECYCLE_COLUMNS = [
   {key:'bin', label:'Bin # to find', num:true},
   {key:'what', label:'Customer'},
@@ -35021,9 +34961,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
            "their bin in the warehouse is physically labelled with this number, so a
            change is flagged rather than made silently" — and the danger was that moving
            the number left the warehouse hunting for a bin that does not exist.
-           binLabelNumber records what the bin actually says and the recycle queue sends
-           them to THAT, so the change is no longer silent, it is just no longer a
-           question. Said in a toast rather than a dialog.
+           A moved number means the BIN IS RELABELLED (Addie, 2026-08-24: "get rid of
+           bin #'s and keep costumer #'s"), so the change is no longer silent, it is
+           just no longer a question. Said in a toast rather than a dialog, and the
+           toast names BOTH numbers so whoever reads it knows which bin to go and
+           re-mark.
 
            ⚠ AND ONLY ON A CONVERSION. An ordinary edit that happens to change the
            footage is not somebody working through a re-quote, and moving a live
@@ -35096,14 +35038,10 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        ⚠ AND NOT requotedAt, which already exists and lives on the QUOTE document.
        A tab reading customer data would never see it: a branch that looks right and
        can never run. */
-    /* ⭐ REMEMBER WHAT THE BIN SAYS BEFORE THE NUMBER MOVES. See whBinNumberFor: the
-       bin on the shelf keeps its old label until somebody physically goes to it, and
-       the recycle queue is how they are sent to find it. Written once — if the number
-       moves again before the set comes back, the bin still wears the first one. */
-    if(oldCustNumber && addrUpdates.customerNumber !== oldCustNumber &&
-       !String(d.binLabelNumber || '').trim()){
-      addrUpdates.binLabelNumber = oldCustNumber;
-    }
+    /* ⚠ NOTHING IS STAMPED WHEN A NUMBER MOVES ANY MORE (2026-08-24). The system
+       used to remember the bin's old label here; Addie: "get rid of bin #'s and keep
+       costumer #'s." A moved number now means the BIN gets relabelled, which is a
+       job in the warehouse rather than a second field on the record. */
     if(requoteBeingConverted) addrUpdates.requoteAppliedAt = serverTimestamp();
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     /* Pool bookkeeping, after the record is safely written. Each half is
@@ -46462,20 +46400,18 @@ function printCrewSheet(dayId,crewIndex){
    are at the house. Blank when nobody has measured them, for the reason that function
    already gives: a confident "1" is a guess wearing a number.
 
-   ⚠ AND IT SAYS SO WHEN THE BIN WEARS A DIFFERENT NUMBER. whBinNumberMoved is true
-   when a customer's number moved after their bin was already labelled — Ashley #894 →
-   #5051, with the bin on the shelf still saying 894 because nobody has been to it. The
-   Cust # column is then precisely the number that will not be found, and the crew is
-   the one standing in the warehouse looking for it. That helper's own comment says
-   this belongs "on both the screen and the paper"; the recycle list has said it for a
+   ⚠ THE SOFTWARE NO LONGER TRACKS A SECOND NUMBER FOR A MOVED BIN (2026-08-24). It
+   did between 2026-08-21 and then — Ashley #894 → #5051, bin still saying 894 — and
+   Addie retired it: one number, and if it moves the bin gets relabelled. The old
+   note said this belonged "on both the screen and the paper"; the recycle list has
+   said it for a
    while and the crew sheet never did. */
 /* ⭐ printBinCount IS GONE (2026-08-24). It rendered the Bins column on the crew
    sheet — how many bins, plus "bin says #894" where a customer's number had moved.
    The crew sheet has no Bins column any more: what goes in the bin is the
-   warehouse's job, and the one number the crew needs is the number ON the bin,
-   which is now the Cust # column via whBinNumberFor. The moved-label case it
-   existed for is handled there instead, which is the right place for it — the
-   number they look for and the number they are told are the same column. */
+   warehouse's job. The moved-label half went the same day, when the second number
+   was retired altogether — one number now, the customer's, and a bin whose customer
+   has moved is relabelled rather than remembered. */
 /* ⭐ ONE ROW, WHEREVER THE CREW SHEET IS PRINTED FROM. The day sheet's per-crew blocks
    and its "in neither crew's city" block used to build their rows separately, and the
    second one filled in seven of the ten columns — so Gate, Sides and Bins printed
@@ -46502,14 +46438,11 @@ function printCrewRow(h){
      what this was always meant to look like. */
   const answers = optSheetRow('crewSheet', forOptions);
   return Object.assign({
-    /* ⚠ THE NUMBER ON THE BIN, NOT THE ONE ON THE RECORD. Addie: "The cosumer #
-       and bin # are the same thing." whBinNumberFor answers "which number do I
-       look for" — the same helper the recycle queue and the warehouse sheet use —
-       so a customer whose footage moved them into the 5000 series still sends the
-       crew to the bin that is physically on the shelf wearing the old number.
-       Falling back to the plan row's own number for an imported row that matches
-       no customer at all. */
-    number: ((typeof whBinNumberFor === 'function') ? whBinNumberFor(d) : '') || h.cu || '',
+    /* Their customer number, which is the number on the bin — Addie: "The cosumer #
+       and bin # are the same thing", and "get rid of bin #'s and keep costumer #'s".
+       Falling back to the plan row's own number for an imported row that matches no
+       customer at all. */
+    number: d.customerNumber || h.cu || '',
     name: d.name || h.name || '',
     address: d.street || h.address || '', city: h.city || d.city || '',
     phone: d.phone ? fmtPhone(d.phone) : (h.phone ? fmtPhone(h.phone) : '')
@@ -46631,10 +46564,9 @@ const PRINT_COLUMNS = {
      warehouse's job and came off. What is left is the house: where it is, how to
      get in, how much of it to light, and anything unusual about it.
      ⚠ CUST # IS THE BIN NUMBER. Addie: "The cosumer # and bin # are the same
-     thing." One number column, and it is the number painted on the bin — see
-     printCrewRow, which reads whBinNumberFor rather than customerNumber so a
-     customer whose footage moved them into the 5000 series still leads the crew
-     to the bin that is actually on the shelf.
+     thing." One number column, and it is the customer's own number — which is what
+     is painted on the bin, because a bin whose customer's number moves gets
+     relabelled rather than remembered.
      ⚠ THE SPLICE IS GONE. Address and City used to be threaded in after Bins by
      naming that column; with Bins off the sheet there is nothing to thread
      around, and the identity block simply comes first. */
@@ -46663,9 +46595,7 @@ function printRecycleList(){
   const rows = [];
   const add = function(d){
     if(!d) return;
-    /* The number on the BIN, not the one on the record — see whBinNumberFor. */
-    rows.push({number: (typeof whBinNumberFor === 'function')
-      ? whBinNumberFor(d) : (d.customerNumber || ''), name: d.name || ''});
+    rows.push({number: d.customerNumber || '', name: d.name || ''});
   };
   if(typeof jobAddresses !== 'undefined'){
     jobAddresses.forEach(function(a){
@@ -46783,7 +46713,7 @@ function printCrewPhotos(day, i){
     const d = printCustData(h);
     const who = d.name || h.name || '';
     /* The number the crew will be looking for, the same one the row shows. */
-    const num = ((typeof whBinNumberFor === 'function') ? whBinNumberFor(d) : '') || h.cu || '';
+    const num = d.customerNumber || h.cu || '';
 
     if(printIsNewHang(d, h)){
       const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
