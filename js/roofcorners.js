@@ -52,9 +52,25 @@ import { rayDirection, distanceAt, cameraHeight } from './svdepth.js';
    clutter that gets through is knocked down afterwards by the churn and roughness tests,
    which is what they are for. */
 export const SKYLINE_MIN_HEIGHT_M = 2.0;
-/* Past 60 m one column spans 0.74 m, so a corner is no longer resolvable — and it is a
-   neighbour's house or a hillside anyway. On the two panoramas that returned nothing at
-   all, everything in view was beyond 71 m: open land, and no house is the honest answer. */
+/* ⭐ THE CEILING IS A RESOLUTION LIMIT, NOT A DISTANCE, and writing it as 60 was a
+   512-column depth map's answer mistaken for a general one.
+   What actually stops a corner being a corner is the width of one column ON THE HOUSE.
+   A 512-wide equirectangular map spans a full turn, so one column is 2*pi/512 = 0.0123
+   radians; at 60 m that is 0.74 m, and a feature you cannot locate to better than 0.74 m
+   is not worth offering as a corner. That is where the 60 came from.
+   ⚠ AND IT IS WRONG FOR AN IMAGE SILHOUETTE, badly. lanil-9d's comes off the rendered
+   photograph, whose angular resolution is far finer — pass radiansPerColumn and the same
+   0.75 m rule allows a much greater distance, instead of silently discarding houses he
+   can measure perfectly well. Being wrong in that direction is worse than being wrong the
+   other way: it looks like the tool simply found nothing. */
+export const MAX_COLUMN_WIDTH_M = 0.75;
+
+export function maxUsableDistanceM(radiansPerColumn){
+  if(!(radiansPerColumn > 0)) return null;
+  return MAX_COLUMN_WIDTH_M / radiansPerColumn;
+}
+
+/* Kept as the default for a full-turn 512-column depth map, which is what it describes. */
 export const SKYLINE_MAX_DISTANCE_M = 60;
 
 /* Which plane record is the ground the camera stands on: the biggest horizontal one.
@@ -104,7 +120,12 @@ export function skylineOf(depth, opts){
   const o = opts || {};
   const win = o.columns || null;
   const minH = o.minHeightM == null ? SKYLINE_MIN_HEIGHT_M : o.minHeightM;
-  const maxD = o.maxDistanceM == null ? SKYLINE_MAX_DISTANCE_M : o.maxDistanceM;
+  /* Explicit wins; then the caller's own resolution; then the depth map's own width,
+     which is the honest default because it is measured from the data in hand. */
+  let maxD = o.maxDistanceM;
+  if(maxD == null && o.radiansPerColumn > 0) maxD = maxUsableDistanceM(o.radiansPerColumn);
+  if(maxD == null && depth && depth.width > 0) maxD = maxUsableDistanceM(2 * Math.PI / depth.width);
+  if(maxD == null) maxD = SKYLINE_MAX_DISTANCE_M;
   const camH = (o.cameraHeightM != null) ? Number(o.cameraHeightM) : cameraHeight(depth);
   const ground = groundPlaneIndices(depth, camH);
   const out = new Array(depth.width).fill(null);
@@ -655,8 +676,9 @@ export function describeCandidates(list, skyline, opts){
     };
   }
   if(seen === 0)
-    message = 'Nothing within 60 m of the camera to draw — no roofline is in view from here. ' +
-              'Try a panorama nearer the house.';
+    message = 'Nothing close enough to the camera to draw' +
+              (o.maxDistanceM ? ' — nothing within ' + Math.round(o.maxDistanceM) + ' m' : '') +
+              '. No roofline is in view from here. Try a panorama nearer the house.';
   else if(!c.length)
     message = 'A surface is in view but its outline never changes direction, so there is ' +
               'no corner to offer. A flat gutter run looks exactly like this.';

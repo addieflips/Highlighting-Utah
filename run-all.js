@@ -35274,7 +35274,12 @@ suite('252. The silhouette against a real sky');
     check('skyline', 'the ground the camera stands on is identified as one plane',
       rc.groundPlaneIndex(D) === 1 && sv.cameraHeight(D) === CAM);
 
-    const line = rc.skylineOf(D);
+    /* ⚠ THIS FIXTURE IS 64 COLUMNS OVER A FULL TURN — 5.6 deg each, which at 24 m is
+       2.35 m wide. The derived distance ceiling correctly refuses to offer corners at
+       that resolution, so these checks pin it: they are about the GROUND test, and a
+       fixture that fails for an unrelated reason tests nothing. */
+    const NOCAP = { maxDistanceM: 60 };
+    const line = rc.skylineOf(D, NOCAP);
     const kept = line.filter(Boolean);
 
     /* ⛔ THE BUG THAT SHIPPED FIRST. On the yard panorama 200-odd columns had sky meeting
@@ -35301,10 +35306,26 @@ suite('252. The silhouette against a real sky');
     /* Sparse detail past 60 m: one column is 0.74 m wide there, so a corner is no longer
        a corner. The cap is measurement, not taste. */
     check('skyline', 'and a distance ceiling keeps the neighbours out of it',
-      rc.skylineOf(D, { maxDistanceM: 10 }).filter(Boolean).length < kept.length);
+      rc.skylineOf(D, { maxDistanceM: 8 }).filter(Boolean).length < kept.length);
+
+    /* ⭐ THE CEILING IS A RESOLUTION LIMIT, NOT A DISTANCE. 60 was a 512-column depth
+       map's answer written down as a general one. One column of a full-turn 512-wide map
+       is 0.0123 rad; at 61 m that is 0.75 m, which is where a corner stops being locatable
+       well enough to offer. An IMAGE silhouette is far finer, so a hard 60 would throw
+       away houses lanil-9d can measure perfectly well — and it would look like the tool
+       finding nothing, which is the worst way to be wrong. */
+    check('skyline', 'the distance ceiling is derived from resolution, not written down',
+      Math.abs(rc.maxUsableDistanceM(2 * Math.PI / 512) - 61.1) < 0.2 &&
+      rc.maxUsableDistanceM((Math.PI / 2) / 1600) > 700,
+      'a 512-wide panorama must still land on the 60 m it always used, and a rendered ' +
+      'image must be allowed much further');
+
+    check('skyline', 'and a coarse map is held closer, because it cannot place a corner',
+      rc.maxUsableDistanceM(2 * Math.PI / 64) < 8,
+      '64 columns over a full turn is 5.6 deg each — 2.35 m wide at 24 m');
 
     /* The caller measures ONE house; the panorama holds 360 degrees of them. */
-    const win = rc.skylineOf(D, { columns: { from: 8, to: 15 } }).filter(Boolean);
+    const win = rc.skylineOf(D, { columns: { from: 8, to: 15 }, maxDistanceM: 60 }).filter(Boolean);
     check('skyline', 'the caller can ask for just the house it is measuring',
       win.length === 8 && win.every(k => k.x >= 8 && k.x <= 15));
     check('skyline', 'and a house straddling the seam of the panorama still works',
@@ -35341,7 +35362,8 @@ suite('252. The silhouette against a real sky');
        office is owed the reason in both cases. */
     const nothing = rc.describeCandidates([], []);
     check('skyline', 'no house in view says so, instead of showing an empty canvas',
-      nothing.total === 0 && /no roofline is in view/.test(nothing.message));
+      nothing.total === 0 && /No roofline is in view/.test(nothing.message) &&
+      /Nothing close enough/.test(nothing.message));
 
     const flat = rc.describeCandidates([], [{ x: 1 }, { x: 2 }]);
     check('skyline', 'a surface with no corners is a real answer, and reads like one',
