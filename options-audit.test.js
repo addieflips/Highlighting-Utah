@@ -19,6 +19,7 @@
  * Run:  node options-audit.test.js      (or: npm run test:options)
  */
 
+const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -306,6 +307,142 @@ function check(label, ok, detail) {
   check('a fully answered customer is missing nothing',
     missingAnswers(customer).length === 0,
     JSON.stringify(missingAnswers(customer)));
+
+  // -------------------------------------------------------------------------
+  /* ⭐ THE REGISTRY IS ENFORCED AGAINST THE REAL ARTIFACTS (added 2026-08-24).
+     Owner: "I need everything to be wired correctly so lets get that wired
+     correctly."
+
+     ⚠ WHAT "WIRED" HAD TO MEAN HERE. The plan's §3.3 was for the eight artifacts to
+     be GENERATED from this registry. That is a rewrite of every customer- and
+     crew-facing surface at once, and it would have quietly reverted at least one
+     decision the owner made by hand (the build sheet prints BUNDLES, not feet —
+     "I don't think we need feet and bundles"). Generation replaces working screens;
+     what the registry is actually FOR is making it impossible to forget one.
+
+     So the registry earns its keep the other way round: every option declaring a
+     destination must be shown to reach the REAL artifact, and adding an option
+     without wiring it FAILS THE BUILD. That is the same guarantee, from detection
+     rather than generation, and it leaves the screens the owner corrected alone.
+     CLAUDE.md §6 asks for exactly this — a `read` rule promoted to `code`.
+
+     ⚠ THE CORRESPONDENCE LIVES HERE, NOT IN THE REGISTRY. The registry says WHERE an
+     answer must end up; this says HOW that surface carries it today. They are two
+     independent statements and the whole value is in them being written apart — a
+     mapping stored in the registry would be updated in the same edit that broke the
+     artifact, and prove nothing. */
+  {
+    const admin = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
+    const fnOf = (name) => {
+      const at = admin.indexOf('function ' + name + '(');
+      if (at === -1) return '';
+      let d = 0;
+      for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+      }
+      return '';
+    };
+    /* ⭐ EACH SURFACE IS CHECKED ON ITS OWN, and that is not tidiness. The first
+       version concatenated the two build sheets into one string — so a sabotage that
+       deleted the wire colour from the WAREHOUSE sheet passed, because the printed
+       sheet still mentioned it. One sheet covering for the other is precisely the
+       "half wired" failure this is here to catch, and CLAUDE.md already records a
+       red-check that went green for exactly that reason.
+
+       An option that declares a destination must reach EVERY surface of it. Where two
+       surfaces carry the same answer differently — the light colour is a group heading
+       on the warehouse list and a column on the printed one — each gets its own rule. */
+    const SURFACES = {
+      crewSheet: [{
+        name: 'the crew sheet',
+        src: fnOf('printCrewRow') + fnOf('printCrewNotes'),
+        by: {
+          outletTimer:    /timer: printYesNo\(d\.outletTimer\)/,
+          useEaves:       /eaves: printYesNo\(d\.useEaves\)/,
+          gateCode:       /gate: printGateCode\(d\)/,
+          houseSides:     /sides: printSideCount\(d\)/,
+          /* ⚠ FOLDED INTO THE NOTES COLUMN, AND MATCHED WITH THEIR GUARD. Matching the
+             prefix alone let `if(false) bits.push('TODAY: ' + once)` pass — every word
+             in place, nothing on the sheet. The condition is part of what is asserted. */
+          specificOutlet: /if\(outlet\) bits\.push\('OUTLET: '/,
+          oneTimeNote:    /if\(once\) bits\.push\('TODAY: '/,
+          notes:          /if\(standing\) bits\.push\(standing\)/,
+        },
+      }],
+      pullList: [
+        {
+          name: 'the warehouse build list',
+          src: fnOf('whSheetRowsForBuild'),
+          by: {
+            /* grouped by colour and wire rather than columned — whGroupKey */
+            lightsDescription: /group: groupName/,
+            /* ⚠ TWICE, BECAUSE THIS SHEET HAS TWO ROW SHAPES. A house waiting on its
+               colours prints a blocked row, a buildable house prints a real one, and
+               BOTH need the wire and the timer — the warehouse reads one list. A
+               single-occurrence regex passed a sabotage that deleted the field from
+               the real build row, because the blocked row still mentioned it: one
+               branch covering for the other, the same failure as one sheet covering
+               for the other a few lines up. */
+            wireColor:         /wire: whWireLabel\(d\.wireColor\)[\s\S]*wire: whWireLabel\(d\.wireColor\)/,
+            outletTimer:       /timer: String\(d\.outletTimer[\s\S]*timer: String\(d\.outletTimer/,
+            /* ⚠ FEET AND BINS REACH THE WAREHOUSE AS BUNDLES, deliberately. Owner,
+               2026-08-21: "I don't think we need feet and bundles. I think how many
+               bundles is fine for warehouse." Bundles are computed from the footage
+               (houseBundleNeed), so the answer does arrive — as the number somebody
+               counts off a shelf. Asserting a feet column here would fail a sheet
+               that is right, which is how a good gate teaches people to delete it. */
+            measuredFeet:      /bundles: \(need\.topUp/,
+            numberOfBins:      /bundles: \(need\.topUp/,
+          },
+        },
+        {
+          name: 'the printed build sheet',
+          src: fnOf('printNeedsBuildList'),
+          by: {
+            lightsDescription: /lights: printLightColor\(d\)/,
+            wireColor:         /wire: d\.wireColor/,
+            outletTimer:       /timer: printYesNo\(d\.outletTimer\)/,
+            measuredFeet:      /bundles: need/,
+            numberOfBins:      /bundles: need/,
+          },
+        },
+      ],
+    };
+
+    Object.keys(SURFACES).forEach((consumer) => {
+      const declared = OPTIONS.filter(o => (o.consumers || []).indexOf(consumer) !== -1);
+      check(consumer + ': the registry declares options for it', declared.length > 0,
+        'an empty list here means the filter stopped matching and every check below ' +
+        'is passing over nothing');
+      SURFACES[consumer].forEach((surface) => {
+        check(surface.name + ': its source was found', !!surface.src,
+          'a gate that cannot find its target must FAIL, never skip — a whole block ' +
+          'failing at once is the shape to distrust first');
+        declared.forEach((o) => {
+          const rule = surface.by[o.id];
+          /* ⚠ THIS IS THE ONE THAT MAKES THE REGISTRY LOAD-BEARING. Add an option
+             declaring this destination and the build fails right here, on every
+             surface of it, until somebody says how it gets there. */
+          check(surface.name + ': ' + o.id + ' is wired to it', !!rule,
+            'the registry says ' + o.id + ' must reach ' + surface.name + ' and ' +
+            'nothing says how — wire it, or take the destination off the registry');
+          if (rule) {
+            check(surface.name + ': ' + o.id + ' still reaches it', rule.test(surface.src),
+              'the registry says ' + o.id + ' must reach ' + surface.name + ' and the ' +
+              'real one no longer carries it — this is a truck arriving without it');
+          }
+        });
+        /* ⚠ AND NOTHING IS WIRED THAT THE REGISTRY DOES NOT ASK FOR. A leftover rule
+           is one nobody is checking, against a destination nobody declared. */
+        Object.keys(surface.by).forEach((id) => {
+          check(surface.name + ': the wiring for ' + id + ' matches a declared destination',
+            declared.some(o => o.id === id),
+            id + ' is wired here but the registry does not send it to the ' + consumer);
+        });
+      });
+    });
+  }
 
   // -------------------------------------------------------------------------
   console.log(failures.length ? '' : '  PASS  every check below\n');
