@@ -1067,3 +1067,59 @@ Still open from earlier today. `whBuildQueueGroups` (the tab) lists
 `needsLightBuild || chargeNewMemberFee === true || requoteAppliedAt`. So the
 screen and the paper can disagree about who needs building — which is the exact
 shape of failure this repo has been bitten by repeatedly.
+
+---
+
+## Answered 2026-08-24 — Q-017 and Q-018, both closed
+
+**Q-017 (does the badge belong on paper?) — yes.** Addie: *"I need paper to carry
+badge too."* It is a **Why** column on the build sheet, beside Type.
+`whBuildReasonLabel` renders it in words, sharing `whBuildReasonKey` with the
+on-screen chip — one rule, two renderers.
+
+**Q-018 (should the two build lists match?) — yes, and the tab wins.** Addie:
+*"everyone on the warehouse tab should be printed."* The Printing tab now takes
+its rows from `whSheetRowsForBuild`, so there is one build sheet printed from two
+buttons.
+
+The old disagreement ran in **both** directions and the second one was the
+expensive half: `chargeNewMemberFee` and `requoteAppliedAt` are stamps that
+nothing ever clears, so every new member and every applied re-quote sat on the
+printed Needs Building sheet permanently, long after their bundle was made.
+
+**And the split:** one page per colour group, offered against one page per badge.
+A colour-and-wire group is the pile somebody physically pulls from, so two people
+can build at once; splitting by badge cuts across the piles and sends each person
+to every shelf.
+
+### Answered — why a house can be "waiting on light colours" at all
+
+Addie, seeing that block for the first time: *"Why is a house waiting on light
+colors here? That is required and someone should not be able to submit a form
+without it?"*
+
+She is right about the doors a person types into, and both enforce it:
+
+- the customer's detail form refuses to submit (`blockingAnswers`, index.html)
+- Add Customer refuses to save — *"Pick their light colours before adding
+  them — a customer with no colours never reaches the Warehouse to be built."*
+
+**The producer is the master-sheet sync.** `admin.html` sets `needsLightBuild:
+true` on every customer it adds and takes colours from the sheet's Lights
+column, so a blank or unreadable cell there creates somebody owed a build with no
+colours on file. The other sources are records already in the book from before
+those guards existed, and a re-quote applied to a customer who had none.
+
+⚠ **Do not "fix" it by dropping the build flag when colours are missing.** Those
+people would silently vanish instead of appearing on a list — which is the exact
+failure the blocked block was built to end. Blank colours mean the build cannot
+be *done* yet, not that it is not *owed*. The page leads the printed stack so it
+reads as a to-do list rather than a mystery.
+
+### Q-019 · should the sheet sync refuse a row with no colours? · intent
+
+The narrower version of the above, and worth asking on its own. The sync
+currently adds the customer and flags the build, which is right — but it could
+also *report* how many it added with no colours, the way it already reports rows
+it could not match. That would put the number in front of the office at the
+moment it is created rather than the next time somebody prints.

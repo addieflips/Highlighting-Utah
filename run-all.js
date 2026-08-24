@@ -4649,8 +4649,12 @@ if (!JSDOM) {
        is NaN, which would drop that house out of the morning's total silently. */
     check('warehouse', 'a marked bundle count still totals correctly',
       (parseInt('+3', 10) || 0) === 3 && (parseInt('3 est', 10) || 0) === 3 &&
-      /parseInt\(r\.measuredFeet, 10\)/.test(extractFn(admin, 'whPrintBuildSheet')),
-      'the build sheet summary reads the Bundles cell with parseInt, not Number — ' +
+      /* ⚠ THE TOTAL MOVED INTO whBuildSheetPages (2026-08-24). The sheet is one page
+         per colour group now, so each page carries ITS numbers rather than the
+         morning's — and the marker trap came with it. A page that under-reports is
+         the same bug in a smaller box. */
+      /parseInt\(r\.measuredFeet, 10\)/.test(extractFn(admin, 'whBuildSheetPages')),
+      'the per-page summary reads the Bundles cell with parseInt, not Number — ' +
       'and reads it under the key the generated column actually uses');
     /* ⚠ "Yes", NOT "YES", since 2026-08-24. Both build sheets render the timer
        through one presenter now; this one used to print YES-or-BLANK and the
@@ -21611,10 +21615,20 @@ suite('Suite 107. Pricing a re-quote from the popup');
     /* ⚠ AND THE COUNT BESIDE IT COMES FROM THE SHEET THAT WAS PRINTED. Building it
        twice re-reads the whole book to count what was just built, and a write landing
        between the two prints a sheet whose own summary disagrees with it. */
-    const btn = admin.slice(admin.indexOf("printOneList('build'") - 400,
-                            admin.indexOf("printOneList('build'") + 300);
-    check('S107', 'and the summary counts the rows actually printed',
-      /buildSheet\.rows\.length/.test(btn) && !/printNeedsBuildList\(\)\.length/.test(btn),
+    /* ⭐ AND BOTH BUTTONS PRINT THE SAME PAGES (2026-08-24). The Printing tab used to
+       build its own single table; it asks whBuildSheetPages now, which is what the
+       Warehouse tab's own print button asks. One sheet, one split, two buttons. */
+    const btn = admin.slice(admin.indexOf("schedOpenPrintPages('Needs building'") - 500,
+                            admin.indexOf("schedOpenPrintPages('Needs building'") + 500);
+    check('S107', 'the Printing tab prints the same pages the Warehouse tab does',
+      /whBuildSheetPages\(\)/.test(btn) &&
+      /whBuildSheetPages\(\)/.test(extractFn(admin, 'whPrintBuildSheet')),
+      'two splitters of one sheet is the same drift in a new place');
+    /* ⚠ AND IT IS BUILT ONCE. Calling the builder twice re-reads the whole book to
+       count what it just built, and a write landing between the two prints a sheet
+       whose own summary disagrees with it. */
+    check('S107', 'and builds the pages once, not once per use',
+      (btn.match(/whBuildSheetPages\(\)/g) || []).length === 1,
       'a sheet whose own summary disagrees with it is worse than no summary');
     /* ⭐ THE MARKERS MOVED INTO whPullPresenters (2026-08-24) — ONE COPY, SHARED BY
        BOTH BUILD SHEETS. They used to be written out separately in each builder, and
@@ -21828,6 +21842,97 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and buffer stock reaches the paper',
       withExtra.length === 1 && withExtra[0].type === 'Extra',
       'it is on the tab, so it prints; got ' + JSON.stringify(withExtra.map(r => r.type)));
+
+    /* ⭐ ONE PAGE PER COLOUR GROUP (2026-08-24). Addie picked this over splitting by
+       badge: a colour-and-wire group is the pile somebody pulls from, so two people
+       can build at once without sharing paper.
+       ⚠ RUN, NOT READ. A source check for a `.map` over groups passes while every row
+       still lands on one page — the split is a behaviour, so the behaviour is what is
+       asserted. */
+    const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
+      'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
+      OPTIONS_SANDBOX_SRC() +
+      extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
+      extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whPullPresenters') +
+      extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
+      (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\n\};/) || [''])[0] +
+      extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') +
+      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'whBuildSheetPages') +
+      'return whBuildSheetPages();');
+    const P = function(custs, extras){
+      return pager(custs, extras || [], (p, w) => p + ' | ' + (w || ''),
+        (d) => ({feet: 0, bundles: 1}), (w) => String(w || 'white'), () => '', []);
+    };
+    const H = function(id, name, pattern, wire, extra){
+      return {id: id, data: Object.assign({name: name, needsLightBuild: true,
+        lightsDescription: pattern, wireColor: wire, measuredFeet: 200}, extra || {})};
+    };
+    const twoGroups = P([H('h1','Ashley','Warm White','white'),
+                         H('h2','Rachel','Warm White','white'),
+                         H('h3','Cattani','Multi','green')]);
+    check('S107', 'two colour groups print as two pages',
+      twoGroups.length === 2,
+      'got ' + JSON.stringify(twoGroups.map(p => p.title)));
+    check('S107', 'and nobody is on more than one of them',
+      twoGroups.reduce((n, p) => n + p.rows.length, 0) === 3,
+      'a house on two pages gets built twice; got ' +
+      JSON.stringify(twoGroups.map(p => p.rows.length)));
+    /* ⚠ SHEET X OF Y IS THE POINT OF SPLITTING. Once the stack is handed out, the one
+       thing nobody can tell from a single page is whether they are holding all of
+       them, and a build that quietly lost a page is a house nobody makes. */
+    check('S107', 'and every page says which of how many it is',
+      twoGroups.every((p, i) => p.summary.indexOf('sheet ' + (i + 1) + ' of 2') !== -1),
+      'got ' + JSON.stringify(twoGroups.map(p => p.summary)));
+    /* ⚠ AND EACH PAGE COUNTS ITSELF, not the morning. A page handed to somebody
+       building one pile needs THEIR numbers. */
+    check('S107', 'and each page counts only its own houses',
+      /^2 houses/.test(twoGroups[0].summary) && /^1 house /.test(twoGroups[1].summary),
+      'got ' + JSON.stringify(twoGroups.map(p => p.summary)));
+    /* ⚠ AND ITS OWN BUNDLES. A red-check caught the check above being vacuous for
+       this: sabotaging the bundle total to sum the WHOLE sheet left the house counts
+       untouched, so it stayed green while every page claimed the morning's bundles.
+       Three bundles across the two pages, so a page reporting 3 is reporting all of
+       them. */
+    check('S107', 'and its own bundles, not the whole morning\'s',
+      /\b2 bundles\b/.test(twoGroups[0].summary) && /\b1 bundle\b/.test(twoGroups[1].summary),
+      'got ' + JSON.stringify(twoGroups.map(p => p.summary)));
+    /* ⭐ WAITING ON COLOURS LEADS THE STACK. Addie, seeing them for the first time:
+       "Why is a house waiting on light colors here?" Nobody in the warehouse can act
+       on those at all — they need the office — so the page goes first.
+       ⚠ A FIXTURE FOR THIS MUST PUT THE BLOCKED HOUSE LAST in the input, or the tab's
+       own order already produces the right answer and the check proves nothing. */
+    const withBlocked = P([H('h1','Ashley','Warm White','white'),
+                           {id:'h9', data:{name:'Zoe No Colours', needsLightBuild: true}}]);
+    check('S107', 'and waiting-on-colours is the first page in the stack',
+      withBlocked.length === 2 && withBlocked[0].rows.every(r => r.type === 'Blocked'),
+      'got ' + JSON.stringify(withBlocked.map(p => p.title)));
+    /* ⚠ AND THAT IS GUARANTEED BY THE SHEET, NOT BY THE PAGER. whSheetRowsForBuild
+       emits blocked rows before any group and the pager walks its rows in order, so
+       THIS is where the ordering is decided. A sort in the pager was written first and
+       removed: it could never fire, and a red-check proved it — sabotaging it changed
+       nothing and nothing failed. Asserted at the place that actually makes the claim,
+       with the blocked house fed in LAST so insertion order alone cannot produce it. */
+    const rawOrder = sheet([H('h1','Ashley','Warm White','white'),
+                            {id:'h9', data:{name:'Zoe No Colours', needsLightBuild: true}}],
+      [], (p, w) => p + ' | ' + (w || ''), (d) => ({feet: 0, bundles: 1}),
+      (w) => String(w || 'white'), () => '', []).rows;
+    check('S107', 'the sheet itself emits the blocked rows before any group',
+      rawOrder.length === 2 && rawOrder[0].type === 'Blocked',
+      'the page order follows the row order, so this is where it is decided; got ' +
+      JSON.stringify(rawOrder.map(r => r.type)));
+    /* ⚠ AND THE PAGER PRESERVES IT. Re-sorting would mean the printed stack and the
+       screen disagreed about what comes first. */
+    check('S107', 'and the pager keeps the sheet\'s order',
+      withBlocked.map(p => p.rows[0].type).join(',') ===
+      rawOrder.filter((r, i, a) => i === a.findIndex(x => x.group === r.group)).map(r => r.type).join(','),
+      'got pages ' + JSON.stringify(withBlocked.map(p => p.title)));
+    check('S107', 'and it does not swallow the colour groups behind it',
+      withBlocked[1] && withBlocked[1].rows.length === 1,
+      'got ' + JSON.stringify(withBlocked.map(p => p.rows.length)));
+    check('S107', 'and nothing to build prints no pages at all',
+      P([]).length === 0,
+      'an empty page stack is what the Nothing needs building note is for');
   }
 
   /* ⭐ AND APPLYING A RE-QUOTE IS TWO STEPS, THE SECOND OF WHICH WAS SILENT. Owner:
