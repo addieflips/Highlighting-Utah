@@ -74,6 +74,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ⭐ NAMED SEPARATELY, THOUGH `npm test` ALSO RUNS IT (plan §3.5, 2026-08-24).
+      # Two reasons it is worth the extra six seconds. It is the gate for R-001 and
+      # R-003 — an option that renders on the quote form and reaches no crew sheet —
+      # and a failure there needs to read as "the option registry is broken" in the
+      # checks list, not as a line somewhere inside a 4,500-check run. And it fails
+      # FIRST, before the long suite, so the shortest possible signal comes back on
+      # the mistake this whole phase exists to make impossible.
+      - name: Option registry audit (R-001, R-003)
+        run: npm run test:options
+
       - name: Run the fast suite
         run: npm test
 

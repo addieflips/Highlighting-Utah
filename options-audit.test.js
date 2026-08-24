@@ -11,14 +11,16 @@
  * already use (verify-syntax, selector-contract, money-parity) — one file, one
  * job, wired into `npm test` so both CI jobs pick it up for free.
  *
- * ⚠ THE REGISTRY IS NOT WIRED YET. Nothing imports js/options.js as of
- * 2026-08-21; §3.3 of the plan has not been done. So this gate proves the SPEC
- * is coherent, not that any screen obeys it. When the artifacts are generated
- * from the registry, the checks that prove THAT belong here too.
+ * ⭐ WIRED 2026-08-24 (plan §3.3). Five artifacts now generate from the registry,
+ * so this gate covers two things that used to be one: that the SPEC is coherent
+ * (sections 1–6), and that the artifacts actually obey it (section 7). The second
+ * half is the one that would have caught the real bugs — a coherent registry that
+ * no screen reads is exactly what this file used to be measuring.
  *
  * Run:  node options-audit.test.js      (or: npm run test:options)
  */
 
+const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -148,7 +150,16 @@ function check(label, ok, detail) {
     notes:             ['quote', 'customer', 'crewSheet', 'routes', 'schedule'],
     oneTimeNote:       ['customer', 'crewSheet', 'routes', 'schedule'],
     wantsMailedInvoice:['quote', 'customer', 'invoice'],
-    numberOfBins:      ['customer', 'pullList', 'routes', 'schedule'],
+    /* ⭐ CHANGED 2026-08-24 — 'crewSheet' added. This is the one row that has
+       moved since the map was frozen, and it is a decision, not a red run being
+       tidied away. Addie, 2026-08-22 — AFTER the map was settled on the 21st:
+       "crew print sheet should also show bin #", meaning a quantity (her own
+       vocabulary, 2026-08-21: "Bin # is how many bins were making for them").
+       The printed sheet has carried a Bins column since that day, so the
+       registry was the half that was out of date, not the paper. Wiring the
+       sheet to the registry without this would have DELETED a column the crew
+       uses to load the van. */
+    numberOfBins:      ['customer', 'crewSheet', 'pullList', 'routes', 'schedule'],
     difficulty:        ['customer', 'routes', 'schedule'],
   };
 
@@ -299,15 +310,133 @@ function check(label, ok, detail) {
   // -------------------------------------------------------------------------
   // 6. missingAnswers — what the office still has to chase
   // -------------------------------------------------------------------------
+  /* ⚠ REQUIRED AND NO DEFAULT, not merely required. valueOf() applies a declared
+     default (2026-08-24), so an option carrying one always has an answer and can
+     never be "missing" — chasing the office for a wire colour that defaults to
+     Any is a row nobody can action, which is the same reasoning numberOfBins and
+     houseSides already carry for not being required at all.
+     This check used to read `o.required` alone and passed only because no
+     required option had a default yet. Two do. */
   const gaps = missingAnswers({});
-  check('a blank customer is missing every required answer',
-    gaps.length === OPTIONS.filter(o => o.required).length,
-    'required options with no answer must be reported, not assumed');
+  check('a blank customer is missing every required answer that has no default',
+    gaps.length === OPTIONS.filter(o => o.required && o.default == null).length,
+    'required options with no answer must be reported, not assumed — got ' + gaps.join(', '));
   check('a fully answered customer is missing nothing',
     missingAnswers(customer).length === 0,
     JSON.stringify(missingAnswers(customer)));
 
   // -------------------------------------------------------------------------
+  // 7. THE ARTIFACTS ACTUALLY OBEY IT
+  //
+  // Sections 1–6 prove the registry is coherent with itself. A registry nothing
+  // reads is coherent and useless, which is what this file measured until the
+  // wiring landed on 2026-08-24. These checks are about the five artifacts.
+  // -------------------------------------------------------------------------
+  const admin = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+
+  check('admin.html imports the registry',
+    /from\s+'\.\/js\/options\.js'/.test(admin),
+    'the crew sheet, both build sheets, the invoice and the confirmation read it');
+  check('index.html imports the registry',
+    /from\s+'\.\/js\/options\.js'/.test(index),
+    'both quote forms build their questions from it');
+
+  /* ⚠ NO HAND-WRITTEN OPTION COLUMN SURVIVES. The failure this catches is the one
+     the whole phase exists for: somebody adds a column back to a sheet by hand, it
+     renders perfectly, and the registry quietly stops being the whole truth. Each
+     of these is a LABEL that used to be typed into a column list and is now
+     generated, so finding one written out again means a sheet has grown a second
+     source. Scoped to the column definitions, not the file — the same words appear
+     in comments and in the option registry's own labels. */
+  /* ⚠ SLICED TO WHICHEVER TERMINATOR COMES FIRST, not to one shape. PRINT_COLUMNS
+     is an object literal ending `};`, WH_BUILD_COLUMNS is now an array with
+     `.concat(...)` on the end and closes `]);`. Assuming either one made the slice
+     run to the end of the file — where every generated call it was looking for
+     does appear, so the check passed while measuring nothing. */
+  const colBlock = (name) => {
+    const at = admin.indexOf('const ' + name);
+    if (at === -1) return '';
+    const ends = ['\n};', '\n]);', '\n];']
+      .map(t => admin.indexOf(t, at)).filter(i => i !== -1);
+    return ends.length ? admin.slice(at, Math.min(...ends) + 4) : '';
+  };
+  const printCols = colBlock('PRINT_COLUMNS = {');
+  for (const gone of ["{k: 'gate'", "{k: 'sides'", "{k: 'eaves'", "{k: 'timer'",
+                      "{k: 'bins'", "{k: 'lights'", "{k: 'wire'", "{k: 'bundles'"]) {
+    check('the crew and build sheets no longer hand-write ' + gone,
+      printCols.indexOf(gone) === -1,
+      'a hand-written option column is one the registry does not know about');
+  }
+  const whCols = colBlock('WH_BUILD_COLUMNS');
+  for (const gone of ["{key:'wire'", "{key:'bins'", "{key:'bundles'", "{key:'timer'"]) {
+    check('the warehouse build sheet no longer hand-writes ' + gone,
+      whCols.indexOf(gone) === -1,
+      'there are TWO build sheets and both have to read one list');
+  }
+  check('both build sheets ask the registry for their columns',
+    (printCols.match(/optSheetColumns\('pullList'\)/g) || []).length >= 1 &&
+    (whCols.match(/optSheetColumns\('pullList'\)/g) || []).length >= 1,
+    'if only one of them generates, the two sheets can still disagree');
+  check('the crew sheet asks the registry for its columns',
+    printCols.indexOf("optSheetColumns('crewSheet')") !== -1,
+    'this is the artifact P-003 was proposed about');
+
+  /* The confirmation is the only artifact that checks our data against what the
+     customer actually wanted (plan §12), so its block is not optional decoration. */
+  check('the confirmation lists the registry options',
+    /optForConsumer\('confirmation'/.test(admin),
+    'an RSVP that shows nothing cannot catch a request nobody typed in');
+  check('the confirmation appears on the real send, the preview AND the test send',
+    (admin.match(/rsvpOptionsBlockFor\(/g) || []).length >= 4,
+    'a block that only appears in the real email is one nobody proof-read');
+
+  check('the invoice lists its non-priced options',
+    /optInvoiceOptions\(\)/.test(admin),
+    'a customer who asked for a posted invoice was recorded and never printed');
+
+  check('the quote form generates its questions',
+    /optQuoteFields\('details'\)/.test(index),
+    'a hand-written form field is an option the registry cannot reach');
+  check('the quote form offers only what a customer may pick',
+    /optOfferableChoices\(/.test(index) && !/\.choices\b/.test(
+      index.slice(index.indexOf('function qdControlFor'), index.indexOf('function qdRenderOptionFields'))),
+    'reading `choices` advertises the two Thanksgiving timings we only accept on request');
+  check('a required option cannot be left undefined on save (plan §3.5)',
+    /optMissingAnswers\(/.test(index),
+    'the quote-save path has to report what is still unanswered');
+
+  /* -----------------------------------------------------------------------
+     7b. THE SERVER WHITELIST — the one place generation cannot reach.
+     Cloud Functions deploy only the functions/ directory, so quoteSaveDetails
+     cannot import js/options.js and keeps its own list of what a quote form may
+     write. That is the same one-rule-two-runtimes problem as the invoice maths,
+     and it gets the same answer money-parity.test.js gives: a check that FAILS
+     when the two disagree, so a new option is loud instead of silently dropped
+     on the token route while rendering perfectly on the form.
+     ⚠ IF THIS FAILS, THE FIX IS IN functions/index.js, not here. Widening the
+     ignore list below to make it green re-opens exactly the hole it exists for.
+     ----------------------------------------------------------------------- */
+  const saveAt = server.indexOf('exports.quoteSaveDetails');
+  const saveFn = saveAt === -1 ? '' : server.slice(saveAt, server.indexOf('\n});', saveAt));
+  check('quoteSaveDetails is still findable', saveFn.length > 0,
+    'renamed or removed — this check is the only thing tying the server to the registry');
+
+  if (saveFn) {
+    const writeAt = saveFn.indexOf('.update({');
+    const writeBlock = saveFn.slice(writeAt, saveFn.indexOf('  });', writeAt));
+    const formOptions = OPTIONS.filter(o =>
+      o.consumers.includes('quote') && !o.officeEntered &&
+      (o.quoteStage || 'details') === 'details');
+    for (const o of formOptions) {
+      check('the server accepts "' + o.id + '" from the quote form',
+        new RegExp('\\b' + o.id + '\\s*:').test(writeBlock),
+        'the form collects it and the server drops it — the customer answers a ' +
+        'question that reaches nothing. Add it to the update in quoteSaveDetails.');
+    }
+  }
+
   console.log(failures.length ? '' : '  PASS  every check below\n');
   failures.forEach(f => console.log('  FAIL  ' + f + '\n'));
   console.log(pass + ' passed, ' + fail + ' failed\n');

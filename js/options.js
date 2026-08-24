@@ -9,11 +9,28 @@
  * up without the timer. Generating them all from one list makes forgetting
  * impossible instead of something you test for. (R-001, R-003.)
  *
- * ⚠ NOT WIRED YET. As of 2026-08-21 nothing imports this file. The registry and
- * `audit()` are correct and gated in CI; §3.3 of the implementation plan — making
- * the eight artifacts actually render from it — has not been done. Until it is,
- * this file is the SPEC, and the artifacts are still hand-written. Do not assume
- * a change here reaches a screen.
+ * ⭐ WIRED 2026-08-24 (implementation plan §3.3). Five artifacts now render their
+ * option fields from this list and nothing else:
+ *   quote        index.html   quoteDetailForm      — built by qdRenderOptionFields
+ *   confirmation admin.html   the RSVP email       — options_block / optionsEmailBlock
+ *   crewSheet    admin.html   PRINT_COLUMNS.crew   — optionSheetColumns('crewSheet')
+ *   pullList     admin.html   PRINT_COLUMNS.build  — optionSheetColumns('pullList')
+ *                             WH_BUILD_COLUMNS       (the warehouse tab's own copy)
+ *   invoice      admin.html   buildInvoiceDocHtml  — optionInvoiceLines
+ * Adding an option below makes it appear in all five with no other code change.
+ *
+ * ⚠ THE THREE REMAINING CONSUMERS ARE STILL HAND-WRITTEN: `customer`, `routes`
+ * and `schedule`. They are outside plan §3.3, which names five. A change here
+ * does not yet reach those three.
+ *
+ * ⚠ AND THE SERVER DOES NOT READ THIS FILE. `quoteSaveDetails` in
+ * functions/index.js keeps its own whitelist of what a quote form may write,
+ * because Cloud Functions deploy only the functions/ directory and cannot
+ * import from js/. A new option therefore renders on the form and is DROPPED on
+ * save until that whitelist learns about it. That is the same one-rule-two-
+ * runtimes problem as the invoice maths, and it is solved the same way: a
+ * parity check in options-audit.test.js FAILS the build when the two disagree,
+ * so forgetting is loud instead of silent.
  *
  * Derived from the code, then corrected by Addie 2026-08-21. The working is in
  * docs/option-registry-draft.md; the sources of truth it was read out of are:
@@ -52,6 +69,12 @@ export const CONSUMERS = [
   'invoice',       // an invoice line
 ];
 
+/* The artifacts that are printed TABLES rather than lists of lines. Only these
+ * read `foldInto` / `sheetOrder`: on paper a column costs width, so an option
+ * can be told to share a cell. Everywhere else every option gets its own line
+ * and the placement declarations are simply not consulted. */
+export const TABLE_CONSUMERS = ['crewSheet', 'pullList'];
+
 // ---------------------------------------------------------------------------
 // 2. THE REGISTRY
 // ---------------------------------------------------------------------------
@@ -74,6 +97,29 @@ export const CONSUMERS = [
  *   affectsPrice  whether js/money.js consumes it
  *   value         optional reader, where the record does not hold it plainly
  *   crewNote      an extra instruction printed with it on the crew sheet
+ *
+ * ---- PLACEMENT, for the artifacts that are printed TABLES ------------------
+ * A crew sheet and a build sheet are fixed-width paper, not a list of lines, so
+ * "which column, and where" is a real decision that has to be written down
+ * somewhere. P-003 predicted exactly this cost and called it the point. It is
+ * declared here rather than in the renderers, or the renderers go back to being
+ * hand-written lists of fields — which is what this file exists to stop.
+ *
+ *   sheetLabel    short column header. Paper is narrow; `label` is the long
+ *                 form used on the confirmation and the quote form. Defaults to
+ *                 `label`, so a new option needs nothing.
+ *   sheetOrder    lower prints further left. Defaults to 60, which puts a NEW
+ *                 option after the narrow answer columns and before Notes —
+ *                 visible, and not buried at the end of a wall of prose.
+ *   foldInto      this option has no column of its own: its text is appended to
+ *                 the named option's cell, prefixed with `foldPrefix`. Addie,
+ *                 2026-08-21: the outlet instruction and the one-time note ARE
+ *                 prose, so they fold into Notes rather than widening the sheet
+ *                 to eleven columns nobody can read.
+ *   foldValue     what to fold, where the option's own `value` is not it. The
+ *                 which-outlet fold wants the INSTRUCTION, not the word "Yes".
+ *   foldPrefix    an unlabelled sentence in the Notes column reads as part of
+ *                 the standing note, so every fold is named.
  */
 export const OPTIONS = [
   {
@@ -87,6 +133,28 @@ export const OPTIONS = [
        which customer-number series they get — four things off one number, which
        is why it is worth double-checking on entry. */
     affectsPrice: true,
+    /* ⚠ IT REACHES THE PULL LIST AS BUNDLES, NOT AS FEET, and that is not a
+       fudge — it is what Addie asked for. 2026-08-21: "I don't think we need
+       feet and bundles. I think how many bundles is fine for warehouse." Feet is
+       the office's number, it prices the job and sizes the bins; bundles is the
+       one somebody counts off a shelf, and it is derived from the feet anyway,
+       so printing both put a sum on the sheet nobody was being asked to check.
+       The build sheets therefore render this option through a PRESENTER
+       (whBundleText) rather than through display(). The declaration stands —
+       measuredFeet does reach the pull list — so the frozen AGREED map does not
+       move. Dropping `pullList` here instead would have said the warehouse is
+       told nothing about the size of the job, which is untrue. */
+    sheetLabel: 'Bundles',
+    sheetOrder: 40,
+    /* ⚠ IT IS ON THE QUOTE, AND IT IS NEVER ASKED. A customer cannot measure
+       their own roofline — the office measures it and types it in when pricing
+       the quote — so this option reaches the quote RECORD without ever being a
+       question on a form. `officeEntered` is how that gets declared instead of
+       the form renderer carrying a hard-coded exception for one id.
+       ⚠ It does NOT mean "hidden". It is on the confirmation, which is where the
+       customer sees the footage we measured and can dispute it, and on the
+       invoice, where it is the priced line. */
+    officeEntered: true,
     consumers: ['quote', 'confirmation', 'customer', 'pullList', 'invoice'],
   },
   {
@@ -100,6 +168,14 @@ export const OPTIONS = [
        EMPTY colour list. Reading only the list calls them undecorated. */
     value: (c) => c.lightsDescription || (Array.isArray(c.lightColors) ? c.lightColors.join(', ') : ''),
     palette: ['Warm White', 'Pure White', 'Red', 'Green', 'Blue', 'Purple', 'Orange', 'Pink', 'Multi'],
+    /* The quote form's colour picker is a bespoke control — swatches, and a
+       pattern builder for an alternating run — not a text box. It is still
+       GENERATED: the swatches are built from `palette` above, so a colour added
+       here appears on the form. `quoteControl` is how an option says which
+       control renders it; anything without one gets the default for its type. */
+    quoteControl: 'colors',
+    sheetLabel: 'Light color',
+    sheetOrder: 20,
     affectsPrice: false,
     consumers: ['quote', 'confirmation', 'customer', 'pullList'],
   },
@@ -110,6 +186,8 @@ export const OPTIONS = [
     choices: ['Any', 'White', 'Green'],
     default: 'Any',
     required: true,
+    sheetLabel: 'Wire',
+    sheetOrder: 30,
     affectsPrice: false,
     consumers: ['quote', 'confirmation', 'customer', 'pullList'],
   },
@@ -123,6 +201,12 @@ export const OPTIONS = [
        a different thing from "No" and must stay different — the same reason the
        importer refuses to read "?" as a no. */
     affectsPrice: false,
+    /* ⚠ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET. Addie, 2026-08-20: "it need
+       to include timer(yes/no), that should come before notes." Notes is the wide
+       free-text column and anything after it is lost against a wall of writing,
+       which is why the position is part of the instruction and not a detail. */
+    sheetLabel: 'Timer',
+    sheetOrder: 50,
     consumers: ['quote', 'confirmation', 'customer', 'crewSheet', 'pullList'],
     crewNote: 'Set at install. Confirm the outlet is switched-live, not switch-controlled.',
   },
@@ -137,6 +221,8 @@ export const OPTIONS = [
        will cause more confusion." Note this needs no R-002 exception — that rule
        governs how an option renders when it IS on an artifact, not which options
        appear at all. */
+    sheetLabel: 'Plugs / eaves',
+    sheetOrder: 40,
     consumers: ['quote', 'customer', 'crewSheet'],
   },
   {
@@ -147,6 +233,20 @@ export const OPTIONS = [
     required: false,
     affectsPrice: false,
     value: (c) => (String(c.specificOutlet || '') === 'Yes' ? (c.specificOutletNotes || 'Yes') : c.specificOutlet),
+    /* Prose, so it folds into Notes rather than taking a column — and it folds
+       the INSTRUCTION, never the bare word "Yes", which tells the crew nothing.
+       A customer who said No has nothing to fold: the default behaviour is to
+       use the nearest outlet, which is what happens with no instruction at all. */
+    foldInto: 'notes',
+    foldPrefix: 'OUTLET',
+    /* ⚠ THE INSTRUCTION ITSELF DECIDES, NOT THE YES/NO. This first read "only when
+       specificOutlet === 'Yes'", which is true of every record the form writes — and
+       silently dropped the instruction on a record where the notes are filled in and
+       the flag is not, which an import or a hand-edit can easily produce. Losing a
+       real instruction is a crew at the wrong outlet; printing one from a record
+       whose flag was never set costs nothing. Empty notes fold nothing either way,
+       so a plain "No" still adds no noise to the sheet. */
+    foldValue: (c) => String(c.specificOutletNotes || '').trim(),
     consumers: ['quote', 'confirmation', 'customer', 'crewSheet'],
     crewNote: 'Use the outlet named here, not the nearest one.',
   },
@@ -159,6 +259,12 @@ export const OPTIONS = [
     /* ⚠ `crewSheet` here is NEW and is the point of P-003. Today the gate code
        shows in the crew portal and never prints, so a crew working off paper
        reaches a gated house with no way in. */
+    /* ⚠ TEXT, BUT NOT PROSE — so it gets a narrow column of its own and does NOT
+       fold into Notes. Addie, 2026-08-21: "A gate code is four characters and
+       decides whether the van gets in, so it has to be scannable, not buried in
+       prose." Second from the left for the same reason. */
+    sheetLabel: 'Gate',
+    sheetOrder: 20,
     consumers: ['quote', 'confirmation', 'customer', 'crewSheet'],
   },
   {
@@ -203,6 +309,13 @@ export const OPTIONS = [
       const n = Number(String(v == null ? '' : v).replace(/[^0-9]/g, ''));
       return n >= 1 && n <= 4 ? n : 1;
     },
+    sheetLabel: 'Sides',
+    sheetOrder: 30,
+    /* ⚠ ASKED ON THE FIRST FORM, NOT THE SECOND. "The quote form" is really two:
+       the public request (name, address, and which sides they want lit) and the
+       detail form they fill in after approving (colours, wire, timer, gate).
+       Without saying which, a generated form would ask for the sides twice. */
+    quoteStage: 'request',
     consumers: ['quote', 'confirmation', 'customer', 'crewSheet', 'routes', 'schedule'],
   },
   {
@@ -238,6 +351,10 @@ export const OPTIONS = [
     type: 'text',
     required: false,
     affectsPrice: false,
+    /* LAST, ALWAYS. This is the wide free-text column and anything printed after
+       it is lost against a wall of writing — the reason Timer was moved in front
+       of it, and the reason a new option defaults to 60 rather than to the end. */
+    sheetOrder: 90,
     consumers: ['quote', 'customer', 'crewSheet', 'routes', 'schedule'],
   },
   {
@@ -247,6 +364,12 @@ export const OPTIONS = [
     required: false,
     internal: true,
     affectsPrice: false,
+    /* ⚠ THE ACTIONABLE LINES COME FIRST INSIDE THE FOLD. This and the outlet
+       instruction are the two things that change what the crew DOES at the
+       house, so they lead and the standing note follows. Buried under a
+       paragraph about the dog they may as well not be printed. */
+    foldInto: 'notes',
+    foldPrefix: 'TODAY',
     consumers: ['customer', 'crewSheet', 'routes', 'schedule'],
   },
   {
@@ -272,8 +395,26 @@ export const OPTIONS = [
     affectsPrice: false,
     /* Derived from the footage, never asked and never typed: one bin per
        CN_DOUBLE_BIN_FEET. Imported rather than re-typed — R-014. */
-    value: (c) => cnBinsForFeet(c.measuredFeet),
-    consumers: ['customer', 'pullList', 'routes', 'schedule'],
+    /* ⚠ NO FEET MEANS NO ANSWER, NOT ONE BIN. cnBinsForFeet(0) returns 1 —
+       correct as bin arithmetic, wrong as a statement about a house nobody has
+       measured, and the warehouse's own whBinsForHouse has always gone blank in
+       that case for exactly this reason. Left as 1 it prints a confident count
+       on a crew sheet for a house whose footage is the thing actually missing,
+       and R-002 exists to stop precisely that. Undefined here renders `none`. */
+    value: (c) => (Number(c.measuredFeet) > 0 ? cnBinsForFeet(c.measuredFeet) : undefined),
+    /* ⭐ AND THE CREW SHEET, ADDED 2026-08-24. Addie, 2026-08-22: "crew print
+       sheet should also show bin #" — meaning a QUANTITY, the same thing it
+       means on the warehouse build sheet ("Bin # is how many bins were making
+       for them", 2026-08-21). It is how many bins the van loads.
+       ⚠ THIS POST-DATES THE FROZEN AGREED MAP in options-audit.test.js, which
+       was settled 2026-08-21. The sheet has printed Bins since the 22nd, so the
+       registry was the half that was out of date, not the paper. The map is
+       updated to match in the same change — see the note there.
+       ⚠ The number ON the bin is the Cust # column, already first on the sheet.
+       Two columns of numbers would be two answers to one question. */
+    sheetLabel: 'Bins',
+    sheetOrder: 10,
+    consumers: ['customer', 'crewSheet', 'pullList', 'routes', 'schedule'],
   },
   {
     id: 'difficulty',
@@ -356,6 +497,48 @@ export function audit() {
 
     if (o.value != null && typeof o.value !== 'function')
       holes.push(`${o.id}: value must be a function`);
+
+    /* ---- the placement declarations the printed tables read ---------------
+     * These exist because a fold that lands nowhere renders as SILENCE, which
+     * is the one failure this whole file is built to make impossible. */
+    if (o.foldInto != null) {
+      const target = OPTIONS.find((t) => t.id === o.foldInto);
+      if (!target) {
+        holes.push(`${o.id}: folds into "${o.foldInto}", which is not an option`);
+      } else {
+        /* On an artifact that renders the fold but not its target, the text is
+           dropped and nothing says so — the gate-code failure with extra steps.
+           ⚠ ONLY THE PRINTED TABLES FOLD. A line-oriented artifact gives every
+           option its own line and ignores foldInto entirely, so the confirmation
+           listing "Which outlet" without listing "Notes" loses nothing. Checking
+           every consumer instead of the table ones reports that as a hole, which
+           is a false alarm on the one artifact the customer actually reads. */
+        const orphaned = o.consumers
+          .filter((c) => TABLE_CONSUMERS.includes(c))
+          .filter((c) => !target.consumers.includes(c));
+        if (orphaned.length)
+          holes.push(`${o.id}: folds into ${o.foldInto}, which does not reach ${orphaned.join(', ')} — the text would vanish there`);
+      }
+      if (!o.foldPrefix)
+        holes.push(`${o.id}: folds into another cell with no prefix — it would read as part of that note`);
+      if (o.foldValue != null && typeof o.foldValue !== 'function')
+        holes.push(`${o.id}: foldValue must be a function`);
+    }
+
+    if (o.sheetOrder != null && typeof o.sheetOrder !== 'number')
+      holes.push(`${o.id}: sheetOrder must be a number`);
+
+    if (o.quoteStage != null && o.quoteStage !== 'request' && o.quoteStage !== 'details')
+      holes.push(`${o.id}: quoteStage "${o.quoteStage}" is neither request nor details`);
+
+    /* A stage on an option no form renders is a declaration nobody reads. */
+    if (o.quoteStage != null && !o.consumers.includes('quote'))
+      holes.push(`${o.id}: declares a quote stage but is never on the quote form`);
+
+    /* officeEntered takes an option off both quote forms. On an option that is
+       not on the quote at all it says nothing, and reads as though it did. */
+    if (o.officeEntered && !o.consumers.includes('quote'))
+      holes.push(`${o.id}: marked officeEntered but is not on the quote anyway`);
   }
 
   return holes;
@@ -378,8 +561,25 @@ export function missingAnswers(customer) {
 // 4. RENDERING — every artifact reads the same list, in the same order
 // ---------------------------------------------------------------------------
 
+/**
+ * ⚠ A DECLARED DEFAULT IS APPLIED HERE, and nowhere else. "A declared default
+ * that does not render is a default in name only" — so an option carrying one
+ * always has a value, and `none` is reserved for the options that genuinely
+ * have no answer. That is the line R-002 actually draws: silence must never look
+ * like a choice, but a stated default IS the choice, made once and written down.
+ *
+ * ⚠ WHICH IS WHY `outletTimer` HAS NO DEFAULT. A blank there means nobody has
+ * asked them, and defaulting it to No would answer a question on the customer's
+ * behalf — the exact failure the crew sheet was fixed for on 2026-08-21.
+ */
 export function valueOf(option, customer) {
-  return typeof option.value === 'function' ? option.value(customer || {}) : (customer || {})[option.id];
+  const raw = typeof option.value === 'function'
+    ? option.value(customer || {})
+    : (customer || {})[option.id];
+  if (raw === undefined || raw === null || raw === '') {
+    return option.default != null ? option.default : raw;
+  }
+  return raw;
 }
 
 /**
@@ -391,6 +591,11 @@ export function valueOf(option, customer) {
  * payoff — do not drop it as cosmetic.
  */
 export function display(option, value) {
+  /* ⚠ WHITESPACE IS SILENCE TOO. A gate code typed as two spaces is not an answer,
+     and it used to slip past the `=== ''` test and print a cell that LOOKS blank —
+     which is the exact thing R-002 exists to stop, arriving through the one route
+     the rule's own wording did not cover. Found by a check that fed it "  ". */
+  if (typeof value === 'string' && value.trim() === '') return 'none';
   if (value === undefined || value === null || value === '' || value === 0) return 'none';
   if (option.type === 'measure') return `${value} ${option.unit}`;
   return String(value);
@@ -445,4 +650,125 @@ export function crewSheet(customer) {
  */
 export function pullList(customer) {
   return forConsumer('pullList', customer).map((o) => ({ label: o.label, text: o.text }));
+}
+
+// ---------------------------------------------------------------------------
+// 5. PRINTED TABLES — the crew sheet and the two build sheets
+// ---------------------------------------------------------------------------
+
+/* Where a NEW option lands with nothing declared: after the narrow answer
+ * columns, before Notes. Visible rather than buried at the far right, which is
+ * where an appended column would go and where nobody reads it. */
+export const SHEET_ORDER_DEFAULT = 60;
+
+function sheetOrderOf(o) {
+  return typeof o.sheetOrder === 'number' ? o.sheetOrder : SHEET_ORDER_DEFAULT;
+}
+
+/** The options that get a COLUMN on this artifact: everything that declares the
+ *  consumer, minus anything folded into another option's cell. Ordered by
+ *  `sheetOrder`, ties broken by registry order so the same registry always
+ *  produces the same sheet. */
+export function sheetOptions(consumer) {
+  return OPTIONS
+    .map((o, i) => ({ o, i }))
+    .filter((x) => x.o.consumers.includes(consumer) && !x.o.foldInto)
+    .sort((a, b) => (sheetOrderOf(a.o) - sheetOrderOf(b.o)) || (a.i - b.i))
+    .map((x) => x.o);
+}
+
+/** Column definitions in the shape the printers already use: `k` is the row key
+ *  (the real field name), `label` is the header. */
+export function sheetColumns(consumer) {
+  return sheetOptions(consumer).map((o) => ({ k: o.id, label: o.sheetLabel || o.label }));
+}
+
+function foldTextOf(option, customer) {
+  const raw = typeof option.foldValue === 'function'
+    ? option.foldValue(customer || {})
+    : valueOf(option, customer);
+  const t = String(raw == null ? '' : raw).trim();
+  if (!t) return '';
+  return option.foldPrefix ? (option.foldPrefix + ': ' + t) : t;
+}
+
+/**
+ * One printed row's option cells, keyed by option id so they line up with
+ * `sheetColumns(consumer)`.
+ *
+ * `presenters` lets an artifact say how ONE option prints where `display()` is
+ * not the right answer — the build sheets render `measuredFeet` as a bundle
+ * count, because that is the number somebody counts off a shelf. It is a
+ * presentation override, never a field list: an option with no presenter still
+ * gets its column, so a NEW option appears on the sheet with nothing declared.
+ *
+ * ⚠ FOLDS COME FIRST INSIDE THE CELL, then the target's own value. The two
+ * folded onto the crew sheet are the things that change what the crew DOES at
+ * the house, and under a paragraph about the dog they may as well not be there.
+ */
+export function sheetRow(consumer, customer, presenters) {
+  const p = presenters || {};
+  const cols = sheetOptions(consumer);
+  const folds = {};
+
+  for (const o of OPTIONS) {
+    if (!o.foldInto || !o.consumers.includes(consumer)) continue;
+    /* Nothing to fold into on THIS artifact — the target option is not one of
+       its consumers. Dropped rather than promoted to a column of its own: a
+       column nobody declared is how a sheet silently grows a twelfth heading. */
+    if (!cols.some((c) => c.id === o.foldInto)) continue;
+    const t = foldTextOf(o, customer);
+    if (t) (folds[o.foldInto] = folds[o.foldInto] || []).push(t);
+  }
+
+  const row = {};
+  for (const o of cols) {
+    if (typeof p[o.id] === 'function') { row[o.id] = p[o.id](customer, o); continue; }
+    const own = valueOf(o, customer);
+    const mine = folds[o.id] || [];
+    const ownText = String(own == null ? '' : own).trim();
+    /* R-002 still holds: a cell with nothing at all in it says `none`. It is
+       only skipped when the cell is demonstrably not empty, where the blank-vs-
+       "they didn't want it" ambiguity the rule guards against cannot arise. */
+    if (mine.length) row[o.id] = (ownText ? mine.concat([display(o, own)]) : mine).join('  ·  ');
+    else row[o.id] = display(o, own);
+  }
+  return row;
+}
+
+// ---------------------------------------------------------------------------
+// 6. THE QUOTE FORM
+// ---------------------------------------------------------------------------
+
+/**
+ * "The quote form" is two forms: the public request, which asks for the house
+ * before we have priced anything, and the detail form the customer fills in
+ * after approving. An option says which with `quoteStage`; the detail form is
+ * the default, so a new option lands where the questions about the install are.
+ *
+ * ⚠ `officeEntered` options are excluded from BOTH. The footage is measured by
+ * the office, and a form asking a customer for it collects a guess.
+ */
+export function quoteFields(stage) {
+  const want = stage || 'details';
+  return OPTIONS.filter((o) =>
+    o.consumers.includes('quote') &&
+    !o.officeEntered &&
+    (o.quoteStage || 'details') === want);
+}
+
+// ---------------------------------------------------------------------------
+// 7. THE INVOICE
+// ---------------------------------------------------------------------------
+
+/**
+ * Split, because the two halves are answered by different code. Anything that
+ * `affectsPrice` becomes a priced line and is costed by js/money.js — plan
+ * §3.3: "Do not add new pricing arithmetic here." Everything else on the
+ * invoice is a standing instruction about the bill itself, which prints as a
+ * note beside the address rather than as a line with an amount against it.
+ */
+export function invoiceOptions() {
+  const rows = OPTIONS.filter((o) => o.consumers.includes('invoice'));
+  return { priced: rows.filter((o) => o.affectsPrice), notes: rows.filter((o) => !o.affectsPrice) };
 }
