@@ -1979,22 +1979,135 @@ const editSave = admin.slice(admin.indexOf("editCustSaveBtn').addEventListener")
 check('flow', 'quote is closed when converted to a customer',
   admin.includes("status: 'closed', convertedToCustomerAt"),
   'the quote would stay open forever after the customer exists');
-/* ⭐ REVERSED 2026-08-22. Owner: "We shouldn't assume they approved we should always
-   know they approved."
+/* ⭐ THIS FIELD HAS MOVED TWICE AND BOTH ARGUMENTS ARE KEPT, because the third move
+   should be a decision and not an accident.
 
-   ⚠ THIS CHECK REQUIRED THE ASSUMED YES. Converting a quote wrote rsvpStatus 'yes'
-   with no reply date — the office knowing somebody wants lights, dressed as that
-   customer having answered a question about THIS SEASON. Every reader that counted
-   yeses then had to be hardened against a value the writer should never have written,
-   and the one that got missed was the Dashboard's Yes card: the very number somebody
-   would read to decide whether everyone has replied yet.
+   2026-08-22, owner: "We shouldn't assume they approved we should always know they
+   approved." Converting wrote rsvpStatus 'yes' with no reply date — the office knowing
+   somebody wants lights, dressed as that customer having answered about THIS SEASON.
+   Every reader counting yeses then had to be hardened against a value the writer should
+   never have written, and the one that got missed was the Dashboard's Yes card.
 
-   ⚠ NOTHING IS LOST. A blank RSVP is IN the season under the live setting, so a
-   converted customer is still routed, scheduled and built for; and they still reach
-   the Excel Yes sheet through the new-hang route, which is what they actually are. */
-check('flow', 'converting a quote does NOT assume an RSVP of yes',
-  !/rsvpStatus: addCustFromQuoteId \? 'yes'/.test(admin),
-  'the office knowing they want lights is not the customer answering for this season');
+   2026-08-24, owner: "if i convert or apply requote than it should be yes." REVERSED,
+   and the distinction is what makes both positions right. The 2026-08-22 problem was a
+   yes written as a SIDE EFFECT, for everybody, with nobody having decided anything.
+   This is the office pressing Convert — the same act that creates the customer, their
+   invoice, their number and their warehouse build. Somebody committed to that far has
+   not been assumed into the season, they have been put in it.
+
+   ⚠ AND THE OLD RULE SURVIVES WHERE IT WAS ALWAYS RIGHT: a customer TYPED into the Add
+   Customer form is not a conversion, and still gets a blank. Both halves are asserted
+   below, so restoring either position wholesale fails. */
+/* ⭐ ONE ROW PER HOUSE IN CONVERTED & CLOSED (2026-08-24). Owner: "every house should
+   only come up once in coverted & closed. For example we had to requote Ashley Wray
+   twice but she is on there twice. So until they approve it it should not come up in
+   coverted and closed."
+
+   ⚠ RUN, NOT READ. Which rows survive a collapse is the entire question, and a regex
+   over the function proves only that words are present. */
+{
+  const houseKey = new Function('quoteMatchAddress',
+    'return ' + extractFn(admin, 'quoteHouseKey') + ';quoteHouseKey')(
+    (a) => String(a == null ? '' : a).toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim());
+  const collapse = new Function('quoteHouseKey', 'quoteClosedAt',
+    'let quoteEarlierForHouse = new Map();' + extractFn(admin, 'collapseClosedByHouse') +
+    ';return {run: collapseClosedByHouse, counts: () => quoteEarlierForHouse};')(
+    houseKey,
+    new Function('return ' + extractFn(admin, 'quoteClosedAt') + ';quoteClosedAt')());
+
+  const q = (id, data) => ({id: id, data: data});
+  const T = (ms) => ({toMillis: () => ms});
+
+  /* Ashley: an original conversion plus two applied re-quotes, all against the same
+     customer record — exactly the three rows the owner was looking at. */
+  const ashley = [
+    q('a1', {convertedToCustomerId: 'cAsh', convertedToCustomerAt: T(1000), name: 'Ashley Wray'}),
+    q('a2', {existingCustomerId: 'cAsh', convertedToCustomerAt: T(2000), name: 'Ashley Wray'}),
+    q('a3', {existingCustomerId: 'cAsh', convertedToCustomerAt: T(3000), name: 'Ashley Wray'})
+  ];
+  const outA = collapse.run(ashley);
+  check('flow', 'a house re-quoted twice shows once in Converted & Closed',
+    outA.length === 1,
+    'owner: "we had to requote Ashley Wray twice but she is on there twice"');
+  check('flow', 'and it is the most recent one that is kept',
+    outA.length === 1 && outA[0].id === 'a3',
+    'the newest is the one that describes where that house actually stands');
+  /* ⚠ COUNTED ON THE CARD. A list quietly showing one of three is indistinguishable
+     from a list that lost two. */
+  check('flow', 'and the card says how many earlier ones it stands for',
+    collapse.counts().get('a3') === 2,
+    'nothing is deleted and nothing is hidden silently');
+
+  /* ⚠ TWO HOUSES ON ONE PHONE ARE TWO HOUSES. 17 numbers in the real book are shared
+     and 14 of those are a parent and a child at different addresses — keying on the
+     contact alone would show one of them and hide the other. */
+  const shared = [
+    q('p1', {address: '12 Main St, Lehi, UT', phone: '(801) 555-0123', convertedToCustomerAt: T(1000)}),
+    q('p2', {address: '99 Other Rd, Lehi, UT', phone: '801-555-0123', convertedToCustomerAt: T(2000)})
+  ];
+  check('flow', 'but a parent and child sharing a phone stay two rows',
+    collapse.run(shared).length === 2,
+    'this is the mistake that has duplicated and hidden records in this book before');
+
+  /* ⚠ AND THE SAME HOUSE ON ONE PHONE IS ONE ROW, however the number was typed. */
+  const sameHouse = [
+    q('s1', {address: '12 Main St, Lehi, UT', phone: '(801) 555-0123', convertedToCustomerAt: T(1000)}),
+    q('s2', {address: '12 Main  St., Lehi, UT', phone: '8015550123', convertedToCustomerAt: T(2000)})
+  ];
+  check('flow', 'and one house quoted twice collapses however the address was typed',
+    collapse.run(sameHouse).length === 1,
+    'the office types an address differently every time — that must not make two houses');
+
+  /* ⚠ A ROW WE CANNOT PLACE IS SHOWN, NEVER SWALLOWED. */
+  const loose = [
+    q('l1', {convertedToCustomerAt: T(1000)}),
+    q('l2', {convertedToCustomerAt: T(2000)})
+  ];
+  check('flow', 'a quote with no house we can identify is still listed',
+    collapse.run(loose).length === 2,
+    'being listed twice is a nuisance; disappearing is a bug');
+
+  /* ⚠ AND THE COUNTS DO NOT SURVIVE INTO THE NEXT RENDER. */
+  collapse.run(ashley);
+  collapse.run([q('z1', {convertedToCustomerId: 'cZ', convertedToCustomerAt: T(1)})]);
+  check('flow', 'and the earlier-count is rebuilt every render, not accumulated',
+    collapse.counts().size === 0,
+    'a stored count is right on the day it is written and wrong after the next re-quote');
+}
+/* ⚠ AND AN UNAPPROVED RE-QUOTE IS NOT IN THAT FOLDER AT ALL — the other half of what
+   she asked for. Only two writes put status:'closed' on a quote, and both are a
+   conversion; quoteStage cannot reach the convert stage without approvalStatus
+   'approved'. Asserted rather than assumed: "it should not come up until they approve
+   it" is a rule whether or not anything is currently breaking it. */
+/* ⚠ AND THE FOLDER ACTUALLY CALLS IT. A collapse nothing calls is the most expensive
+   kind of green — the list renders exactly as it always did and every behavioural check
+   above still passes, because they run the function directly. Scoped to the closed
+   branch so it cannot be satisfied by the declaration alone. */
+check('flow', 'and the Converted & Closed folder runs the collapse',
+  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
+  'unwired, every house is listed once per closed quote exactly as before');
+check('flow', 'nothing closes a quote except converting it',
+  (admin.match(/status: 'closed'/g) || []).length === 2 &&
+  /status: 'closed', convertedToCustomerAt/.test(admin),
+  'a third way to close a quote would put unapproved re-quotes into Converted & ' +
+  'Closed, which is exactly what the owner asked not to happen');
+
+check('flow', 'converting a quote marks them in for the season',
+  /rsvpStatus: addCustFromQuoteId \? 'yes' : ''/.test(admin),
+  'owner: "if i convert or apply requote than it should be yes" — converting is ' +
+  'already the act that creates their invoice, number and build');
+/* ⚠ AND WITH A REPLY DATE. effectiveRsvpStatus reads a bare yes with no date as
+   "nobody heard from them", so writing the status alone sets a field every reader then
+   ignores — which looks exactly like the change not working. */
+check('flow', 'and stamps when, or every reader ignores it',
+  /rsvpRespondedAt: addCustFromQuoteId \? serverTimestamp\(\) : null/.test(admin),
+  'a bare yes with no date is Pending everywhere — the status alone does nothing');
+/* ⚠ THE HALF OF THE OLD RULE THAT WAS ALWAYS RIGHT. Nobody approved anything when a
+   customer is typed straight in, so they stay Pending until somebody asks them. */
+check('flow', 'but a customer typed in by hand still assumes nothing',
+  /rsvpStatus: addCustFromQuoteId \? 'yes' : ''/.test(admin) &&
+  !/rsvpStatus: 'yes',\r?\n\s*rsvpRespondedAt: serverTimestamp\(\),\r?\n\s*needsDayAssignedAt/.test(admin),
+  'no quote, no approval, nobody pressed anything — that is Pending, and it is true');
 /* ⭐ THE NEW-MEMBER FEE, TICKED FOR THIS SEASON, IS AN APPROVAL (2026-08-24). Owner:
    "if someone has new member fee ticked for this year than they should be approved for
    this season if they don't have new member fee ticked for this year than they have not
@@ -23391,6 +23504,14 @@ suite('Suite 108. The Edit Customer save, actually run');
         ['lightsDescription', 'wireColor', 'outletTimer']),
       lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
         ';lightsLockMillis')(),
+      /* ⚠ THE REAL SEASON-YES RULE, LIFTED — not a stub. Joined this list 2026-08-24,
+         in the same commit that made applying a re-quote mark the customer in for the
+         season: the extraction-list trap CLAUDE.md describes, hit a third time and
+         caught a third time by this suite failing loudly rather than skipping. A stub
+         here would agree with itself about exactly the thing under test, and its twin
+         in functions/index.js is what season-state.test.js proves it matches. */
+      seasonYesUpdates: new Function('return ' + extractFn(admin, 'seasonYesUpdates') +
+        ';seasonYesUpdates')(),
       LIGHT_CHANGE_FEE: 30, LIGHT_WINDOW_MS: 48 * 3600000,
       fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2),
       /* The popup CANNOT be real — it waits for a click. Stubbed, but it records

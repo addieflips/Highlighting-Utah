@@ -7694,6 +7694,80 @@ function quoteChargesSetupFee(d){
   const q = d || {};
   return q.chargeSetupFee === true;
 }
+/* ⭐ ONE ROW PER HOUSE IN CONVERTED & CLOSED (added 2026-08-24). Owner: "every house
+   should only come up once in coverted & closed. For example we had to requote Ashley
+   Wray twice but she is on there twice."
+
+   ⚠ EVERY CLOSED QUOTE IS ITS OWN DOCUMENT, which is right — a re-quote is a new
+   question and closing it is how it stops being asked. But the folder listed the
+   documents, so a house re-quoted twice appeared three times: the original conversion
+   and one row per applied re-quote. Read down the list, that looks like three houses.
+
+   ⚠ NOTHING IS DELETED AND NOTHING IS HIDDEN SILENTLY. The newest row for a house is
+   the one shown, the older ones are counted on it, and every one of them is still in
+   the collection and still reachable. "Automatic is fine, invisible is not" applies
+   here as much as anywhere — a row that just disappears is one nobody can check.
+
+   ⚠ AND UNAPPROVED RE-QUOTES ARE NOT IN THIS FOLDER AT ALL, which is the other half of
+   what she asked for. The only two writes of status:'closed' are converting a quote and
+   applying a re-quote, and both require an approval first — quoteStage cannot reach the
+   convert stage without approvalStatus 'approved'. An open re-quote sits in Re-quotes.
+   Asserted rather than assumed, because "it should not come up until they approve it"
+   is a rule whether or not it is currently being broken. */
+function quoteHouseKey(d){
+  const q = d || {};
+  /* The linked customer is the strongest answer and it survives a move: somebody who
+     changed address has two different addresses across their quotes and one id. */
+  const linked = q.convertedToCustomerId || q.existingCustomerId || '';
+  if(linked) return 'c:' + linked;
+  /* ⚠ ADDRESS **AND** CONTACT, NEVER CONTACT ALONE — the same rule quoteAlreadyACustomer
+     is built on. 17 phone numbers in the real book are shared and 14 of those are a
+     parent and a child at two different houses; keying on the phone would collapse two
+     genuinely different houses into one row and hide one of them. */
+  const addr = quoteMatchAddress(q.address);
+  if(!addr) return '';
+  const phone = String(q.phone || '').replace(/\D/g, '');
+  if(phone) return 'a:' + addr + '|p' + phone;
+  const em = String(q.email || '').trim().toLowerCase();
+  return em ? 'a:' + addr + '|e' + em : '';
+}
+/* When a closed quote happened, for picking the newest of a house's rows. Falls back
+   through every date a closed quote can carry, then to 0 — a row with no date at all
+   sorts oldest, which keeps it visible behind a dated one rather than beating it. */
+function quoteClosedAt(d){
+  const q = d || {};
+  const t = q.convertedToCustomerAt || q.quoteArchivedAt || q.quoteRespondedAt || q.createdAt;
+  if(!t) return 0;
+  if(typeof t.toMillis === 'function') return t.toMillis();
+  if(typeof t.seconds === 'number') return t.seconds * 1000;
+  const n = new Date(t).getTime();
+  return isNaN(n) ? 0 : n;
+}
+/* How many OLDER closed quotes each shown row is standing in for, by quote id.
+   Rebuilt on every render of the closed folder — a stored count would be right on the
+   day it was written and wrong after the next re-quote. */
+let quoteEarlierForHouse = new Map();
+function collapseClosedByHouse(items){
+  quoteEarlierForHouse = new Map();
+  const best = new Map();
+  const loose = [];
+  (items || []).forEach(function(item){
+    const key = quoteHouseKey(item.data);
+    /* ⚠ A QUOTE WE CANNOT PLACE IS SHOWN, NOT SWALLOWED. No linked customer and no
+       address means we cannot say whose house it is, and guessing would hide a real
+       record. Being listed twice is a nuisance; disappearing is a bug. */
+    if(!key){ loose.push(item); return; }
+    const held = best.get(key);
+    if(!held || quoteClosedAt(item.data) > quoteClosedAt(held.data)) best.set(key, item);
+  });
+  const kept = Array.from(best.values());
+  kept.forEach(function(item){
+    const key = quoteHouseKey(item.data);
+    const n = (items || []).filter(function(x){ return quoteHouseKey(x.data) === key; }).length - 1;
+    if(n > 0) quoteEarlierForHouse.set(item.id, n);
+  });
+  return kept.concat(loose);
+}
 function quoteFolder(d){
   const stage = quoteStage(d);
   if(stage === 'closed') return 'closed';
@@ -8621,6 +8695,13 @@ function renderQuotesList(){
      address that comes back years later still has its history. */
   if(quoteStageFilter === 'closed'){
     filtered = filtered.filter(item => showArchivedQuotes ? !!item.data.quoteArchived : !item.data.quoteArchived);
+    /* ⚠ COLLAPSED AFTER the archived split, not before. Archived and converted are two
+       different lists shown by the same tab, and collapsing across them would let an
+       archived no-thank-you hide the conversion that came after it — or the other way
+       round, depending on the dates. Each list gets one row per house, on its own. */
+    filtered = collapseClosedByHouse(filtered);
+  } else {
+    quoteEarlierForHouse = new Map();
   }
   if(!filtered.length){
     const emptyMsg = {
@@ -10458,7 +10539,12 @@ function renderQuoteRows(filtered){
              addCustFromQuoteId above, but not showing the button at all is
              the fix a person would actually notice). */
           : (d.convertedToCustomerAt
-              ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+'</span>'
+              /* ⚠ AND IT SAYS WHAT IT IS STANDING IN FOR. This row is the newest closed
+                 quote for its house and the older ones are not listed beside it any
+                 more, so the count has to be on the card: a list that quietly shows one
+                 of three is indistinguishable from a list that lost two. */
+              ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+
+                  (quoteEarlierForHouse.get(item.id) ? ' <span style="color:var(--slate); font-weight:600;">&middot; '+quoteEarlierForHouse.get(item.id)+' earlier quote'+(quoteEarlierForHouse.get(item.id)===1?'':'s')+' for this house</span>' : '')+'</span>'
               /* ⭐ A RE-QUOTE UPDATES SOMEBODY; IT DOES NOT CONVERT THEM. Owner, 2026-08-21,
                  looking at a popup headed "Update Test" that she had reached by pressing
                  Convert to Customer: "I think the issue might be that its converting them
@@ -22972,7 +23058,31 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          new-hang route (chargeNewMemberFee), which is what they actually are. What
          changes is that they now show as Pending — nobody has asked them — which is
          true, and they fall into the RSVP audience so they will be. */
-      rsvpStatus: '',
+      /* ⭐ REVERSED AGAIN 2026-08-24, and both earlier positions are kept above and
+         here on purpose, because this field has now moved twice and the argument for
+         each move is the only thing that stops the third move being an accident.
+         Owner: "if i convert or apply requote than it should be yes."
+
+         ⚠ WHAT MAKES THIS DIFFERENT FROM THE ASSUMED YES THE NOTE ABOVE REMOVED.
+         That one was written at creation for EVERY converted quote as a side effect,
+         and nobody had decided anything — it was the code guessing. This is the office
+         pressing Convert, which is already the act that creates the customer, their
+         invoice, their customer number and their warehouse build. Somebody who has been
+         committed to that far has not been assumed into the season; they have been put
+         in it deliberately. Owner, three times in three different words: "once a quote
+         gets converted to costumer that is approved."
+
+         ⚠ AND ONLY ON A CONVERSION. A customer typed straight into this form is not a
+         conversion — no quote, no approval, nobody pressed anything about a season — so
+         they stay blank and show as Pending until somebody actually asks them. That is
+         the half of the old rule that was always right and it is kept.
+
+         ⚠ rsvpRespondedAt IS STAMPED WITH IT, and it has to be: effectiveRsvpStatus
+         reads a bare yes with no date as "nobody heard from them" and shows Pending, so
+         writing the status alone would set a field that every reader then ignores —
+         which looks exactly like the change not working. */
+      rsvpStatus: addCustFromQuoteId ? 'yes' : '',
+      rsvpRespondedAt: addCustFromQuoteId ? serverTimestamp() : null,
       /* ⭐ AND THEY GET A DAY WITHOUT WAITING FOR A BUTTON (added 2026-08-22). Owner:
          "The new costumer should be assigned to and scheduled our right away when
          we'll be in that city."
@@ -34983,7 +35093,48 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        !String(d.binLabelNumber || '').trim()){
       addrUpdates.binLabelNumber = oldCustNumber;
     }
-    if(requoteBeingConverted) addrUpdates.requoteAppliedAt = serverTimestamp();
+    if(requoteBeingConverted){
+      addrUpdates.requoteAppliedAt = serverTimestamp();
+      /* ⭐ APPLYING A RE-QUOTE PUTS THEM IN FOR THE SEASON (2026-08-24). Owner: "if i
+         convert or apply requote than it should be yes."
+
+         ⚠ THE APPROVAL NORMALLY GOT HERE FIRST — the customer clicking Approve, or the
+         office pressing Mark Approved, both mark them already. This is the backstop for
+         the case where it did not: a re-quote approved before that wiring existed, an
+         approval taken by phone and applied without Mark Approved being pressed, or a
+         failed write on the way through. Applying is the office's last act on that
+         quote, so it is the right place to make sure the answer landed.
+
+         ⚠ THROUGH THE SHARED RULE, NOT A STATUS. Writing rsvpStatus alone would leave
+         somebody who had said no in the season AND still queued to have their lights
+         pulled apart. seasonYesUpdates cancels the recycle, re-queues the build only
+         where the recycle had not started, clears the Maybe Next Year badge and marks a
+         rejoiner for a day.
+
+         ⚠ APPLIED LAST, AFTER THE RSVP DROPDOWN AND AFTER THE MAYBE NEXT YEAR TOGGLE.
+         Both of those write into this same object earlier in the handler — the toggle
+         explicitly "applied last so it beats the RSVP dropdown" — so anywhere earlier
+         and a customer being brought back in by a re-quote would be re-badged out of
+         the season by a toggle still showing what they used to be. */
+      const seasonYes = seasonYesUpdates(d, serverTimestamp);
+      /* ⚠ THE RE-QUOTE'S OWN WAREHOUSE ANSWER WINS, and this is not a detail — the
+         suite caught it as a real bug the moment this was wired. seasonYesUpdates
+         writes needsLightRecycle: false, which is right for somebody coming back from
+         a "no" (nothing was ever going to be collected) and catastrophically wrong
+         here: applying a re-quote for somebody who MOVED sets needsLightRecycle true a
+         few lines up, and a blanket assign wiped it. The office would pick "recycle old,
+         build new", the screen would say it worked, and the old set would never come
+         back off the old house.
+
+         So the season rule wins for the SEASON fields — that is the whole point of
+         wiring it here — and never overrules a warehouse field this handler has already
+         decided. It still applies where nothing decided one, which is how somebody
+         coming back in from a no gets their queued recycle cancelled. */
+      ['needsLightRecycle', 'needsLightBuild'].forEach(function(k){
+        if(Object.prototype.hasOwnProperty.call(addrUpdates, k)) delete seasonYes[k];
+      });
+      Object.assign(addrUpdates, seasonYes);
+    }
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
