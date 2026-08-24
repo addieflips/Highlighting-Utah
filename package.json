@@ -6,8 +6,9 @@
     "test:money": "node money-parity.test.js",
     "test:options": "node options-audit.test.js",
     "test:season": "node season-state.test.js",
+    "test:portal": "node portal-repro.test.js",
     "test:suite": "node run-all.js",
-    "test": "npm run verify && npm run test:selectors && npm run test:money && npm run test:options && npm run test:season && npm run test:suite",
+    "test": "npm run verify && npm run test:selectors && npm run test:money && npm run test:options && npm run test:season && npm run test:portal && npm run test:suite",
     "test:browser": "playwright test",
     "test:browser:headed": "playwright test --headed",
     "test:all": "npm test && npm run test:browser"
