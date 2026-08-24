@@ -1979,22 +1979,41 @@ const editSave = admin.slice(admin.indexOf("editCustSaveBtn').addEventListener")
 check('flow', 'quote is closed when converted to a customer',
   admin.includes("status: 'closed', convertedToCustomerAt"),
   'the quote would stay open forever after the customer exists');
-/* ⭐ REVERSED 2026-08-22. Owner: "We shouldn't assume they approved we should always
-   know they approved."
+/* ⭐ THIS FIELD HAS MOVED TWICE AND BOTH ARGUMENTS ARE KEPT, because the third move
+   should be a decision and not an accident.
 
-   ⚠ THIS CHECK REQUIRED THE ASSUMED YES. Converting a quote wrote rsvpStatus 'yes'
-   with no reply date — the office knowing somebody wants lights, dressed as that
-   customer having answered a question about THIS SEASON. Every reader that counted
-   yeses then had to be hardened against a value the writer should never have written,
-   and the one that got missed was the Dashboard's Yes card: the very number somebody
-   would read to decide whether everyone has replied yet.
+   2026-08-22, owner: "We shouldn't assume they approved we should always know they
+   approved." Converting wrote rsvpStatus 'yes' with no reply date — the office knowing
+   somebody wants lights, dressed as that customer having answered about THIS SEASON.
+   Every reader counting yeses then had to be hardened against a value the writer should
+   never have written, and the one that got missed was the Dashboard's Yes card.
 
-   ⚠ NOTHING IS LOST. A blank RSVP is IN the season under the live setting, so a
-   converted customer is still routed, scheduled and built for; and they still reach
-   the Excel Yes sheet through the new-hang route, which is what they actually are. */
-check('flow', 'converting a quote does NOT assume an RSVP of yes',
-  !/rsvpStatus: addCustFromQuoteId \? 'yes'/.test(admin),
-  'the office knowing they want lights is not the customer answering for this season');
+   2026-08-24, owner: "if i convert or apply requote than it should be yes." REVERSED,
+   and the distinction is what makes both positions right. The 2026-08-22 problem was a
+   yes written as a SIDE EFFECT, for everybody, with nobody having decided anything.
+   This is the office pressing Convert — the same act that creates the customer, their
+   invoice, their number and their warehouse build. Somebody committed to that far has
+   not been assumed into the season, they have been put in it.
+
+   ⚠ AND THE OLD RULE SURVIVES WHERE IT WAS ALWAYS RIGHT: a customer TYPED into the Add
+   Customer form is not a conversion, and still gets a blank. Both halves are asserted
+   below, so restoring either position wholesale fails. */
+check('flow', 'converting a quote marks them in for the season',
+  /rsvpStatus: addCustFromQuoteId \? 'yes' : ''/.test(admin),
+  'owner: "if i convert or apply requote than it should be yes" — converting is ' +
+  'already the act that creates their invoice, number and build');
+/* ⚠ AND WITH A REPLY DATE. effectiveRsvpStatus reads a bare yes with no date as
+   "nobody heard from them", so writing the status alone sets a field every reader then
+   ignores — which looks exactly like the change not working. */
+check('flow', 'and stamps when, or every reader ignores it',
+  /rsvpRespondedAt: addCustFromQuoteId \? serverTimestamp\(\) : null/.test(admin),
+  'a bare yes with no date is Pending everywhere — the status alone does nothing');
+/* ⚠ THE HALF OF THE OLD RULE THAT WAS ALWAYS RIGHT. Nobody approved anything when a
+   customer is typed straight in, so they stay Pending until somebody asks them. */
+check('flow', 'but a customer typed in by hand still assumes nothing',
+  /rsvpStatus: addCustFromQuoteId \? 'yes' : ''/.test(admin) &&
+  !/rsvpStatus: 'yes',\r?\n\s*rsvpRespondedAt: serverTimestamp\(\),\r?\n\s*needsDayAssignedAt/.test(admin),
+  'no quote, no approval, nobody pressed anything — that is Pending, and it is true');
 /* ⭐ THE NEW-MEMBER FEE, TICKED FOR THIS SEASON, IS AN APPROVAL (2026-08-24). Owner:
    "if someone has new member fee ticked for this year than they should be approved for
    this season if they don't have new member fee ticked for this year than they have not
@@ -23391,6 +23410,14 @@ suite('Suite 108. The Edit Customer save, actually run');
         ['lightsDescription', 'wireColor', 'outletTimer']),
       lightsLockMillis: new Function('return ' + extractFn(admin, 'lightsLockMillis') +
         ';lightsLockMillis')(),
+      /* ⚠ THE REAL SEASON-YES RULE, LIFTED — not a stub. Joined this list 2026-08-24,
+         in the same commit that made applying a re-quote mark the customer in for the
+         season: the extraction-list trap CLAUDE.md describes, hit a third time and
+         caught a third time by this suite failing loudly rather than skipping. A stub
+         here would agree with itself about exactly the thing under test, and its twin
+         in functions/index.js is what season-state.test.js proves it matches. */
+      seasonYesUpdates: new Function('return ' + extractFn(admin, 'seasonYesUpdates') +
+        ';seasonYesUpdates')(),
       LIGHT_CHANGE_FEE: 30, LIGHT_WINDOW_MS: 48 * 3600000,
       fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2),
       /* The popup CANNOT be real — it waits for a click. Stubbed, but it records

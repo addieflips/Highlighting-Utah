@@ -22972,7 +22972,31 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          new-hang route (chargeNewMemberFee), which is what they actually are. What
          changes is that they now show as Pending — nobody has asked them — which is
          true, and they fall into the RSVP audience so they will be. */
-      rsvpStatus: '',
+      /* ⭐ REVERSED AGAIN 2026-08-24, and both earlier positions are kept above and
+         here on purpose, because this field has now moved twice and the argument for
+         each move is the only thing that stops the third move being an accident.
+         Owner: "if i convert or apply requote than it should be yes."
+
+         ⚠ WHAT MAKES THIS DIFFERENT FROM THE ASSUMED YES THE NOTE ABOVE REMOVED.
+         That one was written at creation for EVERY converted quote as a side effect,
+         and nobody had decided anything — it was the code guessing. This is the office
+         pressing Convert, which is already the act that creates the customer, their
+         invoice, their customer number and their warehouse build. Somebody who has been
+         committed to that far has not been assumed into the season; they have been put
+         in it deliberately. Owner, three times in three different words: "once a quote
+         gets converted to costumer that is approved."
+
+         ⚠ AND ONLY ON A CONVERSION. A customer typed straight into this form is not a
+         conversion — no quote, no approval, nobody pressed anything about a season — so
+         they stay blank and show as Pending until somebody actually asks them. That is
+         the half of the old rule that was always right and it is kept.
+
+         ⚠ rsvpRespondedAt IS STAMPED WITH IT, and it has to be: effectiveRsvpStatus
+         reads a bare yes with no date as "nobody heard from them" and shows Pending, so
+         writing the status alone would set a field that every reader then ignores —
+         which looks exactly like the change not working. */
+      rsvpStatus: addCustFromQuoteId ? 'yes' : '',
+      rsvpRespondedAt: addCustFromQuoteId ? serverTimestamp() : null,
       /* ⭐ AND THEY GET A DAY WITHOUT WAITING FOR A BUTTON (added 2026-08-22). Owner:
          "The new costumer should be assigned to and scheduled our right away when
          we'll be in that city."
@@ -34983,7 +35007,48 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        !String(d.binLabelNumber || '').trim()){
       addrUpdates.binLabelNumber = oldCustNumber;
     }
-    if(requoteBeingConverted) addrUpdates.requoteAppliedAt = serverTimestamp();
+    if(requoteBeingConverted){
+      addrUpdates.requoteAppliedAt = serverTimestamp();
+      /* ⭐ APPLYING A RE-QUOTE PUTS THEM IN FOR THE SEASON (2026-08-24). Owner: "if i
+         convert or apply requote than it should be yes."
+
+         ⚠ THE APPROVAL NORMALLY GOT HERE FIRST — the customer clicking Approve, or the
+         office pressing Mark Approved, both mark them already. This is the backstop for
+         the case where it did not: a re-quote approved before that wiring existed, an
+         approval taken by phone and applied without Mark Approved being pressed, or a
+         failed write on the way through. Applying is the office's last act on that
+         quote, so it is the right place to make sure the answer landed.
+
+         ⚠ THROUGH THE SHARED RULE, NOT A STATUS. Writing rsvpStatus alone would leave
+         somebody who had said no in the season AND still queued to have their lights
+         pulled apart. seasonYesUpdates cancels the recycle, re-queues the build only
+         where the recycle had not started, clears the Maybe Next Year badge and marks a
+         rejoiner for a day.
+
+         ⚠ APPLIED LAST, AFTER THE RSVP DROPDOWN AND AFTER THE MAYBE NEXT YEAR TOGGLE.
+         Both of those write into this same object earlier in the handler — the toggle
+         explicitly "applied last so it beats the RSVP dropdown" — so anywhere earlier
+         and a customer being brought back in by a re-quote would be re-badged out of
+         the season by a toggle still showing what they used to be. */
+      const seasonYes = seasonYesUpdates(d, serverTimestamp);
+      /* ⚠ THE RE-QUOTE'S OWN WAREHOUSE ANSWER WINS, and this is not a detail — the
+         suite caught it as a real bug the moment this was wired. seasonYesUpdates
+         writes needsLightRecycle: false, which is right for somebody coming back from
+         a "no" (nothing was ever going to be collected) and catastrophically wrong
+         here: applying a re-quote for somebody who MOVED sets needsLightRecycle true a
+         few lines up, and a blanket assign wiped it. The office would pick "recycle old,
+         build new", the screen would say it worked, and the old set would never come
+         back off the old house.
+
+         So the season rule wins for the SEASON fields — that is the whole point of
+         wiring it here — and never overrules a warehouse field this handler has already
+         decided. It still applies where nothing decided one, which is how somebody
+         coming back in from a no gets their queued recycle cancelled. */
+      ['needsLightRecycle', 'needsLightBuild'].forEach(function(k){
+        if(Object.prototype.hasOwnProperty.call(addrUpdates, k)) delete seasonYes[k];
+      });
+      Object.assign(addrUpdates, seasonYes);
+    }
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
