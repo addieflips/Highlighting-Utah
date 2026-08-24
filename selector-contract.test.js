@@ -141,7 +141,29 @@ function htmlFor(file) {
   return htmlCache[file];
 }
 
+/* ⭐ A SPEC FILE THAT HOLDS NO SPECS (added 2026-08-24, after it happened).
+ *
+ * ⚠ THE ACCIDENT THIS CATCHES. test/portal.spec.js was overwritten with a jsdom
+ * script — its own header still named the file it came from — and the ten Member
+ * Portal specs inside it were gone. NOTHING WENT RED. Playwright found no test()
+ * calls, silently collected 3 specs instead of 13 and reported success; this file
+ * found no selectors to check and dropped from 18 checks to 1, also reporting
+ * success. Two required gates passing because there was nothing left to check is
+ * worse than either failing, because a red gate gets looked at.
+ *
+ * ⚠ COUNTED, NOT JUST PRESENT. "The file exists" was always true. What was not
+ * true is that it still contained tests, so that is what is asserted.
+ *
+ * ⚠ AND A SPEC WITH NO SELECTORS IS ONLY A NOTE, deliberately — a spec can
+ * legitimately drive a page by visible text alone. An empty spec FILE cannot. */
 specFiles.forEach(specFile => {
+  const body = fs.readFileSync(path.join(TESTS_DIR, specFile), 'utf8');
+  const testCount = (body.match(/(^|\s)test\s*\(/g) || []).length;
+  check(specFile + ' still contains browser tests', testCount > 0,
+    'the file is there but has no test() calls — Playwright will collect it, ' +
+    'find nothing, and report success. That is how ten portal specs went ' +
+    'missing on 2026-08-24 with every gate still green');
+
   const target = SPEC_TARGETS[specFile];
 
   if (!target) {
