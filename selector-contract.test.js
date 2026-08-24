@@ -42,6 +42,9 @@ const SPEC_TARGETS = {
   'quote-link.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
+  /* The boot smoke test — it drives admin.html, so every id it names is checked
+     against that page like any other spec's. */
+  'admin-loads.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'
 };
 
