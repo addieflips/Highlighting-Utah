@@ -17,6 +17,19 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
+/* ⭐ THE SEASON RULE IS IMPORTED, NOT LIFTED (2026-08-24). isOutForSeason used to be
+   cut out of admin.html by regex in six places in this file, each one gluing the
+   SEASON_ELIGIBILITY const back onto the front of it by hand and eval-ing the
+   result. Now it is a real module and this is a real require.
+
+   ⚠ THIS IS WHY IT MATTERS, not just tidiness: a regex proves the words are in the
+   page. It cannot prove the function runs, cannot see a dependency the harness
+   never supplied, and happily "passes" against code that would throw in a browser.
+   This file already carries sandboxDeps() and a long comment about the day that bit
+   three times. Every rule that moves into js/ takes one more sandbox out of here. */
+const seasonRules = require('./js/season-rules.js');
+const isOutForSeasonReal = seasonRules.isOutForSeason;
+
 // Works whether this file sits at the repo root (normal case) or has been
 // copied into a tests/ subfolder alongside the repo (the old CLAUDE.md shim) —
 // resolve ROOT by finding which one actually has admin.html next to it,
@@ -421,7 +434,24 @@ if (!THX_CONST) throw new Error('PRE_THANKSGIVING_DAYS has gone from admin.html'
    If a rule ever moves back into admin.html, these two reads are what to fix. */
 const money = read('js/money.js');
 const computeInvoiceStatusSrc = extractFn(money, 'computeInvoiceStatus');
-const cnBinsForFeetSrc = extractFn(money, 'cnBinsForFeet');
+/* ⚠ THE CONSTANT TRAVELS WITH THE FUNCTION. cnBinsForFeet reads CN_DOUBLE_BIN_FEET,
+   so lifting the function alone gives every sandbox a ReferenceError the moment a bin
+   count is actually asked for — which crashed Suite 104 and, because the run stops on
+   a crash, stopped every suite after it from scoring at all. Taken from the real
+   module, never typed as 260 here: a second copy of the bin boundary would agree with
+   itself and prove nothing. */
+/* ⚠ houseBundleNeed READS FEET_PER_BUNDLE, and the only reason most sandboxes got
+   away with lifting it alone is that a jsdom-gated suite sets global.FEET_PER_BUNDLE
+   as a side effect — the cross-suite global leak this file's own header warns about.
+   Suite 105 sits outside that leak and had never once run to completion, because an
+   earlier crash always stopped the run before it. Taken from the real page so the
+   bundle size cannot drift from the value the app uses. */
+const FEET_PER_BUNDLE_SRC = 'const FEET_PER_BUNDLE = '
+  + ((admin.match(/const FEET_PER_BUNDLE = (\d+);/) || [0, 40])[1]) + ';\n';
+
+const cnBinsForFeetSrc = 'const CN_DOUBLE_BIN_FEET = '
+  + require('./js/money.js').CN_DOUBLE_BIN_FEET + ';\n'
+  + extractFn(money, 'cnBinsForFeet');
 const custInvoiceKeySrc = extractFn(money, 'custInvoiceKey');
 const statusClassSrc = extractFn(money, 'statusClass');
 // computeInvoiceStatus compares whole cents, so its rounding helper has to be
@@ -6071,25 +6101,24 @@ suite('17. A new customer lands on the next day in their city');
                   'normInstallPref','prefSpecificDate','prefNamedFloor',
                   'formatDateNice','routeCityOf','findNextRouteDayInCity','customerToStop',
                   'haversine','twoOptImprove','reorderFlatStops','nextDayStr',
-                  /* isOutForSeason lives up with the install-timing helpers, far
-                     above the sweep, so it has to be lifted in by name. The REAL
-                     one, not a stub — who the fill is allowed to schedule is the
-                     rule most likely to be got wrong, and suite 21 only proves
+                  /* isOutForSeason is no longer lifted from the page — it is
+                     required from js/season-rules.js and injected below. Still the
+                     REAL one, not a stub: who the fill is allowed to schedule is
+                     the rule most likely to be got wrong, and suite 21 only proves
                      the function itself, not that the sweep obeys it. */
-                  'isOutForSeason','normInstallPref',
+                  'normInstallPref',
                   'scheduledFieldForType','freeUpFieldForType'];
 
   if (recStart === -1 || recEnd < recStart) {
     check('reconcile', 'the route reconciler is findable',
       false, 'renamed or removed — update this test rather than deleting it');
   } else {
-    /* isOutForSeason reads a module-level setting that extractFn does not pick
-       up. Lifted from the page verbatim rather than hardcoded here, so if the
-       owner flips it to 'confirmed-only' this harness follows rather than
-       quietly testing a rule production no longer uses. */
-    const eligLine = (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [])[0];
-    if (!eligLine) throw new Error('SEASON_ELIGIBILITY not found — isOutForSeason cannot run');
-    const helpers = eligLine + '\n' + NEEDED.map(n => extractFn(admin, n)).join('\n');
+    /* The season rule is the imported one, declared into the sandbox rather than
+       pasted in as text. It follows the live default automatically, so if the mode
+       is ever flipped this harness follows rather than quietly testing a rule
+       production no longer uses. */
+    const helpers = 'const isOutForSeason = __isOutForSeason;\n'
+      + NEEDED.map(n => extractFn(admin, n)).join('\n');
     const src = helpers + '\n' + admin.slice(recStart, recEnd);
 
     const dstr = n => { const d = new Date(); d.setDate(d.getDate() + n); return toDateStr(d); };
@@ -6116,6 +6145,8 @@ suite('17. A new customer lands on the next day in their city');
         deleteDoc: async (ref) => { writes.push({ path: ref.__path, deleted: true }); },
         jobAddresses: houses,
         scheduledRoutesCache: cache,
+        /* the real season rule, imported — see the require at the top of this file */
+        __isOutForSeason: isOutForSeasonReal,
         console: { error(){}, warn(){}, log(){} }
       };
       const names = Object.keys(ctx);
@@ -6951,24 +6982,31 @@ check('names', 'nothing stored is rewritten',
  */
 suite('21. Everyone is in unless they said otherwise');
 {
-  const fnSrc = admin.slice(admin.indexOf('function isOutForSeason(d)'),
-                            admin.indexOf('\n}', admin.indexOf('function isOutForSeason(d)')) + 2);
-  /* Built once per MODE, so both the rule running today and the one the owner
-     plans to switch to are proved. Testing only the live setting would let the
-     'confirmed-only' branch rot until the day it is turned on. */
-  const withMode = m => eval("const SEASON_ELIGIBILITY = '" + m + "';\n" + fnSrc +
-    '\n;({out: isOutForSeason})');
+  /* ⭐ NO MORE eval OF A SLICE OF HTML (2026-08-24). The mode is a parameter of the
+     real imported function now, so asking "what would confirmed-only do" is a call
+     rather than a string built out of the page. Every mode is proved, not just the
+     live one — otherwise a branch rots until the day it is turned on. */
+  const withMode = m => ({ out: d => seasonRules.isOutForSeason(d, m) });
   const api = withMode('all-but-maybe-next-year');
   const strict = withMode('confirmed-only');
+  const orConverted = withMode('confirmed-or-converted');
 
-  const liveMode = (admin.match(/const SEASON_ELIGIBILITY = '([^']*)';/) || [])[1];
-  check('season', 'the setting is one line, and says which mode is live',
-    liveMode === 'all-but-maybe-next-year' || liveMode === 'confirmed-only',
-    'found: ' + liveMode);
+  const liveMode = seasonRules.getSeasonEligibility();
+  check('season', 'the module names which mode is live',
+    !!seasonRules.SEASON_ELIGIBILITY_MODES[liveMode], 'found: ' + liveMode);
   check('season', 'and it is on "everyone but Maybe Next Year" for now',
     liveMode === 'all-but-maybe-next-year',
-    "owner, 2026-08-15: switch to 'confirmed-only' once the RSVP email is live " +
+    "owner, 2026-08-15: switch to a stricter mode once the RSVP email is live " +
     'and everybody has actually been asked — until then this must not change');
+  /* ⚠ THE DEFAULT IS THE SAFE ONE, AND THAT IS THE POINT OF ASSERTING IT SEPARATELY.
+     A stricter default would drop every bulk-imported customer off every route the
+     moment a settings read failed — the 2026-08-15 empty-routes bug, arriving by
+     accident instead of on purpose. */
+  check('season', 'and an unreadable settings document falls back to that same mode',
+    seasonRules.DEFAULT_SEASON_ELIGIBILITY === 'all-but-maybe-next-year');
+  check('season', 'an unknown mode is refused rather than emptying the season',
+    seasonRules.isOutForSeason({}, 'nonsense-typo') === false,
+    'a typo in settings must not exclude everybody');
 
   // ---- the mode that is live today -------------------------------------
   check('season', 'a blank RSVP is IN — that is the normal state of the imported list',
@@ -7086,11 +7124,34 @@ suite('21. Everyone is in unless they said otherwise');
   /* ⚠ ONE QUESTION, ONE ANSWER. The Yes sheet has tested the timestamp since it was
      built and this branch tested the status alone; two places deciding "is this
      customer confirmed" differently is how the office and the crew hold two lists. */
-  check('season', 'and it asks the same question the Yes sheet asks',
-    /said === 'yes' && d\.rsvpRespondedAt/.test(admin) &&
-    /rsvpStatus \|\| ''\)\.toLowerCase\(\) === 'yes' && !!d\.rsvpRespondedAt/.test(admin),
-    'the Yes sheet and the season list disagreeing about one customer is worse ' +
-    'than either being wrong alone');
+  /* ⭐ THIS USED TO MATCH TWO REGEXES AGAINST admin.html AND NOW IT RUNS BOTH RULES
+     (2026-08-24). The two live in different files since the season rule moved, so a
+     text check could not span them anyway — but the stronger reason is that
+     matching source text proves the words are present and proves nothing about the
+     answers. Running them side by side over the cases that actually differ is the
+     claim this check was always trying to make. */
+  {
+    const tabsSrc = (admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/) || [''])[0];
+    const TABS = tabsSrc ? new Function(tabsSrc + 'return HLX_STATE_TABS;')() : null;
+    const yesSheet = TABS && TABS.filter(t => t.tab === 'Yes').map(t => t.holds)[0];
+    check('season', 'the Yes sheet predicate is still findable', !!yesSheet);
+    if (yesSheet) {
+      const cases = [
+        { rsvpStatus: 'yes', rsvpRespondedAt: said },
+        { rsvpStatus: 'yes' },
+        { rsvpStatus: 'YES', rsvpRespondedAt: said },
+        { rsvpStatus: 'no', rsvpRespondedAt: said },
+        { rsvpStatus: 'unanswered', rsvpRespondedAt: said },
+        { rsvpStatus: '' },
+        {}
+      ];
+      const disagree = cases.filter(d => !!yesSheet(d) !== seasonRules.hasConfirmedYes(d));
+      check('season', 'and it asks the same question the Yes sheet asks',
+        disagree.length === 0,
+        'the Yes sheet and the season list disagreeing about one customer is worse ' +
+        'than either being wrong alone — differed on: ' + JSON.stringify(disagree));
+    }
+  }
   /* ⚠ A REPLY IS NOT AN ACCEPTANCE. Somebody who answered no, or back next year,
      replied — the timestamp is stamped for them too — and they are OUT. Testing the
      date on its own would put every one of them back in the season. */
@@ -7106,6 +7167,43 @@ suite('21. Everyone is in unless they said otherwise');
     strict.out({ rsvpStatus: 'Yes', rsvpRespondedAt: said }) === false);
   check('season', 'no record at all is OUT rather than quietly IN',
     api.out(null) === true && api.out(undefined) === true && strict.out(null) === true);
+
+  /* ---- the owner's rule, 2026-08-24 -----------------------------------------
+     "if not RSVP Yes or converted to a costumer for quotes they will not be
+     assigned out for the season."
+
+     ⚠ THIS IS NOT confirmed-only. That mode deliberately excludes a converted
+     quote, because a quote conversion is an ASSUMED yes with no reply behind it —
+     so turning it on would drop exactly the customers she named as belonging IN.
+     One clause apart, opposite answers for the group she was talking about. */
+  check('season', 'confirmed-or-converted: a real reply is IN',
+    orConverted.out({ rsvpStatus: 'yes', rsvpRespondedAt: said }) === false);
+  check('season', 'confirmed-or-converted: a converted quote is IN, reply or not',
+    orConverted.out({ convertedFromQuoteAt: said }) === false,
+    'the office converted them, so they have told us they want lights');
+  check('season', 'and confirmed-only would have dropped that same customer',
+    strict.out({ convertedFromQuoteAt: said }) === true,
+    'this is the difference between the two modes, stated as a test');
+  check('season', 'confirmed-or-converted: never asked, never quoted, is OUT',
+    orConverted.out({}) === true &&
+    orConverted.out({ rsvpStatus: '' }) === true &&
+    orConverted.out({ rsvpStatus: 'unanswered' }) === true,
+    'this is the whole purpose of the mode');
+  /* ⚠ A CONVERTED CUSTOMER WHO LATER SAYS NO IS OUT. The provenance stamp records
+     how they joined; it is not a standing yes that outranks their own answer. */
+  check('season', 'a converted quote who then answers no is OUT',
+    orConverted.out({ convertedFromQuoteAt: said, rsvpStatus: 'no' }) === true &&
+    orConverted.out({ convertedFromQuoteAt: said, rsvpStatus: 'backnextyear' }) === true &&
+    orConverted.out({ convertedFromQuoteAt: said, maybeNextYear: true }) === true,
+    'provenance must never outrank a real answer');
+  /* The legacy fallback: everybody converted before convertedFromQuoteAt existed
+     carries a yes with no reply date, and dropping all of them would be the mass
+     silent exclusion this whole mode is being built carefully to avoid. */
+  check('season', 'a quote converted before the stamp existed is still recognised',
+    seasonRules.cameFromQuote({ rsvpStatus: 'yes' }) === true &&
+    seasonRules.cameFromQuote({ rsvpStatus: 'yes', rsvpRespondedAt: said }) === false &&
+    seasonRules.cameFromQuote({ rsvpStatus: '' }) === false,
+    'a bulk import writes no rsvpStatus at all, so it cannot be mistaken for one');
 }
 check('season', 'the sweep decides who to strip with the SAME rule',
   /if\(isOutForSeason\(d\)\)\{/.test(admin) &&
@@ -7652,7 +7750,7 @@ check('build', 'the setting is saved, not hard-coded',
   'the office has to be able to change it without anybody editing the page');
 check('build', 'two crews is the default when the setting has never been saved',
   /CREWS_PER_DAY = \(n === 1\) \? 1 : 2;/.test(admin) &&
-  /catch\(err\)\{ CREWS_PER_DAY = 2;/.test(admin),
+  /catch\(err\)\{\s*CREWS_PER_DAY = 2;/.test(admin),
   'a missing or unreadable setting must not silently halve the season');
 /* ⭐ A FAILED READ FALLS BACK TO THE BUILT-IN LIST, NOT TO NOTHING (changed
    2026-08-20). The original rule still holds — a previous read must not be left
@@ -7661,9 +7759,19 @@ check('build', 'two crews is the default when the setting has never been saved',
    measure, which on the Wasatch Front is most of the valley. The built-in default is
    visible, checked below, and the honest thing to fall back to. */
 check('build', 'a failed settings read falls back to the built-in nearby-town list',
-  /catch\(err\){ CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = DEFAULT_NEARBY_TOWNS; }/.test(admin),
+  /catch\(err\)\{\s*CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = DEFAULT_NEARBY_TOWNS;/.test(admin),
   'leaving the last read standing pairs towns off a list nobody can see; resetting ' +
   'to empty pairs them off a tape measure instead');
+/* ⭐ AND THE SEASON RULE FALLS BACK WITH THEM (added 2026-08-24). The mode is read
+   from this same document now, so a failed read must not leave a stricter mode
+   standing from a previous load — that would drop customers off every route because
+   of a network blip, which looks exactly like the scheduler being broken. */
+check('build', 'a failed settings read also returns the season rule to the safe default',
+  /catch\(err\)\{[\s\S]{0,400}?setSeasonEligibility\(DEFAULT_SEASON_ELIGIBILITY\)/.test(admin),
+  'a stricter mode left standing after a blip empties the routes silently');
+check('build', 'and the season mode is read from the settings document, not hard-coded',
+  /setSeasonEligibility\(snap\.exists\(\) \? snap\.data\(\)\.seasonEligibility/.test(admin),
+  'flipping who is in the season must not require a deploy');
 check('build', 'the setting is loaded BEFORE the sweep starts',
   admin.indexOf('loadSchedulingSettings()') < admin.indexOf('startReconcileAuto();'),
   'building a season on the default two while one is saved means building it ' +
@@ -12447,7 +12555,7 @@ suite('Suite 48. Days within two working days are set');
     /* Today is fixed so the horizon is predictable: Mon 5 Oct 2026, which makes
        the next two working days Tue 6 and Wed 7. */
     const TODAY = new Date(2026, 9, 5);
-    new Function('__TODAY',
+    new Function('__TODAY', '__isOutForSeason',
       'function toDateStr(dt){return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");}' +
       'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
@@ -12479,10 +12587,10 @@ suite('Suite 48. Days within two working days are set');
          shared definition rather than a second opinion of its own — a hand-written
          stub of isOutForSeason would prove the plumbing and nothing about the rule.
          The live setting comes with it for the same reason. */
-      (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + fn('isOutForSeason') +
+      'const isOutForSeason = __isOutForSeason;\n' +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
-    ).call(ctx, TODAY);
+    ).call(ctx, TODAY, isOutForSeasonReal);
 
     const house = (city, name) => ({ id: name, name: name, city: city, pref: 'OCT',
       __cust: { data: { city: city, lat: 40.39, lng: -111.85 } } });
@@ -19616,7 +19724,8 @@ suite('Suite 104. The Printing tab');
          old array shape, and "the sheet agrees with the schedule about sides" is
          exactly the claim being made here — a stub of it proves nothing. */
       const sb = new Function(
-        'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
+        'const HOUSE_SIDES_DEFAULT = 1;' +
+        extractFn(admin, 'houseSideCount') +
         /* ⚠ THE REAL cnBinsForFeet, out of js/money.js, not a local ceil. The claim
            being made is that the crew sheet and the warehouse sheet get the SAME
            number out of the SAME rule; a second copy of the arithmetic here would
@@ -20510,13 +20619,14 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
 
 {
   /* ---- they are still in the season ---- */
-  const outSrc = extractFn(admin, 'isOutForSeason');
+  /* The rule is imported now, not lifted out of admin.html — so "is it there to
+     run" is answered by the module loading at all. */
+  const outSrc = typeof seasonRules.isOutForSeason === 'function';
   check('S106', 'the season rule is there to run', !!outSrc);
 
   if (outSrc) {
-    const isOut = (d) => new Function('d',
-      "const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';" + outSrc +
-      'return isOutForSeason(d);')(d);
+    /* the real imported rule, in the mode that is live today */
+    const isOut = (d) => seasonRules.isOutForSeason(d, 'all-but-maybe-next-year');
 
     check('S106', 'somebody whose lights are being recycled is still out',
       isOut({needsLightRecycle: true}) === true,
@@ -21372,11 +21482,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
        made below is about WHICH rule it asks — a stub would answer whatever this file
        wanted to hear. The live setting comes with it. */
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
-      'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
-      (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+      'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice', '__isOutForSeason',
+      'const isOutForSeason = __isOutForSeason;\n' +
       extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
-      (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
+      (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r,
+      isOutForSeasonReal);
 
     const noColours = [{id: 'a894', data: {name: 'Ashley Wray', needsLightBuild: true,
                                            measuredFeet: 300}}];
@@ -22493,14 +22604,14 @@ suite('Suite 116. Deleting the test records');
      rules is how a screen starts confidently contradicting the list beside it. */
   {
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
-      'houseBundleNeed',
-(admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+      'houseBundleNeed', '__isOutForSeason',
+'const isOutForSeason = __isOutForSeason;\n' +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
       const item = {id: 'a', data: d};
       return status(item, [item], extras || [], function(p, w){ return p + '|' + (w || ''); },
-        function(){ return {bundles: 1}; });
+        function(){ return {bundles: 1}; }, isOutForSeasonReal);
     };
     check('S116', 'a house in a build group is reported as being there',
       ask({name: 'A', needsLightBuild: true, lightsDescription: 'Warm White'}).state === 'building');
@@ -22916,9 +23027,9 @@ suite('Suite 112. The number on the bin');
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
-        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+        new Function('d', FEET_PER_BUNDLE_SRC + extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
         (w) => String(w || 'white'),
-        new Function('d', extractFn(admin, 'houseBundleNeed') +
+        new Function('d', FEET_PER_BUNDLE_SRC + extractFn(admin, 'houseBundleNeed') +
           extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'),
         []).rows.filter(function(r){ return r.type !== 'Blocked'; })[0];
     };
@@ -22963,17 +23074,18 @@ suite('Suite 112. The number on the bin');
     /* And the Printing tab's copy of the same list. */
     {
       const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
-        'houseBundleNeed', 'whPutIntoLabel',
-        (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+        'houseBundleNeed', 'whPutIntoLabel', '__isOutForSeason',
+        'const isOutForSeason = __isOutForSeason;\n' +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
                           needsLightBuild: true, measuredFeet: 300,
                           buildTopUpFromFeet: 180}}],
         () => 'Warm White', () => 'No',
-        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
-        new Function('d', extractFn(admin, 'houseBundleNeed') +
-          extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'));
+        new Function('d', FEET_PER_BUNDLE_SRC + extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+        new Function('d', FEET_PER_BUNDLE_SRC + extractFn(admin, 'houseBundleNeed') +
+          extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'),
+        isOutForSeasonReal);
       check('S112', 'the printed Needs Building list says EXISTING BIN',
         out.length === 1 && /^EXISTING BIN/.test(out[0].putInto) &&
         /Ashley Wray #894/.test(out[0].putInto),
@@ -22995,8 +23107,11 @@ suite('Suite 112. The number on the bin');
                                           needsLightBuild: true, lightsDescription: 'Warm',
                                           measuredFeet: 200}, extra)}],
           () => 'Warm White', () => 'No',
-          new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
-          function(){ return ''; });
+          new Function('d', FEET_PER_BUNDLE_SRC + extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+          function(){ return ''; },
+          /* the real season rule — this call site needs it as much as the one above,
+             and these two checks are precisely the ones that ask about it */
+          isOutForSeasonReal);
         check('S112', 'the printed list drops somebody badged Maybe Next Year',
           bag({maybeNextYear: true}).length === 0,
           'the screen beside it has dropped them for a long time');
@@ -30928,8 +31043,15 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
       const branch = admin.slice(a, b);
       const runRsvp = (newRsvp, oldRsvp, had) => {
         const addrUpdates = {};
-        new Function('newRsvp', 'oldRsvpForRecycle', 'item', 'addrUpdates',
-          branch)(newRsvp, oldRsvp, { data: { needsLightRecycle: had } }, addrUpdates);
+        /* ⚠ serverTimestamp IS SUPPLIED, and it was not until 2026-08-24. The
+           rejoin path stamps a date, so runRsvp('yes', …) threw ReferenceError and
+           took the whole suite down with it — the run stopped there and every suite
+           after it never scored, which reads as "the suite is broken" rather than
+           "one name is missing from a list". Exactly the case sandboxDeps() exists
+           to name; the sibling harness twenty lines up already passed it. */
+        new Function('newRsvp', 'oldRsvpForRecycle', 'item', 'addrUpdates', 'serverTimestamp',
+          branch)(newRsvp, oldRsvp, { data: { needsLightRecycle: had } }, addrUpdates,
+            () => '@ts');
         return addrUpdates;
       };
       check('S132', 'moving from No to Back Next Year keeps an owed recycle',

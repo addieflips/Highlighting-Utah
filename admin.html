@@ -4661,6 +4661,17 @@ import {
   applyLightChange, LIGHT_CHANGE_FEE, LIGHT_WINDOW_MS
 } from './js/money.js';
 import { fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight } from './js/svdepth.js';
+/* WHO IS IN FOR THIS SEASON. Moved out of this file on 2026-08-24 so it can be
+   imported rather than found by regex — see the header of js/season-rules.js for
+   why that mattered. The setting is no longer a const in this page: it is read
+   from settings/scheduling at startup through setSeasonEligibility, so flipping
+   it is an office decision rather than a deploy. */
+import {
+  isOutForSeason, isInForSeason, seasonExclusionReason,
+  setSeasonEligibility, getSeasonEligibility,
+  seasonEligibilityAudit, whyNotEligible, cameFromQuote, hasConfirmedYes,
+  SEASON_ELIGIBILITY_MODES, DEFAULT_SEASON_ELIGIBILITY
+} from './js/season-rules.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
@@ -6533,7 +6544,21 @@ async function loadSchedulingSettings(){
        types its own. */
     const typed = snap.exists() && snap.data().nearbyTowns;
     NEARBY_TOWN_LIST = (typed && Object.keys(typed).length) ? typed : DEFAULT_NEARBY_TOWNS;
-  } catch(err){ CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = DEFAULT_NEARBY_TOWNS; }
+    /* ⭐ WHO IS IN FOR THE SEASON, read rather than hard-coded (2026-08-24). This
+       used to be a const in this page, so changing it meant an edit, a push and a
+       deploy. setSeasonEligibility refuses an unknown value and stays on the safe
+       default, so a typo in this document cannot empty the season.
+       ⚠ A MISSING SETTING IS NOT A DECISION. Absent, it stays on the default that
+       keeps everybody except Maybe Next Year — the same behaviour as before this
+       was settable. Turning on a stricter mode is done from Scheduling settings,
+       and the preview there names who it would drop before it is saved. */
+    setSeasonEligibility(snap.exists() ? snap.data().seasonEligibility : DEFAULT_SEASON_ELIGIBILITY);
+  } catch(err){
+    CREWS_PER_DAY = 2; NEARBY_TOWN_LIST = DEFAULT_NEARBY_TOWNS;
+    /* A failed read must not leave a stricter mode standing from a previous load —
+       that would drop customers off the routes because of a network blip. */
+    setSeasonEligibility(DEFAULT_SEASON_ELIGIBILITY);
+  }
   const nt = document.getElementById('nearbyTownsInput');
   /* Only when it is not being typed in — reloading under the cursor would take
      somebody's half-finished line away mid-word. */
@@ -21470,127 +21495,13 @@ function thanksgivingDate(year){
 // Houses set to November (or November - Before Thanksgiving) stay hidden until Nov 1; "After Thanksgiving" houses stay hidden until the day after Thanksgiving.
 // Normal Schedule and October houses are never locked.
 /* ---- who is in for this season ----
-   ONE definition, used by the route generator and by the nightly fill, so the
-   two can never disagree about who belongs on a route.
-   Owner's rule, 2026-08-15: "everyone should be scheduled who isnt labeled
-   maybe next year." So a blank or Pending RSVP is IN.
-   ⚠ THAT IS A CHANGE, and it is the fix for "not everyone is scheduled". The
-   generator used to require rsvpStatus === 'yes'. Nothing sets that except
-   converting a quote to a customer (one line in Add Customer), so all ~945
-   bulk-imported houses carry a blank, the generator matched almost nobody, and
-   the routes came back empty. Gating on a confirmation nobody has been asked
-   for is the same as gating on nothing.
-   An explicit no still keeps them off. They told us not to come; the nightly
-   sweep strips rsvpStatus 'no' and 'backnextyear' off routes anyway, so adding
-   them here would only make the two fight each other every fifteen minutes.
-   Maybe Next Year is checked on its own rather than through the RSVP, because
-   the badge is what the office sets and sees. */
-/* ⚠ CHANGED 2026-08-15, and the SETTING BELOW is the thing to change again.
-   Owner: "for now we want anyone who isnt maybe next year to be on the list but
-   we will change it to only confirmed on the scheduled list eventually." When
-   the RSVP email is live and everyone has actually been asked, flip this to
-   'confirmed-only'. Nothing else needs touching.
-   ⚠ THE NOTE THAT USED TO SIT HERE said an explicit RSVP of "no" had been tried and
-   overruled, leaving only the physical rule. That was reversed on 2026-08-22 at the
-   owner's own instruction and "no" now keeps somebody out on its own — see the
-   reasoning in isOutForSeason. This setting is a separate question: it decides what
-   happens to everybody who has said NOTHING. */
-const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
-function isOutForSeason(d){
-  if(!d) return true;
-  const said = String(d.rsvpStatus || '').toLowerCase();
-  /* ⭐ AN RSVP OF "NO" KEEPS THEM OUT UNTIL THEY SAY OTHERWISE (2026-08-22). Owner:
-     "someones that says no should go to recycle. But they can change there decisions
-     to Yes or back next year and it will update."
+   MOVED 2026-08-24 to js/season-rules.js, imported at the top of this module.
 
-     ⚠ THIS REVERSES A DECISION FROM 2026-08-15, deliberately, and the old reasoning is
-     kept here so nobody restores it by accident. Back then this line shipped for a few
-     minutes and was overruled, leaving only the PHYSICAL rule below — out while their
-     bundle is queued to be taken apart, in again the moment the warehouse finishes.
-     That made "no" a temporary state: the flag is cleared when the job is done, and
-     the customer silently rejoined the season a week later having never changed their
-     mind. The answer is what decides now; the flag only ever backed it up.
-
-     ⚠ AND IT UPDATES BOTH WAYS, which is the other half of what she asked for. Every
-     route that takes a new answer rewrites rsvpStatus — portalRsvp, the office
-     dropdown, quoteRespond — so changing to Yes puts them straight back in (and
-     rejoinedAfterRecycle re-queues the build if their set was already pulled apart),
-     and changing to Back Next Year moves them to the 2027 tab instead. Nothing here
-     is sticky; it reads the current answer every time it is asked. */
-  if(said === 'no') return true;
-  /* ⭐ BACK NEXT YEAR IS OUT, HOWEVER THEY SAID IT (2026-08-22). Owner: "back next
-     year should be on 2027 and not split for this year on schedule."
-
-     ⚠ THE COMMENT THAT USED TO BE HERE WAS WRONG, AND IT WAS THE BUG. It read
-     "covers 'backnextyear' as well: the only thing that writes that status
-     (pullCustomerFromSeason) sets maybeNextYear in the same update, so the two always
-     travel together" — and portalRsvp writes the STATUS ALONE. A customer who answered
-     Back Next Year through the RSVP link therefore carried no flag, no
-     needsLightRecycle (that is set for "no", not for this), and read as fully IN the
-     season: the route generator, the nightly fill and the schedule's own
-     add-missing-customers all took them. The Contact 2027 tab in this same file already
-     says as much in its own comment — two comments in one file contradicting each
-     other, and this is the one that decides who gets a crew.
-
-     ⚠ AND IT IS A PING-PONG, WHICH IS WHY IT LOOKED INTERMITTENT. portalRsvp pulls
-     them off upcoming routes the moment they answer; the fill put them straight back.
-     The same trap the needsLightRecycle rule below exists to close for "no".
-
-     ⚠ COMING BACK IN STILL WORKS. The office un-toggling Maybe Next Year clears the
-     dropdown as well when it still reads Back Next Year — that branch's own comment
-     already assumed this rule ("would leave them unroutable behind a Confirmed
-     badge"), so it was written for a rule that was not yet true. */
-  if(d.maybeNextYear) return true;
-  if(said === 'backnextyear') return true;
-  /* NOT an RSVP rule — a physical one, which is why it survives the setting
-     above. Answering "no" queues the warehouse to take that customer's bundle
-     apart (needsLightRecycle), so by the time a crew arrived there would be
-     nothing to hang. It is also what stops a ping-pong: the portal pulls them
-     off upcoming routes the moment they answer, and without this the fill
-     would put them straight back fifteen minutes later, for ever. */
-  /* ⭐ UNLESS THEY ARE STAYING (added 2026-08-20). Owner: "I need a way to recycle
-     ashley wray without deleting her because she just moved and I already requoted her
-     so give me a button to recycle her, but then also put her in the needs to be built
-     section in the warehouse."
-
-     The rule below is about there being nothing to hang. Somebody who has MOVED is the
-     opposite case: the old set comes back off the old house and a new one is built for
-     the new one, so they are as much in the season as anybody.
-
-     ⚠ IT IS ITS OWN FLAG, and it has to be. The tempting shortcut is
-     "needsLightRecycle AND needsLightBuild means moving" — and it is wrong: adding a
-     customer sets needsLightBuild, the warehouse clears it only when the bundle is
-     actually made, so somebody who answers NO before the warehouse gets to them carries
-     both flags and would silently stay in the season. That is the one mistake here that
-     sends a crew to a house with no lights for it. */
-  if(d.needsLightRecycle && !d.recycleKeepingCustomer) return true;
-  /* ⭐ CONFIRMED MEANS THEY REPLIED, NOT THAT THE RECORD SAYS YES (2026-08-22).
-     Owner: "they need a reply either through email or approving through the button.
-     We should be able to approve for them in costumers as well."
-
-     ⚠ THIS BRANCH TESTED THE STATUS ALONE, AND THAT WOULD HAVE BROKEN THE FLIP ITSELF.
-     Converting a quote writes rsvpStatus 'yes' at creation with no rsvpRespondedAt —
-     an ASSUMED yes, the office knowing they want lights, nobody having asked them
-     about this season. On the status alone, turning this setting on would have kept in
-     the season precisely the people who have never answered, which is the one group
-     the setting exists to exclude. It would have looked like it worked.
-
-     ⚠ AND EVERY REAL REPLY DOES STAMP IT, so nobody who answered is lost: the RSVP
-     link and the portal button (portalRsvp), approving a quote by email
-     (quoteRespond), Maybe Next Year (pullCustomerFromSeason), and the office marking
-     it for them on the Edit Customer dropdown. That last one is her "approve for them
-     in costumers", and it is the reason the dropdown was taught to stamp the date —
-     an answer taken over the phone is still an answer.
-
-     ⚠ SAME TEST AS THE Yes SHEET, deliberately. That predicate has read
-     `said === 'yes' && d.rsvpRespondedAt` since the tab was built; this one read the
-     status alone. Two places answering "is this customer confirmed" two ways is how
-     the office and the crew end up holding different lists. */
-  if(SEASON_ELIGIBILITY === 'confirmed-only'){
-    return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
-  }
-  return false;
-}
+   It lived here as ~120 lines wrapped around 10 lines of logic, and because it
+   was inline nothing could import it: seven test sites had to regex it out of
+   this file as text, glue the SEASON_ELIGIBILITY line back on and eval it. The
+   reasoning that used to sit here moved with the code — read it there, and note
+   that the setting is now a mode passed in, not a const in this page. */
 /* ---- the same timing preference, written five different ways ----
    Read out of the live book on 2026-08-15, across 970 customers:
        Normal Schedule 479 · October 222 · NOV 190 · November 72 · OCT 4
@@ -22869,6 +22780,22 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       oneTimeNote: oneTimeNote,
       referralCount: referralCount,
       rsvpStatus: addCustFromQuoteId ? 'yes' : '',
+      /* ⭐ WHERE THIS CUSTOMER CAME FROM, recorded on the CUSTOMER (2026-08-24).
+         Owner: "if not RSVP Yes or converted to a costumer for quotes they will not
+         be assigned out for the season" — so "came in through a quote" has to be
+         something the scheduler can ASK, and until now it was not.
+
+         ⚠ convertedToCustomerAt ALREADY EXISTS AND IS NOT THIS. That one is written
+         on the QUOTE document a few lines below, and the scheduler never reads the
+         quotes collection — so it could not answer the question. Two fields with
+         nearly the same name is a real cost; the alternative was inferring it from
+         "a yes with no reply date", which is a guess about an absence and cannot be
+         told apart from any other record that got a yes some other way.
+
+         ⚠ IT IS A PROVENANCE STAMP, NOT AN RSVP. It says how they joined, so it is
+         written once and never cleared by an answer. Their rsvpStatus still moves
+         freely — a converted customer who later says no is out, like anybody. */
+      convertedFromQuoteAt: addCustFromQuoteId ? serverTimestamp() : null,
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
       /* ⭐ EVERY NEW HOUSE NEEDS A SET BUILT, WHETHER OR NOT ITS COLOURS ARE KNOWN YET.

@@ -63,7 +63,18 @@ function fn(name) {
   return '';
 }
 
-const NEEDED = ['isOutForSeason', 'whBuildQueueGroups', 'whRecycleGroups', 'whHouseBuildStatus'];
+/* ⭐ isOutForSeason IS NO LONGER LIFTED OUT OF admin.html (2026-08-24). It lives in
+   js/season-rules.js and is REQUIRED here — the real module, the real function, no
+   regex and no eval. That is the whole point of the move: this file used to cut the
+   function out of the HTML as text and glue the SEASON_ELIGIBILITY line back onto
+   the front of it, which proves the words are present and proves nothing about
+   whether they run.
+   ⚠ IT IS STILL THE REAL PREDICATE, not a second opinion written here. The failure
+   this file exists to catch is two lists disagreeing about who is in the season, and
+   a copy written in the test would agree with itself and prove nothing. */
+const seasonRules = require('./js/season-rules.js');
+
+const NEEDED = ['whBuildQueueGroups', 'whRecycleGroups', 'whHouseBuildStatus'];
 const src = {};
 let missing = false;
 NEEDED.forEach(n => {
@@ -73,9 +84,14 @@ NEEDED.forEach(n => {
   if (!ok) missing = true;
 });
 
-const eligLine = (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [])[0] || '';
-check('the season setting is still one line', !!eligLine,
-  'isOutForSeason cannot be run without it');
+/* The setting is a mode in js/season-rules.js now, not a line to be found in the
+   page. Assert the module still offers the real function and the safe default. */
+const eligLine = typeof seasonRules.isOutForSeason === 'function' ? 'ok' : '';
+check('js/season-rules.js exports isOutForSeason()', !!eligLine,
+  'the season rule module is missing or failed to load');
+check('the safe default is still the one that keeps everybody but Maybe Next Year',
+  seasonRules.DEFAULT_SEASON_ELIGIBILITY === 'all-but-maybe-next-year',
+  'a stricter default would silently drop bulk-imported customers off every route');
 
 const tabsSrc = (admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/) || [])[0] || '';
 check('the Excel tab table is still there', !!tabsSrc);
@@ -93,14 +109,20 @@ if (missing || !eligLine || !tabsSrc) {
 const TABS = new Function(tabsSrc + 'return HLX_STATE_TABS;')();
 const holds = (tab, d) => TABS.filter(t => t.tab === tab).map(t => t.holds(d))[0] === true;
 
-const outForSeason = new Function('d', eligLine + src.isOutForSeason + 'return isOutForSeason(d);');
+/* The real function, imported. Was: new Function('d', eligLine + src.isOutForSeason + ...) */
+const outForSeason = (d) => seasonRules.isOutForSeason(d);
 
 const groupKey = (p, w) => (p || '') + '|' + (w || '');
 const bundleStub = () => ({ bundles: 1, estimated: false, topUp: false });
 
+/* whBuildQueueGroups still lives in admin.html, so it is still lifted — but its
+   isOutForSeason dependency is now INJECTED as the real imported function rather
+   than concatenated as text. The queue and the season therefore answer "is this
+   customer in" from the same code the app runs. */
 const buildQueue = (d) => new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
-  'houseBundleNeed', eligLine + src.isOutForSeason + src.whBuildQueueGroups +
-  'return whBuildQueueGroups();')([{ id: 'x', data: d }], [], groupKey, bundleStub);
+  'houseBundleNeed', 'isOutForSeason', src.whBuildQueueGroups +
+  'return whBuildQueueGroups();')([{ id: 'x', data: d }], [], groupKey, bundleStub,
+  seasonRules.isOutForSeason);
 
 const onBuildQueue = (d) => {
   const r = buildQueue(d);
