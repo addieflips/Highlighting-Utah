@@ -2622,6 +2622,7 @@
             <span class="who" id="rsvpResetStatus"></span>
           </div>
         </div>
+        <div id="rsvpSentBanner" style="margin-bottom:14px;"></div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;" id="dashRsvpStatCards"></div>
         <div class="form-grid-3" style="margin-bottom:12px; gap:8px;">
           <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Search by Name</label><input type="text" id="dashRsvpSearch" placeholder="Search by name..." style="padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;"></div>
@@ -7489,6 +7490,11 @@ function initData(){
      the archive grows for ever and the working set does not. */
   whWatchArchivedPending();
   loadProjectTests();
+  /* ⚠ EAGER, like the badge loaders beside it, and for the same reason: the RSVP
+     banner has to be RIGHT the first time the Dashboard is opened. A marker that says
+     "not sent yet" for a second because its read had not landed is worse than no
+     marker — that is the exact sentence somebody would act on. */
+  loadRsvpSentMark();
   /* loadProjectPeople, the Reviews/Gallery/Hero/FAQ loaders, the people loaders
      and the money loaders now run when their panel is first opened — see
      PANEL_DATA above. loadProjectTests stays here because the sidebar badge
@@ -13292,6 +13298,16 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     } catch(err){ failed++; }
   }
   statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.';
+  /* ⭐ AND RECORD THAT THE SEASON'S RSVP HAS GONE OUT. Only for an RSVP template, only
+     when at least one email actually left, and only the FIRST time — see
+     noteRsvpSendHappened. Whether the RSVP has been sent is the one fact that decides
+     whether SEASON_ELIGIBILITY may be flipped, and until now it lived nowhere.
+     ⚠ AFTER the status line, and it cannot throw: the emails have already gone, and
+     failing to write a note about them must not report the send as failed. */
+  if(etTemplateIsRsvp(template)){
+    const noted = await noteRsvpSendHappened(sent);
+    if(noted) statusEl.textContent += ' Recorded that the RSVP has gone out.';
+  }
 });
 function openSendModal(templateId){
   etPopulateTemplateSelect();
@@ -31506,10 +31522,127 @@ function rsvpStatusLabel(v){
   if(t === 'unanswered') return 'Unanswered';
   return 'Pending';
 }
+/* ⭐ HAS THE RSVP ACTUALLY GONE OUT (added 2026-08-24). Owner: "do a mark for when
+   RSVP has gone out", and "however we still can manually".
+
+   ⚠ WHY THIS EXISTS AT ALL. Whether the RSVP has been sent is the ONE fact that decides
+   whether SEASON_ELIGIBILITY may be flipped to confirmed-only. Flip it before the send
+   and the season empties: everybody reads as not-yet-confirmed because nobody has been
+   asked, and the crews are handed a fraction of the book. Until now that fact lived
+   nowhere — it was a thing somebody remembered, which is exactly the sort of thing this
+   file keeps having to reconstruct from git history months later.
+
+   ⚠ THE FIRST SEND IS THE ONE RECORDED, not the latest. "Has the season's RSVP gone
+   out" is answered by the first one; a top-up send to fifteen stragglers a week later
+   must not reset the clock and make it look freshly asked.
+
+   ⚠ AND IT IS SET BY HAND AS WELL AS AUTOMATICALLY, because the automatic stamp only
+   fires on a send made through Automation Emails, and an RSVP can legitimately go out
+   another way. A marker that can only be set by one route is one that is silently wrong
+   the first time somebody uses another. Clearing it is offered too — a mark nobody can
+   take back is one nobody dares set.
+
+   ⚠ IT DECIDES NOTHING ON ITS OWN. It is a record, not a switch: it does not flip
+   SEASON_ELIGIBILITY and must not be made to. That flip changes who a crew is sent to,
+   and it stays a deliberate act. */
+let rsvpSentAtCache = null;
+function rsvpSentSummary(){
+  const t = rsvpSentAtCache;
+  if(!t) return '';
+  if(typeof t.toDate === 'function') return fmtDate(t);
+  const dt = new Date(t);
+  return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString();
+}
+async function markRsvpSent(when, count){
+  /* ⚠ merge:true — settings/season is shared, and a full set would wipe whatever else
+     ends up living there. */
+  await setDoc(doc(db,'settings','season'), {
+    rsvpSentAt: when || serverTimestamp(),
+    rsvpSentCount: Number(count) || 0,
+    rsvpSentBy: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : ''
+  }, {merge: true});
+}
+/* Stamped only on the FIRST send, and only when at least one email actually left.
+   A send that failed for everybody has not asked anybody. */
+async function noteRsvpSendHappened(count){
+  if(rsvpSentAtCache) return false;
+  if(!(Number(count) > 0)) return false;
+  try{
+    await markRsvpSent(null, count);
+    rsvpSentAtCache = new Date();
+    if(typeof safeRender === 'function') safeRender('dashRsvp', renderDashRsvpPanel);
+    return true;
+  }catch(err){
+    console.error('[HU] could not record that the RSVP went out:', err);
+    return false;
+  }
+}
+/* Read once at login. Not a listener: this changes about once a season, and a live
+   listener on settings/season would be an open connection for a single date. */
+async function loadRsvpSentMark(){
+  try{
+    const snap = await getDoc(doc(db,'settings','season'));
+    rsvpSentAtCache = (snap.exists() && snap.data().rsvpSentAt) || null;
+  }catch(err){
+    /* ⚠ A FAILED READ LEAVES IT UNKNOWN, and unknown renders as "not sent yet" — the
+       cautious answer. Claiming it HAS gone out on a read that never landed is what
+       would let somebody flip the season eligibility on no evidence at all. */
+    console.error('[HU] could not read whether the RSVP has gone out:', err);
+    rsvpSentAtCache = null;
+  }
+  if(typeof renderRsvpSentBanner === 'function') renderRsvpSentBanner();
+}
+function renderRsvpSentBanner(){
+  const el = document.getElementById('rsvpSentBanner');
+  if(!el) return;
+  const when = rsvpSentSummary();
+  el.innerHTML = when
+    ? '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#E6F2EA; border:1px solid #BBD8C5; border-radius:10px; padding:9px 13px; font-size:12.5px;">'+
+        '<span style="font-weight:700; color:#2E6B3E;">RSVP sent &mdash; '+esc(when)+'</span>'+
+        '<span style="color:var(--slate);">Pending now means they have been asked and have not replied.</span>'+
+        '<button type="button" id="rsvpSentClearBtn" class="icon-btn" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; margin-left:auto;">Not sent yet</button>'+
+      '</div>'
+    : '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#FFF8E9; border:1px solid #E8D8A8; border-radius:10px; padding:9px 13px; font-size:12.5px;">'+
+        '<span style="font-weight:700; color:#8a6d1f;">RSVP has not gone out yet</span>'+
+        '<span style="color:var(--slate);">So Pending below means nobody has asked them, not that they are ignoring you.</span>'+
+        '<button type="button" id="rsvpSentMarkBtn" class="icon-btn" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; margin-left:auto;">Mark RSVP as sent</button>'+
+      '</div>';
+  const markBtn = document.getElementById('rsvpSentMarkBtn');
+  if(markBtn) markBtn.addEventListener('click', async function(){
+    markBtn.disabled = true;
+    try{
+      await markRsvpSent(null, 0);
+      rsvpSentAtCache = new Date();
+      toast('Recorded \u2014 the RSVP has gone out.');
+      renderRsvpSentBanner();
+    }catch(err){
+      console.error('[HU] could not mark the RSVP as sent:', err);
+      toast('Could not save that \u2014 try again.');
+      markBtn.disabled = false;
+    }
+  });
+  const clearBtn = document.getElementById('rsvpSentClearBtn');
+  if(clearBtn) clearBtn.addEventListener('click', async function(){
+    if(!confirm('Mark the RSVP as NOT sent?\n\nThis only changes what this banner says. Nobody is emailed and no customer record changes.')) return;
+    clearBtn.disabled = true;
+    try{
+      await setDoc(doc(db,'settings','season'), {rsvpSentAt: null, rsvpSentCount: 0}, {merge: true});
+      rsvpSentAtCache = null;
+      renderRsvpSentBanner();
+    }catch(err){
+      console.error('[HU] could not clear the RSVP-sent mark:', err);
+      toast('Could not save that \u2014 try again.');
+      clearBtn.disabled = false;
+    }
+  });
+}
 function renderDashRsvpPanel(){
   const cardsEl = document.getElementById('dashRsvpStatCards');
   const listEl = document.getElementById('dashRsvpList');
   if(!cardsEl || !listEl) return;
+  /* Drawn from here so it cannot fall out of step with the counts underneath it —
+     the banner is what tells you how to READ those counts. */
+  renderRsvpSentBanner();
   const withPhoneOrName = (jobAddresses||[]).filter(a => a.data.name || a.data.phone);
   /* ⚠ THROUGH effectiveRsvpStatus, so an ASSUMED yes is not counted as a reply. This
      card is the number somebody would read to decide "has everyone answered yet" —
