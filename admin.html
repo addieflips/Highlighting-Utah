@@ -3529,6 +3529,24 @@
               One crew — one town a day, 20 houses
             </label>
             <div id="crewsPerDayStatus" style="font-size:12px; color:var(--slate); margin-top:7px;"></div>
+            <!-- WHO IS IN FOR THE SEASON. This decides who the scheduler is allowed
+                 to send a crew to, so it is the single most expensive setting on
+                 this page to get wrong: a stricter mode drops customers off every
+                 route, and an empty route list looks exactly like a broken
+                 scheduler rather than a setting somebody changed. That is why
+                 Preview comes first and Save is held until it has been run. -->
+            <div style="margin-top:16px; padding-top:13px; border-top:1px solid var(--line);">
+              <label for="seasonEligibilitySelect" style="font-weight:600; font-size:13px;">Who gets scheduled this season</label>
+              <div style="font-size:12px; color:var(--slate); margin:3px 0 6px;">
+                Preview always names who would be dropped before anything is saved.
+              </div>
+              <select id="seasonEligibilitySelect" style="max-width:420px; font-size:13px;"></select>
+              <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button type="button" id="seasonEligibilityPreview" class="btn-ghost" style="font-size:12.5px;">Preview the change</button>
+                <button type="button" id="seasonEligibilitySave" class="btn-ghost" style="font-size:12.5px;" disabled>Save</button>
+              </div>
+              <div id="seasonEligibilityStatus" style="font-size:12px; color:var(--slate); margin-top:8px; line-height:1.5;"></div>
+            </div>
             <div style="margin-top:14px;">
               <label for="nearbyTownsInput" style="font-weight:600; font-size:13px;">Towns close enough to share a crew</label>
               <div style="font-size:12px; color:var(--slate); margin:3px 0 6px;">
@@ -6570,6 +6588,127 @@ async function loadSchedulingSettings(){
   if(st) st.textContent = CREWS_PER_DAY === 1
     ? 'One town a day, up to 20 houses. The season runs about twice as long.'
     : 'Two towns a day, up to 20 houses each — 40 a day in total.';
+  renderSeasonEligibilityPicker();
+}
+
+/* ---------------- WHO GETS SCHEDULED — preview before save ----------------
+   ⭐ NO MODE MAY BE TURNED ON BLIND (2026-08-24). Owner: "make sure there will be
+   no errors within the season." The expensive mistake available here has already
+   happened once: on 2026-08-15 the route generator required rsvpStatus === 'yes',
+   ~945 bulk-imported houses carry a blank, and the routes came back EMPTY. Nobody
+   could see why, because an empty route list and a broken scheduler look identical
+   from the outside.
+
+   So the order is PREVIEW, then SAVE, and Save is held until a preview for the
+   mode currently in the box has actually been run. A confirm() would not do: the
+   question is not "are you sure" but "look at these 812 names and tell me whether
+   that is right", and there is nothing to look at until the audit has run.
+
+   ⚠ THE PREVIEW READS THE LIVE BOOK, not a sample — jobAddresses is already in
+   memory, so the numbers are the real ones rather than an estimate. */
+let seasonEligibilityPreviewedFor = '';
+
+function renderSeasonEligibilityPicker(){
+  const sel = document.getElementById('seasonEligibilitySelect');
+  if(!sel) return;
+  const live = getSeasonEligibility();
+  if(!sel.options.length){
+    Object.keys(SEASON_ELIGIBILITY_MODES).forEach(function(key){
+      const o = document.createElement('option');
+      o.value = key;
+      o.textContent = SEASON_ELIGIBILITY_MODES[key].label;
+      sel.appendChild(o);
+    });
+  }
+  sel.value = live;
+  seasonEligibilityPreviewedFor = '';
+  const save = document.getElementById('seasonEligibilitySave');
+  if(save) save.disabled = true;
+  const status = document.getElementById('seasonEligibilityStatus');
+  if(status) status.textContent = 'Now: ' + (SEASON_ELIGIBILITY_MODES[live] || {}).describe;
+}
+
+function seasonEligibilityPreviewText(mode){
+  const rep = seasonEligibilityAudit(jobAddresses, mode);
+  if(rep.unknownMode) return 'That mode is not one this page knows about — nothing would change.';
+  const lines = [];
+  lines.push('In the season now: ' + rep.inBefore + ' — after this change: ' + rep.inAfter + '.');
+  /* ⚠ NAMES, NOT ONLY A COUNT. "You would drop 812 customers" is a number nobody
+     can check. A handful of names is something the office recognises as wrong. */
+  if(rep.droppedCount){
+    lines.push('Would DROP ' + rep.droppedCount + ' customer(s) off the routes:');
+    rep.droppedSample.forEach(function(r){ lines.push('   • ' + r.name + ' — ' + r.why); });
+    if(rep.droppedCount > rep.droppedSample.length){
+      lines.push('   …and ' + (rep.droppedCount - rep.droppedSample.length) + ' more.');
+    }
+  } else {
+    lines.push('Nobody would be dropped.');
+  }
+  if(rep.addedCount){
+    lines.push('Would ADD ' + rep.addedCount + ' back in:');
+    rep.addedSample.forEach(function(r){ lines.push('   • ' + r.name); });
+  }
+  if(rep.droppedCount > rep.inBefore / 2 && rep.inBefore > 0){
+    lines.push('');
+    lines.push('⚠ That is more than half the season. This is what the empty-routes '
+      + 'problem looked like in 2026 — check it is really what you want before saving.');
+  }
+  return lines.join('\n');
+}
+
+function wireSeasonEligibility(){
+  const sel = document.getElementById('seasonEligibilitySelect');
+  const prev = document.getElementById('seasonEligibilityPreview');
+  const save = document.getElementById('seasonEligibilitySave');
+  const status = document.getElementById('seasonEligibilityStatus');
+  if(!sel || !prev || !save || !status) return;
+
+  /* Changing the box invalidates the preview — otherwise a preview of one mode
+     could authorise saving a different one, which is the whole guard defeated. */
+  sel.addEventListener('change', function(){
+    seasonEligibilityPreviewedFor = '';
+    save.disabled = true;
+    status.textContent = (SEASON_ELIGIBILITY_MODES[sel.value] || {}).describe
+      + '  — press Preview to see who this would move.';
+  });
+
+  prev.addEventListener('click', function(){
+    if(!jobAddresses || !jobAddresses.length){
+      /* ⚠ REFUSE RATHER THAN REPORT ZERO. With the book not loaded the audit would
+         truthfully say "nobody would be dropped", which is the most dangerous
+         sentence this screen could print. */
+      status.textContent = 'The customer list has not finished loading — open Customers first, then preview.';
+      save.disabled = true;
+      return;
+    }
+    status.textContent = seasonEligibilityPreviewText(sel.value);
+    seasonEligibilityPreviewedFor = sel.value;
+    save.disabled = false;
+  });
+
+  save.addEventListener('click', async function(){
+    if(seasonEligibilityPreviewedFor !== sel.value){
+      status.textContent = 'Preview this mode first.';
+      save.disabled = true;
+      return;
+    }
+    save.disabled = true;
+    try{
+      await setDoc(doc(db,'settings','scheduling'), {seasonEligibility: sel.value}, {merge:true});
+      setSeasonEligibility(sel.value);
+      status.textContent = 'Saved. ' + (SEASON_ELIGIBILITY_MODES[sel.value] || {}).describe
+        + '  Press ⚙ Recalculate everything on Schedule to rebuild the days around it.';
+      seasonEligibilityPreviewedFor = '';
+      toast('Season eligibility saved');
+    }catch(err){
+      /* The setting is unchanged if the write failed, so say so rather than
+         leaving the office thinking the season has been re-scoped. */
+      console.error('Could not save season eligibility:', err);
+      status.textContent = 'Could not save that — ' + (err && err.message ? err.message : 'try again')
+        + '. Nothing has changed.';
+      save.disabled = false;
+    }
+  });
 }
 /* Saved on blur rather than per keystroke: this is a list somebody types out,
    and a write per character would both cost writes and fight the cursor. */
@@ -7531,6 +7670,10 @@ function initData(){
      doing that on the default two while the office has saved one would build a
      season it then has to take apart again. */
   loadSchedulingSettings().catch(function(){});
+  /* Wired once, before the settings land — the picker fills itself in from
+     renderSeasonEligibilityPicker() when the read completes. Wiring it after the
+     await would mean a slow read leaves the buttons dead with no sign of it. */
+  wireSeasonEligibility();
   startReconcileAuto();
   loadSettings();
   loadJobAddresses();

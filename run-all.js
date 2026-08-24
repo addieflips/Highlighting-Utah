@@ -7204,6 +7204,89 @@ suite('21. Everyone is in unless they said otherwise');
     seasonRules.cameFromQuote({ rsvpStatus: 'yes', rsvpRespondedAt: said }) === false &&
     seasonRules.cameFromQuote({ rsvpStatus: '' }) === false,
     'a bulk import writes no rsvpStatus at all, so it cannot be mistaken for one');
+
+  /* ---- the audit: no mode may be flipped blind ------------------------------
+     Owner, 2026-08-24: "make sure there will be no errors within the season."
+     The audit is the thing that makes a flip safe, so it is tested against a book
+     shaped like the real one — mostly blank RSVPs, because that IS the live book. */
+  {
+    const book = [
+      { id: '1', data: { name: 'Bulk One' } },                                  // blank
+      { id: '2', data: { name: 'Bulk Two', rsvpStatus: '' } },                  // blank
+      { id: '3', data: { name: 'Replied', rsvpStatus: 'yes', rsvpRespondedAt: said } },
+      { id: '4', data: { name: 'Quoted', convertedFromQuoteAt: said } },
+      { id: '5', data: { name: 'Said No', rsvpStatus: 'no' } },                 // out in every mode
+      { id: '6', data: { name: 'Badged', maybeNextYear: true } }                // out in every mode
+    ];
+
+    const toStrict = seasonRules.seasonEligibilityAudit(book, 'confirmed-only',
+      { from: 'all-but-maybe-next-year' });
+    check('season', 'the audit counts who is in before and after',
+      toStrict.inBefore === 4 && toStrict.inAfter === 1,
+      'before/after: ' + toStrict.inBefore + '/' + toStrict.inAfter);
+    check('season', 'and names the people it would drop, not just how many',
+      toStrict.droppedCount === 3 &&
+      toStrict.dropped.every(function (r) { return !!r.name && !!r.why; }),
+      '"you would drop 812 customers" is a number nobody can check');
+    /* ⚠ SOMEBODY ALREADY OUT IS NOT "DROPPED" BY THE CHANGE. Counting them would
+       inflate the scary number with people the mode had nothing to do with, and an
+       inflated warning is one that gets waved past. */
+    check('season', 'somebody already out is not counted as dropped by the change',
+      toStrict.dropped.every(function (r) { return r.name !== 'Said No' && r.name !== 'Badged'; }) &&
+      toStrict.excludedAnyway === 2);
+
+    const toOwner = seasonRules.seasonEligibilityAudit(book, 'confirmed-or-converted',
+      { from: 'all-but-maybe-next-year' });
+    check('season', "the owner's mode keeps the replied AND the converted",
+      toOwner.inAfter === 2 && toOwner.droppedCount === 2,
+      'in: ' + toOwner.inAfter + ' dropped: ' + toOwner.droppedCount);
+    check('season', 'and the two strict modes really do differ on the converted quote',
+      toStrict.dropped.some(function (r) { return r.name === 'Quoted'; }) &&
+      toOwner.dropped.every(function (r) { return r.name !== 'Quoted'; }),
+      'this is the difference the owner asked for, asserted rather than described');
+
+    check('season', 'the reason given is in words the office can act on',
+      toOwner.dropped.every(function (r) { return /never asked|no reply|RSVP/.test(r.why); }),
+      'got: ' + JSON.stringify(toOwner.dropped.map(function (r) { return r.why; })));
+
+    /* ⚠ IT READS BOTH RECORD SHAPES. admin.html passes {id, data} in some places and
+       a bare record in others; an audit that silently read the wrong one would
+       report a confident zero, which is the single most dangerous number here. */
+    check('season', 'the audit reads a bare record as well as {id, data}',
+      seasonRules.seasonEligibilityAudit(
+        book.map(function (c) { return c.data; }), 'confirmed-only',
+        { from: 'all-but-maybe-next-year' }).droppedCount === 3);
+
+    check('season', 'an unknown mode is reported rather than silently emptying the season',
+      seasonRules.seasonEligibilityAudit(book, 'nonsense').unknownMode === true);
+    check('season', 'an empty book reports nothing rather than throwing',
+      seasonRules.seasonEligibilityAudit([], 'confirmed-only').droppedCount === 0 &&
+      seasonRules.seasonEligibilityAudit(null, 'confirmed-only').total === 0);
+  }
+}
+
+/* ---- the screen that flips it ---------------------------------------------
+   ⚠ THESE ARE STRUCTURAL, and they are the ones worth having: the audit above is
+   worthless if the button can be pressed without it. */
+{
+  const seasonUi = admin.slice(admin.indexOf('function wireSeasonEligibility'),
+                               admin.indexOf('\n}', admin.indexOf('save.disabled = false;\n    }\n  });')) + 2);
+  check('season', 'Save is disabled until a preview has been run',
+    /save\.disabled = true;/.test(seasonUi) &&
+    /seasonEligibilityPreviewedFor !== sel\.value/.test(seasonUi),
+    'a mode turned on without looking at who it drops is the 2026-08-15 bug again');
+  check('season', 'changing the dropdown invalidates the previous preview',
+    /sel\.addEventListener\('change'[\s\S]{0,220}seasonEligibilityPreviewedFor = ''/.test(seasonUi),
+    'a preview of one mode must not authorise saving a different one');
+  check('season', 'previewing an unloaded book refuses rather than reporting zero',
+    /!jobAddresses \|\| !jobAddresses\.length/.test(seasonUi),
+    '"nobody would be dropped" is the most dangerous sentence this screen can print');
+  check('season', 'a failed save says nothing changed rather than going quiet',
+    /Nothing has changed/.test(seasonUi),
+    'the office must not be left thinking the season has been re-scoped');
+  check('season', 'the picker is filled from the module, not typed into the page',
+    /Object\.keys\(SEASON_ELIGIBILITY_MODES\)/.test(admin),
+    'a hand-written option list is one that goes stale the day a mode is added');
 }
 check('season', 'the sweep decides who to strip with the SAME rule',
   /if\(isOutForSeason\(d\)\)\{/.test(admin) &&
