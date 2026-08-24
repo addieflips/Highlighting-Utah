@@ -7656,18 +7656,43 @@ function isRequote(d){
        is NOT already a customer charges the set-up fee by default, and converting
        that quote carries the answer onto the customer record.
 
-   ⚠ THE OFFICE'S OWN ANSWER ALWAYS WINS. `chargeSetupFee` set on the quote card is
-   a deliberate decision and beats the default in both directions — which is why
-   this tests `!== undefined` rather than truthiness. Reading it as a plain boolean
-   would silently re-charge every quote the office had deliberately UNticked.
+   ⭐ AND IT NEVER TICKS ITSELF (changed 2026-08-24). Owner: "we need to tick the 30
+   dollar fee it can't tick itself even if a house has a badge old."
+
+   ⚠ WHAT IT USED TO DO, AND WHY THAT WAS WRONG IN TWO DIRECTIONS AT ONCE. With no
+   answer from the office it fell back to `!existingCustomerId` — charge unless this is
+   a re-quote. But existingCustomerId is set ONLY on a re-quote raised through the
+   portal, and that is not the only way an existing customer sends a quote: one typed in
+   by hand, or raised fresh against a house already on the books, carries no such field.
+   Those people are recognisable — quoteAlreadyACustomer matches them on address plus
+   contact, and a converted quote carries convertedToCustomerAt — and this rule looked
+   at neither. So a house the card itself was flagging as an existing customer had the
+   $30 join fee ticked for it automatically.
+
+   ⚠ AND SINCE 2026-08-24 THAT FLAG ALSO MEANS "APPROVED FOR THIS SEASON", so a wrong
+   tick no longer only bills somebody $30 they do not owe — it silently answers the RSVP
+   on their behalf. Two mistakes from one default is what took it out.
+
+   ⚠ ONLY AN EXPLICIT YES. `chargeSetupFee === true` means a person ticked the box on
+   the quote card. That is still the office's answer winning — which is the whole point
+   of the field — it simply no longer invents one when nobody answered. The Add Customer
+   box has always said "Off by default" in as many words; this is the behaviour finally
+   matching its own label.
+
+   ⚠ THE COST, STATED HONESTLY: converting a genuinely new lead now needs the box
+   ticked, on the quote card or on the Add Customer form. Left unticked they are not
+   charged the join fee and they read as Pending rather than approved. That is the safe
+   direction for money — nobody is billed something nobody chose to bill them — and it
+   is visible on the Dashboard, where an over-charge quietly is not.
 
    ⚠ THIS WAS FOUR COPIES OF ONE MONEY RULE, in showAddCustomerFromQuote, in the
    quote card's own checkbox, in the card renderer and in the automatic path. Four
    copies of a rule about $30 is three chances for the card to promise one thing
-   and the invoice to do another. */
+   and the invoice to do another. All four still ask this one function, so the card,
+   the quote email and the invoice cannot tell the customer three different things. */
 function quoteChargesSetupFee(d){
   const q = d || {};
-  return q.chargeSetupFee !== undefined ? !!q.chargeSetupFee : !q.existingCustomerId;
+  return q.chargeSetupFee === true;
 }
 function quoteFolder(d){
   const stage = quoteStage(d);
