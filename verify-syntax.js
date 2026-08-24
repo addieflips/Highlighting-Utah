@@ -149,5 +149,43 @@ check('no mangled characters in any source file',
       '\n        something could not decode. Put the real character back — do not delete the line.'
     : '');
 
+/* ⭐ MIXED LINE ENDINGS IN ONE FILE (added 2026-08-24, after it happened twice in a
+   day). Every source file here is CRLF throughout; an edit that writes LF lines into
+   one leaves it mixed, and mixed is the state that causes damage quietly:
+
+     - it produced an 82,754-line pull request for a 30-line change, because git saw
+       every line as rewritten. Nothing was broken, but the diff was unreviewable and
+       it would have collided head-on with anyone else working from main.
+     - it silently broke two red-check anchors. A script searching for
+       "const addr = ...\r\n  if(!addr)" simply did not match, reported "anchor not
+       found", and the sabotage it was meant to run never ran. A verification step
+       that quietly does nothing is worse than one that fails.
+
+   ⚠ IT REPORTS THE MINORITY ENDING, not "this file is CRLF". Which convention a file
+   uses is not this check's business and has flipped before in this repo — CLAUDE.md
+   has recorded it as CRLF and as LF at different times, and both were true of some
+   checkout. What is never right is one file holding both.
+
+   ⚠ AND A FILE WITH NO NEWLINES AT ALL PASSES. Zero of each is not mixed. */
+const mixed = [];
+TEXT_FILES.forEach(file => {
+  const full = path.join(ROOT, file);
+  if (!fs.existsSync(full)) return;
+  const raw = fs.readFileSync(full, 'latin1');
+  const crlf = (raw.match(/\r\n/g) || []).length;
+  const lf = (raw.match(/\n/g) || []).length - crlf;
+  if (crlf && lf) {
+    mixed.push(file + '  ' + crlf + ' CRLF and ' + lf + ' LF — the ' +
+      (crlf < lf ? crlf + ' CRLF' : lf + ' LF') + ' line(s) are the odd ones out');
+  }
+});
+check('no file mixes CRLF and LF line endings',
+  mixed.length === 0,
+  mixed.length
+    ? mixed.join('\n        ') +
+      '\n        Normalise the whole file to whichever ending it already mostly uses.' +
+      '\n        A mixed file makes an unreviewable diff and makes text anchors fail silently.'
+    : '');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
