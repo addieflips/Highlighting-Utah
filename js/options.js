@@ -9,11 +9,25 @@
  * up without the timer. Generating them all from one list makes forgetting
  * impossible instead of something you test for. (R-001, R-003.)
  *
- * ⚠ NOT WIRED YET. As of 2026-08-21 nothing imports this file. The registry and
- * `audit()` are correct and gated in CI; §3.3 of the implementation plan — making
- * the eight artifacts actually render from it — has not been done. Until it is,
- * this file is the SPEC, and the artifacts are still hand-written. Do not assume
- * a change here reaches a screen.
+ * ⚠ WHAT "WIRED" MEANS HERE, corrected 2026-08-24. Nothing imports this file at
+ * runtime and that is now deliberate. §3.3 of the plan was for the eight artifacts
+ * to be GENERATED from this registry; that is a rewrite of every customer- and
+ * crew-facing surface at once, and it would have silently reverted decisions the
+ * owner made by hand — the build sheet prints BUNDLES rather than feet because she
+ * said so ("I don't think we need feet and bundles"), and generation would have put
+ * feet back.
+ *
+ * So the guarantee is delivered the other way round: options-audit.test.js proves
+ * every option declaring a destination REACHES the real artifact, on every surface
+ * of it, and an option added here without being wired FAILS THE BUILD. Forgetting
+ * one of eight places is impossible either way; this way the screens that were
+ * corrected by hand stay corrected. CLAUDE.md §6 asks for exactly this — a `read`
+ * rule promoted to `code`.
+ *
+ * ⚠ SO A CHANGE HERE DOES REACH A SCREEN — by failing the build until somebody
+ * makes it. Two destinations are enforced today (crewSheet, pullList, four surfaces
+ * between them); the other six are declared and not yet enforced, and adding one is
+ * a matter of naming how that surface carries each answer.
  *
  * Derived from the code, then corrected by Addie 2026-08-21. The working is in
  * docs/option-registry-draft.md; the sources of truth it was read out of are:
