@@ -3651,9 +3651,35 @@ async function runQuoteNudgeBatch(source) {
     }
 
     try {
+      /* ⭐ AN EXISTING MEMBER'S LINK CARRIES THEIR OWN PORTAL TOKEN, the same
+         &p= admin.html puts on the quote emails it sends (quotePortalParam).
+         Without it a member who follows this link and asks to change something
+         lands on a page that cannot let them in: the token in the URL is a
+         QUOTE token, and portalLookup refuses to upgrade one into a session
+         (the account takeover closed 2026-08-14). This is their real portal
+         token, mailed to the address already on their record — a login they
+         hold, not one minted from the link.
+
+         ⚠ IT IS COMPUTED HERE, ABOVE the body-building block below, because
+         run-all.js S33 lifts that block out of this file and runs it
+         SYNCHRONOUSLY to prove the office nudge and this one send the same
+         email. An await inside it stops that test from running at all. */
+      let portalParam = '';
+      try {
+        const memberRef = await quoteCustomerRef(q);
+        const memberToken = memberRef && memberRef.data ? memberRef.data.portalToken : '';
+        if (memberToken) portalParam = '&p=' + encodeURIComponent(memberToken);
+      } catch (err) {
+        /* A nudge with no &p= still works for everyone; it just costs a member
+           a sign-in. Never worth losing the email over. */
+        console.error('[HU] nudge portal-token lookup failed:', err);
+      }
       const quoteToken = q.quoteToken || '';
       const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
-      const base = 'https://highlightingutah.com/#/quote-details?token=' + quoteToken;
+      /* typeof, not a bare read: S33 evaluates the lines below on their own,
+         where portalParam does not exist. A member still gets their &p=. */
+      const base = 'https://highlightingutah.com/#/quote-details?token=' + quoteToken +
+        (typeof portalParam === 'string' ? portalParam : '');
       const price = '$' + Number(q.quotedPrice).toFixed(2).replace(/\.00$/, '');
 
       let body = templateBody;
