@@ -410,23 +410,43 @@ function check(label, ok, detail) {
             wireColor:         /wire: d\.wireColor/,
             outletTimer:       /timer: printYesNo\(d\.outletTimer\)/,
             measuredFeet:      /bundles: need/,
-            /* ⚠ AND IT IS GENUINELY NOT ON THE PRINTED SHEET — recorded, not papered
-               over. The Warehouse tab's list shows a bins column; the printed one never
-               has, through every revision of it (git log -S). So the person reading the
-               screen is told how many bins to label and the person carrying the paper is
-               not. That is a real difference between two sheets doing one job, and it is
-               the owner's call rather than mine: adding a column to a sheet she trimmed
-               herself is exactly the kind of guess this registry exists to stop.
-               ⚠ IT IS NOT SILENT. `except` makes the check say so on every run, so the
-               difference is visible until somebody decides — a missing entry would just
-               look like nobody had got to it. */
-            numberOfBins:      { except: 'the printed build sheet has no bins column; ' +
-                                 'the Warehouse tab list does. Owner to decide whether ' +
-                                 'the paper should match the screen.' },
+            /* ⭐ ASKED AND ANSWERED, 2026-08-24. The Warehouse tab's list shows a bins
+               column and the printed sheet never has, through every revision of it — so
+               the person reading the screen was told how many bins to label and the
+               person carrying the paper was not. Put to the owner rather than guessed
+               at, because adding a column to a sheet she trimmed herself is exactly what
+               this registry exists to stop. Her answer: "We want to show costumer # on
+               paper and bundles."
+
+               So the paper deliberately does NOT carry bins. The customer number is what
+               identifies the bin once it is made, and the bundle count is what somebody
+               counts off a shelf — bins is the office's sizing number and stays on the
+               screen. Recorded as a decision rather than left as a gap, so nobody
+               re-opens it; the note still prints on every run so it is never invisible. */
+            numberOfBins:      { except: 'deliberate — owner 2026-08-24: "we want to ' +
+                                 'show costumer # on paper and bundles". Bins is the ' +
+                                 'office sizing number and stays on the Warehouse tab.' },
           },
         },
       ],
     };
+
+    /* ⭐ WHAT THE PAPER MUST CARRY, in the owner's own words (2026-08-24): "we want
+       to show costumer # on paper and bundles." Neither is a registry option — the
+       customer number is an identifier rather than something a customer asks for — so
+       nothing above would notice either going missing. Asserted here because they are
+       the two things she named, and the bundle count is what somebody actually counts
+       off a shelf. */
+    const buildCols = (admin.match(/build:\s*\[([\s\S]*?)\],\s*\n/) || [])[1] || '';
+    check('the printed build sheet carries the customer number',
+      /k: 'number', label: 'Cust #'/.test(buildCols),
+      'it is what identifies the bin once the bundle is made');
+    check('and the bundle count', /k: 'bundles'/.test(buildCols),
+      'the number somebody counts off a shelf');
+    check('and deliberately not the bin count', !/k: 'bins'/.test(buildCols),
+      'bins is the office sizing number and stays on the Warehouse tab \u2014 owner, ' +
+      '2026-08-24. If this starts failing, she changed her mind and the note above ' +
+      'needs changing with it');
 
     Object.keys(SURFACES).forEach((consumer) => {
       const declared = OPTIONS.filter(o => (o.consumers || []).indexOf(consumer) !== -1);
