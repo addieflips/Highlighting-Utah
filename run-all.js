@@ -471,7 +471,15 @@ const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
    both have to come across or it throws the moment it is called. Lifted from
    the real file rather than restated here — a hand-written copy of the colour
    list would happily stay green while the app's own list moved on. */
-const whColorsFromWordsSrc = extractFn(admin, 'whColorsFromWords');
+/* ⭐ AND THE VOCABULARY COMES WITH IT (2026-08-24). whColorsFromWords reads the alias
+   table now, not just the nine full names — the import and the warehouse used to know
+   different words, so "ww" and "Warm White" were two headings for one build. The
+   dependencies are folded into this one const so every sandbox that already lifts the
+   function gets them, rather than eleven call sites each having to remember. */
+const whColorAliasSrc = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
+const whColorVocabSrc = (admin.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\n\}\)\(\);/) || [''])[0];
+const whColorsFromWordsFnSrc = extractFn(admin, 'whColorsFromWords');
+const whColorsFromWordsSrc = whColorAliasSrc + '\n' + whColorVocabSrc + '\n' + whColorsFromWordsFnSrc;
 const whLightColorsSrc = (admin.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
 /* The colour options and aliases, read out of admin.html rather than restated,
    so a change to what the app accepts as a colour reaches the tests too. */
@@ -1157,8 +1165,20 @@ if (typeof whGroupKey === 'function') {
   const empWords = extractFn(empSrc, 'whColorsFromWords');
   check('logic', 'employee.html has the colour reader admin relies on',
     !!empWords && empWords.replace(/\s+/g, ' ') ===
-      (whColorsFromWordsSrc || '').replace(/\s+/g, ' '),
+      (whColorsFromWordsFnSrc || '').replace(/\s+/g, ' '),
     'the crew portal would throw the moment it grouped a build');
+  /* ⭐ AND THE WORDS IT READS, not only the reader. Since 2026-08-24 the function is
+     the same three lines in both files and all the meaning is in the table beneath it,
+     so comparing the function alone would pass while the crew screen knew a different
+     vocabulary — which is the drift this pair of checks exists to catch. */
+  const empAlias = (empSrc.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
+  check('logic', 'employee.html knows the same colour words admin does',
+    !!empAlias && empAlias.replace(/\s+/g, ' ') === (whColorAliasSrc || '').replace(/\s+/g, ' '),
+    'ww would be Warm White in the office and its own heading on the crew screen');
+  const empVocab = (empSrc.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\n\}\)\(\);/) || [''])[0];
+  check('logic', 'and builds that vocabulary the same way',
+    !!empVocab && empVocab.replace(/\s+/g, ' ') === (whColorVocabSrc || '').replace(/\s+/g, ' '),
+    'longest-match-first and the value-as-key rule both live in there');
   const empColors = (empSrc.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
   check('logic', 'employee.html knows the same colours admin does',
     !!empColors && empColors.replace(/\s+/g, ' ') === (whLightColorsSrc || '').replace(/\s+/g, ' '),
@@ -4422,6 +4442,14 @@ if (!JSDOM) {
        above and for the same reason: the real file, module syntax stripped, never a
        stub — the claim being made is that the sheet and the registry agree. */
     eval(OPTIONS_SANDBOX_SRC());
+    /* ⭐ AND THE COLOUR ALIASES (2026-08-24). whColorsFromWords reads them now, and it
+       lives inside the slice eval'd below while the table lives hundreds of lines
+       earlier, outside it. Read out of the real file, never restated — a local copy of
+       the colour words would keep this suite green through a change to the app's. */
+    /* ⚠ var, NOT const. A const declared inside a direct eval is scoped to that eval
+       and is invisible to the slice eval'd below — the same trap OPTIONS_SANDBOX_SRC
+       already carries a note about. */
+    eval(whColorAliasSrc.replace(/^const /, 'var '));
     eval(extractFn(admin, 'whBinsForHouse') + '\n' + extractFn(admin, 'whWhoLabel') + '\n' +
       extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel') +
       /* The recycle queue sends people to the number ON THE BIN, which is not always the

@@ -388,6 +388,116 @@ if (splitter) {
 }
 
 // ---------------------------------------------------------------------------
+// ONE COLOUR VOCABULARY — THE IMPORT AND THE WAREHOUSE MUST KNOW THE SAME WORDS
+// ---------------------------------------------------------------------------
+/* ⭐ Addie, 2026-08-24: "Soft is Warm White and Warm is Warm white. Is there any other
+   colors having problems besides that" — and the audit found a bigger one than either.
+
+   ⚠ THERE WERE TWO COLOUR SYSTEMS AND THEY KNEW DIFFERENT WORDS. `rbNormalizeColors`
+   reads the master sheet through RB_COLOR_ALIASES (ww, w, warm, pure, p, pw, r, rr).
+   `whColorsFromWords`, which decides the warehouse GROUP, knew only the nine full
+   names. So a lightsDescription holding an abbreviation became its own heading,
+   verbatim: "ww" and "Warm White" were two piles for one build.
+
+   ⚠ RUN, BOTH OF THEM, AGAINST THE SAME INPUT. A check that the alias table contains a
+   key proves nothing about the side that never read the table. */
+const aliasSrc = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
+const vocabSrc = (admin.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\n\}\)\(\);/) || [''])[0];
+const whListSrc = (admin.match(/const WH_LIGHT_COLORS = \[[\s\S]*?\];/) || [''])[0];
+const rbListSrc = (admin.match(/const RB_LIGHT_COLOR_OPTIONS = \[[\s\S]*?\];/) || [''])[0];
+const haveVocab = !!(aliasSrc && vocabSrc && whListSrc && rbListSrc &&
+  fn('whColorsFromWords') && fn('whNormalizeLights') && fn('rbNormalizeColors'));
+check('the colour tables and both normalisers can be found', haveVocab,
+  'this block is the whole answer to "are any other colours having problems"');
+
+if (haveVocab) {
+  const groupOf = new Function(whListSrc + aliasSrc + vocabSrc + fn('whColorsFromWords') +
+    fn('whWireLabel') + fn('whNormalizeLights') + 'return whNormalizeLights;')();
+  const importOf = new Function(aliasSrc + rbListSrc + whListSrc + fn('rbNormalizeColors') +
+    'return rbNormalizeColors;')();
+
+  /* Every key the import understands must reach the same colour in the warehouse. */
+  const aliasKeys = Object.keys(new Function(aliasSrc + 'return RB_COLOR_ALIASES;')());
+  const disagree = aliasKeys.filter(function(k){
+    const imported = importOf(k).slice().sort().join(', ');
+    const grouped = groupOf(k).split(', ').slice().sort().join(', ');
+    return imported !== grouped;
+  });
+  check('every word the import knows, the warehouse groups the same way',
+    disagree.length === 0,
+    'two headings for one build: ' + JSON.stringify(disagree));
+
+  /* The specific ones Addie named, and the abbreviations the office actually types. */
+  [['warm', 'Warm White'], ['Warm', 'Warm White'], ['ww', 'Warm White'], ['w', 'Warm White'],
+   ['warm white', 'Warm White'], ['pure', 'Pure White'], ['p', 'Pure White'],
+   ['pw', 'Pure White'], ['r', 'Red'], ['rr', 'Red'], ['bbb', 'Blue'],
+   ['multi-colour', 'Multi'], ['multi colour', 'Multi'], ['reds', 'Red']
+  ].forEach(function(pair){
+    check('the warehouse groups "' + pair[0] + '" as ' + pair[1],
+      groupOf(pair[0]) === pair[1],
+      'got ' + JSON.stringify(groupOf(pair[0])));
+  });
+
+  /* ⚠ THE UNKNOWN-WORD GUARD IS THE HALF THAT MUST NOT BE LOST. Only a description
+     made ENTIRELY of words we know is rewritten; anything else is kept exactly as
+     typed and shows as its own heading, which somebody can see and correct. Guessing
+     would put a bundle of the wrong colour on a real house. */
+  [['Red with tinsel'], ['Green garland'], ['pur'], ['rainbow']].forEach(function(t){
+    check('"' + t[0] + '" is left exactly as typed, not guessed at',
+      groupOf(t[0]) === t[0],
+      'got ' + JSON.stringify(groupOf(t[0])));
+  });
+
+  /* ⚠ AND NORMALISING IS IDEMPOTENT. `soft(recycled)` is what the import WRITES and it
+     is not one of the nine, so the notes reader tore its brackets off and put them
+     back: "soft(recycled) (recycled)". Anything whose group heading changes when it is
+     normalised twice will drift a group at a time. */
+  ['Warm White', 'ww', 'soft', 'soft(recycled)', 'Red, Green', 'white',
+   'Warm White (every third bulb)', 'Red with tinsel'].forEach(function(t){
+    const once = groupOf(t);
+    check('re-normalising "' + t + '" gives the same answer',
+      groupOf(once) === once,
+      JSON.stringify(once) + ' became ' + JSON.stringify(groupOf(once)));
+  });
+
+  /* ⚠ LONGEST MATCH FIRST, or "warm" eats the front of "warm white" and the leftover
+     "white" comes back as a second colour — which would put every warm-white house
+     into a three-colour group. */
+  check('a longer colour name wins over a shorter one inside it',
+    groupOf('warm white') === 'Warm White' && groupOf('pure white') === 'Pure White',
+    'got ' + JSON.stringify([groupOf('warm white'), groupOf('pure white')]));
+
+  /* ⚠ AND AN ALIAS MAY BE A LIST. "white" is both, because the office ruled
+     2026-08-19 that "we really dont know" — it must spread, not land as one name
+     with a comma inside it. */
+  check('"white" still means both whites',
+    groupOf('white') === 'Pure White, Warm White',
+    'got ' + JSON.stringify(groupOf('white')));
+
+  /* ⚠ AND THE CREW PORTAL KNOWS THE SAME WORDS. Two copies of this exist by design;
+     run-all.js compares them line for line, and this runs the crew's copy to be sure
+     the comparison is about something that works. */
+  const emp = fs.readFileSync(path.join(__dirname, 'employee.html'), 'utf8');
+  const empFn = (n) => { const i = emp.indexOf('function ' + n + '('); return i === -1 ? '' : emp.slice(i, emp.indexOf('\n}', i) + 2); };
+  const empAlias = (emp.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
+  const empVocab = (emp.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\n\}\)\(\);/) || [''])[0];
+  const empList  = (emp.match(/const WH_LIGHT_COLORS = \[[\s\S]*?\];/) || [''])[0];
+  check('the crew portal has the colour vocabulary too',
+    !!(empAlias && empVocab && empList && empFn('whColorsFromWords') && empFn('whNormalizeLights')),
+    'it grouped by the nine full names alone and knew none of the abbreviations');
+  if (empAlias && empVocab && empList && empFn('whNormalizeLights')) {
+    const empGroup = new Function(empList + empAlias + empVocab + empFn('whColorsFromWords') +
+      empFn('whWireLabel') + empFn('whNormalizeLights') + 'return whNormalizeLights;')();
+    const differ = ['ww', 'w', 'warm', 'p', 'pure', 'r', 'bbb', 'white', 'soft',
+                    'Red with tinsel', 'Red, Green']
+      .filter(function(t){ return empGroup(t) !== groupOf(t); });
+    check('and groups every one of them exactly as the office does',
+      differ.length === 0,
+      'the crew screen and the office would show different piles for: ' + JSON.stringify(differ));
+  }
+}
+
+// ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
 console.log('\n=== Why a bundle is being built ===\n');
 console.log('  ' + w('', 54) + w('badge', 16) + 'wanted');

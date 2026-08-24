@@ -1158,3 +1158,57 @@ colours correctly all along.
 
 **What is still genuinely blocked** is the small real case — a house with
 nothing in either field. That page still leads the printed stack.
+
+---
+
+## Answered 2026-08-24 — the colour audit
+
+Addie: *"Soft is Warm White and Warm is Warm white. Is there any other colors
+having problems besides that"*
+
+**`warm` was already right** — it has mapped to Warm White the whole time.
+
+**The bigger problem was that there were two colour systems that knew different
+words.** The master-sheet import understood `ww`, `w`, `warm`, `pure`, `p`, `pw`,
+`r`, `rr`. The warehouse grouping understood only the nine full names. So any
+record whose description held an abbreviation became its own heading — `ww` and
+`Warm White` sat in two piles for one build. One shared vocabulary now.
+
+**Also fixed:** normalising was not idempotent. `soft(recycled)` — the value the
+import itself writes — came back as `soft(recycled) (recycled)`, because the
+reader that pulls a trailing `(note)` off a description tore its brackets apart.
+
+**Added** (each can only mean one colour): `bbb` — the table already had `rrr`
+and `ggg`, so it was disagreeing with itself; the hyphenated and British spellings
+of multi-colour; and the plurals.
+
+**Not added, deliberately** — every one of these is a guess, and a wrong colour is
+a bundle nobody can use: `pur` (Purple or Pure?), `pu`, `or` (an English word —
+"red or green" would break), `orng`, `pnk`, `blu`, `grn`, `mc`, `rainbow`,
+`clear`, `cool white`, `bright white`.
+
+⚠ An unrecognised word is **not** silently mis-assigned. The description is kept
+exactly as typed and appears as its own group heading, which somebody can see and
+correct. That is the design and it beats guessing.
+
+### Q-020 · should `soft` fold into Warm White? · intent
+
+**This is the one thing not changed, because changing it would reverse her own
+earlier instruction without her seeing the cost.**
+
+On 2026-08-19 she said: *"soft is a color we dont use anymore so we should have
+them under color: soft(recycled) so then we can find them later cause we need to
+switch their lights"*. That separate label is the only thing making those houses
+findable — there is no other flag for them.
+
+On 2026-08-24 she said: *"Soft is Warm White"*. Physically true.
+
+The trade:
+
+- **Keep `soft(recycled)`** — the twelve houses stay findable and switchable, but
+  they sit in a build group the warehouse cannot make, because `soft(recycled)`
+  is not a colour anybody stocks.
+- **Fold into Warm White** — they build correctly and immediately, and the list
+  of who still has old stock is gone for good.
+- **Both** — group and build them as Warm White, and add a separate field marking
+  the old stock so the list survives. More work, loses nothing.

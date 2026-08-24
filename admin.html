@@ -24228,11 +24228,13 @@ const RB_COLOR_ALIASES = {
   'pure':'Pure White', 'pw':'Pure White', 'purewhite':'Pure White', 'pure white':'Pure White',
   'r':'Red', 'rr':'Red', 'rrr':'Red', 'red':'Red',
   'g':'Green', 'gg':'Green', 'ggg':'Green', 'green':'Green',
-  'b':'Blue', 'bb':'Blue', 'blue':'Blue',
+  'b':'Blue', 'bb':'Blue', 'bbb':'Blue', 'blue':'Blue',
   'purple':'Purple', 'purp':'Purple',
   'o':'Orange', 'orange':'Orange',
   'pink':'Pink', 'pk':'Pink',
   'multi':'Multi', 'multicolor':'Multi', 'multicolour':'Multi', 'multi color':'Multi',
+  'multi colour':'Multi', 'multi-color':'Multi', 'multi-colour':'Multi',
+  'multicolored':'Multi', 'multicoloured':'Multi',
   /* ⭐ THE FOUR THE OFFICE HAD TO RULE ON. These sat unmapped for weeks because a
      wrong guess writes the wrong lights onto a house; the owner settled them all on
      2026-08-19.
@@ -24251,7 +24253,21 @@ const RB_COLOR_ALIASES = {
      anybody should be able to choose for a new house. */
   'p':'Pure White', 'w':'Warm White',
   'soft':'soft(recycled)', 'soft white':'soft(recycled)',
-  'white':['Warm White', 'Pure White']
+  'white':['Warm White', 'Pure White'],
+  /* ⭐ SPELLINGS FOUND MISSING BY AUDIT, 2026-08-24. Addie: "Is there any other colors
+     having problems besides that". Every one of these can mean exactly one colour, so
+     there is no guess in them — which is the ONLY reason they are here. `bbb` was the
+     table disagreeing with itself: `rrr` and `ggg` were already Red and Green.
+
+     ⚠ DELIBERATELY NOT ADDED, because each one IS a guess and a wrong colour on a
+     house is a bundle nobody can use: `pur` (Purple or Pure?), `pu`, `or` (an English
+     word — "red or green"), `orng`, `pnk`, `blu`, `grn`, `mc`, `rainbow`, `clear`,
+     `cool white`, `bright white`. An unknown word is NOT silently mis-assigned — the
+     description is kept exactly as typed and shows as its own heading, which somebody
+     can see and correct. That is the whole design and it beats guessing. */
+  'reds':'Red', 'greens':'Green', 'blues':'Blue', 'pinks':'Pink',
+  'purples':'Purple', 'oranges':'Orange',
+  'warm whites':'Warm White', 'pure whites':'Pure White'
 };
 function rbNormalizeColors(raw){
   if(!raw) return [];
@@ -31454,16 +31470,61 @@ const WH_LIGHT_COLORS = ['Warm White','Pure White','Purple','Orange','Green','Mu
    exactly as typed rather than being guessed at and quietly merged into the
    plain Red group, because those are not the same build.
    \u26a0 admin.html and employee.html each carry their own copy of this. */
+/* ⭐ ONE VOCABULARY, TWO NORMALISERS (2026-08-24). Addie: "Is there any other colors
+   having problems besides that" — and this was the answer.
+
+   ⚠ THE IMPORT AND THE WAREHOUSE KNEW DIFFERENT WORDS. `rbNormalizeColors` reads the
+   master sheet through RB_COLOR_ALIASES and understands ww, w, warm, pure, p, pw, r,
+   rr, soft. This function knew only the nine full names in WH_LIGHT_COLORS. So a
+   record whose lightsDescription held an abbreviation — anything typed by hand, or
+   bulk-imported before the pickers existed — fell straight through and became its OWN
+   heading, verbatim: "ww" and "Warm White" sat in two groups on the warehouse tab,
+   for one build, and neither said the other existed.
+
+   ⚠ THE UNKNOWN-WORD GUARD IS UNCHANGED AND IS THE POINT. Only a description made
+   ENTIRELY of words we know is rewritten; one unknown word still returns null and the
+   description is left exactly as typed. "Red with tinsel" is not the plain Red build
+   and must never be quietly merged into it.
+
+   ⚠ LONGEST MATCH FIRST, or "warm" eats the front of "warm white" and leaves
+   "white" behind as a second colour. The alias keys are sorted by length once, at
+   module load, rather than on every call — this runs per house per render.
+
+   ⚠ AN ALIAS MAY BE A LIST. "white" is Warm AND Pure, because the office ruled
+   2026-08-19 that "we really dont know" — so the result is spread, never pushed as an
+   array, which would put a comma inside one colour name.
+
+   ⚠ admin.html and employee.html each carry their own copy of this — change both. */
+const WH_COLOR_WORDS = (function(){
+  const map = {};
+  WH_LIGHT_COLORS.forEach(function(c){ map[c.toLowerCase()] = [c]; });
+  /* The import's table wins nothing it does not already agree with: every value in it
+     is a canonical name (or soft(recycled), which is deliberately not one). */
+  Object.keys(RB_COLOR_ALIASES).forEach(function(k){
+    const v = RB_COLOR_ALIASES[k];
+    map[String(k).toLowerCase()] = Array.isArray(v) ? v.slice() : [v];
+  });
+  /* ⚠ AND EVERY VALUE IS A KEY TOO, so normalising an already-normalised description
+     gives the same answer back. `soft(recycled)` is the one that needs it: it is what
+     the import WRITES, it is not one of the nine, and without this it was torn apart
+     by the notes reader below and came back as "soft(recycled) (recycled)". */
+  Object.keys(map).slice().forEach(function(k){
+    map[k].forEach(function(v){
+      const lc = String(v).toLowerCase();
+      if(!map[lc]) map[lc] = [v];
+    });
+  });
+  return {map: map, keys: Object.keys(map).sort(function(a, b){ return b.length - a.length; })};
+})();
 function whColorsFromWords(token){
   let rest = String(token || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const found = [];
   while(rest){
-    const hit = WH_LIGHT_COLORS.find(function(opt){
-      const lc = opt.toLowerCase();
-      return rest === lc || rest.indexOf(lc + ' ') === 0;
+    const hit = WH_COLOR_WORDS.keys.find(function(k){
+      return rest === k || rest.indexOf(k + ' ') === 0;
     });
     if(!hit) return null;
-    found.push(hit);
+    found.push.apply(found, WH_COLOR_WORDS.map[hit]);
     rest = rest.slice(hit.length).trim();
   }
   return found.length ? found : null;
@@ -31471,6 +31532,16 @@ function whColorsFromWords(token){
 function whNormalizeLights(text){
   const raw = String(text || '');
   if(!raw.trim()) return raw;
+  /* ⚠ THE WHOLE DESCRIPTION FIRST. The reader below pulls a trailing (...) off as a
+     NOTE — "Warm White (every third bulb)" — which is right for a note and wrong for
+     a value that simply contains brackets. soft(recycled) is exactly that, and it came
+     back as "soft(recycled) (recycled)": the brackets were stripped, the word matched
+     the alias, and the note was then put back on the end. Asking about the whole
+     string first costs one lookup and makes normalising idempotent. */
+  const whole = whColorsFromWords(raw.trim());
+  if(whole) return whole.slice().sort(function(a, b){
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  }).join(', ');
   const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
   const main  = m ? m[1].trim() : raw.trim();
   const notes = m ? m[2].trim() : '';
