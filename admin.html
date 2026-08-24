@@ -11409,8 +11409,47 @@ function renderQuoteRows(filtered){
         }
         await updateDoc(doc(db,'quotes', id), updates);
         followQuoteToItsStage(id, updates);
+        let alsoIn = '';
+        /* ⭐ APPROVING FOR THEM IS STILL THEM APPROVING (2026-08-24). Owner: "for old
+           costumers that have an extension on house or have a new address they should be
+           approved to once they approve there new quote."
+
+           ⚠ TWO DOORS, ONE ANSWER. quoteRespond has marked the customer in for the season
+           since 2026-08-19 — but only when the CUSTOMER clicks Approve. This handler wrote
+           to the quote document and nothing else, so an approval taken over the phone and
+           typed in here left them Pending: the same re-quote, approved, reading two ways
+           depending on which door it came in by. That is the shape this file keeps warning
+           about, and the office door is the one the owner actually uses.
+
+           ⚠ ONLY FOR SOMEBODY WHO IS ALREADY A CUSTOMER. A brand-new lead has no season to
+           be in yet — they join when the quote is converted, and converting is what sets
+           their new-member fee. Matched on the linked id against the LIVE list, exactly as
+           showConvertQuoteChoice does and exactly what the server's quoteCustomerRef asks:
+           never on the phone number, because 17 numbers in the real book are shared and 14
+           of those are two genuinely different households.
+
+           ⚠ BEST EFFORT, AND SAID OUT LOUD IF IT FAILS. The quote is already marked; losing
+           the whole action because the second write failed would be worse, but doing it
+           silently is how this gap stayed invisible in the first place. */
+        if(value === 'approved'){
+          const q = quotesCache.find(function(x){ return x.id === id; });
+          const linkedId = q && (q.data.convertedToCustomerId || q.data.existingCustomerId);
+          const cust = linkedId ? jobAddresses.find(function(a){ return a.id === linkedId; }) : null;
+          if(cust){
+            const seasonUpdates = seasonYesUpdates(cust.data || {}, serverTimestamp);
+            try{
+              await updateDoc(doc(db,'jobAddresses', cust.id), seasonUpdates);
+              /* The panel repaints from the cache, not from Firestore. */
+              Object.assign(cust.data, seasonUpdates, {rsvpStatus: 'yes'});
+              alsoIn = ' ' + (cust.data.name || 'They') + ' is in for the season.';
+            } catch(err){
+              console.error('[HU] marking the approver as in for the season failed:', err);
+              alsoIn = ' \u26a0 Could not mark them in for the season \u2014 set their RSVP to Yes by hand.';
+            }
+          }
+        }
         const label = value === 'approved' ? 'Marked approved.' : value === 'maybe_next_year' ? 'Marked maybe next year.' : 'Marked declined.';
-        toast(label);
+        toast(label + alsoIn);
       } catch(err){
         toast('Something went wrong — try again.');
       }
@@ -31240,6 +31279,47 @@ function cameBackBadge(d){
    one of Yes / No / Back Next Year / Unanswered / Pending, so the Dashboard's counts
    still add up to the book. Inventing a sixth bucket for assumed yeses would break
    the one property that makes a row of counts readable at a glance. */
+/* ⭐ WHAT SAYING YES DOES — THE BROWSER COPY (2026-08-24). Owner: "for old
+   costumers that have an extension on house or have a new address they should be
+   approved to once they approve there new quote."
+
+   ⚠ THIS IS THE TWIN OF seasonYesUpdates IN functions/index.js, and it exists for
+   the same reason computeInvoiceStatus does: one runs as a browser module and one
+   runs on Node inside Cloud Functions, so they cannot share a file. CHANGE ONE AND
+   CHANGE THE OTHER, IN THE SAME PUSH — season-state.test.js runs both side by side
+   and fails the build the moment they disagree. Both are called seasonYesUpdates on
+   purpose, so one grep finds both copies.
+
+   ⚠ IT IS A WHOLE ANSWER, NOT A STATUS. Writing rsvpStatus alone is what shipped
+   once and left people in the season with their lights still queued to be pulled
+   apart — in, and being taken apart, at the same time. It cancels a queued recycle,
+   re-queues the build only when the recycle actually happened, clears the office's
+   Maybe Next Year badge, and marks a rejoiner for a day.
+
+   ⚠ ts IS PASSED IN rather than read from scope, so the parity test can hand both
+   copies the same sentinel and compare what they wrote. */
+function seasonYesUpdates(oldData, ts){
+  const d = oldData || {};
+  const was = String(d.rsvpStatus || '').trim().toLowerCase();
+  const wasOut = was === 'no' || was === 'backnextyear' || d.maybeNextYear === true;
+  const updates = {
+    rsvpStatus: 'yes',
+    rsvpRespondedAt: ts(),
+    needsLightRecycle: false,
+    askSameAsLastYear: false,
+    maybeNextYear: false,
+    maybeNextYearAt: null
+  };
+  /* Only when the recycle had not started — once the warehouse owns the flag, the
+     bundle really is coming apart and a build has to be re-queued by the warehouse,
+     not guessed at here. */
+  if(was === 'no' && !d.needsLightRecycle) updates.needsLightBuild = true;
+  if(wasOut){
+    updates.needsDayAssignedAt = ts();
+    updates.cameBackThisSeasonAt = ts();
+  }
+  return updates;
+}
 function effectiveRsvpStatus(d){
   const dd = d || {};
   let said = String(dd.rsvpStatus || '').trim().toLowerCase();

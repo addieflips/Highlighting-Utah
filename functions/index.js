@@ -1509,13 +1509,13 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
    ⚠ maybeNextYearAt GOES WITH IT. It is the date the badge was raised; left behind, a
    customer reads as not-sitting-out with a date stamped for when they were. Same rule
    as the office's own un-toggle, which clears it in the same write. */
-function seasonYesUpdates(oldData) {
+function seasonYesUpdates(oldData, ts) {
   const d = oldData || {};
   const was = String(d.rsvpStatus || '').trim().toLowerCase();
   const wasOut = was === 'no' || was === 'backnextyear' || d.maybeNextYear === true;
   const updates = {
     rsvpStatus: 'yes',
-    rsvpRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+    rsvpRespondedAt: ts(),
     /* A yes CANCELS the collection their no created — see hole G in portalRsvp for why
        back next year must not, and why this is spelled out per answer. */
     needsLightRecycle: false,
@@ -1537,8 +1537,8 @@ function seasonYesUpdates(oldData) {
        this person on the next day going — and the second is the record the office
        reads, which has to outlive it or the badge disappears the moment it does any
        good. See cameBackThisSeason in admin.html. */
-    updates.needsDayAssignedAt = admin.firestore.FieldValue.serverTimestamp();
-    updates.cameBackThisSeasonAt = admin.firestore.FieldValue.serverTimestamp();
+    updates.needsDayAssignedAt = ts();
+    updates.cameBackThisSeasonAt = ts();
   }
   return updates;
 }
@@ -1567,7 +1567,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      through this door — and they are NOT symmetrical with a yes, which is why the
      branch below is spelled out answer by answer rather than shared. */
   const updates = (response === 'yes')
-    ? seasonYesUpdates(oldData)
+    ? seasonYesUpdates(oldData, () => admin.firestore.FieldValue.serverTimestamp())
     : {
         rsvpStatus: response,
         /* ⚠ THE QUESTION HAS A WAY OUT. askSameAsLastYear is set when somebody
@@ -2352,7 +2352,7 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
        very approval that put them back in. seasonYesUpdates clears it. */
     try {
       await db.collection('jobAddresses').doc(memberRef.id)
-        .update(seasonYesUpdates(memberRef.data || {}));
+        .update(seasonYesUpdates(memberRef.data || {}, () => admin.firestore.FieldValue.serverTimestamp()));
     } catch (err) {
       console.error('[HU] marking approver as in for the season failed:', err);
     }

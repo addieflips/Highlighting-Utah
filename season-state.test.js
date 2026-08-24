@@ -226,7 +226,11 @@ check('the server has one rule for what a yes does', !!yesSrc,
 
 if (yesSrc) {
   const fakeAdmin = { firestore: { FieldValue: { serverTimestamp: () => 'NOW' } } };
-  const yes = new Function('admin', yesSrc + 'return seasonYesUpdates;')(fakeAdmin);
+  /* ⚠ THE TIMESTAMP IS A PARAMETER NOW (2026-08-24), so the office copy in admin.html
+     and this one can be handed the same sentinel and compared. The fakeAdmin above is
+     still supplied because the module reads it elsewhere; only this rule takes ts. */
+  const rawYes = new Function('admin', yesSrc + 'return seasonYesUpdates;')(fakeAdmin);
+  const yes = (d) => rawYes(d, () => 'NOW');
 
   check('a yes sets the status and stamps when they answered',
     yes({}).rsvpStatus === 'yes' && yes({}).rsvpRespondedAt === 'NOW');
@@ -301,13 +305,57 @@ if (yesSrc) {
 
   /* ⭐ ALL THREE DOORS GO THROUGH IT. A helper nothing calls is the most expensive
      kind of green — this repo has shipped exactly that. */
+  /* ⚠ MATCHED WITHOUT PINNING THE ARGUMENT LIST. Both of these used to require the
+     exact call — `seasonYesUpdates(oldData)` — and both went red the moment the rule
+     took a second parameter, on a change that did not touch a single door. A check
+     that pins a spelling fails on a correct edit and passes a wrong one that keeps the
+     words; what matters here is that the door goes THROUGH the shared rule. */
   check('the RSVP link answers a yes through it',
-    /\(response === 'yes'\)\s*\n?\s*\? seasonYesUpdates\(oldData\)/.test(portalRsvp),
+    /\(response === 'yes'\)\s*\n?\s*\? seasonYesUpdates\(oldData\b/.test(portalRsvp),
     'it used to be the only door that did the whole job');
   check('and approving a quote goes through it too',
-    /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}\)\)/.test(server),
+    /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}/.test(server),
     'owner, 2026-08-22: "go with option 2" — approving a quote is a yes now, and a ' +
     'status-only write would leave them in the season AND queued for recycle');
+  /* ⭐ AND THE OFFICE DOOR, added 2026-08-24. Owner: "for old costumers that have an
+     extension on house or have a new address they should be approved to once they
+     approve there new quote." Marking a quote approved by hand is the same event as
+     the customer clicking Approve — she takes those on the phone — and until this it
+     wrote to the quote document alone, so the same approval read two different ways
+     depending on which door it came in by. */
+  /* ⚠ SCOPED TO THE HANDLER AND TO ITS GUARD, because a file-wide search for the call
+     is vacuous: a red-check that wrapped the whole block in `if(false)` left every word
+     in place and passed. What has to be true is that the write is reached WHEN THE
+     OFFICE MARKS IT APPROVED — so the guard is asserted as part of the shape, and a
+     constant condition fails it. */
+  const mkAt = admin.indexOf("list.querySelectorAll('[data-markapproval]')");
+  const mkBlk = mkAt > 0
+    ? admin.slice(mkAt, admin.indexOf('});', admin.indexOf('toast(label', mkAt)))
+    : '';
+  check('the Mark Approved handler was found', !!mkBlk,
+    'a gate that cannot find its target must FAIL, not skip');
+  check('and the office marking a quote approved goes through the shared rule',
+    /if\(value === 'approved'\)\{[\s\S]{0,2500}seasonYesUpdates\(cust\.data \|\| \{\}/.test(mkBlk),
+    'an approval taken over the phone is still an approval — leaving it on the quote ' +
+    'document alone is what left those customers Pending');
+  check('and it actually writes it to their record',
+    /updateDoc\(doc\(db,\s*'jobAddresses',\s*cust\.id\),\s*seasonUpdates\)/.test(mkBlk),
+    'computing the updates and never writing them is a silent no-op that reads as done');
+  check('and repaints the panel from the cache it just changed',
+    /Object\.assign\(cust\.data,\s*seasonUpdates/.test(mkBlk),
+    'the panel repaints from the cache, not from Firestore — without the mirror the ' +
+    'tag springs back and the office presses it again');
+  /* ⚠ AND IT FINDS THEM BY THE LINKED ID, NEVER BY THE PHONE NUMBER. 17 numbers in the
+     real book are shared and 14 of those are two genuinely different households — a
+     parent paying for a child's house. Joining on the phone would mark the WRONG
+     household in for the season off somebody else's approval, and the two would be
+     indistinguishable afterwards. Same test the server's quoteCustomerRef makes, and
+     the same one showConvertQuoteChoice already makes before it diverts. */
+  check('and it finds the customer by the linked id, not the phone',
+    /convertedToCustomerId \|\| q\.data\.existingCustomerId/.test(mkBlk) &&
+    !/seasonYesUpdates[\s\S]{0,400}\bphone\b/.test(mkBlk),
+    'a shared phone number is two households, and this repo has already duplicated ' +
+    'the whole book once by matching on one');
   /* ⚠ THE LATEST ANSWER STILL WINS, which she asked about specifically: yes then no
      is a no. The quote path only ever writes a yes, so a later no through the link or
      the office overrides it — there is no branch here that could pin somebody. */
@@ -617,6 +665,82 @@ check('badging Back Next Year clears the build but not the recycle',
   !/rsvpStatus = 'backnextyear';[\s\S]{0,1800}needsLightRecycle = false;[\s\S]{0,200}needsLightBuild = false;/.test(admin),
   'you do not build for somebody sitting the season out, and you do not cancel a ' +
   'collection that was already owed');
+
+/* ⭐ THE TWO COPIES OF "WHAT SAYING YES DOES" MUST AGREE (added 2026-08-24).
+
+   seasonYesUpdates exists TWICE — in admin.html for the office, and in
+   functions/index.js for the RSVP link and the quote-approval email — because one
+   runs as a browser module and the other on Node inside Cloud Functions, so they
+   cannot share a file. That is the same trade computeInvoiceStatus makes, and it
+   carries the same risk: the copy nobody is looking at drifts, and then the office
+   screen and the customer's own answer disagree about whether they are in the season.
+
+   ⚠ THIS RUNS BOTH, it does not read them. A regex over two function bodies proves
+   the words match, which is a weaker claim than the answers matching — and the whole
+   failure this guards against is two implementations of one rule.
+
+   ⚠ THE TIMESTAMP IS HANDED IN so both copies can be given the same sentinel. Without
+   that, every comparison fails on two different clock objects and the check would have
+   to ignore the very fields it is checking got written. */
+{
+  const bSrc = fn('seasonYesUpdates');
+  const sAt = server.indexOf('function seasonYesUpdates(');
+  const sSrc = sAt === -1 ? '' : server.slice(sAt, server.indexOf('\n}', sAt) + 2);
+  check('the season-yes rule exists on both sides', !!bSrc && !!sSrc,
+    'a rename that finds only one copy must FAIL, never skip — a gate that cannot ' +
+    'find its target reporting green is how a money bug shipped for a day');
+  if (bSrc && sSrc) {
+    const office = new Function(bSrc + 'return seasonYesUpdates;')();
+    const srv    = new Function('admin', sSrc + 'return seasonYesUpdates;')({});
+    const TS = () => '<<stamp>>';
+    /* Every shape a customer can be in when a yes arrives. The out-for-season ones
+       matter most: those are the rejoiners, and they are where the two copies have
+       the most to do. */
+    const CASES = [
+      ['never answered',            {}],
+      ['already yes',               { rsvpStatus: 'yes', rsvpRespondedAt: 1 }],
+      ['said no, nothing pulled',   { rsvpStatus: 'no' }],
+      ['said no, recycle under way',{ rsvpStatus: 'no', needsLightRecycle: true }],
+      ['back next year',            { rsvpStatus: 'backnextyear' }],
+      ['badged maybe next year',    { maybeNextYear: true }],
+      ['badged AND said no',        { rsvpStatus: 'no', maybeNextYear: true }],
+      ['unanswered',                { rsvpStatus: 'unanswered' }],
+      ['messy casing and spaces',   { rsvpStatus: '  YES  ' }],
+      ['null record',               null]
+    ];
+    let same = true, firstBad = '';
+    CASES.forEach(([name, rec]) => {
+      const a = JSON.stringify(office(rec, TS), Object.keys(office(rec, TS)).sort());
+      const b = JSON.stringify(srv(rec, TS), Object.keys(srv(rec, TS)).sort());
+      if (a !== b && !firstBad) { firstBad = name + ': office ' + a + ' vs server ' + b; }
+      if (a !== b) same = false;
+    });
+    check('and the office and the server write exactly the same thing', same,
+      firstBad || 'change one copy, change the other, in the same push');
+
+    /* ⚠ AND IT IS RIGHT, NOT MERELY EQUAL. Two copies wrong in the same way agree
+       perfectly, which is the one thing a parity test cannot see on its own. */
+    const back = office({ rsvpStatus: 'no' }, TS);
+    check('a yes over a no cancels the recycle and re-queues the build',
+      back.rsvpStatus === 'yes' && back.needsLightRecycle === false &&
+      back.needsLightBuild === true && !!back.needsDayAssignedAt,
+      'their set was never pulled apart, so it has to be built again — and they need ' +
+      'a day, or they are back in the season with nowhere to go');
+    const started = office({ rsvpStatus: 'no', needsLightRecycle: true }, TS);
+    check('but not when the warehouse had already started', !('needsLightBuild' in started),
+      'once the flag is the warehouse\'s, the bundle really is coming apart — ' +
+      'guessing a build here is how two bins end up wearing one number');
+    const plain = office({}, TS);
+    check('and a yes from somebody who never said anything moves no flags',
+      !('needsLightBuild' in plain) && !('needsDayAssignedAt' in plain) &&
+      !('cameBackThisSeasonAt' in plain),
+      'they were never out, so there is nothing to undo — writing a rejoin stamp on ' +
+      'every yes badges ~960 people as having come back from somewhere');
+    check('and every yes clears the office badge',
+      plain.maybeNextYear === false && plain.maybeNextYearAt === null,
+      'owner 2026-08-22: "we shouldn\'t have to clear a badge to get someone updated"');
+  }
+}
 
 // ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };

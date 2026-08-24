@@ -22269,7 +22269,12 @@ suite('Suite 110. Approving it for them, with no email');
      CAN be sent and then approved over the phone, and that is the same override. */
   {
     const at = admin.indexOf("list.querySelectorAll('[data-markapproval]')");
-    const blk = at > 0 ? admin.slice(at, admin.indexOf('});', admin.indexOf('toast(label)', at))) : '';
+    /* ⚠ ANCHORED ON `toast(label` WITHOUT THE CLOSING BRACKET. It was `toast(label)`,
+       and adding one word to that line (`toast(label + alsoIn)`) made indexOf return
+       -1, which slices from the wrong place and failed FOUR checks that had nothing to
+       do with the change. An extraction anchor should be the shortest thing that is
+       still unique. */
+    const blk = at > 0 ? admin.slice(at, admin.indexOf('});', admin.indexOf('toast(label', at))) : '';
     check('S110', 'the Mark Approved handler was found', !!blk);
     check('S110', 'pressing Mark Approved records that the office answered',
       /approvedByOffice = true/.test(blk) && /approvedByOfficeAt/.test(blk),
@@ -26106,7 +26111,7 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
       'the blank-only guard was removed on purpose — restoring it silently undoes ' +
       'the owner\'s decision');
     check('S70', 'and it goes through the shared yes rule, not its own write',
-      /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}\)\)/.test(seasonBlock),
+      /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}/.test(seasonBlock),
       'a status-only write leaves them in the season AND queued for recycle');
 
     check('S70', 'and only ever for somebody who is already a customer',
