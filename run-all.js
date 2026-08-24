@@ -2064,6 +2064,118 @@ check('flow', 'quote is closed when converted to a customer',
    ⚠ AND THE OLD RULE SURVIVES WHERE IT WAS ALWAYS RIGHT: a customer TYPED into the Add
    Customer form is not a conversion, and still gets a blank. Both halves are asserted
    below, so restoring either position wholesale fails. */
+/* ⭐ A "NEW CUSTOMER" FILTER IN ALL CUSTOMERS (added 2026-08-24). Owner, on somebody
+   marked with the fee who is not actually new: "this would be a problem since they
+   aren't a new member."
+
+   ⚠ THE WIRING IS THE POINT, and this file already records why: allCustFilterLights
+   shipped in the markup, was left out of the listener list, and had no listener
+   anywhere — a filter you could set that did nothing at all, which looks identical to
+   a filter that found no matches. Every one of these checks exists because that
+   happened. */
+{
+  const has = (id) => new RegExp('id="' + id + '"').test(admin);
+  check('flow', 'the New customer filter is in the All Customers panel',
+    has('allCustFilterNewMember'),
+    'the only other place to see this list is inside Preview & Send, which needs a ' +
+    'template chosen and resets itself when that template is an RSVP');
+  /* ⚠ IN THE LISTENER LIST, or it renders and does nothing. */
+  check('flow', 'and it is wired to redraw the table',
+    /'allCustFilterLights','allCustFilterNewMember','allCustFilterEmail'/.test(admin),
+    'allCustFilterLights shipped without a listener once — a filter you can set that ' +
+    'does nothing looks exactly like a filter that found nobody');
+  /* ⚠ AND CLEARED BY Clear filters, or a filter left set makes the list mysteriously
+     short later — the same note the pin filter carries. */
+  check('flow', 'and Clear filters resets it',
+    /clrNewMem[\s\S]{0,120}value = 'all';/.test(admin),
+    'a filter left silently applied is why Clear filters resets every select');
+  /* ⚠ AND IT ASKS audienceIsNew — the SAME predicate the email audience and the
+     nightly billing use. A second definition of "new customer" here would let this
+     list disagree with who actually gets charged, which is the whole thing it is for. */
+  const tableSrc = (function(){
+    const at = admin.indexOf('function renderAllCustomersTable(');
+    if (at === -1) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  })();
+  check('flow', 'the customers table was found', !!tableSrc,
+    'a gate that cannot find its target must FAIL, never skip');
+  check('flow', 'and the filter asks the same question as the billing',
+    /rows = allCustNewMemberRows\(rows, newMemFilter\);/.test(tableSrc) &&
+    /function allCustNewMemberRows[\s\S]{0,300}audienceIsNew\(/.test(admin),
+    'a second definition of "new customer" here would let this list disagree with ' +
+    'who actually gets charged the $30');
+  /* ⚠ AND IT MAKES NO GUESS ABOUT WHO IS "REALLY" NEW. The only signal for that is a
+     date, and the bulk import stamped ~945 records with the same one — the enrolment-
+     year mistake this flag exists to replace. */
+  check('flow', 'and it guesses nothing from a date',
+    !/createdAt/.test(extractFn(admin, 'allCustNewMemberRows') || 'createdAt'),
+    'a date cannot tell a bulk-added customer from a real one, which is the ' +
+    '~945-person overcharge in a new shape');
+  /* ⚠ RUN, not read — and RUN THE REAL ONE. The first version of these three checks
+     built its own copy of the filter from a string, so a red-check that broke the
+     shipped filter left them green: they were testing the test. allCustNewMemberRows
+     is lifted out of admin.html now, which is also why it is a named function there. */
+  const filt = new Function(
+    extractFn(admin, 'audienceIsNew') + extractFn(admin, 'allCustNewMemberRows') +
+    ';return allCustNewMemberRows;')();
+  const book = [{d:{chargeNewMemberFee:true}}, {d:{chargeNewMemberFee:false}}, {d:{}}];
+  check('flow', 'New this year lists exactly the flagged customers',
+    filt(book, 'new').length === 1);
+  check('flow', 'and Returning lists exactly everybody else',
+    filt(book, 'returning').length === 2);
+  check('flow', 'and Any lists the whole book',
+    filt(book, 'all').length === 3,
+    'the two halves must partition the book, or a customer is in neither list');
+}
+
+/* ⭐ THE JOIN FEE IS CALLED THE SAME THING ON EVERY INVOICE SURFACE (added
+   2026-08-24). Owner: "if it is currently called new member fee in invoice can we
+   rename it installation fee?"
+
+   ⚠ THE LINE EXISTS IN THREE PLACES AND NOTHING GUARDED THEM. The nightly invoice
+   email is built on the server (functions/index.js) and previewed in the browser
+   (admin.html) from two separate copies of the same sentence, and the invoice DOCUMENT
+   builds its own row. Renaming it touched all three and the whole suite stayed green,
+   which is the same shape as the money-parity problem: the office reads the preview,
+   the customer reads the real one, and nobody finds out they disagree.
+
+   ⚠ COMPARED BY LABEL, not by raw text. The server writes the amount into the string
+   ('... = $30.00') and the browser builds it with fmtMoney(30), so the two lines are
+   deliberately not byte-identical — what has to match is what the customer reads. */
+{
+  const feeLabel = (src) => {
+    const m = /newMemberLine = isNewMember \? \(?'([^']*)'/.exec(src);
+    return m ? m[1].split('=')[0].trim() : '';
+  };
+  const office = feeLabel(admin);
+  const server = feeLabel(fnsSrc);
+  check('flow', 'the join fee line was found on both sides', !!office && !!server,
+    'a rename that hides this line from the check must FAIL, not skip — office "' +
+    office + '", server "' + server + '"');
+  check('flow', 'and the office preview and the real invoice call it the same thing',
+    !!office && office === server,
+    'office says "' + office + '", the emailed invoice says "' + server + '" — the ' +
+    'office reads the preview and the customer reads the real one');
+  /* ⚠ AND THE INVOICE DOCUMENT TOO, which is a third builder with its own row and was
+     renamed in the same pass. A customer who opens the printable invoice and the
+     emailed one should not see two different names for one charge. */
+  const docRow = (/row\('([^']*)', '\$30'\)/.exec(admin) || [])[1] || '';
+  check('flow', 'and the printable invoice document matches them',
+    !!docRow && docRow.split('=')[0].trim() === office,
+    'the document says "' + docRow + '", the email says "' + office + '"');
+  /* ⚠ AND THE OLD NAME IS GONE FROM ALL THREE. Owner renamed it deliberately; a copy
+     left behind is the one a customer happens to read. */
+  check('flow', 'and the old name is not left on any of them',
+    !/New member installation fee/.test(admin) && !/New member installation fee/.test(fnsSrc),
+    'a rename that reaches two surfaces out of three is how one customer gets an ' +
+    'invoice that does not match their email');
+}
+
 /* ⭐ ONE ROW PER HOUSE IN CONVERTED & CLOSED (2026-08-24). Owner: "every house should
    only come up once in coverted & closed. For example we had to requote Ashley Wray
    twice but she is on there twice. So until they approve it it should not come up in
