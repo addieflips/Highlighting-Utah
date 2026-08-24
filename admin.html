@@ -12530,6 +12530,9 @@ function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
    checks for it were passing against a reimplementation in the test file rather than
    against this code, so sabotaging the real filter changed nothing. Lifted out, the
    suite runs the thing that actually ships. */
+/* Null until the table has drawn once — the export renders first rather than falling
+   back to the whole book, because silently exporting everybody is the bug being fixed. */
+let allCustVisibleRows = null;
 function allCustNewMemberRows(rows, mode){
   if(mode === 'new') return rows.filter(function(r){ return audienceIsNew(r.d); });
   if(mode === 'returning') return rows.filter(function(r){ return !audienceIsNew(r.d); });
@@ -33973,6 +33976,11 @@ function renderAllCustomersTable(){
   }
   if(dateStart) rows = rows.filter(r => r.enrolled && r.enrolled >= dateStart);
   if(dateEnd) rows = rows.filter(r => r.enrolled && r.enrolled <= dateEnd);
+  /* ⭐ WHAT THE TABLE IS ACTUALLY SHOWING (added 2026-08-24), so Export to Excel can
+     hand over the list on screen rather than the whole book. Set here, AFTER every
+     filter and BEFORE the empty-list return below — filtering down to nobody must
+     export nobody, not the previous filter's rows. */
+  allCustVisibleRows = rows;
   rows.sort(function(a,b){
     let av, bv;
     if(allCustSortCol === 'enrolled'){ av = a.enrolled||''; bv = b.enrolled||''; }
@@ -35892,22 +35900,41 @@ document.querySelectorAll('#allCustTable [data-sortcol]').forEach(function(th){
   });
 });
 document.getElementById('allCustExportBtn').addEventListener('click', function(){
-  const rows = jobAddresses.map(function(item){
+  /* ⭐ EXPORTS WHAT IS ON SCREEN (changed 2026-08-24). It used to map over the whole of
+     jobAddresses and ignore every filter — so filtering down to twelve people and
+     pressing Export handed back all ~1,000 rows with nothing to say it had. A filter
+     panel and an export button side by side is a promise; this keeps it.
+
+     ⚠ RENDERS FIRST if the table has never drawn, rather than falling back to the whole
+     book. That fallback IS the bug. */
+  if(!allCustVisibleRows) renderAllCustomersTable();
+  const rows = (allCustVisibleRows || []).map(function(r){
+    const item = r.item;
     const d = item.data;
-    const inv = allCustInvoiceFor(item);
+    const inv = r.inv;
     const invStatus = inv ? computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees) : 'No Invoice';
     return {
       Name: d.name||'', Phone: d.phone||'', Email: d.email||'', Address: d.address||'', 'Customer #': d.customerNumber||'',
       Enrolled: memberExportDateAdded(d), 'Route Status': allCustRouteStatus(d), Difficulty: d.difficulty||'Unrated',
       'Invoice Status': invStatus, 'Invoice Total': inv ? ((inv.data.install||0)+(inv.data.removal||0)+(inv.data.changeFees||0)) : '',
       'Paid So Far': inv ? (inv.data.deposit||0) : '', 'Balance Due': inv ? balanceDueAmount(inv.data) : '',
-      'Has Layout Map': d.layoutMapUrl ? 'Yes' : 'No'
+      'Has Layout Map': d.layoutMapUrl ? 'Yes' : 'No',
+      /* ⚠ THE $30 IS A COLUMN NOW. It is the one charge decided by a tick box rather
+         than by the footage, so it is the one somebody needs to audit — and until this
+         it appeared nowhere in the export at all. Same predicate as the billing, so the
+         spreadsheet cannot disagree with the invoice. */
+      'Installation Fee': audienceIsNew(d) ? 'Yes ($30)' : ''
     };
   });
+  if(!rows.length){ toast('Nothing to export \u2014 no customers match the filters.'); return; }
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'All Customers');
   XLSX.writeFile(wb, 'all-customers-'+toDateStr(new Date())+'.xlsx');
+  /* ⚠ SAYS HOW MANY. The failure being fixed is an export quietly not matching the
+     screen, and a count is what makes that visible either way. */
+  toast('Exported ' + rows.length + ' customer' + (rows.length === 1 ? '' : 's') +
+        (rows.length < (jobAddresses || []).length ? ' (the filtered list)' : '') + '.');
 });
 /* ⚠ endPoint IS OPTIONAL AND MUST STAY OPTIONAL. Every existing caller passes
    two arguments and gets exactly the open-ended route it got before; only a
