@@ -7694,6 +7694,80 @@ function quoteChargesSetupFee(d){
   const q = d || {};
   return q.chargeSetupFee === true;
 }
+/* ⭐ ONE ROW PER HOUSE IN CONVERTED & CLOSED (added 2026-08-24). Owner: "every house
+   should only come up once in coverted & closed. For example we had to requote Ashley
+   Wray twice but she is on there twice."
+
+   ⚠ EVERY CLOSED QUOTE IS ITS OWN DOCUMENT, which is right — a re-quote is a new
+   question and closing it is how it stops being asked. But the folder listed the
+   documents, so a house re-quoted twice appeared three times: the original conversion
+   and one row per applied re-quote. Read down the list, that looks like three houses.
+
+   ⚠ NOTHING IS DELETED AND NOTHING IS HIDDEN SILENTLY. The newest row for a house is
+   the one shown, the older ones are counted on it, and every one of them is still in
+   the collection and still reachable. "Automatic is fine, invisible is not" applies
+   here as much as anywhere — a row that just disappears is one nobody can check.
+
+   ⚠ AND UNAPPROVED RE-QUOTES ARE NOT IN THIS FOLDER AT ALL, which is the other half of
+   what she asked for. The only two writes of status:'closed' are converting a quote and
+   applying a re-quote, and both require an approval first — quoteStage cannot reach the
+   convert stage without approvalStatus 'approved'. An open re-quote sits in Re-quotes.
+   Asserted rather than assumed, because "it should not come up until they approve it"
+   is a rule whether or not it is currently being broken. */
+function quoteHouseKey(d){
+  const q = d || {};
+  /* The linked customer is the strongest answer and it survives a move: somebody who
+     changed address has two different addresses across their quotes and one id. */
+  const linked = q.convertedToCustomerId || q.existingCustomerId || '';
+  if(linked) return 'c:' + linked;
+  /* ⚠ ADDRESS **AND** CONTACT, NEVER CONTACT ALONE — the same rule quoteAlreadyACustomer
+     is built on. 17 phone numbers in the real book are shared and 14 of those are a
+     parent and a child at two different houses; keying on the phone would collapse two
+     genuinely different houses into one row and hide one of them. */
+  const addr = quoteMatchAddress(q.address);
+  if(!addr) return '';
+  const phone = String(q.phone || '').replace(/\D/g, '');
+  if(phone) return 'a:' + addr + '|p' + phone;
+  const em = String(q.email || '').trim().toLowerCase();
+  return em ? 'a:' + addr + '|e' + em : '';
+}
+/* When a closed quote happened, for picking the newest of a house's rows. Falls back
+   through every date a closed quote can carry, then to 0 — a row with no date at all
+   sorts oldest, which keeps it visible behind a dated one rather than beating it. */
+function quoteClosedAt(d){
+  const q = d || {};
+  const t = q.convertedToCustomerAt || q.quoteArchivedAt || q.quoteRespondedAt || q.createdAt;
+  if(!t) return 0;
+  if(typeof t.toMillis === 'function') return t.toMillis();
+  if(typeof t.seconds === 'number') return t.seconds * 1000;
+  const n = new Date(t).getTime();
+  return isNaN(n) ? 0 : n;
+}
+/* How many OLDER closed quotes each shown row is standing in for, by quote id.
+   Rebuilt on every render of the closed folder — a stored count would be right on the
+   day it was written and wrong after the next re-quote. */
+let quoteEarlierForHouse = new Map();
+function collapseClosedByHouse(items){
+  quoteEarlierForHouse = new Map();
+  const best = new Map();
+  const loose = [];
+  (items || []).forEach(function(item){
+    const key = quoteHouseKey(item.data);
+    /* ⚠ A QUOTE WE CANNOT PLACE IS SHOWN, NOT SWALLOWED. No linked customer and no
+       address means we cannot say whose house it is, and guessing would hide a real
+       record. Being listed twice is a nuisance; disappearing is a bug. */
+    if(!key){ loose.push(item); return; }
+    const held = best.get(key);
+    if(!held || quoteClosedAt(item.data) > quoteClosedAt(held.data)) best.set(key, item);
+  });
+  const kept = Array.from(best.values());
+  kept.forEach(function(item){
+    const key = quoteHouseKey(item.data);
+    const n = (items || []).filter(function(x){ return quoteHouseKey(x.data) === key; }).length - 1;
+    if(n > 0) quoteEarlierForHouse.set(item.id, n);
+  });
+  return kept.concat(loose);
+}
 function quoteFolder(d){
   const stage = quoteStage(d);
   if(stage === 'closed') return 'closed';
@@ -8621,6 +8695,13 @@ function renderQuotesList(){
      address that comes back years later still has its history. */
   if(quoteStageFilter === 'closed'){
     filtered = filtered.filter(item => showArchivedQuotes ? !!item.data.quoteArchived : !item.data.quoteArchived);
+    /* ⚠ COLLAPSED AFTER the archived split, not before. Archived and converted are two
+       different lists shown by the same tab, and collapsing across them would let an
+       archived no-thank-you hide the conversion that came after it — or the other way
+       round, depending on the dates. Each list gets one row per house, on its own. */
+    filtered = collapseClosedByHouse(filtered);
+  } else {
+    quoteEarlierForHouse = new Map();
   }
   if(!filtered.length){
     const emptyMsg = {
@@ -10458,7 +10539,12 @@ function renderQuoteRows(filtered){
              addCustFromQuoteId above, but not showing the button at all is
              the fix a person would actually notice). */
           : (d.convertedToCustomerAt
-              ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+'</span>'
+              /* ⚠ AND IT SAYS WHAT IT IS STANDING IN FOR. This row is the newest closed
+                 quote for its house and the older ones are not listed beside it any
+                 more, so the count has to be on the card: a list that quietly shows one
+                 of three is indistinguishable from a list that lost two. */
+              ? '<span class="rtext" style="margin-right:6px; color:#2E6B3E; font-weight:600; font-size:11.5px;">&#10003; Converted'+(d.convertedToCustomerAt ? ' &mdash; '+fmtDate(d.convertedToCustomerAt) : '')+
+                  (quoteEarlierForHouse.get(item.id) ? ' <span style="color:var(--slate); font-weight:600;">&middot; '+quoteEarlierForHouse.get(item.id)+' earlier quote'+(quoteEarlierForHouse.get(item.id)===1?'':'s')+' for this house</span>' : '')+'</span>'
               /* ⭐ A RE-QUOTE UPDATES SOMEBODY; IT DOES NOT CONVERT THEM. Owner, 2026-08-21,
                  looking at a popup headed "Update Test" that she had reached by pressing
                  Convert to Customer: "I think the issue might be that its converting them

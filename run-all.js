@@ -1998,6 +1998,100 @@ check('flow', 'quote is closed when converted to a customer',
    ⚠ AND THE OLD RULE SURVIVES WHERE IT WAS ALWAYS RIGHT: a customer TYPED into the Add
    Customer form is not a conversion, and still gets a blank. Both halves are asserted
    below, so restoring either position wholesale fails. */
+/* ⭐ ONE ROW PER HOUSE IN CONVERTED & CLOSED (2026-08-24). Owner: "every house should
+   only come up once in coverted & closed. For example we had to requote Ashley Wray
+   twice but she is on there twice. So until they approve it it should not come up in
+   coverted and closed."
+
+   ⚠ RUN, NOT READ. Which rows survive a collapse is the entire question, and a regex
+   over the function proves only that words are present. */
+{
+  const houseKey = new Function('quoteMatchAddress',
+    'return ' + extractFn(admin, 'quoteHouseKey') + ';quoteHouseKey')(
+    (a) => String(a == null ? '' : a).toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim());
+  const collapse = new Function('quoteHouseKey', 'quoteClosedAt',
+    'let quoteEarlierForHouse = new Map();' + extractFn(admin, 'collapseClosedByHouse') +
+    ';return {run: collapseClosedByHouse, counts: () => quoteEarlierForHouse};')(
+    houseKey,
+    new Function('return ' + extractFn(admin, 'quoteClosedAt') + ';quoteClosedAt')());
+
+  const q = (id, data) => ({id: id, data: data});
+  const T = (ms) => ({toMillis: () => ms});
+
+  /* Ashley: an original conversion plus two applied re-quotes, all against the same
+     customer record — exactly the three rows the owner was looking at. */
+  const ashley = [
+    q('a1', {convertedToCustomerId: 'cAsh', convertedToCustomerAt: T(1000), name: 'Ashley Wray'}),
+    q('a2', {existingCustomerId: 'cAsh', convertedToCustomerAt: T(2000), name: 'Ashley Wray'}),
+    q('a3', {existingCustomerId: 'cAsh', convertedToCustomerAt: T(3000), name: 'Ashley Wray'})
+  ];
+  const outA = collapse.run(ashley);
+  check('flow', 'a house re-quoted twice shows once in Converted & Closed',
+    outA.length === 1,
+    'owner: "we had to requote Ashley Wray twice but she is on there twice"');
+  check('flow', 'and it is the most recent one that is kept',
+    outA.length === 1 && outA[0].id === 'a3',
+    'the newest is the one that describes where that house actually stands');
+  /* ⚠ COUNTED ON THE CARD. A list quietly showing one of three is indistinguishable
+     from a list that lost two. */
+  check('flow', 'and the card says how many earlier ones it stands for',
+    collapse.counts().get('a3') === 2,
+    'nothing is deleted and nothing is hidden silently');
+
+  /* ⚠ TWO HOUSES ON ONE PHONE ARE TWO HOUSES. 17 numbers in the real book are shared
+     and 14 of those are a parent and a child at different addresses — keying on the
+     contact alone would show one of them and hide the other. */
+  const shared = [
+    q('p1', {address: '12 Main St, Lehi, UT', phone: '(801) 555-0123', convertedToCustomerAt: T(1000)}),
+    q('p2', {address: '99 Other Rd, Lehi, UT', phone: '801-555-0123', convertedToCustomerAt: T(2000)})
+  ];
+  check('flow', 'but a parent and child sharing a phone stay two rows',
+    collapse.run(shared).length === 2,
+    'this is the mistake that has duplicated and hidden records in this book before');
+
+  /* ⚠ AND THE SAME HOUSE ON ONE PHONE IS ONE ROW, however the number was typed. */
+  const sameHouse = [
+    q('s1', {address: '12 Main St, Lehi, UT', phone: '(801) 555-0123', convertedToCustomerAt: T(1000)}),
+    q('s2', {address: '12 Main  St., Lehi, UT', phone: '8015550123', convertedToCustomerAt: T(2000)})
+  ];
+  check('flow', 'and one house quoted twice collapses however the address was typed',
+    collapse.run(sameHouse).length === 1,
+    'the office types an address differently every time — that must not make two houses');
+
+  /* ⚠ A ROW WE CANNOT PLACE IS SHOWN, NEVER SWALLOWED. */
+  const loose = [
+    q('l1', {convertedToCustomerAt: T(1000)}),
+    q('l2', {convertedToCustomerAt: T(2000)})
+  ];
+  check('flow', 'a quote with no house we can identify is still listed',
+    collapse.run(loose).length === 2,
+    'being listed twice is a nuisance; disappearing is a bug');
+
+  /* ⚠ AND THE COUNTS DO NOT SURVIVE INTO THE NEXT RENDER. */
+  collapse.run(ashley);
+  collapse.run([q('z1', {convertedToCustomerId: 'cZ', convertedToCustomerAt: T(1)})]);
+  check('flow', 'and the earlier-count is rebuilt every render, not accumulated',
+    collapse.counts().size === 0,
+    'a stored count is right on the day it is written and wrong after the next re-quote');
+}
+/* ⚠ AND AN UNAPPROVED RE-QUOTE IS NOT IN THAT FOLDER AT ALL — the other half of what
+   she asked for. Only two writes put status:'closed' on a quote, and both are a
+   conversion; quoteStage cannot reach the convert stage without approvalStatus
+   'approved'. Asserted rather than assumed: "it should not come up until they approve
+   it" is a rule whether or not anything is currently breaking it. */
+/* ⚠ AND THE FOLDER ACTUALLY CALLS IT. A collapse nothing calls is the most expensive
+   kind of green — the list renders exactly as it always did and every behavioural check
+   above still passes, because they run the function directly. Scoped to the closed
+   branch so it cannot be satisfied by the declaration alone. */
+check('flow', 'and the Converted & Closed folder runs the collapse',
+  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
+  'unwired, every house is listed once per closed quote exactly as before');
+check('flow', 'nothing closes a quote except converting it',
+  (admin.match(/status: 'closed'/g) || []).length === 2 &&
+  /status: 'closed', convertedToCustomerAt/.test(admin),
+  'a third way to close a quote would put unapproved re-quotes into Converted & ' +
+  'Closed, which is exactly what the owner asked not to happen');
+
 check('flow', 'converting a quote marks them in for the season',
   /rsvpStatus: addCustFromQuoteId \? 'yes' : ''/.test(admin),
   'owner: "if i convert or apply requote than it should be yes" — converting is ' +
