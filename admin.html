@@ -6681,6 +6681,7 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              moment the new season empties the plan, and the placer would drop the
              whole book onto the earliest days one at a time instead of letting the
              builder lay it out by town. */
+          needsDayAssignedAt: null,
           rejoinedForSeasonAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
@@ -17149,6 +17150,25 @@ function isOutForSeason(d){
      status alone. Two places answering "is this customer confirmed" two ways is how
      the office and the crew end up holding different lists. */
   if(SEASON_ELIGIBILITY === 'confirmed-only'){
+    /* ⭐ A NEW HANG IS IN WITHOUT A REPLY (added 2026-08-22). Owner: "once a quote gets
+       converted to costumer that is approved."
+
+       ⚠ WITHOUT THIS, FLIPPING THE SWITCH WOULD SILENTLY DELETE EVERY NEW CUSTOMER
+       FROM THE SEASON — the newest, most recently sold ones. They have no
+       rsvpRespondedAt because WE NEVER ASK THEM: choosing an RSVP template sets the
+       audience to Returning precisely so "will you be getting lights hung AGAIN this
+       year?" never reaches somebody who has not had them once. Requiring an answer to
+       a question we deliberately never send is a test nobody can pass.
+
+       ⚠ IT IS THE SAME PREDICATE THE RSVP AUDIENCE USES. audienceIsNew is what takes
+       them out of the send; asking it here is what makes the two halves agree. A second
+       copy of "is this a new customer" is how the send list and the season list start
+       disagreeing about the same person.
+
+       ⚠ AND AN ANSWER STILL OUTRANKS IT. The no / back next year / maybeNextYear checks
+       above return before this line, so a new hang who says no is still out. This only
+       covers somebody who has said nothing because nothing was asked. */
+    if(typeof audienceIsNew === 'function' && audienceIsNew(d)) return false;
     return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
   }
   return false;
@@ -18360,6 +18380,28 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          changes is that they now show as Pending — nobody has asked them — which is
          true, and they fall into the RSVP audience so they will be. */
       rsvpStatus: '',
+      /* ⭐ AND THEY GET A DAY WITHOUT WAITING FOR A BUTTON (added 2026-08-22). Owner:
+         "The new costumer should be assigned to and scheduled our right away when
+         we'll be in that city."
+
+         ⚠ UNTIL NOW THE ONLY ROUTE ONTO A DAY WAS ⚙ Recalculate everything. A customer
+         converted this afternoon sat on no day until somebody pressed it — which is the
+         complaint that produced customersMissingFromSeason in the first place, and it
+         only solved the half where the button IS pressed.
+
+         ⚠ "WHEN WE'LL BE IN THAT CITY" IS THE RULE, and nextInstallDayFor already
+         answers it: a day already working their town wins, and only failing that a day
+         still under the town limit. If neither exists it places nobody and says so
+         rather than dropping one house in a town no crew is driving to.
+
+         ⚠ STAMPED FOR A MANUAL ADD TOO, not just a conversion. This is the same form;
+         a customer typed in by hand is exactly as unscheduled as a converted one, and
+         a rule that treated them differently would be arbitrary.
+
+         ⚠ IT IS AN INSTRUCTION, NOT A LABEL — the placer clears it once they have a
+         day. Left standing it would fire again after Start New Season, when the plan
+         is empty, and dribble the whole book onto the earliest days one at a time. */
+      needsDayAssignedAt: serverTimestamp(),
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
       /* ⭐ EVERY NEW HOUSE NEEDS A SET BUILT, WHETHER OR NOT ITS COLOURS ARE KNOWN YET.
@@ -26627,7 +26669,7 @@ let dashRsvpFilterPayment = 'all';
 /* ⭐ DID THEY CHANGE THEIR MIND THIS SEASON (added 2026-08-22). Owner, told the
    rejoin marker was invisible: "I thought this was already visable."
 
-   ⚠ TWO FIELDS, AND THEY ARE NOT THE SAME FACT. `rejoinedForSeasonAt` is an
+   ⚠ TWO FIELDS, AND THEY ARE NOT THE SAME FACT. `needsDayAssignedAt` is an
    INSTRUCTION to the planner — put this person on the next day going — and it is
    consumed: placeRejoinersOnNextDay clears it the moment they have one, which is what
    stops the whole book being dribbled onto the earliest days after Start New Season.
@@ -26639,7 +26681,7 @@ let dashRsvpFilterPayment = 'all';
    rest of the customer reset — a badge that survives the reset says somebody changed
    their mind this year when they did it last year. */
 function cameBackThisSeason(d){
-  return !!(d && (d.cameBackThisSeasonAt || d.rejoinedForSeasonAt));
+  return !!(d && (d.cameBackThisSeasonAt || d.needsDayAssignedAt));
 }
 /* The badge, in one place because three screens draw it and the one that gets
    missed is the one that quietly stops matching the others. */
@@ -30054,7 +30096,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the two branches do different jobs; they are independent and must stay so. */
     if(newRsvp === 'yes' && (oldRsvpForRecycle === 'no' || oldRsvpForRecycle === 'backnextyear' ||
                              item.data.maybeNextYear === true)){
-      addrUpdates.rejoinedForSeasonAt = serverTimestamp();
+      addrUpdates.needsDayAssignedAt = serverTimestamp();
       addrUpdates.cameBackThisSeasonAt = serverTimestamp();
     }
     /* Rejoining AFTER the recycle already happened. The flag being false on a
@@ -40657,14 +40699,18 @@ function nextInstallDayFor(h, opts){
    ⚠ AND IT NEVER FORCES A DAY. nextInstallDayFor returns null rather than crowding
    one, and a customer nobody can place is reported, not hidden — the rebuild will
    put them somewhere, and until then the office can see who is waiting. */
-function placeRejoinersOnNextDay(){
+function placeUnscheduledOnNextDay(){
   const placed = [], stuck = [];
   if(typeof SEASON === 'undefined' || !SEASON.length) return {placed: placed, stuck: stuck};
   if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return {placed: placed, stuck: stuck};
   const have = (typeof seasonCustomerIds === 'function') ? seasonCustomerIds() : new Set();
   jobAddresses.forEach(function(item){
     const d = (item && item.data) || {};
-    if(!d.rejoinedForSeasonAt) return;
+    /* ⚠ THE OLD NAME IS STILL READ. This field was `rejoinedForSeasonAt` for a few
+       hours on 2026-08-22, before new customers started using the same instruction and
+       the name stopped being true. Anything stamped in that window still has to be
+       placed — a rename that silently strands records is worse than the bad name. */
+    if(!d.needsDayAssignedAt && !d.rejoinedForSeasonAt) return;
     if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
     if(have.has(item.id)) return;
     const h = (typeof houseFromCustomer === 'function') ? houseFromCustomer(item) : null;
@@ -40678,9 +40724,11 @@ function placeRejoinersOnNextDay(){
        them even if the write is still in flight — the same optimistic mirror the
        rest of admin uses. A failed write is logged, never thrown: they ARE on a day
        now, and the flag standing costs one wasted look next tick. */
+    d.needsDayAssignedAt = null;
     d.rejoinedForSeasonAt = null;
     try{
-      updateDoc(doc(db, 'jobAddresses', item.id), {rejoinedForSeasonAt: null})
+      updateDoc(doc(db, 'jobAddresses', item.id),
+        {needsDayAssignedAt: null, rejoinedForSeasonAt: null})
         .catch(function(err){ console.error('Could not clear the rejoin flag:', err); });
     }catch(err){ console.error('Could not clear the rejoin flag:', err); }
   });
@@ -42238,7 +42286,7 @@ function exportCSV(){
        the timing sweep so a house placed here is held to its own timing in the same
        pass rather than sitting wrong until the next tick. */
     let rejoin={placed:[],stuck:[]};
-    try{ rejoin=placeRejoinersOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
+    try{ rejoin=placeUnscheduledOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
     let timing={moved:[],stuck:[]};
     try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
     if(!moved.length && !timing.moved.length && !timing.stuck.length

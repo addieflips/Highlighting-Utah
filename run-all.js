@@ -6998,8 +6998,15 @@ suite('21. Everyone is in unless they said otherwise');
   /* Built once per MODE, so both the rule running today and the one the owner
      plans to switch to are proved. Testing only the live setting would let the
      'confirmed-only' branch rot until the day it is turned on. */
-  const withMode = m => eval("const SEASON_ELIGIBILITY = '" + m + "';\n" + fnSrc +
-    '\n;({out: isOutForSeason})');
+  /* ⚠ audienceIsNew IS LIFTED, NOT LEFT OUT. isOutForSeason guards its call with
+     typeof, so omitting it here does not throw — it silently skips the new-hang
+     exemption and every check below would pass against a rule that never ran. That is
+     the worst shape a missing lift can take, because nothing goes red. */
+  const audienceIsNewSrc = extractFn(admin, 'audienceIsNew') || '';
+  check('season', 'audienceIsNew is there to lift', !!audienceIsNewSrc,
+    'without it the confirmed-only new-hang exemption is untested, silently');
+  const withMode = m => eval("const SEASON_ELIGIBILITY = '" + m + "';\n" +
+    audienceIsNewSrc + '\n' + fnSrc + '\n;({out: isOutForSeason})');
   const api = withMode('all-but-maybe-next-year');
   const strict = withMode('confirmed-only');
 
@@ -7141,6 +7148,30 @@ suite('21. Everyone is in unless they said otherwise');
     strict.out({ rsvpStatus: 'backnextyear', rsvpRespondedAt: said }) === true &&
     strict.out({ rsvpStatus: 'unanswered', rsvpRespondedAt: said }) === true,
     'they answered, and the answer was not yes');
+  /* ⭐ A NEW HANG IS IN WITHOUT A REPLY (added 2026-08-22). Owner: "once a quote gets
+     converted to costumer that is approved." Without this, flipping the switch deletes
+     every new customer from the season — they have no reply because we never ask them:
+     the RSVP audience is set to Returning precisely so "getting lights hung AGAIN this
+     year?" never reaches somebody who has not had them once. */
+  check('season', 'confirmed-only keeps a new hang in without an RSVP reply',
+    strict.out({ chargeNewMemberFee: true }) === false &&
+    strict.out({ chargeNewMemberFee: true, rsvpStatus: '' }) === false,
+    'requiring an answer to a question we deliberately never send is a test nobody ' +
+    'can pass — and it would drop the newest customers in the book');
+  /* ⚠ AND AN ANSWER STILL OUTRANKS IT. The no / back next year checks return before
+     that line, so a new hang who says no is still out. */
+  check('season', 'but a new hang who says no is still out',
+    strict.out({ chargeNewMemberFee: true, rsvpStatus: 'no' }) === true &&
+    strict.out({ chargeNewMemberFee: true, rsvpStatus: 'backnextyear' }) === true &&
+    strict.out({ chargeNewMemberFee: true, maybeNextYear: true }) === true,
+    'the exemption covers somebody who said nothing because nothing was asked, ' +
+    'never somebody who answered');
+  /* ⚠ AND IT CHANGES NOTHING TODAY. The live setting is all-but-maybe-next-year, where
+     a blank RSVP is already in — so this is dead code until the switch is flipped,
+     which is exactly why it is safe to have built before the flip rather than after. */
+  check('season', 'and a returning customer still needs a real reply',
+    strict.out({ chargeNewMemberFee: false, rsvpStatus: 'yes' }) === true,
+    'the exemption must not leak into everybody else');
   check('season', 'confirmed-only still lets Maybe Next Year win',
     strict.out({ maybeNextYear: true, rsvpStatus: 'yes', rsvpRespondedAt: said }) === true);
   check('season', 'case does not decide whether somebody gets their lights',
