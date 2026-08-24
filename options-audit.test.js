@@ -141,7 +141,11 @@ function check(label, ok, detail) {
     measuredFeet:      ['quote', 'confirmation', 'customer', 'pullList', 'invoice'],
     lightsDescription: ['quote', 'confirmation', 'customer', 'pullList'],
     wireColor:         ['quote', 'confirmation', 'customer', 'pullList'],
-    outletTimer:       ['quote', 'confirmation', 'customer', 'crewSheet', 'pullList'],
+    /* ⭐ CHANGED 2026-08-24 — 'crewSheet' removed. Addie: "timer doesn't need to
+       reach the crew sheet this is warehouses job." The timer goes in the bin;
+       the crew hangs what they are given. This reverses her 2026-08-20 request to
+       put it there, on a fact about who does the work. */
+    outletTimer:       ['quote', 'confirmation', 'customer', 'pullList'],
     useEaves:          ['quote', 'customer', 'crewSheet'],
     specificOutlet:    ['quote', 'confirmation', 'customer', 'crewSheet'],
     gateCode:          ['quote', 'confirmation', 'customer', 'crewSheet'],
@@ -150,16 +154,18 @@ function check(label, ok, detail) {
     notes:             ['quote', 'customer', 'crewSheet', 'routes', 'schedule'],
     oneTimeNote:       ['customer', 'crewSheet', 'routes', 'schedule'],
     wantsMailedInvoice:['quote', 'customer', 'invoice'],
-    /* ⭐ CHANGED 2026-08-24 — 'crewSheet' added. This is the one row that has
-       moved since the map was frozen, and it is a decision, not a red run being
-       tidied away. Addie, 2026-08-22 — AFTER the map was settled on the 21st:
-       "crew print sheet should also show bin #", meaning a quantity (her own
-       vocabulary, 2026-08-21: "Bin # is how many bins were making for them").
-       The printed sheet has carried a Bins column since that day, so the
-       registry was the half that was out of date, not the paper. Wiring the
-       sheet to the registry without this would have DELETED a column the crew
-       uses to load the van. */
-    numberOfBins:      ['customer', 'crewSheet', 'pullList', 'routes', 'schedule'],
+    /* ⭐ BACK TO WHERE IT WAS, 2026-08-24, and the round trip is worth recording.
+       "crew print sheet should also show bin #" (2026-08-22) was read here as a
+       QUANTITY and 'crewSheet' was added earlier the same day. Addie corrected it
+       hours later: "The cosumer # and bin # are the same thing" — on the CREW
+       sheet "bin #" is the number PAINTED on the bin, which is the customer
+       number, and that column already existed. So the frozen map was right all
+       along and the misreading was mine.
+       ⚠ WHAT DID CHANGE, and is the real fix: the Cust # column now shows
+       whBinNumberFor rather than customerNumber, so a customer whose footage
+       moved them into the 5000 series sends the crew to the bin actually on the
+       shelf. That was the fact "show bin #" was asking for. */
+    numberOfBins:      ['customer', 'pullList', 'routes', 'schedule'],
     difficulty:        ['customer', 'routes', 'schedule'],
   };
 

@@ -19688,17 +19688,31 @@ suite('Suite 104. The Printing tab');
        rather than by the position of a line in a column list — so this check is what
        stops somebody reordering the registry and quietly moving Notes into the
        middle of the sheet. */
-    check('S104', 'the crew list carries what the van needs, timer before notes',
-      keys('crew') ===
-        'number,name,numberOfBins,address,city,gateCode,houseSides,useEaves,outletTimer,notes',
+    /* ⭐ REBUILT 2026-08-24 AROUND WHAT THE CREW ACTUALLY DOES. Addie: "the crew
+       just hangs they don't need to know what's going in the bin just bin #, any
+       notes, address, name... So things that have to do with the house itself."
+       Timer and Bins came off — both describe what the WAREHOUSE puts in the bin —
+       and Phone went on, for nobody home, a gate code that does not work, or a dog
+       in the garden. Eaves folds into Notes and only when the answer is yes. */
+    check('S104', 'the crew list carries the house, and nothing about the bundle',
+      keys('crew') === 'number,name,address,city,phone,gateCode,houseSides,notes',
       'got ' + keys('crew'));
-    check('S104', 'and Bins is a column of its own, not folded into the notes',
-      keys('crew').indexOf('numberOfBins') !== -1 &&
-      keys('crew').indexOf('numberOfBins') < keys('crew').indexOf('notes'),
-      'how many bins to load is a number, and anything after Notes is lost');
+    /* ⚠ THE BUNDLE COLUMNS MUST STAY OFF. Every one of these describes something
+       the warehouse puts in the bin, and the crew hangs what they are given. */
+    check('S104', 'nothing about what goes in the bin reaches the crew',
+      ['outletTimer', 'numberOfBins', 'wireColor', 'lightsDescription', 'measuredFeet']
+        .every(k => keys('crew').indexOf(k) === -1),
+      'got ' + keys('crew'));
     check('S104', 'gate and sides sit BEFORE the wide notes column',
       keys('crew').indexOf('gateCode,houseSides') < keys('crew').indexOf('notes'),
       'anything after Notes is lost against a wall of writing');
+    /* ⚠ AND THE NUMBER COLUMN IS FIRST AND SINGLE. Addie: "The cosumer # and bin #
+       are the same thing" — one number, and printCrewRow reads whBinNumberFor so
+       it is the number physically on the bin. */
+    check('S104', 'there is exactly one number column, and it leads',
+      keys('crew').indexOf('number') === 0 &&
+      /whBinNumberFor\(d\)[\s\S]{0,40}\|\| h\.cu/.test(extractFn(admin, 'printCrewRow')),
+      'two number columns would be two answers to one question');
     /* ⭐ AND THE TWO PROSE ANSWERS ARE STILL FOLDED, NOT GIVEN COLUMNS (2026-08-24).
        Addie refused an eleven-column sheet; the which-outlet instruction and the
        one-time note fold into Notes. Now that columns are generated, "somebody
@@ -19731,40 +19745,36 @@ suite('Suite 104. The Printing tab');
         'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
         extractFn(admin, 'whBinsForHouse') +
         extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
-        extractFn(admin, 'printBinCount') + extractFn(admin, 'printYesNo') +
-        extractFn(admin, 'printOptionYesNo') +
+        'const fmtPhone = function(p){ return String(p || \'\'); };' +
         'const printCustData = function(h){ return (h && h.cust) || {}; };' +
         rowSrc + 'return printCrewRow;'
       )();
       const row = (cust, plan) => sb(Object.assign({ cust: cust || {} }, plan || {}));
 
-      check('S104', 'the bin count is the real bin rule, not a second one',
-        row({ measuredFeet: 260 }).numberOfBins === '1' &&
-        row({ measuredFeet: 261 }).numberOfBins === '2' &&
-        row({ measuredFeet: 521 }).numberOfBins === '3',
-        'the crew loading two bins for a house the warehouse built one for is a van ' +
-        'that leaves without half the lights');
-      /* ⚠ NEVER A CONFIDENT "1". cnBinsForFeet floors at 1, so an unmeasured house
-         would otherwise print a single bin — a guess wearing a number, and the
-         warehouse sheet has always refused to make it.
-         ⚠ It says `none` rather than printing nothing at all since 2026-08-24: an
-         empty cell is exactly the silence R-002 exists to stop, and the missing
-         fact here is the FOOTAGE, which is required in its own right. */
-      check('S104', 'a house nobody has measured says none, not a confident 1',
-        row({}).numberOfBins === 'none' && row({ measuredFeet: 0 }).numberOfBins === 'none',
-        'got ' + JSON.stringify(row({}).numberOfBins));
-      check('S104', 'a moved bin label is named beside the count',
-        row({ measuredFeet: 300, customerNumber: '5051', binLabelNumber: '894' })
-          .numberOfBins.indexOf('bin says #894') !== -1,
-        'the Cust # column is exactly the number that will not be found');
-      /* ⚠ AND ONLY WHEN IT REALLY MOVED. Stamping every row with a bin number the
-         crew can already read off the Cust # column is noise, and noise in a column
-         is how the one row that matters stops being noticed. */
-      check('S104', 'and stays quiet when it did not move',
-        row({ measuredFeet: 300, customerNumber: '894', binLabelNumber: '894' }).numberOfBins === '2' &&
-        row({ measuredFeet: 300, customerNumber: '894' }).numberOfBins === '2',
-        'got ' + JSON.stringify(row({ measuredFeet: 300, customerNumber: '894',
-          binLabelNumber: '894' }).numberOfBins));
+      /* ⭐ THE BIN CHECKS MOVED WITH THE COLUMN (2026-08-24). There is no Bins
+         column on the crew sheet any more — how many bundles go in the bin is the
+         warehouse's job, and those checks live with the build sheet. What the crew
+         needs from a number is WHICH BIN TO PICK UP, and that is what is asserted
+         here instead: Addie, "The cosumer # and bin # are the same thing." */
+      check('S104', 'the number column is the number painted on the bin',
+        row({ customerNumber: '894' }).number === '894',
+        'this is the number they hunt for on the shelf');
+      /* ⚠ AND IT FOLLOWS THE BIN, NOT THE RECORD. A customer whose footage pushed
+         them into the 5000 series still has a bin wearing the old number, and
+         sending the crew after 5051 is sending them after a bin that does not
+         exist. This is the whole reason the column reads whBinNumberFor. */
+      check('S104', 'and it follows the bin when their number has moved',
+        row({ customerNumber: '5051', binLabelNumber: '894' }).number === '894',
+        'got ' + JSON.stringify(row({ customerNumber: '5051', binLabelNumber: '894' }).number));
+      check('S104', 'an imported row with no customer behind it still shows its own number',
+        sb({ cust: {}, cu: '312' }).number === '312',
+        'a blank first column is a stop the crew cannot match to a bin at all');
+      /* ⚠ PHONE IS ON THE SHEET NOW. Nobody home, a gate code that does not work,
+         a dog in the garden — the whole-day sheet has carried it for a long time
+         and the per-crew sheet never did. */
+      check('S104', 'the crew can ring the house',
+        row({ phone: '8015551234' }).phone === '8015551234',
+        'got ' + JSON.stringify(row({ phone: '8015551234' }).phone));
 
       check('S104', 'a gate code reaches the printed sheet',
         row({ gateCode: '4412' }).gateCode === '4412',
@@ -19785,29 +19795,32 @@ suite('Suite 104. The Printing tab');
         row({ houseSides: ['front', 'left'] }).houseSides === '2',
         'the sheet disagreeing with the schedule about sides is two answers for one house');
 
-      /* ⚠ AN UNANSWERED YES/NO IS NOT A NO. Addie, 2026-08-21 — this turned a blank
-         into a confident No, so a customer who wanted a timer and was never asked
-         printed as a definite No and did not get one. On a season where the printed
-         sheet is the ONLY thing the crew sees, that is the paper answering a question
-         on the customer's behalf. */
-      check('S104', 'an answered yes/no prints the answer',
-        row({ outletTimer: 'Yes' }).outletTimer === 'Yes' &&
-        row({ useEaves: false }).useEaves === 'No',
-        'an explicit no is an answer and must not be turned into a shrug');
-      /* ⭐ THE TIMER PRINTS "No" WHEN NOBODY ASKED, SINCE 2026-08-24 — Addie's own
-         answer, given with the argument against in front of her. EAVES still says
-         `none`, because she named the timer, the wire colour and the light colours
-         and did not name that one. Both halves are asserted: the first is her
-         decision, the second is the absence of one.
-         ⚠ THE OLD RULE, kept because it was well argued: a blank was held to mean
-         "nobody has asked", so that a customer who wanted a timer and was never
-         asked would not be recorded as refusing one. Superseded, not forgotten. */
-      check('S104', 'an unanswered timer prints No, as she asked',
-        row({}).outletTimer === 'No',
-        'got ' + JSON.stringify(row({}).outletTimer));
-      check('S104', 'and a question nobody has ruled on still says none',
-        row({}).useEaves === 'none',
-        'got ' + JSON.stringify(row({}).useEaves));
+      /* ⭐ THE YES/NO COLUMNS ARE GONE FROM THIS SHEET (2026-08-24). Timer came
+         off — "this is warehouses job" — and eaves folds into Notes only when the
+         answer is yes: "If they use eaves which will only show if they say yes."
+         The rules those checks held are not lost, they moved: the timer's
+         default-to-No is asserted in Suite 80 and on the build sheet, and the
+         eaves fold is asserted just below.
+         ⚠ A FOLD THAT ONLY APPEARS ON YES IS NOT AN R-002 BREACH. Eaves is an
+         INSTRUCTION — use the plugs in the eaves — and there is no instruction
+         unless they said yes. A column going blank for both "no" and "nobody
+         asked" WOULD be, which is exactly why it folds instead. */
+      check('S104', 'a house that uses the eaves says so in the note',
+        /EAVES/.test(row({ useEaves: 'Yes', notes: 'dog in the back' }).notes),
+        'got ' + JSON.stringify(row({ useEaves: 'Yes', notes: 'dog in the back' }).notes));
+      check('S104', 'and a house that does not adds nothing at all',
+        row({ useEaves: 'No', notes: 'dog in the back' }).notes === 'dog in the back' &&
+        row({ notes: 'dog in the back' }).notes === 'dog in the back',
+        'a note that says EAVES: No is a line the crew reads and acts on for nothing');
+      check('S104', 'and the eaves answer is still its own line on the record',
+        (function(){
+          const reg = new Function(OPTIONS_SANDBOX_SRC() + 'return OPTIONS;')();
+          const e = reg.find(o => o.id === 'useEaves');
+          return !!e && e.consumers.indexOf('customer') !== -1 &&
+                 e.consumers.indexOf('quote') !== -1;
+        })(),
+        'folding it on PAPER must not lose the distinction between No and unasked ' +
+        'where that distinction is kept — on the record and on the quote form');
 
       const full = row({ specificOutlet: 'Yes', specificOutletNotes: 'lower outlet by door',
                          oneTimeNote: 'ring the bell', notes: 'dog in the back' }).notes;
@@ -20091,10 +20104,45 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the photos hang off the bottom of the crew sheet',
     /printPhotosHtml\(printCrewPhotos/.test(pageSrc),
     'they travel with the sheet they belong to, not on a page of their own');
-  check('S104', 'and only new hangs with a picture on file are shown',
-    /printIsNewHang/.test(extractFn(admin, 'printCrewPhotos')) &&
-    /if\(!photos.length\) return;/.test(extractFn(admin, 'printCrewPhotos')),
-    'a broken image frame is worse than no frame');
+  /* ⭐ NEW HANGS AND FIXES, SINCE 2026-08-24. Addie: "for new houses need the new
+     house picture and fixes need the fix picture." The fix photo was genuinely
+     missing — fixPhotoUrl has been on the record and in the office note editor for
+     a while and never reached paper, so a crew sent to fix something arrived with
+     no picture of what was wrong. RUN rather than matched, because the whole
+     failure was a branch that did not exist. */
+  {
+    const photosOf2 = (houses) => new Function('day',
+      'const crewHousesFor = function(){ return day; };' +
+      'const printCustData = function(h){ return h.cust || {}; };' +
+      extractFn(admin, 'whBinNumberFor') +
+      extractFn(admin, 'customerPhotoList') + extractFn(admin, 'printIsNewHang') +
+      extractFn(admin, 'printCrewPhotos') + 'return printCrewPhotos(day, 0);')(houses);
+
+    const newHang = { cust: { chargeNewMemberFee: true, customerNumber: '9',
+      housePhotos: [{ url: 'a' }, { url: 'b' }] } };
+    const fixStop = { isFix: true, cust: { customerNumber: '12',
+      fixPhotoUrl: 'f', fixNote: 'top left strand is out' } };
+    const plain = { cust: { customerNumber: '3', housePhotos: [{ url: 'z' }] } };
+
+    check('S104', 'a new hang prints every picture it has',
+      photosOf2([newHang]).length === 2,
+      'the extra photos exist so the crew can see the other sides of the house');
+    check('S104', 'a fix stop prints the fix picture',
+      photosOf2([fixStop]).length === 1 && photosOf2([fixStop])[0].url === 'f',
+      'it lived only on the record and in the office note editor — a crew sent to ' +
+      'fix something arrived with no picture of what was wrong');
+    check('S104', 'and the fix note travels with it',
+      /top left strand is out/.test(photosOf2([fixStop])[0].of || ''),
+      'a picture with no sentence saying what is wrong is a guess made on a ladder');
+    /* ⚠ AND A HOUSE THE CREW HAS HUNG BEFORE STILL GETS NOTHING. That was the
+       original rule and it has not changed — a photo on every row is ink and noise. */
+    check('S104', 'a returning house with no fix prints no picture at all',
+      photosOf2([plain]).length === 0,
+      'a broken image frame is worse than no frame, and so is a pointless one');
+    check('S104', 'a fix flagged on a house with no photo on file is skipped',
+      photosOf2([{ isFix: true, cust: { customerNumber: '4' } }]).length === 0,
+      'there is nothing to print and an empty frame helps nobody');
+  }
 
   /* ⚠ EVERY PICTURE THEY HAVE, not just the front of the house. Owner: "make sure
      if a new hang has multiple pictures you include all." The extra photos exist so the
@@ -20194,7 +20242,10 @@ suite('Suite 104. The Printing tab');
          only claim worth making here. */
       extractFn(admin, 'whBinsForHouse') +
       extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
-      extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
+      /* printBinCount went with the Bins column on 2026-08-24 — what the crew
+         needs from a number is which bin to pick up, which is whBinNumberFor. */
+      'const fmtPhone = function(p){ return String(p || \'\'); };' +
+      extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printOptionYesNo') +
       extractFn(admin, 'printCustData') +
@@ -20217,8 +20268,8 @@ suite('Suite 104. The Printing tab');
       useEaves: true, outletTimer: 'Yes', notes: 'gate 4321'}},
     {crew: 0, id: 'h2', cust: {customerNumber: '12', name: 'B', street: '2 St'}},
     {crew: 1, id: 'h3', cust: {customerNumber: '21', name: 'C', street: '3 St', outletTimer: 'Yes',
-      gateCode: '4412', houseSides: 3, measuredFeet: 300,
-      specificOutletNotes: 'lower outlet by door',
+      gateCode: '4412', houseSides: 3, measuredFeet: 300, phone: '8015550101',
+      useEaves: 'Yes', specificOutlet: 'Yes', specificOutletNotes: 'lower outlet by door',
       oneTimeNote: 'ring the bell', notes: 'dog in the back'}},
     /* ⚠ THE BIN THAT WEARS THE OLD NUMBER. This customer moved from #894 to the
        5000-series when their footage crossed CN_DOUBLE_BIN_FEET, and the bin already
@@ -20233,8 +20284,8 @@ suite('Suite 104. The Printing tab');
   const crewOut = runSheet('crew', aDay);
   const crewBody = ((crewOut[0] || {}).pages || [{}])[0].body || '';
   check('S104', 'the Scheduling crew button prints the crew columns',
-    /Plugs \/ eaves/.test(crewBody) && /Cust #/.test(crewBody),
-    'it used to print Route, Stop, Phone, Type and Price instead');
+    /<th>Gate<\/th>/.test(crewBody) && /Cust #/.test(crewBody),
+    'it used to print Route, Stop, Type and Price instead');
   check('S104', 'numbered from one, even for crew two',
     crewBody.indexOf('<td class=' + JSON.stringify('num') + '>1</td>') !== -1,
     'crew two pressed their own button and got crew one' + String.fromCharCode(8217) + 's numbering');
@@ -20243,15 +20294,18 @@ suite('Suite 104. The Printing tab');
   check('S104', 'and it prints only that crew',
     crewBody.indexOf('>21<') !== -1 && crewBody.indexOf('>11<') === -1,
     'crew two got crew one' + String.fromCharCode(8217) + 's houses');
-  /* ⚠ THE COLUMN EXISTING IS NOT THE VALUE BEING READ. A red-check that deleted
-     the timer from the row builder left the header standing and every cell blank, and
-     the column-order check stayed green. */
-  check('S104', 'and the timer column is actually filled in',
-    /<th>Timer<\/th>/.test(crewBody) && /<td>Yes<\/td>/.test(crewBody),
-    'got a Timer header with nothing under it');
-  check('S104', 'and it sits before the notes',
-    crewBody.indexOf('<th>Timer</th>') < crewBody.indexOf('<th>Notes</th>'),
-    'anything after Notes is lost against a wall of writing');
+  /* ⭐ NO TIMER COLUMN ON THIS SHEET SINCE 2026-08-24 — "this is warehouses job."
+     ⚠ THE COLUMN EXISTING IS NOT THE VALUE BEING READ, which is why the phone is
+     checked by its VALUE: a red-check that deleted the timer from the row builder
+     once left the header standing and every cell blank, and the column-order check
+     stayed green. Same trap, new column. */
+  check('S104', 'nothing about the bundle is printed for the crew',
+    !/<th>Timer<\/th>/.test(crewBody) && !/<th>Bins<\/th>/.test(crewBody) &&
+    !/<th>Wire<\/th>/.test(crewBody),
+    'the crew hangs what is in the bin; what goes in it is the warehouse sheet');
+  check('S104', 'and the phone column is actually filled in',
+    /<th>Phone<\/th>/.test(crewBody) && /<td>8015550101<\/td>/.test(crewBody),
+    'got a Phone header with nothing under it');
 
   /* ⭐ NOBODY ASKED IS NOT "No" (2026-08-21). printYesNo turned a blank into a
      confident No, so a customer who wants a timer and was never asked printed as a
@@ -20303,9 +20357,10 @@ suite('Suite 104. The Printing tab');
      for an empty cell fails on that and teaches everyone to ignore it. The rule is
      asserted where it can be stated precisely: on the generated row, in the crew-row
      block above ("a customer with nothing to say still prints none"). */
-  check('S104', 'and still shows a real answer where there is one',
-    /<td>Yes<\/td>/.test(crewBody),
-    'the same house answered the timer');
+  /* The eaves answer reaches the page through the Notes fold now, not a column. */
+  check('S104', 'a house that uses the eaves says so on the page',
+    /EAVES/.test(crewBody),
+    'it folds into Notes and only when the answer is yes');
 
   check('S104', 'the Gate column is actually filled in, not just present',
     /<th>Gate<\/th>/.test(crewBody) && /<td>4412<\/td>/.test(crewBody),
@@ -20313,17 +20368,14 @@ suite('Suite 104. The Printing tab');
   check('S104', 'the Sides column is actually filled in',
     /<th>Sides<\/th>/.test(crewBody) && /<td>3<\/td>/.test(crewBody),
     'got a Sides header with nothing under it');
-  /* ⚠ SAME TRAP AGAIN: a header with nothing under it. The fixture's house is 300 ft,
-     which is over CN_DOUBLE_BIN_FEET, so the honest answer is 2 — and a van loaded off
-     a blank column leaves with half the lights. */
-  check('S104', 'the Bins column is actually filled in, not just present',
-    /<th>Bins<\/th>/.test(crewBody) && /<td>2<\/td>/.test(crewBody),
-    'a Bins header with nothing under it is a van loaded by guesswork');
-  /* ⚠ AND THE ONE CASE THE Cust # COLUMN GETS WRONG. Sending somebody to find #5051
-     sends them to a bin that does not exist; the label still says 894. */
-  check('S104', 'and it says so when the bin wears the old number',
-    crewBody.indexOf('bin says #894') !== -1,
-    'the crew is the one standing in the warehouse looking for it');
+  /* ⚠ THE ONE CASE THE NUMBER COLUMN USED TO GET WRONG. This customer moved from
+     #894 to the 5000 series when their footage crossed CN_DOUBLE_BIN_FEET, and the
+     bin on the shelf still says 894 — so printing 5051 sends the crew after a bin
+     that does not exist. Since 2026-08-24 the column IS the bin's number, so the
+     right answer is now the cell itself rather than a note beside it. */
+  check('S104', 'the number column sends them to the bin that is really there',
+    crewBody.indexOf('<td>894</td>') !== -1 && crewBody.indexOf('<td>5051</td>') === -1,
+    'Addie: "The cosumer # and bin # are the same thing"');
   check('S104', 'the outlet instruction and the one-time note reach the printed page',
     crewBody.indexOf('lower outlet by door') !== -1 &&
     crewBody.indexOf('ring the bell') !== -1,
@@ -20360,9 +20412,8 @@ suite('Suite 104. The Printing tab');
     (function () {
       const at = dayBody.indexOf('In neither crew');
       const blk = at === -1 ? '' : dayBody.slice(at);
-      return /<td>Yes<\/td>/.test(blk) &&      /* timer  */
-             blk.indexOf('<td>7788</td>') !== -1 &&   /* gate   */
-             blk.indexOf('<td>3</td>') !== -1 &&      /* bins — 600 ft */
+      return blk.indexOf('<td>7788</td>') !== -1 &&   /* gate   */
+             blk.indexOf('<td>31</td>') !== -1 &&     /* the bin number */
              blk.indexOf('<td>1</td>') !== -1;        /* sides  */
     })(),
     'a column added to the crew builder and not to this one prints a header with ' +

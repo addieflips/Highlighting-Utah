@@ -46469,20 +46469,13 @@ function printCrewSheet(dayId,crewIndex){
    the one standing in the warehouse looking for it. That helper's own comment says
    this belongs "on both the screen and the paper"; the recycle list has said it for a
    while and the crew sheet never did. */
-/* ⚠ THE COUNT COMES FROM THE REGISTRY NOW (2026-08-24), not from a second call to
-   whBinsForHouse. Both read cnBinsForFeet out of js/money.js, so the answer has
-   not changed — but there is one rule for it rather than two that could drift,
-   and an unmeasured house renders `none` through the same path every other
-   unanswered option on the sheet does, instead of this sheet having a private
-   spelling for silence. What is left here is the BIN LABEL, which is not an
-   option: it is the number painted on a bin that is still on the shelf. */
-function printBinCount(d){
-  const opt = HU_OPTIONS.find(function(o){ return o.id === 'numberOfBins'; });
-  const n = opt ? optDisplay(opt, optValueOf(opt, d || {})) : '';
-  const moved = (typeof whBinNumberMoved === 'function') && whBinNumberMoved(d);
-  const says = moved && (typeof whBinNumberFor === 'function') ? whBinNumberFor(d) : '';
-  return says ? (n + ' — bin says #' + says) : n;
-}
+/* ⭐ printBinCount IS GONE (2026-08-24). It rendered the Bins column on the crew
+   sheet — how many bins, plus "bin says #894" where a customer's number had moved.
+   The crew sheet has no Bins column any more: what goes in the bin is the
+   warehouse's job, and the one number the crew needs is the number ON the bin,
+   which is now the Cust # column via whBinNumberFor. The moved-label case it
+   existed for is handled there instead, which is the right place for it — the
+   number they look for and the number they are told are the same column. */
 /* ⭐ ONE ROW, WHEREVER THE CREW SHEET IS PRINTED FROM. The day sheet's per-crew blocks
    and its "in neither crew's city" block used to build their rows separately, and the
    second one filled in seven of the ten columns — so Gate, Sides and Bins printed
@@ -46503,27 +46496,23 @@ function printBinCount(d){
 function printCrewRow(h){
   const d = printCustData(h);
   const forOptions = Object.assign({}, d, {notes: d.notes || (h && h.details) || ''});
-  const answers = optSheetRow('crewSheet', forOptions, {
-    /* Bins says how many, and — only when their number has moved — what the bin
-       on the shelf is still labelled with. The count itself is the registry's;
-       this presenter exists for the label, which is not an option. */
-    numberOfBins: function(cust){ return printBinCount(cust); },
-    /* Yes/No answers arrive in the office's own spellings (y, YES, "?", blank)
-       and printYesNo is what canonicalises them. It handles the ANSWERED cases;
-       what an EMPTY one means is the registry's to say, so both go through
-       optValueOf first.
-       ⚠ THAT IS WHAT MAKES THE TIMER DEFAULT REACH THE PAPER. Addie, 2026-08-24:
-       "If it's timer than no." The default lives on the option, so reading
-       `cust.outletTimer` directly here would print `none` on the sheet while
-       every other artifact said No — the presenter quietly overriding the rule
-       it is supposed to be spelling. Eaves has no default and still says
-       `none`, because nobody has said what a blank there means. */
-    useEaves:    function(cust, o){ return printOptionYesNo(optValueOf(o, cust)); },
-    outletTimer: function(cust, o){ return printOptionYesNo(optValueOf(o, cust)); }
-  });
+  /* ⚠ NO PRESENTERS LEFT. Bins, Timer and Eaves each had one; the first two came
+     off the sheet (the warehouse's job) and eaves folds into Notes now. What
+     remains — Gate, Sides, Notes — renders straight from the registry, which is
+     what this was always meant to look like. */
+  const answers = optSheetRow('crewSheet', forOptions);
   return Object.assign({
-    number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
-    address: d.street || h.address || '', city: h.city || d.city || ''
+    /* ⚠ THE NUMBER ON THE BIN, NOT THE ONE ON THE RECORD. Addie: "The cosumer #
+       and bin # are the same thing." whBinNumberFor answers "which number do I
+       look for" — the same helper the recycle queue and the warehouse sheet use —
+       so a customer whose footage moved them into the 5000 series still sends the
+       crew to the bin that is physically on the shelf wearing the old number.
+       Falling back to the plan row's own number for an imported row that matches
+       no customer at all. */
+    number: ((typeof whBinNumberFor === 'function') ? whBinNumberFor(d) : '') || h.cu || '',
+    name: d.name || h.name || '',
+    address: d.street || h.address || '', city: h.city || d.city || '',
+    phone: d.phone ? fmtPhone(d.phone) : (h.phone ? fmtPhone(h.phone) : '')
   }, answers);
 }
 /* ⚠ THE ACTIONABLE LINES COME FIRST. Notes is where prose goes, and the install
@@ -46635,19 +46624,27 @@ const PRINT_COLUMNS = {
      ⚠ THE ORDER LIVES IN THE REGISTRY NOW (`sheetOrder`), not in this list.
      Timer-before-Notes and Gate/Sides as narrow scannable columns are Addie's
      instructions and are declared there, beside the options they govern. */
-  crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}]
-              .concat(optSheetColumns('crewSheet').filter(function(c){
-                /* Address and City interleave: the registry knows nothing about
-                   them, so they are spliced in after Bins where they have always
-                   printed. Done by naming the ONE column they follow rather than
-                   by index, or inserting an option ahead of Bins would silently
-                   move the address into the middle of the answers. */
-                return c.k === 'numberOfBins';
-              }))
-              .concat([{k: 'address', label: 'Address'}, {k: 'city', label: 'City'}])
-              .concat(optSheetColumns('crewSheet').filter(function(c){
-                return c.k !== 'numberOfBins';
-              }))
+  /* ⭐ REBUILT 2026-08-24 AROUND WHAT THE CREW ACTUALLY DOES. Addie: "the crew
+     just hangs they don't need to know what's going in the bin just bin #, any
+     notes, address, name... So things that have to do with the house itself."
+     What goes IN the bin — colours, wire, timer, how many bundles — is the
+     warehouse's job and came off. What is left is the house: where it is, how to
+     get in, how much of it to light, and anything unusual about it.
+     ⚠ CUST # IS THE BIN NUMBER. Addie: "The cosumer # and bin # are the same
+     thing." One number column, and it is the number painted on the bin — see
+     printCrewRow, which reads whBinNumberFor rather than customerNumber so a
+     customer whose footage moved them into the 5000 series still leads the crew
+     to the bin that is actually on the shelf.
+     ⚠ THE SPLICE IS GONE. Address and City used to be threaded in after Bins by
+     naming that column; with Bins off the sheet there is nothing to thread
+     around, and the identity block simply comes first. */
+  crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              {k: 'address', label: 'Address'}, {k: 'city', label: 'City'},
+              /* Nobody home, a gate code that does not work, a dog in the garden.
+                 The whole-day sheet has carried a phone column for a long time and
+                 the per-crew sheet never did. */
+              {k: 'phone', label: 'Phone'}]
+              .concat(optSheetColumns('crewSheet'))
 };
 /* ⭐ THE PEOPLE ALREADY REMOVED ARE MOST OF THIS LIST. Owner, 2026-08-20: "people in
    recycle should not exist as a customer" and "they are removed as a customer and then
@@ -46767,21 +46764,46 @@ function printTableHtml(rows, columns){
 
    Numbered "2 of 3" when there is more than one, because four pictures of the same
    house with identical captions is a puzzle rather than a help. */
+/* ⭐ AND A FIX ROUTE GETS THE FIX PHOTO (added 2026-08-24). Addie: "for new houses
+   need the new house picture and fixes need the fix picture."
+   ⚠ IT WAS GENUINELY MISSING. `fixPhotoUrl` and `fixNote` have been on the customer
+   record and visible in the office note editor for a while, and this function only
+   ever printed photos for NEW HANGS — so a crew sent out to fix something arrived
+   with no picture of what was wrong. Same shape as the gate code before P-003: the
+   data exists, reaches one screen, and never reaches the paper the crew is holding.
+   ⚠ THE FIX NOTE TRAVELS WITH IT. A picture of a roofline with no sentence saying
+   what is wrong with it is a guess, and the guess is made standing on a ladder.
+   ⚠ AND A HOUSE CAN BE BOTH. A new hang that has since been flagged for a fix gets
+   its house photos AND its fix photo, captioned differently, because they answer
+   two different questions — what does this house look like, and what is wrong. */
 function printCrewPhotos(day, i){
   const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
   const out = [];
   mine.forEach(function(h){
     const d = printCustData(h);
-    if(!printIsNewHang(d, h)) return;
-    const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
-      .filter(function(p){ return p && p.url; });
-    if(!photos.length) return;
     const who = d.name || h.name || '';
-    const num = d.customerNumber || h.cu || '';
-    photos.forEach(function(p, k){
-      out.push({url: p.url, number: num, name: who,
-                of: photos.length > 1 ? ((k + 1) + ' of ' + photos.length) : ''});
-    });
+    /* The number the crew will be looking for, the same one the row shows. */
+    const num = ((typeof whBinNumberFor === 'function') ? whBinNumberFor(d) : '') || h.cu || '';
+
+    if(printIsNewHang(d, h)){
+      const photos = ((typeof customerPhotoList === 'function') ? customerPhotoList(d) : [])
+        .filter(function(p){ return p && p.url; });
+      photos.forEach(function(p, k){
+        out.push({url: p.url, number: num, name: who,
+                  of: photos.length > 1 ? ((k + 1) + ' of ' + photos.length) : ''});
+      });
+    }
+
+    /* A fix stop, or a house the office has flagged as needing one. Both, because
+       a fix can be added to a house already on a normal route rather than always
+       getting a route of its own. */
+    const isFix = !!(h && h.isFix) || !!d.needsFix;
+    const fixUrl = String(d.fixPhotoUrl || '').trim();
+    if(isFix && fixUrl){
+      const note = String(d.fixNote || '').trim();
+      out.push({url: fixUrl, number: num, name: who,
+                of: note ? ('FIX \u2014 ' + note) : 'FIX'});
+    }
   });
   return out;
 }

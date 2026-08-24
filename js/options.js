@@ -227,8 +227,16 @@ export const OPTIONS = [
        which is why the position is part of the instruction and not a detail. */
     sheetLabel: 'Timer',
     sheetOrder: 50,
-    consumers: ['quote', 'confirmation', 'customer', 'crewSheet', 'pullList'],
-    crewNote: 'Set at install. Confirm the outlet is switched-live, not switch-controlled.',
+    /* ⭐ OFF THE CREW SHEET, 2026-08-24. Addie: "timer doesn't need to reach the
+       crew sheet this is warehouses job." The timer goes IN THE BIN — the
+       warehouse puts it in with the bundle — so the crew hangs what they are
+       given and there is nothing for them to do with this answer.
+       ⚠ THIS REVERSES HER 2026-08-20 INSTRUCTION, which put it there: "it need to
+       include timer(yes/no), that should come before notes." Newer wins, and the
+       reason is a fact about who does the work rather than a change of taste.
+       ⚠ THE crewNote GOES WITH IT. "Set at install" described a job the crew does
+       not do; leaving it would be an instruction to nobody. */
+    consumers: ['quote', 'confirmation', 'customer', 'pullList'],
   },
   {
     id: 'useEaves',
@@ -241,8 +249,23 @@ export const OPTIONS = [
        will cause more confusion." Note this needs no R-002 exception — that rule
        governs how an option renders when it IS on an artifact, not which options
        appear at all. */
+    /* ⭐ FOLDS INTO NOTES, AND ONLY WHEN THEY SAID YES (2026-08-24). Addie: "If
+       they use eaves which will only show if they say yes." It is an INSTRUCTION
+       — use the plugs in the eaves — and there is no instruction unless the
+       answer is yes, which is exactly how the which-outlet note already behaves.
+       ⚠ THAT IS WHY IT FOLDS RATHER THAN KEEPING A COLUMN THAT GOES BLANK. A
+       blank cell would mean "they said no" and "nobody asked" at once, which is
+       the R-002 failure; a fold that is simply absent when there is nothing to do
+       says nothing false. The answer itself is still on the customer record and
+       still on the quote form, where the distinction is kept properly. */
+    foldInto: 'notes',
+    foldPrefix: 'EAVES',
+    foldValue: (c) => {
+      const v = c.useEaves;
+      const t = v === true ? 'yes' : String(v == null ? '' : v).trim().toLowerCase();
+      return (t === 'yes' || t === 'y' || t === 'true') ? 'Yes' : '';
+    },
     sheetLabel: 'Plugs / eaves',
-    sheetOrder: 40,
     consumers: ['quote', 'customer', 'crewSheet'],
   },
   {
@@ -422,19 +445,21 @@ export const OPTIONS = [
        on a crew sheet for a house whose footage is the thing actually missing,
        and R-002 exists to stop precisely that. Undefined here renders `none`. */
     value: (c) => (Number(c.measuredFeet) > 0 ? cnBinsForFeet(c.measuredFeet) : undefined),
-    /* ⭐ AND THE CREW SHEET, ADDED 2026-08-24. Addie, 2026-08-22: "crew print
-       sheet should also show bin #" — meaning a QUANTITY, the same thing it
-       means on the warehouse build sheet ("Bin # is how many bins were making
-       for them", 2026-08-21). It is how many bins the van loads.
-       ⚠ THIS POST-DATES THE FROZEN AGREED MAP in options-audit.test.js, which
-       was settled 2026-08-21. The sheet has printed Bins since the 22nd, so the
-       registry was the half that was out of date, not the paper. The map is
-       updated to match in the same change — see the note there.
-       ⚠ The number ON the bin is the Cust # column, already first on the sheet.
-       Two columns of numbers would be two answers to one question. */
+    /* ⚠ NOT ON THE CREW SHEET, and this took two goes to get right. Addie,
+       2026-08-22: "crew print sheet should also show bin #" — read as a QUANTITY
+       and added here on 2026-08-24. She corrected it the same day: "The cosumer #
+       and bin # are the same thing." On the CREW sheet "bin #" means the number
+       PAINTED ON THE BIN, which is the customer number, and the sheet already had
+       that column. Two number columns would have been two answers to one
+       question, which is the mistake the warehouse sheet made in the other
+       direction in 2026-08-21.
+       ⚠ SO THE CREW'S NUMBER COLUMN IS whBinNumberFor, not customerNumber: a
+       customer whose footage moved them into the 5000 series still has a bin on
+       the shelf wearing the old number, and that is the number they must look for.
+       Here, the count is still the WAREHOUSE's — how many they are making. */
     sheetLabel: 'Bins',
     sheetOrder: 10,
-    consumers: ['customer', 'crewSheet', 'pullList', 'routes', 'schedule'],
+    consumers: ['customer', 'pullList', 'routes', 'schedule'],
   },
   {
     id: 'difficulty',

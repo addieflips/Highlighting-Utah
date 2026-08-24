@@ -835,13 +835,31 @@ It is raised here because that file says in as many words: "Update it when she
 changes her mind, never to make a red run go away." This was the first kind and
 not the second, but the file is right that it should be said out loud.
 
-**Answer (Addie, 2026-08-24): "Yes bin # should show on crew list."** Confirmed.
+**Answer (Addie, 2026-08-24): "Yes bin # should show on crew list."** Confirmed —
+and then corrected later the same day, which is the part worth reading.
 
-**Resulting registry change:** none — `numberOfBins` declares `crewSheet` and the
-frozen AGREED map was updated to match in the same change. The column is a
-QUANTITY (how many bins the van loads), which is her own vocabulary from
-2026-08-21: "Bin # is how many bins were making for them." The number painted on
-the bin is the Cust # column, already first on the sheet.
+⚠ **THE FIRST READING WAS WRONG AND IS RECORDED HERE SO IT IS NOT REPEATED.** It
+was taken as a QUANTITY — how many bins the van loads — on the strength of her
+2026-08-21 vocabulary ("Bin # is how many bins were making for them"), and
+`numberOfBins` was added to the crew sheet with the frozen AGREED map updated to
+match. Hours later: *"The cosumer # and bin # are the same thing."* On the CREW
+sheet "bin #" means the number **painted on the bin**, which is the customer
+number — and that column already existed. Two number columns would have been two
+answers to one question.
+
+The vocabulary differs by sheet, which is what made this easy to get wrong:
+
+| Sheet | "Bin #" means |
+|---|---|
+| Warehouse build sheet | how many bins they are making — a quantity |
+| Crew sheet | the number on the bin — an identifier |
+
+**Resulting registry change:** `numberOfBins` is back to
+`customer, pullList, routes, schedule` — the frozen map was right all along.
+What DID change, and is the fix the instruction was really asking for: the crew
+sheet's Cust # column now reads `whBinNumberFor` rather than `customerNumber`, so
+a customer whose footage moved them into the 5000 series sends the crew to the bin
+physically on the shelf, still wearing the old number.
 
 ---
 
@@ -874,7 +892,7 @@ a gap and an answer.
 
 ---
 
-## Q-015 · intent · open · 2026-08-24
+## Q-015 · intent · answered · 2026-08-24
 Phase 2 is mostly superseded by answers already given. What, if anything, should
 replace the two parts that cannot be built?
 
@@ -910,7 +928,63 @@ Three ways it could come back, none of them free:
 evening data entry or a portal nobody uses. Option 1 is what is shipped by
 default — the reconciliation simply runs with three columns.
 
-**Answer:**
+**Answer (Addie, 2026-08-24): option 1 — and the question was built on a wrong
+premise, which is the more useful half.**
 
-**Resulting map change:** if option 1, plan §5.2's four-column table becomes three
-and §4.3 is struck. If 2 or 3, that is its own piece of work with its own scope.
+> *"timer doesn't need to reach the crew sheet this is warehouses job."*
+
+The example the question was built on — *did the crew fit the timer?* — is not a
+failure that can happen. **The crew does not fulfil options at all.** Everything a
+customer asks for that becomes a physical thing (colours, wire, timer, bundle
+count) goes IN THE BIN, and the warehouse puts it there. The crew hangs what they
+are given.
+
+So the *installed* column was never the crew's to provide. The question "was this
+option actually supplied" is answered by the **warehouse build**, which already
+has a queue, a Mark Done, and a printed sheet. §4.3 is struck: there is no crew
+check-off to build, this season or any other, and no crew portal needed for it.
+
+**Resulting map change:** plan §5.2's four columns become **ordered → scheduled →
+built**, with the warehouse's own build record as the third. §4.3 is struck.
+A knock-on: the crew sheet was carrying Timer and Bins for no reason, and both
+came off — see Q-016.
+
+---
+
+## Q-016 · intent · answered · 2026-08-24
+What belongs on the crew sheet?
+
+**Answer (Addie, 2026-08-24), asked and answered in her own words:**
+
+> "the crew just hangs they don't need to know what's going in the bin just bin #,
+> any notes, addreess, name and for new houses need the new house pictuer and
+> fixes need teh fix picture. If they use eaves which will only show if they say
+> yes. Than if they want a specific outlet? So things that have to do with the
+> house itself."
+
+And, asked what she might be missing, on Sides, Gate, City and Phone: *"Yes those
+are important to put on there to."*
+
+**The sheet is now:** Cust # · Name · Address · City · Phone · Gate · Sides ·
+Notes, with new-hang and fix photos underneath. Notes carries `EAVES:` (only on
+yes), `OUTLET:`, `TODAY:` and the standing note.
+
+**The rule behind it, which is the reusable part:** the crew sheet answers
+questions about **the house** — where it is, how to get in, how much of it to
+light, what is unusual about it, who to ring. Anything about **what goes in the
+bin** is the warehouse's and belongs on the build sheet. That single test is what
+took Timer and Bins off, and it is what any future column should be measured
+against.
+
+**What was found while doing it, and had been missing all along:** the **fix
+photo**. `fixPhotoUrl` and `fixNote` have been on the customer record and visible
+in the office note editor for some time, and the crew sheet only ever printed
+photos for NEW HANGS — so a crew sent out to fix something arrived with no picture
+of what was wrong. Exactly the shape of the gate-code hole P-003 was proposed
+about: the data exists, reaches one screen, and never reaches the paper the crew
+is holding.
+
+**Resulting registry change:** `outletTimer` and `numberOfBins` both lose
+`crewSheet`; `useEaves` gains `foldInto: 'notes'` with a value that is only
+present on yes. Cust #, Phone, Address and City are identity, not options, and
+stay written out in `PRINT_COLUMNS.crew`.
