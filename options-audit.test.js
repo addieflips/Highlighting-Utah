@@ -48,6 +48,11 @@ function check(label, ok, detail) {
 
   const { OPTIONS, CONSUMERS, audit, missingAnswers, display, forConsumer,
           confirmationText, crewSheet, pullList, valueOf, offerableChoices } = mod;
+  /* ⚠ THE REAL BIN RULE, re-exported by the registry from js/money.js. Taken from
+     there rather than re-typed, so the threshold this test asserts is the same one
+     the customer-number series is derived from — R-014, business constants live in
+     exactly one file. */
+  const { cnBinsForFeet, CN_DOUBLE_BIN_FEET } = mod;
 
   const required = { OPTIONS, CONSUMERS, audit, missingAnswers, display, forConsumer,
                      confirmationText, crewSheet, pullList, valueOf, offerableChoices };
@@ -410,23 +415,93 @@ function check(label, ok, detail) {
             wireColor:         /wire: d\.wireColor/,
             outletTimer:       /timer: printYesNo\(d\.outletTimer\)/,
             measuredFeet:      /bundles: need/,
-            /* ⚠ AND IT IS GENUINELY NOT ON THE PRINTED SHEET — recorded, not papered
-               over. The Warehouse tab's list shows a bins column; the printed one never
-               has, through every revision of it (git log -S). So the person reading the
-               screen is told how many bins to label and the person carrying the paper is
-               not. That is a real difference between two sheets doing one job, and it is
-               the owner's call rather than mine: adding a column to a sheet she trimmed
-               herself is exactly the kind of guess this registry exists to stop.
-               ⚠ IT IS NOT SILENT. `except` makes the check say so on every run, so the
-               difference is visible until somebody decides — a missing entry would just
-               look like nobody had got to it. */
-            numberOfBins:      { except: 'the printed build sheet has no bins column; ' +
-                                 'the Warehouse tab list does. Owner to decide whether ' +
-                                 'the paper should match the screen.' },
+            /* ⭐ ASKED AND ANSWERED, 2026-08-24. The Warehouse tab's list shows a bins
+               column and the printed sheet never has, through every revision of it — so
+               the person reading the screen was told how many bins to label and the
+               person carrying the paper was not. Put to the owner rather than guessed
+               at, because adding a column to a sheet she trimmed herself is exactly what
+               this registry exists to stop. Her answer: "We want to show costumer # on
+               paper and bundles."
+
+               So the paper deliberately does NOT carry bins. The customer number is what
+               identifies the bin once it is made, and the bundle count is what somebody
+               counts off a shelf — bins is the office's sizing number and stays on the
+               screen. Recorded as a decision rather than left as a gap, so nobody
+               re-opens it; the note still prints on every run so it is never invisible. */
+            numberOfBins:      { except: 'not a column, by design — it rides in the ' +
+                                 'bundles cell and only past two bins, where the 5000 ' +
+                                 'number stops being enough (owner, 2026-08-24). The ' +
+                                 'threshold itself is checked above.' },
           },
         },
       ],
     };
+
+    /* ⭐ WHAT THE PAPER MUST CARRY, in the owner's own words (2026-08-24): "we want
+       to show costumer # on paper and bundles." Neither is a registry option — the
+       customer number is an identifier rather than something a customer asks for — so
+       nothing above would notice either going missing. Asserted here because they are
+       the two things she named, and the bundle count is what somebody actually counts
+       off a shelf. */
+    const buildCols = (admin.match(/build:\s*\[([\s\S]*?)\],\s*\n/) || [])[1] || '';
+    check('the printed build sheet carries the customer number',
+      /k: 'number', label: 'Cust #'/.test(buildCols),
+      'it is what identifies the bin once the bundle is made');
+    check('and the bundle count', /k: 'bundles'/.test(buildCols),
+      'the number somebody counts off a shelf');
+    check('and deliberately not a bin COLUMN', !/k: 'bins'/.test(buildCols),
+      'bins is the office sizing number and stays on the Warehouse tab \u2014 owner, ' +
+      '2026-08-24. If this starts failing, she changed her mind and the note above ' +
+      'needs changing with it');
+
+    /* ⭐ BUT THE BIN COUNT DOES SPEAK PAST TWO BINS (2026-08-24). Owner: "all warehouse
+       people should know 5000 means 2 bins so not necessary to put how many bins on
+       there", then, shown where that breaks: "just put how many bins will be needed if
+       it is more than 2 bins."
+
+       ⚠ RUN, NOT READ, AND ACROSS THE BOUNDARY. The whole value is WHERE it starts
+       speaking: a 5000-series number means two OR MORE bins, and it stops being enough
+       at 521 ft. A regex proving the code exists would say nothing about the threshold,
+       which is the only thing that can be wrong here. */
+    {
+      const at2 = admin.indexOf('function printExtraBinsNote(');
+      let d2 = 0, e2 = at2;
+      for (let i = admin.indexOf('{', at2); i < admin.length && at2 > -1; i++) {
+        if (admin[i] === '{') d2++;
+        else if (admin[i] === '}') { d2--; if (!d2) { e2 = i + 1; break; } }
+      }
+      check('the extra-bins note is there to run', at2 > -1,
+        'a gate that cannot find its target must FAIL, never skip');
+      if (at2 > -1) {
+        /* whBinsForHouse lifted in spirit: the REAL rule is cnBinsForFeet, imported
+           at the top of this file, so the threshold cannot drift from the one the
+           customer-number series is derived from. */
+        const note = new Function('whBinsForHouse',
+          'return ' + admin.slice(at2, e2) + ';printExtraBinsNote')(
+          (x) => { const ft = Number(x.measuredFeet) || 0; return ft ? String(cnBinsForFeet(ft)) : ''; });
+        check('it says nothing for a one-bin house', note({ measuredFeet: 200 }) === '');
+        check('and nothing for a two-bin house', note({ measuredFeet: 300 }) === '',
+          'the customer number already says two bins — repeating it is how a column ' +
+          'stops being read');
+        /* ⚠ THE EDGE IS THE POINT. 520 is the last two-bin house and 521 is the first
+           three-bin one, straight off CN_DOUBLE_BIN_FEET. */
+        check('silent at the last two-bin house', note({ measuredFeet: CN_DOUBLE_BIN_FEET * 2 }) === '',
+          '520 ft is two bins and reads correctly off the 5000 number');
+        check('and speaks at the first three-bin house',
+          note({ measuredFeet: CN_DOUBLE_BIN_FEET * 2 + 1 }) === '3 BINS',
+          '521 ft is three bins on a 5000 number — this is the house the shorthand ' +
+          'gets wrong, and the only reason this note exists');
+        check('and counts four when four are needed',
+          note({ measuredFeet: CN_DOUBLE_BIN_FEET * 3 + 1 }) === '4 BINS');
+        check('and says nothing for a house with no footage', note({}) === '',
+          'an unmeasured house must not read as needing zero bins');
+        /* ⚠ IT RIDES IN THE BUNDLES CELL, not a column of its own — asserted because a
+           helper nothing calls is the most expensive kind of green. */
+        check('and the printed build sheet actually prints it',
+          /bundles: need[\s\S]{0,200}printExtraBinsNote\(d\)/.test(admin),
+          'unwired, the sheet is exactly as it was and every check above still passes');
+      }
+    }
 
     Object.keys(SURFACES).forEach((consumer) => {
       const declared = OPTIONS.filter(o => (o.consumers || []).indexOf(consumer) !== -1);

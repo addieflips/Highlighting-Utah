@@ -46929,6 +46929,15 @@ function printSideCount(d){
    the one standing in the warehouse looking for it. That helper's own comment says
    this belongs "on both the screen and the paper"; the recycle list has said it for a
    while and the crew sheet never did. */
+/* ⚠ SILENT UNDER THREE BINS, deliberately — see the bundles cell on the printed build
+   sheet. The customer number already says "two bins" to anyone who knows the 5000
+   series, and it only stops being enough past 520 ft. Reads the SAME rule the number
+   series is derived from (cnBinsForFeet via whBinsForHouse), so the sheet and the
+   number a customer was given can never disagree about the same house. */
+function printExtraBinsNote(d){
+  const n = Number((typeof whBinsForHouse === 'function') ? whBinsForHouse(d) : 0) || 0;
+  return n > 2 ? (n + ' BINS') : '';
+}
 function printBinCount(d){
   const n = (typeof whBinsForHouse === 'function') ? whBinsForHouse(d) : '';
   const moved = (typeof whBinNumberMoved === 'function') && whBinNumberMoved(d);
@@ -47160,8 +47169,26 @@ function printNeedsBuildList(){
                  whole house's — houseBundleNeed does that subtraction. The + marks it
                  as an addition to a bin that already exists, which the Type column and
                  the put-into column also say. */
+              /* ⭐ AND HOW MANY BINS, BUT ONLY PAST TWO (2026-08-24). Owner: "all
+                 warehouse people should know 5000 means 2 bins so not necessary to put
+                 how many bins on there", then, shown where that breaks: "just put how
+                 many bins will be needed if it is more than 2 bins."
+
+                 ⚠ THE SHORTHAND IS RIGHT UNTIL 520 FT. A 5000-series number means TWO
+                 OR MORE bins, not exactly two — cnBinsForFeet adds one per 260 ft — so
+                 521 ft is three bins on a 5000 number and 781 ft is four. Everything up
+                 to 520 reads correctly off the customer number, which is why this says
+                 nothing on the ordinary rows: a column that repeats what the number
+                 already tells them is a column that stops being read.
+
+                 ⚠ IT RIDES IN THE BUNDLES CELL rather than taking a column of its own.
+                 The sheet is seven columns on landscape paper and this speaks on a
+                 handful of rows; a mostly-blank eighth column costs width on every
+                 sheet to say something on almost none of them. It is also the cell
+                 somebody is already reading when they decide what to carry. */
               bundles: need
-                ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''))
+                ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : '') +
+                   (printExtraBinsNote(d) ? ' \u2014 ' + printExtraBinsNote(d) : ''))
                 : '',
               /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
                  sheets of the same job saying it two ways is how one of them stops

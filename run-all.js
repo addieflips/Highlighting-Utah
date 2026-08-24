@@ -23640,6 +23640,22 @@ suite('Suite 112. The number on the bin');
       const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
         'houseBundleNeed', 'whPutIntoLabel',
         (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+        /* ⚠ LIFTED, NOT STUBBED, and it joined this list in the same commit that made
+           printNeedsBuildList call it — the extraction-list trap CLAUDE.md names.
+           printExtraBinsNote decides whether a row says "3 BINS", which is one of the
+           things this harness exists to read, so a stub would answer the question
+           under test. It reads whBinsForHouse, which reads the real bin rule. */
+        extractFn(admin, 'printExtraBinsNote') +
+        extractFn(admin, 'whBinsForHouse') +
+        /* ⚠ AND THE REAL BIN RULE WITH IT. whBinsForHouse calls cnBinsForFeet, and
+           without this the sandbox reached a STUB left on `global` by Suite 5 — a
+           different function, from an unrelated harness, silently answering the
+           question under test. That is the leak CLAUDE.md describes: it passes here
+           and dies on a machine with no node_modules, because the suite that leaked
+           it is jsdom-gated. Taken from js/money.js, where the 260 actually lives. */
+        extractFn(money, 'cnBinsForFeet').replace('export ', '') +
+        'const CN_DOUBLE_BIN_FEET = ' +
+          (/CN_DOUBLE_BIN_FEET = (\d+)/.exec(money) || [0, '260'])[1] + ';' +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
