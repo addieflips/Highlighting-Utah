@@ -11810,17 +11810,33 @@ suite('Suite 44. The plan keeps up with the customer list');
   /* ⚠ AND THE REJOIN PLACER JOINED IT (2026-08-22). Every source of news the sync
      can produce has to be in this condition, or the one left out is either never
      announced or announced on a tick where nothing happened. */
-  check('S44', 'a sync that changes nothing says nothing',
-    /if\(!moved\.length && !timing\.moved\.length && !timing\.stuck\.length\s*\n?\s*&& !rejoin\.placed\.length && !rejoin\.stuck\.length\) return 0;/
-      .test(admin.replace(/\r/g, '')),
-    'a toast every five minutes is how somebody learns to ignore toasts');
+  /* ⚠ ASSERTED AS THE RULE, NOT AS THE LINE. This used to require the guard verbatim,
+     so adding a fourth source of news failed it while the rule it protects was being
+     obeyed — and, worse, it would have PASSED a new source that was announced but left
+     out of the guard, which is the actual bug. It now reads every `X.length) bits.push`
+     in the driver and requires each of those to appear in the early return, so the
+     check maintains itself the next time a sweep is added. */
+  {
+    const drv = admin.replace(/\r/g, '');
+    const guard = (drv.match(/if\(!moved\.length[\s\S]{0,400}?\) return 0;/) || [''])[0];
+    const news = [...new Set((drv.match(/if\((\w+(?:\.\w+)?)\.length\)\s*bits\.push/g) || [])
+      .map(m => m.replace(/^if\(/, '').replace(/\.length\)[\s\S]*$/, '')))];
+    const missing = news.filter(n => guard.indexOf('!' + n + '.length') === -1);
+    check('S44', 'a sync that changes nothing says nothing', !!guard && !missing.length,
+      !guard ? 'the early return was not found at all'
+             : 'announced but not in the early return: ' + missing.join(', ') +
+               ' — a toast every five minutes is how somebody learns to ignore toasts');
+    check('S44', 'and the sync really does have several sources of news', news.length >= 4,
+      'if this drops to one, the extractor above has stopped matching and the check ' +
+      'is passing on an empty list');
+  }
   check('S44', 'and somebody just placed back on a day IS announced',
     /rejoin\.placed\.length\) bits\.push/.test(admin) &&
     /rejoin\.stuck\.length\) bits\.push/.test(admin),
     'a customer appearing on Tuesday with no explanation is how the office stops ' +
     'trusting the plan');
   check('S44', 'and the day they landed on is re-ordered for driving',
-    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| townChanged\)/.test(admin),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged\)/.test(admin),
     'a house dropped on the END of a day leaves that day out of driving order');
 }
 
@@ -22269,7 +22285,12 @@ suite('Suite 110. Approving it for them, with no email');
      CAN be sent and then approved over the phone, and that is the same override. */
   {
     const at = admin.indexOf("list.querySelectorAll('[data-markapproval]')");
-    const blk = at > 0 ? admin.slice(at, admin.indexOf('});', admin.indexOf('toast(label)', at))) : '';
+    /* ⚠ ANCHORED ON `toast(label` WITHOUT THE CLOSING BRACKET. It was `toast(label)`,
+       and adding one word to that line (`toast(label + alsoIn)`) made indexOf return
+       -1, which slices from the wrong place and failed FOUR checks that had nothing to
+       do with the change. An extraction anchor should be the shortest thing that is
+       still unique. */
+    const blk = at > 0 ? admin.slice(at, admin.indexOf('});', admin.indexOf('toast(label', at))) : '';
     check('S110', 'the Mark Approved handler was found', !!blk);
     check('S110', 'pressing Mark Approved records that the office answered',
       /approvedByOffice = true/.test(blk) && /approvedByOfficeAt/.test(blk),
@@ -26106,7 +26127,7 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
       'the blank-only guard was removed on purpose — restoring it silently undoes ' +
       'the owner\'s decision');
     check('S70', 'and it goes through the shared yes rule, not its own write',
-      /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}\)\)/.test(seasonBlock),
+      /update\(seasonYesUpdates\(memberRef\.data \|\| \{\}/.test(seasonBlock),
       'a status-only write leaves them in the season AND queued for recycle');
 
     check('S70', 'and only ever for somebody who is already a customer',
@@ -26931,7 +26952,7 @@ suite('77. Schedule route generator');
      pushed onto the END of that day, so it is no longer in driving order — exactly
      the case this trigger exists for. A changed phone number still is not. */
   check('S77', 'but only when a house actually moved day or town',
-    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| townChanged\)/.test(sync),
+    /if\(timing\.moved\.length \|\| rejoin\.placed\.length \|\| rehome\.moved\.length \|\| townChanged\)/.test(sync),
     'a changed phone number does not alter a route — re-ordering the season every five minutes would');
   check('S77', 'and it happens BEFORE the plan is drawn and saved',
     sync.indexOf('generateAllRoutes()') < sync.indexOf('computeDates(); renderAll(); scheduleSave();'),
