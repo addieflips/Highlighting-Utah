@@ -2064,6 +2064,73 @@ check('flow', 'quote is closed when converted to a customer',
    ⚠ AND THE OLD RULE SURVIVES WHERE IT WAS ALWAYS RIGHT: a customer TYPED into the Add
    Customer form is not a conversion, and still gets a blank. Both halves are asserted
    below, so restoring either position wholesale fails. */
+/* ⭐ EXPORT TO EXCEL FOLLOWS THE FILTERS (changed 2026-08-24). Owner: "can you give me
+   a list of everyone that is currently charged a 30 dollar fee?"
+
+   ⚠ IT DID NOT. The handler mapped over the whole of jobAddresses and ignored every
+   filter, so filtering down to twelve people and pressing Export handed back all ~1,000
+   rows — with nothing on screen to say it had. A filter panel and an export button side
+   by side is a promise, and it was being broken silently. Found while checking the
+   answer before giving it, not by anything failing. */
+{
+  const at = admin.indexOf("allCustExportBtn').addEventListener");
+  const exp = at === -1 ? '' : admin.slice(at, admin.indexOf('XLSX.writeFile', at) + 400);
+  check('flow', 'the customers export handler was found', !!exp,
+    'a gate that cannot find its target must FAIL, never skip');
+  /* ⚠ THE ROWS COME FROM THE TABLE, not from the book. */
+  check('flow', 'the export takes the rows the table is showing',
+    /allCustVisibleRows \|\| \[\]\)\.map/.test(exp) && !/jobAddresses\.map/.test(exp),
+    'exporting the whole book from behind a filter panel is a silent lie');
+  /* ⚠ AND IT RENDERS FIRST rather than falling back to everybody — that fallback is
+     the bug, reintroduced with a friendlier face. */
+  check('flow', 'and it renders first rather than falling back to the whole book',
+    /if\(!allCustVisibleRows\) renderAllCustomersTable\(\);/.test(exp),
+    'a fallback to jobAddresses is the same silent lie by another route');
+  /* ⚠ THE VISIBLE LIST IS RECORDED AFTER EVERY FILTER AND BEFORE THE EMPTY RETURN.
+     Set any earlier and the export carries rows the filters removed; set after the
+     early return and filtering down to nobody exports the PREVIOUS filter's list. */
+  const tbl = (function(){
+    const a2 = admin.indexOf('function renderAllCustomersTable(');
+    if (a2 === -1) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', a2); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(a2, i + 1); }
+    }
+    return '';
+  })();
+  const setAt = tbl.indexOf('allCustVisibleRows = rows;');
+  const lastFilter = tbl.lastIndexOf('rows = rows.filter');
+  const emptyReturn = tbl.indexOf("No customers match this view");
+  /* ⚠ THE VALUE IS ASSERTED, NOT ONLY THE POSITION. A red-check that kept the line
+     where it is and assigned the whole book to it instead sailed through the position
+     test — right place, wrong list, and the export is back to lying. */
+  check('flow', 'and it is recorded after the filters and before the empty return',
+    setAt > lastFilter && setAt < emptyReturn && lastFilter > -1 && emptyReturn > -1 &&
+    /\n  allCustVisibleRows = rows;/.test(tbl),
+    'set too early and the export carries rows the filters removed; set too late and ' +
+    'filtering down to nobody exports the previous filter\'s list');
+  /* ⚠ THE $30 IS A COLUMN, and it asks the same predicate the billing asks, so the
+     spreadsheet cannot disagree with the invoice. */
+  check('flow', 'and the $30 is a column, from the same rule that charges it',
+    /'Installation Fee': audienceIsNew\(d\)/.test(exp),
+    'it is the one charge decided by a tick box rather than by the footage, so it is ' +
+    'the one somebody needs to audit');
+  /* ⚠ AND IT SAYS HOW MANY WENT. The whole failure is an export quietly not matching
+     the screen; a count is what makes that visible either way. */
+  /* ⚠ MATCHED AS AN UNGUARDED STATEMENT. `if(false) toast('Exported ...` leaves every
+     word in place, and the first version of this check passed on it — the same vacuous
+     shape this file keeps recording. Requiring the call to start its own line at the
+     handler's indent is what a wrapped or disabled one fails. */
+  check('flow', 'and the export says how many rows it wrote',
+    /\n  toast\('Exported ' \+ rows\.length/.test(exp),
+    'silence is what let the old behaviour go unnoticed');
+  check('flow', 'and an empty filter exports nothing rather than a blank file',
+    /if\(!rows\.length\)\{ toast\('Nothing to export/.test(exp),
+    'a spreadsheet with headers and no rows reads as "nobody matches" only if you ' +
+    'happen to open it');
+}
+
 /* ⭐ A "NEW CUSTOMER" FILTER IN ALL CUSTOMERS (added 2026-08-24). Owner, on somebody
    marked with the fee who is not actually new: "this would be a problem since they
    aren't a new member."
