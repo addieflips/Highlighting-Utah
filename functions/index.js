@@ -3348,7 +3348,7 @@ async function runInvoiceBatch(triggeredBy) {
               const where = h.data.address || h.data.street || 'This address';
               return '<b>' + where + '</b><br>' + feetLineFor(h.data);
             }).join('<br><br>');
-        const newMemberLine = isNewMember ? 'New member installation fee = $30.00' : '';
+        const newMemberLine = isNewMember ? 'Installation fee = $30.00' : '';
 
         const changeFeesTotal = Number(inv.changeFees) || 0;
         const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + changeFeesTotal;

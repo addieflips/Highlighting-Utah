@@ -1766,6 +1766,7 @@
                    customers, which is a list somebody can work through in an afternoon
                    and nobody could find by scrolling. -->
               <div class="form-row"><label>Lights</label><select id="allCustFilterLights"><option value="all">Any</option><option value="soft">On soft (needs switching)</option><option value="none">No colours recorded</option></select></div>
+              <div class="form-row"><label>New customer</label><select id="allCustFilterNewMember"><option value="all">Any</option><option value="new">New this year (pays the $30)</option><option value="returning">Returning customer</option></select></div>
               <!-- ⭐ WHO CANNOT BE EMAILED (added 2026-08-21). Owner: "just make a
                    filter in costumer were i can see who has no email."
                    An invoice only ever goes out by email, and Automation Emails drops
@@ -6287,7 +6288,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
     const basePrice = cust ? Number(cust.data.housePrice) || 0 : 0;
     const isNewMember = !!(cust && cust.data.chargeNewMemberFee === true);
     const feetLine = feet && perFootRate ? ('Installation service \u2014 '+feet+' ft @ '+fmtMoney(perFootRate)+'/ft = '+fmtMoney(basePrice)) : ('Installation service = '+fmtMoney(basePrice));
-    const newMemberLine = isNewMember ? ('New member installation fee = '+fmtMoney(30)) : '';
+    const newMemberLine = isNewMember ? ('Installation fee = '+fmtMoney(30)) : '';
     out = out.split('{{feet_line}}').join(feetLine);
     out = out.split('{{new_member_fee_line}}').join(newMemberLine);
     out = out.split('{{amount_due}}').join(amount || fmtMoney(basePrice + (isNewMember?30:0)));
@@ -12524,6 +12525,16 @@ function audienceOrderedLastYear(d){
 }
 // First-year customer, read off the same flag the invoice/new-member logic uses.
 function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
+/* ⚠ ITS OWN FUNCTION SO IT CAN BE RUN BY A TEST. Written inline in
+   renderAllCustomersTable first, and a red-check proved the point immediately: the
+   checks for it were passing against a reimplementation in the test file rather than
+   against this code, so sabotaging the real filter changed nothing. Lifted out, the
+   suite runs the thing that actually ships. */
+function allCustNewMemberRows(rows, mode){
+  if(mode === 'new') return rows.filter(function(r){ return audienceIsNew(r.d); });
+  if(mode === 'returning') return rows.filter(function(r){ return !audienceIsNew(r.d); });
+  return rows;
+}
 /* ⭐ AN RSVP EMAIL MUST NOT GO TO SOMEBODY WHO HAS NEVER HAD LIGHTS. Owner,
    2026-08-19: "lets just tick new members for now that have come in so they
    don't get an RSVP but any new people should automatically get ticked and we
@@ -13040,7 +13051,7 @@ function buildInvoiceDocHtml(member){
         '<tbody>'+
           lineItems+
           (removal > 0 ? row('Removal service', fmtMoney(removal)) : '')+
-          (showNewMemberLine ? row('New member installation fee', '$30') : '')+
+          (showNewMemberLine ? row('Installation fee', '$30') : '')+
           changeFeeNotes.map(function(f){ return row(esc(f.reason||'Light change fee'), fmtMoney(Number(f.amount)||0)); }).join('')+
           creditNotes.map(function(c){ return row(esc(c.reason||'Credit'), '\u2212'+fmtMoney(Number(c.amount)||0), 'var(--dusk)'); }).join('')+
         '</tbody>'+
@@ -13135,7 +13146,7 @@ async function invTestSend(){
       .map(function(f){ return (f.reason||'Light change fee') + ' = ' + fmtMoney(Number(f.amount)||0); }).join('<br>');
     let body = tpl.data.body || '';
     body = body.split('{{feet_line}}').join(feetLine);
-    body = body.split('{{new_member_fee_line}}').join(inv.newMemberFeeApplied ? 'New member installation fee = $30.00' : '');
+    body = body.split('{{new_member_fee_line}}').join(inv.newMemberFeeApplied ? 'Installation fee = $30.00' : '');
     body = body.split('{{credit_lines}}').join(creditLines);
     body = body.split('{{fee_lines}}').join(feeLines);
     body = body.split('{{amount_due}}').join(fmtMoney(amountDue));
@@ -14628,7 +14639,7 @@ function renderInvoicesList(){
                     '<input type="number" class="ie-house-price" data-houseid="'+h.id+'" min="0" step="1" value="'+(Number(hd.housePrice)||0)+'">'+
                   '</div>';
                 }).join('')+
-                (feeAmt ? '<div class="pr-foot"><span class="pr-fee">New member fee</span><span>+$30</span></div>' : '')+
+                (feeAmt ? '<div class="pr-foot"><span class="pr-fee">Installation fee</span><span>+$30</span></div>' : '')+
               '</div>'+
               '<p class="why">Each price saves to that house. Changing one here changes it on the customer too, so the two can\'t drift apart.</p>'+
             '</div>'+
@@ -33865,6 +33876,8 @@ function renderAllCustomersTable(){
   const lightsFilter = lightsEl ? lightsEl.value : 'all';
   const emailEl = document.getElementById('allCustFilterEmail');
   const emailFilter = emailEl ? emailEl.value : 'all';
+  const newMemEl = document.getElementById('allCustFilterNewMember');
+  const newMemFilter = newMemEl ? newMemEl.value : 'all';
   const pinFilter = document.getElementById('allCustFilterPin').value;
   const dateStart = document.getElementById('allCustFilterDateStart').value;
   const dateEnd = document.getElementById('allCustFilterDateEnd').value;
@@ -33922,6 +33935,27 @@ function renderAllCustomersTable(){
      need to switch their lights". This is the finding.
      ⚠ Matched case-insensitively on the stored value, because a colour that came in
      from the sheet and one ticked by hand must land in the same list. */
+  /* ⭐ WHO IS FLAGGED AS A NEW CUSTOMER (added 2026-08-24). Owner, on somebody marked
+     with the fee who is not actually new: "this would be a problem since they aren't a
+     new member."
+
+     ⚠ THIS LISTS WHO CARRIES THE FLAG, not who is genuinely new — and that is exactly
+     what makes it useful. Anybody on this list who has been a customer for years was
+     mis-marked, and unticking the box on their record undoes it. There is deliberately
+     NO guess here about who is "really" new: the only signal for that would be a date,
+     and the bulk import stamped ~945 records with the same one, which is the enrolment-
+     year mistake this whole flag exists to replace.
+
+     ⚠ AND IT IS THE SAME PREDICATE THE EMAIL AUDIENCE AND THE NIGHTLY BILLING USE
+     (audienceIsNew / looksLikeNewMember, both plain chargeNewMemberFee === true), so
+     this list cannot disagree with who actually gets charged. The reason it is worth
+     having HERE is that the only other place to see it was inside Preview & Send, which
+     needs a template chosen and resets itself when that template is an RSVP.
+
+     ⚠ IT MATTERS MORE THAN THE $30. The same flag reads as approved for the season and
+     takes them OUT of the RSVP audience — so a wrongly-flagged customer is counted as
+     having said yes and is never asked, which nothing else on any screen would reveal. */
+  rows = allCustNewMemberRows(rows, newMemFilter);
   if(lightsFilter === 'soft'){
     rows = rows.filter(function(r){
       const cols = (r.d && Array.isArray(r.d.lightColors)) ? r.d.lightColors : [];
@@ -35816,7 +35850,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
    perfectly and could not be reached, and it only appeared to work if you happened
    to touch another filter or the search box afterwards. Found 2026-08-21 while
    adding the Email one. Any select added to that panel has to be named here. */
-['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
+['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterNewMember','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
   const el = document.getElementById(id);
   if(el) el.addEventListener('input', renderAllCustomersTable);
 });
@@ -35842,6 +35876,8 @@ document.getElementById('allCustFilterClear').addEventListener('click', function
   if(clrLights) clrLights.value = 'all';
   const clrEmail = document.getElementById('allCustFilterEmail');
   if(clrEmail) clrEmail.value = 'all';
+  const clrNewMem = document.getElementById('allCustFilterNewMember');
+  if(clrNewMem) clrNewMem.value = 'all';
   document.getElementById('allCustFilterDateStart').value = '';
   document.getElementById('allCustFilterDateEnd').value = '';
   document.getElementById('allCustSearchInput').value = '';
