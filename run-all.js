@@ -2092,6 +2092,134 @@ check('flow', 'nothing closes a quote except converting it',
   'a third way to close a quote would put unapproved re-quotes into Converted & ' +
   'Closed, which is exactly what the owner asked not to happen');
 
+/* ⭐ HAS THE RSVP GONE OUT — THE MARK (added 2026-08-24). Owner: "do a mark for when
+   RSVP has gone out", and "however we still can manually".
+
+   Whether the RSVP has been sent is the ONE fact that decides whether
+   SEASON_ELIGIBILITY may be flipped to confirmed-only. Flip it before the send and the
+   season empties — everybody reads as unconfirmed because nobody has been asked. Until
+   now that fact lived nowhere but somebody's memory. */
+{
+  /* ⚠ extractFn SEARCHES FOR "function NAME(" AND SO DROPS THE async KEYWORD, which
+     CLAUDE.md warns about by name and which killed this whole suite on the first run:
+     the lifted body is full of bare `await`, that is a parse error, and the failure
+     arrives as "an async suite crashed" with no clue which function. Same brace-counting
+     lifter Suites 74-76 use, tried as `async function` first. */
+  const asyncFn = (name) => {
+    let at = admin.indexOf('async function ' + name + '(');
+    if (at < 0) at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const noteSrc = asyncFn('noteRsvpSendHappened');
+  check('flow', 'the RSVP-sent mark is there to run', !!noteSrc,
+    'a gate that cannot find its target must FAIL, never skip');
+  if (noteSrc) {
+    const build = (already) => {
+      const writes = [];
+      const fn = new Function('rsvpSentAtCache', 'markRsvpSent', 'safeRender',
+        'renderDashRsvpPanel', 'console',
+        'let __c = rsvpSentAtCache;' +
+        noteSrc.replace(/rsvpSentAtCache/g, '__c') +
+        ';return noteRsvpSendHappened;')(
+        already, async (w, c) => { writes.push(c); }, () => {}, () => {},
+        {error: () => {}});
+      return {fn: fn, writes: writes};
+    };
+    const pending = [];
+    /* ⚠ ONLY THE FIRST SEND. A top-up to fifteen stragglers a week later must not
+       reset the clock and make the season look freshly asked. */
+    pending.push((async () => {
+      const a = build(null);
+      const first = await a.fn(120);
+      check('flow', 'a real RSVP send records that it went out',
+        first === true && a.writes.length === 1 && a.writes[0] === 120,
+        'the one fact that says whether the season eligibility may be flipped');
+      const b = build(new Date());
+      const again = await b.fn(15);
+      check('flow', 'but a later top-up send does not reset it',
+        again === false && b.writes.length === 0,
+        '"has the RSVP gone out" is answered by the FIRST send — a follow-up to ' +
+        'stragglers must not make the season look freshly asked');
+      /* ⚠ A SEND THAT REACHED NOBODY HAS ASKED NOBODY. */
+      const c = build(null);
+      const none = await c.fn(0);
+      check('flow', 'and a send where every email failed records nothing',
+        none === false && c.writes.length === 0,
+        'recording an RSVP that reached no one is how the eligibility flip gets ' +
+        'made on evidence that does not exist');
+    })());
+    if (typeof pendingAsync !== 'undefined') pendingAsync.push(...pending);
+  }
+
+  /* ⚠ ONLY AN RSVP TEMPLATE STAMPS IT. An invoice or a receipt going out is not the
+     season being asked, and a stamp from one would be indistinguishable afterwards. */
+  const sendBlk = admin.slice(admin.indexOf("etSendToSelectedBtn').addEventListener"),
+                              admin.indexOf('function openSendModal('));
+  check('flow', 'the mark is stamped from a real send, and only an RSVP one',
+    /if\(etTemplateIsRsvp\(template\)\)\{[\s\S]{0,400}noteRsvpSendHappened\(sent\)/.test(sendBlk),
+    'an invoice going out is not the season being asked');
+  /* ⚠ AND IT IS COUNTED FROM `sent`, not from how many were selected — a send that
+     failed for everybody selected nobody successfully. */
+  check('flow', 'and it counts what actually left, not what was selected',
+    /noteRsvpSendHappened\(sent\)/.test(sendBlk) &&
+    !/noteRsvpSendHappened\(selectedIds/.test(sendBlk),
+    'a send that failed for everybody has asked nobody');
+
+  /* ⚠ SETTABLE BY HAND TOO. Owner: "however we still can manually". The automatic
+     stamp only fires on a send made through Automation Emails, and an RSVP can go out
+     another way; a marker with one route in is silently wrong the first time somebody
+     uses another. */
+  /* ⚠ THE LISTENER'S GUARD IS PART OF WHAT IS ASSERTED. A red-check that replaced
+     `if(markBtn)` with `if(false)` left every word in place and this passed — a button
+     that renders and does nothing, which is the failure the owner has asked about by
+     name: "just make sure that if i click a button the function that is supposed to
+     happen actually does". */
+  check('flow', 'the office can mark it sent by hand',
+    /id="rsvpSentMarkBtn"/.test(admin) &&
+    /if\(markBtn\) markBtn\.addEventListener\('click'/.test(admin) &&
+    /rsvpSentMarkBtn[\s\S]{0,700}markRsvpSent\(/.test(admin),
+    'owner: "however we still can manually"');
+  /* ⚠ AND TAKE IT BACK. A mark nobody can undo is one nobody dares set. */
+  check('flow', 'and can take the mark back',
+    /id="rsvpSentClearBtn"/.test(admin) &&
+    /if\(clearBtn\) clearBtn\.addEventListener\('click'/.test(admin) &&
+    /rsvpSentClearBtn[\s\S]{0,800}rsvpSentAt: null/.test(admin),
+    'a one-way mark is one nobody will press');
+
+  /* ⚠ IT RECORDS, IT DOES NOT DECIDE. The flip changes who a crew is sent to and stays
+     a deliberate act; wiring the marker to it would make the season change shape on
+     the day an email went out. */
+  const eligLine = (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0];
+  check('flow', 'but the mark does not flip the season eligibility by itself',
+    /^const SEASON_ELIGIBILITY = '(all-but-maybe-next-year|confirmed-only)';$/.test(eligLine) &&
+    !/rsvpSentAt/.test(extractFn(admin, 'isOutForSeason') || ''),
+    'a record, not a switch — flipping it changes who a crew is sent to');
+
+  /* ⚠ THE BANNER IS DRAWN WITH THE COUNTS IT EXPLAINS. Pending means two opposite
+     things either side of the send — "nobody asked them" or "they are ignoring you" —
+     so the counts are unreadable without it. */
+  check('flow', 'and the banner draws with the RSVP counts it explains',
+    /function renderDashRsvpPanel\(\)\{[\s\S]{0,400}renderRsvpSentBanner\(\);/.test(admin),
+    'Pending means two opposite things either side of the send');
+  /* ⚠ A FAILED READ RENDERS AS "NOT SENT YET", the cautious answer. Claiming it HAS
+     gone out on a read that never landed is what lets somebody flip on no evidence. */
+  check('flow', 'and a failed read leaves it unknown rather than claiming sent',
+    /catch\(err\)\{[\s\S]{0,400}rsvpSentAtCache = null;/.test(asyncFn('loadRsvpSentMark')),
+    'unknown must read as not-sent, never as sent');
+  /* ⚠ EAGER, like the badge loaders: the banner has to be right the first time the
+     Dashboard is opened, and "not sent yet" is the sentence somebody would act on. */
+  check('flow', 'and it is loaded at login, not when a panel opens',
+    /loadRsvpSentMark\(\);/.test(admin.slice(admin.indexOf('function initData()'),
+                                             admin.indexOf('function initData()') + 3000)),
+    'a marker that is briefly wrong is worse than no marker');
+}
+
 check('flow', 'converting a quote marks them in for the season',
   /rsvpStatus: addCustFromQuoteId \? 'yes' : ''/.test(admin),
   'owner: "if i convert or apply requote than it should be yes" — converting is ' +
