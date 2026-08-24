@@ -1970,9 +1970,71 @@ check('flow', 'quote is closed when converted to a customer',
 check('flow', 'converting a quote does NOT assume an RSVP of yes',
   !/rsvpStatus: addCustFromQuoteId \? 'yes'/.test(admin),
   'the office knowing they want lights is not the customer answering for this season');
+/* ⭐ THE NEW-MEMBER FEE, TICKED FOR THIS SEASON, IS AN APPROVAL (2026-08-24). Owner:
+   "if someone has new member fee ticked for this year than they should be approved for
+   this season if they don't have new member fee ticked for this year than they have not
+   approved yet."
+
+   ⚠ RUN, NOT READ — the whole point is which records come out as a yes. */
+{
+  const g = (n) => { const at = admin.indexOf('function ' + n + '('); return at === -1 ? '' : admin.slice(at, admin.indexOf('\n}', at) + 2); };
+  const src = g('audienceIsNew') + g('effectiveRsvpStatus');
+  check('flow', 'the approval rule is there to run', !!g('effectiveRsvpStatus') && !!g('audienceIsNew'),
+    'audienceIsNew is called directly, NOT behind a typeof guard — a guard would let a ' +
+    'sandbox skip the rule and still pass, which is how a silent gap gets built');
+  if (src) {
+    const eff = new Function(src + 'return effectiveRsvpStatus;')();
+    const D = new Date();
+    check('flow', 'the new-member fee ticked this year reads as approved',
+      eff({ chargeNewMemberFee: true }) === 'yes',
+      'a box a person ticked IS knowing they approved — that is the test the owner ' +
+      'set when she asked for the blindly-written assumed yes to go');
+    /* ⚠ AND A BULK IMPORT STILL COUNTS FOR NOTHING, the half she was most specific
+       about. No importer writes that flag — only Start New Season and the two forms. */
+    check('flow', 'but an imported customer has not approved',
+      eff({}) === '' && eff({ chargeNewMemberFee: false }) === '',
+      'the owner: "that does not count everyone that was converted to a costumer ' +
+      'through a bulk import"');
+    check('flow', 'and a bare yes with nothing behind it is still not an answer',
+      eff({ rsvpStatus: 'yes' }) === '',
+      'an imported or hand-edited record can still look like this');
+    /* ⚠ AN ANSWER ALWAYS OUTRANKS THE FLAG. The rule is about people who have said
+       nothing, never about overruling somebody who spoke. */
+    check('flow', 'and an answer outranks the fee, both ways',
+      eff({ chargeNewMemberFee: true, rsvpStatus: 'no', rsvpRespondedAt: D }) === 'no' &&
+      eff({ chargeNewMemberFee: true, rsvpStatus: 'backnextyear' }) === 'backnextyear' &&
+      eff({ chargeNewMemberFee: true, maybeNextYear: true }) !== 'yes',
+      'somebody who said no stays no whatever else is on their record');
+    check('flow', 'and a real reply still reads as yes on its own',
+      eff({ rsvpStatus: 'yes', rsvpRespondedAt: D }) === 'yes');
+    /* ⚠ THE ORDER OF THE FIRST TWO BRANCHES, asserted because getting it wrong is
+       invisible in every other case. A bare yes must be emptied BEFORE the badge guard:
+       written the other way round, a record carrying a bare yes AND the office's Maybe
+       Next Year badge is returned as a plain yes — the one value this function exists to
+       distrust, on exactly the customer who is out for the season. */
+    check('flow', 'and a bare yes is emptied before the badge is consulted',
+      eff({ rsvpStatus: 'yes', maybeNextYear: true }) === '' &&
+      eff({ rsvpStatus: 'yes', maybeNextYear: true, chargeNewMemberFee: true }) === '',
+      'badged out for the season AND never actually heard from — that is Pending twice ' +
+      'over, and it must not come out as an approval');
+  }
+  /* ⚠ NO DATE IS INVOLVED, and that is deliberate. The sheet-sync add path stamps
+     createdAt with TODAY when no date is typed, so a "since July" cutoff would sweep
+     in the whole imported book — the same shape as the old enrolment-year guess that
+     once marked ~945 people as new members, one $30 fee each. */
+  check('flow', 'and the rule reads no date at all',
+    !/createdAt/.test(stripComments(g('effectiveRsvpStatus'))),
+    'a cutoff date cannot tell a bulk-added customer from a real one — the sheet ' +
+    'sync stamps createdAt with today when none is typed');
+}
+
+/* ⚠ THIS USED TO MATCH THE RULE'S EXACT TEXT (`!dd.rsvpRespondedAt) return '';`) and
+   went stale the moment the branch was reordered — a check that pins a spelling fails on
+   a correct rewrite and passes on a wrong one that happens to keep the words. It asserts
+   the BEHAVIOUR now: one named function, and a legacy bare yes reads as unheard. */
 check('flow', 'and one place decides whether an approval was really heard',
   /function effectiveRsvpStatus\(d\)/.test(admin) &&
-  /said === 'yes' && !dd\.rsvpRespondedAt\) return '';/.test(admin),
+  (admin.match(/function effectiveRsvpStatus\(/g) || []).length === 1,
   'the ~960 records already in the book carry the old value, so the readers need a ' +
   'rule too — fixing only the writer leaves legacy data walking straight past it');
 check('flow', 'and the Dashboard Yes card counts real answers',

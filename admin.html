@@ -31242,8 +31242,45 @@ function cameBackBadge(d){
    the one property that makes a row of counts readable at a glance. */
 function effectiveRsvpStatus(d){
   const dd = d || {};
-  const said = String(dd.rsvpStatus || '').trim().toLowerCase();
-  if(said === 'yes' && !dd.rsvpRespondedAt) return '';
+  let said = String(dd.rsvpStatus || '').trim().toLowerCase();
+  /* A bare yes with nothing behind it — no reply on record — is not an answer. This is
+     what an imported or hand-edited record can still look like.
+
+     ⚠ IT IS NORMALISED FIRST, BEFORE ANY OTHER BRANCH, and that ordering is the whole
+     of it. Written after the badge guard below, a record carrying a bare yes AND the
+     office's Maybe Next Year badge would be returned as a plain yes — promoting the one
+     value this function exists to distrust, on exactly the customer who is out for the
+     season. Emptying it here means every branch underneath sees "they have said
+     nothing", which is the truth about that record. */
+  if(said === 'yes' && !dd.rsvpRespondedAt) said = '';
+  /* ⚠ AN ACTUAL ANSWER, OR THE OFFICE'S BADGE, ALWAYS WINS. Somebody who said no
+     stays no whatever else is on their record — the rule below is about people who
+     have said nothing, never about overruling somebody who spoke. */
+  if(said === 'no' || said === 'backnextyear' || dd.maybeNextYear) return said;
+  /* ⭐ THE NEW-MEMBER FEE, TICKED FOR THIS SEASON, IS AN APPROVAL (2026-08-24). Owner:
+     "if someone has new member fee ticked for this year than they should be approved
+     for this season if they don't have new member fee ticked for this year than they
+     have not approved yet."
+
+     ⚠ THIS IS NOT THE ASSUMED YES COMING BACK. That one was written blindly at
+     conversion, for everybody, and could not be told apart from a real reply. This is
+     a box a person ticked — the office recording that this customer joined and is
+     being charged the join fee — so it IS knowing they approved, which is the test the
+     owner set when she asked for the assumed yes to go.
+
+     ⚠ AND IT IS SEASON-SCOPED FOR FREE. Start New Season clears chargeNewMemberFee on
+     every customer in the same write as the rest of the reset, so "ticked for this
+     year" is what the flag already means. No date is involved, which matters: the
+     sheet-sync add path stamps createdAt with TODAY when no date is typed, so a cutoff
+     date would sweep in the whole imported book — the same shape as the old
+     enrolment-year guess that once marked ~945 people as new members.
+
+     ⚠ AND A BULK IMPORT STILL COUNTS FOR NOTHING, which is the half the owner was most
+     specific about. Only three places ever write this flag — Start New Season, the Add
+     Customer box and the Edit Customer box — and the last two are a person ticking
+     something. No importer writes it, so an imported customer has no flag, no reply,
+     and reads as Pending until somebody actually asks them. */
+  if(audienceIsNew(dd)) return 'yes';
   return said;
 }
 function rsvpStatusLabel(v){
