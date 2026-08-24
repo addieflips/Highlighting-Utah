@@ -32535,6 +32535,22 @@ function printLightColor(d){
    didn't want it" must never look alike; a defaulted "No" is exactly them looking
    alike. Same reasoning, same fix.
 
+   ⭐ AND THE TIMER IS NOW AN EXCEPTION SHE MADE HERSELF (2026-08-24). Asked what a
+   blank means field by field, Addie said: "If it's timer than no if its color wire
+   than we choose. If it's light colors that needs to be required and they can't move
+   on without that." So `outletTimer` carries `default: 'No'` in js/options.js and
+   the sheets print No for a customer nobody asked — which also finally matches what
+   the code has always DONE operationally, since both the portal's change detection
+   and the warehouse read `(outletTimer || 'No')`.
+   ⚠ THE FUNCTION BELOW IS UNCHANGED, and the rule above still governs every other
+   yes/no. The default is applied by the REGISTRY, before this is called, so nothing
+   here decides it — and nothing writes No to a record, which is what keeps the
+   "Never answered" audience in Automation Emails able to find them.
+   ⚠ useEaves AND specificOutlet WERE NOT NAMED and still say `none`. Defaulting
+   them by analogy with the timer is the guess this file exists to stop; it is asked
+   as Q-014, and the Up Plug column is 98 question marks deep, so it is 98 real
+   houses' worth of decision.
+
    ⚠ THE "?" IS INLINE, NOT A CONSTANT BESIDE THIS FUNCTION. Three test harnesses
    lift printYesNo with extractFn, which takes the function and nothing around it —
    a const declared next to it is not carried, and the suite dies with a bare
@@ -32586,8 +32602,18 @@ function whPullPresenters(d){
        importer moves those out of lightColors — so an alternating house has an
        EMPTY colour list and reading only the list calls them undecorated. */
     lightsDescription: function(cust){ return printLightColor(cust) || 'none'; },
+    /* ⚠ THE BUILD SHEET SAYS "White" WHERE EVERYTHING ELSE SAYS "Any", AND THAT
+       IS DELIBERATE. Addie, 2026-08-24: "if its color wire than we choose." On the
+       confirmation and the crew sheet the honest word is the registry's default,
+       Any — we have not chosen yet. In the WAREHOUSE somebody has to take a spool
+       off a shelf, so "we choose" has to become an actual colour, and whWireLabel
+       has answered White for a blank since long before this registry existed.
+       Same fact, two audiences, which is what a presenter is for.
+       ⚠ Do NOT "fix" this to Any: it would leave the one person who must decide
+       with no decision, and it changes shipped warehouse behaviour nobody asked
+       to change. */
     wireColor: function(cust){ return whWireLabel(cust.wireColor); },
-    outletTimer: function(cust){ return printOptionYesNo(cust.outletTimer); }
+    outletTimer: function(cust, o){ return printOptionYesNo(optValueOf(o, cust)); }
   };
 }
 /* ⭐ THE ANSWER COLUMNS ARE GENERATED (2026-08-24) — Bins, Wire, Bundles and Timer
@@ -46381,10 +46407,16 @@ function printCrewRow(h){
     numberOfBins: function(cust){ return printBinCount(cust); },
     /* Yes/No answers arrive in the office's own spellings (y, YES, "?", blank)
        and printYesNo is what canonicalises them. It handles the ANSWERED cases;
-       R-002's `none` for a genuinely unanswered one still comes from the
-       registry, so there is one rule for silence across every artifact. */
-    useEaves:    function(cust){ return printOptionYesNo(cust.useEaves); },
-    outletTimer: function(cust){ return printOptionYesNo(cust.outletTimer); }
+       what an EMPTY one means is the registry's to say, so both go through
+       optValueOf first.
+       ⚠ THAT IS WHAT MAKES THE TIMER DEFAULT REACH THE PAPER. Addie, 2026-08-24:
+       "If it's timer than no." The default lives on the option, so reading
+       `cust.outletTimer` directly here would print `none` on the sheet while
+       every other artifact said No — the presenter quietly overriding the rule
+       it is supposed to be spelling. Eaves has no default and still says
+       `none`, because nobody has said what a blank there means. */
+    useEaves:    function(cust, o){ return printOptionYesNo(optValueOf(o, cust)); },
+    outletTimer: function(cust, o){ return printOptionYesNo(optValueOf(o, cust)); }
   });
   return Object.assign({
     number: d.customerNumber || h.cu || '', name: d.name || h.name || '',

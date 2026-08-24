@@ -19794,9 +19794,20 @@ suite('Suite 104. The Printing tab');
         row({ outletTimer: 'Yes' }).outletTimer === 'Yes' &&
         row({ useEaves: false }).useEaves === 'No',
         'an explicit no is an answer and must not be turned into a shrug');
-      check('S104', 'and an unanswered one never prints a confident No',
-        row({}).outletTimer === 'none' && row({}).useEaves === 'none',
+      /* ⭐ THE TIMER PRINTS "No" WHEN NOBODY ASKED, SINCE 2026-08-24 — Addie's own
+         answer, given with the argument against in front of her. EAVES still says
+         `none`, because she named the timer, the wire colour and the light colours
+         and did not name that one. Both halves are asserted: the first is her
+         decision, the second is the absence of one.
+         ⚠ THE OLD RULE, kept because it was well argued: a blank was held to mean
+         "nobody has asked", so that a customer who wanted a timer and was never
+         asked would not be recorded as refusing one. Superseded, not forgotten. */
+      check('S104', 'an unanswered timer prints No, as she asked',
+        row({}).outletTimer === 'No',
         'got ' + JSON.stringify(row({}).outletTimer));
+      check('S104', 'and a question nobody has ruled on still says none',
+        row({}).useEaves === 'none',
+        'got ' + JSON.stringify(row({}).useEaves));
 
       const full = row({ specificOutlet: 'Yes', specificOutletNotes: 'lower outlet by door',
                          oneTimeNote: 'ring the bell', notes: 'dog in the back' }).notes;
@@ -24732,15 +24743,40 @@ suite('Suite 80. A blank is a blank, and a default is a default');
      The RULE is what is asserted now, in the two places that can still break it:
      the registry gives neither question a default, and the payload builder never
      substitutes a hard-coded No for a missing answer. */
-  check('S80', 'neither yes/no question carries a default in the registry',
-    (function(){
-      const reg = new Function(OPTIONS_SANDBOX_SRC() + 'return OPTIONS;')();
-      const timer = reg.find(o => o.id === 'outletTimer');
-      const outlet = reg.find(o => o.id === 'specificOutlet');
-      return !!timer && !!outlet && timer.default == null && outlet.default == null;
-    })(),
-    'a default here is applied by valueOf() everywhere, so declaring one turns ' +
-    '"nobody asked them" into a definite answer on every artifact at once');
+  /* ⭐ CHANGED 2026-08-24, AND THE CHANGE IS THE POINT. Addie was asked what a
+     blank means, field by field, and answered: "If it's timer than no if its color
+     wire than we choose. If it's light colors that needs to be required and they
+     can't move on without that."
+     ⚠ THAT REVERSES the 2026-08-21 rule for the TIMER, which this check used to
+     hold: a blank was "nobody has asked them", on the grounds that a defaulted No
+     answers a question on the customer's behalf. She was shown that trade-off and
+     chose No. So the timer now declares a default and specificOutlet still does
+     not — and asserting BOTH is what stops the reversal being read as licence to
+     default every yes/no on the page.
+     ⚠ THE RECORD IS STILL NOT WRITTEN. A default is applied at render time by
+     valueOf(); the next check is the one that holds that line. */
+  {
+    const reg = new Function(OPTIONS_SANDBOX_SRC() + 'return OPTIONS;')();
+    const timer = reg.find(o => o.id === 'outletTimer');
+    const outlet = reg.find(o => o.id === 'specificOutlet');
+    check('S80', 'a blank timer reads as No, because she said so',
+      !!timer && timer.default === 'No',
+      'Addie, 2026-08-24: "If it is timer than no"');
+    check('S80', 'but the which-outlet question is still left unanswered',
+      !!outlet && outlet.default == null,
+      'she named three fields and this was not one of them — defaulting the rest ' +
+      'on the strength of that answer is the guess this rulebook exists to stop');
+    check('S80', 'and a blank wire colour means we choose',
+      (reg.find(o => o.id === 'wireColor') || {}).default === 'Any',
+      'Addie, 2026-08-24: "if its color wire than we choose"');
+    /* ⚠ AND NOTHING WRITES IT. Defaulting in the DATA would empty the "Never
+       answered" audience in Automation Emails, which is the list she would use to
+       go and ask them — a worse loss than the paper being vague. */
+    check('S80', 'the "Never answered" audience still reads the raw record',
+      /etFilterOutlet === 'unasked'[\s\S]{0,120}!m\.data\.outletTimer/.test(admin),
+      'if that filter ever reads the DEFAULTED value it matches nobody, and the ' +
+      'people who were never asked become invisible instead of merely unanswered');
+  }
   /* ⚠ SCOPED TO THE SUBMIT HANDLER, and with comments stripped. File-wide, this
      matched two innocent things: the note above the payload builder explaining what
      the old code used to do, and `(existing.outletTimer || 'No') !== newOutletTimer`

@@ -197,9 +197,29 @@ export const OPTIONS = [
     type: 'yesno',
     choices: ['Yes', 'No'],
     required: true,
-    /* ⚠ NO DEFAULT, DELIBERATELY. A blank is "nobody has asked them", which is
-       a different thing from "No" and must stay different — the same reason the
-       importer refuses to read "?" as a no. */
+    /* ⭐ A BLANK TIMER MEANS NO (Addie, 2026-08-24, answering Q-012: "If it's
+       timer than no"). So it carries a declared default, and every artifact reads
+       "No" for a customer nobody asked.
+
+       ⚠ THIS REVERSES THE 2026-08-21 DECISION, and the argument against is worth
+       keeping because it was a good one: a blank was held to mean "nobody has
+       asked them", on the grounds that a defaulted No answers a question on the
+       customer's behalf and a customer who wanted a timer would not get one. She
+       was shown that trade-off in full and chose No anyway. Newer instruction
+       wins; do not quietly restore the old behaviour.
+
+       ⚠ THE RECORD IS NOT WRITTEN. A default is applied by valueOf() at RENDER
+       time — nothing stores "No" against anybody — so the "Never answered"
+       audience in Automation Emails (`!m.data.outletTimer`) still finds exactly
+       the people nobody has asked, and she can still go and ask them. Defaulting
+       in the DATA would delete that list, which is a different and worse thing
+       than defaulting on the paper.
+
+       ⚠ AND IT AGREES WITH WHAT THE CODE ALREADY DID OPERATIONALLY. The portal's
+       change detection reads `(outletTimer || 'No')` and the warehouse comment at
+       admin.html:31487 says the same. Before this the PAPER said one thing and the
+       BEHAVIOUR another; now they match, which is the half of R-002 that matters. */
+    default: 'No',
     affectsPrice: false,
     /* ⚠ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET. Addie, 2026-08-20: "it need
        to include timer(yes/no), that should come before notes." Notes is the wide
@@ -547,6 +567,34 @@ export function audit() {
 /** Per customer: every required option must have an answer. A missing answer
  *  and "they didn't want it" are indistinguishable, so this forces the office
  *  to make it explicit rather than leaving it absent. */
+/**
+ * The answers a customer-facing form must REFUSE to submit without.
+ *
+ * ⭐ Addie, 2026-08-24, answering Q-012 about what a blank means, field by field:
+ * "If it's timer than no if its color wire than we choose. If it's light colors
+ * that needs to be required and they can't move on without that."
+ *
+ * Those three answers ARE this rule, and it needs no list of its own: an option
+ * that is required and declares a DEFAULT has an answer whatever they do (the
+ * timer defaults to No, the wire colour to Any — "we choose"), so nothing is
+ * missing and nothing should block. An option that is required and declares NO
+ * default has no answer until they give one. Today that is exactly
+ * `lightsDescription`, which is what she asked for.
+ *
+ * ⚠ WHICH MEANS THE RULE IS NOT WRITTEN DOWN TWICE. Adding a hard-coded list of
+ * blocking ids beside the registry is how the two start disagreeing, and the one
+ * nobody looks at is the one that decides whether a customer can submit.
+ * ⚠ `officeEntered` options are excluded: the footage is required and has no
+ * default, and a form that refuses to submit until the CUSTOMER measures their
+ * own roofline can never be submitted at all.
+ */
+export function blockingAnswers(customer) {
+  return missingAnswers(customer).filter((id) => {
+    const o = OPTIONS.find((x) => x.id === id);
+    return o && !o.officeEntered && o.consumers.includes('quote') && o.default == null;
+  });
+}
+
 export function missingAnswers(customer) {
   return OPTIONS
     .filter((o) => o.required)

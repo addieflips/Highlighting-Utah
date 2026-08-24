@@ -403,9 +403,28 @@ function check(label, ok, detail) {
     /optOfferableChoices\(/.test(index) && !/\.choices\b/.test(
       index.slice(index.indexOf('function qdControlFor'), index.indexOf('function qdRenderOptionFields'))),
     'reading `choices` advertises the two Thanksgiving timings we only accept on request');
-  check('a required option cannot be left undefined on save (plan §3.5)',
-    /optMissingAnswers\(/.test(index),
-    'the quote-save path has to report what is still unanswered');
+  /* ⚠ blockingAnswers, NOT missingAnswers, SINCE 2026-08-24. Addie settled what a
+     blank means field by field — the timer is No, the wire colour is Any ("we
+     choose"), and light colours are something they "can't move on without" — so
+     the save path REFUSES rather than reporting. The distinction is the whole
+     answer: a required option with a default is never missing; one without a
+     default stops the form. */
+  check('an answer we cannot proceed without stops the save (plan §3.5)',
+    /optBlockingAnswers\(/.test(index),
+    'the quote-save path has to refuse what it cannot proceed without');
+  check('and light colours are what that currently blocks',
+    (function(){
+      const b = mod.blockingAnswers({});
+      return b.length === 1 && b[0] === 'lightsDescription';
+    })(),
+    'Addie, 2026-08-24: "If it is light colors that needs to be required and they ' +
+    'cannot move on without that" — got ' + JSON.stringify(mod.blockingAnswers({})));
+  /* ⚠ AND THE TWO SHE GAVE AN ANSWER FOR DO NOT BLOCK. A default IS the answer,
+     so a form that stopped for them would be unsubmittable for no reason. */
+  check('a blank timer and a blank wire colour never block',
+    mod.blockingAnswers({}).indexOf('outletTimer') === -1 &&
+    mod.blockingAnswers({}).indexOf('wireColor') === -1,
+    'the timer defaults to No and the wire colour to Any — both are answers');
 
   /* -----------------------------------------------------------------------
      7b. THE SERVER WHITELIST — the one place generation cannot reach.

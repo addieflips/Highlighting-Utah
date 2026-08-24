@@ -721,7 +721,7 @@ Suite 44.
 
 ---
 
-## Q-012 · intent · open · 2026-08-24
+## Q-012 · intent · answered · 2026-08-24
 When an option has no answer, what word should the printed sheets use — `none`,
 `?`, or an em dash?
 
@@ -754,15 +754,49 @@ taste. The gain is that there is now ONE spelling in ONE place (`display()` in
 loss on the one sheet the crew actually works from, and it is the reason this is
 being asked rather than assumed.
 
-**Answer:**
+**Answer (Addie, 2026-08-24): it depends which field is blank.**
 
-**Resulting registry change:** if Addie prefers `?` for yes/no questions, it is a
-branch on `option.type` inside `display()` — one function, one place, and every
-artifact follows. The existing assertions that name `none` move with it.
+> "It depends on what is left blank. If it's timer than no if its color wire than
+> we choose. If it's light colors that needs to be required and they can't move on
+> without that."
+
+So the question was mis-scoped: it asked for ONE word, and the right answer is a
+different one per option. That is what `default` on an option already means, so
+the answer needed no new mechanism — only three declarations:
+
+| Field | Blank means | How it is declared |
+|---|---|---|
+| Timer | **No** | `default: 'No'` on `outletTimer` |
+| Wire colour | **we choose** | `default: 'Any'` — already declared, now honoured everywhere |
+| Light colours | **cannot proceed** | `required: true`, no default → `blockingAnswers()` |
+
+⚠ **This REVERSES the 2026-08-21 rule for the timer**, which said a blank meant
+"nobody has asked them" and must never become a confident No — on the grounds that
+a customer who wanted a timer and was never asked would silently not get one. That
+argument is kept in `js/options.js` beside the new default. She was shown it in
+full and chose No anyway; newer instruction wins, and it must not be quietly
+restored.
+
+⚠ **Nothing is written to any record.** The default is applied at render time by
+`valueOf()`. The "Never answered" audience in Automation Emails reads the raw
+field (`!m.data.outletTimer`) and still finds exactly the people nobody has asked,
+so she can still go and ask them. Defaulting in the DATA would delete that list —
+a worse loss than the paper being vague, and the suite now asserts that filter
+still reads the raw record.
+
+⚠ **Only the three she named.** `useEaves` and `specificOutlet` are also yes/no
+questions and she did not mention either, so both still render `none`. Defaulting
+them on the strength of this answer would be the guess this rulebook exists to
+stop. `useEaves` is asked as Q-014.
+
+**Resulting registry change:** `outletTimer.default = 'No'`; `blockingAnswers()`
+added, derived from `required` + no `default` rather than from a list, so the rule
+is not written down twice. The quote form now REFUSES to submit without light
+colours instead of warning.
 
 ---
 
-## Q-013 · intent · open · 2026-08-24
+## Q-013 · intent · answered · 2026-08-24
 The crew sheet now prints a Bins column that the frozen AGREED map said it should
 not. Confirming that is what she wants, since the map is the record of her
 answers.
@@ -784,8 +818,34 @@ It is raised here because that file says in as many words: "Update it when she
 changes her mind, never to make a red run go away." This was the first kind and
 not the second, but the file is right that it should be said out loud.
 
+**Answer (Addie, 2026-08-24): "Yes bin # should show on crew list."** Confirmed.
+
+**Resulting registry change:** none — `numberOfBins` declares `crewSheet` and the
+frozen AGREED map was updated to match in the same change. The column is a
+QUANTITY (how many bins the van loads), which is her own vocabulary from
+2026-08-21: "Bin # is how many bins were making for them." The number painted on
+the bin is the Cust # column, already first on the sheet.
+
+---
+
+## Q-014 · intent · open · 2026-08-24
+When "Plugs / eaves" is left blank, does it mean **No**, or does it mean nobody
+has asked?
+
+**Blocks:** nothing. It renders `none` today, which says plainly that we have no
+answer.
+
+Q-012 settled the timer (No), the wire colour (we choose) and the light colours
+(required). `useEaves` is the fourth field of that shape and was not mentioned, so
+it has been left alone rather than defaulted by analogy with the timer.
+
+There is a reason to think it may want a different answer from the timer: the
+master sheet's Up Plug column holds 112 yes, **98 "?"** and 61 no, so for this
+particular question the office has been recording "nobody has asked" as a real,
+common state — on roughly a fifth of the book. Turning all 98 of those into No
+would be a decision about 98 real houses.
+
 **Answer:**
 
-**Resulting registry change:** none if confirmed — the map and `consumers` already
-agree. If she meant the number ON the bin rather than how many, that is a
-different field (`binLabelNumber`) and a different column.
+**Resulting registry change:** if it means No, one line — `default: 'No'` on
+`useEaves`, exactly like the timer. If it means nobody asked, nothing changes.

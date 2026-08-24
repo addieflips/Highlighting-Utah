@@ -1825,7 +1825,8 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
    can only honour for a handful of people. */
 import {
   quoteFields as optQuoteFields, offerableChoices as optOfferableChoices,
-  missingAnswers as optMissingAnswers, OPTIONS as HU_OPTIONS
+  missingAnswers as optMissingAnswers, blockingAnswers as optBlockingAnswers,
+  OPTIONS as HU_OPTIONS
 } from './js/options.js';
 /* ⭐ THE SAME ROUNDING THE OFFICE USES (added 2026-08-21). This page worked the
    balance out in plain floating point while js/money.js and the Cloud Function both
@@ -3004,8 +3005,13 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
   var fd = new FormData(quoteDetailFormEl);
   var qdIsSpecific = document.getElementById('qdSpecificPatternToggle').checked;
   var qdFinalSequence = qdIsSpecific ? qdSequence : qdSimpleColors;
+  /* The colour picker is a bespoke control, so its emptiness has to be tested
+     here rather than through the form data — but WHY it blocks is the registry's
+     to say: lightsDescription is required and declares no default, which is what
+     blockingAnswers() reads a few lines below. This is the same refusal arriving
+     earlier and with better wording, not a second rule. */
   if(!qdFinalSequence.length){
-    alert('Please choose at least one light color.');
+    alert('Please choose at least one light color — we cannot build your lights without it.');
     return;
   }
   var lightColors = Array.from(new Set(qdFinalSequence));
@@ -3061,23 +3067,30 @@ quoteDetailFormEl.addEventListener('submit', async function(e){
      rather than blocked for anything but the colours, which the form has always
      refused to submit without — the office can chase a missing timer answer, and
      a form that refuses to submit loses the answers they DID give. */
-  var stillMissing = optMissingAnswers(detailPayload)
-    .filter(function(id){ return id !== 'measuredFeet'; });
-  if(stillMissing.length){
-    var names = stillMissing.map(function(id){
+  /* ⭐ AN ANSWER WE CANNOT PROCEED WITHOUT STOPS THE FORM (plan §3.5). Addie,
+     2026-08-24: "If it's light colors that needs to be required and they can't
+     move on without that." blockingAnswers() works that out from the registry
+     rather than from a list kept here — an option that is required and declares a
+     DEFAULT always has an answer (the timer is No, the wire colour is Any, which
+     is us choosing), and one that is required with NO default has nothing until
+     they give it. Today that is light colours, exactly as she asked.
+     ⚠ REFUSES, does not warn. A soft confirm on a hard requirement is a hard
+     requirement nobody meets. The two lists it names are the option's own label,
+     so a new required option needs no wording written here. */
+  var blocking = optBlockingAnswers(detailPayload);
+  if(blocking.length){
+    var names = blocking.map(function(id){
       var o = HU_OPTIONS.find(function(x){ return x.id === id; });
       return o ? o.label : id;
     });
-    if(!confirm('We still have no answer for: ' + names.join(', ') +
-                '.\n\nSubmit anyway? You can always change it later in your member portal.')) {
-      /* ⚠ THE BUTTON IS ALREADY DISABLED by the time we get here, so backing out
-         has to put it back — otherwise saying "let me fill that in" leaves the
-         customer looking at a dead Submitting… button with no way to send the
-         form at all. */
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Submit Details';
-      return;
-    }
+    /* ⚠ THE BUTTON IS ALREADY DISABLED by the time we get here, so refusing has
+       to put it back — otherwise the customer is left looking at a dead
+       Submitting… button with no way to send the form at all. */
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit Details';
+    alert('We still need: ' + names.join(', ') + '.\n\n' +
+          'Please fill that in before submitting.');
+    return;
   }
 
   try{
