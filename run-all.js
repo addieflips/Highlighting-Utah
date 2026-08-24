@@ -1954,8 +1954,50 @@ const editSave = admin.slice(admin.indexOf("editCustSaveBtn').addEventListener")
 check('flow', 'quote is closed when converted to a customer',
   admin.includes("status: 'closed', convertedToCustomerAt"),
   'the quote would stay open forever after the customer exists');
-check('flow', 'converted customer is set to RSVP yes',
-  admin.includes("rsvpStatus: addCustFromQuoteId ? 'yes' : ''"));
+/* ⭐ REVERSED 2026-08-22. Owner: "We shouldn't assume they approved we should always
+   know they approved."
+
+   ⚠ THIS CHECK REQUIRED THE ASSUMED YES. Converting a quote wrote rsvpStatus 'yes'
+   with no reply date — the office knowing somebody wants lights, dressed as that
+   customer having answered a question about THIS SEASON. Every reader that counted
+   yeses then had to be hardened against a value the writer should never have written,
+   and the one that got missed was the Dashboard's Yes card: the very number somebody
+   would read to decide whether everyone has replied yet.
+
+   ⚠ NOTHING IS LOST. A blank RSVP is IN the season under the live setting, so a
+   converted customer is still routed, scheduled and built for; and they still reach
+   the Excel Yes sheet through the new-hang route, which is what they actually are. */
+check('flow', 'converting a quote does NOT assume an RSVP of yes',
+  !/rsvpStatus: addCustFromQuoteId \? 'yes'/.test(admin),
+  'the office knowing they want lights is not the customer answering for this season');
+check('flow', 'and one place decides whether an approval was really heard',
+  /function effectiveRsvpStatus\(d\)/.test(admin) &&
+  /said === 'yes' && !dd\.rsvpRespondedAt\) return '';/.test(admin),
+  'the ~960 records already in the book carry the old value, so the readers need a ' +
+  'rule too — fixing only the writer leaves legacy data walking straight past it');
+check('flow', 'and the Dashboard Yes card counts real answers',
+  /const yesList = withPhoneOrName\.filter\(a => eff\(a\) === 'yes'\);/.test(admin),
+  'that card is the input to deciding when to flip SEASON_ELIGIBILITY');
+/* ⚠ AND THE FIVE STATES STILL PARTITION THE BOOK. An assumed yes reads as Pending —
+   not a sixth bucket — so the counts still add up to the customer list. */
+check('flow', 'and an assumed yes falls into Pending, keeping the counts summing',
+  /const pendingList = withPhoneOrName\.filter\(a => !eff\(a\)\);/.test(admin),
+  'a row of counts that does not add up looks broken whichever number you check');
+/* ⚠ AND THE AUDIENCE THAT ACTUALLY SENDS EMAIL. A red-check found this unguarded:
+   every other reader could be held to the rule while the one that decides WHO GETS A
+   MESSAGE quietly kept taking assumed yeses. A "Yes" audience holding people who have
+   never replied is a send aimed at the wrong list — and the mirror of it, the Pending
+   audience, is the one that would then miss them. */
+check('flow', 'and the Automation Emails "Yes" audience needs a real answer too',
+  /etFilterRsvp === 'yes'\) members = members\.filter\(m => effectiveRsvpStatus\(m\.data\) === 'yes'\);/
+    .test(admin),
+  'this is the filter that decides who receives an email, not just who is counted');
+/* ⚠ AND THE CUSTOMER ROW AGREES WITH THE CARDS. A row badged RSVP: Yes beside a Yes
+   card that does not count it is the two-screens-disagreeing failure this repo keeps
+   hitting — here it would be about whether a customer has confirmed at all. */
+check('flow', 'and the customer row reads the same rule',
+  /return match \? effectiveRsvpStatus\(match\.data\) : '';/.test(admin),
+  'a row saying Yes while the count says otherwise is two answers for one customer');
 check('flow', 'changing a phone or email moves the invoice with it',
   editSave.includes('newKey !== oldKey'),
   'invoice doc ID is the phone/email — payments would be orphaned');
@@ -6959,8 +7001,15 @@ suite('21. Everyone is in unless they said otherwise');
   /* Built once per MODE, so both the rule running today and the one the owner
      plans to switch to are proved. Testing only the live setting would let the
      'confirmed-only' branch rot until the day it is turned on. */
-  const withMode = m => eval("const SEASON_ELIGIBILITY = '" + m + "';\n" + fnSrc +
-    '\n;({out: isOutForSeason})');
+  /* ⚠ audienceIsNew IS LIFTED, NOT LEFT OUT. isOutForSeason guards its call with
+     typeof, so omitting it here does not throw — it silently skips the new-hang
+     exemption and every check below would pass against a rule that never ran. That is
+     the worst shape a missing lift can take, because nothing goes red. */
+  const audienceIsNewSrc = extractFn(admin, 'audienceIsNew') || '';
+  check('season', 'audienceIsNew is there to lift', !!audienceIsNewSrc,
+    'without it the confirmed-only new-hang exemption is untested, silently');
+  const withMode = m => eval("const SEASON_ELIGIBILITY = '" + m + "';\n" +
+    audienceIsNewSrc + '\n' + fnSrc + '\n;({out: isOutForSeason})');
   const api = withMode('all-but-maybe-next-year');
   const strict = withMode('confirmed-only');
 
@@ -7102,6 +7151,30 @@ suite('21. Everyone is in unless they said otherwise');
     strict.out({ rsvpStatus: 'backnextyear', rsvpRespondedAt: said }) === true &&
     strict.out({ rsvpStatus: 'unanswered', rsvpRespondedAt: said }) === true,
     'they answered, and the answer was not yes');
+  /* ⭐ A NEW HANG IS IN WITHOUT A REPLY (added 2026-08-22). Owner: "once a quote gets
+     converted to costumer that is approved." Without this, flipping the switch deletes
+     every new customer from the season — they have no reply because we never ask them:
+     the RSVP audience is set to Returning precisely so "getting lights hung AGAIN this
+     year?" never reaches somebody who has not had them once. */
+  check('season', 'confirmed-only keeps a new hang in without an RSVP reply',
+    strict.out({ chargeNewMemberFee: true }) === false &&
+    strict.out({ chargeNewMemberFee: true, rsvpStatus: '' }) === false,
+    'requiring an answer to a question we deliberately never send is a test nobody ' +
+    'can pass — and it would drop the newest customers in the book');
+  /* ⚠ AND AN ANSWER STILL OUTRANKS IT. The no / back next year checks return before
+     that line, so a new hang who says no is still out. */
+  check('season', 'but a new hang who says no is still out',
+    strict.out({ chargeNewMemberFee: true, rsvpStatus: 'no' }) === true &&
+    strict.out({ chargeNewMemberFee: true, rsvpStatus: 'backnextyear' }) === true &&
+    strict.out({ chargeNewMemberFee: true, maybeNextYear: true }) === true,
+    'the exemption covers somebody who said nothing because nothing was asked, ' +
+    'never somebody who answered');
+  /* ⚠ AND IT CHANGES NOTHING TODAY. The live setting is all-but-maybe-next-year, where
+     a blank RSVP is already in — so this is dead code until the switch is flipped,
+     which is exactly why it is safe to have built before the flip rather than after. */
+  check('season', 'and a returning customer still needs a real reply',
+    strict.out({ chargeNewMemberFee: false, rsvpStatus: 'yes' }) === true,
+    'the exemption must not leak into everybody else');
   check('season', 'confirmed-only still lets Maybe Next Year win',
     strict.out({ maybeNextYear: true, rsvpStatus: 'yes', rsvpRespondedAt: said }) === true);
   check('season', 'case does not decide whether somebody gets their lights',

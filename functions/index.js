@@ -1537,7 +1537,7 @@ function seasonYesUpdates(oldData) {
        this person on the next day going — and the second is the record the office
        reads, which has to outlive it or the badge disappears the moment it does any
        good. See cameBackThisSeason in admin.html. */
-    updates.rejoinedForSeasonAt = admin.firestore.FieldValue.serverTimestamp();
+    updates.needsDayAssignedAt = admin.firestore.FieldValue.serverTimestamp();
     updates.cameBackThisSeasonAt = admin.firestore.FieldValue.serverTimestamp();
   }
   return updates;

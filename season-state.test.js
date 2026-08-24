@@ -93,7 +93,17 @@ if (missing || !eligLine || !tabsSrc) {
 const TABS = new Function(tabsSrc + 'return HLX_STATE_TABS;')();
 const holds = (tab, d) => TABS.filter(t => t.tab === tab).map(t => t.holds(d))[0] === true;
 
-const outForSeason = new Function('d', eligLine + src.isOutForSeason + 'return isOutForSeason(d);');
+/* ⚠ audienceIsNew LIFTED, NOT LEFT OUT — isOutForSeason guards its call with typeof,
+   so omitting it silently skips the new-hang exemption instead of throwing. */
+const audienceIsNewSrc = fn('audienceIsNew');
+check('audienceIsNew is there to lift', !!audienceIsNewSrc,
+  'without it the confirmed-only new-hang exemption is untested, silently');
+const outForSeason = new Function('d',
+  eligLine + audienceIsNewSrc + src.isOutForSeason + 'return isOutForSeason(d);');
+/* The strict mode the owner is aiming at, so the rule is proved before it is live. */
+const outStrict = new Function('d',
+  "const SEASON_ELIGIBILITY = 'confirmed-only';" + audienceIsNewSrc + src.isOutForSeason +
+  'return isOutForSeason(d);');
 
 const groupKey = (p, w) => (p || '') + '|' + (w || '');
 const bundleStub = () => ({ bundles: 1, estimated: false, topUp: false });
@@ -235,9 +245,9 @@ if (yesSrc) {
     yes({ rsvpStatus: 'no', needsLightRecycle: true }).needsLightBuild === undefined,
     'their set is still in the bin mid-season — a build makes a second one');
   check('and marks a rejoiner from EITHER way out',
-    !!yes({ rsvpStatus: 'no' }).rejoinedForSeasonAt &&
-    !!yes({ rsvpStatus: 'backnextyear' }).rejoinedForSeasonAt &&
-    !!yes({ maybeNextYear: true }).rejoinedForSeasonAt,
+    !!yes({ rsvpStatus: 'no' }).needsDayAssignedAt &&
+    !!yes({ rsvpStatus: 'backnextyear' }).needsDayAssignedAt &&
+    !!yes({ maybeNextYear: true }).needsDayAssignedAt,
     'they are different states — one recycles, one does not — but coming back from ' +
     'either is the same event');
   check('and writes the record the badge reads, not just the instruction',
@@ -247,7 +257,7 @@ if (yesSrc) {
   /* ⚠ SOMEBODY WHO NEVER LEFT IS NOT A REJOINER. Marking every yes would badge the
      whole book and hand the placer the entire customer list. */
   check('but somebody who never said otherwise is not marked',
-    yes({ rsvpStatus: '' }).rejoinedForSeasonAt === undefined &&
+    yes({ rsvpStatus: '' }).needsDayAssignedAt === undefined &&
     yes({ rsvpStatus: 'yes' }).cameBackThisSeasonAt === undefined,
     'a badge everybody has is a badge nobody reads');
   /* ⭐ AND IT CLEARS THE MAYBE NEXT YEAR BADGE (changed 2026-08-22). Owner: "we
@@ -437,7 +447,7 @@ if (portalRsvp) {
     !!fn('cameBackThisSeason') && !!fn('cameBackBadge'),
     'three screens drawing it by hand is three chances to disagree');
   check('and it reads the RECORD, falling back to the instruction',
-    /cameBackThisSeasonAt \|\| d\.rejoinedForSeasonAt/.test(admin),
+    /cameBackThisSeasonAt \|\| d\.needsDayAssignedAt/.test(admin),
     'reading only the instruction makes the badge vanish once they are scheduled; ' +
     'the fallback is what covers somebody stamped before this existed');
   check('the customer row shows it beside the RSVP pill',
@@ -471,13 +481,13 @@ if (portalRsvp) {
     /Changed to Yes<\/span>/.test(admin) && !/Came back in<\/span>/.test(admin),
     '"came back" reads as next season, which is the opposite state');
   check('and Start New Season clears the record as well as the instruction',
-    /rejoinedForSeasonAt: null,[\s\S]{0,400}cameBackThisSeasonAt: null/.test(admin),
+    /needsDayAssignedAt: null,[\s\S]{0,400}cameBackThisSeasonAt: null/.test(admin),
     'a badge that survives the reset says they changed their mind this year when ' +
     'they did it last year');
 
   check('and the office dropdown stamps BOTH fields too',
     /newRsvp === 'yes' && \(oldRsvpForRecycle === 'no' \|\| oldRsvpForRecycle === 'backnextyear'/
-      .test(admin) && /addrUpdates\.rejoinedForSeasonAt = serverTimestamp\(\);[\s\S]{0,120}addrUpdates\.cameBackThisSeasonAt = serverTimestamp\(\);/.test(admin),
+      .test(admin) && /addrUpdates\.needsDayAssignedAt = serverTimestamp\(\);[\s\S]{0,120}addrUpdates\.cameBackThisSeasonAt = serverTimestamp\(\);/.test(admin),
     'an answer taken over the phone is how most of these will arrive, and it has to ' +
     'raise the badge as well as the instruction');
 
@@ -485,7 +495,7 @@ if (portalRsvp) {
      again after Start New Season — when everybody is off the plan — and drop the
      whole book onto the earliest days one at a time instead of letting the builder
      lay the season out by town. */
-  const placer = fn('placeRejoinersOnNextDay');
+  const placer = fn('placeUnscheduledOnNextDay');
   check('the planner has a placer to run', !!placer);
   /* ⚠ BOTH HALVES, and this file has been bitten before by matching only one: the
      flag is cleared in the LOCAL cache and in Firestore, and a check that finds
@@ -493,12 +503,12 @@ if (portalRsvp) {
      second pass in the same session double-placing them while the write is still in
      flight; the write is what stops it surviving a reload. */
   check('and it clears the flag once they have a day — in the cache AND in Firestore',
-    /d\.rejoinedForSeasonAt = null;/.test(placer) &&
-    /updateDoc\([\s\S]{0,80}\{rejoinedForSeasonAt: null\}\)/.test(placer),
+    /d\.needsDayAssignedAt = null;/.test(placer) &&
+    /updateDoc\([\s\S]{0,120}\{needsDayAssignedAt: null, rejoinedForSeasonAt: null\}\)/.test(placer),
     'an instruction that is never withdrawn is a label, and this one would empty ' +
     'the whole book onto the first days of next season');
   check('and Start New Season clears it in the same write as the rest of the reset',
-    /chargeNewMemberFee: false,[\s\S]{0,600}rejoinedForSeasonAt: null/.test(admin),
+    /chargeNewMemberFee: false,[\s\S]{0,600}needsDayAssignedAt: null/.test(admin),
     'a separate write can fail on its own and carry the flag into the new season');
   check('it never places somebody who is out for the season',
     /isOutForSeason\(d\)\) return;/.test(placer),
@@ -523,19 +533,51 @@ if (portalRsvp) {
   check('the periodic sync is still findable', !!sync,
     'without it nothing below can prove the placer is wired to anything');
   check('and the sync actually runs the placer',
-    /rejoin=placeRejoinersOnNextDay\(\)/.test(sync),
+    /rejoin=placeUnscheduledOnNextDay\(\)/.test(sync),
     'unhooked, every other check in this section still passes and no rejoiner is ' +
     'ever scheduled');
   /* ⚠ BEFORE THE TIMING SWEEP, so a house placed this tick is held to its own
      timing in the same pass rather than sitting on a wrong day until the next one. */
   check('and runs it BEFORE the timing sweep',
-    sync.indexOf('placeRejoinersOnNextDay()') < sync.indexOf('enforceInstallTiming()'),
+    sync.indexOf('placeUnscheduledOnNextDay()') < sync.indexOf('enforceInstallTiming()'),
     'placed after it, a rejoiner waits five minutes to be checked against their ' +
     'own install timing');
   /* ⚠ AND A THROW IN IT CANNOT TAKE THE SYNC DOWN, same as the two beside it. */
   check('and a failure in it cannot take the sync down',
-    /try\{ rejoin=placeRejoinersOnNextDay\(\); \}catch/.test(sync),
+    /try\{ rejoin=placeUnscheduledOnNextDay\(\); \}catch/.test(sync),
     'the town sync and the timing sweep either side of it are both wrapped');
+
+  /* ⭐ AND A BRAND-NEW CUSTOMER IS STAMPED THE SAME WAY (added 2026-08-22). Owner:
+     "The new costumer should be assigned to and scheduled our right away when we'll be
+     in that city."
+
+     ⚠ THE ONLY ROUTE ONTO A DAY USED TO BE ⚙ Recalculate everything, so a customer
+     converted this afternoon sat on no day until somebody pressed it. The instruction
+     field is the same one a rejoiner gets — which is why it is no longer called
+     rejoinedForSeasonAt; a field named for one of its two callers is a name that goes
+     stale the moment the second one arrives. */
+  /* ⚠ ANCHORED ON newAddrRef, WHICH IS UNIQUE. Six places call
+     addDoc(collection(db,'jobAddresses')) — test records, the bulk tools — and slicing
+     from the first one lands in a different writer entirely. That is how a check ends
+     up reporting a failure that is not there; it did, on the first run. */
+  const addAt = admin.indexOf('newAddrRef = await addDoc');
+  check('the Add Customer write is findable', addAt !== -1,
+    'renamed — retarget this rather than deleting it');
+  const addCust = addAt === -1 ? '' : admin.slice(addAt, addAt + 8000);
+  check('creating a customer asks for a day straight away',
+    /needsDayAssignedAt: serverTimestamp\(\)/.test(addCust),
+    'without it a converted quote waits for a button press to reach the schedule');
+  /* ⚠ AND THE OLD NAME IS STILL READ. The field was rejoinedForSeasonAt for a few
+     hours before new customers started using it; anything stamped in that window still
+     has to be placed. A rename that silently strands records is worse than a bad name. */
+  check('and the placer still honours anything stamped under the old name',
+    /!d\.needsDayAssignedAt && !d\.rejoinedForSeasonAt/.test(placer),
+    'a rename that strands live records is worse than the name it fixed');
+  check('and Start New Season clears both names',
+    /needsDayAssignedAt: null,[\s\S]{0,80}rejoinedForSeasonAt: null,/.test(admin),
+    'a stale instruction under either name would dribble the book onto the first days');
+  /* ⚠ "WHEN WE'LL BE IN THAT CITY" IS THE WHOLE REQUEST, and it is the picker's first
+     preference — asserted below with the rest of nextInstallDayFor. */
 
   /* ⭐ ONE RULE FOR WHICH DAY. The timing sweep and the placer run minutes apart on
      the same timer; two copies of "which day can take this house" is two answers. */

@@ -6885,6 +6885,7 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              moment the new season empties the plan, and the placer would drop the
              whole book onto the earliest days one at a time instead of letting the
              builder lay it out by town. */
+          needsDayAssignedAt: null,
           rejoinedForSeasonAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
@@ -12519,7 +12520,9 @@ function etRenderRecipientList(){
   else if(etFilterPayment === 'partial') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Partial Payment');
   else if(etFilterPayment === 'paid') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Paid in Full');
   // RSVP
-  if(etFilterRsvp === 'yes') members = members.filter(m => m.data.rsvpStatus === 'yes');
+  /* ⚠ A real answer, not an assumed one — a "Yes" audience holding people who have
+     never replied is a send that skips exactly the people it should reach. */
+  if(etFilterRsvp === 'yes') members = members.filter(m => effectiveRsvpStatus(m.data) === 'yes');
   else if(etFilterRsvp === 'no') members = members.filter(m => m.data.rsvpStatus === 'no');
   else if(etFilterRsvp === 'backnextyear') members = members.filter(m => m.data.rsvpStatus === 'backnextyear');
   /* ⚠ NOBODY ANSWERED YET = BLANK **OR** UNANSWERED (fixed 2026-08-20, the same day
@@ -14063,7 +14066,7 @@ function custRsvpStatusForPhone(phone){
   const digits = (phone||'').replace(/\D/g,'');
   if(!digits) return '';
   const match = custByPhoneDigits.get(digits);
-  return match ? (match.data.rsvpStatus || '') : '';
+  return match ? effectiveRsvpStatus(match.data) : '';
 }
 /* ---- Invoice status summary strip -------------------------------------
    Three cards above the Invoice List: Paid in Full / Partial / Not Paid,
@@ -21587,6 +21590,25 @@ function isOutForSeason(d){
      status alone. Two places answering "is this customer confirmed" two ways is how
      the office and the crew end up holding different lists. */
   if(SEASON_ELIGIBILITY === 'confirmed-only'){
+    /* ⭐ A NEW HANG IS IN WITHOUT A REPLY (added 2026-08-22). Owner: "once a quote gets
+       converted to costumer that is approved."
+
+       ⚠ WITHOUT THIS, FLIPPING THE SWITCH WOULD SILENTLY DELETE EVERY NEW CUSTOMER
+       FROM THE SEASON — the newest, most recently sold ones. They have no
+       rsvpRespondedAt because WE NEVER ASK THEM: choosing an RSVP template sets the
+       audience to Returning precisely so "will you be getting lights hung AGAIN this
+       year?" never reaches somebody who has not had them once. Requiring an answer to
+       a question we deliberately never send is a test nobody can pass.
+
+       ⚠ IT IS THE SAME PREDICATE THE RSVP AUDIENCE USES. audienceIsNew is what takes
+       them out of the send; asking it here is what makes the two halves agree. A second
+       copy of "is this a new customer" is how the send list and the season list start
+       disagreeing about the same person.
+
+       ⚠ AND AN ANSWER STILL OUTRANKS IT. The no / back next year / maybeNextYear checks
+       above return before this line, so a new hang who says no is still out. This only
+       covers somebody who has said nothing because nothing was asked. */
+    if(typeof audienceIsNew === 'function' && audienceIsNew(d)) return false;
     return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
   }
   return false;
@@ -22868,7 +22890,47 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       // field (oneTimeNotes) that nothing downstream ever looked at.
       oneTimeNote: oneTimeNote,
       referralCount: referralCount,
-      rsvpStatus: addCustFromQuoteId ? 'yes' : '',
+      /* ⭐ WE NEVER ASSUME THEY APPROVED (changed 2026-08-22). Owner: "We shouldn't
+         assume they approved we should always know they approved."
+
+         ⚠ THIS USED TO WRITE 'yes' FOR A CONVERTED QUOTE. The office knowing somebody
+         wants lights is not the same as that customer having answered a question about
+         THIS SEASON, and writing it as a yes made the two indistinguishable on every
+         screen that counts them. The Excel Yes tab was hardened against it (it also
+         requires rsvpRespondedAt) and so is the confirmed-only branch of
+         isOutForSeason — but hardening every reader against a value the writer should
+         never have written is the wrong end to fix it from, and one reader always gets
+         missed. The Dashboard's Yes card was that reader.
+
+         ⚠ NOTHING IS LOST BY LEAVING IT BLANK. Under the live setting a blank RSVP is
+         IN the season, so a converted customer is routed, scheduled and built for
+         exactly as before; and they still reach the Excel Yes sheet through the
+         new-hang route (chargeNewMemberFee), which is what they actually are. What
+         changes is that they now show as Pending — nobody has asked them — which is
+         true, and they fall into the RSVP audience so they will be. */
+      rsvpStatus: '',
+      /* ⭐ AND THEY GET A DAY WITHOUT WAITING FOR A BUTTON (added 2026-08-22). Owner:
+         "The new costumer should be assigned to and scheduled our right away when
+         we'll be in that city."
+
+         ⚠ UNTIL NOW THE ONLY ROUTE ONTO A DAY WAS ⚙ Recalculate everything. A customer
+         converted this afternoon sat on no day until somebody pressed it — which is the
+         complaint that produced customersMissingFromSeason in the first place, and it
+         only solved the half where the button IS pressed.
+
+         ⚠ "WHEN WE'LL BE IN THAT CITY" IS THE RULE, and nextInstallDayFor already
+         answers it: a day already working their town wins, and only failing that a day
+         still under the town limit. If neither exists it places nobody and says so
+         rather than dropping one house in a town no crew is driving to.
+
+         ⚠ STAMPED FOR A MANUAL ADD TOO, not just a conversion. This is the same form;
+         a customer typed in by hand is exactly as unscheduled as a converted one, and
+         a rule that treated them differently would be arbitrary.
+
+         ⚠ IT IS AN INSTRUCTION, NOT A LABEL — the placer clears it once they have a
+         day. Left standing it would fire again after Start New Season, when the plan
+         is empty, and dribble the whole book onto the earliest days one at a time. */
+      needsDayAssignedAt: serverTimestamp(),
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
       /* ⭐ EVERY NEW HOUSE NEEDS A SET BUILT, WHETHER OR NOT ITS COLOURS ARE KNOWN YET.
@@ -31136,7 +31198,7 @@ let dashRsvpFilterPayment = 'all';
 /* ⭐ DID THEY CHANGE THEIR MIND THIS SEASON (added 2026-08-22). Owner, told the
    rejoin marker was invisible: "I thought this was already visable."
 
-   ⚠ TWO FIELDS, AND THEY ARE NOT THE SAME FACT. `rejoinedForSeasonAt` is an
+   ⚠ TWO FIELDS, AND THEY ARE NOT THE SAME FACT. `needsDayAssignedAt` is an
    INSTRUCTION to the planner — put this person on the next day going — and it is
    consumed: placeRejoinersOnNextDay clears it the moment they have one, which is what
    stops the whole book being dribbled onto the earliest days after Start New Season.
@@ -31148,7 +31210,7 @@ let dashRsvpFilterPayment = 'all';
    rest of the customer reset — a badge that survives the reset says somebody changed
    their mind this year when they did it last year. */
 function cameBackThisSeason(d){
-  return !!(d && (d.cameBackThisSeasonAt || d.rejoinedForSeasonAt));
+  return !!(d && (d.cameBackThisSeasonAt || d.needsDayAssignedAt));
 }
 /* The badge, in one place because three screens draw it and the one that gets
    missed is the one that quietly stops matching the others. */
@@ -31160,6 +31222,29 @@ function cameBackBadge(d){
      "Changed to Yes" can only mean the one thing: they said no or Back Next Year
      earlier THIS season and have since said yes. */
   return ' <span class="status-pill" style="background:#EAF1FB; color:#2C5AA0; font-size:10.5px;">Changed to Yes</span>';
+}
+/* ⭐ AN APPROVAL WE DID NOT HEAR IS NOT AN APPROVAL (added 2026-08-22). Owner: "We
+   shouldn't assume they approved we should always know they approved."
+
+   A yes with no rsvpRespondedAt is an ASSUMED yes — nobody asked, nobody answered. It
+   is not a fifth state and it must not become one; it is simply not an answer, so it
+   reads as Pending, which is what it is. Every count, filter and pill goes through
+   here so no screen can quietly disagree with another about who has confirmed.
+
+   ⚠ THE SOURCE IS FIXED TOO — converting a quote no longer writes a bare yes. This
+   exists because the ~960 records already in the book carry the old value, and because
+   an import or a hand-edit can produce one again. A rule enforced only at the writer
+   is one that legacy data walks straight past.
+
+   ⚠ AND IT KEEPS THE FIVE STATES A PARTITION. Every customer still lands in exactly
+   one of Yes / No / Back Next Year / Unanswered / Pending, so the Dashboard's counts
+   still add up to the book. Inventing a sixth bucket for assumed yeses would break
+   the one property that makes a row of counts readable at a glance. */
+function effectiveRsvpStatus(d){
+  const dd = d || {};
+  const said = String(dd.rsvpStatus || '').trim().toLowerCase();
+  if(said === 'yes' && !dd.rsvpRespondedAt) return '';
+  return said;
 }
 function rsvpStatusLabel(v){
   const t = String(v == null ? '' : v).toLowerCase();
@@ -31174,11 +31259,16 @@ function renderDashRsvpPanel(){
   const listEl = document.getElementById('dashRsvpList');
   if(!cardsEl || !listEl) return;
   const withPhoneOrName = (jobAddresses||[]).filter(a => a.data.name || a.data.phone);
-  const yesList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'yes');
-  const noList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'no');
-  const backList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'backnextyear');
-  const unansweredList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'unanswered');
-  const pendingList = withPhoneOrName.filter(a => !a.data.rsvpStatus);
+  /* ⚠ THROUGH effectiveRsvpStatus, so an ASSUMED yes is not counted as a reply. This
+     card is the number somebody would read to decide "has everyone answered yet" —
+     which is the input to flipping SEASON_ELIGIBILITY — so counting conversions in it
+     is the one place the mistake is most expensive. */
+  const eff = (a) => effectiveRsvpStatus(a.data);
+  const yesList = withPhoneOrName.filter(a => eff(a) === 'yes');
+  const noList = withPhoneOrName.filter(a => eff(a) === 'no');
+  const backList = withPhoneOrName.filter(a => eff(a) === 'backnextyear');
+  const unansweredList = withPhoneOrName.filter(a => eff(a) === 'unanswered');
+  const pendingList = withPhoneOrName.filter(a => !eff(a));
   /* ⚠ UNANSWERED IS ITS OWN CARD, not folded into Pending. Folding them together
      hides the number that matters after a send: how many people were ASKED and have
      not replied. Pending is the ones nobody has asked at all. */
@@ -31225,8 +31315,9 @@ function renderDashRsvpPanel(){
   }
   listEl.innerHTML = activeList.map(function(item){
     const d = item.data;
-    const statusLabel = rsvpStatusLabel(d.rsvpStatus);
-    const statusColor = d.rsvpStatus === 'yes' ? '#2E6B3E' : (d.rsvpStatus === 'no' ? '#9A2A1F' : (d.rsvpStatus === 'backnextyear' ? '#8a6d1f' : '#5b6472'));
+    const statusLabel = rsvpStatusLabel(effectiveRsvpStatus(d));
+    const effStatus = effectiveRsvpStatus(d);
+    const statusColor = effStatus === 'yes' ? '#2E6B3E' : (effStatus === 'no' ? '#9A2A1F' : (effStatus === 'backnextyear' ? '#8a6d1f' : '#5b6472'));
     /* ⚠ "Responded 14 Oct" on somebody who said no in September and yes in October
        is the date of the SECOND answer and says nothing about the first. Naming the
        change is the whole point of the badge. */
@@ -34534,7 +34625,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the two branches do different jobs; they are independent and must stay so. */
     if(newRsvp === 'yes' && (oldRsvpForRecycle === 'no' || oldRsvpForRecycle === 'backnextyear' ||
                              item.data.maybeNextYear === true)){
-      addrUpdates.rejoinedForSeasonAt = serverTimestamp();
+      addrUpdates.needsDayAssignedAt = serverTimestamp();
       addrUpdates.cameBackThisSeasonAt = serverTimestamp();
     }
     /* Rejoining AFTER the recycle already happened. The flag being false on a
@@ -45137,14 +45228,18 @@ function nextInstallDayFor(h, opts){
    ⚠ AND IT NEVER FORCES A DAY. nextInstallDayFor returns null rather than crowding
    one, and a customer nobody can place is reported, not hidden — the rebuild will
    put them somewhere, and until then the office can see who is waiting. */
-function placeRejoinersOnNextDay(){
+function placeUnscheduledOnNextDay(){
   const placed = [], stuck = [];
   if(typeof SEASON === 'undefined' || !SEASON.length) return {placed: placed, stuck: stuck};
   if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return {placed: placed, stuck: stuck};
   const have = (typeof seasonCustomerIds === 'function') ? seasonCustomerIds() : new Set();
   jobAddresses.forEach(function(item){
     const d = (item && item.data) || {};
-    if(!d.rejoinedForSeasonAt) return;
+    /* ⚠ THE OLD NAME IS STILL READ. This field was `rejoinedForSeasonAt` for a few
+       hours on 2026-08-22, before new customers started using the same instruction and
+       the name stopped being true. Anything stamped in that window still has to be
+       placed — a rename that silently strands records is worse than the bad name. */
+    if(!d.needsDayAssignedAt && !d.rejoinedForSeasonAt) return;
     if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
     if(have.has(item.id)) return;
     const h = (typeof houseFromCustomer === 'function') ? houseFromCustomer(item) : null;
@@ -45158,9 +45253,11 @@ function placeRejoinersOnNextDay(){
        them even if the write is still in flight — the same optimistic mirror the
        rest of admin uses. A failed write is logged, never thrown: they ARE on a day
        now, and the flag standing costs one wasted look next tick. */
+    d.needsDayAssignedAt = null;
     d.rejoinedForSeasonAt = null;
     try{
-      updateDoc(doc(db, 'jobAddresses', item.id), {rejoinedForSeasonAt: null})
+      updateDoc(doc(db, 'jobAddresses', item.id),
+        {needsDayAssignedAt: null, rejoinedForSeasonAt: null})
         .catch(function(err){ console.error('Could not clear the rejoin flag:', err); });
     }catch(err){ console.error('Could not clear the rejoin flag:', err); }
   });
@@ -46718,7 +46815,7 @@ function exportCSV(){
        the timing sweep so a house placed here is held to its own timing in the same
        pass rather than sitting wrong until the next tick. */
     let rejoin={placed:[],stuck:[]};
-    try{ rejoin=placeRejoinersOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
+    try{ rejoin=placeUnscheduledOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
     let timing={moved:[],stuck:[]};
     try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
     if(!moved.length && !timing.moved.length && !timing.stuck.length
