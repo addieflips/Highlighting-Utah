@@ -63,6 +63,27 @@ function fn(name) {
   return '';
 }
 
+/* ⚠ THE FILE'S OTHER LIFTER CANNOT READ A ONE-LINER. fn() slices to the next
+   "\n}", which is right for a function whose closing brace sits at column 0 and
+   catastrophically wrong for `function cityOf(h){return (h.city||'').trim();}` —
+   that has no newline before its brace, so the slice ran on and swallowed a later
+   `const CREWS`, and the sandbox died with "already declared". Four of the seven
+   helpers this needs are one-liners. This counts braces instead, skipping quoted
+   text so a brace inside a string cannot close the function early. */
+const fnBraced = (name) => {
+  const at = admin.indexOf('function ' + name + '(');
+  if (at === -1) return '';
+  let i = admin.indexOf('{', at), depth = 0, q = '';
+  for (; i < admin.length; i++) {
+    const c = admin[i], prev = admin[i - 1];
+    if (q) { if (c === q && prev !== '\\') q = ''; continue; }
+    if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (!depth) return admin.slice(at, i + 1) + '\n'; }
+  }
+  return '';
+};
+
 const NEEDED = ['isOutForSeason', 'whBuildQueueGroups', 'whRecycleGroups', 'whHouseBuildStatus'];
 const src = {};
 let missing = false;
@@ -73,7 +94,7 @@ NEEDED.forEach(n => {
   if (!ok) missing = true;
 });
 
-const eligLine = (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [])[0] || '';
+const eligLine = (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [])[0] || '';
 check('the season setting is still one line', !!eligLine,
   'isOutForSeason cannot be run without it');
 
@@ -752,27 +773,7 @@ check('badging Back Next Year clears the build but not the recycle',
    present and the van still went to the old address. A regex proves the code exists,
    which is a different and weaker claim than the house ending up on the right day. */
 {
-  /* ⚠ THE FILE'S OTHER LIFTER CANNOT READ A ONE-LINER. fn() slices to the next
-     "\n}", which is right for a function whose closing brace sits at column 0 and
-     catastrophically wrong for `function cityOf(h){return (h.city||'').trim();}` —
-     that has no newline before its brace, so the slice ran on and swallowed a later
-     `const CREWS`, and the sandbox died with "already declared". Four of the seven
-     helpers this needs are one-liners. This counts braces instead, skipping quoted
-     text so a brace inside a string cannot close the function early. */
-  const fnBraced = (name) => {
-    const at = admin.indexOf('function ' + name + '(');
-    if (at === -1) return '';
-    let i = admin.indexOf('{', at), depth = 0, q = '';
-    for (; i < admin.length; i++) {
-      const c = admin[i], prev = admin[i - 1];
-      if (q) { if (c === q && prev !== '\\') q = ''; continue; }
-      if (c === '"' || c === "'" || c === '`') { q = c; continue; }
-      if (c === '{') depth++;
-      else if (c === '}') { depth--; if (!depth) return admin.slice(at, i + 1) + '\n'; }
-    }
-    return '';
-  };
-  const src = fnBraced('rehomeMovedHouses');
+    const src = fnBraced('rehomeMovedHouses');
   check('the re-homer is there to run', !!src,
     'a gate that cannot find its target must FAIL, never skip');
 
@@ -897,6 +898,101 @@ check('badging Back Next Year clears the build but not the recycle',
         'the commonest tick by far is the one where nothing changed');
     })();
   }
+}
+
+/* ⭐ THE OFFICE'S OWN SWITCH FOR WHO THE CREWS ARE SENT TO (added 2026-08-24).
+   Owner: "goa head and add that. That is just to tick a box once I send out RSVP emails
+   right?" — yes, a box she ticks, and this is what ticking it does.
+
+   ⚠ RUN, NOT READ. The whole risk here is which customers stop being in the season, and
+   a regex over the source cannot see that. */
+{
+  const dropSrc = fnBraced('seasonEligibilityWouldDrop');
+  check('the eligibility preview is there to run', !!dropSrc,
+    'a gate that cannot find its target must FAIL, never skip');
+  if (dropSrc) {
+    /* The REAL isOutForSeason and audienceIsNew, lifted — the preview exists to answer
+       "who leaves the season", and a stub would answer it with a fiction. */
+    const mk = (book) => {
+      const sandbox = new Function('jobAddresses', 'BOOKMODE',
+        'let SEASON_ELIGIBILITY = BOOKMODE;' + audienceIsNewSrc + src.isOutForSeason +
+        dropSrc + ';return {drop: seasonEligibilityWouldDrop, mode: () => SEASON_ELIGIBILITY};');
+      return sandbox(book, 'all-but-maybe-next-year');
+    };
+    const answeredYes = { rsvpStatus: 'yes', rsvpRespondedAt: 1 };
+    const neverAsked  = {};
+    const saidNo      = { rsvpStatus: 'no' };
+    const newHang     = { chargeNewMemberFee: true };
+    const book = [
+      { data: answeredYes }, { data: neverAsked }, { data: neverAsked },
+      { data: saidNo }, { data: newHang }
+    ];
+    const s1 = mk(book);
+    const dropped = s1.drop();
+    /* ⚠ THE TWO WHO NEVER ANSWERED ARE THE WHOLE POINT. Somebody who said no is
+       already out, so they are not "dropped" by the switch; a new hang is kept in by
+       isOutForSeason's own rule, because we never send them an RSVP to answer. */
+    check('the preview counts exactly the people who never answered',
+      dropped.length === 2,
+      'it counted ' + dropped.length + ' — somebody already out is not dropped BY the ' +
+      'switch, and a new hang is deliberately kept in because we never ask them');
+    /* ⚠ AND IT PUTS THE SETTING BACK. Measuring the damage must not cause it. */
+    check('and measuring it leaves the season exactly as it was',
+      s1.mode() === 'all-but-maybe-next-year',
+      'the preview flips the mode to count, and a throw part-way would otherwise ' +
+      'leave the whole page running in confirmed-only with nobody having chosen it');
+    /* ⚠ RESTORED IN A `finally`, asserted structurally because the behavioural check
+       above passes on the happy path whether or not the guard is there. */
+    check('and the restore is in a finally, not just on the happy path',
+      /finally\s*\{[\s\S]{0,200}SEASON_ELIGIBILITY = was;/.test(dropSrc),
+      'a throw mid-count would leave the page in a mode nobody picked');
+    /* ⚠ AND IT ASKS THE REAL PREDICATE BOTH WAYS rather than re-deciding. A second
+       opinion about who is in the season is the drift isOutForSeason exists to stop —
+       and this is the number the office acts on. */
+    check('and it measures by running isOutForSeason, not by re-deciding',
+      /isOutForSeason\(/.test(dropSrc) && !/rsvpRespondedAt/.test(dropSrc),
+      'a second copy of "is this customer in the season" is how two screens start ' +
+      'disagreeing about the same person');
+    const empty = mk([]);
+    check('and an empty book previews nobody rather than throwing',
+      empty.drop().length === 0);
+  }
+
+  /* ⭐ THE RSVP MARK IS THE GATE, and this is what that mark was built for. With nobody
+     asked, nobody has answered, so confirmed-only empties the season down to whoever
+     happened to reply to something else. */
+  check('the switch is refused until the RSVP has been marked sent',
+    /if\(!confirmedOnly && !sent\)\{[\s\S]{0,300}return;/.test(admin),
+    'this is the mistake the whole marker exists to prevent');
+  /* ⚠ CHECKED IN THE HANDLER, not only by dimming the button. A disabled-looking
+     button is still reachable by keyboard, and this one empties a season. */
+  check('and refused in the handler, not just greyed out',
+    /seasonEligSwitchBtn[\s\S]{0,900}if\(!confirmedOnly && !sent\)\{/.test(admin),
+    'a dimmed button is still reachable by keyboard');
+  /* ⚠ AND GOING BACK IS NEVER GATED. Putting people back into the season is the safe
+     direction and must always be available — a switch you cannot reverse is one nobody
+     will press. */
+  check('but going back to everyone is never blocked',
+    /const next = confirmedOnly \? 'all-but-maybe-next-year' : 'confirmed-only';/.test(admin),
+    'the safe direction must always be available');
+  /* ⚠ AN UNRECOGNISED SAVED VALUE LEAVES THE DEFAULT STANDING. A typo or a field from
+     a future version must never be read as confirmed-only — that is the direction that
+     takes people out of the season. */
+  check('and only the two known modes are accepted from settings',
+    /if\(mode === 'confirmed-only' \|\| mode === 'all-but-maybe-next-year'\) SEASON_ELIGIBILITY = mode;/.test(admin),
+    'an unknown setting must never be read as the mode that empties the season');
+  /* ⚠ THE LITERAL IS THE FALLBACK. A failed settings read keeps everybody in. */
+  check('and the built-in default is the everyone-in one',
+    /let SEASON_ELIGIBILITY = 'all-but-maybe-next-year';/.test(admin),
+    'a failed settings read must leave the season full, never empty it');
+  /* ⚠ EVERYTHING THAT READS THE SEASON IS REDRAWN — and NOT via renderAll, which
+     belongs to the schedule widget's scope and would throw "is not defined" here,
+     killing the handler silently. The suite caught exactly that when this was written. */
+  check('and switching redraws the panels that read the season',
+    /seasonEligSwitchBtn[\s\S]{0,2600}renderJobAddressPanels\(\);/.test(admin) &&
+    !/seasonEligSwitchBtn[\s\S]{0,2600}[^a-zA-Z]renderAll\(\)/.test(admin),
+    'leaving the routes and the warehouse showing the old answer is two seasons on ' +
+    'two tabs — and renderAll is the schedule widget\'s, not the main app\'s');
 }
 
 // ---------------------------------------------------------------------------

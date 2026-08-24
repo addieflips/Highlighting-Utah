@@ -2623,6 +2623,7 @@
           </div>
         </div>
         <div id="rsvpSentBanner" style="margin-bottom:14px;"></div>
+        <div id="seasonEligibilityRow" style="margin-bottom:14px;"></div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;" id="dashRsvpStatCards"></div>
         <div class="form-grid-3" style="margin-bottom:12px; gap:8px;">
           <div class="form-row" style="margin:0;"><label style="font-size:11.5px;">Search by Name</label><input type="text" id="dashRsvpSearch" placeholder="Search by name..." style="padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;"></div>
@@ -21682,7 +21683,11 @@ function thanksgivingDate(year){
    owner's own instruction and "no" now keeps somebody out on its own — see the
    reasoning in isOutForSeason. This setting is a separate question: it decides what
    happens to everybody who has said NOTHING. */
-const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
+/* ⚠ `let`, NOT `const`, since 2026-08-24: settings/season.seasonEligibility
+   overrides it at login so the office can make this decision itself. The literal
+   here is the DEFAULT and the fallback — a failed settings read leaves it standing,
+   which keeps everybody in the season rather than emptying it. */
+let SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
 function isOutForSeason(d){
   if(!d) return true;
   const said = String(d.rsvpStatus || '').toLowerCase();
@@ -31610,6 +31615,12 @@ async function loadRsvpSentMark(){
   try{
     const snap = await getDoc(doc(db,'settings','season'));
     rsvpSentAtCache = (snap.exists() && snap.data().rsvpSentAt) || null;
+    /* ⚠ ONLY THE TWO KNOWN MODES ARE ACCEPTED. Anything else — a typo, a half-written
+       value, a field from a future version — leaves the built-in default standing.
+       An unrecognised setting must never be read as "confirmed-only", because that is
+       the direction that takes people OUT of the season. */
+    const mode = snap.exists() ? String(snap.data().seasonEligibility || '') : '';
+    if(mode === 'confirmed-only' || mode === 'all-but-maybe-next-year') SEASON_ELIGIBILITY = mode;
   }catch(err){
     /* ⚠ A FAILED READ LEAVES IT UNKNOWN, and unknown renders as "not sent yet" — the
        cautious answer. Claiming it HAS gone out on a read that never landed is what
@@ -31618,6 +31629,138 @@ async function loadRsvpSentMark(){
     rsvpSentAtCache = null;
   }
   if(typeof renderRsvpSentBanner === 'function') renderRsvpSentBanner();
+}
+/* ⭐ WHO THE CREWS ARE SENT TO — THE OFFICE'S OWN SWITCH (added 2026-08-24). Owner:
+   "goa head and add that. That is just to tick a box once I send out RSVP emails
+   right?"
+
+   Yes — a box she ticks. But it is worth being exact about what ticking it DOES,
+   because it is not cosmetic and it was a code change until now:
+
+     Everyone but Back Next Year (the default) — anybody who has not said no is IN.
+       Somebody who never replied is still routed, scheduled and built for.
+     Confirmed only — only people who actually ANSWERED yes are in. Everybody who
+       has not replied comes off the routes, off the schedule and out of the
+       warehouse queue.
+
+   ⚠ SO IT MUST NOT BE FLIPPED BEFORE THE RSVP HAS GONE OUT, and that is not advice
+   here, it is enforced: with nobody asked, nobody has answered, and confirmed-only
+   empties the season down to the handful of people who happened to reply to something
+   else. The RSVP-sent mark is the gate — which is what that mark was built for.
+
+   ⚠ AND IT SHOWS THE DAMAGE BEFORE IT DOES ANYTHING. A count of who would leave the
+   season is the one number that makes this decision answerable, and it is the repo's
+   own pattern for anything this size (Start New Season checks first too).
+
+   ⚠ IT IS REVERSIBLE, which is why it is a switch and not a typed DELETE. Nothing is
+   written to a customer: it changes how one predicate reads records that are already
+   there, so switching back restores everybody exactly. */
+function seasonEligibilityWouldDrop(){
+  const book = (typeof jobAddresses !== 'undefined' && jobAddresses) ? jobAddresses : [];
+  /* ⚠ MEASURED BY RUNNING isOutForSeason BOTH WAYS, never by re-deciding here. A second
+     opinion about who is in the season is exactly the drift this predicate exists to
+     stop — and it is the number the office is about to act on. */
+  const was = SEASON_ELIGIBILITY;
+  let dropped = [];
+  try{
+    SEASON_ELIGIBILITY = 'all-but-maybe-next-year';
+    const inNow = book.filter(function(a){ return !isOutForSeason(a.data); });
+    SEASON_ELIGIBILITY = 'confirmed-only';
+    dropped = inNow.filter(function(a){ return isOutForSeason(a.data); });
+  } finally {
+    /* ⚠ RESTORED IN A finally. A throw part-way through would otherwise leave the whole
+       page running in confirmed-only without anybody choosing it. */
+    SEASON_ELIGIBILITY = was;
+  }
+  return dropped;
+}
+async function setSeasonEligibility(mode){
+  await setDoc(doc(db,'settings','season'), {
+    seasonEligibility: mode,
+    seasonEligibilitySetAt: serverTimestamp(),
+    seasonEligibilitySetBy: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : ''
+  }, {merge: true});
+  SEASON_ELIGIBILITY = mode;
+}
+function renderSeasonEligibilityRow(){
+  const el = document.getElementById('seasonEligibilityRow');
+  if(!el) return;
+  const confirmedOnly = SEASON_ELIGIBILITY === 'confirmed-only';
+  const sent = !!rsvpSentAtCache;
+  el.innerHTML =
+    '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:9px 13px; font-size:12.5px;">'+
+      '<span style="font-weight:700;">Who the crews are sent to:</span>'+
+      '<span style="color:'+(confirmedOnly?'#2E6B3E':'var(--slate)')+'; font-weight:600;">'+
+        (confirmedOnly
+          ? 'Only people who answered Yes'
+          : 'Everyone except Back Next Year')+'</span>'+
+      '<span style="margin-left:auto; display:flex; gap:8px;">'+
+        '<button type="button" id="seasonEligCheckBtn" class="icon-btn" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700;">Check first</button>'+
+        '<button type="button" id="seasonEligSwitchBtn" class="icon-btn" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700;'+
+          ((!confirmedOnly && !sent) ? ' opacity:.45;' : '')+'">'+
+          (confirmedOnly ? 'Go back to everyone' : 'Switch to answered Yes only')+'</button>'+
+      '</span>'+
+      ((!confirmedOnly && !sent)
+        ? '<div style="flex-basis:100%; color:#8a6d1f;">Mark the RSVP as sent first \u2014 with nobody asked, nobody has answered, so this would empty the season.</div>'
+        : '')+
+      '<div id="seasonEligNote" style="flex-basis:100%; color:var(--slate);"></div>'+
+    '</div>';
+  const noteEl = document.getElementById('seasonEligNote');
+  const checkBtn = document.getElementById('seasonEligCheckBtn');
+  if(checkBtn) checkBtn.addEventListener('click', function(){
+    const dropped = seasonEligibilityWouldDrop();
+    if(confirmedOnly){
+      noteEl.textContent = 'Going back would put ' + dropped.length + ' customer' +
+        (dropped.length === 1 ? '' : 's') + ' back into the season.';
+      return;
+    }
+    const names = dropped.slice(0, 6).map(function(a){ return a.data.name || '(no name)'; }).join(', ');
+    noteEl.innerHTML = dropped.length
+      ? '<b>' + dropped.length + ' customer' + (dropped.length === 1 ? '' : 's') +
+        '</b> would come off the routes, the schedule and the warehouse queue \u2014 ' +
+        esc(names) + (dropped.length > 6 ? ' and ' + (dropped.length - 6) + ' more' : '') + '.'
+      : 'Nobody would drop out \u2014 everybody still in the season has answered.';
+  });
+  const switchBtn = document.getElementById('seasonEligSwitchBtn');
+  if(switchBtn) switchBtn.addEventListener('click', async function(){
+    /* ⚠ CHECKED AGAIN HERE, not only by dimming the button. A disabled-looking button
+       is still reachable by keyboard, and this one empties a season. */
+    if(!confirmedOnly && !sent){
+      toast('Mark the RSVP as sent first \u2014 otherwise this takes everybody who has not answered out of the season.');
+      return;
+    }
+    const next = confirmedOnly ? 'all-but-maybe-next-year' : 'confirmed-only';
+    const dropped = seasonEligibilityWouldDrop();
+    const msg = confirmedOnly
+      ? 'Put everybody who has not answered back into the season?\n\n' + dropped.length +
+        ' customer(s) would come back onto the routes and the schedule.'
+      : 'Send crews only to people who answered Yes?\n\n' + dropped.length +
+        ' customer(s) would come OFF the routes, the schedule and the warehouse queue.\n\n' +
+        'Nothing is deleted and this can be switched back.';
+    if(!confirm(msg)) return;
+    switchBtn.disabled = true;
+    try{
+      await setSeasonEligibility(next);
+      toast(next === 'confirmed-only'
+        ? 'Crews now go only to people who answered Yes.'
+        : 'Crews go to everybody except Back Next Year again.');
+      /* ⚠ EVERYTHING THAT READS THE SEASON IS REDRAWN, not just this row — the routes,
+         the warehouse queues, the customer table and the schedule all ask
+         isOutForSeason, and leaving them showing the old answer is how the office ends
+         up reading two different seasons on two tabs.
+
+         ⚠ renderJobAddressPanels, NOT renderAll. renderAll belongs to the schedule
+         widget's own scope; calling it from here throws "is not defined" and kills the
+         handler silently — caught by the suite the moment it was written, which is what
+         that check is for. The schedule picks the change up on its own sync. */
+      if(typeof renderJobAddressPanels === 'function') renderJobAddressPanels();
+      renderDashRsvpPanel();
+    }catch(err){
+      console.error('[HU] could not change who the crews are sent to:', err);
+      toast('Could not save that \u2014 try again.');
+      switchBtn.disabled = false;
+    }
+  });
 }
 function renderRsvpSentBanner(){
   const el = document.getElementById('rsvpSentBanner');
@@ -31634,6 +31777,7 @@ function renderRsvpSentBanner(){
         '<span style="color:var(--slate);">So Pending below means nobody has asked them, not that they are ignoring you.</span>'+
         '<button type="button" id="rsvpSentMarkBtn" class="icon-btn" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700; margin-left:auto;">Mark RSVP as sent</button>'+
       '</div>';
+  renderSeasonEligibilityRow();
   const markBtn = document.getElementById('rsvpSentMarkBtn');
   if(markBtn) markBtn.addEventListener('click', async function(){
     markBtn.disabled = true;
