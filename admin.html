@@ -31381,9 +31381,31 @@ document.getElementById('dashRsvpFilterPayment').addEventListener('change', func
    A build is only "the same" if the colours AND the wire match. Two houses in
    Warm White are different builds if one is on white wire and one on green, so
    the wire is part of the group key, not just something shown on the row. */
+/* ⭐ A BLANK WIRE READS "Any" (changed 2026-08-24). Addie: "we want build a sheet
+   if they didn't put a wire to read any", and, the same day: "if its color wire
+   than we choose."
+
+   ⚠ IT USED TO SAY "White", which is the choice we make in the workshop — true,
+   and not the same statement. A builder reading White cannot tell it from a
+   customer who asked for white, so the one fact worth having on the sheet was the
+   one thing the sheet could not say. Any means we choose, which is exactly what
+   the customer left us to do.
+
+   ⚠ THIS IS THE ONE PLACE, ON PURPOSE. whGroupKey builds its key from it, and the
+   on-screen chip and both build sheets read it — so the group heading, the Wire
+   column and the badge cannot disagree about one house. An earlier version of
+   this change did the presenter alone and left the heading saying White over a
+   row saying Any, which is the contradiction this whole registry exists to stop.
+
+   ⚠ AND IT SPLITS ONE GROUP IN TWO, which is the visible cost and is worth
+   knowing: a house that ASKED for white and a house that said nothing used to
+   batch together (both read "White wire") and now form separate groups. They are
+   still built the same way — we choose white — so if the office would rather they
+   stayed one batch, that is whGroupKey normalising blank to White for the KEY
+   while this keeps saying Any for the EYE. One line, and it is her call. */
 function whWireLabel(wire){
   const w = String(wire || '').trim();
-  return w || 'White';
+  return w || 'Any';
 }
 /* Put a colour list into a canonical order so the SAME pattern typed in a
  * different order lands in ONE warehouse group. Before this, "Red, Green" and
@@ -32602,16 +32624,17 @@ function whPullPresenters(d){
        importer moves those out of lightColors — so an alternating house has an
        EMPTY colour list and reading only the list calls them undecorated. */
     lightsDescription: function(cust){ return printLightColor(cust) || 'none'; },
-    /* ⚠ THE BUILD SHEET SAYS "White" WHERE EVERYTHING ELSE SAYS "Any", AND THAT
-       IS DELIBERATE. Addie, 2026-08-24: "if its color wire than we choose." On the
-       confirmation and the crew sheet the honest word is the registry's default,
-       Any — we have not chosen yet. In the WAREHOUSE somebody has to take a spool
-       off a shelf, so "we choose" has to become an actual colour, and whWireLabel
-       has answered White for a blank since long before this registry existed.
-       Same fact, two audiences, which is what a presenter is for.
-       ⚠ Do NOT "fix" this to Any: it would leave the one person who must decide
-       with no decision, and it changes shipped warehouse behaviour nobody asked
-       to change. */
+    /* ⭐ THE BUILD SHEET SAYS "Any" TOO (corrected 2026-08-24). Addie: "we want
+       build a sheet if they didn't put a wire to read any."
+       ⚠ I HAD THIS WRONG AND ARGUED FOR IT IN A COMMENT HERE. The reasoning was
+       that somebody in the warehouse has to take a spool off a shelf, so "we
+       choose" had to become an actual colour on that sheet — so the build sheet
+       said White while the confirmation and the crew sheet said Any. She asked
+       for one word, and she is right: White on a build sheet is indistinguishable
+       from a customer who asked for white, and the thing the builder actually
+       benefits from knowing is that this one is free to take whatever is open.
+       whWireLabel answers Any now, so this presenter and the group heading above
+       it cannot drift apart. */
     wireColor: function(cust){ return whWireLabel(cust.wireColor); },
     outletTimer: function(cust, o){ return printOptionYesNo(optValueOf(o, cust)); }
   };

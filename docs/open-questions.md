@@ -787,7 +787,24 @@ still reads the raw record.
 ⚠ **Only the three she named.** `useEaves` and `specificOutlet` are also yes/no
 questions and she did not mention either, so both still render `none`. Defaulting
 them on the strength of this answer would be the guess this rulebook exists to
-stop. `useEaves` is asked as Q-014.
+stop. `useEaves` was asked as Q-014 and confirmed as `none`.
+
+⚠ **CORRECTED 2026-08-24, same day.** This entry first recorded an exception: the
+warehouse build sheet would keep saying **White** for a blank wire, on the
+reasoning that somebody there has to take a spool off a shelf so "we choose" has
+to become an actual colour. She overruled it — *"we want build a sheet if they
+didn't put a wire to read any"* — and she is right: **White** on a build sheet is
+indistinguishable from a customer who ASKED for white, and "this one is free" is
+the one fact on that row worth having. `whWireLabel` answers `Any` now, which is
+the single place the group key, the on-screen chip and both build sheets all
+read, so none of them can drift from the others.
+
+⚠ **It splits one warehouse group in two**, and that is the visible cost of the
+correction. A house that asked for white and a house that said nothing used to
+batch together — both read "White wire" — and now form separate groups. Both are
+still built the same way. If the office would rather they stayed one batch, the
+fix is `whGroupKey` normalising a blank to White for the KEY while `whWireLabel`
+keeps saying Any for the EYE: one line, and it is her call.
 
 **Resulting registry change:** `outletTimer.default = 'No'`; `blockingAnswers()`
 added, derived from `required` + no `default` rather than from a list, so the rule
@@ -828,7 +845,7 @@ the bin is the Cust # column, already first on the sheet.
 
 ---
 
-## Q-014 · intent · open · 2026-08-24
+## Q-014 · intent · answered · 2026-08-24
 When "Plugs / eaves" is left blank, does it mean **No**, or does it mean nobody
 has asked?
 
@@ -845,7 +862,12 @@ particular question the office has been recording "nobody has asked" as a real,
 common state — on roughly a fifth of the book. Turning all 98 of those into No
 would be a decision about 98 real houses.
 
-**Answer:**
+**Answer (Addie, 2026-08-24): "Okay for eaves that can read none that's fine."**
 
-**Resulting registry change:** if it means No, one line — `default: 'No'` on
-`useEaves`, exactly like the timer. If it means nobody asked, nothing changes.
+It means nobody has asked. `useEaves` keeps no default and keeps rendering `none`,
+so the 98 question marks in the Up Plug column stay what they are — an open
+question about 98 houses, not 98 refusals.
+
+**Resulting registry change:** none. The absence of a `default` on `useEaves` is
+now a recorded decision rather than an omission, which is the difference between
+a gap and an answer.

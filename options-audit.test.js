@@ -392,6 +392,33 @@ function check(label, ok, detail) {
     (admin.match(/rsvpOptionsBlockFor\(/g) || []).length >= 4,
     'a block that only appears in the real email is one nobody proof-read');
 
+  /* ⭐ THE WAREHOUSE'S WORD FOR AN UNSPECIFIED WIRE IS THE REGISTRY'S DEFAULT
+     (added 2026-08-24). Addie: "we want build a sheet if they didn't put a wire to
+     read any." whWireLabel answered "White" for a blank and NOTHING asserted it,
+     which is why it could be changed in either direction without a single test
+     moving. It is the one place both build sheets, the on-screen chip and the
+     group key all read, so it is the one worth pinning.
+     ⚠ Compared against the REGISTRY DEFAULT rather than the literal "Any", so
+     changing her mind is one edit in js/options.js and this follows. */
+  {
+    const at = admin.indexOf('function whWireLabel(');
+    const src = at === -1 ? '' : admin.slice(at, admin.indexOf('\n}', at) + 2);
+    check('whWireLabel is still findable', !!src,
+      'the build sheets, the chip and the group key all read it');
+    if (src) {
+      const whWireLabel = new Function(src + 'return whWireLabel;')();
+      const wire = OPTIONS.find(o => o.id === 'wireColor');
+      check('an unspecified wire reads as the registry default on the build sheet',
+        whWireLabel('') === wire.default && whWireLabel('   ') === wire.default,
+        'got ' + JSON.stringify(whWireLabel('')) + ', registry says ' +
+        JSON.stringify(wire.default) + ' — a builder reading "White" cannot tell ' +
+        'it from a customer who ASKED for white, which is the one fact worth having');
+      check('and a wire they did ask for is left exactly alone',
+        whWireLabel('White') === 'White' && whWireLabel('Green') === 'Green',
+        'defaulting over a real answer is the opposite failure');
+    }
+  }
+
   check('the invoice lists its non-priced options',
     /optInvoiceOptions\(\)/.test(admin),
     'a customer who asked for a posted invoice was recorded and never printed');
