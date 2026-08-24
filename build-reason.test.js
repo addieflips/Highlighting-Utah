@@ -298,7 +298,11 @@ check('applying a re-quote copies its kind onto the customer',
   /addrUpdates\.requoteKind\s*=/.test(admin),
   'the badge reads it off the customer; nothing else can put it there');
 
-const requoteBlock = block(admin, 'if(requoteBeingConverted){\n      addrUpdates.requoteAppliedAt');
+/* ⚠ NO RAW \n IN AN ANCHOR. admin.html is CRLF on main and was LF here, so this
+   literal matched nothing the moment the line endings were brought into line and the
+   check failed on correct code — the trap CLAUDE.md §7 names by hand. The opener is
+   located on its own and the brace counter finds the rest. */
+const requoteBlock = block(admin, 'if(requoteBeingConverted){');
 check('and stamps requoteAppliedAt in the same block',
   !!requoteBlock && /addrUpdates\.requoteAppliedAt/.test(requoteBlock) &&
   /addrUpdates\.requoteKind\s*=/.test(requoteBlock),
