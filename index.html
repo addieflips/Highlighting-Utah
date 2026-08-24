@@ -2162,6 +2162,13 @@ function navigate(){
   document.getElementById('mMoreToggle').classList.remove('open');
   document.getElementById('mMoreSubmenu').classList.remove('open');
   document.body.classList.remove('rsvp-minimal');
+  /* ⚠ AND quote-minimal, which this used to leave on. body.quote-minimal hides
+     the header and footer and forces #page-quote-details visible with
+     !important, so navigating away from a minimal screen left the site chrome
+     gone and the quote form still on top of wherever you had gone. Every
+     handler below re-adds the class AFTER this line, so removing it here costs
+     those screens nothing. */
+  document.body.classList.remove('quote-minimal');
   if(hash === '/payment' && queryString){
     var params = new URLSearchParams(queryString);
     var token = params.get('token');
@@ -2252,7 +2259,15 @@ function navigate(){
     }
   }
 })();
-window.addEventListener('hashchange', navigate);
+window.addEventListener('hashchange', function(){
+  /* A bare #/payment is somebody ASKING for the sign-in page — the header
+     button, the footer link. Reset before routing so they get it, instead of
+     whatever screen the last token link left behind. A #/payment WITH a query
+     is a token link and owns its own screen, so it is left alone. */
+  var raw = window.location.hash.replace('#','');
+  if(raw === '/payment' && typeof resetPaymentPage === 'function') resetPaymentPage();
+  navigate();
+});
 navigate();
 
 /* =========================================================
@@ -3265,6 +3280,46 @@ function hideLoginPrompt(){
   var lookupWrapEl = document.getElementById('lookupFormWrap');
   if(lookupWrapEl) lookupWrapEl.style.display = 'none';
 }
+/* The exact undo of hideLoginPrompt(). Nothing used to undo it, which is how
+   the payment page ended up as a blank white shell: several paths hide the
+   hero and the sign-in box, and once hidden they stayed hidden for the rest of
+   the page's life no matter where the customer navigated afterwards. */
+function showLoginPrompt(){
+  var heroEl = document.getElementById('paymentPageHero');
+  if(heroEl) heroEl.style.display = '';
+  var lookupWrapEl = document.getElementById('lookupFormWrap');
+  if(lookupWrapEl) lookupWrapEl.style.display = '';
+}
+/* ⚠ IS SOMETHING ALREADY ON SCREEN HERE? resetPaymentPage() must never fire
+   over a portal that is open or opening — a signed-in customer pressing
+   "Member Portal" in the header would otherwise be thrown back to the sign-in
+   box, and the saved-login auto-open on first load would race its own spinner.
+   The spinner counts: loadPortalByToken() raises it synchronously, before the
+   hashchange it triggers can be delivered. */
+function portalSessionActive(){
+  var spinner = document.getElementById('portalLoading');
+  if(spinner && spinner.style.display && spinner.style.display !== 'none') return true;
+  var invoice = document.getElementById('invoiceCard');
+  if(invoice && invoice.classList.contains('show')) return true;
+  var tabs = document.getElementById('portalTabsLayout');
+  if(tabs && tabs.style.display && tabs.style.display !== 'none') return true;
+  var quoteCard = document.getElementById('quoteReviewCard');
+  if(quoteCard && quoteCard.classList.contains('show')) return true;
+  return false;
+}
+/* Put the payment page back the way it loads. Called when somebody NAVIGATES
+   to a bare #/payment — the header button, the footer link — which up to now
+   changed the hash, ran navigate(), and left whatever dead-end screen was
+   already there untouched, so the button looked broken. */
+function resetPaymentPage(){
+  if(portalSessionActive()) return;
+  hidePortalLoading();
+  showLoginPrompt();
+  ['quoteResolvedMsg','lookupEmpty','portalDeactivatedMsg','rsvpConfirmCard'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
+}
 function renderCustomerInvoicePage(raw, opts){
   opts = opts || {};
   raw = portalKeyClean(raw);
@@ -3853,7 +3908,22 @@ function tryShowQuoteReview(raw, opts){
           ? "You've already let us know you're thinking about next year. We hope to see you then!"
           : "You've already let us know this isn't a fit right now. Reach out any time if that changes.";
       resolvedMsg.style.display = 'block';
-      hideLoginPrompt();
+      /* ⚠ THIS USED TO CALL hideLoginPrompt() AND STOP. The hero and the
+         sign-in box both went to display:none with nothing left to press, so
+         the page rendered as an empty white card with one sentence in it — and
+         because nothing undid it, the header's "Member Portal" button then did
+         nothing either. Two different people land here: a lead who approved and
+         filled the form but has not been converted to a customer yet (there is
+         genuinely no portal for them, and the message is the right answer), and
+         an existing member whose quote link carried no &p= portal token. The
+         second one has an account, so leave them a way into it. A quote token
+         is still never upgraded into a session — they sign in, which is rate
+         limited and name checked. */
+      hidePortalLoading();
+      showLookupFormAgain();
+      if(typeof showLoginPrompt === 'function') showLoginPrompt();
+      var contactEl = document.getElementById('lookupPhone');
+      if(contactEl && !contactEl.value && raw) contactEl.value = raw;
       return;
     }
     resolvedMsg.style.display = 'none';
@@ -4223,6 +4293,12 @@ function openPortalFromQuote(contactHint){
     loadPortalByToken(savedToken);
     return;
   }
+  /* ⚠ FILL IN A BOX THAT IS ON SCREEN. Every earlier branch of this function
+     returns, so reaching here means they are signing in by hand — but the quote
+     screens they came from may already have hidden the sign-in box, and this
+     used to type the phone number into an invisible input. */
+  if(typeof showLookupFormAgain === 'function') showLookupFormAgain();
+  if(typeof showLoginPrompt === 'function') showLoginPrompt();
   var contactEl = document.getElementById('lookupPhone');
   if(contactEl && contactHint) contactEl.value = contactHint;
   var lastNameEl = document.getElementById('lookupLastName');
