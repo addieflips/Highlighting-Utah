@@ -45591,13 +45591,79 @@ function syncHousesFromCustomers(){
         const mine = h[f.key];
         const same = f.same ? f.same(mine, theirs, cust) : (('' + (mine == null ? '' : mine)).trim() === ('' + theirs).trim());
         if(same) return;
-        changed.push({name: h.name || '(no name)', field: f.label,
+        /* ⚠ THE HOUSE ID TRAVELS WITH THE CHANGE (2026-08-24). A town change is not
+           only something to report — it is a house standing on a day whose crews are
+           driving somewhere else, and rehomeMovedHouses needs to know WHICH house.
+           Reporting the name alone means the only way to find them again is to match
+           on it, and two customers really do share a name in this book. */
+        changed.push({name: h.name || '(no name)', field: f.label, id: h.id,
                       from: (mine == null || ('' + mine).trim() === '') ? '(blank)' : ('' + mine), to: '' + theirs});
         h[f.key] = theirs;
       });
     });
   });
   return changed;
+}
+/* ---------- somebody who MOVED HOUSE is standing on the wrong day ----------
+   ⭐ ADDED 2026-08-24. Owner: "they will also need to be reschedules were they go if
+   they have a new address."
+
+   ⚠ WHAT USED TO HAPPEN, WHICH LOOKED LIKE IT WORKED. The sync already pulled the new
+   town across, and the toast said so — but it corrected the LABEL ON THE HOUSE and left
+   the house exactly where it was. So a customer who moved from Lehi to Provo sat on a
+   Lehi crew-day wearing the word Provo: unassignedHousesFor reported them, they still
+   printed on that day's sheet, and the crew drove to Lehi. The town was right on every
+   screen and the van went to the wrong house.
+
+   ⚠ ONLY HOUSES WHOSE TOWN ACTUALLY CHANGED, which is why the ids are passed in rather
+   than sweeping everything unassignedHousesFor reports. A house can be unassigned on
+   purpose — an unknown town pairing deliberately leaves it visible rather than loading
+   it onto a crew that may be driving fifty miles for it — and hoovering those up would
+   silently overturn that decision.
+
+   ⚠ AND ONLY WHERE THE MOVE ACTUALLY BREAKS THE DAY. If the new town is one the day's
+   crews already work — a neighbour they were going to anyway — nothing needs to happen,
+   and moving them would be churn. dayCrewTowns derives the crews from the houses, so it
+   has already seen the new town by the time this asks.
+
+   ⚠ A LOCKED DAY IS NEVER TOUCHED. Inside 48 hours the sheet is printed and the truck
+   is loaded; re-homing a house off it is the same harm as re-ordering one. It is
+   REPORTED instead, because the office is the only thing that can fix a van already
+   loaded — silence there is the worst of the three outcomes.
+
+   ⚠ AND A HOUSE ALREADY DONE IS HISTORY. Their lights are up at the old address; moving
+   the row would rewrite what the crew actually did. */
+function rehomeMovedHouses(ids){
+  const out = {moved: [], stuck: [], locked: []};
+  if(!ids || !ids.length) return out;
+  if(typeof SEASON === 'undefined' || !SEASON.length) return out;
+  const want = {};
+  ids.forEach(function(id){ if(id != null) want['' + id] = true; });
+  const dayStr = function(d){ const dt = dayDate(d); return dt ? isoOf(dt) : null; };
+  SEASON.filter(function(d){ return !d.isFixRoute && !d.isTakedown && dayStr(d); })
+        .forEach(function(day){
+    const here = dayStr(day);
+    const adrift = unassignedHousesFor(day);
+    (day.houses || []).slice().forEach(function(h){
+      if(!want['' + h.id]) return;
+      if(h.isFix || h.isTakedown || h.done) return;
+      if(adrift.indexOf(h) === -1) return;            // the crews already go there
+      if(typeof routeDayIsLocked === 'function' && routeDayIsLocked(here)){
+        out.locked.push({name: h.name || '(no name)', town: h.city || '', date: here});
+        return;
+      }
+      const target = nextInstallDayFor(h, {exclude: day});
+      if(!target){
+        out.stuck.push({name: h.name || '(no name)', town: h.city || '', date: here});
+        return;
+      }
+      day.houses = day.houses.filter(function(x){ return x !== h; });
+      target.houses.push(h);
+      out.moved.push({name: h.name || '(no name)', town: h.city || '',
+                      fromDate: here, toDate: dayStr(target)});
+    });
+  });
+  return out;
 }
 /* ---------- customers the plan has never heard of ----------
    ⭐ A NEW CUSTOMER IS IN THE SEASON WITHOUT ANYBODY RE-IMPORTING ANYTHING
@@ -46931,12 +46997,21 @@ function exportCSV(){
     /* ⭐ AND ANYBODY WHO HAS JUST COME BACK IN GETS A DAY (2026-08-22). Runs BEFORE
        the timing sweep so a house placed here is held to its own timing in the same
        pass rather than sitting wrong until the next tick. */
+    /* ⭐ AND SOMEBODY WHO MOVED HOUSE IS TAKEN OFF THE OLD TOWN'S DAY (2026-08-24).
+       Runs FIRST of the three sweeps: it operates on houses already on the plan, and
+       putting it ahead of the timing sweep means a house re-homed here is held to its
+       own timing in the same pass rather than sitting wrong until the next tick. */
+    let rehome={moved:[],stuck:[],locked:[]};
+    try{ rehome=rehomeMovedHouses(moved.filter(function(c){ return c.field==='town'; })
+                                       .map(function(c){ return c.id; })); }
+    catch(err){ console.error("Re-homing moved customers failed:",err); }
     let rejoin={placed:[],stuck:[]};
     try{ rejoin=placeUnscheduledOnNextDay(); }catch(err){ console.error("Rejoin placement failed:",err); }
     let timing={moved:[],stuck:[]};
     try{ timing=enforceInstallTiming(); }catch(err){ console.error("Timing sweep failed:",err); }
     if(!moved.length && !timing.moved.length && !timing.stuck.length
-       && !rejoin.placed.length && !rejoin.stuck.length) return 0;
+       && !rejoin.placed.length && !rejoin.stuck.length
+       && !rehome.moved.length && !rehome.stuck.length && !rehome.locked.length) return 0;
     /* ⭐ A HOUSE THAT HAS JUST CHANGED DAY OR TOWN IS SITTING OUT OF ORDER.
        enforceInstallTiming puts it on the END of its new day, and a corrected
        town can hand it to the other crew — either way the driving order the day
@@ -46951,7 +47026,7 @@ function exportCSV(){
     let routes={days:0};
     /* A house dropped onto a day is on the END of it, so that day is no longer in
        driving order — the same reason a timing move triggers this. */
-    if(timing.moved.length || rejoin.placed.length || townChanged){
+    if(timing.moved.length || rejoin.placed.length || rehome.moved.length || townChanged){
       try{ routes=generateAllRoutes(); }catch(err){ console.error('Route generation failed:',err); }
     }
     computeDates(); renderAll(); scheduleSave();
@@ -46969,6 +47044,20 @@ function exportCSV(){
         : (rejoin.placed.length+" back in \u2014 scheduled on the next day with room"));
       if(rejoin.stuck.length) bits.push(rejoin.stuck.length+
         " back in but no day has room \u2014 press Recalculate everything");
+      /* ⚠ A MOVE IS NAMED, ALWAYS. "Somebody left Tuesday" with no explanation is how
+         the office stops trusting the plan — and a house that changed TOWN is the one
+         the crew would otherwise have driven to the wrong address for. */
+      if(rehome.moved.length) bits.push(rehome.moved.length===1
+        ? (rehome.moved[0].name+" moved to "+(rehome.moved[0].town||"a new town")+
+           " \u2014 now on "+rehome.moved[0].toDate)
+        : (rehome.moved.length+" moved house \u2014 rescheduled for their new town"));
+      /* ⚠ THE TWO FAILURES ARE DIFFERENT SENTENCES AND NEED DIFFERENT ANSWERS. A
+         locked day is a printed sheet the office has to sort out by hand; no room is a
+         Recalculate. Rolling them into one line sends her to the wrong fix. */
+      if(rehome.locked.length) bits.push(rehome.locked.length+
+        " moved house but their day is already printed \u2014 move them by hand");
+      if(rehome.stuck.length) bits.push(rehome.stuck.length+
+        " moved house and no day goes to their new town \u2014 press Recalculate everything");
       if(timing.stuck.length){
         /* ⚠ WHICH WAY THEY ARE STUCK IS THE WHOLE MESSAGE. This read "no later day
            has room" for everybody, which is exactly backwards for a customer who has

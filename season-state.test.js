@@ -742,6 +742,163 @@ check('badging Back Next Year clears the build but not the recycle',
   }
 }
 
+/* ⭐ SOMEBODY WHO MOVED HOUSE IS TAKEN OFF THE OLD TOWN'S DAY (added 2026-08-24).
+   Owner: "they will also need to be reschedules were they go if they have a new
+   address."
+
+   ⚠ THIS RUNS THE REAL FUNCTION. Every existing check on the customer sync reads it as
+   text, and the bug this closes was invisible to all of them: the town was pulled
+   across correctly, the toast said so, and the house never moved. The words were all
+   present and the van still went to the old address. A regex proves the code exists,
+   which is a different and weaker claim than the house ending up on the right day. */
+{
+  /* ⚠ THE FILE'S OTHER LIFTER CANNOT READ A ONE-LINER. fn() slices to the next
+     "\n}", which is right for a function whose closing brace sits at column 0 and
+     catastrophically wrong for `function cityOf(h){return (h.city||'').trim();}` —
+     that has no newline before its brace, so the slice ran on and swallowed a later
+     `const CREWS`, and the sandbox died with "already declared". Four of the seven
+     helpers this needs are one-liners. This counts braces instead, skipping quoted
+     text so a brace inside a string cannot close the function early. */
+  const fnBraced = (name) => {
+    const at = admin.indexOf('function ' + name + '(');
+    if (at === -1) return '';
+    let i = admin.indexOf('{', at), depth = 0, q = '';
+    for (; i < admin.length; i++) {
+      const c = admin[i], prev = admin[i - 1];
+      if (q) { if (c === q && prev !== '\\') q = ''; continue; }
+      if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (!depth) return admin.slice(at, i + 1) + '\n'; }
+    }
+    return '';
+  };
+  const src = fnBraced('rehomeMovedHouses');
+  check('the re-homer is there to run', !!src,
+    'a gate that cannot find its target must FAIL, never skip');
+
+  /* ⚠ AND SOMETHING CALLS IT. A helper nothing calls is the most expensive kind of
+     green, and this repo has shipped exactly that. Matched as the direct assignment
+     rather than "the name appears somewhere", so a red-check that short-circuits it
+     (`rehome = ({moved:[]}) || rehomeMovedHouses(...)`) fails instead of passing on
+     text that can no longer run. */
+  check('and the five-minute customer sync calls it',
+    /rehome\s*=\s*rehomeMovedHouses\(/.test(admin),
+    'the sync is the only thing that notices a town changed — unwired, this whole ' +
+    'function is decoration');
+  /* ⚠ AND IT IS HANDED THE TOWN CHANGES ONLY. Passing every change would re-home
+     somebody whose phone number was corrected. */
+  check('and only about the customers whose TOWN changed',
+    /rehomeMovedHouses\(moved\.filter\(function\(c\)\{ return c\.field===['"]town['"]/.test(admin),
+    'a changed note or phone number does not move anybody');
+  /* ⚠ AND THE CHANGE RECORD HAS TO CARRY THE HOUSE ID. Without it the filter above
+     hands over a list of names, and two customers in the real book share one. */
+  check('and a town change names which house it was',
+    /changed\.push\(\{name: h\.name \|\| '\(no name\)', field: f\.label, id: h\.id,/.test(admin),
+    'matching a house back by name is how the wrong household gets rescheduled');
+  if (src) {
+    /* The real helpers, lifted rather than stubbed: unassignedHousesFor is the whole
+       question ("do this day's crews go to their new town"), so a stub would make the
+       test agree with itself. Only nextInstallDayFor and routeDayIsLocked are handed
+       in, because those are what each case is varying. */
+    const deps = ['unassignedHousesFor', 'crewTownsFor', 'cityOf', 'sameCity',
+                  'extractCleanCity', 'isoOf', 'dayDate'].map(fnBraced);
+    const missingDep = deps.some(d => !d);
+    check('and its helpers were all found', !missingDep,
+      'a sandbox missing a helper reaches for a global left behind by another suite ' +
+      'and passes on code it never supplied');
+
+    const build = (nextDay, locked) => new Function(
+      'SEASON', 'nextInstallDayFor', 'routeDayIsLocked', 'dayCrewTowns', 'planCities', 'CREWS',
+      deps.join('\n') + src + 'return rehomeMovedHouses;');
+
+    const mk = (iso, houses) => ({ _date: new Date(iso + 'T00:00:00'), houses: houses });
+    const H = (id, city, extra) => Object.assign({ id: id, name: id, city: city }, extra || {});
+
+    /* Two days. Monday is a Lehi day; Tuesday is a Provo day. The customer was on
+       Monday and has moved to Provo. */
+    const run = (season, opts) => {
+      const o = opts || {};
+      const f = build()(season,
+        o.next === undefined ? (h, x) => season.find(d => d !== x.exclude) : o.next,
+        o.locked || (() => false),
+        (day) => [[ (day.houses[0]||{}).city ], []],
+        () => [], [{}, {}]);
+      return f(o.ids || ['h1']);
+    };
+
+    (function movedHouseIsRehomed(){
+      const mon = mk('2026-10-05', [H('a', 'Lehi'), H('h1', 'Provo')]);
+      const tue = mk('2026-10-06', [H('b', 'Provo')]);
+      const season = [mon, tue];
+      const out = run(season, { next: (h, x) => season.find(d => d !== x.exclude) });
+      check('a customer who moved town leaves the day their old town was on',
+        out.moved.length === 1 && mon.houses.indexOf(season[0].houses.find(x => x.id === 'h1')) === -1 &&
+        tue.houses.some(x => x.id === 'h1'),
+        'the town was already being corrected on the house — what never happened is ' +
+        'the house moving, so the crew drove to the old address');
+    })();
+
+    (function alreadyRightDayIsLeftAlone(){
+      const mon = mk('2026-10-05', [H('h1', 'Lehi'), H('a', 'Lehi')]);
+      const season = [mon, mk('2026-10-06', [H('b', 'Provo')])];
+      const out = run(season, {});
+      check('but somebody whose new town the crew already works is not moved',
+        !out.moved.length && mon.houses.some(x => x.id === 'h1'),
+        'moving a house onto a different day when the crew was going there anyway is ' +
+        'churn — and it rewrites a route for nothing');
+    })();
+
+    (function lockedDayIsReportedNotTouched(){
+      const mon = mk('2026-10-05', [H('a', 'Lehi'), H('h1', 'Provo')]);
+      const season = [mon, mk('2026-10-06', [H('b', 'Provo')])];
+      const out = run(season, { locked: () => true });
+      check('a day already printed is reported, never quietly re-homed',
+        !out.moved.length && out.locked.length === 1 && mon.houses.some(x => x.id === 'h1'),
+        'inside 48 hours the sheet is printed and the truck is loaded — and silence ' +
+        'is the worst of the three outcomes, because only the office can fix it');
+    })();
+
+    (function nowhereToGoIsReported(){
+      const mon = mk('2026-10-05', [H('a', 'Lehi'), H('h1', 'Provo')]);
+      const season = [mon, mk('2026-10-06', [H('b', 'Provo')])];
+      const out = run(season, { next: () => null });
+      check('and no day going to their new town is reported, not swallowed',
+        !out.moved.length && out.stuck.length === 1 && mon.houses.some(x => x.id === 'h1'),
+        'a house that silently stays put on the old day is the original bug wearing ' +
+        'a different hat');
+    })();
+
+    (function onlyTheNamedHouses(){
+      const mon = mk('2026-10-05', [H('a', 'Lehi'), H('h1', 'Provo'), H('h2', 'Ogden')]);
+      const season = [mon, mk('2026-10-06', [H('b', 'Provo')])];
+      const out = run(season, { ids: ['h1'] });
+      check('and a house nobody said moved is left where it is',
+        out.moved.length === 1 && mon.houses.some(x => x.id === 'h2'),
+        'a house can be unassigned on PURPOSE — an unknown town pairing is left ' +
+        'visible rather than loaded onto a crew driving fifty miles for it. Sweeping ' +
+        'every unassigned house would silently overturn that');
+    })();
+
+    (function doneAndCopiesAreNeverMoved(){
+      const mon = mk('2026-10-05', [H('a', 'Lehi'), H('h1', 'Provo', { done: true }),
+                                    H('h3', 'Provo', { isTakedown: true })]);
+      const season = [mon, mk('2026-10-06', [H('b', 'Provo')])];
+      const out = run(season, { ids: ['h1', 'h3'] });
+      check('a house already done, and a takedown copy, are never moved',
+        !out.moved.length && mon.houses.some(x => x.id === 'h1') && mon.houses.some(x => x.id === 'h3'),
+        'their lights are up at the old address — moving the row rewrites what the ' +
+        'crew actually did, and a takedown is a copy, not the house');
+    })();
+
+    (function nothingToDoDoesNothing(){
+      const out = run([mk('2026-10-05', [H('a', 'Lehi')])], { ids: [] });
+      check('and an empty list moves nobody',
+        !out.moved.length && !out.stuck.length && !out.locked.length,
+        'the commonest tick by far is the one where nothing changed');
+    })();
+  }
+}
+
 // ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
 console.log('\n=== Where each RSVP answer ends up ===\n');
