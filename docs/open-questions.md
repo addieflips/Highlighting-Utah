@@ -871,3 +871,46 @@ question about 98 houses, not 98 refusals.
 **Resulting registry change:** none. The absence of a `default` on `useEaves` is
 now a recorded decision rather than an omission, which is the difference between
 a gap and an answer.
+
+---
+
+## Q-015 · intent · open · 2026-08-24
+Phase 2 is mostly superseded by answers already given. What, if anything, should
+replace the two parts that cannot be built?
+
+**Blocks:** nothing today. The part of §4 that survives is built and shipped.
+
+Plan §4 has three parts. Checked against the code and against her own earlier
+answers before building:
+
+| Plan | Status |
+|---|---|
+| §4.2 pre-install confirmation, Twilio, N days ahead | **Moot.** Q-005: *"This is for emails we don't have twillo and this would be for RSVP emails."* No new send path, no scheduler, no N. |
+| §4.2 / §4.4 `confirmationStatus` pending / confirmed / **disputed** | **Superseded.** Q-006: there is no disputed state; `portalRsvp` accepts only `yes` / `no` / `backnextyear`, and R-005 was retired for guarding a condition the system cannot produce. A catch-all "something is wrong" reply was considered and explicitly rejected. |
+| §4.2 record that it was sent, and what was sent | **BUILT.** This is the half that was genuinely missing and is not superseded by anything. |
+| §4.3 per-option crew check-off at completion | **Cannot be built this season.** The crew portal is out of use — *"were not using the employee portal this year… we are only printing on schedules and warehouse."* |
+| §4.4 confirmation status in the nightly Twilio summary | **Moot**, same reason as §4.2. |
+
+So the question is only about §4.3. Its stated purpose is to produce the
+*installed* column that plan §5.2's nightly reconciliation needs — without it,
+reconciliation can only compare **ordered vs scheduled vs pulled**, three columns
+of four.
+
+Three ways it could come back, none of them free:
+
+1. **Nothing.** Phase 3 reconciles three columns. It still catches an option that
+   was ordered and never reached a sheet, which is most of the value.
+2. **A tick box per option on the printed crew sheet**, keyed back in afterwards.
+   That is real paper work for the office every evening, and the sheet is already
+   at ten columns on landscape paper.
+3. **Bring the crew portal back for this one screen.** Biggest change, and it was
+   dropped for a reason.
+
+⚠ Not guessing between them, because the wrong one costs either a season of
+evening data entry or a portal nobody uses. Option 1 is what is shipped by
+default — the reconciliation simply runs with three columns.
+
+**Answer:**
+
+**Resulting map change:** if option 1, plan §5.2's four-column table becomes three
+and §4.3 is struck. If 2 or 3, that is its own piece of work with its own scope.

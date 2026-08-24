@@ -1766,6 +1766,18 @@
                    customers, which is a list somebody can work through in an afternoon
                    and nobody could find by scrolling. -->
               <div class="form-row"><label>Lights</label><select id="allCustFilterLights"><option value="all">Any</option><option value="soft">On soft (needs switching)</option><option value="none">No colours recorded</option></select></div>
+              <!-- ⭐ HAVE WE TOLD THEM, AND IS IT STILL TRUE (added 2026-08-24, plan
+                   §4.2). The RSVP email now shows a customer everything we have on
+                   file for them, which plan §4.1 calls the only mechanism in the
+                   system that checks our data against what they actually WANTED.
+                   That is worth nothing if nobody can pull up the list of people
+                   whose answers have changed since they said yes — they confirmed
+                   one house and the crew is about to install another.
+                   ⚠ "Never sent one" is deliberately its own answer rather than
+                   being folded into "changed": we have not told them yet is a
+                   different problem from what we told them is wrong, and they are
+                   fixed different ways. -->
+              <div class="form-row"><label>Confirmation</label><select id="allCustFilterConfirm"><option value="all">Any</option><option value="drift">Changed since they confirmed</option><option value="unsent">Never sent one</option><option value="sent">Confirmed and unchanged</option></select></div>
               <!-- ⭐ WHO CANNOT BE EMAILED (added 2026-08-21). Owner: "just make a
                    filter in costumer were i can see who has no email."
                    An invoice only ever goes out by email, and Automation Emails drops
@@ -4670,7 +4682,9 @@ import {
 import {
   OPTIONS as HU_OPTIONS, sheetColumns as optSheetColumns, sheetRow as optSheetRow,
   forConsumer as optForConsumer, invoiceOptions as optInvoiceOptions,
-  display as optDisplay, valueOf as optValueOf, missingAnswers as optMissingAnswers
+  display as optDisplay, valueOf as optValueOf, missingAnswers as optMissingAnswers,
+  confirmationFingerprint as optConfirmationFingerprint,
+  confirmationDrift as optConfirmationDrift
 } from './js/options.js';
 import { fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight } from './js/svdepth.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -6198,6 +6212,47 @@ function optionsEmailBlock(d){
     '</div>';
 }
 /* The same list as plain text, for the preview box, which shows textContent. */
+/* ⭐ RECORDING THAT WE TOLD THEM, AND WHAT WE TOLD THEM (added 2026-08-24,
+   plan §4.2). Sending the confirmation used to record NOTHING — the loop mailed
+   the block and moved on — so nobody could say who had been told, what they had
+   been told, or whether it was still true. An answer edited in the office the
+   week after left the customer having confirmed one thing and the crew about to
+   install another, with nothing anywhere to notice.
+
+   ⚠ BEST-EFFORT, AND COUNTED. The email has ALREADY GONE by the time this runs,
+   so a failed write must not be reported as a failed send — the customer really
+   did receive it, and saying otherwise sends it twice. It is counted separately
+   and named in the result line instead, because a stamp that silently does not
+   happen is worse than no stamp: the drift check would then quietly pass on
+   everybody it never recorded.
+
+   ⚠ ONLY ON A REAL RSVP SEND. The test send goes to the office's own address and
+   stamping a customer for it would record a confirmation they never got. */
+async function stampConfirmationSent(member, shown){
+  try{
+    await updateDoc(doc(db,'jobAddresses', member.id), {
+      confirmationSentAt: serverTimestamp(),
+      confirmationShown: shown
+    });
+    /* The panel repaints from the cache rather than re-reading Firestore, so the
+       chip appears now instead of after the next login. Same optimistic mirror
+       the rest of admin already does. */
+    member.data.confirmationShown = shown;
+    member.data.confirmationSentAt = new Date();
+    return true;
+  }catch(err){
+    console.error('[HU] confirmation stamp failed for ' + member.id, err);
+    return false;
+  }
+}
+/* Has anything they confirmed changed since? Empty for somebody who was never
+   sent one — "we have not told them yet" is a different state from "what we told
+   them is wrong", and reporting the first as the second would put a finding on
+   every customer the day the season opens. */
+function confirmationDriftFor(d){
+  if(!d || !d.confirmationSentAt || !d.confirmationShown) return [];
+  return optConfirmationDrift(d.confirmationShown, d);
+}
 /* One question, asked by the preview, the real send and the test send, so none of
    the three can grow a different idea of when the block appears. */
 function rsvpOptionsBlockFor(template, member){
@@ -13210,7 +13265,7 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   if(!window.emailjs){ statusEl.textContent = 'Email service failed to load — check your connection.'; return; }
   if(!confirm('Send "'+template.data.name+'" to '+selectedIds.length+' member(s) now?')) return;
   emailjs.init(publicKey);
-  let sent = 0, failed = 0, optedOut = 0;
+  let sent = 0, failed = 0, optedOut = 0, unstamped = 0;
   for(const id of selectedIds){
     const member = jobAddresses.find(m => m.id === id);
     if(!member || !member.data.email) { failed++; continue; }
@@ -13249,9 +13304,15 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
     try{
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', message: message });
       sent++;
+      /* Recorded only when the block actually went in the email — the condition
+         is the same one that built it, so a template that places the token
+         itself still stamps, and a non-RSVP send never does. */
+      if(optionsBlock || (etTemplateIsRsvp(template) && rsvpTemplateHasOptions(template.data.body))){
+        if(!(await stampConfirmationSent(member, optConfirmationFingerprint(member.data)))) unstamped++;
+      }
     } catch(err){ failed++; }
   }
-  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + '.';
+  statusEl.textContent = 'Done — sent ' + sent + (failed ? ', ' + failed + ' failed' : '') + (optedOut ? ', ' + optedOut + ' skipped (on the do-not-send list)' : '') + (unstamped ? ', ' + unstamped + ' sent but NOT recorded as confirmed (see the console)' : '') + '.';
 });
 function openSendModal(templateId){
   etPopulateTemplateSelect();
@@ -29283,8 +29344,14 @@ function buildAddressRowHtml(item){
   const newHangFlag = completed ? null : newHangBadge(d);
   const lightsLocked = isLightsLocked(d);
   const changedAfterAssign = !!d.lightsChangedAfterAssign;
-  const timingBadgesHtml = (timingBadge || newHangFlag || d.wantsMailedInvoice || d.lightsDescription || lightsLocked || changedAfterAssign)
+  /* ⭐ WHAT THEY CONFIRMED, AND WHETHER IT IS STILL TRUE (added 2026-08-24).
+     R-012: a hole surfaces on the RECORD, not only in a panel — the person
+     looking at this customer is the one who can fix it. A drift here means they
+     said yes to one thing and the crew is about to install another. */
+  const confDrift = confirmationDriftFor(d);
+  const timingBadgesHtml = (timingBadge || newHangFlag || d.wantsMailedInvoice || d.lightsDescription || lightsLocked || changedAfterAssign || confDrift.length)
     ? '<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">'+
+        (confDrift.length ? '<span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;" title="'+esc(confDrift.map(function(r){ return r.label + ': ' + (r.was === null ? 'not confirmed' : r.was) + ' \u2192 ' + r.now; }).join(' \u00b7 '))+'">&#9888;&#65039; Changed since they confirmed &mdash; '+esc(confDrift.map(function(r){ return r.label; }).join(', '))+'</span>' : '')+
         (changedAfterAssign ? '<span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700;">&#9888;&#65039; Lights changed after assignment &mdash; remove &amp; re-add</span>' : '')+
         (lightsLocked ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;">&#128274; Lights locked &mdash; in 48h change window</span>' : '')+
         (timingBadge ? '<span class="status-pill" style="background:'+timingBadge.bg+'; color:'+timingBadge.color+'; font-weight:600;">'+esc(timingBadge.label)+'</span>' : '')+
@@ -33497,6 +33564,8 @@ function renderAllCustomersTable(){
   const lightsFilter = lightsEl ? lightsEl.value : 'all';
   const emailEl = document.getElementById('allCustFilterEmail');
   const emailFilter = emailEl ? emailEl.value : 'all';
+  const confEl = document.getElementById('allCustFilterConfirm');
+  const confFilter = confEl ? confEl.value : 'all';
   const pinFilter = document.getElementById('allCustFilterPin').value;
   const dateStart = document.getElementById('allCustFilterDateStart').value;
   const dateEnd = document.getElementById('allCustFilterDateEnd').value;
@@ -33554,6 +33623,12 @@ function renderAllCustomersTable(){
      need to switch their lights". This is the finding.
      ⚠ Matched case-insensitively on the stored value, because a colour that came in
      from the sheet and one ticked by hand must land in the same list. */
+  /* ⚠ THE DRIFT IS DERIVED AT DRAW TIME, never stored. A stored "has drifted"
+     flag is right on the day it is written and wrong every day after — the same
+     reasoning One Man Installs already carries for not storing its list. */
+  if(confFilter === 'drift') rows = rows.filter(r => confirmationDriftFor(r.d).length > 0);
+  else if(confFilter === 'unsent') rows = rows.filter(r => !(r.d && r.d.confirmationSentAt));
+  else if(confFilter === 'sent') rows = rows.filter(r => !!(r.d && r.d.confirmationSentAt) && confirmationDriftFor(r.d).length === 0);
   if(lightsFilter === 'soft'){
     rows = rows.filter(function(r){
       const cols = (r.d && Array.isArray(r.d.lightColors)) ? r.d.lightColors : [];
@@ -35407,7 +35482,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
    perfectly and could not be reached, and it only appeared to work if you happened
    to touch another filter or the search box afterwards. Found 2026-08-21 while
    adding the Email one. Any select added to that panel has to be named here. */
-['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
+['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterEmail','allCustFilterConfirm','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
   const el = document.getElementById(id);
   if(el) el.addEventListener('input', renderAllCustomersTable);
 });
@@ -35433,6 +35508,11 @@ document.getElementById('allCustFilterClear').addEventListener('click', function
   if(clrLights) clrLights.value = 'all';
   const clrEmail = document.getElementById('allCustFilterEmail');
   if(clrEmail) clrEmail.value = 'all';
+  /* ⚠ Clear Filters has to reach EVERY filter. A select left set here is a list
+     the office reads as "all customers" while it is quietly showing a slice —
+     which is worse than the filter not existing. */
+  const clrConfirm = document.getElementById('allCustFilterConfirm');
+  if(clrConfirm) clrConfirm.value = 'all';
   document.getElementById('allCustFilterDateStart').value = '';
   document.getElementById('allCustFilterDateEnd').value = '';
   document.getElementById('allCustSearchInput').value = '';

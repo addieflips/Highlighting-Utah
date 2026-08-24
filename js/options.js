@@ -678,6 +678,71 @@ export function confirmationText(customer, opts) {
   ].join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// 4b. WHAT WE TOLD THEM, AND WHETHER IT IS STILL TRUE
+// ---------------------------------------------------------------------------
+
+/* ⭐ THE RECORD OF A CONFIRMATION (plan §4.2, 2026-08-24).
+ *
+ * The confirmation is the RSVP email (Q-005), and it now carries every
+ * `confirmation` option — so a customer is shown, in writing, what we are about
+ * to install. Plan §4.1 calls that the only mechanism in the whole system that
+ * checks our data against WHAT THEY ACTUALLY WANTED, because a request taken on
+ * the phone and never typed in leaves no record for any detector to find.
+ *
+ * ⚠ BUT SHOWING THEM IS ONLY HALF OF IT. Until this existed the send recorded
+ * NOTHING: nobody could say who had been told, what they had been told, or
+ * whether it was still true. So an answer edited in the office after the RSVP
+ * went out left the customer having confirmed one thing and the crew installing
+ * another, with nothing anywhere to notice.
+ *
+ * ⚠ THE TWO FIELDS THIS DECLARES (CLAUDE.md §1 — a writer, a reader, and a
+ * declaration; there is no docs/data-map.md until plan §7.2 derives one, and
+ * hand-writing it early is exactly what that section forbids):
+ *   confirmationSentAt  — written by the Automation Emails RSVP send;
+ *                         read by the customer row chip and the All Customers
+ *                         "Confirmation" filter.
+ *   confirmationShown   — the answers as they were RENDERED to that customer,
+ *                         id -> text. Same writer, same readers, plus
+ *                         confirmationDrift() below.
+ *
+ * ⚠ IT STORES THE RENDERED TEXT, NOT THE RAW VALUES, and that is the point: the
+ * claim being kept is "this is the sentence we put in front of them", so it has
+ * to survive a change in how a value is rendered as well as a change in the
+ * value. `none` is a real answer here and is stored like any other. */
+export function confirmationFingerprint(customer) {
+  const out = {};
+  forConsumer('confirmation', customer).forEach((o) => { out[o.id] = o.text; });
+  return out;
+}
+
+/**
+ * What has changed since they confirmed. Empty means the email they answered
+ * still describes the house we are about to light.
+ *
+ * ⚠ AN OPTION ADDED SINCE COUNTS AS DRIFT, with `was` null — we are holding an
+ * answer they were never shown, which is the same failure pointing the other
+ * way and is exactly what happens the week after a new option is added.
+ * ⚠ AN OPTION REMOVED FROM THE CONFIRMATION SINCE DOES NOT. That is us choosing
+ * to stop telling them something; nothing about their house changed, and
+ * reporting it would put a permanent finding on every record the day an option
+ * is retired — R-013's "47 issues forever" failure.
+ */
+export function confirmationDrift(shown, customer) {
+  if (!shown || typeof shown !== 'object') return [];
+  const now = confirmationFingerprint(customer);
+  const rows = [];
+  Object.keys(now).forEach((id) => {
+    const o = OPTIONS.find((x) => x.id === id);
+    const had = Object.prototype.hasOwnProperty.call(shown, id);
+    if (!had) { rows.push({ id: id, label: o ? o.label : id, was: null, now: now[id] }); return; }
+    if (String(shown[id]) !== String(now[id])) {
+      rows.push({ id: id, label: o ? o.label : id, was: String(shown[id]), now: now[id] });
+    }
+  });
+  return rows;
+}
+
 export function crewSheet(customer) {
   return forConsumer('crewSheet', customer)
     .map((o) => {

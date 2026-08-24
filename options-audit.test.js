@@ -454,6 +454,155 @@ function check(label, ok, detail) {
     'the timer defaults to No and the wire colour to Any — both are answers');
 
   /* -----------------------------------------------------------------------
+     7a2. THE CONFIRMATION RECORD (plan §4.2)
+     Showing a customer what we hold is half of it; the other half is recording
+     that we told them, and noticing when it stops being true.
+     ----------------------------------------------------------------------- */
+  {
+    const cust = {
+      name: 'Sarah Miller', measuredFeet: 240, lightsDescription: 'Warm White',
+      wireColor: 'White', outletTimer: 'Yes', specificOutlet: 'No',
+      gateCode: '4412', houseSides: 3, installPreference: 'October',
+    };
+    const shown = mod.confirmationFingerprint(cust);
+
+    /* ⚠ THE FINGERPRINT IS WHAT THE BLOCK RENDERED, not a second reading of the
+       record. If these two ever came apart, the drift check would compare the
+       email against something the customer was never sent. */
+    const block = forConsumer('confirmation', cust);
+    check('the confirmation record holds exactly what the email showed',
+      block.length === Object.keys(shown).length &&
+      block.every(o => shown[o.id] === o.text),
+      'shown: ' + JSON.stringify(shown));
+
+    check('nothing has drifted the moment it is sent',
+      mod.confirmationDrift(shown, cust).length === 0,
+      'a finding on every customer the day the season opens is R-013 exactly');
+
+    const edited = Object.assign({}, cust, { lightsDescription: 'Red, Green' });
+    const drift = mod.confirmationDrift(shown, edited);
+    check('an answer edited after they confirmed is caught',
+      drift.length === 1 && drift[0].id === 'lightsDescription' &&
+      drift[0].was === 'Warm White' && drift[0].now === 'Red, Green',
+      'this is the whole point: they said yes to one house and the crew is ' +
+      'about to install another. Got ' + JSON.stringify(drift));
+
+    /* ⚠ BOTH SIDES OF THE SENTENCE. "Was" alone cannot be checked against, and
+       "now" alone does not say what they agreed to. The office needs to read it
+       as a change, not as a value.
+       ⚠ GUARDED. An unguarded drift[0] turns the check above failing into a
+       TypeError that kills the process before the summary prints — a crash, not a
+       FAIL, which says nothing about which rule broke. Caught by red-checking:
+       the sabotage WAS detected and the run died looking like it was not. */
+    check('and it says what it was as well as what it is now',
+      !!drift[0] && drift[0].was !== null && drift[0].now !== null &&
+      drift[0].label === 'Light colours',
+      'got ' + JSON.stringify(drift[0]));
+
+    const partial = Object.assign({}, shown); delete partial.gateCode;
+    const added = mod.confirmationDrift(partial, cust);
+    check('an option added since counts as drift, with nothing to compare to',
+      added.length === 1 && added[0].id === 'gateCode' && added[0].was === null,
+      'we are holding an answer they were never shown — the same failure the ' +
+      'other way round, and it happens the week after any option is added');
+
+    /* ⚠ AND SOMEBODY WHO WAS NEVER SENT ONE IS NOT "WRONG". Reporting them as
+       drift would put a finding on the entire book before a single email goes
+       out, which is the badge everybody learns to ignore. */
+    check('somebody who was never sent one reports no drift',
+      mod.confirmationDrift(undefined, cust).length === 0 &&
+      mod.confirmationDrift(null, cust).length === 0);
+
+    /* ---- and the wiring, in admin.html ---- */
+    check('the RSVP send records that it was sent',
+      /stampConfirmationSent\(/.test(admin) && /confirmationSentAt:\s*serverTimestamp\(\)/.test(admin),
+      'a send that records nothing leaves nobody able to say who was told');
+    check('and records it as best-effort, never as a failed send',
+      /unstamped\+\+/.test(admin) && /catch\(err\)\{[\s\S]{0,240}confirmation stamp failed/.test(admin),
+      'the email has already gone by then — reporting it as a failure sends it twice');
+    /* ⚠ THE ASSIGNMENT, NOT THE NAME ANYWHERE. `/confirmationDriftFor\(d\)/`
+       matched the function's OWN DEFINITION — `function confirmationDriftFor(d){`
+       — so replacing the row's call with a hard-coded empty array passed happily
+       and the chip could never appear again. Proved by red-check. Scoped to the
+       assignment the badge actually reads. */
+    check('the customer record itself shows the drift (R-012)',
+      /const confDrift = confirmationDriftFor\(/.test(admin) &&
+      /Changed since they confirmed/.test(admin) &&
+      /confDrift\.length/.test(admin),
+      'the person looking at that customer is the one who can fix it');
+
+    /* ⚠ ALL FIVE WIRING POINTS. CLAUDE.md records allCustFilterLights shipping
+       with no listener at all — it rendered perfectly and did nothing when used.
+       Markup, reader, application, listener and Clear Filters are each asserted,
+       because missing any ONE of them is invisible on screen. */
+    const FILTER = 'allCustFilterConfirm';
+    check('the Confirmation filter has its markup',
+      new RegExp('id="' + FILTER + '"').test(admin));
+    check('and is read when the table draws',
+      new RegExp("getElementById\\('" + FILTER + "'\\)[\\s\\S]{0,80}value").test(admin));
+    /* ⚠ RUN, NOT MATCHED. A search for `confFilter === 'drift'` passes happily
+       while the whole block sits behind `if(false && ...)` — proved by
+       red-check. The three branches are lifted and executed against fixtures, so
+       a filter that renders and does nothing when used cannot pass. */
+    {
+      const at = admin.indexOf("  if(confFilter === 'drift')");
+      const blk = at === -1 ? '' : admin.slice(at, admin.indexOf("  if(lightsFilter === 'soft')", at));
+      check('the Confirmation filter block was found to run', /confFilter/.test(blk),
+        'the checks below silently pass on an empty string if this anchor moves');
+      if (blk) {
+        const run = new Function('rows', 'confFilter', 'confirmationDriftFor',
+          'let out = rows;' + blk.replace(/\brows\b/g, 'out') + 'return out;');
+        const drifted = { d: { confirmationSentAt: 1, confirmationShown: { a: '1' } } };
+        const clean   = { d: { confirmationSentAt: 1, confirmationShown: { a: '2' } } };
+        const never   = { d: {} };
+        const book = [drifted, clean, never];
+        const driftOf = (d) => (d.confirmationShown && d.confirmationShown.a === '1' ? [{ id: 'a' }] : []);
+        check('and actually filters the rows',
+          run(book, 'drift', driftOf).length === 1 &&
+          run(book, 'drift', driftOf)[0] === drifted,
+          'a select that renders and does nothing when used is worse than none');
+        check('"never sent one" finds only the people nobody has told',
+          run(book, 'unsent', driftOf).length === 1 && run(book, 'unsent', driftOf)[0] === never,
+          'we have not told them yet is a different problem from what we told ' +
+          'them is wrong, and they are fixed different ways');
+        check('"confirmed and unchanged" excludes both of the other two',
+          run(book, 'sent', driftOf).length === 1 && run(book, 'sent', driftOf)[0] === clean);
+        check('and Any leaves the list alone',
+          run(book, 'all', driftOf).length === 3,
+          'a default that quietly filters is a list nobody can trust');
+      }
+    }
+    check('and redraws when it is changed',
+      new RegExp("'" + FILTER + "'").test(admin.slice(admin.indexOf("['allCustFilterCity'"),
+        admin.indexOf("['allCustFilterCity'") + 400)),
+      'it is in the listener list, so changing it repaints the table');
+    /* ⚠ THE ASSIGNMENT, NOT THE NAME. `/clrConfirm/` matched the `const clrConfirm
+       = ...` line and passed with the reset deleted — proved by red-check. And the
+       count is asserted as well as the line, so ADDING a filter without clearing
+       it fails here rather than shipping a screen the office reads as "all
+       customers" while it shows a slice. */
+    {
+      /* ⚠ FROM THE TOP OF THE HANDLER. Slicing from the middle of it counted 3 of
+         the 9 resets and failed on code that was correct — the fixed-window
+         mistake CLAUDE.md §7 describes, made while writing the check for it.
+         ⚠ AND ONLY <select> ELEMENTS. `id="allCustFilter..."` also matches the
+         Toggle button, the Panel div and the Clear button itself, none of which
+         has a value to reset. */
+      const at = admin.indexOf("document.getElementById('allCustFilterClear').addEventListener");
+      const blk = at === -1 ? '' : admin.slice(at, admin.indexOf('renderAllCustomersTable();', at));
+      const selects = (admin.match(/<select id="allCustFilter[A-Za-z]+"/g) || []);
+      const cleared = (blk.match(/\.value = 'all'/g) || []).length;
+      check('Clear Filters resets the Confirmation select',
+        /clrConfirm\.value = 'all'/.test(blk),
+        'a select left set is a list the office reads as "all customers"');
+      check('and every filter select on the panel is reset, not just some',
+        cleared >= selects.length,
+        'found ' + selects.length + ' filter selects and ' + cleared +
+        ' resets — the missing one is invisible until somebody uses it');
+    }
+  }
+
+  /* -----------------------------------------------------------------------
      7b. THE SERVER WHITELIST — the one place generation cannot reach.
      Cloud Functions deploy only the functions/ directory, so quoteSaveDetails
      cannot import js/options.js and keeps its own list of what a quote form may
