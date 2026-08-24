@@ -10344,7 +10344,7 @@ function renderQuoteRows(filtered){
               : '')+
             (d.contactMethod && /text|sms|phone/i.test(d.contactMethod) ? '<div class="rtext" style="margin-top:5px; color:#8A6100;">They asked to be contacted by '+esc(d.contactMethod)+'.</div>' : '')+
             '<div class="quotelink-status" data-statusfor="'+item.id+'" style="font-size:12px; color:var(--slate); margin-top:6px;"></div>'+
-            (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/quote-details?token='+esc(d.quoteToken)+'&action=approve</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
+            (d.quoteToken ? '<div class="quotelink-box" data-linkfor="'+item.id+'" style="margin-top:6px; font-size:12.5px; word-break:break-all; background:var(--snow); border-radius:8px; padding:8px 10px;">https://highlightingutah.com/#/quote-details?token='+esc(d.quoteToken)+quotePortalParam(d)+'&action=approve</div>' : '<div class="quotelink-box" data-linkfor="'+item.id+'"></div>')+
             (d.quoteToken && typeof d.quotedPrice === 'number' ? '<button type="button" class="btn btn-outline btn-sm" data-copyquoteemail="'+item.id+'" style="margin-top:6px;">Show Quote Email Again</button>' : '')+
             /* The preview box is always in the panel now, even for a quote
                that has never been sent. It used to render only once a
@@ -10983,7 +10983,7 @@ function renderQuoteRows(filtered){
         ' Open <strong>Quote email settings</strong> above and pick one under Text message versions.</div>';
       return;
     }
-    const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '');
+    const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
     /* Plain characters only. Anything HTML in the template body is stripped
        rather than sent as-is, so a template picked by mistake degrades to
        readable text instead of arriving as code. */
@@ -11147,7 +11147,7 @@ function renderQuoteRows(filtered){
         if(!item.data.approvalStatus || item.data.approvalStatus === 'pending') updates.approvalStatus = 'pending';
         await updateDoc(doc(db,'quotes', id), updates);
         followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, approvalStatus: updates.approvalStatus || item.data.approvalStatus});
-        const link = 'https://highlightingutah.com/#/quote-details?token='+token+'&action=approve';
+        const link = 'https://highlightingutah.com/#/quote-details?token='+token+quotePortalParam(item.data)+'&action=approve';
         const freshStatusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
         const freshLinkBox = list.querySelector('.quotelink-box[data-linkfor="'+id+'"]');
         if(freshLinkBox) freshLinkBox.textContent = link;
@@ -11197,7 +11197,7 @@ function renderQuoteRows(filtered){
         toast('No text template picked yet \u2014 open Quote email settings first.');
         return;
       }
-      const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '');
+      const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
       let msg = htmlEmailToPlainText(template.data.body || '')
         .split('{{name}}').join(firstName(d.name))
         .split('{{price}}').join(fmtMoney(d.quotedPrice))
