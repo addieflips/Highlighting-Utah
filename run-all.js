@@ -2261,9 +2261,9 @@ check('flow', 'nothing closes a quote except converting it',
   /* ⚠ IT RECORDS, IT DOES NOT DECIDE. The flip changes who a crew is sent to and stays
      a deliberate act; wiring the marker to it would make the season change shape on
      the day an email went out. */
-  const eligLine = (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0];
+  const eligLine = (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0];
   check('flow', 'but the mark does not flip the season eligibility by itself',
-    /^const SEASON_ELIGIBILITY = '(all-but-maybe-next-year|confirmed-only)';$/.test(eligLine) &&
+    /^(?:const|let) SEASON_ELIGIBILITY = '(all-but-maybe-next-year|confirmed-only)';/.test(eligLine) &&
     !/rsvpSentAt/.test(extractFn(admin, 'isOutForSeason') || ''),
     'a record, not a switch — flipping it changes who a crew is sent to');
 
@@ -6526,7 +6526,7 @@ suite('17. A new customer lands on the next day in their city');
        up. Lifted from the page verbatim rather than hardcoded here, so if the
        owner flips it to 'confirmed-only' this harness follows rather than
        quietly testing a rule production no longer uses. */
-    const eligLine = (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [])[0];
+    const eligLine = (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [])[0];
     if (!eligLine) throw new Error('SEASON_ELIGIBILITY not found — isOutForSeason cannot run');
     const helpers = eligLine + '\n' + NEEDED.map(n => extractFn(admin, n)).join('\n');
     const src = helpers + '\n' + admin.slice(recStart, recEnd);
@@ -7407,7 +7407,7 @@ suite('21. Everyone is in unless they said otherwise');
   const api = withMode('all-but-maybe-next-year');
   const strict = withMode('confirmed-only');
 
-  const liveMode = (admin.match(/const SEASON_ELIGIBILITY = '([^']*)';/) || [])[1];
+  const liveMode = (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '([^']*)';/) || [])[1];
   check('season', 'the setting is one line, and says which mode is live',
     liveMode === 'all-but-maybe-next-year' || liveMode === 'confirmed-only',
     'found: ' + liveMode);
@@ -12970,7 +12970,7 @@ suite('Suite 48. Days within two working days are set');
          shared definition rather than a second opinion of its own — a hand-written
          stub of isOutForSeason would prove the plumbing and nothing about the rule.
          The live setting comes with it for the same reason. */
-      (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + fn('isOutForSeason') +
+      (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + fn('isOutForSeason') +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
@@ -21864,7 +21864,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
        wanted to hear. The live setting comes with it. */
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
-      (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+      (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
       extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
@@ -22990,7 +22990,7 @@ suite('Suite 116. Deleting the test records');
   {
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
-(admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+(admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
@@ -23460,7 +23460,7 @@ suite('Suite 112. The number on the bin');
     {
       const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
         'houseBundleNeed', 'whPutIntoLabel',
-        (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+        (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
         extractFn(admin, 'printNeedsBuildList') + 'return printNeedsBuildList();');
       const out = list(
         [{id: 'x', data: {name: 'Ashley Wray', customerNumber: '894',
