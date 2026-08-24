@@ -48,6 +48,11 @@ function check(label, ok, detail) {
 
   const { OPTIONS, CONSUMERS, audit, missingAnswers, display, forConsumer,
           confirmationText, crewSheet, pullList, valueOf, offerableChoices } = mod;
+  /* ⚠ THE REAL BIN RULE, re-exported by the registry from js/money.js. Taken from
+     there rather than re-typed, so the threshold this test asserts is the same one
+     the customer-number series is derived from — R-014, business constants live in
+     exactly one file. */
+  const { cnBinsForFeet, CN_DOUBLE_BIN_FEET } = mod;
 
   const required = { OPTIONS, CONSUMERS, audit, missingAnswers, display, forConsumer,
                      confirmationText, crewSheet, pullList, valueOf, offerableChoices };
@@ -423,9 +428,10 @@ function check(label, ok, detail) {
                counts off a shelf — bins is the office's sizing number and stays on the
                screen. Recorded as a decision rather than left as a gap, so nobody
                re-opens it; the note still prints on every run so it is never invisible. */
-            numberOfBins:      { except: 'deliberate — owner 2026-08-24: "we want to ' +
-                                 'show costumer # on paper and bundles". Bins is the ' +
-                                 'office sizing number and stays on the Warehouse tab.' },
+            numberOfBins:      { except: 'not a column, by design — it rides in the ' +
+                                 'bundles cell and only past two bins, where the 5000 ' +
+                                 'number stops being enough (owner, 2026-08-24). The ' +
+                                 'threshold itself is checked above.' },
           },
         },
       ],
@@ -443,10 +449,59 @@ function check(label, ok, detail) {
       'it is what identifies the bin once the bundle is made');
     check('and the bundle count', /k: 'bundles'/.test(buildCols),
       'the number somebody counts off a shelf');
-    check('and deliberately not the bin count', !/k: 'bins'/.test(buildCols),
+    check('and deliberately not a bin COLUMN', !/k: 'bins'/.test(buildCols),
       'bins is the office sizing number and stays on the Warehouse tab \u2014 owner, ' +
       '2026-08-24. If this starts failing, she changed her mind and the note above ' +
       'needs changing with it');
+
+    /* ⭐ BUT THE BIN COUNT DOES SPEAK PAST TWO BINS (2026-08-24). Owner: "all warehouse
+       people should know 5000 means 2 bins so not necessary to put how many bins on
+       there", then, shown where that breaks: "just put how many bins will be needed if
+       it is more than 2 bins."
+
+       ⚠ RUN, NOT READ, AND ACROSS THE BOUNDARY. The whole value is WHERE it starts
+       speaking: a 5000-series number means two OR MORE bins, and it stops being enough
+       at 521 ft. A regex proving the code exists would say nothing about the threshold,
+       which is the only thing that can be wrong here. */
+    {
+      const at2 = admin.indexOf('function printExtraBinsNote(');
+      let d2 = 0, e2 = at2;
+      for (let i = admin.indexOf('{', at2); i < admin.length && at2 > -1; i++) {
+        if (admin[i] === '{') d2++;
+        else if (admin[i] === '}') { d2--; if (!d2) { e2 = i + 1; break; } }
+      }
+      check('the extra-bins note is there to run', at2 > -1,
+        'a gate that cannot find its target must FAIL, never skip');
+      if (at2 > -1) {
+        /* whBinsForHouse lifted in spirit: the REAL rule is cnBinsForFeet, imported
+           at the top of this file, so the threshold cannot drift from the one the
+           customer-number series is derived from. */
+        const note = new Function('whBinsForHouse',
+          'return ' + admin.slice(at2, e2) + ';printExtraBinsNote')(
+          (x) => { const ft = Number(x.measuredFeet) || 0; return ft ? String(cnBinsForFeet(ft)) : ''; });
+        check('it says nothing for a one-bin house', note({ measuredFeet: 200 }) === '');
+        check('and nothing for a two-bin house', note({ measuredFeet: 300 }) === '',
+          'the customer number already says two bins — repeating it is how a column ' +
+          'stops being read');
+        /* ⚠ THE EDGE IS THE POINT. 520 is the last two-bin house and 521 is the first
+           three-bin one, straight off CN_DOUBLE_BIN_FEET. */
+        check('silent at the last two-bin house', note({ measuredFeet: CN_DOUBLE_BIN_FEET * 2 }) === '',
+          '520 ft is two bins and reads correctly off the 5000 number');
+        check('and speaks at the first three-bin house',
+          note({ measuredFeet: CN_DOUBLE_BIN_FEET * 2 + 1 }) === '3 BINS',
+          '521 ft is three bins on a 5000 number — this is the house the shorthand ' +
+          'gets wrong, and the only reason this note exists');
+        check('and counts four when four are needed',
+          note({ measuredFeet: CN_DOUBLE_BIN_FEET * 3 + 1 }) === '4 BINS');
+        check('and says nothing for a house with no footage', note({}) === '',
+          'an unmeasured house must not read as needing zero bins');
+        /* ⚠ IT RIDES IN THE BUNDLES CELL, not a column of its own — asserted because a
+           helper nothing calls is the most expensive kind of green. */
+        check('and the printed build sheet actually prints it',
+          /bundles: need[\s\S]{0,200}printExtraBinsNote\(d\)/.test(admin),
+          'unwired, the sheet is exactly as it was and every check above still passes');
+      }
+    }
 
     Object.keys(SURFACES).forEach((consumer) => {
       const declared = OPTIONS.filter(o => (o.consumers || []).indexOf(consumer) !== -1);
