@@ -30160,7 +30160,7 @@ function whRecycleGroups(){
        then never appeared in this list, so their customer number never came
        back to the available pool. */
     if(!d.needsLightRecycle) return;
-    const key = whGroupKey(d.lightsDescription || 'No lights recorded', d.wireColor);
+    const key = whGroupKey(houseLightsText(d) || 'No lights recorded', d.wireColor);
     if(!groups[key]) groups[key] = [];
     groups[key].push(item);
   });
@@ -30169,7 +30169,7 @@ function whRecycleGroups(){
      reads the archive alongside the book. Same shape, same grouping, same buttons. */
   (whArchivedPending || []).forEach(function(item){
     const d = item.data || {};
-    const key = whGroupKey(d.lightsDescription || 'No lights recorded', d.wireColor);
+    const key = whGroupKey(houseLightsText(d) || 'No lights recorded', d.wireColor);
     if(!groups[key]) groups[key] = [];
     groups[key].push(item);
   });
@@ -31237,7 +31237,10 @@ function computeColorDemand(){
     /* Same season rule as whBuildQueueGroups — see the note there. The flag alone
        missed anybody who answered Back Next Year through the RSVP link, so the colour
        totals ordered lights for people who are not having any. */
-    if(item.data.needsLightBuild && item.data.lightsDescription && !isOutForSeason(item.data)) addPattern(item.data.lightsDescription, 1);
+    /* ⚠ BOTH FIELDS, and this is the costly one: these totals are what gets ORDERED.
+       A house whose colours are in lightColors alone had no bulbs bought for it. */
+    const lights = houseLightsText(item.data);
+    if(item.data.needsLightBuild && lights && !isOutForSeason(item.data)) addPattern(lights, 1);
   });
   warehouseExtras.forEach(function(item){
     addPattern(item.data.pattern, Number(item.data.quantity)||0);
@@ -31246,7 +31249,8 @@ function computeColorDemand(){
 }
 function computePendingHouseCount(){
   /* Same season rule again — this count and the list it summarises have to agree. */
-  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription && !isOutForSeason(item.data); }).length;
+  /* Same two fields as the list it summarises, or the count and the list disagree. */
+  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && houseLightsText(item.data) && !isOutForSeason(item.data); }).length;
   warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
   return total;
 }
@@ -31538,6 +31542,33 @@ function warehouseRebuildFields(oldData, newData) {
     return norm(f, n) !== norm(f, o);
   });
 }
+/* ⭐ COLOURS LIVE IN TWO FIELDS AND BOTH HAVE TO BE READ (added 2026-08-24). Addie:
+   "All I want are the lights saved on peoples houses that don't have a category of
+   lights its under like red, warm."
+
+   ⚠ THIS WAS THE WHOLE OF THE "WAITING ON LIGHT COLOURS" BLOCK, and it was not a
+   missing answer — it was an answer nobody was reading. `rbDetectColorsAndPattern`,
+   which the master-sheet sync writes through, only fills `lightsDescription` when a
+   colour REPEATS, because a repeat means an alternating pattern where the order
+   matters. An ordinary house — "Red, Warm White" — comes out as
+   {colors:['Red','Warm White'], pattern:''}. So every ordinary house the sync added
+   had its colours saved in `lightColors` and an EMPTY `lightsDescription`, and four
+   readers in the warehouse tested only the description: the build queue called them
+   blocked, the colour totals ordered no bulbs for them, and the pending count left
+   them out.
+
+   This file already records the same bug pointing the other way, on the soft-lights
+   filter: read only the LIST and you miss the alternating houses. One helper now, so
+   neither half can be forgotten again.
+
+   ⚠ THE DESCRIPTION WINS WHERE THERE IS ONE, because it carries the ORDER an
+   alternating house is built in and the list deliberately does not. */
+function houseLightsText(d){
+  const c = d || {};
+  const desc = String(c.lightsDescription || '').trim();
+  if(desc) return desc;
+  return (Array.isArray(c.lightColors) ? c.lightColors.filter(Boolean).join(', ') : '');
+}
 function whGroupKey(lightsDescription, wire){
   return whNormalizeLights(lightsDescription) + ' \u2014 ' + whWireLabel(wire) + ' wire';
 }
@@ -31722,8 +31753,12 @@ function whBuildQueueGroups(){
        out. Somebody who MOVED is not out (recycleKeepingCustomer), so they still
        build — which is the whole reason those two buttons were split. */
     if(!d.needsLightBuild || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
-    if(!d.lightsDescription){ blocked.push(item); return; }
-    const key = whGroupKey(d.lightsDescription, d.wireColor);
+    /* ⚠ BOTH FIELDS. Testing lightsDescription alone put every ordinary house the
+       master-sheet sync added into the blocked block with its colours sitting on the
+       record — see houseLightsText. */
+    const lights = houseLightsText(d);
+    if(!lights){ blocked.push(item); return; }
+    const key = whGroupKey(lights, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
     /* A timer is part of that house's build, not loose buffer stock. It used to
@@ -32687,9 +32722,10 @@ function whOpenPrintWindow(title, sections, emptyNote){
    widget makes the build sheets blind again, and Suite 2.10b fails if it happens.
 */
 function printLightColor(d){
-  const desc = ('' + ((d && d.lightsDescription) || '')).trim();
-  if(desc) return desc;
-  return (Array.isArray(d && d.lightColors) ? d.lightColors.join('/') : '');
+  /* ⚠ THE SAME ANSWER THE BUILD QUEUE GROUPS ON. This used to work the two fields out
+     for itself and join the list with "/" — so the printed cell said "Red/Warm White"
+     while the group heading above it said "Red, Warm White", about one house. */
+  return houseLightsText(d);
 }
 /* ⭐ NOBODY ASKED IS NOT THE SAME AS THEY SAID NO (changed 2026-08-21).
    This turned a blank into a confident "No", so a customer who wants a timer but was

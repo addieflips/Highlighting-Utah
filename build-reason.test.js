@@ -310,6 +310,84 @@ check('a re-quote with no stated kind writes nothing',
   'a blank stored where an answer goes reads as an answer');
 
 // ---------------------------------------------------------------------------
+// COLOURS LIVE IN TWO FIELDS, AND THE WAREHOUSE HAS TO READ BOTH
+// ---------------------------------------------------------------------------
+/* ⭐ Addie, 2026-08-24, looking at the Waiting on light colours block: "All I want are
+   the lights saved on peoples houses that don't have a category of lights its under
+   like red, warm."
+
+   ⚠ THAT BLOCK WAS MOSTLY NOT MISSING ANSWERS — it was answers nobody read.
+   `rbDetectColorsAndPattern`, which the master-sheet sync writes through, only fills
+   `lightsDescription` when a colour REPEATS, because a repeat means an alternating
+   pattern where the order matters. An ordinary house comes back as
+   {colors:['Red','Warm White'], pattern:''}. Four warehouse readers tested the
+   description alone, so every ordinary house the sync added was called blocked, had no
+   bulbs ordered for it, and was left out of the pending count.
+
+   ⚠ THE FIXTURE HAS TO BE SHAPED THE WAY THE SPLITTER REALLY WRITES ONE — colours in
+   the list, description EMPTY. A fixture carrying both fields passes whether the fix
+   is there or not, which is how this went unnoticed in the first place. So the
+   splitter is RUN here and its own output is fed in. */
+const aliases = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\n\};/) || [''])[0];
+const whColors = (admin.match(/const WH_LIGHT_COLORS = \[[\s\S]*?\];/) || [''])[0];
+const splitter = (aliases && whColors && fn('rbNormalizeColors') && fn('rbDetectColorsAndPattern'))
+  ? new Function(aliases + whColors + fn('rbNormalizeColors') + fn('rbDetectColorsAndPattern') +
+      'return rbDetectColorsAndPattern;')()
+  : null;
+check('the sheet splitter can still be found and run', !!splitter,
+  'this check is about what it produces, so it must not quietly skip');
+
+if (splitter) {
+  const plain = splitter('Red, Warm White');
+  check('an ordinary colour list really does leave the description empty',
+    plain.pattern === '' && plain.colors.length === 2,
+    'if this ever stops being true the bug below cannot happen and this block is moot ' +
+    '— got ' + JSON.stringify(plain));
+  const alternating = splitter('Red, Warm White, Red');
+  check('and a repeated colour still produces one, because the order matters',
+    alternating.pattern !== '',
+    'got ' + JSON.stringify(alternating));
+
+  const lightsText = fn('houseLightsText');
+  check('houseLightsText exists', !!lightsText,
+    'one helper is what stops half of the pair being forgotten again');
+  if (lightsText) {
+    const H = new Function(lightsText + 'return houseLightsText;')();
+    check('a house whose colours are only in the list still has colours',
+      H({lightColors: plain.colors, lightsDescription: ''}) === 'Red, Warm White',
+      'this is the shape the master-sheet sync writes; got ' +
+      JSON.stringify(H({lightColors: plain.colors, lightsDescription: ''})));
+    /* ⚠ THE DESCRIPTION WINS WHERE THERE IS ONE, because it carries the ORDER an
+       alternating house is built in and the list deliberately does not. */
+    check('and an alternating house keeps its order, not its sorted list',
+      H({lightColors: alternating.colors, lightsDescription: alternating.pattern}) ===
+        alternating.pattern,
+      'the list drops the repeat, which IS the pattern; got ' +
+      JSON.stringify(H({lightColors: alternating.colors, lightsDescription: alternating.pattern})));
+    check('and a house with genuinely nothing still has nothing',
+      H({}) === '' && H({lightColors: []}) === '' && H({lightsDescription: '   '}) === '',
+      'the blocked block has to keep catching the real ones');
+  }
+
+  /* ⚠ AND THE READERS MUST ASK IT. A helper nothing calls is a helper that fixed
+     nothing — these four are the ones that were wrong. */
+  [['whBuildQueueGroups', 'the build queue'],
+   ['computeColorDemand', 'the colour totals — this is what gets ORDERED'],
+   ['computePendingHouseCount', 'the pending count'],
+   ['whRecycleGroups', 'the recycle queue']].forEach(([name, what]) => {
+    const body = fn(name);
+    check(what + ' reads both colour fields', !!body && /houseLightsText\(/.test(body),
+      name + ' still tests lightsDescription on its own');
+  });
+  /* ⚠ AND THE PRINTED CELL GIVES THE SAME ANSWER THE GROUP HEADING DOES. It used to
+     work the two fields out for itself and join with "/", so the cell said
+     "Red/Warm White" under a heading saying "Red, Warm White", about one house. */
+  check('the printed Light color cell asks the same helper',
+    /houseLightsText\(/.test(fn('printLightColor')),
+    'two answers to one question, one of them on paper');
+}
+
+// ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
 console.log('\n=== Why a bundle is being built ===\n');
 console.log('  ' + w('', 54) + w('badge', 16) + 'wanted');

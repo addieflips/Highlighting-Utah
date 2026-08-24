@@ -1844,9 +1844,18 @@ check('flow', 'every newly added house is flagged for the warehouse',
   /needsGeocode: pinFailed, needsLightBuild: true/.test(admin),
   'a customer added without light colours was flagged false and appeared in no list at ' +
   'all — not the build queue, not the waiting-on-colours block');
-check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
-  /if\(!d\.needsLightBuild \|\| \(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\)\) return;[\s\S]{0,200}blocked\.push\(item\)/.test(admin),
-  'flagging them is only safe because there is a list for the ones that cannot be built yet');
+/* ⚠ SCOPED TO THE FUNCTION, NOT TO A CHARACTER WINDOW. This was `{0,200}` and a
+   comment added between the two lines broke it on correct code — the fixed-window
+   staleness CLAUDE.md §7 names by hand, and the second time it has bitten in this
+   session. What is being claimed is that the season guard and the blocked push live in
+   the same builder, in that order. */
+{
+  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups');
+  check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
+    /isOutForSeason\(d\)\)\) return;/.test(q) &&
+    q.indexOf('blocked.push(item)') > q.indexOf('isOutForSeason(d))) return;'),
+    'flagging them is only safe because there is a list for the ones that cannot be built yet');
+}
 /* ⭐ AND THE SEASON RULE IS THE SHARED ONE, NOT d.maybeNextYear (2026-08-22). Owner:
    "back next year ... won't go to recycle or be approved for this year?" Five places
    read the FLAG alone while portalRsvp writes the STATUS alone, so a customer who
@@ -4426,7 +4435,7 @@ if (!JSDOM) {
          ⚠ LIFTED, NOT STUBBED. A stubbed printLightColor would not read lightColors
          when lightsDescription is empty, and "an alternating house is not called
          undecorated" is one of the things this suite is here to hold. */
-      '\n' + extractFn(admin, 'printLightColor') +
+      '\n' + extractFn(admin, 'houseLightsText') + extractFn(admin, 'printLightColor') +
       '\n' + extractFn(admin, 'printYesNo') +
       '\n' + extractFn(admin, 'printOptionYesNo') +
       '\n' + extractFn(admin, 'whPullPresenters'));
@@ -21647,7 +21656,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
       (admin.match(/const FEET_ESTIMATE_SAFETY = [\d.]+;/) || [''])[0] +
       'const perFootRate = 4;' + (admin.match(/const FEET_PER_BUNDLE = \d+;/) || [''])[0] +
       extractFn(admin, 'estimateFeetFromPrice') + extractFn(admin, 'houseBundleNeed') +
-      extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
       extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whWireLabel') +
       extractFn(admin, 'whPullPresenters') +
       'return sheetRow("pullList", d, whPullPresenters(d));');
@@ -21688,6 +21697,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+      extractFn(admin, 'houseLightsText') +
       extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
@@ -21751,9 +21761,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
          forbids — two definitions, and this one would keep the suite green through a
          change to the real one. */
       OPTIONS_SANDBOX_SRC() +
-      extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
       extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whPullPresenters') +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
+      /* ⚠ Colours live in TWO fields and the queue reads both since 2026-08-24 —
+         lifted, not stubbed, because which field wins is the thing under test. */
+      extractFn(admin, 'houseLightsText') +
       /* ⭐ AND THE BADGE (2026-08-24). Every sheet row now carries a Why cell, so the
          label renderer and the rule behind it are part of building a row. Lifted, not
          stubbed: a stub here makes the badge untestable while reporting green, and it
@@ -21852,9 +21865,12 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
       OPTIONS_SANDBOX_SRC() +
-      extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'printLightColor') + extractFn(admin, 'printYesNo') +
       extractFn(admin, 'printOptionYesNo') + extractFn(admin, 'whPullPresenters') +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
+      /* ⚠ Colours live in TWO fields and the queue reads both since 2026-08-24 —
+         lifted, not stubbed, because which field wins is the thing under test. */
+      extractFn(admin, 'houseLightsText') +
       (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\n\};/) || [''])[0] +
       extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') +
       extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
@@ -22972,7 +22988,7 @@ suite('Suite 116. Deleting the test records');
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
 (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
       const item = {id: 'a', data: d};
@@ -23850,7 +23866,7 @@ suite('Suite 91. A stale sheet connection says so, once');
 suite('Suite 90. The Recycle queue reads the archive, not just the book');
 
 {
-  const groupsSrc = extractFn(admin, 'whRecycleGroups');
+  const groupsSrc = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whRecycleGroups');
   check('S90', 'the recycle grouping is still there', !!groupsSrc);
 
   if (groupsSrc) {
@@ -24123,7 +24139,7 @@ suite('Suite 87. The Recycle sheet IS the warehouse recycle queue');
 
 
 {
-  const wh = extractFn(admin, 'whRecycleGroups');
+  const wh = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whRecycleGroups');
   check('S87', 'the warehouse recycle queue is still there', !!wh);
 
   const tabsSrc = admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/);

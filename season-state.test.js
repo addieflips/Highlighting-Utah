@@ -63,7 +63,12 @@ function fn(name) {
   return '';
 }
 
-const NEEDED = ['isOutForSeason', 'whBuildQueueGroups', 'whRecycleGroups', 'whHouseBuildStatus'];
+/* ⚠ houseLightsText joined the list on 2026-08-24: the build queue and the recycle
+   queue both read it now, because colours live in TWO fields and reading only
+   lightsDescription put every ordinary house into the blocked block. Lifted, not
+   stubbed — a stub would decide which field wins, which is the thing under test. */
+const NEEDED = ['isOutForSeason', 'whBuildQueueGroups', 'whRecycleGroups', 'whHouseBuildStatus',
+                'houseLightsText'];
 const src = {};
 let missing = false;
 NEEDED.forEach(n => {
@@ -99,7 +104,7 @@ const groupKey = (p, w) => (p || '') + '|' + (w || '');
 const bundleStub = () => ({ bundles: 1, estimated: false, topUp: false });
 
 const buildQueue = (d) => new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
-  'houseBundleNeed', eligLine + src.isOutForSeason + src.whBuildQueueGroups +
+  'houseBundleNeed', eligLine + src.houseLightsText + src.isOutForSeason + src.whBuildQueueGroups +
   'return whBuildQueueGroups();')([{ id: 'x', data: d }], [], groupKey, bundleStub);
 
 const onBuildQueue = (d) => {
@@ -108,7 +113,7 @@ const onBuildQueue = (d) => {
 };
 
 const onRecycleQueue = (d, archived) => new Function('jobAddresses', 'whArchivedPending',
-  'whGroupKey', src.whRecycleGroups + 'return whRecycleGroups();')(
+  'whGroupKey', src.houseLightsText + src.whRecycleGroups + 'return whRecycleGroups();')(
   d ? [{ id: 'x', data: d }] : [], archived || [], groupKey).keys.length > 0;
 
 // ---------------------------------------------------------------------------

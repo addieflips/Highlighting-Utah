@@ -1123,3 +1123,38 @@ currently adds the customer and flags the build, which is right — but it could
 also *report* how many it added with no colours, the way it already reports rows
 it could not match. That would put the number in front of the office at the
 moment it is created rather than the next time somebody prints.
+
+---
+
+## Answered 2026-08-24 — most of the "waiting on light colours" block was a read bug
+
+Addie: *"All I want are the lights saved on peoples houses that don't have a
+category of lights its under like red, warm."*
+
+She was right to be suspicious of that block, and the cause was not a missing
+answer — it was **an answer nobody was reading**.
+
+`rbDetectColorsAndPattern`, which the master-sheet sync writes through, only
+fills `lightsDescription` when a colour **repeats**, because a repeat means an
+alternating pattern where the order matters and a sorted list would destroy it.
+An ordinary house comes back as `{colors: ['Red','Warm White'], pattern: ''}` —
+confirmed by running the real splitter, not by reading it.
+
+Four warehouse readers tested the description alone, so **every ordinary house
+the sync added** was:
+
+- called blocked — "NO LIGHT COLOURS ON FILE", with its colours on the record
+- given **no bulbs in the colour totals** — the costly one, since those totals
+  are what gets ordered
+- left out of the pending house count
+- filed under "No lights recorded" on the recycle queue
+
+`houseLightsText(d)` is the one answer now and all five callers ask it,
+`printLightColor` included — so the printed cell and the group heading above it
+can no longer describe one house two ways.
+
+This closes Q-019 as well: the sync was never the problem. It was writing the
+colours correctly all along.
+
+**What is still genuinely blocked** is the small real case — a house with
+nothing in either field. That page still leads the printed stack.
