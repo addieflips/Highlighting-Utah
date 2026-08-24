@@ -521,12 +521,41 @@ is the one at conversion, which is the assumed one.
 ⚠ It is dead code until the switch is flipped, which is why fixing it now costs
 nothing — and why it had to be fixed *before* the flip rather than after.
 
-⚠ **Still worth deciding (Q-010a's companion):** the Dashboard RSVP panel counts
-`rsvpStatus === 'yes'` — status alone — so assumed yeses are counted as confirmed
-there. That is the number most likely to be read when judging *"has everyone been
-asked yet"*, i.e. the input to Q-010a. Left alone rather than changed silently: it
-is a status tally, and whether it should show replies-only is a display decision,
-not a correctness one.
+**⭐ RESOLVED 2026-08-22 — WE NEVER ASSUME AN APPROVAL.** Addie: *"We shouldn't
+assume they approved we should always know they approved so if we get no response
+from someone than we will assume they will be back next year but will leave it as
+no response."*
+
+Three things follow, and two of them are built:
+
+**① The source is gone.** Converting a quote no longer writes `rsvpStatus: 'yes'`.
+The office knowing somebody wants lights is not that customer answering a question
+about *this season*, and writing it as a yes made the two indistinguishable. Every
+reader then had to be hardened against a value the writer should never have
+written — and the one that got missed was the Dashboard's Yes card, i.e. the exact
+number you would read to decide Q-010a.
+
+⚠ Nothing is lost. A blank RSVP is IN the season under the live setting, so a
+converted customer is still routed, scheduled and built for; and they still reach
+the Excel Yes sheet through the new-hang route, which is what they are. They now
+show as **Pending** — nobody has asked them — which is true, and they fall into the
+RSVP audience so they will be.
+
+**② The readers agree.** `effectiveRsvpStatus` is the one place that decides
+whether an approval was really heard: a `yes` with no `rsvpRespondedAt` reads as
+Pending. Used by the Dashboard cards, the customer row, the RSVP panel pills and
+the Automation Emails "Yes" audience. It exists as well as ① because the ~960
+records already in the book carry the old value — a rule enforced only at the
+writer is one legacy data walks straight past.
+
+⚠ It keeps the five states a **partition**: an assumed yes reads as Pending, not a
+sixth bucket, so the Dashboard counts still add up to the customer list.
+
+**③ Non-responders — still Q-010a.** *"We will assume they will be back next year
+but will leave it as no response"* is exactly what `confirmed-only` does: only real
+replies stay in the season, and nobody's status is rewritten to say something they
+never said. ⚠ Nothing writes `backnextyear` for a non-responder and nothing should.
+The flip itself still waits on the RSVP going out — see the warning above.
 
 ### ⚠ Found while checking this: Back Next Year did not keep anybody out
 

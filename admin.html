@@ -12315,7 +12315,9 @@ function etRenderRecipientList(){
   else if(etFilterPayment === 'partial') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Partial Payment');
   else if(etFilterPayment === 'paid') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Paid in Full');
   // RSVP
-  if(etFilterRsvp === 'yes') members = members.filter(m => m.data.rsvpStatus === 'yes');
+  /* ⚠ A real answer, not an assumed one — a "Yes" audience holding people who have
+     never replied is a send that skips exactly the people it should reach. */
+  if(etFilterRsvp === 'yes') members = members.filter(m => effectiveRsvpStatus(m.data) === 'yes');
   else if(etFilterRsvp === 'no') members = members.filter(m => m.data.rsvpStatus === 'no');
   else if(etFilterRsvp === 'backnextyear') members = members.filter(m => m.data.rsvpStatus === 'backnextyear');
   /* ⚠ NOBODY ANSWERED YET = BLANK **OR** UNANSWERED (fixed 2026-08-20, the same day
@@ -13859,7 +13861,7 @@ function custRsvpStatusForPhone(phone){
   const digits = (phone||'').replace(/\D/g,'');
   if(!digits) return '';
   const match = custByPhoneDigits.get(digits);
-  return match ? (match.data.rsvpStatus || '') : '';
+  return match ? effectiveRsvpStatus(match.data) : '';
 }
 /* ---- Invoice status summary strip -------------------------------------
    Three cards above the Invoice List: Paid in Full / Partial / Not Paid,
@@ -18339,7 +18341,25 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
       // field (oneTimeNotes) that nothing downstream ever looked at.
       oneTimeNote: oneTimeNote,
       referralCount: referralCount,
-      rsvpStatus: addCustFromQuoteId ? 'yes' : '',
+      /* ⭐ WE NEVER ASSUME THEY APPROVED (changed 2026-08-22). Owner: "We shouldn't
+         assume they approved we should always know they approved."
+
+         ⚠ THIS USED TO WRITE 'yes' FOR A CONVERTED QUOTE. The office knowing somebody
+         wants lights is not the same as that customer having answered a question about
+         THIS SEASON, and writing it as a yes made the two indistinguishable on every
+         screen that counts them. The Excel Yes tab was hardened against it (it also
+         requires rsvpRespondedAt) and so is the confirmed-only branch of
+         isOutForSeason — but hardening every reader against a value the writer should
+         never have written is the wrong end to fix it from, and one reader always gets
+         missed. The Dashboard's Yes card was that reader.
+
+         ⚠ NOTHING IS LOST BY LEAVING IT BLANK. Under the live setting a blank RSVP is
+         IN the season, so a converted customer is routed, scheduled and built for
+         exactly as before; and they still reach the Excel Yes sheet through the
+         new-hang route (chargeNewMemberFee), which is what they actually are. What
+         changes is that they now show as Pending — nobody has asked them — which is
+         true, and they fall into the RSVP audience so they will be. */
+      rsvpStatus: '',
       contactMethod: (addCustFromQuoteId ? (addCustContactMethodFromQuote || '') : ''),
       wireColor: wireColor,
       /* ⭐ EVERY NEW HOUSE NEEDS A SET BUILT, WHETHER OR NOT ITS COLOURS ARE KNOWN YET.
@@ -26632,6 +26652,29 @@ function cameBackBadge(d){
      earlier THIS season and have since said yes. */
   return ' <span class="status-pill" style="background:#EAF1FB; color:#2C5AA0; font-size:10.5px;">Changed to Yes</span>';
 }
+/* ⭐ AN APPROVAL WE DID NOT HEAR IS NOT AN APPROVAL (added 2026-08-22). Owner: "We
+   shouldn't assume they approved we should always know they approved."
+
+   A yes with no rsvpRespondedAt is an ASSUMED yes — nobody asked, nobody answered. It
+   is not a fifth state and it must not become one; it is simply not an answer, so it
+   reads as Pending, which is what it is. Every count, filter and pill goes through
+   here so no screen can quietly disagree with another about who has confirmed.
+
+   ⚠ THE SOURCE IS FIXED TOO — converting a quote no longer writes a bare yes. This
+   exists because the ~960 records already in the book carry the old value, and because
+   an import or a hand-edit can produce one again. A rule enforced only at the writer
+   is one that legacy data walks straight past.
+
+   ⚠ AND IT KEEPS THE FIVE STATES A PARTITION. Every customer still lands in exactly
+   one of Yes / No / Back Next Year / Unanswered / Pending, so the Dashboard's counts
+   still add up to the book. Inventing a sixth bucket for assumed yeses would break
+   the one property that makes a row of counts readable at a glance. */
+function effectiveRsvpStatus(d){
+  const dd = d || {};
+  const said = String(dd.rsvpStatus || '').trim().toLowerCase();
+  if(said === 'yes' && !dd.rsvpRespondedAt) return '';
+  return said;
+}
 function rsvpStatusLabel(v){
   const t = String(v == null ? '' : v).toLowerCase();
   if(t === 'yes') return 'Yes';
@@ -26645,11 +26688,16 @@ function renderDashRsvpPanel(){
   const listEl = document.getElementById('dashRsvpList');
   if(!cardsEl || !listEl) return;
   const withPhoneOrName = (jobAddresses||[]).filter(a => a.data.name || a.data.phone);
-  const yesList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'yes');
-  const noList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'no');
-  const backList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'backnextyear');
-  const unansweredList = withPhoneOrName.filter(a => a.data.rsvpStatus === 'unanswered');
-  const pendingList = withPhoneOrName.filter(a => !a.data.rsvpStatus);
+  /* ⚠ THROUGH effectiveRsvpStatus, so an ASSUMED yes is not counted as a reply. This
+     card is the number somebody would read to decide "has everyone answered yet" —
+     which is the input to flipping SEASON_ELIGIBILITY — so counting conversions in it
+     is the one place the mistake is most expensive. */
+  const eff = (a) => effectiveRsvpStatus(a.data);
+  const yesList = withPhoneOrName.filter(a => eff(a) === 'yes');
+  const noList = withPhoneOrName.filter(a => eff(a) === 'no');
+  const backList = withPhoneOrName.filter(a => eff(a) === 'backnextyear');
+  const unansweredList = withPhoneOrName.filter(a => eff(a) === 'unanswered');
+  const pendingList = withPhoneOrName.filter(a => !eff(a));
   /* ⚠ UNANSWERED IS ITS OWN CARD, not folded into Pending. Folding them together
      hides the number that matters after a send: how many people were ASKED and have
      not replied. Pending is the ones nobody has asked at all. */
@@ -26696,8 +26744,9 @@ function renderDashRsvpPanel(){
   }
   listEl.innerHTML = activeList.map(function(item){
     const d = item.data;
-    const statusLabel = rsvpStatusLabel(d.rsvpStatus);
-    const statusColor = d.rsvpStatus === 'yes' ? '#2E6B3E' : (d.rsvpStatus === 'no' ? '#9A2A1F' : (d.rsvpStatus === 'backnextyear' ? '#8a6d1f' : '#5b6472'));
+    const statusLabel = rsvpStatusLabel(effectiveRsvpStatus(d));
+    const effStatus = effectiveRsvpStatus(d);
+    const statusColor = effStatus === 'yes' ? '#2E6B3E' : (effStatus === 'no' ? '#9A2A1F' : (effStatus === 'backnextyear' ? '#8a6d1f' : '#5b6472'));
     /* ⚠ "Responded 14 Oct" on somebody who said no in September and yes in October
        is the date of the SECOND answer and says nothing about the first. Naming the
        change is the whole point of the badge. */
