@@ -4660,6 +4660,18 @@ import {
      and told nobody. */
   applyLightChange, LIGHT_CHANGE_FEE, LIGHT_WINDOW_MS
 } from './js/money.js';
+/* ⭐ THE OPTION REGISTRY (wired 2026-08-24, implementation plan §3.3). The crew
+   sheet, both build sheets, the invoice and the RSVP confirmation take their
+   FIELD LIST from here and nothing else, so adding an option to js/options.js
+   makes it appear on all of them with no change in this file. Before this, each
+   artifact carried its own hand-written column list — five places to remember,
+   and forgetting one produced no error at all: the truck simply arrived without
+   the timer. R-001, R-003, R-016. */
+import {
+  OPTIONS as HU_OPTIONS, sheetColumns as optSheetColumns, sheetRow as optSheetRow,
+  forConsumer as optForConsumer, invoiceOptions as optInvoiceOptions,
+  display as optDisplay, valueOf as optValueOf, missingAnswers as optMissingAnswers
+} from './js/options.js';
 import { fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight } from './js/svdepth.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -6149,6 +6161,57 @@ function pendingAddOnFor(customerId){
 function rsvpTemplateHasAddOn(template){
   return String(template||'').indexOf('{{addon_block}}') !== -1;
 }
+/* ⭐ WHAT WE HAVE ON FILE FOR YOU (added 2026-08-24, implementation plan §3.3).
+   The confirmation is the RSVP email, and until now it asked a customer to commit
+   to a season without telling them a single thing we were about to install. Every
+   option that declares `confirmation` is listed here, generated, so a new one
+   reaches the customer without anybody remembering to add it.
+
+   ⚠ THIS IS THE ONLY ARTIFACT THAT CHECKS OUR DATA AGAINST WHAT THEY ACTUALLY
+   WANTED. Plan §12 is blunt about it: a request taken on the phone and never
+   typed in, or typed against the wrong customer, leaves no record for any
+   detector to find. Showing them the answers is the one net that catches it —
+   which is why every line prints, `none` included. A customer can spot a missing
+   timer; they cannot spot a line that was never there.
+
+   ⚠ IT PLACES ITSELF LIKE {{addon_block}} DOES: a template holding the token gets
+   it there, anything else gets it appended, and the preview and the send ask the
+   same question so what is on screen is what goes out. */
+function rsvpTemplateHasOptions(template){
+  return String(template||'').indexOf('{{options_block}}') !== -1;
+}
+function optionsEmailBlock(d){
+  const rows = optForConsumer('confirmation', d || {});
+  if(!rows.length) return '';
+  const cell = 'padding:6px 10px; border:1px solid #e6e6e6; font-family:Arial,sans-serif; font-size:13.5px;';
+  return '<div style="margin:18px 0;">' +
+    '<p style="font-family:Arial,sans-serif; font-size:14px; font-weight:bold; margin:0 0 8px;">' +
+    'Here is what we have on file for you</p>' +
+    '<table style="border-collapse:collapse;">' +
+    rows.map(function(o){
+      return '<tr><td style="' + cell + ' color:#555;">' + esc(o.label) + '</td>' +
+             '<td style="' + cell + ' font-weight:bold;">' + esc(o.text) + '</td></tr>';
+    }).join('') +
+    '</table>' +
+    '<p style="font-family:Arial,sans-serif; font-size:12.5px; color:#666; margin:8px 0 0;">' +
+    'If anything here is wrong or missing, change it in your member portal before we come out.</p>' +
+    '</div>';
+}
+/* The same list as plain text, for the preview box, which shows textContent. */
+/* One question, asked by the preview, the real send and the test send, so none of
+   the three can grow a different idea of when the block appears. */
+function rsvpOptionsBlockFor(template, member){
+  if(!member || !template) return '';
+  return (etTemplateIsRsvp(template) && !rsvpTemplateHasOptions(template.data.body))
+    ? optionsEmailBlock(member.data) : '';
+}
+function optionsPlainText(d){
+  const rows = optForConsumer('confirmation', d || {});
+  if(!rows.length) return '';
+  return '\n\nHere is what we have on file for you:\n' +
+    rows.map(function(o){ return '  ' + o.label + ': ' + o.text; }).join('\n') +
+    '\n\nIf anything here is wrong or missing, change it in your member portal before we come out.';
+}
 /* The block itself. Empty string for the ordinary customer with nothing
    outstanding, exactly like billedHousesEmailBlock — a paragraph saying "you
    have no outstanding add-ons" is noise on nine hundred emails. */
@@ -6313,6 +6376,15 @@ async function resolveLinkTokens(text, phone, amount, opts){
      the explicit link, never the phone (see pendingAddOnFor). */
   if(out.indexOf('{{addon_block}}') !== -1){
     out = out.split('{{addon_block}}').join(opts.customerId ? await addOnEmailBlock(opts.customerId) : '');
+  }
+  /* {{options_block}} lists everything we have on file for them — generated from
+     js/options.js, so a new option reaches the customer without this file being
+     touched. Needs opts.customerId for the same reason the add-on does: a shared
+     phone number would otherwise put one household's answers in another's email. */
+  if(out.indexOf('{{options_block}}') !== -1){
+    const optCust = opts.customerId && typeof jobAddresses !== 'undefined'
+      ? jobAddresses.find(function(a){ return a.id === opts.customerId; }) : null;
+    out = out.split('{{options_block}}').join(optCust ? optionsEmailBlock(optCust.data) : '');
   }
   if(out.indexOf('{{houses_block}}') !== -1 || out.indexOf('{{houses_list}}') !== -1){
     out = out.split('{{houses_block}}').join(billedHousesEmailBlock(phone));
@@ -12292,9 +12364,12 @@ async function etUpdatePreview(){
      that helper exists rather than the test being written twice. */
   const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
     ? await addOnEmailBlock(member.id) : '';
+  /* The options block appears on the same condition the real send uses, so what
+     the office signs off on is what the customer receives. */
+  const optionsBlock = rsvpOptionsBlockFor(template, member);
   box.innerHTML = applyQuotePhotoBlock(
     await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
-    quotePhotosForPhone(vars.phone), false) + addOnBlock;
+    quotePhotosForPhone(vars.phone), false) + optionsBlock + addOnBlock;
 }
 /* ---- Audience filters: shared helpers for the Preview & Send picker --------
    Each answers one real-life question about a member from data already on their
@@ -12790,11 +12865,28 @@ function buildInvoiceDocHtml(member){
   let houses = groupIds.map(function(hid){ return jobAddresses.find(a => a.id === hid); }).filter(Boolean);
   if(houses.length < 2) houses = [];              // single-house invoice: keep the simple line
   const multi = houses.length > 1;
+  /* \u26a0 THE UNIT COMES FROM THE REGISTRY (2026-08-24), not from the two letters
+     "ft" typed here. measuredFeet is the one option that affects the price, so its
+     invoice line is the one line a customer disputes \u2014 and it printed a unit that
+     nothing else in the system agreed to. */
+  const feetOpt = HU_OPTIONS.find(function(o){ return o.id === 'measuredFeet'; });
   function feetLabelFor(ft){
     return (ft && perFootRate)
-      ? ('Installation service \u2014 ' + ft + ' ft @ ' + fmtMoney(perFootRate) + '/ft')
+      ? ('Installation service \u2014 ' + optDisplay(feetOpt, ft) +
+         ' @ ' + fmtMoney(perFootRate) + '/' + (feetOpt ? feetOpt.unit : 'ft'))
       : 'Installation service';
   }
+  /* \u2b50 THE STANDING INSTRUCTIONS ABOUT THE BILL ITSELF (added 2026-08-24). Every
+     `invoice` option that does NOT affect the price \u2014 today that is "Mailed
+     invoice", and it is the reason this exists: a customer who asked for their
+     bill in the post was recorded, was read back on their own record, and never
+     appeared anywhere on the invoice, so whoever printed it had no way to know it
+     needed posting. Generated, so the next one cannot be forgotten the same way.
+     \u26a0 R-002 applies here too \u2014 an unanswered one prints `none` rather than
+     vanishing, because a missing line and "they didn't ask for it" look identical. */
+  const invoiceNoteLines = optInvoiceOptions().notes.map(function(o){
+    return esc(o.label) + ': ' + esc(optDisplay(o, optValueOf(o, d)));
+  });
   const feetLineLabel = feetLabelFor(feet);
   const feetLineAmount = fmtMoney(basePrice || (total - (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0)));
   const showNewMemberLine = isNewMember && (!inv || newMemberFeeAlreadyApplied || (total - basePrice) === 30);
@@ -12826,6 +12918,19 @@ function buildInvoiceDocHtml(member){
           fmtMoney(Number(hd.housePrice)||0));
       }).join('')
     : row(esc(feetLineLabel), feetLineAmount);
+  /* ⭐ AN OPTION THAT AFFECTS THE PRICE AND IS NOT THE FOOTAGE (added 2026-08-24).
+     It has no amount source of its own — the money lives in js/money.js and plan
+     §3.3 is explicit that no new pricing arithmetic goes in here — so it prints
+     with its value and says plainly that it is not itemised, rather than being
+     silently left off the bill. R-004, tier 1: they cannot dispute a charge they
+     were never shown. Empty today; measuredFeet is the only priced option, and
+     Addie settled that on 2026-08-21: "Nothing but feet should affect price." */
+  const unpricedOptionLines = optInvoiceOptions().priced
+    .filter(function(o){ return o.id !== 'measuredFeet'; })
+    .map(function(o){
+      return row(esc(o.label) + ' — ' + esc(optDisplay(o, optValueOf(o, d))) +
+        ' <span style="color:var(--slate);">(included above, not itemised)</span>', '');
+    }).join('');
   return '<div style="max-width:640px; background:var(--snow); border:1px solid var(--line); border-radius:14px; padding:32px; margin-bottom:24px;">'+
       '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px; padding-bottom:20px; border-bottom:1px solid var(--line); gap:20px;">'+
         '<div><h2 style="margin:0 0 4px; color:var(--ink);">Highlighting Utah</h2>'+
@@ -12853,6 +12958,12 @@ function buildInvoiceDocHtml(member){
            never handed the flags, so nothing here can grow into a reason not to
            send somebody their bill. */
         (contactPrefsNote(d) ? '<p style="font-size:12px; color:var(--slate); margin:6px 0 0; font-style:italic;">'+esc(contactPrefsNote(d))+'</p>' : '')+
+        /* The standing instructions about the bill, generated from the registry.
+           Sits under Bill to because that is what they are about — how this bill
+           reaches this person — not a charge, so not a line with an amount. */
+        (invoiceNoteLines.length
+          ? '<p style="font-size:12px; color:var(--slate); margin:6px 0 0;">'+invoiceNoteLines.join(' &middot; ')+'</p>'
+          : '')+
       '</div>'+
       '<table style="width:100%; border-collapse:collapse; margin-bottom:20px;">'+
         '<thead><tr style="border-bottom:1px solid var(--line);">'+
@@ -12861,6 +12972,7 @@ function buildInvoiceDocHtml(member){
         '</tr></thead>'+
         '<tbody>'+
           lineItems+
+          unpricedOptionLines+
           (removal > 0 ? row('Removal service', fmtMoney(removal)) : '')+
           (showNewMemberLine ? row('New member installation fee', '$30') : '')+
           changeFeeNotes.map(function(f){ return row(esc(f.reason||'Light change fee'), fmtMoney(Number(f.amount)||0)); }).join('')+
@@ -13129,9 +13241,10 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
        what either email is for. */
     const addOnBlock = (etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
       ? await addOnEmailBlock(member.id) : '';
+    const optionsBlock = rsvpOptionsBlockFor(template, member);
     const message = applyQuotePhotoBlock(
       await resolveLinkTokens(template.data.body, vars.phone, 0, vars),
-      quotePhotosForPhone(vars.phone), false) + addOnBlock;
+      quotePhotosForPhone(vars.phone), false) + optionsBlock + addOnBlock;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
     try{
       await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', message: message });
@@ -13203,7 +13316,8 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
   }
   const testAddOn = (member && etTemplateIsRsvp(template) && !rsvpTemplateHasAddOn(template.data.body))
     ? await addOnEmailBlock(member.id) : '';
-  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars) + testAddOn;
+  const testOptions = rsvpOptionsBlockFor(template, member);
+  const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars) + testOptions + testAddOn;
   try{
     emailjs.init(publicKey);
     await emailjs.send(serviceId, templateJsId, { to_email: testEmail, to_name: 'Test', message: message });
@@ -32178,18 +32292,20 @@ function whSheetRowsForBuild(){
      work is finished when it is not. */
   (built.blocked || []).forEach(function(item){
     const d = item.data;
-    rows.push({
+    /* Generated like every other house row — these ARE customers, they are just
+       missing the one answer that would let anybody build for them. The Bundles
+       column is then blanked deliberately: `houseBundleNeed` will happily work a
+       count back from the price, and a bundle count beside "cannot be built yet"
+       invites somebody to build it. */
+    rows.push(Object.assign(optSheetRow('pullList', d, whPullPresenters(d)), {
       group: 'Waiting on light colours',
-      wire: whWireLabel(d.wireColor),
       type: 'Blocked',
       what: whWhoLabel(d),
       address: d.address || '',
-      bins: whBinsForHouse(d),
-      bundles: '',
-      timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
+      measuredFeet: '',
       putInto: '',
       notes: 'NO LIGHT COLOURS ON FILE ' + String.fromCharCode(8212) + ' cannot be built yet'
-    });
+    }));
   });
   built.keys.forEach(function(key){
     const g = built.groups[key];
@@ -32199,9 +32315,13 @@ function whSheetRowsForBuild(){
     g.houses.forEach(function(h){
       const d = h.data;
       const need = houseBundleNeed(d);
-      rows.push({
+      /* The spec half of this row — Bins, Wire, Bundles, Timer — is generated from
+         the registry through the SAME presenters the Printing tab's build sheet
+         uses, so the two sheets cannot describe one bundle differently. What is
+         written out below is this sheet's own logistics: which group the row sits
+         in, whether it is a house or an add-on, and where the bundle goes. */
+      rows.push(Object.assign(optSheetRow('pullList', d, whPullPresenters(d)), {
         group: groupName,
-        wire: whWireLabel(d.wireColor),
         /* ⭐ AN ADD-ON IS NOT A HOUSE. Owner, 2026-08-21: "when it builds an add on it
            should somehow indicate to the warehouse that what they built needs to go into
            a bin that already exists." The Put into column already named the bin, but the
@@ -32211,19 +32331,13 @@ function whSheetRowsForBuild(){
         type: need.topUp ? 'ADD-ON' : 'House',
         what: whWhoLabel(d),
         address: d.address || '',
-        bins: whBinsForHouse(d),
-        // Blank rather than 0 when there are no feet — a 0 in a spreadsheet
-        // column reads as a measurement, and this is the absence of one.
-        /* ⚠ THE MARKERS MOVED HERE WITH THE COLUMN (2026-08-21). Feet came off this
-           sheet — owner: "I don't think we need feet and bundles" — and it was
-           carrying two things the bundle count was not: the "+" that marks an
-           add-on, and " est" where there is no measured footage and the number was
-           worked back from the price. Dropping the column silently dropped the
-           warning that the count is a guess, which is how somebody makes three
-           bundles for a house that needs four. ⚠ Type still says House/ADD-ON
-           exactly, because the summary counts houses by matching that string. */
-        bundles: (need.topUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''),
-        timer: String(d.outletTimer || '').trim() === 'Yes' ? 'YES' : '',
+        /* ⚠ Bins, Bundles and Timer are NOT set here any more — they come from the
+           registry above. The bundle markers ("+" for an add-on, " est" where the
+           count was worked back from a price rather than measured) moved with them
+           into whPullPresenters, and are still the warning that the count is a
+           guess — dropping them is how somebody makes three bundles for a house
+           that needs four. ⚠ Type still says House/ADD-ON exactly, because the
+           summary counts houses by matching that string. */
         putInto: whPutIntoLabel(d),
         /* Said in words as well as in the Type column, because Notes is what gets read
            when a row looks unusual. Their own note still travels with it. */
@@ -32231,21 +32345,27 @@ function whSheetRowsForBuild(){
           ? ('GOES INTO THE BIN THEY ALREADY HAVE' +
              (d.notes ? ' \u2014 ' + String(d.notes).trim() : ''))
           : (d.notes ? String(d.notes).trim() : ''))
-      });
+      }));
     });
     g.extras.forEach(function(e){
       const isTimer = (e.data.kind || 'lights') === 'timer';
+      /* ⚠ BUFFER STOCK IS NOT A CUSTOMER, so this row is NOT built from the
+         registry: there is no record behind it to read answers off, and asking the
+         registry for one would render `none` in every answer column as though a
+         customer had been asked and had not replied. The keys still have to be the
+         registry's field names, because they are what the column list is keyed on
+         now — that is the one thing this row has to keep in step. */
       rows.push({
         group: groupName,
-        wire: isTimer ? '' : (e.data.wireColor || ''),
+        wireColor: isTimer ? '' : (e.data.wireColor || ''),
         type: isTimer ? 'Timer' : 'Extra',
         what: g.title ? (isTimer ? 'Timer' : (e.data.pattern || 'Lights')) : (e.data.label || 'Extra stock'),
         address: g.linked ? (g.linked.data.address || '') : '',
         /* ⚠ Buffer stock is not somebody's house, so "how many bins for them" has
            no answer. Blank, not 0 — a 0 in a count column reads as a decision. */
-        bins: '',
-        bundles: Number(e.data.quantity) || 1,
-        timer: isTimer ? 'YES' : '',
+        numberOfBins: '',
+        measuredFeet: Number(e.data.quantity) || 1,
+        outletTimer: isTimer ? 'Yes' : '',
         putInto: '',
         notes: ''
       });
@@ -32380,29 +32500,135 @@ function whOpenPrintWindow(title, summaryLine, tableHtml, emptyNote){
   // measures it, or the first page can come out with the rows half-drawn.
   setTimeout(function(){ w.focus(); w.print(); }, 300);
 }
+/* ⭐ MOVED OUT OF THE ROUTE-DASHBOARD WIDGET (2026-08-24). These three were
+   declared inside the widget's IIFE at the bottom of the file, which is a closed
+   scope: the printed sheets could call them and nothing else in admin could. The
+   build sheets now render through whPullPresenters, which lives out here, so a
+   call from there would have thrown "printLightColor is not defined" and killed
+   the handler — visible only as an unhandled promise, which is exactly the
+   failure Suite 2.10b was written for after the same thing happened to fmtPhone.
+   ⚠ THE FAULT WAS WHERE THEY WERE DECLARED, not what they do. Nothing about any
+   of the three has changed; they simply sit where both halves can reach them,
+   the same fix prefSpecificDate needed on 2026-08-20. Moving one back inside the
+   widget makes the build sheets blind again, and Suite 2.10b fails if it happens.
+*/
+function printLightColor(d){
+  const desc = ('' + ((d && d.lightsDescription) || '')).trim();
+  if(desc) return desc;
+  return (Array.isArray(d && d.lightColors) ? d.lightColors.join('/') : '');
+}
+/* ⭐ NOBODY ASKED IS NOT THE SAME AS THEY SAID NO (changed 2026-08-21).
+   This turned a blank into a confident "No", so a customer who wants a timer but was
+   never asked printed as a definite No and did not get one. On a season where the
+   printed sheet is the ONLY thing the crew sees — the employee portal is not in use —
+   that is the sheet quietly answering a question on the customer's behalf.
+
+   ⚠ AN EXPLICIT false IS STILL "No". Somebody ticking no is an answer and must not be
+   turned into a shrug; only an absent value becomes "?".
+
+   ⚠ "?" IS THE MASTER SHEET'S OWN WORD FOR THIS. The Up Plug column holds 112 yes,
+   98 "?", 61 no — the office already writes a question mark when nobody has asked,
+   and the importer already refuses to read it as a no. The paper now says the same
+   thing the spreadsheet does.
+
+   ⚠ THIS IS R-002 WITH A DIFFERENT FACE. That rule exists because silence and "they
+   didn't want it" must never look alike; a defaulted "No" is exactly them looking
+   alike. Same reasoning, same fix.
+
+   ⚠ THE "?" IS INLINE, NOT A CONSTANT BESIDE THIS FUNCTION. Three test harnesses
+   lift printYesNo with extractFn, which takes the function and nothing around it —
+   a const declared next to it is not carried, and the suite dies with a bare
+   ReferenceError naming a name nobody can place. Self-contained is worth more here
+   than a named constant used in exactly one place. */
+function printYesNo(v){
+  if(v === true) return 'Yes';
+  if(v === false) return 'No';
+  if(v == null || v === '') return '?';
+  const t = ('' + v).trim();
+  if(!t) return '?';
+  if(/^\?+$/.test(t)) return '?';   // the sheet's own spelling of it
+  if(/^(n|no|none|false)$/i.test(t)) return 'No';
+  if(/^(y|yes|true)$/i.test(t)) return 'Yes';
+  return t;   // they typed something real, so print it
+}
+/* An answer the office actually gave, in whatever spelling they gave it. An
+   ABSENT one is handed back to the registry so it renders `none` like every
+   other unanswered option, instead of this sheet having a private word for it. */
+function printOptionYesNo(v){
+  if(v === null || v === undefined || String(v).trim() === '') return 'none';
+  return printYesNo(v);
+}
+
+/* ⭐ HOW THE BUILD SHEETS PRINT AN ANSWER, IN ONE PLACE (added 2026-08-24).
+   The registry decides WHICH options reach the pull list; these four say how three
+   of them are spelled on paper, where `display()` is not the right answer.
+   ⚠ THEY ARE SHARED BY BOTH BUILD SHEETS — the Warehouse tab's and the Printing
+   tab's — because those two sheets describe the same bundle and used to disagree
+   about it. The Timer column is the plainest example: the Warehouse tab printed
+   "YES" or a BLANK, the Printing tab printed Yes/No/?, so one sheet could not tell
+   "no timer" from "nobody asked" and the other could. One presenter, one answer.
+   ⚠ ANYTHING NOT NAMED HERE RENDERS THROUGH THE REGISTRY, which is what lets a new
+   option appear on both sheets with nothing added to this list. */
+function whPullPresenters(d){
+  const need = (typeof houseBundleNeed === 'function') ? houseBundleNeed(d) : null;
+  return {
+    /* Feet reaches the warehouse as BUNDLES — Addie, 2026-08-21: "I don't think we
+       need feet and bundles." On a top-up need.bundles is already the ADD-ON's
+       count, not the whole house's; the + marks it as an addition to a bin that
+       already exists, and " est" marks a count worked back from the price rather
+       than measured. Dropping the markers with the feet column is how somebody
+       makes three bundles for a house that needs four. */
+    measuredFeet: function(){
+      if(!need) return 'none';
+      return (need.topUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : '');
+    },
+    /* Both fields, because a repeated colour means an alternating pattern and the
+       importer moves those out of lightColors — so an alternating house has an
+       EMPTY colour list and reading only the list calls them undecorated. */
+    lightsDescription: function(cust){ return printLightColor(cust) || 'none'; },
+    wireColor: function(cust){ return whWireLabel(cust.wireColor); },
+    outletTimer: function(cust){ return printOptionYesNo(cust.outletTimer); }
+  };
+}
+/* ⭐ THE ANSWER COLUMNS ARE GENERATED (2026-08-24) — Bins, Wire, Bundles and Timer
+   come out of optSheetColumns('pullList'), the same call the Printing tab's build
+   sheet makes, so two sheets describing one bundle cannot carry different columns.
+   Group, Type, Customer / Item, Address, When built put into and Notes stay written
+   out: none of them is something a customer asks for.
+   ⚠ THE LIGHT COLOUR IS ON THIS SHEET AS THE GROUP, which is why it is skipped
+   below rather than given a column. Rows are grouped by pattern and wire, so the
+   colour is the heading the row already sits under; a second column repeating it
+   for every row is the sum nobody was asked to check.
+   ⚠ WIRE MOVED. It used to sit second, beside Group, because it is part of the
+   grouping; it now prints with the other answers. The grouping itself is
+   unchanged — only where the column appears on the page. */
 const WH_BUILD_COLUMNS = [
   {key:'group', label:'Group'},
-  {key:'wire', label:'Wire'},
   {key:'type', label:'Type'},
   {key:'what', label:'Customer / Item'},
-  {key:'address', label:'Address'},
+  {key:'address', label:'Address'}
+].concat(optSheetColumns('pullList')
+  .filter(function(c){ return c.k !== 'lightsDescription'; })
+  /* This sheet's renderer reads `key`; the printed sheets read `k`. Mapped rather
+     than changed at the source, because both spellings are load-bearing in code
+     older than the registry. */
+  .map(function(c){
+    return {key: c.k, label: c.label,
+            num: c.k === 'numberOfBins' || c.k === 'measuredFeet'};
+  })).concat([
   /* ⭐ HOW MANY BINS, NOT WHICH ONE (changed 2026-08-21). Owner: "Bin # is how many
      bins were making for them but costumer # should also show next to costumers
-     name." This column held the CUSTOMER number under a header that said Bin # —
+     name." That column held the CUSTOMER number under a header that said Bin # —
      true in the sense that the bin gets that number painted on it, and useless for
-     the question the warehouse is actually asking, which is how many bins to put
-     this house's lights into. The customer number moved into the Customer column
-     beside the name, where it reads as an identifier instead of a quantity.
+     the question the warehouse is actually asking. It is `numberOfBins` in the
+     registry now, and the customer number lives in the Customer column.
      ⚠ NOT the same column as WH_RECYCLE_COLUMNS' "Bin # to find". That one IS the
-     painted number, because finding a bin on a shelf is exactly what it is for. */
-  {key:'bins', label:'Bins', num:true},
-  /* ⭐ BUNDLES ONLY (2026-08-21). Owner: "I don't think we need feet and bundles.
-     I think how many bundles is fine for warehouse." Feet is the office's number —
-     it prices the job and sizes the bins — and bundles is the one somebody counts
-     off a shelf. Bundles is derived from feet, so printing both asked the warehouse
-     to check a sum that was never theirs to check. */
-  {key:'bundles', label:'Bundles', num:true},
-  {key:'timer', label:'Timer'},
+     painted number, because finding a bin on a shelf is exactly what it is for.
+     ⭐ BUNDLES ONLY (2026-08-21). Owner: "I don't think we need feet and bundles."
+     Feet is the office's number — it prices the job and sizes the bins — and
+     bundles is the one somebody counts off a shelf. It is `measuredFeet` in the
+     registry, rendered through whPullPresenters, which is where the + and " est"
+     markers live. */
   /* ⚠ A COLUMN, NOT A NOTE IN THE BLANK ONE. The owner's first thought was to put
      "when built put into Ashley Wray #909" in the blank column on the right, and then:
      "or I dont know if you have a better idea for this because its a tricky situation."
@@ -32412,7 +32638,7 @@ const WH_BUILD_COLUMNS = [
      survives the paste into Excel this sheet is built for. */
   {key:'putInto', label:'When built, put into'},
   {key:'notes', label:'Notes'}
-];
+]);
 /* ⚠ NO PATTERN COLUMN. Owner: "they dont need to know the color here they just need
    the customer number and name." Nobody builds anything off this sheet — they find a
    bin by its number and bring it in. The number is the one ON THE BIN (whBinNumberFor),
@@ -32471,7 +32697,11 @@ function whPrintBuildSheet(){
      Number("3 est") is NaN, which would silently drop that house out of the total
      and under-report the morning's work. parseInt reads the leading number from
      both. */
-  const bundles = sheet.rows.reduce(function(s,r){ return s + (parseInt(r.bundles, 10) || 0); }, 0);
+  /* ⚠ THE CELL IS KEYED `measuredFeet` NOW (2026-08-24) — the bundle count IS the
+     footage, as the warehouse is asked to read it, so the registry's own field name
+     is what the row carries. Reading `r.bundles` here totalled undefined for every
+     row and reported a confident 0 bundles for a full morning's work. */
+  const bundles = sheet.rows.reduce(function(s,r){ return s + (parseInt(r.measuredFeet, 10) || 0); }, 0);
   const houses = sheet.rows.filter(function(r){ return r.type === 'House'; }).length;
   const blocked = sheet.rows.filter(function(r){ return r.type === 'Blocked'; }).length;
   const summary = sheet.rows.length
@@ -46082,15 +46312,19 @@ function printCrewSheet(dayId,crewIndex){
    from "there is a gate and nobody asked for the code", so printing a confident
    "none" would claim a fact we do not have. A filled cell means there is a gate
    and this is the way in; an empty one means we have nothing, whichever it is. */
-function printGateCode(d){
-  const g = ('' + ((d && d.gateCode) || '')).trim();
-  return g || '\u2014';
-}
+/* \u2b50 REPLACED BY THE REGISTRY (2026-08-24). The gate code and the side count are
+   rendered by js/options.js like every other answer, so neither needs a reader of
+   its own here \u2014 the side count in particular was a fourth copy of houseSideCount,
+   which the registry now carries verbatim.
+   \u26a0 ONE WORDING CHANGE CAME WITH THEM, on paper the crew reads: an unanswered
+   option prints `none`, where the gate code printed an em dash and a yes/no
+   printed "?". The argument above for the dash is a real one and is kept here on
+   purpose. What settles it for now is that R-002 and plan \u00a73.4 both name `none`,
+   and that it is one word in ONE place now (NO_ANSWER in js/options.js) rather
+   than three spellings in three files \u2014 so putting the dash back is a single edit
+   if Addie prefers it. */
 /* Always 1-4, never blank — houseSideCount defaults an unrecorded count to 1, and
    the printed sheet must not disagree with the schedule about it. */
-function printSideCount(d){
-  return String(houseSideCount(d && d.houseSides));
-}
 /* How many bins this house's lights come in, so the van is loaded right.
    ⚠ THE SAME ANSWER AS THE WAREHOUSE SHEET, NOT A SECOND ONE. whBinsForHouse is the
    one rule (cnBinsForFeet, out of js/money.js) and this calls it rather than
@@ -46106,11 +46340,19 @@ function printSideCount(d){
    the one standing in the warehouse looking for it. That helper's own comment says
    this belongs "on both the screen and the paper"; the recycle list has said it for a
    while and the crew sheet never did. */
+/* ⚠ THE COUNT COMES FROM THE REGISTRY NOW (2026-08-24), not from a second call to
+   whBinsForHouse. Both read cnBinsForFeet out of js/money.js, so the answer has
+   not changed — but there is one rule for it rather than two that could drift,
+   and an unmeasured house renders `none` through the same path every other
+   unanswered option on the sheet does, instead of this sheet having a private
+   spelling for silence. What is left here is the BIN LABEL, which is not an
+   option: it is the number painted on a bin that is still on the shelf. */
 function printBinCount(d){
-  const n = (typeof whBinsForHouse === 'function') ? whBinsForHouse(d) : '';
+  const opt = HU_OPTIONS.find(function(o){ return o.id === 'numberOfBins'; });
+  const n = opt ? optDisplay(opt, optValueOf(opt, d || {})) : '';
   const moved = (typeof whBinNumberMoved === 'function') && whBinNumberMoved(d);
   const says = moved && (typeof whBinNumberFor === 'function') ? whBinNumberFor(d) : '';
-  return says ? ((n || '?') + ' — bin says #' + says) : n;
+  return says ? (n + ' — bin says #' + says) : n;
 }
 /* ⭐ ONE ROW, WHEREVER THE CREW SHEET IS PRINTED FROM. The day sheet's per-crew blocks
    and its "in neither crew's city" block used to build their rows separately, and the
@@ -46119,14 +46361,35 @@ function printBinCount(d){
    skipped the outlet instruction and the one-time note. That block's own comment
    already says the halves must not "read differently depending on which button
    somebody happened to press"; this is what makes that true. */
+/* ⭐ ONE ROW, GENERATED FROM THE REGISTRY (2026-08-24). The identity half —
+   number, name, address, city — is written out, because who they are is not
+   something a customer can ask for. Every ANSWER comes from optSheetRow, keyed
+   by the real field name, so this function does not name a single option and
+   cannot be the place a new one is forgotten.
+   ⚠ THE PLAN ROW IS FOLDED IN, NOT READ SEPARATELY. An imported CSV row carries
+   `details` where the customer record carries `notes`, and the sheet has always
+   fallen back to it. Merged into the record handed to the registry rather than
+   patched onto the row afterwards, or the fold order (OUTLET, TODAY, then the
+   standing note) would put the imported note in the wrong place. */
 function printCrewRow(h){
   const d = printCustData(h);
-  return {number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
-          bins: printBinCount(d),
-          address: d.street || h.address || '', city: h.city || d.city || '',
-          gate: printGateCode(d), sides: printSideCount(d),
-          eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
-          notes: printCrewNotes(d, h)};
+  const forOptions = Object.assign({}, d, {notes: d.notes || (h && h.details) || ''});
+  const answers = optSheetRow('crewSheet', forOptions, {
+    /* Bins says how many, and — only when their number has moved — what the bin
+       on the shelf is still labelled with. The count itself is the registry's;
+       this presenter exists for the label, which is not an option. */
+    numberOfBins: function(cust){ return printBinCount(cust); },
+    /* Yes/No answers arrive in the office's own spellings (y, YES, "?", blank)
+       and printYesNo is what canonicalises them. It handles the ANSWERED cases;
+       R-002's `none` for a genuinely unanswered one still comes from the
+       registry, so there is one rule for silence across every artifact. */
+    useEaves:    function(cust){ return printOptionYesNo(cust.useEaves); },
+    outletTimer: function(cust){ return printOptionYesNo(cust.outletTimer); }
+  });
+  return Object.assign({
+    number: d.customerNumber || h.cu || '', name: d.name || h.name || '',
+    address: d.street || h.address || '', city: h.city || d.city || ''
+  }, answers);
 }
 /* ⚠ THE ACTIONABLE LINES COME FIRST. Notes is where prose goes, and the install
    instruction and the one-time note are prose — but they are also the two things
@@ -46134,55 +46397,11 @@ function printCrewRow(h){
    note follows. Buried under a paragraph about the dog, they may as well not be
    printed. Both are prefixed, because an unlabelled sentence in the Notes column
    reads as part of the standing note. */
-function printCrewNotes(d, h){
-  const bits = [];
-  const outlet = ('' + ((d && d.specificOutletNotes) || '')).trim();
-  if(outlet) bits.push('OUTLET: ' + outlet);
-  const once = ('' + ((d && d.oneTimeNote) || '')).trim();
-  if(once) bits.push('TODAY: ' + once);
-  const standing = ('' + ((d && d.notes) || (h && h.details) || '')).trim();
-  if(standing) bits.push(standing);
-  return bits.join('  \u00b7  ');
-}
-/* ⭐ NOBODY ASKED IS NOT THE SAME AS THEY SAID NO (changed 2026-08-21).
-   This turned a blank into a confident "No", so a customer who wants a timer but was
-   never asked printed as a definite No and did not get one. On a season where the
-   printed sheet is the ONLY thing the crew sees — the employee portal is not in use —
-   that is the sheet quietly answering a question on the customer's behalf.
-
-   ⚠ AN EXPLICIT false IS STILL "No". Somebody ticking no is an answer and must not be
-   turned into a shrug; only an absent value becomes "?".
-
-   ⚠ "?" IS THE MASTER SHEET'S OWN WORD FOR THIS. The Up Plug column holds 112 yes,
-   98 "?", 61 no — the office already writes a question mark when nobody has asked,
-   and the importer already refuses to read it as a no. The paper now says the same
-   thing the spreadsheet does.
-
-   ⚠ THIS IS R-002 WITH A DIFFERENT FACE. That rule exists because silence and "they
-   didn't want it" must never look alike; a defaulted "No" is exactly them looking
-   alike. Same reasoning, same fix.
-
-   ⚠ THE "?" IS INLINE, NOT A CONSTANT BESIDE THIS FUNCTION. Three test harnesses
-   lift printYesNo with extractFn, which takes the function and nothing around it —
-   a const declared next to it is not carried, and the suite dies with a bare
-   ReferenceError naming a name nobody can place. Self-contained is worth more here
-   than a named constant used in exactly one place. */
-function printYesNo(v){
-  if(v === true) return 'Yes';
-  if(v === false) return 'No';
-  if(v == null || v === '') return '?';
-  const t = ('' + v).trim();
-  if(!t) return '?';
-  if(/^\?+$/.test(t)) return '?';   // the sheet's own spelling of it
-  if(/^(n|no|none|false)$/i.test(t)) return 'No';
-  if(/^(y|yes|true)$/i.test(t)) return 'Yes';
-  return t;   // they typed something real, so print it
-}
-function printLightColor(d){
-  const desc = ('' + ((d && d.lightsDescription) || '')).trim();
-  if(desc) return desc;
-  return (Array.isArray(d && d.lightColors) ? d.lightColors.join('/') : '');
-}
+/* \u2b50 THE FOLD MOVED INTO THE REGISTRY (2026-08-24). `foldInto: 'notes'` on the
+   which-outlet instruction and the one-time note says the same thing this function
+   said, beside the options it is about, where the next person adding an option will
+   see it. The ordering rule above is unchanged and is enforced there: folds first,
+   in registry order, then the standing note. */
 /* ⭐ A REQUOTE COUNTS, A COLOUR CHANGE DOES NOT. Owner: "if they were requoted that
    counts as a new hang but if they are a color change they do not count as a new hang
    for this."
@@ -46226,17 +46445,27 @@ const PRINT_COLUMNS = {
      bin on a top-up — a bundle that joins a bin already on the shelf. It is a column
      rather than a note written into the blank one on the right, because that blank is
      where the warehouse ticks the row off. */
-  build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
-              {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
+  /* ⭐ THE ANSWER COLUMNS ARE GENERATED (2026-08-24) — Bins, Light color, Wire,
+     Bundles and Timer come from optSheetColumns('pullList'), the same call the
+     warehouse tab's own sheet makes, so the two build sheets cannot describe the
+     same bundle differently. Cust # and Name are identity; "When built, put into"
+     is a logistics instruction about a bin, not something a customer asks for.
+     ⚠ THIS SHEET GAINED A BINS COLUMN. The warehouse tab has had one since
+     2026-08-21 and this one never did, so the two sheets for one job disagreed
+     about how many bins were being made. Generating both from one list is what
+     closed it, and is the point of the exercise. */
+  build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}]
+              .concat(optSheetColumns('pullList')).concat([
               /* ⭐ BUNDLES, NOT FEET (2026-08-21). Owner: "I don't think we need feet
                  and bundles. I think how many bundles is fine for warehouse." Feet is
                  what the office measures and prices; bundles is what somebody actually
                  counts off a shelf, and it is derived from the feet anyway
                  (houseBundleNeed), so printing both put a sum on the sheet nobody was
                  being asked to do. A top-up shows the ADD-ON's bundles, not the whole
-                 house's — that is the number they are making today. */
-              {k: 'timer', label: 'Timer'}, {k: 'bundles', label: 'Bundles'},
-              {k: 'putInto', label: 'When built, put into'}],
+                 house's — that is the number they are making today.
+                 ⚠ Both are option columns now and come out of the registry above;
+                 what stays here is the bin instruction, which is not an option. */
+              {k: 'putInto', label: 'When built, put into'}]),
   warehouse: [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}],
   /* ⭐ TIMER SITS BEFORE NOTES ON EVERY CREW SHEET (added 2026-08-20). Owner: "i
      forgot to include on everything crew related printing it need to include
@@ -46262,12 +46491,28 @@ const PRINT_COLUMNS = {
      2026-08-21: "Bin # is how many bins were making for them." The number ON the bin is
      the Cust # column, already first on the sheet, so a second column of numbers would
      be two answers to one question. */
-  crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
-              {k: 'bins', label: 'Bins'},
-              {k: 'address', label: 'Address'}, {k: 'city', label: 'City'},
-              {k: 'gate', label: 'Gate'}, {k: 'sides', label: 'Sides'},
-              {k: 'eaves', label: 'Plugs / eaves'}, {k: 'timer', label: 'Timer'},
-              {k: 'notes', label: 'Notes'}]
+  /* ⭐ THE OPTION COLUMNS ARE GENERATED (2026-08-24). Everything a customer can
+     ASK FOR now comes from js/options.js — Bins, Gate, Sides, Plugs / eaves,
+     Timer and Notes are `optSheetColumns('crewSheet')`, in the order the
+     registry declares. What stays written out here is the house's IDENTITY:
+     who they are and where they live, which is not an option and cannot be
+     asked for. Adding an option to the registry adds a column here by itself.
+     ⚠ THE ORDER LIVES IN THE REGISTRY NOW (`sheetOrder`), not in this list.
+     Timer-before-Notes and Gate/Sides as narrow scannable columns are Addie's
+     instructions and are declared there, beside the options they govern. */
+  crew:      [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'}]
+              .concat(optSheetColumns('crewSheet').filter(function(c){
+                /* Address and City interleave: the registry knows nothing about
+                   them, so they are spliced in after Bins where they have always
+                   printed. Done by naming the ONE column they follow rather than
+                   by index, or inserting an option ahead of Bins would silently
+                   move the address into the middle of the answers. */
+                return c.k === 'numberOfBins';
+              }))
+              .concat([{k: 'address', label: 'Address'}, {k: 'city', label: 'City'}])
+              .concat(optSheetColumns('crewSheet').filter(function(c){
+                return c.k !== 'numberOfBins';
+              }))
 };
 /* ⭐ THE PEOPLE ALREADY REMOVED ARE MOST OF THIS LIST. Owner, 2026-08-20: "people in
    recycle should not exist as a customer" and "they are removed as a customer and then
@@ -46330,21 +46575,17 @@ function printNeedsBuildList(){
          screen it was printed from. */
       const need = (typeof houseBundleNeed === 'function') ? houseBundleNeed(d) : null;
       const isTopUp = !!(need && need.topUp);
-      return {number: d.customerNumber || '', name: d.name || '',
-              lights: printLightColor(d), wire: d.wireColor || '',
-              timer: printYesNo(d.outletTimer),
-              /* ⚠ On a top-up `need.bundles` is already the ADD-ON's count, not the
-                 whole house's — houseBundleNeed does that subtraction. The + marks it
-                 as an addition to a bin that already exists, which the Type column and
-                 the put-into column also say. */
-              bundles: need
-                ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''))
-                : '',
+      /* The answers come from the registry, keyed by the real field name, so this
+         builder names no option at all and cannot be the place a new one is
+         forgotten. Only the bin instruction below is written out — that is
+         logistics about a shelf, not something a customer can ask for. */
+      return Object.assign({number: d.customerNumber || '', name: d.name || ''},
+        optSheetRow('pullList', d, whPullPresenters(d)), {
               /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
                  sheets of the same job saying it two ways is how one of them stops
                  being read. */
               putInto: (isTopUp && typeof whPutIntoLabel === 'function')
-                ? ('EXISTING BIN \u2014 ' + whPutIntoLabel(d)) : ''};
+                ? ('EXISTING BIN \u2014 ' + whPutIntoLabel(d)) : ''});
     })
     .sort(function(x, y){ return String(x.name).localeCompare(String(y.name)); });
 }
