@@ -106,6 +106,9 @@ const { WH_BUILD_REASONS, whBuildReasonKey, whBuildReasonChip } = sandbox;
 const multiSrc = (admin.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + fn('rbLooksMulti');
 /* The run reader travels with it: "rrgg" is a shape too, and both normalisers ask. */
 const runSrc = (admin.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0] + fn('rbLetterRun');
+/* whNormalizeLights splits the whole description before treating brackets as a note,
+   so the separator and that reader travel with it. */
+const splitSrc = (admin.match(/const WH_LIGHT_SEP = [^\n]*\n/) || [''])[0] + fn('whSplitAllKnown');
 
 // ---------------------------------------------------------------------------
 // THE TABLE. One row per thing that can bring a house to the warehouse.
@@ -420,7 +423,7 @@ check('the colour tables and both normalisers can be found', haveVocab,
   'this block is the whole answer to "are any other colours having problems"');
 
 if (haveVocab) {
-  const groupOf = new Function(whListSrc + aliasSrc + multiSrc + runSrc + vocabSrc + fn('whColorsFromWords') +
+  const groupOf = new Function(whListSrc + aliasSrc + multiSrc + runSrc + vocabSrc + fn('whColorsFromWords') + splitSrc +
     fn('whOrderColors') + fn('whWireLabel') + fn('whNormalizeLights') + 'return whNormalizeLights;')();
   const importOf = new Function(aliasSrc + rbListSrc + whListSrc + multiSrc + runSrc + fn('rbNormalizeColors') +
     'return rbNormalizeColors;')();
@@ -470,6 +473,47 @@ if (haveVocab) {
       groupOf(pair[0]) === pair[1],
       'got ' + JSON.stringify(groupOf(pair[0])));
   });
+
+  /* ⭐ SOFT IS WARM WHITE (2026-08-24). Addie, asked directly and told what it cost:
+     "soft should be Warm White".
+     ⚠ THIS REVERSES HER OWN RULING OF 2026-08-19, under which soft kept its own label
+     so those houses stayed findable. The label had made the warehouse a group headed
+     soft(recycled), which is not a colour anybody stocks, so nobody could build it.
+     ⚠ soft(recycled) IS CHECKED AS WELL AS soft: it is the value already stored on
+     real records, and without it the note reader turns it into "Warm White
+     (recycled)" — its own heading, which does not merge and so does not do what she
+     asked. */
+  ['soft', 'soft white', 'soft(recycled)'].forEach(function(t){
+    check('"' + t + '" is Warm White on both sides',
+      groupOf(t) === 'Warm White' && importOf(t).join('|') === 'Warm White',
+      'got ' + JSON.stringify([groupOf(t), importOf(t)]));
+  });
+  check('and a soft house builds with the plain warm white ones',
+    groupOf('soft(recycled)') === groupOf('Warm White') &&
+    groupOf('Red, soft(recycled)') === groupOf('Red, Warm White'),
+    'one group is the whole point of the ruling; got ' +
+    JSON.stringify([groupOf('Red, soft(recycled)'), groupOf('Red, Warm White')]));
+
+  /* ⭐ AND THE SWITCHING LIST SURVIVES, which is what made the ruling cheap. The All
+     Customers filter matches /soft/i against the RAW record, never through the colour
+     table, so every house already carrying soft(recycled) is still findable and the
+     two checkboxes that write it are untouched.
+     ⚠ If somebody "tidies" that filter into using the normaliser it will silently
+     match nobody, and the only list of who is on old stock is gone. */
+  const softFilter = admin.slice(admin.indexOf("if(lightsFilter === 'soft')"),
+                                 admin.indexOf("} else if(lightsFilter === 'none')"));
+  check('the switching filter still reads the raw record',
+    /\/soft\/i\.test/.test(softFilter) && !/whNormalizeLights|houseLightsText/.test(softFilter),
+    'it is the only way left to find who is on old stock');
+  check('and both colour pickers still offer soft as a label',
+    (admin.match(/value="soft\(recycled\)"/g) || []).length >= 2,
+    'Add Customer and Edit Customer each have one; they are what mark a house');
+
+  /* ⚠ A REAL NOTE IS STILL A NOTE. The whole-description reader must not swallow
+     "Warm White (every third bulb)" — that bracket is somebody\'s instruction. */
+  check('a genuine bracketed note is left alone',
+    groupOf('Warm White (every third bulb)') === 'Warm White (every third bulb)',
+    'got ' + JSON.stringify(groupOf('Warm White (every third bulb)')));
 
   /* ⚠ THE UNKNOWN-WORD GUARD IS THE HALF THAT MUST NOT BE LOST. Only a description
      made ENTIRELY of words we know is rewritten; anything else is kept exactly as
@@ -593,7 +637,7 @@ if (haveVocab) {
   if (empAlias && empVocab && empList && empFn('whNormalizeLights')) {
     const empMulti = (emp.match(/const RB_MULTI_RE = [^\n]*\n/) || [''])[0] + empFn('rbLooksMulti') +
       (emp.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0] + empFn('rbLetterRun');
-    const empGroup = new Function(empList + empAlias + empMulti + empVocab + empFn('whColorsFromWords') +
+    const empGroup = new Function(empList + empAlias + empMulti + empVocab + empFn('whColorsFromWords') + (emp.match(/const WH_LIGHT_SEP = [^\n]*\n/) || [''])[0] + empFn('whSplitAllKnown') +
       empFn('whOrderColors') + empFn('whWireLabel') + empFn('whNormalizeLights') + 'return whNormalizeLights;')();
     const differ = ['ww', 'w', 'warm', 'p', 'pure', 'r', 'bbb', 'white', 'soft',
                     'Red with tinsel', 'Red, Green']

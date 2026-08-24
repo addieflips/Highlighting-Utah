@@ -467,9 +467,12 @@ const OPTIONS_SANDBOX_SRC = () =>
 const whGroupKeySrc      = extractFn(admin, 'whGroupKey');
 /* whNormalizeLights sorts a plain set but keeps a repeating strand in the order it
    was written — that rule lives in whOrderColors and comes with it. */
+/* whNormalizeLights splits the whole description before treating a trailing bracket
+   as a note, so the separator and that reader travel with it. */
+const whSplitKnownSrc = (admin.match(/const WH_LIGHT_SEP = [^\n]*\n/) || [''])[0] + extractFn(admin, 'whSplitAllKnown');
 const whOrderColorsSrc = extractFn(admin, 'whOrderColors');
 const whNormalizeLightsFnSrc = extractFn(admin, 'whNormalizeLights');
-const whNormalizeLightsSrc = whOrderColorsSrc + '\n' + whNormalizeLightsFnSrc;
+const whNormalizeLightsSrc = whSplitKnownSrc + '\n' + whOrderColorsSrc + '\n' + whNormalizeLightsFnSrc;
 const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
 /* whNormalizeLights reads the colour vocabulary through whColorsFromWords, so
    both have to come across or it throws the moment it is called. Lifted from
@@ -1194,6 +1197,10 @@ if (typeof whGroupKey === 'function') {
   /* rbLetterRun decides that rrgg is two reds and two greens, and that w and p are
      excluded from runs because WW and PW are initials. A crew screen without it reads
      rrgg as its own heading while the office builds two piles from it. */
+  const empSplit = extractFn(empSrc, 'whSplitAllKnown');
+  check('logic', 'employee.html reads a whole description the same way',
+    !!empSplit && empSplit.replace(/\s+/g, ' ') === extractFn(admin, 'whSplitAllKnown').replace(/\s+/g, ' '),
+    'a soft house would merge with warm white in the office and not on the crew screen');
   const empRun = extractFn(empSrc, 'rbLetterRun');
   check('logic', 'employee.html reads letters run together the same way',
     !!empRun && empRun.replace(/\s+/g, ' ') === extractFn(admin, 'rbLetterRun').replace(/\s+/g, ' '),
@@ -15806,13 +15813,29 @@ suite('Suite 60. The colours as the office actually writes them');
     check('S60', '"w" is warm white and "p" is pure',
       sb.n('w').join('|') === 'Warm White' && sb.n('p').join('|') === 'Pure White',
       'got w=' + JSON.stringify(sb.n('w')) + ' p=' + JSON.stringify(sb.n('p')));
-    /* ⚠ SOFT IS KEPT, NOT TRANSLATED. It is stock they no longer use, so the point is
-       to be able to FIND those houses later and swap the lights — turning it into
-       Warm White would hide exactly the customers she needs to see. */
-    check('S60', '"soft" is kept under its own name so those houses can be found',
-      sb.n('soft').join('|') === 'soft(recycled)' &&
-      sb.n('soft white').join('|') === 'soft(recycled)',
-      'got ' + JSON.stringify(sb.n('soft')));
+    /* ⭐ SOFT IS WARM WHITE (2026-08-24), REVERSING HER 2026-08-19 RULING. Addie,
+       asked directly and told the cost: "soft should be Warm White".
+
+       ⚠ THE OLD RULE IS WRITTEN OUT HERE ON PURPOSE, because the reasoning behind it
+       was sound and somebody will otherwise rediscover it and put it back: soft was
+       given its own label so those houses could be FOUND and switched. What it cost
+       was a warehouse group headed soft(recycled) — not a colour anybody stocks — so
+       nobody could build the houses in it.
+
+       ⭐ AND THE FINDING SURVIVES ANYWAY, which is why the trade was cheap: the All
+       Customers switching filter matches /soft/i against the RAW record and never goes
+       through this table, and the two colour checkboxes that write soft(recycled) are
+       untouched. build-reason.test.js holds both of those in place. */
+    check('S60', '"soft" is Warm White now, and so is soft white',
+      sb.n('soft').join('|') === 'Warm White' &&
+      sb.n('soft white').join('|') === 'Warm White',
+      'got ' + JSON.stringify([sb.n('soft'), sb.n('soft white')]));
+    /* ⚠ AND THE STORED VALUE TOO. soft(recycled) is what is on real records; without
+       it they would not merge with the plain warm white houses, which is the whole
+       point of the ruling. */
+    check('S60', 'and the value already on records reads the same',
+      sb.n('soft(recycled)').join('|') === 'Warm White',
+      'got ' + JSON.stringify(sb.n('soft(recycled)')));
     /* ⚠ "white" MEANS BOTH, and is the reason an alias may be a list. Owner: "white
        lets just say is put warm and pure because we really dont know". Guessing one
        would be a claim nobody can support. */

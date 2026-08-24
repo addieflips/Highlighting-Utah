@@ -1279,3 +1279,33 @@ silently resolved.
 Her message ended with a bare `C`. Asked: *"Oh I accidently typed a c"*. Nothing to
 map, nothing was added, and no code changed. Recorded rather than deleted so nobody
 reads the earlier message and goes looking for a rule that never existed.
+
+---
+
+## Answered 2026-08-24 — Q-020 (soft) and Q-021 (mc), both closed
+
+Addie: *"just skip mc and soft should be Warm White"*.
+
+### Q-021 — `mc` is skipped for good
+
+It stays unmapped and falls through to its own heading, which is visible and
+correctable. A check holds it there so nobody expands it plausibly later.
+
+### Q-020 — soft is Warm White
+
+This **reverses her own ruling of 2026-08-19**, and she was told the cost before
+deciding. `soft`, `soft white` and the stored `soft(recycled)` all map to Warm
+White, so those houses build with the plain warm white ones instead of sitting in
+a group headed `soft(recycled)` — not a colour anybody stocks, and so a group
+nobody could build.
+
+**The switching list survives**, which is what made the trade cheap and is worth
+knowing before anybody "tidies" it. The All Customers filter matches `/soft/i`
+against the **raw** record and never goes through the colour table, so every house
+already carrying `soft(recycled)` is still findable, and the two colour checkboxes
+that write it are untouched. Both are held in place by checks.
+
+⚠ **The one real loss:** a master-sheet sync that rewrites one of those rows will
+replace `soft(recycled)` with `Warm White` on the record, and that house then drops
+off the switching list permanently. If the twelve houses matter, run the filter and
+write the list down somewhere outside the system before the next sync.

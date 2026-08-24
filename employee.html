@@ -1448,7 +1448,30 @@ const RB_COLOR_ALIASES = {
      that these lights are the old stock and have to be swapped, not a colour
      anybody should be able to choose for a new house. */
   'p':'Pure White', 'w':'Warm White',
-  'soft':'soft(recycled)', 'soft white':'soft(recycled)',
+  /* ⭐ SOFT IS WARM WHITE (2026-08-24). Addie, asked directly and told the cost:
+     "soft should be Warm White".
+
+     ⚠ THIS REVERSES HER OWN RULING OF 2026-08-19, which is kept in the block above
+     because the reasoning still matters: soft was given its own label so those houses
+     could be FOUND and switched. Under that rule the warehouse got a group headed
+     `soft(recycled)`, which is not a colour anybody stocks, so nobody could build it.
+
+     ⭐ AND THE LIST SURVIVES ANYWAY, which is why this costs less than it looks.
+     `allCustFilterLights` matches /soft/i against the RAW lightColors and
+     lightsDescription on the record — it never goes through this table — so every
+     house already carrying `soft(recycled)` is still findable, and the two colour
+     checkboxes that write it are untouched. What changed is only what soft MEANS when
+     something builds or groups: Warm White, as she said.
+     ⚠ THE ONE REAL LOSS: a master-sheet sync that rewrites one of those rows will
+     replace `soft(recycled)` with `Warm White` on the record, and that house then
+     drops off the switching list for good. She was told; do not "fix" it by
+     reinstating the old label.
+
+     ⚠ `soft(recycled)` IS A KEY TOO, not just `soft`. It is the value already stored
+     on real records, and without it the trailing-(...)-is-a-note reader turns it into
+     `Warm White (recycled)` — its own heading, which would NOT merge with plain Warm
+     White and so would not do what she asked. */
+  'soft':'Warm White', 'soft white':'Warm White', 'soft(recycled)':'Warm White',
   'white':['Warm White', 'Pure White'],
   /* ⭐ SPELLINGS FOUND MISSING BY AUDIT, 2026-08-24. Addie: "Is there any other colors
      having problems besides that". Every one of these can mean exactly one colour, so
@@ -1528,6 +1551,20 @@ function whColorsFromWords(token){
   }
   return found.length ? found : null;
 }
+const WH_LIGHT_SEP = /[,\u2014\/&+]|\band\b/i;
+function whSplitAllKnown(text){
+  const out = [];
+  let ok = true;
+  String(text || '').split(WH_LIGHT_SEP).forEach(function(piece){
+    if(!ok) return;
+    const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
+    if(!t) return;
+    const as = whColorsFromWords(t);
+    if(!as){ ok = false; return; }
+    out.push.apply(out, as);
+  });
+  return (ok && out.length) ? out : null;
+}
 function whOrderColors(list){
   const seen = {};
   const repeats = list.some(function(c){
@@ -1551,6 +1588,9 @@ function whOrderColors(list){
      string first costs one lookup and makes normalising idempotent. */
   const whole = whColorsFromWords(raw.trim());
   if(whole) return whOrderColors(whole).join(', ');
+  /* Then the whole thing split on separators — same strictness, one more shape. */
+  const known = whSplitAllKnown(raw.trim());
+  if(known) return whOrderColors(known).join(', ');
   const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
   const main  = m ? m[1].trim() : raw.trim();
   const notes = m ? m[2].trim() : '';
@@ -1560,7 +1600,7 @@ function whOrderColors(list){
      build queue \u2014 plus a fifth for "red, green" in lower case, because the
      sort ignored case but the group key did not. */
   const colors = [];
-  main.split(/[,\u2014\/&+]|\band\b/i).forEach(function(piece){
+  main.split(WH_LIGHT_SEP).forEach(function(piece){
     const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
     if(!t) return;
     /* A known colour is rewritten in the app's own spelling and capitalisation
