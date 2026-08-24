@@ -31603,7 +31603,14 @@ function whToggleGroup(listId){
    with no number cannot be binned or handed to a crew, and a brand-new customer
    has no number yet — so that says so in ember rather than sitting blank. */
 function whHouseFactsHtml(d){
-  let html = '';
+  /* ⭐ WHY IT IS BEING BUILT, FIRST (added 2026-08-24). It leads the chips because it
+     is the only one that tells somebody what KIND of job the row is — a first hang, a
+     rebuild after a move, or a colour change on a house that is otherwise finished.
+     The timer and the wire say what to put in the bin; this says why there is a bin.
+     ⚠ ONE PLACE, so every warehouse row gets it. whHouseFactsHtml is what the build
+     groups, the blocked block and the add-on rows all call — putting it on one of
+     them would leave the badge missing exactly where somebody looked next. */
+  let html = whBuildReasonChip(d);
   if(String(d.outletTimer || '').trim() === 'Yes'){
     html += ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">Timer</span>';
   }
@@ -31613,6 +31620,60 @@ function whHouseFactsHtml(d){
     ? custNumChip(d)
     : ' <span style="display:inline-block; background:#fff; color:var(--ember); border:1px solid var(--ember); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">No number yet &mdash; needs assigning</span>';
   return html;
+}
+/* ⭐ WHY THIS BUNDLE IS BEING BUILT (added 2026-08-24). Addie: "There should be a
+   badge by each person on warehouse that say's new, Old-Rebuild or Member Poral or
+   Request", with her own definitions:
+     New          — a new quote
+     Old-Rebuild  — already a member, changed address / extended house / added a building
+     Member Portal— anything they changed in the member portal themselves
+     Request      — we added it ourselves, from a request by email, call or text
+
+   ⚠ THE ORDER IS THE RULE, because a customer can be more than one at once. It runs
+   most-work-first: a first hang is the biggest job on the sheet, a move or an
+   extension is the next biggest, and a colour change on a house that is otherwise
+   unchanged is the smallest. Somebody re-quoted for a new address who ALSO picked new
+   colours is an Old-Rebuild — reading it as a colour change would send the warehouse
+   to make one bundle for a house that needs the lot.
+
+   ⚠ AND IT NEVER GUESSES. A colour change made before 2026-08-24 carries no
+   lightsChangedVia, because nothing recorded one until then — those say "Changed"
+   rather than picking Member Portal or Request on a coin toss. Wrong attribution on a
+   printed sheet is worse than an honest "we do not know", and it fills itself in from
+   here on. */
+const WH_BUILD_REASONS = {
+  'new':      {label: 'NEW',           bg: '#E4F0E6', color: '#2C6135'},
+  'rebuild':  {label: 'OLD-REBUILD',   bg: '#E5EAF7', color: '#31447E'},
+  'portal':   {label: 'MEMBER PORTAL', bg: '#F3E8F6', color: '#6B3F7A'},
+  'request':  {label: 'REQUEST',       bg: '#FBF0DF', color: '#8A5A12'},
+  'changed':  {label: 'CHANGED',       bg: '#EDEFF2', color: '#4E5A66'}
+};
+function whBuildReasonKey(d){
+  const c = d || {};
+  /* A first-time hang. ⚠ requoteAppliedAt excludes a returning member: the join fee
+     flag stays set on somebody who joined in a previous season, so the flag alone
+     would badge half the book NEW. */
+  if(c.chargeNewMemberFee === true && !c.requoteAppliedAt) return 'new';
+  /* A re-quote that was actually applied. ⚠ 'price' is deliberately not here — a
+     price-only re-quote changes no glass, queues no build, and would never reach this
+     list; badging it as a rebuild would be describing work nobody is doing. */
+  if(c.requoteAppliedAt){
+    const kind = String(c.requoteKind || '').trim().toLowerCase();
+    if(kind !== 'price') return 'rebuild';
+  }
+  if(c.lightsChangedAt){
+    const via = String(c.lightsChangedVia || '').trim().toLowerCase();
+    if(via === 'portal') return 'portal';
+    if(via === 'office') return 'request';
+    return 'changed';
+  }
+  return '';
+}
+function whBuildReasonChip(d){
+  const r = WH_BUILD_REASONS[whBuildReasonKey(d)];
+  if(!r) return '';
+  return ' <span class="status-pill" style="background:'+r.bg+'; color:'+r.color+
+    '; font-weight:700; letter-spacing:.03em;">'+esc(r.label)+'</span>';
 }
 /* ---- ONE PLACE THAT DECIDES WHAT IS IN THE BUILD QUEUE ----
    The screen and the printed sheet both read this. Working the groups out
@@ -34740,6 +34801,16 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     if(lightChange.setLightsChangedAt){
       addrUpdates.lightsChangedAt = serverTimestamp();
+      /* ⭐ WHO CHANGED IT (added 2026-08-24). The warehouse queue badges say WHY a
+         bundle is being built, and two of the four answers are the same event from a
+         different direction: the customer changing their own colours in the portal,
+         or the office typing them in after a call, email or text. Both wrote
+         lightsChangedAt and nothing else, so they were indistinguishable.
+         ⚠ THIS PATH IS ALWAYS 'office' — somebody in admin is typing it. That is
+         Addie's "Request": a change we made on their behalf because they asked for
+         it some other way. functions/index.js stamps 'portal' on the two portal
+         writes. */
+      addrUpdates.lightsChangedVia = 'office';
     }
     /* ⚠ THE LOCK IS SET EVEN WHEN THE FEE IS WAIVED. It is about the crew, not the
        money — their pattern may still move, so they must not be routed either way. */
@@ -35042,7 +35113,21 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        used to remember the bin's old label here; Addie: "get rid of bin #'s and keep
        costumer #'s." A moved number now means the BIN gets relabelled, which is a
        job in the warehouse rather than a second field on the record. */
-    if(requoteBeingConverted) addrUpdates.requoteAppliedAt = serverTimestamp();
+    if(requoteBeingConverted){
+      addrUpdates.requoteAppliedAt = serverTimestamp();
+      /* ⭐ AND WHICH KIND OF RE-QUOTE IT WAS (added 2026-08-24, for the warehouse
+         badge). requoteKind is asked when the re-quote is RAISED and stored on the
+         quote document, which the customer record has no way to reach — so a reader
+         looking at a customer saw undefined every time and could not tell a house
+         that moved from a price that was corrected. Copied across at the one moment
+         the two are both in hand.
+         ⚠ THE QUOTE STAYS THE SOURCE. This is a stamp of what was answered when the
+         re-quote was applied, not a second place to change it. */
+      const answeredQuote = (typeof quotesCache !== 'undefined' ? quotesCache : [])
+        .find(function(q){ return q && q.id === requoteBeingConverted; });
+      const answeredKind = String((answeredQuote && answeredQuote.data && answeredQuote.data.requoteKind) || '').trim();
+      if(answeredKind) addrUpdates.requoteKind = answeredKind;
+    }
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that

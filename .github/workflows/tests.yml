@@ -84,6 +84,13 @@ jobs:
       - name: Option registry audit (R-001, R-003)
         run: npm run test:options
 
+      # Named separately for the same reason as the audit above: a wrong badge on a
+      # warehouse sheet is a claim about where a job came from, and "the build badge
+      # rule broke" is a different thing to go and look at than a line inside the
+      # long suite. It runs the real rule and checks every field it reads has a writer.
+      - name: Why a bundle is being built (warehouse badges)
+        run: npm run test:reason
+
       - name: Run the fast suite
         run: npm test
 

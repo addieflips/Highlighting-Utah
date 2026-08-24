@@ -1003,3 +1003,67 @@ is holding.
 `crewSheet`; `useEaves` gains `foldInto: 'notes'` with a value that is only
 present on yes. Cust #, Phone, Address and City are identity, not options, and
 stay written out in `PRINT_COLUMNS.crew`.
+
+---
+
+## Answered 2026-08-24 — why a bundle is being built (warehouse badges)
+
+Addie: *"There should be a badge by each person on warehouse that say's new,
+Old-Rebuild or Member Poral or Request / New is a new quote / Old-Rebuild is
+someone who was already a member that changed address or extended house or added
+on a building / Member Portal_ Anything that got changed in member portal /
+Request- We added on ourselves based on request we received."*
+
+**Built.** A coloured badge leads the chips on every warehouse build row, from
+`whHouseFactsHtml` — the one function the build groups, the blocked block and the
+add-on rows all call, so no row type can be missed.
+
+**What had to be built first, and is the real finding:** *nothing recorded where
+a colour change came from.* Two of her four badges — Member Portal and Request —
+are the same event from opposite directions, and both the portal and the office
+wrote `lightsChangedAt` and nothing else. The badge would have rendered the same
+answer for everybody and looked authoritative doing it. `lightsChangedVia` is now
+stamped at all three write sites: `'portal'` on both of `portalSave`'s writes,
+`'office'` on the Edit Customer save.
+
+**And a second one, smaller:** `requoteKind` — how the office answered "what kind
+of re-quote is this" — lives on the **quote** document, which a customer record
+cannot reach. The badge read it off the customer and so saw `undefined` every
+time, meaning it could not tell a house that moved from a price that was
+corrected. It is copied onto the customer at the one moment both are in hand
+(applying the re-quote). The quote stays the source; this is a stamp of what was
+answered, not a second place to change it.
+
+**Precedence, because a customer can be more than one at once.** Most-work-first:
+NEW → OLD-REBUILD → MEMBER PORTAL / REQUEST. Somebody who moved *and* picked new
+colours is an OLD-REBUILD — reading it as a colour change would send the
+warehouse to make one bundle for a house that needs the lot.
+
+**A fifth badge she did not ask for: CHANGED.** Every colour change made before
+today carries no source, because nothing recorded one. Those say CHANGED rather
+than being assigned one of her four on a coin toss — a wrong provenance printed
+beside somebody's name is worse than an honest "we do not know", and it fills
+itself in from here on.
+
+**Gate:** `build-reason.test.js` (`npm run test:reason`), its own file per R-018.
+It RUNS the real rule over eleven cases and checks every field it reads has a
+writer. 13 sabotages red-checked.
+
+### Q-017 · does the badge belong on the printed build sheets too? · intent
+
+She asked for it *"on warehouse"*, which is the tab, and that is what was built.
+The two printed build sheets (`WH_BUILD_COLUMNS` and `PRINT_COLUMNS.build`) are
+what the warehouse actually works from, and they do not carry it.
+
+Not done unilaterally because a printed sheet is a fixed width of paper — the
+whole reason `sheetOrder` exists — and the `Type` column already answers a
+neighbouring question (House / ADD-ON / Blocked). Adding a column or overloading
+Type are different decisions with different costs, and both are hers.
+
+### Q-018 · should the Warehouse tab's build queue match the Printing tab's? · intent
+
+Still open from earlier today. `whBuildQueueGroups` (the tab) lists
+`needsLightBuild` only; `printNeedsBuildList` (the Printing tab) lists
+`needsLightBuild || chargeNewMemberFee === true || requoteAppliedAt`. So the
+screen and the paper can disagree about who needs building — which is the exact
+shape of failure this repo has been bitten by repeatedly.
