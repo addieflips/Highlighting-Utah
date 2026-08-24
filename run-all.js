@@ -1326,6 +1326,9 @@ if (JSDOM) {
   // tests alive, the same way the quoteStage mirror above does.
   global.jobAddresses = global.jobAddresses || [];
   global.quoteAlreadyACustomer = () => false;
+  /* The quote link box carries &p= for an existing member (quotePortalParam in
+     admin.html). These fixtures are all new leads, so it contributes nothing. */
+  global.quotePortalParam = () => '';
   global.quoteAwaitsUs = d =>
     typeof d.quotedPrice === 'number' &&
     (d.approvalStatus || 'pending') === 'pending' &&
