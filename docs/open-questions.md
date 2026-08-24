@@ -1049,7 +1049,7 @@ itself in from here on.
 It RUNS the real rule over eleven cases and checks every field it reads has a
 writer. 13 sabotages red-checked.
 
-### Q-017 · does the badge belong on the printed build sheets too? · intent
+### Q-017 · does the badge belong on the printed build sheets too? · ANSWERED (see below)
 
 She asked for it *"on warehouse"*, which is the tab, and that is what was built.
 The two printed build sheets (`WH_BUILD_COLUMNS` and `PRINT_COLUMNS.build`) are
@@ -1060,7 +1060,7 @@ whole reason `sheetOrder` exists — and the `Type` column already answers a
 neighbouring question (House / ADD-ON / Blocked). Adding a column or overloading
 Type are different decisions with different costs, and both are hers.
 
-### Q-018 · should the Warehouse tab's build queue match the Printing tab's? · intent
+### Q-018 · should the Warehouse tab's build queue match the Printing tab's? · ANSWERED (see below)
 
 Still open from earlier today. `whBuildQueueGroups` (the tab) lists
 `needsLightBuild` only; `printNeedsBuildList` (the Printing tab) lists
@@ -1116,7 +1116,7 @@ failure the blocked block was built to end. Blank colours mean the build cannot
 be *done* yet, not that it is not *owed*. The page leads the printed stack so it
 reads as a to-do list rather than a mystery.
 
-### Q-019 · should the sheet sync refuse a row with no colours? · intent
+### Q-019 · should the sheet sync refuse a row with no colours? · WITHDRAWN — the sync was never the problem (see below)
 
 The narrower version of the above, and worth asking on its own. The sync
 currently adds the customer and flags the build, which is right — but it could
@@ -1191,7 +1191,7 @@ a bundle nobody can use: `pur` (Purple or Pure?), `pu`, `or` (an English word �
 exactly as typed and appears as its own group heading, which somebody can see and
 correct. That is the design and it beats guessing.
 
-### Q-020 · should `soft` fold into Warm White? · intent
+### Q-020 · should `soft` fold into Warm White? · ANSWERED — yes (see below)
 
 **This is the one thing not changed, because changing it would reverse her own
 earlier instruction without her seeing the cost.**
@@ -1240,13 +1240,13 @@ wrong), `clear` / `cool white` / `bright white` → Pure White, `orng` → Orang
 `pnk` → Pink, `blu` → Blue, `grn` → Green, `rainbow` → Multi, plurals → the
 singular colour, and anything multi-something → Multi.
 
-### Q-021 · what does `mc` mean? · intent
+### Q-021 · what does `mc` mean? · ANSWERED — skipped for good (see below)
 
 Addie: *"mc lets come back to this one."* Left unmapped deliberately — it falls
 through to its own heading, which is visible and correctable, rather than being
 guessed at. A check holds it there so nobody expands it plausibly later.
 
-### Q-022 · are the letters ever run together, like `rrgg` in one cell? · factual-ish
+### Q-022 · are the letters ever run together, like `rrgg` in one cell? · ANSWERED — yes (see below)
 
 `rr` and `gg` are read correctly on their own, and `rr/gg` or `rr,gg` works. A
 single cell reading `rrgg` with no separator is **not** understood — it would need
