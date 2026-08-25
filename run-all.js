@@ -33903,18 +33903,31 @@ suite('141. Measure Roof - the street decides, and it is allowed to be late');
   check('S141', 'the wait gives up after a while and draws anyway',
     /setTimeout\(rmStreetSettle, 10000\)/.test(admin),
     'an unbounded wait on a third party is a hang with better manners');
-  /* ⚠ RETIRED, NOT LOST. Nothing is guessed from the map any more - the owner
-     asked for the automatic lines to be taken out entirely ("delete everything
-     for now and give me a tool that I can show you what it should look like by
-     placing dots"), so there is no map-only line left to warn about. The
-     builder and its warning are still in the file and still tested; they are
-     simply not run. If automatic lines ever come back, so must this. */
-  /* The WARNING went with the status line it lived on - there is no map-only
-     line left to warn about. What must survive is the builder itself, so
-     turning guessing back on is one line rather than a rewrite. */
-  check('S141', 'the roofline builder is kept, ready for guessing to return',
-    !!pick('rmBuildSuggestions') && /NOTHING IS GUESSED ANY MORE/.test(admin),
-    'the automatic path is switched off, not deleted, and the file should say which');
+  /* ⭐ AND THE AUTOMATIC LINES ARE BACK ON (2026-08-25). Owner: "what if you
+     automatically wrote out the lines for the front and if they want a side we
+     can measure that on our own for now."
+     ⚠ THIS REVERSES HER OWN EARLIER RULING - "delete everything for now and
+     give me a tool that I can show you what it should look like by placing
+     dots" - and the old check asserted that reversal was still in force by
+     matching the words NOTHING IS GUESSED ANY MORE. Kept as a check with a new
+     subject rather than deleted: what has to be true now is that the builder
+     RUNS, and that what it draws is not billed as a measurement.
+     ⭐ WHY THE PREMISE CHANGED: the offered lines were "close enough to look
+     plausible and wrong enough to be useless" because Google's roof model is in
+     TRUE positions and its satellite tile is DISPLACED - about six feet on the
+     house that prompted this. That is measured and corrected now. */
+  check('S141', 'the roofline builder is wired up and actually runs',
+    !!pick('rmBuildSuggestions') &&
+    /const guessed = rmFaces\.length \? rmBuildSuggestions\(rmFaces\) : 0;/.test(admin),
+    'the front eaves were asked for by name; a builder nobody calls draws nothing');
+  /* ⚠ AND ONLY AFTER THE STREET PHOTO HAS SETTLED. Which faces front the
+     road is decided from the camera, so building when the model arrives puts
+     the wrong sides on. */
+  const whenReady = pick('rmBuildWhenReady') || '';
+  check('S141', 'and only once the camera exists, so FRONT means the road',
+    whenReady.indexOf('rmBuildSuggestions') !== -1 &&
+    /if\(rmSuggestionsBuilt \|\| !rmFacesReady \|\| !rmStreetSettled\) return 0;/.test(whenReady),
+    'built before the street photo lands, front and back are a coin toss');
 
   /* ---- 3. a picked line is never re-picked ----------------------------- */
   const reside = pick('rmResideSuggestions');
@@ -37913,9 +37926,36 @@ suite('260. Measure Roof - no guessing: which feet are real');
   check('S260', 'and the question is asked before the write, not after',
     useBtn.indexOf('rmGuessedFeet()') < useBtn.indexOf('updateDoc'),
     'confirming after the write has already happened is not a confirmation');
-  check('S260', 'and it names the one thing that fixes it',
-    /Street View/.test(useBtn),
-    'telling somebody a number is wrong without saying how to fix it just stops them working');
+  /* ⚠ IT NAMES THE FIX, and WHICH fix depends on what is being guessed. It
+     used to hard-code Street View, which is right for an assumed roof height
+     and wrong for an offered line nobody has looked at - naming the wrong
+     remedy is worse than naming none, because it sends somebody to a control
+     that will not change the number. rmGuessedFix answers both.
+     ⚠ AND THERE ARE TWO SAVE BUTTONS. A red-check hard-coding the remedy
+     again went straight through, because the sabotage landed on rmCommitBtn -
+     which sits EARLIER in the file - while this check only ever read
+     rmUseFeetBtn's slice. Same shape as the two build sheets: guard one of a
+     pair and the other drifts. Each is named. */
+  [['rmCommitBtn', 'Save to this quote'], ['rmUseFeetBtn', 'Save the feet only']].forEach(function (pair) {
+    const from = "getElementById('" + pair[0] + "').addEventListener";
+    const body = (admin.split(from)[1] || '').slice(0, 2000);
+    /* ⚠ THE QUESTION ITSELF, not the handler around it. rmGuessedFix is
+       named twice in each of these - once in the confirm and once in the line
+       that reports not saving - so a check over the whole handler stayed green
+       with the remedy stripped out of the QUESTION, which is the half that has
+       to carry it. A red-check caught exactly that. */
+    const asked = body.indexOf('!confirm(') >= 0
+      ? body.slice(body.indexOf('!confirm('), body.indexOf(')) {', body.indexOf('!confirm(')))
+      : '';
+    check('S260', 'and it names the one thing that fixes it (' + pair[1] + ')',
+      /rmGuessedFix\(\)/.test(asked) && /rmGuessedWhy\(\)/.test(asked) &&
+      /const guessed = rmGuessedFeet\(\);/.test(body),
+      'telling somebody a number is wrong without saying how to fix it just stops them working');
+  });
+  const fix = extractFn(admin, 'rmGuessedFix') || '';
+  check('S260', 'and the remedy it names matches what is actually guessed',
+    /Street View/.test(fix) && /offered line/.test(fix),
+    'one remedy for two different causes sends somebody to a control that cannot help');
 }
 
 
@@ -39634,6 +39674,136 @@ suite('270. Measure Roof - lining up without being asked');
       return idle.indexOf("'fitted'") !== -1 && idle.indexOf("'inherited'") !== -1;
     })(),
     'three different levels of confidence reading the same is how a guess survives');
+}
+
+
+suite('271. Measure Roof - the front eaves are offered, and an offer is not a measurement');
+{
+  /* ⭐ Owner: "what if you automatically wrote out the lines for the front and
+     if they want a side we can measure that on our own for now."
+
+     ⚠ THIS REVERSES HER OWN EARLIER RULING, and the reasoning behind that one
+     is worth keeping: "delete everything for now and give me a tool that I can
+     show you what it should look like by placing dots." Every automatic version
+     put lines that were close enough to look plausible and wrong enough to be
+     useless. What changed is that we now know WHY - the roof model is in true
+     positions and the satellite tile is displaced, about six feet on the house
+     that prompted it - and that is measured and corrected now.
+
+     ⚠ THE DANGEROUS HALF IS THE MONEY, not the drawing. A suggested run is ON
+     by default when it faces the road, so its footage goes straight into the
+     total, and the total sizes the bins, picks the number series, counts the
+     bundles and sets the price. A line nobody has looked at must therefore be
+     COUNTED AS A GUESS, or "I need no guessing I need feet to be correct" is
+     quietly untrue again the moment this is switched on. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunFeet',
+                 'rmRunClimbs', 'rmGuessedFeet', 'rmGuessedWhy', 'rmGuessedFix'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S271', 'the guessed-footage pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const mk = (datumSource) => new Function(
+      'const RM_M_TO_FT=3.280839895, RM_CLIMB_TOL_M=' +
+        (Number((admin.match(/const RM_CLIMB_TOL_M\s*=\s*([\d.]+)/) || [])[1]) || 0.3) + ';' + LF_ +
+      'let rmOrigin={lat:40.5527,lng:-111.8574};' + LF_ +
+      'let rmRuns=[];' + LF_ +
+      'function rmDatum(){ return {m:3, source:' + JSON.stringify(datumSource) + '}; }' + LF_ +
+      NAMES.map(pick).join(LF_) + LF_ +
+      'return {feet:rmGuessedFeet, why:rmGuessedWhy, fix:rmGuessedFix,' +
+      ' set:function(rs){ rmRuns=rs; }, runFeet:rmRunFeet};')();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.5527);
+    const pt = (e, n, h) => ({lat: 40.5527 + n / m.lat, lng: -111.8574 + e / m.lng, h: h});
+    /* A 20 m gutter: level, so it is only ever a guess because of who drew it. */
+    const offered = (extra) => Object.assign(
+      {surface: 'sky', type: 'perimeter', suggested: true, path: [pt(-10, -5, 3), pt(10, -5, 3)]}, extra || {});
+    /* A rake: climbs 2 m, so it IS a guess when the roof height is assumed. */
+    const rake = () => ({surface: 'sky', type: 'perimeter', path: [pt(-10, 0, 3), pt(-4, 0, 5)]});
+
+    const api = mk('street');
+    api.set([offered()]);
+    const all = api.runFeet(offered());
+    check('S271', 'a line Google offered that nobody has touched is counted as a guess',
+      Math.abs(api.feet() - all) < 0.01,
+      'got ' + api.feet().toFixed(1) + ' of ' + all.toFixed(1) +
+      ' ft - an offer that counts as measured is the whole risk of switching this on');
+    /* ⚠ AND TOUCHING IT IS THE ANSWER. Dragging it, or switching it off and
+       on, is somebody looking at the roof and saying yes. */
+    api.set([offered({touched: true})]);
+    check('S271', 'and it stops being one the moment somebody touches it',
+      api.feet() === 0, 'got ' + api.feet().toFixed(1) + ' ft after it was confirmed');
+    /* ⚠ A LINE SWITCHED OFF IS NOT WORK AND IS NOT A GUESS EITHER. It counts
+       nothing, so warning about it would be a false alarm on a decision the
+       office has already made. */
+    api.set([offered({on: false})]);
+    check('S271', 'a line switched off is not counted, and not warned about',
+      api.feet() === 0, 'got ' + api.feet().toFixed(1) + ' ft for a line nobody is hanging');
+
+    /* ⚠ A HAND-TRACED LINE IS NEVER AN OFFER. The whole point of tracing is
+       that somebody looked; counting it would put the warning on every house. */
+    api.set([{surface: 'sky', type: 'perimeter', path: [pt(-10, -5, 3), pt(10, -5, 3)]}]);
+    check('S271', 'a line traced by hand is not a guess at all',
+      api.feet() === 0, 'got ' + api.feet().toFixed(1) + ' ft on work somebody did themselves');
+
+    /* ⚠ COUNTED ONCE, NOT TWICE. A suggested line that also climbs would
+       otherwise report more guessed feet than the house has, which reads as a
+       bug and teaches the office to ignore the line. */
+    const climby = mk('assumed');
+    const oneRake = Object.assign(rake(), {suggested: true});
+    climby.set([oneRake]);
+    check('S271', 'a line that is both offered AND climbing is counted once',
+      Math.abs(climby.feet() - climby.runFeet(oneRake)) < 0.01,
+      'got ' + climby.feet().toFixed(1) + ' for a run of ' + climby.runFeet(oneRake).toFixed(1) + ' ft');
+
+    /* ⚠ AND THE OLD REASON STILL FIRES. Switching suggestions on must not
+       have quietly replaced the assumed-roof-height warning. */
+    climby.set([rake()]);
+    check('S271', 'a climbing line on an assumed roof height is still a guess',
+      climby.feet() > 0, 'the reason this warning existed in the first place stopped working');
+    const measured = mk('street');
+    measured.set([rake()]);
+    check('S271', 'but not once the roof height has been measured',
+      measured.feet() === 0, 'a measured roof height must clear the climbing lines');
+
+    /* ⚠ THE MESSAGE HAS TO NAME THE RIGHT CAUSE AND THE RIGHT REMEDY.
+       Sending somebody to Street View to fix an offered line is naming a
+       control that cannot change the number - worse than saying nothing. */
+    api.set([offered()]);
+    check('S271', 'the reason given names the offered line, not a roof height',
+      /guess at the roofline/.test(api.why()) && !/climbs/.test(api.why()),
+      'said: ' + api.why());
+    check('S271', 'and the remedy given is the one that actually works on it',
+      /Drag an offered line/.test(api.fix()),
+      'said: ' + api.fix());
+    climby.set([rake()]);
+    check('S271', 'while an assumed roof height still points at Street View',
+      /climbs/.test(climby.why()) && /Street View/.test(climby.fix()),
+      'said: ' + climby.why() + ' | ' + climby.fix());
+    /* Both at once has to say both, or half the total looks unexplained. */
+    climby.set([offered(), rake()]);
+    check('S271', 'and both at once says both',
+      /roofline/.test(climby.why()) && /climbs/.test(climby.why()),
+      'said: ' + climby.why());
+  }
+
+  /* ---- only the front, which is what was asked for -------------------- */
+  const build = extractFn(admin, 'rmBuildSuggestions') || '';
+  /* ⚠ ON BY DEFAULT ONLY WHERE IT FACES THE ROAD. Every side switched on
+     would bill for three sides of a house nobody has looked at. */
+  check('S271', 'only the sides facing the road are switched on to start with',
+    /on: rmFaceFacesTheRoad\(line\)/.test(build),
+    'switching every side on bills for roof nobody has looked at');
+  /* ⚠ AND A PEAK IS NOT A GUTTER. Lights do not go along a ridge. */
+  check('S271', 'the peak is never offered as somewhere to hang lights',
+    build.indexOf('NOT the peak') !== -1 && !/addLine\(face, rmFaceRidge/.test(build),
+    'a ridge offered as roofline is footage for a run nobody hangs');
+  /* ⚠ AND A REBUILD MUST NOT THROW AWAY WORK. */
+  check('S271', 'rebuilding the offers keeps everything traced by hand',
+    /rmRuns = rmRuns\.filter\(function\(r\)\{[\s\S]{0,80}if\(!r\.suggested\) return true;/.test(build),
+    'a rebuild that clears hand-traced runs loses the work the office actually did');
 }
 
 Promise.all(pendingAsync).then(function () {
