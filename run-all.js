@@ -37327,6 +37327,10 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
          the scale check is saved with the drawing, and a sandbox missing it dies
          with a bare ReferenceError rather than failing a named check. */
       'let rmCalibration=null;' + LF_ +
+      /* ⚠ AND THE SKY OFFSET, for the same reason. It is recorded in the saved
+         drawing and set (never re-applied) on the way back in, so a sandbox
+         without it dies with a bare ReferenceError instead of failing by name. */
+      'let rmSkyOffset=null, rmSkyOffsetSource="";' + LF_ +
       'let __cam=null, __grade="Medium", __pano=null, __box={};' + LF_ +
       'function rmCamOnRoad(){ return __cam; }' + LF_ +
       'function rmDatum(){ return {m:3, source:"assumed"}; }' + LF_ +
@@ -38737,6 +38741,313 @@ const SHADOW_ALLOWED = new Set([
   check('reliability', 'and the allowlist holds no names that are already gone',
     stale.length === 0,
     'delete these from SHADOW_ALLOWED, the fakes are gone: ' + stale.join(', '));
+}
+
+suite('268. Measure Roof - lining the satellite picture up with the model');
+{
+  /* ⚠ THE FAULT THIS CLOSES, reported off a real house three times running:
+     "This is still wrong." The two fixes before it were both about HEIGHT and
+     the fault is POSITION. Google's aerial imagery is not shot from straight
+     overhead - on that house you can see a strip of the WALL down the side of
+     the roof - so a gutter traced on the picture you can SEE is several feet
+     from the gutter Google's MODEL knows about. It lands outside every roof
+     face, falls back to the eave, and draws into Street View beside the house.
+
+     ⚠ AND NO FORMULA CAN ANSWER IT. Google does not publish the angle the
+     satellite was at, so working the shift out would be the guess the owner has
+     ruled out twice. It is measured off two of her own clicks instead.
+
+     ⚠ THIS SUITE RUNS THE REAL FUNCTIONS. Every one of the alignment claims is
+     about where a point ENDS UP, which a text match cannot see - and this file
+     records four separate times a green text check sat over code that could not
+     run at all. */
+  const LF_ = String.fromCharCode(10);
+  /* ⚠ extractFn SEARCHES FOR "function NAME(" AND SO DROPS THE async
+     KEYWORD. Lifted that way, rmAlignOnLoad arrives as a plain function full of
+     bare `await` - a parse error, which kills the whole suite as one
+     unattributable crash with no clue which name did it. CLAUDE.md records this
+     costing an afternoon already. indexOf, not a regex, for the same reason it
+     is elsewhere in this file. */
+  const pick = (n) => {
+    let at = admin.indexOf('async function ' + n + '(');
+    if (at < 0) return extractFn(admin, n);
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmSkyShift', 'rmSkyOffsetFt',
+                 'rmSetSkyOffset', 'rmAlignTakeSky', 'rmAlignTakeStreet',
+                 'rmAlignIdleNote', 'rmAlignMetresApart', 'rmAlignNearest',
+                 'rmAlignMilesWord', 'rmAlignOnLoad'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S268', 'the alignment pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  /* ⚠ READ OUT OF THE FILE, NEVER COPIED. Suite 266 shipped with its tolerance
+     typed into the test, so widening the real one changed nothing the test
+     could see. A ceiling that stops refusing is exactly that failure. */
+  const maxM = Number((admin.match(/const RM_ALIGN_MAX_M\s*=\s*([\d.]+)/) || [])[1]);
+  const inheritM = Number((admin.match(/const RM_ALIGN_INHERIT_M\s*=\s*([\d.]+)/) || [])[1]);
+  const sameSpotM = Number((admin.match(/const RM_ALIGN_SAME_SPOT_M\s*=\s*([\d.]+)/) || [])[1]);
+  check('S268', 'the refusal ceiling and the inherit range are real numbers',
+    isFinite(maxM) && maxM > 0 && isFinite(inheritM) && inheritM > 0 && isFinite(sameSpotM),
+    'RM_ALIGN_MAX_M=' + maxM + ' RM_ALIGN_INHERIT_M=' + inheritM);
+
+  if (!missing.length && isFinite(maxM)) {
+    const PRE =
+      'const RM_M_TO_FT=3.280839895;' + LF_ +
+      'const RM_ALIGN_MAX_M=' + maxM + ', RM_ALIGN_INHERIT_M=' + inheritM + ';' + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'let rmRuns=[], rmSkyOffset=null, rmSkyOffsetSource="", rmAligning="", rmAlignSky=null;' + LF_ +
+      'let __notes=[], __synced=[], __roofH=null, __samples=[], __btn=0;' + LF_ +
+      /* Stubs are the SCREEN and the DATABASE only. Every metre of arithmetic
+         below is the real shipped code. */
+      'function rmAlignNote(m){ __notes.push(m); }' + LF_ +
+      'function rmSetAlignBtn(){ __btn++; }' + LF_ +
+      'function rmSyncSky(r){ __synced.push(r); }' + LF_ +
+      'function rmRenderResults(){}' + LF_ +
+      'function rmPaintStreet(){}' + LF_ +
+      'function rmRoofHeightAt(){ return __roofH; }' + LF_ +
+      'async function rmAlignLoadSamples(){ return __samples; }' + LF_ +
+      'function rmAlignSaveSample(){ __saved=(__saved||0)+1; }' + LF_ +
+      'let __saved=0;' + LF_;
+    const BODY = PRE + NAMES.map(pick).join(LF_) + LF_ +
+      'return {shift:rmSkyShift, set:rmSetSkyOffset, takeSky:rmAlignTakeSky,' +
+      ' takeStreet:rmAlignTakeStreet, onLoad:rmAlignOnLoad, apart:rmAlignMetresApart,' +
+      ' nearest:rmAlignNearest, offFt:rmSkyOffsetFt, local:rmToLocal, idle:rmAlignIdleNote,' +
+      ' reset:function(runs){ rmRuns=runs||[]; rmSkyOffset=null; rmSkyOffsetSource="";' +
+      '   rmAligning=""; rmAlignSky=null; __notes=[]; __synced=[]; __saved=0; },' +
+      ' offset:function(){ return rmSkyOffset; }, source:function(){ return rmSkyOffsetSource; },' +
+      ' runs:function(){ return rmRuns; }, notes:function(){ return __notes; },' +
+      ' saved:function(){ return __saved; }, synced:function(){ return __synced; },' +
+      ' roofH:function(h){ __roofH=h; }, samples:function(s){ __samples=s||[]; },' +
+      ' origin:function(o){ rmOrigin=o; }};';
+    assertSandbox('S268', 'sky alignment', BODY, admin,
+      ['rmAlignNote', 'rmSetAlignBtn', 'rmSyncSky', 'rmRenderResults', 'rmPaintStreet',
+       'rmRoofHeightAt', 'rmAlignLoadSamples', 'rmAlignSaveSample']);
+    const api = new Function(BODY)();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+    const pt = (e, n, h) => ({lat: ll(e, n).lat, lng: ll(e, n).lng, h: h});
+    const near = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.05 : tol);
+
+    /* ---- a click is moved onto the model ----------------------------- */
+    api.reset([]);
+    const raw = ll(0, 0);
+    const un = api.shift(raw.lat, raw.lng);
+    const unL = api.local(un.lat, un.lng, 0);
+    check('S268', 'with nothing lined up a sky click is left exactly where it was',
+      near(unL.e, 0, 1e-6) && near(unL.n, 0, 1e-6),
+      'moved to e=' + unL.e.toFixed(3) + ' n=' + unL.n.toFixed(3));
+
+    api.set({e: 2.4, n: -1.1});
+    const on = api.shift(raw.lat, raw.lng);
+    const onL = api.local(on.lat, on.lng, 0);
+    check('S268', 'and once it is, every sky click is moved by exactly that much',
+      near(onL.e, 2.4) && near(onL.n, -1.1),
+      'expected e=2.40 n=-1.10, got e=' + onL.e.toFixed(2) + ' n=' + onL.n.toFixed(2));
+
+    /* ---- lines already traced move with it ---------------------------- */
+    const mkRuns = () => [
+      {surface: 'sky', type: 'perimeter', path: [pt(-6, -8, 3), pt(6, -8, 3)]},
+      {surface: 'street', type: 'perimeter', path: [pt(-6, 4, 3), pt(6, 4, 3)]},
+      {surface: 'manual', type: 'perimeter', path: [], manualFeet: 40},
+    ];
+    api.reset(mkRuns());
+    api.roofH(null);
+    api.set({e: 3, n: 0});
+    let rs = api.runs();
+    const skyEnd = api.local(rs[0].path[0].lat, rs[0].path[0].lng, 0);
+    check('S268', 'a line already traced from above moves with the correction',
+      near(skyEnd.e, -3) && near(skyEnd.n, -8),
+      'sky run start went to e=' + skyEnd.e.toFixed(2) + ' n=' + skyEnd.n.toFixed(2) + ', wanted e=-3.00 n=-8.00');
+    const stEnd = api.local(rs[1].path[0].lat, rs[1].path[0].lng, 0);
+    /* ⚠ THE HALF THAT WOULD BE INVISIBLE. A Street View line got its position
+       from the camera and the model - which is the thing being lined up TO - so
+       moving it as well would drag the one correct drawing off the house. */
+    check('S268', 'but a line traced in Street View is left alone',
+      near(stEnd.e, -6) && near(stEnd.n, 4),
+      'street run start moved to e=' + stEnd.e.toFixed(2) + ' n=' + stEnd.n.toFixed(2));
+    check('S268', 'and a typed side survives having no path to move',
+      rs[2].manualFeet === 40 && (rs[2].path || []).length === 0,
+      'typed side came back as ' + JSON.stringify(rs[2]));
+
+    /* ⚠ THE POINT OF THE WHOLE THING. A corrected click lands INSIDE the roof
+       face it belongs to, and that is what stops one end of a level gutter
+       reading as the eave while the other reads as the ridge. */
+    api.reset(mkRuns());
+    api.roofH(4.25);
+    api.set({e: 3, n: 0});
+    check('S268', 'the heights are re-read where the points landed',
+      api.runs()[0].path[0].h === 4.25,
+      'height stayed at ' + api.runs()[0].path[0].h);
+    api.reset(mkRuns());
+    api.roofH(null);
+    api.set({e: 3, n: 0});
+    check('S268', 'and a point that still finds no roof keeps the height it had',
+      api.runs()[0].path[0].h === 3,
+      'height became ' + api.runs()[0].path[0].h);
+
+    /* ---- the two clicks ---------------------------------------------- */
+    api.reset(mkRuns());
+    api.roofH(null);
+    api.takeSky(ll(0, 0));
+    api.takeStreet({e: 2, n: 1});
+    check('S268', 'two clicks on one spot become the correction',
+      api.offset() && near(api.offset().e, 2) && near(api.offset().n, 1),
+      'offset came out ' + JSON.stringify(api.offset()));
+    check('S268', 'a measured alignment is recorded as measured, and remembered',
+      api.source() === 'measured' && api.saved() === 1,
+      'source=' + api.source() + ' saved=' + api.saved());
+
+    /* ⚠ A SECOND PASS MEASURES WHAT IS LEFT OVER, not the whole thing again.
+       The sky click comes through the same correction an ordinary click does,
+       so lining up twice converges instead of swinging back and forth. */
+    const before2 = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0);
+    api.takeSky(api.shift(ll(0, 0).lat, ll(0, 0).lng));
+    api.takeStreet({e: 2.5, n: 1});
+    check('S268', 'lining up again adds what is still left, it does not start over',
+      near(api.offset().e, 2.5) && near(api.offset().n, 1),
+      'offset after the second pass ' + JSON.stringify(api.offset()));
+    const after2 = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0);
+    check('S268', 'and the lines move only by the difference, not twice over',
+      near(after2.e - before2.e, 0.5) && near(after2.n - before2.n, 0),
+      'the run moved by e=' + (after2.e - before2.e).toFixed(2) + ' n=' + (after2.n - before2.n).toFixed(2));
+
+    /* ⚠ REFUSED, NOT APPLIED. Past the ceiling the two clicks are not the same
+       spot, and accepting one would drag every line traced from above twenty
+       feet sideways off a single mis-click - silently, and looking exactly like
+       the tool working. */
+    api.reset(mkRuns());
+    api.roofH(null);
+    const keptE = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0).e;
+    api.takeSky(ll(0, 0));
+    api.takeStreet({e: maxM + 3, n: 0});
+    check('S268', 'two clicks too far apart to be one spot are refused',
+      api.offset() === null,
+      'it accepted an offset of ' + JSON.stringify(api.offset()));
+    check('S268', 'and nothing moved when it refused',
+      near(api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0).e, keptE),
+      'a run moved anyway');
+    check('S268', 'the refusal says how far apart they were',
+      /ft apart/.test(api.notes().join(' ')),
+      'said: ' + api.notes().join(' | '));
+
+    /* ⚠ A STREET CLICK THAT HIT NOTHING IS NOT AN ANSWER. Treating a miss as
+       {e:0,n:0} would read as "the picture is perfect" and cancel a correction
+       that was already right. */
+    api.reset(mkRuns());
+    api.takeSky(ll(0, 0));
+    api.takeStreet(null);
+    check('S268', 'a street click that landed on nothing sets no correction',
+      api.offset() === null,
+      'it took ' + JSON.stringify(api.offset()));
+
+    /* ---- inheriting from a neighbour ---------------------------------- */
+    check('S268', 'how far apart two houses are is measured, not guessed',
+      near(api.apart({lat: 40.2969, lng: -111.6946}, ll(0, 100)), 100, 0.5),
+      'came out ' + api.apart({lat: 40.2969, lng: -111.6946}, ll(0, 100)).toFixed(1) + ' m');
+
+    pendingAsync.push((async () => {
+      api.reset([]);
+      api.samples([Object.assign({e: 1.5, n: -2}, ll(0, 300))]);
+      await api.onLoad();
+      check('S268', 'a house with nothing measured inherits a nearby answer',
+        api.offset() && near(api.offset().e, 1.5) && near(api.offset().n, -2),
+        'inherited ' + JSON.stringify(api.offset()));
+      /* ⚠ INHERITED IS NOT MEASURED AND HAS TO SAY SO. Applied silently it is a
+         guess wearing a measurement's words, which is the one thing this tool
+         is not allowed to do. */
+      check('S268', 'and it says the answer came from somewhere else',
+        api.source() === 'inherited' && /not here/.test(api.notes().join(' ')),
+        'source=' + api.source() + ' said: ' + api.notes().join(' | '));
+      /* ⚠ NEVER WRITTEN BACK. An inherited offset saved as a fresh sample would
+         copy itself down the street gaining authority at every step, with
+         nothing left saying where it really came from. */
+      check('S268', 'an inherited answer is never saved back as a fresh one',
+        api.saved() === 0,
+        'it saved ' + api.saved() + ' sample(s)');
+
+      api.reset([]);
+      api.samples([Object.assign({e: 1.5, n: -2}, ll(0, inheritM + 500))]);
+      await api.onLoad();
+      check('S268', 'but not from a house too far away to share the same flyover',
+        api.offset() === null,
+        'inherited from ' + Math.round(inheritM + 500) + ' m away: ' + JSON.stringify(api.offset()));
+
+      /* ⚠ A HOUSE SOMEBODY ACTUALLY CHECKED KEEPS ITS OWN ANSWER. Inheriting
+         over the top of a restored drawing would move every line that was
+         traced under the saved offset. */
+      api.reset([]);
+      api.set({e: 4, n: 4});
+      api.samples([Object.assign({e: 1.5, n: -2}, ll(0, 50))]);
+      await api.onLoad();
+      check('S268', 'and a house that already has an answer keeps it',
+        near(api.offset().e, 4) && near(api.offset().n, 4),
+        'a neighbour overwrote it: ' + JSON.stringify(api.offset()));
+    })());
+  }
+
+  /* ---- the wiring a sandbox cannot see ------------------------------- */
+  /* ⚠ SLICED TO THE NEXT REAL ANCHOR, never to a character count. A fixed
+     window goes stale the moment the code inside it grows, and turns a true
+     pass into a false FAIL - CLAUDE.md §7. */
+  const slice = (src, from, to) => {
+    const a = src.indexOf(from);
+    if (a < 0) return '';
+    const b = src.indexOf(to, a + from.length);
+    return src.slice(a, b < 0 ? src.length : b);
+  };
+  /* ⚠ ONE FUNNEL. Every sky click - tracing, starting a run, picking a dot -
+     goes through rmMapPixelToWorld, which is what makes correcting it there
+     enough. A second route from a map pixel to a world point would bypass it. */
+  const funnel = slice(admin, 'function rmMapPixelToWorld', 'function rmPhotoPoint');
+  check('S268', 'the one place a sky click becomes a place applies the correction',
+    /rmSkyShift\(/.test(funnel),
+    'rmMapPixelToWorld does not call rmSkyShift');
+  /* ⚠ AND BEFORE THE HEIGHT IS READ. A displaced click lands outside every roof
+     face and falls back to the eave; the corrected one lands inside the face it
+     belongs to. Reading the height first throws that away. */
+  check('S268', 'and it does so before the roof height is read',
+    funnel.indexOf('rmSkyShift(') < funnel.indexOf('rmRoofHeightAt('),
+    'the height is read before the click is corrected');
+
+  /* ⚠ THE SAVED PATHS ARE ALREADY CORRECTED. Pushing a restored offset through
+     rmSetSkyOffset would shift the whole drawing a second time and put it twice
+     as far off as the picture ever was. */
+  const restore = slice(admin, 'function rmRestoreMeasurement', 'function rmFmtFeet');
+  check('S268', 'restoring a saved drawing sets the correction without re-applying it',
+    /rmSkyOffset\s*=\s*\{/.test(restore) && !/rmSetSkyOffset\(/.test(restore),
+    'rmRestoreMeasurement moves the restored lines again');
+  check('S268', 'and the correction is saved with the drawing in the first place',
+    /skyOffset:\s*rmSkyOffset\s*\?/.test(slice(admin, 'function rmMeasurementDoc', 'function rmSavePayload')),
+    'rmMeasurementDoc does not write skyOffset');
+
+  /* ⚠ IT BELONGS TO ONE PICTURE OF ONE HOUSE. Carried across, the next address
+     opens silently corrected by however far the LAST one's imagery leaned, and
+     the panel calls it lined up. */
+  ['rmForgetLastHouse', 'rmReset'].forEach(function (fn) {
+    const body = extractFn(admin, fn) || '';
+    check('S268', 'loading another house forgets the last one\'s correction (' + fn + ')',
+      /rmSkyOffset\s*=\s*null/.test(body),
+      fn + ' keeps rmSkyOffset');
+  });
+
+  check('S268', 'the button and the note the office reads are both on the page',
+    admin.indexOf('id="rmAlignBtn"') !== -1 && admin.indexOf('id="rmAlignNote"') !== -1,
+    'the alignment panel is missing from the markup');
+  /* ⚠ A CLICK MEANS ONE THING AT A TIME. While the tool is waiting for the
+     second half of an alignment, a click must not also land in the run being
+     traced - the two alignment clicks would be billed as roofline. */
+  const skyClick = slice(admin, "getElementById('rmMapLock').addEventListener('click'", "getElementById('rmMapLock').addEventListener('dblclick'");
+  check('S268', 'an alignment click is taken before it can join a traced side',
+    skyClick.indexOf('rmAligning') !== -1 &&
+    skyClick.indexOf('rmAligning') < skyClick.indexOf('rmAddPoint('),
+    'the map click adds a point before it checks for an alignment');
 }
 
 Promise.all(pendingAsync).then(function () {
