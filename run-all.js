@@ -407,6 +407,39 @@ function sectionFrom(src, start) {
 }
 
 const admin = read('admin.html');
+
+/* ⭐ LIFT THE REAL FUNCTION, RATHER THAN WRITING A FAKE OF IT (added 2026-08-25).
+ *
+ * A sandbox needing `thanksgivingDate` used to get `y => new Date(y, 10, 26)` —
+ * somebody typed the date 2026 happens to land on. Every check that leaned on it
+ * was really asking a hardcoded day, and would go on passing in 2027 while the
+ * real fourth-Thursday rule moved underneath it. Owner, on that exact one: "cause
+ * thanksgiving date is fourth thursday and those houses should be scheduled after
+ * that thursday."
+ *
+ * real('name') hands back the function admin.html actually ships, so the check
+ * grades against the answer the office and the crew get.
+ *
+ * ⚠ IT THROWS WHEN THE NAME IS GONE, rather than returning undefined. A rename
+ * must break loudly here; a sandbox quietly holding `undefined` is the silent
+ * mis-grading this whole mechanism exists to stop.
+ *
+ * ⚠ DEPS GO IN AS ARGUMENTS, never onto the shared scope — nothing is left behind
+ * for another suite to find. That is the same rule Suite 252 follows and the
+ * reason the shadowing guard at the foot of this file can be strict.
+ *
+ * ⚠ AND THE GUARD RECOGNISES THIS BY NAME. `global.x = real('x')` is allowed
+ * without an allowlist entry, because what the guard exists to catch is a FAKE
+ * wearing a real name — not the real thing being reused. That is why replacing a
+ * fake with real() also removes it from SHADOW_ALLOWED: the debt is genuinely paid,
+ * not moved.
+ */
+function real(name, deps) {
+  const src = extractFn(admin, name);
+  if (!src) throw new Error("real(): admin.html has no function " + name);
+  const args = Object.keys(deps || {});
+  return new Function(...args, src + "\nreturn " + name + ";")(...args.map(k => deps[k]));
+}
 /* houseAllowedFrom closes over this. Sandboxes that lift the whole
    MAX_STOPS_PER_ROUTE block already have it; the ones that lift the function
    on its own need it handed to them. Taken from admin.html rather than
@@ -1413,26 +1446,38 @@ if (JSDOM) {
   const dom = new JSDOM('<div id="quotesList"></div>');
   global.document = dom.window.document;
 
-  global.esc = s => String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  global.fmtDate = () => 'Aug 3';
+  global.esc = real('esc');
+  global.fmtDate = real('fmtDate');
   global.fmtMoney = n => '$' + Number(n).toFixed(2);
-  global.daysSince = () => 3;
-  global.isStaleUnresponsive = () => false;
+  global.daysSince = real('daysSince');
+  /* The real staleness rule, with its own chain handed in: it asks whether the quote
+     is still waiting on the CUSTOMER, which reaches quoteStage, the already-a-customer
+     test and the sent test. Lifted rather than stubbed so the badge is decided by the
+     rule the office sees. */
+  global.isStaleUnresponsive = real('isStaleUnresponsive', {
+    daysSince: real('daysSince'),
+    quoteAwaitsCustomer: real('quoteAwaitsCustomer', {
+      quoteStage: real('quoteStage'),
+      quoteAlreadyACustomer: real('quoteAlreadyACustomer', {
+        isRequote: real('isRequote'),
+        quoteMatchAddress: real('quoteMatchAddress'),
+        /* ⚠ THE ONE STUB IN THIS CHAIN, AND IT IS SAID RATHER THAN HIDDEN: an empty
+           map means "no customers are loaded in this sandbox", which is true of it —
+           quoteCustomerKeys reads jobAddresses, and this suite renders quote cards with
+           no customer book behind them. Supplying the real one would need every fixture
+           to carry a book. */
+        quoteCustomerKeys: () => new Map(),
+      }),
+      quoteHasBeenSent: real('quoteHasBeenSent'),
+    }),
+  });
   global.trashIcon = () => '<svg></svg>';
   global.perFootRate = 2.5;
   global.attachDeleteHandlers = () => {};
   // renderQuoteRows calls quoteStage(d) for the New house / Old house badge.
   // Mirrors the real one in admin.html — without it the whole suite crashed
   // out here rather than reporting a failure.
-  global.quoteStage = d => {
-    if ((d.status || 'new') === 'closed' || d.quoteArchived ||
-        d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
-    if (typeof d.quotedPrice !== 'number') return 'new';
-    if (d.approvalStatus === 'approved' && d.formCompleted) return 'form';
-    return 'send';
-  };
+  global.quoteStage = real('quoteStage');
   // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
   // button label and the re-quote wording. Mirrors the real one in admin.html.
   /* ⚠ THE REAL FUNCTION, LIFTED — NOT A MIRROR LIKE THE TWO ABOVE. quoteStage and
@@ -5000,11 +5045,6 @@ if (!JSDOM) {
     global.warehouseExtras = [];
     global.custNumChip = d => (d && d.customerNumber ? ' <span>#' + d.customerNumber + '</span>' : '');
     global.propLabelChip = () => '';
-    global.houseBundleNeed = d => {
-      const feet = Number(d.measuredFeet) || 0;
-      return feet ? { feet, bundles: Math.ceil(feet / 40), estimated: false, unknown: false }
-                  : { feet: 0, bundles: 1, estimated: false, unknown: true };
-    };
     // Firestore stubs — a render test must never reach a real write path (§9.4).
     global.db = {};
     global.doc = (...a) => ({ __path: a.slice(1).join('/') });
@@ -5339,8 +5379,7 @@ if (!JSDOM) {
     '<div id="whExtraPatternChips"></div>' +
     '<div id="whExtraPatternNote"></div></div>');
   global.document = dom.window.document;
-  global.esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  global.esc = real('esc');
 
   /* eval'd `const` never escapes the eval call, so the colour list is promoted
      to a global — lifted from admin.html, never restated here, or this suite
@@ -6091,11 +6130,10 @@ suite('15. The printed schedule sheet');
     // predictable so a wrong ORDER or a missing FIELD shows up as a failure.
     global.dlabel = dt => ({ wd: 'Mon', full: 'Nov 3' });
     global.dayDate = d => d._date;
-    global.isoOf = () => '2026-11-03';
-    global.fmtPhone = p => '(801) 555-0100';
+    global.isoOf = real('isoOf');
+    global.fmtPhone = real('fmtPhone');
     global.isNewMemberHouse = h => !!h.isNew;
-    global.esc = s => (s || '').toString().replace(/[&<>"']/g, c =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    global.esc = real('esc');
     /* The REAL personName, lifted out of the page rather than stubbed — the
        printed sheet is where a name-format bug reaches the crew on paper, so
        this suite should be testing what actually ships, not a fake that agrees
@@ -6192,8 +6230,8 @@ suite('15. The printed schedule sheet');
   } else {
     global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
     global.dayDate = d => d._date;
-    global.isoOf = () => '2026-11-03';
-    global.fmtPhone = p => '(801) 555-0100';
+    global.isoOf = real('isoOf');
+    global.fmtPhone = real('fmtPhone');
     global.isNewMemberHouse = () => false;
     // A season that is NOT the same two towns every day — which is the case
     // the automatic pairing exists for.
@@ -6323,7 +6361,6 @@ suite('16. Not-done stops get another day');
     };
     global.isNewMemberHouse = () => false;
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
-    global.allHouses = () => SEASON.flatMap(d => d.houses);
     const api = eval(admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
       '\n;({left: unfinishedOn, later: laterDaysLike, next: nextDayInCity,' +
       ' plan: planLeftoverMoves, move: moveLeftover})');
@@ -6437,9 +6474,6 @@ check('leftovers', 'the panel closes itself once nothing is left',
     global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
     global.getDay = id => SEASON.find(d => d.id === id);
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
-    global.takedownDays = () => SEASON.filter(d => d.isTakedown);
-    global.fixerRoutes = () => SEASON.filter(d => d.isFixRoute);
-    global.allHouses = () => SEASON.flatMap(d => d.houses);
     global.renderLeftovers = () => {};
     global.renderAll = () => {};
     global.toast = m => { global._toast = m; };
@@ -7122,9 +7156,7 @@ suite('18. Forty houses a day');
        elsewhere in the page. Stubbed rather than lifted: this suite is about
        who moves and where, not about what date Thanksgiving falls on — that is
        suite 17's job, and testing it twice means fixing it twice. */
-    global.thanksgivingDate = y => new Date(y, 10, 26);
-    global.toDateStr = dt => dt.getFullYear() + '-' +
-      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    global.thanksgivingDate = real('thanksgivingDate');
     const api = eval(admin.slice(capStart, capEnd) +
       '\n;({even: evenOutDays, fill: fillDays, pick: bumpCandidateIndex,' +
       ' max: MAX_STOPS_PER_ROUTE, budget: MAX_FILL_MOVES_PER_SWEEP,' +
@@ -7419,9 +7451,7 @@ suite('19. All Customers: the next visit');
     check('nextvisit', 'the next-visit helpers are findable', false,
       'renamed or removed — update this test rather than deleting it');
   } else {
-    global.toDateStr = dt => dt.getFullYear() + '-' +
-      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
-    global.esc = s => String(s);
+    global.esc = real('esc');
     const api = eval(src + '\n;({next: nextVisitFor, chip: nextVisitChip})');
     const T = '2026-11-10';
 
@@ -7873,8 +7903,6 @@ suite('22. Building the crew-days the season needs');
     check('build', 'the day builder is findable', false,
       'renamed or removed — update this test rather than deleting it');
   } else {
-    global.toDateStr = dt => dt.getFullYear() + '-' +
-      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
     const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
                                admin.indexOf('function installPriority'));
     /* ⚠ WITHOUT THESE A CREW CANNOT BORROW A TOWN AT ALL. nearbyTowns works its
@@ -9298,8 +9326,6 @@ suite('Suite 27. Short crew-days reach into nearby towns');
     start !== -1 && end > start && nearbyConst !== -1 && !!extract('townCentres') && !!extract('nearbyTowns'));
 
   if (start !== -1 && end > start && nearbyConst !== -1) {
-    global.toDateStr = dt => dt.getFullYear() + '-' +
-      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
     const api = eval(
       'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
@@ -27375,11 +27401,10 @@ suite('77. Schedule route generator');
   } else {
     global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
     global.dayDate = d => d._date;
-    global.isoOf = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'),
-                         String(d.getDate()).padStart(2, '0')].join('-');
-    global.fmtPhone = () => '(801) 555-0100';
+    global.isoOf = real('isoOf');
+    global.fmtPhone = real('fmtPhone');
     global.isNewMemberHouse = () => false;
-    global.esc = s => (s || '').toString();
+    global.esc = real('esc');
     /* The customer index itself is covered elsewhere; what matters here is that
        the generator reads the COORDINATES off the customer record rather than
        expecting the imported plan row to carry them. */
@@ -27402,7 +27427,6 @@ suite('77. Schedule route generator');
     const mkDay = () => ({ id: 'd1', _date: new Date(2026, 10, 3),
       houses: [L1, A1, L2, A2, L3, A3, L4] });
 
-    global.allHouses = () => mkDay().houses;
     global.SEASON = [];
     /* ⭐ A CREW’S SECOND TOWN MUST NOW BE A NEIGHBOUR (2026-08-20). Owner: "the
        second city being a neighboring city is mandatory not a priority." Draper sits at
@@ -27630,13 +27654,12 @@ suite('77. Schedule route generator');
   } else {
     const out = { innerHTML: '' };
     global.RT = { getElementById: () => out };
-    global.esc = s => (s || '').toString();
+    global.esc = real('esc');
     global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
     global.dayDate = d => d._date;
-    global.isoOf = () => '2026-11-03';
+    global.isoOf = real('isoOf');
     global.deltaFor = () => 0;
     global.weekGuideHTML = () => '';
-    global.allHouses = () => [];
     /* Stubbed on purpose: this is a check about GROUPING, and the stop card has
        its own coverage. A card that renders is not the question here. */
     global.stopHTML = (h, n) => '<stop>' + h.name + '#' + n + '</stop>';
@@ -28035,8 +28058,6 @@ suite('120. A day is a cluster, not the top of a list');
       'renamed or removed — update this test rather than deleting it');
   } else {
     const LF_ = String.fromCharCode(10);
-    global.toDateStr = dt => dt.getFullYear() + '-' +
-      String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
     const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
                                admin.indexOf('function installPriority'));
     const prelude = ['const NEARBY_TOWN_LIST = {};',
@@ -28511,10 +28532,9 @@ suite('123. The two crew maps, actually rendered');
       global.google = { maps: { Map: FakeMap, Marker: FakeMarker, Polyline: FakeLine,
         LatLngBounds: FakeBounds, SymbolPath: { CIRCLE: 0 } } };
 
-      global.esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      global.esc = real('esc');
       global.dayDate = d => d._date;
-      global.isoOf = () => '2026-11-03';
+      global.isoOf = real('isoOf');
       global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
       global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
 
@@ -28649,11 +28669,10 @@ suite('124. The house out on its own goes last, on the way home');
     const LF_ = String.fromCharCode(10);
     const HOME = { lat: 40.3866, lng: -111.8616 };        // 209 S 850 W, Lehi
     global.dayDate = d => d._date;
-    global.isoOf = () => '2026-11-03';
+    global.isoOf = real('isoOf');
     global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
-    global.esc = s => String(s == null ? '' : s);
+    global.esc = real('esc');
     global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
-    global.estimatedPinFromAddress = () => HOME;          // so routeHomePoint answers
 
     const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(geoStart, geoEnd) +
       LF_ + admin.slice(crewStart, crewEnd) + LF_ +
@@ -36468,6 +36487,134 @@ suite('251. The corners, offered rather than hunted');
   })());
 }
 
+
+/* ============================================================================
+   252. THE NEW BADGE IS THIS HOUSE'S QUOTE, NOT JUST THIS PHONE NUMBER
+   ----------------------------------------------------------------------------
+   Owner, 2026-08-25, reading the old rule back: "so if two phone numbers are on
+   one account and a new account comes in with that same phone number than both
+   accounts will count as new?" They did.
+
+   17 numbers in the real book are shared and 14 of those are a parent and a child
+   at two different houses, so one closed quote badged BOTH NEW - and closed quotes
+   never leave quotesCache, so it repeated every season.
+
+   ⚠ LIFTED, NOT REIMPLEMENTED, and the deps go in as ARGUMENTS rather than onto
+   the shared scope: everything here is the real function out of admin.html, and
+   nothing is left behind for another suite to find (see the shadowing guard at the
+   foot of this file).
+   ========================================================================== */
+suite('252. The NEW badge is this house, not just this phone number');
+{
+  const NEED = ['closedQuoteFor', 'isNewMemberHouse', 'quoteMatchAddress',
+                'hlxResolvePlanHouse', 'customerForHouse'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S252', 'every function this suite runs was found in admin.html',
+    missing.length === 0, 'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const PHONE = '(801) 555-0000';               // one number, two households
+    const PARENT_ADDR = '100 Oak Ln, Lehi, UT';
+    const CHILD_ADDR = '200 Elm St, Lehi, UT';
+
+    /* The child came through a quote and was converted, so THEIR quote is closed
+       and carries the shared number. The parent has been a customer for years. */
+    const build = (quotes) => {
+      const jobAddresses = [
+        { id: 'p1', data: { name: 'Parent', address: PARENT_ADDR, phone: PHONE, customerNumber: '14' } },
+        { id: 'c1', data: { name: 'Child', address: CHILD_ADDR, phone: PHONE, customerNumber: '20' } },
+      ];
+      const custById = new Map(jobAddresses.map(c => [c.id, c]));
+      const custByNumber = new Map(jobAddresses.map(c => [c.data.customerNumber, c]));
+      /* ⚠ ONE ENTRY FOR A SHARED NUMBER, exactly as rebuildCustomerIndexes leaves it:
+         a Map keyed on the digits can only hold one of the two, and which one it holds
+         is arrival order. That ambiguity is precisely why the fix resolves the house by
+         ID and not by phone - a fixture that gave each house its own number here would
+         hide the thing being tested. */
+      const custByPhoneDigits = new Map([['8015550000', jobAddresses[1]]]);
+      const fn = new Function('quotesCache', 'jobAddresses', 'custById', 'custByNumber',
+        'custByPhoneDigits',
+        parts.join('\n') + '\nreturn {closedQuoteFor: closedQuoteFor, isNewMemberHouse: isNewMemberHouse};');
+      return fn(quotes, jobAddresses, custById, custByNumber, custByPhoneDigits);
+    };
+
+    const childQuote = { id: 'q1', data: { status: 'closed', phone: '8015550000', address: CHILD_ADDR } };
+    const app = build([childQuote]);
+    const parentHouse = { id: 'cust-p1', name: 'Parent', phone: PHONE, cu: '14' };
+    const childHouse = { id: 'cust-c1', name: 'Child', phone: PHONE, cu: '20' };
+
+    check('S252', 'the house that actually came through the quote is NEW',
+      app.isNewMemberHouse(childHouse) === true,
+      'this is the Ashley Wray case - her $30 box is not ticked and the closed quote is ' +
+      'the only thing that knows she is a new hang. Losing this loses her crew photo.');
+
+    check('S252', 'the other house on the same number is NOT',
+      app.isNewMemberHouse(parentHouse) === false,
+      'the parent has been hung for five years; a phone-only match badged them NEW too, ' +
+      'printed a photo they did not need and put them in the Dashboard New members count');
+
+    /* ---- and it fails towards badging, never away from it ---- */
+    const noAddr = build([{ id: 'q2', data: { status: 'closed', phone: '8015550000', address: '' } }]);
+    check('S252', 'a closed quote with no address still badges, rather than badging nobody',
+      noAddr.isNewMemberHouse(childHouse) === true && noAddr.isNewMemberHouse(parentHouse) === true,
+      'rejecting needs POSITIVE evidence of a different house. A spare photo costs ' +
+      'nothing; a new hang printed with no photo is the failure the badge exists to stop');
+
+    const imported = { id: '7', name: 'From the CSV', phone: PHONE, cu: '' };
+    check('S252', 'an imported row with no cust- id is still resolved, and still badges',
+      app.isNewMemberHouse(imported) === true,
+      'an imported plan row carries no cust- id, so it falls back to customerForHouse - ' +
+      'that path has to keep working or every imported season loses its NEW badges');
+
+    /* ⚠ THE HOUSE THAT RESOLVES TO NOBODY. hlxResolvePlanHouse returns null for a
+       cust- id matching no customer - deliberately, rather than falling through to the
+       number, which could land on somebody else. So there is no address to compare and
+       the old answer must stand.
+       ⚠ THIS FIXTURE EXISTS BECAUSE A RED-CHECK FOUND THE BRANCH UNREACHED: turning
+       'no address known' into a rejection left the whole suite GREEN, because every
+       other fixture resolves to a customer with a real address. */
+    const deleted = { id: 'cust-gone', name: 'Customer since deleted', phone: PHONE, cu: '99' };
+    check('S252', 'a plan row whose customer is gone keeps the old answer',
+      app.isNewMemberHouse(deleted) === true,
+      'nothing to compare is not evidence of a different house - fail towards badging');
+
+    /* ---- and the things that were already true stay true ---- */
+    check('S252', 'a house whose number matches no closed quote is not new',
+      app.isNewMemberHouse({ id: 'cust-p1', phone: '801 555 9999', cu: '14' }) === false);
+    check('S252', 'a house with no phone at all is not new',
+      app.closedQuoteFor({ id: 'cust-p1', phone: '', cu: '14' }) === null);
+    check('S252', 'a takedown is never a new hang',
+      app.isNewMemberHouse({ id: 'cust-c1', phone: PHONE, cu: '20', isTakedown: true }) === false);
+    check('S252', 'and neither is a fix',
+      app.isNewMemberHouse({ id: 'cust-c1', phone: PHONE, cu: '20', isFix: true }) === false);
+
+    /* ⚠ AN OPEN QUOTE IS NOT A CONVERSION. Only `closed` means they were converted;
+       matching any status would badge every house that has ever been quoted. */
+    const openOnly = build([{ id: 'q3', data: { status: 'new', phone: '8015550000', address: CHILD_ADDR } }]);
+    check('S252', 'a quote that is not closed does not badge anybody',
+      openOnly.isNewMemberHouse(childHouse) === false);
+
+    /* ⚠ THE ADDRESS IS COMPARED THROUGH THE ONE NORMALISER, so the punctuation the
+       office types cannot decide whether a crew gets a photo. */
+    const messy = build([{ id: 'q4', data: { status: 'closed', phone: '8015550000', address: '200 Elm St., Lehi, UT' } }]);
+    check('S252', 'a comma or a full stop does not make it a different house',
+      messy.isNewMemberHouse(childHouse) === true && messy.isNewMemberHouse(parentHouse) === false);
+
+    /* ⚠ AND THE RIGHT QUOTE IS RETURNED, not merely the right yes/no. printIsNewHang
+       only asks yes or no today, but closedQuoteFor hands the quote back and a future
+       reader taking a price or a date off the WRONG household's quote would be silent. */
+    const both = build([
+      { id: 'qP', data: { status: 'closed', phone: '8015550000', address: PARENT_ADDR } },
+      { id: 'qC', data: { status: 'closed', phone: '8015550000', address: CHILD_ADDR } },
+    ]);
+    check('S252', 'with a closed quote for each house, each gets its own',
+      (both.closedQuoteFor(parentHouse) || {}).id === 'qP' &&
+      (both.closedQuoteFor(childHouse) || {}).id === 'qC',
+      'returning the first match by phone hands one household the other one\'s quote');
+  }
+}
+
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
    that will just sit there doing nothing forever" - asked twice, and pushing on it is
    what produced this.
@@ -36491,16 +36638,28 @@ suite('251. The corners, offered rather than hunted');
    other DOM builders - but most can, and each one removed is a check that starts
    grading against shipped code. It shrinks; it must never grow.
 
-   Measured 2026-08-25: 44 shadowing fakes, 20 called by nothing at all. The 15 safe to
-   delete outright are gone. These are what is left. */
+   ⭐ AND IT SHRANK, 2026-08-25 (second pass). Owner, told which two mattered: "cause
+   thanksgiving date is fourth thursday and those houses should be scheduled after that
+   thursday and member fee should be charged on new members." Both were on this list.
+
+   35 → 21. Six fakes nothing called at all were deleted; eight more were replaced with
+   real() - thanksgivingDate (a typed-in 26 November, right for 2026 and wrong for every
+   other year), quoteStage, isStaleUnresponsive, esc, isoOf, fmtPhone, fmtDate and
+   daysSince, across 32 sites.
+
+   ⚠ WHAT IS LEFT IS NOT ALL DEBT. dayDate, getDay, findHouse, installDays, deltaFor,
+   customerForHouse and customerForScheduleRow are FIXTURE ACCESSORS reading the
+   sandbox’s own season, not reimplementations of a rule; toast, renderAll,
+   renderLeftovers and attachDeleteHandlers are side effects on a page that does not
+   exist; trashIcon, stopHTML, custNumChip, propLabelChip, dlabel and weekGuideHTML
+   build markup. isNewMemberHouse is the one genuinely worth doing next: it reaches
+   closedQuoteFor, so every fixture would have to carry quotes. */
 const SHADOW_ALLOWED = new Set([
-  'allHouses', 'attachDeleteHandlers', 'custNumChip', 'customerForHouse', 'customerForScheduleRow',
-  'dayDate', 'daysSince', 'deltaFor', 'dlabel', 'esc',
-  'estimatedPinFromAddress', 'findHouse', 'fixerRoutes', 'fmtDate', 'fmtPhone',
-  'getDay', 'houseBundleNeed', 'installDays', 'isNewMemberHouse', 'isStaleUnresponsive',
-  'isoOf', 'planTickCustomer', 'propLabelChip', 'quoteAwaitsUs', 'quotePortalParam',
-  'quoteStage', 'renderAll', 'renderLeftovers', 'stopHTML', 'takedownDays',
-  'thanksgivingDate', 'toDateStr', 'toast', 'trashIcon', 'weekGuideHTML',
+  'attachDeleteHandlers', 'custNumChip', 'customerForHouse', 'customerForScheduleRow', 'dayDate',
+  'deltaFor', 'dlabel', 'findHouse', 'getDay', 'installDays',
+  'isNewMemberHouse', 'planTickCustomer', 'propLabelChip', 'quoteAwaitsUs', 'quotePortalParam',
+  'renderAll', 'renderLeftovers', 'stopHTML', 'toast', 'trashIcon',
+  'weekGuideHTML',
 ]);
 {
   const runAllSrc = read('run-all.js').replace(/\r/g, '');
@@ -36509,6 +36668,9 @@ const SHADOW_ALLOWED = new Set([
     const m = /^\s*global\.([A-Za-z_$][\w$]*)\s*=\s*(.*)$/.exec(line);
     if (!m) return;
     if (!/^(\(|function\b|[A-Za-z_$][\w$]*\s*=>|async\b)/.test(m[2])) return;
+    /* ⭐ real('x') IS the shipped function, lifted by name — the opposite of the
+       problem this guard exists for, and the way a name gets OFF the allowlist. */
+    if (/^real\(/.test(m[2])) return;
     if (!new RegExp('^(?:async )?function ' + m[1] + '\\(', 'm').test(admin)) return;
     if (seen.indexOf(m[1]) === -1) seen.push(m[1]);
     if (SHADOW_ALLOWED.has(m[1])) return;
