@@ -36121,6 +36121,20 @@ suite('167. Measure Roof - shift and drag moves a dot');
     'wherever it was last dragged is the confident-wrong state this tool keeps hitting');
   check('S167', 'and the office is told, rather than the ring just vanishing',
     /It is no longer pinned/.test(admin));
+  /* ⚠ GRABBING AND PINNING ARE DIFFERENT QUESTIONS. Shrinking the pin radius to
+     8 px so two corners could be placed close together also shrank the target
+     for a shift-drag, because both asked the same function - so a dot had to be
+     grabbed within 8 px, which reads as the drag not working at all. A
+     shift-drag has already SAID which dot it means; a plain click has not. */
+  check('S167', 'a shift-drag gets a generous target, a plain click does not',
+    /const RM_DRAG_GRAB_PX = 18;/.test(admin) &&
+    /rmPanoPov\(\), cam, RM_DRAG_GRAB_PX\);/.test(admin) &&
+    /const RM_PIN_GRAB_PX = 8;/.test(admin),
+    'one radius cannot serve both - 8 px is unhittable for a drag and 22 px ' +
+    'swallows the second of two close corners');
+  check('S167', 'and the default is still the tight one',
+    /let best = -1, bd = \(typeof grabPx === 'number' \? grabPx : RM_PIN_GRAB_PX\);/.test(admin),
+    'every existing caller must keep the pinning behaviour it had');
   check('S167', 'letting go outside the pane ends the drag too',
     /\['mouseup', 'mouseleave'\]\.forEach/.test(admin),
     'a drag that never ends leaves every later mousemove moving the dot');

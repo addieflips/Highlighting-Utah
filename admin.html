@@ -4466,6 +4466,7 @@
                        for in those words, and the line naming the mode is the
                        only thing on screen that says which one you are in. -->
                   <div id="rmAutoBar" style="display:none; gap:6px; margin-top:6px; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline btn-sm" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre on the house</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmSuggestBtn" style="padding:4px 10px; font-size:11px;">Suggest corners</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmModelBtn" style="padding:4px 10px; font-size:11px;">Show assumed house</button>
                   </div>
@@ -17013,6 +17014,15 @@ const RM_PIN_MIN_BASE_M = 3;     /* two clicks nearer than this cannot fix depth
    that two dots a hand's breadth apart both land, and pinning still works
    because it only needs a click ON the dot. */
 const RM_PIN_GRAB_PX = 8;
+/* ⚠ AND GRABBING A DOT TO MOVE IT IS A DIFFERENT QUESTION FROM PINNING ONE.
+   Owner: "shift grab doesnt drag dots and I want it too."
+   Shrinking the pin radius to 8 px so two corners could be placed close
+   together also shrank the target for a shift-drag, because both asked
+   rmDotUnderClick - so the dot had to be grabbed within 8 px, which is
+   most of the way to hitting it exactly and reads as the drag not working.
+   A shift-drag has already SAID which dot it means, so it can afford a
+   generous target; a plain click has not, so it cannot. */
+const RM_DRAG_GRAB_PX = 18;
 
 /* The point that best satisfies every ray it has been seen along. */
 function rmSolveFromRays(rays){
@@ -17062,8 +17072,8 @@ function rmSolveFromRays(rays){
 }
 
 /* Which existing dot is this click meant for, if any. */
-function rmDotUnderClick(px, py, W, H, pov, cam){
-  let best = -1, bd = RM_PIN_GRAB_PX;
+function rmDotUnderClick(px, py, W, H, pov, cam, grabPx){
+  let best = -1, bd = (typeof grabPx === 'number' ? grabPx : RM_PIN_GRAB_PX);
   rmCorners.forEach(function(c, i){
     const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
     if(!q) return;
@@ -20572,6 +20582,56 @@ function openRoofMeasure(quoteId){
     bar.style.display = open ? 'none' : 'flex';
     this.textContent = open ? 'Auto-detect corners' : 'Hide auto-detect';
   });
+  /* ⭐ PUT BOTH VIEWS BACK ON THE HOUSE. Owner: "make a reset button so if you
+     zoom out on sky view it will readjust the camera."
+
+     ⚠ THE MAP HAS NO WAY BACK ON ITS OWN. It is framed once, when the roof
+     details arrive, and after that every scroll is the office's - which is
+     right, but it means one scroll too far leaves the house a speck with
+     nothing to press. Google's own recentre control is not on this map, and
+     adding it would recentre on the map's own centre rather than on the
+     building.
+
+     ⚠ AND IT PUTS BACK THE VIEW, NEVER THE WORK. It touches the two cameras and
+     nothing else - no dot, no side, no height, no grade. Somebody who has
+     traced half a roof and lost the house must be able to press this without
+     wondering what it cost them. */
+  document.getElementById('rmRecentreBtn').addEventListener('click', function(){
+    const note = document.getElementById('rmCornerNote');
+    let did = 0;
+    /* The sky view goes back to the building's own footprint, which is the
+       frame it was given when the house loaded. */
+    if(rmMap && rmBuilding && rmBuilding.sw && rmBuilding.ne){
+      rmMap.fitBounds(new google.maps.LatLngBounds(
+        new google.maps.LatLng(rmBuilding.sw.lat, rmBuilding.sw.lng),
+        new google.maps.LatLng(rmBuilding.ne.lat, rmBuilding.ne.lng)), 36);
+      did++;
+    } else if(rmMap && rmOrigin){
+      rmMap.setCenter({lat: rmOrigin.lat, lng: rmOrigin.lng});
+      rmMap.setZoom(20);
+      did++;
+    }
+    /* And the street view is re-aimed and re-framed. rmFramed is cleared
+       because rmFrameHouseInStreet refuses to work twice on purpose - it is
+       meant to happen once per house, and this is the one place that is a
+       deliberate second time. */
+    if(rmPano && rmOrigin){
+      rmFramed = false;
+      const framed = rmFrameHouseInStreet();
+      if(!framed){
+        /* No footprint yet, or the camera is not on the road - aim it at the
+           house anyway, which is better than leaving it pointed at a fence. */
+        const pos = rmPano.getPosition && rmPano.getPosition();
+        if(pos) rmPano.setPov({heading: rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng),
+                               pitch: rmPanoPov().pitch});
+      }
+      rmPaintStreet();
+      did++;
+    }
+    if(note) note.textContent = did
+      ? 'Both views put back on the house. Nothing you traced has changed.'
+      : '⚠ No house loaded yet.';
+  });
   document.getElementById('rmSuggestBtn').addEventListener('click', function(){
     if(rmCandidates.length){ rmCandidates = []; rmPaintStreet();
       const n = document.getElementById('rmCornerNote');
@@ -20695,7 +20755,7 @@ function openRoofMeasure(quoteId){
     if(!cam) return;
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
-    const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
+    const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
     if(i < 0) return;
     rmDragDot = i;
     e.preventDefault();
