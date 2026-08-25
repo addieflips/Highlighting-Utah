@@ -2424,10 +2424,10 @@ check('flow', 'quote is closed when converted to a customer',
 /* ⚠ AND THE FOLDER ACTUALLY CALLS IT. A collapse nothing calls is the most expensive
    kind of green — the list renders exactly as it always did and every behavioural check
    above still passes, because they run the function directly. Scoped to the closed
-   branch so it cannot be satisfied by the declaration alone. */
-check('flow', 'and the Converted & Closed folder runs the collapse',
-  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
-  'unwired, every house is listed once per closed quote exactly as before');
+   branch so it cannot be satisfied by the declaration alone. */
+check('flow', 'and the Converted & Closed folder runs the collapse',
+  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
+  'unwired, every house is listed once per closed quote exactly as before');
 check('flow', 'nothing closes a quote except converting it',
   (admin.match(/status: 'closed'/g) || []).length === 2 &&
   /status: 'closed', convertedToCustomerAt/.test(admin),
@@ -33146,7 +33146,8 @@ suite('130. Measure Roof — a triangle is not a flat line');
      defined" — the exact trap CLAUDE.md records. LIFT, never stub: a stub
      would make the branch untestable while reporting green. */
   const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFeetBetween',
-                 'rmFaceEaveM', 'rmLowestPlaneM', 'rmDatum', 'rmRoofRelativeAt', 'rmRoofHeightAt'];
+                 'rmFaceEaveM', 'rmLowestPlaneM', 'rmWorkingHeightM', 'rmDatum',
+                 'rmRoofRelativeAt', 'rmRoofHeightAt'];
   const missing = NAMES.filter(n => !pick(n));
   if (missing.length) {
     check('S130', 'the roof-plane model is findable', false, 'missing: ' + missing.join(', '));
@@ -33156,8 +33157,15 @@ suite('130. Measure Roof — a triangle is not a flat line');
       'let rmFaces=[], rmRoofDatumM=null, rmDatumSource="";' + LF_ +
       'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
       /* The datum is handed in as a "typed" height so these fixtures keep
-         asserting absolute heights the way they always did. */
-      'let __typed=0; function rmWorkingHeightM(){ return __typed; }' + LF_ +
+         asserting absolute heights the way they always did.
+         ⚠ THE DOM READER IS THE STUB, AND ONLY IT. rmDatum used to ask
+         rmWorkingHeightM what was typed; it asks rmTypedHeightM now, which
+         tells a real typed number from a blank box (null) so the status line
+         can say "typed" or "assumed" without lying. Stubbing the READER and
+         LIFTING the real rmWorkingHeightM keeps its never-zero fallback under
+         test instead of replacing it with the stub — the difference CLAUDE.md
+         records as LIFT, never stub. */
+      'let __typed=0; function rmTypedHeightM(){ return __typed; }' + LF_ +
       NAMES.map(pick).join(LF_) + LF_ +
       'return {set:function(f,groundToEave){rmFaces=f; __typed=groundToEave||0;},' +
       ' rmRoofHeightAt, rmRoofRelativeAt, rmDatum, rmToLocal, rmToWorld, rmFeetBetween};')();
@@ -33281,7 +33289,8 @@ suite('131. Measure Roof — the roof is never on the ground');
   const LF_ = String.fromCharCode(10);
   const pick = n => extractFn(admin, n);
   const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFaceEaveM', 'rmLowestPlaneM',
-                 'rmDatum', 'rmRoofRelativeAt', 'rmRoofHeightAt', 'rmSetDatumFromStreet'];
+                 'rmWorkingHeightM', 'rmDatum', 'rmRoofRelativeAt', 'rmRoofHeightAt',
+                 'rmSetDatumFromStreet'];
   const missing = NAMES.filter(n => !pick(n));
   if (missing.length) {
     check('S131', 'the roof-height model is findable', false, 'missing: ' + missing.join(', '));
@@ -33290,7 +33299,8 @@ suite('131. Measure Roof — the roof is never on the ground');
       'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
       'let rmFaces=[], rmRoofDatumM=null, rmDatumSource="";' + LF_ +
       'const RM_ASSUMED_EAVE_M=3, RM_M_TO_FT=3.280839895;' + LF_ +
-      'function rmWorkingHeightM(){ return ' + (typedFt / 3.280839895) + '; }' + LF_ +
+      /* Stub the DOM reader, lift the real working height — see S130. */
+      'function rmTypedHeightM(){ return ' + (typedFt / 3.280839895) + '; }' + LF_ +
       NAMES.map(pick).join(LF_) + LF_ +
       'return {set:function(f){rmFaces=f;}, rmDatum, rmRoofRelativeAt, rmRoofHeightAt,' +
       ' rmSetDatumFromStreet, rmLowestPlaneM, rmToWorld, rmToLocal,' +
@@ -36620,6 +36630,149 @@ suite('252. The NEW badge is this house, not just this phone number');
       (both.closedQuoteFor(childHouse) || {}).id === 'qC',
       'returning the first match by phone hands one household the other one\'s quote');
   }
+}
+
+
+suite('253. Measure Roof - the working height is never the lawn');
+{
+  /* ⚠ THE BUG THIS EXISTS FOR. The Working Height box opened on 0 and
+     rmWorkingHeightM divided that by the conversion, so a sky click with no
+     Google roof plane under it landed at h = 0 - ON THE GROUND, the one height
+     a gutter run is certainly not at. Every foot traced that way was measured
+     across the lawn instead of along the eave, and nothing on screen said so.
+
+     ⚠ AND THE FIX HAD TO SPLIT ONE QUESTION INTO TWO. rmDatum reports whether a
+     height was TYPED or ASSUMED, and says which on screen. A working height
+     that quietly falls back to the assumed eave cannot answer that - it would
+     report every blank box as a number the office chose. So rmTypedHeightM
+     answers "what was actually typed" (null when nothing was) and
+     rmWorkingHeightM answers "where does a click land" (never zero from blank).
+     A red-check collapsing them back into one function fails the datum checks
+     below, not the height ones. */
+  const LF_ = String.fromCharCode(10);
+  const NEED = ['rmTypedHeightM', 'rmWorkingHeightM', 'rmDatum'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S253', 'the two height readers and the datum are all findable',
+    missing.length === 0, 'not found: ' + missing.join(', '));
+
+  /* THE DEFAULT IS THE SAME EAVE THE CODE ASSUMES, not a second 10 typed into
+     the markup. A box opening on a different number than RM_ASSUMED_EAVE_M is
+     two answers to one question, and the one nobody reads is the one that
+     drifts. */
+  const eaveM = (admin.match(/RM_ASSUMED_EAVE_M\s*=\s*([\d.]+)/) || [])[1];
+  const heightBox = (admin.match(/<input[^>]*id="rmHeightFt"[^>]*>/) || [])[0] || '';
+  const boxDefault = Number((heightBox.match(/value="([\d.]+)"/) || [])[1]);
+  check('S253', 'the Working Height box opens on the assumed eave, not on the ground',
+    boxDefault > 0 && Math.round(Number(eaveM) * 3.280839895) === boxDefault,
+    'box opens on ' + boxDefault + ' ft, RM_ASSUMED_EAVE_M is ' + eaveM +
+    ' m (~' + Math.round(Number(eaveM) * 3.280839895) + ' ft) - a 0 here traces the lawn');
+
+  /* ⚠ RESET IS THE SECOND DOOR AND IT WAS THE ONE LEFT OPEN. Opening the tool
+     on a second quote runs rmReset, so a reset that put the box back to 0
+     re-armed the bug on every house after the first. It must derive the value
+     rather than repeat it. */
+  const reset = extractFn(admin, 'rmReset') || '';
+  check('S253', 'and reopening the tool resets it to the same assumed eave',
+    /rmHeightFt'\)\.value\s*=\s*Math\.round\(RM_ASSUMED_EAVE_M\s*\*\s*RM_M_TO_FT\)/.test(reset),
+    'a reset back to 0 puts the next house on the lawn however good the markup default is');
+
+  if (!missing.length) {
+    const mk = raw => new Function(
+      'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
+      'let rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      'const document={getElementById:function(){ return ' +
+        (raw === null ? 'null' : '{value:' + JSON.stringify(raw) + '}') + '; }};' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return {rmTypedHeightM, rmWorkingHeightM, rmDatum};')();
+
+    const FT = 3.280839895;
+    /* A blank box, and junk in the box, are the same thing: nothing was typed. */
+    ['', '   ', 'abc'].forEach(function (raw) {
+      const api = mk(raw);
+      check('S253', 'a box holding ' + JSON.stringify(raw) + ' puts a click at the eave, not at 0',
+        Math.abs(api.rmWorkingHeightM() - 3) < 1e-9,
+        'got ' + api.rmWorkingHeightM().toFixed(3) + ' m - 0 here is the lawn-tracing bug');
+      check('S253', 'and ' + JSON.stringify(raw) + ' is reported as nothing typed',
+        api.rmTypedHeightM() === null,
+        'a blank box read as a number makes rmDatum claim the office chose this height');
+      check('S253', 'so the datum calls it assumed, not typed',
+        api.rmDatum().source === 'assumed',
+        'got source "' + api.rmDatum().source + '" - the status line would credit the office ' +
+        'with a height nobody entered');
+    });
+
+    /* ⚠ A TYPED ZERO IS AN ANSWER, NOT A BLANK. The Ground preset writes 0 and
+       a ground run really is at zero, so this must NOT be swept up by the
+       fallback - that would make the Ground button unable to reach the ground. */
+    const ground = mk('0');
+    check('S253', 'but a deliberately typed 0 still means the ground',
+      ground.rmTypedHeightM() === 0 && ground.rmWorkingHeightM() === 0,
+      'the Ground preset writes 0; treating it as "nothing typed" breaks the one ' +
+      'button whose whole job is to trace at ground level');
+    check('S253', 'and a typed 0 is still too low to be a datum',
+      ground.rmDatum().source === 'assumed',
+      'zero is a legal place to trace and an illegal place to hang a roof from');
+
+    const typed = mk('18');
+    check('S253', 'a real typed height is used, and is credited to the office',
+      Math.abs(typed.rmWorkingHeightM() - 18 / FT) < 1e-9 &&
+      typed.rmDatum().source === 'typed' &&
+      Math.abs(typed.rmDatum().m - 18 / FT) < 1e-9,
+      'a height the office measured must beat both the assumption and the model');
+  }
+}
+
+
+suite('254. Measure Roof - the footage saved is the footage measured');
+{
+  /* ⚠ THE WORD THAT HAD TO GO. RM_FEET_MULTIPLIER has been 1 for a while, but
+     the save message still told the office their footage had been "doubled" on
+     the way in. It described arithmetic that had stopped happening, about the
+     one number that drives bins, bulb orders and the price - so anybody reading
+     it had to decide whether to trust the message or the number. */
+  check('S254', 'the feet multiplier is still 1',
+    /const RM_FEET_MULTIPLIER\s*=\s*1\s*;/.test(admin),
+    'feet are the wire on the house and the bulb count - a multiplier here breaks ' +
+    'bin sizing and bulb ordering. If the advertised rate should read lower, change the rate');
+  check('S254', 'and the save message no longer claims the footage was doubled',
+    !/measured, doubled/.test(admin),
+    'the message described a x2 that no longer happens, about the number the whole quote rests on');
+}
+
+
+suite('255. Measure Roof - Edit Customer prices from feet like Add Customer does');
+{
+  /* Add Customer has priced from feet for a while; Edit Customer never did, so
+     a re-measured house sat there with a price that no longer matched it and
+     the office redid the sum by hand.
+
+     ⚠ THE SAFETY IS THE EVENT, NOT A GUARD. It listens on `input`, which only a
+     human typing fires. Filling the form in code never does - and the re-quote
+     apply path writes the AGREED price and the new footage into these very two
+     boxes. On `change`, or on a call from the populate path, that agreed price
+     would be silently recomputed from feet, which is the one number the
+     customer actually said yes to. */
+  const wired = new RegExp("getElementById\\('editCustFeet'\\)\\.addEventListener\\('input'").test(admin);
+  check('S255', 'typing Measured Feet on the edit form recalculates the price',
+    wired, 'without this the office re-measures a house and the price silently stays stale');
+
+  const handler = (admin.split("getElementById('editCustFeet').addEventListener('input'")[1] || '').slice(0, 900);
+  check('S255', 'and it writes the per-foot sum into This House’s Price',
+    /editCustHousePrice'\)\.value\s*=\s*Math\.round\(feet \* perFootRate\)/.test(handler),
+    'a handler that computes and never assigns looks identical on screen to no handler at all');
+  check('S255', 'it says nothing rather than guessing when no rate is set',
+    /if\(!perFootRate\)/.test(handler) &&
+    handler.indexOf('Per Foot Pricing') !== -1,
+    'multiplying by an unset rate writes 0 into a price box');
+  /* ⚠ A RED-CHECK CAUGHT THIS ONE BEING TOO LOOSE. Matching `perFootRate`
+     anywhere passed with the assignment deleted, because the guard above it
+     mentions the rate too - so the assignment is asserted on its own. */
+  check('S255', 'and the note is cleared when a different customer is opened',
+    /editCustFeetNote'\)/.test(admin) &&
+    /ecFeetNote\.textContent\s*=\s*''/.test(admin),
+    'the last customer’s arithmetic left sitting under the next customer’s boxes ' +
+    'reads as a statement about them');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code

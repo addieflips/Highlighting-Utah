@@ -2006,6 +2006,7 @@
             <div class="form-row"><label>Measured Feet</label><input type="number" id="editCustFeet" min="0" step="0.5" placeholder="0"></div>
             <div class="form-row"><label>This House's Price ($)</label><input type="number" id="editCustHousePrice" min="0" step="1" placeholder="0"></div>
           </div>
+          <p id="editCustFeetNote" style="font-size:11.5px; color:var(--slate); margin:-4px 0 0;"></p>
           <div class="ec-grid">
             <div class="form-row"><label>Bill To Phone (optional)</label><input type="tel" id="editCustBillTo" placeholder="Leave blank to bill this house"></div>
             <div class="form-row"><label>People They Referred</label><input type="number" id="editCustReferralCount" min="0" step="1" placeholder="0"></div>
@@ -4469,13 +4470,13 @@
                 <h4>Working Height</h4>
                 <p class="rm-sub">What height a click on the sky view sits at.</p>
                 <div style="display:flex; gap:8px; align-items:center;">
-                  <input type="number" id="rmHeightFt" value="0" min="0" max="60" step="0.5" style="width:80px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+                  <input type="number" id="rmHeightFt" value="10" min="0" max="60" step="0.5" style="width:80px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
                   <span style="font-size:12px; color:var(--slate);">ft off the ground</span>
                 </div>
                 <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-                  <button type="button" class="btn btn-outline btn-sm" data-rmheight="0" style="padding:4px 9px; font-size:11px;">Ground</button>
                   <button type="button" class="btn btn-outline btn-sm" data-rmheight="9" style="padding:4px 9px; font-size:11px;">1 storey</button>
                   <button type="button" class="btn btn-outline btn-sm" data-rmheight="18" style="padding:4px 9px; font-size:11px;">2 storey</button>
+                  <button type="button" class="btn btn-outline btn-sm" data-rmheight="0" style="padding:4px 9px; font-size:11px;">Ground</button>
                 </div>
                 <p id="rmHeightNote" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Measure one eave in Street View and this fills itself in.</p>
                 <p id="rmDatumNote" style="font-size:11.5px; color:var(--dusk); margin:6px 0 0; font-weight:600;"></p>
@@ -15627,8 +15628,8 @@ function rmLowestPlaneM(){
    a height nobody can trace back is a height nobody can argue with. */
 function rmDatum(){
   if(rmRoofDatumM !== null) return {m: rmRoofDatumM, source: rmDatumSource || 'street'};
-  const typed = rmWorkingHeightM();
-  if(typed > 0.5) return {m: typed, source: 'typed'};
+  const typed = rmTypedHeightM();
+  if(typed !== null && typed > 0.5) return {m: typed, source: 'typed'};
   return {m: RM_ASSUMED_EAVE_M, source: 'assumed'};
 }
 /* Pin the whole roof from ONE height really measured in Street View. The point
@@ -18472,9 +18473,28 @@ function rmFmtFeet(f){
   if(!f) return '0 ft';
   return (f >= 100 ? Math.round(f) : Math.round(f*10)/10) + ' ft';
 }
+/* WHAT THE OFFICE ACTUALLY TYPED, or null when the box is blank or unreadable.
+ * ⚠ SEPARATE FROM rmWorkingHeightM ON PURPOSE, and it has to be. rmDatum tells
+ * a height somebody CHOSE from one we ASSUMED, and says which on screen — so a
+ * working height that quietly falls back to the assumed eave cannot answer that
+ * question without reporting every blank box as typed. Two callers, two
+ * different questions.
+ * ⚠ A TYPED ZERO IS AN ANSWER. The Ground preset writes 0, and a ground run
+ * really is at zero, so 0 comes back as 0 rather than as "nothing typed". */
+function rmTypedHeightM(){
+  const el = document.getElementById('rmHeightFt');
+  if(!el) return null;
+  const v = parseFloat(el.value);
+  return isFinite(v) ? v / RM_M_TO_FT : null;
+}
+/* THE HEIGHT A SKY CLICK LANDS AT when Google has no roof plane under it.
+ * ⚠ NEVER ZERO FROM A BLANK BOX. It used to divide 0 by the conversion and put
+ * the line on the LAWN — the one height a gutter run is certainly not at — so a
+ * cleared box silently measured the ground. It falls back to the SAME
+ * one-storey eave rmDatum assumes, so the two cannot drift apart. */
 function rmWorkingHeightM(){
-  const v = parseFloat(document.getElementById('rmHeightFt').value);
-  return (isFinite(v) ? v : 0) / RM_M_TO_FT;
+  const typed = rmTypedHeightM();
+  return typed === null ? RM_ASSUMED_EAVE_M : typed;
 }
 /* ---- filters ----------------------------------------------------------- */
 function rmFilterCss(){
@@ -19725,7 +19745,10 @@ function rmReset(){
   document.getElementById('rmPhotoStatus').textContent = 'For the back of the house, or anywhere Street View cannot see.';
   document.getElementById('rmBright').value = 100;
   document.getElementById('rmContrast').value = 100;
-  document.getElementById('rmHeightFt').value = 0;
+  /* ⚠ OPENS ON THE ASSUMED EAVE, NOT ON ZERO, and derives it from the one
+     constant rather than typing 10 again — a reset that put the box back to 0
+     re-armed the lawn-tracing bug on the second house of every session. */
+  document.getElementById('rmHeightFt').value = Math.round(RM_ASSUMED_EAVE_M * RM_M_TO_FT);
   document.getElementById('rmWallBtn').textContent = 'Set the Wall';
   document.getElementById('rmWallStatus').textContent = 'Street View needs the wall pinned once before it can measure.';
   document.getElementById('rmStreetNote').textContent = '';
@@ -20322,7 +20345,10 @@ function openRoofMeasure(quoteId){
       const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
       if(item) item.data.estimatedFeet = feet;
       renderQuotesList();
-      status.textContent = 'Estimated Feet set to ' + feet + ' (' + rmFmtFeet(measured) + ' measured, doubled).';
+      /* ⚠ NOT "doubled". RM_FEET_MULTIPLIER has been 1 for a while, so the word
+         described arithmetic that stopped happening and told the office their
+         footage had been changed on the way in when it had not. */
+      status.textContent = 'Estimated Feet set to ' + feet + ' (' + rmFmtFeet(measured) + ' measured).';
     } catch(err){ status.textContent = 'Could not save the footage onto the quote — try again.'; }
   });
   document.getElementById('rmAttachBtn').addEventListener('click', async function(){
@@ -22686,6 +22712,29 @@ document.getElementById('addCustFeet').addEventListener('input', function(){
   }
   priceInput.value = Math.round(feet * perFootRate);
   noteEl.textContent = feet + ' ft \u00d7 ' + fmtMoney(perFootRate) + '/ft = ' + fmtMoney(feet * perFootRate) + ' (adjust Total Price by hand if needed).';
+});
+/* THE SAME SUM ON THE EDIT FORM. Add Customer has priced from feet for a while
+ * and Edit Customer never did, so the office typed a new footage on an existing
+ * house, watched the price sit still, and either re-did the arithmetic by hand
+ * or saved a price that no longer matched the house.
+ * ⚠ ON `input` ONLY, WHICH IS WHAT MAKES IT SAFE. Filling the form in code —
+ * opening a record, or applying a re-quote, which writes the AGREED price and
+ * the new footage into these two boxes — never fires `input`, so neither path
+ * has its price recomputed underneath it. A re-quote's price is the number the
+ * customer said yes to; deriving it again from feet would quietly overwrite it.
+ * ⚠ IT DOES NOT DECIDE ANYTHING ON ITS OWN. Changed feet already raise a
+ * re-quote on save, so the office is still asked before any of this reaches the
+ * customer. */
+document.getElementById('editCustFeet').addEventListener('input', function(){
+  const feet = Number(this.value) || 0;
+  const noteEl = document.getElementById('editCustFeetNote');
+  if(!feet){ if(noteEl) noteEl.textContent = ''; return; }
+  if(!perFootRate){
+    if(noteEl) noteEl.textContent = 'Set a per-foot rate under Finance > Per Foot Pricing to price automatically from feet.';
+    return;
+  }
+  document.getElementById('editCustHousePrice').value = Math.round(feet * perFootRate);
+  if(noteEl) noteEl.textContent = feet + ' ft × ' + fmtMoney(perFootRate) + '/ft = ' + fmtMoney(feet * perFootRate) + ' (adjust This House’s Price by hand if needed).';
 });
 document.getElementById('addCustPrice').addEventListener('input', function(){
   // Billing needs a phone OR an email now — only flag the phone as required
@@ -34572,6 +34621,10 @@ function openEditCustomerModal(id){
   document.getElementById(d.maybeNextYear ? 'editCustSeasonMaybe' : 'editCustSeasonConfirmed').checked = true;
   document.getElementById('editCustEarliestInstall').value = (d.earliestInstallDate && d.earliestInstallDate.toDate) ? toDateStr(d.earliestInstallDate.toDate()) : '';
   document.getElementById('editCustFeet').value = d.measuredFeet || '';
+  /* Cleared with the form, or the last customer's arithmetic is still sitting
+     under the next customer's boxes. */
+  const ecFeetNote = document.getElementById('editCustFeetNote');
+  if(ecFeetNote) ecFeetNote.textContent = '';
   document.getElementById('editCustHousePrice').value = d.housePrice || '';
   document.getElementById('editCustWireColor').value = d.wireColor || 'White';
   document.getElementById('editCustBillTo').value = d.billToPhone || '';
