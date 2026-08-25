@@ -20818,6 +20818,13 @@ suite('Suite 104. The Printing tab');
          only claim worth making here. */
       cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
       extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
+      /* ⚠ AND THE FIX REASON, LIFTED TOO (2026-08-25). printCrewRow fills a `fix`
+         cell now — a stub of it would prove the column renders and nothing about
+         whether a mended house has stopped claiming to be broken, which is the
+         whole claim. printCrewColumns comes with it because the column only exists
+         when a row fills it, so stubbing either half hides the other. */
+      extractFn(admin, 'printFixReason') + extractFn(admin, 'printCrewColumns') +
+      extractFn(admin, 'printFixPhotos') +
       extractFn(admin, 'printBinCount') + extractFn(admin, 'printCrewRow') +
       'const HOUSE_SIDES_DEFAULT = 1;' + extractFn(admin, 'houseSideCount') +
       extractFn(admin, 'printYesNo') + extractFn(admin, 'printCustData') +

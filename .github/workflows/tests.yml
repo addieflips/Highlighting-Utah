@@ -87,6 +87,12 @@ jobs:
       - name: Why a bundle is being built (warehouse badges)
         run: npm run test:reason
 
+      # A crew on a Fixer Route gets one piece of paper. If what is wrong is not on it
+      # they ring the office or they guess. Named separately for the same reason as the
+      # two above: "the fix sheet broke" is a different thing to go and look at.
+      - name: What the crew is told is wrong (fix sheet)
+        run: npm run test:fix
+
       - name: Run the fast suite
         run: npm test
 
