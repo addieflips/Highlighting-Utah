@@ -19361,6 +19361,10 @@ function rmRestoreMeasurement(m){
     if(m.datum.source === 'street' || m.datum.source === 'photo'){
       rmRoofDatumM = Number(m.datum.m); rmDatumSource = m.datum.source;
     }
+    /* ⚠ A SAVED TYPED HEIGHT WAS TYPED BY SOMEBODY, so it comes back as typed
+       rather than being demoted to the shipped default on reopening. A saved
+       ASSUMED one deliberately does not — nobody answered it then either. */
+    if(m.datum.source === 'typed') rmHeightTyped = true;
   }
   rmRenderResults(); rmPaintStreet();
   return restored;
@@ -19376,8 +19380,23 @@ function rmFmtFeet(f){
  * question without reporting every blank box as typed. Two callers, two
  * different questions.
  * ⚠ A TYPED ZERO IS AN ANSWER. The Ground preset writes 0, and a ground run
- * really is at zero, so 0 comes back as 0 rather than as "nothing typed". */
+ * really is at zero, so 0 comes back as 0 rather than as "nothing typed".
+ *
+ * ⭐ AND THE NUMBER THE BOX SHIPS WITH IS NOT AN ANSWER (fixed 2026-08-25).
+ * ⚠ THIS SWITCHED THE WHOLE NO-GUESSING APPARATUS OFF, silently, and it was
+ * found on a real house: rmDebug reported `{m: 3.048, source: "typed"}` — 10.00
+ * ft to two decimals, which is the box's own `value="10"` and not a figure
+ * anybody had entered. The box is NEVER blank, so rmDatum could never reach its
+ * `assumed` branch: rmGuessedFeet returns 0 the moment the source is not
+ * assumed, so the "this much of it rests on a guess" warning could not fire on
+ * any house, ever, and the panel told the office a height had been typed by
+ * hand when nothing had. Owner: "I need no guessing I need feet to be correct."
+ * ⚠ THE FLAG, NOT AN EMPTY BOX. Blanking it would work and would cost the
+ * office the sensible starting number, and rmWorkingHeightM would then have to
+ * carry the default alone — two places holding one figure. */
+let rmHeightTyped = false;
 function rmTypedHeightM(){
+  if(!rmHeightTyped) return null;
   const el = document.getElementById('rmHeightFt');
   if(!el) return null;
   const v = parseFloat(el.value);
@@ -20331,6 +20350,10 @@ function rmForgetLastHouse(){
      NEIGHBOURS survive; those are re-consulted on load. */
   rmSkyOffset = null; rmSkyOffsetSource = '';
   rmAligning = ''; rmAlignSky = null;
+  /* ⚠ AND WHETHER THE HEIGHT WAS ANSWERED BY A PERSON. Carried across, the
+     second house of a session reports the first house's eave as typed by hand
+     and the guess warning stays silent on it. */
+  rmHeightTyped = false;
   /* which way the road runs, and whether the camera has been aimed yet */
   rmFramed = false; rmRoadDir = null;
   /* ⚠ AND THE PHOTOGRAPH, WHICH IS THE ONE THAT COSTS MONEY. rmPhotoExtraFeet
@@ -20685,16 +20708,45 @@ function rmAlignTakeStreet(local){
       ' ft apart, which is too far to be the same spot. Nothing was changed — try again on a corner you can pick out in both pictures.');
     return;
   }
+  /* ⭐ THE SAME CLICK MEASURES THE ROOF HEIGHT (added 2026-08-25).
+   * ⚠ THE FAULT THIS CLOSES, read off a real house's rmDebug: the picture was
+   * lined up correctly and the lines still drew feet below the gutter, because
+   * the ROOF HEIGHT was the assumed one-storey eave on a two-storey house. The
+   * office had traced entirely on the sky view, so nothing in Street View had
+   * ever been clicked and the datum had never been measured. Lining up is the
+   * one moment somebody clicks the house from the street on purpose, so the
+   * height is free — and asking for a second, identical click afterwards would
+   * be asking for work the tool has already been given.
+   * ⚠ FROM A WALL HIT ONLY. A wall crossing gets its height from the camera and
+   * the ray, geometry that knows nothing about the datum, so it can set one. A
+   * ROOF crossing gets its height FROM the datum, so setting the datum off it
+   * would be measuring the assumption and calling it a measurement — the same
+   * circular move the dot path already refuses.
+   * ⚠ AND BEFORE THE OFFSET IS APPLIED, because applying it re-reads every
+   * height. Done the other way round the lines are corrected against the old
+   * datum and have to be corrected again. */
+  let measuredEave = false;
+  if(local.kind === 'wall' && rmDatumSource !== 'street' &&
+     rmSetDatumFromStreet(rmToWorld({e: local.e, n: local.n, u: local.u}))){
+    measuredEave = true;
+  }
   const prev = rmSkyOffset || {e: 0, n: 0};
   rmSetSkyOffset({e: prev.e + res.e, n: prev.n + res.n});
+  if(measuredEave) rmRefreshHeights();
   rmAligning = ''; rmAlignSky = null;
   rmSkyOffsetSource = 'measured';
   rmSetAlignBtn();
   const moved = Math.hypot(res.e, res.n) * RM_M_TO_FT;
-  rmAlignNote(moved < 1
+  const eaveNote = measuredEave
+    ? ' The roof height was measured from that same click — ' +
+      Math.round(rmDatum().m * RM_M_TO_FT) + ' ft to the lowest eave.'
+    : (rmDatum().source === 'assumed'
+        ? ' ⚠ The roof height is still ASSUMED, so the lines will sit at the wrong HEIGHT even now they are in the right place. Trace one line in Street View, or type the eave height, to fix that. Your footage is unaffected — a level gutter measures true either way.'
+        : '');
+  rmAlignNote((moved < 1
     ? 'Already lined up — those two clicks were within a foot of each other, so nothing needed moving.'
     : 'Lined up. The satellite picture was ' + (Math.round(moved * 10) / 10) +
-      ' ft out; every line traced from above has been moved to match, and so will every new one.');
+      ' ft out; every line traced from above has been moved to match, and so will every new one.') + eaveNote);
   /* ⚠ REMEMBERED FOR THE NEIGHBOURS, and only from a real measurement — an
      inherited offset must never be written back as a fresh sample or one
      house's answer would copy itself down the street gaining authority at
@@ -21241,6 +21293,10 @@ function rmReset(){
      constant rather than typing 10 again — a reset that put the box back to 0
      re-armed the lawn-tracing bug on the second house of every session. */
   document.getElementById('rmHeightFt').value = Math.round(RM_ASSUMED_EAVE_M * RM_M_TO_FT);
+  /* ⚠ AND IT IS THE ASSUMED FIGURE AGAIN, not one somebody stands behind. A
+     height typed for the last house is not an answer about this one, and left
+     set it reads as typed for ever after the first time anybody touches it. */
+  rmHeightTyped = false;
   document.getElementById('rmWallBtn').textContent = 'Set the Wall';
   document.getElementById('rmWallStatus').textContent = 'Street View needs the wall pinned once before it can measure.';
   document.getElementById('rmStreetNote').textContent = '';
@@ -21310,7 +21366,18 @@ function openRoofMeasure(quoteId){
   document.querySelectorAll('#roofMeasureOverlay [data-rmheight]').forEach(function(b){
     b.addEventListener('click', function(){
       document.getElementById('rmHeightFt').value = b.dataset.rmheight;
+      /* A preset IS somebody answering — they looked at the house and said one
+         storey. That is a typed height, and it must stop reading as assumed. */
+      rmHeightTyped = true;
+      rmRefreshHeights();
     });
+  });
+  /* ⚠ AND THE BOX ITSELF, or a number entered by hand still reads as the
+     default it replaced. `input` rather than `change` so the panel stops
+     calling it assumed as soon as it stops being the shipped figure. */
+  document.getElementById('rmHeightFt').addEventListener('input', function(){
+    rmHeightTyped = true;
+    rmRefreshHeights();
   });
   /* A side button switches every suggested eave on that side at once. It only
      ever touches SUGGESTED runs - a line traced by hand belongs to whoever
@@ -21714,7 +21781,10 @@ function openRoofMeasure(quoteId){
       const wall = rmWallPlane();
       const hit = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam) ||
                   (wall ? rmWallHit(dir, cam, wall) : null);
-      rmAlignTakeStreet(hit ? {e: hit.e, n: hit.n} : null);
+      /* ⚠ THE WHOLE HIT, NOT JUST WHERE IT IS. Its height and whether it landed
+         on a WALL are what let the same click measure the roof — see
+         rmAlignTakeStreet. Passing {e, n} threw both away. */
+      rmAlignTakeStreet(hit);
       return;
     }
     if(rmCornerMode === 'dot'){

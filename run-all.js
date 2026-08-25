@@ -37209,9 +37209,15 @@ suite('254. Measure Roof - the working height is never the lawn');
     'a reset back to 0 puts the next house on the lawn however good the markup default is');
 
   if (!missing.length) {
-    const mk = raw => new Function(
+    /* ⚠ `typed` IS THE SECOND HALF OF THE QUESTION, and it defaults to true so
+       every check below still asks what it was written to ask: what happens to
+       the VALUE once somebody has answered. The shipped-default case is asked
+       separately, at the bottom, because that is a different question and it
+       was the one nobody was asking. */
+    const mk = (raw, typed) => new Function(
       'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
       'let rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      'let rmHeightTyped=' + (typed === false ? 'false' : 'true') + ';' + LF_ +
       'const document={getElementById:function(){ return ' +
         (raw === null ? 'null' : '{value:' + JSON.stringify(raw) + '}') + '; }};' + LF_ +
       parts.join(LF_) + LF_ +
@@ -37251,7 +37257,58 @@ suite('254. Measure Roof - the working height is never the lawn');
       typed.rmDatum().source === 'typed' &&
       Math.abs(typed.rmDatum().m - 18 / FT) < 1e-9,
       'a height the office measured must beat both the assumption and the model');
+
+    /* ⭐ THE NUMBER THE BOX SHIPS WITH IS NOT AN ANSWER (added 2026-08-25).
+       ⚠ THIS SWITCHED THE WHOLE NO-GUESSING APPARATUS OFF and every check above
+       passed throughout, because every one of them supplies a value and asks
+       what happens to it. The box is NEVER blank - it ships with value="10" -
+       so rmDatum could not reach its `assumed` branch on any house, ever;
+       rmGuessedFeet returns 0 the moment the source is not assumed, so the
+       "this much rests on a guess" warning could never fire, and the panel
+       credited the office with a height nobody had entered. Found on a real
+       house, off rmDebug reporting {m: 3.048, source: "typed"} - 10.00 ft to
+       two decimals, which is the markup default and not a typed figure. */
+    const shipped = String(boxDefault);
+    const untouched = mk(shipped, false);
+    check('S254', 'the number the box ships with is not reported as typed',
+      untouched.rmTypedHeightM() === null,
+      'the box is never blank, so a default that reads as typed means rmDatum ' +
+      'can never say "assumed" on any house');
+    check('S254', 'so an untouched box leaves the datum ASSUMED',
+      untouched.rmDatum().source === 'assumed',
+      'got "' + untouched.rmDatum().source + '" - this is what silently switched ' +
+      'the no-guessing warning off, because rmGuessedFeet returns 0 unless the ' +
+      'source is assumed');
+    check('S254', 'and it still works AS a height, so a sky click is not put on the lawn',
+      Math.abs(untouched.rmWorkingHeightM() - 3) < 1e-9,
+      'got ' + untouched.rmWorkingHeightM().toFixed(3) + ' m - not answered is not zero');
+    check('S254', 'but the same number, once somebody enters it, IS typed',
+      mk(shipped, true).rmDatum().source === 'typed',
+      'the flag has to be about who put the number there, not about the number');
   }
+
+  /* ⚠ AND SOMETHING HAS TO SET IT, or the box can never be answered at all and
+     every house reads as assumed for ever - the same bug from the other end.
+     Both doors: the preset buttons and the box itself. */
+  /* ⚠ SLICED TO THE NEXT HANDLER, not to a character count. The box's own
+     listener sits immediately below the presets and carries an identical
+     assignment, so a 700-character window found THAT one and stayed green with
+     the preset's deleted - a red-check caught it. CLAUDE.md §7, again. */
+  const presetAt = admin.indexOf('[data-rmheight]');
+  const presetEnd = admin.indexOf("getElementById('rmHeightFt').addEventListener('input'", presetAt);
+  const wiring = admin.slice(presetAt, presetEnd < 0 ? presetAt : presetEnd);
+  check('S254', 'pressing a storey preset counts as answering the height',
+    /rmHeightTyped\s*=\s*true/.test(wiring),
+    'a preset IS somebody looking at the house and saying one storey');
+  check('S254', 'and so does typing in the box',
+    new RegExp("getElementById\\('rmHeightFt'\\)\\.addEventListener\\('input'").test(admin),
+    'without this a hand-entered height still reads as the default it replaced');
+  /* ⚠ A HEIGHT ANSWERED FOR THE LAST HOUSE IS NOT AN ANSWER ABOUT THIS ONE. */
+  ['rmReset', 'rmForgetLastHouse'].forEach(function (fn) {
+    check('S254', 'opening another house forgets that it was answered (' + fn + ')',
+      /rmHeightTyped\s*=\s*false/.test(extractFn(admin, fn) || ''),
+      fn + ' carries the last house\'s answer forward, and the warning stays silent on the next one');
+  });
 }
 
 
@@ -38826,6 +38883,17 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
       'function rmRenderResults(){}' + LF_ +
       'function rmPaintStreet(){}' + LF_ +
       'function rmRoofHeightAt(){ return __roofH; }' + LF_ +
+      /* The datum side. rmSetDatumFromStreet itself is stubbed - what is under
+         test here is WHICH clicks are allowed to reach it, not its own
+         arithmetic, which suite 253 already runs. */
+      'let __datum=null;' + LF_ +
+      'let rmDatumSource="";' + LF_ +
+      'function rmDatum(){ return {m: __datum === null ? 3 : __datum,' +
+      '  source: __datum === null ? "assumed" : "street"}; }' + LF_ +
+      'function rmSetDatumFromStreet(w){ __datum = w.h; rmDatumSource = "street"; return true; }' + LF_ +
+      'function rmToWorld(p){ const m=rmMetresPerDeg(rmOrigin.lat);' +
+      '  return {lat: rmOrigin.lat + p.n/m.lat, lng: rmOrigin.lng + p.e/m.lng, h: p.u}; }' + LF_ +
+      'function rmRefreshHeights(){}' + LF_ +
       'async function rmAlignLoadSamples(){ return __samples; }' + LF_ +
       'function rmAlignSaveSample(){ __saved=(__saved||0)+1; }' + LF_ +
       'let __saved=0;' + LF_;
@@ -38834,15 +38902,19 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
       ' takeStreet:rmAlignTakeStreet, onLoad:rmAlignOnLoad, apart:rmAlignMetresApart,' +
       ' nearest:rmAlignNearest, offFt:rmSkyOffsetFt, local:rmToLocal, idle:rmAlignIdleNote,' +
       ' reset:function(runs){ rmRuns=runs||[]; rmSkyOffset=null; rmSkyOffsetSource="";' +
-      '   rmAligning=""; rmAlignSky=null; __notes=[]; __synced=[]; __saved=0; },' +
+      '   rmAligning=""; rmAlignSky=null; __notes=[]; __synced=[]; __saved=0;' +
+      '   __datum=null; rmDatumSource=""; },' +
       ' offset:function(){ return rmSkyOffset; }, source:function(){ return rmSkyOffsetSource; },' +
       ' runs:function(){ return rmRuns; }, notes:function(){ return __notes; },' +
       ' saved:function(){ return __saved; }, synced:function(){ return __synced; },' +
       ' roofH:function(h){ __roofH=h; }, samples:function(s){ __samples=s||[]; },' +
+      ' datum:function(d){ __datum=d; rmDatumSource = d===null?"":"street"; },' +
+      ' datumSet:function(){ return __datum; },' +
       ' origin:function(o){ rmOrigin=o; }};';
     assertSandbox('S269', 'sky alignment', BODY, admin,
       ['rmAlignNote', 'rmSetAlignBtn', 'rmSyncSky', 'rmRenderResults', 'rmPaintStreet',
-       'rmRoofHeightAt', 'rmAlignLoadSamples', 'rmAlignSaveSample']);
+       'rmRoofHeightAt', 'rmAlignLoadSamples', 'rmAlignSaveSample', 'rmDatum',
+       'rmSetDatumFromStreet', 'rmToWorld', 'rmRefreshHeights']);
     const api = new Function(BODY)();
 
     const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
@@ -38952,6 +39024,44 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
       /ft apart/.test(api.notes().join(' ')),
       'said: ' + api.notes().join(' | '));
 
+    /* ⭐ THE SAME CLICK MEASURES THE ROOF HEIGHT (added 2026-08-25).
+       ⚠ THE FAULT THIS CLOSES, read off a real house's rmDebug: the picture was
+       lined up correctly and the lines STILL drew feet below the gutter,
+       because the roof height was the assumed one-storey eave on a two-storey
+       house. The office had traced entirely on the sky view, so nothing in
+       Street View had ever been clicked and the datum had never been measured.
+       Lining up is the one moment somebody deliberately clicks the house from
+       the street, so the height is free.
+       ⚠ FROM A WALL HIT ONLY. A roof crossing gets its height FROM the datum,
+       so setting the datum off one measures the assumption and calls it a
+       measurement - the circular move the dot path already refuses. */
+    api.reset(mkRuns());
+    api.roofH(null);
+    api.datum(null);
+    api.takeSky(ll(0, 0));
+    api.takeStreet({e: 2, n: 1, u: 5.4, kind: 'wall'});
+    check('S269', 'a wall click lines the picture up AND measures the roof height',
+      api.datumSet() !== null && Math.abs(api.datumSet() - 5.4) < 2,
+      'the datum came out ' + api.datumSet() + ' - a house traced only from above ' +
+      'never gets its height measured any other way');
+    check('S269', 'and the note says the height was measured too',
+      /roof height was measured/i.test(api.notes().join(' ')),
+      'said: ' + api.notes().join(' | '));
+
+    api.reset(mkRuns());
+    api.datum(null);
+    api.takeSky(ll(0, 0));
+    api.takeStreet({e: 2, n: 1, u: 5.4, kind: 'roof'});
+    check('S269', 'but a ROOF click never sets the datum, because it came FROM the datum',
+      api.datumSet() === null,
+      'measuring the assumption and calling it a measurement is the circular move ' +
+      'that cost a revert once already');
+    /* ⚠ SAID OUT LOUD, because the lines are now in the right PLACE and still
+       at the wrong HEIGHT, which looks like the alignment not having worked. */
+    check('S269', 'and it warns that the height is still assumed',
+      /still ASSUMED/.test(api.notes().join(' ')),
+      'said: ' + api.notes().join(' | '));
+
     /* ⚠ A STREET CLICK THAT HIT NOTHING IS NOT AN ANSWER. Treating a miss as
        {e:0,n:0} would read as "the picture is perfect" and cancel a correction
        that was already right. */
@@ -39059,6 +39169,16 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
      second half of an alignment, a click must not also land in the run being
      traced - the two alignment clicks would be billed as roofline. */
   const skyClick = slice(admin, "getElementById('rmMapLock').addEventListener('click'", "getElementById('rmMapLock').addEventListener('dblclick'");
+  /* ⚠ THE SANDBOX CANNOT SEE THIS, and a red-check proved it: it calls
+     rmAlignTakeStreet directly with a hit of its own, so throwing the hit away
+     in the CLICK HANDLER left every behavioural check above green while the
+     roof height silently stopped being measured on every real house. The hit's
+     height and whether it landed on a WALL are the whole input to that. */
+  const panoAlign = slice(admin, '    if(rmAligning){', "    if(rmCornerMode === 'dot'){");
+  check('S269', 'the street click hands the alignment the whole hit, not just where it is',
+    /rmAlignTakeStreet\(hit\)/.test(panoAlign),
+    'passing {e, n} drops the height and the wall/roof kind, so the same click ' +
+    'can no longer measure the eave — and no sandbox check can see it');
   check('S269', 'an alignment click is taken before it can join a traced side',
     skyClick.indexOf('rmAligning') !== -1 &&
     skyClick.indexOf('rmAligning') < skyClick.indexOf('rmAddPoint('),
