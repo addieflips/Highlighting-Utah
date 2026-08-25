@@ -4401,9 +4401,21 @@
           <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
           <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">One set of points, seen from above and from the street. Mark it in either &mdash; it shows up in both.</p>
 
+          <!-- ⭐ NO ADDRESS BAR (2026-08-25). The tool only ever opens from a
+               quote, and a quote already knows its own address — so typing one
+               in was asking for something we had, and offered the chance to
+               measure a house other than the one being quoted.
+               ⚠ THE INPUT ITSELF SURVIVES, HIDDEN, AND HAS TO. It is where
+               rmLoadAddress reads the address from and where openRoofMeasure
+               writes it; deleting it turns the one path into the tool into a
+               null dereference. Which house is loaded is now shown as text
+               instead, so it can still be checked and no longer be edited.
+               Reload is the ⟳ beside it, for the rare case where Google's
+               imagery has not answered. -->
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
-            <input type="text" id="rmAddress" placeholder="Enter property address&hellip;" style="flex:1 1 320px; min-width:220px; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-size:13.5px;">
-            <button type="button" class="btn btn-gold" id="rmLoadBtn">Load Property</button>
+            <input type="hidden" id="rmAddress">
+            <p id="rmAddressShown" style="flex:1 1 320px; min-width:220px; margin:0; font-size:13px; color:var(--slate);"></p>
+            <button type="button" class="btn btn-outline btn-sm" id="rmLoadBtn" title="Load this address again">&#10227; Reload the imagery</button>
           </div>
 
           <div id="rmWorkStage" style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
@@ -4437,9 +4449,23 @@
                   </div>
                   <div id="rmCornerNote" style="font-size:11px; color:var(--dusk); margin-bottom:5px;"></div>
                   <div id="rmCornerList" style="display:flex; gap:4px; flex-wrap:wrap;"></div>
-                  <div style="display:flex; gap:6px; margin-top:6px;">
+                  <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                     <button type="button" class="btn btn-outline btn-sm" id="rmEndStrandBtn" style="padding:4px 10px; font-size:11px;">End this strand</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmClearDotsBtn" style="padding:4px 10px; font-size:11px;">Clear all dots</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmAutoBtn" style="padding:4px 10px; font-size:11px;">Auto-detect corners</button>
+                  </div>
+                  <!-- ⭐ THE AUTOMATIC ONES ARE BEHIND A DOOR (2026-08-25).
+                       ⚠ NOTHING IS DELETED — both still work, and both are still
+                       tested. Every automatic attempt at this roofline put lines
+                       on the house that were close enough to look plausible and
+                       wrong enough to be useless, so they no longer sit beside
+                       plain clicking as though they were the same kind of
+                       answer. Somebody who wants a guess can still ask for one.
+                       ⚠ THE DOT LIST AND THE MODE LINE STAY OUT HERE. Placing
+                       dots by hand is not the detector — it is the job, asked
+                       for in those words, and the line naming the mode is the
+                       only thing on screen that says which one you are in. -->
+                  <div id="rmAutoBar" style="display:none; gap:6px; margin-top:6px; flex-wrap:wrap;">
                     <button type="button" class="btn btn-outline btn-sm" id="rmSuggestBtn" style="padding:4px 10px; font-size:11px;">Suggest corners</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmModelBtn" style="padding:4px 10px; font-size:11px;">Show assumed house</button>
                   </div>
@@ -18830,28 +18856,33 @@ function rmSetDrawing(on){
   rmDrawing = !!on;
   const btn = document.getElementById('rmDrawBtn');
   const hint = document.getElementById('rmDrawHint');
+  /* ⭐ THE BUTTON IS THE WAY OUT OF A RUN, NOT THE WAY IN (2026-08-25).
+     Clicking the roofline starts one now, so a control labelled "Start
+     Measuring" sitting there permanently was a step that no longer had to be
+     taken and read like one that did. It is shown only while a run is open,
+     where it is the only thing on screen that says how to end one. */
+  btn.style.display = rmDrawing ? '' : 'none';
   if(!rmSkyReady && !rmStreetReady){
     rmDrawing = false;
-    btn.textContent = 'Start Measuring';
-    hint.textContent = 'Load an address first.';
+    btn.style.display = 'none';
+    hint.textContent = 'Finding the house…';
   } else if(rmDrawing){
     /* ⚠ THE BUTTON SAYS WHAT PRESSING IT DOES, and it counts as it goes. A
        control labelled the same before and after is the commonest way somebody
        ends up with two runs when they wanted one, or one when they wanted two. */
     const n = rmCurrent ? rmCurrent.path.length : 0;
-    btn.textContent = n > 1 ? ('✓ Done with this run (' + n + ' points)')
-                            : (n === 1 ? '✓ Done with this run' : 'Click the first corner…');
+    btn.textContent = n > 1 ? ('✓ Finish this side (' + n + ' points)')
+                            : (n === 1 ? '✓ Finish this side' : 'Click the first corner…');
     hint.innerHTML = n > 1
       ? 'Keep clicking along it. <strong>Double-click</strong> or press the button to end this run. <strong>Backspace</strong> takes back a point, <strong>Esc</strong> ends the run.'
       : 'Click along the line in <strong>either</strong> view — it appears in both. Drag any point afterwards to nudge it.';
   } else {
     rmFinishRun();
-    /* After a finished run the obvious next thing is another one, so the
-       button says so rather than repeating "Start". */
-    btn.textContent = rmRuns.length ? '+ Measure another run' : 'Start Measuring';
+    /* With no run open there is nothing to finish, so the hint carries the
+       instruction the button used to. */
     hint.innerHTML = rmRuns.length
-      ? 'Add as many runs as the house needs — each one is listed below with its own footage, and the &times; removes it.'
-      : 'Pick what you are tracing above, then press this and click along it.';
+      ? 'Click the roofline again for another side — each one is listed below with its own footage, and the &times; removes it.'
+      : '<strong>Click along the roofline</strong> in either view to start a side. Drag any point afterwards to nudge it.';
   }
   const lock = rmDrawing || rmWallPicking;
   /* Sky takes clicks whenever we are drawing; Street only once the wall is
@@ -19983,6 +20014,10 @@ function openRoofMeasure(quoteId){
   rmPendingMeasurement = item.data.measurement || null;
   document.getElementById('rmTitle').textContent = 'Measure Roof — ' + (item.data.name || 'Quote');
   document.getElementById('rmAddress').value = item.data.address || '';
+  /* Shown rather than typed — the office can still check which house is on
+     screen, and can no longer accidentally measure a different one. */
+  const shown = document.getElementById('rmAddressShown');
+  if(shown) shown.textContent = item.data.address || 'This quote has no address on it yet.';
   document.getElementById('roofMeasureOverlay').style.display = 'flex';
   setTimeout(function(){
     if(rmMap) google.maps.event.trigger(rmMap, 'resize');
@@ -19997,9 +20032,10 @@ function openRoofMeasure(quoteId){
     b.addEventListener('click', function(){ rmFinishRun(); rmSetType(b.dataset.rmtype); });
   });
   document.getElementById('rmLoadBtn').addEventListener('click', rmLoadAddress);
-  document.getElementById('rmAddress').addEventListener('keydown', function(e){
-    if(e.key === 'Enter'){ e.preventDefault(); rmLoadAddress(); }
-  });
+  /* ⚠ THE Enter-TO-LOAD HANDLER IS GONE WITH THE BOX IT LISTENED TO. A hidden
+     input cannot be focused, so it could never fire again — and Enter is the
+     start/finish-a-side key everywhere else in this tool, so leaving a second
+     meaning bound to it was a trap waiting for the box to be un-hidden. */
   ['rmBright','rmContrast'].forEach(function(id){
     document.getElementById(id).addEventListener('input', rmApplyFilter);
   });
@@ -20065,6 +20101,15 @@ function openRoofMeasure(quoteId){
     } else {
       rmToggleCorner(i);
     }
+  });
+  /* One door to both guesses, and it says which way it is about to go — a
+     disclosure that reads the same open and shut is one nobody trusts twice. */
+  document.getElementById('rmAutoBtn').addEventListener('click', function(){
+    const bar = document.getElementById('rmAutoBar');
+    if(!bar) return;
+    const open = bar.style.display !== 'none';
+    bar.style.display = open ? 'none' : 'flex';
+    this.textContent = open ? 'Auto-detect corners' : 'Hide auto-detect';
   });
   document.getElementById('rmSuggestBtn').addEventListener('click', function(){
     if(rmCandidates.length){ rmCandidates = []; rmPaintStreet();
@@ -20149,8 +20194,20 @@ function openRoofMeasure(quoteId){
          really lies, measuring its true length, and picking a dot to work with
          (right-click still toggles one on or off). It just no longer invents
          one. */
+      /* ⭐ A CLICK UP HERE STARTS A SIDE (2026-08-25). It used to be refused
+         outright with the note below, so the commonest thing anybody does with
+         a map — click on it — did nothing at all, and tracing meant finding
+         "Start Measuring" in the sidebar first.
+         ⚠ THIS IS NOT THE THING THAT NOTE WAS REFUSING. Placing a CORNER from
+         above has to invent a height and parallax then swings it across the
+         house, which is why it goes in from the street. Tracing a RUN is the
+         opposite case: an eave and a ridge are level, so plan length IS true
+         length, and above is the one place the line can be seen whole. The
+         note stays, because corners really do still go in from the street. */
       const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = '⚠ Dots go in from the street view — that is the only place a gutter can be told from a chimney, and the only place a height is real rather than guessed. The map is for checking where they landed.';
+      if(note) note.textContent = 'Tracing a side from up here. Corners still go in from the street view — that is the only place a gutter can be told from a chimney, and the only place a height is real rather than guessed.';
+      rmSetDrawing(true);
+      rmAddPoint(w);
       return;
     }
     if(rmDrawing) rmAddPoint(w);

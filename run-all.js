@@ -34939,9 +34939,23 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
       return i !== -1 && admin.slice(i, j).indexOf('rmAddCorner') === -1;
     })(),
     'a dot from above has to invent a height, and an invented height drifts');
+  /* ⚠ THIS USED TO MATCH THE REFUSAL NOTE ("Dots go in from the street view"),
+     because a sky click did nothing else. It now STARTS A SIDE — tracing a run
+     from above is the one thing that view is best at, since an eave is level so
+     plan length is true length — and still names the street as where corners
+     go. The claim is unchanged and stronger: the click must not be silent. */
   check('S149', 'and it says where dots do go, rather than doing nothing',
-    /Dots go in from the street view/.test(admin),
+    /go in from the street view/.test(admin),
     'a click that silently does nothing reads as broken');
+  check('S149', 'a click up there traces a side instead of being refused outright',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmSetDrawing\(true\);\s*\r?\n\s*rmAddPoint\(w\);/.test(body);
+    })(),
+    'refusing the commonest gesture on a map means tracing starts by finding a ' +
+    'button in the sidebar first, which is the step this removes');
   /* The street view still does, and takes its height from the ray. */
   check('S149', 'the street view is what places a corner',
     (function(){
@@ -37005,6 +37019,79 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
   check('S256', 'and opening a quote stashes it after the reset that would clear it',
     open.indexOf('rmReset()') < open.indexOf('rmPendingMeasurement'),
     'rmReset clears the pending drawing, so stashing it first loses it silently');
+}
+
+
+suite('257. Measure Roof - one less step before you can trace');
+{
+  /* Three interaction models shared one screen. What changed is which one you
+     land in: clicking the roofline traces a side, the button is the way OUT of
+     a run rather than the way in, the address comes off the quote, and the two
+     automatic guesses are behind a door.
+     ⚠ NOTHING IS DELETED ANYWHERE IN HERE. Suggest corners and Show assumed
+     house both still work and are both still tested — they simply no longer sit
+     beside plain clicking looking like the same kind of answer. */
+  const setDraw = extractFn(admin, 'rmSetDrawing') || '';
+  check('S257', 'the button is hidden unless a run is open',
+    /btn\.style\.display = rmDrawing \? '' : 'none';/.test(setDraw),
+    'a permanent "Start Measuring" is a step that no longer has to be taken, ' +
+    'sitting there reading like one that does');
+  check('S257', 'and while one is open it says how to end it',
+    /Finish this side/.test(setDraw),
+    'the only control on screen that ends a run has to say so');
+  /* ⚠ THE HINT HAS TO CARRY WHAT THE BUTTON STOPPED SAYING. Hiding the button
+     without moving its instruction leaves a first-time user with a map and
+     nothing telling them a click does anything. */
+  check('S257', 'with no run open the hint is what tells you to click the roofline',
+    /Click along the roofline<\/strong> in either view to start a side/.test(setDraw),
+    'the instruction went out with the button and nothing replaced it');
+
+  /* ---- the address is not asked for twice --------------------------- */
+  check('S257', 'the address box is not something to type in any more',
+    /<input type="hidden" id="rmAddress">/.test(admin),
+    'the tool only opens from a quote, and the quote knows its own address - ' +
+    'a typable box offers the chance to measure a different house than the one being quoted');
+  /* ⚠ AND THE ELEMENT STILL EXISTS. rmLoadAddress reads the address out of it
+     and openRoofMeasure writes it there; deleting it turns the only way into
+     the tool into a null dereference. */
+  check('S257', 'but it still exists, because the loader reads the address from it',
+    /getElementById\('rmAddress'\)\.value/.test(admin) &&
+    (extractFn(admin, 'rmLoadAddress') || '').indexOf("getElementById('rmAddress')") !== -1,
+    'removing the input outright breaks the one path into the tool');
+  check('S257', 'and which house is loaded is still shown, just not editable',
+    /id="rmAddressShown"/.test(admin) &&
+    /shown\.textContent = item\.data\.address/.test(admin),
+    'hiding the address without showing it leaves nobody able to check the right house is on screen');
+  /* Enter means start-or-finish-a-side everywhere else in this tool. A second
+     meaning bound to a box that can no longer be focused is a trap. */
+  check('S257', 'the dead Enter-to-load handler went with the box',
+    !/getElementById\('rmAddress'\)\.addEventListener\('keydown'/.test(admin),
+    'a hidden input cannot be focused, so that listener could never fire again');
+
+  /* ---- the guesses are behind a door -------------------------------- */
+  check('S257', 'the two automatic guesses are hidden until asked for',
+    /id="rmAutoBar" style="display:none/.test(admin) &&
+    /id="rmSuggestBtn"/.test(admin) && /id="rmModelBtn"/.test(admin),
+    'every automatic attempt at this roofline put plausible-looking wrong lines ' +
+    'on the house - offering them beside plain clicking reads as an equal option');
+  check('S257', 'and there is one button that opens them',
+    /id="rmAutoBtn"/.test(admin) &&
+    /getElementById\('rmAutoBtn'\)\.addEventListener/.test(admin),
+    'a panel with no way to open it is a deletion wearing a disclosure');
+  /* Owner's standing request, in her words: "just make sure that if i click a
+     button the function that is supposed to happen actually does." */
+  const autoWire = (admin.split("getElementById('rmAutoBtn').addEventListener")[1] || '').slice(0, 500);
+  check('S257', 'the button really toggles the panel, both ways',
+    /bar\.style\.display = open \? 'none' : 'flex';/.test(autoWire) &&
+    /Hide auto-detect/.test(autoWire),
+    'a disclosure that opens and cannot close, or reads the same either way, is one nobody trusts twice');
+  /* ⚠ THE MANUAL DOT LIST IS DELIBERATELY NOT BEHIND THAT DOOR. Placing dots
+     by hand was asked for in those words and IS the job; the mode line is the
+     only thing on screen saying which mode you are in. */
+  check('S257', 'the hand-placed dot list and the mode line stay in the open',
+    /id="rmCornerList"/.test(admin) && /id="rmCornerMode"/.test(admin) &&
+    (admin.indexOf('id="rmCornerList"') < admin.indexOf('id="rmAutoBar"')),
+    'hiding the manual dots hides the workflow the tool was rebuilt around');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
