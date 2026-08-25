@@ -356,6 +356,18 @@ function check(label, ok, detail) {
      artifact, and prove nothing. */
   {
     const admin = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
+    /* Slice a handler from its anchor to the end of its top-level construct. fnOf only
+       finds `function name(`, and the two customer write paths are addEventListener
+       handlers, which have no name to find.
+       ⚠ TO THE REAL END, never a character count — CLAUDE.md §7, and it has already
+       cost this file once: the Edit Customer save is ~36,000 characters and growing.
+       ⚠ AND \r?\n, because admin.html is CRLF and is read here unnormalised. */
+    const blockFrom = (anchor) => {
+      const at = admin.indexOf(anchor);
+      if (at === -1) return '';
+      const m = /\r?\n\}\);/.exec(admin.slice(at));
+      return admin.slice(at, m ? at + m.index + m[0].length : admin.length);
+    };
     const fnOf = (name) => {
       const at = admin.indexOf('function ' + name + '(');
       if (at === -1) return '';
@@ -456,6 +468,73 @@ function check(label, ok, detail) {
           },
         },
       ],
+      /* ⭐ THE CUSTOMER RECORD (added 2026-08-25). Every one of the fourteen options
+         declares this destination — it is the only one all of them share, and it sits
+         UPSTREAM of every other surface: the crew sheet and the build list are both
+         enforced already, but both read the record, so a field that stops being saved
+         here breaks them without either of their checks firing.
+
+         ⚠ TWO WRITE PATHS, CHECKED SEPARATELY, for exactly the reason the two build
+         sheets are: a customer can be created or corrected, and a field wired into one
+         path and not the other is a gap that only shows up months later on whichever
+         half nobody used. Add Customer carries all fourteen; the Edit Customer save
+         carries thirteen. */
+      customer: [
+        {
+          name: 'Add Customer',
+          src: blockFrom("document.getElementById('routeAddressForm').addEventListener("),
+          by: {
+            measuredFeet:       /measuredFeet: measuredFeet/,
+            lightsDescription:  /lightsDescription: lightsDescription/,
+            wireColor:          /wireColor: wireColor/,
+            outletTimer:        /outletTimer: outletTimer/,
+            useEaves:           /useEaves: useEaves/,
+            specificOutlet:     /specificOutlet: specificOutlet/,
+            gateCode:           /gateCode: gateCode/,
+            /* ⚠ NOT `houseSides: houseSides` — the form collects a count under its own
+               name, and a lazy regex on the field name alone would pass against the
+               registry's own comment about it a few hundred lines up. */
+            houseSides:         /houseSides: selectedSides/,
+            installPreference:  /installPreference: installPreference/,
+            notes:              /notes: custNotes/,
+            oneTimeNote:        /oneTimeNote: oneTimeNote/,
+            wantsMailedInvoice: /wantsMailedInvoice: wantsMailedInvoice/,
+            numberOfBins:       /numberOfBins: numberOfBins/,
+            difficulty:         /difficulty: difficulty/,
+          },
+        },
+        {
+          name: 'the Edit Customer save',
+          src: blockFrom("document.getElementById('editCustSaveBtn').addEventListener("),
+          by: {
+            measuredFeet:       /measuredFeet: newMeasuredFeet/,
+            /* ⚠ THESE FOUR ARE ASSIGNED ONTO addrUpdates AFTER the literal, not inside
+               it, and the assignment is what has to survive — matching the bare field
+               name would pass against any of the two dozen places the word appears in
+               this handler's comments. */
+            lightsDescription:  /addrUpdates\.lightsDescription = newLightsDescription/,
+            installPreference:  /addrUpdates\.installPreference = newInstallPref/,
+            notes:              /addrUpdates\.notes = newHouseNotes/,
+            oneTimeNote:        /addrUpdates\.oneTimeNote = newOneTimeNote/,
+            wireColor:          /wireColor: newWireColor/,
+            outletTimer:        /outletTimer: newOutletTimer/,
+            useEaves:           /useEaves: newUseEaves/,
+            specificOutlet:     /specificOutlet: newSpecificOutlet/,
+            gateCode:           /gateCode: newGateCode/,
+            houseSides:         /houseSides: newHouseSides/,
+            wantsMailedInvoice: /wantsMailedInvoice: newWantsMailed/,
+            numberOfBins:       /numberOfBins: newBins/,
+            /* ⚠ A RECORDED EXCEPTION, NOT A GAP. Difficulty is the one option this form
+               does not carry, and that is deliberate rather than forgotten: it is how
+               hard a house is to hang, which is learned by hanging it, so it is set from
+               the Routes screen by whoever just did the job. Add Customer sets it at
+               creation and the dropdown corrects it afterwards, so it is still wired on
+               both ends — the standalone check below holds that dropdown in place, or
+               this exception would quietly become the gap it claims not to be. */
+            difficulty: { except: 'set from the Routes screen by whoever hung the house, not from this form' },
+          },
+        },
+      ],
     };
 
     /* ⭐ WHAT THE PAPER MUST CARRY, in the owner's own words (2026-08-24): "we want
@@ -464,6 +543,18 @@ function check(label, ok, detail) {
        nothing above would notice either going missing. Asserted here because they are
        the two things she named, and the bundle count is what somebody actually counts
        off a shelf. */
+    /* ⚠ THE OTHER HALF OF THE difficulty EXCEPTION ABOVE. The Edit Customer save is
+       allowed not to carry it only because the Routes screen does; without this the
+       exception would be a gap wearing a reason. Two dropdowns write it — the route
+       ordered list and the stop row — and each is asserted, because one covering for
+       the other is the same failure as one build sheet covering for the other. */
+    const setdiffWrites = admin.match(/updateDoc\(doc\(db,'jobAddresses',sel\.dataset\.setdiff\), \{difficulty: sel\.value\}\)/g) || [];
+    check('difficulty is still settable from the Routes screen',
+      setdiffWrites.length >= 2,
+      'found ' + setdiffWrites.length + ' — the Edit Customer form deliberately does ' +
+      'not carry difficulty, so if these go there is nowhere left to correct it and ' +
+      'the recorded exception above becomes a hole');
+
     const buildCols = (admin.match(/build:\s*\[([\s\S]*?)\],\s*\n/) || [])[1] || '';
     check('the printed build sheet carries the customer number',
       /k: 'number', label: 'Cust #'/.test(buildCols),
