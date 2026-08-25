@@ -33109,6 +33109,28 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
       g(LEHI).level === 'Medium',
       'got ' + g(LEHI).level + ' — the steepest single facet was setting the grade ' +
       'for all 2,185 sq ft, so one 183 sq ft face made the whole day Hard');
+    /* ⭐ AND A SECOND HOUSE THE OWNER GRADED, which is the only kind of test data
+       that can settle this. 10937 S Edenbrook Dr, Sandy - she calls it EASY.
+       Eight facets, area-weighted 43%, steep share 7%.
+       ⚠ ITS STEEPEST FACET READS 187% GRADE - a 22/12 pitch, which no house has.
+       That is a Solar artefact on a small facet, and under the old rule it set
+       the grade for the entire roof and made an easy house Hard. Both labelled
+       houses came out Hard on the old rule; both are right on this one. */
+    const SANDY = {maxGrade: 187, typicalGrade: 43, steepShare: 0.07, peakCount: 6};
+    check('S129', 'the house the owner called Easy comes out Easy',
+      g(SANDY).level === 'Easy',
+      'got ' + g(SANDY).level + ' — a single 187% facet is a modelling artefact, ' +
+      'not a roof a crew has to rope up for');
+    check('S129', 'and the old rule got BOTH labelled houses wrong',
+      (function(){
+        const old = (mg, pk) => { let l = mg >= 75 ? 2 : (mg >= 45 ? 1 : 0);
+                                  if(pk >= 5) l = Math.min(2, l + 1);
+                                  return ['Easy','Medium','Hard'][l]; };
+        return old(88, 8) === 'Hard' && old(187, 6) === 'Hard';
+      })(),
+      'a scale where every house is the top grade carries no information, and it ' +
+      'was already setting prices');
+
     check('S129', 'but a roof steep over a third of its area IS Hard',
       g({maxGrade: 88, typicalGrade: 54, steepShare: 0.33, peakCount: 8}).level === 'Hard',
       'a steep patch is a patch; a steep roof is a day roped on');
@@ -34074,8 +34096,35 @@ suite('142. Measure Roof - a gutter is found by its ridge, not by being bright')
     /return \{error: 'tainted'/.test(admin) && /silent fallback/.test(admin));
   check('S142', 'the page still never picks a Google key by hand',
     !/streetview\?[^']*key=AIza/.test(admin));
-  check('S142', 'and the status line says when the height is still only assumed',
-    /The height is still assumed/.test(admin));
+  /* ⚠ WORDING FOLLOWS THE CODE. It used to say "the height is still assumed"
+     alongside a count of guessed edges; there are no guessed edges any more, and
+     the height is now measured on load rather than left assumed, so the line
+     that matters is the one for when the PHOTO could not answer. The claim is
+     unchanged: a height nobody measured must say so on screen. */
+  check('S142', 'and the status line says when the height could not be measured',
+    /The roof height could not be measured from the street photo/.test(admin) &&
+    /put a dot on a wall, and it is measured from that instead/.test(admin),
+    'a height nobody measured must never pass for one that was');
+  /* ⭐ AND THE MEASUREMENT IS NOT GATED ON GUESSED LINES. Owner: "we shouldnt
+     have a estamated height it should use street view to determine the height."
+     ⚠ IT WAS GATED ON rmGuessedCount - the number of automatically suggested
+     roof edges - and those were removed on the owner's own instruction. So the
+     condition was never true, the datum was never solved, and every house fell
+     back to an assumed one-storey eave. The measurement sat behind a feature
+     that no longer existed. */
+  check('S142', 'the height measurement does not need guessed lines to exist',
+    !/if\(!rmSuggestionsBuilt \|\| !rmStreetReady \|\| !rmGuessedCount\) return;/.test(admin) &&
+    /if\(!rmStreetReady \|\| !rmFaces \|\| !rmFaces\.length\) return;/.test(admin),
+    'it needs a photo, a roof model to point at and a camera on the road - nothing else');
+  check('S142', 'and it samples the roof model rather than drawn runs',
+    (function(){
+      const f = pick('rmDatumFromStreetPhoto') || '';
+      /* the comment explains what it used to do, so look for the CODE */
+      return f.indexOf('rmFaceEave(f)') !== -1 &&
+             f.indexOf('if(!r.suggested') === -1;
+    })(),
+    'what was removed was DRAWING a guessed edge, not knowing where to look for a gutter');
+
   check('S142', 'a failed photo read never removes the lines that were drawn',
     !!pick('rmDatumFromStreetPhoto') && !/rmRuns\s*=/.test(pick('rmDatumFromStreetPhoto')),
     'a tree over the house must cost the HEIGHT, never the roofline itself');
@@ -34233,7 +34282,7 @@ suite('144. Measure Roof - the peaks are offered too, and only once each');
     'lights do not go along a ridge, and a line nobody will hang is work to switch off');
   check('S144', 'but the peak is still worked out, because the height needs it',
     !!pick('rmFaceRidge') && !!pick('rmFaceRidgeMid') &&
-    /rmFaceRidgeMid\(r\.face\)/.test(pick('rmDatumFromStreetPhoto') || ''),
+    /rmFaceRidgeMid\(f\)/.test(pick('rmDatumFromStreetPhoto') || ''),
     'removing it would take the pairing with it and the search walks back up to the sky');
 
   /* ⚠ A DORMER HAS A FRONT AND A DEPTH. Owner: "be sure that with things like

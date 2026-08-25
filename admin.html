@@ -18267,7 +18267,11 @@ const RM_PHOTO_DATUM_TRIES = 4;
 function rmTryPhotoDatum(){
   if(rmDatumSource === 'photo') return;              /* already answered */
   if(rmPhotoDatumBusy || rmPhotoDatumTries >= RM_PHOTO_DATUM_TRIES) return;
-  if(!rmSuggestionsBuilt || !rmStreetReady || !rmGuessedCount) return;
+  /* ⚠ NOT GATED ON GUESSED LINES ANY MORE. rmGuessedCount is the number of
+     automatically suggested edges, and those were removed - so this condition
+     was never true and the height was never measured. What it actually needs is
+     a street photo, a roof model to point at, and a camera on the road. */
+  if(!rmStreetReady || !rmFaces || !rmFaces.length) return;
   if(!rmCamOnRoad()) return;                         /* the whole point */
   rmPhotoDatumBusy = true;
   rmPhotoDatumTries++;
@@ -18286,10 +18290,10 @@ function rmTryPhotoDatum(){
         : '⚠ No corners could be read from the photo: ' + c.why + '. Place them with space, or use the lines below.';
     });
     st.textContent = res.ok
-      ? rmGuessedCount + ' roof edges found, and the roof height was read off the street photo (' +
-        Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
-      : rmGuessedCount + ' roof edges found — the front of the house is already on. ⚠ The height is still assumed: ' +
-        res.why + '. Trace anything in Street View to measure it properly.';
+      ? 'Roof height measured from the street photo — ' +
+        Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters.'
+      : '⚠ The roof height could not be measured from the street photo: ' + res.why +
+        '. Trace anything in Street View, or put a dot on a wall, and it is measured from that instead.';
   }).catch(function(){ rmPhotoDatumBusy = false; });
 }
 
@@ -18326,16 +18330,37 @@ async function rmDatumFromStreetPhoto(){
      run is the part least likely to be behind a tree or off the edge of the
      frame - and EACH ONE CARRIES ITS RIDGE. Without the ridge there is nothing
      to pair the gutter with, and the search walks up to the skyline. */
+  /* ⭐ THE SAMPLES COME FROM THE ROOF MODEL ITSELF, NOT FROM DRAWN LINES.
+     Owner: "we shouldnt have a estamated height it should use street view to
+     determine the height."
+
+     ⚠ AND THIS IS WHY THE HEIGHT WAS STILL BEING ESTIMATED. This walked rmRuns
+     looking for r.suggested - the automatically guessed roof edges - and those
+     were REMOVED on the owner's own instruction, because they "put lines on the
+     house that were close enough to look plausible and wrong enough to be
+     useless". So the list was always empty, the datum was never solved, and the
+     tool fell back to an assumed one-storey eave on every house. The
+     measurement was gated behind a feature that no longer exists.
+
+     ⚠ WHAT WAS REMOVED WAS DRAWING THEM, NOT KNOWING WHERE THEY MIGHT BE. A
+     face's eave is still a perfectly good place to LOOK for a gutter in the
+     photograph - it just is not good enough to draw a line on and bill from.
+     Looking there and then measuring what is actually in the picture is the
+     opposite of guessing: the model says where to point the camera, and the
+     photograph answers.
+
+     Each sample carries its ridge, because without one there is nothing to pair
+     the gutter with and the search walks up to the skyline. */
   const samples = [];
-  rmRuns.forEach(function(r){
-    if(!r.suggested || !r.path || r.path.length < 2) return;
-    const a = r.path[0], b = r.path[r.path.length - 1];
-    const mid = {lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2};
+  (rmFaces || []).forEach(function(f){
+    const eave = rmFaceEave(f);
+    if(!eave || !eave.a || !eave.b) return;
+    const mid = {lat: (eave.a.lat + eave.b.lat) / 2, lng: (eave.a.lng + eave.b.lng) / 2};
     const rel = rmRoofRelativeAt(mid.lat, mid.lng);
     if(rel === null) return;
     const p = rmToLocal(mid.lat, mid.lng, 0);
     const sample = {e: p.e, n: p.n, rel: rel, ridge: null};
-    const rm = r.face ? rmFaceRidgeMid(r.face) : null;
+    const rm = rmFaceRidgeMid(f);
     if(rm){
       const rrel = rmRoofRelativeAt(rm.lat, rm.lng);
       if(rrel !== null && rrel > rel + 0.3){        /* a ridge really is higher */
