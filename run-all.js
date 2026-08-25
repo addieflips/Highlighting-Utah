@@ -37949,7 +37949,7 @@ suite('262. Measure Roof - the roofline that runs backward and gets missed');
 
   if (!missing.length) {
     const api = new Function(
-      'const RM_M_TO_FT=3.280839895, RM_COVERED_TOL_M=3.5, RM_MISSED_MIN_FT=6;' + LF_ +
+      'const RM_M_TO_FT=3.280839895, RM_COVERED_TOL_M=3.5, RM_MISSED_MIN_FT=6, RM_CLIMB_TOL_M=0.3;' + LF_ +
       'let rmOrigin={lat:40.2969,lng:-111.6946}, rmRuns=[], rmFaces=[];' + LF_ +
       'let __side="back";' + LF_ +
       'function rmDatum(){ return {m:3, source:"street"}; }' + LF_ +
@@ -38026,7 +38026,7 @@ suite('262. Measure Roof - the roofline that runs backward and gets missed');
        leaving one warning off. A red-check proved the face-list half of the old
        guard was dead; this is the half that is not. */
     const noOrigin = new Function(
-      'const RM_M_TO_FT=3.280839895, RM_COVERED_TOL_M=3.5, RM_MISSED_MIN_FT=6;' + LF_ +
+      'const RM_M_TO_FT=3.280839895, RM_COVERED_TOL_M=3.5, RM_MISSED_MIN_FT=6, RM_CLIMB_TOL_M=0.3;' + LF_ +
       'let rmOrigin=null, rmRuns=[], rmFaces=[{eave:{a:{lat:1,lng:1},b:{lat:1,lng:2}}}];' + LF_ +
       'function rmDatum(){ return {m:3, source:"street"}; }' + LF_ +
       'function rmRoofHeightAt(){ return 3; }' + LF_ +
@@ -38427,6 +38427,125 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
   check('S265', 'and the second button is enabled and disabled with the first',
     /attachMark\.disabled = !rmShots\.length/.test(extractFn(admin, 'rmRenderStaged') || ''),
     'offering markup with nothing staged marks up a picture that does not exist');
+}
+
+
+suite('266. Measure Roof - the same roofline traced twice');
+{
+  /* ⚠ THE CASE THIS EXISTS FOR, and it is the gable one. A gabled front traced
+     in Street View runs up one slope, over the peak, down the other and then
+     ALONG THE EAVE — so the eave is already in it. Tracing that eave again from
+     above, which is the natural thing to do because from above it is the part
+     you can see clearly, bills the house for it twice. Two lines lying on one
+     another look like one line, so nothing else on that screen would say so and
+     the total just quietly reads high. */
+  const LF_ = String.fromCharCode(10);
+  const NEED = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunFeet',
+                'rmDistToSegment', 'rmRunOverlapFeet', 'rmOverlappingRuns'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S266', 'the double-count check is findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  /* ⚠ THE REAL CONSTANTS, READ OUT OF THE FILE. A red-check caught this being
+     hard-coded: widening RM_OVERLAP_TOL_M in admin.html until two sides meeting
+     at a corner counted as duplicates changed nothing the test could see,
+     because the sandbox carried its own 1.5 regardless. The tolerance IS the
+     behaviour here — too wide and it fires on every house that has a corner —
+     so it has to be the shipped number under test. */
+  const TOL = Number((admin.match(/RM_OVERLAP_TOL_M\s*=\s*([\d.]+)/) || [])[1]);
+  const FRAC = Number((admin.match(/RM_OVERLAP_MIN_FRAC\s*=\s*([\d.]+)/) || [])[1]);
+  check('S266', 'the shipped tolerance and threshold are readable', TOL > 0 && FRAC > 0,
+    'got tol=' + TOL + ' frac=' + FRAC + ' — without them this suite grades a fiction');
+
+  if (!missing.length && TOL > 0 && FRAC > 0) {
+    const api = new Function(
+      'const RM_M_TO_FT=3.280839895, RM_OVERLAP_TOL_M=' + TOL + ', RM_OVERLAP_MIN_FRAC=' + FRAC + ';' + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946}, rmRuns=[];' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return {over:rmOverlappingRuns, pair:rmRunOverlapFeet, set:function(r){ rmRuns=r; }};')();
+
+    const m = new Function('return ' + parts[0].replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+    const run = (pts, on) => ({on: on !== false,
+      path: pts.map(p => ({lat: ll(p[0], p[1]).lat, lng: ll(p[0], p[1]).lng, h: 3}))});
+
+    /* A 24 m eave traced from above, and the SAME eave traced again. */
+    const eave = run([[-12, 0], [12, 0]]);
+    const again = run([[-12, 0], [12, 0]]);
+    api.set([eave, again]);
+    let r = api.over();
+    check('S266', 'the same line traced twice is caught',
+      r.pairs === 1 && r.feet > 70,
+      'got ' + r.pairs + ' pair(s), ' + r.feet.toFixed(1) + ' ft — this is the quote reading high ' +
+      'with nothing on screen saying why');
+
+    /* ⚠ THE REAL SHAPE: a SHORT street-traced eave sitting inside a LONG one.
+       Asking whether BOTH lines are mostly covered would miss this entirely,
+       because the long one is only a third covered. */
+    const shortEave = run([[-4, 0], [4, 0]]);
+    api.set([eave, shortEave]);
+    r = api.over();
+    check('S266', 'a short line sitting inside a long one is caught too',
+      r.pairs === 1 && r.feet > 20 && r.feet < 30,
+      'got ' + r.feet.toFixed(1) + ' ft — the double-counted amount is the SHORTER overlap, ' +
+      'which is the length genuinely present in both');
+
+    /* Two different sides of the house meeting at a corner touch but are not
+       duplicates. Flagging those would fire on every house with a corner. */
+    const front = run([[-12, -8], [12, -8]]);
+    const side  = run([[12, -8], [12, 8]]);
+    api.set([front, side]);
+    check('S266', 'but two sides meeting at a corner are not a duplicate',
+      api.over().pairs === 0,
+      'they touch at one point — flagging that fires on every house that has a corner');
+
+    /* Parallel but genuinely separate roofline — a lower section in front of a
+       higher one — is two real runs, not one traced twice. */
+    api.set([run([[-12, 0], [12, 0]]), run([[-12, 6], [12, 6]])]);
+    check('S266', 'and two parallel rooflines six metres apart are left alone',
+      api.over().pairs === 0,
+      'a lower section standing in front of a higher one is two real runs');
+
+    /* ⚠ A SWITCHED-OFF RUN IS NOT IN THE TOTAL, so it cannot be double-counting
+       anything — and warning about it would send somebody to switch off a line
+       that is already off. */
+    api.set([eave, Object.assign({}, again, {on: false})]);
+    check('S266', 'a switched-off duplicate is not warned about',
+      api.over().pairs === 0,
+      'it is not in the total, so it is not counted twice — and the fix offered ' +
+      'would be to switch off something already off');
+
+    /* A typed side has no path to lie on top of anything. */
+    api.set([eave, {on: true, surface: 'manual', manualFeet: 40, path: []}]);
+    check('S266', 'and a hand-typed side is never called a duplicate',
+      api.over().pairs === 0,
+      'it has no position at all, so it cannot be on top of anything');
+  }
+
+  check('S266', 'and it is said where the total is read',
+    /rmOverlappingRuns\(\)/.test(extractFn(admin, 'rmRenderResults') || ''),
+    'a total that reads high with nothing explaining it is the whole problem');
+  /* ⚠ IT WARNS RATHER THAN DELETING. Two lines on one roofline are sometimes
+     deliberate, and this cannot tell which — the per-run toggle is already how
+     one is taken out. */
+  check('S266', 'it points rather than deleting',
+    !/rmRuns\.splice|rmRuns = rmRuns\.filter/.test(extractFn(admin, 'rmOverlappingRuns') || ''),
+    'it cannot tell a mistake from a deliberate second line, so removing one is not its call');
+
+  /* ---- and the gable slopes are named ------------------------------- */
+  /* A rake climbs eave-to-peak; a gutter is level. The heights are already
+     computed, so telling them apart needs no new geometry — and a climbing edge
+     nobody has traced IS a gable slope, which is the thing that gets missed. */
+  const missed = extractFn(admin, 'rmMissedEdges') || '';
+  check('S266', 'an untraced edge that climbs is counted as a gable slope',
+    /out\.slopes\+\+/.test(missed) && /RM_CLIMB_TOL_M/.test(missed),
+    'a gable slope and a gutter are the same kind of line to the roof model — ' +
+    'the height difference is what separates them');
+  check('S266', 'and the warning says to trace those from Street View',
+    /gable slopes — trace those in/.test(admin) && /up one side to the peak/.test(admin),
+    'a gable cannot be measured from above — the slopes collapse to a line — so ' +
+    'naming the surface is the difference between actionable and not');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code

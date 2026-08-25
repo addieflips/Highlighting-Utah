@@ -18882,7 +18882,11 @@ function rmEdgeIsCovered(line){
    traced is just as missed — but the sides and the back are the ones this
    exists for, because they are the ones you cannot see from the street. */
 function rmMissedEdges(){
-  const out = {feet: 0, sides: {}, count: 0};
+  /* `slopes` counts the untraced edges that CLIMB. A rake runs eave-to-peak
+     and a gutter is level, so the heights already computed below tell them
+     apart with no new geometry — and a climbing edge nobody has traced is
+     precisely a gable slope, which is the thing that gets missed. */
+  const out = {feet: 0, sides: {}, count: 0, slopes: 0};
   /* ⚠ THE ORIGIN IS THE LOAD-BEARING HALF and the only one worth testing:
      rmToLocal reads rmOrigin.lat, so this runs before the house has loaded
      without it. A `!rmFaces.length` check used to sit here too and was removed
@@ -18904,8 +18908,82 @@ function rmMissedEdges(){
       out.sides[side] = (out.sides[side] || 0) + ft;
       out.feet += ft;
       out.count++;
+      if(Math.abs((Number(b.h) || 0) - (Number(a.h) || 0)) > RM_CLIMB_TOL_M) out.slopes++;
     });
   });
+  return out;
+}
+
+/* ⭐ THE SAME ROOFLINE TRACED TWICE (added 2026-08-25).
+ *
+ * ⚠ THE CASE THIS EXISTS FOR. A gabled front traced in Street View runs up one
+ * slope, over the peak, down the other and then along the eave — so the eave is
+ * ALREADY in it. Trace that eave again from above, which is the natural thing to
+ * do because from above it is the only part you can see clearly, and the house
+ * is billed for it twice. Nothing on screen would say so: two lines lying on top
+ * of each other look like one line, and the total just quietly reads high.
+ *
+ * ⚠ IT WARNS, IT DOES NOT DELETE. Two lines on the same roofline are sometimes
+ * deliberate — a run switched off, a correction traced beside the original — and
+ * this cannot tell which. The toggle beside each run is already how one gets
+ * taken out of the total, so the honest move is to point and let somebody look.
+ */
+const RM_OVERLAP_TOL_M = 1.5;        /* within ~5 ft is the same line */
+const RM_OVERLAP_MIN_FRAC = 0.5;     /* less than half is a corner touching */
+
+/* How many of A's feet lie on top of B.
+   ⚠ SAMPLED ALONG A, not compared end to end. A long eave traced from above and
+   a short one inside a street-traced gable are the same roofline over PART of
+   their length and different over the rest, which is exactly the case that
+   matters — an end-to-end comparison sees two different lines and says nothing. */
+function rmRunOverlapFeet(a, b){
+  if(!a || !b || a.surface === 'manual' || b.surface === 'manual') return 0;
+  const pa = (a.path || []).map(function(p){ return rmToLocal(p.lat, p.lng, 0); });
+  const pb = (b.path || []).map(function(p){ return rmToLocal(p.lat, p.lng, 0); });
+  if(pa.length < 2 || pb.length < 2) return 0;
+  const feet = rmRunFeet(a);
+  if(!feet) return 0;
+  let on = 0, total = 0;
+  for(let i = 1; i < pa.length; i++){
+    const de = pa[i].e - pa[i-1].e, dn = pa[i].n - pa[i-1].n;
+    const seg = Math.hypot(de, dn);
+    /* A metre a step, and never more than 200 on one run — this is called on
+       every render, and precision past a metre buys nothing against a 5 ft
+       tolerance. */
+    const steps = Math.max(1, Math.min(200, Math.ceil(seg)));
+    for(let s = 0; s < steps; s++){
+      const t = (s + 0.5) / steps;
+      const p = {e: pa[i-1].e + de*t, n: pa[i-1].n + dn*t};
+      total++;
+      for(let j = 1; j < pb.length; j++){
+        if(rmDistToSegment(p, pb[j-1], pb[j]) < RM_OVERLAP_TOL_M){ on++; break; }
+      }
+    }
+  }
+  return total ? feet * (on / total) : 0;
+}
+
+/* Pairs of switched-on runs lying on one another, and how much is counted twice.
+   ⚠ THE TEST IS THE MORE-COVERED ONE. A 12 ft eave sitting inside a 40 ft run is
+   100% covered while the long one is only 30% covered — asking whether BOTH are
+   mostly covered would miss every case where one line is short. */
+function rmOverlappingRuns(){
+  const on = rmRuns.filter(function(r){ return rmRunIsOn(r) && r.surface !== 'manual'; });
+  const out = {feet: 0, pairs: 0};
+  for(let i = 0; i < on.length; i++){
+    for(let j = i + 1; j < on.length; j++){
+      const fa = rmRunFeet(on[i]), fb = rmRunFeet(on[j]);
+      if(!fa || !fb) continue;
+      const oa = rmRunOverlapFeet(on[i], on[j]);
+      const ob = rmRunOverlapFeet(on[j], on[i]);
+      const frac = Math.max(oa / fa, ob / fb);
+      if(frac < RM_OVERLAP_MIN_FRAC) continue;
+      /* The double-counted amount is the shorter overlap — that is the length
+         genuinely present in both, and the amount the total is over by. */
+      out.feet += Math.min(oa, ob);
+      out.pairs++;
+    }
+  }
   return out;
 }
 
@@ -19458,8 +19536,23 @@ function rmRenderResults(){
       return '<div class="rm-runrow" style="color:#8A6100; font-weight:600; line-height:1.5;">' +
         '⚠ Google\'s roof model shows about ' + rmFmtFeet(m.feet) + ' with nothing traced near it' +
         (back.length ? ', including ' + back.join(' and ') : '') +
-        '. Check for roofline running back from the street — a peak running backwards, ' +
-        'or a section standing higher than the one next to it.</div>';
+        (m.slopes
+          ? '. ' + m.slopes + ' of those climb, so they are gable slopes — trace those in ' +
+            'Street View, up one side to the peak and down the other.'
+          : '. Check for roofline running back from the street — a peak running backwards, ' +
+            'or a section standing higher than the one next to it.') + '</div>';
+    })() +
+    /* ⚠ THE SAME ROOFLINE TRACED TWICE. A gabled front traced from the street
+       already contains its eave; tracing that eave again from above bills the
+       house for it a second time, and two lines on top of each other look like
+       one line, so nothing else on this screen would ever say so. */
+    (function(){
+      const o = rmOverlappingRuns();
+      if(!o.pairs) return '';
+      return '<div class="rm-runrow" style="color:var(--ember); font-weight:600; line-height:1.5;">' +
+        '⚠ ' + (o.pairs === 1 ? 'Two lines lie' : o.pairs + ' pairs of lines lie') +
+        ' on top of each other — about ' + rmFmtFeet(o.feet) + ' counted twice. ' +
+        'A gable traced from the street already includes its eave. Switch one off below.</div>';
     })() +
     (live ? '<div class="rm-runrow" style="color:var(--dusk);">drawing now&hellip; '+rmFmtFeet(live)+'</div>' : '');
 
