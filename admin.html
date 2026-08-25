@@ -15671,7 +15671,22 @@ function rmBuildWhenReady(){
      rmGuessedFeet counts every suggested run nobody has touched, so the panel
      says how much of the total is Google's opinion and saving asks first. That
      is the whole of what makes this safe to switch back on. */
-  const guessed = rmFaces.length ? rmBuildSuggestions(rmFaces) : 0;
+  /* ⭐ SETTLED: NOTHING IS DRAWN AUTOMATICALLY (2026-08-25, asked and answered
+     TWICE). Owner, the first time: "delete everything for now and give me a
+     tool that I can show you what it should look like by placing dots." Shown
+     the offered front eaves a second time, with the displacement corrected:
+     "we dont want it to assume just manually click corners."
+     ⚠ SO DO NOT TURN THIS BACK ON A THIRD TIME. It was switched on earlier
+     today on the argument that the offered lines had only ever looked wrong
+     because of the six-foot satellite displacement, which is now measured and
+     corrected. That argument was sound and she still does not want it: the
+     objection is not that the lines are inaccurate, it is that a line nobody
+     placed is a line nobody checked. rmBuildSuggestions and the corner detector
+     are still here and still tested - they are simply not run.
+     ⚠ AND rmGuessedFeet STILL COUNTS SUGGESTED RUNS, deliberately. Nothing
+     makes one now, but a saved quote from the hour this was switched on can
+     still carry them, and they must not read as measured on the way back in. */
+  const guessed = 0;
   rmRefreshHeights();
   /* The camera exists by now, so this is where front/left/right/back stop
      being a guess. */
@@ -18869,7 +18884,90 @@ function rmBuildSuggestions(faces){
    because a datum is the one thing that moves EVERY line at once.
    ⚠ A point somebody has dragged or measured in Street View is left alone -
    re-deriving it would throw away the better answer to keep the guess tidy. */
+/* ================= WHY A DOT DRIFTS, AND BY HOW MUCH =====================
+ *
+ * ⭐ Owner: "when you switch angles of which you are looking at the picture the
+ * dots become offset... figure out why thats happening to figure out how much
+ * to offset it." And before that, on the same fault: "when I moved instead of
+ * staying at the gutter it came toward the camera and started hovering."
+ *
+ * ⚠ THE GEOMETRY FIRST, because it says exactly where to look. A dot is a
+ * fixed point in space and rmSvProject is exact, so a dot at the RIGHT place
+ * cannot drift - it lands on the same brick from every angle. Drift means the
+ * point is in the wrong place, and the click fixed its DIRECTION exactly, so
+ * the only thing that can be wrong is its DEPTH along that ray.
+ *
+ * ⚠ AND TURNING ON THE SPOT CANNOT CAUSE IT EITHER. Panning at one panorama
+ * does not move the camera, so nothing about a dot changes. Drift appears when
+ * you MOVE to the next panorama, and how much it moves is the depth error
+ * multiplied by how far you walked over how far away the house is - a 6 ft
+ * depth error, seen after walking 30 ft, at a house 60 ft away, is about 3 ft.
+ *
+ * ⭐ WHERE THE DEPTH COMES FROM, AND THE BUG. It comes from Google's roof
+ * model, which is placed vertically by the DATUM. A ray meets a vertical wall
+ * nearly square on, so a wrong datum barely moves it; it meets a roof plane at
+ * a shallow angle, where the same error slides the crossing YARDS along the
+ * ray. So a dot placed while the roof height was still the assumed one-storey
+ * eave can be badly wrong - and NOTHING PUT IT RIGHT AFTERWARDS. rmRefreshHeights
+ * has always re-read every RUN when the datum moved, and never once looked at
+ * the dots, so a dot placed before the height was measured kept its wrong depth
+ * for the rest of the session. That is the drift.
+ *
+ * ⚠ THE RAY IS THE THING WORTH KEEPING. Every dot stores the camera and the
+ * direction it was seen along, so re-solving is exact rather than a guess: the
+ * same ray, cast at the model as it stands now.
+ * ⚠ A PINNED DOT IS NEVER TOUCHED. Two sightings crossing is real geometry
+ * and beats any model. Neither is one somebody DRAGGED - dragging clears the
+ * rays, which is what makes "leave it where I put it" the automatic answer. */
+function rmSolveRayNow(ray){
+  if(!ray || !ray.cam || !ray.dir) return null;
+  const cam = ray.cam, dir = ray.dir;
+  let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
+  if(!best){
+    const wall = rmWallPlane();
+    const w2 = wall ? rmWallHit(dir, cam, wall) : null;
+    if(!w2) return null;
+    const w2w = rmToWorld(w2);
+    const wu = rmRoofHeightAt(w2w.lat, w2w.lng);
+    const roofTop = (wu !== null && isFinite(wu)) ? wu : rmDatum().m;
+    if(!(w2.u > 0.3 && w2.u < roofTop + RM_EAVE_TOL_M)) return null;
+    best = {e: w2.e, n: w2.n, u: roofTop};
+  }
+  /* ⚠ NOTHING IS ABOVE THE ROOF, here as everywhere else. A re-solve that
+     lands in the sky is a worse answer than the one it would replace. */
+  const top = rmRoofTopM();
+  if(top !== null && best.u > top + RM_EAVE_TOL_M) return null;
+  return best;
+}
+/* Puts every unpinned dot back where its own ray now says it is, and REPORTS
+   how far each one had to move - which is the number the office asked for. */
+function rmRefreshCorners(){
+  let moved = 0, maxM = 0;
+  (rmCorners || []).forEach(function(c){
+    if(!c || c.pinned) return;
+    const ray = (c.rays || [])[0];
+    if(!ray) return;
+    const hit = rmSolveRayNow(ray);
+    if(!hit) return;
+    const before = rmToLocal(c.lat, c.lng, c.h || 0);
+    const d = Math.hypot(hit.e - before.e, hit.n - before.n, hit.u - before.u);
+    /* ⚠ A HAIR IS NOT A MOVE. Reporting every dot as moved on every datum
+       nudge is how a real one stops being noticed. */
+    if(d < 0.05) return;
+    const w = rmToWorld(hit);
+    c.lat = w.lat; c.lng = w.lng; c.h = hit.u;
+    moved++;
+    if(d > maxM) maxM = d;
+  });
+  if(moved) rmCornersChanged();
+  return {moved: moved, maxM: maxM};
+}
 function rmRefreshHeights(){
+  /* ⚠ THE DOTS TOO, NOT ONLY THE RUNS. This function is what a datum change
+     fans out through, and for as long as it walked rmRuns alone every dot
+     placed under the old height kept its wrong depth - which is exactly what
+     drifting off the gutter looks like from the street. */
+  const dots = rmRefreshCorners();
   rmRuns.forEach(function(r){
     if(r.streetMeasured) return;
     r.path.forEach(function(p){
@@ -18880,6 +18978,16 @@ function rmRefreshHeights(){
   });
   rmRenderResults();
   rmPaintStreet();
+  /* ⚠ SAID OUT LOUD, AND WITH THE NUMBER. "The dots moved" with no figure is
+     indistinguishable from the tool wobbling; the figure is what says whether
+     the old ones were feet out or inches. */
+  if(dots.moved){
+    const cn = document.getElementById('rmCornerNote');
+    if(cn) cn.textContent = dots.moved + ' dot' + (dots.moved === 1 ? '' : 's') +
+      ' moved onto the roof as it is now known - the furthest by ' +
+      (Math.round(dots.maxM * RM_M_TO_FT * 10) / 10) + ' ft. They were placed ' +
+      'against a roof height that has since been measured.';
+  }
   const note = document.getElementById('rmDatumNote');
   if(note){
     const d = rmDatum();
@@ -21871,6 +21979,37 @@ function openRoofMeasure(quoteId){
          one question that matters after lining a house up — did the correction
          apply, and was it measured here or carried over — can only be guessed
          at from where the lines happen to look. */
+      /* ⭐ WHY EACH DOT WILL OR WILL NOT DRIFT (added 2026-08-25). A dot at the
+         right place cannot move when the camera does, so drift is always a
+         DEPTH error - and the two things that decide whether it matters are
+         which surface the depth came from and how far away it is. A wall
+         crossing is square-on and barely moves when the roof height is wrong; a
+         roof crossing is shallow and slides yards along the ray. `driftPerFtFt`
+         is how many feet this dot appears to move, at the camera's CURRENT
+         distance, for each foot its depth is out - so a big number here names
+         the dot to re-sight before trusting it. */
+      dots: (rmCorners || []).map(function(c, i){
+        const ray = (c.rays || [])[0];
+        const here = rmToLocal(c.lat, c.lng, c.h || 0);
+        const dist = cam ? Math.hypot(here.e - cam.e, here.n - cam.n) : null;
+        const solved = ray ? rmSolveRayNow(ray) : null;
+        const wouldMove = (solved && cam)
+          ? Math.hypot(solved.e - here.e, solved.n - here.n, solved.u - here.u) * RM_M_TO_FT
+          : null;
+        return {
+          i: i, on: c.on !== false, band: c.band || 0,
+          ft: +((c.h || 0) * RM_M_TO_FT).toFixed(1),
+          pinned: c.pinned || 0,
+          spreadIn: c.spread === undefined ? null : +(c.spread * RM_M_TO_FT * 12).toFixed(1),
+          sightings: (c.rays || []).length,
+          camFt: dist === null ? null : +(dist * RM_M_TO_FT).toFixed(1),
+          /* How much a foot of depth error shows as, from where you stand now. */
+          driftPerFtFt: (ray && dist) ? +(Math.hypot(
+              ray.cam.e - cam.e, ray.cam.n - cam.n) / dist).toFixed(2) : 0,
+          wouldMoveFt: wouldMove === null ? null : +wouldMove.toFixed(1),
+          px: rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, size.W, size.H, pov, cam)
+        };
+      }),
       skyOffset: rmSkyOffset
         ? {ft: +(rmSkyOffsetFt().toFixed(1)), e: +rmSkyOffset.e.toFixed(2),
            n: +rmSkyOffset.n.toFixed(2), source: rmSkyOffsetSource || 'measured'}
