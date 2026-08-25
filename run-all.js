@@ -7309,7 +7309,15 @@ suite('18. Forty houses a day');
     const api = eval(admin.slice(capStart, capEnd) +
       '\n;({even: evenOutDays, fill: fillDays, pick: bumpCandidateIndex,' +
       ' max: MAX_STOPS_PER_ROUTE, budget: MAX_FILL_MOVES_PER_SWEEP,' +
-      ' inWindow: stillInWindow, latest: latestPreferredInstallDate, isNew: isNewHangHouse})');
+      ' inWindow: stillInWindow, latest: latestPreferredInstallDate, isNew: isNewHangHouse,' +
+      /* Tolerant on purpose: red-first. Against a build where these do not exist
+         yet, the BEHAVIOUR checks below must each fail on their own and say why,
+         rather than one ReferenceError taking the whole suite down and hiding
+         which rule is actually broken. */
+      ' towns: (typeof routeDayTowns === "function" ? routeDayTowns : function(d){' +
+      '   return (d && d.city) ? [d.city] : []; }),' +
+      ' shares: (typeof routeDaysShareATown === "function" ? routeDaysShareATown : function(a,b){' +
+      '   return !!(a && b && a.city && a.city === b.city); })})');
 
     check('cap', 'the cap is twenty houses per town per day', api.max === 20,
       "owner: 'only 20 houses per city' — 40 was the whole DAY, two crews of twenty");
@@ -7518,6 +7526,182 @@ suite('18. Forty houses a day');
         return dd[0].stops.length === 0 && r.placed.length === 0;
       })(),
       'a route whose city could not be judged would otherwise hoover up the pool');
+
+    /* ============ the day's TOWN LIST, not its majority town ============
+     * Found in the live book 2026-08-25 and this is the regression guard for
+     * it. The eviction pass judges a stop against the route's `towns`; the cap
+     * and the fill judged it against routeCityOf(), the commonest town ON the
+     * day. On a route stamped one town and carrying houses from another, those
+     * two answer differently, so step 1 evicted and step 3 re-filled the very
+     * same houses — for ever, four minutes apart, word-for-word identical
+     * notices. Everything below RUNS the two functions; none of it reads source.
+     */
+    check('towns', 'a day carrying `towns` is judged on the whole list',
+      api.towns({ towns: ['Alpine', 'Cedar Hills'], city: 'Alpine' }).length === 2 &&
+      api.towns({ towns: ['Alpine', 'Cedar Hills'], city: 'Alpine' })[1] === 'Cedar Hills');
+    check('towns', 'and a day that predates `towns` still answers with its city',
+      api.towns({ city: 'Lehi' }).join() === 'Lehi' && api.towns({}).length === 0,
+      'every saved route from before the builder stamped towns has to keep working');
+    /* ⚠ THE BUG THIS SUITE ALMOST SHIPPED. The first draft called this helper
+       dayTownList — a name already taken, lower down, by the timing sweep's
+       answer to a different question about a different shape of object. Two
+       top-level declarations of one name do not coexist in a browser: the later
+       one wins for the WHOLE page, so the fill would quietly have been handed
+       the timing sweep's answer. Nothing about that is visible in a diff. */
+    check('towns', 'the route-day town helper does not collide with the timing sweep\'s',
+      (admin.match(/\bfunction routeDayTowns\(/g) || []).length === 1 &&
+      (admin.match(/\bfunction dayTownList\(/g) || []).length === 1,
+      'one declaration each — a duplicate top-level name is silently the last one');
+
+    check('towns', 'two days sharing one town are seen to share it',
+      api.shares({ towns: ['Alpine', 'Cedar Hills'] }, { towns: ['Cedar Hills'] }) === true &&
+      api.shares({ towns: ['Alpine'] }, { towns: ['Orem'] }) === false);
+
+    check('towns', 'the second town of a day is filled, not just the majority one',
+      (() => {
+        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Alpine',
+                      towns: ['Alpine', 'Cedar Hills'], stops: stops(18, 'tw') }];
+        const r = api.fill(dd, look, poolOf(5, 'Cedar Hills'), yes);
+        return dd[0].stops.length === 20 && r.placed.length === 2;
+      })(),
+      'THE BUG: judged on the majority town alone, a Cedar Hills house could ' +
+      'never fill a seat on the day it is actually booked for');
+
+    check('towns', 'and a town that is on NEITHER list still cannot fill it',
+      (() => {
+        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Alpine',
+                      towns: ['Alpine', 'Cedar Hills'], stops: stops(12, 'tx') }];
+        const r = api.fill(dd, look, poolOf(9, 'Orem'), yes);
+        return dd[0].stops.length === 12 && r.placed.length === 0;
+      })(),
+      'widening this to the whole list must not widen it to everybody');
+
+    /* The pull-forward. Two days share Alpine; only the later one also does
+       Cedar Hills. Dragging its Cedar Hills house onto the Alpine-only day is
+       precisely what the next sweep evicts. */
+    check('towns', 'pulling forward never drags a house onto a day that forbids its town',
+      (() => {
+        const dd = [
+          { id: 'r1', date: '2026-11-02', city: 'Alpine', towns: ['Alpine'],
+            stops: [{ id: 'a1', name: 'a1' }] },
+          { id: 'r2', date: '2026-11-09', city: 'Alpine', towns: ['Alpine', 'Cedar Hills'],
+            stops: [{ id: 'ch1', name: 'ch1' }, { id: 'a2', name: 'a2' }] }
+        ];
+        people.a1 = {}; people.a2 = {}; people.ch1 = {};
+        const town = id => (id === 'ch1' ? 'Cedar Hills' : 'Alpine');
+        const r = api.fill(dd, look, [], yes, 20, 150, town);
+        const onFirst = dd[0].stops.map(x => x.id);
+        return onFirst.indexOf('ch1') === -1 && onFirst.indexOf('a2') !== -1 &&
+               r.pulled.length === 1;
+      })(),
+      'THE LOOP: shed onto a day that forbids the town, evicted next sweep, ' +
+      'shed again — identical System notices every fifteen minutes');
+
+    check('towns', 'and with no town lookup supplied it behaves exactly as it did',
+      (() => {
+        const dd = [
+          { id: 'r1', date: '2026-11-02', city: 'Alpine', stops: stops(19, 'ty') },
+          { id: 'r2', date: '2026-11-09', city: 'Alpine', stops: stops(3, 'tz') }
+        ];
+        const r = api.fill(dd, look, [], yes);
+        return dd[0].stops.length === 20 && r.pulled.length === 1;
+      })(),
+      'the new argument is optional on purpose — an omitted lookup must not ' +
+      'quietly change who moves');
+
+    /* The cap half. A two-town day over the cap must shed a house onto a later
+       day that ALLOWS that house's town, not merely onto the next day whose
+       majority town happens to match. */
+    check('towns', 'shedding over the cap picks a day the house is allowed on',
+      (() => {
+        const over = stops(20, 'cap');
+        over.push({ id: 'chx', name: 'chx' });
+        people.chx = {};
+        const dd = [
+          { id: 'r1', date: '2026-11-02', city: 'Alpine', towns: ['Alpine', 'Cedar Hills'],
+            stops: over },
+          { id: 'r2', date: '2026-11-05', city: 'Alpine', towns: ['Alpine'], stops: [] },
+          { id: 'r3', date: '2026-11-12', city: 'Cedar Hills', towns: ['Cedar Hills'], stops: [] }
+        ];
+        const town = id => (id === 'chx' ? 'Cedar Hills' : 'Alpine');
+        const out = api.even(dd, look, 20, town);
+        const moved = out.moves[0];
+        if (!moved) return false;
+        /* Whoever moved, they landed on a day that allows their town. */
+        const landedOn = dd.find(d => d.id === moved.targetId);
+        return dd[0].stops.length === 20 &&
+               api.towns(landedOn).indexOf(town(moved.id)) !== -1;
+      })(),
+      'shedding a house onto a day that forbids its town is a move the next ' +
+      'sweep undoes, which is a loop, not a schedule');
+
+    check('towns', 'and a day with nowhere legal to shed to is REPORTED, not fudged',
+      (() => {
+        const over = stops(21, 'lone');
+        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Orem', towns: ['Orem'], stops: over }];
+        const out = api.even(dd, look, 20, () => 'Orem');
+        return dd[0].stops.length === 21 && out.over.length === 1 &&
+               out.over[0].date === '2026-11-02';
+      })(),
+      "the owner's rule: over the cap and said out loud beats somebody unscheduled");
+  }
+}
+
+/* ---- the same note, over and over, is a loop and not fifty events ----
+ * The suppressor that stops a churning sweep filling the System folder. RUN,
+ * not regexed — the whole point is what it does with a body it has already
+ * seen and with one it has not. */
+suite('18b. The route notice does not repeat itself');
+{
+  const noteStart = admin.indexOf('const RECONCILE_NOTE_REPEAT_MS');
+  const noteEnd = admin.indexOf('async function noticeRoutesReconciled', noteStart);
+  if (noteStart === -1 || noteEnd < noteStart) {
+    check('note', 'the repeat guard is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const api = eval(admin.slice(noteStart, noteEnd) +
+      '\n;({is: reconcileNoteIsRepeat, window: RECONCILE_NOTE_REPEAT_MS,' +
+      ' reset: function(){ lastReconcileNote = {body: "", at: 0}; },' +
+      ' seen: function(b, t){ lastReconcileNote = {body: b, at: t}; }})');
+    const now = 1000000000;
+    const msg = (body, at) => ({ data: { topic: 'Routes Kept Up To Date', message: body,
+                                         createdAt: at } });
+
+    api.reset();
+    check('note', 'a note nobody has seen before is written',
+      api.is('first pass', now, []) === false);
+
+    api.reset();
+    check('note', 'the identical note minutes later is suppressed',
+      api.is('same body', now, [msg('same body', now - 4 * 60 * 1000)]) === true,
+      'THE SYMPTOM: two byte-identical notices four minutes apart, 2026-08-25');
+
+    api.reset();
+    check('note', 'a note that says something DIFFERENT always gets through',
+      api.is('29 houses moved', now, [msg('27 houses moved', now - 60000)]) === false,
+      'a sweep making progress reports different work each time, and must be heard');
+
+    api.reset();
+    check('note', 'and the same note an hour later is said again',
+      api.is('same body', now, [msg('same body', now - 61 * 60 * 1000)]) === false,
+      'a problem that is still there tomorrow has to be able to say so');
+
+    api.reset();
+    check('note', 'a note on some other topic never suppresses this one',
+      api.is('body', now, [{ data: { topic: 'Moved To Another Day', message: 'body',
+                                     createdAt: now } }]) === false);
+
+    /* The in-tab half, which catches a repeat before the messages listener has
+       even reported our own write back to us. */
+    api.reset();
+    api.seen('body', now - 1000);
+    check('note', 'a repeat is caught even before the listener has caught up',
+      api.is('body', now, []) === true,
+      'the write and the snapshot are not the same instant, and the sweep runs ' +
+      'again twenty seconds later on a busy pass');
+
+    check('note', 'the window covers both the fifteen-minute beat and the catch-up run',
+      api.window >= 15 * 60 * 1000 && api.window <= 24 * 60 * 60 * 1000);
   }
 }
 /* The wiring: the sweep has to actually call it, and has to go and find the new
@@ -7526,7 +7710,8 @@ suite('18. Forty houses a day');
    signature too, and that sits above step 3, so the naive version of this check
    passed by reading the wrong line. */
 check('cap', 'the sweep evens the days out after everything else has landed',
-  admin.indexOf('evenOutDays(days, custData)') > admin.indexOf('// ---- 3. Somewhere to go'),
+  admin.indexOf('evenOutDays(days, custData, MAX_STOPS_PER_ROUTE, townOfCustomer)') >
+    admin.indexOf('// ---- 3. Somewhere to go'),
   'evening out a half-built picture would move houses that were about to be dropped anyway');
 /* Anchored on the ASSIGNMENT, not the arguments. Argument names do not
    distinguish a call from its declaration — the declaration uses exactly the
@@ -7537,7 +7722,7 @@ check('cap', 'and tops the days up only once the overfull ones have been shed',
   'filling first would pack a day to forty that is about to shed houses anyway, ' +
   'and the two passes would fight each other every fifteen minutes');
 check('fill', 'the fill is bounded so one sweep cannot make hundreds of writes',
-  /fillDays\(days, custData, pool, allowedOn, MAX_STOPS_PER_ROUTE,\s*[\r\n ]*MAX_FILL_MOVES_PER_SWEEP\)/.test(admin),
+  /fillDays\(days, custData, pool, allowedOn, MAX_STOPS_PER_ROUTE,\s*[\r\n ]*MAX_FILL_MOVES_PER_SWEEP, townOfCustomer\)/.test(admin),
   'the first sweep after this shipped has the whole unscheduled pool to place');
 check('fill', 'every unscheduled customer is a candidate now, not just new hangs',
   /pool\.push\(\{id: a\.id/.test(admin) && /pool\.sort\(/.test(admin),
