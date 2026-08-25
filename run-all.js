@@ -35189,8 +35189,36 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
     /rmCornerMode = rmCornerMode === 'dot' \? 'select' : 'dot';/.test(admin),
     'owner asked for space bar to toggle select from make a dot');
   check('S149', 'a click on the panorama places a corner while in dot mode',
-    /if\(rmCornerMode === 'dot'\)\{/.test(admin) && /rmAddCorner\(\{lat: w\.lat/.test(admin),
+    /if\(rmCornerMode === 'dot' && !rmDrawing\)\{/.test(admin) && /rmAddCorner\(\{lat: w\.lat/.test(admin),
     'the dormer corners that meet the main roof are not against the sky and can only be placed by hand');
+  /* ⚠ ONE RULE, BOTH VIEWS: while a run is open a click adds to the run, and
+     otherwise it places a corner. The map branch always read `&& !rmDrawing`;
+     the panorama read only the mode, so an identical click meant two different
+     things the moment anything opened a run — and the scale check, which says
+     "click each end of it in either view", is the thing that opens one. */
+  check('S149', 'and both views answer a click by the same rule',
+    (function(){
+      const sky = admin.indexOf("rmCornerMode === 'dot' && !rmDrawing){");
+      const st = admin.indexOf("rmCornerMode === 'dot' && !rmDrawing){", sky + 10);
+      return sky !== -1 && st !== -1;
+    })(),
+    'the street view placed a corner during a scale check while the map added ' +
+    'to the check, which is the same split this branch exists to remove');
+  /* ⭐ AND CLEARING CLEARS BOTH. Owner: "when i click clear dots it clears all
+     dots on both perspectives." Two buttons emptied two structures, so whichever
+     was pressed left half the marks on screen. */
+  check('S149', 'clear all dots empties both pictures, not half of each',
+    (function(){
+      const i = admin.indexOf("getElementById('rmClearDotsBtn').addEventListener");
+      const j = admin.indexOf('window.rmRefreshSideButtons', i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmClearDrawing\(\);/.test(body) && /rmCorners = \[\]; rmCurrentBand = 0;/.test(body) &&
+             /rmSetDrawing\(false\);/.test(body);
+    })(),
+    'the corners went and the traced runs stayed, so the button looked ignored');
+  check('S149', 'and it says both are empty rather than going quiet',
+    /both pictures are empty/.test(admin),
+    'a clear that leaves the note blank reads the same as a clear that did nothing');
   check('S149', 'the panorama accepts clicks while placing, or nothing lands',
     /rmCornerMode === 'dot'\) && rmStreetReady/.test(admin),
     'the panorama swallows clicks for panning unless the sheet is over it');

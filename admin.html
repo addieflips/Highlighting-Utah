@@ -22009,11 +22009,28 @@ function openRoofMeasure(quoteId){
   });
   document.getElementById('rmModelBtn').addEventListener('click', function(){ rmSetShowModel(!rmShowModel); });
   document.getElementById('rmEndStrandBtn').addEventListener('click', function(){ rmEndStrand(); });
+  /* ⭐ CLEAR MEANS CLEAR, IN BOTH PICTURES (2026-08-25). Owner: "when i click
+     clear dots it clears all dots on both perspectives."
+
+     ⚠ IT USED TO CLEAR HALF OF WHAT WAS ON SCREEN. There were two buttons and
+     two structures behind them — this one emptied rmCorners, and "Clear" over
+     in the drawing panel emptied rmRuns — so whichever one you pressed, some
+     of the marks stayed and the tool looked like it had ignored you. That split
+     only ever made sense while the sky view made runs and the street view made
+     corners, which is the whole fault this branch removes.
+
+     ⚠ rmClearDrawing FIRST, because it repaints from what is left: emptying
+     the corners after it means rmCornersChanged has the last word and the
+     screen agrees with the model. Any half-traced run goes with it — leaving
+     one open would put the next click into a run nobody remembers starting. */
   document.getElementById('rmClearDotsBtn').addEventListener('click', function(){
+    rmClearDrawing();
     rmCorners = []; rmCurrentBand = 0; rmSwapFrom = null;
+    rmSetDrawing(false);
     rmCornersChanged();
+    rmRenderResults();
     const note = document.getElementById('rmCornerNote');
-    if(note) note.textContent = '';
+    if(note) note.textContent = 'Cleared — both pictures are empty.';
   });
   window.rmRefreshSideButtons = rmRefreshSideButtons;
   /* A READ-ONLY WINDOW INTO THE MEASURING, for diagnosing placement from the
@@ -22340,7 +22357,15 @@ function openRoofMeasure(quoteId){
       rmAlignTakeStreet(hit);
       return;
     }
-    if(rmCornerMode === 'dot'){
+    /* ⚠ AND NOT WHILE A RUN IS OPEN — THE SAME RULE THE MAP FOLLOWS. The map
+       branch has always read `rmCornerMode === 'dot' && !rmDrawing`; this one
+       read only the mode, so the two views answered an identical click two
+       different ways the moment anything opened a run. The scale check is the
+       thing that does: it says "click each end of it in either view", and in
+       the street view the click was landing as a CORNER instead — so the check
+       could not be taken from the one view that can see the thing being
+       checked, and the office got a stray dot for trying. */
+    if(rmCornerMode === 'dot' && !rmDrawing){
       /* ⭐ A CLICK PLACES A CORNER, on the roof it is pointing at. Owner:
          "also have a way to add a corner... space bar toggles select from make
          a dot." The dormer corners that meet the main roof are not against the
