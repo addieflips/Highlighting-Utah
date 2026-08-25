@@ -283,8 +283,35 @@ job in admin"* are both superseded — the RSVP's own four states
 
 ---
 
-## Q-007 · intent · open · 2026-08-21
+## Q-007 · intent · ANSWERED · 2026-08-21, closed 2026-08-25
 What is the real option set for `js/options.js`?
+
+> **CLOSED 2026-08-25 — this was answered and the entry went stale.** The
+> question below describes a placeholder file with seven invented field names
+> (`rooflineFt`, `bulbColor`, `walkway`, `wreaths`…). That file no longer
+> exists. `js/options.js` holds the real fourteen — `measuredFeet`,
+> `lightsDescription`, `wireColor`, `outletTimer`, `useEaves`,
+> `specificOutlet`, `gateCode`, `houseSides`, `installPreference`, `notes`,
+> `oneTimeNote`, `wantsMailedInvoice`, `numberOfBins`, `difficulty` — derived
+> from the code and corrected by Addie on 2026-08-21, with the working kept in
+> `docs/option-registry-draft.md`. `options-audit.test.js` gates it and its
+> frozen AGREED map holds her destination answers.
+>
+> ⚠ **It no longer blocks anything.** The sentence below saying it blocks all
+> of phase 1 was true of the plan as written, and that plan changed: on
+> 2026-08-25 the generation half was deleted rather than built (owner, twice:
+> *"so we'll have code that will just sit there doing nothing forever"*). The
+> registry declares and the artifacts stay hand-written, which is recorded in
+> the file's own header. Nothing is waiting on this.
+>
+> ⚠ **What is genuinely still unanswered is smaller and is not this question:**
+> whether anything is sold today that has no row at all. That one is invisible
+> to every check by construction — a missing row cannot fail an audit — so it
+> can only ever be answered by asking her, and it is not blocking work.
+>
+> The original text is kept below unedited, because its derivation of the real
+> vocabulary from `PORTAL_WRITE_FIELDS` and `PRINT_COLUMNS` is the reasoning
+> the registry rests on.
 
 `js/options.js` shipped with the plan and is **a placeholder that says so in its
 own header**: *"TODO(addie): the entries below use my best guess at your
