@@ -47472,7 +47472,19 @@ function printNeedsBuildList(){
          office had badged Maybe Next Year. Two lists of one job disagreeing is how the
          one on paper stops being trusted. Same shared rule as the screen. */
       if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return false;
-      return d.needsLightBuild || d.chargeNewMemberFee === true || d.requoteAppliedAt;
+      /* ⭐ THE SAME PEOPLE THE WAREHOUSE TAB SHOWS (2026-08-24). Addie: "everyone on the
+         warehouse tab should be printed."
+         ⚠ THIS USED TO BE A SECOND OPINION AND IT KEPT PEOPLE FOR EVER. It also matched
+         `chargeNewMemberFee` and `requoteAppliedAt`, and those are STAMPS, not flags: the
+         warehouse clears needsLightBuild when the bundle is actually made, and nothing ever
+         clears the other two. So every new member and every applied re-quote stayed on this
+         printed sheet months after their bundle was built, and somebody working off that
+         paper makes a second set for a house that already has one.
+         ⚠ ONE FLAG, THE SAME ONE whBuildQueueGroups ASKS. The two sheets keep their own
+         COLUMNS on purpose — she trimmed this one herself, so bins ride in the bundles cell
+         here and have a column of their own on the tab — but they must not disagree about
+         WHO is on them. */
+      return d.needsLightBuild;
     })
     .map(function(a){
       const d = a.data || {};

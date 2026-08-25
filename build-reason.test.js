@@ -275,6 +275,47 @@ check('a re-quote with no stated kind writes nothing',
   'a blank stored where an answer goes reads as an answer');
 
 // ---------------------------------------------------------------------------
+// THE TWO BUILD SHEETS LIST THE SAME PEOPLE
+// ---------------------------------------------------------------------------
+/* ⭐ Addie, 2026-08-24: "everyone on the warehouse tab should be printed."
+
+   ⚠ THE PRINTED LIST WAS A SECOND OPINION AND IT KEPT PEOPLE FOR EVER. It matched
+   `chargeNewMemberFee` and `requoteAppliedAt` as well, and those are STAMPS, not flags:
+   the warehouse clears needsLightBuild when the bundle is actually made, and nothing
+   ever clears the other two. So every new member and every applied re-quote stayed on
+   the printed sheet months after their bundle was built, and somebody working off that
+   paper makes a second set for a house that already has one.
+
+   ⚠ THE COLUMNS STAY DIFFERENT ON PURPOSE, and that is NOT drift. She trimmed the
+   printed sheet herself, so bins ride inside the bundles cell there (printExtraBinsNote)
+   and have a column of their own on the tab. Only WHO is on the two lists has to agree.
+   Do not "tidy" this by merging the two sheets — that reverses her own decision. */
+const printFilter = fn('printNeedsBuildList');
+check('the printed build list asks the same one flag the tab does',
+  /return d\.needsLightBuild;/.test(printFilter),
+  'stamps never clear, so a stamped house never leaves the printed sheet');
+/* ⚠ COMMENTS STRIPPED. The reason those two fields are NOT used is written down right
+   there in the code, so a plain search finds the explanation and calls it a violation —
+   which is what happened on the first run of this check. Suite 58 already carries the
+   same note about the same mistake. */
+const printCode = printFilter.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+check('and does not read a stamp as a reason to build',
+  !/chargeNewMemberFee|requoteAppliedAt/.test(printCode),
+  'those are stamps, not flags — nothing ever clears them');
+check('and still applies the season rule',
+  /isOutForSeason\(d\)/.test(printFilter),
+  'the printed sheet once listed people the screen beside it had already dropped');
+/* ⚠ AND THE TAB ASKS THE SAME FLAG. If either side changes, they disagree about who is
+   being built for, and the one on paper is the one nobody can check. */
+check('and the warehouse tab asks it too',
+  /!d\.needsLightBuild \|\|/.test(fn('whBuildQueueGroups')),
+  'one flag, both lists');
+/* ⚠ THE PRINTED SHEET KEEPS ITS OWN BINS NOTE. Asserted because merging the two sheets
+   is the obvious-looking tidy-up and it would drop this. */
+check('the printed sheet still carries the extra-bins note in its bundles cell',
+  /printExtraBinsNote\(d\)/.test(printFilter),
+  'she trimmed this sheet herself; the note is how bins reach paper');
+// ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
 console.log('\n=== Why a bundle is being built ===\n');
 console.log('  ' + w('', 54) + w('badge', 16) + 'wanted');
