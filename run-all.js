@@ -38548,6 +38548,92 @@ suite('266. Measure Roof - the same roofline traced twice');
     'naming the surface is the difference between actionable and not');
 }
 
+
+suite('267. Measure Roof - a roof plane does not carry on into the sky');
+{
+  /* ⚠ THE BUG THIS CLOSES, reported off a real house as "the lines are off",
+     with a screenshot: a line traced down the SIDE of the house sat correctly on
+     the satellite view and appeared in Street View up in the air above the
+     roof, well off to one side.
+
+     A point outside every roof face still matched the NEAREST face, and that
+     face's tilted plane was then extended out to reach it. Upslope the height
+     grows without limit, and the only thing stopping it was a 15 m sanity cap —
+     FORTY-NINE FEET, which passes as a valid answer.
+
+     The map position was right, which is why it looked fine from above. Height
+     is what decides where Street View draws a point, and it is also what turns
+     a traced run into a slope length — so the same fault silently measured a
+     climb that is not on the house. */
+  const LF_ = String.fromCharCode(10);
+  const NEED = ['rmMetresPerDeg', 'rmToLocal', 'rmFaceEaveM', 'rmLowestPlaneM', 'rmRoofRelativeAt'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S267', 'the roof-height lookup is findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const api = new Function(
+      'let rmOrigin={lat:40.2969,lng:-111.6946}, rmFaces=[];' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return {rel:rmRoofRelativeAt, set:function(f){ rmFaces=f; }};')();
+    const m = new Function('return ' + parts[0].replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+
+    /* One small face: 8 m across, 6 m deep, facing south at a 6/12 pitch. So it
+       reaches 3 m either side of its centre along the slope. */
+    const PITCH = 26.565;
+    const face = {sw: ll(-4, -3), ne: ll(4, 3), azimuth: 180, pitch: PITCH,
+                  center: ll(0, 0), planeHeightM: 1408, areaSqFt: 600};
+    api.set([face]);
+
+    /* Inside the face, the plane still answers exactly as it always did. */
+    const mid = api.rel(ll(0, 0).lat, ll(0, 0).lng);
+    const up1 = api.rel(ll(0, 2).lat, ll(0, 2).lng);
+    check('S267', 'inside the face the plane is unchanged',
+      mid !== null && up1 !== null && Math.abs((up1 - mid) - 2 * Math.tan(PITCH * Math.PI / 180)) < 0.05,
+      'the clamp must be a no-op within the face, or every real roof reading moves');
+
+    /* ⚠ THE ACTUAL FAULT: 20 m upslope, far outside the face. Extended, the
+       plane reaches ~10 m above the eave — a three-storey line in mid-air. */
+    const far = api.rel(ll(0, 20).lat, ll(0, 20).lng);
+    const naive = 20 * Math.tan(PITCH * Math.PI / 180);
+    check('S267', 'far outside the face the plane is NOT carried on',
+      far !== null && far < naive / 2,
+      'got ' + (far === null ? 'null' : far.toFixed(2)) + ' m; extending the plane gives ' +
+      naive.toFixed(2) + ' m of rise out of nothing — that is the line in the sky');
+    /* Held to the face's own reach — and the reference is the lowest EAVE, which
+       already sits half the face below its centre. So the top edge is the FULL
+       rise across a 6 m face, not half of it.
+       ⚠ MY FIRST EXPECTATION HERE WAS WRONG (half this) and the suite said so:
+       it is measured from the eave, not from the plane's centre height. */
+    const edge = 6 * Math.tan(PITCH * Math.PI / 180);
+    check('S267', 'it is held to the height that face reaches at its own edge',
+      far !== null && Math.abs(far - edge) < 0.2,
+      'got ' + (far === null ? 'null' : far.toFixed(2)) + ' m, expected about ' + edge.toFixed(2) +
+      ' — the last height the model actually knows, rather than an extrapolation nobody measured');
+
+    /* ⚠ AND IT IS CLAMPED RATHER THAN REFUSED. Returning null sends the point to
+       the assumed eave, which is worse on a house whose roof really is stepped. */
+    check('S267', 'and it still answers rather than refusing',
+      far !== null,
+      'refusing sends the point to the assumed one-storey eave, which is a guess where ' +
+      'the model does have something to say');
+
+    /* Downslope runs away from the roof, and must not dive underground either. */
+    const below = api.rel(ll(0, -20).lat, ll(0, -20).lng);
+    check('S267', 'and a point far DOWNslope does not dive below the house',
+      below !== null && below > -1.5,
+      'got ' + (below === null ? 'null' : below.toFixed(2)) + ' m — the same extrapolation ' +
+      'pointing the other way puts the line underground');
+  }
+
+  const src = extractFn(admin, 'rmRoofRelativeAt') || '';
+  check('S267', 'the clamp is measured from the face itself, not a fixed number',
+    /const reach = Math\.abs\(\(bn\.e - bs\.e\) \/ 2 \* down\.e\) \+ Math\.abs\(\(bn\.n - bs\.n\) \/ 2 \* down\.n\);/.test(src),
+    'a fixed limit is right for one roof and wrong for the next — the face knows its own size');
+}
+
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
    that will just sit there doing nothing forever" - asked twice, and pushing on it is
    what produced this.

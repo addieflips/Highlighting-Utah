@@ -15921,7 +15921,33 @@ function rmRoofRelativeAt(lat, lng){
   /* How far downhill of the centre this point is, in metres. */
   const along = (p.e - best.c.e) * down.e + (p.n - best.c.n) * down.n;
   const rise = Math.tan((Number(best.f.pitch) || 0) * Math.PI / 180);
-  const rel = (best.f.planeHeightM - along * rise) - lo;
+  /* ⭐ A PLANE DESCRIBES ITS OWN FACE AND NOTHING BEYOND IT (fixed 2026-08-25).
+   *
+   * ⚠ THE BUG THIS CLOSES, reported off a real house as "the lines are off".
+   * A point outside every face still matched the NEAREST one, and its tilted
+   * plane was then extended out to that point — so a line traced down the side
+   * of the house, metres past the edge of any roof face, had that slope carried
+   * on into the air. Upslope the height grows without limit; the only thing
+   * stopping it was the 15 m sanity cap below, which is FORTY-NINE FEET and
+   * passes as a valid answer.
+   *
+   * The map position was right, which is why the line looked correct from
+   * above — but height is what decides where Street View draws it, so the same
+   * line appeared up in the sky, and any run traced along it measured a slope
+   * that is not on the house.
+   *
+   * ⚠ CLAMPED, NOT REFUSED. Refusing would send the point to the assumed eave,
+   * which is worse for a house whose roof really is stepped. Held to the face's
+   * own extent, a point past the edge gets the height that face reaches AT its
+   * edge — the last thing the model actually knows — instead of an
+   * extrapolation nobody measured.
+   * ⚠ INSIDE THE FACE THIS CHANGES NOTHING: |along| is already within reach
+   * there, so the clamp is a no-op and every real roof reading is untouched. */
+  const bs = rmToLocal(best.f.sw.lat, best.f.sw.lng, 0);
+  const bn = rmToLocal(best.f.ne.lat, best.f.ne.lng, 0);
+  const reach = Math.abs((bn.e - bs.e) / 2 * down.e) + Math.abs((bn.n - bs.n) / 2 * down.n);
+  const held = Math.max(-reach, Math.min(reach, along));
+  const rel = (best.f.planeHeightM - held * rise) - lo;
   /* A roof is not 25 m tall and a face does not dip below the lowest plane by
      more than a courtyard's worth. Nonsense here would wreck the footage
      silently, so it is refused and the caller falls back. */
