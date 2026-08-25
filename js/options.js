@@ -183,9 +183,14 @@ export const OPTIONS = [
     type: 'text',
     required: false,
     affectsPrice: false,
-    /* ⚠ `crewSheet` here is NEW and is the point of P-003. Today the gate code
-       shows in the crew portal and never prints, so a crew working off paper
-       reaches a gated house with no way in. */
+    /* ⚠ CORRECTED 2026-08-25 — this said "Today the gate code shows in the crew
+       portal and never prints, so a crew working off paper reaches a gated house
+       with no way in." That was true when the registry was drafted and stopped
+       being true on 2026-08-21, when Addie ruled "we are only printing on
+       schedules and warehouse" and Gate became a column of its own on the crew
+       sheet (PRINT_COLUMNS.crew), deliberately narrow and deliberately ahead of
+       the wide Notes column. The `crewSheet` consumer below is now DESCRIBING
+       what ships rather than asking for it. */
     consumers: ['quote', 'confirmation', 'customer', 'crewSheet'],
   },
   {
