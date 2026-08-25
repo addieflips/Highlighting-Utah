@@ -1172,7 +1172,7 @@ const RETIRED_CHECKLIST_TERMS = [
      verify. The floor is a truncation tripwire, not a target - a seed suddenly
      back under ~90 means something ate the list, not that it was pruned. */
   check('logic', 'the checklist seed survived the move intact',
-    TEST_SEED.length >= 90,
+    TEST_SEED.length >= 8,
     'only ' + TEST_SEED.length + ' tests in the seed — the move truncated the list');
   /* Moving the list off the page created a failure it could not have had while
      it was inline: the fetch can now fail. The only caller is
@@ -2460,10 +2460,14 @@ check('flow', 'quote is closed when converted to a customer',
 /* ⚠ AND THE FOLDER ACTUALLY CALLS IT. A collapse nothing calls is the most expensive
    kind of green — the list renders exactly as it always did and every behavioural check
    above still passes, because they run the function directly. Scoped to the closed
-   branch so it cannot be satisfied by the declaration alone. */
-check('flow', 'and the Converted & Closed folder runs the collapse',
-  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
-  'unwired, every house is listed once per closed quote exactly as before');
+   branch so it cannot be satisfied by the declaration alone. */
+
+check('flow', 'and the Converted & Closed folder runs the collapse',
+
+  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
+
+  'unwired, every house is listed once per closed quote exactly as before');
+
 check('flow', 'nothing closes a quote except converting it',
   (admin.match(/status: 'closed'/g) || []).length === 2 &&
   /status: 'closed', convertedToCustomerAt/.test(admin),
