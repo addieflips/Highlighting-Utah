@@ -13463,6 +13463,88 @@ function buildInvoiceDocHtml(member){
     '</div>';
 }
 let invRecipientSearchTerm = '';
+/* ⭐ AN ADDRESS THAT IS ONE LETTER WRONG (2026-08-25). Owner: "I can't get a test
+   invoice sent to me." Nothing was broken. The address typed into the box was
+   …@gmai.com — one letter short of gmail.com — so the mail was handed to a domain
+   that does not exist and the page said, in green, that it had been sent.
+   ⚠ EMAILJS RETURNING OK IS NOT DELIVERY. It accepts the request and answers
+   immediately; a domain that does not resolve is discovered minutes later by a
+   bounce that goes to the sending account, which nobody in the office reads. So a
+   confident "Sent to …" was making a claim it had no way to check, about an address
+   that could never arrive. Both halves are fixed: the typo is caught BEFORE the
+   send, and the line afterwards says what actually happened.
+   ⚠ IT WARNS, IT NEVER REFUSES. A real address at an unusual domain must still go
+   through on one more click — a guard that blocks a legitimate send is worse than
+   the typo it prevents, because there is no way round it at all. */
+const EMAIL_COMMON_DOMAINS = ['gmail.com','googlemail.com','yahoo.com','ymail.com','hotmail.com',
+  'outlook.com','live.com','msn.com','icloud.com','me.com','mac.com','aol.com','comcast.net',
+  'protonmail.com','proton.me','att.net','verizon.net','sbcglobal.net','cox.net'];
+/* ⚠ REAL DOMAINS THAT SIT ONE LETTER FROM A BIG ONE. Without this, email.com (one
+   letter from gmail.com) and gmx.com would be queried on every send, and a warning
+   that cries wolf is a warning the office learns to click past — including the day
+   it is right. */
+const EMAIL_LOOKALIKE_BUT_REAL = ['email.com','gmx.com','gmx.net','mail.com','live.co.uk',
+  'yahoo.co.uk','me.co.uk','aol.co.uk','icloud.co.uk','cox.com','att.com'];
+/* Damerau-Levenshtein: a SWAPPED PAIR counts as one mistake, not two. That matters
+   here — gmial, hotmial and yahoi are all transpositions, and plain Levenshtein
+   scores them 2, which is the same distance as genuinely different domains. */
+function emailEditDistance(a, b){
+  const m = a.length, n = b.length;
+  const d = [];
+  for(let i = 0; i <= m; i++){ d[i] = [i]; }
+  for(let j = 0; j <= n; j++){ d[0][j] = j; }
+  for(let i = 1; i <= m; i++){
+    for(let j = 1; j <= n; j++){
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + cost);
+      if(i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1]){
+        d[i][j] = Math.min(d[i][j], d[i-2][j-2] + 1);
+      }
+    }
+  }
+  return d[m][n];
+}
+/* The whole address, corrected, or null when there is nothing to say. ⚠ ONE
+   MISTAKE ONLY. At a distance of two, "hotmail.com" and "hotmail.co.nz" start
+   suggesting each other and the guard becomes noise. */
+function emailTypoSuggestion(addr){
+  const at = String(addr || '').lastIndexOf('@');
+  if(at < 1) return null;
+  const local = addr.slice(0, at);
+  const domain = addr.slice(at + 1).toLowerCase();
+  if(!domain || !local) return null;
+  /* An exact match is right by definition, and must never be 'corrected'. */
+  if(EMAIL_COMMON_DOMAINS.indexOf(domain) !== -1) return null;
+  if(EMAIL_LOOKALIKE_BUT_REAL.indexOf(domain) !== -1) return null;
+  for(const good of EMAIL_COMMON_DOMAINS){
+    if(emailEditDistance(domain, good) === 1) return local + '@' + good;
+  }
+  return null;
+}
+/* Three answers, so it cannot be a confirm(): use the correction, send to what was
+   typed anyway, or go back and edit it. */
+function askEmailTypo(typed, suggestion){
+  return new Promise(function(resolve){
+    const overlay = document.createElement('div');
+    overlay.className = 'needsfix-popup-overlay';
+    overlay.innerHTML = '<div class="needsfix-popup" style="max-width:460px;">'+
+      '<h3 style="color:var(--dusk);">Did you mean '+esc(suggestion)+'?</h3>'+
+      '<p>You typed <strong>'+esc(typed)+'</strong>. That domain is one letter away from a common one, '+
+      'so the email would most likely go nowhere and bounce somewhere nobody looks.</p>'+
+      '<div style="display:flex; flex-direction:column; gap:9px; margin-top:12px;">'+
+        '<button type="button" class="btn btn-gold" data-emailfix="use">Send it to '+esc(suggestion)+'</button>'+
+        '<button type="button" class="btn btn-outline" data-emailfix="anyway">No, '+esc(typed)+' is right — send it</button>'+
+        '<button type="button" class="btn btn-outline" data-emailfix="cancel">Cancel, let me edit it</button>'+
+      '</div></div>';
+    document.body.appendChild(overlay);
+    overlay.querySelectorAll('[data-emailfix]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        overlay.remove();
+        resolve(btn.dataset.emailfix);
+      });
+    });
+  });
+}
 /* ---- Send one customer's invoice to yourself ---------------------------
    There was no way to send a single invoice: the only send was the whole
    nightly batch, which meant the only way to see a real invoice email was to
@@ -13482,6 +13564,15 @@ function invTestPopulate(){
     return '<option value="'+esc(m.id)+'">'+esc(m.data.name||'(no name)')+' — '+esc(st)+'</option>';
   }).join('');
   if(keep) sel.value = keep;
+  /* ⭐ THE BOX STARTS ON WHOEVER IS SIGNED IN. The button is called "Send yourself
+     one customer's invoice" and the address is already known, so making somebody
+     type it is asking for the exact typo that prompted this. ⚠ ONLY WHEN IT IS
+     EMPTY — overwriting an address somebody has just typed would be worse than not
+     filling it at all, and this runs on every render. */
+  const toBox = document.getElementById('invTestTo');
+  if(toBox && !toBox.value.trim() && auth && auth.currentUser && auth.currentUser.email){
+    toBox.value = auth.currentUser.email;
+  }
 }
 async function invTestSend(){
   const statusEl = document.getElementById('invTestStatus');
@@ -13492,6 +13583,22 @@ async function invTestSend(){
   const to = document.getElementById('invTestTo').value.trim();
   if(!custId) return say('Choose a customer first.', true);
   if(!to || to.indexOf('@') === -1) return say('Enter the email address to send it to.', true);
+  /* ⚠ ASKED BEFORE ANYTHING IS BUILT OR SENT. Once emailjs.send has been called
+     there is nothing to take back — the whole point is to catch it while it is
+     still a box on the screen. */
+  let sendTo = to;
+  const suggestion = emailTypoSuggestion(to);
+  if(suggestion){
+    const answer = await askEmailTypo(to, suggestion);
+    if(answer === 'cancel'){
+      document.getElementById('invTestTo').focus();
+      return say('Nothing was sent — check the address and try again.', true);
+    }
+    if(answer === 'use'){
+      sendTo = suggestion;
+      document.getElementById('invTestTo').value = suggestion;
+    }
+  }
   const member = etGetMembers().find(m => m.id === custId);
   if(!member) return say('That customer could not be found - try reloading the page.', true);
   const d = member.data;
@@ -13538,8 +13645,12 @@ async function invTestSend(){
       '<strong>Test copy.</strong> This is ' + esc(d.name || 'this customer') + '\'s real invoice, sent to you. They were not emailed and nothing on their record changed.'+
       '</div>' + body;
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: to, to_name: 'Test', message: body });
-    say('Sent to ' + to + ' \u2014 using the "' + tplName + '" template, amount due ' + fmtMoney(amountDue) + '. ' + (d.name||'The customer') + ' was not emailed.');
+    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: 'Test', message: body });
+    /* ⚠ "HANDED TO", NOT "SENT TO". EmailJS accepting the request says the request
+       was well formed, and nothing about whether the address exists. Claiming
+       delivery is what sent somebody looking for a bug in the invoice code when the
+       address was one letter wrong. */
+    say('Handed to the mail service for ' + sendTo + ' \u2014 using the "' + tplName + '" template, amount due ' + fmtMoney(amountDue) + '. ' + (d.name||'The customer') + ' was not emailed. If it has not arrived in a couple of minutes, check the address above and your spam folder.');
   } catch(err){
     const msg = (err && (err.text || err.message)) ? (err.text || err.message) : String(err);
     say('Send failed: ' + msg, true);
