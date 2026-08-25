@@ -5266,7 +5266,11 @@ if (!JSDOM) {
        is NaN, which would drop that house out of the morning's total silently. */
     check('warehouse', 'a marked bundle count still totals correctly',
       (parseInt('+3', 10) || 0) === 3 && (parseInt('3 est', 10) || 0) === 3 &&
-      /parseInt\(r\.bundles, 10\)/.test(extractFn(admin, 'whPrintBuildSheet')),
+            /* ⚠ THE TOTAL MOVED INTO whBuildSheetPages (2026-08-24). The sheet is one page per
+         colour group now, so each page carries ITS numbers rather than the morning's —
+         and the marker trap came with it. A page that under-reports is the same bug in a
+         smaller box. */
+      /parseInt\(r\.bundles, 10\)/.test(extractFn(admin, 'whBuildSheetPages')),
       'the build sheet summary reads the Bundles cell with parseInt, not Number');
     check('warehouse', 'a house that wants a timer says YES in the timer column',
       (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).timer === 'YES');

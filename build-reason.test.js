@@ -316,6 +316,77 @@ check('the printed sheet still carries the extra-bins note in its bundles cell',
   /printExtraBinsNote\(d\)/.test(printFilter),
   'she trimmed this sheet herself; the note is how bins reach paper');
 // ---------------------------------------------------------------------------
+// ONE PAGE PER COLOUR GROUP
+// ---------------------------------------------------------------------------
+/* ⭐ Addie picked this over splitting by badge: a colour-and-wire group is the pile
+   somebody physically pulls from, so two people can build at once without sharing paper.
+   Splitting by badge cuts across the piles and sends each person to every shelf.
+   ⚠ RUN, NOT READ. A source check for a `.map` over groups passes while every row still
+   lands on one page — the split is a behaviour, so the behaviour is what is asserted. */
+const pager = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
+  'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS', 'whBinsForHouse', 'whWhoLabel',
+  'houseLightsText', 'printExtraBinsNote', 'isOutForSeason',
+  reasonsSrc + fn('whBuildReasonKey') + fn('whBuildReasonLabel') +
+  fn('whBuildQueueGroups') + fn('whSheetRowsForBuild') + fn('whBuildSheetPages') +
+  'return whBuildSheetPages();');
+const P = function(custs, extras){
+  return pager(custs, extras || [], (p, w) => p + ' | ' + (w || ''),
+    (d) => ({bundles: 1, estimated: false, topUp: false}), (w) => String(w || 'white'),
+    () => '', [], () => '1', (d) => d.name || '', (d) => d.lightsDescription || '',
+    () => '', () => false);
+};
+const H = function(id, name, pattern, wire){
+  return {id: id, data: {name: name, needsLightBuild: true, lightsDescription: pattern,
+                         wireColor: wire, measuredFeet: 200}};
+};
+let pages = null;
+try { pages = P([H('h1','Ashley','Warm White','white'), H('h2','Rachel','Warm White','white'),
+                 H('h3','Cattani','Multi','green')]); }
+catch (e) { pages = 'THREW: ' + e.message; }
+check('the pager runs against a fixture', Array.isArray(pages),
+  'this block is about behaviour, so it must not quietly skip — ' + pages);
+if (Array.isArray(pages)) {
+  check('two colour groups print as two pages', pages.length === 2,
+    'got ' + JSON.stringify(pages.map(p => p.title)));
+  check('and nobody is on more than one of them',
+    pages.reduce((n, p) => n + p.rows.length, 0) === 3,
+    'a house on two pages gets built twice; got ' + JSON.stringify(pages.map(p => p.rows.length)));
+  /* ⚠ SHEET X OF Y IS THE POINT OF SPLITTING. Once the stack is handed out, the one
+     thing nobody can tell from a single page is whether they hold all of them. */
+  check('and every page says which of how many it is',
+    pages.every((p, i) => p.summary.indexOf('sheet ' + (i + 1) + ' of 2') !== -1),
+    'got ' + JSON.stringify(pages.map(p => p.summary)));
+  /* ⚠ AND EACH PAGE COUNTS ITSELF, not the morning. A page handed to somebody building
+     one pile needs THEIR numbers. */
+  check('and each page counts only its own houses',
+    /^2 houses/.test(pages[0].summary) && /^1 house /.test(pages[1].summary),
+    'got ' + JSON.stringify(pages.map(p => p.summary)));
+  check('and its own bundles, not the whole morning\'s',
+    /\b2 bundles\b/.test(pages[0].summary) && /\b1 bundle\b/.test(pages[1].summary),
+    'got ' + JSON.stringify(pages.map(p => p.summary)));
+  /* ⭐ WAITING ON COLOURS LEADS THE STACK — nobody in the warehouse can act on those.
+     ⚠ THE FIXTURE PUTS THE BLOCKED HOUSE LAST in the input, or the tab's own order
+     already produces the right answer and the check proves nothing. */
+  const withBlocked = P([H('h1','Ashley','Warm White','white'),
+                         {id:'h9', data:{name:'Zoe No Colours', needsLightBuild: true}}]);
+  check('waiting-on-colours is the first page in the stack',
+    withBlocked.length === 2 && withBlocked[0].rows.every(r => r.type === 'Blocked'),
+    'got ' + JSON.stringify(withBlocked.map(p => p.title)));
+  check('and it does not swallow the colour groups behind it',
+    withBlocked[1] && withBlocked[1].rows.length === 1,
+    'got ' + JSON.stringify(withBlocked.map(p => p.rows.length)));
+  check('and nothing to build prints no pages at all', P([]).length === 0,
+    'an empty stack is what the Nothing needs building note is for');
+}
+/* ⚠ AND BOTH THE BUILD BUTTON AND THE RECYCLE ONE GO THROUGH THE SECTIONS API, or one
+   of them throws the moment somebody presses it. */
+check('the build button prints the pages',
+  /whBuildSheetPages\(\)/.test(fn('whPrintBuildSheet')),
+  'the pager exists and nothing calls it is the most expensive kind of green');
+check('and the recycle sheet passes an array of one',
+  /whOpenPrintWindow\([\s\S]{0,80}\[\{/.test(fn('whPrintRecycleSheet')),
+  'the print window takes sections now; a bare table renders nothing');
+// ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
 console.log('\n=== Why a bundle is being built ===\n');
 console.log('  ' + w('', 54) + w('badge', 16) + 'wanted');

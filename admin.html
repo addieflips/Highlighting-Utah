@@ -33202,6 +33202,53 @@ function whSheetRowsForBuild(){
   // which layout goes with which sheet.
   return {rows: rows, columns: WH_BUILD_COLUMNS, timerHouses: built.timerHouses, groupCount: built.keys.length};
 }
+/* ⭐ ONE PAGE PER COLOUR GROUP (added 2026-08-24). Addie chose this over splitting by
+   badge, and it is the right unit: a colour-and-wire group IS the pile somebody pulls
+   from, so two people can build at once without sharing one sheet of paper. Splitting
+   by badge instead cuts ACROSS the piles and sends each person to every shelf.
+
+   ⚠ THE ORDER IS NOT DECIDED HERE, AND MUST NOT BE. whSheetRowsForBuild emits the
+   blocked rows before any group, so walking its rows in order already puts "Waiting on
+   light colours" first and keeps every other page in the same order as the tab. A sort
+   here looked like a guard and was in fact unreachable — a red-check proved it, so it
+   is gone rather than left looking load-bearing. If blocked ever stops leading, fix
+   whSheetRowsForBuild.
+
+   ⚠ WHY A HOUSE CAN BE WAITING ON COLOURS AT ALL, since Addie asked and the answer is
+   not obvious: it IS required on both doors a person types into — the customer's detail
+   form refuses to submit and Add Customer refuses to save. The master-sheet sync is the
+   producer: it sets needsLightBuild on everybody it adds and takes colours from the
+   sheet's Lights column, so a blank cell there makes one. ⚠ DO NOT "fix" that by
+   dropping the build flag when colours are missing — they would silently vanish instead
+   of appearing on a list, which is the failure the blocked block exists to end. */
+function whBuildSheetPages(){
+  const sheet = whSheetRowsForBuild();
+  const order = [];
+  const byGroup = {};
+  (sheet.rows || []).forEach(function(r){
+    const g = r.group || '(no group)';
+    if(!byGroup[g]){ byGroup[g] = []; order.push(g); }
+    byGroup[g].push(r);
+  });
+  return order.map(function(g, i){
+    const rows = byGroup[g];
+    const houses = rows.filter(function(r){ return r.type === 'House' || r.type === 'ADD-ON'; }).length;
+    /* ⚠ parseInt, NOT Number — the Bundles cell carries "+3" and "3 est" markers, and
+       Number("3 est") is NaN, which silently drops that house out of the total. Same
+       reasoning as the whole-sheet summary; the same mistake under-reports a page. */
+    const bundles = rows.reduce(function(n, r){ return n + (parseInt(r.bundles, 10) || 0); }, 0);
+    const timers = rows.filter(function(r){ return String(r.timer || '').indexOf('Yes') === 0; }).length;
+    const bits = [];
+    if(houses) bits.push(houses + ' house' + (houses === 1 ? '' : 's'));
+    if(bundles) bits.push(bundles + ' bundle' + (bundles === 1 ? '' : 's'));
+    if(timers) bits.push(timers + ' timer' + (timers === 1 ? '' : 's'));
+    /* ⚠ "SHEET X OF Y" IS THE POINT OF SPLITTING. Once the stack is handed out, the one
+       thing nobody can tell from a single page is whether they are holding all of them,
+       and a build that quietly lost a page is a house nobody makes. */
+    bits.push('sheet ' + (i + 1) + ' of ' + order.length);
+    return {title: g, summary: bits.join(' \u00b7 '), rows: rows, columns: sheet.columns};
+  });
+}
 function whSheetRowsForRecycle(){
   const built = whRecycleGroups();
   const rows = [];
@@ -33297,7 +33344,11 @@ function whSheetTable(rows, columns){
   }).join('');
   return '<table class=\"sheet'+dense+'\"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
 }
-function whOpenPrintWindow(title, summaryLine, tableHtml, emptyNote){
+/* `sections` is an array of {title, summary, tableHtml} and each one is a page. It used
+   to take a single table; the build sheet is one page per colour group now, and the
+   recycle sheet passes an array of one rather than keeping a second code path alive. */
+function whOpenPrintWindow(title, sections, emptyNote){
+  const live = (sections || []).filter(function(x){ return x && x.tableHtml; });
   const today = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+
     'body{font-family:Arial,Helvetica,sans-serif; margin:16px; color:#111;}'+
@@ -33313,11 +33364,17 @@ function whOpenPrintWindow(title, summaryLine, tableHtml, emptyNote){
     // no column names on it is a page nobody can read.
     'thead{display:table-header-group;} tr{page-break-inside:avoid;}'+
     '.empty{font-size:13px; color:#555;}'+
+    /* The break is what makes a page a page. Not on the last one, or every print
+       ends with a blank sheet. */
+    '.sheet{page-break-after:always;} .sheet:last-child{page-break-after:auto;}'+
     '@page{size:landscape; margin:10mm;}'+
     '</style></head><body>'+
-    '<h1>'+esc(title)+'</h1>'+
-    '<div class="sub">'+esc(today)+(summaryLine ? ' &middot; '+esc(summaryLine) : '')+'</div>'+
-    (tableHtml || '<div class="empty">'+esc(emptyNote || 'Nothing to print.')+'</div>')+
+    (live.length ? live.map(function(p){
+      return '<div class="sheet"><h1>'+esc(p.title || title)+'</h1>'+
+        '<div class="sub">'+esc(today)+(p.summary ? ' &middot; '+esc(p.summary) : '')+'</div>'+
+        p.tableHtml+'</div>';
+    }).join('')
+      : '<h1>'+esc(title)+'</h1><div class="empty">'+esc(emptyNote || 'Nothing to print.')+'</div>')+
     '</body></html>';
   const w = window.open('', '_blank');
   if(!w){ toast('Allow pop-ups to print the sheet'); return; }
@@ -33420,24 +33477,14 @@ const WH_RECYCLE_COLUMNS = [
   if(recycleBtn) recycleBtn.addEventListener('click', whPrintRecycleSheet);
 })();
 function whPrintBuildSheet(){
-  const sheet = whSheetRowsForBuild();
-  /* ⚠ parseInt, NOT Number. The Bundles cell carries markers now — "+3" for an
-     add-on and "3 est" where the footage was worked back from the price — and
-     Number("3 est") is NaN, which would silently drop that house out of the total
-     and under-report the morning's work. parseInt reads the leading number from
-     both. */
-  const bundles = sheet.rows.reduce(function(s,r){ return s + (parseInt(r.bundles, 10) || 0); }, 0);
-  const houses = sheet.rows.filter(function(r){ return r.type === 'House'; }).length;
-  const blocked = sheet.rows.filter(function(r){ return r.type === 'Blocked'; }).length;
-  const summary = sheet.rows.length
-    ? sheet.groupCount + ' group' + (sheet.groupCount===1?'':'s') + ' · ' +
-      houses + ' house' + (houses===1?'':'s') + ' · ' +
-      bundles + ' bundle' + (bundles===1?'':'s') + ' · ' +
-      sheet.timerHouses.length + ' timer' + (sheet.timerHouses.length===1?'':'s') +
-      (blocked ? ' \u00b7 ' + blocked + ' waiting on colours' : '')
-    : '';
-  whOpenPrintWindow('Warehouse — Build Sheet', summary,
-    sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : '',
+  /* ⭐ ONE PAGE PER COLOUR GROUP — see whBuildSheetPages for why that is the unit. The
+     whole-sheet totals that used to sit here have moved onto each page, because a page
+     handed to somebody building one pile needs THEIR numbers, not the morning's. */
+  const pages = whBuildSheetPages();
+  whOpenPrintWindow('Warehouse \u2014 Build Sheet',
+    pages.map(function(p){
+      return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+    }),
     'Nothing needs to be built right now.');
 }
 function whPrintRecycleSheet(){
@@ -33445,8 +33492,9 @@ function whPrintRecycleSheet(){
   const summary = sheet.rows.length
     ? sheet.rows.length + ' house' + (sheet.rows.length===1?'':'s') + ' to pull back into stock'
     : '';
-  whOpenPrintWindow('Warehouse — Recycle Sheet', summary,
-    sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : '',
+  whOpenPrintWindow('Warehouse — Recycle Sheet',
+    [{title: 'Warehouse — Recycle Sheet', summary: summary,
+      tableHtml: sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : ''}],
     'Nothing needs to be recycled right now.');
 }
 document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
