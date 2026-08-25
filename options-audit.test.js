@@ -373,11 +373,21 @@ function check(label, ok, detail) {
       const m = /\r?\n\}\);/.exec(indexSrc.slice(at));
       return indexSrc.slice(at, m ? at + m.index + m[0].length : indexSrc.length);
     };
-    /* Every shipped email template body, which is where a token either exists or does
-       not. Sliced to the end of the array so a template added later is included. */
-    const TEMPLATE_TAG = "{name:'Nightly Auto-Invoice";
-    const emailTokens = admin.slice(admin.indexOf(TEMPLATE_TAG),
-                                    admin.indexOf('\n];', admin.indexOf(TEMPLATE_TAG)));
+    /* ⚠ THE RSVP TEMPLATE ITSELF, not every template in the file (corrected 2026-08-25,
+       hours after it shipped). The first version sliced from the Nightly Auto-Invoice
+       entry to the end of the array — but the RSVP template sits ABOVE that one, so the
+       surface never looked at the email it is about, and measuredFeet passed because
+       {{feet_line}} exists in a BILLING template. One email covering for another: the
+       exact failure the note on the two build sheets warns about, committed in the same
+       file that warns about it.
+       ⚠ SO IT IS SCOPED TO THE RSVP FOLDER. Widening it back to every template makes
+       every check here meaningless again, silently. */
+    const ET_START = admin.indexOf('const ET_PREBUILT_TEMPLATES = [');
+    const allTemplates = admin.slice(ET_START, admin.indexOf('\n];', ET_START));
+    const rsvpAt = allTemplates.indexOf("folderName:'RSVP'");
+    const emailTokens = rsvpAt === -1 ? ''
+      : allTemplates.slice(allTemplates.lastIndexOf('{name:', rsvpAt),
+                           allTemplates.indexOf('},', rsvpAt) + 2);
     const blockFrom = (anchor) => {
       const at = admin.indexOf(anchor);
       if (at === -1) return '';
@@ -567,8 +577,8 @@ function check(label, ok, detail) {
                price, the bins, the bundles and the number series off a number nobody
                checked. Recorded as a gap rather than an exception because the registry
                still asks for it and only Addie can settle which is wrong. */
-            measuredFeet: { gap: 'the public form does not ask for footage — the office measures it, and that number sets the price' },
-            useEaves: { gap: 'not asked anywhere on the public site; the office fills it in from the master sheet' },
+            measuredFeet: { gap: 'the public form does not ask for footage — the office measures it, and that number sets the price', wired: /measuredFeet:/ },
+            useEaves: { gap: 'not asked anywhere on the public site; the office fills it in from the master sheet', wired: /useEaves:/ },
           },
         },
         {
@@ -614,8 +624,8 @@ function check(label, ok, detail) {
             notes:       /hd\.notes \? '<div style="font-size:12\.5px/,
             oneTimeNote: /hd\.oneTimeNote \? '<div style="font-size:12\.5px/,
             difficulty:  /live\.data\.difficulty \|\| 'Unrated'/,
-            houseSides:      { gap: 'the route card does not say how many sides the house is — the crew finds out on arrival' },
-            numberOfBins:    { gap: 'the route card does not say how many bins, so a crew cannot tell what to load' },
+            houseSides:      { gap: 'the route card does not say how many sides the house is — the crew finds out on arrival', wired: /houseSides|houseSideWords/ },
+            numberOfBins:    { gap: 'the route card does not say how many bins, so a crew cannot tell what to load', wired: /numberOfBins|whBinsForHouse/ },
           },
         },
       ],
@@ -634,10 +644,10 @@ function check(label, ok, detail) {
                reader is `d.notes` — matching the plan's own key would pass against a
                reader pointed at something else entirely. */
             notes: /key:'details',[\s\S]{0,60}return d\.notes;/,
-            oneTimeNote:  { gap: 'the plan carries standing notes but not the this-visit-only one' },
-            houseSides:   { gap: 'not synced onto a plan house' },
-            numberOfBins: { gap: 'not synced onto a plan house, so a day cannot be planned around what has to be loaded' },
-            difficulty:   { gap: 'not synced onto a plan house, so a hard house cannot be spread across a day' },
+            oneTimeNote:  { gap: 'the plan carries standing notes but not the this-visit-only one', wired: /key:'oneTimeNote'/ },
+            houseSides:   { gap: 'not synced onto a plan house', wired: /key:'houseSides'/ },
+            numberOfBins: { gap: 'not synced onto a plan house, so a day cannot be planned around what has to be loaded', wired: /key:'numberOfBins'/ },
+            difficulty:   { gap: 'not synced onto a plan house, so a hard house cannot be spread across a day', wired: /key:'difficulty'/ },
           },
         },
       ],
@@ -645,22 +655,25 @@ function check(label, ok, detail) {
       /* ⭐ THE RSVP EMAIL (added 2026-08-25) — "what we tell them we have on file".
          ⚠ THIS IS THE BIGGEST MISMATCH IN THE REGISTRY and the reason it was worth
          wiring the last five at all: eight options declare this destination and the
-         email templates have a token for exactly ONE of them. A customer confirming
-         their season is shown their footage and nothing else — not their colours, not
-         their wire, not their timer, not their gate code. */
+         RSVP email has a token for NOT ONE of them. It is a greeting, one question and
+         three buttons — a customer confirming their season is shown nothing at all about
+         what we hold for them: not their footage, colours, wire, timer, sides, gate code
+         or the month they asked for.
+         ⚠ THIS SAID 'exactly ONE' FOR A FEW HOURS, because the surface was sliced across
+         every template and matched {{feet_line}} in a billing email. Corrected. */
       confirmation: [
         {
-          name: 'the email templates',
+          name: 'the RSVP email',
           src: emailTokens,
           by: {
-            measuredFeet: /\{\{feet_line\}\}/,
-            lightsDescription: { gap: 'no token — they are never told which colours we hold for them' },
-            wireColor:         { gap: 'no token' },
-            outletTimer:       { gap: 'no token' },
-            specificOutlet:    { gap: 'no token' },
-            gateCode:          { gap: 'no token — and this is the one they most often need to correct' },
-            houseSides:        { gap: 'no token' },
-            installPreference: { gap: 'no token — they are not shown the month they asked for' },
+            measuredFeet: { gap: 'no token — the RSVP email carries NONE of the eight; it is a greeting and three buttons', wired: /\{\{[a-z_]*(feet)[a-z_]*\}\}/ },
+            lightsDescription: { gap: 'no token — they are never told which colours we hold for them', wired: /\{\{[a-z_]*(lights)[a-z_]*\}\}/ },
+            wireColor:         { gap: 'no token', wired: /\{\{[a-z_]*wire[a-z_]*\}\}/ },
+            outletTimer:       { gap: 'no token', wired: /\{\{[a-z_]*timer[a-z_]*\}\}/ },
+            specificOutlet:    { gap: 'no token', wired: /\{\{[a-z_]*outlet[a-z_]*\}\}/ },
+            gateCode:          { gap: 'no token — and this is the one they most often need to correct', wired: /\{\{[a-z_]*gate[a-z_]*\}\}/ },
+            houseSides:        { gap: 'no token', wired: /\{\{[a-z_]*sides[a-z_]*\}\}/ },
+            installPreference: { gap: 'no token — they are not shown the month they asked for', wired: /\{\{[a-z_]*(install|month)[a-z_]*\}\}/ },
           },
         },
       ],
@@ -773,6 +786,18 @@ function check(label, ok, detail) {
         'a column and a note saying the same thing on one row is noise');
     }
 
+    /* ⚠ EVERY GAP CARRIES ITS OWN CLOSING REGEX, and this is what keeps that true. A gap
+       without one can only be closed by a person noticing and deleting it — which is not
+       self-healing, it is a comment. Wiring the thing would leave the GAP line printing
+       for as long as nobody looked. */
+    Object.keys(SURFACES).forEach((c) => SURFACES[c].forEach((sf) => {
+      Object.keys(sf.by).forEach((id) => {
+        const r = sf.by[id];
+        if (!r || !r.gap) return;
+        check('gap ' + c + ' \u00b7 ' + id + ' can close itself', !!r.wired,
+          'give it a wired regex - the one that would prove somebody had delivered it');
+      });
+    }));
     Object.keys(SURFACES).forEach((consumer) => {
       const declared = OPTIONS.filter(o => (o.consumers || []).indexOf(consumer) !== -1);
       check(consumer + ': the registry declares options for it', declared.length > 0,
@@ -798,7 +823,16 @@ function check(label, ok, detail) {
          a question nobody has answered yet. */
       const gapped = new Set();
       SURFACES[consumer].forEach((sf) => Object.keys(sf.by).forEach((id) => {
-        if (sf.by[id] && sf.by[id].gap) gapped.add(id);
+        const r = sf.by[id];
+        if (!r || !r.gap) return;
+        /* ⚠ A GAP HAS TO BE ABLE TO CLOSE BY ITSELF, or the note calling it self-healing
+           is a lie — which it was for about an hour. `wired` is the regex that WOULD
+           prove somebody had delivered it; the moment it matches, this stops being a
+           gap and becomes an ordinary check that can then FAIL if it is taken away
+           again. A gap with no `wired` can only ever be closed by hand, so every one
+           of them carries it. */
+        if (r.wired && r.wired.test(sf.src)) return;
+        gapped.add(id);
       }));
       SURFACES[consumer].forEach((surface) => {
         check(surface.name + ': its source was found', !!surface.src,
@@ -834,7 +868,7 @@ function check(label, ok, detail) {
             /* On a staged destination a surface that does not carry this option is not a
                failure — it is the wrong stage. What must be true is that ONE of them
                carries it, which is asserted once per option after the loop. */
-            if (rule) reached[o.id] = reached[o.id] || rule.test(surface.src);
+            if (rule) reached[o.id] = reached[o.id] || (rule.gap ? rule.wired : rule).test(surface.src);
             else if (reached[o.id] === undefined) reached[o.id] = false;
             return;
           }
@@ -842,7 +876,8 @@ function check(label, ok, detail) {
             'the registry says ' + o.id + ' must reach ' + surface.name + ' and ' +
             'nothing says how — wire it, or take the destination off the registry');
           if (rule) {
-            check(surface.name + ': ' + o.id + ' still reaches it', rule.test(surface.src),
+            const probe = rule.gap ? rule.wired : rule;
+            check(surface.name + ': ' + o.id + ' still reaches it', probe.test(surface.src),
               'the registry says ' + o.id + ' must reach ' + surface.name + ' and the ' +
               'real one no longer carries it — this is a truck arriving without it');
           }
@@ -850,7 +885,7 @@ function check(label, ok, detail) {
         /* ⚠ AND NOTHING IS WIRED THAT THE REGISTRY DOES NOT ASK FOR. A leftover rule
            is one nobody is checking, against a destination nobody declared. */
         Object.keys(surface.by).forEach((id) => {
-          if (surface.by[id] && (surface.by[id].except || surface.by[id].gap)) return;
+          if (surface.by[id] && (surface.by[id].except || surface.by[id].gap)) return;   // gaps are declared for a real option by construction
           check(surface.name + ': the wiring for ' + id + ' matches a declared destination',
             declared.some(o => o.id === id),
             id + ' is wired here but the registry does not send it to the ' + consumer);
