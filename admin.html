@@ -4454,6 +4454,15 @@
                   <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                     <button type="button" class="btn btn-outline btn-sm" id="rmEndStrandBtn" style="padding:4px 10px; font-size:11px;">End this strand</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmClearDotsBtn" style="padding:4px 10px; font-size:11px;">Clear all dots</button>
+                    <!-- ⚠ OUT HERE, NOT BEHIND THE AUTO-DETECT DISCLOSURE. That bar
+                         is for the two things that GUESS, and it is shut by default on
+                         purpose - somebody who wants a guess asks for one. Recentring
+                         guesses nothing: it moves two cameras and touches no dot, no
+                         side, no height. Owner asked for it as "a reset button so if
+                         you zoom out on sky view it will readjust the camera", and a
+                         reset filed under a disclosure about corner detection is one
+                         nobody finds when they have lost the house. -->
+                    <button type="button" class="btn btn-outline btn-sm" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmAutoBtn" style="padding:4px 10px; font-size:11px;">Auto-detect corners</button>
                   </div>
                   <!-- ⭐ THE AUTOMATIC ONES ARE BEHIND A DOOR (2026-08-25).
@@ -4468,7 +4477,6 @@
                        for in those words, and the line naming the mode is the
                        only thing on screen that says which one you are in. -->
                   <div id="rmAutoBar" style="display:none; gap:6px; margin-top:6px; flex-wrap:wrap;">
-                    <button type="button" class="btn btn-outline btn-sm" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre on the house</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmSuggestBtn" style="padding:4px 10px; font-size:11px;">Suggest corners</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmModelBtn" style="padding:4px 10px; font-size:11px;">Show assumed house</button>
                   </div>
