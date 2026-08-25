@@ -1102,6 +1102,9 @@ const RETIRED_CHECKLIST_TERMS = [
   ['get approval link', 'renamed to Send Email on 2026-08-08'],
   ['copy quote email', 'renamed to Show Quote Email Again on 2026-08-08 (Send Email now shows the email on the first click)'],
   ['replace photo', 'quote cards hold several photos now, so the button reads Add More Photos (2026-08-13)'],
+  ['start measuring', 'clicking the picture starts a side now, so that button is gone — while one is open the button reads Finish this side (2026-08-25)'],
+  ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
+  ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
 ];
 {
   /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
@@ -1561,6 +1564,18 @@ if (JSDOM) {
   eval(extractFn(admin, 'quoteCustomerKeys') + '\nglobal.quoteCustomerKeys = quoteCustomerKeys;');
   eval(extractFn(admin, 'isRequote') + '\nglobal.isRequote = isRequote;');
   eval(extractFn(admin, 'quoteAlreadyACustomer') + '\nglobal.quoteAlreadyACustomer = quoteAlreadyACustomer;');
+  /* ⚠ THE PRICING HELPERS THE CARD NOW ASKS (added 2026-08-25). The Estimated
+     Price line used to be `d.estimatedFeet * perFootRate` inline; it goes
+     through quoteEstimatedPrice now so the card and the measure tool apply the
+     difficulty from ONE rule instead of disagreeing about a non-Medium house.
+     LIFTED, NOT STUBBED — the whole point of these checks is what the card
+     really prints, and a stub would let the card and the tool agree with a
+     fiction while still disagreeing with each other in production. */
+  global.RM_DIFFICULTY_RATE = {Easy: 0.85, Medium: 1, Hard: 1.25};
+  eval(extractFn(admin, 'quoteDifficultyGrade') + '\nglobal.quoteDifficultyGrade = quoteDifficultyGrade;');
+  eval(extractFn(admin, 'quoteDifficultyMult') + '\nglobal.quoteDifficultyMult = quoteDifficultyMult;');
+  eval(extractFn(admin, 'quoteEstimatedPrice') + '\nglobal.quoteEstimatedPrice = quoteEstimatedPrice;');
+  eval(extractFn(admin, 'quoteDifficultyNote') + '\nglobal.quoteDifficultyNote = quoteDifficultyNote;');
 
   // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
   // the data-pricingtoggle click handler is actually live for the toggle test.
@@ -31361,8 +31376,15 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      0 and slices from the top of the file — which still contains enough words
      to make a loose check pass. Two of these three were doing exactly that. */
   const useFeet = sectionFrom(admin, admin.indexOf("document.getElementById('rmUseFeetBtn').addEventListener"));
+  /* ⚠ THE PAYLOAD MOVED, THE RULE DID NOT. The `{estimatedFeet: feet}` literal
+     this used to match now lives in rmSavePayload, which exists so the write
+     can be RUN rather than pattern-matched (see S256 — a text match here stayed
+     green with the drawing's half of the write disabled by an if(false)). What
+     belongs to this check is still here: the button applies the multiplier and
+     hands the result to that builder. S256 proves the builder puts it under
+     estimatedFeet. */
   check('S126', 'Estimated Feet is saved as the measured run times that constant',
-    /RM_FEET_MULTIPLIER/.test(useFeet) && /estimatedFeet:\s*feet/.test(useFeet),
+    /RM_FEET_MULTIPLIER/.test(useFeet) && /rmSavePayload\(feet\b/.test(useFeet),
     'the button either stopped doubling or started doubling somewhere else');
   check('S126', 'and it reports the measured figure alongside the doubled one',
     /measured/.test(useFeet),
@@ -33210,7 +33232,8 @@ suite('130. Measure Roof — a triangle is not a flat line');
      defined" — the exact trap CLAUDE.md records. LIFT, never stub: a stub
      would make the branch untestable while reporting green. */
   const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFeetBetween',
-                 'rmFaceEaveM', 'rmLowestPlaneM', 'rmDatum', 'rmRoofRelativeAt', 'rmRoofHeightAt'];
+                 'rmFaceEaveM', 'rmLowestPlaneM', 'rmWorkingHeightM', 'rmDatum',
+                 'rmRoofRelativeAt', 'rmRoofHeightAt'];
   const missing = NAMES.filter(n => !pick(n));
   if (missing.length) {
     check('S130', 'the roof-plane model is findable', false, 'missing: ' + missing.join(', '));
@@ -33220,8 +33243,15 @@ suite('130. Measure Roof — a triangle is not a flat line');
       'let rmFaces=[], rmRoofDatumM=null, rmDatumSource="";' + LF_ +
       'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
       /* The datum is handed in as a "typed" height so these fixtures keep
-         asserting absolute heights the way they always did. */
-      'let __typed=0; function rmWorkingHeightM(){ return __typed; }' + LF_ +
+         asserting absolute heights the way they always did.
+         ⚠ THE DOM READER IS THE STUB, AND ONLY IT. rmDatum used to ask
+         rmWorkingHeightM what was typed; it asks rmTypedHeightM now, which
+         tells a real typed number from a blank box (null) so the status line
+         can say "typed" or "assumed" without lying. Stubbing the READER and
+         LIFTING the real rmWorkingHeightM keeps its never-zero fallback under
+         test instead of replacing it with the stub — the difference CLAUDE.md
+         records as LIFT, never stub. */
+      'let __typed=0; function rmTypedHeightM(){ return __typed; }' + LF_ +
       NAMES.map(pick).join(LF_) + LF_ +
       'return {set:function(f,groundToEave){rmFaces=f; __typed=groundToEave||0;},' +
       ' rmRoofHeightAt, rmRoofRelativeAt, rmDatum, rmToLocal, rmToWorld, rmFeetBetween};')();
@@ -33345,7 +33375,8 @@ suite('131. Measure Roof — the roof is never on the ground');
   const LF_ = String.fromCharCode(10);
   const pick = n => extractFn(admin, n);
   const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmFaceEaveM', 'rmLowestPlaneM',
-                 'rmDatum', 'rmRoofRelativeAt', 'rmRoofHeightAt', 'rmSetDatumFromStreet'];
+                 'rmWorkingHeightM', 'rmDatum', 'rmRoofRelativeAt', 'rmRoofHeightAt',
+                 'rmSetDatumFromStreet'];
   const missing = NAMES.filter(n => !pick(n));
   if (missing.length) {
     check('S131', 'the roof-height model is findable', false, 'missing: ' + missing.join(', '));
@@ -33354,7 +33385,8 @@ suite('131. Measure Roof — the roof is never on the ground');
       'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
       'let rmFaces=[], rmRoofDatumM=null, rmDatumSource="";' + LF_ +
       'const RM_ASSUMED_EAVE_M=3, RM_M_TO_FT=3.280839895;' + LF_ +
-      'function rmWorkingHeightM(){ return ' + (typedFt / 3.280839895) + '; }' + LF_ +
+      /* Stub the DOM reader, lift the real working height — see S130. */
+      'function rmTypedHeightM(){ return ' + (typedFt / 3.280839895) + '; }' + LF_ +
       NAMES.map(pick).join(LF_) + LF_ +
       'return {set:function(f){rmFaces=f;}, rmDatum, rmRoofRelativeAt, rmRoofHeightAt,' +
       ' rmSetDatumFromStreet, rmLowestPlaneM, rmToWorld, rmToLocal,' +
@@ -33459,9 +33491,21 @@ suite('131. Measure Roof — the roof is never on the ground');
   check('S131', 'but a point measured in Street View is never re-derived over',
     !!refresh && /if\(r\.streetMeasured\) return;/.test(refresh),
     'throwing away a real observation to keep the guess tidy is backwards');
+  /* ⚠ THIS LINE IS THE WHOLE WORKING HEIGHT PANEL NOW (2026-08-25) — the box
+     and the presets moved under More options — so it has to carry the number
+     AND where it came from, and all four sources have to stay distinguishable.
+     The wording moved from "ASSUMED at N ft" to "Eave N ft — ASSUMED"; the
+     claim is unchanged and now checks every branch rather than one. */
   check('S131', 'and the panel says which datum is in force',
-    /id="rmDatumNote"/.test(admin) && /ASSUMED at/.test(admin),
+    /id="rmDatumNote"/.test(admin) && /ASSUMED, one storey/.test(admin) &&
+    /measured in Street View/.test(admin) && /read off the street photo/.test(admin) &&
+    /typed by hand/.test(admin),
     'a height nobody can trace back is a height nobody can argue with');
+  check('S131', 'and the height controls are still reachable, just not in the way',
+    /id="rmHeightFt"/.test(admin) && /id="rmMoreBox"/.test(admin) &&
+    (admin.indexOf('id="rmMoreBox"') < admin.indexOf('id="rmHeightFt"')),
+    'the box is the only way to overrule a wrong roof model — moving it behind a ' +
+    'disclosure is fine, losing it is not');
 }
 
 
@@ -34039,9 +34083,25 @@ suite('143. Measure Roof - strands you are running, and a photo read that waits 
       /rmRuns\.filter\(rmRunIsOn\)\.length[\s\S]{0,140}Separate strands/.test(admin) ||
       /Separate strands<\/span><strong>'\+rmRuns\.filter\(rmRunIsOn\)\.length/.test(admin),
       'rmRuns.length counts the greyed-out lines too');
-    check('S143', 'and so does the material list',
-      /Separate strands<\/span><strong>'\+\(rmRuns\.filter\(rmRunIsOn\)\.length\|\|1\)/.test(admin),
-      'the van gets packed off this number');
+    /* ⚠ THIS USED TO CHECK THE MATERIAL LIST'S OWN STRAND COUNT. That panel is
+       gone (2026-08-25) — bulbs sit a foot apart, so it existed to do a sum
+       whose answer was already on the line above it, behind a spacing selector
+       offering three spacings this business does not use. The concern it
+       protected has not gone anywhere: whoever packs the van reads the strand
+       count, and there must be exactly ONE of it. Two panels counting
+       separately is how they came to disagree in the first place. */
+    check('S143', 'and there is only one strand count left to get wrong',
+      (admin.match(/Separate strands/g) || []).length === 1,
+      'found ' + (admin.match(/Separate strands/g) || []).length + ' — the van gets packed ' +
+      'off this number, and a second copy of it is a second chance to count the greyed-out lines');
+    /* ⚠ COMMENTS STRIPPED, and this check needed it immediately. Why the panel
+       was removed is written down in the code at the point it used to sit, so a
+       plain search finds the EXPLANATION and reports it as the thing still
+       being there — the trap this file already records once. */
+    check('S143', 'the Quick Material Estimate really is gone, not just unreachable',
+      !/rmMaterialPanel|rmRenderMaterials|id="rmSpacing"/.test(stripComments(admin)),
+      'a panel left in the markup with nothing drawing it is the dead code the owner ' +
+      'asked about by name — "code that will just sit there doing nothing forever"');
     check('S143', 'the raw run count is no longer used for strands anywhere',
       !/Separate strands<\/span><strong>'\+rmRuns\.length/.test(admin) &&
       !/Separate strands<\/span><strong>'\+\(rmRuns\.length\|\|1\)/.test(admin),
@@ -34986,9 +35046,23 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
       return i !== -1 && admin.slice(i, j).indexOf('rmAddCorner') === -1;
     })(),
     'a dot from above has to invent a height, and an invented height drifts');
+  /* ⚠ THIS USED TO MATCH THE REFUSAL NOTE ("Dots go in from the street view"),
+     because a sky click did nothing else. It now STARTS A SIDE — tracing a run
+     from above is the one thing that view is best at, since an eave is level so
+     plan length is true length — and still names the street as where corners
+     go. The claim is unchanged and stronger: the click must not be silent. */
   check('S149', 'and it says where dots do go, rather than doing nothing',
-    /Dots go in from the street view/.test(admin),
+    /go in from the street view/.test(admin),
     'a click that silently does nothing reads as broken');
+  check('S149', 'a click up there traces a side instead of being refused outright',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmSetDrawing\(true\);\s*\r?\n\s*rmAddPoint\(w\);/.test(body);
+    })(),
+    'refusing the commonest gesture on a map means tracing starts by finding a ' +
+    'button in the sidebar first, which is the step this removes');
   /* The street view still does, and takes its height from the ray. */
   check('S149', 'the street view is what places a corner',
     (function(){
@@ -36788,6 +36862,578 @@ suite('253. The RSVP asks the crew’s two questions, of the right house');
   check('S253', 'and the shipped RSVP template actually asks both',
     /\{\{gate_code_line\}\}/.test(rsvpTpl) && /\{\{outlet_line\}\}/.test(rsvpTpl),
     'a token nothing places is a token nobody sees');
+}
+
+suite('254. Measure Roof - the working height is never the lawn');
+{
+  /* ⚠ THE BUG THIS EXISTS FOR. The Working Height box opened on 0 and
+     rmWorkingHeightM divided that by the conversion, so a sky click with no
+     Google roof plane under it landed at h = 0 - ON THE GROUND, the one height
+     a gutter run is certainly not at. Every foot traced that way was measured
+     across the lawn instead of along the eave, and nothing on screen said so.
+
+     ⚠ AND THE FIX HAD TO SPLIT ONE QUESTION INTO TWO. rmDatum reports whether a
+     height was TYPED or ASSUMED, and says which on screen. A working height
+     that quietly falls back to the assumed eave cannot answer that - it would
+     report every blank box as a number the office chose. So rmTypedHeightM
+     answers "what was actually typed" (null when nothing was) and
+     rmWorkingHeightM answers "where does a click land" (never zero from blank).
+     A red-check collapsing them back into one function fails the datum checks
+     below, not the height ones. */
+  const LF_ = String.fromCharCode(10);
+  const NEED = ['rmTypedHeightM', 'rmWorkingHeightM', 'rmDatum'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S254', 'the two height readers and the datum are all findable',
+    missing.length === 0, 'not found: ' + missing.join(', '));
+
+  /* THE DEFAULT IS THE SAME EAVE THE CODE ASSUMES, not a second 10 typed into
+     the markup. A box opening on a different number than RM_ASSUMED_EAVE_M is
+     two answers to one question, and the one nobody reads is the one that
+     drifts. */
+  const eaveM = (admin.match(/RM_ASSUMED_EAVE_M\s*=\s*([\d.]+)/) || [])[1];
+  const heightBox = (admin.match(/<input[^>]*id="rmHeightFt"[^>]*>/) || [])[0] || '';
+  const boxDefault = Number((heightBox.match(/value="([\d.]+)"/) || [])[1]);
+  check('S254', 'the Working Height box opens on the assumed eave, not on the ground',
+    boxDefault > 0 && Math.round(Number(eaveM) * 3.280839895) === boxDefault,
+    'box opens on ' + boxDefault + ' ft, RM_ASSUMED_EAVE_M is ' + eaveM +
+    ' m (~' + Math.round(Number(eaveM) * 3.280839895) + ' ft) - a 0 here traces the lawn');
+
+  /* ⚠ RESET IS THE SECOND DOOR AND IT WAS THE ONE LEFT OPEN. Opening the tool
+     on a second quote runs rmReset, so a reset that put the box back to 0
+     re-armed the bug on every house after the first. It must derive the value
+     rather than repeat it. */
+  const reset = extractFn(admin, 'rmReset') || '';
+  check('S254', 'and reopening the tool resets it to the same assumed eave',
+    /rmHeightFt'\)\.value\s*=\s*Math\.round\(RM_ASSUMED_EAVE_M\s*\*\s*RM_M_TO_FT\)/.test(reset),
+    'a reset back to 0 puts the next house on the lawn however good the markup default is');
+
+  if (!missing.length) {
+    const mk = raw => new Function(
+      'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
+      'let rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      'const document={getElementById:function(){ return ' +
+        (raw === null ? 'null' : '{value:' + JSON.stringify(raw) + '}') + '; }};' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return {rmTypedHeightM, rmWorkingHeightM, rmDatum};')();
+
+    const FT = 3.280839895;
+    /* A blank box, and junk in the box, are the same thing: nothing was typed. */
+    ['', '   ', 'abc'].forEach(function (raw) {
+      const api = mk(raw);
+      check('S254', 'a box holding ' + JSON.stringify(raw) + ' puts a click at the eave, not at 0',
+        Math.abs(api.rmWorkingHeightM() - 3) < 1e-9,
+        'got ' + api.rmWorkingHeightM().toFixed(3) + ' m - 0 here is the lawn-tracing bug');
+      check('S254', 'and ' + JSON.stringify(raw) + ' is reported as nothing typed',
+        api.rmTypedHeightM() === null,
+        'a blank box read as a number makes rmDatum claim the office chose this height');
+      check('S254', 'so the datum calls it assumed, not typed',
+        api.rmDatum().source === 'assumed',
+        'got source "' + api.rmDatum().source + '" - the status line would credit the office ' +
+        'with a height nobody entered');
+    });
+
+    /* ⚠ A TYPED ZERO IS AN ANSWER, NOT A BLANK. The Ground preset writes 0 and
+       a ground run really is at zero, so this must NOT be swept up by the
+       fallback - that would make the Ground button unable to reach the ground. */
+    const ground = mk('0');
+    check('S254', 'but a deliberately typed 0 still means the ground',
+      ground.rmTypedHeightM() === 0 && ground.rmWorkingHeightM() === 0,
+      'the Ground preset writes 0; treating it as "nothing typed" breaks the one ' +
+      'button whose whole job is to trace at ground level');
+    check('S254', 'and a typed 0 is still too low to be a datum',
+      ground.rmDatum().source === 'assumed',
+      'zero is a legal place to trace and an illegal place to hang a roof from');
+
+    const typed = mk('18');
+    check('S254', 'a real typed height is used, and is credited to the office',
+      Math.abs(typed.rmWorkingHeightM() - 18 / FT) < 1e-9 &&
+      typed.rmDatum().source === 'typed' &&
+      Math.abs(typed.rmDatum().m - 18 / FT) < 1e-9,
+      'a height the office measured must beat both the assumption and the model');
+  }
+}
+
+
+suite('255. Measure Roof - the footage saved is the footage measured');
+{
+  /* ⚠ THE WORD THAT HAD TO GO. RM_FEET_MULTIPLIER has been 1 for a while, but
+     the save message still told the office their footage had been "doubled" on
+     the way in. It described arithmetic that had stopped happening, about the
+     one number that drives bins, bulb orders and the price - so anybody reading
+     it had to decide whether to trust the message or the number. */
+  check('S255', 'the feet multiplier is still 1',
+    /const RM_FEET_MULTIPLIER\s*=\s*1\s*;/.test(admin),
+    'feet are the wire on the house and the bulb count - a multiplier here breaks ' +
+    'bin sizing and bulb ordering. If the advertised rate should read lower, change the rate');
+  check('S255', 'and the save message no longer claims the footage was doubled',
+    !/measured, doubled/.test(admin),
+    'the message described a x2 that no longer happens, about the number the whole quote rests on');
+}
+
+
+suite('256. Measure Roof - Edit Customer prices from feet like Add Customer does');
+{
+  /* Add Customer has priced from feet for a while; Edit Customer never did, so
+     a re-measured house sat there with a price that no longer matched it and
+     the office redid the sum by hand.
+
+     ⚠ THE SAFETY IS THE EVENT, NOT A GUARD. It listens on `input`, which only a
+     human typing fires. Filling the form in code never does - and the re-quote
+     apply path writes the AGREED price and the new footage into these very two
+     boxes. On `change`, or on a call from the populate path, that agreed price
+     would be silently recomputed from feet, which is the one number the
+     customer actually said yes to. */
+  const wired = new RegExp("getElementById\\('editCustFeet'\\)\\.addEventListener\\('input'").test(admin);
+  check('S256', 'typing Measured Feet on the edit form recalculates the price',
+    wired, 'without this the office re-measures a house and the price silently stays stale');
+
+  const handler = (admin.split("getElementById('editCustFeet').addEventListener('input'")[1] || '').slice(0, 900);
+  check('S256', 'and it writes the per-foot sum into This House’s Price',
+    /editCustHousePrice'\)\.value\s*=\s*Math\.round\(feet \* perFootRate\)/.test(handler),
+    'a handler that computes and never assigns looks identical on screen to no handler at all');
+  check('S256', 'it says nothing rather than guessing when no rate is set',
+    /if\(!perFootRate\)/.test(handler) &&
+    handler.indexOf('Per Foot Pricing') !== -1,
+    'multiplying by an unset rate writes 0 into a price box');
+  /* ⚠ A RED-CHECK CAUGHT THIS ONE BEING TOO LOOSE. Matching `perFootRate`
+     anywhere passed with the assignment deleted, because the guard above it
+     mentions the rate too - so the assignment is asserted on its own. */
+  check('S256', 'and the note is cleared when a different customer is opened',
+    /editCustFeetNote'\)/.test(admin) &&
+    /ecFeetNote\.textContent\s*=\s*''/.test(admin),
+    'the last customer’s arithmetic left sitting under the next customer’s boxes ' +
+    'reads as a statement about them');
+}
+
+
+suite('257. Measure Roof - the drawing is saved, not just the number');
+{
+  /* ⚠ THE HOLE THIS CLOSES. rmRuns was an in-memory array and the ONLY thing
+     ever written to Firestore was one number, estimatedFeet. Close the tool and
+     every traced line was gone - so re-quoting meant measuring the house again,
+     one bad segment could not be corrected without redoing all of them, and
+     nobody could see what a figure was based on.
+
+     ⚠ THIS SUITE RUNS THE SERIALISER AND THE RESTORE. Matching their source
+     would prove the fields are mentioned, which is a weaker claim than the
+     footage surviving a round trip - and this file records three separate
+     occasions where a text-only check stayed green over code that could not
+     run at all. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunFeet',
+                 'rmTotals', 'rmRunName', 'rmRunArea', 'rmPanoState', 'rmMeasurementDoc',
+                 'rmRestoreMeasurement'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S257', 'the save-and-restore pair is findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    /* Stubs are the DOM and the Google map only. Every piece of arithmetic and
+       every field decision is the real shipped code. */
+    const PRE =
+      'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
+      'const RM_MEASUREMENT_VERSION=2;' + LF_ +
+      'const RM_TYPES={perimeter:{label:"Perimeter"},ridge:{label:"Ridge"},ground:{label:"Ground"}};' + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'let rmRuns=[], rmPhotoExtraFeet=0, rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      'let __cam=null, __grade="Medium", __pano=null, __box={};' + LF_ +
+      'function rmCamOnRoad(){ return __cam; }' + LF_ +
+      'function rmDatum(){ return {m:3, source:"assumed"}; }' + LF_ +
+      'function rmCurrentGrade(){ return __grade; }' + LF_ +
+      'const rmPano=null;' + LF_ +
+      /* The map side of a restore: drawing is not what is under test here. */
+      'function rmClearDrawing(){ rmRuns=[]; }' + LF_ +
+      'function rmSyncSky(){}' + LF_ +
+      'function rmRenderResults(){}' + LF_ +
+      'function rmPaintStreet(){}' + LF_ +
+      'const document={getElementById:function(id){ return __box[id] || null; }};' + LF_;
+    const BODY = PRE + NAMES.map(pick).join(LF_) + LF_ +
+      'return {doc:rmMeasurementDoc, restore:rmRestoreMeasurement, area:rmRunArea,' +
+      ' totals:rmTotals, runFeet:rmRunFeet,' +
+      ' set:function(rs,cam,g){ rmRuns=rs; __cam=cam||null; __grade=g||"Medium"; },' +
+      ' box:function(b){ __box=b||{}; }, runs:function(){ return rmRuns; },' +
+      ' photo:function(f){ rmPhotoExtraFeet=f; }};';
+    assertSandbox('S257', 'measurement round-trip', BODY, admin,
+      ['rmCamOnRoad', 'rmDatum', 'rmCurrentGrade', 'rmClearDrawing', 'rmSyncSky',
+       'rmRenderResults', 'rmPaintStreet']);
+    const api = new Function(BODY)();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+    const pt = (e, n, h) => ({lat: ll(e, n).lat, lng: ll(e, n).lng, h: h});
+
+    /* A house with a front run, a ridge, and one side switched OFF. `line` and
+       `dots` stand in for the live Google objects every real run carries. */
+    const mkRuns = () => [
+      {type: 'perimeter', path: [pt(-6, -8, 3), pt(6, -8, 3)], line: {fake: 1}, dots: [{fake: 1}]},
+      {type: 'ridge', path: [pt(-6, 0, 5), pt(6, 0, 5)], line: {fake: 1}, dots: []},
+      {type: 'perimeter', path: [pt(8, -2, 3), pt(8, 4, 3)], on: false, line: {fake: 1}, dots: []},
+    ];
+    api.box({});
+    api.set(mkRuns(), {e: 0, n: -22});     /* camera on the road, to the south */
+    const before = api.totals().all;
+    const saved = api.doc();
+
+    /* ---- the write has to be writable -------------------------------- */
+    /* ⚠ THE ONE THAT WOULD BREAK THE SAVE OUTRIGHT. Every run carries `line`
+       and `dots` - live Polyline and Marker objects. Copying a run into the doc
+       would either be refused by Firestore or store a lump of nonsense, and the
+       same write carries estimatedFeet, so the footage would go down with it. */
+    const flat = JSON.stringify(saved);
+    check('S257', 'nothing Google-shaped is written into the saved drawing',
+      flat.indexOf('fake') === -1 &&
+      saved.runs.every(r => !('line' in r) && !('dots' in r)),
+      'a live map object in the payload fails the write - and estimatedFeet rides ' +
+      'in that same write, so the footage would be lost too');
+    /* Firestore rejects undefined outright. A field that resolves to it is not
+       a cosmetic problem, it is a refused write. */
+    const undef = [];
+    (function walk(o, at) {
+      if (o === undefined) { undef.push(at); return; }
+      if (o && typeof o === 'object') Object.keys(o).forEach(k => walk(o[k], at + '.' + k));
+    })(saved, 'measurement');
+    check('S257', 'and no field resolves to undefined', undef.length === 0,
+      'Firestore refuses undefined: ' + undef.join(', '));
+    check('S257', 'the saved shape names its own version',
+      saved.version === 2, 'without it a later shape change cannot tell the two apart');
+
+    /* ---- the round trip ----------------------------------------------- */
+    api.box({});
+    const n = api.restore(JSON.parse(flat));
+    check('S257', 'every run comes back', n === 3 && api.runs().length === 3,
+      'restored ' + n + ' of 3');
+    check('S257', 'and the footage after a round trip is the footage before it',
+      Math.abs(api.totals().all - before) < 0.05,
+      'before ' + before.toFixed(2) + ' ft, after ' + api.totals().all.toFixed(2) +
+      ' ft - a drawing that comes back a different size is worse than one that does not come back');
+
+    /* ⚠ A RUN SWITCHED OFF IS STILL SAVED. It is still on screen and still
+       recoverable with one click, so dropping it here would make reopening the
+       quote the one way to lose it permanently. */
+    check('S257', 'a switched-off run survives, and is still switched off',
+      api.runs().length === 3 && api.runs()[2].on === false,
+      'the off run is the one an accidental click produced - deleting it on save ' +
+      'is exactly the unrecoverable outcome the toggle exists to avoid');
+
+    /* Heights are what make a rake longer than its plan length. */
+    check('S257', 'the per-point heights come back too, not just the positions',
+      api.runs()[1].path.every(p => Math.abs(p.h - 5) < 1e-9),
+      'heights dropped on the way in flatten every slope to its plan length');
+
+    /* ---- a side typed in by hand -------------------------------------- */
+    /* Street View cannot see the back of most houses, so those are typed. Such
+       a run has no path at all and its footage must still reach the total. */
+    api.box({});
+    api.restore({version: 2, runs: [
+      {id: 'b', name: 'Back', area: 'back', surface: 'manual', type: 'perimeter',
+       path: [], manualFeet: 42, include: true},
+    ]});
+    check('S257', 'a hand-entered side keeps its footage with no path to measure',
+      Math.abs(api.totals().all - 42) < 1e-9,
+      'got ' + api.totals().all + ' ft - a typed side that counts as 0 silently ' +
+      'under-quotes every house with a back run');
+    check('S257', 'and it is still marked as typed rather than measured',
+      api.runs()[0].surface === 'manual',
+      'losing that makes a hand-entered number indistinguishable from a measured one');
+
+    /* Footage traced on a photo the customer sent is counted by rmTotals but
+       belongs to no run, so it has to be saved separately or the total does not
+       add up on the way back in. */
+    api.set(mkRuns(), {e: 0, n: -22});
+    api.photo(30);
+    const withPhoto = api.doc();
+    check('S257', 'footage traced on a customer photo is saved as well',
+      withPhoto.photoFeet === 30,
+      'rmTotals adds it to the total, so leaving it out means the restored ' +
+      'drawing quietly comes back 30 ft short');
+
+    /* ---- which side of the house ------------------------------------- */
+    /* ⚠ LEFT AND RIGHT ARE AS YOU FACE THE HOUSE FROM THE STREET. Standing
+       south of a house looking north, the EAST side is on your right - which is
+       the opposite of the bearing arithmetic taken at face value. */
+    const south = {e: 0, n: -22};
+    api.set([], south);
+    const front = {path: [pt(-6, -8, 3), pt(6, -8, 3)]};
+    const back = {path: [pt(-6, 9, 3), pt(6, 9, 3)]};
+    const east = {path: [pt(9, -2, 3), pt(9, 4, 3)]};
+    const west = {path: [pt(-9, -2, 3), pt(-9, 4, 3)]};
+    check('S257', 'the side nearest the street is the front', api.area(front) === 'front',
+      'got "' + api.area(front) + '"');
+    check('S257', 'the far side is the back', api.area(back) === 'back',
+      'got "' + api.area(back) + '"');
+    check('S257', 'and facing the house from the street, east is on the right',
+      api.area(east) === 'right' && api.area(west) === 'left',
+      'east came back "' + api.area(east) + '", west "' + api.area(west) +
+      '" - swapped sides send a crew round the wrong side of the house');
+
+    /* ⚠ IT ANSWERS NOTHING WHEN IT CANNOT TELL, and that is the design. A
+       guessed side reaches a printed sheet reading like something checked. */
+    api.set([], null);
+    check('S257', 'with no camera on the road it refuses to name a side',
+      api.area(front) === '',
+      'got "' + api.area(front) + '" with nothing to measure the bearing against');
+  }
+
+  /* ---- and the wiring around it ------------------------------------- */
+  /* estimatedFeet is what the quote card, Add Customer and Edit Customer all
+     read. The new map is ADDITIVE and must not have displaced it. */
+  const useBtn = (admin.split("getElementById('rmUseFeetBtn').addEventListener")[1] || '').slice(0, 2000);
+  /* ⚠ THIS PAIR IS RUN, NOT MATCHED, AND A RED-CHECK IS WHY. The first version
+     searched the source for `payload.measurement = measurement` and stayed
+     green when the whole line was disabled with `if(false)` — the assignment is
+     still in the file, it simply never happens. Building the payload in its own
+     function is what makes the question answerable by executing it. */
+  const payloadFn = extractFn(admin, 'rmSavePayload');
+  check('S257', 'the save payload is built somewhere it can be run', !!payloadFn,
+    'inline, the only available check is a text match, and a text match cannot ' +
+    'tell a live line from one behind an if(false)');
+  if (payloadFn) {
+    const mkPayload = new Function(payloadFn + LF_ + 'return rmSavePayload;')();
+    const withGeom = mkPayload(210, {version: 2, runs: []});
+    const without = mkPayload(210, null);
+    check('S257', 'saving still writes estimatedFeet, which is the older contract',
+      withGeom.estimatedFeet === 210 && without.estimatedFeet === 210,
+      'three screens read that field and know nothing about the new one');
+    check('S257', 'and writes the drawing in the same press',
+      withGeom.measurement && withGeom.measurement.version === 2,
+      'a Save that keeps the number and drops the lines is the bug this closes');
+    /* A quote measured before any of this existed has no geometry to write.
+       Sending an explicit undefined would have Firestore refuse the whole
+       write — and the footage rides in it. */
+    check('S257', 'and a quote with no drawing writes the number alone, not an empty one',
+      !('measurement' in without),
+      'an undefined measurement key fails the write and takes estimatedFeet with it');
+  }
+  /* ⚠ THE SERIALISER IS BUILT OUTSIDE THE WRITE ON PURPOSE. Saving the footage
+     is what this button has always done; the geometry is the new half. A fault
+     in the new half must cost the drawing, never the number. */
+  check('S257', 'a fault packaging the drawing still lets the footage save',
+    useBtn.indexOf('try{ measurement = rmMeasurementDoc(); }') !== -1 &&
+    useBtn.indexOf('catch') < useBtn.indexOf('updateDoc'),
+    'building it inside the write makes a serialiser bug lose the footage too');
+
+  /* ⚠ CONSUMED ONCE. Pressing Load again re-frames the same house; restoring
+     on every load stacks a second copy of every line on the first and doubles
+     the footage. */
+  const load = extractFn(admin, 'rmLoadAddress') || '';
+  check('S257', 'the saved drawing is taken rather than read, so Load twice is safe',
+    /const pending = rmPendingMeasurement;[\s\S]{0,80}rmPendingMeasurement = null;/.test(load),
+    'reading it without clearing it doubles every line on a second Load');
+  check('S257', 'and it is put back after the load has finished clearing the map',
+    load.indexOf('rmClearDrawing()') < load.indexOf('rmRestoreMeasurement'),
+    'rmLoadAddress clears the drawing near the top - restoring before that point ' +
+    'is wiped by it, and an empty tool looks exactly like a quote never measured');
+  const open = extractFn(admin, 'openRoofMeasure') || '';
+  check('S257', 'and opening a quote stashes it after the reset that would clear it',
+    open.indexOf('rmReset()') < open.indexOf('rmPendingMeasurement'),
+    'rmReset clears the pending drawing, so stashing it first loses it silently');
+}
+
+
+suite('258. Measure Roof - one less step before you can trace');
+{
+  /* Three interaction models shared one screen. What changed is which one you
+     land in: clicking the roofline traces a side, the button is the way OUT of
+     a run rather than the way in, the address comes off the quote, and the two
+     automatic guesses are behind a door.
+     ⚠ NOTHING IS DELETED ANYWHERE IN HERE. Suggest corners and Show assumed
+     house both still work and are both still tested — they simply no longer sit
+     beside plain clicking looking like the same kind of answer. */
+  const setDraw = extractFn(admin, 'rmSetDrawing') || '';
+  check('S258', 'the button is hidden unless a run is open',
+    /btn\.style\.display = rmDrawing \? '' : 'none';/.test(setDraw),
+    'a permanent "Start Measuring" is a step that no longer has to be taken, ' +
+    'sitting there reading like one that does');
+  check('S258', 'and while one is open it says how to end it',
+    /Finish this side/.test(setDraw),
+    'the only control on screen that ends a run has to say so');
+  /* ⚠ THE HINT HAS TO CARRY WHAT THE BUTTON STOPPED SAYING. Hiding the button
+     without moving its instruction leaves a first-time user with a map and
+     nothing telling them a click does anything. */
+  check('S258', 'with no run open the hint is what tells you to click the roofline',
+    /Click along the roofline<\/strong> in either view to start a side/.test(setDraw),
+    'the instruction went out with the button and nothing replaced it');
+
+  /* ---- the address is not asked for twice --------------------------- */
+  check('S258', 'the address box is not something to type in any more',
+    /<input type="hidden" id="rmAddress">/.test(admin),
+    'the tool only opens from a quote, and the quote knows its own address - ' +
+    'a typable box offers the chance to measure a different house than the one being quoted');
+  /* ⚠ AND THE ELEMENT STILL EXISTS. rmLoadAddress reads the address out of it
+     and openRoofMeasure writes it there; deleting it turns the only way into
+     the tool into a null dereference. */
+  check('S258', 'but it still exists, because the loader reads the address from it',
+    /getElementById\('rmAddress'\)\.value/.test(admin) &&
+    (extractFn(admin, 'rmLoadAddress') || '').indexOf("getElementById('rmAddress')") !== -1,
+    'removing the input outright breaks the one path into the tool');
+  check('S258', 'and which house is loaded is still shown, just not editable',
+    /id="rmAddressShown"/.test(admin) &&
+    /shown\.textContent = item\.data\.address/.test(admin),
+    'hiding the address without showing it leaves nobody able to check the right house is on screen');
+  /* Enter means start-or-finish-a-side everywhere else in this tool. A second
+     meaning bound to a box that can no longer be focused is a trap. */
+  check('S258', 'the dead Enter-to-load handler went with the box',
+    !/getElementById\('rmAddress'\)\.addEventListener\('keydown'/.test(admin),
+    'a hidden input cannot be focused, so that listener could never fire again');
+
+  /* ---- the guesses are behind a door -------------------------------- */
+  check('S258', 'the two automatic guesses are hidden until asked for',
+    /id="rmAutoBar" style="display:none/.test(admin) &&
+    /id="rmSuggestBtn"/.test(admin) && /id="rmModelBtn"/.test(admin),
+    'every automatic attempt at this roofline put plausible-looking wrong lines ' +
+    'on the house - offering them beside plain clicking reads as an equal option');
+  check('S258', 'and there is one button that opens them',
+    /id="rmAutoBtn"/.test(admin) &&
+    /getElementById\('rmAutoBtn'\)\.addEventListener/.test(admin),
+    'a panel with no way to open it is a deletion wearing a disclosure');
+  /* Owner's standing request, in her words: "just make sure that if i click a
+     button the function that is supposed to happen actually does." */
+  const autoWire = (admin.split("getElementById('rmAutoBtn').addEventListener")[1] || '').slice(0, 500);
+  check('S258', 'the button really toggles the panel, both ways',
+    /bar\.style\.display = open \? 'none' : 'flex';/.test(autoWire) &&
+    /Hide auto-detect/.test(autoWire),
+    'a disclosure that opens and cannot close, or reads the same either way, is one nobody trusts twice');
+  /* ⚠ THE MANUAL DOT LIST IS DELIBERATELY NOT BEHIND THAT DOOR. Placing dots
+     by hand was asked for in those words and IS the job; the mode line is the
+     only thing on screen saying which mode you are in. */
+  check('S258', 'the hand-placed dot list and the mode line stay in the open',
+    /id="rmCornerList"/.test(admin) && /id="rmCornerMode"/.test(admin) &&
+    (admin.indexOf('id="rmCornerList"') < admin.indexOf('id="rmAutoBar"')),
+    'hiding the manual dots hides the workflow the tool was rebuilt around');
+}
+
+
+suite('259. Measure Roof - one difficulty rule, and one vocabulary');
+{
+  /* ⚠ THE BUG THIS CLOSES. The measure tool's Price panel applied the
+     difficulty (x0.85 / x1 / x1.25); the quote card worked its Estimated Price
+     out as feet x rate flat. So the same house showed two different prices on
+     two screens whenever the grade was not Medium — and the grade was never
+     saved anywhere at all, so the card could not have applied it even if it had
+     tried. Every screen that turns feet into money asks one function now.
+
+     ⚠ AND THIS IS DELIBERATELY NOT THE ROUTES DIFFICULTY PILL. `difficulty` on
+     the customer record is CREW WORKLOAD — how hard the house is to work, which
+     is what mixes a crew's day. This one tilts the per-foot RATE. Same three
+     words, two different questions, and the answer to keeping them apart was
+     given directly. A check below fails if the pricing rule starts reading the
+     customer's field. */
+  const LF_ = String.fromCharCode(10);
+  const NEED = ['quoteDifficultyGrade', 'quoteDifficultyMult', 'quoteEstimatedPrice',
+                'quoteDifficultyNote'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S259', 'the one pricing rule is findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const mk = rate => new Function(
+      'const RM_DIFFICULTY_RATE = {Easy: 0.85, Medium: 1, Hard: 1.25};' + LF_ +
+      'const perFootRate = ' + rate + ';' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return {price:quoteEstimatedPrice, mult:quoteDifficultyMult,' +
+      ' grade:quoteDifficultyGrade, note:quoteDifficultyNote};')();
+    const api = mk(2);
+    const q = (g) => ({estimatedFeet: 150, measurement: g ? {difficulty: g} : undefined});
+
+    check('S259', 'a medium house prices at exactly the office rate',
+      api.price(q('Medium')) === 300 && api.price(q()) === 300,
+      'Medium is x1 on purpose — the office\'s own Per Foot Pricing stays the baseline');
+    check('S259', 'a hard house costs more and an easy one costs less',
+      api.price(q('Hard')) === 375 && api.price(q('Easy')) === 255,
+      'hard ' + api.price(q('Hard')) + ', easy ' + api.price(q('Easy')) +
+      ' — this is the tilt the tool was showing and the card was not');
+    /* ⚠ AN UNKNOWN GRADE FALLS BACK TO 1, NOT TO ZERO. If the rate table ever
+       gains a name this function has not heard of, the house must price at the
+       plain rate — not become free. */
+    check('S259', 'a grade nobody recognises prices at the plain rate, not at nothing',
+      api.price({estimatedFeet: 150, measurement: {difficulty: 'Brutal'}}) === 300 &&
+      api.mult({measurement: {difficulty: 'Brutal'}}) === 1,
+      'a rate table that gains a name silently making houses free is the worst ' +
+      'possible direction for this to fail in');
+    /* ⚠ null, NOT 0. "No rate set" and "this house is free" are different
+       answers and the card prints something different for each. */
+    check('S259', 'with no rate set it answers nothing rather than zero',
+      mk(0).price(q('Hard')) === null && api.price({estimatedFeet: 0}) === null,
+      'returning 0 prints a confident $0.00 where "set a rate first" belongs');
+    /* Owner's rule about this screen: a total must never appear with no working
+       behind it. A number that is not feet x rate has to say why. */
+    check('S259', 'a tilted price shows its working, and an untilted one stays quiet',
+      /hard house/.test(api.note(q('Hard'))) && /1.25/.test(api.note(q('Hard'))) &&
+      api.note(q('Medium')) === '' && api.note(q()) === '',
+      'got "' + api.note(q('Hard')) + '" and "' + api.note(q('Medium')) +
+      '" — an unexplained total is one nobody can argue with');
+    check('S259', 'and a quote nobody measured is not given a grade it never had',
+      api.grade(q()) === '' && api.mult(q()) === 1,
+      'a customer typed in by hand was never graded, and inventing one changes a price nobody set');
+  }
+
+  /* ⚠ THE ROUTES PILL IS A DIFFERENT QUESTION. If the pricing rule ever starts
+     reading the customer's `difficulty`, the two silently merge and whichever
+     house is the exception gets billed on its crew workload. */
+  check('S259', 'the pricing rule does not read the crew-workload pill',
+    !/measurement[\s\S]{0,40}d\.difficulty\b/.test(parts.join('')) &&
+    parts.join('').indexOf('.difficulty') === parts.join('').lastIndexOf('.difficulty'),
+    'the crew pill and the pricing grade are two questions - merging them bills a ' +
+    'house on how hard it is to WORK rather than on what was measured');
+
+  /* Every screen that turns a quote's feet into money goes through the one
+     rule. A second `estimatedFeet * perFootRate` anywhere is the drift coming
+     back. */
+  check('S259', 'no screen works the price out for itself any more',
+    !/estimatedFeet\s*\*\s*perFootRate/.test(stripComments(admin)),
+    'a second copy of the sum is how the tool and the card came to disagree in the first place');
+  /* ⚠ THE GRADE IS SAVED BY BOTH BUTTONS THAT PRICE. The feet button saves it
+     with the drawing; the price button prices THROUGH it, so pressing that one
+     alone would otherwise leave the card estimating from a different grade. */
+  const usePrice = extractFn(admin, 'rmUsePrice') || '';
+  check('S259', 'pricing a quote records which grade it was priced at',
+    /'measurement\.difficulty': grade/.test(usePrice),
+    'the button prices through the difficulty - not recording it leaves the card ' +
+    'working the estimate out from a different one');
+  check('S259', 'and it writes that one field rather than the whole map',
+    !/rmMeasurementDoc\(\)/.test(usePrice),
+    'this button owns the grade, the feet button owns the geometry - writing a whole ' +
+    'measurement from here would flatten a saved drawing with an empty one');
+
+  /* ---- one vocabulary, and a side that cannot be seen ---------------- */
+  const runName = extractFn(admin, 'rmRunName') || '';
+  check('S259', 'an ordinary traced line is called a side',
+    /'Side'/.test(runName),
+    'the tool called the same thing a run, a strand, a section and a side ' +
+    'depending on which control you were looking at');
+  /* ⚠ A RIDGE OR GROUND RUN KEEPS ITS OWN WORD. Nothing new is made as either,
+     but an old quote still carries them and calling one a "Side" relabels
+     history to tidy a vocabulary. */
+  check('S259', 'but a ridge or ground run keeps the word it was measured under',
+    /t !== 'perimeter'/.test(runName) && /RM_TYPES\[t\]/.test(runName),
+    'an old quote that really does carry a ridge run would be quietly relabelled');
+  check('S259', 'the list says which side of the house each one is',
+    !!extractFn(admin, 'rmRunLabel') && /rmRunLabel\(r, i\)/.test(admin),
+    'front, garage and back is how customers buy this - a list of numbered lines is not');
+  /* ⚠ THE STORED SIDE WINS OVER RE-DERIVING IT. The camera that decided it is
+     not necessarily where the camera is now, so re-deriving on every render
+     lets a line change sides because somebody panned. */
+  check('S259', 'and a restored side keeps the side it was traced on',
+    /\(r && r\.area\) \|\| rmRunArea\(r\)/.test(extractFn(admin, 'rmRunLabel') || ''),
+    're-deriving it every render lets a line change sides because somebody moved the camera');
+
+  check('S259', 'a side the cameras cannot see can be typed in',
+    /id="rmAddManualBtn"/.test(admin) && /id="rmManualFeet"/.test(admin) &&
+    /getElementById\('rmManualAddBtn'\)\.addEventListener/.test(admin),
+    'Street View has not driven most back gardens, so those sides were being added ' +
+    'to the footage by hand afterwards, off the record');
+  const manual = (admin.split("getElementById('rmManualAddBtn').addEventListener")[1] || '').slice(0, 1400);
+  check('S259', 'and it is marked as typed, so it never reads as measured',
+    /surface: 'manual'/.test(manual),
+    'a typed number and a traced one are different kinds of claim');
+  /* ⚠ REFUSED RATHER THAN ADDED AS ZERO. A side sitting in the list at 0 ft
+     reads as measured-and-tiny rather than as never-filled-in. */
+  check('S259', 'a side with no footage is refused rather than added as nothing',
+    /if\(!\(feet > 0\)\)\{/.test(manual),
+    'a 0 ft side in the list reads as measured and tiny, not as never filled in');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
