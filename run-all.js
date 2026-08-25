@@ -39434,6 +39434,208 @@ suite('268. Measure Roof - the feet and the price are one press');
   }
 }
 
+
+suite('270. Measure Roof - lining up without being asked');
+{
+  /* ⭐ Owner: "Can we get it to be automatically lined up when I open it
+     instead of having to push line up?"
+
+     ⚠ THE HONEST LIMIT, recorded here because it will be asked again:
+     nothing can line the picture up before anything is drawn. The only things
+     that know where the roof APPEARS in a satellite photograph are a person
+     looking at it and image analysis this tool does not have - Google publishes
+     neither the angle its satellite was at nor where the roof landed on the
+     tile. A house near one already measured inherits the answer, so the gap was
+     only ever the FIRST house in an area, and the first line traced closes it:
+     the model's gutters are in TRUE positions and the office traces the gutter
+     it can SEE, so the shift that makes them coincide IS the displacement.
+
+     ⚠ THIS SUITE RUNS THE FIT. Every claim here is about a number a search
+     lands on, which no text match can see - and the acceptance test is the
+     whole safety argument, so it is exercised from both sides. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmDistToSegment', 'rmModelEaveSegs',
+                 'rmTracedSamples', 'rmFitResidual', 'rmFitSkyOffset', 'rmFitIsGood'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S270', 'the fitting pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  /* ⚠ READ OUT OF THE FILE. A tolerance typed into a test cannot notice the
+     real one being widened, which is exactly how suite 266 shipped blind. */
+  const num = n => Number((admin.match(new RegExp('const ' + n + '\\s*=\\s*([\\d.]+)')) || [])[1]);
+  const maxResid = num('RM_FIT_MAX_RESID_M'), minGain = num('RM_FIT_MIN_GAIN');
+  const maxAlign = num('RM_ALIGN_MAX_M');
+  check('S270', 'the acceptance thresholds are real numbers',
+    isFinite(maxResid) && maxResid > 0 && isFinite(minGain) && minGain > 0 && minGain < 1,
+    'resid=' + maxResid + ' gain=' + minGain);
+
+  if (!missing.length && isFinite(maxResid)) {
+    const PRE =
+      'const RM_M_TO_FT=3.280839895;' + LF_ +
+      'const RM_ALIGN_MAX_M=' + maxAlign + ';' + LF_ +
+      'const RM_FIT_COARSE_M=' + num('RM_FIT_COARSE_M') + ', RM_FIT_FINE_M=' + num('RM_FIT_FINE_M') + ';' + LF_ +
+      'const RM_FIT_MAX_RESID_M=' + maxResid + ', RM_FIT_MIN_GAIN=' + minGain + ';' + LF_ +
+      'const RM_FIT_MAX_SAMPLES=' + num('RM_FIT_MAX_SAMPLES') + ';' + LF_ +
+      'let rmOrigin={lat:40.5527,lng:-111.8574};' + LF_ +
+      'let rmFaces=[], __eaves=[];' + LF_ +
+      /* rmFaceEave is stubbed: WHICH edge of a face is its gutter is suite 253's
+         question, and running the real one here would need the whole Solar
+         bounding-box correction as well. What is under test is the SEARCH. */
+      'function rmFaceEave(f){ return __eaves[f.i] || null; }' + LF_;
+    const BODY = PRE + NAMES.map(pick).join(LF_) + LF_ +
+      'return {segs:rmModelEaveSegs, samples:rmTracedSamples, fit:rmFitSkyOffset,' +
+      ' good:rmFitIsGood, resid:rmFitResidual, local:rmToLocal,' +
+      ' model:function(list){ __eaves=list; rmFaces=list.map(function(_,i){ return {i:i}; }); }};';
+    assertSandbox('S270', 'sky fit', BODY, admin, ['rmFaceEave']);
+    const api = new Function(BODY)();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.5527);
+    const ll = (e, n) => ({lat: 40.5527 + n / m.lat, lng: -111.8574 + e / m.lng});
+    const seg = (ae, an, be, bn) => ({a: ll(ae, an), b: ll(be, bn)});
+
+    /* A rectangular house, 16 m by 10 m, with a gutter down each side - the
+       shape of Google's four faces on an ordinary hip roof. */
+    const HOUSE = [seg(-8, -5, 8, -5), seg(8, -5, 8, 5), seg(8, 5, -8, 5), seg(-8, 5, -8, -5)];
+    /* ⚠ THE TRACED LINE IS THE MODEL'S OWN GUTTER, MOVED. That is what a
+       displaced picture really produces, and it is the only fixture that can
+       tell a search that finds the shift from one that finds nothing. */
+    const traced = (de, dn) => [{surface: 'sky', path: [
+      {lat: ll(-8 + de, -5 + dn).lat, lng: ll(-8 + de, -5 + dn).lng, h: 3},
+      {lat: ll(8 + de, -5 + dn).lat, lng: ll(8 + de, -5 + dn).lng, h: 3}]}];
+
+    api.model(HOUSE);
+    check('S270', 'the model gutters come back as segments to fit against',
+      api.segs().length === 4, 'got ' + api.segs().length + ' of 4');
+    check('S270', 'and a traced line is sampled ALONG it, not just at its ends',
+      api.samples(traced(0, 0)).length > 4,
+      'sampling the ends alone is nearly indifferent to sliding along the roof');
+
+    const near = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.35 : tol);
+
+    /* ---- it finds a displacement that is really there ------------------ */
+    /* ⚠ A DISPLACEMENT OFF A WHOLE METRE, deliberately. The coarse pass steps
+       a metre at a time, so a fixture displaced by a round number is answered
+       correctly with the fine pass deleted - the first version used 1.8, -1.2
+       and a red-check dropping the fine sweep entirely sailed through it. */
+    const off = api.fit(traced(1.5, -1.5));
+    check('S270', 'a line traced on a displaced picture yields the displacement',
+      off && near(off.e, -1.5, 0.3) && near(off.n, 1.5, 0.3),
+      'came out ' + (off ? 'e=' + off.e.toFixed(2) + ' n=' + off.n.toFixed(2) : 'null') +
+      ' - wanted e=-1.50 n=1.50, the shift that puts the trace back on the gutter');
+    check('S270', 'and that answer is good enough to act on',
+      api.good(off), 'residual ' + (off && off.resid.toFixed(2)) +
+      ' gain ' + (off && ((off.before - off.resid) / off.before).toFixed(2)));
+
+    /* ---- and refuses far more readily than it accepts ------------------- */
+    /* ⚠ EACH GUARD IS EXERCISED ON ITS OWN, and it took a red-check to find
+       out they were masking each other: three of the four refusals below were
+       originally ONE fixture that any of the guards would have caught, so
+       deleting two of the three changed nothing a test could see. The numbers
+       quoted in each comment are what that fixture really produces. */
+
+    /* Already right, so there is nothing to correct. A fit that always finds
+       something would walk a correct drawing off the roof a few inches at a
+       time, every time a run was finished. */
+    check('S270', 'a picture that is already lined up is left exactly alone',
+      !api.good(api.fit(traced(0, 0))),
+      'it found something to correct on a house that needed nothing');
+
+    /* Isolates the SIZE guard: residual 0.00 and gain 100%, so only the
+       smaller-than-the-noise test can refuse it. Eight inches is churn. */
+    check('S270', 'a line eight inches off is not worth moving anything for',
+      !api.good(api.fit(traced(0, -0.2))),
+      'a correction below the noise floor is repainted work, not accuracy');
+
+    /* Isolates the GAIN test: residual 0.84, inside the ceiling, and a shift of
+       1.7 m, well over the size guard - but only 32% better than doing nothing.
+       A line that half fits is not evidence of a displacement. */
+    const half = [{surface: 'sky', path: [
+      {lat: ll(-8, -8).lat, lng: ll(-8, -8).lng, h: 3},
+      {lat: ll(8, -4).lat, lng: ll(8, -4).lng, h: 3}]}];
+    check('S270', 'a line that only half fits any gutter is refused',
+      !api.good(api.fit(half)),
+      'the gain was under the bar and it took the answer anyway');
+
+    /* Isolates the RESIDUAL ceiling: gain 60% and a shift of 7.9 m, so both the
+       other guards pass - and it still ends up 2.8 m from any gutter. Being the
+       best of a bad set is not the same as landing on a roof. */
+    const nowhere = [{surface: 'sky', path: [
+      {lat: ll(2, 6).lat, lng: ll(2, 6).lng, h: 3},
+      {lat: ll(18, 16).lat, lng: ll(18, 16).lng, h: 3}]}];
+    const nowhereFit = api.fit(nowhere);
+    check('S270', 'a line that moves a long way and still lands on no gutter is refused',
+      !api.good(nowhereFit),
+      'residual ' + (nowhereFit && nowhereFit.resid.toFixed(2)) + ' - it would move ' +
+      'every line by feet and call the house lined up');
+
+    /* ⚠ AND THE OBVIOUS CASE STILL HAS TO FAIL. The search returns its best
+       answer whatever it is given - that is what a search does. */
+    const wild = [{surface: 'sky', path: [
+      {lat: ll(-40, 30).lat, lng: ll(-40, 30).lng, h: 3},
+      {lat: ll(-25, 34).lat, lng: ll(-25, 34).lng, h: 3}]}];
+    check('S270', 'a line traced nowhere near a gutter is refused',
+      !api.good(api.fit(wild)),
+      'it would move every line by feet and call the house lined up');
+
+    /* ⚠ AND A DISPLACEMENT BEYOND THE ALLOWANCE IS NOT ONE. */
+    check('S270', 'and so is a shift bigger than the whole allowance',
+      (function(){
+        const f = api.fit(traced(maxAlign + 6, 0));
+        return !f || Math.hypot(f.e, f.n) <= maxAlign + 1e-6;
+      })(),
+      'the search wandered outside the ceiling that refuses a mis-click');
+
+    check('S270', 'nothing to fit against answers nothing rather than zero',
+      (function(){ api.model([]); const r = api.fit(traced(2, 0)); api.model(HOUSE); return r === null; })(),
+      'a house Google gave no roof faces for must not read as "already lined up"');
+    check('S270', 'and nothing traced yet answers nothing too',
+      api.fit([]) === null,
+      'this runs when a run is finished, so it has to cope with there being none');
+
+    /* ⚠ A STREET-TRACED RUN IS NOT EVIDENCE. Its position came from the
+       camera and the model - the thing being fitted TO - so including it drags
+       the answer toward zero and hides a displacement that is really there. */
+    check('S270', 'a line traced in Street View is not used as evidence',
+      api.samples([{surface: 'street', path: [
+        {lat: ll(0, 0).lat, lng: ll(0, 0).lng, h: 3},
+        {lat: ll(5, 0).lat, lng: ll(5, 0).lng, h: 3}]}]).length === 0,
+      'it would drag the fit toward zero and hide a real displacement');
+    check('S270', 'and neither is a side typed in by hand',
+      api.samples([{surface: 'manual', path: [], manualFeet: 40}]).length === 0,
+      'a typed side has no position at all');
+  }
+
+  /* ---- the wiring a sandbox cannot see ------------------------------- */
+  const auto = extractFn(admin, 'rmAutoAlign') || '';
+  /* ⚠ NEVER OVER AN ANSWER SOMEBODY ALREADY GAVE. A measured alignment is a
+     person saying where a spot is; a fit is arithmetic about a model. */
+  check('S270', 'it never overwrites an alignment somebody measured',
+    /if\(rmSkyOffset \|\| rmAligning\) return;/.test(auto),
+    'arithmetic would silently replace a person\'s own answer');
+  check('S270', 'and it says the answer was worked out, not measured',
+    /rmSkyOffsetSource = 'fitted'/.test(auto) && auto.indexOf('not a measurement') !== -1,
+    'a fit wearing a measurement\'s words is the one thing this must not do');
+  /* ⚠ NOT REMEMBERED FOR THE NEIGHBOURS. A fit copying itself down the
+     street would gain the authority of a measurement at every step. */
+  check('S270', 'and a fitted answer is never saved as a sample for other houses',
+    auto.indexOf('rmAlignSaveSample') === -1,
+    'one house\'s arithmetic would spread with nothing saying where it came from');
+  /* ⚠ AFTER THE RUN IS KEPT, NOT BEFORE. Run from the top of rmFinishRun the
+     fit matches everything EXCEPT the line just traced - which on the first run
+     of a house is nothing at all, so it could never fire when it matters. */
+  const finish = extractFn(admin, 'rmFinishRun') || '';
+  check('S270', 'it runs after the finished line has joined the list',
+    finish.indexOf('rmAutoAlign()') > finish.indexOf('rmRuns.push(rmCurrent)'),
+    'fitting before the push ignores the very line that would have answered it');
+  check('S270', 'and the panel distinguishes worked-out from measured from inherited',
+    (function(){
+      const idle = extractFn(admin, 'rmAlignIdleNote') || '';
+      return idle.indexOf("'fitted'") !== -1 && idle.indexOf("'inherited'") !== -1;
+    })(),
+    'three different levels of confidence reading the same is how a guess survives');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
