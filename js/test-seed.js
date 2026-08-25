@@ -44,6 +44,26 @@
  *   KEPT THE LOWEST EXISTING ID of that cluster, so the owner's score and notes
  *   survive as a Retest rather than being pruned and lost.
  *
+ * ⭐ AND THE CREW PORTAL ROW HAS SINCE GONE TOO, 2026-08-25. Owner: "get rid of
+ *   any checklist stuff that has to do with employee portal we are not using
+ *   that this year" — the same ruling as 2026-08-21 ("were not using the
+ *   employee portal this year... we are only printing on schedules and
+ *   warehouse"), applied to the checklist. #67 asked her to work a house end to
+ *   end on a phone through a portal nobody is opening this season, so it was the
+ *   one row here that could only ever be a wasted afternoon. 11 rows.
+ *
+ *   ⚠ THE PORTAL ITSELF IS UNTOUCHED. employee.html, its service worker, its
+ *   colour vocabulary and every automated check over it stay exactly as they
+ *   are — this removes a row from the OWNER'S list, not a feature. Bringing the
+ *   portal back into use means re-adding the row AND deleting the two guard
+ *   terms in RETIRED_CHECKLIST_TERMS that stop one reappearing by accident.
+ *
+ *   ⚠ AND WHAT THE CREW IS TOLD STILL HAS TO REACH PAPER. With the portal out
+ *   of use the printed sheet is the only thing the crew sees, which is why
+ *   fix-sheet.test.js exists and why #199 — the three papers, read on paper — is
+ *   the row that now carries this ground. Do not read the loss of #67 as the
+ *   crew's side going unchecked; it moved onto the sheet.
+ *
  * ⚠ 214, 215, 216 AND 217 ARE UNTOUCHED — not even a version bump. They were
  *   added 2026-08-21 and 2026-08-25 against this exact rule (Cloudinary really
  *   destroying a file; a decision about whether enough people have replied; a
@@ -60,8 +80,8 @@
  *   ⚠ AND AT ELEVEN ROWS A COUNT BARELY GUARDS ANYTHING. A merge that ate
  *   three rows still clears 8, and pruning DELETES a row and the owner's score
  *   on the next login, so a silent loss here is expensive. The better guard is
- *   an exact id list in run-all.js (186, 111, 114, 67, 26, 214, 199, 207, 215,
- *   216, 217) so a vanished row fails BY NAME — same argument as Suite 39
+ *   an exact id list in run-all.js (186, 111, 114, 26, 214, 199, 207, 215, 216,
+ *   217, 218) so a vanished row fails BY NAME — same argument as Suite 39
  *   pinning BULK_CHUNK_SIZE's exact value. Written and red-checked both
  *   directions on 2026-08-25 but NOT shipped, because run-all.js is 2.2MB and
  *   the owner was hand-uploading it. Worth doing next time that file is open.
@@ -80,8 +100,6 @@ export const TEST_SEED = [
   [111,"PayPal","Real money really moves, including a tip and a closed browser","THE SUITE CANNOT DO THIS. It proves the balance is calculated right and that the capture path writes to the correct field, but it never calls PayPal. Only this test proves a payment actually lands. USE A TEST CUSTOMER AND A SMALL AMOUNT - this is real money.\n1. Log into admin and give a test customer a small balance (a few dollars) and your own email address.\n2. Open their Member Portal the way a customer would, from their emailed link, on a phone.\n3. Pay part of the balance, and ADD A TIP.\n4. Go back to admin and open their invoice.\n5. Now do it again with the rest of the balance - but this time, the moment PayPal says it is done, CLOSE THE TAB before it returns to the portal.\n6. Wait a minute or two, then reload their invoice in admin.","After step 3, the amount paid on the invoice goes up by what you paid and NOT by the tip - the tip is tracked separately and must never be counted as money towards their bill. After step 6, the second payment is on the invoice anyway, even though the browser never came back to tell the app about it. That is the PayPal webhook doing its job, and it is the only safety net between a customer paying and the office never knowing. If the second payment is missing, the webhook is not reaching us - check it in the PayPal account before touching any code.",1,"","","New, 2026-08-25. Absorbs the separate capture, webhook and tips rows. The webhook cannot be proved any other way: it only fires when a real browser really goes away mid-payment."],
 
   [114,"Nightly Automation","The 7 PM run really fires, and really texts you","THE SUITE CANNOT DO THIS. It proves the billing logic, but nothing in it waits until 7 PM Mountain, and nothing in it sends a text. Only this test proves the automatic run is alive.\n1. In admin, go to Automation and check that nightly invoicing is switched ON, and that your phone number is saved as the alert number.\n2. Set up one test customer who is completed, priced, has your own email on them, and has not been billed yet.\n3. Leave it. Do not press Send Invoices Now - that is a different code path and it will hide the thing you are testing.\n4. After 7 PM Mountain that evening, check your phone.\n5. Check the email inbox for the test customer.\n6. Back in admin, look at the top of the page for the stale-run banner.","A text arrives on your phone after 7 PM saying how many were sent, skipped and errored. The test customer's invoice email is in the inbox. No red stale-run banner is showing. If the text does not arrive, the run did not fire at all - the text is sent at the END of the run, so no text means no run, and the banner should turn red within a day and a half to say so. That banner and that text are the only two things standing between a dead nightly run and a season of nobody being billed, so if either one is not working, fix that before anything else.",1,"","","New, 2026-08-25. Absorbs the summary-text and stale-banner rows. A cron firing in production on real time cannot be simulated, and neither can Twilio."],
-
-  [67,"Crew Portal","Work one house from start to finish on a real phone","THE SUITE CANNOT DO THIS. It proves every rule the crew portal follows, and the browser specs drive it in a fake browser - but neither one is a person outdoors on a phone with one hand full. Only this test proves it is usable.\n1. On an ACTUAL PHONE, not a computer window made narrow, open the Crew Portal and log in, then pick a name from the list.\n2. Open Today's Route.\n3. Pick a house and read everything on its card without zooming - name, address, phone, gate code, outlet notes, light colours, wire colour, the house photo, and any one-time note.\n4. Tap the phone number.\n5. Tap the address.\n6. Mark the house done.\n7. On a second house, raise a Needs Fix with a note and a photo taken with the phone's camera right then.\n8. On a third, use Didn't Get To.\n9. Clock in, tick a couple of things on the daily checklist, and clock out.","Everything on the card is readable without zooming and without scrolling sideways. Tapping the phone number starts a call. Tapping the address opens maps with the right house in it. Marking done takes one tap and the house visibly leaves the list. The camera opens straight from the fix form - not a file picker asking you to find a photo you have not taken yet. Didn't Get To puts the house back to be scheduled again rather than billing anybody. If any of this is awkward with one hand in the cold, say so in the notes - that is the finding, and it will not show up in any automated check.",2,"","","Rewritten 2026-08-25. Replaces the fourteen separate Crew Portal rows. Every rule they checked is in the automated suite; what is not, and cannot be, is whether the thing works on real hardware in the field."],
 
   [26,"Admin","Take a photo on a real device and draw on it","THE SUITE CANNOT DO THIS. It proves the photo is stored and carried across, but it has no camera and no finger. Only this test proves the markup is usable.\n1. On a phone or tablet, log into admin and open a test customer's Edit Customer popup.\n2. Use the photo box to take a NEW picture with the device's camera, rather than choosing one already saved.\n3. Draw on the picture to highlight where the lights go, the way you would for the crew.\n4. Save, close the popup, and reopen it.\n5. Now open the same customer on a desktop computer.\n6. Do the same thing once from the quote card, before a quote has been converted, and check the drawing survives conversion.","The camera opens directly. Drawing follows your finger without lag and without the page scrolling underneath you. What you drew is still there after saving, reopening, and looking at it on a different device. The drawing made on a quote is still on the customer after they are converted. If the drawing is fine on a computer with a mouse but unusable with a finger, that is a real fail and worth writing down - the people who need to mark a photo are not sitting at a desk.",2,"","","Rewritten 2026-08-25. Absorbs the separate Add Customer, Edit Customer and quote-card photo rows. Touch drawing and a real camera are the parts no check can reach."],
 

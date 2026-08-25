@@ -1111,6 +1111,19 @@ const RETIRED_CHECKLIST_TERMS = [
      starting at "use" would sail straight past the ellipsis and match nothing —
      which is a check that cannot fail, on the one row that was actually wrong. */
   ['as estimated feet', 'the two commit buttons became ONE gold "Save to this quote" on 2026-08-25, because only one of them was gold and it saved the price without the feet; the feet-only link now reads "Save the feet only" (2026-08-25)'],
+  /* ⚠ THESE TWO ARE NOT A RENAME, WHICH IS THE REST OF THIS LIST. The Crew
+     Portal is still in the repo and still works; it is OUT OF USE THIS SEASON
+     (owner, 2026-08-21: "were not using the employee portal this year... we are
+     only printing on schedules and warehouse"), so #67 — the one real-phone
+     run through it — was removed from the seed on 2026-08-25. It is here for
+     the same reason as everything above: the seed is the only thing that decides
+     what the owner is asked to walk through, and a row telling her to go and work
+     a house on a portal nobody is opening is worse than no row, because she does
+     it before she works out why. If the portal comes back into use, DELETE these
+     two entries and re-add the row — that is a decision somebody makes, not a
+     check that quietly stops applying. */
+  ['crew portal', 'the crew portal is out of use this season, so #67 left the seed on 2026-08-25 — the crew works off printed schedule and warehouse sheets, which #199 covers'],
+  ['employee portal', 'same as above — out of use this season; anything the crew must be told has to reach PAPER, which is what fix-sheet.test.js and #199 guard'],
 ];
 {
   /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
@@ -1205,7 +1218,6 @@ const RETIRED_CHECKLIST_TERMS = [
   {
     const MANUAL_ONLY_IDS = [
       26,   // a photo taken on a real device — camera and touch drawing
-      67,   // one house end to end on a real phone
       111,  // real money through PayPal, a tip, and a closed browser
       114,  // the 7 PM cron really firing, and Twilio really texting
       186,  // an invoice email really arriving, and its Pay button working
