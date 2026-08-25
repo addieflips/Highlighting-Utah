@@ -440,6 +440,42 @@ function real(name, deps) {
   const args = Object.keys(deps || {});
   return new Function(...args, src + "\nreturn " + name + ";")(...args.map(k => deps[k]));
 }
+
+/* ⭐ THE REAL NEW-HANG TEST, BACKED BY THE FIXTURE'S OWN QUOTES (added 2026-08-25).
+ *
+ * `isNewMemberHouse` was the last fake in SHADOW_ALLOWED that stood in for a real
+ * rule rather than for page state. It was `h => !!h.isNew` — a flag the fixture set
+ * on itself — so every check about the NEW badge, the NEW column on the printed
+ * sheet and the crew photo was really asking the fixture what it had just been told.
+ *
+ * The shipped rule is: a house is a new hang because a CLOSED QUOTE exists for that
+ * ADDRESS. So a fixture that wants a new hang now has to say so the way a real season
+ * does — with a quote — and one that wants nobody new supplies no quotes at all.
+ *
+ * ⚠ THIS IS WHY IT WAS WORTH DOING. The fixture it first ran against marked a house
+ * NEW that had no phone number, and asserted the empty phone cell on that same row.
+ * Under the real rule a house with no phone can never be found as a new hang, so the
+ * sheet could never have printed what the check said it printed. The two claims were
+ * on one row and only one of them could be true.
+ *
+ * ⚠ customerForHouse IS DELIBERATELY NOT SUPPLIED. hlxResolvePlanHouse falls back to
+ * it only for an imported row with no `cust-` id, and resolving THAT by phone is the
+ * ambiguity the whole fix exists to avoid — a fixture should give its houses real ids
+ * rather than lean on a lookup that cannot tell a parent from a child.
+ */
+function realNewHangTest(quotes, customers) {
+  const list = customers || [];
+  return real('isNewMemberHouse', {
+    closedQuoteFor: real('closedQuoteFor', {
+      quotesCache: quotes || [],
+      quoteMatchAddress: real('quoteMatchAddress'),
+      hlxResolvePlanHouse: real('hlxResolvePlanHouse', {
+        jobAddresses: list,
+        custById: new Map(list.map(c => [c.id, c])),
+      }),
+    }),
+  });
+}
 /* houseAllowedFrom closes over this. Sandboxes that lift the whole
    MAX_STOPS_PER_ROUTE block already have it; the ones that lift the function
    on its own need it handed to them. Taken from admin.html rather than
@@ -6132,7 +6168,6 @@ suite('15. The printed schedule sheet');
     global.dayDate = d => d._date;
     global.isoOf = real('isoOf');
     global.fmtPhone = real('fmtPhone');
-    global.isNewMemberHouse = h => !!h.isNew;
     global.esc = real('esc');
     /* The REAL personName, lifted out of the page rather than stubbed — the
        printed sheet is where a name-format bug reaches the crew on paper, so
@@ -6154,14 +6189,33 @@ suite('15. The printed schedule sheet');
     const api = eval(admin.slice(sheetStart, sheetEnd) +
       '\n;({rows: schedSheetRows, table: schedSheetTable, dayCols: SCHED_DAY_COLUMNS, planCols: SCHED_PLAN_COLUMNS})');
 
+    /* ⭐ ALMA AND JO SHARE A PHONE, AND ONLY JO IS NEW (rebuilt 2026-08-25). This is
+       the parent-and-child case on the printed sheet: 17 numbers in the real book are
+       shared and 14 of those are two households. Jo came through a quote, so a CLOSED
+       QUOTE exists for HER address; Alma has been hung for years and has none. Under
+       the phone-only rule this sheet printed NEW against both of them.
+       ⚠ THE OLD FIXTURE MARKED A HOUSE NEW THAT HAD NO PHONE, and asserted the empty
+       phone cell on that same row. A house with no phone can never be found as a new
+       hang, so the sheet could not have printed what the check said it did — one row
+       making two claims, only one of which could be true. The empty-phone case moved
+       to Sam, where it is still tested and is now possible. */
+    const CUSTOMERS = [
+      { id: 'a', data: { name: 'Alma Reyes', address: '18 Frost Ln', phone: '8015550100' } },
+      { id: 'b', data: { name: 'Jo Park',    address: '92 Birch Way', phone: '8015550100' } },
+      { id: 'c', data: { name: 'Sam Ito',    address: '3 Elm Ct',    phone: '' } },
+    ];
+    global.isNewMemberHouse = realNewHangTest(
+      [{ id: 'q1', data: { status: 'closed', phone: '8015550100', address: '92 Birch Way' } }],
+      CUSTOMERS);
+
     const day = {
       id: 'd1', _date: new Date(2026, 10, 3), houses: [
-        { id: 1, cu: '144', name: 'Alma Reyes', address: '18 Frost Ln', city: 'Lehi',
+        { id: 'cust-a', cu: '144', name: 'Alma Reyes', address: '18 Frost Ln', city: 'Lehi',
           phone: '8015550100', price: 450, details: 'Gate code 1234', done: true },
-        { id: 2, cu: '', name: 'Jo Park', address: '92 Birch Way', city: 'Lehi',
-          phone: '', price: 0, details: '', done: false, isNew: true },
-        { id: 3, cu: '5012', name: 'Sam Ito', address: '3 Elm Ct', city: 'Alpine',
-          phone: '8015550100', price: 300, details: 'FIX: two strands out', done: false, isFix: true }
+        { id: 'cust-b', cu: '', name: 'Jo Park', address: '92 Birch Way', city: 'Lehi',
+          phone: '8015550100', price: 0, details: '', done: false },
+        { id: 'cust-c', cu: '5012', name: 'Sam Ito', address: '3 Elm Ct', city: 'Alpine',
+          phone: '', price: 300, details: 'FIX: two strands out', done: false, isFix: true }
       ]
     };
     const rows = api.rows([day]);
@@ -6182,7 +6236,13 @@ suite('15. The printed schedule sheet');
       rows[0].done === 'done' && rows[1].done === '',
       'without it the crew redoes a house that was finished yesterday');
     check('schedule', 'a house with no phone leaves the cell empty',
-      rows[1].phone === '', 'a blank is honest; a formatted empty number is not');
+      rows[2].phone === '', 'a blank is honest; a formatted empty number is not');
+    /* ⚠ AND THE OTHER HOUSE ON THAT PHONE IS NOT NEW. Alma shares Jo's number and has
+       no quote of her own; printing NEW against her sends the crew a photo of a house
+       they have hung for years and adds her to the New members count. */
+    check('schedule', 'a house sharing the new hang\'s phone is not itself new',
+      rows[0].type === 'INSTALL',
+      'got ' + rows[0].type + ' — the closed quote is for Jo\'s address, not Alma\'s');
 
     const table = api.table(rows, api.dayCols, null);
     check('schedule', 'the day sheet is a real table with headings',
@@ -6232,7 +6292,7 @@ suite('15. The printed schedule sheet');
     global.dayDate = d => d._date;
     global.isoOf = real('isoOf');
     global.fmtPhone = real('fmtPhone');
-    global.isNewMemberHouse = () => false;
+    global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     // A season that is NOT the same two towns every day — which is the case
     // the automatic pairing exists for.
     const dayA = { id: 'a', _date: new Date(2026, 10, 3), houses: [
@@ -6359,7 +6419,7 @@ suite('16. Not-done stops get another day');
         if (h) return { house: h, day: d }; }
       return null;
     };
-    global.isNewMemberHouse = () => false;
+    global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
     const api = eval(admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
       '\n;({left: unfinishedOn, later: laterDaysLike, next: nextDayInCity,' +
@@ -27410,7 +27470,7 @@ suite('77. Schedule route generator');
     global.dayDate = d => d._date;
     global.isoOf = real('isoOf');
     global.fmtPhone = real('fmtPhone');
-    global.isNewMemberHouse = () => false;
+    global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     global.esc = real('esc');
     /* The customer index itself is covered elsewhere; what matters here is that
        the generator reads the COORDINATES off the customer record rather than
@@ -36649,22 +36709,30 @@ suite('252. The NEW badge is this house, not just this phone number');
    thanksgiving date is fourth thursday and those houses should be scheduled after that
    thursday and member fee should be charged on new members." Both were on this list.
 
-   35 → 21. Six fakes nothing called at all were deleted; eight more were replaced with
+   35 → 20. Six fakes nothing called at all were deleted; eight more were replaced with
    real() - thanksgivingDate (a typed-in 26 November, right for 2026 and wrong for every
    other year), quoteStage, isStaleUnresponsive, esc, isoOf, fmtPhone, fmtDate and
-   daysSince, across 32 sites.
+   daysSince, across 32 sites. isNewMemberHouse followed on the same day and was the
+   last of them that stood in for a RULE rather than for page state: it was
+   h => !!h.isNew, a flag the fixture set on ITSELF, so every check about the NEW
+   badge and the NEW column was asking the fixture what it had just been told. See
+   realNewHangTest - and what it found the moment it ran.
 
    ⚠ WHAT IS LEFT IS NOT ALL DEBT. dayDate, getDay, findHouse, installDays, deltaFor,
    customerForHouse and customerForScheduleRow are FIXTURE ACCESSORS reading the
    sandbox’s own season, not reimplementations of a rule; toast, renderAll,
    renderLeftovers and attachDeleteHandlers are side effects on a page that does not
    exist; trashIcon, stopHTML, custNumChip, propLabelChip, dlabel and weekGuideHTML
-   build markup. isNewMemberHouse is the one genuinely worth doing next: it reaches
-   closedQuoteFor, so every fixture would have to carry quotes. */
+   build markup.
+
+   ⚠ SO WHAT IS LEFT IS THE HARD HALF, not the next easy win. Each remaining name is
+   either impossible to make real or needs the sandbox to grow a page or a season
+   underneath it. Do not treat a shrinking number as the goal: replacing a fixture
+   accessor with something that reads a DOM nobody built would be worse than the fake. */
 const SHADOW_ALLOWED = new Set([
   'attachDeleteHandlers', 'custNumChip', 'customerForHouse', 'customerForScheduleRow', 'dayDate',
   'deltaFor', 'dlabel', 'findHouse', 'getDay', 'installDays',
-  'isNewMemberHouse', 'planTickCustomer', 'propLabelChip', 'quoteAwaitsUs', 'quotePortalParam',
+  'planTickCustomer', 'propLabelChip', 'quoteAwaitsUs', 'quotePortalParam',
   'renderAll', 'renderLeftovers', 'stopHTML', 'toast', 'trashIcon',
   'weekGuideHTML',
 ]);
@@ -36677,7 +36745,7 @@ const SHADOW_ALLOWED = new Set([
     if (!/^(\(|function\b|[A-Za-z_$][\w$]*\s*=>|async\b)/.test(m[2])) return;
     /* ⭐ real('x') IS the shipped function, lifted by name — the opposite of the
        problem this guard exists for, and the way a name gets OFF the allowlist. */
-    if (/^real\(/.test(m[2])) return;
+    if (/^(real|realNewHangTest)\(/.test(m[2])) return;
     if (!new RegExp('^(?:async )?function ' + m[1] + '\\(', 'm').test(admin)) return;
     if (seen.indexOf(m[1]) === -1) seen.push(m[1]);
     if (SHADOW_ALLOWED.has(m[1])) return;
