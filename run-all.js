@@ -37633,6 +37633,137 @@ suite('261. Measure Roof - the scale check never becomes footage');
     'the one number saying whether this house measured right is worth keeping');
 }
 
+
+suite('262. Measure Roof - the roofline that runs backward and gets missed');
+{
+  /* Owner, asked what she meant by corners: "if a peak runs backwards and we
+     miss that. Or if one part of roof is higher than other side of roof so that
+     part of roof turns a corner and that roof runs backward. Those are feet we
+     also need to count."
+
+     ⚠ A RUN HEADING AWAY FROM THE STREET IS INVISIBLE FROM THE FRONT, so the
+     way it gets missed is that nobody thinks to look for it. This reports that
+     something is there; it does NOT say where it goes — owner, in the same
+     breath: "lines shouldn't be automatic those are manually put by us." */
+  const LF_ = String.fromCharCode(10);
+  const NEED = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn',
+                'rmEdgeMid', 'rmDistToSegment', 'rmEdgeIsCovered', 'rmMissedEdges'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S262', 'the missed-roofline check is findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  /* ⚠ IT MUST NOT DRAW, AND THAT IS CHECKED ON THE SOURCE as well as by running
+     it — the whole reason the automatic version was removed is that it put
+     plausible-looking wrong lines on real houses. */
+  const src = parts[NEED.indexOf('rmMissedEdges')] || '';
+  check('S262', 'it never puts a line on the house',
+    !/rmRuns\.push/.test(src) && !/rmSyncSky/.test(src) && !/new google\.maps/.test(src),
+    'where a backward run GOES is the part every automatic attempt got wrong; ' +
+    'that one is THERE is the part worth saying');
+
+  if (!missing.length) {
+    const api = new Function(
+      'const RM_M_TO_FT=3.280839895, RM_COVERED_TOL_M=3.5, RM_MISSED_MIN_FT=6;' + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946}, rmRuns=[], rmFaces=[];' + LF_ +
+      'let __side="back";' + LF_ +
+      'function rmDatum(){ return {m:3, source:"street"}; }' + LF_ +
+      'function rmRoofHeightAt(){ return 3; }' + LF_ +
+      'function rmEaveSide(){ return __side; }' + LF_ +
+      'function rmFaceIsWorthHanging(){ return true; }' + LF_ +
+      'function rmFaceEave(f){ return f.eave; }' + LF_ +
+      'function rmFaceRakes(f){ return f.rakes || []; }' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return {missed:rmMissedEdges, covered:rmEdgeIsCovered,' +
+      ' set:function(f,r,s){ rmFaces=f; rmRuns=r; __side=s||"back"; }};')();
+
+    const m = new Function('return ' + parts[0].replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+    /* A peak whose ridge runs BACK into the house: its eave heads away from the
+       street, 12 m of it, well clear of anything traced across the front. */
+    const backward = {eave: {a: ll(6, -2), b: ll(6, 10)}};
+    const frontRun = {on: true, path: [{lat: ll(-8, -10).lat, lng: ll(-8, -10).lng, h: 3},
+                                       {lat: ll(8, -10).lat,  lng: ll(8, -10).lng,  h: 3}]};
+
+    api.set([backward], [frontRun], 'back');
+    const r1 = api.missed();
+    check('S262', 'a peak running backward with nothing traced near it is reported',
+      r1.count === 1 && r1.feet > 30,
+      'got ' + r1.count + ' piece(s), ' + r1.feet.toFixed(1) + ' ft — this is the exact case ' +
+      'described: invisible from the street, so nobody thinks to look for it');
+    check('S262', 'and it says which side to go and look at',
+      !!r1.sides.back,
+      'naming the side is the whole of the help — "something is missing somewhere" is not actionable');
+
+    /* ⚠ ONCE IT IS TRACED IT MUST GO QUIET. A warning that stays up after the
+       work is done is one somebody learns to ignore, and then it is worth less
+       than nothing. */
+    const tracedIt = {on: true, path: [{lat: ll(6, -2).lat, lng: ll(6, -2).lng, h: 3},
+                                       {lat: ll(6, 10).lat, lng: ll(6, 10).lng, h: 3}]};
+    api.set([backward], [frontRun, tracedIt], 'back');
+    check('S262', 'and it goes quiet once that side has been traced',
+      api.missed().count === 0,
+      'a warning that survives the work being done is one people learn to ignore');
+
+    /* Covered means anything traced NEAR it — measured against every point of a
+       run, not just its ends, or a long line passing an edge is read as missing
+       it because both of its own ends are far away. */
+    const passingBy = {on: true, path: [{lat: ll(6, -20).lat, lng: ll(6, -20).lng, h: 3},
+                                        {lat: ll(6, 4).lat,   lng: ll(6, 4).lng,   h: 3},
+                                        {lat: ll(6, 30).lat,  lng: ll(6, 30).lng,  h: 3}]};
+    api.set([backward], [passingBy], 'back');
+    check('S262', 'a run whose MIDDLE covers the edge counts as covering it',
+      api.missed().count === 0,
+      'testing only the ends of a run reports a long line as having missed what it runs straight along');
+
+    /* A switched-off run is not work that has been done. */
+    api.set([backward], [Object.assign({}, tracedIt, {on: false})], 'back');
+    check('S262', 'but a switched-off run does not count as having traced it',
+      api.missed().count === 1,
+      'an off run is not in the footage, so it cannot be the reason a side is called done');
+
+    /* ⚠ SHY BY DESIGN. A false alarm on every house is how a warning gets
+       ignored, so a sliver below the minimum is not worth mentioning. */
+    const sliver = {eave: {a: ll(0, 0), b: ll(0, 1)}};
+    api.set([sliver], [], 'back');
+    check('S262', 'and a sliver is not reported as missing roofline',
+      api.missed().count === 0,
+      'a foot of nothing flagged on every house is how a real warning gets ignored');
+
+    /* No roof model means no claim — silence, not a confident zero or a crash. */
+    api.set([], [], 'back');
+    check('S262', 'with no roof model it claims nothing at all',
+      api.missed().count === 0 && api.missed().feet === 0,
+      'a house Google has no faces for must not be reported as complete OR as broken');
+    /* ⚠ AND IT RUNS BEFORE THE HOUSE HAS LOADED. rmRenderResults is called on
+       an empty tool, and rmToLocal reads rmOrigin.lat — with no origin this
+       throws inside a render, which takes the whole panel down rather than
+       leaving one warning off. A red-check proved the face-list half of the old
+       guard was dead; this is the half that is not. */
+    const noOrigin = new Function(
+      'const RM_M_TO_FT=3.280839895, RM_COVERED_TOL_M=3.5, RM_MISSED_MIN_FT=6;' + LF_ +
+      'let rmOrigin=null, rmRuns=[], rmFaces=[{eave:{a:{lat:1,lng:1},b:{lat:1,lng:2}}}];' + LF_ +
+      'function rmDatum(){ return {m:3, source:"street"}; }' + LF_ +
+      'function rmRoofHeightAt(){ return 3; }' + LF_ +
+      'function rmEaveSide(){ return "back"; }' + LF_ +
+      'function rmFaceIsWorthHanging(){ return true; }' + LF_ +
+      'function rmFaceEave(f){ return f.eave; }' + LF_ +
+      'function rmFaceRakes(){ return []; }' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return function(){ try { return {ok:true, out:rmMissedEdges()}; }' +
+      ' catch(e){ return {ok:false, why:String(e)}; } };')();
+    const noOriginResult = noOrigin();
+    check('S262', 'and with no house loaded yet it returns rather than throwing',
+      noOriginResult.ok === true && noOriginResult.out.count === 0,
+      'this runs inside rmRenderResults on an empty tool — a throw here takes the ' +
+      'whole results panel down, not just one warning: ' + (noOriginResult.why || ''));
+  }
+
+  check('S262', 'and the warning reaches the panel where the total is read',
+    /rmMissedEdges\(\)/.test(extractFn(admin, 'rmRenderResults') || ''),
+    'a warning nobody sees is not a warning');
+}
+
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
    that will just sit there doing nothing forever" - asked twice, and pushing on it is
    what produced this.
