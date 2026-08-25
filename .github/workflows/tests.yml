@@ -81,6 +81,12 @@ jobs:
       - name: What colour a house is (warehouse colour rules)
         run: npm run test:colours
 
+      # A wrong badge is a claim about where a job came from, printed beside somebody's
+      # name — worse than no badge. Named separately so a failure reads as "the badge
+      # rule broke" rather than a line inside a 4,600-check run.
+      - name: Why a bundle is being built (warehouse badges)
+        run: npm run test:reason
+
       - name: Run the fast suite
         run: npm test
 

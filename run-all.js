@@ -20335,8 +20335,13 @@ suite('Suite 104. The Printing tab');
        instruction did say "feet of the house"; this supersedes it. Bundles is derived
        from feet, so printing both asked the warehouse to check a sum that was never
        theirs to check, and bundles is the one they actually count off a shelf. */
+    /* ⭐ AND A Why COLUMN SINCE 2026-08-24. Addie: "I need paper to carry badge too." It
+       carries the same badge the warehouse tab shows — NEW, OLD-REBUILD, MEMBER PORTAL,
+       REQUEST, or CHANGED where nothing recorded the source. It sits after the name,
+       which is where Type sits on the warehouse tab's own sheet: identity first, then
+       what kind of job it is, then the spec. */
     check('S104', 'the build list carries everything the warehouse makes up',
-      keys('build').indexOf('number,name,lights,wire,timer,bundles') === 0,
+      keys('build').indexOf('number,name,reason,lights,wire,timer,bundles') === 0,
       'got ' + keys('build'));
     check('S104', 'and the build list does NOT carry feet',
       keys('build').indexOf('feet') === -1,
@@ -20347,7 +20352,7 @@ suite('Suite 104. The Printing tab');
        need it stand out. NOT written into the blank column on the right, which is where
        the warehouse ticks the row off. */
     check('S104', 'and says whose bin a top-up bundle goes into',
-      keys('build') === 'number,name,lights,wire,timer,bundles,putInto',
+      keys('build') === 'number,name,reason,lights,wire,timer,bundles,putInto',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -22082,6 +22087,13 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and every row builder fills it in, so no row is short a cell',
       (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 3,
       'houses, extras and the blocked ones all push rows onto that sheet');
+    /* ⭐ AND THE Why COLUMN THE SAME WAY (2026-08-24). A column every row does not fill
+       leaves that row short a cell and the table shifts under it. Buffer stock fills it
+       with a blank on purpose — no customer, no provenance to claim — which still
+       counts as filling it. */
+    check('S107', 'and every row builder fills the Why column too',
+      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 3,
+      'houses, extras and the blocked ones all push rows onto that sheet');
 
     /* ⭐ BUNDLES, NOT FEET, ON THIS SHEET TOO (2026-08-21). Owner: "I don't think we
        need feet and bundles. I think how many bundles is fine for warehouse."
@@ -22207,7 +22219,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
          and the customer number rides beside the name. */
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
                                             address: '9873 N Sunnybank Pl',
@@ -23692,7 +23704,7 @@ suite('Suite 112. The number on the bin');
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),

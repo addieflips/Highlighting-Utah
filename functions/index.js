@@ -1206,6 +1206,13 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
          first time are not a change. */
       if (oldData.lightsDescription) {
         updates.lightsChangedAt = admin.firestore.FieldValue.serverTimestamp();
+        /* ⭐ WHO CHANGED IT (added 2026-08-24). Addie wants the warehouse queue to say
+           WHY a bundle is being built, and two of her four answers — "Member Portal"
+           and "Request" — are the same event with a different origin: the customer
+           doing it themselves, or the office typing it in after a call, email or text.
+           Nothing recorded which, so the two could not be told apart. This is the
+           portal; admin.html stamps 'office' on its own save. */
+        updates.lightsChangedVia = 'portal';
       }
     }
     // Unchanged? Leave the flag alone. Opening the Lights tab and pressing Save
@@ -1291,6 +1298,9 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
         }
         if (d.setLightsChangedAt) {
           custWrite.lightsChangedAt = admin.firestore.FieldValue.serverTimestamp();
+          /* Same stamp, the other portal write path — see the note above. Both have to
+             set it or a change made through one door is unattributable. */
+          custWrite.lightsChangedVia = 'portal';
         }
         if (d.feeAmount > 0 && d.feeDestination === 'nextSeason') {
           /* ⭐ THE BILL HAS ALREADY GONE, SO THIS RIDES TO NEXT SEASON. Owner:

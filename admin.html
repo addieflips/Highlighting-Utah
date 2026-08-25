@@ -32320,8 +32320,76 @@ function whToggleGroup(listId){
    colours: the timer, the wire, and the number that goes on the bin. A house
    with no number cannot be binned or handed to a crew, and a brand-new customer
    has no number yet — so that says so in ember rather than sitting blank. */
+/* ⭐ WHY THIS BUNDLE IS BEING BUILT (added 2026-08-24). Addie: "There should be a badge
+   by each person on warehouse that say's new, Old-Rebuild or Member Poral or Request",
+   with her own definitions:
+     New          — a new quote
+     Old-Rebuild  — already a member, changed address / extended house / added a building
+     Member Portal— anything they changed in the member portal themselves
+     Request      — we added it ourselves, from a request by email, call or text
+
+   ⚠ THE ORDER IS THE RULE, because a customer can be more than one at once. It runs
+   most-work-first: a first hang is the biggest job on the sheet, a move or an extension
+   the next, and a colour change on an otherwise unchanged house the smallest. Somebody
+   re-quoted for a new address who ALSO picked new colours is an Old-Rebuild — reading it
+   as a colour change sends the warehouse to make one bundle for a house that needs the lot.
+
+   ⚠ AND IT NEVER GUESSES. A colour change made before 2026-08-24 carries no
+   lightsChangedVia, because nothing recorded one — those say CHANGED rather than being
+   assigned one of her four on a coin toss. A wrong provenance printed beside a name is
+   worse than an honest "we do not know", and it fills itself in from here on. */
+const WH_BUILD_REASONS = {
+  'new':      {label: 'NEW',           bg: '#E4F0E6', color: '#2C6135'},
+  'rebuild':  {label: 'OLD-REBUILD',   bg: '#E5EAF7', color: '#31447E'},
+  'portal':   {label: 'MEMBER PORTAL', bg: '#F3E8F6', color: '#6B3F7A'},
+  'request':  {label: 'REQUEST',       bg: '#FBF0DF', color: '#8A5A12'},
+  'changed':  {label: 'CHANGED',       bg: '#EDEFF2', color: '#4E5A66'}
+};
+function whBuildReasonKey(d){
+  const c = d || {};
+  /* A first-time hang. ⚠ requoteAppliedAt excludes a returning member: the join fee flag
+     stays set on somebody who joined in a previous season, so the flag alone would badge
+     half the book NEW. */
+  if(c.chargeNewMemberFee === true && !c.requoteAppliedAt) return 'new';
+  /* A re-quote that was actually applied. ⚠ 'price' is deliberately not here — a
+     price-only re-quote changes no glass, queues no build, and would never reach this
+     list; badging it a rebuild would describe work nobody is doing. */
+  if(c.requoteAppliedAt){
+    const kind = String(c.requoteKind || '').trim().toLowerCase();
+    if(kind !== 'price') return 'rebuild';
+  }
+  if(c.lightsChangedAt){
+    const via = String(c.lightsChangedVia || '').trim().toLowerCase();
+    if(via === 'portal') return 'portal';
+    if(via === 'office') return 'request';
+    return 'changed';
+  }
+  return '';
+}
+function whBuildReasonChip(d){
+  const r = WH_BUILD_REASONS[whBuildReasonKey(d)];
+  if(!r) return '';
+  return ' <span class="status-pill" style="background:'+r.bg+'; color:'+r.color+
+    '; font-weight:700; letter-spacing:.03em;">'+esc(r.label)+'</span>';
+}
+/* ⭐ THE SAME BADGE IN WORDS, FOR PAPER. Addie: "I need paper to carry badge too." A chip
+   is a coloured pill and a printed sheet is black on white, so the two cannot share a
+   renderer — but they MUST share the rule, or the screen and the sheet printed from it
+   start making different claims about where a job came from. Both call whBuildReasonKey
+   and neither decides anything of its own. */
+function whBuildReasonLabel(d){
+  const r = WH_BUILD_REASONS[whBuildReasonKey(d)];
+  return r ? r.label : '';
+}
 function whHouseFactsHtml(d){
-  let html = '';
+  /* ⭐ WHY IT IS BEING BUILT, FIRST. It leads the chips because it is the only one that
+     says what KIND of job the row is — a first hang, a rebuild after a move, or a colour
+     change on a house that is otherwise finished. The timer and the wire say what to put
+     in the bin; this says why there is a bin.
+     ⚠ ONE PLACE, so every warehouse row gets it. whHouseFactsHtml is what the build
+     groups, the blocked block and the add-on rows all call — putting it on one of them
+     would leave the badge missing exactly where somebody looked next. */
+  let html = whBuildReasonChip(d);
   if(String(d.outletTimer || '').trim() === 'Yes'){
     html += ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">Timer</span>';
   }
@@ -33052,6 +33120,7 @@ function whSheetRowsForBuild(){
       group: 'Waiting on light colours',
       wire: whWireLabel(d.wireColor),
       type: 'Blocked',
+      reason: whBuildReasonLabel(d),
       what: whWhoLabel(d),
       address: d.address || '',
       bins: whBinsForHouse(d),
@@ -33079,6 +33148,10 @@ function whSheetRowsForBuild(){
            scans down. A bundle handed to somebody who thinks they are building a house
            gets a new bin made for it, and then there are two bins with one number. */
         type: need.topUp ? 'ADD-ON' : 'House',
+        /* ⚠ A BLOCKED OR ADD-ON ROW STILL HAS A REASON. Type and Why answer two different
+           questions and neither substitutes for the other: an add-on for somebody who extended
+           their house is an ADD-ON that is an OLD-REBUILD. */
+        reason: whBuildReasonLabel(d),
         what: whWhoLabel(d),
         address: d.address || '',
         bins: whBinsForHouse(d),
@@ -33109,6 +33182,10 @@ function whSheetRowsForBuild(){
         group: groupName,
         wire: isTimer ? '' : (e.data.wireColor || ''),
         type: isTimer ? 'Timer' : 'Extra',
+        /* ⚠ Buffer stock has no customer behind it, so it has no provenance to claim. Blank,
+           never one of the five — a badge on a row nobody asked for is a claim about somebody
+           who does not exist. */
+        reason: '',
         what: g.title ? (isTimer ? 'Timer' : (e.data.pattern || 'Lights')) : (e.data.label || 'Extra stock'),
         address: g.linked ? (g.linked.data.address || '') : '',
         /* ⚠ Buffer stock is not somebody's house, so "how many bins for them" has
@@ -33254,6 +33331,14 @@ const WH_BUILD_COLUMNS = [
   {key:'group', label:'Group'},
   {key:'wire', label:'Wire'},
   {key:'type', label:'Type'},
+  /* ⭐ WHY THIS BUNDLE IS BEING BUILT, ON PAPER (added 2026-08-24). Addie: "I need paper
+     to carry badge too." It sits beside Type deliberately: Type says WHAT the row is (a
+     house, an add-on, a blocked one) and Why says where it came from, and an eye scanning
+     one column picks up the other. Notes is the wide free-text column and anything put
+     after it is lost against a wall of writing — the same argument that fixes the Timer
+     column's position on every crew sheet. Blank on buffer stock, which has no customer
+     behind it and so no provenance to claim. */
+  {key:'reason', label:'Why'},
   {key:'what', label:'Customer / Item'},
   {key:'address', label:'Address'},
   /* ⭐ HOW MANY BINS, NOT WHICH ONE (changed 2026-08-21). Owner: "Bin # is how many
@@ -35344,6 +35429,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     if(lightChange.setLightsChangedAt){
       addrUpdates.lightsChangedAt = serverTimestamp();
+      /* ⭐ WHO CHANGED IT (added 2026-08-24). The warehouse badges say WHY a bundle is
+         being built, and two of the four answers are the same event from a different
+         direction: the customer changing their own colours in the portal, or the office
+         typing them in after a call, email or text. Both wrote lightsChangedAt and
+         nothing else, so they were indistinguishable.
+         ⚠ THIS PATH IS ALWAYS 'office' — somebody in admin is typing it. That is Addie's
+         "Request": a change we made on their behalf because they asked some other way.
+         functions/index.js stamps 'portal' on the two portal writes. */
+      addrUpdates.lightsChangedVia = 'office';
     }
     /* ⚠ THE LOCK IS SET EVEN WHEN THE FEE IS WAIVED. It is about the crew, not the
        money — their pattern may still move, so they must not be routed either way. */
@@ -35650,6 +35744,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     if(requoteBeingConverted){
       addrUpdates.requoteAppliedAt = serverTimestamp();
+      /* ⭐ AND WHICH KIND OF RE-QUOTE IT WAS (added 2026-08-24, for the warehouse badge).
+         requoteKind is asked when the re-quote is RAISED and stored on the QUOTE document,
+         which the customer record has no way to reach — so a reader looking at a customer
+         saw undefined every time and could not tell a house that moved from a price that
+         was corrected. Copied across at the one moment both are in hand.
+         ⚠ THE QUOTE STAYS THE SOURCE. This is a stamp of what was answered when the
+         re-quote was applied, not a second place to change it.
+         ⚠ AND A BLANK WRITES NOTHING, because a blank stored where an answer goes reads
+         as an answer. */
+      const answeredQuote = (typeof quotesCache !== 'undefined' ? quotesCache : [])
+        .find(function(q){ return q && q.id === requoteBeingConverted; });
+      const answeredKind = String((answeredQuote && answeredQuote.data && answeredQuote.data.requoteKind) || '').trim();
+      if(answeredKind) addrUpdates.requoteKind = answeredKind;
       /* ⭐ APPLYING A RE-QUOTE PUTS THEM IN FOR THE SEASON (2026-08-24). Owner: "if i
          convert or apply requote than it should be yes."
 
@@ -47269,6 +47376,8 @@ const PRINT_COLUMNS = {
      rather than a note written into the blank one on the right, because that blank is
      where the warehouse ticks the row off. */
   build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              /* The same badge the warehouse tab shows, in words — see WH_BUILD_COLUMNS. */
+              {k: 'reason', label: 'Why'},
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
               /* ⭐ BUNDLES, NOT FEET (2026-08-21). Owner: "I don't think we need feet
                  and bundles. I think how many bundles is fine for warehouse." Feet is
