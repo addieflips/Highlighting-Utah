@@ -15913,9 +15913,31 @@ function rmRoofRelativeAt(lat, lng){
                   lng >= Math.min(f.sw.lng, f.ne.lng) && lng <= Math.max(f.sw.lng, f.ne.lng);
     const d = Math.hypot(p.e - c.e, p.n - c.n);
     const score = (inBox ? 0 : 1000) + d;
-    if(!best || score < best.score) best = {f: f, c: c, score: score};
+    if(!best || score < best.score) best = {f: f, c: c, score: score, inBox: inBox};
   });
   if(!best) return null;
+  /* ⭐ OUTSIDE EVERY FACE, THE ANSWER IS THE EAVE (2026-08-25).
+   *
+   * ⚠ THE BUG THIS CLOSES, reported off a real house with a screenshot: a
+   * gutter traced from above drew in Street View well up the roof and sloping
+   * the wrong way. The top of that line sat just OFF the roof — out over the
+   * lawn — because Google's satellite imagery is not perfectly overhead, so the
+   * roof APPEARS shifted from where the model puts it. Clicking the gutter you
+   * can SEE therefore lands outside every face the model knows about.
+   *
+   * The old fallback took the nearest face and used its plane, which after the
+   * clamp above means that face's RIDGE end — the highest thing it knows. For a
+   * gutter that is several feet too high, and height is what decides where the
+   * point lands in Street View and what turns a traced run into a slope.
+   *
+   * ⚠ THE COMMENT ABOVE ALREADY SAID THE RIGHT THING — "being on the eave of
+   * the nearest face is a far better answer than being on the ground" — the
+   * code simply did not do it. rel = 0 IS that eave: it is measured from the
+   * lowest plane, which is the lowest real eave on this house.
+   * ⚠ AND IT STILL ANSWERS RATHER THAN REFUSING. Returning null falls back to
+   * the assumed one-storey height, which is a worse guess than the eave this
+   * roof actually has. */
+  if(!best.inBox) return 0;
   const a = (Number(best.f.azimuth) || 0) * Math.PI / 180;
   const down = {e: Math.sin(a), n: Math.cos(a)};
   /* How far downhill of the centre this point is, in metres. */
@@ -15943,11 +15965,16 @@ function rmRoofRelativeAt(lat, lng){
    * extrapolation nobody measured.
    * ⚠ INSIDE THE FACE THIS CHANGES NOTHING: |along| is already within reach
    * there, so the clamp is a no-op and every real roof reading is untouched. */
-  const bs = rmToLocal(best.f.sw.lat, best.f.sw.lng, 0);
-  const bn = rmToLocal(best.f.ne.lat, best.f.ne.lng, 0);
-  const reach = Math.abs((bn.e - bs.e) / 2 * down.e) + Math.abs((bn.n - bs.n) / 2 * down.n);
-  const held = Math.max(-reach, Math.min(reach, along));
-  const rel = (best.f.planeHeightM - held * rise) - lo;
+  /* ⚠ NO CLAMP HERE ANY MORE, AND IT WOULD BE DEAD CODE IF THERE WERE. An
+     earlier fix held `along` to the face's own extent to stop the plane running
+     off into the sky; the eave answer above closes that at its source, and
+     everything reaching this line is now INSIDE its face, where the projection
+     onto the slope direction is already bounded by that extent. Keeping the
+     clamp would be a guard that can never fire.
+     ⚠ IF THE inBox TEST IS EVER SOFTENED — a tolerance, a near-miss counting as
+     inside — that stops being true and the plane can be extrapolated again.
+     Suite 267 is what would catch it. */
+  const rel = (best.f.planeHeightM - along * rise) - lo;
   /* A roof is not 25 m tall and a face does not dip below the lowest plane by
      more than a courtyard's worth. Nonsense here would wreck the footage
      silently, so it is refused and the caller falls back. */
