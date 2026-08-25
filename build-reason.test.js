@@ -310,11 +310,25 @@ check('and still applies the season rule',
 check('and the warehouse tab asks it too',
   /!d\.needsLightBuild \|\|/.test(fn('whBuildQueueGroups')),
   'one flag, both lists');
-/* ⚠ THE PRINTED SHEET KEEPS ITS OWN BINS NOTE. Asserted because merging the two sheets
-   is the obvious-looking tidy-up and it would drop this. */
-check('the printed sheet still carries the extra-bins note in its bundles cell',
-  /printExtraBinsNote\(d\)/.test(printFilter),
-  'she trimmed this sheet herself; the note is how bins reach paper');
+/* ⭐ AND THE PRINTED SHEET SAYS HOW MANY BINS (2026-08-25). Addie: "Everyone needs to
+   know how many bins there are for each house so bin # and costumer # does matter."
+   ⚠ THIS CHECK ASSERTED THE OPPOSITE YESTERDAY — that the sheet kept a CONDITIONAL note
+   in its bundles cell, which was her 2026-08-24 trimming and only spoke past two bins.
+   The cost was that a house on a regular number said nothing at all. A column says it
+   for every house, so the note and its helper are gone rather than left as a second way
+   of saying the same thing.
+   ⚠ THE COLUMNS ARE STILL NOT IDENTICAL and that is still not drift: this sheet has no
+   Group, Type or Notes column, because she trimmed those herself. Only WHO is on the
+   two lists has to agree, and now so does the bin count. */
+check('the printed sheet has a Bins column of its own',
+  /k: 'bins', label: 'Bins'/.test(admin),
+  'everyone needs to know how many bins there are for each house');
+check('and fills it from the one bin count everything else reads',
+  /bins: \(typeof whBinsForHouse/.test(printFilter),
+  'a second way of counting bins is how two sheets disagree about one house');
+check('and the retired conditional note is gone, not orphaned',
+  admin.indexOf('printExtraBinsNote') === -1,
+  'a helper nothing calls is the most expensive kind of green');
 // ---------------------------------------------------------------------------
 // ONE PAGE PER COLOUR GROUP
 // ---------------------------------------------------------------------------
