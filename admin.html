@@ -4565,6 +4565,33 @@
                   </div>
                 </div>
                 <button type="button" class="btn btn-outline btn-sm" id="rmUseFeetBtn" style="width:100%; justify-content:center; margin-top:10px; display:none;">Use as Estimated Feet</button>
+
+                <!-- ⭐ IS THIS HOUSE MEASURING RIGHT? (added 2026-08-25).
+                     Owner: "I need no guessing I need feet to be correct."
+                     Nothing else in the tool answers that. Accuracy is not a
+                     property of the code, it is a property of THIS house —
+                     Google's imagery is not perfectly overhead, the camera may
+                     be far off or half behind a tree — so the only real answer
+                     is to measure something whose size is already known and
+                     read the difference.
+                     ⚠ PERMANENTLY VISIBLE, not a debug tool tucked away. A
+                     check nobody can find is a check nobody runs. -->
+                <div style="margin-top:10px; border-top:1px dotted var(--line); padding-top:9px;">
+                  <div style="font-size:11.5px; font-weight:700; margin-bottom:5px;">Check the scale</div>
+                  <p class="rm-sub" style="margin:0 0 6px;">Measure something you already know the size of, and see what this says it is.</p>
+                  <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                    <select id="rmCalPick" style="flex:1 1 130px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
+                      <option value="16">Double garage door — 16 ft</option>
+                      <option value="9">Single garage door — 9 ft</option>
+                      <option value="3">Front door — 3 ft</option>
+                      <option value="9" data-other="1">Parking stall — 9 ft</option>
+                      <option value="">Something else…</option>
+                    </select>
+                    <input type="number" id="rmCalFeet" min="0.5" step="0.5" placeholder="ft" style="display:none; flex:0 0 62px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
+                  </div>
+                  <button type="button" class="btn btn-outline btn-sm" id="rmCalBtn" style="width:100%; justify-content:center; margin-top:6px;">Trace it and compare</button>
+                  <p id="rmCalResult" style="font-size:11.5px; margin:7px 0 0; line-height:1.5;"></p>
+                </div>
               </div>
 
               <div class="rm-panel" id="rmPricePanel" style="display:none;">
@@ -15402,6 +15429,11 @@ let rmQuoteId = null;
    Consumed ONCE — pressing Load again re-frames the same house, and restoring
    on every load would stack a second copy of every line on top of the first. */
 let rmPendingMeasurement = null;
+/* A scale check in progress, and the last one's answer. Kept apart from rmRuns
+   on purpose — see rmFinishRun: a known object traced to test the tool is not
+   part of the house and must never be billed as roofline. */
+let rmCalibrating = false;
+let rmCalibration = null;         /* {knownFt, measuredFt, checkedAt} */
 let rmOrigin = null;              /* {lat, lng} - the local frame's origin */
 let rmMap = null, rmPano = null, rmHomeMarker = null;
 let rmCamGroundDrop = 0;          /* house ground minus camera ground, metres */
@@ -18616,6 +18648,130 @@ function rmTotals(){
 }
 function rmRunsOn(){ return rmRuns.filter(rmRunIsOn); }
 
+/* ⭐ WHICH FEET REST ON A GUESS (added 2026-08-25).
+ * Owner: "I need no guessing I need feet to be correct."
+ *
+ * ⚠ HEIGHT ONLY CHANGES A LENGTH WHERE THE LINE CLIMBS, and getting that
+ * backwards would condemn most of the tool for nothing. A level eave traced
+ * from above is CORRECT however wrong the roof height is — both ends carry the
+ * same height, it cancels, and the plan length IS the true length. That is why
+ * sky view is the right place to trace an eave at all. A RAKE is the opposite:
+ * its length is the hypotenuse, so a guessed height gives a guessed number, and
+ * a gable is two rakes.
+ *
+ * ⚠ AND A HEIGHT SOMEBODY TYPED IS NOT A GUESS. rmDatum reports 'street' and
+ * 'photo' for measured, 'typed' for a number the office stated about a house it
+ * knows, and 'assumed' for the one-storey eave WE invented. Only 'assumed' is
+ * this tool guessing. */
+const RM_CLIMB_TOL_M = 0.3;        /* ~1 ft: below this a line is level */
+
+function rmRunClimbs(run){
+  if(!run || run.surface === 'manual') return false;
+  const hs = (run.path || []).map(function(p){ return Number(p.h) || 0; });
+  if(hs.length < 2) return false;
+  return (Math.max.apply(null, hs) - Math.min.apply(null, hs)) > RM_CLIMB_TOL_M;
+}
+
+/* ⭐ THE ROOFLINE THAT RUNS BACKWARD, AND GETS MISSED (added 2026-08-25).
+ *
+ * Owner, asked what she meant by corners: "if a peak runs backwards and we miss
+ * that. Or if one part of roof is higher than other side of roof so that part
+ * of roof turns a corner and that roof runs backward. Those are feet we also
+ * need to count."
+ *
+ * ⚠ THIS REPORTS. IT NEVER DRAWS. Owner, in the same breath: "lines shouldn't
+ * be automatic those are manually put by us." Every automatic attempt at this
+ * roofline put plausible-looking wrong lines on the house and was removed for
+ * it. Saying "there is something over here you have not traced" is a much
+ * weaker claim than saying where it goes, and it is the claim that is useful:
+ * a run heading away from the street is invisible from the front, so the way it
+ * gets missed is that nobody thinks to look.
+ *
+ * ⚠ AND IT IS DELIBERATELY SHY. A false alarm on every house trains somebody to
+ * ignore it, which costs more than the feature is worth — so an edge counts as
+ * covered if anything at all has been traced near it, and slivers are ignored.
+ */
+const RM_COVERED_TOL_M = 3.5;      /* traced this close = that edge is done */
+const RM_MISSED_MIN_FT = 6;        /* below this it is noise, not a run */
+
+function rmEdgeMid(line){
+  return rmToLocal((line.a.lat + line.b.lat) / 2, (line.a.lng + line.b.lng) / 2, 0);
+}
+/* How far a spot is from a traced SEGMENT, not from its ends. */
+function rmDistToSegment(p, a, b){
+  const de = b.e - a.e, dn = b.n - a.n;
+  const len2 = de*de + dn*dn;
+  if(len2 < 1e-9) return Math.hypot(p.e - a.e, p.n - a.n);
+  let t = ((p.e - a.e)*de + (p.n - a.n)*dn) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.e - (a.e + t*de), p.n - (a.n + t*dn));
+}
+/* Has anything the office traced gone near this edge?
+   ⚠ MEASURED TO THE SEGMENTS, NOT TO THE POINTS, and a test caught the
+   difference the hard way. Tracing an edge EXACTLY — a dot at each end — puts
+   both of those dots half the edge's length away from its middle, so a
+   point-to-point test called a perfectly traced 40 ft run "missed". That is the
+   worst possible direction for this to fail in: a false alarm raised on work
+   already done is how somebody learns to ignore the warning. */
+function rmEdgeIsCovered(line){
+  const mid = rmEdgeMid(line);
+  let covered = false;
+  rmRuns.forEach(function(r){
+    if(covered || !rmRunIsOn(r) || r.surface === 'manual') return;
+    const pts = (r.path || []).map(function(p){ return rmToLocal(p.lat, p.lng, 0); });
+    if(pts.length === 1){
+      if(Math.hypot(pts[0].e - mid.e, pts[0].n - mid.n) < RM_COVERED_TOL_M) covered = true;
+      return;
+    }
+    for(let i = 1; i < pts.length; i++){
+      if(rmDistToSegment(mid, pts[i-1], pts[i]) < RM_COVERED_TOL_M){ covered = true; return; }
+    }
+  });
+  return covered;
+}
+/* What the roof model knows about that nothing has been traced near, grouped by
+   which side of the house it is on. Front is reported too — a front eave nobody
+   traced is just as missed — but the sides and the back are the ones this
+   exists for, because they are the ones you cannot see from the street. */
+function rmMissedEdges(){
+  const out = {feet: 0, sides: {}, count: 0};
+  /* ⚠ THE ORIGIN IS THE LOAD-BEARING HALF and the only one worth testing:
+     rmToLocal reads rmOrigin.lat, so this runs before the house has loaded
+     without it. A `!rmFaces.length` check used to sit here too and was removed
+     as dead — the walk below is already `(rmFaces || []).forEach`, so an empty
+     or missing face list produces an empty answer either way, and a red-check
+     deleting that half changed nothing at all. */
+  if(!rmOrigin) return out;
+  (rmFaces || []).forEach(function(face){
+    if(typeof rmFaceIsWorthHanging === 'function' && !rmFaceIsWorthHanging(face)) return;
+    const edges = [rmFaceEave(face)].concat(rmFaceRakes(face) || []);
+    edges.forEach(function(line){
+      if(!line) return;
+      const a = {lat: line.a.lat, lng: line.a.lng, h: rmRoofHeightAt(line.a.lat, line.a.lng) ?? rmDatum().m};
+      const b = {lat: line.b.lat, lng: line.b.lng, h: rmRoofHeightAt(line.b.lat, line.b.lng) ?? rmDatum().m};
+      const ft = rmFeetBetween(a, b);
+      if(ft < RM_MISSED_MIN_FT) return;
+      if(rmEdgeIsCovered(line)) return;
+      const side = rmEaveSide(line) || 'front';
+      out.sides[side] = (out.sides[side] || 0) + ft;
+      out.feet += ft;
+      out.count++;
+    });
+  });
+  return out;
+}
+
+/* The footage that would change if the roof height turned out to be wrong.
+   Returns 0 when the datum was really measured — then nothing here is a guess. */
+function rmGuessedFeet(){
+  if(rmDatum().source !== 'assumed') return 0;
+  let ft = 0;
+  rmRuns.forEach(function(r){
+    if(rmRunIsOn(r) && rmRunClimbs(r)) ft += rmRunFeet(r);
+  });
+  return ft;
+}
+
 /* ---- what actually gets written down ------------------------------------ */
 /* ⭐ THE GEOMETRY IS SAVED, NOT JUST THE TOTAL (added 2026-08-25).
  *
@@ -18757,6 +18913,10 @@ function rmMeasurementDoc(){
        the per-foot rate. Same three words, two different questions; keeping
        them apart was settled deliberately, so do not wire one to the other. */
     difficulty: rmCurrentGrade() || 'Medium',
+    /* What a known object measured on this house, when one was checked.
+       ⚠ null rather than an empty map when nobody checked - "not tested" and
+       "tested and came out at nothing" are different answers. */
+    calibration: rmCalibration || null,
     totals: {
       linearFt: Math.round(t.all),
       /* Bulbs sit a foot apart, so the bulb count IS the footage. Written down
@@ -18972,9 +19132,69 @@ function rmAddPoint(world){
   rmRenderResults(); rmPaintStreet();
 }
 function rmFinishRun(){
+  /* ⚠ A SCALE CHECK IS NOT PART OF THE HOUSE, and must never become footage.
+     A garage door traced to test the tool is not roofline, and letting it into
+     rmRuns would bill the customer 16 ft for it — the one mistake here that
+     costs somebody money. It is answered and dropped in the same breath: it
+     never reaches the list, so it cannot reach the total, the saved drawing,
+     the price or the build sheet. */
+  if(rmCalibrating){
+    const traced = rmCurrent && rmCurrent.path.length > 1 ? rmRunFeet(rmCurrent) : 0;
+    rmDropCurrent();
+    rmCalibrating = false;
+    rmReportCalibration(traced);
+    rmSetDrawing(false);
+    rmRenderResults(); rmPaintStreet();
+    return;
+  }
   if(rmCurrent && rmCurrent.path.length > 1){ rmRuns.push(rmCurrent); rmCurrent = null; }
   else rmDropCurrent();
   rmRenderResults(); rmPaintStreet();
+}
+
+/* WHAT THE TOOL MADE OF SOMETHING WHOSE SIZE IS ALREADY KNOWN.
+   ⚠ IT REPORTS, IT NEVER CORRECTS. The tempting next step is to scale every
+   other line by whatever error this finds, and that would be wrong: one bad
+   trace would silently re-price the whole house, and the error is rarely one
+   clean factor anyway — it comes from the camera angle and the imagery, which
+   vary across a house. This is a number to read and judge, not a lever. */
+function rmReportCalibration(measuredFt){
+  const box = document.getElementById('rmCalResult');
+  if(!box) return;
+  const known = rmCalKnownFt();
+  if(!(measuredFt > 0)){
+    box.style.color = 'var(--slate)';
+    box.textContent = 'Nothing was traced — click along the thing you are checking, then press Enter.';
+    return;
+  }
+  if(!(known > 0)){
+    box.style.color = 'var(--slate)';
+    box.textContent = 'Say how many feet it really is first.';
+    return;
+  }
+  const offBy = measuredFt - known;
+  const pct = (offBy / known) * 100;
+  rmCalibration = {knownFt: known, measuredFt: Math.round(measuredFt * 100) / 100,
+                   checkedAt: new Date().toISOString()};
+  /* Under 5% is ordinary aerial error and says so; past 10% something is wrong
+     with THIS house — the camera, a tree, the wrong wall pinned — and the
+     footage should not be trusted until it is understood. */
+  const mag = Math.abs(pct);
+  box.style.color = mag <= 5 ? 'var(--dusk)' : (mag <= 10 ? '#8A6100' : 'var(--ember)');
+  box.innerHTML =
+    'You traced <strong>' + rmFmtFeet(known) + '</strong>. This measured <strong>' +
+    rmFmtFeet(measuredFt) + '</strong> — ' +
+    (Math.abs(offBy) < 0.05 ? 'spot on.'
+      : (pct > 0 ? 'over' : 'under') + ' by ' + mag.toFixed(1) + '%.') +
+    (mag <= 5 ? ' That is normal for aerial imagery.'
+      : mag <= 10 ? ' Worth a second look before you trust the footage.'
+      : ' Something is off on this house — check the wall you pinned, or that the camera really sees it.');
+}
+function rmCalKnownFt(){
+  const sel = document.getElementById('rmCalPick');
+  const typed = document.getElementById('rmCalFeet');
+  if(sel && sel.value) return Number(sel.value) || 0;
+  return typed ? Number(typed.value) || 0 : 0;
 }
 /* The freeze. Both views go inert and a transparent layer takes the clicks,
    so nothing can pan, swing or zoom out from under a half-drawn line. */
@@ -19065,6 +19285,34 @@ function rmRenderResults(){
     (t.all ? '<div class="rm-runrow" style="color:var(--slate);">' +
       Math.round(t.all).toLocaleString() + ' bulbs and clips — they sit a foot apart, so it is the same number' +
       '</div>' : '') +
+    /* ⚠ SAID WHERE THE NUMBER IS READ, not in a panel nobody opens. This is the
+       one line standing between a guessed figure and a price, and it names the
+       fix rather than only the problem — ONE click in Street View measures the
+       roof and every climbing line becomes real. */
+    (function(){
+      const g = rmGuessedFeet();
+      if(!g) return '';
+      return '<div class="rm-runrow" style="color:#8A6100; font-weight:600; line-height:1.5;">' +
+        '⚠ ' + rmFmtFeet(g) + ' of this climbs, and the roof height is still assumed — that much is a guess. ' +
+        'Trace anything in Street View and it is measured instead.</div>';
+    })() +
+    /* ⚠ WHAT RUNS BACK, AND HAS NOT BEEN TRACED. A peak whose ridge runs into
+       the house, or a section standing higher than the one beside it, carries
+       roofline heading away from the street — invisible from the front, so the
+       way it gets missed is that nobody thinks to look for it.
+       ⚠ IT NAMES SIDES, NEVER PLACES LINES. Where it goes is the part every
+       automatic attempt got wrong; THAT there is something there is the part
+       worth saying. */
+    (function(){
+      const m = rmMissedEdges();
+      if(!m.count) return '';
+      const back = Object.keys(m.sides).filter(function(s){ return s !== 'front'; });
+      return '<div class="rm-runrow" style="color:#8A6100; font-weight:600; line-height:1.5;">' +
+        '⚠ Google\'s roof model shows about ' + rmFmtFeet(m.feet) + ' with nothing traced near it' +
+        (back.length ? ', including ' + back.join(' and ') : '') +
+        '. Check for roofline running back from the street — a peak running backwards, ' +
+        'or a section standing higher than the one next to it.</div>';
+    })() +
     (live ? '<div class="rm-runrow" style="color:var(--dusk);">drawing now&hellip; '+rmFmtFeet(live)+'</div>' : '');
 
   const runsBox = document.getElementById('rmRuns');
@@ -20112,6 +20360,11 @@ function rmBackToHouse(){
 function rmReset(){
   rmClearDrawing();
   rmPendingMeasurement = null;
+  /* A scale check belongs to the house it was taken on. Carrying one across
+     to the next quote would report a figure about somebody else's roof. */
+  rmCalibrating = false; rmCalibration = null;
+  const calBox = document.getElementById('rmCalResult');
+  if(calBox) calBox.textContent = '';
   rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
   rmShots = []; rmCrop = null; rmCropDrag = null;
   rmWall = null; rmWallPts = []; rmWallPicking = false;
@@ -20243,6 +20496,29 @@ function openRoofMeasure(quoteId){
     } else {
       rmToggleCorner(i);
     }
+  });
+  document.getElementById('rmCalPick').addEventListener('change', function(){
+    /* "Something else" is the only option with no size of its own, so the box
+       appears exactly then rather than sitting there empty the rest of the time. */
+    const box = document.getElementById('rmCalFeet');
+    box.style.display = this.value ? 'none' : 'block';
+    if(!this.value) box.focus();
+  });
+  document.getElementById('rmCalBtn').addEventListener('click', function(){
+    if(!rmCalKnownFt()){
+      document.getElementById('rmCalResult').style.color = 'var(--slate)';
+      document.getElementById('rmCalResult').textContent = 'Say how many feet it really is first.';
+      return;
+    }
+    /* ⚠ ANY RUN IN PROGRESS IS FINISHED FIRST, as a real run. Starting a scale
+       check on top of a half-traced side would otherwise swallow that side into
+       the check and drop it. */
+    if(rmDrawing) rmFinishRun();
+    rmCalibrating = true;
+    rmSetDrawing(true);
+    document.getElementById('rmCalResult').style.color = 'var(--slate)';
+    document.getElementById('rmCalResult').textContent =
+      'Click each end of it in either view, then press Enter. It is only a check — it is not added to the house.';
   });
   document.getElementById('rmMoreBtn').addEventListener('click', function(){
     const box = document.getElementById('rmMoreBox');
@@ -20554,6 +20830,26 @@ function openRoofMeasure(quoteId){
       document.getElementById('rmStatus').textContent = 'That direction never crosses the wall you set — try a point on the house.';
       return;
     }
+    /* ⚠ A CLICK ABOVE THE ROOF IS NOTHING, AND IT WAS BEING COUNTED (2026-08-25).
+       The dot-placing path has refused this for a while, and its own note says
+       why: a ray aimed over the roof still crosses the wall plane somewhere up
+       in the air, so clicking a cloud produced "a confident dot at 31 ft" with
+       nothing saying it was invented. TRACING never got the same guard, so the
+       same click added a point in the sky, at a real-looking height, straight
+       into the footage the customer is billed from.
+       ⚠ AND IT BITES HARDEST ON A GABLE, which is the reason it was found: the
+       peak is the highest thing you aim at, so overshooting it is the easiest
+       mistake in the whole tool to make.
+       Owner: "I need no guessing I need feet to be correct." The one honest
+       answer to a click with nothing under it is to refuse it. RM_EAVE_TOL_M is
+       the same allowance the dot path uses, so a point ON the peak still lands. */
+    const roofTop = rmRoofTopM();
+    if(roofTop !== null && hit.u > roofTop + RM_EAVE_TOL_M){
+      document.getElementById('rmStatus').textContent =
+        '⚠ That is above the roof — there is nothing there to measure, so it would be a guess. ' +
+        'Click the peak itself, or the roofline.';
+      return;
+    }
     const world = rmToWorld(hit);
     /* ⚠ THE FIRST THING TRACED IN STREET VIEW PINS THE WHOLE ROOF.
        Street View is the only place a height is really OBSERVED - the camera's
@@ -20791,6 +21087,20 @@ function openRoofMeasure(quoteId){
     const measured = rmTotals().all;
     const feet = Math.round(measured * RM_FEET_MULTIPLIER);
     const status = document.getElementById('rmStatus');
+    /* ⚠ ASKED BEFORE IT REACHES THE QUOTE. Owner: "I need no guessing I need
+       feet to be correct." Once this is saved it drives the price, the bin
+       count and the bundle count, and nothing downstream can tell a measured
+       foot from a guessed one — so the last place the difference is knowable is
+       here, before the write. It NAMES the fix and it is one click to cancel
+       and go and do it. */
+    const guessed = rmGuessedFeet();
+    if(guessed && !confirm(
+      rmFmtFeet(guessed) + ' of this climbs and the roof height is still assumed, so that much is a guess.\n\n' +
+      'Tracing anything in Street View measures the roof and makes it real.\n\n' +
+      'Save ' + feet + ' ft anyway?')) {
+      status.textContent = 'Not saved. Trace one line in Street View and the climbing lines become measured.';
+      return;
+    }
     status.textContent = 'Saving the footage…';
     /* ⚠ BUILT OUTSIDE THE WRITE, AND ITS OWN FAILURE IS SURVIVABLE. Saving the
        footage is what this button has always done and what the rest of the
