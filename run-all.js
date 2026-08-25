@@ -31297,8 +31297,15 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      0 and slices from the top of the file — which still contains enough words
      to make a loose check pass. Two of these three were doing exactly that. */
   const useFeet = sectionFrom(admin, admin.indexOf("document.getElementById('rmUseFeetBtn').addEventListener"));
+  /* ⚠ THE PAYLOAD MOVED, THE RULE DID NOT. The `{estimatedFeet: feet}` literal
+     this used to match now lives in rmSavePayload, which exists so the write
+     can be RUN rather than pattern-matched (see S256 — a text match here stayed
+     green with the drawing's half of the write disabled by an if(false)). What
+     belongs to this check is still here: the button applies the multiplier and
+     hands the result to that builder. S256 proves the builder puts it under
+     estimatedFeet. */
   check('S126', 'Estimated Feet is saved as the measured run times that constant',
-    /RM_FEET_MULTIPLIER/.test(useFeet) && /estimatedFeet:\s*feet/.test(useFeet),
+    /RM_FEET_MULTIPLIER/.test(useFeet) && /rmSavePayload\(feet\b/.test(useFeet),
     'the button either stopped doubling or started doubling somewhere else');
   check('S126', 'and it reports the measured figure alongside the doubled one',
     /measured/.test(useFeet),
@@ -36773,6 +36780,231 @@ suite('255. Measure Roof - Edit Customer prices from feet like Add Customer does
     /ecFeetNote\.textContent\s*=\s*''/.test(admin),
     'the last customer’s arithmetic left sitting under the next customer’s boxes ' +
     'reads as a statement about them');
+}
+
+
+suite('256. Measure Roof - the drawing is saved, not just the number');
+{
+  /* ⚠ THE HOLE THIS CLOSES. rmRuns was an in-memory array and the ONLY thing
+     ever written to Firestore was one number, estimatedFeet. Close the tool and
+     every traced line was gone - so re-quoting meant measuring the house again,
+     one bad segment could not be corrected without redoing all of them, and
+     nobody could see what a figure was based on.
+
+     ⚠ THIS SUITE RUNS THE SERIALISER AND THE RESTORE. Matching their source
+     would prove the fields are mentioned, which is a weaker claim than the
+     footage surviving a round trip - and this file records three separate
+     occasions where a text-only check stayed green over code that could not
+     run at all. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunFeet',
+                 'rmTotals', 'rmRunName', 'rmRunArea', 'rmPanoState', 'rmMeasurementDoc',
+                 'rmRestoreMeasurement'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S256', 'the save-and-restore pair is findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    /* Stubs are the DOM and the Google map only. Every piece of arithmetic and
+       every field decision is the real shipped code. */
+    const PRE =
+      'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
+      'const RM_MEASUREMENT_VERSION=2;' + LF_ +
+      'const RM_TYPES={perimeter:{label:"Perimeter"},ridge:{label:"Ridge"},ground:{label:"Ground"}};' + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'let rmRuns=[], rmPhotoExtraFeet=0, rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      'let __cam=null, __grade="Medium", __pano=null, __box={};' + LF_ +
+      'function rmCamOnRoad(){ return __cam; }' + LF_ +
+      'function rmDatum(){ return {m:3, source:"assumed"}; }' + LF_ +
+      'function rmCurrentGrade(){ return __grade; }' + LF_ +
+      'const rmPano=null;' + LF_ +
+      /* The map side of a restore: drawing is not what is under test here. */
+      'function rmClearDrawing(){ rmRuns=[]; }' + LF_ +
+      'function rmSyncSky(){}' + LF_ +
+      'function rmRenderResults(){}' + LF_ +
+      'function rmPaintStreet(){}' + LF_ +
+      'const document={getElementById:function(id){ return __box[id] || null; }};' + LF_;
+    const BODY = PRE + NAMES.map(pick).join(LF_) + LF_ +
+      'return {doc:rmMeasurementDoc, restore:rmRestoreMeasurement, area:rmRunArea,' +
+      ' totals:rmTotals, runFeet:rmRunFeet,' +
+      ' set:function(rs,cam,g){ rmRuns=rs; __cam=cam||null; __grade=g||"Medium"; },' +
+      ' box:function(b){ __box=b||{}; }, runs:function(){ return rmRuns; },' +
+      ' photo:function(f){ rmPhotoExtraFeet=f; }};';
+    assertSandbox('S256', 'measurement round-trip', BODY, admin,
+      ['rmCamOnRoad', 'rmDatum', 'rmCurrentGrade', 'rmClearDrawing', 'rmSyncSky',
+       'rmRenderResults', 'rmPaintStreet']);
+    const api = new Function(BODY)();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+    const pt = (e, n, h) => ({lat: ll(e, n).lat, lng: ll(e, n).lng, h: h});
+
+    /* A house with a front run, a ridge, and one side switched OFF. `line` and
+       `dots` stand in for the live Google objects every real run carries. */
+    const mkRuns = () => [
+      {type: 'perimeter', path: [pt(-6, -8, 3), pt(6, -8, 3)], line: {fake: 1}, dots: [{fake: 1}]},
+      {type: 'ridge', path: [pt(-6, 0, 5), pt(6, 0, 5)], line: {fake: 1}, dots: []},
+      {type: 'perimeter', path: [pt(8, -2, 3), pt(8, 4, 3)], on: false, line: {fake: 1}, dots: []},
+    ];
+    api.box({});
+    api.set(mkRuns(), {e: 0, n: -22});     /* camera on the road, to the south */
+    const before = api.totals().all;
+    const saved = api.doc();
+
+    /* ---- the write has to be writable -------------------------------- */
+    /* ⚠ THE ONE THAT WOULD BREAK THE SAVE OUTRIGHT. Every run carries `line`
+       and `dots` - live Polyline and Marker objects. Copying a run into the doc
+       would either be refused by Firestore or store a lump of nonsense, and the
+       same write carries estimatedFeet, so the footage would go down with it. */
+    const flat = JSON.stringify(saved);
+    check('S256', 'nothing Google-shaped is written into the saved drawing',
+      flat.indexOf('fake') === -1 &&
+      saved.runs.every(r => !('line' in r) && !('dots' in r)),
+      'a live map object in the payload fails the write - and estimatedFeet rides ' +
+      'in that same write, so the footage would be lost too');
+    /* Firestore rejects undefined outright. A field that resolves to it is not
+       a cosmetic problem, it is a refused write. */
+    const undef = [];
+    (function walk(o, at) {
+      if (o === undefined) { undef.push(at); return; }
+      if (o && typeof o === 'object') Object.keys(o).forEach(k => walk(o[k], at + '.' + k));
+    })(saved, 'measurement');
+    check('S256', 'and no field resolves to undefined', undef.length === 0,
+      'Firestore refuses undefined: ' + undef.join(', '));
+    check('S256', 'the saved shape names its own version',
+      saved.version === 2, 'without it a later shape change cannot tell the two apart');
+
+    /* ---- the round trip ----------------------------------------------- */
+    api.box({});
+    const n = api.restore(JSON.parse(flat));
+    check('S256', 'every run comes back', n === 3 && api.runs().length === 3,
+      'restored ' + n + ' of 3');
+    check('S256', 'and the footage after a round trip is the footage before it',
+      Math.abs(api.totals().all - before) < 0.05,
+      'before ' + before.toFixed(2) + ' ft, after ' + api.totals().all.toFixed(2) +
+      ' ft - a drawing that comes back a different size is worse than one that does not come back');
+
+    /* ⚠ A RUN SWITCHED OFF IS STILL SAVED. It is still on screen and still
+       recoverable with one click, so dropping it here would make reopening the
+       quote the one way to lose it permanently. */
+    check('S256', 'a switched-off run survives, and is still switched off',
+      api.runs().length === 3 && api.runs()[2].on === false,
+      'the off run is the one an accidental click produced - deleting it on save ' +
+      'is exactly the unrecoverable outcome the toggle exists to avoid');
+
+    /* Heights are what make a rake longer than its plan length. */
+    check('S256', 'the per-point heights come back too, not just the positions',
+      api.runs()[1].path.every(p => Math.abs(p.h - 5) < 1e-9),
+      'heights dropped on the way in flatten every slope to its plan length');
+
+    /* ---- a side typed in by hand -------------------------------------- */
+    /* Street View cannot see the back of most houses, so those are typed. Such
+       a run has no path at all and its footage must still reach the total. */
+    api.box({});
+    api.restore({version: 2, runs: [
+      {id: 'b', name: 'Back', area: 'back', surface: 'manual', type: 'perimeter',
+       path: [], manualFeet: 42, include: true},
+    ]});
+    check('S256', 'a hand-entered side keeps its footage with no path to measure',
+      Math.abs(api.totals().all - 42) < 1e-9,
+      'got ' + api.totals().all + ' ft - a typed side that counts as 0 silently ' +
+      'under-quotes every house with a back run');
+    check('S256', 'and it is still marked as typed rather than measured',
+      api.runs()[0].surface === 'manual',
+      'losing that makes a hand-entered number indistinguishable from a measured one');
+
+    /* Footage traced on a photo the customer sent is counted by rmTotals but
+       belongs to no run, so it has to be saved separately or the total does not
+       add up on the way back in. */
+    api.set(mkRuns(), {e: 0, n: -22});
+    api.photo(30);
+    const withPhoto = api.doc();
+    check('S256', 'footage traced on a customer photo is saved as well',
+      withPhoto.photoFeet === 30,
+      'rmTotals adds it to the total, so leaving it out means the restored ' +
+      'drawing quietly comes back 30 ft short');
+
+    /* ---- which side of the house ------------------------------------- */
+    /* ⚠ LEFT AND RIGHT ARE AS YOU FACE THE HOUSE FROM THE STREET. Standing
+       south of a house looking north, the EAST side is on your right - which is
+       the opposite of the bearing arithmetic taken at face value. */
+    const south = {e: 0, n: -22};
+    api.set([], south);
+    const front = {path: [pt(-6, -8, 3), pt(6, -8, 3)]};
+    const back = {path: [pt(-6, 9, 3), pt(6, 9, 3)]};
+    const east = {path: [pt(9, -2, 3), pt(9, 4, 3)]};
+    const west = {path: [pt(-9, -2, 3), pt(-9, 4, 3)]};
+    check('S256', 'the side nearest the street is the front', api.area(front) === 'front',
+      'got "' + api.area(front) + '"');
+    check('S256', 'the far side is the back', api.area(back) === 'back',
+      'got "' + api.area(back) + '"');
+    check('S256', 'and facing the house from the street, east is on the right',
+      api.area(east) === 'right' && api.area(west) === 'left',
+      'east came back "' + api.area(east) + '", west "' + api.area(west) +
+      '" - swapped sides send a crew round the wrong side of the house');
+
+    /* ⚠ IT ANSWERS NOTHING WHEN IT CANNOT TELL, and that is the design. A
+       guessed side reaches a printed sheet reading like something checked. */
+    api.set([], null);
+    check('S256', 'with no camera on the road it refuses to name a side',
+      api.area(front) === '',
+      'got "' + api.area(front) + '" with nothing to measure the bearing against');
+  }
+
+  /* ---- and the wiring around it ------------------------------------- */
+  /* estimatedFeet is what the quote card, Add Customer and Edit Customer all
+     read. The new map is ADDITIVE and must not have displaced it. */
+  const useBtn = (admin.split("getElementById('rmUseFeetBtn').addEventListener")[1] || '').slice(0, 2000);
+  /* ⚠ THIS PAIR IS RUN, NOT MATCHED, AND A RED-CHECK IS WHY. The first version
+     searched the source for `payload.measurement = measurement` and stayed
+     green when the whole line was disabled with `if(false)` — the assignment is
+     still in the file, it simply never happens. Building the payload in its own
+     function is what makes the question answerable by executing it. */
+  const payloadFn = extractFn(admin, 'rmSavePayload');
+  check('S256', 'the save payload is built somewhere it can be run', !!payloadFn,
+    'inline, the only available check is a text match, and a text match cannot ' +
+    'tell a live line from one behind an if(false)');
+  if (payloadFn) {
+    const mkPayload = new Function(payloadFn + LF_ + 'return rmSavePayload;')();
+    const withGeom = mkPayload(210, {version: 2, runs: []});
+    const without = mkPayload(210, null);
+    check('S256', 'saving still writes estimatedFeet, which is the older contract',
+      withGeom.estimatedFeet === 210 && without.estimatedFeet === 210,
+      'three screens read that field and know nothing about the new one');
+    check('S256', 'and writes the drawing in the same press',
+      withGeom.measurement && withGeom.measurement.version === 2,
+      'a Save that keeps the number and drops the lines is the bug this closes');
+    /* A quote measured before any of this existed has no geometry to write.
+       Sending an explicit undefined would have Firestore refuse the whole
+       write — and the footage rides in it. */
+    check('S256', 'and a quote with no drawing writes the number alone, not an empty one',
+      !('measurement' in without),
+      'an undefined measurement key fails the write and takes estimatedFeet with it');
+  }
+  /* ⚠ THE SERIALISER IS BUILT OUTSIDE THE WRITE ON PURPOSE. Saving the footage
+     is what this button has always done; the geometry is the new half. A fault
+     in the new half must cost the drawing, never the number. */
+  check('S256', 'a fault packaging the drawing still lets the footage save',
+    useBtn.indexOf('try{ measurement = rmMeasurementDoc(); }') !== -1 &&
+    useBtn.indexOf('catch') < useBtn.indexOf('updateDoc'),
+    'building it inside the write makes a serialiser bug lose the footage too');
+
+  /* ⚠ CONSUMED ONCE. Pressing Load again re-frames the same house; restoring
+     on every load stacks a second copy of every line on the first and doubles
+     the footage. */
+  const load = extractFn(admin, 'rmLoadAddress') || '';
+  check('S256', 'the saved drawing is taken rather than read, so Load twice is safe',
+    /const pending = rmPendingMeasurement;[\s\S]{0,80}rmPendingMeasurement = null;/.test(load),
+    'reading it without clearing it doubles every line on a second Load');
+  check('S256', 'and it is put back after the load has finished clearing the map',
+    load.indexOf('rmClearDrawing()') < load.indexOf('rmRestoreMeasurement'),
+    'rmLoadAddress clears the drawing near the top - restoring before that point ' +
+    'is wiped by it, and an empty tool looks exactly like a quote never measured');
+  const open = extractFn(admin, 'openRoofMeasure') || '';
+  check('S256', 'and opening a quote stashes it after the reset that would clear it',
+    open.indexOf('rmReset()') < open.indexOf('rmPendingMeasurement'),
+    'rmReset clears the pending drawing, so stashing it first loses it silently');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code

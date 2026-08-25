@@ -15268,6 +15268,10 @@ const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
 const RM_M_TO_FT = 3.280839895;
 
 let rmQuoteId = null;
+/* A saved drawing waiting for the map to exist before it can be put back.
+   Consumed ONCE — pressing Load again re-frames the same house, and restoring
+   on every load would stack a second copy of every line on top of the first. */
+let rmPendingMeasurement = null;
 let rmOrigin = null;              /* {lat, lng} - the local frame's origin */
 let rmMap = null, rmPano = null, rmHomeMarker = null;
 let rmCamGroundDrop = 0;          /* house ground minus camera ground, metres */
@@ -18448,8 +18452,15 @@ function rmToggleRun(i){
 }
 /* ---- totals ------------------------------------------------------------ */
 function rmRunFeet(run){
+  if(!run) return 0;
+  /* ⚠ A HAND-ENTERED SIDE CARRIES ITS FOOTAGE AS A NUMBER, not as a path.
+     Street View cannot see the back of most houses, so those sides are typed
+     in — there is nothing to measure between. Answering here rather than at
+     every call site is what lets rmTotals, the price, the material list and
+     the saved document all count them without knowing they are different. */
+  if(run.surface === 'manual') return Number(run.manualFeet) || 0;
   let t = 0;
-  for(let i = 1; i < run.path.length; i++) t += rmFeetBetween(run.path[i-1], run.path[i]);
+  for(let i = 1; i < (run.path || []).length; i++) t += rmFeetBetween(run.path[i-1], run.path[i]);
   return t;
 }
 function rmRunIsOn(r){ return r && r.on !== false; }
@@ -18469,6 +18480,193 @@ function rmTotals(){
   return out;
 }
 function rmRunsOn(){ return rmRuns.filter(rmRunIsOn); }
+
+/* ---- what actually gets written down ------------------------------------ */
+/* ⭐ THE GEOMETRY IS SAVED, NOT JUST THE TOTAL (added 2026-08-25).
+ *
+ * ⚠ THE HOLE THIS CLOSES. rmRuns was a plain in-memory array and the ONLY
+ * thing that ever reached Firestore was one number — estimatedFeet. Close the
+ * tool and every traced line was gone. So re-quoting a house meant measuring it
+ * again from scratch, one bad segment could not be corrected without redoing
+ * all of them, nobody could see what a figure was based on, and improving the
+ * maths later could never be applied to a quote already given.
+ *
+ * ⚠ estimatedFeet IS UNTOUCHED AND REMAINS THE CONTRACT. The quote card, Add
+ * Customer and Edit Customer all read it and none of them know this exists.
+ * `measurement` is ADDITIVE — a quote without one behaves exactly as before.
+ *
+ * ⚠ AND NOTHING GOOGLE-SHAPED GOES IN IT. Each run carries `line` and `dots`,
+ * which are live Polyline and Marker objects; writing those would either be
+ * refused or store a lump of nonsense. The doc is built field by field for
+ * that reason, never by copying a run. Firestore also rejects `undefined`
+ * outright, so every field below resolves to a real value. */
+const RM_MEASUREMENT_VERSION = 2;
+
+/* WHICH SIDE OF THE HOUSE A RUN IS ON.
+ * The front is the side facing the STREET, and the street is where the camera
+ * stands — so the answer is the run's bearing from the middle of the house,
+ * measured against the bearing to the road.
+ *
+ * ⚠ IT ANSWERS '' WHEN IT CANNOT TELL, and that is the whole design. With no
+ * camera on the road there is no front to be on, and a guessed side is worse
+ * than a blank one: it reaches the warehouse and the crew sheet reading like
+ * something somebody checked.
+ * ⚠ LEFT AND RIGHT ARE AS YOU FACE THE HOUSE FROM THE STREET, which is how
+ * everyone describes a house and is the opposite of the bearing arithmetic if
+ * you take it straight. Standing south of a house looking north, the east side
+ * is on your right. */
+function rmRunArea(run){
+  if(!run || !rmOrigin || !run.path || run.path.length < 2) return '';
+  const cam = typeof rmCamOnRoad === 'function' ? rmCamOnRoad() : null;
+  if(!cam) return '';
+  const street = Math.atan2(cam.e, cam.n) * 180 / Math.PI;
+  let e = 0, n = 0;
+  run.path.forEach(function(p){
+    const l = rmToLocal(p.lat, p.lng, 0); e += l.e; n += l.n;
+  });
+  e /= run.path.length; n /= run.path.length;
+  /* A run through the middle of the house is on no side at all. */
+  if(Math.hypot(e, n) < 1) return '';
+  const mine = Math.atan2(e, n) * 180 / Math.PI;
+  const rel = ((mine - street) % 360 + 360) % 360;
+  if(rel < 45 || rel >= 315) return 'front';
+  if(rel < 135) return 'left';
+  if(rel < 225) return 'back';
+  return 'right';
+}
+
+/* The panorama this was traced against, frozen. Street View gets re-shot, so
+   a saved proof image and the live pano drift apart — recording which one was
+   used is what makes that detectable later rather than merely confusing. */
+function rmPanoState(){
+  if(!rmPano || typeof rmPano.getPano !== 'function') return null;
+  const id = rmPano.getPano();
+  const pos = typeof rmPano.getPosition === 'function' ? rmPano.getPosition() : null;
+  if(!id || !pos) return null;
+  const pov = typeof rmPano.getPov === 'function' ? (rmPano.getPov() || {}) : {};
+  return {
+    id: id, lat: pos.lat(), lng: pos.lng(),
+    heading: Number(pov.heading) || 0,
+    pitch: Number(pov.pitch) || 0,
+    zoom: (typeof rmPano.getZoom === 'function' ? Number(rmPano.getZoom()) : 0) || 0
+  };
+}
+
+function rmRunName(r, i){
+  if(r && r.name) return r.name;
+  const label = (RM_TYPES[r && r.type] || {}).label || 'Side';
+  return label + ' ' + (i + 1);
+}
+
+function rmMeasurementDoc(){
+  const t = rmTotals();
+  const runs = rmRuns.map(function(r, i){
+    return {
+      id: r.id || ('run-' + (i + 1)),
+      name: rmRunName(r, i),
+      /* Stored once rather than re-derived on read: the camera that decided it
+         is not on screen when a saved quote is reopened somewhere else. */
+      area: r.area || rmRunArea(r) || '',
+      surface: r.surface || 'sky',
+      type: r.type || 'perimeter',
+      path: (r.path || []).map(function(p){
+        return {lat: Number(p.lat), lng: Number(p.lng), h: isFinite(p.h) ? Number(p.h) : 0};
+      }),
+      manualFeet: isFinite(r.manualFeet) ? Number(r.manualFeet) : 0,
+      /* ⚠ A run switched OFF is still saved. It is still on screen and still
+         un-deletable by accident, so dropping it here would make reopening the
+         quote the one way to lose it for good. */
+      include: rmRunIsOn(r),
+      suggested: !!r.suggested,
+      side: r.side || '',
+      feet: Math.round(rmRunFeet(r) * 10) / 10
+    };
+  });
+  const pano = rmPanoState();
+  const datum = rmDatum();
+  return {
+    version: RM_MEASUREMENT_VERSION,
+    savedAt: new Date().toISOString(),
+    runs: runs,
+    /* Footage traced on a photo the customer sent. It has no map position, so
+       it cannot be a run with a path — it is a number, and rmTotals already
+       counts it, so it has to be saved or the total will not add up on the way
+       back in. */
+    photoFeet: Number(rmPhotoExtraFeet) || 0,
+    pano: pano || null,
+    origin: rmOrigin ? {lat: rmOrigin.lat, lng: rmOrigin.lng} : null,
+    datum: {m: Number(datum.m) || 0, source: datum.source || 'assumed'},
+    /* ⚠ THE GRADE, NOT THE MULTIPLIER. The office's judgement is the durable
+       fact; x0.85 is a pricing policy that can be re-tuned in one place. Saving
+       the derived number instead would freeze today's rate table into every old
+       quote and quietly stop a rate change reaching them.
+       ⚠ AND THIS IS NOT THE ROUTES DIFFICULTY PILL. That one is crew workload
+       — how hard a house is to WORK, used to mix a crew's day. This one tilts
+       the per-foot rate. Same three words, two different questions; keeping
+       them apart was settled deliberately, so do not wire one to the other. */
+    difficulty: rmCurrentGrade() || 'Medium',
+    totals: {
+      linearFt: Math.round(t.all),
+      /* Bulbs sit a foot apart, so the bulb count IS the footage. Written down
+         rather than left implied because it is what gets ordered. */
+      bulbCount: Math.round(t.all)
+    }
+  };
+}
+
+/* WHAT ONE PRESS OF Use ... AS ESTIMATED FEET ACTUALLY WRITES.
+ * ⚠ ITS OWN FUNCTION SO IT CAN BE RUN RATHER THAN READ. Built inline, the only
+ * way to check it was to match the source — and a text match stays green with
+ * an `if(false)` in front of the line, which is how a Save that silently kept
+ * the number and dropped the drawing would have shipped past a passing suite.
+ * ⚠ estimatedFeet IS ALWAYS PRESENT. Three screens read it and none of them
+ * know the drawing exists, so it is written whether or not there is geometry
+ * to go with it. */
+function rmSavePayload(feet, measurement){
+  const payload = {estimatedFeet: feet};
+  if(measurement) payload.measurement = measurement;
+  return payload;
+}
+
+/* Put a saved measurement back on the screen.
+   ⚠ IT DOES NOT RE-DERIVE ANYTHING IT WAS GIVEN. The heights, the sides and
+   the on/off state were decided by somebody looking at the house; recomputing
+   them here would quietly overwrite that with whatever today's model says. */
+function rmRestoreMeasurement(m){
+  if(!m || !Array.isArray(m.runs)) return 0;
+  rmClearDrawing();
+  let restored = 0;
+  m.runs.forEach(function(sr){
+    const path = (sr.path || []).map(function(p){
+      return {lat: Number(p.lat), lng: Number(p.lng), h: Number(p.h) || 0};
+    });
+    if(sr.surface !== 'manual' && path.length < 2) return;
+    const run = {
+      id: sr.id || '', name: sr.name || '', area: sr.area || '',
+      surface: sr.surface || 'sky', type: RM_TYPES[sr.type] ? sr.type : 'perimeter',
+      path: path, manualFeet: Number(sr.manualFeet) || 0,
+      on: sr.include !== false, suggested: !!sr.suggested, side: sr.side || '',
+      /* Restored lines were traced by a person, so they are already decided —
+         `touched` is what stops a later re-side sweep moving them. */
+      touched: true
+    };
+    rmRuns.push(run);
+    if(run.surface !== 'manual') rmSyncSky(run);
+    restored++;
+  });
+  rmPhotoExtraFeet = Number(m.photoFeet) || 0;
+  const sel = document.getElementById('rmDifficulty');
+  if(sel && m.difficulty) sel.value = m.difficulty;
+  if(m.datum && Number(m.datum.m) > 0){
+    const box = document.getElementById('rmHeightFt');
+    if(box) box.value = Math.round(Number(m.datum.m) * RM_M_TO_FT * 10) / 10;
+    if(m.datum.source === 'street' || m.datum.source === 'photo'){
+      rmRoofDatumM = Number(m.datum.m); rmDatumSource = m.datum.source;
+    }
+  }
+  rmRenderResults(); rmPaintStreet();
+  return restored;
+}
 function rmFmtFeet(f){
   if(!f) return '0 ft';
   return (f >= 100 ? Math.round(f) : Math.round(f*10)/10) + ' ft';
@@ -19219,8 +19417,23 @@ async function rmLoadAddress(){
   document.getElementById('rmHeightPanel').style.display = 'block';
   rmApplyFilter();
   rmSetDrawing(false);
+  /* ⚠ HERE, NOT EARLIER. rmLoadAddress calls rmClearDrawing() near the top, so
+     anything put back before that point is thrown away by it — and the map has
+     to exist before rmSyncSky has anything to draw on. Taken rather than read,
+     so pressing Load a second time re-frames the house instead of stacking a
+     second copy of every line on the first. */
+  const pending = rmPendingMeasurement;
+  rmPendingMeasurement = null;
+  let restoredCount = 0;
+  if(pending){
+    try{ restoredCount = rmRestoreMeasurement(pending); }
+    catch(err){ console.error('Measure: could not put the saved drawing back —', err); }
+  }
   rmRenderResults();
-  status.textContent = '';
+  status.textContent = restoredCount
+    ? 'Brought back ' + restoredCount + ' side' + (restoredCount === 1 ? '' : 's') +
+      ' measured earlier. Drag a point to correct one, or trace another.'
+    : '';
   /* Point the panorama AT the house rather than wherever the car faced. */
   try{
     /* ⚠ ONE FAILED LOOKUP IS NOT "NO STREET VIEW".
@@ -19723,6 +19936,7 @@ function rmBackToHouse(){
 }
 function rmReset(){
   rmClearDrawing();
+  rmPendingMeasurement = null;
   rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
   rmShots = []; rmCrop = null; rmCropDrag = null;
   rmWall = null; rmWallPts = []; rmWallPicking = false;
@@ -19763,6 +19977,10 @@ function openRoofMeasure(quoteId){
   if(!item) return;
   rmQuoteId = quoteId;
   rmReset();
+  /* ⚠ SET AFTER rmReset, WHICH CLEARS IT. Anything stashed before the reset is
+     wiped by it — and the failure would be silent, because a tool that opens
+     with no lines on it looks exactly like a quote that was never measured. */
+  rmPendingMeasurement = item.data.measurement || null;
   document.getElementById('rmTitle').textContent = 'Measure Roof — ' + (item.data.name || 'Quote');
   document.getElementById('rmAddress').value = item.data.address || '';
   document.getElementById('roofMeasureOverlay').style.display = 'flex';
@@ -20340,15 +20558,27 @@ function openRoofMeasure(quoteId){
     const feet = Math.round(measured * RM_FEET_MULTIPLIER);
     const status = document.getElementById('rmStatus');
     status.textContent = 'Saving the footage…';
+    /* ⚠ BUILT OUTSIDE THE WRITE, AND ITS OWN FAILURE IS SURVIVABLE. Saving the
+       footage is what this button has always done and what the rest of the
+       quote reads; the geometry is the new half. A serializer fault must cost
+       the drawing, never the number — so the doc is built first, and a throw
+       here leaves a feet-only write rather than taking the whole save down. */
+    let measurement = null;
+    try{ measurement = rmMeasurementDoc(); }
+    catch(err){ console.error('Measure: could not package the drawing —', err); }
     try{
-      await updateDoc(doc(db, 'quotes', rmQuoteId), {estimatedFeet: feet});
+      await updateDoc(doc(db, 'quotes', rmQuoteId), rmSavePayload(feet, measurement));
       const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
-      if(item) item.data.estimatedFeet = feet;
+      if(item){
+        item.data.estimatedFeet = feet;
+        if(measurement) item.data.measurement = measurement;
+      }
       renderQuotesList();
       /* ⚠ NOT "doubled". RM_FEET_MULTIPLIER has been 1 for a while, so the word
          described arithmetic that stopped happening and told the office their
          footage had been changed on the way in when it had not. */
-      status.textContent = 'Estimated Feet set to ' + feet + ' (' + rmFmtFeet(measured) + ' measured).';
+      status.textContent = 'Estimated Feet set to ' + feet + ' (' + rmFmtFeet(measured) + ' measured)' +
+        (measurement ? ' — and the drawing is saved, so reopening this quote brings it back.' : '.');
     } catch(err){ status.textContent = 'Could not save the footage onto the quote — try again.'; }
   });
   document.getElementById('rmAttachBtn').addEventListener('click', async function(){
