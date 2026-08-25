@@ -43685,10 +43685,43 @@ function findHouse(id){for(const d of SEASON){const h=d.houses.find(x=>String(x.
 // only the invoice-side newMemberFeeApplied), so it was flagging every past customer who
 // happened to still have it checked, not just this season's actual conversions. A Closed
 // quote is scoped to an actual conversion, which is what this panel is supposed to show.
+/* ⭐ THE PHONE ALONE IS NOT THIS HOUSE (fixed 2026-08-25). Owner, reading the rule
+   back: "so if two phone numbers are on one account and a new account comes in with
+   that same phone number than both accounts will count as new?" Yes, it did.
+
+   ⚠ 17 NUMBERS IN THE REAL BOOK ARE SHARED and 14 of those are a parent and a child
+   at two different houses. Convert the child and their quote is closed carrying that
+   number — from then on the PARENT'S house matched it too and badged NEW, on a house
+   hung for five years. And it never wore off: closed quotes stay in quotesCache, so
+   it repeated every season.
+   What it cost: the NEW badge on the stop, the Dashboard's New members count (out by
+   up to 14), the type column reading NEW on the printed sheet and the CSV, and a house
+   photo printed for a house that did not need one. No money and no install date — the
+   $30 fee, houseInstallPriority, the invoice and the RSVP audience all read
+   chargeNewMemberFee, the box the office ticks, not this.
+
+   THE ADDRESS IS WHAT MAKES IT THE SAME HOUSE — the same rule quoteAlreadyACustomer
+   and quoteExistingCustomer already use, through the one normaliser. A house is
+   resolved to its customer id-first (hlxResolvePlanHouse), never by the shared phone,
+   or the fix would be reading the very field that is ambiguous.
+
+   ⚠ AND IT FAILS TOWARDS BADGING. Rejecting takes POSITIVE evidence of a different
+   house — both addresses known and different. Unknown on either side keeps the old
+   answer. A spare photo on a crew sheet costs nothing; a new hang printed with NO
+   photo is the failure the badge exists to prevent (see printIsNewHang, and Ashley
+   Wray, who is the reason it looks at quotes at all). */
 function closedQuoteFor(h){
   const digits = (''+(h.phone||'')).replace(/\D/g,'');
   if(!digits) return null;
-  return quotesCache.find(q => q.data.status === 'closed' && (''+(q.data.phone||'')).replace(/\D/g,'') === digits) || null;
+  const sameNumber = quotesCache.filter(q => q.data && q.data.status === 'closed' && (''+(q.data.phone||'')).replace(/\D/g,'') === digits);
+  if(!sameNumber.length) return null;
+  const norm = (typeof quoteMatchAddress === 'function') ? quoteMatchAddress : null;
+  const cust = norm ? hlxResolvePlanHouse(h) : null;
+  const mine = (cust && cust.data) ? norm(cust.data.address) : '';
+  if(!mine) return sameNumber[0];
+  const exact = sameNumber.find(q => norm(q.data.address) === mine);
+  if(exact) return exact;
+  return sameNumber.every(q => !!norm(q.data.address)) ? null : sameNumber[0];
 }
 function isNewMemberHouse(h){
   if(!h || h.isFix || h.isTakedown) return false;

@@ -36345,6 +36345,134 @@ suite('251. The corners, offered rather than hunted');
   })());
 }
 
+
+/* ============================================================================
+   252. THE NEW BADGE IS THIS HOUSE'S QUOTE, NOT JUST THIS PHONE NUMBER
+   ----------------------------------------------------------------------------
+   Owner, 2026-08-25, reading the old rule back: "so if two phone numbers are on
+   one account and a new account comes in with that same phone number than both
+   accounts will count as new?" They did.
+
+   17 numbers in the real book are shared and 14 of those are a parent and a child
+   at two different houses, so one closed quote badged BOTH NEW - and closed quotes
+   never leave quotesCache, so it repeated every season.
+
+   ⚠ LIFTED, NOT REIMPLEMENTED, and the deps go in as ARGUMENTS rather than onto
+   the shared scope: everything here is the real function out of admin.html, and
+   nothing is left behind for another suite to find (see the shadowing guard at the
+   foot of this file).
+   ========================================================================== */
+suite('252. The NEW badge is this house, not just this phone number');
+{
+  const NEED = ['closedQuoteFor', 'isNewMemberHouse', 'quoteMatchAddress',
+                'hlxResolvePlanHouse', 'customerForHouse'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S252', 'every function this suite runs was found in admin.html',
+    missing.length === 0, 'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const PHONE = '(801) 555-0000';               // one number, two households
+    const PARENT_ADDR = '100 Oak Ln, Lehi, UT';
+    const CHILD_ADDR = '200 Elm St, Lehi, UT';
+
+    /* The child came through a quote and was converted, so THEIR quote is closed
+       and carries the shared number. The parent has been a customer for years. */
+    const build = (quotes) => {
+      const jobAddresses = [
+        { id: 'p1', data: { name: 'Parent', address: PARENT_ADDR, phone: PHONE, customerNumber: '14' } },
+        { id: 'c1', data: { name: 'Child', address: CHILD_ADDR, phone: PHONE, customerNumber: '20' } },
+      ];
+      const custById = new Map(jobAddresses.map(c => [c.id, c]));
+      const custByNumber = new Map(jobAddresses.map(c => [c.data.customerNumber, c]));
+      /* ⚠ ONE ENTRY FOR A SHARED NUMBER, exactly as rebuildCustomerIndexes leaves it:
+         a Map keyed on the digits can only hold one of the two, and which one it holds
+         is arrival order. That ambiguity is precisely why the fix resolves the house by
+         ID and not by phone - a fixture that gave each house its own number here would
+         hide the thing being tested. */
+      const custByPhoneDigits = new Map([['8015550000', jobAddresses[1]]]);
+      const fn = new Function('quotesCache', 'jobAddresses', 'custById', 'custByNumber',
+        'custByPhoneDigits',
+        parts.join('\n') + '\nreturn {closedQuoteFor: closedQuoteFor, isNewMemberHouse: isNewMemberHouse};');
+      return fn(quotes, jobAddresses, custById, custByNumber, custByPhoneDigits);
+    };
+
+    const childQuote = { id: 'q1', data: { status: 'closed', phone: '8015550000', address: CHILD_ADDR } };
+    const app = build([childQuote]);
+    const parentHouse = { id: 'cust-p1', name: 'Parent', phone: PHONE, cu: '14' };
+    const childHouse = { id: 'cust-c1', name: 'Child', phone: PHONE, cu: '20' };
+
+    check('S252', 'the house that actually came through the quote is NEW',
+      app.isNewMemberHouse(childHouse) === true,
+      'this is the Ashley Wray case - her $30 box is not ticked and the closed quote is ' +
+      'the only thing that knows she is a new hang. Losing this loses her crew photo.');
+
+    check('S252', 'the other house on the same number is NOT',
+      app.isNewMemberHouse(parentHouse) === false,
+      'the parent has been hung for five years; a phone-only match badged them NEW too, ' +
+      'printed a photo they did not need and put them in the Dashboard New members count');
+
+    /* ---- and it fails towards badging, never away from it ---- */
+    const noAddr = build([{ id: 'q2', data: { status: 'closed', phone: '8015550000', address: '' } }]);
+    check('S252', 'a closed quote with no address still badges, rather than badging nobody',
+      noAddr.isNewMemberHouse(childHouse) === true && noAddr.isNewMemberHouse(parentHouse) === true,
+      'rejecting needs POSITIVE evidence of a different house. A spare photo costs ' +
+      'nothing; a new hang printed with no photo is the failure the badge exists to stop');
+
+    const imported = { id: '7', name: 'From the CSV', phone: PHONE, cu: '' };
+    check('S252', 'an imported row with no cust- id is still resolved, and still badges',
+      app.isNewMemberHouse(imported) === true,
+      'an imported plan row carries no cust- id, so it falls back to customerForHouse - ' +
+      'that path has to keep working or every imported season loses its NEW badges');
+
+    /* ⚠ THE HOUSE THAT RESOLVES TO NOBODY. hlxResolvePlanHouse returns null for a
+       cust- id matching no customer - deliberately, rather than falling through to the
+       number, which could land on somebody else. So there is no address to compare and
+       the old answer must stand.
+       ⚠ THIS FIXTURE EXISTS BECAUSE A RED-CHECK FOUND THE BRANCH UNREACHED: turning
+       'no address known' into a rejection left the whole suite GREEN, because every
+       other fixture resolves to a customer with a real address. */
+    const deleted = { id: 'cust-gone', name: 'Customer since deleted', phone: PHONE, cu: '99' };
+    check('S252', 'a plan row whose customer is gone keeps the old answer',
+      app.isNewMemberHouse(deleted) === true,
+      'nothing to compare is not evidence of a different house - fail towards badging');
+
+    /* ---- and the things that were already true stay true ---- */
+    check('S252', 'a house whose number matches no closed quote is not new',
+      app.isNewMemberHouse({ id: 'cust-p1', phone: '801 555 9999', cu: '14' }) === false);
+    check('S252', 'a house with no phone at all is not new',
+      app.closedQuoteFor({ id: 'cust-p1', phone: '', cu: '14' }) === null);
+    check('S252', 'a takedown is never a new hang',
+      app.isNewMemberHouse({ id: 'cust-c1', phone: PHONE, cu: '20', isTakedown: true }) === false);
+    check('S252', 'and neither is a fix',
+      app.isNewMemberHouse({ id: 'cust-c1', phone: PHONE, cu: '20', isFix: true }) === false);
+
+    /* ⚠ AN OPEN QUOTE IS NOT A CONVERSION. Only `closed` means they were converted;
+       matching any status would badge every house that has ever been quoted. */
+    const openOnly = build([{ id: 'q3', data: { status: 'new', phone: '8015550000', address: CHILD_ADDR } }]);
+    check('S252', 'a quote that is not closed does not badge anybody',
+      openOnly.isNewMemberHouse(childHouse) === false);
+
+    /* ⚠ THE ADDRESS IS COMPARED THROUGH THE ONE NORMALISER, so the punctuation the
+       office types cannot decide whether a crew gets a photo. */
+    const messy = build([{ id: 'q4', data: { status: 'closed', phone: '8015550000', address: '200 Elm St., Lehi, UT' } }]);
+    check('S252', 'a comma or a full stop does not make it a different house',
+      messy.isNewMemberHouse(childHouse) === true && messy.isNewMemberHouse(parentHouse) === false);
+
+    /* ⚠ AND THE RIGHT QUOTE IS RETURNED, not merely the right yes/no. printIsNewHang
+       only asks yes or no today, but closedQuoteFor hands the quote back and a future
+       reader taking a price or a date off the WRONG household's quote would be silent. */
+    const both = build([
+      { id: 'qP', data: { status: 'closed', phone: '8015550000', address: PARENT_ADDR } },
+      { id: 'qC', data: { status: 'closed', phone: '8015550000', address: CHILD_ADDR } },
+    ]);
+    check('S252', 'with a closed quote for each house, each gets its own',
+      (both.closedQuoteFor(parentHouse) || {}).id === 'qP' &&
+      (both.closedQuoteFor(childHouse) || {}).id === 'qC',
+      'returning the first match by phone hands one household the other one\'s quote');
+  }
+}
+
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
    that will just sit there doing nothing forever" - asked twice, and pushing on it is
    what produced this.
