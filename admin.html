@@ -17082,6 +17082,8 @@ const RM_PIN_GRAB_PX = 8;
    A shift-drag has already SAID which dot it means, so it can afford a
    generous target; a plain click has not, so it cannot. */
 const RM_DRAG_GRAB_PX = 18;
+const RM_DRAG_SLOP_PX = 4;       /* below this the pointer only wobbled */
+let rmDragMoved = false;         /* a drag happened, so the click that ends it is not a swap */
 
 /* The point that best satisfies every ray it has been seen along. */
 function rmSolveFromRays(rays){
@@ -19766,7 +19768,20 @@ function rmPaintStreet(){
       'fill="'+(lit ? '#8a4038' : '#8b95a1')+'" stroke="rgba(255,255,255,.85)" stroke-width="2" ' +
       'paint-order="stroke" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
       Math.round((c.h || 0) * RM_M_TO_FT) + '′</text>');
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="12" fill="rgba(0,0,0,0)" ' +
+    /* ⚠ THIS IS WHAT STOPPED TWO DOTS BEING PLACED CLOSE TOGETHER, and it is not
+       what it looked like. Owner: "it doesnt let me place dots if they are to
+       close fix that."
+       The invisible target was r=12 with pointer-events:all, on the SVG layer
+       ABOVE the sheet that catches clicks - so a click within twelve pixels of
+       an existing dot never reached the placing code at all. It toggled that dot
+       instead, and stopped there, because this handler calls stopPropagation.
+       Nothing about it looked like a refusal: no message, no new dot.
+       ⚠ THE PIN RADIUS WAS A RED HERRING. Narrowing that (22 to 8) was worth
+       doing on its own, but it could never have fixed this - the click was
+       already gone before anything asked how near the nearest dot was.
+       Seven pixels still takes a deliberate click on a dot drawn at 3.2, and
+       leaves room to put the next one down beside it. */
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="7" fill="rgba(0,0,0,0)" ' +
       'style="pointer-events:all; cursor:pointer;" data-rmcornerdot="'+i+'"></circle>');
   });
   svg.innerHTML = parts.join('');
@@ -19778,6 +19793,14 @@ function rmPaintStreet(){
     el.addEventListener('click', function(ev){
       ev.stopPropagation();
       const i = Number(el.dataset.rmcornerdot);
+      /* ⚠ SHIFT MEANS TWO THINGS NOW, AND THE MOUSE DECIDES WHICH. Shift-click on
+         a dot has always swapped two dots' order - asked for in those words -
+         and shift-DRAG was then asked for to move one. Same modifier, same
+         target, so the only thing that separates them is whether the pointer
+         actually travelled. If it did, the drag has already moved the dot and
+         this click is just the end of it; swapping as well would be a second,
+         unasked-for change from one gesture. */
+      if(rmDragMoved){ rmDragMoved = false; return; }
       if(ev.shiftKey){
         if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); rmPaintStreet(); }
         else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
@@ -20855,7 +20878,7 @@ function openRoofMeasure(quoteId){
      ring comes off. Keeping them would leave a dot claiming to be exact while
      sitting wherever it was last dragged - which is the confident-wrong state
      this tool keeps having to be rescued from. */
-  let rmDragDot = -1;
+  let rmDragDot = -1, rmDragFrom = null;
   document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
     if(!e.shiftKey || rmCornerMode !== 'dot') return;
     const cam = rmCamLocal();
@@ -20865,12 +20888,18 @@ function openRoofMeasure(quoteId){
     const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
     if(i < 0) return;
     rmDragDot = i;
+    rmDragFrom = {x: e.clientX, y: e.clientY};
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
     if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
   });
   document.getElementById('rmPanoLock').addEventListener('mousemove', function(e){
     if(rmDragDot < 0) return;
+    /* ⚠ A few pixels of travel is a shaky click, not a drag. Below this the dot
+       is left exactly where it was, so shift-clicking to SWAP two dots is not
+       quietly turned into moving one of them a hair. */
+    if(rmDragFrom && Math.hypot(e.clientX - rmDragFrom.x, e.clientY - rmDragFrom.y) < RM_DRAG_SLOP_PX) return;
+    rmDragMoved = true;
     const cam = rmCamLocal();
     const c = rmCorners[rmDragDot];
     if(!cam || !c){ rmDragDot = -1; return; }
