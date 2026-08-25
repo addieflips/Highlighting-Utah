@@ -47226,14 +47226,15 @@ function printDaySheet(dayId){
        houses on it. */
     blocks.push('<h2>'+esc(crewName(i))+' — '+esc(crewCityFor(i,day)||'no city set')+
       ' · '+mine.length+' stop'+(mine.length===1?'':'s')+'</h2>'+
-      printTableHtml(mine,PRINT_COLUMNS.crew)+
-      printPhotosHtml(printCrewPhotos(day,i)));
+      printTableHtml(mine,printCrewColumns(mine))+
+      printPhotosHtml(printCrewPhotos(day,i))+
+      printPhotosHtml(printFixPhotos(day,i),'What’s wrong — photos'));
   });
   const spare=(typeof unassignedHousesFor==='function')?unassignedHousesFor(day):[];
   if(spare.length){
     const sr=spare.map(function(h){ return printCrewRow(h); });
     blocks.push('<h2>In neither crew’s city — '+sr.length+'</h2>'+
-      printTableHtml(sr,PRINT_COLUMNS.crew));
+      printTableHtml(sr,printCrewColumns(sr)));
   }
   const title='Schedule — '+what+' — '+l.wd+', '+l.full;
   schedOpenPrintPages(title,[{
@@ -47357,7 +47358,60 @@ function printCrewRow(h){
           address: d.street || h.address || '', city: h.city || d.city || '',
           gate: printGateCode(d), sides: printSideCount(d),
           eaves: printYesNo(d.useEaves), timer: printYesNo(d.outletTimer),
+          fix: printFixReason(d),
           notes: printCrewNotes(d, h)};
+}
+/* ⭐ WHAT IS ACTUALLY WRONG AT THIS HOUSE (added 2026-08-25).
+   Owner, 2026-08-21: "were not using the employee portal this year... we are only
+   printing on schedules and warehouse."
+
+   ⚠ THAT RULING RESCUED THE GATE CODE, THE SIDES AND THE OUTLET INSTRUCTION onto the
+   paper, because those three had only ever lived in the crew portal. THE FIX NOTE AND
+   THE FIX PHOTO WERE IN EXACTLY THE SAME POSITION AND WERE MISSED. So a Fixer Route
+   sheet named the houses and said nothing whatever about what was broken at any of
+   them: the office types "two strands out on the front peak" into fixNote and uploads a
+   photo of it, both render on the Routes screen (which nobody in a van is looking at),
+   and the crew drives out holding a list of addresses. They either ring the office or
+   guess, and guessing at somebody's roofline is how the second visit happens.
+
+   ⚠ A FLAGGED HOUSE WITH NO NOTE PRINTS "?", NOT BLANK. Blank reads as "nothing wrong
+   here" on a row that is on the sheet precisely because something is — the crew would
+   skip it. "?" is this sheet's own established word for nobody-said (see printYesNo,
+   and the master sheet's own Up Plug column), so it is not a second vocabulary. The
+   photo below may still answer it.
+
+   ⚠ AND IT READS needsFix, NOT THE NOTE ALONE. A note left behind on a house whose fix
+   is finished would send a crew to mend something already mended — hlxMarkJobDone
+   clears both together, so the flag is the question and the note is only the answer. */
+function printFixReason(d){
+  if(!d || !d.needsFix) return '';
+  return ('' + (d.fixNote || '')).trim() || '?';
+}
+/* ⭐ THE COLUMN APPEARS EXACTLY WHEN SOMETHING FILLS IT (added 2026-08-25).
+   Driven by the ROWS, not by day.isFixRoute, and that is deliberate in both directions.
+
+   ⚠ NOT ON EVERY SHEET: this would otherwise be an empty column on ~950 install rows
+   all season. The owner's own rule about the Notes column — "anything put after it gets
+   lost against a wall of writing" — is the same argument about width, and the photo
+   sizing note beside it is the same argument about ink.
+
+   ⚠ AND NOT ONLY ON FIX DAYS EITHER, which is what testing day.isFixRoute would have
+   given. A house flagged for a fix can sit on an ordinary install or takedown day; the
+   crew is standing in front of it, and the one sheet they hold should say what is wrong
+   with it. Asking the rows means both cases are right without either being special.
+
+   ⚠ IT GOES BEFORE Notes, for the reason the owner gave when Timer was moved there:
+   "that should come before notes." Notes is the wide free-text column and the two prose
+   columns sit together, labelled one first — the same order printCrewNotes uses inside
+   itself, actionable ahead of standing. */
+const PRINT_FIX_COLUMN = {k: 'fix', label: 'What’s wrong'};
+function printCrewColumns(rows){
+  const any = (rows || []).some(function(r){ return r && ('' + (r.fix || '')).trim(); });
+  if(!any) return PRINT_COLUMNS.crew;
+  const out = PRINT_COLUMNS.crew.slice();
+  const at = out.findIndex(function(c){ return c.k === 'notes'; });
+  out.splice(at < 0 ? out.length : at, 0, PRINT_FIX_COLUMN);
+  return out;
 }
 /* ⚠ THE ACTIONABLE LINES COME FIRST. Notes is where prose goes, and the install
    instruction and the one-time note are prose — but they are also the two things
@@ -47690,6 +47744,38 @@ function printCrewPhotos(day, i){
   });
   return out;
 }
+/* ⭐ AND THE PHOTO OF WHAT IS BROKEN (added 2026-08-25). The other half of the fix
+   note above: the office photographs the fault and, until now, that picture reached
+   the Routes screen and nothing else. A crew on a Fixer Route had neither the words
+   nor the picture.
+
+   ⚠ ITS OWN BLOCK, UNDER ITS OWN HEADING, never merged with the new hangs'. One block
+   headed "New hangs on this sheet" carrying a close-up of a dead strand is the heading
+   lying about half its contents — and the two answer opposite questions: a new hang's
+   photo says "this is the house", a fix photo says "this is the problem". Both can
+   legitimately appear on one sheet (a new member can need a fix), which is exactly why
+   they must not share a caption.
+
+   ⚠ SAME GATE AS THE COLUMN — needsFix, not the photo alone. A photo left on a record
+   whose fix is finished would send somebody back to a mended house.
+
+   ⚠ ONE PHOTO, NOT A LIST. fixPhotoUrl is a single field, unlike the house's
+   housePhotos array, so there is no "2 of 3" to number here. If it ever becomes a list,
+   this should follow the new-hang rule ("make sure if a new hang has multiple pictures
+   you include all") rather than printing the first. */
+function printFixPhotos(day, i){
+  const mine = (typeof crewHousesFor === 'function') ? crewHousesFor(i, day) : [];
+  const out = [];
+  mine.forEach(function(h){
+    const d = printCustData(h);
+    if(!d || !d.needsFix) return;
+    const url = ('' + (d.fixPhotoUrl || '')).trim();
+    if(!url) return;
+    out.push({url: url, number: d.customerNumber || h.cu || '',
+              name: d.name || h.name || '', of: ''});
+  });
+  return out;
+}
 /* ⭐ THE SHEET IS LANDSCAPE, AND SO ARE THE PHOTOS. Owner: "make sure that the
    house picture for new hangs never overlaps with words, and also make sure its never
    to big because that will use a lot of ink oor to small because then they wont be able
@@ -47849,7 +47935,9 @@ function printCrewSheetPage(day, i){
     /* The photos hang off the bottom of the crew's own sheet, so they travel with the
        sheet they belong to rather than on a page of their own. */
     body: rows.length
-      ? (printTableHtml(rows, PRINT_COLUMNS.crew) + printPhotosHtml(printCrewPhotos(day, i)))
+      ? (printTableHtml(rows, printCrewColumns(rows)) +
+         printPhotosHtml(printCrewPhotos(day, i)) +
+         printPhotosHtml(printFixPhotos(day, i), 'What’s wrong — photos'))
       : '',
     empty: who + ' has nothing on this day.'
   };

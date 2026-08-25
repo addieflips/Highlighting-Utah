@@ -971,8 +971,24 @@ check('badging Back Next Year clears the build but not the recycle',
     'this is the mistake the whole marker exists to prevent');
   /* ⚠ CHECKED IN THE HANDLER, not only by dimming the button. A disabled-looking
      button is still reachable by keyboard, and this one empties a season. */
+  /* ⚠ SCOPED BY COUNTING BRACES, NOT BY A CHARACTER WINDOW. The window this used to
+     use ({0,900}) is the trap CLAUDE.md §7 names by hand: it goes stale the moment
+     somebody adds a comment to the handler, and a true pass then turns into a FAIL
+     nobody can explain. fnBraced already walks the braces — use it. */
+  const eligHandler = (function(){
+    const at = admin.indexOf("switchBtn.addEventListener('click'");
+    if (at === -1) return '';
+    let i = admin.indexOf('{', at), depth = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '{') depth++;
+      else if (admin[i] === '}') { depth--; if (!depth) return admin.slice(at, i + 1); }
+    }
+    return '';
+  })();
+  check('the switch handler can be found at all', !!eligHandler,
+    'every check below is about its contents, so an empty slice would pass them all');
   check('and refused in the handler, not just greyed out',
-    /seasonEligSwitchBtn[\s\S]{0,900}if\(!confirmedOnly && !sent\)\{/.test(admin),
+    /if\(!confirmedOnly && !sent\)\{/.test(eligHandler),
     'a dimmed button is still reachable by keyboard');
   /* ⚠ AND GOING BACK IS NEVER GATED. Putting people back into the season is the safe
      direction and must always be available — a switch you cannot reverse is one nobody
@@ -994,8 +1010,8 @@ check('badging Back Next Year clears the build but not the recycle',
      belongs to the schedule widget's scope and would throw "is not defined" here,
      killing the handler silently. The suite caught exactly that when this was written. */
   check('and switching redraws the panels that read the season',
-    /seasonEligSwitchBtn[\s\S]{0,2600}renderJobAddressPanels\(\);/.test(admin) &&
-    !/seasonEligSwitchBtn[\s\S]{0,2600}[^a-zA-Z]renderAll\(\)/.test(admin),
+    /renderJobAddressPanels\(\);/.test(eligHandler) &&
+    !/[^a-zA-Z]renderAll\(\)/.test(eligHandler),
     'leaving the routes and the warehouse showing the old answer is two seasons on ' +
     'two tabs — and renderAll is the schedule widget\'s, not the main app\'s');
 }
