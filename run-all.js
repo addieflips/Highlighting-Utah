@@ -1105,6 +1105,12 @@ const RETIRED_CHECKLIST_TERMS = [
   ['start measuring', 'clicking the picture starts a side now, so that button is gone — while one is open the button reads Finish this side (2026-08-25)'],
   ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
   ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
+  /* ⚠ THE TERM IS THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired
+     button read "Use <n> as Estimated Feet" with the footage in the middle, so
+     a seed row quoting it writes "Use ... as Estimated Feet" and a term
+     starting at "use" would sail straight past the ellipsis and match nothing —
+     which is a check that cannot fail, on the one row that was actually wrong. */
+  ['as estimated feet', 'the two commit buttons became ONE gold "Save to this quote" on 2026-08-25, because only one of them was gold and it saved the price without the feet; the feet-only link now reads "Save the feet only" (2026-08-25)'],
 ];
 {
   /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
@@ -33324,8 +33330,17 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
   check('S129', 'every step of the sum is shown, not just the total',
     !!priceFn && /Suggested price/.test(priceFn) && /\/ft/.test(priceFn),
     'the owner called her own figures ballparks — a total with no working is one nobody can correct');
-  check('S129', 'and nothing is written to the quote until the button is pressed',
-    !!priceFn && /Use /.test(priceFn) && !!pick('rmUsePrice'),
+  /* ⚠ THIS CHECK CHANGED SHAPE ON 2026-08-25, IT WAS NOT WEAKENED. It used to
+     prove the point by finding the words "Use " inside rmRenderPrice - that is,
+     by finding the button's LABEL in the function that drew it. The button now
+     lives in the Save block below the panel and is bound once, so the label is
+     no longer in this function and the old match would fail on code that is
+     right. The guarantee is the same one and is now asserted directly: this
+     function must not write, and a press-to-save path must exist. Suite 268
+     runs the payload builders themselves. */
+  check('S129', 'and nothing is written to the quote until a button is pressed',
+    !!priceFn && !/updateDoc|setDoc|addDoc/.test(priceFn) &&
+    !!pick('rmUsePrice') && admin.indexOf('id="rmCommitBtn"') !== -1,
     'a price that saves itself is a price nobody agreed to');
 
   /* ---- the photo answers with a range ---------------------------------- */
@@ -38737,6 +38752,154 @@ const SHADOW_ALLOWED = new Set([
   check('reliability', 'and the allowlist holds no names that are already gone',
     stale.length === 0,
     'delete these from SHADOW_ALLOWED, the fakes are gone: ' + stale.join(', '));
+}
+
+// =====================================================================
+suite('268. Measure Roof - the feet and the price are one press');
+{
+  /* ⚠ THE HOLE THIS CLOSES. The footage and the price were two buttons sitting
+     in two different panels, and only one of them was gold. The gold one got
+     pressed, quotedPrice landed, and estimatedFeet was left empty.
+     Nothing errors on that state, which is the problem: quoteFeetOrEstimate
+     turns the price back into feet with a 5% safety margin, and THAT figure is
+     what sizes the bins at 260 ft, chooses between a regular and a 5000-series
+     customer number, and counts the bundles at 40 ft. The warehouse then builds
+     to a number nobody measured. Owner: "I need no guessing I need feet to be
+     correct."
+
+     ⚠ THIS SUITE RUNS THE PAYLOAD BUILDERS, it does not match their source. A
+     text check stays green with an `if(false)` in front of a line - the exact
+     way a Save that quietly dropped one of the two numbers would ship past a
+     passing suite. Same reason rmSavePayload was made its own function. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmCommitPayload', 'rmPriceIsStale', 'rmSavePayload'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S268', 'the commit builders are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const BODY = NAMES.map(pick).join(LF_) + LF_ +
+      'return {commit: rmCommitPayload, stale: rmPriceIsStale, feetOnly: rmSavePayload};';
+    assertSandbox('S268', 'commit payload builders', BODY, admin, []);
+    const api = new Function(BODY)();
+
+    const drawing = {version: 2, runs: [{id: 'run-1', feet: 84}], totals: {linearFt: 520}};
+
+    /* ---- both numbers, or neither ------------------------------------- */
+    const withDrawing = api.commit(520, 1300, 'Hard', drawing);
+    check('S268', 'one press writes the footage AND the price',
+      withDrawing.estimatedFeet === 520 && withDrawing.quotedPrice === 1300,
+      'got feet=' + withDrawing.estimatedFeet + ' price=' + withDrawing.quotedPrice +
+      ' - a price with no feet is the state this was built to end');
+
+    /* ⚠ ONE updateDoc, NOT TWO AWAITED WRITES. Two writes can half-succeed, and
+       the half that survives is a priced house with no footage. One object is
+       the only shape Firestore applies atomically. */
+    check('S268', 'and both fields ride in the same single payload',
+      Object.prototype.hasOwnProperty.call(withDrawing, 'estimatedFeet') &&
+      Object.prototype.hasOwnProperty.call(withDrawing, 'quotedPrice'),
+      'split across two writes, a throw on the second leaves feet unwritten');
+
+    /* ---- the grade cannot disagree with the price it produced ---------- */
+    check('S268', 'the grade the price was worked out at rides inside the drawing',
+      withDrawing.measurement && withDrawing.measurement.difficulty === 'Hard',
+      'a saved measurement naming a different grade from the price it produced ' +
+      'is the exact disagreement rmUsePrice was written to end');
+    check('S268', 'and saving the grade never flattens the rest of the drawing',
+      withDrawing.measurement.version === 2 &&
+      Array.isArray(withDrawing.measurement.runs) &&
+      withDrawing.measurement.runs.length === 1,
+      'the traced lines were dropped on the way through');
+
+    /* ⚠ FIRESTORE REFUSES A NESTED OBJECT AND A DOTTED PATH INTO IT IN THE SAME
+       WRITE. Carrying both would not be a cosmetic fault, it would be a refused
+       write - and the footage rides in it. */
+    const keys = Object.keys(withDrawing);
+    check('S268', 'never a measurement object and a measurement.dotted path together',
+      !(keys.indexOf('measurement') !== -1 && keys.some(k => k.indexOf('measurement.') === 0)),
+      'Firestore refuses that combination outright: ' + keys.join(', '));
+
+    /* ---- and with no drawing to carry --------------------------------- */
+    const noDrawing = api.commit(520, 1300, 'Easy', null);
+    check('S268', 'with no drawing the grade goes by dotted path, not as an object',
+      noDrawing['measurement.difficulty'] === 'Easy' && !noDrawing.measurement,
+      'assigning a whole measurement object here would wipe a drawing saved earlier');
+    check('S268', 'and the two numbers are still both there',
+      noDrawing.estimatedFeet === 520 && noDrawing.quotedPrice === 1300,
+      'the drawing is the optional half - the footage never is');
+
+    /* ---- the feet-only door still behaves exactly as it did ----------- */
+    /* ⚠ THE OLD BUTTON IS NOT GONE, it moved. Somebody pricing a house by hand
+       still needs a way to save the footage without a price, and this proves
+       that path did not quietly gain one. */
+    const feetOnly = api.feetOnly(520, drawing);
+    check('S268', 'Save the feet only still writes no price',
+      feetOnly.estimatedFeet === 520 &&
+      !Object.prototype.hasOwnProperty.call(feetOnly, 'quotedPrice'),
+      'the by-hand pricing path must not start writing a price nobody chose');
+
+    /* ---- has the price on file drifted from the grade now set? -------- */
+    /* ⚠ null MEANS "NOTHING TO COMPARE", NOT "THEY AGREE". A quote that has
+       never been priced must not read as out of date, or every fresh quote
+       opens shouting about a price that does not exist. */
+    check('S268', 'a quote that was never priced is not called out of date',
+      api.stale(null, 1300) === null && api.stale(undefined, 1300) === null,
+      'a never-priced quote reading as stale trains people to ignore the flag');
+    check('S268', 'a price that still matches the grade is not called out of date',
+      api.stale(1300, 1300) === false, 'false alarm on an in-line price');
+    check('S268', 'a price that no longer matches the grade IS called out',
+      api.stale(1040, 1300) === true,
+      'the grade saves itself on change and quoteEstimatedPrice applies it, so ' +
+      'quotedPrice can sit at the old grade with nothing on screen saying so');
+    check('S268', 'and $0 is a price, not a missing one',
+      api.stale(0, 1300) === true,
+      'typeof 0 is number - a falsy check here would let a zeroed quote hide');
+  }
+
+  /* ---- the block is actually on the page, with its handlers bound ----- */
+  /* ⚠ ID-BY-ID, BECAUSE THE HANDLERS ARE BOUND ONCE. The Save block's shell is
+     static and only its text is updated; if it were ever rebuilt with innerHTML
+     the buttons would be destroyed and the listeners would go with them. */
+  ['rmCommitPanel', 'rmCommitBtn', 'rmCommitFt', 'rmCommitPr',
+   'rmChipBins', 'rmChipSeries', 'rmChipBundles', 'rmFlagStale', 'rmGradeSaved'].forEach(id => {
+    check('S268', 'the Save block has #' + id,
+      admin.indexOf('id="' + id + '"') !== -1, 'missing from admin.html');
+  });
+  /* The two old buttons moved into that block and kept their ids on purpose -
+     everything that reaches for them by id still has to find them. */
+  ['rmUseFeetBtn', 'rmUsePriceBtn'].forEach(id => {
+    check('S268', 'the moved button #' + id + ' kept its id',
+      admin.indexOf('id="' + id + '"') !== -1,
+      'it moved panels, it did not go away - a rename here silently kills its handler');
+  });
+  check('S268', 'and rmUsePriceBtn is no longer minted inside rmRenderPrice',
+(extractFn(admin, 'rmRenderPrice') || '').indexOf('id="rmUsePriceBtn"') === -1,
+    'built inside that innerHTML it is destroyed and re-created on every render, ' +
+    'which is why it used to have to re-attach its own listener each time');
+
+  /* ---- the grade saves itself, and only the grade -------------------- */
+  /* Owner: "when we assign easy,medium,hard that will automatically save
+     right?" It did not - the dropdown listener only redrew the screen, so a
+     grade set by hand survived only if a commit button was pressed afterwards.
+     ⚠ THE GRADE ONLY, NEVER THE PRICE. quotedPrice is the number the customer
+     is asked to approve, and a dropdown must not change what somebody has been
+     quoted. That is what rmPriceIsStale is there to surface. */
+  const saveGrade = extractFn(admin, 'rmSaveGrade');
+  check('S268', 'changing the difficulty saves it', !!saveGrade,
+    'rmSaveGrade not found - the grade reverts to Google\u2019s suggestion on reopen');
+  if (saveGrade) {
+    check('S268', 'and it writes the grade by dotted path, never as a whole object',
+      /'measurement\.difficulty':\s*grade/.test(saveGrade) &&
+      !/measurement:\s*\{/.test(saveGrade),
+      'assigning a measurement object here flattens the saved drawing to one field');
+    check('S268', 'and it never touches quotedPrice',
+      saveGrade.indexOf('quotedPrice') === -1,
+      'a dropdown must not change the number a customer was quoted');
+    check('S268', 'and a failed grade save never interrupts with an alert',
+      saveGrade.indexOf('alert(') === -1,
+      'this runs off a dropdown, not off a press - nobody asked for a dialog');
+  }
 }
 
 Promise.all(pendingAsync).then(function () {
