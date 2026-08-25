@@ -1496,7 +1496,7 @@ if (JSDOM) {
   global.isStaleUnresponsive = real('isStaleUnresponsive', {
     daysSince: real('daysSince'),
     quoteAwaitsCustomer: real('quoteAwaitsCustomer', {
-      quoteStage: real('quoteStage'),
+      quoteStage: real('quoteStage', {quoteWasSentOut: real('quoteWasSentOut')}),
       quoteAlreadyACustomer: real('quoteAlreadyACustomer', {
         isRequote: real('isRequote'),
         quoteMatchAddress: real('quoteMatchAddress'),
@@ -1516,7 +1516,7 @@ if (JSDOM) {
   // renderQuoteRows calls quoteStage(d) for the New house / Old house badge.
   // Mirrors the real one in admin.html — without it the whole suite crashed
   // out here rather than reporting a failure.
-  global.quoteStage = real('quoteStage');
+  global.quoteStage = real('quoteStage', {quoteWasSentOut: real('quoteWasSentOut')});
   // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
   // button label and the re-quote wording. Mirrors the real one in admin.html.
   /* ⚠ THE REAL FUNCTION, LIFTED — NOT A MIRROR LIKE THE TWO ABOVE. quoteStage and
@@ -1748,8 +1748,21 @@ if (JSDOM) {
     renderQuoteRows(fixturesWithMaybe);
     const listBack = document.getElementById('quotesList');
     const c2back = listBack.querySelectorAll('.row-item')[1];
-    check('render', 'Send Out Quotes extras hidden outside the send tab',
-      c2back.querySelector('[data-marksent]') === null && c2back.querySelector('[data-copyquoteemailaddr]') === null);
+    /* ⚠ CHANGED 2026-08-25, and the two halves now go opposite ways on purpose.
+       The NUDGE row is still Awaiting-Response-only — there is nobody to chase until
+       they have been sent something. MARK AS SENT is not: a quote only reaches that
+       tab BY being sent now, so leaving the button there drew it only on the cards
+       that no longer need it and never on the ones that do. */
+    check('render', 'the nudge row is still hidden outside the send tab',
+      c2back.querySelector('[data-copyquoteemailaddr]') === null &&
+      c2back.querySelector('[data-downloadquotephoto]') === null);
+    check('render', 'but Mark as Sent is offered in Quotes, where the unsent ones live',
+      c2back.querySelector('[data-marksent]') !== null,
+      'it is the only way to say "I sent this from my own email" — without it here, ' +
+      'a quote sent by hand can never leave the Quotes tab');
+    check('render', 'and not on a card nobody has priced yet',
+      listBack.querySelectorAll('.row-item')[0].querySelector('[data-marksent]') === null,
+      'there is nothing to have sent until there is a price');
 
     const q5 = { id: 'q5', data: Object.assign({}, fixtures[1].data, { quoteManuallySent: true }) };
     global.quoteStageFilter = 'send';
@@ -18415,7 +18428,7 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
      Functions deploy gate. If a new helper appears in that chain, add it here
      too rather than stubbing it: a stub would make the "already a customer"
      branch untestable while still reporting green. */
-  const src = ['quoteHasBeenSent', 'quoteAwaitsCustomer', 'quoteAwaitsUs',
+  const src = ['quoteHasBeenSent', 'quoteWasSentOut', 'quoteAwaitsCustomer', 'quoteAwaitsUs',
                'isFreshAwaiting', 'isStaleUnresponsive', 'quoteStage', 'daysSince',
                'quoteAlreadyACustomer', 'quoteMatchAddress', 'quoteCustomerKeys']
     .map(n => extractFn(admin, n));
@@ -18480,7 +18493,7 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
   {
     const src2 = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteAlreadyACustomer',
                   'quoteAwaitsCustomer', 'quoteAwaitsUs', 'quoteHasBeenSent',
-                  'quoteStage', 'isRequote', 'daysSince'].map(n => extractFn(admin, n));
+                  'quoteWasSentOut', 'quoteStage', 'isRequote', 'daysSince'].map(n => extractFn(admin, n));
     check('S68', 'the already-a-customer net is all still there', src2.every(Boolean));
     if (src2.every(Boolean)) {
       const b2 = {};
@@ -23005,7 +23018,8 @@ suite('Suite 110. Approving it for them, with no email');
 
 {
   const stage = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
-    extractFn(admin, 'quoteStage') + 'return quoteStage(d);');
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') +
+    'return quoteStage(d);');
   const St = (d) => stage(d, () => false, () => false);
 
   check('S110', 'approved through the portal with the form done is ready to convert',
@@ -23569,7 +23583,7 @@ suite('Suite 113. Build Test Customer');
     extractFn(admin, 'testQuoteCreateFields') + extractFn(admin, 'testQuoteStageUpdates') +
     extractFn(admin, 'testQuoteFieldsFor') + 'return testQuoteFieldsFor(stage);');
   const folder = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
-    extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
     extractFn(admin, 'quoteFolder') + 'return quoteFolder(d);');
 
   const base = (function(){
@@ -31479,7 +31493,7 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
   };
 
   const NEED = ['pendingAddOnFor', 'addOnEmailBlock', 'rsvpTemplateHasAddOn',
-    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quotePortalParam'];
+    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteWasSentOut', 'quotePortalParam'];
   const src = {};
   NEED.forEach(n => { src[n] = lift(n); });
   const gone = NEED.filter(n => !src[n]);
@@ -37917,6 +37931,305 @@ suite('262. Measure Roof - the roofline that runs backward and gets missed');
   check('S262', 'and the warning reaches the panel where the total is read',
     /rmMissedEdges\(\)/.test(extractFn(admin, 'rmRenderResults') || ''),
     'a warning nobody sees is not a warning');
+}
+
+/* ⭐ SUITE 263. A QUOTE STAYS IN QUOTES UNTIL IT IS ACTUALLY SENT (added 2026-08-25).
+   Owner, testing the whole app in one day: "when we push attach quote it takes us to
+   awaiting response but it should stay in quote until we send text/email."
+
+   ⚠ THE BUG WAS A RENAME NOBODY FINISHED. The second folder was called "Send out
+   Quotes" — a to-do list — so a card landing there the moment a price was saved was
+   exactly right. Renaming it Awaiting Response inverted what it claims: nobody is
+   awaiting anything, because the customer has never been given a number to answer.
+   Every other reader had already been fixed for this (quoteAwaitsUs, the Awaiting
+   Response figure, the card's own "Priced — not sent yet" line, all 2026-08-19). Only
+   the folder rule was left behind, and the folder is the part she looks at.
+
+   ⚠ SO THE CHECKS BELOW RUN quoteStage AND quoteFolder, they do not read them. The
+   whole failure was one condition missing from a function whose SOURCE said all the
+   right things elsewhere in the file. */
+suite('263. Priced is not sent - the card stays in Quotes');
+{
+  const stage = new Function('d',
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') +
+    'return quoteStage(d);');
+  const folder = new Function('d',
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') +
+    extractFn(admin, 'isRequote') + extractFn(admin, 'quoteFolder') +
+    'return quoteFolder(d);');
+  const ts = () => ({ toDate: () => new Date() });
+
+  check('S263', 'the sent test is a function of its own, not a condition typed twice',
+    !!extractFn(admin, 'quoteWasSentOut'),
+    'four doors send a quote — one answer to "has it gone" or they drift');
+
+  /* ---- the thing she reported -------------------------------------- */
+  check('S263', 'a priced quote nobody has sent stays in Quotes',
+    stage({ quotedPrice: 600 }) === 'new',
+    'this is the report: pricing it moved the card to Awaiting Response while the ' +
+    'one thing left to do was send it');
+  check('S263', 'and it moves the moment the email goes',
+    stage({ quotedPrice: 600, quoteSentAt: ts() }) === 'send');
+  check('S263', 'a text moves it too',
+    stage({ quotedPrice: 600, quoteSentAt: ts(), quoteSmsSentAt: ts() }) === 'send',
+    'the text path writes the same stamp — owner: "until we send text/email"');
+  check('S263', 'and so does saying you sent it yourself',
+    stage({ quotedPrice: 600, quoteManuallySent: true }) === 'send',
+    'a quote sent from her own email has no quoteSentAt and is still, plainly, sent — ' +
+    'reading that stamp alone would strand it in Quotes with nothing left to press');
+
+  /* ---- what must NOT have changed ----------------------------------- */
+  check('S263', 'an unpriced quote is still in Quotes',
+    stage({}) === 'new');
+  check('S263', 'an answer still moves it even with nothing ever sent',
+    stage({ quotedPrice: 600, approvalStatus: 'approved', approvedByOffice: true }) === 'form',
+    'the office override exists precisely so a quote answered on the phone never ' +
+    'needed an email — holding it in Quotes would strand it where there is no ' +
+    'Convert button');
+  check('S263', 'and a declined one is closed however it got there',
+    stage({ quotedPrice: 600, approvalStatus: 'declined' }) === 'closed');
+  check('S263', 'an approved quote still waiting on its form is not sent back to Quotes',
+    stage({ quotedPrice: 600, approvalStatus: 'approved' }) === 'send',
+    'they answered through the portal, so it plainly reached them');
+
+  /* ---- and the folder, which is the tab she is actually looking at --- */
+  check('S263', 'the Quotes TAB is where an unsent priced quote is filed',
+    folder({ quotedPrice: 600 }) === 'new');
+  check('S263', 'a re-quote still goes to Re-quotes, sent or not',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote' &&
+    folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'requote',
+    'the re-quote folder was never about how far along the card is');
+
+  /* ⚠ THE TEST-CARD BUILDER HAS TO AGREE. It stages a card into a named tab by
+     writing fields; if "sent" stops meaning what it writes, Build Test Customer
+     silently drops the card in the wrong tab. */
+  {
+    const mk = new Function('d',
+      extractFn(admin, 'testQuoteCreateFields') + extractFn(admin, 'testQuoteStageUpdates') +
+      extractFn(admin, 'testQuoteFieldsFor') +
+      'const TEST_QUOTE_BASE = {};' +
+      'return testQuoteStageUpdates(d);');
+    check('S263', 'the test card built for Awaiting Response really is a sent one',
+      folder(Object.assign({}, mk('send'))) === 'send',
+      'Build Test Customer stages by writing fields — it has to write a sent one now');
+  }
+
+  /* ---- the way OUT of Quotes has to be on the card ------------------- */
+  /* ⚠ SCOPED TO THE BLOCK, NOT THE FILE. "data-marksent appears somewhere after
+     quoteStageFilter === 'send'" is true either way — the button sits a few lines
+     below the block it was moved OUT of. What has to be true is that it is not
+     INSIDE it, so the ternary is sliced to its own closing and read on its own. */
+  {
+    const at = admin.indexOf("(quoteStageFilter === 'send' ? (");
+    const end = at > 0 ? admin.indexOf(") : '')", at) : -1;
+    const sendOnly = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S263', 'the send-tab-only block was found', !!sendOnly);
+    check('S263', 'Mark as sent is offered on any priced card, not just the send tab',
+      /Mark as sent \(if you sent it yourself\)/.test(admin) &&
+      sendOnly.indexOf('data-marksent') === -1 && sendOnly.indexOf('data-unmarksent') === -1,
+      'it used to sit inside the send-tab-only block — and since a quote now only ' +
+      'REACHES that tab BY being sent, the one button that says "I sent this myself" ' +
+      'was drawn only where it is useless and never where it is needed');
+    check('S263', 'and the nudge row stayed behind, where there is somebody to chase',
+      sendOnly.indexOf('data-nudgequote') > -1,
+      'nudging a customer who was never sent a price is chasing them for our own job');
+  }
+
+  /* ⚠ AND NOTHING IN AWAITING RESPONSE IS FOLDED AWAY ANY MORE. Every card there is
+     an already-sent one now, so the old "Show already sent" link hid the whole tab. */
+  check('S263', 'the already-sent quotes are not hidden behind a link any more',
+    admin.indexOf('data-toggleshowsent') === -1 && admin.indexOf('showSentQuotes') === -1,
+    'it folded away exactly the cards this tab now exists to show');
+
+  /* ⚠ AND THE CARD FOLLOWS ITSELF. quoteStageFilter is a module-level variable, so a
+     card that changes folder under a tab that is not watching simply vanishes —
+     which is the exact bug followQuoteToItsStage was written for. Sending never moved
+     a card before this change, so none of the send paths called it. */
+  {
+    const rows = extractFn(admin, 'renderQuoteRows') || '';
+    /* ⚠ NAMED ONE BY ONE, NOT COUNTED. A count of "at least three" is passed by
+       three of the four, so the red-check that deletes exactly one goes straight
+       through it — which is what happened on the first pass. */
+    check('S263', 'the Send button files the card into its new tab',
+      /followQuoteToItsStage\(id, \{quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp\(\)/.test(rows),
+      'without it the card sits in Quotes until the snapshot lands and then jumps ' +
+      'out of the tab she is looking at, which reads as the send having eaten it');
+    check('S263', 'and so do the other three ways of sending it',
+      (rows.match(/followQuoteToItsStage\(id, \{quoteSentAt: quoteSentNowStamp\(\), quoteManuallySent: true\}\)/g) || []).length === 3,
+      'sendQuoteEmailNow, the email preview box and the text - a new send path ' +
+      'that skips this is a card that vanishes');
+    check('S263', 'saying you sent it yourself files it too, and undoing files it back',
+      /followQuoteToItsStage\(id, \{quoteManuallySent: true\}\)/.test(rows) &&
+      /followQuoteToItsStage\(id, \{quoteManuallySent: false\}\)/.test(rows));
+    check('S263', 'and the local stamp is shaped like the Timestamp it stands in for',
+      /function quoteSentNowStamp\(\)\{[\s\S]{0,200}toDate/.test(rows),
+      'daysSince and fmtDate both call .toDate() on it');
+  }
+
+  /* ⚠ THE ADD-ON BLOCK MUST NOT HAVE BEEN QUIETLY NARROWED BY THIS. The RSVP email is
+     HOW an outstanding add-on gets asked, so requiring a separate quote email first
+     would drop the commonest one of all. */
+  check('S263', 'the RSVP add-on block does not ask whether the quote was sent',
+    !/quoteStage\(d\) !== 'send'/.test(extractFn(admin, 'pendingAddOnFor') || ''),
+    'it borrowed the folder rule; the folder rule now means something else');
+}
+
+/* ⭐ SUITE 264. EMPTYING THE SYSTEM NOTICES (added 2026-08-25). Owner: "can we make a
+   delete all on system messages."
+
+   ⚠ IT RUNS THE HANDLER. Owner has asked for this class of check by name — "just make
+   sure that if i click a button the function that is supposed to happen actually
+   does" — and this repo has already shipped a control that rendered perfectly and
+   saved nothing. So the button is lifted out of admin.html and CLICKED against a fake
+   inbox and a fake Firestore, and what it deleted is read off the writes.
+
+   ⚠ AND THE THREE THINGS THAT MAKE A MASS DELETE SAFE ARE EACH THEIR OWN CHECK: it
+   asks first and takes no for an answer; it deletes only the list it counted; and a
+   failure is counted rather than reported as a clean sweep. */
+suite('264. Delete all system notices');
+{
+  /* The handler is wired at module load inside a 40,000-line script, so it is lifted
+     by brace-matching from its own addEventListener rather than by name. */
+  const at = admin.indexOf("document.getElementById('deleteAllSystemBtn')");
+  const open = at > 0 ? admin.indexOf('{', admin.indexOf('async function()', at)) : -1;
+  let body = '';
+  if (open > 0) {
+    let d = 0;
+    for (let i = open; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) { body = admin.slice(open + 1, i); break; } }
+    }
+  }
+  check('S264', 'the Delete all button is in the System notices pane',
+    /id="deleteAllSystemBtn"/.test(admin) && /id="deleteAllSystemStatus"/.test(admin),
+    'the pane it belongs to is inboxpane-system');
+  check('S264', 'and it is wired to a handler that can be run', !!body);
+
+  const run = (opts) => {
+    const deleted = [];
+    const toasts = [];
+    const asked = [];
+    const status = { textContent: '' };
+    const btn = { disabled: false };
+    const els = { deleteAllSystemStatus: status };
+    const fn = new Function('allMessages', 'confirm', 'toast', 'deleteDoc', 'doc', 'db',
+      'console', 'document', 'systemMessages',
+      'return (async function(){' + body + '});')(
+      opts.messages,
+      (q) => { asked.push(q); return opts.answer !== false; },
+      (t) => toasts.push(t),
+      (ref) => {
+        if (opts.failOn && opts.failOn.indexOf(ref.id) > -1) return Promise.reject(new Error('nope'));
+        deleted.push(ref.id);
+        return Promise.resolve();
+      },
+      (dbArg, col, id) => ({ col: col, id: id }),
+      {}, { error: () => {}, log: () => {} },
+      { getElementById: (id) => els[id] || null },
+      /* THE REAL ONE, lifted: which rows count as system notices is the question the
+         button is answering, and a hand-written copy of it here would agree with
+         itself while the screen showed something else. */
+      new Function('allMessages', extractFn(admin, 'systemMessages') + 'return systemMessages;')(opts.messages)
+    );
+    return fn.call(btn).then(() => ({ deleted, toasts, asked, status, btn }));
+  };
+
+  const note = (id, over) => ({ id: id, data: Object.assign({ folder: 'System', topic: 'Routes Reconciled', message: 'x' }, over || {}) });
+
+  pendingAsync.push((async () => {
+    /* ---- it asks first, and no means no ----------------------------- */
+    {
+      const r = await run({ messages: [note('a'), note('b')], answer: false });
+      check('S264', 'saying no deletes nothing at all',
+        r.deleted.length === 0,
+        'the one thing a mass delete must get right');
+      check('S264', 'and the question says how many are going',
+        /2 system notices/.test(r.asked[0] || '') && /cannot be undone/.test(r.asked[0] || ''),
+        'a preview and a confirmation — CLAUDE.md §5');
+      check('S264', 'and says the rest of the inbox is safe',
+        /Customer messages and employee notes are not touched/.test(r.asked[0] || ''),
+        'this button sits in a three-tab inbox');
+    }
+
+    /* ---- the unactioned colour change is named, not swept quietly ---- */
+    {
+      const r = await run({ answer: false, messages: [
+        note('a'),
+        note('b', { topic: 'Light Color Change' }),
+        note('c', { topic: 'Light Color Change', addedToWarehouseAt: 'yesterday' })
+      ]});
+      check('S264', 'a colour change nobody has sent to the Warehouse is called out',
+        /1 of them is a light colour change/.test(r.asked[0] || '') &&
+        /NOT been sent to the Warehouse/.test(r.asked[0] || ''),
+        'that row is the only thing asking for those bundles to be built — deleting ' +
+        'it silently is how a house gets the wrong lights');
+      check('S264', 'and one already sent to the Warehouse is not counted as work lost',
+        !/2 of them/.test(r.asked[0] || ''),
+        'crying wolf about a job already done teaches her to click past the warning');
+    }
+
+    /* ---- yes deletes exactly what it counted ------------------------- */
+    {
+      const msgs = [note('a'), note('b'), { id: 'c', data: { folder: 'Inbox', message: 'a real customer' } }];
+      const r = await run({ messages: msgs });
+      check('S264', 'it deletes the system notices',
+        r.deleted.length === 2 && r.deleted.indexOf('a') > -1 && r.deleted.indexOf('b') > -1);
+      check('S264', 'and never a customer message sitting in the same collection',
+        r.deleted.indexOf('c') === -1,
+        'they are one Firestore collection told apart by a folder field');
+      check('S264', 'and says so when it is done',
+        /All 2 system notices deleted/.test(r.toasts.join(' ')));
+      check('S264', 'and leaves nothing on the status line to worry about',
+        r.status.textContent === '');
+      check('S264', 'and gives the button back',
+        r.btn.disabled === false,
+        'a button left disabled after a failure is a screen that needs reloading');
+    }
+
+    /* ⚠ THE LIST IS TAKEN ONCE. A notice that arrives while she is reading the
+       question was never on screen and was never agreed to. */
+    {
+      const msgs = [note('a')];
+      const late = { id: 'late', data: { folder: 'System', message: 'arrived mid-question' } };
+      const deleted = [];
+      const fn = new Function('allMessages', 'confirm', 'toast', 'deleteDoc', 'doc', 'db',
+        'console', 'document', 'systemMessages',
+        'return (async function(){' + body + '});')(
+        msgs,
+        () => { msgs.push(late); return true; },
+        () => {}, (ref) => { deleted.push(ref.id); return Promise.resolve(); },
+        (dbArg, col, id) => ({ col: col, id: id }), {}, { error: () => {}, log: () => {} },
+        { getElementById: () => ({ textContent: '' }) },
+        new Function('allMessages', extractFn(admin, 'systemMessages') + 'return systemMessages;')(msgs)
+      );
+      await fn.call({ disabled: false });
+      check('S264', 'a notice that arrived after the question was asked is left alone',
+        deleted.length === 1 && deleted[0] === 'a',
+        'the delete only ever removes what the count she agreed to described');
+    }
+
+    /* ---- a failure is counted, not swallowed ------------------------- */
+    {
+      const r = await run({ messages: [note('a'), note('b'), note('c')], failOn: ['b'] });
+      check('S264', 'a delete that fails is counted rather than reported as a clean sweep',
+        r.deleted.length === 2 && /2 of 3 system notices deleted/.test(r.toasts.join(' ')),
+        'half a sweep looks exactly like a whole one from the outside');
+      check('S264', 'and the status line says what to do about it',
+        /1 could not be/.test(r.status.textContent) && /retry/.test(r.status.textContent));
+      check('S264', 'and one failure does not stop the ones after it',
+        r.deleted.indexOf('c') > -1,
+        'giving up half way leaves the list in a state nobody asked for');
+    }
+
+    /* ---- nothing to do is not an error ------------------------------- */
+    {
+      const r = await run({ messages: [{ id: 'x', data: { folder: 'Inbox' } }] });
+      check('S264', 'an empty System folder asks nothing and deletes nothing',
+        r.asked.length === 0 && r.deleted.length === 0 &&
+        /no system notices/.test(r.toasts.join(' ')),
+        'a confirm box over an empty list is a question with one answer');
+    }
+  })());
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code

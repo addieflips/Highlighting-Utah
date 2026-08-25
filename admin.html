@@ -3254,7 +3254,9 @@
             <p style="font-size:13px; margin:0 0 14px;">Notices the system writes on its own &mdash; light colour, wire and timer changes, and crew reassign flags. Kept separate so they don&rsquo;t bury real customer messages.</p>
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
               <button type="button" class="btn btn-outline btn-sm" id="markAllSystemReadBtn" style="margin-left:auto;">Mark all read</button>
+              <button type="button" class="btn btn-outline btn-sm" id="deleteAllSystemBtn" style="color:var(--ember); border-color:#F3C8C2;">Delete all</button>
             </div>
+            <div class="rtext" id="deleteAllSystemStatus" style="margin-bottom:12px; min-height:16px;"></div>
             <div class="row-list" id="systemMessagesList"><div class="empty-note">Loading…</div></div>
           </div>
         </div>
@@ -6220,10 +6222,16 @@ function pendingAddOnFor(customerId){
   return quotesCache.find(function(q){
     const d = q.data || {};
     if(!quoteIsAddOn(d)) return false;
-    /* Priced and still waiting. quoteStage is the ONE answer to "where is this
-       quote up to" — an unpriced one has no number to show, and an answered or
-       archived one must not be asked again. */
-    if(quoteStage(d) !== 'send') return false;
+    /* Priced, still open, still unanswered.
+       ⚠ DELIBERATELY NOT quoteStage === 'send' ANY MORE (2026-08-25). Since a quote
+       priced but not yet emailed stays filed under Quotes, that test would drop the
+       commonest add-on of all: one raised, priced, and never sent on its own because
+       THIS EMAIL IS HOW IT GETS ASKED. The three conditions that actually matter are
+       written out instead — there is a number to show, nobody has answered it, and it
+       has not been converted, declined or archived. */
+    if(typeof d.quotedPrice !== 'number') return false;
+    if((d.approvalStatus || 'pending') !== 'pending') return false;
+    if(quoteStage(d) === 'closed') return false;
     return String(d.existingCustomerId || d.convertedToCustomerId || '') === String(customerId);
   }) || null;
 }
@@ -7728,7 +7736,6 @@ document.getElementById('pfCalcFeet').addEventListener('input', updatePfCalcResu
 let quotesCache = [];
 let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
-let showSentQuotes = false;   // "Awaiting Response" tab: reveal already-sent quotes
 let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
 /* Sending writes to Firestore, which fires a snapshot, which rebuilds the whole
    list - so the button you just pressed, and the box the confirmation was
@@ -7747,6 +7754,18 @@ let showArchivedQuotes = false; // Closed tab: swap between converted and archiv
      closed — declined, or closed out (including converted to a customer)
    Closed is checked first so a finished quote never reappears earlier in the
    pipeline. */
+/* ⭐ HAS IT ACTUALLY GONE OUT. Three doors send a quote and all three stamp it:
+   the Send button and the email box (quoteSentAt), a text (quoteSentAt plus
+   quoteSmsSentAt), and the office saying it sent the thing itself from its own
+   email (quoteManuallySent).
+
+   ⚠ DELIBERATELY LOOSER THAN quoteHasBeenSent, which needs a real Timestamp
+   because it feeds daysSince and the 10-day counter. A quote marked sent by hand
+   has no clock to start and is still, plainly, sent — reading quoteSentAt alone
+   would leave it filed under Quotes for ever with nothing left to press. */
+function quoteWasSentOut(d){
+  return !!(d && (d.quoteSentAt || d.quoteManuallySent));
+}
 function quoteStage(d){
   if((d.status || 'new') === 'closed' || d.quoteArchived || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
   if(typeof d.quotedPrice !== 'number') return 'new';
@@ -7766,6 +7785,26 @@ function quoteStage(d){
      customer record anyway. So the office saying yes on their behalf stands in for the
      form, and the card moves on. */
   if(d.approvalStatus === 'approved' && (d.formCompleted || d.approvedByOffice)) return 'form';
+  /* ⭐ PRICED IS NOT SENT (added 2026-08-25). Owner: "when we push attach quote it
+     takes us to awaiting response but it should stay in quote until we send text/email."
+
+     ⚠ THIS IS DRIFT LEFT BY A RENAME. The second folder used to be called "Send out
+     Quotes" — a to-do list of things to put in the post — so landing there the moment
+     a price was saved was exactly right. It is called Awaiting Response now, and
+     nobody is awaiting anything: the customer has not been given a number to answer.
+     The rule never followed the rename, so the card sat under a heading that was not
+     true about it, and the one thing still to do (send it) read as done.
+
+     ⚠ THE REST OF THE APP ALREADY AGREED, WHICH IS HOW SMALL THIS FIX IS.
+     quoteAwaitsUs exists precisely for "priced, open and never sent — our job, not
+     theirs", the Awaiting Response FIGURE has excluded these since 2026-08-19, and the
+     card itself says "Priced — not sent yet." Only the folder disagreed.
+
+     ⚠ ONLY WHILE THE ANSWER IS STILL OPEN. An approval that arrived some other way
+     is an answer, so it moves on whether or not anything was ever emailed — that is
+     the office override, and holding it back in Quotes would strand it where there is
+     no Convert button. */
+  if(!quoteWasSentOut(d) && (d.approvalStatus || 'pending') === 'pending') return 'new';
   return 'send';
 }
 /* Which of the three quote templates a card should use. Names are picked in
@@ -8861,13 +8900,15 @@ function renderQuotesList(){
      approval dropdown, since the pipeline already encodes both. */
   let filtered = quotesCache.filter(item => quoteFolder(item.data) === quoteStageFilter);
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => !item.data.frontPhotoUrl);
-  let sentOnes = [];
   if(quoteStageFilter === 'send'){
-    sentOnes = filtered.filter(item => item.data.quoteManuallySent);
-    /* Hiding already-sent quotes made a card disappear the instant you pressed
-       Send, which read as a failure. Anything sent in this session stays put -
-       you are still waiting on that person, which is what this tab is for. */
-    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent || quoteSendResults.has(item.id));
+    /* ⭐ NOTHING IS FOLDED AWAY HERE ANY MORE (2026-08-25). This tab used to be a
+       to-do list of quotes to send, so the ones already sent were hidden behind a
+       "Show already sent" link. Now that a quote only arrives here BY being sent,
+       that link hid the entire tab: every card in it is an already-sent one, so the
+       office met "Nothing waiting on a customer right now" over a stack of quotes it
+       had just sent. The quiet-days filter below is the one that still earns its
+       place — it narrows by how long they have been quiet, which is a real question
+       about this list rather than a way of emptying it. */
     if(quoteQuietDays > 0){
       filtered = filtered.filter(function(item){
         const days = daysSince(item.data.quoteSentAt);
@@ -8890,34 +8931,17 @@ function renderQuotesList(){
   }
   if(!filtered.length){
     const emptyMsg = {
-      new: 'No new quote requests waiting to be priced.',
+      new: 'Nothing here to price or send.',
       send: quoteQuietDays > 0 ? 'Nobody has been quiet that long. Lower the number to see everyone.' : 'Nothing waiting on a customer right now.',
       form: 'Nobody has finished their form yet.',
       requote: 'No re-quotes open. This is where a customer lands when they change something \u2014 another side of the house, a different address \u2014 and needs pricing again.',
       closed: showArchivedQuotes ? 'Nothing archived.' : 'Nothing closed yet.'
     }[quoteStageFilter] || 'No quote requests match this view.';
     list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged in this tab.' : emptyMsg)+'</div>';
-    if(quoteStageFilter === 'send' && sentOnes.length){
-      list.insertAdjacentHTML('afterbegin', '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Show already sent ('+sentOnes.length+')</a></div>');
-      list.querySelector('[data-toggleshowsent]').addEventListener('click', function(e){ e.preventDefault(); showSentQuotes = true; renderQuotesList(); });
-    }
     return;
   }
   renderQuoteRows(filtered);
   repaintQuoteSendResults();
-  if(quoteStageFilter === 'send'){
-    const toggleHtml = !sentOnes.length ? '' : (showSentQuotes
-      ? '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Hide already-sent quotes</a></div>'
-      : '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Show already sent ('+sentOnes.length+')</a></div>');
-    if(toggleHtml){
-      list.insertAdjacentHTML('afterbegin', toggleHtml);
-      list.querySelector('[data-toggleshowsent]').addEventListener('click', function(e){
-        e.preventDefault();
-        showSentQuotes = !showSentQuotes;
-        renderQuotesList();
-      });
-    }
-  }
 }
 // Which quote cards have their Pricing & Approval panel open. Keyed by quote
 // id so it survives the re-render a save triggers instead of collapsing
@@ -10654,11 +10678,22 @@ function renderQuoteRows(filtered){
                    unreachable. quotePhotoList() covers both the newer quotePhotos
                    array and the older single frontPhotoUrl. */
                 (quotePhotoList(d).length ? '<button type="button" class="btn btn-outline btn-sm" data-downloadquotephoto="'+item.id+'">Download Photo</button>' : '')+
-              '</div>'+
-              (d.quoteManuallySent
-                ? '<div class="rtext" style="margin-top:6px; color:var(--slate);">&#10003; Sent'+(d.quoteManuallySentAt ? ' &mdash; '+fmtDate(d.quoteManuallySentAt) : '')+' <a href="#" data-unmarksent="'+item.id+'" style="margin-left:6px;">Undo</a></div>'
-                : '<button type="button" class="btn btn-outline btn-sm" data-marksent="'+item.id+'" style="margin-top:6px; display:block;">Mark as sent (if you sent it yourself)</button>')
+              '</div>'
             ) : '')+
+            /* ⭐ MARK AS SENT IS NOT A SEND-TAB THING ANY MORE (2026-08-25). It sat
+               inside the block above, which only draws on Awaiting Response — and
+               since a quote now only REACHES that tab by having been sent, the one
+               button that says "I sent this from my own email" was drawn only on the
+               cards that no longer need it, and never on the ones that do. That is a
+               quote with no way out of Quotes at all.
+               ⚠ Offered on a priced card in any tab, because that is exactly when the
+               claim can be true. Nudging stays above, on Awaiting Response, where
+               there is somebody to chase. */
+            (typeof d.quotedPrice === 'number'
+              ? (d.quoteManuallySent
+                  ? '<div class="rtext" style="margin-top:6px; color:var(--slate);">&#10003; Sent'+(d.quoteManuallySentAt ? ' &mdash; '+fmtDate(d.quoteManuallySentAt) : '')+' <a href="#" data-unmarksent="'+item.id+'" style="margin-left:6px;">Undo</a></div>'
+                  : '<button type="button" class="btn btn-outline btn-sm" data-marksent="'+item.id+'" style="margin-top:6px; display:block;">Mark as sent (if you sent it yourself)</button>')
+              : '')+
             (typeof d.quotedPrice === 'number' ? (function(){
               const st = d.approvalStatus || 'pending';
               /* Once a quote has been re-quoted, every approval word on the card
@@ -11091,6 +11126,7 @@ function renderQuoteRows(filtered){
         quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
       });
       quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + '. Chasing is automatic from here.'});
+      followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
       repaintQuoteSendResults();
       toast('Quote sent to ' + d.email + '.');
     } catch(err){
@@ -11232,6 +11268,7 @@ function renderQuoteRows(filtered){
           await updateDoc(doc(db,'quotes', id), {
             quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
           });
+          followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
           toast('Sent using the ' + tmplName + ' template.');
         }
         /* Recorded rather than just written to the screen, because the write
@@ -11327,6 +11364,7 @@ function renderQuoteRows(filtered){
         };
         await updateDoc(doc(db,'quotes', id), updates);
         quoteSendResults.set(id, {ok:true, text:'\u2713 Text sent to ' + d.phone + '.'});
+        followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
         repaintQuoteSendResults();
         toast('Text sent to ' + d.phone + '.');
       } catch(err){
@@ -11416,6 +11454,15 @@ function renderQuoteRows(filtered){
      row that's no longer there - it looks like the card just vanished. This
      patches the local copy immediately and switches to wherever the card
      actually lives now, so the card (and the feedback about it) stays in view. */
+  /* ⭐ THE LOCAL STAND-IN FOR THE serverTimestamp JUST WRITTEN. quoteSentAt decides
+     which folder the card is in now, and the real value does not come back until the
+     next snapshot — so without this the card is filed as unsent for a beat and then
+     jumps tabs on its own a moment later. Shaped like a Firestore Timestamp because
+     daysSince and fmtDate both call .toDate() on it. */
+  function quoteSentNowStamp(){
+    const now = new Date();
+    return {toDate: function(){ return now; }};
+  }
   function followQuoteToItsStage(id, patch){
     const item = quotesCache.find(q => q.id === id);
     if(!item) return;
@@ -11443,7 +11490,7 @@ function renderQuoteRows(filtered){
         const updates = {quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()};
         if(!item.data.approvalStatus || item.data.approvalStatus === 'pending') updates.approvalStatus = 'pending';
         await updateDoc(doc(db,'quotes', id), updates);
-        followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, approvalStatus: updates.approvalStatus || item.data.approvalStatus});
+        followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp(), approvalStatus: updates.approvalStatus || item.data.approvalStatus});
         const link = 'https://highlightingutah.com/#/quote-details?token='+token+quotePortalParam(item.data)+'&action=approve';
         const freshStatusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
         const freshLinkBox = list.querySelector('.quotelink-box[data-linkfor="'+id+'"]');
@@ -11770,6 +11817,7 @@ function renderQuoteRows(filtered){
       const id = btn.dataset.marksent;
       try{
         await updateDoc(doc(db,'quotes', id), {quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()});
+        followQuoteToItsStage(id, {quoteManuallySent: true});
         toast('Marked as sent.');
       } catch(err){
         toast('Something went wrong — try again.');
@@ -11782,6 +11830,9 @@ function renderQuoteRows(filtered){
       const id = btn.dataset.unmarksent;
       try{
         await updateDoc(doc(db,'quotes', id), {quoteManuallySent: false});
+        /* Back to Quotes, unless a real send stamped quoteSentAt — undoing the hand
+           mark cannot un-send an email that actually went. */
+        followQuoteToItsStage(id, {quoteManuallySent: false});
       } catch(err){
         toast('Something went wrong — try again.');
       }
@@ -42473,6 +42524,68 @@ document.getElementById('markAllSystemReadBtn')?.addEventListener('click', async
   if(!unread.length){ toast('Nothing unread'); return; }
   for(const item of unread){ await updateDoc(doc(db,'messages',item.id), {read: true}); }
   toast('Marked all read');
+});
+/* ⭐ EMPTY THE SYSTEM NOTICES IN ONE GO (added 2026-08-25). Owner: "can we make a
+   delete all on system messages." They arrive by the dozen — every route sweep, every
+   colour change, every crew reassign writes one — and clearing them one bin at a time
+   is the reason nobody clears them at all.
+
+   ⚠ IT IS A PREVIEW AND THEN A CONFIRMATION, per CLAUDE.md §5 and the irreversibility
+   tier: the count is said out loud BEFORE anything is deleted, and there is no undo
+   afterwards. A notice is not a customer, so it does not carry the type-DELETE lock
+   the Danger Zone tools do — but it is still a mass delete and it still says what it
+   is about to take.
+
+   ⚠ AND IT NAMES THE ONE KIND THAT CARRIES WORK. A Light Colour Change notice that
+   has not been sent to the Warehouse is a job nobody else has a copy of — the customer
+   changed their colours in their portal and this row is the only thing asking anybody
+   to build it. Deleting those silently is how a house gets the wrong lights. They are
+   counted separately in the question so the answer is an informed one.
+
+   ⚠ IT ONLY DELETES WHAT IT COUNTED. The list is taken once, before the question, and
+   that is the list that gets deleted — re-reading afterwards would take notices that
+   arrived while she was reading, which she never saw and never agreed to.
+
+   ⚠ AND A FAILURE IS COUNTED, NOT SWALLOWED. Half a sweep looks exactly like a whole
+   one from the outside; the line underneath says how many really went. */
+document.getElementById('deleteAllSystemBtn')?.addEventListener('click', async function(){
+  const btn = this;
+  const statusEl = document.getElementById('deleteAllSystemStatus');
+  const say = function(text){ if(statusEl) statusEl.textContent = text; };
+  const doomed = systemMessages();
+  if(!doomed.length){ say(''); toast('There are no system notices to delete'); return; }
+  const unactioned = doomed.filter(function(m){
+    const d = m.data || {};
+    return d.topic === 'Light Color Change' && !d.autoQueuedToWarehouse && !d.addedToWarehouseAt;
+  }).length;
+  const question = 'Delete all ' + doomed.length + ' system notice' + (doomed.length === 1 ? '' : 's') + '?' +
+    (unactioned
+      ? '\n\n⚠ ' + unactioned + ' of them ' + (unactioned === 1 ? 'is a light colour change' : 'are light colour changes') +
+        ' that ' + (unactioned === 1 ? 'has' : 'have') + ' NOT been sent to the Warehouse yet. ' +
+        'Nothing else is asking for those bundles to be built.'
+      : '') +
+    '\n\nThis cannot be undone. Customer messages and employee notes are not touched.';
+  if(!confirm(question)) return;
+  btn.disabled = true;
+  let gone = 0;
+  const failed = [];
+  for(const item of doomed){
+    say('Deleting ' + (gone + failed.length + 1) + ' of ' + doomed.length + '…');
+    try{
+      await deleteDoc(doc(db,'messages', item.id));
+      gone++;
+    } catch(err){
+      failed.push(item.id);
+      console.error('Could not delete system notice', item.id, err);
+    }
+  }
+  btn.disabled = false;
+  say(failed.length
+    ? (gone + ' deleted, ' + failed.length + ' could not be — press Delete all again to retry those.')
+    : '');
+  toast(failed.length
+    ? (gone + ' of ' + doomed.length + ' system notices deleted')
+    : ('All ' + gone + ' system notice' + (gone === 1 ? '' : 's') + ' deleted'));
 });
 function renderEmployeeNotesTab(){
   const badge = document.getElementById('empNotesBadge');
