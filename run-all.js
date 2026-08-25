@@ -1166,14 +1166,54 @@ const RETIRED_CHECKLIST_TERMS = [
   check('logic', 'js/test-seed.js exports TEST_SEED',
     /export const TEST_SEED = \[/.test(seedSrc),
     'the seed file does not export TEST_SEED — the dynamic import comes back undefined');
-  /* Floor lowered 2026-08-17: the seed was deliberately trimmed from 210 to
-     ~108 manual tests, dropping every row the automated suite already proves so
-     the owner's checklist only holds what a human or a live environment has to
-     verify. The floor is a truncation tripwire, not a target - a seed suddenly
-     back under ~90 means something ate the list, not that it was pruned. */
-  check('logic', 'the checklist seed survived the move intact',
-    TEST_SEED.length >= 90,
-    'only ' + TEST_SEED.length + ' tests in the seed — the move truncated the list');
+  /* ⭐ THE FLOOR BECAME A NAMED LIST, 2026-08-25. This was `>= 90`, a truncation
+     tripwire set under the 108-row list of 2026-08-17. The seed was trimmed
+     again that day, 125 rows to 11, to only what happens OUTSIDE the code — a
+     real service, real hardware, a per-device permission, or a human judgement
+     (owner: "i need it to be as simplified as possible only testing things you
+     absolutely cannot test"). At eleven rows a count proves almost nothing: a
+     seed that lost four rows to a bad merge would still clear any floor worth
+     setting, and the floor would have to be lowered to 8 or so to leave room
+     for a legitimate removal, at which point it catches nothing.
+
+     ⚠ SO IT NAMES THEM. A row that silently vanishes now fails BY NAME, which
+     matters more here than anywhere else in the suite: projShouldPruneTest
+     DELETES a seeded row that leaves the file, along with the owner's score and
+     notes, on the very next login. A lost comma between two rows is caught
+     above as a hole; a row lost to a bad merge resolution is caught here.
+
+     ⚠ ADDING OR REMOVING A ROW MEANS EDITING THIS LIST, IN THE SAME COMMIT.
+     That is deliberate, and it is the same argument Suite 39 makes for pinning
+     BULK_CHUNK_SIZE's exact value: the change should be a decision somebody
+     made, not a number that drifted. Per CLAUDE.md §0, a new row belongs here
+     ONLY if the automated suite genuinely cannot reach it — if you are adding
+     one because a bug got through, the suite was missing a check and that
+     check is the fix. */
+  {
+    const MANUAL_ONLY_IDS = [
+      26,   // photo on a real device — camera and touch drawing
+      67,   // one house end to end on a real phone
+      111,  // real money through PayPal, tip and closed browser
+      114,  // the 7 PM cron really firing, and Twilio really texting
+      186,  // an invoice email really arriving, and its Pay button working
+      199,  // the three papers, read on paper
+      207,  // Measure Roof against a house somebody has seen
+      214,  // Cloudinary really destroying the fix photo
+      215,  // the DECISION to switch the season to answered-Yes-only
+      216,  // reading the options list for what is missing
+      217,  // getting the soft-light houses switched before the list is lost
+    ];
+    const have = SEED_ROWS.map(function (r) { return r[0]; });
+    const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
+    const extra = have.filter(function (id) { return !MANUAL_ONLY_IDS.includes(id); });
+    check('logic', 'the checklist seed holds exactly the un-automatable rows',
+      missing.length === 0 && extra.length === 0,
+      (missing.length ? 'gone from the seed: #' + missing.join(', #') +
+         ' — pruning deletes the owner\'s score and notes on the next login. ' : '') +
+      (extra.length ? 'in the seed but not in MANUAL_ONLY_IDS: #' + extra.join(', #') +
+         ' — if these are genuinely un-automatable, add them to the list here; ' +
+         'if the suite can reach them, they belong in the suite. ' : '') || undefined);
+  }
   /* Moving the list off the page created a failure it could not have had while
      it was inline: the fetch can now fail. The only caller is
      runProjectTestSync().catch(function(){}), so an unhandled throw reads as a
@@ -2460,10 +2500,14 @@ check('flow', 'quote is closed when converted to a customer',
 /* ⚠ AND THE FOLDER ACTUALLY CALLS IT. A collapse nothing calls is the most expensive
    kind of green — the list renders exactly as it always did and every behavioural check
    above still passes, because they run the function directly. Scoped to the closed
-   branch so it cannot be satisfied by the declaration alone. */
-check('flow', 'and the Converted & Closed folder runs the collapse',
-  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
-  'unwired, every house is listed once per closed quote exactly as before');
+   branch so it cannot be satisfied by the declaration alone. */
+
+check('flow', 'and the Converted & Closed folder runs the collapse',
+
+  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
+
+  'unwired, every house is listed once per closed quote exactly as before');
+
 check('flow', 'nothing closes a quote except converting it',
   (admin.match(/status: 'closed'/g) || []).length === 2 &&
   /status: 'closed', convertedToCustomerAt/.test(admin),
