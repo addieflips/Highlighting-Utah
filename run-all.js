@@ -33916,18 +33916,29 @@ suite('141. Measure Roof - the street decides, and it is allowed to be late');
      plausible and wrong enough to be useless" because Google's roof model is in
      TRUE positions and its satellite tile is DISPLACED - about six feet on the
      house that prompted this. That is measured and corrected now. */
-  check('S141', 'the roofline builder is wired up and actually runs',
-    !!pick('rmBuildSuggestions') &&
-    /const guessed = rmFaces\.length \? rmBuildSuggestions\(rmFaces\) : 0;/.test(admin),
-    'the front eaves were asked for by name; a builder nobody calls draws nothing');
-  /* ⚠ AND ONLY AFTER THE STREET PHOTO HAS SETTLED. Which faces front the
-     road is decided from the camera, so building when the model arrives puts
-     the wrong sides on. */
+  /* ⭐ SETTLED: NOTHING IS DRAWN AUTOMATICALLY, asked and answered TWICE.
+     Owner, the first time: "delete everything for now and give me a tool that I
+     can show you what it should look like by placing dots." Shown the offered
+     front eaves a second time, with the six-foot satellite displacement now
+     measured and corrected: "we dont want it to assume just manually click
+     corners."
+     ⚠ SO THE CHECK ASSERTS THE OFF STATE AGAIN, and the reason it flipped
+     twice in one day is worth writing down: the argument for turning it on was
+     that the offered lines had only ever LOOKED wrong because of the
+     displacement. That argument was sound and it was still refused, because the
+     objection is not accuracy - it is that a line nobody placed is a line
+     nobody checked.
+     ⚠ THE BUILDER IS KEPT, NOT DELETED, so a third change of mind is one
+     line rather than a rewrite. */
   const whenReady = pick('rmBuildWhenReady') || '';
-  check('S141', 'and only once the camera exists, so FRONT means the road',
-    whenReady.indexOf('rmBuildSuggestions') !== -1 &&
-    /if\(rmSuggestionsBuilt \|\| !rmFacesReady \|\| !rmStreetSettled\) return 0;/.test(whenReady),
-    'built before the street photo lands, front and back are a coin toss');
+  check('S141', 'the roofline builder is kept but never run',
+    !!pick('rmBuildSuggestions') &&
+    /const guessed = 0;/.test(whenReady) &&
+    whenReady.indexOf('rmBuildSuggestions(') === -1,
+    'nothing is drawn automatically; the builder stays so turning it back on is one line');
+  check('S141', 'and the file records that it was asked for twice and refused twice',
+    /manually click corners/.test(whenReady),
+    'a decision reversed twice needs its reasoning kept, or it gets reversed a third time');
 
   /* ---- 3. a picked line is never re-picked ----------------------------- */
   const reside = pick('rmResideSuggestions');
@@ -39804,6 +39815,198 @@ suite('271. Measure Roof - the front eaves are offered, and an offer is not a me
   check('S271', 'rebuilding the offers keeps everything traced by hand',
     /rmRuns = rmRuns\.filter\(function\(r\)\{[\s\S]{0,80}if\(!r\.suggested\) return true;/.test(build),
     'a rebuild that clears hand-traced runs loses the work the office actually did');
+}
+
+
+suite('272. Measure Roof - why a dot drifts, and putting it back');
+{
+  /* ⭐ Owner: "when you switch angles of which you are looking at the picture
+     the dots become offset... figure out why thats happening to figure out how
+     much to offset it." And earlier, on the same fault: "when I moved instead
+     of staying at the gutter it came toward the camera and started hovering."
+
+     ⭐ THE GEOMETRY SAYS WHERE TO LOOK. A dot is a fixed point and rmSvProject
+     is exact, so a dot at the RIGHT place cannot drift - it lands on the same
+     brick from every angle. Drift means the point is wrong, and the click fixed
+     its DIRECTION exactly, so only its DEPTH can be wrong. Turning on the spot
+     cannot cause it either: panning at one panorama does not move the camera.
+
+     ⭐ AND THE BUG FOLLOWS. Depth comes from Google's roof model, which is
+     placed vertically by the DATUM - and rmRefreshHeights, which is what a
+     datum change fans out through, walked rmRuns and NEVER LOOKED AT THE DOTS.
+     So a dot placed while the roof height was still the assumed one-storey eave
+     kept its wrong depth for the rest of the session. A ray meets a wall
+     square-on and barely moves; it meets a roof plane at a shallow angle, where
+     the same error slides the crossing yards along the ray.
+
+     ⚠ THIS SUITE RUNS THE RE-SOLVE. Every claim is about where a point ENDS
+     UP, which no text match can see. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmSolveRayNow', 'rmRefreshCorners'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S272', 'the re-solve pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    /* The model is a flat roof at a height the sandbox controls, which is
+       exactly the thing a wrong datum gets wrong. rmHouseHit is stubbed to it:
+       what is under test is whether the dots are RE-SOLVED at all, not the
+       surface picker, which suite 253 already runs. */
+    const PRE =
+      'const RM_M_TO_FT=3.280839895, RM_EAVE_TOL_M=0.8;' + LF_ +
+      'let rmOrigin={lat:40.5527,lng:-111.8574};' + LF_ +
+      'let rmCorners=[], __roofM=3, __changed=0, __refuse=false;' + LF_ +
+      /* A ray cast at a horizontal roof at height __roofM. */
+      'function rmHouseHit(dir, cam){' + LF_ +
+      '  if(__refuse) return null;' + LF_ +
+      '  if(__above) return {e: cam.e, n: cam.n + 10, u: __roofM + 5, kind: "roof"};' + LF_ +
+      '  if(dir.u >= -1e-9 && cam.u >= __roofM) return null;' + LF_ +
+      '  const t = (__roofM - cam.u) / dir.u;' + LF_ +
+      '  if(!(t > 0)) return null;' + LF_ +
+      '  return {e: cam.e + dir.e*t, n: cam.n + dir.n*t, u: __roofM, kind: "roof"};' + LF_ +
+      '}' + LF_ +
+      'function rmFootprintWallHit(){ return null; }' + LF_ +
+      'function rmWallPlane(){ return null; }' + LF_ +
+      'function rmWallHit(){ return null; }' + LF_ +
+      'function rmRoofHeightAt(){ return __roofM; }' + LF_ +
+      'function rmRoofTopM(){ return __roofM; }' + LF_ +
+      /* Lets a solve be forced ABOVE the roof, which the plane stub alone can
+         never produce - a ray aimed over a horizontal plane simply misses it. */
+      'let __above=false;' + LF_ +
+      'function rmDatum(){ return {m: __roofM, source: "street"}; }' + LF_ +
+      'function rmCornersChanged(){ __changed++; }' + LF_;
+    const BODY = PRE + NAMES.map(pick).join(LF_) + LF_ +
+      'return {solve:rmSolveRayNow, refresh:rmRefreshCorners, local:rmToLocal,' +
+      ' set:function(cs){ rmCorners=cs; __changed=0; }, corners:function(){ return rmCorners; },' +
+      ' roof:function(m){ __roofM=m; }, refuse:function(v){ __refuse=v; },' +
+      ' above:function(v){ __above=v; },' +
+      ' changed:function(){ return __changed; }};';
+    assertSandbox('S272', 'dot re-solve', BODY, admin,
+      ['rmHouseHit', 'rmFootprintWallHit', 'rmWallPlane', 'rmWallHit',
+       'rmRoofHeightAt', 'rmRoofTopM', 'rmDatum', 'rmCornersChanged']);
+    const api = new Function(BODY)();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.5527);
+    const ll = (e, n) => ({lat: 40.5527 + n / m.lat, lng: -111.6946 * 0 + -111.8574 + e / m.lng});
+    /* Camera on the road 20 m south, eye at 2.5 m, looking north and slightly
+       up at a gutter. The ray is fixed; only the model's roof height moves. */
+    const cam = {e: 0, n: -20, u: 2.5};
+    const aim = function(roofM, atN){
+      const dz = roofM - cam.u, dn = atN - cam.n;
+      const len = Math.hypot(dn, dz);
+      return {e: 0, n: dn / len, u: dz / len};
+    };
+    /* Placed when the model said the roof was 3 m up: the ray aimed at the real
+       5.5 m gutter crossed the 3 m plane far nearer the camera. */
+    const ray = {cam: cam, dir: aim(5.5, 0)};
+    const dot = (extra) => Object.assign({on: true, rays: [ray], lat: 0, lng: 0, h: 0}, extra || {});
+
+    api.roof(3);
+    const shallow = api.solve(ray);
+    api.roof(5.5);
+    const truth = api.solve(ray);
+    check('S272', 'a wrong roof height puts the dot at the wrong DEPTH along its ray',
+      shallow && truth && Math.abs(shallow.n - truth.n) > 5,
+      'the same ray at a 3 m roof and a 5.5 m roof landed ' +
+      (shallow && truth ? Math.abs(shallow.n - truth.n).toFixed(1) : '?') +
+      ' m apart - if this is small the fixture is not exercising the shallow-angle case');
+
+    /* ---- and the re-solve puts it back -------------------------------- */
+    api.roof(3);
+    const placed = api.solve(ray);
+    const world = {lat: ll(placed.e, placed.n).lat, lng: ll(placed.e, placed.n).lng, h: placed.u};
+    api.roof(5.5);
+    api.set([dot({lat: world.lat, lng: world.lng, h: world.h})]);
+    const res = api.refresh();
+    const now = api.local(api.corners()[0].lat, api.corners()[0].lng, api.corners()[0].h);
+    check('S272', 'once the roof height is measured, the dot is put back on its own ray',
+      Math.abs(now.n - truth.n) < 0.2 && Math.abs(now.u - truth.u) < 0.2,
+      'ended at n=' + now.n.toFixed(2) + ' u=' + now.u.toFixed(2) +
+      ' - wanted n=' + truth.n.toFixed(2) + ' u=' + truth.u.toFixed(2));
+    /* ⚠ AND IT REPORTS HOW FAR, which is the number that was asked for. */
+    check('S272', 'and it says how far it had to move',
+      res.moved === 1 && res.maxM > 5,
+      'moved=' + res.moved + ' maxM=' + (res.maxM || 0).toFixed(2));
+
+    /* ⚠ A PINNED DOT IS NEVER TOUCHED. Two sightings crossing is real
+       geometry; the model is a model, and overwriting the first with the second
+       throws away the better answer to keep the guess tidy. */
+    api.roof(3);
+    api.set([dot({lat: world.lat, lng: world.lng, h: world.h, pinned: 2})]);
+    const before = api.local(world.lat, world.lng, world.h);
+    api.roof(5.5);
+    api.refresh();
+    const after = api.local(api.corners()[0].lat, api.corners()[0].lng, api.corners()[0].h);
+    check('S272', 'a dot pinned from two angles is never re-solved against a model',
+      Math.abs(after.n - before.n) < 1e-6,
+      'triangulated geometry beats any model, and this overwrote it');
+
+    /* ⚠ NEITHER IS ONE SOMEBODY DRAGGED. Dragging clears the rays, which is
+       what makes "leave it where I put it" the automatic answer - so this is
+       the check that stops a future change re-deriving a hand-placed dot. */
+    api.set([dot({lat: world.lat, lng: world.lng, h: world.h, rays: []})]);
+    api.roof(5.5);
+    const dragRes = api.refresh();
+    check('S272', 'and neither is one somebody dragged there by hand',
+      dragRes.moved === 0,
+      'a dragged dot has no ray to re-solve, and moving it anyway undoes the drag');
+
+    /* ⚠ A RE-SOLVE THAT FINDS NOTHING LEAVES THE DOT ALONE. Refusing is the
+       honest answer; moving it to a fallback would be inventing a new position
+       out of a failed lookup. */
+    api.set([dot({lat: world.lat, lng: world.lng, h: world.h})]);
+    api.refuse(true);
+    const gone = api.refresh();
+    api.refuse(false);
+    check('S272', 'and a ray that now hits nothing leaves the dot where it was',
+      gone.moved === 0,
+      'a failed lookup must not become a new position');
+
+    /* ⚠ AND A RE-SOLVE THAT LANDS ABOVE THE ROOF IS REFUSED, like every
+       other reading in this tool. An answer in the sky is worse than the one it
+       would replace, and nothing was asserting it - a red-check adding 40 m to
+       every solve went straight through. */
+    api.above(true);
+    check('S272', 'a re-solve that lands above the roof is refused, not taken',
+      api.solve(ray) === null,
+      'a point in the sky is a worse answer than the one it would replace');
+    api.above(false);
+
+    /* ⚠ A HAIR IS NOT A MOVE, or every datum nudge reports every dot and the
+       real one stops being noticed. */
+    api.roof(5.5);
+    api.set([dot({lat: ll(truth.e, truth.n).lat, lng: ll(truth.e, truth.n).lng, h: truth.u})]);
+    check('S272', 'a dot already in the right place is not reported as moved',
+      api.refresh().moved === 0,
+      'reporting every dot on every nudge is how a real move stops being noticed');
+  }
+
+  /* ---- the wiring a sandbox cannot see ------------------------------- */
+  /* ⚠ THE DOTS HAVE TO BE ON THE PATH A DATUM CHANGE TAKES. This is the whole
+     bug: rmRefreshHeights fanned a new roof height out to every RUN and never
+     once looked at the dots. */
+  const refresh = extractFn(admin, 'rmRefreshHeights') || '';
+  check('S272', 'a measured roof height reaches the dots, not just the runs',
+    /rmRefreshCorners\(\)/.test(refresh),
+    'this is the bug itself: the datum fanned out to every run and no dot');
+  /* ⚠ GUARDED ON dots.moved, not merely mentioning it. A red-check wrapping
+     the whole report in if(false) left every word of it in the file, and a
+     check that only looked for those words stayed green over a report that
+     could never print. */
+  check('S272', 'and the office is told how far the furthest one moved',
+    /if\(dots\.moved\)\{/.test(refresh) &&
+    refresh.indexOf('dots.maxM') !== -1 && refresh.indexOf('rmCornerNote') !== -1,
+    '"the dots moved" with no figure cannot be told from the tool wobbling');
+  /* ⚠ THE RAY IS WHAT MAKES THIS EXACT rather than a second guess. */
+  check('S272', 'a dot keeps the ray it was seen along',
+    /rays: pt\.ray \? \[pt\.ray\] : \[\]/.test(extractFn(admin, 'rmAddCorner') || ''),
+    'without the ray there is nothing to re-solve and the depth is lost for good');
+  /* ⚠ THE KEY, WITH ITS COLON. The block comment above it names the field
+     too, so matching the bare word stayed green with the field itself renamed. */
+  check('S272', 'and rmDebug says which dots are likely to drift and by how much',
+    /driftPerFtFt:/.test(admin) && /wouldMoveFt:/.test(admin),
+    'the question was how much and why; a log that cannot answer it sends somebody back to screenshots');
 }
 
 Promise.all(pendingAsync).then(function () {
