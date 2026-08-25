@@ -4714,6 +4714,15 @@
                 <button type="button" class="btn btn-gold" id="rmCropUseBtn">Add to Quote List</button>
                 <button type="button" class="btn btn-outline" id="rmCropResetBtn">Reset Crop</button>
                 <button type="button" class="btn btn-outline" id="rmCropBackBtn">Back to the House</button>
+                <!-- ⚠ OFF BY DEFAULT. Measuring lines are working notes; the
+                     photo is what the customer and the crew look at. It is a
+                     choice rather than a removal because a picture showing
+                     somebody where their lights will go is a real thing to
+                     want — it just is not what every capture should be. -->
+                <label style="font-size:12.5px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+                  <input type="checkbox" id="rmCropLines" style="vertical-align:-2px;">
+                  Show the measured lines on it
+                </label>
                 <span id="rmCropStatus" style="font-size:12.5px; color:var(--slate);"></span>
               </div>
             </div>
@@ -4726,6 +4735,17 @@
 
           <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:12px;">
             <button type="button" class="btn btn-gold" id="rmAttachBtn" disabled>Attach to Quote</button>
+            <!-- ⭐ STRAIGHT INTO MARKING IT UP (2026-08-25). Owner: "I can't
+                 mark it up after measuring it." The Mark Up tool existed and
+                 could already do this — but only from the quote card, so you
+                 had to attach, close the whole tool, find the card again and
+                 find the button, which for the commonest next step after making
+                 a picture is three navigations too many.
+                 ⚠ A SEPARATE BUTTON RATHER THAN OPENING IT AUTOMATICALLY. A
+                 capture taken just to keep on file needs no marking up, and a
+                 modal that opens itself every time is one somebody learns to
+                 dismiss without reading. -->
+            <button type="button" class="btn btn-outline" id="rmAttachMarkBtn" disabled>Attach &amp; Mark Up</button>
             <button type="button" class="btn btn-outline" id="rmCloseBtn">Close</button>
             <span id="rmStatus" style="font-size:13px; color:var(--slate);"></span>
           </div>
@@ -20247,42 +20267,28 @@ async function rmCapture(which){
   if(!loaded){ URL.revokeObjectURL(objUrl); status.textContent = 'The picture came back unreadable — try again.'; return; }
   const canvas = document.createElement('canvas');
   canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  /* ⭐ THE PICTURE IS KEPT CLEAN, AND THE LINES ARE A CHOICE (2026-08-25).
+   * Owner: "I don't want red lines showing here after I'm done measuring."
+   *
+   * ⚠ THEY WERE BURNT INTO THE PIXELS, WHICH IS WHY THIS MATTERS MORE THAN IT
+   * LOOKS. The capture is a JPEG, so a line drawn on it is not a layer that can
+   * be switched off later — it IS the photograph from that moment on. And quote
+   * photos are stored as {url, original, markup} precisely so the markup can be
+   * redone or removed: baking the measuring lines in poisons the "original"
+   * too, so even the Mark Up tool could never get a clean picture of the house
+   * back. Measuring lines are working notes; the photo is what the customer and
+   * the crew look at.
+   *
+   * Everything needed to redraw them is kept instead, so the toggle can compose
+   * either version on demand and neither is destroyed. */
+  rmCrop = {canvas: canvas, box: null, which: which, img: img,
+            w: w, h: h, scale: scale, pov: pov, cam: cam,
+            center: center, zoom: zoom, lines: false};
   const ctx = canvas.getContext('2d');
   /* Same brightness and contrast the screen is showing, so what you attach is
      what you were looking at when you decided it looked right. */
-  ctx.filter = rmFilterCss();
-  ctx.drawImage(img, 0, 0);
-  ctx.filter = 'none';
   URL.revokeObjectURL(objUrl);
-  const drawRun = function(pts, color){
-    if(pts.length < 2) return;
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    /* dark halo under the colour, so a red line stays readable over a
-       red-brown roof */
-    [{c:'rgba(0,0,0,.55)', lw:9}, {c:color, lw:5}].forEach(function(pass){
-      ctx.beginPath();
-      pts.forEach(function(p, i){ if(i===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-      ctx.strokeStyle = pass.c; ctx.lineWidth = pass.lw; ctx.stroke();
-    });
-    pts.forEach(function(p){
-      ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2);
-      ctx.fillStyle = '#fff'; ctx.fill();
-      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.stroke();
-    });
-  };
-  rmRuns.forEach(function(r){
-    let pts;
-    if(which === 'street'){
-      pts = r.path.map(function(p){ return rmSvProject(p, w, h, pov, cam); });
-      if(pts.some(function(p){ return !p; })) return;      /* partly behind the camera */
-      pts = pts.map(function(p){ return {x: p.x*scale, y: p.y*scale}; });
-    } else {
-      pts = r.path.map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
-    }
-    drawRun(pts, RM_TYPES[r.type].color);
-  });
-  rmCrop = {canvas: canvas, box: null, which: which};
-  document.getElementById('rmCropImg').src = canvas.toDataURL('image/jpeg', .92);
+  rmComposeCapture();
   document.getElementById('rmCropBox').style.display = 'none';
   document.getElementById('rmCropStatus').textContent = '';
   document.getElementById('rmWorkStage').style.display = 'none';
@@ -20303,6 +20309,48 @@ function rmPaintCropBox(){
   box.style.display = 'block';
   box.style.left = (b.x*100)+'%'; box.style.top = (b.y*100)+'%';
   box.style.width = (b.w*100)+'%'; box.style.height = (b.h*100)+'%';
+}
+/* Draw the capture: the photograph, and the measuring lines only if they are
+   asked for. Re-runnable, because the toggle composes either version from the
+   same source rather than destroying one to show the other. */
+function rmComposeCapture(){
+  if(!rmCrop || !rmCrop.img) return;
+  const canvas = rmCrop.canvas, img = rmCrop.img;
+  const which = rmCrop.which, w = rmCrop.w, h = rmCrop.h, scale = rmCrop.scale;
+  const pov = rmCrop.pov, cam = rmCrop.cam, center = rmCrop.center, zoom = rmCrop.zoom;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.filter = rmFilterCss();
+  ctx.drawImage(img, 0, 0);
+  ctx.filter = 'none';
+  const drawRun = function(pts, color){
+    if(pts.length < 2) return;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    /* dark halo under the colour, so a red line stays readable over a
+       red-brown roof */
+    [{c:'rgba(0,0,0,.55)', lw:9}, {c:color, lw:5}].forEach(function(pass){
+      ctx.beginPath();
+      pts.forEach(function(p, i){ if(i===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+      ctx.strokeStyle = pass.c; ctx.lineWidth = pass.lw; ctx.stroke();
+    });
+    pts.forEach(function(p){
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.stroke();
+    });
+  };
+  if(rmCrop.lines) rmRuns.forEach(function(r){
+    let pts;
+    if(which === 'street'){
+      pts = r.path.map(function(p){ return rmSvProject(p, w, h, pov, cam); });
+      if(pts.some(function(p){ return !p; })) return;      /* partly behind the camera */
+      pts = pts.map(function(p){ return {x: p.x*scale, y: p.y*scale}; });
+    } else {
+      pts = r.path.map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
+    }
+    drawRun(pts, RM_TYPES[r.type].color);
+  });
+  document.getElementById('rmCropImg').src = canvas.toDataURL('image/jpeg', .92);
 }
 function rmCroppedBlob(){
   return new Promise(function(resolve){
@@ -20346,6 +20394,11 @@ function rmRenderStaged(){
     });
   });
   attach.disabled = !rmShots.length;
+  /* ⚠ BOTH DOORS OPEN TOGETHER. Leaving the second one enabled with nothing
+     staged offers a markup of a picture that does not exist; leaving it
+     disabled when there IS something staged is a button that looks broken. */
+  const attachMark = document.getElementById('rmAttachMarkBtn');
+  if(attachMark) attachMark.disabled = !rmShots.length;
   attach.textContent = rmShots.length ? 'Attach ' + rmShots.length + ' to Quote' : 'Attach to Quote';
 }
 function rmBackToHouse(){
@@ -20367,6 +20420,10 @@ function rmReset(){
   if(calBox) calBox.textContent = '';
   rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
   rmShots = []; rmCrop = null; rmCropDrag = null;
+  /* Unticked with the rest — the box is markup, and markup belongs to the
+     capture it was ticked for, not to the next house. */
+  const cropLines = document.getElementById('rmCropLines');
+  if(cropLines) cropLines.checked = false;
   rmWall = null; rmWallPts = []; rmWallPicking = false;
   rmSkyReady = false; rmStreetReady = false; rmCamGroundDrop = 0;
   rmSetType('perimeter');
@@ -21070,6 +21127,18 @@ function openRoofMeasure(quoteId){
   cropWrap.addEventListener('touchstart', cropDown, {passive:false});
   cropWrap.addEventListener('touchmove', cropMove, {passive:false});
   window.addEventListener('touchend', cropUp);
+  document.getElementById('rmCropLines').addEventListener('change', function(){
+    if(!rmCrop) return;
+    rmCrop.lines = this.checked;
+    /* ⚠ THE CROP BOX SURVIVES THE REDRAW. It is stored as fractions of the
+       picture, not pixels, and the picture does not change size — so a box
+       dragged before the toggle is still over the same part of the house
+       afterwards. Clearing it would be a small betrayal of work already done. */
+    rmComposeCapture();
+    document.getElementById('rmCropStatus').textContent = this.checked
+      ? 'Lines drawn on. They become part of the picture when you add it.'
+      : 'Clean picture — the lines are only on screen while you measure.';
+  });
   document.getElementById('rmCropUseBtn').addEventListener('click', async function(){
     const blob = await rmCroppedBlob();
     if(!blob){ document.getElementById('rmCropStatus').textContent = 'Could not read that capture back — try capturing again.'; return; }
@@ -21125,9 +21194,12 @@ function openRoofMeasure(quoteId){
         (measurement ? ' — and the drawing is saved, so reopening this quote brings it back.' : '.');
     } catch(err){ status.textContent = 'Could not save the footage onto the quote — try again.'; }
   });
-  document.getElementById('rmAttachBtn').addEventListener('click', async function(){
+  /* ⚠ ONE ATTACH, TWO DOORS. Both buttons run this; only what happens after
+     a successful upload differs. A second copy of the upload loop is a second
+     place for the photo list to be written back stale. */
+  async function rmAttachShots(btn, thenMarkUp){
     if(!rmQuoteId || !rmShots.length) return;
-    const btn = this, status = document.getElementById('rmStatus');
+    const status = document.getElementById('rmStatus');
     const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
     if(!item){ status.textContent = 'That quote is no longer on screen — close this and try again.'; return; }
     btn.disabled = true;
@@ -21148,6 +21220,9 @@ function openRoofMeasure(quoteId){
       } catch(err){ failed.push(i+1); }
     }
     if(!added){ status.textContent = 'Nothing uploaded — try again.'; btn.disabled = false; return; }
+    /* The first picture just added. Taken BEFORE the write, because the list
+       is what the markup tool indexes into. */
+    const firstNew = photos.length - added;
     try{
       const updates = quotePhotoUpdates(photos);
       await updateDoc(doc(db, 'quotes', rmQuoteId), updates);
@@ -21157,12 +21232,23 @@ function openRoofMeasure(quoteId){
       rmShots = []; rmRenderStaged();
       status.textContent = '';
       toast(added === 1 ? 'Picture added to the quote' : (added + ' pictures added to the quote'));
-      if(failed.length) status.textContent = 'Could not upload ' + failed.length + ' of them.';
-      else document.getElementById('roofMeasureOverlay').style.display = 'none';
+      if(failed.length){ status.textContent = 'Could not upload ' + failed.length + ' of them.'; return; }
+      document.getElementById('roofMeasureOverlay').style.display = 'none';
+      /* ⚠ ONLY AFTER THE WRITE LANDED. openQuoteMarkup reads the photo list off
+         quotesCache, so opening it before the update would mark up a slot that
+         does not exist yet and silently fall back to photo #1 — somebody else's
+         picture. */
+      if(thenMarkUp) openQuoteMarkup(rmQuoteId, firstNew);
     } catch(err){
       status.textContent = 'Uploaded, but saving onto the quote failed — try Attach again.';
       btn.disabled = false;
     }
+  }
+  document.getElementById('rmAttachBtn').addEventListener('click', function(){
+    rmAttachShots(this, false);
+  });
+  document.getElementById('rmAttachMarkBtn').addEventListener('click', function(){
+    rmAttachShots(this, true);
   });
   /* KEYBOARD. ⚠ Every one of these is a SECOND way to reach a button that is
      already on screen, never the only way - a shortcut nobody can discover is

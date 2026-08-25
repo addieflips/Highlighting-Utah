@@ -37764,6 +37764,88 @@ suite('262. Measure Roof - the roofline that runs backward and gets missed');
     'a warning nobody sees is not a warning');
 }
 
+
+suite('263. Measure Roof - the captured picture is clean, and can be marked up');
+{
+  /* Owner, looking at a capture: "I can't mark it up after measuring it. And I
+     don't want red lines showing here after I'm done measuring." */
+
+  /* ---- the lines are not burnt into the photograph ------------------- */
+  /* ⚠ WHY THIS MATTERS MORE THAN IT LOOKS. The capture is a JPEG, so a line
+     drawn onto it is not a layer that can be switched off later — it IS the
+     photograph from then on. Quote photos are stored as {url, original, markup}
+     precisely so markup can be redone or removed, and baking the measuring
+     lines in poisons the "original" too, so even the Mark Up tool could never
+     get a clean picture of the house back. */
+  const capture = extractFn(admin, 'rmCapture') || '';
+  const compose = extractFn(admin, 'rmComposeCapture') || '';
+  check('S263', 'composing the capture is its own function, so it can be redone',
+    !!compose,
+    'drawn once inline, the only way to remove a line is to re-fetch the picture');
+  check('S263', 'the capture starts clean',
+    /lines: false/.test(capture),
+    'measuring lines are working notes; the photo is what the customer and the crew look at');
+  check('S263', 'and the lines are only drawn when they are asked for',
+    /if\(rmCrop\.lines\) rmRuns\.forEach/.test(compose),
+    'an unconditional draw is the burnt-in version again');
+  /* ⚠ THE SOURCE IMAGE IS KEPT, or the toggle can only ever go one way. */
+  check('S263', 'the photograph itself is kept so either version can be composed',
+    /img: img,/.test(capture) && /const canvas = rmCrop\.canvas, img = rmCrop\.img;/.test(compose),
+    'without the original in hand, ticking the box is a one-way door');
+  check('S263', 'and each compose starts from a cleared canvas',
+    /ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\);/.test(compose),
+    'drawing over the last version leaves the old lines under the new picture');
+
+  const lineWire = (admin.split("getElementById('rmCropLines').addEventListener")[1] || '').slice(0, 800);
+  check('S263', 'the toggle is really wired and redraws',
+    !!lineWire && /rmCrop\.lines = this\.checked;/.test(lineWire) && /rmComposeCapture\(\);/.test(lineWire),
+    'a checkbox that renders and redraws nothing is worse than no checkbox');
+  /* The crop box is stored as fractions of the picture and the picture does not
+     change size, so a box dragged before the toggle still covers the same part
+     of the house after it. Clearing it would throw away work already done. */
+  check('S263', 'and toggling does not throw away a crop already dragged',
+    !/rmCrop\.box = null/.test(lineWire),
+    'the box is fractions of an unchanged picture — it survives a redraw, so clearing it is pure loss');
+  check('S263', 'the box does not carry over to the next house',
+    /cropLines\.checked = false/.test(extractFn(admin, 'rmReset') || ''),
+    'markup belongs to the capture it was ticked for');
+
+  /* ---- and it can be marked up without leaving the tool -------------- */
+  /* The Mark Up tool already existed and could already do this — but only from
+     the quote card, so the commonest next step after making a picture meant
+     attaching, closing the whole tool, finding the card and finding the button. */
+  check('S263', 'there is a way into the markup tool from here',
+    /id="rmAttachMarkBtn"/.test(admin) &&
+    /getElementById\('rmAttachMarkBtn'\)\.addEventListener/.test(admin),
+    'the tool existed; reaching it took three navigations from where you already were');
+  /* ⚠ ONE ATTACH, TWO DOORS. A second copy of the upload loop is a second place
+     for the photo list to be written back stale. */
+  check('S263', 'both buttons run the SAME attach, differing only in what follows',
+    !!extractFn(admin, 'rmAttachShots') &&
+    /rmAttachShots\(this, false\)/.test(admin) && /rmAttachShots\(this, true\)/.test(admin),
+    'two upload loops is two places for the photo list to be written back stale');
+  const attach = extractFn(admin, 'rmAttachShots') || '';
+  /* ⚠ THE INDEX IS TAKEN BEFORE THE WRITE, and the markup opened AFTER it.
+     openQuoteMarkup indexes into the photo list off quotesCache — opening it
+     early marks up a slot that does not exist yet and silently falls back to
+     photo #1, which is somebody else's picture. */
+  check('S263', 'it marks up the picture just added, not the first one',
+    /const firstNew = photos\.length - added;/.test(attach) &&
+    /openQuoteMarkup\(rmQuoteId, firstNew\)/.test(attach),
+    'openQuoteMarkup falls back to photo #1 for an out-of-range index — silently the wrong picture');
+  check('S263', 'and only once the write has actually landed',
+    attach.indexOf('updateDoc') < attach.indexOf('openQuoteMarkup'),
+    'the markup tool reads the list off quotesCache, which the write is what updates');
+  /* A partial upload leaves the count uncertain, so it reports rather than
+     opening a markup on a picture that may not be the one meant. */
+  check('S263', 'a partly failed upload reports instead of opening markup',
+    /if\(failed\.length\)\{[\s\S]{0,160}return; \}/.test(attach),
+    'opening markup after a partial failure marks up whichever picture did land');
+  check('S263', 'and the second button is enabled and disabled with the first',
+    /attachMark\.disabled = !rmShots\.length/.test(extractFn(admin, 'rmRenderStaged') || ''),
+    'offering markup with nothing staged marks up a picture that does not exist');
+}
+
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
    that will just sit there doing nothing forever" - asked twice, and pushing on it is
    what produced this.
