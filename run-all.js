@@ -1386,7 +1386,6 @@ if (JSDOM) {
   };
   // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
   // button label and the re-quote wording. Mirrors the real one in admin.html.
-  global.isRequote = d => !!(d && (d.existingCustomerId || Number(d.requoteCount) > 0));
   /* ⚠ THE REAL FUNCTION, LIFTED — NOT A MIRROR LIKE THE TWO ABOVE. quoteStage and
      isRequote decide a badge and a button label, so a hand-written copy that drifts
      costs a wrong word on a card. quoteChargesSetupFee decides whether somebody is
@@ -1401,7 +1400,6 @@ if (JSDOM) {
   // runs the real one out of the file; this copy only has to keep the render
   // tests alive, the same way the quoteStage mirror above does.
   global.jobAddresses = global.jobAddresses || [];
-  global.quoteAlreadyACustomer = () => false;
   /* The quote link box carries &p= for an existing member (quotePortalParam in
      admin.html). These fixtures are all new leads, so it contributes nothing. */
   global.quotePortalParam = () => '';
@@ -1412,7 +1410,6 @@ if (JSDOM) {
     !(d.quoteSentAt && typeof d.quoteSentAt.toDate === 'function');
   // The Edit contact row and the email preview both ask what is wrong with the
   // address before offering to send to it. Real one exercised in suite 5b.
-  global.emailAddressProblem = raw => (String(raw == null ? '' : raw).trim() ? '' : 'no address');
   // showConvertQuoteChoice now looks the customer up before deciding WHICH popup
   // to open, so the live customer list has to exist here. Empty by default means
   // "this customer has been deleted since", which is the fall-through case; the
@@ -1420,8 +1417,6 @@ if (JSDOM) {
   global.jobAddresses = [];
   global.CN_DOUBLE_BIN_FEET = 260;
   global.cnBinsForFeet = f => (Number(f) > 0 ? Math.ceil(Number(f) / 260) : 0);
-  global.openEditCustomerModal = () => {};
-  global.toast = () => {};
   global.requoteBeingConverted = null;
   /* ⚠ THE HELPERS quoteChargesSetupFee NOW REACHES FOR (added 2026-08-24). The join-fee
      rule started asking whether the house is already on the books, and this sandbox
@@ -4946,7 +4941,6 @@ if (!JSDOM) {
     global.FEET_PER_BUNDLE = 40;
     global.perFootRate = 2.5;
     global.warehouseExtras = [];
-    global.estimateFeetFromPrice = (price, rate) => Math.round((price / rate) * 1.05);
     global.custNumChip = d => (d && d.customerNumber ? ' <span>#' + d.customerNumber + '</span>' : '');
     global.propLabelChip = () => '';
     global.houseBundleNeed = d => {
@@ -6046,7 +6040,6 @@ suite('15. The printed schedule sheet');
     global.custByNumber = new Map();
     global.custByPhoneDigits = new Map();
     global.custByAddrKey = new Map();
-    global.custAddrKey = () => '';
     global.customerForScheduleRow = () => null;
     global.personName = eval(
       admin.slice(admin.indexOf('function personName(n, h)'),
@@ -6134,7 +6127,6 @@ suite('15. The printed schedule sheet');
     global.isoOf = () => '2026-11-03';
     global.fmtPhone = p => '(801) 555-0100';
     global.isNewMemberHouse = () => false;
-    global.esc = s => (s || '').toString();
     // A season that is NOT the same two towns every day — which is the case
     // the automatic pairing exists for.
     const dayA = { id: 'a', _date: new Date(2026, 10, 3), houses: [
@@ -6143,7 +6135,6 @@ suite('15. The printed schedule sheet');
     const dayB = { id: 'b', _date: new Date(2026, 10, 4), houses: [
       { name: 'Five', city: 'Alpine', price: 1 }, { name: 'Six', city: 'Alpine', price: 1 },
       { name: 'Seven', city: 'Lehi', price: 1 } ] };
-    global.allHouses = () => dayA.houses.concat(dayB.houses);
     /* ⚠ A SECOND TOWN NOW HAS TO BE A NEIGHBOUR, and this sandbox has no customer
        records to measure between towns, so the office’s own list is what makes the
        pairing legal here — the same list the live page loads from Scheduling settings.
@@ -6264,8 +6255,6 @@ suite('16. Not-done stops get another day');
     };
     global.isNewMemberHouse = () => false;
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
-    global.takedownDays = () => SEASON.filter(d => d.isTakedown);
-    global.fixerRoutes = () => SEASON.filter(d => d.isFixRoute);
     global.allHouses = () => SEASON.flatMap(d => d.houses);
     const api = eval(admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
       '\n;({left: unfinishedOn, later: laterDaysLike, next: nextDayInCity,' +
@@ -27268,7 +27257,6 @@ suite('77. Schedule route generator');
     global.fmtPhone = () => '(801) 555-0100';
     global.isNewMemberHouse = () => false;
     global.esc = s => (s || '').toString();
-    global.personName = n => n;
     /* The customer index itself is covered elsewhere; what matters here is that
        the generator reads the COORDINATES off the customer record rather than
        expecting the imported plan row to carry them. */
@@ -27523,8 +27511,6 @@ suite('77. Schedule route generator');
     global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
     global.dayDate = d => d._date;
     global.isoOf = () => '2026-11-03';
-    global.isWeekend = () => false;
-    global.effectivePin = () => null;
     global.deltaFor = () => 0;
     global.weekGuideHTML = () => '';
     global.allHouses = () => [];
@@ -28408,7 +28394,6 @@ suite('123. The two crew maps, actually rendered');
       global.isoOf = () => '2026-11-03';
       global.dlabel = () => ({ wd: 'Mon', full: 'Nov 3' });
       global.customerForHouse = h => (h && h._cust) ? { data: h._cust } : null;
-      global.estimatedPinFromAddress = () => null;
 
       const api = eval(extractFn(admin, 'haversine') + LF_ + admin.slice(crewStart, crewEnd) +
         LF_ + admin.slice(mapStart, mapEnd) + LF_ +
@@ -36358,6 +36343,76 @@ suite('251. The corners, offered rather than hunted');
       !/lat:/.test(src.replace(/\/\*[\s\S]*?\*\//g, '')),
       'the caller supplies north; this file must not pretend to know it');
   })());
+}
+
+/* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
+   that will just sit there doing nothing forever" - asked twice, and pushing on it is
+   what produced this.
+
+   THE FAILURE THIS CLOSES. Many checks lift ONE function out of admin.html and run it
+   in a small sandbox. When that function calls a helper the sandbox was never given
+   there are three outcomes and only one is safe: it throws (loud, fixable); it meets a
+   typeof guard and silently skips the branch; or - worst - it finds a STUB some earlier
+   suite left on the shared scope and quietly grades against the wrong function. That
+   third one happened on 2026-08-24: printExtraBinsNote reached a cnBinsForFeet stub
+   from Suite 5 that rounds differently from the real rule at exactly the boundary the
+   check existed to test. It passed.
+
+   AND THIS IS WHY A PER-SANDBOX GUARD IS NOT NEEDED. Take away the name collision and
+   the silent case cannot happen: a sandbox missing a helper finds nothing at all and
+   THROWS, naming the function. One check here does what wiring assertSandbox into ~300
+   sandboxes would have done, without ~300 lines of scaffolding.
+
+   THE ALLOWLIST IS A TO-DO LIST, NOT AN EXEMPTION. Every name below is a fake that
+   still shadows something real. A few can never be real - trashIcon, stopHTML and the
+   other DOM builders - but most can, and each one removed is a check that starts
+   grading against shipped code. It shrinks; it must never grow.
+
+   Measured 2026-08-25: 44 shadowing fakes, 20 called by nothing at all. The 15 safe to
+   delete outright are gone. These are what is left. */
+const SHADOW_ALLOWED = new Set([
+  'allHouses', 'attachDeleteHandlers', 'custNumChip', 'customerForHouse', 'customerForScheduleRow',
+  'dayDate', 'daysSince', 'deltaFor', 'dlabel', 'esc',
+  'estimatedPinFromAddress', 'findHouse', 'fixerRoutes', 'fmtDate', 'fmtPhone',
+  'getDay', 'houseBundleNeed', 'installDays', 'isNewMemberHouse', 'isStaleUnresponsive',
+  'isoOf', 'planTickCustomer', 'propLabelChip', 'quoteAwaitsUs', 'quotePortalParam',
+  'quoteStage', 'renderAll', 'renderLeftovers', 'stopHTML', 'takedownDays',
+  'thanksgivingDate', 'toDateStr', 'toast', 'trashIcon', 'weekGuideHTML',
+]);
+{
+  const runAllSrc = read('run-all.js').replace(/\r/g, '');
+  const shadowing = [], seen = [];
+  runAllSrc.split('\n').forEach(function (line) {
+    const m = /^\s*global\.([A-Za-z_$][\w$]*)\s*=\s*(.*)$/.exec(line);
+    if (!m) return;
+    if (!/^(\(|function\b|[A-Za-z_$][\w$]*\s*=>|async\b)/.test(m[2])) return;
+    if (!new RegExp('^(?:async )?function ' + m[1] + '\\(', 'm').test(admin)) return;
+    if (seen.indexOf(m[1]) === -1) seen.push(m[1]);
+    if (SHADOW_ALLOWED.has(m[1])) return;
+    if (shadowing.indexOf(m[1]) === -1) shadowing.push(m[1]);
+  });
+  /* ⚠ THE SCANNER MUST STILL BE FINDING THINGS. A red-check that put `return;` at the
+     top of this loop left `shadowing` empty and the check below GREEN — a guard that
+     had been switched off reporting all clear, which is the exact shape it exists to
+     catch elsewhere. It knows roughly how many fakes are there, so a scan that suddenly
+     sees none has broken rather than succeeded. */
+  check('reliability', 'the shadow scanner still finds the known fakes',
+    seen.length >= 20,
+    'it found ' + seen.length + '. The allowlist names ' + SHADOW_ALLOWED.size +
+    ', so a near-empty scan means the loop stopped matching, not that the fakes went');
+  check('reliability', 'no NEW test fake wears a real function name',
+    shadowing.length === 0,
+    'these stubs share a name with a real function in admin.html: ' + shadowing.join(', ') +
+    '. A sandbox that forgets to supply the real one silently gets this instead and ' +
+    'grades against the wrong answer. Supply the real function, or rename the fake.');
+  /* AND THE ALLOWLIST MUST SHRINK. An entry for a fake that no longer exists is a line
+     nobody will ever remove, and it makes the debt look larger than it is. */
+  const stale = Array.from(SHADOW_ALLOWED).filter(function (n) {
+    return !new RegExp('^\\s*global\\.' + n + '\\s*=', 'm').test(runAllSrc);
+  });
+  check('reliability', 'and the allowlist holds no names that are already gone',
+    stale.length === 0,
+    'delete these from SHADOW_ALLOWED, the fakes are gone: ' + stale.join(', '));
 }
 
 Promise.all(pendingAsync).then(function () {
