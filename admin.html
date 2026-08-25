@@ -18674,6 +18674,30 @@ function rmRunFeet(run){
   return t;
 }
 function rmRunIsOn(r){ return r && r.on !== false; }
+/* ⭐ EVERYTHING THE DIFFICULTY RULE ASKS FOR, GATHERED IN ONE PLACE. Owner:
+   "things like feet, complex roof, and number of strands all effect complexity."
+
+   ⚠ THE ROOF HALF IS KNOWN ON LOAD AND THE JOB HALF IS NOT. Pitch and section
+   count come out of Google's model the moment the house is found; feet and
+   strands only exist once somebody has actually traced it. So the grade is cut
+   twice - once from the roof alone, once when there is a measurement - and both
+   calls have to agree about what they are asking. One function, so they cannot
+   drift apart.
+
+   A strand is a run of string, and a run switched OFF is not one - nobody hangs
+   it, so it is not work. */
+function rmGradeInputs(extra){
+  const f = rmRoofFacts || {};
+  const on = (rmRuns || []).filter(function(r){ return rmRunIsOn(r); });
+  const bands = {};
+  (rmCorners || []).forEach(function(c){ if(c && c.on) bands[c.band || 0] = 1; });
+  const strands = on.length + Object.keys(bands).length;
+  const t = rmTotals();
+  return Object.assign({
+    maxGrade: f.maxGrade, typicalGrade: f.typicalGrade, steepShare: f.steepShare,
+    peakCount: f.peakCount, feet: t.all, strands: strands
+  }, extra || {});
+}
 function rmTotals(){
   const out = {perimeter:0, ridge:0, ground:0, all:0};
   /* ⚠ A run switched off is still a run - still drawn, still listed, still
@@ -20020,8 +20044,7 @@ async function rmLoadAddress(){
                a two-storey eave is a harder day than the pitch alone says, and
                fetchRoofDetails had nothing to work that out from. */
             if(rmRoofFacts){
-              const g = gradeRoof({maxGrade: rmRoofFacts.maxGrade, peakCount: rmRoofFacts.peakCount,
-                                   eaveFt: eave * RM_M_TO_FT});
+              const g = gradeRoof(rmGradeInputs({eaveFt: eave * RM_M_TO_FT}));
               rmRoofGrade = g.level;
               const sel2 = document.getElementById('rmDifficulty');
               if(sel2) sel2.value = g.level;
@@ -23278,6 +23301,13 @@ const RM_BUSY_SECTIONS = 10;
 /* How much of the roof has to be steep before the whole house counts as steep.
    A steep patch is a patch; a steep ROOF is a day roped on. */
 const RM_STEEP_SHARE = 0.15;
+/* ⚠ UNVALIDATED AGAINST ANY GRADED HOUSE, unlike the pitch thresholds, which
+   have two. These are reasoned from what the office has said elsewhere - an
+   average house is about 150 ft, and a house normally has TWO strands, the top
+   and the bottom - so these are "well past ordinary", not measured cut-offs.
+   Two houses she grades by eye would settle them. */
+const RM_BIG_JOB_FT = 250;       /* an average house is about 150 */
+const RM_MANY_STRANDS = 4;       /* an ordinary house is two: top and bottom */
 const RM_TWO_STOREY_FT = 17;
 /* What a difficulty does to the per-foot rate. Medium is 1 on purpose: the
    office's own Per Foot Pricing stays the baseline, so there is still ONE rate
@@ -23355,6 +23385,8 @@ function gradeRoof(o){
   const eaveFt = Number(o && o.eaveFt) || 0;
   const typical = Math.round(Number(o && o.typicalGrade) || maxGrade);
   const steepShare = Number(o && o.steepShare) || 0;
+  const feet = Number(o && o.feet) || 0;
+  const strands = Number(o && o.strands) || 0;
   let level = typical >= RM_HARD_GRADE ? 2 : (typical >= RM_MEDIUM_GRADE ? 1 : 0);
   const why = [];
   if(level === 2) why.push('steep roof (' + typical + '% grade)');
@@ -23364,8 +23396,35 @@ function gradeRoof(o){
     level = Math.min(2, level + 1);
     why.push(Math.round(steepShare * 100) + '% of it steeper than ' + RM_HARD_GRADE + '%');
   }
-  if(peakCount >= RM_BUSY_SECTIONS){ level = Math.min(2, level + 1); why.push(peakCount + ' separate roof sections'); }
-  if(eaveFt >= RM_TWO_STOREY_FT){ level = Math.min(2, level + 1); why.push('two-storey eave (' + Math.round(eaveFt) + ' ft)'); }
+  /* ⭐ THE THINGS THAT MAKE A HOUSE HARD FOR REASONS THAT ARE NOT PITCH. Owner:
+     "things like feet, complex roof, and number of strands all effect
+     complexity."
+
+     ⚠ AND ANY ONE OF THEM USED TO BUMP THE GRADE ON ITS OWN, which is how a
+     scale ends up with every house at the top - the same failure the pitch
+     thresholds were re-cut for. The comment above this rule has always SAID
+     "two of those bump it up a grade"; the code bumped on each. It does what it
+     says now.
+
+     ⚠ WHY THAT MATTERS MORE AS THE LIST GROWS: with five soft signals each
+     promoting a house on its own, almost every house reaches Hard and the grade
+     stops carrying information - and it sets prices. Requiring two means a
+     house has to be awkward in more than one way before it costs more. */
+  const also = [];
+  if(peakCount >= RM_BUSY_SECTIONS) also.push(peakCount + ' separate roof sections');
+  if(eaveFt >= RM_TWO_STOREY_FT) also.push('two-storey eave (' + Math.round(eaveFt) + ' ft)');
+  /* Feet and strands are only known once the house has actually been measured,
+     so they are absent on the first grade and present on the re-cut. */
+  if(feet >= RM_BIG_JOB_FT) also.push(Math.round(feet) + ' ft of roofline');
+  if(strands >= RM_MANY_STRANDS) also.push(strands + ' separate strands');
+  if(also.length >= 2){
+    level = Math.min(2, level + 1);
+    why.push(also.join(' and '));
+  } else if(also.length === 1){
+    /* Said, but not charged for - the office can see what the tool noticed and
+       overrule the grade by hand if it disagrees. */
+    why.push(also[0]);
+  }
   return {level: ['Easy', 'Medium', 'Hard'][level], why: why.join(', '),
           rateMultiplier: RM_DIFFICULTY_RATE[['Easy', 'Medium', 'Hard'][level]]};
 }

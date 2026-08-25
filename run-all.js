@@ -33077,9 +33077,9 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
        this suite held 80/55 while admin.html had moved to 75/45, so it was
        testing its own numbers and reported a failure against code that was
        right. A constant asserted from a copy of itself is not asserted. */
-    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE|STEEP_SHARE)\s*=.*$/gm) || []);
-    check('S129', 'the grading constants are findable in the source', constLines.length === 6,
-      'found ' + constLines.length + ' of 6 — this suite would silently fall back to guessing them');
+    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE|STEEP_SHARE|BIG_JOB_FT|MANY_STRANDS)\s*=.*$/gm) || []);
+    check('S129', 'the grading constants are findable in the source', constLines.length === 8,
+      'found ' + constLines.length + ' of 8 — this suite would silently fall back to guessing them');
     const g = new Function(constLines.join(LF_) + LF_ + gradeFn + LF_ + 'return gradeRoof;')();
     /* ⚠ THE BUG THIS EXISTS FOR: the old thresholds were 37% for Hard and 25%
        for Medium. Grade is a PERCENT — 37% is a 4.4/12 pitch. An ordinary 6/12
@@ -33092,9 +33092,39 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
     /* ⚠ WAS 6 SECTIONS, AND 6 IS AN ORDINARY HOUSE. A plain hip roof is 4 facets;
        add a garage and a dormer and an unremarkable house is 8, so every such
        house was bumped a grade for being shaped like a house. */
-    check('S129', 'a busy roof is bumped up a grade',
-      g({maxGrade: 33, peakCount: 11}).level === 'Medium',
-      'lots of separate sections is more ladder moves, whatever the pitch');
+    /* ⚠ ONE SOFT SIGNAL NO LONGER PROMOTES A HOUSE ON ITS OWN. Owner: "things
+       like feet, complex roof, and number of strands all effect complexity" -
+       and with five such signals each bumping alone, every house reaches Hard
+       and the grade stops carrying information. The rule's own comment has
+       always said "two of those bump it up a grade"; the code now does. */
+    check('S129', 'a busy roof ALONE is noted but does not bump the grade',
+      g({maxGrade: 33, peakCount: 11}).level === 'Easy' &&
+      /11 separate roof sections/.test(g({maxGrade: 33, peakCount: 11}).why),
+      'said, but not charged for - the office can see it and overrule by hand');
+    check('S129', 'but busy AND two-storey together do',
+      g({maxGrade: 33, peakCount: 11, eaveFt: 19}).level === 'Medium',
+      'awkward in more than one way is a harder day');
+    /* ⭐ FEET AND STRANDS COUNT TOO, once the house has actually been measured. */
+    check('S129', 'a long run and many strands together bump it',
+      g({maxGrade: 33, feet: 320, strands: 5}).level === 'Medium',
+      'owner: feet, complex roof and number of strands all affect complexity');
+    /* ⚠ AND BOTH CALLS HAVE TO ASK THE SAME QUESTION. The roof half is known on
+       load; feet and strands only exist once somebody has traced the house. Two
+       call sites gathering those fields by hand is how they drift apart. */
+    check('S129', 'one function gathers what the rule asks for',
+      /function rmGradeInputs\(extra\)\{/.test(admin) &&
+      /gradeRoof\(rmGradeInputs\(\{eaveFt: eave \* RM_M_TO_FT\}\)\)/.test(admin),
+      'the re-cut must not pass a different set of fields from the first grade');
+    check('S129', 'and a strand switched off is not counted as work',
+      (function(){
+        const f = extractFn(admin, 'rmGradeInputs') || '';
+        return f.indexOf('rmRunIsOn(r)') !== -1 && f.indexOf('c.on') !== -1;
+      })(),
+      'nobody hangs a run that is switched off, so it is not a strand');
+
+    check('S129', 'and an ordinary two-strand house is untouched by them',
+      g({maxGrade: 33, feet: 150, strands: 2}).level === 'Easy',
+      'an average house is about 150 ft and has two strands, top and bottom');
     check('S129', 'but an ordinary 8-facet house is not "busy"',
       g({maxGrade: 33, peakCount: 8}).level === 'Easy',
       'a hip roof plus a garage plus a dormer is 8 facets and is not a hard day');
@@ -33137,8 +33167,9 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
     check('S129', 'and with no weighted figure it falls back to the steepest',
       g({maxGrade: 88, peakCount: 2}).level === 'Hard',
       'an old cached roof record has no typicalGrade, and guessing low would be worse');
-    check('S129', 'and a two-storey eave bumps it too',
-      g({maxGrade: 33, peakCount: 2, eaveFt: 19}).level === 'Medium');
+    check('S129', 'a two-storey eave alone is noted, not charged',
+      g({maxGrade: 33, peakCount: 2, eaveFt: 19}).level === 'Easy' &&
+      /two-storey eave/.test(g({maxGrade: 33, peakCount: 2, eaveFt: 19}).why));
     check('S129', 'but nothing goes past Hard',
       g({maxGrade: 95, peakCount: 9, eaveFt: 24}).level === 'Hard',
       'a fourth grade would appear that no rate multiplier knows about');
