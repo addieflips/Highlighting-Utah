@@ -1105,6 +1105,12 @@ const RETIRED_CHECKLIST_TERMS = [
   ['start measuring', 'clicking the picture starts a side now, so that button is gone — while one is open the button reads Finish this side (2026-08-25)'],
   ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
   ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
+  /* ⚠ THE TERM IS THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired
+     button read "Use <n> as Estimated Feet" with the footage in the middle, so
+     a seed row quoting it writes "Use ... as Estimated Feet" and a term
+     starting at "use" would sail straight past the ellipsis and match nothing —
+     which is a check that cannot fail, on the one row that was actually wrong. */
+  ['as estimated feet', 'the two commit buttons became ONE gold "Save to this quote" on 2026-08-25, because only one of them was gold and it saved the price without the feet; the feet-only link now reads "Save the feet only" (2026-08-25)'],
 ];
 {
   /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
@@ -33324,8 +33330,17 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
   check('S129', 'every step of the sum is shown, not just the total',
     !!priceFn && /Suggested price/.test(priceFn) && /\/ft/.test(priceFn),
     'the owner called her own figures ballparks — a total with no working is one nobody can correct');
-  check('S129', 'and nothing is written to the quote until the button is pressed',
-    !!priceFn && /Use /.test(priceFn) && !!pick('rmUsePrice'),
+  /* ⚠ THIS CHECK CHANGED SHAPE ON 2026-08-25, IT WAS NOT WEAKENED. It used to
+     prove the point by finding the words "Use " inside rmRenderPrice - that is,
+     by finding the button's LABEL in the function that drew it. The button now
+     lives in the Save block below the panel and is bound once, so the label is
+     no longer in this function and the old match would fail on code that is
+     right. The guarantee is the same one and is now asserted directly: this
+     function must not write, and a press-to-save path must exist. Suite 268
+     runs the payload builders themselves. */
+  check('S129', 'and nothing is written to the quote until a button is pressed',
+    !!priceFn && !/updateDoc|setDoc|addDoc/.test(priceFn) &&
+    !!pick('rmUsePrice') && admin.indexOf('id="rmCommitBtn"') !== -1,
     'a price that saves itself is a price nobody agreed to');
 
   /* ---- the photo answers with a range ---------------------------------- */
@@ -38743,7 +38758,7 @@ const SHADOW_ALLOWED = new Set([
     'delete these from SHADOW_ALLOWED, the fakes are gone: ' + stale.join(', '));
 }
 
-suite('268. Measure Roof - lining the satellite picture up with the model');
+suite('269. Measure Roof - lining the satellite picture up with the model');
 {
   /* ⚠ THE FAULT THIS CLOSES, reported off a real house three times running:
      "This is still wrong." The two fixes before it were both about HEIGHT and
@@ -38783,7 +38798,7 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
                  'rmAlignIdleNote', 'rmAlignMetresApart', 'rmAlignNearest',
                  'rmAlignMilesWord', 'rmAlignOnLoad'];
   const missing = NAMES.filter(n => !pick(n));
-  check('S268', 'the alignment pieces are findable', missing.length === 0,
+  check('S269', 'the alignment pieces are findable', missing.length === 0,
     'not found: ' + missing.join(', '));
 
   /* ⚠ READ OUT OF THE FILE, NEVER COPIED. Suite 266 shipped with its tolerance
@@ -38792,7 +38807,7 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
   const maxM = Number((admin.match(/const RM_ALIGN_MAX_M\s*=\s*([\d.]+)/) || [])[1]);
   const inheritM = Number((admin.match(/const RM_ALIGN_INHERIT_M\s*=\s*([\d.]+)/) || [])[1]);
   const sameSpotM = Number((admin.match(/const RM_ALIGN_SAME_SPOT_M\s*=\s*([\d.]+)/) || [])[1]);
-  check('S268', 'the refusal ceiling and the inherit range are real numbers',
+  check('S269', 'the refusal ceiling and the inherit range are real numbers',
     isFinite(maxM) && maxM > 0 && isFinite(inheritM) && inheritM > 0 && isFinite(sameSpotM),
     'RM_ALIGN_MAX_M=' + maxM + ' RM_ALIGN_INHERIT_M=' + inheritM);
 
@@ -38825,7 +38840,7 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
       ' saved:function(){ return __saved; }, synced:function(){ return __synced; },' +
       ' roofH:function(h){ __roofH=h; }, samples:function(s){ __samples=s||[]; },' +
       ' origin:function(o){ rmOrigin=o; }};';
-    assertSandbox('S268', 'sky alignment', BODY, admin,
+    assertSandbox('S269', 'sky alignment', BODY, admin,
       ['rmAlignNote', 'rmSetAlignBtn', 'rmSyncSky', 'rmRenderResults', 'rmPaintStreet',
        'rmRoofHeightAt', 'rmAlignLoadSamples', 'rmAlignSaveSample']);
     const api = new Function(BODY)();
@@ -38840,14 +38855,14 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
     const raw = ll(0, 0);
     const un = api.shift(raw.lat, raw.lng);
     const unL = api.local(un.lat, un.lng, 0);
-    check('S268', 'with nothing lined up a sky click is left exactly where it was',
+    check('S269', 'with nothing lined up a sky click is left exactly where it was',
       near(unL.e, 0, 1e-6) && near(unL.n, 0, 1e-6),
       'moved to e=' + unL.e.toFixed(3) + ' n=' + unL.n.toFixed(3));
 
     api.set({e: 2.4, n: -1.1});
     const on = api.shift(raw.lat, raw.lng);
     const onL = api.local(on.lat, on.lng, 0);
-    check('S268', 'and once it is, every sky click is moved by exactly that much',
+    check('S269', 'and once it is, every sky click is moved by exactly that much',
       near(onL.e, 2.4) && near(onL.n, -1.1),
       'expected e=2.40 n=-1.10, got e=' + onL.e.toFixed(2) + ' n=' + onL.n.toFixed(2));
 
@@ -38862,17 +38877,17 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
     api.set({e: 3, n: 0});
     let rs = api.runs();
     const skyEnd = api.local(rs[0].path[0].lat, rs[0].path[0].lng, 0);
-    check('S268', 'a line already traced from above moves with the correction',
+    check('S269', 'a line already traced from above moves with the correction',
       near(skyEnd.e, -3) && near(skyEnd.n, -8),
       'sky run start went to e=' + skyEnd.e.toFixed(2) + ' n=' + skyEnd.n.toFixed(2) + ', wanted e=-3.00 n=-8.00');
     const stEnd = api.local(rs[1].path[0].lat, rs[1].path[0].lng, 0);
     /* ⚠ THE HALF THAT WOULD BE INVISIBLE. A Street View line got its position
        from the camera and the model - which is the thing being lined up TO - so
        moving it as well would drag the one correct drawing off the house. */
-    check('S268', 'but a line traced in Street View is left alone',
+    check('S269', 'but a line traced in Street View is left alone',
       near(stEnd.e, -6) && near(stEnd.n, 4),
       'street run start moved to e=' + stEnd.e.toFixed(2) + ' n=' + stEnd.n.toFixed(2));
-    check('S268', 'and a typed side survives having no path to move',
+    check('S269', 'and a typed side survives having no path to move',
       rs[2].manualFeet === 40 && (rs[2].path || []).length === 0,
       'typed side came back as ' + JSON.stringify(rs[2]));
 
@@ -38882,13 +38897,13 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
     api.reset(mkRuns());
     api.roofH(4.25);
     api.set({e: 3, n: 0});
-    check('S268', 'the heights are re-read where the points landed',
+    check('S269', 'the heights are re-read where the points landed',
       api.runs()[0].path[0].h === 4.25,
       'height stayed at ' + api.runs()[0].path[0].h);
     api.reset(mkRuns());
     api.roofH(null);
     api.set({e: 3, n: 0});
-    check('S268', 'and a point that still finds no roof keeps the height it had',
+    check('S269', 'and a point that still finds no roof keeps the height it had',
       api.runs()[0].path[0].h === 3,
       'height became ' + api.runs()[0].path[0].h);
 
@@ -38897,10 +38912,10 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
     api.roofH(null);
     api.takeSky(ll(0, 0));
     api.takeStreet({e: 2, n: 1});
-    check('S268', 'two clicks on one spot become the correction',
+    check('S269', 'two clicks on one spot become the correction',
       api.offset() && near(api.offset().e, 2) && near(api.offset().n, 1),
       'offset came out ' + JSON.stringify(api.offset()));
-    check('S268', 'a measured alignment is recorded as measured, and remembered',
+    check('S269', 'a measured alignment is recorded as measured, and remembered',
       api.source() === 'measured' && api.saved() === 1,
       'source=' + api.source() + ' saved=' + api.saved());
 
@@ -38910,11 +38925,11 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
     const before2 = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0);
     api.takeSky(api.shift(ll(0, 0).lat, ll(0, 0).lng));
     api.takeStreet({e: 2.5, n: 1});
-    check('S268', 'lining up again adds what is still left, it does not start over',
+    check('S269', 'lining up again adds what is still left, it does not start over',
       near(api.offset().e, 2.5) && near(api.offset().n, 1),
       'offset after the second pass ' + JSON.stringify(api.offset()));
     const after2 = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0);
-    check('S268', 'and the lines move only by the difference, not twice over',
+    check('S269', 'and the lines move only by the difference, not twice over',
       near(after2.e - before2.e, 0.5) && near(after2.n - before2.n, 0),
       'the run moved by e=' + (after2.e - before2.e).toFixed(2) + ' n=' + (after2.n - before2.n).toFixed(2));
 
@@ -38927,13 +38942,13 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
     const keptE = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0).e;
     api.takeSky(ll(0, 0));
     api.takeStreet({e: maxM + 3, n: 0});
-    check('S268', 'two clicks too far apart to be one spot are refused',
+    check('S269', 'two clicks too far apart to be one spot are refused',
       api.offset() === null,
       'it accepted an offset of ' + JSON.stringify(api.offset()));
-    check('S268', 'and nothing moved when it refused',
+    check('S269', 'and nothing moved when it refused',
       near(api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0).e, keptE),
       'a run moved anyway');
-    check('S268', 'the refusal says how far apart they were',
+    check('S269', 'the refusal says how far apart they were',
       /ft apart/.test(api.notes().join(' ')),
       'said: ' + api.notes().join(' | '));
 
@@ -38943,12 +38958,12 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
     api.reset(mkRuns());
     api.takeSky(ll(0, 0));
     api.takeStreet(null);
-    check('S268', 'a street click that landed on nothing sets no correction',
+    check('S269', 'a street click that landed on nothing sets no correction',
       api.offset() === null,
       'it took ' + JSON.stringify(api.offset()));
 
     /* ---- inheriting from a neighbour ---------------------------------- */
-    check('S268', 'how far apart two houses are is measured, not guessed',
+    check('S269', 'how far apart two houses are is measured, not guessed',
       near(api.apart({lat: 40.2969, lng: -111.6946}, ll(0, 100)), 100, 0.5),
       'came out ' + api.apart({lat: 40.2969, lng: -111.6946}, ll(0, 100)).toFixed(1) + ' m');
 
@@ -38956,26 +38971,26 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
       api.reset([]);
       api.samples([Object.assign({e: 1.5, n: -2}, ll(0, 300))]);
       await api.onLoad();
-      check('S268', 'a house with nothing measured inherits a nearby answer',
+      check('S269', 'a house with nothing measured inherits a nearby answer',
         api.offset() && near(api.offset().e, 1.5) && near(api.offset().n, -2),
         'inherited ' + JSON.stringify(api.offset()));
       /* ⚠ INHERITED IS NOT MEASURED AND HAS TO SAY SO. Applied silently it is a
          guess wearing a measurement's words, which is the one thing this tool
          is not allowed to do. */
-      check('S268', 'and it says the answer came from somewhere else',
+      check('S269', 'and it says the answer came from somewhere else',
         api.source() === 'inherited' && /not here/.test(api.notes().join(' ')),
         'source=' + api.source() + ' said: ' + api.notes().join(' | '));
       /* ⚠ NEVER WRITTEN BACK. An inherited offset saved as a fresh sample would
          copy itself down the street gaining authority at every step, with
          nothing left saying where it really came from. */
-      check('S268', 'an inherited answer is never saved back as a fresh one',
+      check('S269', 'an inherited answer is never saved back as a fresh one',
         api.saved() === 0,
         'it saved ' + api.saved() + ' sample(s)');
 
       api.reset([]);
       api.samples([Object.assign({e: 1.5, n: -2}, ll(0, inheritM + 500))]);
       await api.onLoad();
-      check('S268', 'but not from a house too far away to share the same flyover',
+      check('S269', 'but not from a house too far away to share the same flyover',
         api.offset() === null,
         'inherited from ' + Math.round(inheritM + 500) + ' m away: ' + JSON.stringify(api.offset()));
 
@@ -38986,7 +39001,7 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
       api.set({e: 4, n: 4});
       api.samples([Object.assign({e: 1.5, n: -2}, ll(0, 50))]);
       await api.onLoad();
-      check('S268', 'and a house that already has an answer keeps it',
+      check('S269', 'and a house that already has an answer keeps it',
         near(api.offset().e, 4) && near(api.offset().n, 4),
         'a neighbour overwrote it: ' + JSON.stringify(api.offset()));
     })());
@@ -39006,13 +39021,13 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
      goes through rmMapPixelToWorld, which is what makes correcting it there
      enough. A second route from a map pixel to a world point would bypass it. */
   const funnel = slice(admin, 'function rmMapPixelToWorld', 'function rmPhotoPoint');
-  check('S268', 'the one place a sky click becomes a place applies the correction',
+  check('S269', 'the one place a sky click becomes a place applies the correction',
     /rmSkyShift\(/.test(funnel),
     'rmMapPixelToWorld does not call rmSkyShift');
   /* ⚠ AND BEFORE THE HEIGHT IS READ. A displaced click lands outside every roof
      face and falls back to the eave; the corrected one lands inside the face it
      belongs to. Reading the height first throws that away. */
-  check('S268', 'and it does so before the roof height is read',
+  check('S269', 'and it does so before the roof height is read',
     funnel.indexOf('rmSkyShift(') < funnel.indexOf('rmRoofHeightAt('),
     'the height is read before the click is corrected');
 
@@ -39020,10 +39035,10 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
      rmSetSkyOffset would shift the whole drawing a second time and put it twice
      as far off as the picture ever was. */
   const restore = slice(admin, 'function rmRestoreMeasurement', 'function rmFmtFeet');
-  check('S268', 'restoring a saved drawing sets the correction without re-applying it',
+  check('S269', 'restoring a saved drawing sets the correction without re-applying it',
     /rmSkyOffset\s*=\s*\{/.test(restore) && !/rmSetSkyOffset\(/.test(restore),
     'rmRestoreMeasurement moves the restored lines again');
-  check('S268', 'and the correction is saved with the drawing in the first place',
+  check('S269', 'and the correction is saved with the drawing in the first place',
     /skyOffset:\s*rmSkyOffset\s*\?/.test(slice(admin, 'function rmMeasurementDoc', 'function rmSavePayload')),
     'rmMeasurementDoc does not write skyOffset');
 
@@ -39032,22 +39047,170 @@ suite('268. Measure Roof - lining the satellite picture up with the model');
      the panel calls it lined up. */
   ['rmForgetLastHouse', 'rmReset'].forEach(function (fn) {
     const body = extractFn(admin, fn) || '';
-    check('S268', 'loading another house forgets the last one\'s correction (' + fn + ')',
+    check('S269', 'loading another house forgets the last one\'s correction (' + fn + ')',
       /rmSkyOffset\s*=\s*null/.test(body),
       fn + ' keeps rmSkyOffset');
   });
 
-  check('S268', 'the button and the note the office reads are both on the page',
+  check('S269', 'the button and the note the office reads are both on the page',
     admin.indexOf('id="rmAlignBtn"') !== -1 && admin.indexOf('id="rmAlignNote"') !== -1,
     'the alignment panel is missing from the markup');
   /* ⚠ A CLICK MEANS ONE THING AT A TIME. While the tool is waiting for the
      second half of an alignment, a click must not also land in the run being
      traced - the two alignment clicks would be billed as roofline. */
   const skyClick = slice(admin, "getElementById('rmMapLock').addEventListener('click'", "getElementById('rmMapLock').addEventListener('dblclick'");
-  check('S268', 'an alignment click is taken before it can join a traced side',
+  check('S269', 'an alignment click is taken before it can join a traced side',
     skyClick.indexOf('rmAligning') !== -1 &&
     skyClick.indexOf('rmAligning') < skyClick.indexOf('rmAddPoint('),
     'the map click adds a point before it checks for an alignment');
+}
+
+// =====================================================================
+suite('268. Measure Roof - the feet and the price are one press');
+{
+  /* ⚠ THE HOLE THIS CLOSES. The footage and the price were two buttons sitting
+     in two different panels, and only one of them was gold. The gold one got
+     pressed, quotedPrice landed, and estimatedFeet was left empty.
+     Nothing errors on that state, which is the problem: quoteFeetOrEstimate
+     turns the price back into feet with a 5% safety margin, and THAT figure is
+     what sizes the bins at 260 ft, chooses between a regular and a 5000-series
+     customer number, and counts the bundles at 40 ft. The warehouse then builds
+     to a number nobody measured. Owner: "I need no guessing I need feet to be
+     correct."
+
+     ⚠ THIS SUITE RUNS THE PAYLOAD BUILDERS, it does not match their source. A
+     text check stays green with an `if(false)` in front of a line - the exact
+     way a Save that quietly dropped one of the two numbers would ship past a
+     passing suite. Same reason rmSavePayload was made its own function. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmCommitPayload', 'rmPriceIsStale', 'rmSavePayload'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S268', 'the commit builders are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const BODY = NAMES.map(pick).join(LF_) + LF_ +
+      'return {commit: rmCommitPayload, stale: rmPriceIsStale, feetOnly: rmSavePayload};';
+    assertSandbox('S268', 'commit payload builders', BODY, admin, []);
+    const api = new Function(BODY)();
+
+    const drawing = {version: 2, runs: [{id: 'run-1', feet: 84}], totals: {linearFt: 520}};
+
+    /* ---- both numbers, or neither ------------------------------------- */
+    const withDrawing = api.commit(520, 1300, 'Hard', drawing);
+    check('S268', 'one press writes the footage AND the price',
+      withDrawing.estimatedFeet === 520 && withDrawing.quotedPrice === 1300,
+      'got feet=' + withDrawing.estimatedFeet + ' price=' + withDrawing.quotedPrice +
+      ' - a price with no feet is the state this was built to end');
+
+    /* ⚠ ONE updateDoc, NOT TWO AWAITED WRITES. Two writes can half-succeed, and
+       the half that survives is a priced house with no footage. One object is
+       the only shape Firestore applies atomically. */
+    check('S268', 'and both fields ride in the same single payload',
+      Object.prototype.hasOwnProperty.call(withDrawing, 'estimatedFeet') &&
+      Object.prototype.hasOwnProperty.call(withDrawing, 'quotedPrice'),
+      'split across two writes, a throw on the second leaves feet unwritten');
+
+    /* ---- the grade cannot disagree with the price it produced ---------- */
+    check('S268', 'the grade the price was worked out at rides inside the drawing',
+      withDrawing.measurement && withDrawing.measurement.difficulty === 'Hard',
+      'a saved measurement naming a different grade from the price it produced ' +
+      'is the exact disagreement rmUsePrice was written to end');
+    check('S268', 'and saving the grade never flattens the rest of the drawing',
+      withDrawing.measurement.version === 2 &&
+      Array.isArray(withDrawing.measurement.runs) &&
+      withDrawing.measurement.runs.length === 1,
+      'the traced lines were dropped on the way through');
+
+    /* ⚠ FIRESTORE REFUSES A NESTED OBJECT AND A DOTTED PATH INTO IT IN THE SAME
+       WRITE. Carrying both would not be a cosmetic fault, it would be a refused
+       write - and the footage rides in it. */
+    const keys = Object.keys(withDrawing);
+    check('S268', 'never a measurement object and a measurement.dotted path together',
+      !(keys.indexOf('measurement') !== -1 && keys.some(k => k.indexOf('measurement.') === 0)),
+      'Firestore refuses that combination outright: ' + keys.join(', '));
+
+    /* ---- and with no drawing to carry --------------------------------- */
+    const noDrawing = api.commit(520, 1300, 'Easy', null);
+    check('S268', 'with no drawing the grade goes by dotted path, not as an object',
+      noDrawing['measurement.difficulty'] === 'Easy' && !noDrawing.measurement,
+      'assigning a whole measurement object here would wipe a drawing saved earlier');
+    check('S268', 'and the two numbers are still both there',
+      noDrawing.estimatedFeet === 520 && noDrawing.quotedPrice === 1300,
+      'the drawing is the optional half - the footage never is');
+
+    /* ---- the feet-only door still behaves exactly as it did ----------- */
+    /* ⚠ THE OLD BUTTON IS NOT GONE, it moved. Somebody pricing a house by hand
+       still needs a way to save the footage without a price, and this proves
+       that path did not quietly gain one. */
+    const feetOnly = api.feetOnly(520, drawing);
+    check('S268', 'Save the feet only still writes no price',
+      feetOnly.estimatedFeet === 520 &&
+      !Object.prototype.hasOwnProperty.call(feetOnly, 'quotedPrice'),
+      'the by-hand pricing path must not start writing a price nobody chose');
+
+    /* ---- has the price on file drifted from the grade now set? -------- */
+    /* ⚠ null MEANS "NOTHING TO COMPARE", NOT "THEY AGREE". A quote that has
+       never been priced must not read as out of date, or every fresh quote
+       opens shouting about a price that does not exist. */
+    check('S268', 'a quote that was never priced is not called out of date',
+      api.stale(null, 1300) === null && api.stale(undefined, 1300) === null,
+      'a never-priced quote reading as stale trains people to ignore the flag');
+    check('S268', 'a price that still matches the grade is not called out of date',
+      api.stale(1300, 1300) === false, 'false alarm on an in-line price');
+    check('S268', 'a price that no longer matches the grade IS called out',
+      api.stale(1040, 1300) === true,
+      'the grade saves itself on change and quoteEstimatedPrice applies it, so ' +
+      'quotedPrice can sit at the old grade with nothing on screen saying so');
+    check('S268', 'and $0 is a price, not a missing one',
+      api.stale(0, 1300) === true,
+      'typeof 0 is number - a falsy check here would let a zeroed quote hide');
+  }
+
+  /* ---- the block is actually on the page, with its handlers bound ----- */
+  /* ⚠ ID-BY-ID, BECAUSE THE HANDLERS ARE BOUND ONCE. The Save block's shell is
+     static and only its text is updated; if it were ever rebuilt with innerHTML
+     the buttons would be destroyed and the listeners would go with them. */
+  ['rmCommitPanel', 'rmCommitBtn', 'rmCommitFt', 'rmCommitPr',
+   'rmChipBins', 'rmChipSeries', 'rmChipBundles', 'rmFlagStale', 'rmGradeSaved'].forEach(id => {
+    check('S268', 'the Save block has #' + id,
+      admin.indexOf('id="' + id + '"') !== -1, 'missing from admin.html');
+  });
+  /* The two old buttons moved into that block and kept their ids on purpose -
+     everything that reaches for them by id still has to find them. */
+  ['rmUseFeetBtn', 'rmUsePriceBtn'].forEach(id => {
+    check('S268', 'the moved button #' + id + ' kept its id',
+      admin.indexOf('id="' + id + '"') !== -1,
+      'it moved panels, it did not go away - a rename here silently kills its handler');
+  });
+  check('S268', 'and rmUsePriceBtn is no longer minted inside rmRenderPrice',
+(extractFn(admin, 'rmRenderPrice') || '').indexOf('id="rmUsePriceBtn"') === -1,
+    'built inside that innerHTML it is destroyed and re-created on every render, ' +
+    'which is why it used to have to re-attach its own listener each time');
+
+  /* ---- the grade saves itself, and only the grade -------------------- */
+  /* Owner: "when we assign easy,medium,hard that will automatically save
+     right?" It did not - the dropdown listener only redrew the screen, so a
+     grade set by hand survived only if a commit button was pressed afterwards.
+     ⚠ THE GRADE ONLY, NEVER THE PRICE. quotedPrice is the number the customer
+     is asked to approve, and a dropdown must not change what somebody has been
+     quoted. That is what rmPriceIsStale is there to surface. */
+  const saveGrade = extractFn(admin, 'rmSaveGrade');
+  check('S268', 'changing the difficulty saves it', !!saveGrade,
+    'rmSaveGrade not found - the grade reverts to Google\u2019s suggestion on reopen');
+  if (saveGrade) {
+    check('S268', 'and it writes the grade by dotted path, never as a whole object',
+      /'measurement\.difficulty':\s*grade/.test(saveGrade) &&
+      !/measurement:\s*\{/.test(saveGrade),
+      'assigning a measurement object here flattens the saved drawing to one field');
+    check('S268', 'and it never touches quotedPrice',
+      saveGrade.indexOf('quotedPrice') === -1,
+      'a dropdown must not change the number a customer was quoted');
+    check('S268', 'and a failed grade save never interrupts with an alert',
+      saveGrade.indexOf('alert(') === -1,
+      'this runs off a dropdown, not off a press - nobody asked for a dialog');
+  }
 }
 
 Promise.all(pendingAsync).then(function () {
