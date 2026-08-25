@@ -36220,6 +36220,43 @@ suite('167. Measure Roof - shift and drag moves a dot');
     'a drag that never ends leaves every later mousemove moving the dot');
 }
 
+
+suite('168. Measure Roof - a reset you can find');
+{
+  /* Owner: "make a reset button so if you zoom out on sky view it will readjust
+     the camera."
+
+     ⚠ IT SHIPPED UNREACHABLE. The measure-tool work put the two features that
+     GUESS - suggested corners and the assumed house - behind an "Auto-detect
+     corners" disclosure, shut by default and rightly so: somebody who wants a
+     guess asks for one. Recentre was added next to them and went into the same
+     hidden bar, so it existed, was wired, was tested, and could not be found on
+     screen. Caught by opening the tool and looking, not by any check. */
+  check('S168', 'recentre is not inside the auto-detect bar',
+    (function(){
+      const i = admin.indexOf('<div id="rmAutoBar"');
+      const j = admin.indexOf('</div>', i);
+      return i !== -1 && admin.slice(i, j).indexOf('rmRecentreBtn') === -1;
+    })(),
+    'that bar is display:none until somebody asks for a guess');
+  check('S168', 'and it sits with the buttons that are always on screen',
+    (function(){
+      const c = admin.indexOf('id="rmClearDotsBtn"');
+      const r = admin.indexOf('id="rmRecentreBtn"');
+      return c !== -1 && r > c && (r - c) < 900;
+    })(),
+    'next to Clear all dots, which is visible whenever dots are being placed');
+  /* ⭐ AND THE TWO THAT DO GUESS STAY BEHIND THE DISCLOSURE. */
+  check('S168', 'the guessing buttons stay where the measure-tool work put them',
+    (function(){
+      const i = admin.indexOf('<div id="rmAutoBar"');
+      const j = admin.indexOf('</div>', i);
+      const blk = admin.slice(i, j);
+      return blk.indexOf('rmSuggestBtn') !== -1 && blk.indexOf('rmModelBtn') !== -1;
+    })(),
+    'a suggestion and an assumed house are guesses, and that is a deliberate design');
+}
+
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
 suite('165. Measure Roof - loading an address forgets the last house');
