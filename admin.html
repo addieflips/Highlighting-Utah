@@ -4399,6 +4399,30 @@
             #roofMeasureOverlay .rm-shot .rm-shotcap{position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,.62); color:#fff; font-size:10.5px; padding:3px 5px;}
             #roofMeasureOverlay .rm-mini{display:flex; justify-content:space-between; font-size:12px; padding:3px 0;}
             #roofMeasureOverlay kbd{background:#fff; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:1px 5px; font:inherit; font-size:10px; font-weight:700;}
+            /* ---- the one commit block ---- */
+            #roofMeasureOverlay .rm-commit{background:var(--ink); border-radius:12px; padding:13px; color:#EAF1E6;}
+            #roofMeasureOverlay .rm-commit h4{color:#fff;}
+            #roofMeasureOverlay .rm-commit .rm-sub{color:#A9BDAE;}
+            #roofMeasureOverlay .rm-pair{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0 2px;}
+            #roofMeasureOverlay .rm-cell{background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); border-radius:9px; padding:8px 9px;}
+            #roofMeasureOverlay .rm-cell .rm-lab{font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#9FB6A6; display:block; margin-bottom:3px;}
+            #roofMeasureOverlay .rm-cell .rm-val{font-family:'Fraunces',serif; font-size:21px; color:#fff; font-variant-numeric:tabular-nums; line-height:1.1;}
+            #roofMeasureOverlay .rm-chain{margin:11px 0 0; padding:9px 0 0; border-top:1px solid rgba(255,255,255,.14);}
+            #roofMeasureOverlay .rm-chain-h{font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#9FB6A6; margin-bottom:6px;}
+            #roofMeasureOverlay .rm-chain-row{display:flex; gap:6px;}
+            #roofMeasureOverlay .rm-chip{flex:1; text-align:center; background:rgba(244,190,85,.13); border:1px solid rgba(244,190,85,.32); border-radius:8px; padding:6px 4px;}
+            #roofMeasureOverlay .rm-chip b{display:block; font-family:'Fraunces',serif; font-size:15px; color:var(--gold); font-variant-numeric:tabular-nums;}
+            #roofMeasureOverlay .rm-chip span{display:block; font-size:9px; color:#B9C9BC; line-height:1.3; margin-top:1px;}
+            #roofMeasureOverlay .rm-flag{margin:10px 0 0; border-radius:9px; padding:8px 10px; font-size:11.5px; line-height:1.5; display:none;}
+            #roofMeasureOverlay .rm-flag.on{display:block;}
+            #roofMeasureOverlay .rm-flag.warn{background:rgba(224,87,75,.16); border:1px solid rgba(224,87,75,.45); color:#FFD9D5;}
+            #roofMeasureOverlay .rm-flag.note{background:rgba(244,190,85,.14); border:1px solid rgba(244,190,85,.4); color:#FBE6BC;}
+            #roofMeasureOverlay .rm-commit .btn-gold{width:100%; margin-top:11px; justify-content:center;}
+            #roofMeasureOverlay .rm-second{display:flex; gap:14px; justify-content:center; margin-top:9px; flex-wrap:wrap;}
+            #roofMeasureOverlay .rm-second button{background:none; border:0; color:#A9BDAE; font-size:11.5px; text-decoration:underline; text-underline-offset:2px; padding:2px; cursor:pointer; font-family:inherit;}
+            #roofMeasureOverlay .rm-second button:hover{color:#fff;}
+            #roofMeasureOverlay .rm-second button:disabled{opacity:.4; cursor:not-allowed; text-decoration:none;}
+            #roofMeasureOverlay .rm-saidit{font-size:11px; color:#B9C9BC; margin:9px 0 0; text-align:center; line-height:1.5;}
           </style>
           <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
           <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">One set of points, seen from above and from the street. Mark it in either &mdash; it shows up in both.</p>
@@ -4575,7 +4599,10 @@
                     <p id="rmManualNote" style="font-size:11px; color:var(--slate); margin:6px 0 0;">Measured on the ground, for anywhere the cameras cannot reach.</p>
                   </div>
                 </div>
-                <button type="button" class="btn btn-outline btn-sm" id="rmUseFeetBtn" style="width:100%; justify-content:center; margin-top:10px; display:none;">Use as Estimated Feet</button>
+                <!-- ⭐ THE COMMIT BUTTONS MOVED OUT OF HERE (2026-08-25) into
+                     the one Save block below the Price panel. They kept their
+                     ids and their handlers — only their parent changed — so
+                     everything that reaches for them by id still finds them. -->
 
                 <!-- ⭐ IS THIS HOUSE MEASURING RIGHT? (added 2026-08-25).
                      Owner: "I need no guessing I need feet to be correct."
@@ -4618,6 +4645,46 @@
                 </div>
                 <p id="rmGradeWhy" style="font-size:11px; color:var(--slate); margin:0 0 9px;"></p>
                 <div id="rmPrice" style="font-size:12.5px;"></div>
+              </div>
+
+              <!-- ⭐ ONE PRESS WRITES BOTH (2026-08-25).
+                   ⚠ THE HOLE THIS CLOSES. The footage and the price were two
+                   buttons in two panels, and only one of them was gold — so the
+                   gold one got pressed, the price landed and estimatedFeet was
+                   left empty. Nothing errors on that: quoteFeetOrEstimate turns
+                   the price back into feet with a 5% margin, and THAT figure
+                   sizes the bins at 260 ft, picks the 5000-series number and
+                   counts the bundles at 40 ft. Owner: "I need no guessing I need
+                   feet to be correct."
+                   ⚠ THE SHELL IS STATIC AND ONLY ITS TEXT IS UPDATED. Three
+                   handlers are bound once by id; rebuilding this with innerHTML
+                   would destroy the buttons and take the listeners with them,
+                   which is exactly how rmUsePriceBtn used to have to be re-bound
+                   on every render. -->
+              <div class="rm-panel rm-commit" id="rmCommitPanel" style="display:none;">
+                <h4>Save to this quote</h4>
+                <p class="rm-sub">One press. The feet and the price go together, or neither goes.</p>
+                <div class="rm-pair">
+                  <div class="rm-cell"><span class="rm-lab">Estimated feet</span><div class="rm-val" id="rmCommitFt">—</div></div>
+                  <div class="rm-cell"><span class="rm-lab">Quoted price</span><div class="rm-val" id="rmCommitPr">—</div></div>
+                </div>
+                <div class="rm-chain">
+                  <div class="rm-chain-h">And the feet decide</div>
+                  <div class="rm-chain-row">
+                    <div class="rm-chip"><b id="rmChipBins">—</b><span>bins</span></div>
+                    <div class="rm-chip"><b id="rmChipSeries">—</b><span>number series</span></div>
+                    <div class="rm-chip"><b id="rmChipBundles">—</b><span>bundles to build</span></div>
+                  </div>
+                </div>
+                <div class="rm-flag warn" id="rmFlagHand"></div>
+                <div class="rm-flag note" id="rmFlagStale"></div>
+                <button type="button" class="btn btn-gold" id="rmCommitBtn">Save to this quote</button>
+                <div class="rm-second">
+                  <button type="button" id="rmUseFeetBtn">Save the feet only</button>
+                  <button type="button" id="rmUsePriceBtn">Save the price only</button>
+                </div>
+                <p class="rm-saidit">The drawing saves with it either way, so reopening this quote brings the lines back.</p>
+                <p class="rm-saidit" id="rmGradeSaved" style="margin-top:4px;"></p>
               </div>
 
               <div class="rm-panel" id="rmRoofFactsPanel" style="display:none;">
@@ -19610,10 +19677,122 @@ function rmRenderResults(){
       rmRenderResults(); rmPaintStreet();
     });
   });
-  const useBtn = document.getElementById('rmUseFeetBtn');
-  useBtn.style.display = t.all > 0 ? 'inline-flex' : 'none';
-  useBtn.textContent = 'Use ' + rmFmtFeet(Math.round(t.all*RM_FEET_MULTIPLIER)) + ' as Estimated Feet';
   rmRenderPrice(t.all * RM_FEET_MULTIPLIER);
+  /* ⚠ AFTER rmRenderPrice, NEVER BEFORE. The Save block prints the price that
+     panel just worked out, so running it first would show the previous one. */
+  rmRenderCommit();
+}
+
+/* ---- the Save block ------------------------------------------------------ */
+/* The price the Price panel last worked out. Held rather than recomputed so the
+   two can never disagree about the same house on the same screen. */
+let rmSuggestedPrice = 0;
+
+/* WHAT ONE PRESS OF Save WRITES.
+ * ⚠ ITS OWN PURE FUNCTION SO IT CAN BE RUN RATHER THAN READ, the same reason
+ * rmSavePayload is one. A text match on the source stays green with an
+ * `if(false)` in front of a line, which is how a Save that quietly dropped the
+ * footage would ship past a passing suite.
+ * ⚠ BOTH FIELDS OR NEITHER. estimatedFeet and quotedPrice are written in the
+ * SAME updateDoc — two awaited writes could leave a house priced with no feet
+ * if the second one threw, which is the exact state this was built to end. */
+function rmCommitPayload(feet, price, grade, measurement){
+  const payload = {estimatedFeet: feet, quotedPrice: price};
+  if(measurement){
+    /* The grade rides inside the drawing when there is one, so a saved
+       measurement and the price it produced can never name different grades. */
+    payload.measurement = Object.assign({}, measurement, {difficulty: grade});
+  } else {
+    payload['measurement.difficulty'] = grade;
+  }
+  return payload;
+}
+
+/* Is the price already on the quote still the price this grade produces?
+ * ⚠ null MEANS "NOTHING TO COMPARE", not "they agree". A quote that has never
+ * been priced must not read as out of date. */
+function rmPriceIsStale(saved, current){
+  if(typeof saved !== 'number' || !current) return null;
+  return Math.round(saved) !== Math.round(current);
+}
+
+/* ⚠ MODULE LEVEL, NOT INSIDE THE WIRING FUNCTION. The dropdown listener lives
+   in openRoofMeasure and the commit handlers live elsewhere; declared beside
+   them this was simply not in scope where it is called from, which is the kind
+   of fault that only shows up when somebody changes a grade. Everything it
+   touches — db, quotesCache, rmQuoteId — is module level anyway.
+   ⚠ IT NEVER SHOUTS ON FAILURE. This runs off a dropdown, not off a press, so
+   an alert here would interrupt somebody who did not ask for a save. The line
+   under the Save block says whether it landed; the buttons still guarantee it. */
+async function rmSaveGrade(){
+  if(!rmQuoteId) return;
+  const grade = rmCurrentGrade();
+  const note = document.getElementById('rmGradeSaved');
+  try{
+    await updateDoc(doc(db, 'quotes', rmQuoteId), {'measurement.difficulty': grade});
+    const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+    if(item) item.data.measurement = Object.assign({}, item.data.measurement || {}, {difficulty: grade});
+    renderQuotesList();
+    rmRenderCommit();
+    if(note) note.textContent = 'Graded ' + grade + ' — saved.';
+  } catch(err){
+    if(note) note.textContent = 'Could not save the grade — it will go with the next Save.';
+  }
+}
+
+function rmRenderCommit(){
+  const panel = document.getElementById('rmCommitPanel');
+  if(!panel) return;
+  const feet  = Math.round(rmTotals().all * RM_FEET_MULTIPLIER);
+  const price = rmSuggestedPrice;
+  panel.style.display = feet > 0 ? 'block' : 'none';
+  if(feet <= 0) return;
+
+  document.getElementById('rmCommitFt').textContent = feet + ' ft';
+  document.getElementById('rmCommitPr').textContent = price ? fmtMoney(price) : '—';
+
+  /* ⚠ THE SAME TWO FUNCTIONS THE REST OF THE APP USES. Re-deriving the bin
+     rule here would put a second copy of 260 in the file, and the last time two
+     screens each held their own copy of that number one of them said 200. */
+  const bins = cnBinsForFeet(feet);
+  document.getElementById('rmChipBins').textContent    = bins;
+  document.getElementById('rmChipSeries').textContent  = bins > 1 ? '5000' : 'regular';
+  document.getElementById('rmChipBundles').textContent = Math.ceil(feet / FEET_PER_BUNDLE);
+
+  /* Footage somebody typed is a different kind of claim from footage somebody
+     traced, and the total does not say which is which. */
+  let hand = 0;
+  rmRuns.forEach(function(r){
+    if(rmRunIsOn(r) && r.surface === 'manual') hand += rmRunFeet(r);
+  });
+  hand += Number(rmPhotoExtraFeet) || 0;
+  const handBox = document.getElementById('rmFlagHand');
+  handBox.classList.toggle('on', hand >= 1);
+  handBox.innerHTML = hand >= 1
+    ? '<strong>' + rmFmtFeet(Math.round(hand)) + ' of this was typed in, not traced.</strong> ' +
+      'Nothing measured it — saving is fine, just know which part you are standing behind.'
+    : '';
+
+  const item = rmQuoteId && typeof quotesCache !== 'undefined'
+    ? quotesCache.find(function(q){ return q.id === rmQuoteId; }) : null;
+  const saved = item ? item.data.quotedPrice : null;
+  const stale = rmPriceIsStale(saved, price);
+  const staleBox = document.getElementById('rmFlagStale');
+  staleBox.classList.toggle('on', stale === true);
+  staleBox.innerHTML = stale === true
+    ? 'The price on this quote is ' + fmtMoney(saved) + '. At ' + esc(rmCurrentGrade()) +
+      ' it now works out at ' + fmtMoney(price) + ' — saving brings the two back in line.'
+    : '';
+
+  const btn = document.getElementById('rmCommitBtn');
+  btn.disabled = !price;
+  btn.textContent = price
+    ? ('Save ' + feet + ' ft and ' + fmtMoney(price) + ' to this quote')
+    : ('Save ' + feet + ' ft — set a per-foot rate for a price');
+  document.getElementById('rmUseFeetBtn').textContent  = 'Save the feet only';
+  const pOnly = document.getElementById('rmUsePriceBtn');
+  pOnly.disabled = !price;
+  pOnly.textContent = 'Save the price only';
 }
 /* ⚠ rmRenderMaterials IS GONE, not left as a helper nothing calls. It drew the
    Quick Material Estimate panel: footage, strand count, bulbs at a chosen
@@ -19655,10 +19834,12 @@ function rmRenderPrice(feet){
     '<div class="rm-mini"><span>'+rmFmtFeet(feet)+' at '+fmtMoney(perFootRate)+'/ft</span><strong>'+fmtMoney(feet*perFootRate)+'</strong></div>'+
     '<div class="rm-mini"><span>'+esc(grade)+' house &times;'+mult+'</span><strong>'+(mult === 1 ? 'no change' : (mult > 1 ? '+' : '')+fmtMoney(price - feet*perFootRate))+'</strong></div>'+
     '<div class="rm-mini" style="border-top:1px solid var(--line); margin-top:5px; padding-top:6px; font-size:14px;"><span style="font-weight:700;">Suggested price</span><strong>'+fmtMoney(price)+'</strong></div>'+
-    '<button type="button" class="btn btn-gold btn-sm" id="rmUsePriceBtn" style="width:100%; justify-content:center; margin-top:9px;">Use '+fmtMoney(price)+' on this quote</button>'+
-    '<p style="font-size:11px; color:var(--slate); margin:8px 0 0;">A suggestion, not a decision &mdash; nothing is saved until you press it.</p>';
-  const btn = document.getElementById('rmUsePriceBtn');
-  if(btn) btn.addEventListener('click', function(){ rmUsePrice(Math.round(price)); });
+    '<p style="font-size:11px; color:var(--slate); margin:8px 0 0;">A suggestion, not a decision &mdash; nothing is saved until you press Save below.</p>';
+  /* ⚠ THE BUTTON IS NO LONGER MINTED HERE. It lives in the Save block and is
+     bound once; re-creating it inside this innerHTML on every render is why it
+     had to re-attach its own listener each time. The price it would save is
+     handed over as a value instead. */
+  rmSuggestedPrice = Math.round(price);
 }
 /* The grade in force: whatever Google's roof model said, unless the office has
    picked something else on this quote. */
@@ -19687,6 +19868,7 @@ async function rmUsePrice(price){
       item.data.measurement = Object.assign({}, item.data.measurement || {}, {difficulty: grade});
     }
     renderQuotesList();
+    rmRenderCommit();
     status.textContent = 'Quoted price set to ' + fmtMoney(price) + '.';
   } catch(err){ status.textContent = 'Could not save the price onto the quote \u2014 try again.'; }
 }
@@ -20764,7 +20946,22 @@ function openRoofMeasure(quoteId){
     document.getElementById('rmContrast').value = 100;
     rmApplyFilter();
   });
-  document.getElementById('rmDifficulty').addEventListener('change', function(){ rmRenderResults(); });
+  /* ⭐ THE GRADE SAVES ITSELF (2026-08-25). Owner: "when we assign
+     easy,medium,hard that will automatically save right?" It did not — this
+     listener only redrew the screen, so a grade the office set by hand survived
+     only if one of the commit buttons was pressed afterwards. Close the tool
+     and it reverted to whatever Google's roof model had suggested.
+     ⚠ THE GRADE ONLY, NEVER THE PRICE. quoteEstimatedPrice applies the saved
+     grade, so this moves the ESTIMATE on the card straight away — but
+     quotedPrice is the number the customer is asked to approve and a dropdown
+     must not change what somebody has been quoted. The Save block says so when
+     the two have parted, which is the whole reason rmPriceIsStale exists.
+     ⚠ AND IT IS A DOTTED-PATH WRITE. Assigning a whole `measurement` object
+     here would flatten the saved drawing to one field. */
+  document.getElementById('rmDifficulty').addEventListener('change', function(){
+    rmRenderResults();
+    rmSaveGrade();
+  });
   document.querySelectorAll('#roofMeasureOverlay [data-rmheight]').forEach(function(b){
     b.addEventListener('click', function(){
       document.getElementById('rmHeightFt').value = b.dataset.rmheight;
@@ -21532,6 +21729,60 @@ function openRoofMeasure(quoteId){
     });
     rmRenderStaged(); rmBackToHouse();
     document.getElementById('rmStatus').textContent = 'Added. Capture another view, or attach what you have.';
+  });
+  /* ⭐ THE ONE PRESS. Everything it does already existed — the footage write,
+     the drawing, the grade, the price — it just stops them being two decisions.
+     ⚠ THE GUESSED-HEIGHT QUESTION IS ASKED HERE TOO. It guarded the feet
+     button, and this button also writes feet, so skipping it would have let the
+     new path do quietly what the old one refused to do without asking. */
+  document.getElementById('rmCommitBtn').addEventListener('click', async function(){
+    if(!rmQuoteId) return;
+    const measured = rmTotals().all;
+    const feet = Math.round(measured * RM_FEET_MULTIPLIER);
+    const price = rmSuggestedPrice;
+    const grade = rmCurrentGrade();
+    const status = document.getElementById('rmStatus');
+    if(!feet) return;
+    if(!price){
+      status.textContent = 'No per-foot rate is set, so there is no price to save — use Save the feet only.';
+      return;
+    }
+    const guessed = rmGuessedFeet();
+    if(guessed && !confirm(
+      rmFmtFeet(guessed) + ' of this climbs and the roof height is still assumed, so that much is a guess.\n\n' +
+      'Tracing anything in Street View measures the roof and makes it real.\n\n' +
+      'Save ' + feet + ' ft and ' + fmtMoney(price) + ' anyway?')) {
+      status.textContent = 'Not saved. Trace one line in Street View and the climbing lines become measured.';
+      return;
+    }
+    status.textContent = 'Saving the footage and the price…';
+    /* Built before the write and its failure survivable, the same way the feet
+       button does it: a serializer fault must cost the drawing, never the two
+       numbers. */
+    let measurement = null;
+    try{ measurement = rmMeasurementDoc(); }
+    catch(err){ console.error('Measure: could not package the drawing —', err); }
+    try{
+      await updateDoc(doc(db, 'quotes', rmQuoteId), rmCommitPayload(feet, price, grade, measurement));
+      const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+      if(item){
+        item.data.estimatedFeet = feet;
+        item.data.quotedPrice = price;
+        item.data.measurement = measurement
+          ? Object.assign({}, measurement, {difficulty: grade})
+          : Object.assign({}, item.data.measurement || {}, {difficulty: grade});
+      }
+      renderQuotesList();
+      rmRenderCommit();
+      status.textContent = 'Saved — ' + feet + ' ft and ' + fmtMoney(price) +
+        ' (' + rmFmtFeet(measured) + ' measured, graded ' + grade + ')' +
+        (measurement ? ', and the drawing is saved, so reopening this quote brings it back.' : '.');
+    } catch(err){
+      status.textContent = 'Could not save onto the quote — nothing was written. Try again.';
+    }
+  });
+  document.getElementById('rmUsePriceBtn').addEventListener('click', function(){
+    if(rmSuggestedPrice) rmUsePrice(rmSuggestedPrice);
   });
   document.getElementById('rmUseFeetBtn').addEventListener('click', async function(){
     if(!rmQuoteId) return;
