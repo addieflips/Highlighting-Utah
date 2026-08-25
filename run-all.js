@@ -38853,7 +38853,7 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
   const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmSkyShift', 'rmSkyOffsetFt',
                  'rmSetSkyOffset', 'rmAlignTakeSky', 'rmAlignTakeStreet',
                  'rmAlignIdleNote', 'rmAlignMetresApart', 'rmAlignNearest',
-                 'rmAlignMilesWord', 'rmAlignOnLoad'];
+                 'rmAlignMilesWord', 'rmAlignOnLoad', 'rmSkyUnshift', 'rmSkyPath'];
   const missing = NAMES.filter(n => !pick(n));
   check('S269', 'the alignment pieces are findable', missing.length === 0,
     'not found: ' + missing.join(', '));
@@ -38908,6 +38908,7 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
       ' runs:function(){ return rmRuns; }, notes:function(){ return __notes; },' +
       ' saved:function(){ return __saved; }, synced:function(){ return __synced; },' +
       ' roofH:function(h){ __roofH=h; }, samples:function(s){ __samples=s||[]; },' +
+      ' unshift:rmSkyUnshift, path:rmSkyPath,' +
       ' datum:function(d){ __datum=d; rmDatumSource = d===null?"":"street"; },' +
       ' datumSet:function(){ return __datum; },' +
       ' origin:function(o){ rmOrigin=o; }};';
@@ -39072,6 +39073,45 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
       api.offset() === null,
       'it took ' + JSON.stringify(api.offset()));
 
+    /* ---- the sky view draws the PICTURE, the model holds the TRUTH ----- */
+    /* ⚠ THE FAULT THIS CLOSES, reported off the same house with a
+       screenshot: after lining up, the traced line no longer sat on the roof IN
+       THE SKY VIEW. It had not gone wrong - it had gone RIGHT, and that is the
+       problem. The stored point is the TRUE position and the satellite tile is
+       the DISPLACED picture, so drawing a true point straight onto it puts the
+       line off the roof by exactly the amount just corrected. The one view that
+       used to look correct started looking broken.
+       ⚠ AND THE TWO DIRECTIONS MUST BE EXACT INVERSES. Anything else and the
+       drawing walks a few feet further every time a dot is dragged. */
+    api.reset([]);
+    api.set({e: 2.4, n: -1.1});
+    const there = api.shift(raw.lat, raw.lng);
+    const back = api.unshift(there.lat, there.lng);
+    const backL = api.local(back.lat, back.lng, 0);
+    check('S269', 'drawing a corrected point on the sky view puts it back where it was clicked',
+      near(backL.e, 0, 1e-6) && near(backL.n, 0, 1e-6),
+      'a click at 0,0 came back at e=' + backL.e.toFixed(3) + ' n=' + backL.n.toFixed(3) +
+      ' - the line would sit off the roof by exactly what the alignment corrected');
+    /* ⚠ SO LINING UP IS A NO-OP ON THE SKY VIEW, which is correct and is the
+       whole point: what moves is the height and where the line lands in Street
+       View, not where it sits on the picture it was traced on. */
+    api.reset(mkRuns());
+    api.roofH(null);
+    const beforeDraw = api.path(api.runs()[0].path);
+    api.set({e: 3, n: 0});
+    const afterDraw = api.path(api.runs()[0].path);
+    check('S269', 'so lining up never moves a line on the picture it was traced on',
+      near(afterDraw[0].lat, beforeDraw[0].lat, 1e-9) &&
+      near(afterDraw[0].lng, beforeDraw[0].lng, 1e-9),
+      'the drawn line moved, which is what made a correct correction look broken');
+    check('S269', 'with nothing lined up the drawn path is the stored path',
+      (function(){
+        api.reset(mkRuns());
+        const p = api.path(api.runs()[0].path);
+        return near(p[0].lat, api.runs()[0].path[0].lat, 1e-12);
+      })(),
+      'an unaligned house must not have its drawing shifted at all');
+
     /* ---- inheriting from a neighbour ---------------------------------- */
     check('S269', 'how far apart two houses are is measured, not guessed',
       near(api.apart({lat: 40.2969, lng: -111.6946}, ll(0, 100)), 100, 0.5),
@@ -39161,6 +39201,67 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
       /rmSkyOffset\s*=\s*null/.test(body),
       fn + ' keeps rmSkyOffset');
   });
+
+  /* ⚠ EVERY PAINTER ON THE MAP, NAMED. A sandbox cannot see which call sites
+     use it, and one missed painter draws that thing feet off the roof while
+     everything beside it is right. */
+  const sync = extractFn(admin, 'rmSyncSky') || '';
+  check('S269', 'the run polyline is drawn at its picture position',
+    /rmSkyPath\(run\.path\)/.test(sync),
+    'rmSyncSky draws the stored point straight onto a displaced tile');
+  const dot = extractFn(admin, 'rmDot') || '';
+  check('S269', 'and so is the handle on each end of it',
+    /position: rmSkyUnshift\(/.test(dot),
+    'the dots would sit off the line they belong to');
+  /* ⚠ A DRAGGED DOT IS READ THE OTHER WAY. Stored raw it undoes the
+     alignment for that one point, and the line walks further off every nudge. */
+  check('S269', 'a dragged handle is put back through the correction before it is stored',
+    /rmSkyShift\(e\.latLng\.lat\(\), e\.latLng\.lng\(\)\)/.test(dot),
+    'dragging a point would silently undo the alignment for that point');
+  check('S269', 'and the line follows it at its picture position',
+    /setPath\(rmSkyPath\(run\.path\)\)/.test(dot),
+    'the line and its handles would part company while dragging');
+  check('S269', 'the roof model overlay is un-shifted too, so it lands on the roof',
+    /path: \[rmSkyUnshift\(a\.lat, a\.lng\), rmSkyUnshift\(b\.lat, b\.lng\)\]/.test(admin),
+    'the overlay is the clearest confirmation the office has that lining up worked');
+  check('S269', 'and so is anything drawn on a captured sky picture',
+    /rmSkyPath\(r\.path\)\.map\(function\(p\)\{ return rmPointOnStatic/.test(admin),
+    'the captured image IS the displaced tile, so the same un-shift applies');
+
+  /* ⚠ AND THERE HAS TO BE A WAY OUT OF THE MODE. Reported as "now my dot to
+     dot won't work": while it waits for one of the two clicks it takes EVERY
+     click on both views, so a street click that missed the house left the
+     office in a mode they could not see, where clicking did nothing. */
+  const esc = slice(admin, "if(k === 'Escape'){", "} else if(k === 'ArrowLeft'");
+  check('S269', 'Escape gets out of an alignment, ahead of everything else it does',
+    esc.indexOf('rmAligning') !== -1 && esc.indexOf('rmAligning') < esc.indexOf('rmWallPicking'),
+    'Escape would close the tool or end a run while the alignment kept eating clicks');
+  check('S269', 'and starting a run cancels one, because a click means one thing',
+    /if\(on && rmAligning\) rmCancelAlign\(\);/.test(extractFn(admin, 'rmSetDrawing') || ''),
+    'the draw button would light up and the alignment would swallow the click after it');
+  /* ⚠ CLEARED BEFORE THE WORK, so a throw below cannot strand the mode with
+     no way out but a reload. */
+  const takeStreet = extractFn(admin, 'rmAlignTakeStreet') || '';
+  /* ⚠ lastIndexOf, NOT indexOf. The refusal branch clears the mode too and
+     sits earlier in the function, so indexOf found THAT one and the check was
+     vacuous - a red-check moving the real clear below rmSetSkyOffset went
+     straight through it. */
+  check('S269', 'the mode ends before the work that could throw, not after it',
+    takeStreet.lastIndexOf("rmAligning = ''") < takeStreet.indexOf('rmSetSkyOffset('),
+    'a throw in the repaint would leave every click on both views being eaten');
+  /* ⚠ BOTH HALVES, BOTH PANES, AND EACH HALF NAMING ITS OWN VIEW. Matching
+     the phrase once passed with the sky half deleted because the street half
+     still carried it; counting it passed too, because the guard below the
+     branches matches on the same words. Anchored on the opening quote, so only
+     the two MESSAGES count - and each has to name the view it is asking for
+     and the key that gets out. */
+  const alignNote = extractFn(admin, 'rmAlignNote') || '';
+  check('S269', 'and while it waits, both panes say so rather than looking dead',
+    (alignNote.match(/'LINING UP/g) || []).length >= 2 &&
+    alignNote.indexOf('SKY VIEW') !== -1 && alignNote.indexOf('STREET VIEW') !== -1 &&
+    alignNote.indexOf('Esc') !== -1 &&
+    alignNote.indexOf('rmStatus') !== -1 && alignNote.indexOf('rmCornerNote') !== -1,
+    'a mode with no visible state reads as the tool being broken');
 
   check('S269', 'the button and the note the office reads are both on the page',
     admin.indexOf('id="rmAlignBtn"') !== -1 && admin.indexOf('id="rmAlignNote"') !== -1,

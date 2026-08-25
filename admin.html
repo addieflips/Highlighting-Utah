@@ -17885,7 +17885,11 @@ function rmSyncModelSky(){
     const a = rmToWorld({e: sg.a.e, n: sg.a.n, u: 0}), b = rmToWorld({e: sg.b.e, n: sg.b.n, u: 0});
     rmModelLines.push(new google.maps.Polyline({
       map: rmMap, clickable: false, zIndex: 2,
-      path: [{lat: a.lat, lng: a.lng}, {lat: b.lat, lng: b.lng}],
+      /* ⚠ The model is in TRUE positions and the tile is displaced, so the
+         outline has to be un-shifted or it sits beside the roof it describes -
+         and this overlay is the clearest confirmation the office has that
+         lining up worked. */
+      path: [rmSkyUnshift(a.lat, a.lng), rmSkyUnshift(b.lat, b.lng)],
       strokeColor: '#5BC8F5', strokeWeight: 2, strokeOpacity: .85
     }));
   });
@@ -19464,7 +19468,7 @@ function rmSetType(type){
 function rmDot(run, idx){
   const w = run.path[idx];
   const mk = new google.maps.Marker({
-    position: {lat: w.lat, lng: w.lng}, map: rmMap, draggable: true, zIndex: 6, crossOnDrag: false,
+    position: rmSkyUnshift(w.lat, w.lng), map: rmMap, draggable: true, zIndex: 6, crossOnDrag: false,
     icon: {path: google.maps.SymbolPath.CIRCLE, scale: 5.5, fillColor: '#fff',
            fillOpacity: 1, strokeColor: RM_TYPES[run.type].color, strokeWeight: 2.5}
   });
@@ -19472,13 +19476,18 @@ function rmDot(run, idx){
      one model, two windows. */
   const move = function(e){
     run.touched = true;
-    run.path[idx].lat = e.latLng.lat();
-    run.path[idx].lng = e.latLng.lng();
+    /* ⚠ A DRAGGED DOT IS A PICTURE POSITION, so it is put back through the
+       correction before it is stored. Storing it raw would undo the alignment
+       for that one point, and the line would walk a few feet further off every
+       time somebody nudged it. */
+    const dragged = rmSkyShift(e.latLng.lat(), e.latLng.lng());
+    run.path[idx].lat = dragged.lat;
+    run.path[idx].lng = dragged.lng;
     /* Moved across the roof, so its height moves with it - otherwise dragging a
        point up a gable keeps the height it had at the eave. */
     const dragH = rmRoofHeightAt(run.path[idx].lat, run.path[idx].lng);
     if(dragH !== null) run.path[idx].h = dragH;
-    if(run.line) run.line.setPath(run.path.map(function(p){ return {lat:p.lat, lng:p.lng}; }));
+    if(run.line) run.line.setPath(rmSkyPath(run.path));
     rmRenderResults(); rmPaintStreet();
   };
   mk.addListener('drag', move);
@@ -19487,7 +19496,10 @@ function rmDot(run, idx){
 }
 function rmSyncSky(run){
   if(!rmMap) return;
-  const latlngs = run.path.map(function(p){ return {lat:p.lat, lng:p.lng}; });
+  /* ⚠ PICTURE POSITIONS, NOT TRUE ONES. The tile is displaced; see
+     rmSkyUnshift. Drawing the stored point straight puts the line off the
+     roof by exactly what the alignment corrected. */
+  const latlngs = rmSkyPath(run.path);
   const on = rmRunIsOn(run);
   const style = {
     strokeColor: on ? RM_TYPES[run.type].color : '#9aa4b0',
@@ -19604,6 +19616,10 @@ function rmCalKnownFt(){
 /* The freeze. Both views go inert and a transparent layer takes the clicks,
    so nothing can pan, swing or zoom out from under a half-drawn line. */
 function rmSetDrawing(on){
+  /* ⚠ STARTING A RUN CANCELS AN ALIGNMENT. Both want the next click, and
+     the more recent instruction wins - otherwise the draw button lights up,
+     the office clicks, and the alignment eats it. */
+  if(on && rmAligning) rmCancelAlign();
   rmDrawing = !!on;
   const btn = document.getElementById('rmDrawBtn');
   const hint = document.getElementById('rmDrawHint');
@@ -20624,6 +20640,37 @@ function rmSkyShift(lat, lng){
   const m = rmMetresPerDeg(rmOrigin.lat);
   return {lat: lat + rmSkyOffset.n / m.lat, lng: lng + rmSkyOffset.e / m.lng};
 }
+/* ⭐ THE OTHER DIRECTION, AND IT IS NOT OPTIONAL (added 2026-08-25).
+ *
+ * ⚠ THE FAULT THIS CLOSES, reported off the same house with a screenshot: after
+ * lining up, the traced line no longer sat on the roof IN THE SKY VIEW. It had
+ * not gone wrong — it had gone RIGHT, and that is the problem. The stored point
+ * is the TRUE position; the satellite tile is the DISPLACED picture. Drawing a
+ * true point straight onto a displaced picture puts it off the roof by exactly
+ * the amount the alignment just corrected, so the one view that used to look
+ * correct started looking broken.
+ *
+ * ⚠ SO THE MAP DRAWS PICTURE POSITIONS AND THE MODEL HOLDS TRUE ONES. Every
+ * world point painted on rmMap goes through here first, and every position read
+ * BACK off the map — a dragged dot — goes through rmSkyShift. Get either
+ * direction wrong and the drawing walks a few feet further every time somebody
+ * touches it.
+ *
+ * ⚠ AND THIS MAKES LINING UP A NO-OP ON THE SKY VIEW, which is correct and is
+ * the whole point: the lines stay exactly where they were clicked, and what
+ * moves is the height and where they land in Street View. */
+function rmSkyUnshift(lat, lng){
+  if(!rmSkyOffset || !rmOrigin) return {lat: lat, lng: lng};
+  const m = rmMetresPerDeg(rmOrigin.lat);
+  return {lat: lat - rmSkyOffset.n / m.lat, lng: lng - rmSkyOffset.e / m.lng};
+}
+/* Every path drawn on the sky view, in one place so no caller can forget. */
+function rmSkyPath(path){
+  return (path || []).map(function(p){
+    const q = rmSkyUnshift(p.lat, p.lng);
+    return {lat: q.lat, lng: q.lng};
+  });
+}
 /* How far off this house's picture is, in feet, or 0 when nobody has checked. */
 function rmSkyOffsetFt(){
   if(!rmSkyOffset) return 0;
@@ -20662,6 +20709,19 @@ function rmSetSkyOffset(next){
 function rmAlignNote(msg){
   const el = document.getElementById('rmAlignNote');
   if(el) el.textContent = msg;
+  /* ⚠ AND ON THE PANES THEMSELVES. The sidebar is not where somebody is
+     looking while they click a roof, and this mode takes every click on both
+     views - so a message only in the panel is a mode with no visible state,
+     which is exactly how it read as the tool being broken. */
+  const line = rmAligning
+    ? (rmAligning === 'sky'
+        ? 'LINING UP - click one spot on the SKY VIEW. Esc to stop.'
+        : 'LINING UP - now the SAME spot in STREET VIEW. Esc to stop.')
+    : '';
+  ['rmStatus', 'rmCornerNote'].forEach(function(id){
+    const n = document.getElementById(id);
+    if(n && (line || /^LINING UP/.test(n.textContent))) n.textContent = line || msg;
+  });
 }
 /* What the panel says when nothing is being asked of anybody. */
 function rmAlignIdleNote(){
@@ -20730,12 +20790,17 @@ function rmAlignTakeStreet(local){
      rmSetDatumFromStreet(rmToWorld({e: local.e, n: local.n, u: local.u}))){
     measuredEave = true;
   }
-  const prev = rmSkyOffset || {e: 0, n: 0};
-  rmSetSkyOffset({e: prev.e + res.e, n: prev.n + res.n});
-  if(measuredEave) rmRefreshHeights();
+  /* ⚠ THE MODE IS CLEARED BEFORE THE WORK, NOT AFTER. Anything below can
+     throw - Google objects, a repaint - and clearing afterwards would leave
+     the tool silently eating every click on both views with no way out but a
+     reload. The answer is already computed, so nothing is lost by ending the
+     mode first. */
   rmAligning = ''; rmAlignSky = null;
   rmSkyOffsetSource = 'measured';
   rmSetAlignBtn();
+  const prev = rmSkyOffset || {e: 0, n: 0};
+  rmSetSkyOffset({e: prev.e + res.e, n: prev.n + res.n});
+  if(measuredEave) rmRefreshHeights();
   const moved = Math.hypot(res.e, res.n) * RM_M_TO_FT;
   const eaveNote = measuredEave
     ? ' The roof height was measured from that same click — ' +
@@ -21183,7 +21248,9 @@ function rmComposeCapture(){
       if(pts.some(function(p){ return !p; })) return;      /* partly behind the camera */
       pts = pts.map(function(p){ return {x: p.x*scale, y: p.y*scale}; });
     } else {
-      pts = r.path.map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
+      /* ⚠ The captured sky image IS the displaced tile, so the same un-shift
+         the live map uses applies to what is drawn on it. */
+      pts = rmSkyPath(r.path).map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
     }
     drawRun(pts, RM_TYPES[r.type].color);
   });
@@ -22379,7 +22446,16 @@ function openRoofMeasure(quoteId){
     const k = e.key;
     if(k === 'Escape'){
       e.preventDefault();
-      if(rmWallPicking){ rmWallPicking = false; rmWallPts = []; rmSetDrawing(false); rmPaintStreet(); }
+      /* ⭐ ESCAPE GETS OUT OF AN ALIGNMENT FIRST (added 2026-08-25).
+         ⚠ THE TRAP THIS CLOSES, reported as "now my dot to dot won't work".
+         While the tool is waiting for one of the two alignment clicks it takes
+         EVERY click on either view, so a street click that missed the house
+         left the office in a mode they could not see, where clicking did
+         nothing at all - and pressing the draw button did not help, because
+         the click after it was swallowed too. Escape is the way out of
+         everything else here and it has to be the way out of this. */
+      if(rmAligning){ rmCancelAlign(); }
+      else if(rmWallPicking){ rmWallPicking = false; rmWallPts = []; rmSetDrawing(false); rmPaintStreet(); }
       else if(rmDrawing) rmSetDrawing(false);
       else document.getElementById('rmCloseBtn').click();
     } else if(k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown'){
@@ -49067,7 +49143,7 @@ RT.addEventListener('change',e=>{const t=e.target;
   if(t.id==='startDate'){if(t.value){globalDelta=daysBetween(new Date(t.value+'T00:00:00'),BASE_START);renderAll();toast(globalDelta===0?'Back to original dates':'Season shifted '+(globalDelta>0?'+':'')+globalDelta+' days');}return;}
   if(t.id==='takeStart'){if(t.value){takeDelta=daysBetween(new Date(t.value+'T00:00:00'),TAKE_BASE_START);renderAll();toast('Takedowns shifted');}return;}
   if(t.type==='checkbox'&&t.dataset.id!=null){const f=findHouse(t.dataset.id);if(f){
-    /* ⚠ WARN BEFORE UNTICKING A HOUSE THAT HAS ALREADY BEEN BILLED. Unticking cannot
+    /* ⚠ ⚠ BEFORE UNTICKING A HOUSE THAT HAS ALREADY BEEN BILLED. Unticking cannot
        un-send an invoice — invoiceEmailSent is only ever cleared by Start New Season —
        so without this the screen and the customer's inbox quietly disagree. */
     /* ⚠ INSTALLS ONLY. One listener and one row renderer serve all three tabs, so
