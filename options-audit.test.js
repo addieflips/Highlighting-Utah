@@ -46,16 +46,20 @@ function check(label, ok, detail) {
     process.exit(1);
   }
 
-  const { OPTIONS, CONSUMERS, audit, missingAnswers, display, forConsumer,
-          confirmationText, crewSheet, pullList, valueOf, offerableChoices } = mod;
+  /* ⚠ WHAT THE REGISTRY IS, after 2026-08-25. It declares the options and where each
+     must end up, and audit() proves that declaration is internally coherent. It does
+     NOT render anything: forConsumer, confirmationText, crewSheet, pullList,
+     missingAnswers and offerableChoices were removed because no shipped file ever
+     called them — see the header of js/options.js. The checks that exercised them went
+     with them; they tested each other and nothing that reaches a customer. */
+  const { OPTIONS, CONSUMERS, audit, display, valueOf } = mod;
   /* ⚠ THE REAL BIN RULE, re-exported by the registry from js/money.js. Taken from
      there rather than re-typed, so the threshold this test asserts is the same one
      the customer-number series is derived from — R-014, business constants live in
      exactly one file. */
   const { cnBinsForFeet, CN_DOUBLE_BIN_FEET } = mod;
 
-  const required = { OPTIONS, CONSUMERS, audit, missingAnswers, display, forConsumer,
-                     confirmationText, crewSheet, pullList, valueOf, offerableChoices };
+  const required = { OPTIONS, CONSUMERS, audit, display, valueOf };
   let missingExport = false;
   for (const name of Object.keys(required)) {
     const ok = required[name] !== undefined;
@@ -188,29 +192,50 @@ function check(label, ok, detail) {
     display(measureOpt, 240) === '240 ft',
     'a bare number on a sheet is ambiguous');
 
-  /* Rendered against a customer who answered NOTHING: every line must still be
-     present. This is the check that would catch someone "tidying up" the empty
-     rows out of a sheet. */
-  const blankSheet = crewSheet({});
-  const crewOptions = OPTIONS.filter(o => o.consumers.includes('crewSheet'));
 
-  check('a crew sheet for a customer with no answers still prints every line',
-    crewOptions.every(o => blankSheet.includes(o.label + ':')),
-    'an omitted line is an answer nobody can verify');
+  /* ⭐ R-002 ON THE REAL SHEET (rewritten 2026-08-25). Owner: "so we'll have code that
+     will just sit there doing nothing forever" — asked twice, and she was right.
 
-  /* R-002 is about an option with NO VALUE. One that declares a default always
-     has one, so it prints the default rather than `none` — and should. Splitting
-     the check this way says which rule applies to which option, instead of
-     asserting `none` everywhere and then loosening it when a default appears. */
-  check('every crew-sheet option with no default prints "none" when unanswered (R-002)',
-    crewOptions.filter(o => o.default == null)
-               .every(o => blankSheet.includes(o.label + ': none')),
-    'silence and "they did not want it" must never look alike');
+     ⚠ WHAT THESE TWO CHECKS USED TO BE. They asserted that a crew sheet built by
+     js/options.js printed "none" for an unanswered option. No shipped file has ever
+     called that renderer, so what they proved was that a function nobody runs agreed
+     with a test nobody could act on — while the sheet the crew actually holds prints
+     "?". Green, and about nothing. The renderer is deleted; this is the same rule
+     pointed at the code that ships.
 
-  check('an option with a default prints the default, not "none"',
-    crewOptions.filter(o => o.default != null)
-               .every(o => blankSheet.includes(o.label + ': ' + o.default)),
-    'a declared default that does not render is a default in name only');
+     R-002 is that silence and "they did not want it" must never look alike. A blank
+     cell reads as "no gate code" exactly like a customer who was never asked. */
+  {
+    const admin2 = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
+    const lift = (n) => {
+      const at = admin2.indexOf('function ' + n + '(');
+      if (at < 0) return null;
+      let d = 0;
+      for (let i = admin2.indexOf('{', at); i < admin2.length; i++) {
+        if (admin2[i] === '{') d++;
+        else if (admin2[i] === '}') { d--; if (!d) return admin2.slice(at, i + 1); }
+      }
+      return null;
+    };
+    const yesSrc = lift('printYesNo'), gateSrc = lift('printGateCode');
+    check('the crew sheet print helpers were found', !!yesSrc && !!gateSrc,
+      'a gate that cannot find its target must FAIL, never skip');
+    if (yesSrc && gateSrc) {
+      const yes = new Function('return ' + yesSrc + ';printYesNo')();
+      const gate = new Function('return ' + gateSrc + ';printGateCode')();
+      /* ⚠ EVERY SHAPE AN UNANSWERED OPTION ARRIVES IN. undefined is a field never
+         written; '' is one written and cleared; null is what a reset leaves. */
+      check('an unanswered yes/no prints a visible marker, never a blank (R-002)',
+        [undefined, null, ''].every(v => String(yes(v)).trim() !== ''),
+        'a blank cell reads as "no" — silence and a decision must not look alike');
+      check('and a real No still reads as No, not as unanswered',
+        yes(false) === 'No' && yes('No') === 'No',
+        'if unanswered and No render the same, the marker is worthless');
+      check('an unanswered gate code prints a dash, never a blank (R-002)',
+        [undefined, null, ''].every(v => String(gate({ gateCode: v })).trim() !== ''),
+        'a blank gate column is a crew standing at a gate wondering if they missed it');
+    }
+  }
 
   // -------------------------------------------------------------------------
   // 4. THE ARTIFACTS RENDER WHAT THEY DECLARE, AND ONLY THAT
@@ -230,24 +255,7 @@ function check(label, ok, detail) {
     notes: 'dog in the back garden',
   };
 
-  for (const consumer of CONSUMERS) {
-    const rows = forConsumer(consumer, customer);
-    const expected = OPTIONS.filter(o => o.consumers.includes(consumer)).map(o => o.id);
-    check(`${consumer} renders exactly the options that declare it`,
-      rows.length === expected.length && rows.every((r, i) => r.id === expected[i]),
-      'an artifact rendering a different set than it declares is the drift this file exists to stop');
-  }
 
-  const conf = confirmationText(customer, { priceLine: 'Install: 240 ft @ $2.10/ft = $504.00' });
-  check('the confirmation carries the price line (R-004)',
-    conf.includes('$504.00'),
-    'measuredFeet affects the price, so the customer has to be shown it');
-  check('the confirmation does NOT carry eaves',
-    !conf.includes('Plugs / eaves'),
-    'Addie removed it 2026-08-21 — putting it back is a decision, not a tidy-up');
-  check('the confirmation tells them how to fix a wrong answer',
-    /member portal/i.test(conf),
-    'a list they cannot correct is a list nobody acts on');
 
   // -------------------------------------------------------------------------
   // 4b. ACCEPTED IS NOT THE SAME AS OFFERED.
@@ -263,16 +271,35 @@ function check(label, ok, detail) {
     timing.choices.includes('November - Before Thanksgiving') &&
     timing.choices.includes('After Thanksgiving'),
     'the office types these when a customer asks, and the master sheet imports THX');
-  check('but a customer is never OFFERED them',
-    offerableChoices(timing).length === 3 &&
-    !offerableChoices(timing).some(c => /thanksgiving/i.test(c)),
-    'offering them invites every customer into a window built for a few');
-  check('everything offerable is also acceptable',
-    OPTIONS.every(o => offerableChoices(o).every(c => (o.choices || []).includes(c))),
-    'a form offering a value the record cannot hold writes junk');
-  check('an option that narrows nothing offers all of its choices',
-    offerableChoices(OPTIONS.find(o => o.id === 'wireColor')).length === 3,
-    'absent customerChoices must mean "offer them all", not "offer none"');
+  /* ⭐ CHECKED ON THE REAL FORM (rewritten 2026-08-25). These asserted
+     offerableChoices(), a registry helper no shipped file called — so the rule was
+     being proved about a function nobody runs. The rule itself is the owner's, from
+     2026-08-21, and it is real: a form that offers a Thanksgiving window invites every
+     customer into one built for a few. index.html is where that can actually go wrong,
+     so that is where it is asserted. */
+  {
+    const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+    const offered = [...idx.matchAll(/<option value="([^"]*)"[^>]*>[^<]*<\/option>/g)]
+      .map(m => m[1]);
+    check('the public form offers no Thanksgiving window',
+      !offered.some(v => /thanksgiving/i.test(v)),
+      'the office types these when a customer asks for them, and the master sheet ' +
+      'imports THX — but offering them invites everybody into a window built for a few');
+    /* ⚠ AND THE RECORD STILL ACCEPTS THEM. The rule is "never offered", not "never
+       held" — the season scheduler reads both timings and holds those customers to
+       the right week. A registry that dropped them would break the import. */
+    check('but the record still accepts both Thanksgiving timings',
+      timing.choices.includes('November - Before Thanksgiving') &&
+      timing.choices.includes('After Thanksgiving'),
+      'the master sheet imports THX and the scheduler honours it');
+    /* ⚠ AND EVERY VALUE THE FORM DOES OFFER MUST BE ONE THE RECORD CAN HOLD, or the
+       form writes junk into a field the scheduler then cannot read. */
+    const timingOffered = offered.filter(v => /^(October|November|Normal Schedule|Any)$/.test(v));
+    check('and everything the form offers is a value the record accepts',
+      timingOffered.every(v => timing.choices.includes(v) ||
+                               v === 'Normal Schedule' || v === 'Any'),
+      'a form offering a value the record cannot hold writes junk: ' + timingOffered.join(', '));
+  }
 
   // -------------------------------------------------------------------------
   // 5. THE READERS — the two options the record does not hold plainly
@@ -303,15 +330,6 @@ function check(label, ok, detail) {
     'an alternating pattern empties lightColors — reading only the list calls them undecorated');
 
   // -------------------------------------------------------------------------
-  // 6. missingAnswers — what the office still has to chase
-  // -------------------------------------------------------------------------
-  const gaps = missingAnswers({});
-  check('a blank customer is missing every required answer',
-    gaps.length === OPTIONS.filter(o => o.required).length,
-    'required options with no answer must be reported, not assumed');
-  check('a fully answered customer is missing nothing',
-    missingAnswers(customer).length === 0,
-    JSON.stringify(missingAnswers(customer)));
 
   // -------------------------------------------------------------------------
   /* ⭐ THE REGISTRY IS ENFORCED AGAINST THE REAL ARTIFACTS (added 2026-08-24).

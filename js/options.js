@@ -2,12 +2,25 @@
  * js/options.js — THE OPTION REGISTRY
  * ---------------------------------------------------------------------------
  * One list of everything a customer can ask for, and where each answer has to
- * end up. Eight artifacts generate from this file and nothing else.
+ * end up.
  *
  * WHY: if each artifact renders its fields by hand, adding an option means
  * remembering eight places. Forgetting produces NO ERROR — the truck just shows
- * up without the timer. Generating them all from one list makes forgetting
- * impossible instead of something you test for. (R-001, R-003.)
+ * up without the timer. This file makes forgetting impossible instead of
+ * something you test for. (R-001, R-003.)
+ *
+ * ⚠ IT DECLARES; IT DOES NOT RENDER. The line above used to read "eight artifacts
+ * generate from this file and nothing else", and that was never true — it described
+ * a plan. On 2026-08-25 the renderers that plan needed (forConsumer, crewSheet,
+ * pullList, confirmationText, missingAnswers, offerableChoices) were DELETED: no
+ * shipped file had ever called one, and the ~40 audit checks exercising them tested
+ * each other and nothing a customer could see. Owner, twice: "so we'll have code that
+ * will just sit there doing nothing forever."
+ *
+ * The clearest example of what that cost: those checks asserted an unanswered option
+ * renders as "none" (R-002). The crew sheet your crew actually holds prints "?". The
+ * check was green and about nothing. R-002 is now asserted against printYesNo and
+ * printGateCode in admin.html — the code that ships.
  *
  * ⚠ WHAT "WIRED" MEANS HERE, corrected 2026-08-24. Nothing imports this file at
  * runtime and that is now deliberate. §3.3 of the plan was for the eight artifacts
@@ -375,19 +388,6 @@ export function audit() {
   return holes;
 }
 
-/** Per customer: every required option must have an answer. A missing answer
- *  and "they didn't want it" are indistinguishable, so this forces the office
- *  to make it explicit rather than leaving it absent. */
-export function missingAnswers(customer) {
-  return OPTIONS
-    .filter((o) => o.required)
-    .filter((o) => {
-      const v = valueOf(o, customer || {});
-      return v === undefined || v === null || v === '';
-    })
-    .map((o) => o.id);
-}
-
 // ---------------------------------------------------------------------------
 // 4. RENDERING — every artifact reads the same list, in the same order
 // ---------------------------------------------------------------------------
@@ -410,53 +410,3 @@ export function display(option, value) {
   return String(value);
 }
 
-/** What a customer-facing form may OFFER for this option — never the full set
- *  unless the option says so. The quote form must call this rather than reading
- *  `choices`, or it will advertise timings we only accept on request. */
-export function offerableChoices(option) {
-  return Array.isArray(option.customerChoices) ? option.customerChoices : (option.choices || []);
-}
-
-export function forConsumer(consumer, customer) {
-  return OPTIONS
-    .filter((o) => o.consumers.includes(consumer))
-    .map((o) => {
-      const value = valueOf(o, customer);
-      return { ...o, value, text: display(o, value) };
-    });
-}
-
-export function confirmationText(customer, opts) {
-  const priceLine = opts && opts.priceLine ? opts.priceLine : null;
-  const lines = forConsumer('confirmation', customer).map((o) => `${o.label}: ${o.text}`);
-  return [
-    `Hi ${(customer && customer.name ? String(customer.name).split(' ')[0] : 'there')} — here's what we have on file for you:`,
-    '',
-    ...(priceLine ? [priceLine, ''] : []),
-    ...lines,
-    '',
-    'If anything here is wrong or missing, update it in your member portal.',
-  ].join('\n');
-}
-
-export function crewSheet(customer) {
-  return forConsumer('crewSheet', customer)
-    .map((o) => {
-      const line = `${o.label}: ${o.text}`;
-      const noteworthy = o.crewNote && o.value && o.text !== 'none' && String(o.value) !== 'No';
-      return noteworthy ? `${line}\n    ↳ ${o.crewNote}` : line;
-    })
-    .join('\n');
-}
-
-/**
- * ⚠ THIS IS THE BUILD SHEET, NOT A STOCK LIST. The plan imagined
- * `warehouse(value)` returning quantities ("3 × C9 bundle, 1 × timer unit").
- * That is not how this warehouse works: the sheet is a ROW PER CUSTOMER holding
- * their spec — number, name, light colour, wire colour, timer, feet — which the
- * warehouse builds from. So options render their values here like everywhere
- * else, and `warehouse()` was dropped rather than kept as a concept nothing uses.
- */
-export function pullList(customer) {
-  return forConsumer('pullList', customer).map((o) => ({ label: o.label, text: o.text }));
-}
