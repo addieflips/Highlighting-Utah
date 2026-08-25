@@ -37038,6 +37038,10 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
       'const RM_TYPES={perimeter:{label:"Perimeter"},ridge:{label:"Ridge"},ground:{label:"Ground"}};' + LF_ +
       'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
       'let rmRuns=[], rmPhotoExtraFeet=0, rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      /* Module-level state rmMeasurementDoc closes over. Declared, not stubbed —
+         the scale check is saved with the drawing, and a sandbox missing it dies
+         with a bare ReferenceError rather than failing a named check. */
+      'let rmCalibration=null;' + LF_ +
       'let __cam=null, __grade="Medium", __pano=null, __box={};' + LF_ +
       'function rmCamOnRoad(){ return __cam; }' + LF_ +
       'function rmDatum(){ return {m:3, source:"assumed"}; }' + LF_ +
@@ -37434,6 +37438,199 @@ suite('259. Measure Roof - one difficulty rule, and one vocabulary');
   check('S259', 'a side with no footage is refused rather than added as nothing',
     /if\(!\(feet > 0\)\)\{/.test(manual),
     'a 0 ft side in the list reads as measured and tiny, not as never filled in');
+}
+
+
+suite('260. Measure Roof - no guessing: which feet are real');
+{
+  /* Owner, 2026-08-25: "I need no guessing I need feet to be correct."
+     Three separate ways a number nobody measured could reach a quote. */
+  const LF_ = String.fromCharCode(10);
+
+  /* ---- 1. a click above the roof was being counted ------------------- */
+  /* ⚠ THE DOT PATH HAS REFUSED THIS FOR A WHILE and its own note says why: a
+     ray aimed over the roof still crosses the wall plane somewhere up in the
+     air, so clicking a cloud produced a confident dot at 31 ft with nothing
+     saying it was invented. TRACING never got the same guard — the same click
+     added a point in the sky, at a real-looking height, straight into the
+     footage. It bites hardest on a gable, because the peak is the highest thing
+     you aim at, so overshooting it is the easiest mistake in the tool. */
+  /* ⚠ SLICED TO THE ADD ITSELF, not to a round number of characters. The first
+     version stopped at 1800 and rmAddPoint fell just past the end, so the
+     ordering check compared against -1 and failed on correct code. */
+  const drawAll = admin.split("That direction never crosses the wall you set")[1] || '';
+  const drawBranch = drawAll.slice(0, drawAll.indexOf('rmAddPoint(world);') + 20);
+  check('S260', 'tracing in Street View refuses a point above the roof',
+    /roofTop = rmRoofTopM\(\)/.test(drawBranch) &&
+    /hit\.u > roofTop \+ RM_EAVE_TOL_M/.test(drawBranch),
+    'a ray over the roof still crosses the wall plane, so the click lands in mid-air ' +
+    'at a confident height and is billed for');
+  /* ⚠ THE SLICE ENDS AT THE ADD, SO PRESENCE *IS* THE ORDERING CLAIM — and that
+     matters, because the obvious `indexOf(guard) < indexOf(add)` was worse than
+     useless here: with the slice ending at the add, a guard MOVED BELOW it
+     leaves the slice entirely, indexOf returns -1, and `-1 < n` is true. The
+     check would have passed on exactly the code it exists to catch. A red-check
+     caught it, by moving the guard rather than disabling it. */
+  check('S260', 'and it refuses BEFORE the point is added',
+    drawBranch.indexOf('rmRoofTopM()') !== -1,
+    'a guard after the add is not a guard — it would be measuring a point already counted');
+  /* The same allowance the dot path uses, so a point ON the peak still lands —
+     a guard that refused the peak would make a gable untraceable. */
+  check('S260', 'but a point ON the peak is still allowed',
+    /RM_EAVE_TOL_M/.test(drawBranch),
+    'refusing the peak itself would make a gable impossible to trace, which is ' +
+    'the thing this was fixed to enable');
+
+  /* ---- 2. which footage depends on a guessed height ------------------ */
+  const NEED = ['rmRunClimbs', 'rmGuessedFeet', 'rmRunFeet', 'rmRunIsOn'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S260', 'the guessed-footage rule is findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const mk = source => new Function(
+      'const RM_M_TO_FT=3.280839895, RM_CLIMB_TOL_M=0.3;' + LF_ +
+      'let rmRuns=[], rmOrigin=null;' + LF_ +
+      'function rmDatum(){ return {m:3, source:"' + source + '"}; }' + LF_ +
+      'function rmFeetBetween(a,b){ return Math.hypot((b.x||0)-(a.x||0), ((b.h||0)-(a.h||0))*RM_M_TO_FT); }' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return {guessed:rmGuessedFeet, climbs:rmRunClimbs, set:function(r){ rmRuns=r; }};')();
+
+    /* A LEVEL run: both ends at the same height. */
+    const level = {path: [{x: 0, h: 3}, {x: 30, h: 3}]};
+    /* A RAKE: climbs 2 m from eave to peak. */
+    const rake = {path: [{x: 0, h: 3}, {x: 10, h: 5}]};
+
+    const assumed = mk('assumed');
+    check('S260', 'a level line is not a guess, however the height was arrived at',
+      assumed.climbs(level) === false,
+      'both ends carry the same height so it cancels — plan length IS true length, ' +
+      'which is the whole reason an eave is traced from above');
+    check('S260', 'but a line that climbs is',
+      assumed.climbs(rake) === true,
+      'a rake is the hypotenuse, so a guessed height gives a guessed length');
+
+    assumed.set([level, rake]);
+    const g = assumed.guessed();
+    check('S260', 'so only the climbing feet are reported as resting on a guess',
+      g > 0 && Math.abs(g - assumed.guessed([rake])) < 1e-9 && g < 30,
+      'got ' + g.toFixed(2) + ' ft — reporting the level run too would condemn ' +
+      'most of the tool for nothing, and reporting neither hides the real problem');
+
+    /* ⚠ A MEASURED DATUM MEANS NOTHING HERE IS A GUESS. Street View observes the
+       height directly, so the same rake is real once one line has been traced
+       there — which is exactly what the on-screen message tells you to do. */
+    ['street', 'photo'].forEach(function (src) {
+      const api = mk(src);
+      api.set([level, rake]);
+      check('S260', 'with the roof height measured from ' + src + ', nothing is a guess',
+        api.guessed() === 0,
+        'got ' + api.guessed() + ' — a measured datum makes every climbing line real, ' +
+        'and saying otherwise trains people to ignore the warning');
+    });
+    /* A height the office TYPED is somebody stating what they know about a house
+       they have seen. Ours is the one that is invented. */
+    const typed = mk('typed');
+    typed.set([rake]);
+    check('S260', 'and a height the office typed is not this tool guessing',
+      typed.guessed() === 0,
+      'flagging the office’s own answer back at them as a guess is noise');
+  }
+
+  /* ---- 3. it has to be said where the number is read ------------------ */
+  check('S260', 'the results panel says how much rests on a guess',
+    /rmGuessedFeet\(\)/.test(extractFn(admin, 'rmRenderResults') || ''),
+    'a warning in a panel nobody opens is not a warning');
+  const useBtn = (admin.split("getElementById('rmUseFeetBtn').addEventListener")[1] || '').slice(0, 2000);
+  /* ⚠ ASKED BEFORE THE WRITE. Once saved it drives the price, the bin count and
+     the bundle count, and nothing downstream can tell a measured foot from a
+     guessed one — this is the last place the difference is knowable. */
+  check('S260', 'and saving a guessed figure onto the quote asks first',
+    /const guessed = rmGuessedFeet\(\);/.test(useBtn) && /confirm\(/.test(useBtn),
+    'nothing downstream can tell a measured foot from a guessed one');
+  check('S260', 'and the question is asked before the write, not after',
+    useBtn.indexOf('rmGuessedFeet()') < useBtn.indexOf('updateDoc'),
+    'confirming after the write has already happened is not a confirmation');
+  check('S260', 'and it names the one thing that fixes it',
+    /Street View/.test(useBtn),
+    'telling somebody a number is wrong without saying how to fix it just stops them working');
+}
+
+
+suite('261. Measure Roof - the scale check never becomes footage');
+{
+  /* Owner asked what it does before agreeing to it: measure something whose
+     size is already known and read the difference. Accuracy is not a property
+     of the code, it is a property of THIS house — the imagery is not perfectly
+     overhead, the camera may be far off or half behind a tree.
+
+     ⚠ AND THE WHOLE RISK IS ONE THING: a garage door traced to test the tool is
+     NOT roofline. If it reached rmRuns it would be billed as 16 ft of lights on
+     a house that has none there. */
+  const finish = extractFn(admin, 'rmFinishRun') || '';
+  check('S261', 'a scale check is dropped rather than kept as a run',
+    /if\(rmCalibrating\)\{[\s\S]{0,400}rmDropCurrent\(\);/.test(finish),
+    'a known object traced to test the tool is not part of the house — keeping it ' +
+    'bills the customer for lights that are not there');
+  /* ⚠ SCOPED TO THE BRANCH, WHICH ENDS AT ITS `return`. The first version used a
+     400-character window and swept up the NORMAL path's rmRuns.push sixty
+     characters later — so it failed on correct code and would have passed on
+     code that really did push a scale check into the house. */
+  const calBranch = (function () {
+    const i = finish.indexOf('if(rmCalibrating){');
+    if (i === -1) return '';
+    const end = finish.indexOf('return;', i);
+    return end === -1 ? finish.slice(i) : finish.slice(i, end);
+  })();
+  check('S261', 'and it never reaches the run list at all',
+    !!calBranch && calBranch.indexOf('rmRuns.push') === -1,
+    'reaching rmRuns is reaching the total, the saved drawing, the price AND the build sheet');
+  /* ⚠ THE FLAG IS CLEARED IN THE SAME BREATH. Left set, the NEXT side traced
+     would also be swallowed as a check and silently dropped — a house that
+     quietly refuses to accept any more lines. */
+  check('S261', 'and the check ends when it is answered',
+    /rmCalibrating = false;/.test(finish),
+    'left set, every side traced afterwards is swallowed as a check and dropped');
+
+  const report = extractFn(admin, 'rmReportCalibration') || '';
+  check('S261', 'it reports what was traced against what it really is',
+    /knownFt: known, measuredFt:/.test(report) && /offBy/.test(report),
+    'the number is the point — "roughly right" is the judgement it exists to replace');
+  /* ⚠ IT REPORTS, IT NEVER CORRECTS. Scaling every other line by whatever error
+     this finds would let one bad trace silently re-price the whole house, and
+     the error is rarely one clean factor anyway. */
+  check('S261', 'and it never rescales anything on the strength of one trace',
+    !/rmRuns\.forEach/.test(report) && !/RM_FEET_MULTIPLIER\s*=/.test(report),
+    'one bad trace would silently re-price the whole house');
+  check('S261', 'nothing traced means nothing claimed',
+    /if\(!\(measuredFt > 0\)\)\{/.test(report),
+    'reporting 0 ft against a 16 ft door reads as a catastrophic error rather than as no answer');
+
+  check('S261', 'the check is on screen rather than hidden in a debug corner',
+    /id="rmCalBtn"/.test(admin) && /id="rmCalPick"/.test(admin) &&
+    /Double garage door/.test(admin),
+    'a check nobody can find is a check nobody runs');
+  /* Owner's standing request: if a button is pressed, the thing it promises has
+     to actually happen. */
+  check('S261', 'and its button is really wired',
+    /getElementById\('rmCalBtn'\)\.addEventListener/.test(admin),
+    'a control that renders and does nothing is worse than no control');
+  const wire = (admin.split("getElementById('rmCalBtn').addEventListener")[1] || '').slice(0, 900);
+  check('S261', 'starting a check finishes any side already being traced',
+    /if\(rmDrawing\) rmFinishRun\(\);/.test(wire),
+    'otherwise a half-traced side is swallowed into the check and lost');
+  check('S261', 'and a check with no known size is refused',
+    /if\(!rmCalKnownFt\(\)\)\{/.test(wire),
+    'comparing against nothing produces a percentage off an unknown, which is not a number');
+
+  /* It belongs to the house it was taken on. */
+  check('S261', 'and it is cleared when a different quote is opened',
+    /rmCalibrating = false; rmCalibration = null;/.test(extractFn(admin, 'rmReset') || ''),
+    'carried across, it reports a figure about somebody else’s roof');
+  check('S261', 'the answer is saved with the drawing',
+    /calibration: rmCalibration \|\| null,/.test(extractFn(admin, 'rmMeasurementDoc') || ''),
+    'the one number saying whether this house measured right is worth keeping');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
