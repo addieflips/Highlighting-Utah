@@ -3254,7 +3254,9 @@
             <p style="font-size:13px; margin:0 0 14px;">Notices the system writes on its own &mdash; light colour, wire and timer changes, and crew reassign flags. Kept separate so they don&rsquo;t bury real customer messages.</p>
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
               <button type="button" class="btn btn-outline btn-sm" id="markAllSystemReadBtn" style="margin-left:auto;">Mark all read</button>
+              <button type="button" class="btn btn-outline btn-sm" id="deleteAllSystemBtn" style="color:var(--ember); border-color:#F3C8C2;">Delete all</button>
             </div>
+            <div class="rtext" id="deleteAllSystemStatus" style="margin-bottom:12px; min-height:16px;"></div>
             <div class="row-list" id="systemMessagesList"><div class="empty-note">Loading…</div></div>
           </div>
         </div>
@@ -4452,6 +4454,15 @@
                   <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                     <button type="button" class="btn btn-outline btn-sm" id="rmEndStrandBtn" style="padding:4px 10px; font-size:11px;">End this strand</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmClearDotsBtn" style="padding:4px 10px; font-size:11px;">Clear all dots</button>
+                    <!-- ⚠ OUT HERE, NOT BEHIND THE AUTO-DETECT DISCLOSURE. That bar
+                         is for the two things that GUESS, and it is shut by default on
+                         purpose - somebody who wants a guess asks for one. Recentring
+                         guesses nothing: it moves two cameras and touches no dot, no
+                         side, no height. Owner asked for it as "a reset button so if
+                         you zoom out on sky view it will readjust the camera", and a
+                         reset filed under a disclosure about corner detection is one
+                         nobody finds when they have lost the house. -->
+                    <button type="button" class="btn btn-outline btn-sm" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre</button>
                     <button type="button" class="btn btn-outline btn-sm" id="rmAutoBtn" style="padding:4px 10px; font-size:11px;">Auto-detect corners</button>
                   </div>
                   <!-- ⭐ THE AUTOMATIC ONES ARE BEHIND A DOOR (2026-08-25).
@@ -6239,10 +6250,16 @@ function pendingAddOnFor(customerId){
   return quotesCache.find(function(q){
     const d = q.data || {};
     if(!quoteIsAddOn(d)) return false;
-    /* Priced and still waiting. quoteStage is the ONE answer to "where is this
-       quote up to" — an unpriced one has no number to show, and an answered or
-       archived one must not be asked again. */
-    if(quoteStage(d) !== 'send') return false;
+    /* Priced, still open, still unanswered.
+       ⚠ DELIBERATELY NOT quoteStage === 'send' ANY MORE (2026-08-25). Since a quote
+       priced but not yet emailed stays filed under Quotes, that test would drop the
+       commonest add-on of all: one raised, priced, and never sent on its own because
+       THIS EMAIL IS HOW IT GETS ASKED. The three conditions that actually matter are
+       written out instead — there is a number to show, nobody has answered it, and it
+       has not been converted, declined or archived. */
+    if(typeof d.quotedPrice !== 'number') return false;
+    if((d.approvalStatus || 'pending') !== 'pending') return false;
+    if(quoteStage(d) === 'closed') return false;
     return String(d.existingCustomerId || d.convertedToCustomerId || '') === String(customerId);
   }) || null;
 }
@@ -7747,7 +7764,6 @@ document.getElementById('pfCalcFeet').addEventListener('input', updatePfCalcResu
 let quotesCache = [];
 let quoteFilter = 'all';
 let quoteStageFilter = 'new';   // one of: new, send, form, closed
-let showSentQuotes = false;   // "Awaiting Response" tab: reveal already-sent quotes
 let quoteQuietDays = 0;       // Awaiting Response: only show people quiet this many days
 /* Sending writes to Firestore, which fires a snapshot, which rebuilds the whole
    list - so the button you just pressed, and the box the confirmation was
@@ -7766,6 +7782,18 @@ let showArchivedQuotes = false; // Closed tab: swap between converted and archiv
      closed — declined, or closed out (including converted to a customer)
    Closed is checked first so a finished quote never reappears earlier in the
    pipeline. */
+/* ⭐ HAS IT ACTUALLY GONE OUT. Three doors send a quote and all three stamp it:
+   the Send button and the email box (quoteSentAt), a text (quoteSentAt plus
+   quoteSmsSentAt), and the office saying it sent the thing itself from its own
+   email (quoteManuallySent).
+
+   ⚠ DELIBERATELY LOOSER THAN quoteHasBeenSent, which needs a real Timestamp
+   because it feeds daysSince and the 10-day counter. A quote marked sent by hand
+   has no clock to start and is still, plainly, sent — reading quoteSentAt alone
+   would leave it filed under Quotes for ever with nothing left to press. */
+function quoteWasSentOut(d){
+  return !!(d && (d.quoteSentAt || d.quoteManuallySent));
+}
 function quoteStage(d){
   if((d.status || 'new') === 'closed' || d.quoteArchived || d.approvalStatus === 'declined' || d.approvalStatus === 'maybe_next_year') return 'closed';
   if(typeof d.quotedPrice !== 'number') return 'new';
@@ -7785,6 +7813,26 @@ function quoteStage(d){
      customer record anyway. So the office saying yes on their behalf stands in for the
      form, and the card moves on. */
   if(d.approvalStatus === 'approved' && (d.formCompleted || d.approvedByOffice)) return 'form';
+  /* ⭐ PRICED IS NOT SENT (added 2026-08-25). Owner: "when we push attach quote it
+     takes us to awaiting response but it should stay in quote until we send text/email."
+
+     ⚠ THIS IS DRIFT LEFT BY A RENAME. The second folder used to be called "Send out
+     Quotes" — a to-do list of things to put in the post — so landing there the moment
+     a price was saved was exactly right. It is called Awaiting Response now, and
+     nobody is awaiting anything: the customer has not been given a number to answer.
+     The rule never followed the rename, so the card sat under a heading that was not
+     true about it, and the one thing still to do (send it) read as done.
+
+     ⚠ THE REST OF THE APP ALREADY AGREED, WHICH IS HOW SMALL THIS FIX IS.
+     quoteAwaitsUs exists precisely for "priced, open and never sent — our job, not
+     theirs", the Awaiting Response FIGURE has excluded these since 2026-08-19, and the
+     card itself says "Priced — not sent yet." Only the folder disagreed.
+
+     ⚠ ONLY WHILE THE ANSWER IS STILL OPEN. An approval that arrived some other way
+     is an answer, so it moves on whether or not anything was ever emailed — that is
+     the office override, and holding it back in Quotes would strand it where there is
+     no Convert button. */
+  if(!quoteWasSentOut(d) && (d.approvalStatus || 'pending') === 'pending') return 'new';
   return 'send';
 }
 /* Which of the three quote templates a card should use. Names are picked in
@@ -8880,13 +8928,15 @@ function renderQuotesList(){
      approval dropdown, since the pipeline already encodes both. */
   let filtered = quotesCache.filter(item => quoteFolder(item.data) === quoteStageFilter);
   if(quoteFilter === 'flagged') filtered = filtered.filter(item => !item.data.frontPhotoUrl);
-  let sentOnes = [];
   if(quoteStageFilter === 'send'){
-    sentOnes = filtered.filter(item => item.data.quoteManuallySent);
-    /* Hiding already-sent quotes made a card disappear the instant you pressed
-       Send, which read as a failure. Anything sent in this session stays put -
-       you are still waiting on that person, which is what this tab is for. */
-    if(!showSentQuotes) filtered = filtered.filter(item => !item.data.quoteManuallySent || quoteSendResults.has(item.id));
+    /* ⭐ NOTHING IS FOLDED AWAY HERE ANY MORE (2026-08-25). This tab used to be a
+       to-do list of quotes to send, so the ones already sent were hidden behind a
+       "Show already sent" link. Now that a quote only arrives here BY being sent,
+       that link hid the entire tab: every card in it is an already-sent one, so the
+       office met "Nothing waiting on a customer right now" over a stack of quotes it
+       had just sent. The quiet-days filter below is the one that still earns its
+       place — it narrows by how long they have been quiet, which is a real question
+       about this list rather than a way of emptying it. */
     if(quoteQuietDays > 0){
       filtered = filtered.filter(function(item){
         const days = daysSince(item.data.quoteSentAt);
@@ -8909,34 +8959,17 @@ function renderQuotesList(){
   }
   if(!filtered.length){
     const emptyMsg = {
-      new: 'No new quote requests waiting to be priced.',
+      new: 'Nothing here to price or send.',
       send: quoteQuietDays > 0 ? 'Nobody has been quiet that long. Lower the number to see everyone.' : 'Nothing waiting on a customer right now.',
       form: 'Nobody has finished their form yet.',
       requote: 'No re-quotes open. This is where a customer lands when they change something \u2014 another side of the house, a different address \u2014 and needs pricing again.',
       closed: showArchivedQuotes ? 'Nothing archived.' : 'Nothing closed yet.'
     }[quoteStageFilter] || 'No quote requests match this view.';
     list.innerHTML = '<div class="empty-note">'+(quoteFilter==='flagged' ? 'Nothing flagged in this tab.' : emptyMsg)+'</div>';
-    if(quoteStageFilter === 'send' && sentOnes.length){
-      list.insertAdjacentHTML('afterbegin', '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Show already sent ('+sentOnes.length+')</a></div>');
-      list.querySelector('[data-toggleshowsent]').addEventListener('click', function(e){ e.preventDefault(); showSentQuotes = true; renderQuotesList(); });
-    }
     return;
   }
   renderQuoteRows(filtered);
   repaintQuoteSendResults();
-  if(quoteStageFilter === 'send'){
-    const toggleHtml = !sentOnes.length ? '' : (showSentQuotes
-      ? '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Hide already-sent quotes</a></div>'
-      : '<div style="margin-bottom:10px;"><a href="#" data-toggleshowsent style="font-size:12.5px; font-weight:600;">Show already sent ('+sentOnes.length+')</a></div>');
-    if(toggleHtml){
-      list.insertAdjacentHTML('afterbegin', toggleHtml);
-      list.querySelector('[data-toggleshowsent]').addEventListener('click', function(e){
-        e.preventDefault();
-        showSentQuotes = !showSentQuotes;
-        renderQuotesList();
-      });
-    }
-  }
 }
 // Which quote cards have their Pricing & Approval panel open. Keyed by quote
 // id so it survives the re-render a save triggers instead of collapsing
@@ -10673,11 +10706,22 @@ function renderQuoteRows(filtered){
                    unreachable. quotePhotoList() covers both the newer quotePhotos
                    array and the older single frontPhotoUrl. */
                 (quotePhotoList(d).length ? '<button type="button" class="btn btn-outline btn-sm" data-downloadquotephoto="'+item.id+'">Download Photo</button>' : '')+
-              '</div>'+
-              (d.quoteManuallySent
-                ? '<div class="rtext" style="margin-top:6px; color:var(--slate);">&#10003; Sent'+(d.quoteManuallySentAt ? ' &mdash; '+fmtDate(d.quoteManuallySentAt) : '')+' <a href="#" data-unmarksent="'+item.id+'" style="margin-left:6px;">Undo</a></div>'
-                : '<button type="button" class="btn btn-outline btn-sm" data-marksent="'+item.id+'" style="margin-top:6px; display:block;">Mark as sent (if you sent it yourself)</button>')
+              '</div>'
             ) : '')+
+            /* ⭐ MARK AS SENT IS NOT A SEND-TAB THING ANY MORE (2026-08-25). It sat
+               inside the block above, which only draws on Awaiting Response — and
+               since a quote now only REACHES that tab by having been sent, the one
+               button that says "I sent this from my own email" was drawn only on the
+               cards that no longer need it, and never on the ones that do. That is a
+               quote with no way out of Quotes at all.
+               ⚠ Offered on a priced card in any tab, because that is exactly when the
+               claim can be true. Nudging stays above, on Awaiting Response, where
+               there is somebody to chase. */
+            (typeof d.quotedPrice === 'number'
+              ? (d.quoteManuallySent
+                  ? '<div class="rtext" style="margin-top:6px; color:var(--slate);">&#10003; Sent'+(d.quoteManuallySentAt ? ' &mdash; '+fmtDate(d.quoteManuallySentAt) : '')+' <a href="#" data-unmarksent="'+item.id+'" style="margin-left:6px;">Undo</a></div>'
+                  : '<button type="button" class="btn btn-outline btn-sm" data-marksent="'+item.id+'" style="margin-top:6px; display:block;">Mark as sent (if you sent it yourself)</button>')
+              : '')+
             (typeof d.quotedPrice === 'number' ? (function(){
               const st = d.approvalStatus || 'pending';
               /* Once a quote has been re-quoted, every approval word on the card
@@ -11110,6 +11154,7 @@ function renderQuoteRows(filtered){
         quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
       });
       quoteSendResults.set(id, {ok:true, text:'\u2713 Sent to ' + d.email + '. Chasing is automatic from here.'});
+      followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
       repaintQuoteSendResults();
       toast('Quote sent to ' + d.email + '.');
     } catch(err){
@@ -11251,6 +11296,7 @@ function renderQuoteRows(filtered){
           await updateDoc(doc(db,'quotes', id), {
             quoteSentAt: serverTimestamp(), quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()
           });
+          followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
           toast('Sent using the ' + tmplName + ' template.');
         }
         /* Recorded rather than just written to the screen, because the write
@@ -11346,6 +11392,7 @@ function renderQuoteRows(filtered){
         };
         await updateDoc(doc(db,'quotes', id), updates);
         quoteSendResults.set(id, {ok:true, text:'\u2713 Text sent to ' + d.phone + '.'});
+        followQuoteToItsStage(id, {quoteSentAt: quoteSentNowStamp(), quoteManuallySent: true});
         repaintQuoteSendResults();
         toast('Text sent to ' + d.phone + '.');
       } catch(err){
@@ -11435,6 +11482,15 @@ function renderQuoteRows(filtered){
      row that's no longer there - it looks like the card just vanished. This
      patches the local copy immediately and switches to wherever the card
      actually lives now, so the card (and the feedback about it) stays in view. */
+  /* ⭐ THE LOCAL STAND-IN FOR THE serverTimestamp JUST WRITTEN. quoteSentAt decides
+     which folder the card is in now, and the real value does not come back until the
+     next snapshot — so without this the card is filed as unsent for a beat and then
+     jumps tabs on its own a moment later. Shaped like a Firestore Timestamp because
+     daysSince and fmtDate both call .toDate() on it. */
+  function quoteSentNowStamp(){
+    const now = new Date();
+    return {toDate: function(){ return now; }};
+  }
   function followQuoteToItsStage(id, patch){
     const item = quotesCache.find(q => q.id === id);
     if(!item) return;
@@ -11462,7 +11518,7 @@ function renderQuoteRows(filtered){
         const updates = {quotedPrice: price, quoteToken: token, quoteSentAt: serverTimestamp()};
         if(!item.data.approvalStatus || item.data.approvalStatus === 'pending') updates.approvalStatus = 'pending';
         await updateDoc(doc(db,'quotes', id), updates);
-        followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, approvalStatus: updates.approvalStatus || item.data.approvalStatus});
+        followQuoteToItsStage(id, {quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp(), approvalStatus: updates.approvalStatus || item.data.approvalStatus});
         const link = 'https://highlightingutah.com/#/quote-details?token='+token+quotePortalParam(item.data)+'&action=approve';
         const freshStatusEl = list.querySelector('.quotelink-status[data-statusfor="'+id+'"]');
         const freshLinkBox = list.querySelector('.quotelink-box[data-linkfor="'+id+'"]');
@@ -11789,6 +11845,7 @@ function renderQuoteRows(filtered){
       const id = btn.dataset.marksent;
       try{
         await updateDoc(doc(db,'quotes', id), {quoteManuallySent: true, quoteManuallySentAt: serverTimestamp()});
+        followQuoteToItsStage(id, {quoteManuallySent: true});
         toast('Marked as sent.');
       } catch(err){
         toast('Something went wrong — try again.');
@@ -11801,6 +11858,9 @@ function renderQuoteRows(filtered){
       const id = btn.dataset.unmarksent;
       try{
         await updateDoc(doc(db,'quotes', id), {quoteManuallySent: false});
+        /* Back to Quotes, unless a real send stamped quoteSentAt — undoing the hand
+           mark cannot un-send an email that actually went. */
+        followQuoteToItsStage(id, {quoteManuallySent: false});
       } catch(err){
         toast('Something went wrong — try again.');
       }
@@ -17024,7 +17084,24 @@ function rmCornersInPhoto(photo, mppAtHouse){
    to all of them falls out of a three-by-three. With two rays it reduces to
    the midpoint of closest approach, which is what it should be. */
 const RM_PIN_MIN_BASE_M = 3;     /* two clicks nearer than this cannot fix depth */
-const RM_PIN_GRAB_PX = 22;       /* clicking this near a dot means THAT dot */
+/* ⚠ WAS 22 PIXELS, AND THAT IS WHY TWO CORNERS COULD NOT BE PLACED CLOSE
+   TOGETHER. Owner: "it doesnt let me place dots if they are to close fix that."
+   A click within this distance of an existing dot PINS that dot instead of
+   placing a new one, and on a house filling the pane 22 px is about a metre -
+   wider than a dormer cheek. The second dot silently became a second sighting
+   of the first, which reads as the tool refusing to place it. Small enough now
+   that two dots a hand's breadth apart both land, and pinning still works
+   because it only needs a click ON the dot. */
+const RM_PIN_GRAB_PX = 8;
+/* ⚠ AND GRABBING A DOT TO MOVE IT IS A DIFFERENT QUESTION FROM PINNING ONE.
+   Owner: "shift grab doesnt drag dots and I want it too."
+   Shrinking the pin radius to 8 px so two corners could be placed close
+   together also shrank the target for a shift-drag, because both asked
+   rmDotUnderClick - so the dot had to be grabbed within 8 px, which is
+   most of the way to hitting it exactly and reads as the drag not working.
+   A shift-drag has already SAID which dot it means, so it can afford a
+   generous target; a plain click has not, so it cannot. */
+const RM_DRAG_GRAB_PX = 18;
 
 /* The point that best satisfies every ray it has been seen along. */
 function rmSolveFromRays(rays){
@@ -17074,8 +17151,8 @@ function rmSolveFromRays(rays){
 }
 
 /* Which existing dot is this click meant for, if any. */
-function rmDotUnderClick(px, py, W, H, pov, cam){
-  let best = -1, bd = RM_PIN_GRAB_PX;
+function rmDotUnderClick(px, py, W, H, pov, cam, grabPx){
+  let best = -1, bd = (typeof grabPx === 'number' ? grabPx : RM_PIN_GRAB_PX);
   rmCorners.forEach(function(c, i){
     const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
     if(!q) return;
@@ -18269,7 +18346,11 @@ const RM_PHOTO_DATUM_TRIES = 4;
 function rmTryPhotoDatum(){
   if(rmDatumSource === 'photo') return;              /* already answered */
   if(rmPhotoDatumBusy || rmPhotoDatumTries >= RM_PHOTO_DATUM_TRIES) return;
-  if(!rmSuggestionsBuilt || !rmStreetReady || !rmGuessedCount) return;
+  /* ⚠ NOT GATED ON GUESSED LINES ANY MORE. rmGuessedCount is the number of
+     automatically suggested edges, and those were removed - so this condition
+     was never true and the height was never measured. What it actually needs is
+     a street photo, a roof model to point at, and a camera on the road. */
+  if(!rmStreetReady || !rmFaces || !rmFaces.length) return;
   if(!rmCamOnRoad()) return;                         /* the whole point */
   rmPhotoDatumBusy = true;
   rmPhotoDatumTries++;
@@ -18288,10 +18369,10 @@ function rmTryPhotoDatum(){
         : '⚠ No corners could be read from the photo: ' + c.why + '. Place them with space, or use the lines below.';
     });
     st.textContent = res.ok
-      ? rmGuessedCount + ' roof edges found, and the roof height was read off the street photo (' +
-        Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters).'
-      : rmGuessedCount + ' roof edges found — the front of the house is already on. ⚠ The height is still assumed: ' +
-        res.why + '. Trace anything in Street View to measure it properly.';
+      ? 'Roof height measured from the street photo — ' +
+        Math.round(res.m * RM_M_TO_FT) + ' ft to the lowest eave, from ' + res.used + ' gutters.'
+      : '⚠ The roof height could not be measured from the street photo: ' + res.why +
+        '. Trace anything in Street View, or put a dot on a wall, and it is measured from that instead.';
   }).catch(function(){ rmPhotoDatumBusy = false; });
 }
 
@@ -18328,16 +18409,37 @@ async function rmDatumFromStreetPhoto(){
      run is the part least likely to be behind a tree or off the edge of the
      frame - and EACH ONE CARRIES ITS RIDGE. Without the ridge there is nothing
      to pair the gutter with, and the search walks up to the skyline. */
+  /* ⭐ THE SAMPLES COME FROM THE ROOF MODEL ITSELF, NOT FROM DRAWN LINES.
+     Owner: "we shouldnt have a estamated height it should use street view to
+     determine the height."
+
+     ⚠ AND THIS IS WHY THE HEIGHT WAS STILL BEING ESTIMATED. This walked rmRuns
+     looking for r.suggested - the automatically guessed roof edges - and those
+     were REMOVED on the owner's own instruction, because they "put lines on the
+     house that were close enough to look plausible and wrong enough to be
+     useless". So the list was always empty, the datum was never solved, and the
+     tool fell back to an assumed one-storey eave on every house. The
+     measurement was gated behind a feature that no longer exists.
+
+     ⚠ WHAT WAS REMOVED WAS DRAWING THEM, NOT KNOWING WHERE THEY MIGHT BE. A
+     face's eave is still a perfectly good place to LOOK for a gutter in the
+     photograph - it just is not good enough to draw a line on and bill from.
+     Looking there and then measuring what is actually in the picture is the
+     opposite of guessing: the model says where to point the camera, and the
+     photograph answers.
+
+     Each sample carries its ridge, because without one there is nothing to pair
+     the gutter with and the search walks up to the skyline. */
   const samples = [];
-  rmRuns.forEach(function(r){
-    if(!r.suggested || !r.path || r.path.length < 2) return;
-    const a = r.path[0], b = r.path[r.path.length - 1];
-    const mid = {lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2};
+  (rmFaces || []).forEach(function(f){
+    const eave = rmFaceEave(f);
+    if(!eave || !eave.a || !eave.b) return;
+    const mid = {lat: (eave.a.lat + eave.b.lat) / 2, lng: (eave.a.lng + eave.b.lng) / 2};
     const rel = rmRoofRelativeAt(mid.lat, mid.lng);
     if(rel === null) return;
     const p = rmToLocal(mid.lat, mid.lng, 0);
     const sample = {e: p.e, n: p.n, rel: rel, ridge: null};
-    const rm = r.face ? rmFaceRidgeMid(r.face) : null;
+    const rm = rmFaceRidgeMid(f);
     if(rm){
       const rrel = rmRoofRelativeAt(rm.lat, rm.lng);
       if(rrel !== null && rrel > rel + 0.3){        /* a ridge really is higher */
@@ -18651,6 +18753,30 @@ function rmRunFeet(run){
   return t;
 }
 function rmRunIsOn(r){ return r && r.on !== false; }
+/* ⭐ EVERYTHING THE DIFFICULTY RULE ASKS FOR, GATHERED IN ONE PLACE. Owner:
+   "things like feet, complex roof, and number of strands all effect complexity."
+
+   ⚠ THE ROOF HALF IS KNOWN ON LOAD AND THE JOB HALF IS NOT. Pitch and section
+   count come out of Google's model the moment the house is found; feet and
+   strands only exist once somebody has actually traced it. So the grade is cut
+   twice - once from the roof alone, once when there is a measurement - and both
+   calls have to agree about what they are asking. One function, so they cannot
+   drift apart.
+
+   A strand is a run of string, and a run switched OFF is not one - nobody hangs
+   it, so it is not work. */
+function rmGradeInputs(extra){
+  const f = rmRoofFacts || {};
+  const on = (rmRuns || []).filter(function(r){ return rmRunIsOn(r); });
+  const bands = {};
+  (rmCorners || []).forEach(function(c){ if(c && c.on) bands[c.band || 0] = 1; });
+  const strands = on.length + Object.keys(bands).length;
+  const t = rmTotals();
+  return Object.assign({
+    maxGrade: f.maxGrade, typicalGrade: f.typicalGrade, steepShare: f.steepShare,
+    peakCount: f.peakCount, feet: t.all, strands: strands
+  }, extra || {});
+}
 function rmTotals(){
   const out = {perimeter:0, ridge:0, ground:0, all:0};
   /* ⚠ A run switched off is still a run - still drawn, still listed, still
@@ -19997,8 +20123,7 @@ async function rmLoadAddress(){
                a two-storey eave is a harder day than the pitch alone says, and
                fetchRoofDetails had nothing to work that out from. */
             if(rmRoofFacts){
-              const g = gradeRoof({maxGrade: rmRoofFacts.maxGrade, peakCount: rmRoofFacts.peakCount,
-                                   eaveFt: eave * RM_M_TO_FT});
+              const g = gradeRoof(rmGradeInputs({eaveFt: eave * RM_M_TO_FT}));
               rmRoofGrade = g.level;
               const sel2 = document.getElementById('rmDifficulty');
               if(sel2) sel2.value = g.level;
@@ -20621,6 +20746,56 @@ function openRoofMeasure(quoteId){
     bar.style.display = open ? 'none' : 'flex';
     this.textContent = open ? 'Auto-detect corners' : 'Hide auto-detect';
   });
+  /* ⭐ PUT BOTH VIEWS BACK ON THE HOUSE. Owner: "make a reset button so if you
+     zoom out on sky view it will readjust the camera."
+
+     ⚠ THE MAP HAS NO WAY BACK ON ITS OWN. It is framed once, when the roof
+     details arrive, and after that every scroll is the office's - which is
+     right, but it means one scroll too far leaves the house a speck with
+     nothing to press. Google's own recentre control is not on this map, and
+     adding it would recentre on the map's own centre rather than on the
+     building.
+
+     ⚠ AND IT PUTS BACK THE VIEW, NEVER THE WORK. It touches the two cameras and
+     nothing else - no dot, no side, no height, no grade. Somebody who has
+     traced half a roof and lost the house must be able to press this without
+     wondering what it cost them. */
+  document.getElementById('rmRecentreBtn').addEventListener('click', function(){
+    const note = document.getElementById('rmCornerNote');
+    let did = 0;
+    /* The sky view goes back to the building's own footprint, which is the
+       frame it was given when the house loaded. */
+    if(rmMap && rmBuilding && rmBuilding.sw && rmBuilding.ne){
+      rmMap.fitBounds(new google.maps.LatLngBounds(
+        new google.maps.LatLng(rmBuilding.sw.lat, rmBuilding.sw.lng),
+        new google.maps.LatLng(rmBuilding.ne.lat, rmBuilding.ne.lng)), 36);
+      did++;
+    } else if(rmMap && rmOrigin){
+      rmMap.setCenter({lat: rmOrigin.lat, lng: rmOrigin.lng});
+      rmMap.setZoom(20);
+      did++;
+    }
+    /* And the street view is re-aimed and re-framed. rmFramed is cleared
+       because rmFrameHouseInStreet refuses to work twice on purpose - it is
+       meant to happen once per house, and this is the one place that is a
+       deliberate second time. */
+    if(rmPano && rmOrigin){
+      rmFramed = false;
+      const framed = rmFrameHouseInStreet();
+      if(!framed){
+        /* No footprint yet, or the camera is not on the road - aim it at the
+           house anyway, which is better than leaving it pointed at a fence. */
+        const pos = rmPano.getPosition && rmPano.getPosition();
+        if(pos) rmPano.setPov({heading: rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng),
+                               pitch: rmPanoPov().pitch});
+      }
+      rmPaintStreet();
+      did++;
+    }
+    if(note) note.textContent = did
+      ? 'Both views put back on the house. Nothing you traced has changed.'
+      : '⚠ No house loaded yet.';
+  });
   document.getElementById('rmSuggestBtn').addEventListener('click', function(){
     if(rmCandidates.length){ rmCandidates = []; rmPaintStreet();
       const n = document.getElementById('rmCornerNote');
@@ -20723,7 +20898,66 @@ function openRoofMeasure(quoteId){
     if(rmDrawing) rmAddPoint(w);
   });
   document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  /* ⭐ SHIFT AND DRAG MOVES A DOT. Owner: "add a drage featue so if you grab a
+     dot while holding shift it moves."
+
+     ⚠ SHIFT IS WHAT MAKES IT SAFE. A plain drag on this sheet is how the office
+     places a dot and how it pins one, so a bare grab-and-move would turn every
+     slightly-wobbly click into a moved corner. Holding shift says move THIS
+     one, and nothing else on the sheet listens for it.
+
+     ⚠ AND A MOVED DOT STOPS BEING PINNED. Its position was the crossing of the
+     rays it had been seen along; dragging it somewhere else makes those rays
+     describe a point it is no longer at, so the sightings are dropped and the
+     ring comes off. Keeping them would leave a dot claiming to be exact while
+     sitting wherever it was last dragged - which is the confident-wrong state
+     this tool keeps having to be rescued from. */
+  let rmDragDot = -1;
+  document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
+    if(!e.shiftKey || rmCornerMode !== 'dot') return;
+    const cam = rmCamLocal();
+    if(!cam) return;
+    const r = this.getBoundingClientRect();
+    const {W, H} = rmPanoSize();
+    const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
+    if(i < 0) return;
+    rmDragDot = i;
+    e.preventDefault();
+    const note = document.getElementById('rmCornerNote');
+    if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
+  });
+  document.getElementById('rmPanoLock').addEventListener('mousemove', function(e){
+    if(rmDragDot < 0) return;
+    const cam = rmCamLocal();
+    const c = rmCorners[rmDragDot];
+    if(!cam || !c){ rmDragDot = -1; return; }
+    const r = this.getBoundingClientRect();
+    const {W, H} = rmPanoSize();
+    const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
+    /* Where it goes is decided the same way a fresh click is - the house as a
+       solid - so a dragged dot cannot land somewhere a placed one could not. */
+    const hit = rmHouseHit(dir, cam);
+    if(!hit) return;
+    const top = rmRoofTopM();
+    if(top !== null && hit.u > top + RM_EAVE_TOL_M) return;
+    const w = rmToWorld({e: hit.e, n: hit.n, u: hit.u});
+    c.lat = w.lat; c.lng = w.lng; c.h = hit.u;
+    c.rays = []; c.pinned = 0; c.spread = 0;
+    rmCornersChanged();
+  });
+  ['mouseup', 'mouseleave'].forEach(function(ev){
+    document.getElementById('rmPanoLock').addEventListener(ev, function(){
+      if(rmDragDot < 0) return;
+      const moved = rmCornerLabel(rmDragDot);
+      rmDragDot = -1;
+      const note = document.getElementById('rmCornerNote');
+      if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
+        'click it again from another angle to fix it exactly.';
+    });
+  });
   document.getElementById('rmPanoLock').addEventListener('click', function(e){
+    /* A shift-click is the end of a drag, not a placement. */
+    if(e.shiftKey) return;
     const cam = rmCamLocal();
     if(!cam) return;
     const r = this.getBoundingClientRect();
@@ -23203,7 +23437,22 @@ setupDraggableTabBar('respSectionTabs', 'resptab', 'huRespTabOrder', switchRespT
    where you stop walking it. */
 const RM_HARD_GRADE = 75;        /* 9/12 — roped on */
 const RM_MEDIUM_GRADE = 45;      /* 5.4/12 — the ordinary middle starts here */
-const RM_BUSY_SECTIONS = 5;
+/* ⚠ WAS 5, AND 5 IS AN ORDINARY HOUSE, NOT A BUSY ONE. Google's "sections" are
+   FACETS - the note above fetchRoofDetails already says they read higher than a
+   crew would count. A plain hip roof is 4 facets on its own; add an attached
+   garage and one dormer and an unremarkable house is 8, so every such house was
+   bumped a whole grade for being shaped like a house. */
+const RM_BUSY_SECTIONS = 10;
+/* How much of the roof has to be steep before the whole house counts as steep.
+   A steep patch is a patch; a steep ROOF is a day roped on. */
+const RM_STEEP_SHARE = 0.15;
+/* ⚠ UNVALIDATED AGAINST ANY GRADED HOUSE, unlike the pitch thresholds, which
+   have two. These are reasoned from what the office has said elsewhere - an
+   average house is about 150 ft, and a house normally has TWO strands, the top
+   and the bottom - so these are "well past ordinary", not measured cut-offs.
+   Two houses she grades by eye would settle them. */
+const RM_BIG_JOB_FT = 250;       /* an average house is about 150 */
+const RM_MANY_STRANDS = 4;       /* an ordinary house is two: top and bottom */
 const RM_TWO_STOREY_FT = 17;
 /* What a difficulty does to the per-foot rate. Medium is 1 on purpose: the
    office's own Per Foot Pricing stays the baseline, so there is still ONE rate
@@ -23254,17 +23503,73 @@ function quoteDifficultyNote(d){
   if(!g || mult === 1) return '';
   return ' (' + g.toLowerCase() + ' house &times;' + mult + ')';
 }
+/* ⭐ THE GRADE IS WHAT THE ROOF IS MOSTLY LIKE, NOT ITS WORST SQUARE FOOT.
+   Owner, on a house the tool called Hard: "that house is medium difficulty its
+   currently hard meaning the grading system could use some love."
+
+   ⚠ MEASURED ON THAT HOUSE, 209 S 850 W. Eleven facets: ONE at 88% grade
+   (10.6/12) covering 183 of 2,185 sq ft, and the other ten at 63% and below,
+   most of them 51-56% - an ordinary 6/12 roof with one steep piece. The old
+   rule took the STEEPEST facet, so 88% set the grade for the whole roof and the
+   house came out Hard on pitch alone, before the section count was even reached.
+
+   A crew does not rope up all day because one 183 sq ft face is steep. So the
+   base grade is the AREA-WEIGHTED pitch, which on that house is 54% and lands
+   on Medium, where the owner puts it.
+
+   ⚠ AND A STEEP PATCH IS STILL NOT INVISIBLE, which was the right instinct in
+   the rule this replaces. If a real SHARE of the roof is steep it bumps the
+   grade. That face is 8.4% of the area, under the share, so it does not - and a
+   house steep over a third of its area still grades Hard.
+
+   ⚠ THIS FEEDS quoteDifficultyMult, so it changes prices. It only ever makes
+   the rule read the roof better; the multiplier table is untouched. */
 function gradeRoof(o){
   const maxGrade = Math.round(Number(o && o.maxGrade) || 0);
   const peakCount = Number(o && o.peakCount) || 0;
   const eaveFt = Number(o && o.eaveFt) || 0;
-  let level = maxGrade >= RM_HARD_GRADE ? 2 : (maxGrade >= RM_MEDIUM_GRADE ? 1 : 0);
+  const typical = Math.round(Number(o && o.typicalGrade) || maxGrade);
+  const steepShare = Number(o && o.steepShare) || 0;
+  const feet = Number(o && o.feet) || 0;
+  const strands = Number(o && o.strands) || 0;
+  let level = typical >= RM_HARD_GRADE ? 2 : (typical >= RM_MEDIUM_GRADE ? 1 : 0);
   const why = [];
-  if(level === 2) why.push('steep roof (' + maxGrade + '% grade)');
-  else if(level === 1) why.push('moderate pitch (' + maxGrade + '% grade)');
-  else why.push('low pitch (' + maxGrade + '% grade)');
-  if(peakCount >= RM_BUSY_SECTIONS){ level = Math.min(2, level + 1); why.push(peakCount + ' separate roof sections'); }
-  if(eaveFt >= RM_TWO_STOREY_FT){ level = Math.min(2, level + 1); why.push('two-storey eave (' + Math.round(eaveFt) + ' ft)'); }
+  if(level === 2) why.push('steep roof (' + typical + '% grade)');
+  else if(level === 1) why.push('moderate pitch (' + typical + '% grade)');
+  else why.push('low pitch (' + typical + '% grade)');
+  if(steepShare >= RM_STEEP_SHARE && level < 2){
+    level = Math.min(2, level + 1);
+    why.push(Math.round(steepShare * 100) + '% of it steeper than ' + RM_HARD_GRADE + '%');
+  }
+  /* ⭐ THE THINGS THAT MAKE A HOUSE HARD FOR REASONS THAT ARE NOT PITCH. Owner:
+     "things like feet, complex roof, and number of strands all effect
+     complexity."
+
+     ⚠ AND ANY ONE OF THEM USED TO BUMP THE GRADE ON ITS OWN, which is how a
+     scale ends up with every house at the top - the same failure the pitch
+     thresholds were re-cut for. The comment above this rule has always SAID
+     "two of those bump it up a grade"; the code bumped on each. It does what it
+     says now.
+
+     ⚠ WHY THAT MATTERS MORE AS THE LIST GROWS: with five soft signals each
+     promoting a house on its own, almost every house reaches Hard and the grade
+     stops carrying information - and it sets prices. Requiring two means a
+     house has to be awkward in more than one way before it costs more. */
+  const also = [];
+  if(peakCount >= RM_BUSY_SECTIONS) also.push(peakCount + ' separate roof sections');
+  if(eaveFt >= RM_TWO_STOREY_FT) also.push('two-storey eave (' + Math.round(eaveFt) + ' ft)');
+  /* Feet and strands are only known once the house has actually been measured,
+     so they are absent on the first grade and present on the re-cut. */
+  if(feet >= RM_BIG_JOB_FT) also.push(Math.round(feet) + ' ft of roofline');
+  if(strands >= RM_MANY_STRANDS) also.push(strands + ' separate strands');
+  if(also.length >= 2){
+    level = Math.min(2, level + 1);
+    why.push(also.join(' and '));
+  } else if(also.length === 1){
+    /* Said, but not charged for - the office can see what the tool noticed and
+       overrule the grade by hand if it disagrees. */
+    why.push(also[0]);
+  }
   return {level: ['Easy', 'Medium', 'Hard'][level], why: why.join(', '),
           rateMultiplier: RM_DIFFICULTY_RATE[['Easy', 'Medium', 'Hard'][level]]};
 }
@@ -23296,6 +23601,18 @@ async function fetchRoofDetails(lat, lng){
   // invisible to difficulty just because it's under the peak-count size threshold.
   const allGrades = allSegments.map(seg => pitchPercent(seg.pitchDegrees || 0));
   const maxGrade = allGrades.length ? Math.max(...allGrades) : 0;
+  /* ⭐ WHAT THE ROOF IS MOSTLY LIKE, weighted by how much of it there is, and
+     what SHARE of it is genuinely steep. The steepest single facet is kept for
+     the record but no longer sets the grade on its own - see gradeRoof. */
+  const segArea = seg => (seg.stats && seg.stats.areaMeters2) ? seg.stats.areaMeters2 : 0;
+  const totalArea = allSegments.reduce((a, seg) => a + segArea(seg), 0);
+  const typicalGrade = totalArea > 0
+    ? allSegments.reduce((a, seg) => a + pitchPercent(seg.pitchDegrees || 0) * segArea(seg), 0) / totalArea
+    : maxGrade;
+  const steepShare = totalArea > 0
+    ? allSegments.filter(seg => pitchPercent(seg.pitchDegrees || 0) >= RM_HARD_GRADE)
+                 .reduce((a, seg) => a + segArea(seg), 0) / totalArea
+    : 0;
   /* ⚠ THESE THRESHOLDS WERE MILES TOO STRICT AND CALLED ALMOST EVERY HOUSE HARD.
      They were 37% for Hard and 25% for Medium, and grade is a PERCENT, not
      degrees: 37% is a 4.4/12 pitch and 25% is 3/12. Both of those are LOW,
@@ -23314,7 +23631,8 @@ async function fetchRoofDetails(lat, lng){
      above sea level and nothing to subtract from them, so it grades without it
      and the Measure Roof panel re-grades through gradeRoof() once the elevation
      lookup has come back. One rule, called twice, rather than two rules. */
-  const graded = gradeRoof({maxGrade: maxGrade, peakCount: peakCount});
+  const graded = gradeRoof({maxGrade: maxGrade, typicalGrade: typicalGrade,
+                            steepShare: steepShare, peakCount: peakCount});
   const suggestedDifficulty = graded.level;
   const difficultyWhy = graded.why;
   /* Google gives the building's own footprint box. Framing the map to that
@@ -42300,6 +42618,68 @@ document.getElementById('markAllSystemReadBtn')?.addEventListener('click', async
   if(!unread.length){ toast('Nothing unread'); return; }
   for(const item of unread){ await updateDoc(doc(db,'messages',item.id), {read: true}); }
   toast('Marked all read');
+});
+/* ⭐ EMPTY THE SYSTEM NOTICES IN ONE GO (added 2026-08-25). Owner: "can we make a
+   delete all on system messages." They arrive by the dozen — every route sweep, every
+   colour change, every crew reassign writes one — and clearing them one bin at a time
+   is the reason nobody clears them at all.
+
+   ⚠ IT IS A PREVIEW AND THEN A CONFIRMATION, per CLAUDE.md §5 and the irreversibility
+   tier: the count is said out loud BEFORE anything is deleted, and there is no undo
+   afterwards. A notice is not a customer, so it does not carry the type-DELETE lock
+   the Danger Zone tools do — but it is still a mass delete and it still says what it
+   is about to take.
+
+   ⚠ AND IT NAMES THE ONE KIND THAT CARRIES WORK. A Light Colour Change notice that
+   has not been sent to the Warehouse is a job nobody else has a copy of — the customer
+   changed their colours in their portal and this row is the only thing asking anybody
+   to build it. Deleting those silently is how a house gets the wrong lights. They are
+   counted separately in the question so the answer is an informed one.
+
+   ⚠ IT ONLY DELETES WHAT IT COUNTED. The list is taken once, before the question, and
+   that is the list that gets deleted — re-reading afterwards would take notices that
+   arrived while she was reading, which she never saw and never agreed to.
+
+   ⚠ AND A FAILURE IS COUNTED, NOT SWALLOWED. Half a sweep looks exactly like a whole
+   one from the outside; the line underneath says how many really went. */
+document.getElementById('deleteAllSystemBtn')?.addEventListener('click', async function(){
+  const btn = this;
+  const statusEl = document.getElementById('deleteAllSystemStatus');
+  const say = function(text){ if(statusEl) statusEl.textContent = text; };
+  const doomed = systemMessages();
+  if(!doomed.length){ say(''); toast('There are no system notices to delete'); return; }
+  const unactioned = doomed.filter(function(m){
+    const d = m.data || {};
+    return d.topic === 'Light Color Change' && !d.autoQueuedToWarehouse && !d.addedToWarehouseAt;
+  }).length;
+  const question = 'Delete all ' + doomed.length + ' system notice' + (doomed.length === 1 ? '' : 's') + '?' +
+    (unactioned
+      ? '\n\n⚠ ' + unactioned + ' of them ' + (unactioned === 1 ? 'is a light colour change' : 'are light colour changes') +
+        ' that ' + (unactioned === 1 ? 'has' : 'have') + ' NOT been sent to the Warehouse yet. ' +
+        'Nothing else is asking for those bundles to be built.'
+      : '') +
+    '\n\nThis cannot be undone. Customer messages and employee notes are not touched.';
+  if(!confirm(question)) return;
+  btn.disabled = true;
+  let gone = 0;
+  const failed = [];
+  for(const item of doomed){
+    say('Deleting ' + (gone + failed.length + 1) + ' of ' + doomed.length + '…');
+    try{
+      await deleteDoc(doc(db,'messages', item.id));
+      gone++;
+    } catch(err){
+      failed.push(item.id);
+      console.error('Could not delete system notice', item.id, err);
+    }
+  }
+  btn.disabled = false;
+  say(failed.length
+    ? (gone + ' deleted, ' + failed.length + ' could not be — press Delete all again to retry those.')
+    : '');
+  toast(failed.length
+    ? (gone + ' of ' + doomed.length + ' system notices deleted')
+    : ('All ' + gone + ' system notice' + (gone === 1 ? '' : 's') + ' deleted'));
 });
 function renderEmployeeNotesTab(){
   const badge = document.getElementById('empNotesBadge');

@@ -1496,7 +1496,7 @@ if (JSDOM) {
   global.isStaleUnresponsive = real('isStaleUnresponsive', {
     daysSince: real('daysSince'),
     quoteAwaitsCustomer: real('quoteAwaitsCustomer', {
-      quoteStage: real('quoteStage'),
+      quoteStage: real('quoteStage', {quoteWasSentOut: real('quoteWasSentOut')}),
       quoteAlreadyACustomer: real('quoteAlreadyACustomer', {
         isRequote: real('isRequote'),
         quoteMatchAddress: real('quoteMatchAddress'),
@@ -1516,7 +1516,7 @@ if (JSDOM) {
   // renderQuoteRows calls quoteStage(d) for the New house / Old house badge.
   // Mirrors the real one in admin.html — without it the whole suite crashed
   // out here rather than reporting a failure.
-  global.quoteStage = real('quoteStage');
+  global.quoteStage = real('quoteStage', {quoteWasSentOut: real('quoteWasSentOut')});
   // renderQuoteRows also calls isRequote(d) — for the "Send updated quote"
   // button label and the re-quote wording. Mirrors the real one in admin.html.
   /* ⚠ THE REAL FUNCTION, LIFTED — NOT A MIRROR LIKE THE TWO ABOVE. quoteStage and
@@ -1748,8 +1748,21 @@ if (JSDOM) {
     renderQuoteRows(fixturesWithMaybe);
     const listBack = document.getElementById('quotesList');
     const c2back = listBack.querySelectorAll('.row-item')[1];
-    check('render', 'Send Out Quotes extras hidden outside the send tab',
-      c2back.querySelector('[data-marksent]') === null && c2back.querySelector('[data-copyquoteemailaddr]') === null);
+    /* ⚠ CHANGED 2026-08-25, and the two halves now go opposite ways on purpose.
+       The NUDGE row is still Awaiting-Response-only — there is nobody to chase until
+       they have been sent something. MARK AS SENT is not: a quote only reaches that
+       tab BY being sent now, so leaving the button there drew it only on the cards
+       that no longer need it and never on the ones that do. */
+    check('render', 'the nudge row is still hidden outside the send tab',
+      c2back.querySelector('[data-copyquoteemailaddr]') === null &&
+      c2back.querySelector('[data-downloadquotephoto]') === null);
+    check('render', 'but Mark as Sent is offered in Quotes, where the unsent ones live',
+      c2back.querySelector('[data-marksent]') !== null,
+      'it is the only way to say "I sent this from my own email" — without it here, ' +
+      'a quote sent by hand can never leave the Quotes tab');
+    check('render', 'and not on a card nobody has priced yet',
+      listBack.querySelectorAll('.row-item')[0].querySelector('[data-marksent]') === null,
+      'there is nothing to have sent until there is a price');
 
     const q5 = { id: 'q5', data: Object.assign({}, fixtures[1].data, { quoteManuallySent: true }) };
     global.quoteStageFilter = 'send';
@@ -18415,7 +18428,7 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
      Functions deploy gate. If a new helper appears in that chain, add it here
      too rather than stubbing it: a stub would make the "already a customer"
      branch untestable while still reporting green. */
-  const src = ['quoteHasBeenSent', 'quoteAwaitsCustomer', 'quoteAwaitsUs',
+  const src = ['quoteHasBeenSent', 'quoteWasSentOut', 'quoteAwaitsCustomer', 'quoteAwaitsUs',
                'isFreshAwaiting', 'isStaleUnresponsive', 'quoteStage', 'daysSince',
                'quoteAlreadyACustomer', 'quoteMatchAddress', 'quoteCustomerKeys']
     .map(n => extractFn(admin, n));
@@ -18480,7 +18493,7 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
   {
     const src2 = ['quoteMatchAddress', 'quoteCustomerKeys', 'quoteAlreadyACustomer',
                   'quoteAwaitsCustomer', 'quoteAwaitsUs', 'quoteHasBeenSent',
-                  'quoteStage', 'isRequote', 'daysSince'].map(n => extractFn(admin, n));
+                  'quoteWasSentOut', 'quoteStage', 'isRequote', 'daysSince'].map(n => extractFn(admin, n));
     check('S68', 'the already-a-customer net is all still there', src2.every(Boolean));
     if (src2.every(Boolean)) {
       const b2 = {};
@@ -23005,7 +23018,8 @@ suite('Suite 110. Approving it for them, with no email');
 
 {
   const stage = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
-    extractFn(admin, 'quoteStage') + 'return quoteStage(d);');
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') +
+    'return quoteStage(d);');
   const St = (d) => stage(d, () => false, () => false);
 
   check('S110', 'approved through the portal with the form done is ready to convert',
@@ -23569,7 +23583,7 @@ suite('Suite 113. Build Test Customer');
     extractFn(admin, 'testQuoteCreateFields') + extractFn(admin, 'testQuoteStageUpdates') +
     extractFn(admin, 'testQuoteFieldsFor') + 'return testQuoteFieldsFor(stage);');
   const folder = new Function('d', 'quoteAlreadyACustomer', 'quoteHasBeenSent',
-    extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') + extractFn(admin, 'isRequote') +
     extractFn(admin, 'quoteFolder') + 'return quoteFolder(d);');
 
   const base = (function(){
@@ -31479,7 +31493,7 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
   };
 
   const NEED = ['pendingAddOnFor', 'addOnEmailBlock', 'rsvpTemplateHasAddOn',
-    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quotePortalParam'];
+    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteWasSentOut', 'quotePortalParam'];
   const src = {};
   NEED.forEach(n => { src[n] = lift(n); });
   const gone = NEED.filter(n => !src[n]);
@@ -33077,9 +33091,9 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
        this suite held 80/55 while admin.html had moved to 75/45, so it was
        testing its own numbers and reported a failure against code that was
        right. A constant asserted from a copy of itself is not asserted. */
-    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE)\s*=.*$/gm) || []);
-    check('S129', 'the grading constants are findable in the source', constLines.length === 5,
-      'found ' + constLines.length + ' of 5 — this suite would silently fall back to guessing them');
+    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE|STEEP_SHARE|BIG_JOB_FT|MANY_STRANDS)\s*=.*$/gm) || []);
+    check('S129', 'the grading constants are findable in the source', constLines.length === 8,
+      'found ' + constLines.length + ' of 8 — this suite would silently fall back to guessing them');
     const g = new Function(constLines.join(LF_) + LF_ + gradeFn + LF_ + 'return gradeRoof;')();
     /* ⚠ THE BUG THIS EXISTS FOR: the old thresholds were 37% for Hard and 25%
        for Medium. Grade is a PERCENT — 37% is a 4.4/12 pitch. An ordinary 6/12
@@ -33089,11 +33103,87 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
       'got ' + g({maxGrade: 50, peakCount: 2}).level + ' — this is the miscalibration that called every house Hard');
     check('S129', 'a low 4/12 roof is Easy', g({maxGrade: 33, peakCount: 2}).level === 'Easy');
     check('S129', 'a genuinely steep 10/12 roof is Hard', g({maxGrade: 83, peakCount: 2}).level === 'Hard');
-    check('S129', 'a busy roof is bumped up a grade',
-      g({maxGrade: 33, peakCount: 6}).level === 'Medium',
-      'lots of separate sections is more ladder moves, whatever the pitch');
-    check('S129', 'and a two-storey eave bumps it too',
-      g({maxGrade: 33, peakCount: 2, eaveFt: 19}).level === 'Medium');
+    /* ⚠ WAS 6 SECTIONS, AND 6 IS AN ORDINARY HOUSE. A plain hip roof is 4 facets;
+       add a garage and a dormer and an unremarkable house is 8, so every such
+       house was bumped a grade for being shaped like a house. */
+    /* ⚠ ONE SOFT SIGNAL NO LONGER PROMOTES A HOUSE ON ITS OWN. Owner: "things
+       like feet, complex roof, and number of strands all effect complexity" -
+       and with five such signals each bumping alone, every house reaches Hard
+       and the grade stops carrying information. The rule's own comment has
+       always said "two of those bump it up a grade"; the code now does. */
+    check('S129', 'a busy roof ALONE is noted but does not bump the grade',
+      g({maxGrade: 33, peakCount: 11}).level === 'Easy' &&
+      /11 separate roof sections/.test(g({maxGrade: 33, peakCount: 11}).why),
+      'said, but not charged for - the office can see it and overrule by hand');
+    check('S129', 'but busy AND two-storey together do',
+      g({maxGrade: 33, peakCount: 11, eaveFt: 19}).level === 'Medium',
+      'awkward in more than one way is a harder day');
+    /* ⭐ FEET AND STRANDS COUNT TOO, once the house has actually been measured. */
+    check('S129', 'a long run and many strands together bump it',
+      g({maxGrade: 33, feet: 320, strands: 5}).level === 'Medium',
+      'owner: feet, complex roof and number of strands all affect complexity');
+    /* ⚠ AND BOTH CALLS HAVE TO ASK THE SAME QUESTION. The roof half is known on
+       load; feet and strands only exist once somebody has traced the house. Two
+       call sites gathering those fields by hand is how they drift apart. */
+    check('S129', 'one function gathers what the rule asks for',
+      /function rmGradeInputs\(extra\)\{/.test(admin) &&
+      /gradeRoof\(rmGradeInputs\(\{eaveFt: eave \* RM_M_TO_FT\}\)\)/.test(admin),
+      'the re-cut must not pass a different set of fields from the first grade');
+    check('S129', 'and a strand switched off is not counted as work',
+      (function(){
+        const f = extractFn(admin, 'rmGradeInputs') || '';
+        return f.indexOf('rmRunIsOn(r)') !== -1 && f.indexOf('c.on') !== -1;
+      })(),
+      'nobody hangs a run that is switched off, so it is not a strand');
+
+    check('S129', 'and an ordinary two-strand house is untouched by them',
+      g({maxGrade: 33, feet: 150, strands: 2}).level === 'Easy',
+      'an average house is about 150 ft and has two strands, top and bottom');
+    check('S129', 'but an ordinary 8-facet house is not "busy"',
+      g({maxGrade: 33, peakCount: 8}).level === 'Easy',
+      'a hip roof plus a garage plus a dormer is 8 facets and is not a hard day');
+
+    /* ⭐ THE REAL HOUSE THAT CAUSED THIS. Owner: "that house is medium difficulty
+       its currently hard meaning the grading system could use some love."
+       209 S 850 W, Lehi, off Google's own roof segments: eleven facets, ONE at
+       88% grade covering 183 of 2,185 sq ft, the other ten at 63% and below.
+       Area-weighted that is 54%, and the steep face is 8.4% of the roof. */
+    const LEHI = {maxGrade: 88, typicalGrade: 54, steepShare: 0.084, peakCount: 8};
+    check('S129', 'the house the owner called Medium comes out Medium',
+      g(LEHI).level === 'Medium',
+      'got ' + g(LEHI).level + ' — the steepest single facet was setting the grade ' +
+      'for all 2,185 sq ft, so one 183 sq ft face made the whole day Hard');
+    /* ⭐ AND A SECOND HOUSE THE OWNER GRADED, which is the only kind of test data
+       that can settle this. 10937 S Edenbrook Dr, Sandy - she calls it EASY.
+       Eight facets, area-weighted 43%, steep share 7%.
+       ⚠ ITS STEEPEST FACET READS 187% GRADE - a 22/12 pitch, which no house has.
+       That is a Solar artefact on a small facet, and under the old rule it set
+       the grade for the entire roof and made an easy house Hard. Both labelled
+       houses came out Hard on the old rule; both are right on this one. */
+    const SANDY = {maxGrade: 187, typicalGrade: 43, steepShare: 0.07, peakCount: 6};
+    check('S129', 'the house the owner called Easy comes out Easy',
+      g(SANDY).level === 'Easy',
+      'got ' + g(SANDY).level + ' — a single 187% facet is a modelling artefact, ' +
+      'not a roof a crew has to rope up for');
+    check('S129', 'and the old rule got BOTH labelled houses wrong',
+      (function(){
+        const old = (mg, pk) => { let l = mg >= 75 ? 2 : (mg >= 45 ? 1 : 0);
+                                  if(pk >= 5) l = Math.min(2, l + 1);
+                                  return ['Easy','Medium','Hard'][l]; };
+        return old(88, 8) === 'Hard' && old(187, 6) === 'Hard';
+      })(),
+      'a scale where every house is the top grade carries no information, and it ' +
+      'was already setting prices');
+
+    check('S129', 'but a roof steep over a third of its area IS Hard',
+      g({maxGrade: 88, typicalGrade: 54, steepShare: 0.33, peakCount: 8}).level === 'Hard',
+      'a steep patch is a patch; a steep roof is a day roped on');
+    check('S129', 'and with no weighted figure it falls back to the steepest',
+      g({maxGrade: 88, peakCount: 2}).level === 'Hard',
+      'an old cached roof record has no typicalGrade, and guessing low would be worse');
+    check('S129', 'a two-storey eave alone is noted, not charged',
+      g({maxGrade: 33, peakCount: 2, eaveFt: 19}).level === 'Easy' &&
+      /two-storey eave/.test(g({maxGrade: 33, peakCount: 2, eaveFt: 19}).why));
     check('S129', 'but nothing goes past Hard',
       g({maxGrade: 95, peakCount: 9, eaveFt: 24}).level === 'Hard',
       'a fourth grade would appear that no rate multiplier knows about');
@@ -34051,8 +34141,35 @@ suite('142. Measure Roof - a gutter is found by its ridge, not by being bright')
     /return \{error: 'tainted'/.test(admin) && /silent fallback/.test(admin));
   check('S142', 'the page still never picks a Google key by hand',
     !/streetview\?[^']*key=AIza/.test(admin));
-  check('S142', 'and the status line says when the height is still only assumed',
-    /The height is still assumed/.test(admin));
+  /* ⚠ WORDING FOLLOWS THE CODE. It used to say "the height is still assumed"
+     alongside a count of guessed edges; there are no guessed edges any more, and
+     the height is now measured on load rather than left assumed, so the line
+     that matters is the one for when the PHOTO could not answer. The claim is
+     unchanged: a height nobody measured must say so on screen. */
+  check('S142', 'and the status line says when the height could not be measured',
+    /The roof height could not be measured from the street photo/.test(admin) &&
+    /put a dot on a wall, and it is measured from that instead/.test(admin),
+    'a height nobody measured must never pass for one that was');
+  /* ⭐ AND THE MEASUREMENT IS NOT GATED ON GUESSED LINES. Owner: "we shouldnt
+     have a estamated height it should use street view to determine the height."
+     ⚠ IT WAS GATED ON rmGuessedCount - the number of automatically suggested
+     roof edges - and those were removed on the owner's own instruction. So the
+     condition was never true, the datum was never solved, and every house fell
+     back to an assumed one-storey eave. The measurement sat behind a feature
+     that no longer existed. */
+  check('S142', 'the height measurement does not need guessed lines to exist',
+    !/if\(!rmSuggestionsBuilt \|\| !rmStreetReady \|\| !rmGuessedCount\) return;/.test(admin) &&
+    /if\(!rmStreetReady \|\| !rmFaces \|\| !rmFaces\.length\) return;/.test(admin),
+    'it needs a photo, a roof model to point at and a camera on the road - nothing else');
+  check('S142', 'and it samples the roof model rather than drawn runs',
+    (function(){
+      const f = pick('rmDatumFromStreetPhoto') || '';
+      /* the comment explains what it used to do, so look for the CODE */
+      return f.indexOf('rmFaceEave(f)') !== -1 &&
+             f.indexOf('if(!r.suggested') === -1;
+    })(),
+    'what was removed was DRAWING a guessed edge, not knowing where to look for a gutter');
+
   check('S142', 'a failed photo read never removes the lines that were drawn',
     !!pick('rmDatumFromStreetPhoto') && !/rmRuns\s*=/.test(pick('rmDatumFromStreetPhoto')),
     'a tree over the house must cost the HEIGHT, never the roofline itself');
@@ -34210,7 +34327,7 @@ suite('144. Measure Roof - the peaks are offered too, and only once each');
     'lights do not go along a ridge, and a line nobody will hang is work to switch off');
   check('S144', 'but the peak is still worked out, because the height needs it',
     !!pick('rmFaceRidge') && !!pick('rmFaceRidgeMid') &&
-    /rmFaceRidgeMid\(r\.face\)/.test(pick('rmDatumFromStreetPhoto') || ''),
+    /rmFaceRidgeMid\(f\)/.test(pick('rmDatumFromStreetPhoto') || ''),
     'removing it would take the pairing with it and the search walks back up to the sky');
 
   /* ⚠ A DORMER HAS A FRONT AND A DEPTH. Owner: "be sure that with things like
@@ -36065,6 +36182,95 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
    are reserved the same way: 150-249 roofline, 250-349 schedule and routing.
    ===================================================================== */
 
+
+suite('167. Measure Roof - shift and drag moves a dot');
+{
+  /* Owner: "add a drage featue so if you grab a dot while holding shift it moves." */
+  check('S167', 'a dot can be picked up',
+    /addEventListener\('mousedown', function\(e\)\{[\s\S]{0,200}if\(!e\.shiftKey \|\| rmCornerMode !== 'dot'\) return;/.test(admin),
+    'without a modifier every wobbly click would move a corner');
+  check('S167', 'and a shift-click does not also place one',
+    /A shift-click is the end of a drag, not a placement[\s\S]{0,80}if\(e\.shiftKey\) return;/.test(admin),
+    'otherwise letting go drops a second dot on top of the one just moved');
+  /* ⭐ IT LANDS WHERE A FRESH CLICK WOULD. */
+  check('S167', 'a dragged dot is placed by the same solid-cast as a new one',
+    (function(){
+      const i = admin.indexOf('if(rmDragDot < 0) return;');
+      const j = admin.indexOf('rmHouseHit(dir, cam)', i);
+      return i !== -1 && j > i && (j - i) < 700;
+    })(),
+    'a dragged dot must not be able to land where a placed one could not');
+  check('S167', 'and it cannot be dragged above the roof',
+    (function(){
+      const i = admin.indexOf('if(rmDragDot < 0) return;');
+      const j = admin.indexOf('rmRoofTopM()', i);
+      return i !== -1 && j > i && (j - i) < 900;
+    })(),
+    'the same ceiling that stops a click on the sky');
+  /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */
+  check('S167', 'a moved dot stops being pinned',
+    /c\.rays = \[\]; c\.pinned = 0; c\.spread = 0;/.test(admin),
+    'its position WAS the crossing of those rays; dragging it elsewhere makes them ' +
+    'describe a point it is no longer at, and a dot claiming to be exact while sitting ' +
+    'wherever it was last dragged is the confident-wrong state this tool keeps hitting');
+  check('S167', 'and the office is told, rather than the ring just vanishing',
+    /It is no longer pinned/.test(admin));
+  /* ⚠ GRABBING AND PINNING ARE DIFFERENT QUESTIONS. Shrinking the pin radius to
+     8 px so two corners could be placed close together also shrank the target
+     for a shift-drag, because both asked the same function - so a dot had to be
+     grabbed within 8 px, which reads as the drag not working at all. A
+     shift-drag has already SAID which dot it means; a plain click has not. */
+  check('S167', 'a shift-drag gets a generous target, a plain click does not',
+    /const RM_DRAG_GRAB_PX = 18;/.test(admin) &&
+    /rmPanoPov\(\), cam, RM_DRAG_GRAB_PX\);/.test(admin) &&
+    /const RM_PIN_GRAB_PX = 8;/.test(admin),
+    'one radius cannot serve both - 8 px is unhittable for a drag and 22 px ' +
+    'swallows the second of two close corners');
+  check('S167', 'and the default is still the tight one',
+    /let best = -1, bd = \(typeof grabPx === 'number' \? grabPx : RM_PIN_GRAB_PX\);/.test(admin),
+    'every existing caller must keep the pinning behaviour it had');
+  check('S167', 'letting go outside the pane ends the drag too',
+    /\['mouseup', 'mouseleave'\]\.forEach/.test(admin),
+    'a drag that never ends leaves every later mousemove moving the dot');
+}
+
+
+suite('168. Measure Roof - a reset you can find');
+{
+  /* Owner: "make a reset button so if you zoom out on sky view it will readjust
+     the camera."
+
+     ⚠ IT SHIPPED UNREACHABLE. The measure-tool work put the two features that
+     GUESS - suggested corners and the assumed house - behind an "Auto-detect
+     corners" disclosure, shut by default and rightly so: somebody who wants a
+     guess asks for one. Recentre was added next to them and went into the same
+     hidden bar, so it existed, was wired, was tested, and could not be found on
+     screen. Caught by opening the tool and looking, not by any check. */
+  check('S168', 'recentre is not inside the auto-detect bar',
+    (function(){
+      const i = admin.indexOf('<div id="rmAutoBar"');
+      const j = admin.indexOf('</div>', i);
+      return i !== -1 && admin.slice(i, j).indexOf('rmRecentreBtn') === -1;
+    })(),
+    'that bar is display:none until somebody asks for a guess');
+  check('S168', 'and it sits with the buttons that are always on screen',
+    (function(){
+      const c = admin.indexOf('id="rmClearDotsBtn"');
+      const r = admin.indexOf('id="rmRecentreBtn"');
+      return c !== -1 && r > c && (r - c) < 900;
+    })(),
+    'next to Clear all dots, which is visible whenever dots are being placed');
+  /* ⭐ AND THE TWO THAT DO GUESS STAY BEHIND THE DISCLOSURE. */
+  check('S168', 'the guessing buttons stay where the measure-tool work put them',
+    (function(){
+      const i = admin.indexOf('<div id="rmAutoBar"');
+      const j = admin.indexOf('</div>', i);
+      const blk = admin.slice(i, j);
+      return blk.indexOf('rmSuggestBtn') !== -1 && blk.indexOf('rmModelBtn') !== -1;
+    })(),
+    'a suggestion and an assumed house are guesses, and that is a deliberate design');
+}
+
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
 suite('165. Measure Roof - loading an address forgets the last house');
@@ -37764,8 +37970,306 @@ suite('262. Measure Roof - the roofline that runs backward and gets missed');
     'a warning nobody sees is not a warning');
 }
 
+/* ⭐ SUITE 263. A QUOTE STAYS IN QUOTES UNTIL IT IS ACTUALLY SENT (added 2026-08-25).
+   Owner, testing the whole app in one day: "when we push attach quote it takes us to
+   awaiting response but it should stay in quote until we send text/email."
 
-suite('263. Measure Roof - the captured picture is clean, and can be marked up');
+   ⚠ THE BUG WAS A RENAME NOBODY FINISHED. The second folder was called "Send out
+   Quotes" — a to-do list — so a card landing there the moment a price was saved was
+   exactly right. Renaming it Awaiting Response inverted what it claims: nobody is
+   awaiting anything, because the customer has never been given a number to answer.
+   Every other reader had already been fixed for this (quoteAwaitsUs, the Awaiting
+   Response figure, the card's own "Priced — not sent yet" line, all 2026-08-19). Only
+   the folder rule was left behind, and the folder is the part she looks at.
+
+   ⚠ SO THE CHECKS BELOW RUN quoteStage AND quoteFolder, they do not read them. The
+   whole failure was one condition missing from a function whose SOURCE said all the
+   right things elsewhere in the file. */
+suite('263. Priced is not sent - the card stays in Quotes');
+{
+  const stage = new Function('d',
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') +
+    'return quoteStage(d);');
+  const folder = new Function('d',
+    extractFn(admin, 'quoteWasSentOut') + extractFn(admin, 'quoteStage') +
+    extractFn(admin, 'isRequote') + extractFn(admin, 'quoteFolder') +
+    'return quoteFolder(d);');
+  const ts = () => ({ toDate: () => new Date() });
+
+  check('S263', 'the sent test is a function of its own, not a condition typed twice',
+    !!extractFn(admin, 'quoteWasSentOut'),
+    'four doors send a quote — one answer to "has it gone" or they drift');
+
+  /* ---- the thing she reported -------------------------------------- */
+  check('S263', 'a priced quote nobody has sent stays in Quotes',
+    stage({ quotedPrice: 600 }) === 'new',
+    'this is the report: pricing it moved the card to Awaiting Response while the ' +
+    'one thing left to do was send it');
+  check('S263', 'and it moves the moment the email goes',
+    stage({ quotedPrice: 600, quoteSentAt: ts() }) === 'send');
+  check('S263', 'a text moves it too',
+    stage({ quotedPrice: 600, quoteSentAt: ts(), quoteSmsSentAt: ts() }) === 'send',
+    'the text path writes the same stamp — owner: "until we send text/email"');
+  check('S263', 'and so does saying you sent it yourself',
+    stage({ quotedPrice: 600, quoteManuallySent: true }) === 'send',
+    'a quote sent from her own email has no quoteSentAt and is still, plainly, sent — ' +
+    'reading that stamp alone would strand it in Quotes with nothing left to press');
+
+  /* ---- what must NOT have changed ----------------------------------- */
+  check('S263', 'an unpriced quote is still in Quotes',
+    stage({}) === 'new');
+  check('S263', 'an answer still moves it even with nothing ever sent',
+    stage({ quotedPrice: 600, approvalStatus: 'approved', approvedByOffice: true }) === 'form',
+    'the office override exists precisely so a quote answered on the phone never ' +
+    'needed an email — holding it in Quotes would strand it where there is no ' +
+    'Convert button');
+  check('S263', 'and a declined one is closed however it got there',
+    stage({ quotedPrice: 600, approvalStatus: 'declined' }) === 'closed');
+  check('S263', 'an approved quote still waiting on its form is not sent back to Quotes',
+    stage({ quotedPrice: 600, approvalStatus: 'approved' }) === 'send',
+    'they answered through the portal, so it plainly reached them');
+
+  /* ---- and the folder, which is the tab she is actually looking at --- */
+  check('S263', 'the Quotes TAB is where an unsent priced quote is filed',
+    folder({ quotedPrice: 600 }) === 'new');
+  check('S263', 'a re-quote still goes to Re-quotes, sent or not',
+    folder({ quotedPrice: 600, existingCustomerId: 'c1' }) === 'requote' &&
+    folder({ quotedPrice: 600, existingCustomerId: 'c1', quoteSentAt: ts() }) === 'requote',
+    'the re-quote folder was never about how far along the card is');
+
+  /* ⚠ THE TEST-CARD BUILDER HAS TO AGREE. It stages a card into a named tab by
+     writing fields; if "sent" stops meaning what it writes, Build Test Customer
+     silently drops the card in the wrong tab. */
+  {
+    const mk = new Function('d',
+      extractFn(admin, 'testQuoteCreateFields') + extractFn(admin, 'testQuoteStageUpdates') +
+      extractFn(admin, 'testQuoteFieldsFor') +
+      'const TEST_QUOTE_BASE = {};' +
+      'return testQuoteStageUpdates(d);');
+    check('S263', 'the test card built for Awaiting Response really is a sent one',
+      folder(Object.assign({}, mk('send'))) === 'send',
+      'Build Test Customer stages by writing fields — it has to write a sent one now');
+  }
+
+  /* ---- the way OUT of Quotes has to be on the card ------------------- */
+  /* ⚠ SCOPED TO THE BLOCK, NOT THE FILE. "data-marksent appears somewhere after
+     quoteStageFilter === 'send'" is true either way — the button sits a few lines
+     below the block it was moved OUT of. What has to be true is that it is not
+     INSIDE it, so the ternary is sliced to its own closing and read on its own. */
+  {
+    const at = admin.indexOf("(quoteStageFilter === 'send' ? (");
+    const end = at > 0 ? admin.indexOf(") : '')", at) : -1;
+    const sendOnly = at > 0 && end > at ? admin.slice(at, end) : '';
+    check('S263', 'the send-tab-only block was found', !!sendOnly);
+    check('S263', 'Mark as sent is offered on any priced card, not just the send tab',
+      /Mark as sent \(if you sent it yourself\)/.test(admin) &&
+      sendOnly.indexOf('data-marksent') === -1 && sendOnly.indexOf('data-unmarksent') === -1,
+      'it used to sit inside the send-tab-only block — and since a quote now only ' +
+      'REACHES that tab BY being sent, the one button that says "I sent this myself" ' +
+      'was drawn only where it is useless and never where it is needed');
+    check('S263', 'and the nudge row stayed behind, where there is somebody to chase',
+      sendOnly.indexOf('data-nudgequote') > -1,
+      'nudging a customer who was never sent a price is chasing them for our own job');
+  }
+
+  /* ⚠ AND NOTHING IN AWAITING RESPONSE IS FOLDED AWAY ANY MORE. Every card there is
+     an already-sent one now, so the old "Show already sent" link hid the whole tab. */
+  check('S263', 'the already-sent quotes are not hidden behind a link any more',
+    admin.indexOf('data-toggleshowsent') === -1 && admin.indexOf('showSentQuotes') === -1,
+    'it folded away exactly the cards this tab now exists to show');
+
+  /* ⚠ AND THE CARD FOLLOWS ITSELF. quoteStageFilter is a module-level variable, so a
+     card that changes folder under a tab that is not watching simply vanishes —
+     which is the exact bug followQuoteToItsStage was written for. Sending never moved
+     a card before this change, so none of the send paths called it. */
+  {
+    const rows = extractFn(admin, 'renderQuoteRows') || '';
+    /* ⚠ NAMED ONE BY ONE, NOT COUNTED. A count of "at least three" is passed by
+       three of the four, so the red-check that deletes exactly one goes straight
+       through it — which is what happened on the first pass. */
+    check('S263', 'the Send button files the card into its new tab',
+      /followQuoteToItsStage\(id, \{quotedPrice: price, quoteToken: token, quoteSentAt: quoteSentNowStamp\(\)/.test(rows),
+      'without it the card sits in Quotes until the snapshot lands and then jumps ' +
+      'out of the tab she is looking at, which reads as the send having eaten it');
+    check('S263', 'and so do the other three ways of sending it',
+      (rows.match(/followQuoteToItsStage\(id, \{quoteSentAt: quoteSentNowStamp\(\), quoteManuallySent: true\}\)/g) || []).length === 3,
+      'sendQuoteEmailNow, the email preview box and the text - a new send path ' +
+      'that skips this is a card that vanishes');
+    check('S263', 'saying you sent it yourself files it too, and undoing files it back',
+      /followQuoteToItsStage\(id, \{quoteManuallySent: true\}\)/.test(rows) &&
+      /followQuoteToItsStage\(id, \{quoteManuallySent: false\}\)/.test(rows));
+    check('S263', 'and the local stamp is shaped like the Timestamp it stands in for',
+      /function quoteSentNowStamp\(\)\{[\s\S]{0,200}toDate/.test(rows),
+      'daysSince and fmtDate both call .toDate() on it');
+  }
+
+  /* ⚠ THE ADD-ON BLOCK MUST NOT HAVE BEEN QUIETLY NARROWED BY THIS. The RSVP email is
+     HOW an outstanding add-on gets asked, so requiring a separate quote email first
+     would drop the commonest one of all. */
+  check('S263', 'the RSVP add-on block does not ask whether the quote was sent',
+    !/quoteStage\(d\) !== 'send'/.test(extractFn(admin, 'pendingAddOnFor') || ''),
+    'it borrowed the folder rule; the folder rule now means something else');
+}
+
+/* ⭐ SUITE 264. EMPTYING THE SYSTEM NOTICES (added 2026-08-25). Owner: "can we make a
+   delete all on system messages."
+
+   ⚠ IT RUNS THE HANDLER. Owner has asked for this class of check by name — "just make
+   sure that if i click a button the function that is supposed to happen actually
+   does" — and this repo has already shipped a control that rendered perfectly and
+   saved nothing. So the button is lifted out of admin.html and CLICKED against a fake
+   inbox and a fake Firestore, and what it deleted is read off the writes.
+
+   ⚠ AND THE THREE THINGS THAT MAKE A MASS DELETE SAFE ARE EACH THEIR OWN CHECK: it
+   asks first and takes no for an answer; it deletes only the list it counted; and a
+   failure is counted rather than reported as a clean sweep. */
+suite('264. Delete all system notices');
+{
+  /* The handler is wired at module load inside a 40,000-line script, so it is lifted
+     by brace-matching from its own addEventListener rather than by name. */
+  const at = admin.indexOf("document.getElementById('deleteAllSystemBtn')");
+  const open = at > 0 ? admin.indexOf('{', admin.indexOf('async function()', at)) : -1;
+  let body = '';
+  if (open > 0) {
+    let d = 0;
+    for (let i = open; i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) { body = admin.slice(open + 1, i); break; } }
+    }
+  }
+  check('S264', 'the Delete all button is in the System notices pane',
+    /id="deleteAllSystemBtn"/.test(admin) && /id="deleteAllSystemStatus"/.test(admin),
+    'the pane it belongs to is inboxpane-system');
+  check('S264', 'and it is wired to a handler that can be run', !!body);
+
+  const run = (opts) => {
+    const deleted = [];
+    const toasts = [];
+    const asked = [];
+    const status = { textContent: '' };
+    const btn = { disabled: false };
+    const els = { deleteAllSystemStatus: status };
+    const fn = new Function('allMessages', 'confirm', 'toast', 'deleteDoc', 'doc', 'db',
+      'console', 'document', 'systemMessages',
+      'return (async function(){' + body + '});')(
+      opts.messages,
+      (q) => { asked.push(q); return opts.answer !== false; },
+      (t) => toasts.push(t),
+      (ref) => {
+        if (opts.failOn && opts.failOn.indexOf(ref.id) > -1) return Promise.reject(new Error('nope'));
+        deleted.push(ref.id);
+        return Promise.resolve();
+      },
+      (dbArg, col, id) => ({ col: col, id: id }),
+      {}, { error: () => {}, log: () => {} },
+      { getElementById: (id) => els[id] || null },
+      /* THE REAL ONE, lifted: which rows count as system notices is the question the
+         button is answering, and a hand-written copy of it here would agree with
+         itself while the screen showed something else. */
+      new Function('allMessages', extractFn(admin, 'systemMessages') + 'return systemMessages;')(opts.messages)
+    );
+    return fn.call(btn).then(() => ({ deleted, toasts, asked, status, btn }));
+  };
+
+  const note = (id, over) => ({ id: id, data: Object.assign({ folder: 'System', topic: 'Routes Reconciled', message: 'x' }, over || {}) });
+
+  pendingAsync.push((async () => {
+    /* ---- it asks first, and no means no ----------------------------- */
+    {
+      const r = await run({ messages: [note('a'), note('b')], answer: false });
+      check('S264', 'saying no deletes nothing at all',
+        r.deleted.length === 0,
+        'the one thing a mass delete must get right');
+      check('S264', 'and the question says how many are going',
+        /2 system notices/.test(r.asked[0] || '') && /cannot be undone/.test(r.asked[0] || ''),
+        'a preview and a confirmation — CLAUDE.md §5');
+      check('S264', 'and says the rest of the inbox is safe',
+        /Customer messages and employee notes are not touched/.test(r.asked[0] || ''),
+        'this button sits in a three-tab inbox');
+    }
+
+    /* ---- the unactioned colour change is named, not swept quietly ---- */
+    {
+      const r = await run({ answer: false, messages: [
+        note('a'),
+        note('b', { topic: 'Light Color Change' }),
+        note('c', { topic: 'Light Color Change', addedToWarehouseAt: 'yesterday' })
+      ]});
+      check('S264', 'a colour change nobody has sent to the Warehouse is called out',
+        /1 of them is a light colour change/.test(r.asked[0] || '') &&
+        /NOT been sent to the Warehouse/.test(r.asked[0] || ''),
+        'that row is the only thing asking for those bundles to be built — deleting ' +
+        'it silently is how a house gets the wrong lights');
+      check('S264', 'and one already sent to the Warehouse is not counted as work lost',
+        !/2 of them/.test(r.asked[0] || ''),
+        'crying wolf about a job already done teaches her to click past the warning');
+    }
+
+    /* ---- yes deletes exactly what it counted ------------------------- */
+    {
+      const msgs = [note('a'), note('b'), { id: 'c', data: { folder: 'Inbox', message: 'a real customer' } }];
+      const r = await run({ messages: msgs });
+      check('S264', 'it deletes the system notices',
+        r.deleted.length === 2 && r.deleted.indexOf('a') > -1 && r.deleted.indexOf('b') > -1);
+      check('S264', 'and never a customer message sitting in the same collection',
+        r.deleted.indexOf('c') === -1,
+        'they are one Firestore collection told apart by a folder field');
+      check('S264', 'and says so when it is done',
+        /All 2 system notices deleted/.test(r.toasts.join(' ')));
+      check('S264', 'and leaves nothing on the status line to worry about',
+        r.status.textContent === '');
+      check('S264', 'and gives the button back',
+        r.btn.disabled === false,
+        'a button left disabled after a failure is a screen that needs reloading');
+    }
+
+    /* ⚠ THE LIST IS TAKEN ONCE. A notice that arrives while she is reading the
+       question was never on screen and was never agreed to. */
+    {
+      const msgs = [note('a')];
+      const late = { id: 'late', data: { folder: 'System', message: 'arrived mid-question' } };
+      const deleted = [];
+      const fn = new Function('allMessages', 'confirm', 'toast', 'deleteDoc', 'doc', 'db',
+        'console', 'document', 'systemMessages',
+        'return (async function(){' + body + '});')(
+        msgs,
+        () => { msgs.push(late); return true; },
+        () => {}, (ref) => { deleted.push(ref.id); return Promise.resolve(); },
+        (dbArg, col, id) => ({ col: col, id: id }), {}, { error: () => {}, log: () => {} },
+        { getElementById: () => ({ textContent: '' }) },
+        new Function('allMessages', extractFn(admin, 'systemMessages') + 'return systemMessages;')(msgs)
+      );
+      await fn.call({ disabled: false });
+      check('S264', 'a notice that arrived after the question was asked is left alone',
+        deleted.length === 1 && deleted[0] === 'a',
+        'the delete only ever removes what the count she agreed to described');
+    }
+
+    /* ---- a failure is counted, not swallowed ------------------------- */
+    {
+      const r = await run({ messages: [note('a'), note('b'), note('c')], failOn: ['b'] });
+      check('S264', 'a delete that fails is counted rather than reported as a clean sweep',
+        r.deleted.length === 2 && /2 of 3 system notices deleted/.test(r.toasts.join(' ')),
+        'half a sweep looks exactly like a whole one from the outside');
+      check('S264', 'and the status line says what to do about it',
+        /1 could not be/.test(r.status.textContent) && /retry/.test(r.status.textContent));
+      check('S264', 'and one failure does not stop the ones after it',
+        r.deleted.indexOf('c') > -1,
+        'giving up half way leaves the list in a state nobody asked for');
+    }
+
+    /* ---- nothing to do is not an error ------------------------------- */
+    {
+      const r = await run({ messages: [{ id: 'x', data: { folder: 'Inbox' } }] });
+      check('S264', 'an empty System folder asks nothing and deletes nothing',
+        r.asked.length === 0 && r.deleted.length === 0 &&
+        /no system notices/.test(r.toasts.join(' ')),
+        'a confirm box over an empty list is a question with one answer');
+    }
+  })());
+}
+
+suite('265. Measure Roof - the captured picture is clean, and can be marked up');
 {
   /* Owner, looking at a capture: "I can't mark it up after measuring it. And I
      don't want red lines showing here after I'm done measuring." */
@@ -37779,34 +38283,34 @@ suite('263. Measure Roof - the captured picture is clean, and can be marked up')
      get a clean picture of the house back. */
   const capture = extractFn(admin, 'rmCapture') || '';
   const compose = extractFn(admin, 'rmComposeCapture') || '';
-  check('S263', 'composing the capture is its own function, so it can be redone',
+  check('S265', 'composing the capture is its own function, so it can be redone',
     !!compose,
     'drawn once inline, the only way to remove a line is to re-fetch the picture');
-  check('S263', 'the capture starts clean',
+  check('S265', 'the capture starts clean',
     /lines: false/.test(capture),
     'measuring lines are working notes; the photo is what the customer and the crew look at');
-  check('S263', 'and the lines are only drawn when they are asked for',
+  check('S265', 'and the lines are only drawn when they are asked for',
     /if\(rmCrop\.lines\) rmRuns\.forEach/.test(compose),
     'an unconditional draw is the burnt-in version again');
   /* ⚠ THE SOURCE IMAGE IS KEPT, or the toggle can only ever go one way. */
-  check('S263', 'the photograph itself is kept so either version can be composed',
+  check('S265', 'the photograph itself is kept so either version can be composed',
     /img: img,/.test(capture) && /const canvas = rmCrop\.canvas, img = rmCrop\.img;/.test(compose),
     'without the original in hand, ticking the box is a one-way door');
-  check('S263', 'and each compose starts from a cleared canvas',
+  check('S265', 'and each compose starts from a cleared canvas',
     /ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\);/.test(compose),
     'drawing over the last version leaves the old lines under the new picture');
 
   const lineWire = (admin.split("getElementById('rmCropLines').addEventListener")[1] || '').slice(0, 800);
-  check('S263', 'the toggle is really wired and redraws',
+  check('S265', 'the toggle is really wired and redraws',
     !!lineWire && /rmCrop\.lines = this\.checked;/.test(lineWire) && /rmComposeCapture\(\);/.test(lineWire),
     'a checkbox that renders and redraws nothing is worse than no checkbox');
   /* The crop box is stored as fractions of the picture and the picture does not
      change size, so a box dragged before the toggle still covers the same part
      of the house after it. Clearing it would throw away work already done. */
-  check('S263', 'and toggling does not throw away a crop already dragged',
+  check('S265', 'and toggling does not throw away a crop already dragged',
     !/rmCrop\.box = null/.test(lineWire),
     'the box is fractions of an unchanged picture — it survives a redraw, so clearing it is pure loss');
-  check('S263', 'the box does not carry over to the next house',
+  check('S265', 'the box does not carry over to the next house',
     /cropLines\.checked = false/.test(extractFn(admin, 'rmReset') || ''),
     'markup belongs to the capture it was ticked for');
 
@@ -37814,13 +38318,13 @@ suite('263. Measure Roof - the captured picture is clean, and can be marked up')
   /* The Mark Up tool already existed and could already do this — but only from
      the quote card, so the commonest next step after making a picture meant
      attaching, closing the whole tool, finding the card and finding the button. */
-  check('S263', 'there is a way into the markup tool from here',
+  check('S265', 'there is a way into the markup tool from here',
     /id="rmAttachMarkBtn"/.test(admin) &&
     /getElementById\('rmAttachMarkBtn'\)\.addEventListener/.test(admin),
     'the tool existed; reaching it took three navigations from where you already were');
   /* ⚠ ONE ATTACH, TWO DOORS. A second copy of the upload loop is a second place
      for the photo list to be written back stale. */
-  check('S263', 'both buttons run the SAME attach, differing only in what follows',
+  check('S265', 'both buttons run the SAME attach, differing only in what follows',
     !!extractFn(admin, 'rmAttachShots') &&
     /rmAttachShots\(this, false\)/.test(admin) && /rmAttachShots\(this, true\)/.test(admin),
     'two upload loops is two places for the photo list to be written back stale');
@@ -37829,19 +38333,19 @@ suite('263. Measure Roof - the captured picture is clean, and can be marked up')
      openQuoteMarkup indexes into the photo list off quotesCache — opening it
      early marks up a slot that does not exist yet and silently falls back to
      photo #1, which is somebody else's picture. */
-  check('S263', 'it marks up the picture just added, not the first one',
+  check('S265', 'it marks up the picture just added, not the first one',
     /const firstNew = photos\.length - added;/.test(attach) &&
     /openQuoteMarkup\(rmQuoteId, firstNew\)/.test(attach),
     'openQuoteMarkup falls back to photo #1 for an out-of-range index — silently the wrong picture');
-  check('S263', 'and only once the write has actually landed',
+  check('S265', 'and only once the write has actually landed',
     attach.indexOf('updateDoc') < attach.indexOf('openQuoteMarkup'),
     'the markup tool reads the list off quotesCache, which the write is what updates');
   /* A partial upload leaves the count uncertain, so it reports rather than
      opening a markup on a picture that may not be the one meant. */
-  check('S263', 'a partly failed upload reports instead of opening markup',
+  check('S265', 'a partly failed upload reports instead of opening markup',
     /if\(failed\.length\)\{[\s\S]{0,160}return; \}/.test(attach),
     'opening markup after a partial failure marks up whichever picture did land');
-  check('S263', 'and the second button is enabled and disabled with the first',
+  check('S265', 'and the second button is enabled and disabled with the first',
     /attachMark\.disabled = !rmShots\.length/.test(extractFn(admin, 'rmRenderStaged') || ''),
     'offering markup with nothing staged marks up a picture that does not exist');
 }
