@@ -1525,6 +1525,18 @@ if (JSDOM) {
   eval(extractFn(admin, 'quoteCustomerKeys') + '\nglobal.quoteCustomerKeys = quoteCustomerKeys;');
   eval(extractFn(admin, 'isRequote') + '\nglobal.isRequote = isRequote;');
   eval(extractFn(admin, 'quoteAlreadyACustomer') + '\nglobal.quoteAlreadyACustomer = quoteAlreadyACustomer;');
+  /* ⚠ THE PRICING HELPERS THE CARD NOW ASKS (added 2026-08-25). The Estimated
+     Price line used to be `d.estimatedFeet * perFootRate` inline; it goes
+     through quoteEstimatedPrice now so the card and the measure tool apply the
+     difficulty from ONE rule instead of disagreeing about a non-Medium house.
+     LIFTED, NOT STUBBED — the whole point of these checks is what the card
+     really prints, and a stub would let the card and the tool agree with a
+     fiction while still disagreeing with each other in production. */
+  global.RM_DIFFICULTY_RATE = {Easy: 0.85, Medium: 1, Hard: 1.25};
+  eval(extractFn(admin, 'quoteDifficultyGrade') + '\nglobal.quoteDifficultyGrade = quoteDifficultyGrade;');
+  eval(extractFn(admin, 'quoteDifficultyMult') + '\nglobal.quoteDifficultyMult = quoteDifficultyMult;');
+  eval(extractFn(admin, 'quoteEstimatedPrice') + '\nglobal.quoteEstimatedPrice = quoteEstimatedPrice;');
+  eval(extractFn(admin, 'quoteDifficultyNote') + '\nglobal.quoteDifficultyNote = quoteDifficultyNote;');
 
   // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
   // the data-pricingtoggle click handler is actually live for the toggle test.
@@ -33412,9 +33424,21 @@ suite('131. Measure Roof — the roof is never on the ground');
   check('S131', 'but a point measured in Street View is never re-derived over',
     !!refresh && /if\(r\.streetMeasured\) return;/.test(refresh),
     'throwing away a real observation to keep the guess tidy is backwards');
+  /* ⚠ THIS LINE IS THE WHOLE WORKING HEIGHT PANEL NOW (2026-08-25) — the box
+     and the presets moved under More options — so it has to carry the number
+     AND where it came from, and all four sources have to stay distinguishable.
+     The wording moved from "ASSUMED at N ft" to "Eave N ft — ASSUMED"; the
+     claim is unchanged and now checks every branch rather than one. */
   check('S131', 'and the panel says which datum is in force',
-    /id="rmDatumNote"/.test(admin) && /ASSUMED at/.test(admin),
+    /id="rmDatumNote"/.test(admin) && /ASSUMED, one storey/.test(admin) &&
+    /measured in Street View/.test(admin) && /read off the street photo/.test(admin) &&
+    /typed by hand/.test(admin),
     'a height nobody can trace back is a height nobody can argue with');
+  check('S131', 'and the height controls are still reachable, just not in the way',
+    /id="rmHeightFt"/.test(admin) && /id="rmMoreBox"/.test(admin) &&
+    (admin.indexOf('id="rmMoreBox"') < admin.indexOf('id="rmHeightFt"')),
+    'the box is the only way to overrule a wrong roof model — moving it behind a ' +
+    'disclosure is fine, losing it is not');
 }
 
 
@@ -33992,9 +34016,25 @@ suite('143. Measure Roof - strands you are running, and a photo read that waits 
       /rmRuns\.filter\(rmRunIsOn\)\.length[\s\S]{0,140}Separate strands/.test(admin) ||
       /Separate strands<\/span><strong>'\+rmRuns\.filter\(rmRunIsOn\)\.length/.test(admin),
       'rmRuns.length counts the greyed-out lines too');
-    check('S143', 'and so does the material list',
-      /Separate strands<\/span><strong>'\+\(rmRuns\.filter\(rmRunIsOn\)\.length\|\|1\)/.test(admin),
-      'the van gets packed off this number');
+    /* ⚠ THIS USED TO CHECK THE MATERIAL LIST'S OWN STRAND COUNT. That panel is
+       gone (2026-08-25) — bulbs sit a foot apart, so it existed to do a sum
+       whose answer was already on the line above it, behind a spacing selector
+       offering three spacings this business does not use. The concern it
+       protected has not gone anywhere: whoever packs the van reads the strand
+       count, and there must be exactly ONE of it. Two panels counting
+       separately is how they came to disagree in the first place. */
+    check('S143', 'and there is only one strand count left to get wrong',
+      (admin.match(/Separate strands/g) || []).length === 1,
+      'found ' + (admin.match(/Separate strands/g) || []).length + ' — the van gets packed ' +
+      'off this number, and a second copy of it is a second chance to count the greyed-out lines');
+    /* ⚠ COMMENTS STRIPPED, and this check needed it immediately. Why the panel
+       was removed is written down in the code at the point it used to sit, so a
+       plain search finds the EXPLANATION and reports it as the thing still
+       being there — the trap this file already records once. */
+    check('S143', 'the Quick Material Estimate really is gone, not just unreachable',
+      !/rmMaterialPanel|rmRenderMaterials|id="rmSpacing"/.test(stripComments(admin)),
+      'a panel left in the markup with nothing drawing it is the dead code the owner ' +
+      'asked about by name — "code that will just sit there doing nothing forever"');
     check('S143', 'the raw run count is no longer used for strands anywhere',
       !/Separate strands<\/span><strong>'\+rmRuns\.length/.test(admin) &&
       !/Separate strands<\/span><strong>'\+\(rmRuns\.length\|\|1\)/.test(admin),
@@ -37092,6 +37132,138 @@ suite('257. Measure Roof - one less step before you can trace');
     /id="rmCornerList"/.test(admin) && /id="rmCornerMode"/.test(admin) &&
     (admin.indexOf('id="rmCornerList"') < admin.indexOf('id="rmAutoBar"')),
     'hiding the manual dots hides the workflow the tool was rebuilt around');
+}
+
+
+suite('258. Measure Roof - one difficulty rule, and one vocabulary');
+{
+  /* ⚠ THE BUG THIS CLOSES. The measure tool's Price panel applied the
+     difficulty (x0.85 / x1 / x1.25); the quote card worked its Estimated Price
+     out as feet x rate flat. So the same house showed two different prices on
+     two screens whenever the grade was not Medium — and the grade was never
+     saved anywhere at all, so the card could not have applied it even if it had
+     tried. Every screen that turns feet into money asks one function now.
+
+     ⚠ AND THIS IS DELIBERATELY NOT THE ROUTES DIFFICULTY PILL. `difficulty` on
+     the customer record is CREW WORKLOAD — how hard the house is to work, which
+     is what mixes a crew's day. This one tilts the per-foot RATE. Same three
+     words, two different questions, and the answer to keeping them apart was
+     given directly. A check below fails if the pricing rule starts reading the
+     customer's field. */
+  const LF_ = String.fromCharCode(10);
+  const NEED = ['quoteDifficultyGrade', 'quoteDifficultyMult', 'quoteEstimatedPrice',
+                'quoteDifficultyNote'];
+  const parts = NEED.map(n => extractFn(admin, n));
+  const missing = NEED.filter((n, i) => !parts[i]);
+  check('S258', 'the one pricing rule is findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const mk = rate => new Function(
+      'const RM_DIFFICULTY_RATE = {Easy: 0.85, Medium: 1, Hard: 1.25};' + LF_ +
+      'const perFootRate = ' + rate + ';' + LF_ +
+      parts.join(LF_) + LF_ +
+      'return {price:quoteEstimatedPrice, mult:quoteDifficultyMult,' +
+      ' grade:quoteDifficultyGrade, note:quoteDifficultyNote};')();
+    const api = mk(2);
+    const q = (g) => ({estimatedFeet: 150, measurement: g ? {difficulty: g} : undefined});
+
+    check('S258', 'a medium house prices at exactly the office rate',
+      api.price(q('Medium')) === 300 && api.price(q()) === 300,
+      'Medium is x1 on purpose — the office\'s own Per Foot Pricing stays the baseline');
+    check('S258', 'a hard house costs more and an easy one costs less',
+      api.price(q('Hard')) === 375 && api.price(q('Easy')) === 255,
+      'hard ' + api.price(q('Hard')) + ', easy ' + api.price(q('Easy')) +
+      ' — this is the tilt the tool was showing and the card was not');
+    /* ⚠ AN UNKNOWN GRADE FALLS BACK TO 1, NOT TO ZERO. If the rate table ever
+       gains a name this function has not heard of, the house must price at the
+       plain rate — not become free. */
+    check('S258', 'a grade nobody recognises prices at the plain rate, not at nothing',
+      api.price({estimatedFeet: 150, measurement: {difficulty: 'Brutal'}}) === 300 &&
+      api.mult({measurement: {difficulty: 'Brutal'}}) === 1,
+      'a rate table that gains a name silently making houses free is the worst ' +
+      'possible direction for this to fail in');
+    /* ⚠ null, NOT 0. "No rate set" and "this house is free" are different
+       answers and the card prints something different for each. */
+    check('S258', 'with no rate set it answers nothing rather than zero',
+      mk(0).price(q('Hard')) === null && api.price({estimatedFeet: 0}) === null,
+      'returning 0 prints a confident $0.00 where "set a rate first" belongs');
+    /* Owner's rule about this screen: a total must never appear with no working
+       behind it. A number that is not feet x rate has to say why. */
+    check('S258', 'a tilted price shows its working, and an untilted one stays quiet',
+      /hard house/.test(api.note(q('Hard'))) && /1.25/.test(api.note(q('Hard'))) &&
+      api.note(q('Medium')) === '' && api.note(q()) === '',
+      'got "' + api.note(q('Hard')) + '" and "' + api.note(q('Medium')) +
+      '" — an unexplained total is one nobody can argue with');
+    check('S258', 'and a quote nobody measured is not given a grade it never had',
+      api.grade(q()) === '' && api.mult(q()) === 1,
+      'a customer typed in by hand was never graded, and inventing one changes a price nobody set');
+  }
+
+  /* ⚠ THE ROUTES PILL IS A DIFFERENT QUESTION. If the pricing rule ever starts
+     reading the customer's `difficulty`, the two silently merge and whichever
+     house is the exception gets billed on its crew workload. */
+  check('S258', 'the pricing rule does not read the crew-workload pill',
+    !/measurement[\s\S]{0,40}d\.difficulty\b/.test(parts.join('')) &&
+    parts.join('').indexOf('.difficulty') === parts.join('').lastIndexOf('.difficulty'),
+    'the crew pill and the pricing grade are two questions - merging them bills a ' +
+    'house on how hard it is to WORK rather than on what was measured');
+
+  /* Every screen that turns a quote's feet into money goes through the one
+     rule. A second `estimatedFeet * perFootRate` anywhere is the drift coming
+     back. */
+  check('S258', 'no screen works the price out for itself any more',
+    !/estimatedFeet\s*\*\s*perFootRate/.test(stripComments(admin)),
+    'a second copy of the sum is how the tool and the card came to disagree in the first place');
+  /* ⚠ THE GRADE IS SAVED BY BOTH BUTTONS THAT PRICE. The feet button saves it
+     with the drawing; the price button prices THROUGH it, so pressing that one
+     alone would otherwise leave the card estimating from a different grade. */
+  const usePrice = extractFn(admin, 'rmUsePrice') || '';
+  check('S258', 'pricing a quote records which grade it was priced at',
+    /'measurement\.difficulty': grade/.test(usePrice),
+    'the button prices through the difficulty - not recording it leaves the card ' +
+    'working the estimate out from a different one');
+  check('S258', 'and it writes that one field rather than the whole map',
+    !/rmMeasurementDoc\(\)/.test(usePrice),
+    'this button owns the grade, the feet button owns the geometry - writing a whole ' +
+    'measurement from here would flatten a saved drawing with an empty one');
+
+  /* ---- one vocabulary, and a side that cannot be seen ---------------- */
+  const runName = extractFn(admin, 'rmRunName') || '';
+  check('S258', 'an ordinary traced line is called a side',
+    /'Side'/.test(runName),
+    'the tool called the same thing a run, a strand, a section and a side ' +
+    'depending on which control you were looking at');
+  /* ⚠ A RIDGE OR GROUND RUN KEEPS ITS OWN WORD. Nothing new is made as either,
+     but an old quote still carries them and calling one a "Side" relabels
+     history to tidy a vocabulary. */
+  check('S258', 'but a ridge or ground run keeps the word it was measured under',
+    /t !== 'perimeter'/.test(runName) && /RM_TYPES\[t\]/.test(runName),
+    'an old quote that really does carry a ridge run would be quietly relabelled');
+  check('S258', 'the list says which side of the house each one is',
+    !!extractFn(admin, 'rmRunLabel') && /rmRunLabel\(r, i\)/.test(admin),
+    'front, garage and back is how customers buy this - a list of numbered lines is not');
+  /* ⚠ THE STORED SIDE WINS OVER RE-DERIVING IT. The camera that decided it is
+     not necessarily where the camera is now, so re-deriving on every render
+     lets a line change sides because somebody panned. */
+  check('S258', 'and a restored side keeps the side it was traced on',
+    /\(r && r\.area\) \|\| rmRunArea\(r\)/.test(extractFn(admin, 'rmRunLabel') || ''),
+    're-deriving it every render lets a line change sides because somebody moved the camera');
+
+  check('S258', 'a side the cameras cannot see can be typed in',
+    /id="rmAddManualBtn"/.test(admin) && /id="rmManualFeet"/.test(admin) &&
+    /getElementById\('rmManualAddBtn'\)\.addEventListener/.test(admin),
+    'Street View has not driven most back gardens, so those sides were being added ' +
+    'to the footage by hand afterwards, off the record');
+  const manual = (admin.split("getElementById('rmManualAddBtn').addEventListener")[1] || '').slice(0, 1400);
+  check('S258', 'and it is marked as typed, so it never reads as measured',
+    /surface: 'manual'/.test(manual),
+    'a typed number and a traced one are different kinds of claim');
+  /* ⚠ REFUSED RATHER THAN ADDED AS ZERO. A side sitting in the list at 0 ft
+     reads as measured-and-tiny rather than as never-filled-in. */
+  check('S258', 'a side with no footage is refused rather than added as nothing',
+    /if\(!\(feet > 0\)\)\{/.test(manual),
+    'a 0 ft side in the list reads as measured and tiny, not as never filled in');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code

@@ -4481,31 +4481,47 @@
                   </div>
                 </div>
                 <!-- Named on screen on purpose: a shortcut nobody can find is a
-                     feature for one person. -->
+                     feature for one person. ⚠ BUT SIX OF THEM IS A LIST NOBODY
+                     READS, so the two that matter stay out here and the rest
+                     move under More options — none of them is unbound. -->
                 <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
-                  <kbd>Enter</kbd> start / finish &middot; <kbd>Esc</kbd> cancel &middot;
-                  <kbd>&#9003;</kbd> undo &middot; 
-                  <kbd>A</kbd> all suggested on/off &middot; <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
+                  <kbd>Enter</kbd> finish a side &middot; <kbd>&#9003;</kbd> undo a point
                 </p>
               </div>
 
               <!-- The height a sky-view click is assumed to be at. Sky view
                    cannot see height, so it has to be told once - and Street
                    View is what tells it. -->
+              <!-- ⭐ THE HEIGHT IS A LINE, NOT A PANEL (2026-08-25). A whole
+                   panel — a number box, three presets and two notes — asked
+                   about something that answers itself: Street View measures the
+                   eave, and failing that it is a one-storey house. rmDatumNote
+                   already said which of the three it was, so that sentence IS
+                   the status and everything around it was scaffolding.
+                   ⚠ THE CONTROLS ARE MOVED, NOT DELETED. The box is still the
+                   only way to overrule a wrong roof model, and a height the
+                   office types still beats anything derived (test S130 exists
+                   for exactly that). It lives under More options now. -->
               <div class="rm-panel" id="rmHeightPanel" style="display:none;">
-                <h4>Working Height</h4>
-                <p class="rm-sub">What height a click on the sky view sits at.</p>
-                <div style="display:flex; gap:8px; align-items:center;">
-                  <input type="number" id="rmHeightFt" value="10" min="0" max="60" step="0.5" style="width:80px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
-                  <span style="font-size:12px; color:var(--slate);">ft off the ground</span>
+                <p id="rmDatumNote" style="font-size:12px; color:var(--dusk); margin:0; font-weight:600;"></p>
+                <button type="button" id="rmMoreBtn" style="border:0; background:none; padding:4px 0 0; font-size:11px; color:var(--slate); cursor:pointer; text-decoration:underline;">More options</button>
+                <div id="rmMoreBox" style="display:none; margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
+                  <p class="rm-sub" style="margin-bottom:6px;">What height a click on the sky view sits at.</p>
+                  <div style="display:flex; gap:8px; align-items:center;">
+                    <input type="number" id="rmHeightFt" value="10" min="0" max="60" step="0.5" style="width:80px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
+                    <span style="font-size:12px; color:var(--slate);">ft off the ground</span>
+                  </div>
+                  <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-outline btn-sm" data-rmheight="9" style="padding:4px 9px; font-size:11px;">1 storey</button>
+                    <button type="button" class="btn btn-outline btn-sm" data-rmheight="18" style="padding:4px 9px; font-size:11px;">2 storey</button>
+                    <button type="button" class="btn btn-outline btn-sm" data-rmheight="0" style="padding:4px 9px; font-size:11px;">Ground</button>
+                  </div>
+                  <p id="rmHeightNote" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Measure one eave in Street View and this fills itself in.</p>
+                  <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
+                    <kbd>Esc</kbd> cancel &middot; <kbd>A</kbd> all suggested on/off &middot;
+                    <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
+                  </p>
                 </div>
-                <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-                  <button type="button" class="btn btn-outline btn-sm" data-rmheight="9" style="padding:4px 9px; font-size:11px;">1 storey</button>
-                  <button type="button" class="btn btn-outline btn-sm" data-rmheight="18" style="padding:4px 9px; font-size:11px;">2 storey</button>
-                  <button type="button" class="btn btn-outline btn-sm" data-rmheight="0" style="padding:4px 9px; font-size:11px;">Ground</button>
-                </div>
-                <p id="rmHeightNote" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Measure one eave in Street View and this fills itself in.</p>
-                <p id="rmDatumNote" style="font-size:11.5px; color:var(--dusk); margin:6px 0 0; font-weight:600;"></p>
               </div>
 
               <div class="rm-panel" id="rmImagePanel" style="display:none;">
@@ -4523,22 +4539,32 @@
                 <p class="rm-sub">Real ground distance, not pixels.</p>
                 <div id="rmResults"></div>
                 <div id="rmRuns" style="margin-top:8px;"></div>
-                <button type="button" class="btn btn-outline btn-sm" id="rmUseFeetBtn" style="width:100%; justify-content:center; margin-top:10px; display:none;">Use as Estimated Feet</button>
-              </div>
-
-              <div class="rm-panel" id="rmMaterialPanel" style="display:none;">
-                <h4>Quick Material Estimate</h4>
-                <p class="rm-sub">Off the measured run, at your spacing.</p>
-                <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-                  <label style="font-size:11.5px; color:var(--slate);">Spacing</label>
-                  <select id="rmSpacing" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12.5px;">
-                    <option value="8">8"</option>
-                    <option value="12" selected>12"</option>
-                    <option value="15">15"</option>
-                    <option value="18">18"</option>
-                  </select>
+                <!-- ⭐ A SIDE THAT CANNOT BE SEEN IS STILL A SIDE (2026-08-25).
+                     Street View has not driven most back gardens and the sky
+                     view cannot see a wall, so back and side features were
+                     measured on paper and then had nowhere to go — they were
+                     added to the footage by hand afterwards, off the record.
+                     ⚠ IT IS MARKED `manual` SO IT NEVER LOOKS MEASURED. A typed
+                     number and a traced one are different kinds of claim, and
+                     the list says which is which. -->
+                <div style="margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
+                  <button type="button" class="btn btn-outline btn-sm" id="rmAddManualBtn" style="width:100%; justify-content:center;">+ Add a side by hand</button>
+                  <div id="rmManualBox" style="display:none; margin-top:7px;">
+                    <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                      <input type="text" id="rmManualName" placeholder="Name, e.g. Back" style="flex:1 1 96px; min-width:80px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
+                      <input type="number" id="rmManualFeet" min="0" step="0.5" placeholder="Feet" style="flex:0 0 68px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
+                      <select id="rmManualArea" style="flex:0 0 84px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
+                        <option value="back">Back</option>
+                        <option value="left">Left</option>
+                        <option value="right">Right</option>
+                        <option value="front">Front</option>
+                      </select>
+                    </div>
+                    <button type="button" class="btn btn-gold btn-sm" id="rmManualAddBtn" style="width:100%; justify-content:center; margin-top:6px;">Add it</button>
+                    <p id="rmManualNote" style="font-size:11px; color:var(--slate); margin:6px 0 0;">Measured on the ground, for anywhere the cameras cannot reach.</p>
+                  </div>
                 </div>
-                <div id="rmMaterials"></div>
+                <button type="button" class="btn btn-outline btn-sm" id="rmUseFeetBtn" style="width:100%; justify-content:center; margin-top:10px; display:none;">Use as Estimated Feet</button>
               </div>
 
               <div class="rm-panel" id="rmPricePanel" style="display:none;">
@@ -9169,7 +9195,7 @@ function fillAddCustFromQuote(quoteId, d){
     document.getElementById('addCustPrice').value = d.quotedPrice;
     pricedFrom = 'quote';
   } else if(d.estimatedFeet && perFootRate){
-    document.getElementById('addCustPrice').value = Math.round(d.estimatedFeet * perFootRate);
+    document.getElementById('addCustPrice').value = Math.round(quoteEstimatedPrice(d));
     pricedFrom = 'feet';
   }
   // Same fee decision made on the quote's Pricing & Approval panel -
@@ -10466,8 +10492,8 @@ function renderQuoteRows(filtered){
           '</div>'+
           '<div class="quote-section-body" style="padding:0 12px 12px; display:'+(quotePricingOpenIds.has(item.id) ? 'block' : 'none')+';">'+
             '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Estimated Feet (for pricing)</label><input type="number" class="quoteFeetInput" data-id="'+item.id+'" min="0" step="0.5" value="'+(d.estimatedFeet||'')+'" placeholder="e.g. 120" style="font-size:13px; padding:8px 10px;"></div>'+
-            (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(d.estimatedFeet*perFootRate) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
-            '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.requoteFrom && Number(d.requoteFrom.price) ? Number(d.requoteFrom.price) : (d.estimatedFeet && perFootRate ? Math.round(d.estimatedFeet*perFootRate) : '')))+'" placeholder="e.g. 450"></div>'+
+            (d.estimatedFeet ? '<div class="rtext" style="font-weight:600; color:var(--dusk);">Estimated Price: '+(perFootRate ? fmtMoney(quoteEstimatedPrice(d))+quoteDifficultyNote(d) : 'Set a per-foot rate under Finance > Per Foot Pricing first.')+'</div>' : '')+
+            '<div class="form-row" style="margin-top:8px; max-width:220px;"><label style="font-size:11.5px;">Quoted Price ($) &mdash; what you\'ll ask them to approve</label><input type="number" class="quotePriceInput" data-id="'+item.id+'" min="0" step="1" value="'+(d.quotedPrice != null ? d.quotedPrice : (d.requoteFrom && Number(d.requoteFrom.price) ? Number(d.requoteFrom.price) : (d.estimatedFeet && perFootRate ? Math.round(quoteEstimatedPrice(d)) : '')))+'" placeholder="e.g. 450"></div>'+
             /* On a re-quote the box starts on the old number, so she is adding
                to a price she can see rather than working one out from nothing. */
             ((d.quotedPrice == null && d.requoteFrom && Number(d.requoteFrom.price)) ? '<div class="rtext" style="color:var(--slate); margin-top:-4px;">Starts on their last price ('+fmtMoney(Number(d.requoteFrom.price))+') &mdash; type over it with the new one. <strong>Not saved until you click out of the box.</strong></div>' : '')+
@@ -10475,7 +10501,7 @@ function renderQuoteRows(filtered){
                typing there is no change event, so the commonest re-quote of all — same
                price, different address — could never be priced at all. */
             ((d.quotedPrice == null && (Number((d.requoteFrom||{}).price) || (d.estimatedFeet && perFootRate)))
-              ? '<button type="button" class="btn btn-outline btn-sm" data-usequoteprice="'+item.id+'" style="margin-top:4px;">Use '+esc(fmtMoney(Number((d.requoteFrom||{}).price) || Math.round(d.estimatedFeet*perFootRate)))+' &mdash; unchanged</button>'
+              ? '<button type="button" class="btn btn-outline btn-sm" data-usequoteprice="'+item.id+'" style="margin-top:4px;">Use '+esc(fmtMoney(Number((d.requoteFrom||{}).price) || Math.round(quoteEstimatedPrice(d))))+' &mdash; unchanged</button>'
               : '')+
             /* ⚠ AND SAY SO WHEN THE BOX IS SHOWING A SUGGESTION IT HAS NOT SAVED. The
                header two lines up reads "not priced yet" while a number sits in the
@@ -11830,7 +11856,7 @@ function renderQuoteRows(filtered){
       if(!item) return;
       const d = item.data || {};
       const price = Number((d.requoteFrom || {}).price) ||
-        ((d.estimatedFeet && perFootRate) ? Math.round(d.estimatedFeet * perFootRate) : NaN);
+        ((d.estimatedFeet && perFootRate) ? Math.round(quoteEstimatedPrice(d)) : NaN);
       if(!isFinite(price)){ toast('There is no price to use \u2014 type one in.'); return; }
       btn.disabled = true;
       updateDoc(doc(db,'quotes', id), {quotedPrice: price}).then(function(){
@@ -18457,13 +18483,18 @@ function rmRefreshHeights(){
   const note = document.getElementById('rmDatumNote');
   if(note){
     const d = rmDatum();
+    /* ⚠ IT LEADS WITH THE NUMBER AND THEN SAYS WHERE IT CAME FROM. This is the
+       whole Working Height panel now, so it has to carry both: a height with no
+       provenance cannot be told from a measured one, and "assumed" is the case
+       somebody needs to notice. */
+    const ft = Math.round(d.m * RM_M_TO_FT);
     note.textContent = d.source === 'photo'
-      ? 'Roof height read off the street photo — ' + Math.round(d.m * RM_M_TO_FT) + ' ft to the lowest eave.'
+      ? 'Eave ' + ft + ' ft — read off the street photo.'
       : d.source === 'street'
-      ? 'Roof height measured in Street View — ' + Math.round(d.m * RM_M_TO_FT) + ' ft to the lowest eave.'
+      ? 'Eave ' + ft + ' ft — measured in Street View.'
       : (d.source === 'typed'
-          ? 'Roof height from the box above — ' + Math.round(d.m * RM_M_TO_FT) + ' ft. Trace anything in Street View to measure it properly.'
-          : 'Roof height ASSUMED at ' + Math.round(d.m * RM_M_TO_FT) + ' ft (one storey). Trace anything in Street View and it is measured instead.');
+          ? 'Eave ' + ft + ' ft — typed by hand. Trace anything in Street View to measure it properly.'
+          : 'Eave ' + ft + ' ft — ASSUMED, one storey. Trace anything in Street View and it is measured instead.');
   }
 }
 /* Clicking a suggested line switches it in or out. Works from either view,
@@ -18578,10 +18609,27 @@ function rmPanoState(){
   };
 }
 
+/* ⭐ ONE VOCABULARY: SIDES AND FEET (2026-08-25). This tool called the same
+ * thing a run, a strand, a section and a side depending on which control you
+ * were looking at, and customers pick by AREA — front, garage, back — so a
+ * "run" was a word only this screen used.
+ * ⚠ A RIDGE OR GROUND RUN KEEPS ITS OWN WORD. Those are genuinely different
+ * things, nothing new is ever made as either, and an old quote measured before
+ * the type picker was removed still carries them — calling one a "Side" would
+ * quietly relabel history. */
 function rmRunName(r, i){
   if(r && r.name) return r.name;
-  const label = (RM_TYPES[r && r.type] || {}).label || 'Side';
-  return label + ' ' + (i + 1);
+  const t = r && r.type;
+  const base = (t && t !== 'perimeter' && RM_TYPES[t]) ? RM_TYPES[t].label : 'Side';
+  return base + ' ' + (i + 1);
+}
+/* The same name with the side of the house on it, for the list.
+ * ⚠ THE STORED AREA WINS. A restored drawing was sided by whoever traced it,
+ * from a camera that is not necessarily where the camera is now; re-deriving it
+ * on every render would let a line change sides because somebody panned. */
+function rmRunLabel(r, i){
+  const area = (r && r.area) || rmRunArea(r);
+  return rmRunName(r, i) + (area ? ' <span style="opacity:.6;">' + esc(area) + '</span>' : '');
 }
 
 function rmMeasurementDoc(){
@@ -18930,17 +18978,30 @@ function rmRenderResults(){
        Whoever packs the van is reading this number. */
     (rmRuns.filter(rmRunIsOn).length
       ? '<div class="rm-resultrow"><span>Separate strands</span><strong>'+rmRuns.filter(rmRunIsOn).length+'</strong></div>' : '') +
+    /* ⭐ BULBS ARE A SUBLINE, NOT A PANEL (2026-08-25). They sit a foot apart,
+       so the bulb count IS the footage — a whole Quick Material Estimate panel,
+       with a spacing selector offering 8", 15" and 18", existed to do a sum
+       whose answer is the number already on the line above. The selector could
+       only ever be set to something this business does not do, and quietly
+       change the bulb and clip counts if it was. */
+    (t.all ? '<div class="rm-runrow" style="color:var(--slate);">' +
+      Math.round(t.all).toLocaleString() + ' bulbs and clips — they sit a foot apart, so it is the same number' +
+      '</div>' : '') +
     (live ? '<div class="rm-runrow" style="color:var(--dusk);">drawing now&hellip; '+rmFmtFeet(live)+'</div>' : '');
 
   const runsBox = document.getElementById('rmRuns');
   runsBox.innerHTML = rmRuns.map(function(r, i){
-    const hs = r.path.map(function(p){ return (p.h||0)*RM_M_TO_FT; });
-    const top = Math.round(Math.max.apply(null, hs));
+    /* ⚠ A TYPED SIDE HAS NO PATH, so there is no height to take a max of —
+       Math.max of nothing is -Infinity, which is not a number anybody wants
+       rendered beside a customer's footage. */
+    const hs = (r.path || []).map(function(p){ return (p.h||0)*RM_M_TO_FT; });
+    const top = hs.length ? Math.round(Math.max.apply(null, hs)) : 0;
     const on = rmRunIsOn(r);
     return '<div class="rm-runrow"'+(on ? '' : ' style="opacity:.55;"')+'>'+
       '<span><label style="cursor:pointer;"><input type="checkbox" data-rmonrun="'+i+'"'+(on ? ' checked' : '')+
       ' style="margin-right:5px; vertical-align:-1px;">'+
-      RM_TYPES[r.type].label+' '+(i+1)+
+      rmRunLabel(r, i)+
+      (r.surface === 'manual' ? ' <span style="opacity:.6;">typed</span>' : '')+
       (r.suggested ? ' <span style="opacity:.6;">'+esc(r.facing || 'suggested')+'</span>' : '')+
       (top > 1 ? ' <span style="opacity:.6;">('+top+' ft up)</span>' : '')+'</label></span>'+
       '<span>'+rmFmtFeet(rmRunFeet(r))+' <button type="button" data-rmdelrun="'+i+'" title="Delete this line">&#10005;</button></span></div>';
@@ -18959,24 +19020,18 @@ function rmRenderResults(){
   const useBtn = document.getElementById('rmUseFeetBtn');
   useBtn.style.display = t.all > 0 ? 'inline-flex' : 'none';
   useBtn.textContent = 'Use ' + rmFmtFeet(Math.round(t.all*RM_FEET_MULTIPLIER)) + ' as Estimated Feet';
-  rmRenderMaterials(t.all);
+  rmRenderPrice(t.all * RM_FEET_MULTIPLIER);
 }
-function rmRenderMaterials(feet){
-  const panel = document.getElementById('rmMaterialPanel');
-  if(!feet){ panel.style.display = 'none'; return; }
-  panel.style.display = 'block';
-  const spacingIn = Number(document.getElementById('rmSpacing').value) || 12;
-  const priced = feet * RM_FEET_MULTIPLIER;
-  const bulbs = Math.ceil(priced * 12 / spacingIn);
-  const wire = Math.ceil(priced * 1.15);          /* the usual slack allowance */
-  document.getElementById('rmMaterials').innerHTML =
-    '<div class="rm-mini"><span>Run being priced</span><strong>'+rmFmtFeet(priced)+'</strong></div>'+
-    '<div class="rm-mini"><span>Separate strands</span><strong>'+(rmRuns.filter(rmRunIsOn).length||1)+'</strong></div>'+
-    '<div class="rm-mini"><span>Bulbs at '+spacingIn+'&quot;</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
-    '<div class="rm-mini"><span>Clips</span><strong>'+bulbs.toLocaleString()+'</strong></div>'+
-    '<div class="rm-mini"><span>Wire (+15%)</span><strong>'+wire.toLocaleString()+' ft</strong></div>';
-  rmRenderPrice(priced);
-}
+/* ⚠ rmRenderMaterials IS GONE, not left as a helper nothing calls. It drew the
+   Quick Material Estimate panel: footage, strand count, bulbs at a chosen
+   spacing, clips, and wire plus 15%. The footage and the strand count were
+   already on the results panel directly above it, the bulbs and clips are the
+   footage (they sit a foot apart), and the spacing selector could only ever be
+   set to a spacing this business does not use — silently changing two counts if
+   it was. What remains of it is one subline in rmRenderResults.
+   ⚠ IT ALSO CALLED rmRenderPrice, which is why that call moved up rather than
+   disappearing with it: the Price panel is not part of the material estimate
+   and losing it here would have taken the whole suggested price off the screen. */
 /* WHAT THIS HOUSE COMES TO.
  *
  * ⚠ THE RATE IS NOT WRITTEN DOWN HERE. It is the office's own Per Foot Pricing
@@ -19024,9 +19079,20 @@ async function rmUsePrice(price){
   const status = document.getElementById('rmStatus');
   status.textContent = 'Saving the price\u2026';
   try{
-    await updateDoc(doc(db, 'quotes', rmQuoteId), {quotedPrice: price});
+    /* ⚠ THE GRADE RIDES ALONG, or the two screens drift apart again. This
+       button prices the house THROUGH the difficulty, so pressing it without
+       recording which grade was used leaves the card working the estimate out
+       from a different one — which is the exact disagreement this was fixed to
+       end. Written as a single field so it cannot flatten a saved drawing: the
+       feet button owns the geometry, this one owns only the grade. */
+    const grade = rmCurrentGrade();
+    await updateDoc(doc(db, 'quotes', rmQuoteId),
+      {quotedPrice: price, 'measurement.difficulty': grade});
     const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
-    if(item) item.data.quotedPrice = price;
+    if(item){
+      item.data.quotedPrice = price;
+      item.data.measurement = Object.assign({}, item.data.measurement || {}, {difficulty: grade});
+    }
     renderQuotesList();
     status.textContent = 'Quoted price set to ' + fmtMoney(price) + '.';
   } catch(err){ status.textContent = 'Could not save the price onto the quote \u2014 try again.'; }
@@ -19978,7 +20044,6 @@ function rmReset(){
   document.getElementById('rmRoofFactsPanel').style.display = 'none';
   document.getElementById('rmImagePanel').style.display = 'none';
   document.getElementById('rmHeightPanel').style.display = 'none';
-  document.getElementById('rmMaterialPanel').style.display = 'none';
   document.getElementById('rmPricePanel').style.display = 'none';
   rmCandidates = [];
   rmRoofGrade = ''; rmRoofFacts = null; rmFaces = [];
@@ -20044,7 +20109,6 @@ function openRoofMeasure(quoteId){
     document.getElementById('rmContrast').value = 100;
     rmApplyFilter();
   });
-  document.getElementById('rmSpacing').addEventListener('change', function(){ rmRenderResults(); });
   document.getElementById('rmDifficulty').addEventListener('change', function(){ rmRenderResults(); });
   document.querySelectorAll('#roofMeasureOverlay [data-rmheight]').forEach(function(b){
     b.addEventListener('click', function(){
@@ -20101,6 +20165,41 @@ function openRoofMeasure(quoteId){
     } else {
       rmToggleCorner(i);
     }
+  });
+  document.getElementById('rmMoreBtn').addEventListener('click', function(){
+    const box = document.getElementById('rmMoreBox');
+    const open = box.style.display !== 'none';
+    box.style.display = open ? 'none' : 'block';
+    this.textContent = open ? 'More options' : 'Fewer options';
+  });
+  document.getElementById('rmAddManualBtn').addEventListener('click', function(){
+    const box = document.getElementById('rmManualBox');
+    const open = box.style.display !== 'none';
+    box.style.display = open ? 'none' : 'block';
+    this.textContent = open ? '+ Add a side by hand' : 'Cancel';
+    if(!open) document.getElementById('rmManualName').focus();
+  });
+  document.getElementById('rmManualAddBtn').addEventListener('click', function(){
+    const nameEl = document.getElementById('rmManualName');
+    const feetEl = document.getElementById('rmManualFeet');
+    const note = document.getElementById('rmManualNote');
+    const feet = Number(feetEl.value);
+    /* ⚠ REFUSED RATHER THAN ADDED AS ZERO. A side worth nothing is not a side,
+       and one sitting in the list at 0 ft reads as measured-and-tiny rather
+       than as never-filled-in. */
+    if(!(feet > 0)){
+      note.textContent = 'Type how many feet it is first — a side with no footage is not one.';
+      feetEl.focus();
+      return;
+    }
+    const area = document.getElementById('rmManualArea').value || '';
+    rmRuns.push({
+      type: 'perimeter', surface: 'manual', path: [], manualFeet: feet,
+      name: (nameEl.value || '').trim(), area: area, on: true, touched: true
+    });
+    nameEl.value = ''; feetEl.value = '';
+    note.textContent = 'Added. It counts in the total and is marked as typed, not measured.';
+    rmRenderResults();
   });
   /* One door to both guesses, and it says which way it is about to go — a
      disclosure that reads the same open and shut is one nobody trusts twice. */
@@ -22636,6 +22735,51 @@ const RM_TWO_STOREY_FT = 17;
    office's own Per Foot Pricing stays the baseline, so there is still ONE rate
    to change and this only tilts it. */
 const RM_DIFFICULTY_RATE = {Easy: 0.85, Medium: 1, Hard: 1.25};
+
+/* ⭐ ONE RULE FOR WHAT A QUOTE'S FOOTAGE IS WORTH (2026-08-25).
+ *
+ * ⚠ THE BUG THIS CLOSES. The measure tool's Price panel applied the difficulty
+ * and the quote card did not, so the same house showed two different prices on
+ * two screens whenever the grade was not Medium — and the grade was never saved
+ * anywhere, so the card could not have applied it even if it had tried. The
+ * grade is saved with the drawing now (see rmMeasurementDoc) and every screen
+ * that turns feet into money asks the same function about it.
+ *
+ * ⚠ THIS IS NOT THE ROUTES DIFFICULTY PILL, and the two are kept apart on
+ * purpose. `difficulty` on the customer record is CREW WORKLOAD — how hard the
+ * house is to work, which is what mixes a crew's day. This one tilts the
+ * PER-FOOT RATE. Same three words, two different questions. Do not wire either
+ * one to read the other without asking: they would then disagree silently about
+ * whichever house is the exception.
+ *
+ * ⚠ AND IT ONLY APPLIES TO A QUOTE CARRYING A MEASUREMENT. A customer typed in
+ * by hand was never graded, so there is nothing to apply — and an unrecognised
+ * grade falls back to 1 rather than to zero, because a rate table that gains a
+ * name this file has not heard of must not make a house free. */
+function quoteDifficultyGrade(d){
+  const g = d && d.measurement && d.measurement.difficulty;
+  return RM_DIFFICULTY_RATE[g] ? g : '';
+}
+function quoteDifficultyMult(d){
+  return RM_DIFFICULTY_RATE[quoteDifficultyGrade(d)] || 1;
+}
+/* ⚠ null, NOT 0. "No rate has been set" and "this house is free" are different
+   answers, and the card says something different for each — returning 0 would
+   print a confident $0.00 where the words "set a rate first" belong. */
+function quoteEstimatedPrice(d){
+  const feet = Number(d && d.estimatedFeet) || 0;
+  if(!feet || !perFootRate) return null;
+  return feet * perFootRate * quoteDifficultyMult(d);
+}
+/* The working, in words, so a number that is not feet x rate says why.
+   Owner's own rule about this screen: a total must never appear with no
+   working behind it. */
+function quoteDifficultyNote(d){
+  const g = quoteDifficultyGrade(d);
+  const mult = quoteDifficultyMult(d);
+  if(!g || mult === 1) return '';
+  return ' (' + g.toLowerCase() + ' house &times;' + mult + ')';
+}
 function gradeRoof(o){
   const maxGrade = Math.round(Number(o && o.maxGrade) || 0);
   const peakCount = Number(o && o.peakCount) || 0;
