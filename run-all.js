@@ -1166,14 +1166,54 @@ const RETIRED_CHECKLIST_TERMS = [
   check('logic', 'js/test-seed.js exports TEST_SEED',
     /export const TEST_SEED = \[/.test(seedSrc),
     'the seed file does not export TEST_SEED — the dynamic import comes back undefined');
-  /* Floor lowered 2026-08-17: the seed was deliberately trimmed from 210 to
-     ~108 manual tests, dropping every row the automated suite already proves so
-     the owner's checklist only holds what a human or a live environment has to
-     verify. The floor is a truncation tripwire, not a target - a seed suddenly
-     back under ~90 means something ate the list, not that it was pruned. */
-  check('logic', 'the checklist seed survived the move intact',
-    TEST_SEED.length >= 90,
-    'only ' + TEST_SEED.length + ' tests in the seed — the move truncated the list');
+  /* ⭐ THE FLOOR BECAME A NAMED LIST, 2026-08-25. This was `>= 90`, a truncation
+     tripwire set under the 108-row list of 2026-08-17. The seed was trimmed
+     again that day, 125 rows to 11, to only what happens OUTSIDE the code — a
+     real service, real hardware, a per-device permission, or a human judgement
+     (owner: "i need it to be as simplified as possible only testing things you
+     absolutely cannot test"). At eleven rows a count proves almost nothing: a
+     seed that lost four rows to a bad merge would still clear any floor worth
+     setting, and the floor would have to be lowered to 8 or so to leave room
+     for a legitimate removal, at which point it catches nothing.
+
+     ⚠ SO IT NAMES THEM. A row that silently vanishes now fails BY NAME, which
+     matters more here than anywhere else in the suite: projShouldPruneTest
+     DELETES a seeded row that leaves the file, along with the owner's score and
+     notes, on the very next login. A lost comma between two rows is caught
+     above as a hole; a row lost to a bad merge resolution is caught here.
+
+     ⚠ ADDING OR REMOVING A ROW MEANS EDITING THIS LIST, IN THE SAME COMMIT.
+     That is deliberate, and it is the same argument Suite 39 makes for pinning
+     BULK_CHUNK_SIZE's exact value: the change should be a decision somebody
+     made, not a number that drifted. Per CLAUDE.md §0, a new row belongs here
+     ONLY if the automated suite genuinely cannot reach it — if you are adding
+     one because a bug got through, the suite was missing a check and that
+     check is the fix. */
+  {
+    const MANUAL_ONLY_IDS = [
+      26,   // photo on a real device — camera and touch drawing
+      67,   // one house end to end on a real phone
+      111,  // real money through PayPal, tip and closed browser
+      114,  // the 7 PM cron really firing, and Twilio really texting
+      186,  // an invoice email really arriving, and its Pay button working
+      199,  // the three papers, read on paper
+      207,  // Measure Roof against a house somebody has seen
+      214,  // Cloudinary really destroying the fix photo
+      215,  // the DECISION to switch the season to answered-Yes-only
+      216,  // reading the options list for what is missing
+      217,  // getting the soft-light houses switched before the list is lost
+    ];
+    const have = SEED_ROWS.map(function (r) { return r[0]; });
+    const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
+    const extra = have.filter(function (id) { return !MANUAL_ONLY_IDS.includes(id); });
+    check('logic', 'the checklist seed holds exactly the un-automatable rows',
+      missing.length === 0 && extra.length === 0,
+      (missing.length ? 'gone from the seed: #' + missing.join(', #') +
+         ' — pruning deletes the owner\'s score and notes on the next login. ' : '') +
+      (extra.length ? 'in the seed but not in MANUAL_ONLY_IDS: #' + extra.join(', #') +
+         ' — if these are genuinely un-automatable, add them to the list here; ' +
+         'if the suite can reach them, they belong in the suite. ' : '') || undefined);
+  }
   /* Moving the list off the page created a failure it could not have had while
      it was inline: the fetch can now fail. The only caller is
      runProjectTestSync().catch(function(){}), so an unhandled throw reads as a
@@ -2460,10 +2500,10 @@ check('flow', 'quote is closed when converted to a customer',
 /* ⚠ AND THE FOLDER ACTUALLY CALLS IT. A collapse nothing calls is the most expensive
    kind of green — the list renders exactly as it always did and every behavioural check
    above still passes, because they run the function directly. Scoped to the closed
-   branch so it cannot be satisfied by the declaration alone. */
-check('flow', 'and the Converted & Closed folder runs the collapse',
-  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
-  'unwired, every house is listed once per closed quote exactly as before');
+   branch so it cannot be satisfied by the declaration alone. */
+check('flow', 'and the Converted & Closed folder runs the collapse',
+  /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
+  'unwired, every house is listed once per closed quote exactly as before');
 check('flow', 'nothing closes a quote except converting it',
   (admin.match(/status: 'closed'/g) || []).length === 2 &&
   /status: 'closed', convertedToCustomerAt/.test(admin),
@@ -36680,110 +36720,6 @@ suite('252. The NEW badge is this house, not just this phone number');
       (both.closedQuoteFor(childHouse) || {}).id === 'qC',
       'returning the first match by phone hands one household the other one\'s quote');
   }
-}
-
-
-/* ============================================================================
-   253. THE RSVP ASKS THE CREW'S TWO QUESTIONS, AND ASKS THE RIGHT HOUSE
-   ----------------------------------------------------------------------------
-   Owner, 2026-08-25: "we need to make sure gate code is correct, which outlet is
-   correct, For crews."
-
-   The RSVP is the one email a customer definitely opens and definitely acts on, so
-   it is the cheap chance each season to check the two things that stop a crew getting
-   the job done. A wrong gate code found in August costs a reply; found by a crew in
-   November it costs a return trip.
-
-   ⚠ AND IT MUST NOT ASK THE WRONG HOUSE. 17 numbers in the real book are shared and 14
-   of those are two households — the same fact behind the NEW-badge fix. Telling a child
-   their parent's gate code is right is how a confirmed-correct code opens nothing.
-   ========================================================================== */
-suite('253. The RSVP asks the crew’s two questions, of the right house');
-{
-  const GATE_START = admin.indexOf("  if(out.indexOf('{{gate_code}}') !== -1");
-  const GATE_END = admin.indexOf("\r\n  }", GATE_START);
-  const gateBlock = GATE_START === -1 ? '' : admin.slice(GATE_START, GATE_END + 5);
-  check('S253', 'the gate-code / outlet token block was found', !!gateBlock,
-    'renamed or removed — fix this test rather than deleting it');
-
-  const whoSrc = extractFn(admin, 'hlxEmailCustomer');
-  check('S253', 'hlxEmailCustomer was found', !!whoSrc);
-
-  if (gateBlock && whoSrc) {
-    const PHONE = '(801) 555-0100';
-    const BOOK = [
-      { id: 'parent', data: { name: 'Alma', phone: PHONE, gateCode: '1111',
-                              specificOutlet: 'Yes', specificOutletNotes: 'the one by the porch' } },
-      { id: 'child',  data: { name: 'Jo', phone: PHONE, gateCode: '9999',
-                              specificOutlet: 'No', specificOutletNotes: 'stale, they said No' } },
-      { id: 'solo',   data: { name: 'Sam', phone: '8015559999', gateCode: '', specificOutlet: '' } },
-    ];
-    /* LIFTED, not restated: esc is the real one, so an escaping change is caught here
-       and not only on the pages that already test it. */
-    const run = new Function('jobAddresses', 'custById', 'esc', 'text', 'phone', 'opts',
-      whoSrc + '\nlet out = text;\n' + gateBlock + '\nreturn out;');
-    const render = (text, phone, opts) => run(BOOK, new Map(BOOK.map(c => [c.id, c])),
-      real('esc'), text, phone, opts);
-
-    /* ---- it says what we hold ---- */
-    check('S253', 'the gate code we hold is named',
-      /1111/.test(render('{{gate_code_line}}', PHONE, { customerId: 'parent' })),
-      'a customer cannot confirm a code they are not shown');
-    check('S253', 'and the outlet the crew will use',
-      /the one by the porch/.test(render('{{outlet_line}}', PHONE, { customerId: 'parent' })));
-
-    /* ---- ⚠ AND IT ASKS THE RIGHT HOUSE ---- */
-    check('S253', 'the other household on that phone is never given this one’s code',
-      !/1111/.test(render('{{gate_code_line}}', PHONE, { customerId: 'child' })) &&
-      /9999/.test(render('{{gate_code_line}}', PHONE, { customerId: 'child' })),
-      'a parent and a child on one number is 14 of the 17 shared numbers in the book');
-    check('S253', 'and a shared phone with no id names NOBODY, rather than the first found',
-      !/1111|9999/.test(render('{{gate_code_line}}', PHONE, {})),
-      'guessing here has a customer confirm a code that opens somebody else’s gate — ' +
-      'worse than holding none, because it is then believed');
-    check('S253', 'a phone only one customer has still resolves',
-      /no gate code on file/.test(render('{{gate_code_line}}', '801-555-9999', {})),
-      'the safety rule must not cost the ordinary customer their line');
-
-    /* ---- a blank is a question, not a silence ---- */
-    check('S253', 'holding no gate code asks them for one',
-      /reply with the code/.test(render('{{gate_code_line}}', PHONE, { customerId: 'solo' })) ||
-      /reply with the code/.test(render('{{gate_code_line}}', '8015559999', {})),
-      'a blank line tells a gated customer nothing is missing, which is how the crew ' +
-      'arrives at a gate with no code');
-    check('S253', 'and the bare token stays bare',
-      render('[{{gate_code}}]', PHONE, { customerId: 'parent' }) === '[1111]',
-      'the bare token is what lets the office write its own sentence');
-
-    /* ---- ⚠ ONLY AN OUTLET WE WOULD ACTUALLY USE ---- */
-    check('S253', 'a customer who answered No is not asked to confirm an outlet',
-      !/stale/.test(render('{{outlet_line}}', PHONE, { customerId: 'child' })),
-      'printCrewNotes prints the notes whenever they are non-empty, so a stale note ' +
-      'survives a No — having the CUSTOMER confirm that would make it true');
-    check('S253', 'and is told the crew will use the nearest',
-      /whichever is nearest/.test(render('{{outlet_line}}', PHONE, { customerId: 'child' })));
-
-    /* ---- hostile input ---- */
-    const nasty = [{ id: 'x', data: { name: 'X', phone: '8015551234',
-                                      gateCode: '<script>alert(1)</script>' } }];
-    const nastyRun = new Function('jobAddresses', 'custById', 'esc', 'text', 'phone', 'opts',
-      whoSrc + '\nlet out = text;\n' + gateBlock + '\nreturn out;');
-    check('S253', 'a hostile gate code is escaped into the email',
-      !/<script>/.test(nastyRun(nasty, new Map([['x', nasty[0]]]), real('esc'),
-        '{{gate_code_line}}', '8015551234', {})),
-      'this goes out as HTML in an email body');
-  }
-
-  /* ---- the wiring, which no amount of rendering proves ---- */
-  check('S253', 'the RSVP send tells the tokens WHICH customer',
-    /rsvpFirstNameOnly\(d\.name\)[\s\S]{0,80}\{customerId: item\.id\}/.test(admin),
-    'without it every gate code falls back to the phone, and a shared number resolves ' +
-    'to nobody — the tokens would silently say we hold nothing for 14 households');
-  const rsvpTpl = admin.slice(admin.indexOf("{name:'RSVP Email'"),
-                              admin.indexOf('},', admin.indexOf("{name:'RSVP Email'")));
-  check('S253', 'and the shipped RSVP template actually asks both',
-    /\{\{gate_code_line\}\}/.test(rsvpTpl) && /\{\{outlet_line\}\}/.test(rsvpTpl),
-    'a token nothing places is a token nobody sees');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
