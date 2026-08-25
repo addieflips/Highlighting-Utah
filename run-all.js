@@ -33077,9 +33077,9 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
        this suite held 80/55 while admin.html had moved to 75/45, so it was
        testing its own numbers and reported a failure against code that was
        right. A constant asserted from a copy of itself is not asserted. */
-    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE)\s*=.*$/gm) || []);
-    check('S129', 'the grading constants are findable in the source', constLines.length === 5,
-      'found ' + constLines.length + ' of 5 — this suite would silently fall back to guessing them');
+    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE|STEEP_SHARE)\s*=.*$/gm) || []);
+    check('S129', 'the grading constants are findable in the source', constLines.length === 6,
+      'found ' + constLines.length + ' of 6 — this suite would silently fall back to guessing them');
     const g = new Function(constLines.join(LF_) + LF_ + gradeFn + LF_ + 'return gradeRoof;')();
     /* ⚠ THE BUG THIS EXISTS FOR: the old thresholds were 37% for Hard and 25%
        for Medium. Grade is a PERCENT — 37% is a 4.4/12 pitch. An ordinary 6/12
@@ -33089,9 +33089,32 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
       'got ' + g({maxGrade: 50, peakCount: 2}).level + ' — this is the miscalibration that called every house Hard');
     check('S129', 'a low 4/12 roof is Easy', g({maxGrade: 33, peakCount: 2}).level === 'Easy');
     check('S129', 'a genuinely steep 10/12 roof is Hard', g({maxGrade: 83, peakCount: 2}).level === 'Hard');
+    /* ⚠ WAS 6 SECTIONS, AND 6 IS AN ORDINARY HOUSE. A plain hip roof is 4 facets;
+       add a garage and a dormer and an unremarkable house is 8, so every such
+       house was bumped a grade for being shaped like a house. */
     check('S129', 'a busy roof is bumped up a grade',
-      g({maxGrade: 33, peakCount: 6}).level === 'Medium',
+      g({maxGrade: 33, peakCount: 11}).level === 'Medium',
       'lots of separate sections is more ladder moves, whatever the pitch');
+    check('S129', 'but an ordinary 8-facet house is not "busy"',
+      g({maxGrade: 33, peakCount: 8}).level === 'Easy',
+      'a hip roof plus a garage plus a dormer is 8 facets and is not a hard day');
+
+    /* ⭐ THE REAL HOUSE THAT CAUSED THIS. Owner: "that house is medium difficulty
+       its currently hard meaning the grading system could use some love."
+       209 S 850 W, Lehi, off Google's own roof segments: eleven facets, ONE at
+       88% grade covering 183 of 2,185 sq ft, the other ten at 63% and below.
+       Area-weighted that is 54%, and the steep face is 8.4% of the roof. */
+    const LEHI = {maxGrade: 88, typicalGrade: 54, steepShare: 0.084, peakCount: 8};
+    check('S129', 'the house the owner called Medium comes out Medium',
+      g(LEHI).level === 'Medium',
+      'got ' + g(LEHI).level + ' — the steepest single facet was setting the grade ' +
+      'for all 2,185 sq ft, so one 183 sq ft face made the whole day Hard');
+    check('S129', 'but a roof steep over a third of its area IS Hard',
+      g({maxGrade: 88, typicalGrade: 54, steepShare: 0.33, peakCount: 8}).level === 'Hard',
+      'a steep patch is a patch; a steep roof is a day roped on');
+    check('S129', 'and with no weighted figure it falls back to the steepest',
+      g({maxGrade: 88, peakCount: 2}).level === 'Hard',
+      'an old cached roof record has no typicalGrade, and guessing low would be worse');
     check('S129', 'and a two-storey eave bumps it too',
       g({maxGrade: 33, peakCount: 2, eaveFt: 19}).level === 'Medium');
     check('S129', 'but nothing goes past Hard',
@@ -36064,6 +36087,44 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
    So we append under our own sentinel and never the same line. Suite numbers
    are reserved the same way: 150-249 roofline, 250-349 schedule and routing.
    ===================================================================== */
+
+
+suite('167. Measure Roof - shift and drag moves a dot');
+{
+  /* Owner: "add a drage featue so if you grab a dot while holding shift it moves." */
+  check('S167', 'a dot can be picked up',
+    /addEventListener\('mousedown', function\(e\)\{[\s\S]{0,200}if\(!e\.shiftKey \|\| rmCornerMode !== 'dot'\) return;/.test(admin),
+    'without a modifier every wobbly click would move a corner');
+  check('S167', 'and a shift-click does not also place one',
+    /A shift-click is the end of a drag, not a placement[\s\S]{0,80}if\(e\.shiftKey\) return;/.test(admin),
+    'otherwise letting go drops a second dot on top of the one just moved');
+  /* ⭐ IT LANDS WHERE A FRESH CLICK WOULD. */
+  check('S167', 'a dragged dot is placed by the same solid-cast as a new one',
+    (function(){
+      const i = admin.indexOf('if(rmDragDot < 0) return;');
+      const j = admin.indexOf('rmHouseHit(dir, cam)', i);
+      return i !== -1 && j > i && (j - i) < 700;
+    })(),
+    'a dragged dot must not be able to land where a placed one could not');
+  check('S167', 'and it cannot be dragged above the roof',
+    (function(){
+      const i = admin.indexOf('if(rmDragDot < 0) return;');
+      const j = admin.indexOf('rmRoofTopM()', i);
+      return i !== -1 && j > i && (j - i) < 900;
+    })(),
+    'the same ceiling that stops a click on the sky');
+  /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */
+  check('S167', 'a moved dot stops being pinned',
+    /c\.rays = \[\]; c\.pinned = 0; c\.spread = 0;/.test(admin),
+    'its position WAS the crossing of those rays; dragging it elsewhere makes them ' +
+    'describe a point it is no longer at, and a dot claiming to be exact while sitting ' +
+    'wherever it was last dragged is the confident-wrong state this tool keeps hitting');
+  check('S167', 'and the office is told, rather than the ring just vanishing',
+    /It is no longer pinned/.test(admin));
+  check('S167', 'letting go outside the pane ends the drag too',
+    /\['mouseup', 'mouseleave'\]\.forEach/.test(admin),
+    'a drag that never ends leaves every later mousemove moving the dot');
+}
 
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 

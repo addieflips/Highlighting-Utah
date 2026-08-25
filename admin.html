@@ -17004,7 +17004,15 @@ function rmCornersInPhoto(photo, mppAtHouse){
    to all of them falls out of a three-by-three. With two rays it reduces to
    the midpoint of closest approach, which is what it should be. */
 const RM_PIN_MIN_BASE_M = 3;     /* two clicks nearer than this cannot fix depth */
-const RM_PIN_GRAB_PX = 22;       /* clicking this near a dot means THAT dot */
+/* ⚠ WAS 22 PIXELS, AND THAT IS WHY TWO CORNERS COULD NOT BE PLACED CLOSE
+   TOGETHER. Owner: "it doesnt let me place dots if they are to close fix that."
+   A click within this distance of an existing dot PINS that dot instead of
+   placing a new one, and on a house filling the pane 22 px is about a metre -
+   wider than a dormer cheek. The second dot silently became a second sighting
+   of the first, which reads as the tool refusing to place it. Small enough now
+   that two dots a hand's breadth apart both land, and pinning still works
+   because it only needs a click ON the dot. */
+const RM_PIN_GRAB_PX = 8;
 
 /* The point that best satisfies every ray it has been seen along. */
 function rmSolveFromRays(rays){
@@ -20666,7 +20674,66 @@ function openRoofMeasure(quoteId){
     if(rmDrawing) rmAddPoint(w);
   });
   document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  /* ⭐ SHIFT AND DRAG MOVES A DOT. Owner: "add a drage featue so if you grab a
+     dot while holding shift it moves."
+
+     ⚠ SHIFT IS WHAT MAKES IT SAFE. A plain drag on this sheet is how the office
+     places a dot and how it pins one, so a bare grab-and-move would turn every
+     slightly-wobbly click into a moved corner. Holding shift says move THIS
+     one, and nothing else on the sheet listens for it.
+
+     ⚠ AND A MOVED DOT STOPS BEING PINNED. Its position was the crossing of the
+     rays it had been seen along; dragging it somewhere else makes those rays
+     describe a point it is no longer at, so the sightings are dropped and the
+     ring comes off. Keeping them would leave a dot claiming to be exact while
+     sitting wherever it was last dragged - which is the confident-wrong state
+     this tool keeps having to be rescued from. */
+  let rmDragDot = -1;
+  document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
+    if(!e.shiftKey || rmCornerMode !== 'dot') return;
+    const cam = rmCamLocal();
+    if(!cam) return;
+    const r = this.getBoundingClientRect();
+    const {W, H} = rmPanoSize();
+    const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
+    if(i < 0) return;
+    rmDragDot = i;
+    e.preventDefault();
+    const note = document.getElementById('rmCornerNote');
+    if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
+  });
+  document.getElementById('rmPanoLock').addEventListener('mousemove', function(e){
+    if(rmDragDot < 0) return;
+    const cam = rmCamLocal();
+    const c = rmCorners[rmDragDot];
+    if(!cam || !c){ rmDragDot = -1; return; }
+    const r = this.getBoundingClientRect();
+    const {W, H} = rmPanoSize();
+    const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
+    /* Where it goes is decided the same way a fresh click is - the house as a
+       solid - so a dragged dot cannot land somewhere a placed one could not. */
+    const hit = rmHouseHit(dir, cam);
+    if(!hit) return;
+    const top = rmRoofTopM();
+    if(top !== null && hit.u > top + RM_EAVE_TOL_M) return;
+    const w = rmToWorld({e: hit.e, n: hit.n, u: hit.u});
+    c.lat = w.lat; c.lng = w.lng; c.h = hit.u;
+    c.rays = []; c.pinned = 0; c.spread = 0;
+    rmCornersChanged();
+  });
+  ['mouseup', 'mouseleave'].forEach(function(ev){
+    document.getElementById('rmPanoLock').addEventListener(ev, function(){
+      if(rmDragDot < 0) return;
+      const moved = rmCornerLabel(rmDragDot);
+      rmDragDot = -1;
+      const note = document.getElementById('rmCornerNote');
+      if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
+        'click it again from another angle to fix it exactly.';
+    });
+  });
   document.getElementById('rmPanoLock').addEventListener('click', function(e){
+    /* A shift-click is the end of a drag, not a placement. */
+    if(e.shiftKey) return;
     const cam = rmCamLocal();
     if(!cam) return;
     const r = this.getBoundingClientRect();
@@ -23117,7 +23184,15 @@ setupDraggableTabBar('respSectionTabs', 'resptab', 'huRespTabOrder', switchRespT
    where you stop walking it. */
 const RM_HARD_GRADE = 75;        /* 9/12 — roped on */
 const RM_MEDIUM_GRADE = 45;      /* 5.4/12 — the ordinary middle starts here */
-const RM_BUSY_SECTIONS = 5;
+/* ⚠ WAS 5, AND 5 IS AN ORDINARY HOUSE, NOT A BUSY ONE. Google's "sections" are
+   FACETS - the note above fetchRoofDetails already says they read higher than a
+   crew would count. A plain hip roof is 4 facets on its own; add an attached
+   garage and one dormer and an unremarkable house is 8, so every such house was
+   bumped a whole grade for being shaped like a house. */
+const RM_BUSY_SECTIONS = 10;
+/* How much of the roof has to be steep before the whole house counts as steep.
+   A steep patch is a patch; a steep ROOF is a day roped on. */
+const RM_STEEP_SHARE = 0.15;
 const RM_TWO_STOREY_FT = 17;
 /* What a difficulty does to the per-foot rate. Medium is 1 on purpose: the
    office's own Per Foot Pricing stays the baseline, so there is still ONE rate
@@ -23168,15 +23243,42 @@ function quoteDifficultyNote(d){
   if(!g || mult === 1) return '';
   return ' (' + g.toLowerCase() + ' house &times;' + mult + ')';
 }
+/* ⭐ THE GRADE IS WHAT THE ROOF IS MOSTLY LIKE, NOT ITS WORST SQUARE FOOT.
+   Owner, on a house the tool called Hard: "that house is medium difficulty its
+   currently hard meaning the grading system could use some love."
+
+   ⚠ MEASURED ON THAT HOUSE, 209 S 850 W. Eleven facets: ONE at 88% grade
+   (10.6/12) covering 183 of 2,185 sq ft, and the other ten at 63% and below,
+   most of them 51-56% - an ordinary 6/12 roof with one steep piece. The old
+   rule took the STEEPEST facet, so 88% set the grade for the whole roof and the
+   house came out Hard on pitch alone, before the section count was even reached.
+
+   A crew does not rope up all day because one 183 sq ft face is steep. So the
+   base grade is the AREA-WEIGHTED pitch, which on that house is 54% and lands
+   on Medium, where the owner puts it.
+
+   ⚠ AND A STEEP PATCH IS STILL NOT INVISIBLE, which was the right instinct in
+   the rule this replaces. If a real SHARE of the roof is steep it bumps the
+   grade. That face is 8.4% of the area, under the share, so it does not - and a
+   house steep over a third of its area still grades Hard.
+
+   ⚠ THIS FEEDS quoteDifficultyMult, so it changes prices. It only ever makes
+   the rule read the roof better; the multiplier table is untouched. */
 function gradeRoof(o){
   const maxGrade = Math.round(Number(o && o.maxGrade) || 0);
   const peakCount = Number(o && o.peakCount) || 0;
   const eaveFt = Number(o && o.eaveFt) || 0;
-  let level = maxGrade >= RM_HARD_GRADE ? 2 : (maxGrade >= RM_MEDIUM_GRADE ? 1 : 0);
+  const typical = Math.round(Number(o && o.typicalGrade) || maxGrade);
+  const steepShare = Number(o && o.steepShare) || 0;
+  let level = typical >= RM_HARD_GRADE ? 2 : (typical >= RM_MEDIUM_GRADE ? 1 : 0);
   const why = [];
-  if(level === 2) why.push('steep roof (' + maxGrade + '% grade)');
-  else if(level === 1) why.push('moderate pitch (' + maxGrade + '% grade)');
-  else why.push('low pitch (' + maxGrade + '% grade)');
+  if(level === 2) why.push('steep roof (' + typical + '% grade)');
+  else if(level === 1) why.push('moderate pitch (' + typical + '% grade)');
+  else why.push('low pitch (' + typical + '% grade)');
+  if(steepShare >= RM_STEEP_SHARE && level < 2){
+    level = Math.min(2, level + 1);
+    why.push(Math.round(steepShare * 100) + '% of it steeper than ' + RM_HARD_GRADE + '%');
+  }
   if(peakCount >= RM_BUSY_SECTIONS){ level = Math.min(2, level + 1); why.push(peakCount + ' separate roof sections'); }
   if(eaveFt >= RM_TWO_STOREY_FT){ level = Math.min(2, level + 1); why.push('two-storey eave (' + Math.round(eaveFt) + ' ft)'); }
   return {level: ['Easy', 'Medium', 'Hard'][level], why: why.join(', '),
@@ -23210,6 +23312,18 @@ async function fetchRoofDetails(lat, lng){
   // invisible to difficulty just because it's under the peak-count size threshold.
   const allGrades = allSegments.map(seg => pitchPercent(seg.pitchDegrees || 0));
   const maxGrade = allGrades.length ? Math.max(...allGrades) : 0;
+  /* ⭐ WHAT THE ROOF IS MOSTLY LIKE, weighted by how much of it there is, and
+     what SHARE of it is genuinely steep. The steepest single facet is kept for
+     the record but no longer sets the grade on its own - see gradeRoof. */
+  const segArea = seg => (seg.stats && seg.stats.areaMeters2) ? seg.stats.areaMeters2 : 0;
+  const totalArea = allSegments.reduce((a, seg) => a + segArea(seg), 0);
+  const typicalGrade = totalArea > 0
+    ? allSegments.reduce((a, seg) => a + pitchPercent(seg.pitchDegrees || 0) * segArea(seg), 0) / totalArea
+    : maxGrade;
+  const steepShare = totalArea > 0
+    ? allSegments.filter(seg => pitchPercent(seg.pitchDegrees || 0) >= RM_HARD_GRADE)
+                 .reduce((a, seg) => a + segArea(seg), 0) / totalArea
+    : 0;
   /* ⚠ THESE THRESHOLDS WERE MILES TOO STRICT AND CALLED ALMOST EVERY HOUSE HARD.
      They were 37% for Hard and 25% for Medium, and grade is a PERCENT, not
      degrees: 37% is a 4.4/12 pitch and 25% is 3/12. Both of those are LOW,
@@ -23228,7 +23342,8 @@ async function fetchRoofDetails(lat, lng){
      above sea level and nothing to subtract from them, so it grades without it
      and the Measure Roof panel re-grades through gradeRoof() once the elevation
      lookup has come back. One rule, called twice, rather than two rules. */
-  const graded = gradeRoof({maxGrade: maxGrade, peakCount: peakCount});
+  const graded = gradeRoof({maxGrade: maxGrade, typicalGrade: typicalGrade,
+                            steepShare: steepShare, peakCount: peakCount});
   const suggestedDifficulty = graded.level;
   const difficultyWhy = graded.why;
   /* Google gives the building's own footprint box. Framing the map to that
