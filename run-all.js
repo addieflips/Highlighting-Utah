@@ -36197,7 +36197,7 @@ suite('167. Measure Roof - shift and drag moves a dot');
     (function(){
       const i = admin.indexOf('if(rmDragDot < 0) return;');
       const j = admin.indexOf('rmHouseHit(dir, cam)', i);
-      return i !== -1 && j > i && (j - i) < 700;
+      return i !== -1 && j > i && (j - i) < 1400;   /* the slop guard sits between */
     })(),
     'a dragged dot must not be able to land where a placed one could not');
   check('S167', 'and it cannot be dragged above the roof',
@@ -36234,6 +36234,40 @@ suite('167. Measure Roof - shift and drag moves a dot');
     'a drag that never ends leaves every later mousemove moving the dot');
 }
 
+
+suite('169. Measure Roof - the dot that swallowed the click beside it');
+{
+  /* Owner: "it doesnt let me place dots if they are to close fix that."
+
+     ⚠ AND THE FIRST FIX WAS AIMED AT THE WRONG MECHANISM. Narrowing the PIN
+     radius from 22 px to 8 was worth doing, but it could never have fixed this:
+     each dot also draws an invisible target at r=12 with pointer-events:all, on
+     the SVG layer ABOVE the sheet that catches clicks. A click within twelve
+     pixels of a dot never reached the placing code - it toggled that dot and
+     stopped, because that handler calls stopPropagation. No message, no new dot,
+     nothing that looked like a refusal.
+     ⭐ FOUND BY CLICKING TWICE 12 PX APART IN THE LIVE TOOL and watching one dot
+     appear. Every test passed either way; the click was gone before anything
+     asked how near the nearest dot was. */
+  check('S169', 'the hit target no longer swallows the space beside a dot',
+    admin.indexOf('r="7" fill="rgba(0,0,0,0)"') !== -1 &&
+    admin.indexOf('r="12" fill="rgba(0,0,0,0)"') === -1,
+    'r=12 is wider than the gap between two corners of a dormer cheek');
+  check('S169', 'and the reason is written where the radius is',
+    /THIS IS WHAT STOPPED TWO DOTS BEING PLACED CLOSE TOGETHER/.test(admin) &&
+    /THE PIN RADIUS WAS A RED HERRING/.test(admin),
+    'the next person to see a placement problem should not re-narrow the pin radius');
+
+  /* ⭐ SHIFT MEANS TWO THINGS, AND THE MOUSE DECIDES WHICH. */
+  check('S169', 'a shift-drag that moved does not also swap two dots',
+    /if\(rmDragMoved\)\{ rmDragMoved = false; return; \}/.test(admin),
+    'shift-click swaps order and shift-drag moves - same modifier, same target, ' +
+    'so one gesture must not do both');
+  check('S169', 'and a wobble is not a drag',
+    /const RM_DRAG_SLOP_PX = 4;/.test(admin) &&
+    /Math\.hypot\(e\.clientX - rmDragFrom\.x, e\.clientY - rmDragFrom\.y\) < RM_DRAG_SLOP_PX/.test(admin),
+    'without it, shift-clicking to swap would nudge the dot a hair and cancel the swap');
+}
 
 suite('168. Measure Roof - a reset you can find');
 {
