@@ -1228,6 +1228,9 @@ const RETIRED_CHECKLIST_TERMS = [
       216,  // reading the options list for what is missing
       217,  // getting the soft-light houses switched before the list is lost
       218,  // the RSVP asking the right household for its own gate code
+      219,  // a real Venmo payment, in the app, with nothing behind it to record it
+      220,  // the master sheet: a per-device file permission, and a real write-back
+      221,  // what is actually deployed to the live project, rules and indexes
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
