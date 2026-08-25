@@ -1169,14 +1169,59 @@ const RETIRED_CHECKLIST_TERMS = [
   check('logic', 'js/test-seed.js exports TEST_SEED',
     /export const TEST_SEED = \[/.test(seedSrc),
     'the seed file does not export TEST_SEED — the dynamic import comes back undefined');
-  /* Floor lowered 2026-08-17: the seed was deliberately trimmed from 210 to
-     ~108 manual tests, dropping every row the automated suite already proves so
-     the owner's checklist only holds what a human or a live environment has to
-     verify. The floor is a truncation tripwire, not a target - a seed suddenly
-     back under ~90 means something ate the list, not that it was pruned. */
-  check('logic', 'the checklist seed survived the move intact',
-    TEST_SEED.length >= 8,
-    'only ' + TEST_SEED.length + ' tests in the seed — the move truncated the list');
+  /* ⭐ THE FLOOR BECAME A NAMED LIST, 2026-08-25. This was a bare count — `>= 90`
+     under the 108-row list of 2026-08-17, lowered to `>= 8` when the seed was
+     trimmed again that day, 125 rows to 11, to only what happens OUTSIDE the code
+     (owner: "i need it to be as simplified as possible only testing things you
+     absolutely cannot test").
+
+     ⚠ AT TWELVE ROWS A COUNT PROVES ALMOST NOTHING. A seed that lost three rows to
+     a bad merge still clears any floor worth setting, and a floor set high enough
+     to catch that would refuse the next legitimate removal.
+
+     ⚠ SO IT NAMES THEM, AND THE NAMING IS WHAT MATTERS HERE MORE THAN ANYWHERE
+     ELSE IN THIS SUITE: projShouldPruneTest DELETES a seeded row that leaves this
+     file, taking the owner's score and her notes with it, on the very next login.
+     A lost comma between two rows is caught above as a hole; a row lost to a merge
+     resolution is caught here, by number.
+
+     ⚠ ADDING OR REMOVING A ROW MEANS EDITING THIS LIST IN THE SAME COMMIT. That is
+     the point, not an inconvenience — the same argument Suite 39 makes for pinning
+     BULK_CHUNK_SIZE's exact value: the change should be a decision somebody made,
+     not a number that drifted. Per CLAUDE.md §0 a new row belongs here ONLY if the
+     automated suite genuinely cannot reach it; if you are adding one because a bug
+     got through, the suite was missing a check and that check is the fix.
+
+     ⭐ THE IDEA IS THE OWNER'S OWN, out of addieflips-patch-15. That branch sat 21
+     commits behind and its run-all.js was a whole-file paste, so merging it would
+     have reverted a day of work to gain this; the idea is taken and the paste is
+     not. */
+  {
+    const MANUAL_ONLY_IDS = [
+      26,   // a photo taken on a real device — camera and touch drawing
+      67,   // one house end to end on a real phone
+      111,  // real money through PayPal, a tip, and a closed browser
+      114,  // the 7 PM cron really firing, and Twilio really texting
+      186,  // an invoice email really arriving, and its Pay button working
+      199,  // the three papers, read on paper
+      207,  // Measure Roof against a house somebody has actually seen
+      214,  // Cloudinary really destroying the fix photo
+      215,  // the DECISION to switch the season to answered-Yes-only
+      216,  // reading the options list for what is missing
+      217,  // getting the soft-light houses switched before the list is lost
+      218,  // the RSVP asking the right household for its own gate code
+    ];
+    const have = SEED_ROWS.map(function (r) { return r[0]; });
+    const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
+    const extra = have.filter(function (id) { return !MANUAL_ONLY_IDS.includes(id); });
+    check('logic', 'the checklist seed holds exactly the un-automatable rows',
+      missing.length === 0 && extra.length === 0,
+      (missing.length ? 'gone from the seed: #' + missing.join(', #') +
+         ' — pruning deletes the owner\'s score and notes on the next login. ' : '') +
+      (extra.length ? 'in the seed but not in MANUAL_ONLY_IDS: #' + extra.join(', #') +
+         ' — if these are genuinely un-automatable, add them to the list here; ' +
+         'if the suite can reach them, they belong in the suite. ' : '') || undefined);
+  }
   /* Moving the list off the page created a failure it could not have had while
      it was inline: the fetch can now fail. The only caller is
      runProjectTestSync().catch(function(){}), so an unhandled throw reads as a
