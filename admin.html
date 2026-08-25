@@ -19566,6 +19566,11 @@ function rmFinishRun(){
   }
   if(rmCurrent && rmCurrent.path.length > 1){ rmRuns.push(rmCurrent); rmCurrent = null; }
   else rmDropCurrent();
+  /* ⚠ AFTER THE RUN IS KEPT, NEVER BEFORE. The fit reads rmRuns, so run
+     from the top of this function it would be matching everything EXCEPT the
+     line just traced - and on the first run of a house that is nothing at
+     all. It is silent unless it has something to say. */
+  rmAutoAlign();
   rmRenderResults(); rmPaintStreet();
 }
 
@@ -20727,10 +20732,19 @@ function rmAlignNote(msg){
 function rmAlignIdleNote(){
   if(!rmSkyOffset) return 'Not checked on this house. Until it is, a line traced from above may draw in the wrong place in Street View.';
   const ft = rmSkyOffsetFt();
-  return ft < 1
+  /* ⚠ IT SAYS WHERE THE ANSWER CAME FROM, every time. Measured off two
+     clicks, worked out from the roof model, or carried over from a neighbour
+     are three different levels of confidence, and a note that reads the same
+     for all three is a fit wearing a measurement's words. */
+  const how = rmSkyOffsetSource === 'fitted'
+    ? ' Worked out from the roof model rather than measured — press Line them up if the lines look wrong in Street View.'
+    : rmSkyOffsetSource === 'inherited'
+    ? ' Carried over from a house nearby, not measured here.'
+    : '';
+  return (ft < 1
     ? 'Lined up — the satellite picture was already within a foot of the model. Nothing needed moving.'
     : 'Lined up — the satellite picture sits ' + (Math.round(ft * 10) / 10) +
-      ' ft off, and every line traced from above is corrected by that.';
+      ' ft off, and every line traced from above is corrected by that.') + how;
 }
 function rmCancelAlign(){
   rmAligning = ''; rmAlignSky = null;
@@ -20922,6 +20936,147 @@ function rmAlignMilesWord(metres){
   const ft = metres * RM_M_TO_FT;
   if(ft < 600) return Math.round(ft) + ' ft';
   return (Math.round(ft / 528) / 10) + ' miles';
+}
+/* ================= LINING UP WITHOUT BEING ASKED =====================
+ *
+ * ⭐ WHY THIS EXISTS (added 2026-08-25). Owner: "Can we get it to be
+ * automatically lined up when I open it instead of having to push line up?"
+ *
+ * ⚠ THE HONEST LIMIT FIRST. Nothing can line the picture up before anything
+ * is drawn. The only things that know where the roof APPEARS in a satellite
+ * photograph are a person looking at it and image analysis this tool does not
+ * have - Google publishes neither the angle its satellite was at nor where the
+ * roof landed on the tile. A second house near one already measured inherits
+ * the answer, so the gap was only ever the FIRST house in an area.
+ *
+ * ⭐ AND THE FIRST LINE TRACED CLOSES IT. Google's roof model gives the
+ * gutter of every face in TRUE positions; the office traces the gutter it can
+ * SEE. Those are the same gutters, so the shift that makes them coincide IS the
+ * displacement - measured, from two things already on screen, with nothing
+ * guessed and no extra click.
+ *
+ * ⚠ IT REFUSES FAR MORE READILY THAN IT ACCEPTS. A fit that is merely the
+ * best of a bad set is worse than none, because it would move every line by a
+ * few feet and say it had lined the house up. It takes an answer only when the
+ * traced line ends up genuinely ON a model gutter and is meaningfully closer
+ * than it was, and otherwise says so and leaves the house alone. */
+const RM_FIT_COARSE_M = 1.0;        /* first pass step */
+const RM_FIT_FINE_M = 0.2;          /* second pass step, around the winner */
+const RM_FIT_MAX_RESID_M = 1.2;     /* ~4 ft: past this it did not land on a gutter */
+const RM_FIT_MIN_GAIN = 0.4;        /* and it has to be 40% better than doing nothing */
+const RM_FIT_MAX_SAMPLES = 80;
+/* The model's own gutter lines, in the local frame. ⚠ THE SAME rmFaceEave
+   THE SUGGESTED RUNS COME FROM - a second opinion about which edge of a face is
+   the gutter is how the fit and the suggestions start disagreeing about the
+   same roof. */
+function rmModelEaveSegs(){
+  const out = [];
+  if(!rmOrigin) return out;
+  (rmFaces || []).forEach(function(f){
+    const line = rmFaceEave(f);
+    if(!line || !line.a || !line.b) return;
+    const a = rmToLocal(line.a.lat, line.a.lng, 0);
+    const b = rmToLocal(line.b.lat, line.b.lng, 0);
+    if(Math.hypot(b.e - a.e, b.n - a.n) < 1) return;
+    out.push({a: a, b: b});
+  });
+  return out;
+}
+/* Points along everything traced from above, about a metre apart. ⚠ SAMPLED
+   ALONG THE SEGMENTS, not just at the ends: the ends of a well-traced gutter
+   are its two corners, and a corner sits near the end of TWO model edges, so
+   fitting on ends alone is nearly indifferent to sliding along the roof. */
+function rmTracedSamples(runs){
+  const out = [];
+  (runs || []).forEach(function(r){
+    if(!r || r.surface === 'manual' || r.surface === 'street') return;
+    const path = r.path || [];
+    for(let i = 1; i < path.length; i++){
+      const a = rmToLocal(path[i-1].lat, path[i-1].lng, 0);
+      const b = rmToLocal(path[i].lat, path[i].lng, 0);
+      const len = Math.hypot(b.e - a.e, b.n - a.n);
+      const steps = Math.max(1, Math.min(RM_FIT_MAX_SAMPLES, Math.round(len)));
+      for(let k = 0; k <= steps; k++){
+        const t = k / steps;
+        out.push({e: a.e + (b.e - a.e)*t, n: a.n + (b.n - a.n)*t});
+      }
+    }
+  });
+  return out.slice(0, RM_FIT_MAX_SAMPLES);
+}
+function rmFitResidual(samples, segs, de, dn){
+  let total = 0;
+  for(let i = 0; i < samples.length; i++){
+    const p = {e: samples[i].e + de, n: samples[i].n + dn};
+    let best = Infinity;
+    for(let j = 0; j < segs.length; j++){
+      const d = rmDistToSegment(p, segs[j].a, segs[j].b);
+      if(d < best) best = d;
+    }
+    total += best;
+  }
+  return total / samples.length;
+}
+/* ⚠ COARSE THEN FINE, not one fine sweep. A quarter-metre grid over the
+   whole allowance is four thousand passes over every sample and every edge, on
+   the click that ends a run - slow enough to feel like the tool hanging. */
+function rmFitSkyOffset(runs){
+  const segs = rmModelEaveSegs();
+  const samples = rmTracedSamples(runs);
+  if(segs.length < 2 || samples.length < 2) return null;
+  const base = rmFitResidual(samples, segs, 0, 0);
+  let best = {e: 0, n: 0, resid: base};
+  const sweep = function(cx, cn, step, span){
+    for(let de = cx - span; de <= cx + span + 1e-9; de += step){
+      for(let dn = cn - span; dn <= cn + span + 1e-9; dn += step){
+        if(Math.hypot(de, dn) > RM_ALIGN_MAX_M) continue;
+        const r = rmFitResidual(samples, segs, de, dn);
+        if(r < best.resid - 1e-9) best = {e: de, n: dn, resid: r};
+      }
+    }
+  };
+  sweep(0, 0, RM_FIT_COARSE_M, RM_ALIGN_MAX_M);
+  sweep(best.e, best.n, RM_FIT_FINE_M, RM_FIT_COARSE_M);
+  return {e: best.e, n: best.n, resid: best.resid, before: base,
+          edges: segs.length, samples: samples.length};
+}
+/* ⚠ THE ACCEPTANCE TEST IS THE WHOLE SAFETY ARGUMENT, and it is deliberately
+   hard to pass. Two independent conditions, because either alone is satisfied
+   by a bad fit: the line has to END UP on a gutter (residual), and it has to be
+   meaningfully better than leaving it alone (gain). A roof the model describes
+   badly, or a run traced somewhere that is not a gutter, fails both. */
+function rmFitIsGood(fit){
+  if(!fit) return false;
+  if(!(fit.resid < RM_FIT_MAX_RESID_M)) return false;
+  if(!(Math.hypot(fit.e, fit.n) > 0.3)) return false;   /* nothing to correct */
+  return fit.before > 0 && (fit.before - fit.resid) / fit.before >= RM_FIT_MIN_GAIN;
+}
+/* Called when a run is finished. Silent when there is nothing to say. */
+function rmAutoAlign(){
+  /* ⚠ NEVER OVER AN ANSWER SOMEBODY ALREADY GAVE. A measured alignment is a
+     person saying where a spot is; a fit is arithmetic about a model. */
+  if(rmSkyOffset || rmAligning) return;
+  let fit = null;
+  try{ fit = rmFitSkyOffset(rmRuns); }
+  catch(err){ console.error('Measure: could not fit the picture to the roof model -', err); return; }
+  if(!rmFitIsGood(fit)){
+    if(fit && fit.resid >= RM_FIT_MAX_RESID_M){
+      rmAlignNote('Could not line the picture up from that line - it did not land on any gutter Google knows about. ' +
+        'Press Line them up and click one corner in both views.');
+    }
+    return;
+  }
+  rmSetSkyOffset({e: fit.e, n: fit.n});
+  rmSkyOffsetSource = 'fitted';
+  rmSetAlignBtn();
+  rmAlignNote('Lined up on its own - the satellite picture sits ' +
+    (Math.round(Math.hypot(fit.e, fit.n) * RM_M_TO_FT * 10) / 10) +
+    ' ft off, worked out by matching what you traced to Google\u2019s roof model. ' +
+    'That is arithmetic, not a measurement: press Line them up if the lines look wrong in Street View.');
+  /* ⚠ NOT REMEMBERED FOR THE NEIGHBOURS. Only a measured answer is written
+     back as a sample - a fit copying itself down the street would gain the
+     authority of a measurement at every step with nothing left saying where it
+     came from. */
 }
 function rmMapPixelToWorld(clientX, clientY, rect){
   const b = rmMap.getBounds();
