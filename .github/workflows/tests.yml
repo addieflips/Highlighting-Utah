@@ -74,6 +74,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Named separately, though `npm test` also runs it. A wrong colour is a bundle
+      # nobody can use, and "the colour rules broke" is a different thing to go and look
+      # at than a line inside a 4,600-check run. It runs the real normalisers on both
+      # sides and fails if the office and the crew screen ever read a word differently.
+      - name: What colour a house is (warehouse colour rules)
+        run: npm run test:colours
+
+      # A wrong badge is a claim about where a job came from, printed beside somebody's
+      # name — worse than no badge. Named separately so a failure reads as "the badge
+      # rule broke" rather than a line inside a 4,600-check run.
+      - name: Why a bundle is being built (warehouse badges)
+        run: npm run test:reason
+
       - name: Run the fast suite
         run: npm test
 

@@ -24340,13 +24340,28 @@ const RB_COLOR_ALIASES = {
   'warm':'Warm White', 'ww':'Warm White', 'warmwhite':'Warm White', 'warm w':'Warm White',
   'warm white':'Warm White', 'wwarm':'Warm White',
   'pure':'Pure White', 'pw':'Pure White', 'purewhite':'Pure White', 'pure white':'Pure White',
-  'r':'Red', 'rr':'Red', 'rrr':'Red', 'red':'Red',
-  'g':'Green', 'gg':'Green', 'ggg':'Green', 'green':'Green',
-  'b':'Blue', 'bb':'Blue', 'blue':'Blue',
+  /* ⭐ A REPEATED LETTER IS A COUNT (2026-08-24). Addie, asked what bbb meant:
+     "R is Red, RR is Red, Red", "bbb is Blue, Blue, Blue rrr is Red, Red, Red, ggg is
+     Green, Green, Green". Five examples, letter-count matching word-count in every
+     one — so RR is two reds in a repeating strand, not a second way to spell Red.
+     They used to collapse to a single colour, which merged rr and rrr into one build.
+     ⚠ WW AND PW ARE NOT REPEATS — they are initials, Warm White and Pure White, and
+     she gave both explicitly in the same message. Only the single-letter colour codes
+     r, g and b count up.
+     ⚠ bb and gg are not written out in her message; they are the middle terms of a
+     rule she gave at one, two and three letters for r.
+     ⚠ THE REPEAT IS WHAT MAKES IT A PATTERN. rbDetectColorsAndPattern reads a repeated
+     colour as an alternating strand and moves it into lightsDescription, where the
+     ORDER is kept — which is why these have to be lists and must never be deduped. */
+  'r':'Red', 'rr':['Red','Red'], 'rrr':['Red','Red','Red'], 'red':'Red',
+  'g':'Green', 'gg':['Green','Green'], 'ggg':['Green','Green','Green'], 'green':'Green',
+  'b':'Blue', 'bb':['Blue','Blue'], 'bbb':['Blue','Blue','Blue'], 'blue':'Blue',
   'purple':'Purple', 'purp':'Purple',
   'o':'Orange', 'orange':'Orange',
   'pink':'Pink', 'pk':'Pink',
-  'multi':'Multi', 'multicolor':'Multi', 'multicolour':'Multi', 'multi color':'Multi',
+  /* ⚠ NO multi ROWS HERE. "Anything multi something is Multi" is a SHAPE, so it lives
+     in rbLooksMulti below and both normalisers ask it. Rows saying the same thing meant
+     the rule could be deleted with nothing failing — a red-check caught exactly that. */
   /* ⭐ THE FOUR THE OFFICE HAD TO RULE ON. These sat unmapped for weeks because a
      wrong guess writes the wrong lights onto a house; the owner settled them all on
      2026-08-19.
@@ -24364,9 +24379,69 @@ const RB_COLOR_ALIASES = {
      that these lights are the old stock and have to be swapped, not a colour
      anybody should be able to choose for a new house. */
   'p':'Pure White', 'w':'Warm White',
-  'soft':'soft(recycled)', 'soft white':'soft(recycled)',
-  'white':['Warm White', 'Pure White']
+  /* ⭐ SOFT IS WARM WHITE (2026-08-24). Addie, asked directly and told the cost:
+     "soft should be Warm White".
+     ⚠ THIS REVERSES HER OWN RULING OF 2026-08-19, kept in the block above because the
+     reasoning still matters: soft was given its own label so those houses could be
+     FOUND and switched. Under that rule the warehouse got a group headed
+     `soft(recycled)`, which is not a colour anybody stocks, so nobody could build it.
+     ⭐ AND THE LIST SURVIVES ANYWAY. `allCustFilterLights` matches /soft/i against the
+     RAW lightColors and lightsDescription — it never goes through this table — so every
+     house already carrying soft(recycled) is still findable, and the two colour
+     checkboxes that write it are untouched. What changed is only what soft MEANS when
+     something builds or groups.
+     ⚠ THE ONE REAL LOSS: a master-sheet sync that rewrites one of those rows replaces
+     soft(recycled) with Warm White on the record, and that house drops off the
+     switching list for good. She was told; do not reinstate the old label.
+     ⚠ `soft(recycled)` IS A KEY TOO, not just `soft`. It is the value already stored on
+     real records, and without it the trailing-(...)-is-a-note reader turns it into
+     `Warm White (recycled)` — its own heading, which would not merge. */
+  'soft':'Warm White', 'soft white':'Warm White', 'soft(recycled)':'Warm White',
+  'white':['Warm White', 'Pure White'],
+  /* ⭐ RULED ON BY ADDIE, 2026-08-24, asked which of these appear in the real sheet.
+     Every one is her answer, not a guess.
+     ⚠ `pur` IS PURE WHITE, NOT PURPLE. That is the one I would have got wrong, and the
+     reason it was put to her rather than assumed.
+     ⚠ `mc` IS DELIBERATELY UNMAPPED: "just skip mc". It falls through to its own
+     heading, which is visible and correctable.
+     ⚠ NOT ADDED, because each IS a guess: `pu`, `or` (an English word — "red or
+     green"). Do not add these without asking her. */
+  'pur':'Pure White', 'clear':'Pure White',
+  'cool white':'Pure White', 'bright white':'Pure White',
+  'orng':'Orange', 'pnk':'Pink', 'blu':'Blue', 'grn':'Green',
+  'rainbow':'Multi',
+  /* Plurals. A cell saying "reds" can only mean Red. */
+  'reds':'Red', 'greens':'Green', 'blues':'Blue', 'pinks':'Pink',
+  'purples':'Purple', 'oranges':'Orange',
+  'warm whites':'Warm White', 'pure whites':'Pure White'
 };
+/* ⭐ ANYTHING MULTI-SOMETHING IS MULTI (2026-08-24). Addie: "anything multi something
+   is Mult[i]". A table cannot hold every spelling — multicolor, multi-colour, multi
+   coloured — so this is a rule rather than nine more rows.
+   ⚠ IT IS NOT A BARE PREFIX. "multi red" is a mixed strand with a named colour in it,
+   and reading that as plain Multi puts the wrong bundle on the house.
+   ⚠ Both normalisers ask it, so the import and the warehouse cannot disagree. */
+const RB_MULTI_RE = /^multi[\s-]?(colou?r(ed|s)?)?$/;
+function rbLooksMulti(text){
+  return RB_MULTI_RE.test(String(text || '').toLowerCase().replace(/\s+/g, ' ').trim());
+}
+/* ⭐ LETTERS RUN TOGETHER ARE A STRAND (2026-08-24). Addie, asked whether one cell
+   reading `rrgg` meant the same as `rr/gg`: "That is still Red, Red, Green, Green all
+   of those ways." So the separator is optional and the letters are read one at a time.
+   ⚠ ONLY r, g, b AND o, AND THAT LIMIT IS THE WHOLE SAFETY OF IT. `w` and `p` are
+   excluded because WW and PW are INITIALS — Warm White and Pure White — which she ruled
+   on in the same message as the counts. A reader that expanded every letter would turn
+   `ww` into two warm whites, the opposite of what she said, and `wwrr` is genuinely
+   ambiguous with no way to tell. Anything holding a w or a p is left exactly as typed.
+   ⚠ ONE LETTER IS NOT A RUN — r, g, b and o are alias keys and answer from the table.
+   ⚠ AND IT AGREES WITH THE TABLE WHERE THEY OVERLAP (rr, rrr, gg, ggg, bb, bbb), which
+   is asserted rather than arranged: a clashing alias fails the build. */
+const RB_RUN_LETTERS = {r:'Red', g:'Green', b:'Blue', o:'Orange'};
+function rbLetterRun(text){
+  const t = String(text || '').toLowerCase().trim();
+  if(t.length < 2 || !/^[rgbo]+$/.test(t)) return null;
+  return t.split('').map(function(ch){ return RB_RUN_LETTERS[ch]; });
+}
 function rbNormalizeColors(raw){
   if(!raw) return [];
   return String(raw)
@@ -24382,8 +24457,15 @@ function rbNormalizeColors(raw){
          kept in the pattern string by rbDetectColorsAndPattern. */
       const counted = low.match(/^\d+\s*(.+)$/);
       const key = counted ? counted[1].trim() : low;
+      if(rbLooksMulti(key)) return 'Multi';
+      /* ⚠ PRECEDENCE IS THE ORDER OF THIS EXPRESSION: a ruling in the table beats the
+         general run rule. It makes no difference today — every token both can read they
+         read the same, and the gate asserts that — so a separate guard would be a branch
+         that can never fire. If they ever DO disagree the right outcome is a failing
+         build and a human deciding, not a line here quietly picking one. */
       return RB_COLOR_ALIASES[key] ||
              (RB_LIGHT_COLOR_OPTIONS.find(function(opt){ return opt.toLowerCase() === key; })) ||
+             rbLetterRun(key) ||
              c;
     })
     /* ⚠ ONE WORD CAN MEAN TWO COLOURS. "white" is warm AND pure, because nobody
@@ -30277,7 +30359,7 @@ function whRecycleGroups(){
        then never appeared in this list, so their customer number never came
        back to the available pool. */
     if(!d.needsLightRecycle) return;
-    const key = whGroupKey(d.lightsDescription || 'No lights recorded', d.wireColor);
+    const key = whGroupKey(houseLightsText(d) || 'No lights recorded', d.wireColor);
     if(!groups[key]) groups[key] = [];
     groups[key].push(item);
   });
@@ -30286,7 +30368,7 @@ function whRecycleGroups(){
      reads the archive alongside the book. Same shape, same grouping, same buttons. */
   (whArchivedPending || []).forEach(function(item){
     const d = item.data || {};
-    const key = whGroupKey(d.lightsDescription || 'No lights recorded', d.wireColor);
+    const key = whGroupKey(houseLightsText(d) || 'No lights recorded', d.wireColor);
     if(!groups[key]) groups[key] = [];
     groups[key].push(item);
   });
@@ -31409,7 +31491,10 @@ function computeColorDemand(){
     /* Same season rule as whBuildQueueGroups — see the note there. The flag alone
        missed anybody who answered Back Next Year through the RSVP link, so the colour
        totals ordered lights for people who are not having any. */
-    if(item.data.needsLightBuild && item.data.lightsDescription && !isOutForSeason(item.data)) addPattern(item.data.lightsDescription, 1);
+    /* ⚠ BOTH FIELDS, and this is the costly one: these totals are what gets ORDERED.
+       A house whose colours are in lightColors alone had no bulbs bought for it. */
+    const lights = houseLightsText(item.data);
+    if(item.data.needsLightBuild && lights && !isOutForSeason(item.data)) addPattern(lights, 1);
   });
   warehouseExtras.forEach(function(item){
     addPattern(item.data.pattern, Number(item.data.quantity)||0);
@@ -31418,7 +31503,8 @@ function computeColorDemand(){
 }
 function computePendingHouseCount(){
   /* Same season rule again — this count and the list it summarises have to agree. */
-  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && item.data.lightsDescription && !isOutForSeason(item.data); }).length;
+  /* Same two fields as the list it summarises, or the count and the list disagree. */
+  let total = jobAddresses.filter(function(item){ return item.data.needsLightBuild && houseLightsText(item.data) && !isOutForSeason(item.data); }).length;
   warehouseExtras.forEach(function(item){ total += Number(item.data.quantity)||0; });
   return total;
 }
@@ -31963,23 +32049,117 @@ const WH_LIGHT_COLORS = ['Warm White','Pure White','Purple','Orange','Green','Mu
    exactly as typed rather than being guessed at and quietly merged into the
    plain Red group, because those are not the same build.
    \u26a0 admin.html and employee.html each carry their own copy of this. */
+/* ⭐ ONE VOCABULARY, TWO NORMALISERS (2026-08-24). Addie: "Is there any other colors
+   having problems besides that" — and this was the answer.
+   ⚠ THE IMPORT AND THE WAREHOUSE KNEW DIFFERENT WORDS. `rbNormalizeColors` reads the
+   master sheet through RB_COLOR_ALIASES and understands ww, w, warm, pure, p, pw, r,
+   rr. This function knew only the nine full names in WH_LIGHT_COLORS. So a record whose
+   lightsDescription held an abbreviation fell through and became its OWN heading,
+   verbatim: "ww" and "Warm White" sat in two groups on the warehouse tab, for one
+   build, and neither said the other existed.
+   ⚠ THE UNKNOWN-WORD GUARD IS UNCHANGED AND IS THE POINT. Only a description made
+   ENTIRELY of words we know is rewritten; one unknown word still returns null and the
+   text is left exactly as typed. "Red with tinsel" is not the plain Red build.
+   ⚠ LONGEST MATCH FIRST, or "warm" eats the front of "warm white" and the leftover
+   "white" comes back as a second colour. Sorted once at module load, not per call.
+   ⚠ AN ALIAS MAY BE A LIST — "white" is both whites — so the result is spread, never
+   pushed as an array, which would put a comma inside one colour name.
+   ⚠ admin.html and employee.html each carry their own copy of this — change both. */
+const WH_COLOR_WORDS = (function(){
+  const map = {};
+  WH_LIGHT_COLORS.forEach(function(c){ map[c.toLowerCase()] = [c]; });
+  Object.keys(RB_COLOR_ALIASES).forEach(function(k){
+    const v = RB_COLOR_ALIASES[k];
+    map[String(k).toLowerCase()] = Array.isArray(v) ? v.slice() : [v];
+  });
+  /* ⚠ AND EVERY VALUE IS A KEY TOO, so normalising an already-normalised description
+     gives the same answer back. Without it a stored value carrying brackets was torn
+     apart by the notes reader below and came back doubled. */
+  Object.keys(map).slice().forEach(function(k){
+    map[k].forEach(function(v){
+      const lc = String(v).toLowerCase();
+      if(!map[lc]) map[lc] = [v];
+    });
+  });
+  return {map: map, keys: Object.keys(map).sort(function(a, b){ return b.length - a.length; })};
+})();
 function whColorsFromWords(token){
   let rest = String(token || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const found = [];
   while(rest){
-    const hit = WH_LIGHT_COLORS.find(function(opt){
-      const lc = opt.toLowerCase();
-      return rest === lc || rest.indexOf(lc + ' ') === 0;
+    /* The multi rule first: it is a shape, not a word, so no table row can hold it. */
+    if(rbLooksMulti(rest)){ found.push('Multi'); rest = ''; continue; }
+    /* Then a run of letters — rrgg. Asked before the table and it makes no difference:
+       every token both can read, they read the same, and that is asserted. */
+    const run = rbLetterRun(rest);
+    if(run){ found.push.apply(found, run); rest = ''; continue; }
+    const hit = WH_COLOR_WORDS.keys.find(function(k){
+      return rest === k || rest.indexOf(k + ' ') === 0;
     });
     if(!hit) return null;
-    found.push(hit);
+    found.push.apply(found, WH_COLOR_WORDS.map[hit]);
     rest = rest.slice(hit.length).trim();
   }
   return found.length ? found : null;
 }
+/* Every separator people actually type. Declared once because two readers split on it
+   now, and a second copy is the one that falls behind. */
+const WH_LIGHT_SEP = /[,\u2014\/&+]|\band\b/i;
+/* ⭐ TRY THE WHOLE DESCRIPTION AS COLOURS BEFORE TREATING BRACKETS AS A NOTE. Returns
+   null unless EVERY piece is a colour we know, so the unknown-word guard is exactly as
+   strict as it was.
+   ⚠ WHY IT EXISTS: "Red, soft(recycled)" came out as "Red, Warm White (recycled)", its
+   own heading, because the note reader pulled the brackets off the END of the whole
+   string and put them back afterwards. soft(recycled) is a stored COLOUR value, not a
+   note, so that house did not merge with plain Red + Warm White.
+   ⚠ A REAL NOTE STILL SURVIVES: "Warm White (every third bulb)" has a piece that is not
+   a colour, so this returns null and the note path handles it untouched. */
+function whSplitAllKnown(text){
+  const out = [];
+  let ok = true;
+  String(text || '').split(WH_LIGHT_SEP).forEach(function(piece){
+    if(!ok) return;
+    const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
+    if(!t) return;
+    const as = whColorsFromWords(t);
+    if(!as){ ok = false; return; }
+    out.push.apply(out, as);
+  });
+  return (ok && out.length) ? out : null;
+}
+/* ⭐ SORT A SET, KEEP A PATTERN (2026-08-24). Sorting exists so "Red, Green" and
+   "Green, Red" — two people typing the same two colours — land in ONE group. That is
+   right for a SET and wrong the moment a colour repeats.
+   ⚠ SINCE RR MEANS TWO REDS, order carries information. rrgg is Red, Red, Green, Green
+   and rgrg is Red, Green, Red, Green: the same four bulbs, two different strands, and
+   sorting flattens both to one heading for two builds. A list with a repeat in it keeps
+   the order it came in.
+   ⚠ Same rule rbDetectColorsAndPattern applies at the other end, said once more here
+   because this is where the group heading is decided. */
+function whOrderColors(list){
+  const seen = {};
+  const repeats = list.some(function(c){
+    const k = String(c).toLowerCase();
+    if(seen[k]) return true;
+    seen[k] = 1;
+    return false;
+  });
+  if(repeats) return list.slice();
+  return list.slice().sort(function(a, b){
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  });
+}
 function whNormalizeLights(text){
   const raw = String(text || '');
   if(!raw.trim()) return raw;
+  /* ⚠ THE WHOLE DESCRIPTION FIRST. The reader below pulls a trailing (...) off as a
+     NOTE — "Warm White (every third bulb)" — which is right for a note and wrong for a
+     value that simply contains brackets. Asking about the whole string first costs one
+     lookup and makes normalising idempotent. */
+  const whole = whColorsFromWords(raw.trim());
+  if(whole) return whOrderColors(whole).join(', ');
+  const known = whSplitAllKnown(raw.trim());
+  if(known) return whOrderColors(known).join(', ');
   const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
   const main  = m ? m[1].trim() : raw.trim();
   const notes = m ? m[2].trim() : '';
@@ -31989,7 +32169,7 @@ function whNormalizeLights(text){
      build queue \u2014 plus a fifth for "red, green" in lower case, because the
      sort ignored case but the group key did not. */
   const colors = [];
-  main.split(/[,\u2014\/&+]|\band\b/i).forEach(function(piece){
+  main.split(WH_LIGHT_SEP).forEach(function(piece){
     const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
     if(!t) return;
     /* A known colour is rewritten in the app's own spelling and capitalisation
@@ -32000,9 +32180,7 @@ function whNormalizeLights(text){
     else colors.push(t);
   });
   if(!colors.length) return raw.trim();
-  const sorted = colors.slice().sort(function(a,b){
-    return a.toLowerCase().localeCompare(b.toLowerCase());
-  });
+  const sorted = whOrderColors(colors);
   return sorted.join(', ') + (notes ? ' (' + notes + ')' : '');
 }
 /* ⭐ WHAT THE WAREHOUSE ACTUALLY BUILDS FROM — ONE ANSWER (added 2026-08-21,
@@ -32050,6 +32228,33 @@ function warehouseRebuildFields(oldData, newData) {
     if (!Object.prototype.hasOwnProperty.call(n, f)) return false;
     return norm(f, n) !== norm(f, o);
   });
+}
+/* ⭐ COLOURS LIVE IN TWO FIELDS AND BOTH HAVE TO BE READ (added 2026-08-24). Addie:
+   "All I want are the lights saved on peoples houses that don't have a category of
+   lights its under like red, warm."
+
+   ⚠ THIS WAS THE WHOLE OF THE "WAITING ON LIGHT COLOURS" BLOCK, and it was not a
+   missing answer — it was an answer nobody was reading. `rbDetectColorsAndPattern`,
+   which the master-sheet sync writes through, only fills `lightsDescription` when a
+   colour REPEATS, because a repeat means an alternating pattern where the order
+   matters. An ordinary house — "Red, Warm White" — comes out as
+   {colors:['Red','Warm White'], pattern:''}. So every ordinary house the sync added
+   had its colours saved in `lightColors` and an EMPTY `lightsDescription`, and four
+   readers in the warehouse tested only the description: the build queue called them
+   blocked, the colour totals ordered no bulbs for them, and the pending count left
+   them out. Verified by RUNNING the real splitter, not read off the source.
+
+   This file already records the same bug pointing the other way, on the soft-lights
+   filter: read only the LIST and you miss the alternating houses. One helper now, so
+   neither half can be forgotten again.
+
+   ⚠ THE DESCRIPTION WINS WHERE THERE IS ONE, because it carries the ORDER an
+   alternating house is built in and the list deliberately does not. */
+function houseLightsText(d){
+  const c = d || {};
+  const desc = String(c.lightsDescription || '').trim();
+  if(desc) return desc;
+  return (Array.isArray(c.lightColors) ? c.lightColors.filter(Boolean).join(', ') : '');
 }
 function whGroupKey(lightsDescription, wire){
   return whNormalizeLights(lightsDescription) + ' \u2014 ' + whWireLabel(wire) + ' wire';
@@ -32115,8 +32320,76 @@ function whToggleGroup(listId){
    colours: the timer, the wire, and the number that goes on the bin. A house
    with no number cannot be binned or handed to a crew, and a brand-new customer
    has no number yet — so that says so in ember rather than sitting blank. */
+/* ⭐ WHY THIS BUNDLE IS BEING BUILT (added 2026-08-24). Addie: "There should be a badge
+   by each person on warehouse that say's new, Old-Rebuild or Member Poral or Request",
+   with her own definitions:
+     New          — a new quote
+     Old-Rebuild  — already a member, changed address / extended house / added a building
+     Member Portal— anything they changed in the member portal themselves
+     Request      — we added it ourselves, from a request by email, call or text
+
+   ⚠ THE ORDER IS THE RULE, because a customer can be more than one at once. It runs
+   most-work-first: a first hang is the biggest job on the sheet, a move or an extension
+   the next, and a colour change on an otherwise unchanged house the smallest. Somebody
+   re-quoted for a new address who ALSO picked new colours is an Old-Rebuild — reading it
+   as a colour change sends the warehouse to make one bundle for a house that needs the lot.
+
+   ⚠ AND IT NEVER GUESSES. A colour change made before 2026-08-24 carries no
+   lightsChangedVia, because nothing recorded one — those say CHANGED rather than being
+   assigned one of her four on a coin toss. A wrong provenance printed beside a name is
+   worse than an honest "we do not know", and it fills itself in from here on. */
+const WH_BUILD_REASONS = {
+  'new':      {label: 'NEW',           bg: '#E4F0E6', color: '#2C6135'},
+  'rebuild':  {label: 'OLD-REBUILD',   bg: '#E5EAF7', color: '#31447E'},
+  'portal':   {label: 'MEMBER PORTAL', bg: '#F3E8F6', color: '#6B3F7A'},
+  'request':  {label: 'REQUEST',       bg: '#FBF0DF', color: '#8A5A12'},
+  'changed':  {label: 'CHANGED',       bg: '#EDEFF2', color: '#4E5A66'}
+};
+function whBuildReasonKey(d){
+  const c = d || {};
+  /* A first-time hang. ⚠ requoteAppliedAt excludes a returning member: the join fee flag
+     stays set on somebody who joined in a previous season, so the flag alone would badge
+     half the book NEW. */
+  if(c.chargeNewMemberFee === true && !c.requoteAppliedAt) return 'new';
+  /* A re-quote that was actually applied. ⚠ 'price' is deliberately not here — a
+     price-only re-quote changes no glass, queues no build, and would never reach this
+     list; badging it a rebuild would describe work nobody is doing. */
+  if(c.requoteAppliedAt){
+    const kind = String(c.requoteKind || '').trim().toLowerCase();
+    if(kind !== 'price') return 'rebuild';
+  }
+  if(c.lightsChangedAt){
+    const via = String(c.lightsChangedVia || '').trim().toLowerCase();
+    if(via === 'portal') return 'portal';
+    if(via === 'office') return 'request';
+    return 'changed';
+  }
+  return '';
+}
+function whBuildReasonChip(d){
+  const r = WH_BUILD_REASONS[whBuildReasonKey(d)];
+  if(!r) return '';
+  return ' <span class="status-pill" style="background:'+r.bg+'; color:'+r.color+
+    '; font-weight:700; letter-spacing:.03em;">'+esc(r.label)+'</span>';
+}
+/* ⭐ THE SAME BADGE IN WORDS, FOR PAPER. Addie: "I need paper to carry badge too." A chip
+   is a coloured pill and a printed sheet is black on white, so the two cannot share a
+   renderer — but they MUST share the rule, or the screen and the sheet printed from it
+   start making different claims about where a job came from. Both call whBuildReasonKey
+   and neither decides anything of its own. */
+function whBuildReasonLabel(d){
+  const r = WH_BUILD_REASONS[whBuildReasonKey(d)];
+  return r ? r.label : '';
+}
 function whHouseFactsHtml(d){
-  let html = '';
+  /* ⭐ WHY IT IS BEING BUILT, FIRST. It leads the chips because it is the only one that
+     says what KIND of job the row is — a first hang, a rebuild after a move, or a colour
+     change on a house that is otherwise finished. The timer and the wire say what to put
+     in the bin; this says why there is a bin.
+     ⚠ ONE PLACE, so every warehouse row gets it. whHouseFactsHtml is what the build
+     groups, the blocked block and the add-on rows all call — putting it on one of them
+     would leave the badge missing exactly where somebody looked next. */
+  let html = whBuildReasonChip(d);
   if(String(d.outletTimer || '').trim() === 'Yes'){
     html += ' <span style="display:inline-block; background:var(--snow); color:var(--slate); border:1px solid var(--line); border-radius:999px; padding:1px 8px; font-size:11px; font-weight:600; vertical-align:middle;">Timer</span>';
   }
@@ -32164,8 +32437,12 @@ function whBuildQueueGroups(){
        out. Somebody who MOVED is not out (recycleKeepingCustomer), so they still
        build — which is the whole reason those two buttons were split. */
     if(!d.needsLightBuild || (typeof isOutForSeason === 'function' && isOutForSeason(d))) return;
-    if(!d.lightsDescription){ blocked.push(item); return; }
-    const key = whGroupKey(d.lightsDescription, d.wireColor);
+    /* ⚠ BOTH FIELDS. Testing lightsDescription alone put every ordinary house the
+       master-sheet sync added into the blocked block with its colours sitting on the
+       record — see houseLightsText. */
+    const lights = houseLightsText(d);
+    if(!lights){ blocked.push(item); return; }
+    const key = whGroupKey(lights, d.wireColor);
     if(!groups[key]) groups[key] = {houses:[], extras:[]};
     groups[key].houses.push(item);
     /* A timer is part of that house's build, not loose buffer stock. It used to
@@ -32843,6 +33120,7 @@ function whSheetRowsForBuild(){
       group: 'Waiting on light colours',
       wire: whWireLabel(d.wireColor),
       type: 'Blocked',
+      reason: whBuildReasonLabel(d),
       what: whWhoLabel(d),
       address: d.address || '',
       bins: whBinsForHouse(d),
@@ -32870,6 +33148,10 @@ function whSheetRowsForBuild(){
            scans down. A bundle handed to somebody who thinks they are building a house
            gets a new bin made for it, and then there are two bins with one number. */
         type: need.topUp ? 'ADD-ON' : 'House',
+        /* ⚠ A BLOCKED OR ADD-ON ROW STILL HAS A REASON. Type and Why answer two different
+           questions and neither substitutes for the other: an add-on for somebody who extended
+           their house is an ADD-ON that is an OLD-REBUILD. */
+        reason: whBuildReasonLabel(d),
         what: whWhoLabel(d),
         address: d.address || '',
         bins: whBinsForHouse(d),
@@ -32900,6 +33182,10 @@ function whSheetRowsForBuild(){
         group: groupName,
         wire: isTimer ? '' : (e.data.wireColor || ''),
         type: isTimer ? 'Timer' : 'Extra',
+        /* ⚠ Buffer stock has no customer behind it, so it has no provenance to claim. Blank,
+           never one of the five — a badge on a row nobody asked for is a claim about somebody
+           who does not exist. */
+        reason: '',
         what: g.title ? (isTimer ? 'Timer' : (e.data.pattern || 'Lights')) : (e.data.label || 'Extra stock'),
         address: g.linked ? (g.linked.data.address || '') : '',
         /* ⚠ Buffer stock is not somebody's house, so "how many bins for them" has
@@ -32915,6 +33201,53 @@ function whSheetRowsForBuild(){
   // The sheet carries its own column list, so nothing outside has to know
   // which layout goes with which sheet.
   return {rows: rows, columns: WH_BUILD_COLUMNS, timerHouses: built.timerHouses, groupCount: built.keys.length};
+}
+/* ⭐ ONE PAGE PER COLOUR GROUP (added 2026-08-24). Addie chose this over splitting by
+   badge, and it is the right unit: a colour-and-wire group IS the pile somebody pulls
+   from, so two people can build at once without sharing one sheet of paper. Splitting
+   by badge instead cuts ACROSS the piles and sends each person to every shelf.
+
+   ⚠ THE ORDER IS NOT DECIDED HERE, AND MUST NOT BE. whSheetRowsForBuild emits the
+   blocked rows before any group, so walking its rows in order already puts "Waiting on
+   light colours" first and keeps every other page in the same order as the tab. A sort
+   here looked like a guard and was in fact unreachable — a red-check proved it, so it
+   is gone rather than left looking load-bearing. If blocked ever stops leading, fix
+   whSheetRowsForBuild.
+
+   ⚠ WHY A HOUSE CAN BE WAITING ON COLOURS AT ALL, since Addie asked and the answer is
+   not obvious: it IS required on both doors a person types into — the customer's detail
+   form refuses to submit and Add Customer refuses to save. The master-sheet sync is the
+   producer: it sets needsLightBuild on everybody it adds and takes colours from the
+   sheet's Lights column, so a blank cell there makes one. ⚠ DO NOT "fix" that by
+   dropping the build flag when colours are missing — they would silently vanish instead
+   of appearing on a list, which is the failure the blocked block exists to end. */
+function whBuildSheetPages(){
+  const sheet = whSheetRowsForBuild();
+  const order = [];
+  const byGroup = {};
+  (sheet.rows || []).forEach(function(r){
+    const g = r.group || '(no group)';
+    if(!byGroup[g]){ byGroup[g] = []; order.push(g); }
+    byGroup[g].push(r);
+  });
+  return order.map(function(g, i){
+    const rows = byGroup[g];
+    const houses = rows.filter(function(r){ return r.type === 'House' || r.type === 'ADD-ON'; }).length;
+    /* ⚠ parseInt, NOT Number — the Bundles cell carries "+3" and "3 est" markers, and
+       Number("3 est") is NaN, which silently drops that house out of the total. Same
+       reasoning as the whole-sheet summary; the same mistake under-reports a page. */
+    const bundles = rows.reduce(function(n, r){ return n + (parseInt(r.bundles, 10) || 0); }, 0);
+    const timers = rows.filter(function(r){ return String(r.timer || '').indexOf('Yes') === 0; }).length;
+    const bits = [];
+    if(houses) bits.push(houses + ' house' + (houses === 1 ? '' : 's'));
+    if(bundles) bits.push(bundles + ' bundle' + (bundles === 1 ? '' : 's'));
+    if(timers) bits.push(timers + ' timer' + (timers === 1 ? '' : 's'));
+    /* ⚠ "SHEET X OF Y" IS THE POINT OF SPLITTING. Once the stack is handed out, the one
+       thing nobody can tell from a single page is whether they are holding all of them,
+       and a build that quietly lost a page is a house nobody makes. */
+    bits.push('sheet ' + (i + 1) + ' of ' + order.length);
+    return {title: g, summary: bits.join(' \u00b7 '), rows: rows, columns: sheet.columns};
+  });
 }
 function whSheetRowsForRecycle(){
   const built = whRecycleGroups();
@@ -33011,7 +33344,11 @@ function whSheetTable(rows, columns){
   }).join('');
   return '<table class=\"sheet'+dense+'\"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
 }
-function whOpenPrintWindow(title, summaryLine, tableHtml, emptyNote){
+/* `sections` is an array of {title, summary, tableHtml} and each one is a page. It used
+   to take a single table; the build sheet is one page per colour group now, and the
+   recycle sheet passes an array of one rather than keeping a second code path alive. */
+function whOpenPrintWindow(title, sections, emptyNote){
+  const live = (sections || []).filter(function(x){ return x && x.tableHtml; });
   const today = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title><style>'+
     'body{font-family:Arial,Helvetica,sans-serif; margin:16px; color:#111;}'+
@@ -33027,11 +33364,17 @@ function whOpenPrintWindow(title, summaryLine, tableHtml, emptyNote){
     // no column names on it is a page nobody can read.
     'thead{display:table-header-group;} tr{page-break-inside:avoid;}'+
     '.empty{font-size:13px; color:#555;}'+
+    /* The break is what makes a page a page. Not on the last one, or every print
+       ends with a blank sheet. */
+    '.sheet{page-break-after:always;} .sheet:last-child{page-break-after:auto;}'+
     '@page{size:landscape; margin:10mm;}'+
     '</style></head><body>'+
-    '<h1>'+esc(title)+'</h1>'+
-    '<div class="sub">'+esc(today)+(summaryLine ? ' &middot; '+esc(summaryLine) : '')+'</div>'+
-    (tableHtml || '<div class="empty">'+esc(emptyNote || 'Nothing to print.')+'</div>')+
+    (live.length ? live.map(function(p){
+      return '<div class="sheet"><h1>'+esc(p.title || title)+'</h1>'+
+        '<div class="sub">'+esc(today)+(p.summary ? ' &middot; '+esc(p.summary) : '')+'</div>'+
+        p.tableHtml+'</div>';
+    }).join('')
+      : '<h1>'+esc(title)+'</h1><div class="empty">'+esc(emptyNote || 'Nothing to print.')+'</div>')+
     '</body></html>';
   const w = window.open('', '_blank');
   if(!w){ toast('Allow pop-ups to print the sheet'); return; }
@@ -33045,6 +33388,14 @@ const WH_BUILD_COLUMNS = [
   {key:'group', label:'Group'},
   {key:'wire', label:'Wire'},
   {key:'type', label:'Type'},
+  /* ⭐ WHY THIS BUNDLE IS BEING BUILT, ON PAPER (added 2026-08-24). Addie: "I need paper
+     to carry badge too." It sits beside Type deliberately: Type says WHAT the row is (a
+     house, an add-on, a blocked one) and Why says where it came from, and an eye scanning
+     one column picks up the other. Notes is the wide free-text column and anything put
+     after it is lost against a wall of writing — the same argument that fixes the Timer
+     column's position on every crew sheet. Blank on buffer stock, which has no customer
+     behind it and so no provenance to claim. */
+  {key:'reason', label:'Why'},
   {key:'what', label:'Customer / Item'},
   {key:'address', label:'Address'},
   /* ⭐ HOW MANY BINS, NOT WHICH ONE (changed 2026-08-21). Owner: "Bin # is how many
@@ -33126,24 +33477,14 @@ const WH_RECYCLE_COLUMNS = [
   if(recycleBtn) recycleBtn.addEventListener('click', whPrintRecycleSheet);
 })();
 function whPrintBuildSheet(){
-  const sheet = whSheetRowsForBuild();
-  /* ⚠ parseInt, NOT Number. The Bundles cell carries markers now — "+3" for an
-     add-on and "3 est" where the footage was worked back from the price — and
-     Number("3 est") is NaN, which would silently drop that house out of the total
-     and under-report the morning's work. parseInt reads the leading number from
-     both. */
-  const bundles = sheet.rows.reduce(function(s,r){ return s + (parseInt(r.bundles, 10) || 0); }, 0);
-  const houses = sheet.rows.filter(function(r){ return r.type === 'House'; }).length;
-  const blocked = sheet.rows.filter(function(r){ return r.type === 'Blocked'; }).length;
-  const summary = sheet.rows.length
-    ? sheet.groupCount + ' group' + (sheet.groupCount===1?'':'s') + ' · ' +
-      houses + ' house' + (houses===1?'':'s') + ' · ' +
-      bundles + ' bundle' + (bundles===1?'':'s') + ' · ' +
-      sheet.timerHouses.length + ' timer' + (sheet.timerHouses.length===1?'':'s') +
-      (blocked ? ' \u00b7 ' + blocked + ' waiting on colours' : '')
-    : '';
-  whOpenPrintWindow('Warehouse — Build Sheet', summary,
-    sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : '',
+  /* ⭐ ONE PAGE PER COLOUR GROUP — see whBuildSheetPages for why that is the unit. The
+     whole-sheet totals that used to sit here have moved onto each page, because a page
+     handed to somebody building one pile needs THEIR numbers, not the morning's. */
+  const pages = whBuildSheetPages();
+  whOpenPrintWindow('Warehouse \u2014 Build Sheet',
+    pages.map(function(p){
+      return {title: p.title, summary: p.summary, tableHtml: whSheetTable(p.rows, p.columns)};
+    }),
     'Nothing needs to be built right now.');
 }
 function whPrintRecycleSheet(){
@@ -33151,8 +33492,9 @@ function whPrintRecycleSheet(){
   const summary = sheet.rows.length
     ? sheet.rows.length + ' house' + (sheet.rows.length===1?'':'s') + ' to pull back into stock'
     : '';
-  whOpenPrintWindow('Warehouse — Recycle Sheet', summary,
-    sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : '',
+  whOpenPrintWindow('Warehouse — Recycle Sheet',
+    [{title: 'Warehouse — Recycle Sheet', summary: summary,
+      tableHtml: sheet.rows.length ? whSheetTable(sheet.rows, sheet.columns) : ''}],
     'Nothing needs to be recycled right now.');
 }
 document.getElementById('whAddExtraBtn').addEventListener('click', async function(){
@@ -35135,6 +35477,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     if(lightChange.setLightsChangedAt){
       addrUpdates.lightsChangedAt = serverTimestamp();
+      /* ⭐ WHO CHANGED IT (added 2026-08-24). The warehouse badges say WHY a bundle is
+         being built, and two of the four answers are the same event from a different
+         direction: the customer changing their own colours in the portal, or the office
+         typing them in after a call, email or text. Both wrote lightsChangedAt and
+         nothing else, so they were indistinguishable.
+         ⚠ THIS PATH IS ALWAYS 'office' — somebody in admin is typing it. That is Addie's
+         "Request": a change we made on their behalf because they asked some other way.
+         functions/index.js stamps 'portal' on the two portal writes. */
+      addrUpdates.lightsChangedVia = 'office';
     }
     /* ⚠ THE LOCK IS SET EVEN WHEN THE FEE IS WAIVED. It is about the crew, not the
        money — their pattern may still move, so they must not be routed either way. */
@@ -35441,6 +35792,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     if(requoteBeingConverted){
       addrUpdates.requoteAppliedAt = serverTimestamp();
+      /* ⭐ AND WHICH KIND OF RE-QUOTE IT WAS (added 2026-08-24, for the warehouse badge).
+         requoteKind is asked when the re-quote is RAISED and stored on the QUOTE document,
+         which the customer record has no way to reach — so a reader looking at a customer
+         saw undefined every time and could not tell a house that moved from a price that
+         was corrected. Copied across at the one moment both are in hand.
+         ⚠ THE QUOTE STAYS THE SOURCE. This is a stamp of what was answered when the
+         re-quote was applied, not a second place to change it.
+         ⚠ AND A BLANK WRITES NOTHING, because a blank stored where an answer goes reads
+         as an answer. */
+      const answeredQuote = (typeof quotesCache !== 'undefined' ? quotesCache : [])
+        .find(function(q){ return q && q.id === requoteBeingConverted; });
+      const answeredKind = String((answeredQuote && answeredQuote.data && answeredQuote.data.requoteKind) || '').trim();
+      if(answeredKind) addrUpdates.requoteKind = answeredKind;
       /* ⭐ APPLYING A RE-QUOTE PUTS THEM IN FOR THE SEASON (2026-08-24). Owner: "if i
          convert or apply requote than it should be yes."
 
@@ -47011,9 +47375,10 @@ function printYesNo(v){
   return t;   // they typed something real, so print it
 }
 function printLightColor(d){
-  const desc = ('' + ((d && d.lightsDescription) || '')).trim();
-  if(desc) return desc;
-  return (Array.isArray(d && d.lightColors) ? d.lightColors.join('/') : '');
+  /* ⚠ THE SAME ANSWER THE BUILD QUEUE GROUPS ON. This used to work the two fields out
+     for itself and join the list with "/" — so the printed cell said "Red/Warm White"
+     while the group heading above it said "Red, Warm White", about one house. */
+  return houseLightsText(d);
 }
 /* ⭐ A REQUOTE COUNTS, A COLOUR CHANGE DOES NOT. Owner: "if they were requoted that
    counts as a new hang but if they are a color change they do not count as a new hang
@@ -47059,6 +47424,8 @@ const PRINT_COLUMNS = {
      rather than a note written into the blank one on the right, because that blank is
      where the warehouse ticks the row off. */
   build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              /* The same badge the warehouse tab shows, in words — see WH_BUILD_COLUMNS. */
+              {k: 'reason', label: 'Why'},
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
               /* ⭐ BUNDLES, NOT FEET (2026-08-21). Owner: "I don't think we need feet
                  and bundles. I think how many bundles is fine for warehouse." Feet is
@@ -47153,7 +47520,19 @@ function printNeedsBuildList(){
          office had badged Maybe Next Year. Two lists of one job disagreeing is how the
          one on paper stops being trusted. Same shared rule as the screen. */
       if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return false;
-      return d.needsLightBuild || d.chargeNewMemberFee === true || d.requoteAppliedAt;
+      /* ⭐ THE SAME PEOPLE THE WAREHOUSE TAB SHOWS (2026-08-24). Addie: "everyone on the
+         warehouse tab should be printed."
+         ⚠ THIS USED TO BE A SECOND OPINION AND IT KEPT PEOPLE FOR EVER. It also matched
+         `chargeNewMemberFee` and `requoteAppliedAt`, and those are STAMPS, not flags: the
+         warehouse clears needsLightBuild when the bundle is actually made, and nothing ever
+         clears the other two. So every new member and every applied re-quote stayed on this
+         printed sheet months after their bundle was built, and somebody working off that
+         paper makes a second set for a house that already has one.
+         ⚠ ONE FLAG, THE SAME ONE whBuildQueueGroups ASKS. The two sheets keep their own
+         COLUMNS on purpose — she trimmed this one herself, so bins ride in the bundles cell
+         here and have a column of their own on the tab — but they must not disagree about
+         WHO is on them. */
+      return d.needsLightBuild;
     })
     .map(function(a){
       const d = a.data || {};

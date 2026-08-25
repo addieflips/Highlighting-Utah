@@ -1398,23 +1398,167 @@ const WH_LIGHT_COLORS = ['Warm White','Pure White','Purple','Orange','Green','Mu
    exactly as typed rather than being guessed at and quietly merged into the
    plain Red group, because those are not the same build.
    \u26a0 admin.html and employee.html each carry their own copy of this. */
-function whColorsFromWords(token){
+/* ⭐ THE SAME COLOUR VOCABULARY THE OFFICE USES (2026-08-24). This copy knew only the
+   nine full names while admin.html read the master sheet through an alias table, so
+   "ww" grouped here as "ww" and there as "Warm White" — two headings for one build, on
+   two screens, about the same house. Everything below is copied from admin.html
+   verbatim; change one and change the other. run-all.js compares them line for line. */
+const RB_COLOR_ALIASES = {
+  'warm':'Warm White', 'ww':'Warm White', 'warmwhite':'Warm White', 'warm w':'Warm White',
+  'warm white':'Warm White', 'wwarm':'Warm White',
+  'pure':'Pure White', 'pw':'Pure White', 'purewhite':'Pure White', 'pure white':'Pure White',
+  /* ⭐ A REPEATED LETTER IS A COUNT (2026-08-24). Addie, asked what bbb meant:
+     "R is Red, RR is Red, Red", "bbb is Blue, Blue, Blue rrr is Red, Red, Red, ggg is
+     Green, Green, Green". Five examples, letter-count matching word-count in every
+     one — so RR is two reds in a repeating strand, not a second way to spell Red.
+     They used to collapse to a single colour, which merged rr and rrr into one build.
+     ⚠ WW AND PW ARE NOT REPEATS — they are initials, Warm White and Pure White, and
+     she gave both explicitly in the same message. Only the single-letter colour codes
+     r, g and b count up.
+     ⚠ bb and gg are not written out in her message; they are the middle terms of a
+     rule she gave at one, two and three letters for r.
+     ⚠ THE REPEAT IS WHAT MAKES IT A PATTERN. rbDetectColorsAndPattern reads a repeated
+     colour as an alternating strand and moves it into lightsDescription, where the
+     ORDER is kept — which is why these have to be lists and must never be deduped. */
+  'r':'Red', 'rr':['Red','Red'], 'rrr':['Red','Red','Red'], 'red':'Red',
+  'g':'Green', 'gg':['Green','Green'], 'ggg':['Green','Green','Green'], 'green':'Green',
+  'b':'Blue', 'bb':['Blue','Blue'], 'bbb':['Blue','Blue','Blue'], 'blue':'Blue',
+  'purple':'Purple', 'purp':'Purple',
+  'o':'Orange', 'orange':'Orange',
+  'pink':'Pink', 'pk':'Pink',
+  /* ⚠ NO multi ROWS HERE. "Anything multi something is Multi" is a SHAPE, so it lives
+     in rbLooksMulti below and both normalisers ask it. Rows saying the same thing meant
+     the rule could be deleted with nothing failing — a red-check caught exactly that. */
+  /* ⭐ THE FOUR THE OFFICE HAD TO RULE ON. These sat unmapped for weeks because a
+     wrong guess writes the wrong lights onto a house; the owner settled them all on
+     2026-08-19.
+
+       p     "p is pure"
+       w     "w is warm white"
+       soft  "soft is a color we dont use anymore so we should have them under
+             color: soft(recycled) so then we can find them later cause we need to
+             switch their lights" — so it is NOT dropped and NOT guessed at. It is
+             kept under its own name, which is what makes those houses findable.
+       white "lets just say is put warm and pure because we really dont know" — the
+             only honest answer, and the reason an alias may be a LIST.
+
+     ⚠ soft(recycled) is deliberately not one of the tickable colours. It is a flag
+     that these lights are the old stock and have to be swapped, not a colour
+     anybody should be able to choose for a new house. */
+  'p':'Pure White', 'w':'Warm White',
+  /* ⭐ SOFT IS WARM WHITE (2026-08-24). Addie, asked directly and told the cost:
+     "soft should be Warm White".
+     ⚠ THIS REVERSES HER OWN RULING OF 2026-08-19, kept in the block above because the
+     reasoning still matters: soft was given its own label so those houses could be
+     FOUND and switched. Under that rule the warehouse got a group headed
+     `soft(recycled)`, which is not a colour anybody stocks, so nobody could build it.
+     ⭐ AND THE LIST SURVIVES ANYWAY. `allCustFilterLights` matches /soft/i against the
+     RAW lightColors and lightsDescription — it never goes through this table — so every
+     house already carrying soft(recycled) is still findable, and the two colour
+     checkboxes that write it are untouched. What changed is only what soft MEANS when
+     something builds or groups.
+     ⚠ THE ONE REAL LOSS: a master-sheet sync that rewrites one of those rows replaces
+     soft(recycled) with Warm White on the record, and that house drops off the
+     switching list for good. She was told; do not reinstate the old label.
+     ⚠ `soft(recycled)` IS A KEY TOO, not just `soft`. It is the value already stored on
+     real records, and without it the trailing-(...)-is-a-note reader turns it into
+     `Warm White (recycled)` — its own heading, which would not merge. */
+  'soft':'Warm White', 'soft white':'Warm White', 'soft(recycled)':'Warm White',
+  'white':['Warm White', 'Pure White'],
+  /* ⭐ RULED ON BY ADDIE, 2026-08-24, asked which of these appear in the real sheet.
+     Every one is her answer, not a guess.
+     ⚠ `pur` IS PURE WHITE, NOT PURPLE. That is the one I would have got wrong, and the
+     reason it was put to her rather than assumed.
+     ⚠ `mc` IS DELIBERATELY UNMAPPED: "just skip mc". It falls through to its own
+     heading, which is visible and correctable.
+     ⚠ NOT ADDED, because each IS a guess: `pu`, `or` (an English word — "red or
+     green"). Do not add these without asking her. */
+  'pur':'Pure White', 'clear':'Pure White',
+  'cool white':'Pure White', 'bright white':'Pure White',
+  'orng':'Orange', 'pnk':'Pink', 'blu':'Blue', 'grn':'Green',
+  'rainbow':'Multi',
+  /* Plurals. A cell saying "reds" can only mean Red. */
+  'reds':'Red', 'greens':'Green', 'blues':'Blue', 'pinks':'Pink',
+  'purples':'Purple', 'oranges':'Orange',
+  'warm whites':'Warm White', 'pure whites':'Pure White'
+};const RB_MULTI_RE = /^multi[\s-]?(colou?r(ed|s)?)?$/;
+function rbLooksMulti(text){
+  return RB_MULTI_RE.test(String(text || '').toLowerCase().replace(/\s+/g, ' ').trim());
+}const RB_RUN_LETTERS = {r:'Red', g:'Green', b:'Blue', o:'Orange'};function rbLetterRun(text){
+  const t = String(text || '').toLowerCase().trim();
+  if(t.length < 2 || !/^[rgbo]+$/.test(t)) return null;
+  return t.split('').map(function(ch){ return RB_RUN_LETTERS[ch]; });
+}const WH_COLOR_WORDS = (function(){
+  const map = {};
+  WH_LIGHT_COLORS.forEach(function(c){ map[c.toLowerCase()] = [c]; });
+  Object.keys(RB_COLOR_ALIASES).forEach(function(k){
+    const v = RB_COLOR_ALIASES[k];
+    map[String(k).toLowerCase()] = Array.isArray(v) ? v.slice() : [v];
+  });
+  /* ⚠ AND EVERY VALUE IS A KEY TOO, so normalising an already-normalised description
+     gives the same answer back. Without it a stored value carrying brackets was torn
+     apart by the notes reader below and came back doubled. */
+  Object.keys(map).slice().forEach(function(k){
+    map[k].forEach(function(v){
+      const lc = String(v).toLowerCase();
+      if(!map[lc]) map[lc] = [v];
+    });
+  });
+  return {map: map, keys: Object.keys(map).sort(function(a, b){ return b.length - a.length; })};
+})();function whColorsFromWords(token){
   let rest = String(token || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const found = [];
   while(rest){
-    const hit = WH_LIGHT_COLORS.find(function(opt){
-      const lc = opt.toLowerCase();
-      return rest === lc || rest.indexOf(lc + ' ') === 0;
+    /* The multi rule first: it is a shape, not a word, so no table row can hold it. */
+    if(rbLooksMulti(rest)){ found.push('Multi'); rest = ''; continue; }
+    /* Then a run of letters — rrgg. Asked before the table and it makes no difference:
+       every token both can read, they read the same, and that is asserted. */
+    const run = rbLetterRun(rest);
+    if(run){ found.push.apply(found, run); rest = ''; continue; }
+    const hit = WH_COLOR_WORDS.keys.find(function(k){
+      return rest === k || rest.indexOf(k + ' ') === 0;
     });
     if(!hit) return null;
-    found.push(hit);
+    found.push.apply(found, WH_COLOR_WORDS.map[hit]);
     rest = rest.slice(hit.length).trim();
   }
   return found.length ? found : null;
-}
-function whNormalizeLights(text){
+}const WH_LIGHT_SEP = /[,\u2014\/&+]|\band\b/i;
+function whSplitAllKnown(text){
+  const out = [];
+  let ok = true;
+  String(text || '').split(WH_LIGHT_SEP).forEach(function(piece){
+    if(!ok) return;
+    const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
+    if(!t) return;
+    const as = whColorsFromWords(t);
+    if(!as){ ok = false; return; }
+    out.push.apply(out, as);
+  });
+  return (ok && out.length) ? out : null;
+}function whOrderColors(list){
+  const seen = {};
+  const repeats = list.some(function(c){
+    const k = String(c).toLowerCase();
+    if(seen[k]) return true;
+    seen[k] = 1;
+    return false;
+  });
+  if(repeats) return list.slice();
+  return list.slice().sort(function(a, b){
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  });
+}function whNormalizeLights(text){
   const raw = String(text || '');
   if(!raw.trim()) return raw;
+  /* ⚠ THE WHOLE DESCRIPTION FIRST. The reader below pulls a trailing (...) off as a
+     NOTE — "Warm White (every third bulb)" — which is right for a note and wrong for a
+     value that simply contains brackets. Asking about the whole string first costs one
+     lookup and makes normalising idempotent. */
+  const whole = whColorsFromWords(raw.trim());
+  if(whole) return whOrderColors(whole).join(', ');
+  const known = whSplitAllKnown(raw.trim());
+  if(known) return whOrderColors(known).join(', ');
   const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
   const main  = m ? m[1].trim() : raw.trim();
   const notes = m ? m[2].trim() : '';
@@ -1424,7 +1568,7 @@ function whNormalizeLights(text){
      build queue \u2014 plus a fifth for "red, green" in lower case, because the
      sort ignored case but the group key did not. */
   const colors = [];
-  main.split(/[,\u2014\/&+]|\band\b/i).forEach(function(piece){
+  main.split(WH_LIGHT_SEP).forEach(function(piece){
     const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
     if(!t) return;
     /* A known colour is rewritten in the app's own spelling and capitalisation
@@ -1435,9 +1579,7 @@ function whNormalizeLights(text){
     else colors.push(t);
   });
   if(!colors.length) return raw.trim();
-  const sorted = colors.slice().sort(function(a,b){
-    return a.toLowerCase().localeCompare(b.toLowerCase());
-  });
+  const sorted = whOrderColors(colors);
   return sorted.join(', ') + (notes ? ' (' + notes + ')' : '');
 }
 function whGroupKey(lightsDescription, wire){

@@ -429,13 +429,34 @@ const statusClassSrc = extractFn(money, 'statusClass');
 // would keep the tests green through a change to the actual rounding rule.
 const centsOfSrc = extractFn(money, 'centsOf');
 const whGroupKeySrc      = extractFn(admin, 'whGroupKey');
-const whNormalizeLightsSrc = extractFn(admin, 'whNormalizeLights');
+/* A newline for joining lifted source. Built from a char code so it survives every
+   route this file is edited through — see CLAUDE.md §7 on characters eaten by a shell. */
+const NL_ = String.fromCharCode(10);
+/* whNormalizeLights splits the whole description before treating a trailing bracket as
+   a note, and sorts a SET while keeping a repeating strand in the order it was written.
+   Both rules live beside it and come with it. */
+const whOrderColorsSrc = extractFn(admin, 'whOrderColors');
+const whSplitKnownSrc = (admin.match(/const WH_LIGHT_SEP = [^\r\n]*\r?\n/) || [''])[0] + extractFn(admin, 'whSplitAllKnown');
+const whNormalizeLightsFnSrc = extractFn(admin, 'whNormalizeLights');
+const whNormalizeLightsSrc = whSplitKnownSrc + NL_ + whOrderColorsSrc + NL_ + whNormalizeLightsFnSrc;
 const whWireLabelSrc     = extractFn(admin, 'whWireLabel');
 /* whNormalizeLights reads the colour vocabulary through whColorsFromWords, so
    both have to come across or it throws the moment it is called. Lifted from
    the real file rather than restated here — a hand-written copy of the colour
    list would happily stay green while the app's own list moved on. */
-const whColorsFromWordsSrc = extractFn(admin, 'whColorsFromWords');
+/* ⭐ AND THE VOCABULARY COMES WITH IT (2026-08-24). whColorsFromWords reads the alias
+   table now, not just the nine full names — the import and the warehouse used to know
+   different words, so "ww" and "Warm White" were two headings for one build. The multi
+   rule and the letter-run reader are SHAPES rather than table rows, so no sandbox can
+   rebuild them from the table. All folded into this one const so every existing call
+   site gets them. */
+const whColorAliasSrc = (admin.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\r?\n\};/) || [''])[0];
+const whMultiSrc = (admin.match(/const RB_MULTI_RE = [^\r\n]*\r?\n/) || [''])[0] + extractFn(admin, 'rbLooksMulti');
+const whRunSrc = (admin.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0] + extractFn(admin, 'rbLetterRun');
+const whColorVocabSrc = (admin.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\r?\n\}\)\(\);/) || [''])[0];
+const whColorsFromWordsFnSrc = extractFn(admin, 'whColorsFromWords');
+const whColorsFromWordsSrc = whColorAliasSrc + NL_ + whMultiSrc + NL_ + whRunSrc + NL_ +
+                             whColorVocabSrc + NL_ + whColorsFromWordsFnSrc;
 const whLightColorsSrc = (admin.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
 /* The colour options and aliases, read out of admin.html rather than restated,
    so a change to what the app accepts as a colour reaches the tests too. */
@@ -1188,7 +1209,7 @@ if (typeof whGroupKey === 'function') {
   const empNorm = extractFn(empSrc, 'whNormalizeLights');
   check('logic', 'employee.html sorts colours the same way admin does',
     !!empNorm && empNorm.replace(/\s+/g, ' ') ===
-      (whNormalizeLightsSrc || '').replace(/\s+/g, ' '),
+      (whNormalizeLightsFnSrc || '').replace(/\s+/g, ' '),
     'admin.html and employee.html have drifted — the crew would group houses differently');
   /* whNormalizeLights matching is not enough on its own any more: it now leans
      on a helper and a colour list, and employee.html could match line for line
@@ -1197,8 +1218,36 @@ if (typeof whGroupKey === 'function') {
   const empWords = extractFn(empSrc, 'whColorsFromWords');
   check('logic', 'employee.html has the colour reader admin relies on',
     !!empWords && empWords.replace(/\s+/g, ' ') ===
-      (whColorsFromWordsSrc || '').replace(/\s+/g, ' '),
+      (whColorsFromWordsFnSrc || '').replace(/\s+/g, ' '),
     'the crew portal would throw the moment it grouped a build');
+  /* ⭐ AND THE WORDS THEY READ, not only the readers. Since 2026-08-24 those functions
+     are a few lines each and all the meaning is in the tables beneath them, so comparing
+     the functions alone would pass while the crew screen knew a different vocabulary —
+     which is the drift this pair of checks exists to catch. */
+  const empAlias = (empSrc.match(/const RB_COLOR_ALIASES = \{[\s\S]*?\r?\n\};/) || [''])[0];
+  check('logic', 'employee.html knows the same colour words admin does',
+    !!empAlias && empAlias.replace(/\s+/g, ' ') === (whColorAliasSrc || '').replace(/\s+/g, ' '),
+    'ww would be Warm White in the office and its own heading on the crew screen');
+  const empVocab = (empSrc.match(/const WH_COLOR_WORDS = \(function\(\)\{[\s\S]*?\r?\n\}\)\(\);/) || [''])[0];
+  check('logic', 'and builds that vocabulary the same way',
+    !!empVocab && empVocab.replace(/\s+/g, ' ') === (whColorVocabSrc || '').replace(/\s+/g, ' '),
+    'longest-match-first and the value-as-key rule both live in there');
+  const empRun = extractFn(empSrc, 'rbLetterRun');
+  check('logic', 'employee.html reads letters run together the same way',
+    !!empRun && empRun.replace(/\s+/g, ' ') === extractFn(admin, 'rbLetterRun').replace(/\s+/g, ' '),
+    'rrgg would be two piles in the office and one unknown heading on the crew screen');
+  const empRunTbl = (empSrc.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0];
+  check('logic', 'and from the same letters',
+    !!empRunTbl && empRunTbl.replace(/\s+/g,' ') === (admin.match(/const RB_RUN_LETTERS = \{[^}]*\};/) || [''])[0].replace(/\s+/g,' '),
+    'w and p must stay out of runs on both sides — WW and PW are initials, not repeats');
+  const empOrder = extractFn(empSrc, 'whOrderColors');
+  check('logic', 'employee.html keeps a repeating strand in order the same way',
+    !!empOrder && empOrder.replace(/\s+/g, ' ') === (whOrderColorsSrc || '').replace(/\s+/g, ' '),
+    'rrgg and rgrg are two builds; one screen merging them is the drift that matters');
+  const empSplit = extractFn(empSrc, 'whSplitAllKnown');
+  check('logic', 'and reads a whole description the same way',
+    !!empSplit && empSplit.replace(/\s+/g, ' ') === extractFn(admin, 'whSplitAllKnown').replace(/\s+/g, ' '),
+    'a soft house would merge with warm white in the office and not on the crew screen');
   const empColors = (empSrc.match(/const WH_LIGHT_COLORS\s*=\s*\[[^\]]*\];/) || [])[0];
   check('logic', 'employee.html knows the same colours admin does',
     !!empColors && empColors.replace(/\s+/g, ' ') === (whLightColorsSrc || '').replace(/\s+/g, ' '),
@@ -1897,9 +1946,17 @@ check('flow', 'every newly added house is flagged for the warehouse',
   /needsGeocode: pinFailed, needsLightBuild: true/.test(admin),
   'a customer added without light colours was flagged false and appeared in no list at ' +
   'all — not the build queue, not the waiting-on-colours block');
-check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
-  /if\(!d\.needsLightBuild \|\| \(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\)\) return;[\s\S]{0,200}blocked\.push\(item\)/.test(admin),
-  'flagging them is only safe because there is a list for the ones that cannot be built yet');
+/* ⚠ SCOPED TO THE FUNCTION, NOT TO A CHARACTER WINDOW. This was a {0,200} window and a
+   comment added between the two lines broke it on correct code — the fixed-window
+   staleness CLAUDE.md §7 names by hand. What is claimed is that the season guard and
+   the blocked push live in the same builder, in that order. */
+{
+  const q = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups');
+  check('flow', 'and the waiting-on-colours block is still what catches the ones with none',
+    /isOutForSeason\(d\)\)\) return;/.test(q) &&
+      q.indexOf('blocked.push(item)') > q.indexOf('isOutForSeason(d))) return;'),
+    'flagging them is only safe because there is a list for the ones that cannot be built yet');
+}
 /* ⭐ AND THE SEASON RULE IS THE SHARED ONE, NOT d.maybeNextYear (2026-08-22). Owner:
    "back next year ... won't go to recycle or be approved for this year?" Five places
    read the FLAG alone while portalRsvp writes the STATUS alone, so a customer who
@@ -4989,6 +5046,13 @@ if (!JSDOM) {
          one on the record. Declared beside whRecycleGroups, not inside the slice. */
       '\n' + extractFn(admin, 'whBinNumberFor') +
       '\n' + extractFn(admin, 'whBinNumberMoved'));
+    /* ⭐ THE COLOUR TABLES (2026-08-24). whColorsFromWords reads them now, and it lives
+       inside the slice eval'd below while the tables live hundreds of lines earlier,
+       outside it. Read out of the real file, never restated — a local copy of the colour
+       words would keep this suite green through a change to the app's.
+       ⚠ var, NOT const: a const declared inside a direct eval is scoped to that eval and
+       is invisible to the slice eval'd after it. */
+    eval((whColorAliasSrc + whMultiSrc + whRunSrc).replace(/^const /gm, 'var '));
     eval(admin.slice(whStart, buildStart) + '\n' + admin.slice(buildStart, buildEnd) + '\n' +
          admin.slice(recycleStart, recycleEnd) + '\n' +
          (formEnd > formStart ? admin.slice(formStart, formEnd) : '') + '\n');
@@ -5196,7 +5260,11 @@ if (!JSDOM) {
        is NaN, which would drop that house out of the morning's total silently. */
     check('warehouse', 'a marked bundle count still totals correctly',
       (parseInt('+3', 10) || 0) === 3 && (parseInt('3 est', 10) || 0) === 3 &&
-      /parseInt\(r\.bundles, 10\)/.test(extractFn(admin, 'whPrintBuildSheet')),
+            /* ⚠ THE TOTAL MOVED INTO whBuildSheetPages (2026-08-24). The sheet is one page per
+         colour group now, so each page carries ITS numbers rather than the morning's —
+         and the marker trap came with it. A page that under-reports is the same bug in a
+         smaller box. */
+      /parseInt\(r\.bundles, 10\)/.test(extractFn(admin, 'whBuildSheetPages')),
       'the build sheet summary reads the Bundles cell with parseInt, not Number');
     check('warehouse', 'a house that wants a timer says YES in the timer column',
       (sheet.rows.find(r => /^Nadia Brooks/.test(r.what)) || {}).timer === 'YES');
@@ -16229,6 +16297,9 @@ suite('Suite 60. The colours as the office actually writes them');
   };
   const consts = 'const RB_LIGHT_COLOR_OPTIONS = ' + JSON.stringify(RB_COLOR_OPTS) + ';' +
                  'const RB_COLOR_ALIASES = ' + JSON.stringify(RB_COLOR_ALIAS) + ';';
+  /* rbNormalizeColors asks the multi rule and the run reader now — both are SHAPES,
+     so neither can be rebuilt from RB_COLOR_ALIAS. */
+  const colourRules = whMultiSrc + whRunSrc;
   const norm = fn('rbNormalizeColors');
   const detect = fn('rbDetectColorsAndPattern');
   const notesGuard = fn('rbNotesLooksLikeColors');
@@ -16236,18 +16307,26 @@ suite('Suite 60. The colours as the office actually writes them');
 
   if (norm && detect && notesGuard) {
     const sb = {};
-    new Function(consts + norm + detect + notesGuard +
+    new Function(consts + colourRules + norm + detect + notesGuard +
       'this.n = rbNormalizeColors; this.d = rbDetectColorsAndPattern; this.g = rbNotesLooksLikeColors;').call(sb);
 
-    /* ⭐ THE OWNER'S OWN EXAMPLE. */
-    check('S60', '"pure/pure/rr/gg" is read',
-      sb.n('pure/pure/rr/gg').join('|') === 'Pure White|Pure White|Red|Green',
+    /* ⭐ THE OWNER'S OWN EXAMPLE — AND THE COUNT CHANGED ON 2026-08-24.
+       She wrote pure/pure/rr/gg on 2026-08-18 and it was read as four colours: two
+       Pures, one Red, one Green. Asked directly on the 24th what the doubled letters
+       meant, she said: "R is Red, RR is Red, Red", "bbb is Blue, Blue, Blue rrr is Red,
+       Red, Red, ggg is Green, Green, Green". So rr is TWO reds — which makes the whole
+       example read one way instead of two: pure/pure is two pures and rr is two reds,
+       the same idea written twice.
+       ⚠ The old expectation is left here in words on purpose. Reverting it would merge
+       rr and rrr into one build again, which is what she was correcting. */
+    check('S60', '"pure/pure/rr/gg" is read, with the doubles counted',
+      sb.n('pure/pure/rr/gg').join('|') === 'Pure White|Pure White|Red|Red|Green|Green',
       'got ' + JSON.stringify(sb.n('pure/pure/rr/gg')));
     check('S60', 'and the repeat makes it an alternating pattern, not a plain set',
       (function(){
         const r = sb.d('pure/pure/rr/gg');
         return r.colors.join('|') === 'Pure White|Red|Green' &&
-               r.pattern === 'Pure White, Pure White, Red, Green';
+               r.pattern === 'Pure White, Pure White, Red, Red, Green, Green';
       })(),
       JSON.stringify(sb.d('pure/pure/rr/gg')));
 
@@ -16257,9 +16336,27 @@ suite('Suite 60. The colours as the office actually writes them');
     check('S60', 'single letters r, g, b, o',
       sb.n('r').join('') === 'Red' && sb.n('g').join('') === 'Green' &&
       sb.n('b').join('') === 'Blue' && sb.n('o').join('') === 'Orange');
-    check('S60', 'doubled letters rr, gg, ww',
-      sb.n('rr').join('') === 'Red' && sb.n('gg').join('') === 'Green' &&
-      sb.n('ww').join('') === 'Warm White');
+    /* ⚠ A DOUBLED SINGLE LETTER IS A COUNT; WW IS NOT. Addie gave both in the same
+       message on 2026-08-24 — "WW Warm White W is Warm White" alongside "RR is Red,
+       Red" — because WW is the initials of Warm White and RR is two reds. Reading WW as
+       two warm whites would put every warm-white house into a pattern group. */
+    check('S60', 'doubled colour letters count up: rr, gg, bb',
+      sb.n('rr').join('|') === 'Red|Red' && sb.n('gg').join('|') === 'Green|Green' &&
+      sb.n('bb').join('|') === 'Blue|Blue',
+      'got ' + JSON.stringify([sb.n('rr'), sb.n('gg'), sb.n('bb')]));
+    check('S60', 'and three of them means three',
+      sb.n('rrr').join('|') === 'Red|Red|Red' &&
+      sb.n('ggg').join('|') === 'Green|Green|Green' &&
+      sb.n('bbb').join('|') === 'Blue|Blue|Blue',
+      'got ' + JSON.stringify([sb.n('rrr'), sb.n('ggg'), sb.n('bbb')]));
+    check('S60', 'but WW and PW are initials, not repeats',
+      sb.n('ww').join('|') === 'Warm White' && sb.n('pw').join('|') === 'Pure White',
+      'got ' + JSON.stringify([sb.n('ww'), sb.n('pw')]));
+    /* ⚠ AND LETTERS RUN TOGETHER ARE A STRAND. Addie: "That is still Red, Red, Green,
+       Green all of those ways." */
+    check('S60', 'and rrgg reads the same as rr/gg',
+      sb.n('rrgg').join('|') === 'Red|Red|Green|Green',
+      'got ' + JSON.stringify(sb.n('rrgg')));
     check('S60', 'and the spellings in between',
       sb.n('warm w').join('') === 'Warm White' && sb.n('wwarm').join('') === 'Warm White' &&
       sb.n('warmwhite').join('') === 'Warm White' && sb.n('purewhite').join('') === 'Pure White');
@@ -16294,13 +16391,25 @@ suite('Suite 60. The colours as the office actually writes them');
     check('S60', '"w" is warm white and "p" is pure',
       sb.n('w').join('|') === 'Warm White' && sb.n('p').join('|') === 'Pure White',
       'got w=' + JSON.stringify(sb.n('w')) + ' p=' + JSON.stringify(sb.n('p')));
-    /* ⚠ SOFT IS KEPT, NOT TRANSLATED. It is stock they no longer use, so the point is
-       to be able to FIND those houses later and swap the lights — turning it into
-       Warm White would hide exactly the customers she needs to see. */
-    check('S60', '"soft" is kept under its own name so those houses can be found',
-      sb.n('soft').join('|') === 'soft(recycled)' &&
-      sb.n('soft white').join('|') === 'soft(recycled)',
-      'got ' + JSON.stringify(sb.n('soft')));
+    /* ⭐ SOFT IS WARM WHITE (2026-08-24), REVERSING HER 2026-08-19 RULING. Addie, asked
+       directly and told the cost: "soft should be Warm White".
+       ⚠ THE OLD RULE IS WRITTEN OUT HERE ON PURPOSE, because the reasoning was sound and
+       somebody will otherwise rediscover it and put it back: soft was given its own
+       label so those houses could be FOUND and switched. What it cost was a warehouse
+       group headed soft(recycled) — not a colour anybody stocks — so nobody could build
+       the houses in it.
+       ⭐ AND THE FINDING SURVIVES ANYWAY: the All Customers switching filter matches
+       /soft/i against the RAW record and never goes through this table, and the two
+       colour checkboxes that write soft(recycled) are untouched. */
+    check('S60', '"soft" is Warm White now, and so is soft white',
+      sb.n('soft').join('|') === 'Warm White' &&
+      sb.n('soft white').join('|') === 'Warm White',
+      'got ' + JSON.stringify([sb.n('soft'), sb.n('soft white')]));
+    /* ⚠ AND THE STORED VALUE TOO. soft(recycled) is what is on real records; without it
+       they would not merge with the plain warm white houses. */
+    check('S60', 'and the value already on records reads the same',
+      sb.n('soft(recycled)').join('|') === 'Warm White',
+      'got ' + JSON.stringify(sb.n('soft(recycled)')));
     /* ⚠ "white" MEANS BOTH, and is the reason an alias may be a list. Owner: "white
        lets just say is put warm and pure because we really dont know". Guessing one
        would be a claim nobody can support. */
@@ -20219,8 +20328,13 @@ suite('Suite 104. The Printing tab');
        instruction did say "feet of the house"; this supersedes it. Bundles is derived
        from feet, so printing both asked the warehouse to check a sum that was never
        theirs to check, and bundles is the one they actually count off a shelf. */
+    /* ⭐ AND A Why COLUMN SINCE 2026-08-24. Addie: "I need paper to carry badge too." It
+       carries the same badge the warehouse tab shows — NEW, OLD-REBUILD, MEMBER PORTAL,
+       REQUEST, or CHANGED where nothing recorded the source. It sits after the name,
+       which is where Type sits on the warehouse tab's own sheet: identity first, then
+       what kind of job it is, then the spec. */
     check('S104', 'the build list carries everything the warehouse makes up',
-      keys('build').indexOf('number,name,lights,wire,timer,bundles') === 0,
+      keys('build').indexOf('number,name,reason,lights,wire,timer,bundles') === 0,
       'got ' + keys('build'));
     check('S104', 'and the build list does NOT carry feet',
       keys('build').indexOf('feet') === -1,
@@ -20231,7 +20345,7 @@ suite('Suite 104. The Printing tab');
        need it stand out. NOT written into the blank column on the right, which is where
        the warehouse ticks the row off. */
     check('S104', 'and says whose bin a top-up bundle goes into',
-      keys('build') === 'number,name,lights,wire,timer,bundles,putInto',
+      keys('build') === 'number,name,reason,lights,wire,timer,bundles,putInto',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -21966,6 +22080,13 @@ suite('Suite 107. Pricing a re-quote from the popup');
     check('S107', 'and every row builder fills it in, so no row is short a cell',
       (extractFn(admin, 'whSheetRowsForBuild').match(/putInto:/g) || []).length === 3,
       'houses, extras and the blocked ones all push rows onto that sheet');
+    /* ⭐ AND THE Why COLUMN THE SAME WAY (2026-08-24). A column every row does not fill
+       leaves that row short a cell and the table shifts under it. Buffer stock fills it
+       with a blank on purpose — no customer, no provenance to claim — which still
+       counts as filling it. */
+    check('S107', 'and every row builder fills the Why column too',
+      (extractFn(admin, 'whSheetRowsForBuild').match(/reason:/g) || []).length === 3,
+      'houses, extras and the blocked ones all push rows onto that sheet');
 
     /* ⭐ BUNDLES, NOT FEET, ON THIS SHEET TOO (2026-08-21). Owner: "I don't think we
        need feet and bundles. I think how many bundles is fine for warehouse."
@@ -22033,7 +22154,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
 
@@ -22091,7 +22212,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
          and the customer number rides beside the name. */
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const rows = sheet([{id: 'a894', data: {name: 'Ashley Wray', customerNumber: '894',
                                             address: '9873 N Sunnybank Pl',
@@ -23159,7 +23280,7 @@ suite('Suite 116. Deleting the test records');
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
 (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
-      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
       const item = {id: 'a', data: d};
@@ -23555,7 +23676,7 @@ suite('Suite 112. The number on the bin');
     const rows = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
       'whWireLabel', 'whArchivedPending', 'whBinNumberFor', 'whBinNumberMoved',
       'WH_RECYCLE_COLUMNS',
-      extractFn(admin, 'whRecycleGroups') + extractFn(admin, 'whSheetRowsForRecycle') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whRecycleGroups') + extractFn(admin, 'whSheetRowsForRecycle') +
       'return whSheetRowsForRecycle();');
     const out = rows(
       [{id: 'a894', data: {name: 'Ashley Wray', address: '9991 Red Cedar Ln',
@@ -23576,7 +23697,7 @@ suite('Suite 112. The number on the bin');
       'houseBundleNeed', 'whWireLabel', 'whPutIntoLabel', 'WH_BUILD_COLUMNS',
       'function cnBinsForFeet(f){ f = Number(f) || 0; return f <= 260 ? 1 : Math.ceil(f / 260); }' +
       extractFn(admin, 'whBinsForHouse') + extractFn(admin, 'whWhoLabel') +
-      extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whSheetRowsForBuild') +
+      extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + (admin.match(/const WH_BUILD_REASONS = \{[\s\S]*?\r?\n\};/) || [''])[0] + extractFn(admin, 'whBuildReasonKey') + extractFn(admin, 'whBuildReasonLabel') + extractFn(admin, 'whSheetRowsForBuild') +
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
@@ -24271,7 +24392,7 @@ suite('Suite 91. A stale sheet connection says so, once');
 suite('Suite 90. The Recycle queue reads the archive, not just the book');
 
 {
-  const groupsSrc = extractFn(admin, 'whRecycleGroups');
+  const groupsSrc = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whRecycleGroups');
   check('S90', 'the recycle grouping is still there', !!groupsSrc);
 
   if (groupsSrc) {
@@ -24544,7 +24665,7 @@ suite('Suite 87. The Recycle sheet IS the warehouse recycle queue');
 
 
 {
-  const wh = extractFn(admin, 'whRecycleGroups');
+  const wh = extractFn(admin, 'houseLightsText') + extractFn(admin, 'whRecycleGroups');
   check('S87', 'the warehouse recycle queue is still there', !!wh);
 
   const tabsSrc = admin.match(/const HLX_STATE_TABS = \[[\s\S]*?\n\];/);
