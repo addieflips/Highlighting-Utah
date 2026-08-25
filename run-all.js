@@ -1066,6 +1066,9 @@ const RETIRED_CHECKLIST_TERMS = [
   ['get approval link', 'renamed to Send Email on 2026-08-08'],
   ['copy quote email', 'renamed to Show Quote Email Again on 2026-08-08 (Send Email now shows the email on the first click)'],
   ['replace photo', 'quote cards hold several photos now, so the button reads Add More Photos (2026-08-13)'],
+  ['start measuring', 'clicking the picture starts a side now, so that button is gone — while one is open the button reads Finish this side (2026-08-25)'],
+  ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
+  ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
 ];
 {
   /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
