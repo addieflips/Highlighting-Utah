@@ -21526,15 +21526,42 @@ function openRoofMeasure(quoteId){
       pane: size,
       datum: rmDatum(),
       faces: (rmFaces || []).length,
+      /* ⚠ HOW FAR THE PICTURE WAS MOVED, AND WHO SAID SO. Without this the
+         one question that matters after lining a house up — did the correction
+         apply, and was it measured here or carried over — can only be guessed
+         at from where the lines happen to look. */
+      skyOffset: rmSkyOffset
+        ? {ft: +(rmSkyOffsetFt().toFixed(1)), e: +rmSkyOffset.e.toFixed(2),
+           n: +rmSkyOffset.n.toFixed(2), source: rmSkyOffsetSource || 'measured'}
+        : null,
       runs: rmRuns.map(function(r, i){
+        /* ⚠ THE HEIGHT SPREAD ALONG THE RUN, spelled out. A gutter is level, so
+           a spread on one is the fault to look for: it means the two ends found
+           different roof faces, which both lengthens the run and tilts it in
+           Street View. Reading it off the per-point feet below works but takes
+           an eye; naming it is what makes it obvious in a pasted log. */
+        const hs = (r.path || []).map(function(p){ return (p.h || 0) * RM_M_TO_FT; });
+        const spread = hs.length > 1 ? Math.max.apply(null, hs) - Math.min.apply(null, hs) : 0;
         return {
           i: i, on: rmRunIsOn(r), side: r.side, type: r.type,
+          surface: r.surface || 'sky',
           suggested: !!r.suggested, touched: !!r.touched,
           snappedM: r.snapped === undefined ? null : r.snapped,
           facesCamera: rmRunFacesCamera(r),
           feet: Math.round(rmRunFeet(r)),
+          climbsFt: +spread.toFixed(1),
+          /* Whether the tool itself calls this a guess, so a pasted log says so
+             rather than leaving it to be worked out from the datum. */
+          countedAsGuess: rmRunClimbs(r) && rmDatum().source === 'assumed',
           path: r.path.map(function(p){
             return {lat: p.lat, lng: p.lng, ft: +((p.h || 0) * RM_M_TO_FT).toFixed(1),
+                    /* ⚠ WHAT THE ROOF MODEL SAYS AT THIS EXACT SPOT, separately
+                       from the height the point is carrying. null here means the
+                       point is outside every face Google gave us — which is the
+                       single commonest reason a line draws in the wrong place,
+                       and it is invisible in the height alone because the eave
+                       fallback produces a perfectly plausible number. */
+                    relM: rmRoofRelativeAt(p.lat, p.lng),
                     px: rmSvProject(p, size.W, size.H, pov, cam)};
           })
         };
