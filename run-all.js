@@ -40223,6 +40223,152 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
 }
 
 
+// =====================================================================
+suite('274. The test invoice - an address that is one letter wrong');
+/* ⭐ WHAT THE OWNER REPORTED, 2026-08-25: "I can't get a test invoice sent to me."
+   NOTHING WAS BROKEN. The address in the box was addiechichia@gmai.com — one letter
+   short of gmail.com — so the mail went to a domain that does not exist, and the
+   page said in green that it had been sent.
+   ⚠ EMAILJS RETURNING OK IS NOT DELIVERY. It accepts a well-formed request and
+   answers at once; a domain that does not resolve is found out minutes later by a
+   bounce sent to the sending account, which nobody in the office reads. The only
+   validation was `to.indexOf('@') === -1`, which anything with an @ passes.
+   Three things follow, and all three are needed — the guard alone would still have
+   let a green "Sent to" line overclaim, and the honest wording alone would not stop
+   the typo happening again. */
+{
+  const names = ['emailEditDistance', 'emailTypoSuggestion'];
+  const bodies = names.map(function (n) { return extractFn(admin, n); });
+  const missing = names.filter(function (n, i) { return !bodies[i]; });
+  check('S274', 'the address-typo helpers are in admin.html', missing.length === 0,
+    'missing: ' + missing.join(', ') + ' — renamed? update this suite rather than deleting it');
+
+  const listSrc = ['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL'].map(function (c) {
+    const i = admin.indexOf('const ' + c + ' =');
+    return i > -1 ? admin.slice(i, admin.indexOf('];', i) + 2) : '';
+  });
+  check('S274', 'both domain lists are in admin.html', listSrc.every(Boolean),
+    'the suggestion is only as good as the lists it compares against');
+
+  if (!missing.length && listSrc.every(Boolean)) {
+    const code = listSrc.join(';') + ';' + bodies.join(';') +
+      ';return {emailTypoSuggestion, emailEditDistance};';
+    assertSandbox('S274', 'email typo guard', code, admin, names.concat(['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL']));
+    const F = new Function(code)();
+
+    /* ⚠ THE ACTUAL ADDRESS FROM THE REPORT. A fixture that only tries invented
+       typos can pass while missing the one that happened. */
+    check('S274', 'the address she actually typed is caught, and corrected',
+      F.emailTypoSuggestion('addiechichia@gmai.com') === 'addiechichia@gmail.com',
+      'this is the whole reason the guard exists — got ' + F.emailTypoSuggestion('addiechichia@gmai.com'));
+
+    /* ⚠ A SWAPPED PAIR MUST COUNT AS ONE MISTAKE. Plain Levenshtein scores gmial
+       and hotmial at 2, which is the distance at which real domains start
+       suggesting each other — so without the transposition rule these are missed
+       at a threshold that is safe, and only caught at one that is not. */
+    check('S274', 'a transposition counts as one mistake, not two',
+      F.emailEditDistance('gmial.com', 'gmail.com') === 1 &&
+      F.emailEditDistance('hotmial.com', 'hotmail.com') === 1,
+      'Damerau, not plain Levenshtein — got ' + F.emailEditDistance('gmial.com', 'gmail.com'));
+
+    const CAUGHT = [
+      ['a@gmial.com', 'a@gmail.com', 'swapped pair'],
+      ['a@hotmial.com', 'a@hotmail.com', 'swapped pair'],
+      ['a@gmail.con', 'a@gmail.com', 'n for m'],
+      ['a@yahooo.com', 'a@yahoo.com', 'doubled letter'],
+      ['a@outlok.com', 'a@outlook.com', 'dropped letter'],
+      ['a@iclould.com', 'a@icloud.com', 'extra letter']
+    ];
+    CAUGHT.forEach(function (t) {
+      check('S274', 'a ' + t[2] + ' in the domain is caught (' + t[0] + ')',
+        F.emailTypoSuggestion(t[0]) === t[1],
+        'expected ' + t[1] + ', got ' + F.emailTypoSuggestion(t[0]));
+    });
+
+    /* ⚠ THE FALSE-POSITIVE SIDE IS THE ONE THAT MATTERS MORE. A warning that fires
+       on a correct address is one the office learns to click past — including on
+       the day it is right. Every one of these must stay silent. */
+    const SILENT = [
+      ['a@gmail.com', 'the correct spelling of the commonest domain'],
+      ['a@icloud.com', 'another exact match'],
+      ['a@yahoo.com', 'another exact match'],
+      ['a@email.com', 'a real domain one letter from gmail.com'],
+      ['a@gmx.com', 'a real domain that resembles a big one'],
+      ['a@mail.com', 'a real domain'],
+      ['a@highlightingutah.com', 'the business\'s own domain'],
+      ['a@byu.edu', 'a domain nothing like a provider'],
+      ['notanemail', 'no @ at all'],
+      ['@gmai.com', 'a domain typo but no local part — nothing to suggest'],
+      ['a@', 'an empty domain']
+    ];
+    SILENT.forEach(function (t) {
+      check('S274', 'no warning for ' + t[0] + ' (' + t[1] + ')',
+        F.emailTypoSuggestion(t[0]) === null,
+        'a guard that cries wolf gets clicked past on the day it is right — got ' + F.emailTypoSuggestion(t[0]));
+    });
+
+    check('S274', 'an exact match is never "corrected" into something else',
+      (function () {
+        const src = admin.slice(admin.indexOf('const EMAIL_COMMON_DOMAINS'));
+        const list = JSON.parse('[' + src.slice(src.indexOf('[') + 1, src.indexOf('];')).replace(/'/g, '"') + ']');
+        return list.every(function (dom) { return F.emailTypoSuggestion('x@' + dom) === null; });
+      })(),
+      'every domain on the known-good list must pass through untouched');
+  }
+}
+{
+  const sendSrc = extractFn(admin, 'invTestSend') || '';
+  check('S274', 'invTestSend is still findable', !!sendSrc,
+    'renamed or removed — update this test rather than deleting it');
+
+  /* ⚠ THE ORDER IS THE SAFETY ARGUMENT. Once emailjs.send has been called there is
+     nothing to take back, so the question has to come while it is still a box. */
+  /* ⚠ COMMENTS STRIPPED FIRST. The first version of this check matched the phrase
+     "emailjs.send" inside the COMMENT explaining the guard, which sits above the
+     real call — so it read the explanation as the code and failed on a file that
+     was right. Same shape as the rule Suite 58 already learned. */
+  const sendCode = stripComments(sendSrc);
+  check('S274', 'the typo is asked about BEFORE anything is sent',
+    sendCode.indexOf('emailTypoSuggestion') > -1 &&
+    sendCode.indexOf('emailjs.send') > -1 &&
+    sendCode.indexOf('emailTypoSuggestion') < sendCode.indexOf('emailjs.send'),
+    'asking afterwards is asking about mail that has already gone');
+
+  check('S274', 'it warns and never refuses — the typed address can still be used',
+    /data-emailfix="anyway"/.test(admin) && /answer === 'use'/.test(sendSrc),
+    'a guard that blocks a legitimate send is worse than the typo, because there is no way round it');
+  check('S274', 'cancelling sends nothing at all',
+    /answer === 'cancel'[\s\S]{0,200}return say\('Nothing was sent/.test(sendSrc),
+    'the third answer is "let me edit it", and it must not fall through into the send');
+  check('S274', 'the corrected address is what actually gets sent to',
+    /to_email: sendTo/.test(sendSrc),
+    'accepting the correction and then mailing the typo anyway is the worst of both');
+
+  /* ⭐ THE MESSAGE STOPS CLAIMING DELIVERY. */
+  check('S274', 'the success line says handed-to, not sent-to',
+    /say\('Handed to the mail service for ' \+ sendTo/.test(sendSrc) &&
+    !/say\('Sent to ' \+ to/.test(sendSrc),
+    'EmailJS answering OK says the request was well formed and nothing about whether the address exists');
+  check('S274', 'and it says what to do when nothing arrives',
+    /check the address above and your spam folder/.test(sendSrc),
+    '"it did not arrive" with no next step is what sent somebody looking for a bug in the invoice code');
+
+  /* ⭐ THE BOX STARTS ON WHOEVER IS SIGNED IN — the typo that cannot happen. */
+  const popSrc = extractFn(admin, 'invTestPopulate') || '';
+  check('S274', 'the Send it to box is pre-filled with the signed-in address',
+    /auth\.currentUser\.email/.test(popSrc),
+    'the button is called "send yourself" and the address is already known — making somebody type it invites this exact typo');
+  check('S274', 'but only when it is empty, so a typed address is never overwritten',
+    /!toBox\.value\.trim\(\)/.test(popSrc),
+    'this runs on every render; clobbering a half-typed address would be worse than not filling it');
+
+  /* Nothing about this may touch the customer — the card promises as much. */
+  check('S274', 'the test send still writes nothing to the customer or the invoice',
+    !/invoiceEmailSent/.test(sendSrc) && !/updateDoc/.test(sendSrc) && !/setDoc/.test(sendSrc),
+    'the card says "the customer is not emailed, nothing is marked as billed, and no fee is applied"');
+}
+
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
