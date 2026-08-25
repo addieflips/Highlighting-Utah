@@ -38594,27 +38594,28 @@ suite('267. Measure Roof - a roof plane does not carry on into the sky');
       mid !== null && up1 !== null && Math.abs((up1 - mid) - 2 * Math.tan(PITCH * Math.PI / 180)) < 0.05,
       'the clamp must be a no-op within the face, or every real roof reading moves');
 
-    /* ⚠ THE ACTUAL FAULT: 20 m upslope, far outside the face. Extended, the
-       plane reaches ~10 m above the eave — a three-storey line in mid-air. */
+    /* ⚠ THE ACTUAL FAULT: 20 m upslope, far outside every face. Extending the
+       plane reaches ~10 m above the eave — a three-storey line in mid-air, which
+       is what put a traced gutter up in the sky in Street View. */
     const far = api.rel(ll(0, 20).lat, ll(0, 20).lng);
     const naive = 20 * Math.tan(PITCH * Math.PI / 180);
     check('S267', 'far outside the face the plane is NOT carried on',
       far !== null && far < naive / 2,
       'got ' + (far === null ? 'null' : far.toFixed(2)) + ' m; extending the plane gives ' +
       naive.toFixed(2) + ' m of rise out of nothing — that is the line in the sky');
-    /* Held to the face's own reach — and the reference is the lowest EAVE, which
-       already sits half the face below its centre. So the top edge is the FULL
-       rise across a 6 m face, not half of it.
-       ⚠ MY FIRST EXPECTATION HERE WAS WRONG (half this) and the suite said so:
-       it is measured from the eave, not from the plane's centre height. */
-    const edge = 6 * Math.tan(PITCH * Math.PI / 180);
-    check('S267', 'it is held to the height that face reaches at its own edge',
-      far !== null && Math.abs(far - edge) < 0.2,
-      'got ' + (far === null ? 'null' : far.toFixed(2)) + ' m, expected about ' + edge.toFixed(2) +
-      ' — the last height the model actually knows, rather than an extrapolation nobody measured');
+    /* ⭐ AND THE ANSWER IS THE EAVE. Google's satellite imagery is not perfectly
+       overhead, so a roof APPEARS shifted from where the model puts it — click
+       the gutter you can SEE and it lands outside every face. The nearest face's
+       plane, even held to its own edge, gives that face's RIDGE end, which is
+       several feet too high for a gutter. rel = 0 is the lowest real eave. */
+    check('S267', 'a point off the roof reads the eave, not the nearest ridge',
+      far === 0,
+      'got ' + (far === null ? 'null' : far.toFixed(2)) + ' m — the comment in this ' +
+      'function always said the eave was the right answer; the code did not do it');
 
-    /* ⚠ AND IT IS CLAMPED RATHER THAN REFUSED. Returning null sends the point to
-       the assumed eave, which is worse on a house whose roof really is stepped. */
+    /* ⚠ AND IT STILL ANSWERS RATHER THAN REFUSING. Returning null falls back to
+       the assumed one-storey height, which is a worse guess than the eave this
+       roof actually has. */
     check('S267', 'and it still answers rather than refusing',
       far !== null,
       'refusing sends the point to the assumed one-storey eave, which is a guess where ' +
@@ -38629,9 +38630,20 @@ suite('267. Measure Roof - a roof plane does not carry on into the sky');
   }
 
   const src = extractFn(admin, 'rmRoofRelativeAt') || '';
-  check('S267', 'the clamp is measured from the face itself, not a fixed number',
-    /const reach = Math\.abs\(\(bn\.e - bs\.e\) \/ 2 \* down\.e\) \+ Math\.abs\(\(bn\.n - bs\.n\) \/ 2 \* down\.n\);/.test(src),
-    'a fixed limit is right for one roof and wrong for the next — the face knows its own size');
+  /* ⚠ THE inBox TEST IS WHAT MAKES THE REST SAFE. An earlier version clamped
+     `along` to the face's extent instead; that became dead code the moment a
+     point outside every face stopped reaching the plane maths at all, and dead
+     guards are what this repo has been asked repeatedly not to leave lying
+     about. If the inBox test is ever softened, the extrapolation comes back —
+     which is precisely what the running checks above would catch. */
+  check('S267', 'the off-roof case is decided before any plane maths runs',
+    /if\(!best\.inBox\) return 0;/.test(src) &&
+    src.indexOf('!best.inBox') < src.indexOf('planeHeightM - along'),
+    'deciding it afterwards means the plane has already been extended to get there');
+  check('S267', 'and the dead clamp did not survive as a guard that cannot fire',
+    !/const held = Math\.max\(-reach/.test(src),
+    'everything reaching the plane maths is now inside its own face, where the clamp ' +
+    'can never bind — a guard that cannot fire is the dead code the owner asked about by name');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
