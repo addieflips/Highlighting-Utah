@@ -35227,43 +35227,65 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   /* ⭐ TWO BUTTONS, SO THE MODE ONLY GOVERNS ONE. Owner: "make it so right
      click is always select and left click is place dot if thats what its on
      but it switches if you click space." */
-  /* ⭐ THE MAP DOES NOT PLACE DOTS AT ALL ANY MORE. Owner: "make sure that you
-     use the street view to draw the lines not the sky view", and earlier "its
-     using skyview to place corners which is bad it should use street view only
-     to detect where corners are... sky view cant give height."
+  /* ⭐ ONE KIND OF DOT, PLACED FROM EITHER VIEW (2026-08-25). Owner: "I place
+     a dot in sky view and its a different type of dot then the one on street
+     view they should be the same and in sync so that when I click end strand
+     the dots connect no matter which one I placed it on."
 
-     ⚠ THIS REPLACES A TEST THAT PINNED THE OPPOSITE, and the reason the old
-     behaviour could not be rescued is worth writing down. Looking straight
-     down there is no height in the picture, so a dot placed from above had to
-     INVENT one - the typed working height, or the roof model's guess. A dot at
-     the wrong height is at the wrong place, and parallax swings it across the
-     house the moment the camera moves. Making the guess cleverer only makes it
-     a better guess. From the street a click is a ray that meets a real wall
-     and the height falls out of the geometry, so there is nothing to invent. */
-  check('S149', 'the map does not place a corner',
-    (function(){
-      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
-      const j = admin.indexOf('addEventListener', i + 40);
-      return i !== -1 && admin.slice(i, j).indexOf('rmAddCorner') === -1;
-    })(),
-    'a dot from above has to invent a height, and an invented height drifts');
-  /* ⚠ THIS USED TO MATCH THE REFUSAL NOTE ("Dots go in from the street view"),
-     because a sky click did nothing else. It now STARTS A SIDE — tracing a run
-     from above is the one thing that view is best at, since an eave is level so
-     plan length is true length — and still names the street as where corners
-     go. The claim is unchanged and stronger: the click must not be silent. */
-  check('S149', 'and it says where dots do go, rather than doing nothing',
-    /go in from the street view/.test(admin),
-    'a click that silently does nothing reads as broken');
-  check('S149', 'a click up there traces a side instead of being refused outright',
+     ⚠ THESE CHECKS USED TO PIN THE OPPOSITE, and what they were pinning was
+     not a look — it was two incompatible structures. A click on the map made a
+     vertex in rmRuns (no number, no band, ended by a double-click); a click in
+     the panorama made a corner in rmCorners (numbered, banded, ended by "End
+     this strand"). rmEndStrand only ever reads rmCorners, so it was deaf to
+     half the dots on screen by construction, and no amount of restyling could
+     have joined them.
+
+     ⚠ THE OLD RULING'S REASONING WAS SOUND AND IS KEPT IN admin.html: a dot
+     placed from above had to invent a height. What changed is that
+     rmMapPixelToWorld now corrects the tile displacement (rmSkyShift) and reads
+     the roof's own height at the spot, and the corner is placed UNPINNED so the
+     office can see the height is the model's opinion until it is crossed with a
+     street-view sighting. If dots from above start drifting again, that is the
+     argument to read before deleting this. */
+  check('S149', 'the map places the same corner the street view places',
     (function(){
       const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
       const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
       const body = i === -1 ? '' : admin.slice(i, j);
-      return /rmSetDrawing\(true\);\s*\r?\n\s*rmAddPoint\(w\);/.test(body);
+      return /rmAddCorner\(w\);/.test(body);
     })(),
-    'refusing the commonest gesture on a map means tracing starts by finding a ' +
-    'button in the sidebar first, which is the step this removes');
+    'a vertex in rmRuns carries no band, so End Strand can never reach it');
+  check('S149', 'and it no longer starts a run of its own instead',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      /* The one rmAddPoint left is the open-run branch the scale check uses. */
+      /* indexOf, not a regex spanning a newline — the backslash-n does not
+         survive every route into this file, and a degraded escape gives a
+         broken regex rather than a failing check. */
+      return body.indexOf('rmSetDrawing(true);') === -1 &&
+             /if\(rmDrawing\) rmAddPoint\(w\);/.test(body);
+    })(),
+    'two kinds of dot on one house is the whole fault; tracing stays reachable ' +
+    'from the scale check and from Enter with no dots down');
+  check('S149', 'and it says what it just placed, rather than doing nothing',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmCornerLabel\(rmCorners\.length - 1\)/.test(body) &&
+             /pin the height exactly/.test(body);
+    })(),
+    'a click that silently does nothing reads as broken, and a dot whose height ' +
+    'came from the model has to say so');
+  check('S149', 'a shift-click up there is a drag ending, not a dot',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf('rmMapPixelToWorld', i);
+      return i !== -1 && /if\(e\.shiftKey\) return;/.test(admin.slice(i, j));
+    })(),
+    'without it every shift-drag drops a spare dot where it let go');
   /* The street view still does, and takes its height from the ray. */
   check('S149', 'the street view is what places a corner',
     (function(){
@@ -35313,8 +35335,65 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
     /id="rmEndStrandBtn"/.test(admin) && /rmEndStrandBtn'\)\.addEventListener/.test(admin),
     'not everybody reaches for a keyboard');
   check('S149', 'the map takes dots as well as the street view',
-    /rmCornerMode === 'dot' && !rmDrawing/.test(admin) && /const skyLock = \(rmDrawing \|\| rmCornerMode === 'dot'\)/.test(admin),
-    'from above a click is exact; from the street the height is what you can see');
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmCornerMode === 'dot' && !rmDrawing/.test(body) && /rmAddCorner\(w\)/.test(body) &&
+             /const skyLock = \(rmDrawing \|\| rmCornerMode === 'dot'\)/.test(admin);
+    })(),
+    'this used to pass on the mode guard alone, while the click behind it made ' +
+    'a run vertex — a check that green-lit the fault it was named after');
+  /* ⭐ AND THE MAP DRAWS THEM. Half of "a different type of dot" was that it
+     drew none: a corner reached the map only as a vertex of the run
+     rmCornersToRun builds, and a band with one dot in it makes no run — so the
+     first dot of every strand was invisible from above. */
+  check('S149', 'every corner is drawn on the map, numbered, run or no run',
+    /function rmSyncCornersSky\(\)/.test(admin) &&
+    /rmCornerMarkers\.push\(new google\.maps\.Marker/.test(admin) &&
+    /label: \{text: rmCornerLabel\(i\)/.test(admin),
+    'one dot on its own makes no run, so it had nothing to be drawn as');
+  check('S149', 'and they are redrawn whenever the corners change',
+    (function(){
+      const i = admin.indexOf('function rmCornersChanged(){');
+      return i !== -1 && admin.indexOf('rmSyncCornersSky();', i) > i &&
+             admin.indexOf('rmSyncCornersSky();', i) - i < 120;
+    })(),
+    'a marker layer nobody refreshes shows the dots as they were two edits ago');
+  check('S149', 'and cleared with the rest of the last house',
+    (function(){
+      const i = admin.indexOf('rmCorners = []; rmCurrentBand = 0; rmCandidates = [];');
+      return i !== -1 && admin.indexOf('rmClearCornerMarkers();', i) > i &&
+             admin.indexOf('rmClearCornerMarkers();', i) - i < 80;
+    })(),
+    'the next address would otherwise open with the last one dots floating on it');
+  /* ⚠ THE MAP'S OLD HANDLES ONLY LOOKED LIKE HANDLES. They belonged to the run
+     rmCornersToRun REBUILDS from the corners on every change, so a drag edited
+     a copy and the dot jumped back on the next redraw. */
+  check('S149', 'a run built from corners draws no handles of its own',
+    /run\.dots = \(run\.fromCorners \|\| \(run\.suggested && !on\)\)/.test(admin),
+    'those handles drag a copy that the next redraw throws away');
+  check('S149', 'shift and drag moves the corner itself, from above as well',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const c = rmCorners\[rmSkyDragDot\];/.test(body) &&
+             /c\.lat = w\.lat; c\.lng = w\.lng;/.test(body) &&
+             /c\.rays = \[\]; c\.pinned = 0;/.test(body);
+    })(),
+    'the panorama has had this for a while; the map had a handle that did nothing');
+  check('S149', 'and a dragged dot is grabbed in metres, not pixels',
+    /const RM_SKY_GRAB_M = 4;/.test(admin) && /bd = RM_SKY_GRAB_M;/.test(admin),
+    'the same pixel radius is half a house at one zoom and half a gutter at another');
+  /* ⚠ A HEIGHT OF ZERO IS A HEIGHT. Ground runs are a real thing to trace from
+     above, and `pt.h || rmDatum().m` put every one of them up at the eave. */
+  check('S149', 'a corner on the ground keeps its height instead of jumping to the eave',
+    (function(){
+      const fn = extractFn(admin, 'rmAddCorner') || '';
+      return /typeof pt\.h === 'number' && isFinite\(pt\.h\)/.test(fn) && !/h: pt\.h \|\|/.test(fn);
+    })(),
+    'the falsy fallback swapped a ground dot for one at roof height');
 }
 
 
@@ -39331,10 +39410,12 @@ suite('269. Measure Roof - lining the satellite picture up with the model');
     /rmAlignTakeStreet\(hit\)/.test(panoAlign),
     'passing {e, n} drops the height and the wall/roof kind, so the same click ' +
     'can no longer measure the eave — and no sandbox check can see it');
-  check('S269', 'an alignment click is taken before it can join a traced side',
+  check('S269', 'an alignment click is taken before it can place or trace anything',
     skyClick.indexOf('rmAligning') !== -1 &&
+    skyClick.indexOf('rmAligning') < skyClick.indexOf('rmAddCorner(') &&
     skyClick.indexOf('rmAligning') < skyClick.indexOf('rmAddPoint('),
-    'the map click adds a point before it checks for an alignment');
+    'the map click places a dot before it checks for an alignment, so the two ' +
+    'alignment clicks land on the roofline and are billed');
 }
 
 // =====================================================================

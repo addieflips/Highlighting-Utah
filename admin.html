@@ -16979,7 +16979,13 @@ function rmAddCorner(pt){
   if(!pt) return false;
   /* The ray it was seen along is kept, so a second sighting from elsewhere can
      be crossed with this one and the guess replaced by the real point. */
-  rmCorners.push({lat: pt.lat, lng: pt.lng, h: pt.h || rmDatum().m, on: true,
+  /* ⚠ A HEIGHT OF ZERO IS A HEIGHT. `pt.h || rmDatum().m` quietly swapped a
+     dot on the ground for one up at the eave, which is the one place the
+     fallback is guaranteed wrong — and it went unnoticed while only the
+     street view placed corners, because a ray that meets the ground is
+     refused there anyway. From above, ground runs are a real thing to trace. */
+  const h = (typeof pt.h === 'number' && isFinite(pt.h)) ? pt.h : rmDatum().m;
+  rmCorners.push({lat: pt.lat, lng: pt.lng, h: h, on: true,
                   byHand: true, band: rmCurrentBand, rays: pt.ray ? [pt.ray] : []});
   rmCornersChanged();
   return true;
@@ -17042,8 +17048,49 @@ function rmCornersToRun(){
   return first;
 }
 
+/* ⭐ THE CORNERS ON THE SKY VIEW, WITH THEIR NUMBERS ON (2026-08-25). Owner:
+   "I place a dot in sky view and its a different type of dot then the one on
+   street view they should be the same and in sync."
+
+   ⚠ HALF OF "A DIFFERENT TYPE OF DOT" WAS THAT THE MAP DREW NO CORNERS AT
+   ALL. A corner only reached the map as a vertex of the run rmCornersToRun
+   builds from it — and a band with one dot in it makes no run, so the first
+   dot of every strand was invisible from above and the rest were unnumbered
+   handles. Street View has always drawn each corner itself, numbered, on or
+   off, whether or not it joins anything. This is that same drawing, from above.
+
+   ⚠ PICTURE POSITIONS. The stored point is true and the tile is displaced, so
+   every marker goes out through rmSkyUnshift — see the block on it. */
+let rmCornerMarkers = [];
+function rmClearCornerMarkers(){
+  rmCornerMarkers.forEach(function(m){ m.setMap(null); });
+  rmCornerMarkers = [];
+}
+function rmSyncCornersSky(){
+  rmClearCornerMarkers();
+  if(!rmMap) return;
+  rmCorners.forEach(function(c, i){
+    const lit = !!c.on;
+    const q = rmSkyUnshift(c.lat, c.lng);
+    rmCornerMarkers.push(new google.maps.Marker({
+      position: q, map: rmMap, clickable: false, zIndex: 7,
+      /* Small, for the reason the street view dots are small: a marker big
+         enough to hold its number is big enough to hide the corner it marks.
+         The number sits beside it. A pinned dot is ringed — it has been seen
+         from more than one place and is where it says it is. */
+      icon: {path: google.maps.SymbolPath.CIRCLE, scale: 4,
+             fillColor: lit ? '#E0574B' : 'rgba(255,255,255,.85)', fillOpacity: 1,
+             strokeColor: c.pinned ? (lit ? '#E0574B' : '#8b95a1') : (lit ? '#ffffff' : '#8b95a1'),
+             strokeWeight: c.pinned ? 3 : 1.4,
+             labelOrigin: new google.maps.Point(2.6, -2.2)},
+      label: {text: rmCornerLabel(i), color: lit ? '#E0574B' : '#6b7683',
+              fontSize: '11px', fontWeight: '700'}
+    }));
+  });
+}
 function rmCornersChanged(){
   rmCornersToRun();
+  rmSyncCornersSky();
   rmRenderResults();
   rmPaintStreet();
   rmRenderCornerBar();
@@ -17280,6 +17327,12 @@ const RM_PIN_GRAB_PX = 8;
    generous target; a plain click has not, so it cannot. */
 const RM_DRAG_GRAB_PX = 18;
 const RM_DRAG_SLOP_PX = 4;       /* below this the pointer only wobbled */
+/* ⚠ THE MAP GRABS IN METRES, NOT PIXELS, because how many pixels a dot is
+   away from the cursor up there depends entirely on the zoom — the same
+   18 px is half a house at zoom 18 and half a gutter at zoom 22. Four metres
+   is what the right-click already uses to decide which dot was meant, so the
+   two gestures agree about what counts as aiming at a dot. */
+const RM_SKY_GRAB_M = 4;
 let rmDragMoved = false;         /* a drag happened, so the click that ends it is not a swap */
 
 /* The point that best satisfies every ray it has been seen along. */
@@ -19684,7 +19737,13 @@ function rmSyncSky(run){
   /* A suggested line carries no handles until it is switched on - four dots on
      every offered edge is a thicket, and nobody nudges a line they have not
      decided to keep. */
-  run.dots = (run.suggested && !on) ? [] : run.path.map(function(_, i){ return rmDot(run, i); });
+  /* ⚠ A RUN BUILT FROM CORNERS DRAWS NO HANDLES OF ITS OWN — the same rule
+     rmPaintStreet already follows. Its path is a COPY of rmCorners rebuilt on
+     every change, so a handle on it drags the copy: the dot appears to move
+     and is back where it started the next time anything redraws. The corners
+     are drawn once, by rmSyncCornersSky, with their numbers on, and they drag
+     the corner itself. */
+  run.dots = (run.fromCorners || (run.suggested && !on)) ? [] : run.path.map(function(_, i){ return rmDot(run, i); });
 }
 function rmClearDrawing(){
   rmRuns.forEach(function(r){
@@ -20517,6 +20576,7 @@ function rmForgetLastHouse(){
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
   rmCorners = []; rmCurrentBand = 0; rmCandidates = [];
+  rmClearCornerMarkers();
   rmRenderCornerBar();
   /* the roof model and everything derived from it */
   rmFaces = []; rmBuilding = null; rmRoofGrade = ''; rmRoofFacts = null;
@@ -22053,6 +22113,9 @@ function openRoofMeasure(quoteId){
      underneath be completely inert while a line is being drawn. */
   document.getElementById('rmMapLock').addEventListener('click', function(e){
     if(!rmMap) return;
+    /* A shift-click is the end of a drag, not a placement — same rule as the
+       panorama, so the two views answer the gesture identically. */
+    if(e.shiftKey) return;
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
     /* ⚠ AHEAD OF EVERY OTHER MEANING A CLICK CAN HAVE. Lining the pictures up
@@ -22064,50 +22127,127 @@ function openRoofMeasure(quoteId){
       return;
     }
     if(rmCornerMode === 'dot' && !rmDrawing){
-      /* ⭐ THE MAP DOES NOT PLACE CORNERS. Owner: "make sure that you use the
-         street view to draw the lines not the sky view", and before that "its
-         using skyview to place corners which is bad it should use street view
-         only to detect where corners are", and "sky view is only used to
-         calculate the length of lines but still it shouldnt be used that much
-         because you need depth, height, and length to find the actual size of
-         a line and sky view cant give height."
+      /* ⭐ A CLICK UP HERE PLACES A CORNER — THE SAME CORNER THE STREET
+         VIEW PLACES (2026-08-25). Owner: "I place a dot in sky view and its a
+         different type of dot then the one on street view they should be the
+         same and in sync so that when I click end strand the dots connect no
+         matter which one I placed it on."
 
-         ⚠ AND SHE IS RIGHT ON THE GEOMETRY, not just the workflow. Looking
-         straight down there is no height in the picture at all, so a dot
-         placed from above had to INVENT one - it took the typed working height
-         or the roof model's guess. A dot at the wrong height is at the wrong
-         place, and parallax swings it across the house the moment the camera
-         moves, which is the drifting she has been reporting all along. There
-         is no version of a sky-view click that does not guess.
+         ⚠ WHAT WAS WRONG WAS NOT THE LOOK OF THE DOT — IT WAS A SECOND KIND
+         OF POINT. A click up here used to start a free-hand RUN
+         (rmSetDrawing/rmAddPoint), which lives in rmRuns: no number, no band,
+         no strand, ended by a double-click. A click in Street View makes a
+         CORNER, which lives in rmCorners and is what "End this strand" acts
+         on. So the two views were never two windows onto one set of points;
+         they were two drawings that could not be joined, and End Strand was
+         deaf to half of them by construction.
 
-         From the street a click is a ray that meets the actual wall, so the
-         height falls out of the geometry instead of being supplied. That is
-         also the only view where a gutter can be told apart from a chimney, a
-         satellite dish or a tree.
+         ⚠ THIS REVERSES AN EARLIER RULING, kept below because the reasoning was
+         sound at the time: a dot placed from above had to INVENT a height, and
+         a dot at the wrong height parallaxes across the house the moment the
+         camera moves.
 
-         The map keeps everything it is genuinely better at: seeing where a run
-         really lies, measuring its true length, and picking a dot to work with
-         (right-click still toggles one on or off). It just no longer invents
-         one. */
-      /* ⭐ A CLICK UP HERE STARTS A SIDE (2026-08-25). It used to be refused
-         outright with the note below, so the commonest thing anybody does with
-         a map — click on it — did nothing at all, and tracing meant finding
-         "Start Measuring" in the sidebar first.
-         ⚠ THIS IS NOT THE THING THAT NOTE WAS REFUSING. Placing a CORNER from
-         above has to invent a height and parallax then swings it across the
-         house, which is why it goes in from the street. Tracing a RUN is the
-         opposite case: an eave and a ridge are level, so plan length IS true
-         length, and above is the one place the line can be seen whole. The
-         note stays, because corners really do still go in from the street. */
+         ⭐ WHAT CHANGED IS THAT THE HEIGHT IS NO LONGER INVENTED HERE.
+         rmMapPixelToWorld corrects the tile displacement first (rmSkyShift) and
+         then reads the ROOF'S OWN height at that spot out of Google's planes,
+         falling back to the working height only where there is no plane. Both
+         of those postdate the ruling.
+
+         ⚠ IT IS STILL THE WEAKER OF THE TWO SIGHTINGS, and it is placed saying
+         so: no ray, so no ring, so the office can see at a glance that the
+         height is the model's opinion. Clicking the same corner once from the
+         street crosses the two and replaces the model's number with geometry
+         (rmPinCorner) — which is exactly the workflow the old ruling wanted,
+         reached without a second kind of dot.
+
+         Tracing a run from above is not lost: the scale check starts one, and
+         so does Enter with no dots down.
+
+         ── THE RULING THIS REPLACES, kept whole because it may be right again.
+         Owner: "make sure that you use the street view to draw the lines not
+         the sky view", and before that "its using skyview to place corners
+         which is bad it should use street view only to detect where corners
+         are", and "sky view is only used to calculate the length of lines but
+         still it shouldnt be used that much because you need depth, height, and
+         length to find the actual size of a line and sky view cant give
+         height." Looking straight down there is no height in the picture at
+         all. From the street a click is a ray that meets the actual wall, so
+         the height falls out of the geometry instead of being supplied — and
+         it is the only view where a gutter can be told from a chimney, a
+         satellite dish or a tree. If dots from above start drifting again,
+         that is the argument to read first. */
+      rmAddCorner(w);
       const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = 'Tracing a side from up here. Corners still go in from the street view — that is the only place a gutter can be told from a chimney, and the only place a height is real rather than guessed.';
-      rmSetDrawing(true);
-      rmAddPoint(w);
+      if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
+        rmCornerLabel(rmCorners.length - 1) + ', at the roof height above that spot. ' +
+        'Click it again in the street view to pin the height exactly. Corners go in from either view now.';
       return;
     }
     if(rmDrawing) rmAddPoint(w);
   });
   document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  /* ⭐ SHIFT AND DRAG MOVES A DOT FROM ABOVE TOO (2026-08-25). The panorama
+     has had this for a while; the map had a handle that only LOOKED like one.
+     It belonged to the run rmCornersToRun rebuilds from the corners, so
+     dragging it edited a copy that the next redraw threw away — the dot slid
+     under the cursor and jumped back, which is its own version of "the two
+     views are not in sync".
+
+     ⚠ SHIFT IS WHAT MAKES IT SAFE, for the same reason as over the panorama: a
+     plain click up here now places a dot, so a bare grab-and-move would turn
+     every slightly-wobbly click into a moved corner.
+
+     ⚠ AND A MOVED DOT STOPS BEING PINNED. Its position was the crossing of the
+     rays it had been seen along; dragging it somewhere else makes those rays
+     describe a point it is no longer at. */
+  let rmSkyDragDot = -1, rmSkyDragFrom = null;
+  function rmSkyCornerNear(w){
+    let best = -1, bd = RM_SKY_GRAB_M;
+    rmCorners.forEach(function(c, k){
+      const d = Math.hypot((c.lat - w.lat) * 111320, (c.lng - w.lng) * 85000);
+      if(d < bd){ bd = d; best = k; }
+    });
+    return best;
+  }
+  document.getElementById('rmMapLock').addEventListener('mousedown', function(e){
+    if(!e.shiftKey || rmCornerMode !== 'dot' || !rmMap) return;
+    const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
+    if(!w) return;
+    const i = rmSkyCornerNear(w);
+    if(i < 0) return;
+    rmSkyDragDot = i;
+    rmSkyDragFrom = {x: e.clientX, y: e.clientY};
+    e.preventDefault();
+    const note = document.getElementById('rmCornerNote');
+    if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
+  });
+  document.getElementById('rmMapLock').addEventListener('mousemove', function(e){
+    if(rmSkyDragDot < 0) return;
+    /* A few pixels of travel is a shaky click, not a drag. */
+    if(rmSkyDragFrom && Math.hypot(e.clientX - rmSkyDragFrom.x, e.clientY - rmSkyDragFrom.y) < RM_DRAG_SLOP_PX) return;
+    const c = rmCorners[rmSkyDragDot];
+    if(!c){ rmSkyDragDot = -1; return; }
+    /* ⚠ THE SAME FUNNEL A FRESH CLICK GOES THROUGH, so a dragged dot cannot
+       land somewhere a placed one could not: the tile displacement is corrected
+       and the height comes off the roof at the spot it was dropped on, rather
+       than staying at the height it had before it was moved up the gable. */
+    const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
+    if(!w) return;
+    c.lat = w.lat; c.lng = w.lng;
+    if(typeof w.h === 'number' && isFinite(w.h)) c.h = w.h;
+    c.rays = []; c.pinned = 0; c.spread = 0;
+    rmCornersChanged();
+  });
+  ['mouseup', 'mouseleave'].forEach(function(ev){
+    document.getElementById('rmMapLock').addEventListener(ev, function(){
+      if(rmSkyDragDot < 0) return;
+      const moved = rmCornerLabel(rmSkyDragDot);
+      rmSkyDragDot = -1;
+      const note = document.getElementById('rmCornerNote');
+      if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
+        'click it in the street view to fix its height exactly.';
+    });
+  });
   /* ⭐ SHIFT AND DRAG MOVES A DOT. Owner: "add a drage featue so if you grab a
      dot while holding shift it moves."
 
