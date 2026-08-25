@@ -36384,18 +36384,53 @@ suite('167. Measure Roof - shift and drag moves a dot');
     /A shift-click is the end of a drag, not a placement[\s\S]{0,80}if\(e\.shiftKey\) return;/.test(admin),
     'otherwise letting go drops a second dot on top of the one just moved');
   /* ⭐ IT LANDS WHERE A FRESH CLICK WOULD. */
-  check('S167', 'a dragged dot is placed by the same solid-cast as a new one',
+  /* ⭐ ONE AXIS PER VIEW (2026-08-25). Owner: "if you drag on sky view the
+     height stays the same and if you drag on street view the height is the
+     only thing you can change."
+
+     ⚠ THESE TWO CHECKS USED TO PIN A SOLID-CAST DRAG — the pointer's ray was
+     crossed with the house and the dot went wherever it landed, plan and
+     height together. That is the tempting design and it is wrong, because it
+     lets each view drag the one number it cannot see. From the street the
+     unknown is DEPTH: a dot can sit perfectly on the gutter and be ten feet
+     into next door's garden in plan, and nothing in the panorama can show it.
+     From above there is no height in the picture at all. So each view now
+     moves only what it can judge, and the safety limits are kept. */
+  check('S167', 'a street-view drag changes the height and nothing else',
     (function(){
-      const i = admin.indexOf('if(rmDragDot < 0) return;');
-      const j = admin.indexOf('rmHouseHit(dir, cam)', i);
-      return i !== -1 && j > i && (j - i) < 1400;   /* the slop guard sits between */
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /c\.h = u;/.test(body) && !/c\.lat = /.test(body) && !/rmHouseHit\(/.test(body);
     })(),
-    'a dragged dot must not be able to land where a placed one could not');
-  check('S167', 'and it cannot be dragged above the roof',
+    'crossing the ray with the house again moves east and north every frame, so ' +
+    'the map shows the dot creeping sideways while somebody sets its height');
+  check('S167', 'and it holds the plan position exactly, by solving on a vertical',
     (function(){
-      const i = admin.indexOf('if(rmDragDot < 0) return;');
-      const j = admin.indexOf('rmRoofTopM()', i);
-      return i !== -1 && j > i && (j - i) < 900;
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const plan = Math\.hypot\(here\.e - cam\.e, here\.n - cam\.n\);/.test(body) &&
+             /cam\.u \+ plan \* Math\.tan\(el\)/.test(body);
+    })(),
+    'height is the horizontal distance times the tangent of the elevation, which ' +
+    'touches neither east nor north');
+  check('S167', 'a sky-view drag moves it across the roof and leaves the height alone',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /c\.lat = w\.lat; c\.lng = w\.lng;/.test(body) && !/c\.h = /.test(body);
+    })(),
+    're-reading the roof model on drop would overwrite a height measured from ' +
+    'the street with one the model guessed, for a sideways nudge');
+  check('S167', 'and neither drag can put a dot underground or above the roof',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const top = rmRoofTopM\(\);/.test(body) && /u > top \+ RM_EAVE_TOL_M/.test(body) &&
+             /if\(!\(u > 0\.3\)\) return;/.test(body);
     })(),
     'the same ceiling that stops a click on the sky');
   /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */

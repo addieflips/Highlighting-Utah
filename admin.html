@@ -22244,14 +22244,26 @@ function openRoofMeasure(quoteId){
     if(rmSkyDragFrom && Math.hypot(e.clientX - rmSkyDragFrom.x, e.clientY - rmSkyDragFrom.y) < RM_DRAG_SLOP_PX) return;
     const c = rmCorners[rmSkyDragDot];
     if(!c){ rmSkyDragDot = -1; return; }
-    /* ⚠ THE SAME FUNNEL A FRESH CLICK GOES THROUGH, so a dragged dot cannot
-       land somewhere a placed one could not: the tile displacement is corrected
-       and the height comes off the roof at the spot it was dropped on, rather
-       than staying at the height it had before it was moved up the gable. */
+    /* ⭐ FROM UP HERE, THE HEIGHT DOES NOT MOVE (2026-08-25). Owner: "if you
+       drag on sky view the height stays the same and if you drag on street view
+       the height is the only thing you can change."
+
+       ⚠ THIS IS A CHANGE FROM WHAT THIS DRAG DID AN HOUR AGO, and the old
+       behaviour was the tempting one: re-read the roof model at wherever the
+       dot was dropped, so a dot dragged up a gable takes the gable's height.
+       It is wrong for the same reason a sky-view CLICK cannot set a height —
+       the number would come from the model, not from anything visible in this
+       picture, and it would silently overwrite a height that may have been
+       measured from the street. Somebody nudging a dot sideways by a foot in
+       plan would lose an eave height they had just set. The height is set in
+       the view that can see it, and this view leaves it alone.
+
+       ⚠ PICTURE IN, TRUTH OUT. rmMapPixelToWorld corrects the tile
+       displacement, so the dot lands where the model says that spot is rather
+       than where the satellite drew it. */
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
     c.lat = w.lat; c.lng = w.lng;
-    if(typeof w.h === 'number' && isFinite(w.h)) c.h = w.h;
     c.rays = []; c.pinned = 0; c.spread = 0;
     rmCornersChanged();
   });
@@ -22307,14 +22319,41 @@ function openRoofMeasure(quoteId){
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
     const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
-    /* Where it goes is decided the same way a fresh click is - the house as a
-       solid - so a dragged dot cannot land somewhere a placed one could not. */
-    const hit = rmHouseHit(dir, cam);
-    if(!hit) return;
+    /* ⭐ FROM HERE, HEIGHT IS THE ONLY THING YOU CAN CHANGE (2026-08-25). Owner:
+       "if you drag on sky view the height stays the same and if you drag on
+       street view the height is the only thing you can change."
+
+       ⭐ AND IT IS THE RIGHT SPLIT, not just a preference — it gives each view
+       the one axis it can actually see. Looking straight down there is no
+       height in the picture, so the map must not touch it. From the street the
+       DEPTH along the ray is the unknown, so where a dot sits in plan is the
+       thing this view cannot judge: a dot can sit perfectly on the gutter here
+       and be ten feet into next door's garden on the map, and nothing in this
+       picture can show it. Letting a drag here move the plan position means
+       dragging the one number you cannot see, by eye, using the one view that
+       cannot see it. Between the two views every dot is fully correctable, and
+       neither view is ever asked to guess.
+
+       ⚠ THE PLAN POSITION IS HELD EXACTLY, so this is not a re-aim of the ray.
+       The dot sits on a VERTICAL LINE at a fixed horizontal distance from the
+       camera; the cursor's ray gives an elevation; height is that distance
+       times the tangent of it. Solving it that way rather than crossing the ray
+       with a surface is what keeps east and north bit-for-bit unchanged — a
+       re-crossed ray would nudge them every frame and the map would show the
+       dot creeping sideways while somebody set its height. */
+    const here = rmToLocal(c.lat, c.lng, c.h || 0);
+    const plan = Math.hypot(here.e - cam.e, here.n - cam.n);
+    if(!(plan > 0.5)) return;                       /* standing on top of it */
+    const len = Math.hypot(dir.e, dir.n, dir.u) || 1;
+    const el = Math.asin(Math.max(-1, Math.min(1, dir.u / len)));
+    const u = cam.u + plan * Math.tan(el);
+    /* ⚠ NOTHING IS UNDERGROUND AND NOTHING IS ABOVE THE ROOF, the same two
+       limits a fresh click answers to — a drag must not reach a place a click
+       could not. */
     const top = rmRoofTopM();
-    if(top !== null && hit.u > top + RM_EAVE_TOL_M) return;
-    const w = rmToWorld({e: hit.e, n: hit.n, u: hit.u});
-    c.lat = w.lat; c.lng = w.lng; c.h = hit.u;
+    if(!(u > 0.3)) return;
+    if(top !== null && u > top + RM_EAVE_TOL_M) return;
+    c.h = u;
     c.rays = []; c.pinned = 0; c.spread = 0;
     rmCornersChanged();
   });
