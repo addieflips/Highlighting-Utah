@@ -36291,14 +36291,43 @@ suite('167. Measure Roof - shift and drag moves a dot');
       return i !== -1 && j > i && (j - i) < 900;
     })(),
     'the same ceiling that stops a click on the sky');
-  /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */
-  check('S167', 'a moved dot stops being pinned',
-    /c\.rays = \[\]; c\.pinned = 0; c\.spread = 0;/.test(admin),
-    'its position WAS the crossing of those rays; dragging it elsewhere makes them ' +
-    'describe a point it is no longer at, and a dot claiming to be exact while sitting ' +
-    'wherever it was last dragged is the confident-wrong state this tool keeps hitting');
-  check('S167', 'and the office is told, rather than the ring just vanishing',
-    /It is no longer pinned/.test(admin));
+  /* ⭐ MOVING IT DROPS THE PIN, AND KEEPS THE SIGHTINGS (changed 2026-08-25).
+     ⚠ THE CONCERN BEHIND THE OLD CHECK IS UNCHANGED and is what is asserted
+     here: a dot claiming to be exact while sitting wherever it was last dragged
+     is the confident-wrong state this tool keeps hitting. What changed is that
+     the sightings are no longer DELETED on the first pixel of movement. They
+     were the one measurement that can fix the depth - crossed with the drag's
+     own ray they give the point exactly - so throwing them away to keep the
+     claim tidy discarded the better of the two answers.
+     The old check matched the literal line `c.rays = []; c.pinned = 0;`, so it
+     had to change subject. It now asserts the guarantee: while a dot is being
+     dragged it is NOT pinned, and it becomes pinned again only if two views
+     really do cross. */
+  const dragMove = (function(){
+    const i = admin.indexOf('if(rmDragDot < 0) return;');
+    const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+    return i < 0 ? '' : admin.slice(i, j < 0 ? admin.length : j);
+  })();
+  check('S167', 'a dot being dragged stops claiming to be exact',
+    /c\.pinned = 0; c\.spread = 0;/.test(dragMove),
+    'a dot claiming to be exact while sitting wherever it was last dragged is the ' +
+    'confident-wrong state this tool keeps hitting');
+  check('S167', 'but its earlier sightings survive the drag, to be crossed with it',
+    dragMove.indexOf('c.rays = [rmDragRay];') !== -1 &&
+    !/c\.rays = \[\];/.test(dragMove),
+    'deleting them mid-drag throws away the one measurement that fixes the depth');
+  const dragUp = (function(){
+    const i = admin.indexOf("['mouseup', 'mouseleave']");
+    const j = admin.indexOf("getElementById('rmPanoLock').addEventListener('click'", i);
+    return i < 0 ? '' : admin.slice(i, j < 0 ? admin.length : j);
+  })();
+  check('S167', 'and it is pinned again only when the two views really cross',
+    /if\(pin && pin\.ok\)\{/.test(dragUp) && dragUp.indexOf('c.pinned = pin.rays.length;') !== -1,
+    'pinning on a drag alone is the old confident-wrong state with extra steps');
+  check('S167', 'and the office is told which of the two happened',
+    /fixed exactly/.test(dragUp) && /not looking at the same corner/.test(dragUp) &&
+    /worked out from the roof model/.test(dragUp),
+    'three different outcomes reading the same is how a guess passes for a measurement');
   /* ⚠ GRABBING AND PINNING ARE DIFFERENT QUESTIONS. Shrinking the pin radius to
      8 px so two corners could be placed close together also shrank the target
      for a shift-drag, because both asked the same function - so a dot had to be
@@ -40007,6 +40036,155 @@ suite('272. Measure Roof - why a dot drifts, and putting it back');
   check('S272', 'and rmDebug says which dots are likely to drift and by how much',
     /driftPerFtFt:/.test(admin) && /wouldMoveFt:/.test(admin),
     'the question was how much and why; a log that cannot answer it sends somebody back to screenshots');
+}
+
+
+suite('273. Measure Roof - fixing a dot from the change in angle');
+{
+  /* ⭐ Owner: "we need you to geometrically calculate the offset based of the
+     change in angle to make sure that the angle directly in front of the house
+     when positioned has all the dots placed right."
+
+     ⭐ THE CHANGE IN ANGLE IS THE ANSWER, AND IT WAS BEING THROWN AWAY. One
+     click fixes a dot's DIRECTION exactly and has to guess its DEPTH from a
+     model - that guess is the whole reason a dot drifts when you walk down the
+     street. TWO sightings of the same feature from two places do not guess at
+     all: the rays cross, and where they cross IS the point.
+
+     ⭐ AND DRAGGING A DOT IS ALREADY THE SECOND SIGHTING. Somebody who moves
+     along the street, sees the dot off the gutter and drags it back is saying
+     where that feature is from a NEW angle. The drag handler deleted the
+     original ray on the first pixel of movement and re-guessed off the model -
+     discarding the better of the two answers to keep the guess tidy.
+
+     ⚠ THIS SUITE RUNS THE CROSSING. Every claim is about where a point ENDS
+     UP and how far the rays missed by, neither of which a text match can see. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmSolveFromRays', 'rmPinFromDrag'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S273', 'the crossing pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  const baseM = Number((admin.match(/const RM_PIN_MIN_BASE_M\s*=\s*([\d.]+)/) || [])[1]);
+  const spreadM = Number((admin.match(/const RM_DRAG_PIN_MAX_SPREAD_M\s*=\s*([\d.]+)/) || [])[1]);
+  check('S273', 'the two thresholds are real numbers',
+    isFinite(baseM) && baseM > 0 && isFinite(spreadM) && spreadM > 0,
+    'base=' + baseM + ' spread=' + spreadM);
+
+  if (!missing.length && isFinite(baseM)) {
+    const api = new Function(
+      'const RM_PIN_MIN_BASE_M=' + baseM + ', RM_DRAG_PIN_MAX_SPREAD_M=' + spreadM + ';' + LF_ +
+      NAMES.map(pick).join(LF_) + LF_ +
+      'return {pin:rmPinFromDrag, solve:rmSolveFromRays};')();
+
+    /* A gutter corner 6 m up, 12 m north of the origin. Two camera positions on
+       the road to the south, far enough apart to say something. */
+    const P = {e: 2, n: 12, u: 6};
+    const ray = (cam, at) => {
+      const v = {e: at.e - cam.e, n: at.n - cam.n, u: at.u - cam.u};
+      const L = Math.hypot(v.e, v.n, v.u);
+      return {cam: cam, dir: {e: v.e / L, n: v.n / L, u: v.u / L}};
+    };
+    const camA = {e: -10, n: -8, u: 2.5};
+    const camB = {e: 10, n: -8, u: 2.5};
+    const near = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.05 : tol);
+
+    /* ---- two honest sightings cross at the point ---------------------- */
+    const good = api.pin([ray(camA, P)], ray(camB, P));
+    check('S273', 'two views of the same corner cross exactly at it',
+      good && good.ok && near(good.pt.e, P.e) && near(good.pt.n, P.n) && near(good.pt.u, P.u),
+      'came out ' + (good && good.pt ? JSON.stringify(good.pt) : good) +
+      ' - wanted ' + JSON.stringify(P));
+    check('S273', 'and it reports how far they missed by, which is near nothing',
+      good && good.spread < 0.01,
+      'spread ' + (good && good.spread));
+    /* ⚠ THE DEPTH IS WHAT THIS FIXES, so the fixture has to make the model's
+       answer WRONG. A dot placed off-depth along the first ray and then dragged
+       is the whole case. */
+    const offDepth = {e: 1, n: 6, u: 4.25};
+    check('S273', 'the crossing beats a wrong depth rather than averaging with it',
+      good && Math.hypot(good.pt.e - offDepth.e, good.pt.n - offDepth.n, good.pt.u - offDepth.u) > 5,
+      'the answer stayed near the model guess instead of moving to the crossing');
+
+    /* ---- and refuses when it cannot say anything ---------------------- */
+    /* ⚠ TWO VIEWS FROM THE SAME SPOT CANNOT FIX A DEPTH - the rays are almost
+       one ray and the solve turns a pixel of aim into metres. */
+    /* ⚠ NEAR WHICH CAMERA MATTERS, and getting it wrong makes the fixture
+       test nothing. rmPinFromDrag measures every kept ray against the DRAG's
+       camera, so a "too close" sighting has to be close to THAT one. The first
+       version put it next to camA and used camB as the drag - eighteen metres
+       apart, perfectly useful - and the check below failed honestly rather than
+       passing on a fixture that proved nothing. */
+    const nearA = {e: camA.e + (baseM - 1), n: -8, u: 2.5};
+    const nearB = {e: camB.e - (baseM - 1), n: -8, u: 2.5};
+    check('S273', 'two views from nearly the same spot are refused',
+      api.pin([ray(camA, P)], ray(nearA, P)) === null,
+      'a short baseline turns a pixel of aim into metres of depth');
+    /* ⚠ GUARANTEED TWICE, and a red-check is how that was found out: the
+       early return in rmPinFromDrag is belt-and-braces over rmSolveFromRays,
+       whose pivot guard already refuses a single ray or two identical ones. It
+       is kept because it states the intent and skips a pointless matrix solve;
+       what this check really holds is that neither layer ever invents one. */
+    check('S273', 'and a dot with no earlier sighting has nothing to cross',
+      api.pin([], ray(camB, P)) === null,
+      'the drag stands on its own, which is what the caller must fall back to');
+
+    /* ⚠ RAYS THAT DO NOT NEARLY MEET ARE NOT THE SAME FEATURE. If the first
+       click was aimed at a different corner, crossing them produces a confident
+       point in mid-air - the exact failure this tool keeps hitting. */
+    const otherCorner = {e: 2, n: 12, u: 2.5};
+    const wrong = api.pin([ray(camA, otherCorner)], ray(camB, P));
+    check('S273', 'two views of DIFFERENT corners are refused, not averaged',
+      wrong && wrong.ok === false,
+      'got ' + JSON.stringify(wrong) + ' - crossing them invents a point in mid-air');
+    check('S273', 'and the refusal carries how far apart they were, to say so on screen',
+      wrong && wrong.spread > spreadM,
+      'spread ' + (wrong && wrong.spread) + ' must exceed the ceiling ' + spreadM);
+
+    /* ⚠ A THIRD SIGHTING IS USED, NOT IGNORED. More views is a better answer,
+       and the solver is least-squares precisely so it can take them. */
+    const camC = {e: 0, n: -14, u: 2.5};
+    const three = api.pin([ray(camA, P), ray(camC, P)], ray(camB, P));
+    check('S273', 'every sighting far enough away is used, not just the first',
+      three && three.ok && three.rays.length === 3,
+      'used ' + (three && three.rays ? three.rays.length : '?') + ' of 3');
+    /* ⚠ AND A USELESS ONE IS DROPPED rather than dragging the answer about. */
+    const mixed = api.pin([ray(camA, P), ray(nearB, P)], ray(camB, P));
+    check('S273', 'and a sighting too near the drag to help is left out',
+      mixed && mixed.ok && mixed.rays.length === 2,
+      'used ' + (mixed && mixed.rays ? mixed.rays.length : '?') + ' - the short-baseline one adds noise');
+  }
+
+  /* ---- the wiring a sandbox cannot see ------------------------------- */
+  /* ⚠ CROSSED ON LET GO, NOT MID-DRAG. The dot has to follow the mouse while
+     it is being aimed; re-solving on every pixel would make it jump about. */
+  const dragUp273 = (function(){
+    const i = admin.indexOf("['mouseup', 'mouseleave']");
+    const j = admin.indexOf("getElementById('rmPanoLock').addEventListener('click'", i);
+    return i < 0 ? '' : admin.slice(i, j < 0 ? admin.length : j);
+  })();
+  check('S273', 'the two angles are crossed when the drag is let go',
+    /rmPinFromDrag\(rmDragKeptRays, rmDragRay\)/.test(dragUp273),
+    'this is the moment the office described - "after you let go of dragging"');
+  const dragMove273 = (function(){
+    const i = admin.indexOf('if(rmDragDot < 0) return;');
+    const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+    return i < 0 ? '' : admin.slice(i, j < 0 ? admin.length : j);
+  })();
+  check('S273', 'and not on every pixel of the drag, which would make it jump',
+    dragMove273.indexOf('rmPinFromDrag') === -1,
+    'a dot that re-solves while being aimed cannot be aimed');
+  /* ⚠ THE SIGHTINGS HAVE TO SURVIVE THE DRAG TO BE CROSSED AT ALL. */
+  check('S273', 'the sightings it already had are kept when the drag starts',
+    /rmDragKeptRays = \(\(rmCorners\[i\] \|\| \{\}\)\.rays \|\| \[\]\)\.slice\(\);/.test(admin),
+    'without this there is nothing to cross and the depth stays a guess');
+  /* ⚠ AND THE DRAG'S OWN RAY IS KEPT TOO, even when the crossing is refused -
+     it is a valid sighting from here, and rmRefreshCorners needs one to re-solve
+     against when the roof height changes. */
+  check('S273', 'and the drag leaves its own sighting behind either way',
+    dragMove273.indexOf('c.rays = [rmDragRay];') !== -1,
+    'a dot with no ray at all can never be re-solved or crossed later');
 }
 
 Promise.all(pendingAsync).then(function () {

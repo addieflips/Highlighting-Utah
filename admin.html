@@ -17283,6 +17283,53 @@ const RM_DRAG_SLOP_PX = 4;       /* below this the pointer only wobbled */
 let rmDragMoved = false;         /* a drag happened, so the click that ends it is not a swap */
 
 /* The point that best satisfies every ray it has been seen along. */
+/* ================= FIXING A DOT FROM THE CHANGE IN ANGLE =================
+ *
+ * ⭐ Owner: "we need you to geometrically calculate the offset based of the
+ * change in angle to make sure that the angle directly in front of the house
+ * when positioned has all the dots placed right."
+ *
+ * ⭐ THE CHANGE IN ANGLE IS THE ANSWER, AND IT WAS BEING THROWN AWAY. One
+ * click fixes a dot's DIRECTION exactly and has to guess its DEPTH from a
+ * model - that guess is the whole reason a dot drifts when you walk down the
+ * street. TWO sightings of the same feature from two places do not guess at
+ * all: the rays cross, and where they cross is the point. That is geometry,
+ * not a model, and it is what "calculate the offset from the change in angle"
+ * means.
+ *
+ * ⚠ AND DRAGGING A DOT IS ALREADY THE SECOND SIGHTING. Somebody who moves
+ * along the street, sees the dot sitting off the gutter and drags it back is
+ * telling us where that feature is from a NEW angle - the exact measurement
+ * needed. The drag handler used to delete the original ray on the first pixel
+ * of movement (`c.rays = []`) and re-guess the depth off the model, which threw
+ * away the better of the two answers to keep the guess tidy.
+ *
+ * ⚠ THE OLD REASONING WAS RIGHT FOR THE OTHER CASE, and is kept: dragging
+ * from the SAME spot you placed it means you are correcting a mis-aim, so the
+ * old ray describes a point the dot is no longer at and must go. What decides
+ * between the two is how far the camera has MOVED, which is why nothing here
+ * fires until the two viewpoints are RM_PIN_MIN_BASE_M apart.
+ *
+ * ⚠ AND RAYS THAT DO NOT NEARLY MEET ARE NOT THE SAME FEATURE. If the first
+ * click was aimed at a different corner, crossing them produces a confident
+ * point in mid-air. The solver reports how far they missed by; past
+ * RM_DRAG_PIN_MAX_SPREAD_M the answer is refused, the drag stands on its own,
+ * and the screen says so. */
+const RM_DRAG_PIN_MAX_SPREAD_M = 1.0;   /* ~3 ft: past this they are two features */
+/* Cross the sightings that are far enough apart to say anything. Returns null
+   when there is nothing worth crossing, so the caller keeps what it had. */
+function rmPinFromDrag(keptRays, dragRay){
+  if(!dragRay || !dragRay.cam || !dragRay.dir) return null;
+  const useful = (keptRays || []).filter(function(r){
+    return r && r.cam && r.dir &&
+      Math.hypot(r.cam.e - dragRay.cam.e, r.cam.n - dragRay.cam.n) >= RM_PIN_MIN_BASE_M;
+  });
+  if(!useful.length) return null;
+  const sol = rmSolveFromRays(useful.concat([dragRay]));
+  if(!sol) return null;
+  if(!(sol.spread <= RM_DRAG_PIN_MAX_SPREAD_M)) return {ok: false, spread: sol.spread};
+  return {ok: true, pt: sol.pt, spread: sol.spread, rays: useful.concat([dragRay])};
+}
 function rmSolveFromRays(rays){
   if(!rays || rays.length < 2) return null;
   /* A = sum (I - ddᵀ),  b = sum (I - ddᵀ) c */
@@ -22123,6 +22170,10 @@ function openRoofMeasure(quoteId){
      sitting wherever it was last dragged - which is the confident-wrong state
      this tool keeps having to be rescued from. */
   let rmDragDot = -1, rmDragFrom = null;
+  /* ⚠ THE SIGHTINGS THIS DOT ALREADY HAD, kept for the whole drag. The live
+     preview still re-guesses off the model on every mousemove, but the ORIGINAL
+     ray is what lets letting go fix the depth exactly - see rmPinFromDrag. */
+  let rmDragKeptRays = [], rmDragRay = null;
   document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
     if(!e.shiftKey || rmCornerMode !== 'dot') return;
     const cam = rmCamLocal();
@@ -22132,6 +22183,8 @@ function openRoofMeasure(quoteId){
     const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
     if(i < 0) return;
     rmDragDot = i;
+    rmDragKeptRays = ((rmCorners[i] || {}).rays || []).slice();
+    rmDragRay = null;
     rmDragFrom = {x: e.clientX, y: e.clientY};
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
@@ -22158,17 +22211,47 @@ function openRoofMeasure(quoteId){
     if(top !== null && hit.u > top + RM_EAVE_TOL_M) return;
     const w = rmToWorld({e: hit.e, n: hit.n, u: hit.u});
     c.lat = w.lat; c.lng = w.lng; c.h = hit.u;
-    c.rays = []; c.pinned = 0; c.spread = 0;
+    /* ⚠ THE PIN IS DROPPED WHILE DRAGGING, but the SIGHTINGS are not - they
+       are held in rmDragKeptRays and crossed with this drag when it is let go.
+       Deleting them here is what threw away the one measurement that fixes the
+       depth, on the very first pixel of movement. */
+    c.pinned = 0; c.spread = 0;
+    rmDragRay = {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir};
+    c.rays = [rmDragRay];
     rmCornersChanged();
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmPanoLock').addEventListener(ev, function(){
       if(rmDragDot < 0) return;
       const moved = rmCornerLabel(rmDragDot);
-      rmDragDot = -1;
+      const c = rmCorners[rmDragDot];
       const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
-        'click it again from another angle to fix it exactly.';
+      rmDragDot = -1;
+      /* ⭐ LETTING GO IS WHERE THE TWO ANGLES ARE CROSSED. Owner: "calculate
+         the angle it changes to figure out how much to offset the dots after
+         you let go of dragging." Nothing is crossed mid-drag on purpose - the
+         dot has to follow the mouse, and re-solving on every pixel would make
+         it jump about while being aimed. */
+      const pin = (c && rmDragRay) ? rmPinFromDrag(rmDragKeptRays, rmDragRay) : null;
+      rmDragKeptRays = []; rmDragRay = null;
+      if(pin && pin.ok){
+        const w = rmToWorld(pin.pt);
+        c.lat = w.lat; c.lng = w.lng; c.h = pin.pt.u;
+        c.rays = pin.rays;
+        c.pinned = pin.rays.length;
+        c.spread = pin.spread;
+        rmCornersChanged();
+        if(note) note.textContent = 'Dot ' + moved + ' is now fixed exactly — the view you placed it ' +
+          'from and the view you dragged it in cross to within ' +
+          (pin.spread * RM_M_TO_FT * 12).toFixed(1) + ' inches. It will not drift again.';
+        return;
+      }
+      if(note) note.textContent = pin
+        ? 'Dot ' + moved + ' moved, but the two views disagree by ' +
+          Math.round(pin.spread * RM_M_TO_FT) + ' ft, so they are not looking at the same corner — ' +
+          'this drag stands on its own. Drag it again from here if it is still off.'
+        : 'Dot ' + moved + ' moved. Its depth is still worked out from the roof model — ' +
+          'move along the street and drag it onto the gutter again to fix it exactly.';
     });
   });
   document.getElementById('rmPanoLock').addEventListener('click', function(e){
