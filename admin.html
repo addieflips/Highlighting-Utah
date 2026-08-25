@@ -39545,7 +39545,40 @@ function bumpCandidateIndex(stops, custData, okOn){
  * there is no later day in its city to move anyone to; the owner's decision is
  * that this is allowed and must be said out loud rather than leaving somebody
  * unscheduled. */
-function evenOutDays(days, custData, maxPerDay){
+/* ---- which towns is this day ALLOWED to hold? ----
+ * ⭐ THE ONE ANSWER, so the two halves of the sweep cannot disagree.
+ *
+ * Found in the live book 2026-08-25. The eviction pass asked the route's own
+ * `towns` list; the cap and the fill asked routeCityOf(), which just counts the
+ * stops and returns whichever town is commonest ON the day. On a route stamped
+ * "S Summit Crest Ln" that happened to be carrying twelve Herriman houses those
+ * two answered DIFFERENT TOWNS — so step 1 evicted all twelve for being in the
+ * wrong town, and step 3 read the same day as a Herriman day and immediately
+ * filled it back up with Herriman houses. Every sweep, for ever, writing
+ * identical System notices four minutes apart.
+ *
+ * A route carries `towns` because the builder may top a day up from ONE
+ * neighbouring town; routeCityOf only ever reports the majority. Falling back
+ * to `city` keeps every day that predates `towns` working exactly as it did.
+ *
+ * ⚠ NAMED routeDayTowns, NOT dayTownList. There is already a dayTownList lower
+ * down for the timing sweep, and it answers a different question about a
+ * different shape of object (a day of .houses, not a saved route). Two top-level
+ * declarations of one name do not sit side by side in a browser — the later one
+ * wins for the whole page — so the first draft of this silently handed the fill
+ * the timing sweep's answer. run-all.js caught it; the name is the fix. */
+function routeDayTowns(day){
+  if(!day) return [];
+  const listed = (day.towns || []).filter(Boolean);
+  if(listed.length) return listed;
+  return day.city ? [day.city] : [];
+}
+function routeDaysShareATown(a, b){
+  const mine = routeDayTowns(a), theirs = routeDayTowns(b);
+  if(!mine.length || !theirs.length) return false;
+  return mine.some(function(t){ return theirs.indexOf(t) !== -1; });
+}
+function evenOutDays(days, custData, maxPerDay, townOf){
   const cap = maxPerDay || MAX_STOPS_PER_ROUTE;
   const moves = [], over = [];
   const inOrder = days.slice().sort(function(a,b){
@@ -39557,22 +39590,43 @@ function evenOutDays(days, custData, maxPerDay){
        hang, and this runs on a timer in front of the office. */
     let guard = 0;
     while(day.stops.length > cap && guard++ < 1000){
-      const target = inOrder.find(function(d2){
-        return d2 !== day && d2.city && d2.city === day.city && d2.date > day.date;
+      /* EVERY later day this crew is in one of THIS day's towns, soonest first.
+         It used to be just the first one. That was fine while a day meant one
+         town; on a two-town day the first match can be a day the house being
+         shed is not allowed on, and shedding onto it is what the next sweep
+         evicts — build, evict, rebuild. */
+      const targets = inOrder.filter(function(d2){
+        return d2 !== day && d2.date > day.date && routeDaysShareATown(day, d2);
       });
-      if(!target){
+      let picked = null;
+      for(let t = 0; t < targets.length && !picked; t++){
+        const target = targets[t];
+        const theirs = routeDayTowns(target);
+        /* ⚠ ONLY HOUSES THE TARGET DAY IS ACTUALLY ALLOWED TO HOLD. Without
+           townOf every stop is eligible, which is exactly the behaviour this
+           had before — so a caller that does not supply it is unchanged. */
+        const eligible = townOf ? day.stops.filter(function(st){
+          const town = townOf(st.id);
+          return !town || theirs.indexOf(town) !== -1;
+        }) : day.stops;
+        if(!eligible.length) continue;
+        const ei = bumpCandidateIndex(eligible, custData, function(id){
+          return stillInWindow(custData(id), target.date);
+        });
+        if(ei < 0) continue;
+        picked = {target: target, stop: eligible[ei]};
+      }
+      if(!picked){
         over.push({date: day.date, city: day.city, count: day.stops.length, cap: cap});
         break;
       }
-      const idx = bumpCandidateIndex(day.stops, custData, function(id){
-        return stillInWindow(custData(id), target.date);
-      });
-      if(idx < 0) break;
-      const stop = day.stops.splice(idx, 1)[0];
-      target.stops.push(stop);
-      moves.push({id: stop.id, name: stop.name || '', from: day.date, to: target.date,
-                  city: day.city, dayId: day.id, targetId: target.id,
-                  lateNow: !stillInWindow(custData(stop.id), target.date)});
+      const at = day.stops.indexOf(picked.stop);
+      if(at < 0) break;
+      const stop = day.stops.splice(at, 1)[0];
+      picked.target.stops.push(stop);
+      moves.push({id: stop.id, name: stop.name || '', from: day.date, to: picked.target.date,
+                  city: day.city, dayId: day.id, targetId: picked.target.id,
+                  lateNow: !stillInWindow(custData(stop.id), picked.target.date)});
     }
   }
   return {moves: moves, over: over};
@@ -40681,7 +40735,7 @@ function packTailCrewDays(built, opts){
  *
  * PURE, like evenOutDays: day objects in, a list of what moved out.
  * Pool items are {id, city, stop}. Returns {placed, pulled, budgetHit}. */
-function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
+function fillDays(days, custData, pool, allowedOn, maxPerDay, budget, townOf){
   const cap = maxPerDay || MAX_STOPS_PER_ROUTE;
   let left = (budget === undefined || budget === null) ? Infinity : budget;
   const placed = [], pulled = [];
@@ -40692,13 +40746,17 @@ function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
   let budgetHit = false;
   for(let i = 0; i < inOrder.length; i++){
     const day = inOrder[i];
-    if(!day.city) continue;
+    /* ⭐ THE DAY'S FULL TOWN LIST, NOT ITS MAJORITY TOWN. Asking for the
+       majority is what let a day be re-filled with houses the eviction pass
+       would take straight back off it on the next sweep. */
+    const dayTowns = routeDayTowns(day);
+    if(!dayTowns.length) continue;
     let guard = 0;
     while(day.stops.length < cap && guard++ < 1000){
       if(left <= 0){ budgetHit = true; break; }
       // 1. somebody with no day at all
       const pi = waiting.findIndex(function(c){
-        return c.city === day.city && allowedOn(c.id, day.date);
+        return dayTowns.indexOf(c.city) !== -1 && allowedOn(c.id, day.date);
       });
       if(pi !== -1){
         const c = waiting.splice(pi, 1)[0];
@@ -40712,9 +40770,15 @@ function fillDays(days, custData, pool, allowedOn, maxPerDay, budget){
       let took = null;
       for(let j = i + 1; j < inOrder.length && !took; j++){
         const donor = inOrder[j];
-        if(donor.city !== day.city) continue;
+        if(!routeDaysShareATown(day, donor)) continue;
         for(let k = donor.stops.length - 1; k >= 0; k--){
           if(!allowedOn(donor.stops[k].id, day.date)) continue;
+          /* ⚠ AND THE HOUSE ITSELF HAS TO BELONG HERE. Two days can share one
+             town and still each hold a second town of their own; pulling on the
+             day's overlap alone would drag a Cedar Hills house onto an
+             Alpine-only day and it would be evicted fifteen minutes later. */
+          const town = townOf ? townOf(donor.stops[k].id) : '';
+          if(town && dayTowns.indexOf(town) === -1) continue;
           took = {donor: donor, stop: donor.stops.splice(k, 1)[0]};
           break;
         }
@@ -40989,12 +41053,21 @@ async function reconcileUpcomingRoutes(){
      a half-built one: houses dropped, houses re-homed and new hangs picked up
      have all landed by now. */
   {
+    /* ⭐ `towns` TRAVELS WITH THE DAY. cityByRoute is still carried for the
+       notice's sake — it is the label a person recognises — but every DECISION
+       below is made on the same allowed-town list step 1 evicts against. */
     const days = routes.map(function(r){
-      return {id: r.id, date: r.date, city: cityByRoute[r.id], stops: working[r.id]};
+      return {id: r.id, date: r.date, city: cityByRoute[r.id],
+              towns: townsByRoute[r.id], stops: working[r.id]};
     });
     const custById = {};
     jobAddresses.forEach(function(a){ custById[a.id] = a.data || {}; });
     const custData = function(id){ return custById[id]; };
+    /* The house's own town, cleaned the same way step 1 cleans it, so the two
+       passes cannot disagree about what town a house is in either. */
+    const townOfCustomer = function(id){
+      return extractCleanCity((custById[id] || {}).city);
+    };
     /* The one gate on pulling a house forward. Missing record = not allowed:
        silence must not be read as a yes when the answer decides whether a
        November house goes out in October. */
@@ -41006,7 +41079,7 @@ async function reconcileUpcomingRoutes(){
     const mark = function(rid){ if(rid){ dirty[rid] = true; touched[rid] = true; } };
     // 3b — nobody gets a day of more than forty. Cascades: a day that tips over
     // because of what the day before it shed is evened out in its turn.
-    const evened = evenOutDays(days, custData);
+    const evened = evenOutDays(days, custData, MAX_STOPS_PER_ROUTE, townOfCustomer);
     for(let i = 0; i < evened.moves.length; i++){
       const m = evened.moves[i];
       mark(m.dayId); mark(m.targetId);
@@ -41046,7 +41119,7 @@ async function reconcileUpcomingRoutes(){
     });
     pool.sort(function(a,b){ return (b.newHang ? 1 : 0) - (a.newHang ? 1 : 0); });
     const topped = fillDays(days, custData, pool, allowedOn, MAX_STOPS_PER_ROUTE,
-                            MAX_FILL_MOVES_PER_SWEEP);
+                            MAX_FILL_MOVES_PER_SWEEP, townOfCustomer);
     const landed = topped.placed.concat(topped.pulled);
     for(let i = 0; i < landed.length; i++){
       const m = landed[i];
@@ -41163,6 +41236,31 @@ async function reconcileUpcomingRoutes(){
 }
 /* One notice per sweep, never one per house — a sweep that tidies twelve things
    must not put twelve notices in front of somebody. */
+/* ---- and never the SAME notice twice ----
+   Two guards, because they fail in different ways. The in-memory one catches a
+   repeat within this tab even before the messages listener has caught up with
+   our own write; the listener one catches a repeat across a reload, a second
+   tab, or the other office machine. An hour is long enough to cover both the
+   fifteen-minute beat and the twenty-second catch-up run, and short enough that
+   a genuinely recurring problem still gets said again the same day. */
+const RECONCILE_NOTE_REPEAT_MS = 60 * 60 * 1000;
+let lastReconcileNote = {body: '', at: 0};
+function reconcileNoteIsRepeat(body, nowMs, recent){
+  const now = nowMs || Date.now();
+  if(lastReconcileNote.body === body && (now - lastReconcileNote.at) < RECONCILE_NOTE_REPEAT_MS){
+    return true;
+  }
+  const cutoff = now - RECONCILE_NOTE_REPEAT_MS;
+  const list = recent || (typeof allMessages !== 'undefined' ? allMessages : []) || [];
+  return list.some(function(m){
+    const d = (m && m.data) || {};
+    if(d.topic !== 'Routes Kept Up To Date') return false;
+    if(d.message !== body) return false;
+    const t = d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().getTime()
+            : (typeof d.createdAt === 'number' ? d.createdAt : 0);
+    return t >= cutoff;
+  });
+}
 /* ⭐ EVERY LIST IN HERE IS SUMMARISED, NEVER LISTED IN FULL. Two separate
    reasons, and the second one is the reason this was rewritten on 2026-08-19.
 
@@ -41352,6 +41450,20 @@ async function noticeRoutesReconciled(report){
     const trimNote = '\n\n… the rest is trimmed to fit in one note. Open Routes to see every day in full.';
     body = body.slice(0, 4500 - trimNote.length - tail.length) + trimNote + tail;
   }
+  /* ⭐ THE SAME NOTE AGAIN IS NOT A SECOND EVENT — IT IS A LOOP.
+     A sweep that did real work finds less to do next time. One that writes a
+     word-for-word identical notice every pass is redoing the same work, and
+     printing it fifty times buries the ones that matter.
+     ⚠ THIS SUPPRESSES THE NOTICE, NOT THE SWEEP. It is a backstop, not a fix:
+     if this ever fires, something upstream is churning real routes and the
+     console line below is the thread to pull. It is deliberately NOT silent. */
+  if(reconcileNoteIsRepeat(body)){
+    lastReconcileNote = {body: body, at: Date.now()};
+    console.warn('[HU] identical route-reconcile notice suppressed — the sweep is ' +
+      'finding the same work every pass. Something is looping; check the town on ' +
+      'the days named in the last notice.');
+    return;
+  }
   try{
     await addDoc(collection(db,'messages'), {
       topic: 'Routes Kept Up To Date', folder: 'System',
@@ -41360,6 +41472,7 @@ async function noticeRoutesReconciled(report){
       autoQueuedToWarehouse: false, needsReassign: false,
       createdAt: serverTimestamp()
     });
+    lastReconcileNote = {body: body, at: Date.now()};
   } catch(err){
     /* ⚠ THIS FAILING USED TO BE INVISIBLE. It is the last step of a sweep that
        has ALREADY rewritten routes, so a console line meant days moved and
