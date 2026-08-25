@@ -47,8 +47,14 @@
  * than failures — every one is a question for Addie, not a bug, and failing the build
  * on them would stop every other check over something only she can settle. The worst
  * is `confirmation`: eight options say the RSVP email tells a customer what we hold
- * for them, and the templates have a token for exactly ONE. They are shown their
- * footage and not their colours, their wire, their timer or their gate code.
+ * for them, and it has a token for NOT ONE of them. It is a greeting, one question
+ * and three buttons.
+ *
+ * ⚠ THAT SAID 'exactly ONE' FOR A FEW HOURS, and the reason is worth keeping: the
+ * check was sliced across EVERY email template rather than the RSVP one, so it
+ * matched {{feet_line}} in a billing email and reported the footage as delivered.
+ * One email covering for another — the same failure the two build sheets have a
+ * whole note about, committed by the person who wrote that note.
  *
  * ⚠ A GAP IS NOT AN EXCEPTION, and the two are spelled differently on purpose. An
  * exception is a decision somebody MADE — difficulty is set from Routes, so the Edit
