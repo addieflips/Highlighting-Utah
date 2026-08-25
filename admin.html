@@ -15641,18 +15641,37 @@ function rmStreetSettle(){
 function rmBuildWhenReady(){
   if(rmSuggestionsBuilt || !rmFacesReady || !rmStreetSettled) return 0;
   rmSuggestionsBuilt = true;
-  /* ⭐ NOTHING IS GUESSED ANY MORE. Owner: "delete everything for now and give
-     me a tool that I can show you what it should look like by placing dots."
-     Every automatic version of this - roof-model boxes, satellite edge
-     snapping, skyline corner detection - put lines on the house that were
-     close enough to look plausible and wrong enough to be useless, and each
-     round of fixing traded one wrong answer for another. The honest move is to
-     stop guessing and let somebody who knows what a roofline looks like show
-     it, so the next automatic attempt has something true to be measured
-     against instead of my idea of what a roof is.
-     rmBuildSuggestions and the corner detector are both still here and still
-     tested - nothing is deleted - they are simply not run. */
-  const guessed = 0;
+  /* ⭐ THE FRONT EAVES ARE DRAWN AGAIN (2026-08-25). Owner: "what if you
+     automatically wrote out the lines for the front and if they want a side we
+     can measure that on our own for now."
+
+     ⚠ THIS REVERSES HER OWN EARLIER RULING and the reasoning behind that one
+     is kept here because it was sound at the time: "delete everything for now
+     and give me a tool that I can show you what it should look like by placing
+     dots." Every automatic version - roof-model boxes, satellite edge snapping,
+     skyline corner detection - put lines on the house that were CLOSE ENOUGH TO
+     LOOK PLAUSIBLE AND WRONG ENOUGH TO BE USELESS, and each round of fixing
+     traded one wrong answer for another.
+
+     ⭐ WHAT CHANGED IS THAT WE NOW KNOW WHY THEY WERE OFF. Google's roof model
+     is in TRUE positions and its satellite tile is DISPLACED - about six feet on
+     the house this was found on - so the offered lines were drawn feet from the
+     roof you can see. "Close enough to look plausible and wrong enough to be
+     useless" is exactly what a six-foot displacement looks like. That is now
+     measured and corrected (rmSkyShift), so the premise of the old ruling no
+     longer holds. If offered lines ever go back to landing off the roof, check
+     the alignment before deleting this again.
+
+     ⚠ AND ONLY THE FRONT IS SWITCHED ON, which is what she asked for -
+     rmFaceFacesTheRoad decides, and it needs the camera, which is why this runs
+     after the street photo has settled rather than when the model arrives.
+     Every other side is drawn in grey and counts nothing until it is clicked.
+
+     ⚠ AN OFFERED LINE IS NOT A MEASUREMENT AND MUST NOT BE BILLED AS ONE.
+     rmGuessedFeet counts every suggested run nobody has touched, so the panel
+     says how much of the total is Google's opinion and saving asks first. That
+     is the whole of what makes this safe to switch back on. */
+  const guessed = rmFaces.length ? rmBuildSuggestions(rmFaces) : 0;
   rmRefreshHeights();
   /* The camera exists by now, so this is where front/left/right/back stop
      being a guess. */
@@ -19137,12 +19156,45 @@ function rmOverlappingRuns(){
 /* The footage that would change if the roof height turned out to be wrong.
    Returns 0 when the datum was really measured — then nothing here is a guess. */
 function rmGuessedFeet(){
-  if(rmDatum().source !== 'assumed') return 0;
+  const assumed = rmDatum().source === 'assumed';
   let ft = 0;
   rmRuns.forEach(function(r){
-    if(rmRunIsOn(r) && rmRunClimbs(r)) ft += rmRunFeet(r);
+    if(!rmRunIsOn(r)) return;
+    /* ⭐ A LINE GOOGLE OFFERED AND NOBODY HAS LOOKED AT IS A GUESS (added
+       2026-08-25). The front eaves are drawn from the roof model again, which
+       is what the office asked for - but a line nobody has confirmed is
+       Google's opinion, and it goes straight into the footage, the bins, the
+       bundle count and the price. Touching it, dragging it or switching it off
+       is somebody saying yes; until then the total rests on a model.
+       ⚠ AND IT RETURNS, so a suggested line that also climbs is counted
+       once. Counted twice it would report more guessed feet than the house
+       has, which reads as a bug and teaches the office to ignore the line. */
+    if(r.suggested && !r.touched){ ft += rmRunFeet(r); return; }
+    if(assumed && rmRunClimbs(r)) ft += rmRunFeet(r);
   });
   return ft;
+}
+/* Which of the two it is, so every message says the right thing rather than
+   naming climbing lines at a house whose lines do not climb. */
+function rmGuessedWhy(){
+  let offered = 0, climbing = 0;
+  const assumed = rmDatum().source === 'assumed';
+  rmRuns.forEach(function(r){
+    if(!rmRunIsOn(r)) return;
+    if(r.suggested && !r.touched){ offered += rmRunFeet(r); return; }
+    if(assumed && rmRunClimbs(r)) climbing += rmRunFeet(r);
+  });
+  if(offered && climbing) return 'is Google\u2019s guess at the roofline, or climbs from an assumed roof height';
+  if(offered) return 'is Google\u2019s guess at the roofline, which nobody has checked yet';
+  return 'climbs, and the roof height is still assumed';
+}
+/* What to do about it, named rather than only described. */
+function rmGuessedFix(){
+  let offered = 0;
+  rmRuns.forEach(function(r){ if(rmRunIsOn(r) && r.suggested && !r.touched) offered += rmRunFeet(r); });
+  return offered
+    ? 'Drag an offered line onto the gutter, or switch off the ones that are wrong, and it stops being a guess.'
+    : 'Trace anything in Street View and the roof height is measured instead.';
 }
 
 /* ---- what actually gets written down ------------------------------------ */
@@ -19719,8 +19771,8 @@ function rmRenderResults(){
       const g = rmGuessedFeet();
       if(!g) return '';
       return '<div class="rm-runrow" style="color:#8A6100; font-weight:600; line-height:1.5;">' +
-        '⚠ ' + rmFmtFeet(g) + ' of this climbs, and the roof height is still assumed — that much is a guess. ' +
-        'Trace anything in Street View and it is measured instead.</div>';
+        '⚠ ' + rmFmtFeet(g) + ' of this ' + rmGuessedWhy() + ' — that much is a guess. ' +
+        rmGuessedFix() + '</div>';
     })() +
     /* ⚠ WHAT RUNS BACK, AND HAS NOT BEEN TRACED. A peak whose ridge runs into
        the house, or a section standing higher than the one beside it, carries
@@ -22450,10 +22502,10 @@ function openRoofMeasure(quoteId){
     }
     const guessed = rmGuessedFeet();
     if(guessed && !confirm(
-      rmFmtFeet(guessed) + ' of this climbs and the roof height is still assumed, so that much is a guess.\n\n' +
-      'Tracing anything in Street View measures the roof and makes it real.\n\n' +
+      rmFmtFeet(guessed) + ' of this ' + rmGuessedWhy() + ', so that much is a guess.\n\n' +
+      rmGuessedFix() + '\n\n' +
       'Save ' + feet + ' ft and ' + fmtMoney(price) + ' anyway?')) {
-      status.textContent = 'Not saved. Trace one line in Street View and the climbing lines become measured.';
+      status.textContent = 'Not saved. ' + rmGuessedFix();
       return;
     }
     status.textContent = 'Saving the footage and the price…';
@@ -22498,10 +22550,10 @@ function openRoofMeasure(quoteId){
        and go and do it. */
     const guessed = rmGuessedFeet();
     if(guessed && !confirm(
-      rmFmtFeet(guessed) + ' of this climbs and the roof height is still assumed, so that much is a guess.\n\n' +
-      'Tracing anything in Street View measures the roof and makes it real.\n\n' +
+      rmFmtFeet(guessed) + ' of this ' + rmGuessedWhy() + ', so that much is a guess.\n\n' +
+      rmGuessedFix() + '\n\n' +
       'Save ' + feet + ' ft anyway?')) {
-      status.textContent = 'Not saved. Trace one line in Street View and the climbing lines become measured.';
+      status.textContent = 'Not saved. ' + rmGuessedFix();
       return;
     }
     status.textContent = 'Saving the footage…';
