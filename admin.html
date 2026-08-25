@@ -33264,6 +33264,8 @@ function whSheetRowsForRecycle(){
         // The number is the whole point of recycling a house — it comes off
         // them and goes back in the pool — so it gets its own column here too.
         bin: whBinNumberFor(d),
+        /* whBinsForHouse — the same count the build sheets and the crew sheet give. */
+        bins: (typeof whBinsForHouse === 'function') ? whBinsForHouse(d) : '',
         feet: '',
         bundles: '',
         timer: '',
@@ -33431,6 +33433,14 @@ const WH_BUILD_COLUMNS = [
    which is not always the one on the record. */
 const WH_RECYCLE_COLUMNS = [
   {key:'bin', label:'Bin # to find', num:true},
+  /* ⭐ AND HOW MANY TO BRING BACK (2026-08-25). Addie: "Everyone needs to know how many
+     bins there are for each house." Somebody sent to fetch a house's lights needs the
+     count as much as the person making them does — this sheet said WHICH bin to look
+     for and never how many were out there, so a two-bin house came back half collected.
+     ⚠ TWO DIFFERENT NUMBERS ON ONE ROW, DELIBERATELY, and that is why the headings
+     spell it out: "Bin # to find" is the number PAINTED ON THE BOX, "Bins" is HOW MANY
+     of them. That collision has already put a wrong column on a sheet once. */
+  {key:'bins', label:'Bins', num:true},
   {key:'what', label:'Customer'},
   {key:'address', label:'Address'},
   {key:'notes', label:'Notes'}
@@ -47293,15 +47303,7 @@ function printSideCount(d){
    the one standing in the warehouse looking for it. That helper's own comment says
    this belongs "on both the screen and the paper"; the recycle list has said it for a
    while and the crew sheet never did. */
-/* ⚠ SILENT UNDER THREE BINS, deliberately — see the bundles cell on the printed build
-   sheet. The customer number already says "two bins" to anyone who knows the 5000
-   series, and it only stops being enough past 520 ft. Reads the SAME rule the number
-   series is derived from (cnBinsForFeet via whBinsForHouse), so the sheet and the
-   number a customer was given can never disagree about the same house. */
-function printExtraBinsNote(d){
-  const n = Number((typeof whBinsForHouse === 'function') ? whBinsForHouse(d) : 0) || 0;
-  return n > 2 ? (n + ' BINS') : '';
-}
+
 function printBinCount(d){
   const n = (typeof whBinsForHouse === 'function') ? whBinsForHouse(d) : '';
   const moved = (typeof whBinNumberMoved === 'function') && whBinNumberMoved(d);
@@ -47424,6 +47426,20 @@ const PRINT_COLUMNS = {
      rather than a note written into the blank one on the right, because that blank is
      where the warehouse ticks the row off. */
   build:     [{k: 'number', label: 'Cust #'}, {k: 'name', label: 'Name'},
+              /* ⭐ HOW MANY BINS, ON EVERY SHEET (2026-08-25). Addie: "Everyone needs to
+                 know how many bins there are for each house so bin # and costumer #
+                 does matter."
+                 ⚠ THIS REVERSES HER OWN TRIMMING OF 2026-08-24, which is kept in the
+                 note below because the reasoning was sound at the time: "warehouse
+                 people should know 5000 means 2 bins so not necessary to put how many
+                 bins on there", then "just put how many bins will be needed if it is
+                 more than 2 bins." That made the count CONDITIONAL — it appeared only
+                 above two — so a house on a regular number said nothing at all and the
+                 person carrying the paper had to know the 5000 rule to read it.
+                 ⚠ AND THE CONDITIONAL NOTE IS GONE WITH IT. A column and a note saying
+                 the same thing on one row is noise, and the note was only ever there
+                 because there was no column. */
+              {k: 'bins', label: 'Bins'},
               /* The same badge the warehouse tab shows, in words — see WH_BUILD_COLUMNS. */
               {k: 'reason', label: 'Why'},
               {k: 'lights', label: 'Light color'}, {k: 'wire', label: 'Wire color'},
@@ -47565,9 +47581,12 @@ function printNeedsBuildList(){
                  handful of rows; a mostly-blank eighth column costs width on every
                  sheet to say something on almost none of them. It is also the cell
                  somebody is already reading when they decide what to carry. */
+              /* ⚠ whBinsForHouse, the SAME answer the warehouse tab and the crew sheet
+                 give. A second way of counting bins is how two sheets start disagreeing
+                 about one house. */
+              bins: (typeof whBinsForHouse === 'function') ? whBinsForHouse(d) : '',
               bundles: need
-                ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : '') +
-                   (printExtraBinsNote(d) ? ' \u2014 ' + printExtraBinsNote(d) : ''))
+                ? ((isTopUp ? '+' : '') + need.bundles + (need.estimated ? ' est' : ''))
                 : '',
               /* Same wording as the warehouse sheet — see whSheetRowsForBuild. Two
                  sheets of the same job saying it two ways is how one of them stops

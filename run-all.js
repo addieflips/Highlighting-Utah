@@ -20328,13 +20328,19 @@ suite('Suite 104. The Printing tab');
        instruction did say "feet of the house"; this supersedes it. Bundles is derived
        from feet, so printing both asked the warehouse to check a sum that was never
        theirs to check, and bundles is the one they actually count off a shelf. */
-    /* ⭐ AND A Why COLUMN SINCE 2026-08-24. Addie: "I need paper to carry badge too." It
+    /* ⭐ AND A Bins COLUMN SINCE 2026-08-25. Owner: "Everyone needs to know how many
+       bins there are for each house so bin # and costumer # does matter." It used to
+       ride in the bundles cell and only past two bins — her own trimming of the day
+       before — so a house on a regular number said nothing at all.
+       ⚠ IT SITS BESIDE THE CUSTOMER NUMBER, which is exactly where the crew sheet puts
+       it (Cust # / Name / Bins) — three sheets, one reading order.
+       ⭐ AND A Why COLUMN SINCE 2026-08-24. Addie: "I need paper to carry badge too." It
        carries the same badge the warehouse tab shows — NEW, OLD-REBUILD, MEMBER PORTAL,
        REQUEST, or CHANGED where nothing recorded the source. It sits after the name,
        which is where Type sits on the warehouse tab's own sheet: identity first, then
        what kind of job it is, then the spec. */
     check('S104', 'the build list carries everything the warehouse makes up',
-      keys('build').indexOf('number,name,reason,lights,wire,timer,bundles') === 0,
+      keys('build').indexOf('number,name,bins,reason,lights,wire,timer,bundles') === 0,
       'got ' + keys('build'));
     check('S104', 'and the build list does NOT carry feet',
       keys('build').indexOf('feet') === -1,
@@ -20345,7 +20351,7 @@ suite('Suite 104. The Printing tab');
        need it stand out. NOT written into the blank column on the right, which is where
        the warehouse ticks the row off. */
     check('S104', 'and says whose bin a top-up bundle goes into',
-      keys('build') === 'number,name,reason,lights,wire,timer,bundles,putInto',
+      keys('build') === 'number,name,bins,reason,lights,wire,timer,bundles,putInto',
       'got ' + keys('build'));
     check('S104', 'the daily warehouse list is only number and name',
       keys('warehouse') === 'number,name',
@@ -23750,12 +23756,8 @@ suite('Suite 112. The number on the bin');
       const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
         'houseBundleNeed', 'whPutIntoLabel',
         (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
-        /* ⚠ LIFTED, NOT STUBBED, and it joined this list in the same commit that made
-           printNeedsBuildList call it — the extraction-list trap CLAUDE.md names.
-           printExtraBinsNote decides whether a row says "3 BINS", which is one of the
-           things this harness exists to read, so a stub would answer the question
-           under test. It reads whBinsForHouse, which reads the real bin rule. */
-        extractFn(admin, 'printExtraBinsNote') +
+        /* ⚠ whBinsForHouse IS LIFTED, NOT STUBBED. It is the Bins column's answer on
+           this sheet since 2026-08-25, and it reads the real 260-foot bin rule. */
         extractFn(admin, 'whBinsForHouse') +
         /* ⚠ AND THE REAL BIN RULE WITH IT. whBinsForHouse calls cnBinsForFeet, and
            without this the sandbox reached a STUB left on `global` by Suite 5 — a

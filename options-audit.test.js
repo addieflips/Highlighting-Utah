@@ -446,10 +446,13 @@ function check(label, ok, detail) {
                counts off a shelf — bins is the office's sizing number and stays on the
                screen. Recorded as a decision rather than left as a gap, so nobody
                re-opens it; the note still prints on every run so it is never invisible. */
-            numberOfBins:      { except: 'not a column, by design — it rides in the ' +
-                                 'bundles cell and only past two bins, where the 5000 ' +
-                                 'number stops being enough (owner, 2026-08-24). The ' +
-                                 'threshold itself is checked above.' },
+            /* ⭐ A COLUMN OF ITS OWN SINCE 2026-08-25. Owner: "Everyone needs to know
+               how many bins there are for each house so bin # and costumer # does
+               matter." It used to ride in the bundles cell and only past two bins —
+               her own trimming of 2026-08-24, on the reasoning that a 5000-series
+               number already says two. That made the count conditional, so a house on
+               a regular number said nothing and the reader had to know the rule. */
+            numberOfBins:      /bins: \(typeof whBinsForHouse/,
           },
         },
       ],
@@ -467,58 +470,87 @@ function check(label, ok, detail) {
       'it is what identifies the bin once the bundle is made');
     check('and the bundle count', /k: 'bundles'/.test(buildCols),
       'the number somebody counts off a shelf');
-    check('and deliberately not a bin COLUMN', !/k: 'bins'/.test(buildCols),
-      'bins is the office sizing number and stays on the Warehouse tab \u2014 owner, ' +
-      '2026-08-24. If this starts failing, she changed her mind and the note above ' +
-      'needs changing with it');
+    /* ⭐ AND THE BIN COUNT, ON EVERY SHEET (2026-08-25). This check used to assert the
+       OPPOSITE — that bins was deliberately NOT a column here — and said in its own
+       failure message that if it ever started failing she had changed her mind. She
+       did: "Everyone needs to know how many bins there are for each house so bin # and
+       costumer # does matter."
+       ⚠ HER 2026-08-24 REASONING IS KEPT because it was sound at the time: "all
+       warehouse people should know 5000 means 2 bins so not necessary to put how many
+       bins on there", then "just put how many bins will be needed if it is more than 2
+       bins." The cost of that was a CONDITIONAL count — nothing at all on a regular
+       number — so the person carrying the paper had to know the 5000 rule to read it. */
+    check('and the bin count, in a column of its own', /k: 'bins'/.test(buildCols),
+      'everyone needs to know how many bins there are for each house');
 
-    /* ⭐ BUT THE BIN COUNT DOES SPEAK PAST TWO BINS (2026-08-24). Owner: "all warehouse
-       people should know 5000 means 2 bins so not necessary to put how many bins on
-       there", then, shown where that breaks: "just put how many bins will be needed if
-       it is more than 2 bins."
+    /* ⭐ AND THE COUNT SPEAKS FOR EVERY HOUSE NOW (2026-08-25). Owner: "Everyone needs
+       to know how many bins there are for each house."
 
-       ⚠ RUN, NOT READ, AND ACROSS THE BOUNDARY. The whole value is WHERE it starts
-       speaking: a 5000-series number means two OR MORE bins, and it stops being enough
-       at 521 ft. A regex proving the code exists would say nothing about the threshold,
-       which is the only thing that can be wrong here. */
+       ⚠ WHAT THIS REPLACED, kept because the reasoning was sound at the time: a
+       CONDITIONAL note in the bundles cell, printExtraBinsNote, which said "3 BINS"
+       only past two bins. Owner, 2026-08-24: "all warehouse people should know 5000
+       means 2 bins so not necessary to put how many bins on there", then "just put how
+       many bins will be needed if it is more than 2 bins." The cost was that a house on
+       a REGULAR number said nothing at all, so reading the sheet meant knowing the 5000
+       rule. A column says it outright for every house, so the note and its helper are
+       gone rather than left as a second way of saying the same thing.
+
+       ⚠ RUN, NOT MATCHED — the point is that the cell carries a real count. */
     {
-      const at2 = admin.indexOf('function printExtraBinsNote(');
-      let d2 = 0, e2 = at2;
-      for (let i = admin.indexOf('{', at2); i < admin.length && at2 > -1; i++) {
-        if (admin[i] === '{') d2++;
-        else if (admin[i] === '}') { d2--; if (!d2) { e2 = i + 1; break; } }
+      const at3 = admin.indexOf('function whBinsForHouse(');
+      check('whBinsForHouse is still there to answer it', at3 !== -1,
+        'it is the one bin count the crew sheet, both build sheets and the '+
+        'recycle sheet all read');
+      if (at3 !== -1) {
+        const e3 = admin.indexOf('\n}', at3) + 2;
+        const bins = new Function('cnBinsForFeet',
+          'return ' + admin.slice(at3, e3) + ';whBinsForHouse')(cnBinsForFeet);
+        check('a one-bin house says 1, where the old note said nothing',
+          String(bins({ measuredFeet: 200 })) === '1',
+          'this is the house the conditional note could never speak for');
+        check('and a two-bin house says 2',
+          String(bins({ measuredFeet: CN_DOUBLE_BIN_FEET * 2 })) === '2',
+          '520 ft is the last two-bin house');
+        check('and a three-bin house says 3',
+          String(bins({ measuredFeet: CN_DOUBLE_BIN_FEET * 2 + 1 })) === '3',
+          '521 ft is the first three-bin house, straight off CN_DOUBLE_BIN_FEET');
+        /* ⚠ AN UNMEASURED HOUSE MUST NOT READ AS NEEDING ZERO BINS. */
+        check('and an unmeasured house says nothing, not 0',
+          !String(bins({})).match(/^0$/),
+          'a 0 in a count column reads as a decision');
       }
-      check('the extra-bins note is there to run', at2 > -1,
-        'a gate that cannot find its target must FAIL, never skip');
-      if (at2 > -1) {
-        /* whBinsForHouse lifted in spirit: the REAL rule is cnBinsForFeet, imported
-           at the top of this file, so the threshold cannot drift from the one the
-           customer-number series is derived from. */
-        const note = new Function('whBinsForHouse',
-          'return ' + admin.slice(at2, e2) + ';printExtraBinsNote')(
-          (x) => { const ft = Number(x.measuredFeet) || 0; return ft ? String(cnBinsForFeet(ft)) : ''; });
-        check('it says nothing for a one-bin house', note({ measuredFeet: 200 }) === '');
-        check('and nothing for a two-bin house', note({ measuredFeet: 300 }) === '',
-          'the customer number already says two bins — repeating it is how a column ' +
-          'stops being read');
-        /* ⚠ THE EDGE IS THE POINT. 520 is the last two-bin house and 521 is the first
-           three-bin one, straight off CN_DOUBLE_BIN_FEET. */
-        check('silent at the last two-bin house', note({ measuredFeet: CN_DOUBLE_BIN_FEET * 2 }) === '',
-          '520 ft is two bins and reads correctly off the 5000 number');
-        check('and speaks at the first three-bin house',
-          note({ measuredFeet: CN_DOUBLE_BIN_FEET * 2 + 1 }) === '3 BINS',
-          '521 ft is three bins on a 5000 number — this is the house the shorthand ' +
-          'gets wrong, and the only reason this note exists');
-        check('and counts four when four are needed',
-          note({ measuredFeet: CN_DOUBLE_BIN_FEET * 3 + 1 }) === '4 BINS');
-        check('and says nothing for a house with no footage', note({}) === '',
-          'an unmeasured house must not read as needing zero bins');
-        /* ⚠ IT RIDES IN THE BUNDLES CELL, not a column of its own — asserted because a
-           helper nothing calls is the most expensive kind of green. */
-        check('and the printed build sheet actually prints it',
-          /bundles: need[\s\S]{0,200}printExtraBinsNote\(d\)/.test(admin),
-          'unwired, the sheet is exactly as it was and every check above still passes');
-      }
+      /* ⚠ AND THE OTHER SHEETS CARRY IT TOO, which is the whole of what she asked for.
+         The crew sheet and the warehouse tab already did; these two did not. */
+      /* ⚠ SLICED TO THE REAL END, not a character count — a comment added between the
+         columns pushed the new one past a 700-char window and failed this on correct
+         code. The trap CLAUDE.md §7 names, and it has bitten twice in two days. */
+      const recyStart = admin.indexOf('const WH_RECYCLE_COLUMNS = [');
+      const recyCols = admin.slice(recyStart, admin.indexOf('];', recyStart) + 2);
+      check('the recycle sheet says how many bins to bring back',
+        /key:'bins', label:'Bins'/.test(recyCols),
+        'somebody fetching a two-bin house came back with one');
+      /* ⚠ AND IT IS NOT THE SAME NUMBER AS THE ONE PAINTED ON THE BOX. Two different
+         numbers on one row, which is why the headings spell both out. */
+      /* ⚠ AND THE ROW FILLS IT. A red-check deleting the cell from whSheetRowsForRecycle
+         went straight through — the column check above only proves the HEADING exists,
+         and a column no row fills leaves every row short a cell and shifts the table
+         under it. The same guard the build sheets already carry. */
+      const recyRow = admin.slice(admin.indexOf('function whSheetRowsForRecycle('),
+                                  admin.indexOf('function whSheetRowsForRecycle(') + 1600);
+      check('and the recycle row fills its Bins cell',
+        /bins: \(typeof whBinsForHouse/.test(recyRow),
+        'a heading with nothing under it is worse than no heading');
+      check('and still says which bin to look for, separately',
+        /key:'bin', label:'Bin # to find'/.test(recyCols),
+        'that collision has already put a wrong column on a sheet once');
+      check('and the printed build sheet fills its Bins cell',
+        /bins: \(typeof whBinsForHouse/.test(admin),
+        'a column no row fills leaves every row short a cell');
+      /* ⚠ AND THE RETIRED NOTE IS REALLY GONE, not left as a helper nothing calls —
+         which this block previously warned is the most expensive kind of green. */
+      check('the conditional bins note is retired, not orphaned',
+        admin.indexOf('printExtraBinsNote') === -1,
+        'a column and a note saying the same thing on one row is noise');
     }
 
     Object.keys(SURFACES).forEach((consumer) => {
