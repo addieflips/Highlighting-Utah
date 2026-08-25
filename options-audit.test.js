@@ -25,6 +25,10 @@ const { pathToFileURL } = require('url');
 
 let pass = 0, fail = 0;
 const failures = [];
+/* Declared destinations nothing delivers. Printed and counted at the end; they do NOT
+   fail the build, because every one is a question for Addie rather than a bug — see the
+   gap note in the surface loop. Same contract as gap() in run-all.js. */
+const gaps = [];
 
 function check(label, ok, detail) {
   if (ok) { pass++; }
@@ -356,6 +360,40 @@ function check(label, ok, detail) {
      artifact, and prove nothing. */
   {
     const admin = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
+    /* Slice a handler from its anchor to the end of its top-level construct. fnOf only
+       finds `function name(`, and the two customer write paths are addEventListener
+       handlers, which have no name to find.
+       ⚠ TO THE REAL END, never a character count — CLAUDE.md §7, and it has already
+       cost this file once: the Edit Customer save is ~36,000 characters and growing.
+       ⚠ AND \r?\n, because admin.html is CRLF and is read here unnormalised. */
+    const indexSrc = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+    const idxBlock = (a) => {
+      const at = indexSrc.indexOf(a);
+      if (at === -1) return '';
+      const m = /\r?\n\}\);/.exec(indexSrc.slice(at));
+      return indexSrc.slice(at, m ? at + m.index + m[0].length : indexSrc.length);
+    };
+    /* ⚠ THE RSVP TEMPLATE ITSELF, not every template in the file (corrected 2026-08-25,
+       hours after it shipped). The first version sliced from the Nightly Auto-Invoice
+       entry to the end of the array — but the RSVP template sits ABOVE that one, so the
+       surface never looked at the email it is about, and measuredFeet passed because
+       {{feet_line}} exists in a BILLING template. One email covering for another: the
+       exact failure the note on the two build sheets warns about, committed in the same
+       file that warns about it.
+       ⚠ SO IT IS SCOPED TO THE RSVP FOLDER. Widening it back to every template makes
+       every check here meaningless again, silently. */
+    const ET_START = admin.indexOf('const ET_PREBUILT_TEMPLATES = [');
+    const allTemplates = admin.slice(ET_START, admin.indexOf('\n];', ET_START));
+    const rsvpAt = allTemplates.indexOf("folderName:'RSVP'");
+    const emailTokens = rsvpAt === -1 ? ''
+      : allTemplates.slice(allTemplates.lastIndexOf('{name:', rsvpAt),
+                           allTemplates.indexOf('},', rsvpAt) + 2);
+    const blockFrom = (anchor) => {
+      const at = admin.indexOf(anchor);
+      if (at === -1) return '';
+      const m = /\r?\n\}\);/.exec(admin.slice(at));
+      return admin.slice(at, m ? at + m.index + m[0].length : admin.length);
+    };
     const fnOf = (name) => {
       const at = admin.indexOf('function ' + name + '(');
       if (at === -1) return '';
@@ -376,6 +414,9 @@ function check(label, ok, detail) {
        An option that declares a destination must reach EVERY surface of it. Where two
        surfaces carry the same answer differently — the light colour is a group heading
        on the warehouse list and a column on the printed one — each gets its own rule. */
+    /* Which destinations are stages rather than parallel copies. See the note on the
+       loop below; anything not named here is 'all'. */
+    const MODES = { quote: 'any', invoice: 'any' };
     const SURFACES = {
       crewSheet: [{
         name: 'the crew sheet',
@@ -456,6 +497,186 @@ function check(label, ok, detail) {
           },
         },
       ],
+      /* ⭐ THE CUSTOMER RECORD (added 2026-08-25). Every one of the fourteen options
+         declares this destination — it is the only one all of them share, and it sits
+         UPSTREAM of every other surface: the crew sheet and the build list are both
+         enforced already, but both read the record, so a field that stops being saved
+         here breaks them without either of their checks firing.
+
+         ⚠ TWO WRITE PATHS, CHECKED SEPARATELY, for exactly the reason the two build
+         sheets are: a customer can be created or corrected, and a field wired into one
+         path and not the other is a gap that only shows up months later on whichever
+         half nobody used. Add Customer carries all fourteen; the Edit Customer save
+         carries thirteen. */
+      customer: [
+        {
+          name: 'Add Customer',
+          src: blockFrom("document.getElementById('routeAddressForm').addEventListener("),
+          by: {
+            measuredFeet:       /measuredFeet: measuredFeet/,
+            lightsDescription:  /lightsDescription: lightsDescription/,
+            wireColor:          /wireColor: wireColor/,
+            outletTimer:        /outletTimer: outletTimer/,
+            useEaves:           /useEaves: useEaves/,
+            specificOutlet:     /specificOutlet: specificOutlet/,
+            gateCode:           /gateCode: gateCode/,
+            /* ⚠ NOT `houseSides: houseSides` — the form collects a count under its own
+               name, and a lazy regex on the field name alone would pass against the
+               registry's own comment about it a few hundred lines up. */
+            houseSides:         /houseSides: selectedSides/,
+            installPreference:  /installPreference: installPreference/,
+            notes:              /notes: custNotes/,
+            oneTimeNote:        /oneTimeNote: oneTimeNote/,
+            wantsMailedInvoice: /wantsMailedInvoice: wantsMailedInvoice/,
+            numberOfBins:       /numberOfBins: numberOfBins/,
+            difficulty:         /difficulty: difficulty/,
+          },
+        },
+        {
+          name: 'the Edit Customer save',
+          src: blockFrom("document.getElementById('editCustSaveBtn').addEventListener("),
+          by: {
+            measuredFeet:       /measuredFeet: newMeasuredFeet/,
+            /* ⚠ THESE FOUR ARE ASSIGNED ONTO addrUpdates AFTER the literal, not inside
+               it, and the assignment is what has to survive — matching the bare field
+               name would pass against any of the two dozen places the word appears in
+               this handler's comments. */
+            lightsDescription:  /addrUpdates\.lightsDescription = newLightsDescription/,
+            installPreference:  /addrUpdates\.installPreference = newInstallPref/,
+            notes:              /addrUpdates\.notes = newHouseNotes/,
+            oneTimeNote:        /addrUpdates\.oneTimeNote = newOneTimeNote/,
+            wireColor:          /wireColor: newWireColor/,
+            outletTimer:        /outletTimer: newOutletTimer/,
+            useEaves:           /useEaves: newUseEaves/,
+            specificOutlet:     /specificOutlet: newSpecificOutlet/,
+            gateCode:           /gateCode: newGateCode/,
+            houseSides:         /houseSides: newHouseSides/,
+            wantsMailedInvoice: /wantsMailedInvoice: newWantsMailed/,
+            numberOfBins:       /numberOfBins: newBins/,
+            /* ⚠ A RECORDED EXCEPTION, NOT A GAP. Difficulty is the one option this form
+               does not carry, and that is deliberate rather than forgotten: it is how
+               hard a house is to hang, which is learned by hanging it, so it is set from
+               the Routes screen by whoever just did the job. Add Customer sets it at
+               creation and the dropdown corrects it afterwards, so it is still wired on
+               both ends — the standalone check below holds that dropdown in place, or
+               this exception would quietly become the gap it claims not to be. */
+            difficulty: { except: 'set from the Routes screen by whoever hung the house, not from this form' },
+          },
+        },
+      ],
+      /* ⭐ THE PUBLIC QUOTE (added 2026-08-25). TWO STAGES, not two copies: the request
+         form is what a stranger fills in, the detail form is what they fill in after
+         approving. An option belongs to one of them. */
+      quote: [
+        {
+          name: 'the public quote form',
+          src: idxBlock("quoteFormEl.addEventListener('submit'"),
+          by: {
+            houseSides: /houseSides: portalSideCount\(fd\.get\('house_sides'\)\)/,
+            /* ⚠ THE OFFICE MEASURES THE HOUSE, and a customer's guess would set the
+               price, the bins, the bundles and the number series off a number nobody
+               checked. Recorded as a gap rather than an exception because the registry
+               still asks for it and only Addie can settle which is wrong. */
+            measuredFeet: { gap: 'the public form does not ask for footage — the office measures it, and that number sets the price', wired: /measuredFeet:/ },
+            useEaves: { gap: 'not asked anywhere on the public site; the office fills it in from the master sheet', wired: /useEaves:/ },
+          },
+        },
+        {
+          name: 'the quote detail form',
+          src: idxBlock("quoteDetailFormEl.addEventListener('submit'"),
+          by: {
+            lightsDescription:  /var lightsDescription = qdFinalSequence\.join/,
+            wireColor:          /wireColor: fd\.get\('wire_color'\)/,
+            outletTimer:        /outletTimer: fd\.get\('outlet_timer'\)/,
+            specificOutlet:     /specificOutlet: fd\.get\('specific_outlet'\)/,
+            gateCode:           /gateCode: fd\.get\('gate_code'\)/,
+            installPreference:  /installPreference: fd\.get\('install_month'\)/,
+            notes:              /notes: fd\.get\('notes'\)/,
+            wantsMailedInvoice: /wantsMailedInvoice: fd\.get\('wants_mailed'\)/,
+          },
+        },
+      ],
+
+      /* ⭐ THE INVOICE (added 2026-08-25). Also two stages: what is PRINTED on the bill,
+         and how the bill is POSTED. A delivery preference is not a line item. */
+      invoice: [
+        {
+          name: 'the invoice document',
+          src: fnOf('buildInvoiceDocHtml'),
+          by: { measuredFeet: /const feet = Number\(d\.measuredFeet\)/ },
+        },
+        {
+          name: 'the invoice send list',
+          /* ⚠ renderPibRow, not renderPibLists — the list builds the rows, the ROW is
+             what shows the office that this customer also wants paper. */
+          src: fnOf('renderPibRow'),
+          by: { wantsMailedInvoice: /row\.wantsMailed \? '<div/ },
+        },
+      ],
+
+      /* ⭐ THE CREW'S ROUTE (added 2026-08-25). One surface, so 'all' applies. Three of
+         the five declared options reach it; the other two are recorded as gaps. */
+      routes: [
+        {
+          name: "the crew's route list",
+          src: fnOf('renderRouteOrderedList'),
+          by: {
+            notes:       /hd\.notes \? '<div style="font-size:12\.5px/,
+            oneTimeNote: /hd\.oneTimeNote \? '<div style="font-size:12\.5px/,
+            difficulty:  /live\.data\.difficulty \|\| 'Unrated'/,
+            houseSides:      { gap: 'the route card does not say how many sides the house is — the crew finds out on arrival', wired: /houseSides|houseSideWords/ },
+            numberOfBins:    { gap: 'the route card does not say how many bins, so a crew cannot tell what to load', wired: /numberOfBins|whBinsForHouse/ },
+          },
+        },
+      ],
+
+      /* ⭐ THE SEASON PLAN (added 2026-08-25). What reaches a plan house is decided by
+         SCHEDULE_SYNC_FIELDS, which carries six fields and only two of them are registry
+         options. The other four declared destinations are gaps. */
+      schedule: [
+        {
+          name: 'the season plan',
+          src: admin.slice(admin.indexOf('SCHEDULE_SYNC_FIELDS = ['),
+                           admin.indexOf('\n];', admin.indexOf('SCHEDULE_SYNC_FIELDS = ['))),
+          by: {
+            installPreference: /key:'pref'/,
+            /* ⚠ NOTES REACH IT UNDER ANOTHER NAME. The plan's field is `details` and its
+               reader is `d.notes` — matching the plan's own key would pass against a
+               reader pointed at something else entirely. */
+            notes: /key:'details',[\s\S]{0,60}return d\.notes;/,
+            oneTimeNote:  { gap: 'the plan carries standing notes but not the this-visit-only one', wired: /key:'oneTimeNote'/ },
+            houseSides:   { gap: 'not synced onto a plan house', wired: /key:'houseSides'/ },
+            numberOfBins: { gap: 'not synced onto a plan house, so a day cannot be planned around what has to be loaded', wired: /key:'numberOfBins'/ },
+            difficulty:   { gap: 'not synced onto a plan house, so a hard house cannot be spread across a day', wired: /key:'difficulty'/ },
+          },
+        },
+      ],
+
+      /* ⭐ THE RSVP EMAIL (added 2026-08-25) — "what we tell them we have on file".
+         ⚠ THIS IS THE BIGGEST MISMATCH IN THE REGISTRY and the reason it was worth
+         wiring the last five at all: eight options declare this destination and the
+         RSVP email has a token for NOT ONE of them. It is a greeting, one question and
+         three buttons — a customer confirming their season is shown nothing at all about
+         what we hold for them: not their footage, colours, wire, timer, sides, gate code
+         or the month they asked for.
+         ⚠ THIS SAID 'exactly ONE' FOR A FEW HOURS, because the surface was sliced across
+         every template and matched {{feet_line}} in a billing email. Corrected. */
+      confirmation: [
+        {
+          name: 'the RSVP email',
+          src: emailTokens,
+          by: {
+            measuredFeet: { gap: 'no token — the RSVP email carries NONE of the eight; it is a greeting and three buttons', wired: /\{\{[a-z_]*(feet)[a-z_]*\}\}/ },
+            lightsDescription: { gap: 'no token — they are never told which colours we hold for them', wired: /\{\{[a-z_]*(lights)[a-z_]*\}\}/ },
+            wireColor:         { gap: 'no token', wired: /\{\{[a-z_]*wire[a-z_]*\}\}/ },
+            outletTimer:       { gap: 'no token', wired: /\{\{[a-z_]*timer[a-z_]*\}\}/ },
+            specificOutlet:    { gap: 'no token', wired: /\{\{[a-z_]*outlet[a-z_]*\}\}/ },
+            gateCode:          { gap: 'no token — and this is the one they most often need to correct', wired: /\{\{[a-z_]*gate[a-z_]*\}\}/ },
+            houseSides:        { gap: 'no token', wired: /\{\{[a-z_]*sides[a-z_]*\}\}/ },
+            installPreference: { gap: 'no token — they are not shown the month they asked for', wired: /\{\{[a-z_]*(install|month)[a-z_]*\}\}/ },
+          },
+        },
+      ],
     };
 
     /* ⭐ WHAT THE PAPER MUST CARRY, in the owner's own words (2026-08-24): "we want
@@ -464,6 +685,18 @@ function check(label, ok, detail) {
        nothing above would notice either going missing. Asserted here because they are
        the two things she named, and the bundle count is what somebody actually counts
        off a shelf. */
+    /* ⚠ THE OTHER HALF OF THE difficulty EXCEPTION ABOVE. The Edit Customer save is
+       allowed not to carry it only because the Routes screen does; without this the
+       exception would be a gap wearing a reason. Two dropdowns write it — the route
+       ordered list and the stop row — and each is asserted, because one covering for
+       the other is the same failure as one build sheet covering for the other. */
+    const setdiffWrites = admin.match(/updateDoc\(doc\(db,'jobAddresses',sel\.dataset\.setdiff\), \{difficulty: sel\.value\}\)/g) || [];
+    check('difficulty is still settable from the Routes screen',
+      setdiffWrites.length >= 2,
+      'found ' + setdiffWrites.length + ' — the Edit Customer form deliberately does ' +
+      'not carry difficulty, so if these go there is nowhere left to correct it and ' +
+      'the recorded exception above becomes a hole');
+
     const buildCols = (admin.match(/build:\s*\[([\s\S]*?)\],\s*\n/) || [])[1] || '';
     check('the printed build sheet carries the customer number',
       /k: 'number', label: 'Cust #'/.test(buildCols),
@@ -553,17 +786,73 @@ function check(label, ok, detail) {
         'a column and a note saying the same thing on one row is noise');
     }
 
+    /* ⚠ EVERY GAP CARRIES ITS OWN CLOSING REGEX, and this is what keeps that true. A gap
+       without one can only be closed by a person noticing and deleting it — which is not
+       self-healing, it is a comment. Wiring the thing would leave the GAP line printing
+       for as long as nobody looked. */
+    Object.keys(SURFACES).forEach((c) => SURFACES[c].forEach((sf) => {
+      Object.keys(sf.by).forEach((id) => {
+        const r = sf.by[id];
+        if (!r || !r.gap) return;
+        check('gap ' + c + ' \u00b7 ' + id + ' can close itself', !!r.wired,
+          'give it a wired regex - the one that would prove somebody had delivered it');
+      });
+    }));
     Object.keys(SURFACES).forEach((consumer) => {
       const declared = OPTIONS.filter(o => (o.consumers || []).indexOf(consumer) !== -1);
       check(consumer + ': the registry declares options for it', declared.length > 0,
         'an empty list here means the filter stopped matching and every check below ' +
         'is passing over nothing');
+      /* ⭐ TWO KINDS OF MULTI-SURFACE DESTINATION (added 2026-08-25), and telling them
+         apart is the whole reason the remaining five could be wired at all.
+
+         'all' (the default) is a destination whose surfaces are PARALLEL COPIES of one
+         another — the two warehouse build sheets, the two customer write paths. Every
+         option has to be on every one of them, because a field on one and not the other
+         is a gap that only shows up on whichever half nobody used.
+
+         'any' is a destination whose surfaces are STAGES — the public quote form and
+         the detail form that follows approval; the invoice document and the list that
+         posts it. An option belongs to one stage, and demanding it on both would fail a
+         system that is right. */
+      const mode = MODES[consumer] || 'all';
+      const reached = {};
+      /* ⚠ A GAP RECORDED ON ONE STAGE IS A GAP FOR THE WHOLE DESTINATION. Collected
+         BEFORE the surfaces are walked, or the other stage — which simply has no entry
+         for an option that belongs to neither — votes it missing and the build fails on
+         a question nobody has answered yet. */
+      const gapped = new Set();
+      SURFACES[consumer].forEach((sf) => Object.keys(sf.by).forEach((id) => {
+        const r = sf.by[id];
+        if (!r || !r.gap) return;
+        /* ⚠ A GAP HAS TO BE ABLE TO CLOSE BY ITSELF, or the note calling it self-healing
+           is a lie — which it was for about an hour. `wired` is the regex that WOULD
+           prove somebody had delivered it; the moment it matches, this stops being a
+           gap and becomes an ordinary check that can then FAIL if it is taken away
+           again. A gap with no `wired` can only ever be closed by hand, so every one
+           of them carries it. */
+        if (r.wired && r.wired.test(sf.src)) return;
+        gapped.add(id);
+      }));
       SURFACES[consumer].forEach((surface) => {
         check(surface.name + ': its source was found', !!surface.src,
           'a gate that cannot find its target must FAIL, never skip — a whole block ' +
           'failing at once is the shape to distrust first');
         declared.forEach((o) => {
           const rule = surface.by[o.id];
+          /* ⚠ A DECLARED DESTINATION NOTHING CARRIES IS A GAP, NOT AN EXCEPTION, and the
+             two must never be spelled the same way. An exception is a decision somebody
+             MADE — difficulty is set from Routes, so this form deliberately skips it. A
+             gap is a destination the registry asks for that nothing delivers, and which
+             NOBODY HAS DECIDED ABOUT. Writing one as an exception would be inventing the
+             owner's answer; failing the build on it would stop every other check over a
+             question only she can settle.
+             Same contract as gap() in run-all.js: it reports, it does not block, and it
+             self-heals to a real check the moment somebody wires it. */
+          if (gapped.has(o.id)) {
+            if (rule && rule.gap) gaps.push(consumer + ' · ' + o.id + ' — ' + rule.gap);
+            return;
+          }
           /* ⚠ A RECORDED EXCEPTION IS REPORTED, NEVER SILENT. An option a surface
              deliberately does not carry is a decision somebody made; leaving it out of
              this map entirely would be indistinguishable from nobody having wired it. */
@@ -575,11 +864,20 @@ function check(label, ok, detail) {
           /* ⚠ THIS IS THE ONE THAT MAKES THE REGISTRY LOAD-BEARING. Add an option
              declaring this destination and the build fails right here, on every
              surface of it, until somebody says how it gets there. */
+          if (mode === 'any') {
+            /* On a staged destination a surface that does not carry this option is not a
+               failure — it is the wrong stage. What must be true is that ONE of them
+               carries it, which is asserted once per option after the loop. */
+            if (rule) reached[o.id] = reached[o.id] || (rule.gap ? rule.wired : rule).test(surface.src);
+            else if (reached[o.id] === undefined) reached[o.id] = false;
+            return;
+          }
           check(surface.name + ': ' + o.id + ' is wired to it', !!rule,
             'the registry says ' + o.id + ' must reach ' + surface.name + ' and ' +
             'nothing says how — wire it, or take the destination off the registry');
           if (rule) {
-            check(surface.name + ': ' + o.id + ' still reaches it', rule.test(surface.src),
+            const probe = rule.gap ? rule.wired : rule;
+            check(surface.name + ': ' + o.id + ' still reaches it', probe.test(surface.src),
               'the registry says ' + o.id + ' must reach ' + surface.name + ' and the ' +
               'real one no longer carries it — this is a truck arriving without it');
           }
@@ -587,16 +885,34 @@ function check(label, ok, detail) {
         /* ⚠ AND NOTHING IS WIRED THAT THE REGISTRY DOES NOT ASK FOR. A leftover rule
            is one nobody is checking, against a destination nobody declared. */
         Object.keys(surface.by).forEach((id) => {
-          if (surface.by[id] && surface.by[id].except) return;
+          if (surface.by[id] && (surface.by[id].except || surface.by[id].gap)) return;   // gaps are declared for a real option by construction
           check(surface.name + ': the wiring for ' + id + ' matches a declared destination',
             declared.some(o => o.id === id),
             id + ' is wired here but the registry does not send it to the ' + consumer);
         });
       });
+      /* ⚠ AND ON A STAGED DESTINATION, ONE STAGE HAS TO CARRY IT. Checked here rather
+         than inside the surface loop, because "not on this one" only means something
+         once every stage has been looked at. */
+      if (mode === 'any') {
+        declared.forEach((o) => {
+          if (reached[o.id] === undefined) return;   // recorded as a gap above
+          check(consumer + ': ' + o.id + ' reaches at least one stage of it',
+            reached[o.id] === true,
+            'the registry sends ' + o.id + ' to the ' + consumer + ' and not one of its ' +
+            SURFACES[consumer].length + ' stages carries it');
+        });
+      }
     });
   }
 
   // -------------------------------------------------------------------------
+  if (gaps.length) {
+    console.log('');
+    console.log('  ' + gaps.length + ' declared destination(s) nothing delivers — for Addie, not bugs:');
+    gaps.forEach(g => console.log('    GAP  ' + g));
+    console.log('');
+  }
   console.log(failures.length ? '' : '  PASS  every check below\n');
   failures.forEach(f => console.log('  FAIL  ' + f + '\n'));
   console.log(pass + ' passed, ' + fail + ' failed\n');

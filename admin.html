@@ -6301,6 +6301,35 @@ function billedHousesPlainText(phone){
            (r.price > 0 ? ' — ' + fmtMoney(r.price) : '');
   }).join('\n') + '\n';
 }
+/* ⭐ WHICH CUSTOMER AN EMAIL IS ABOUT, OR NOBODY (added 2026-08-25).
+
+   Every other token in this file finds its customer with a phone lookup, which is fine
+   for money — a shared phone means one shared bill, which is the whole design. It is
+   NOT fine for anything about the HOUSE: 17 numbers in the real book are shared and 14
+   of those are a parent and a child at two different addresses, so a phone lookup would
+   hand one household the other's gate code.
+
+   ⚠ SO AN AMBIGUOUS PHONE RESOLVES TO NULL, not to the first match. The caller then
+   says what it holds is nothing, which is honest, instead of naming a code that opens
+   somebody else's gate. Pass opts.customerId wherever the sender knows it — the RSVP
+   send does — and the ambiguity never arises.
+
+   ⚠ RETURNS THE DATA, not the wrapper, so a caller cannot forget the .data. */
+function hlxEmailCustomer(phone, opts){
+  const o = opts || {};
+  if(o.customerId){
+    const byId = (typeof custById !== 'undefined' && custById.has(o.customerId))
+      ? custById.get(o.customerId)
+      : (jobAddresses || []).find(function(a){ return a.id === o.customerId; });
+    return (byId && byId.data) || null;
+  }
+  const digits = ('' + (phone || '')).replace(/\D/g, '');
+  if(!digits) return null;
+  const hits = (jobAddresses || []).filter(function(a){
+    return ('' + ((a.data && a.data.phone) || '')).replace(/\D/g, '') === digits;
+  });
+  return hits.length === 1 ? hits[0].data : null;
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
@@ -6367,6 +6396,53 @@ async function resolveLinkTokens(text, phone, amount, opts){
   /* {{addon_block}} offers an outstanding add-on alongside the season answer.
      Resolves to nothing at all when they have none. Needs opts.customerId —
      the explicit link, never the phone (see pendingAddOnFor). */
+  /* ⭐ WHAT THE CREW WILL BE WORKING FROM, PUT IN FRONT OF THE CUSTOMER (added
+     2026-08-25). Owner: "we need to make sure gate code is correct, which outlet is
+     correct, For crews."
+
+     The RSVP is the one email a customer definitely opens and definitely acts on, so
+     it is the cheap chance each season to have them check the two things that stop a
+     crew getting the job done: the code that opens the gate, and which outlet to use.
+     A wrong gate code found in August costs a reply. Found by a crew in November it
+     costs a return trip.
+
+     ⚠ THE SAME WORDS THE CREW SHEET USES. printGateCode and the OUTLET line in
+     printCrewNotes are what actually reaches paper, so these read from the same
+     fields in the same way. A customer confirming one thing while the crew is handed
+     another is worse than not asking at all.
+
+     ⚠ AND NEVER A GUESS ABOUT WHICH HOUSE. See hlxEmailCustomer: 17 numbers in the
+     real book are shared and 14 of those are two households, so a phone that matches
+     two customers resolves to NOBODY rather than to the first one found. Telling a
+     child their parent's gate code is right is how a confirmed-correct code opens
+     nothing. */
+  if(out.indexOf('{{gate_code}}') !== -1 || out.indexOf('{{gate_code_line}}') !== -1
+     || out.indexOf('{{outlet}}') !== -1 || out.indexOf('{{outlet_line}}') !== -1){
+    const who = hlxEmailCustomer(phone, opts);
+    const gate = who ? ('' + (who.gateCode || '')).trim() : '';
+    /* ⚠ THE 'Yes' GATE IS DELIBERATE and is the stricter of the two readings already in
+       the page: printCrewNotes prints the notes whenever they are non-empty, which keeps
+       printing an outlet for somebody who later answered No. Asking a CUSTOMER to
+       confirm an instruction we are no longer meant to follow would have them confirm
+       something wrong. */
+    const outlet = (who && String(who.specificOutlet || '') === 'Yes')
+      ? (String(who.specificOutletNotes || '').trim() || 'a specific one')
+      : '';
+    /* ⚠ A LINE SAYING WE HOLD NOTHING IS THE POINT, not a blank. A customer with a gate
+       and no code on file is exactly who this email needs to hear from, and a blank
+       tells them nothing is missing. Phrased so it costs an ungated customer nothing
+       to read. */
+    const gateLine = gate
+      ? ('Gate code we have on file: <b>' + esc(gate) + '</b>')
+      : 'We have no gate code on file for you. If your property is gated, reply with the code and we will add it.';
+    const outletLine = outlet
+      ? ('Outlet the crew will use: <b>' + esc(outlet) + '</b>')
+      : 'No particular outlet on file, so the crew will use whichever is nearest. Reply if there is one they should use.';
+    out = out.split('{{gate_code}}').join(esc(gate));
+    out = out.split('{{outlet}}').join(esc(outlet));
+    out = out.split('{{gate_code_line}}').join(gateLine);
+    out = out.split('{{outlet_line}}').join(outletLine);
+  }
   if(out.indexOf('{{addon_block}}') !== -1){
     out = out.split('{{addon_block}}').join(opts.customerId ? await addOnEmailBlock(opts.customerId) : '');
   }
@@ -7211,7 +7287,9 @@ document.getElementById('sendRsvpEmailBtn')?.addEventListener('click', async fun
        anyone to get it — and skipped when the template DOES place the token
        itself, or the list would appear twice. Empty for a one-house customer. */
     const housesBlock = rsvpTemplateHasHouses(template) ? '' : billedHousesEmailBlock(d.phone);
-    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(d.name) || 'there'), d.phone, 0) + housesBlock + footer;
+    /* ⚠ customerId, NOT just the phone. The gate-code and outlet tokens are about THIS
+       house, and a shared number cannot say which one — see hlxEmailCustomer. */
+    const message = await resolveLinkTokens(template.replace(/\{\{name\}\}/g, rsvpFirstNameOnly(d.name) || 'there'), d.phone, 0, {customerId: item.id}) + housesBlock + footer;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + withEmail.length + '…';
     try{
       await emailjs.send(serviceId, templateId, {
@@ -11938,7 +12016,7 @@ const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   '{{quote_yes_button}}{{quote_maybe_button}}{{quote_decline_button}}\n\n' +
   'Thanks,\nHighlighting Utah';
 const ET_PREBUILT_TEMPLATES = [
-  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},

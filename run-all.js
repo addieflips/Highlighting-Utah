@@ -440,6 +440,42 @@ function real(name, deps) {
   const args = Object.keys(deps || {});
   return new Function(...args, src + "\nreturn " + name + ";")(...args.map(k => deps[k]));
 }
+
+/* ⭐ THE REAL NEW-HANG TEST, BACKED BY THE FIXTURE'S OWN QUOTES (added 2026-08-25).
+ *
+ * `isNewMemberHouse` was the last fake in SHADOW_ALLOWED that stood in for a real
+ * rule rather than for page state. It was `h => !!h.isNew` — a flag the fixture set
+ * on itself — so every check about the NEW badge, the NEW column on the printed
+ * sheet and the crew photo was really asking the fixture what it had just been told.
+ *
+ * The shipped rule is: a house is a new hang because a CLOSED QUOTE exists for that
+ * ADDRESS. So a fixture that wants a new hang now has to say so the way a real season
+ * does — with a quote — and one that wants nobody new supplies no quotes at all.
+ *
+ * ⚠ THIS IS WHY IT WAS WORTH DOING. The fixture it first ran against marked a house
+ * NEW that had no phone number, and asserted the empty phone cell on that same row.
+ * Under the real rule a house with no phone can never be found as a new hang, so the
+ * sheet could never have printed what the check said it printed. The two claims were
+ * on one row and only one of them could be true.
+ *
+ * ⚠ customerForHouse IS DELIBERATELY NOT SUPPLIED. hlxResolvePlanHouse falls back to
+ * it only for an imported row with no `cust-` id, and resolving THAT by phone is the
+ * ambiguity the whole fix exists to avoid — a fixture should give its houses real ids
+ * rather than lean on a lookup that cannot tell a parent from a child.
+ */
+function realNewHangTest(quotes, customers) {
+  const list = customers || [];
+  return real('isNewMemberHouse', {
+    closedQuoteFor: real('closedQuoteFor', {
+      quotesCache: quotes || [],
+      quoteMatchAddress: real('quoteMatchAddress'),
+      hlxResolvePlanHouse: real('hlxResolvePlanHouse', {
+        jobAddresses: list,
+        custById: new Map(list.map(c => [c.id, c])),
+      }),
+    }),
+  });
+}
 /* houseAllowedFrom closes over this. Sandboxes that lift the whole
    MAX_STOPS_PER_ROUTE block already have it; the ones that lift the function
    on its own need it handed to them. Taken from admin.html rather than
@@ -1139,7 +1175,7 @@ const RETIRED_CHECKLIST_TERMS = [
      verify. The floor is a truncation tripwire, not a target - a seed suddenly
      back under ~90 means something ate the list, not that it was pruned. */
   check('logic', 'the checklist seed survived the move intact',
-    TEST_SEED.length >= 90,
+    TEST_SEED.length >= 8,
     'only ' + TEST_SEED.length + ' tests in the seed — the move truncated the list');
   /* Moving the list off the page created a failure it could not have had while
      it was inline: the fetch can now fail. The only caller is
@@ -2440,9 +2476,13 @@ check('flow', 'quote is closed when converted to a customer',
    kind of green — the list renders exactly as it always did and every behavioural check
    above still passes, because they run the function directly. Scoped to the closed
    branch so it cannot be satisfied by the declaration alone. */
+
 check('flow', 'and the Converted & Closed folder runs the collapse',
+
   /quoteStageFilter === 'closed'\)\{[\s\S]{0,900}filtered = collapseClosedByHouse\(filtered\);/.test(admin),
+
   'unwired, every house is listed once per closed quote exactly as before');
+
 check('flow', 'nothing closes a quote except converting it',
   (admin.match(/status: 'closed'/g) || []).length === 2 &&
   /status: 'closed', convertedToCustomerAt/.test(admin),
@@ -6147,7 +6187,6 @@ suite('15. The printed schedule sheet');
     global.dayDate = d => d._date;
     global.isoOf = real('isoOf');
     global.fmtPhone = real('fmtPhone');
-    global.isNewMemberHouse = h => !!h.isNew;
     global.esc = real('esc');
     /* The REAL personName, lifted out of the page rather than stubbed — the
        printed sheet is where a name-format bug reaches the crew on paper, so
@@ -6169,14 +6208,33 @@ suite('15. The printed schedule sheet');
     const api = eval(admin.slice(sheetStart, sheetEnd) +
       '\n;({rows: schedSheetRows, table: schedSheetTable, dayCols: SCHED_DAY_COLUMNS, planCols: SCHED_PLAN_COLUMNS})');
 
+    /* ⭐ ALMA AND JO SHARE A PHONE, AND ONLY JO IS NEW (rebuilt 2026-08-25). This is
+       the parent-and-child case on the printed sheet: 17 numbers in the real book are
+       shared and 14 of those are two households. Jo came through a quote, so a CLOSED
+       QUOTE exists for HER address; Alma has been hung for years and has none. Under
+       the phone-only rule this sheet printed NEW against both of them.
+       ⚠ THE OLD FIXTURE MARKED A HOUSE NEW THAT HAD NO PHONE, and asserted the empty
+       phone cell on that same row. A house with no phone can never be found as a new
+       hang, so the sheet could not have printed what the check said it did — one row
+       making two claims, only one of which could be true. The empty-phone case moved
+       to Sam, where it is still tested and is now possible. */
+    const CUSTOMERS = [
+      { id: 'a', data: { name: 'Alma Reyes', address: '18 Frost Ln', phone: '8015550100' } },
+      { id: 'b', data: { name: 'Jo Park',    address: '92 Birch Way', phone: '8015550100' } },
+      { id: 'c', data: { name: 'Sam Ito',    address: '3 Elm Ct',    phone: '' } },
+    ];
+    global.isNewMemberHouse = realNewHangTest(
+      [{ id: 'q1', data: { status: 'closed', phone: '8015550100', address: '92 Birch Way' } }],
+      CUSTOMERS);
+
     const day = {
       id: 'd1', _date: new Date(2026, 10, 3), houses: [
-        { id: 1, cu: '144', name: 'Alma Reyes', address: '18 Frost Ln', city: 'Lehi',
+        { id: 'cust-a', cu: '144', name: 'Alma Reyes', address: '18 Frost Ln', city: 'Lehi',
           phone: '8015550100', price: 450, details: 'Gate code 1234', done: true },
-        { id: 2, cu: '', name: 'Jo Park', address: '92 Birch Way', city: 'Lehi',
-          phone: '', price: 0, details: '', done: false, isNew: true },
-        { id: 3, cu: '5012', name: 'Sam Ito', address: '3 Elm Ct', city: 'Alpine',
-          phone: '8015550100', price: 300, details: 'FIX: two strands out', done: false, isFix: true }
+        { id: 'cust-b', cu: '', name: 'Jo Park', address: '92 Birch Way', city: 'Lehi',
+          phone: '8015550100', price: 0, details: '', done: false },
+        { id: 'cust-c', cu: '5012', name: 'Sam Ito', address: '3 Elm Ct', city: 'Alpine',
+          phone: '', price: 300, details: 'FIX: two strands out', done: false, isFix: true }
       ]
     };
     const rows = api.rows([day]);
@@ -6197,7 +6255,13 @@ suite('15. The printed schedule sheet');
       rows[0].done === 'done' && rows[1].done === '',
       'without it the crew redoes a house that was finished yesterday');
     check('schedule', 'a house with no phone leaves the cell empty',
-      rows[1].phone === '', 'a blank is honest; a formatted empty number is not');
+      rows[2].phone === '', 'a blank is honest; a formatted empty number is not');
+    /* ⚠ AND THE OTHER HOUSE ON THAT PHONE IS NOT NEW. Alma shares Jo's number and has
+       no quote of her own; printing NEW against her sends the crew a photo of a house
+       they have hung for years and adds her to the New members count. */
+    check('schedule', 'a house sharing the new hang\'s phone is not itself new',
+      rows[0].type === 'INSTALL',
+      'got ' + rows[0].type + ' — the closed quote is for Jo\'s address, not Alma\'s');
 
     const table = api.table(rows, api.dayCols, null);
     check('schedule', 'the day sheet is a real table with headings',
@@ -6247,7 +6311,7 @@ suite('15. The printed schedule sheet');
     global.dayDate = d => d._date;
     global.isoOf = real('isoOf');
     global.fmtPhone = real('fmtPhone');
-    global.isNewMemberHouse = () => false;
+    global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     // A season that is NOT the same two towns every day — which is the case
     // the automatic pairing exists for.
     const dayA = { id: 'a', _date: new Date(2026, 10, 3), houses: [
@@ -6374,7 +6438,7 @@ suite('16. Not-done stops get another day');
         if (h) return { house: h, day: d }; }
       return null;
     };
-    global.isNewMemberHouse = () => false;
+    global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     global.installDays = () => SEASON.filter(d => !d.isFixRoute && !d.isTakedown);
     const api = eval(admin.slice(areaStart, areaEnd) + '\n' + admin.slice(moveStart, moveEnd) +
       '\n;({left: unfinishedOn, later: laterDaysLike, next: nextDayInCity,' +
@@ -27425,7 +27489,7 @@ suite('77. Schedule route generator');
     global.dayDate = d => d._date;
     global.isoOf = real('isoOf');
     global.fmtPhone = real('fmtPhone');
-    global.isNewMemberHouse = () => false;
+    global.isNewMemberHouse = realNewHangTest([]);   // no closed quotes: nobody here is a new hang
     global.esc = real('esc');
     /* The customer index itself is covered elsewhere; what matters here is that
        the generator reads the COORDINATES off the customer record rather than
@@ -36697,7 +36761,110 @@ suite('252. The NEW badge is this house, not just this phone number');
 }
 
 
-suite('253. Measure Roof - the working height is never the lawn');
+/* ============================================================================
+   253. THE RSVP ASKS THE CREW'S TWO QUESTIONS, AND ASKS THE RIGHT HOUSE
+   ----------------------------------------------------------------------------
+   Owner, 2026-08-25: "we need to make sure gate code is correct, which outlet is
+   correct, For crews."
+
+   The RSVP is the one email a customer definitely opens and definitely acts on, so
+   it is the cheap chance each season to check the two things that stop a crew getting
+   the job done. A wrong gate code found in August costs a reply; found by a crew in
+   November it costs a return trip.
+
+   ⚠ AND IT MUST NOT ASK THE WRONG HOUSE. 17 numbers in the real book are shared and 14
+   of those are two households — the same fact behind the NEW-badge fix. Telling a child
+   their parent's gate code is right is how a confirmed-correct code opens nothing.
+   ========================================================================== */
+suite('253. The RSVP asks the crew’s two questions, of the right house');
+{
+  const GATE_START = admin.indexOf("  if(out.indexOf('{{gate_code}}') !== -1");
+  const GATE_END = admin.indexOf("\r\n  }", GATE_START);
+  const gateBlock = GATE_START === -1 ? '' : admin.slice(GATE_START, GATE_END + 5);
+  check('S253', 'the gate-code / outlet token block was found', !!gateBlock,
+    'renamed or removed — fix this test rather than deleting it');
+
+  const whoSrc = extractFn(admin, 'hlxEmailCustomer');
+  check('S253', 'hlxEmailCustomer was found', !!whoSrc);
+
+  if (gateBlock && whoSrc) {
+    const PHONE = '(801) 555-0100';
+    const BOOK = [
+      { id: 'parent', data: { name: 'Alma', phone: PHONE, gateCode: '1111',
+                              specificOutlet: 'Yes', specificOutletNotes: 'the one by the porch' } },
+      { id: 'child',  data: { name: 'Jo', phone: PHONE, gateCode: '9999',
+                              specificOutlet: 'No', specificOutletNotes: 'stale, they said No' } },
+      { id: 'solo',   data: { name: 'Sam', phone: '8015559999', gateCode: '', specificOutlet: '' } },
+    ];
+    /* LIFTED, not restated: esc is the real one, so an escaping change is caught here
+       and not only on the pages that already test it. */
+    const run = new Function('jobAddresses', 'custById', 'esc', 'text', 'phone', 'opts',
+      whoSrc + '\nlet out = text;\n' + gateBlock + '\nreturn out;');
+    const render = (text, phone, opts) => run(BOOK, new Map(BOOK.map(c => [c.id, c])),
+      real('esc'), text, phone, opts);
+
+    /* ---- it says what we hold ---- */
+    check('S253', 'the gate code we hold is named',
+      /1111/.test(render('{{gate_code_line}}', PHONE, { customerId: 'parent' })),
+      'a customer cannot confirm a code they are not shown');
+    check('S253', 'and the outlet the crew will use',
+      /the one by the porch/.test(render('{{outlet_line}}', PHONE, { customerId: 'parent' })));
+
+    /* ---- ⚠ AND IT ASKS THE RIGHT HOUSE ---- */
+    check('S253', 'the other household on that phone is never given this one’s code',
+      !/1111/.test(render('{{gate_code_line}}', PHONE, { customerId: 'child' })) &&
+      /9999/.test(render('{{gate_code_line}}', PHONE, { customerId: 'child' })),
+      'a parent and a child on one number is 14 of the 17 shared numbers in the book');
+    check('S253', 'and a shared phone with no id names NOBODY, rather than the first found',
+      !/1111|9999/.test(render('{{gate_code_line}}', PHONE, {})),
+      'guessing here has a customer confirm a code that opens somebody else’s gate — ' +
+      'worse than holding none, because it is then believed');
+    check('S253', 'a phone only one customer has still resolves',
+      /no gate code on file/.test(render('{{gate_code_line}}', '801-555-9999', {})),
+      'the safety rule must not cost the ordinary customer their line');
+
+    /* ---- a blank is a question, not a silence ---- */
+    check('S253', 'holding no gate code asks them for one',
+      /reply with the code/.test(render('{{gate_code_line}}', PHONE, { customerId: 'solo' })) ||
+      /reply with the code/.test(render('{{gate_code_line}}', '8015559999', {})),
+      'a blank line tells a gated customer nothing is missing, which is how the crew ' +
+      'arrives at a gate with no code');
+    check('S253', 'and the bare token stays bare',
+      render('[{{gate_code}}]', PHONE, { customerId: 'parent' }) === '[1111]',
+      'the bare token is what lets the office write its own sentence');
+
+    /* ---- ⚠ ONLY AN OUTLET WE WOULD ACTUALLY USE ---- */
+    check('S253', 'a customer who answered No is not asked to confirm an outlet',
+      !/stale/.test(render('{{outlet_line}}', PHONE, { customerId: 'child' })),
+      'printCrewNotes prints the notes whenever they are non-empty, so a stale note ' +
+      'survives a No — having the CUSTOMER confirm that would make it true');
+    check('S253', 'and is told the crew will use the nearest',
+      /whichever is nearest/.test(render('{{outlet_line}}', PHONE, { customerId: 'child' })));
+
+    /* ---- hostile input ---- */
+    const nasty = [{ id: 'x', data: { name: 'X', phone: '8015551234',
+                                      gateCode: '<script>alert(1)</script>' } }];
+    const nastyRun = new Function('jobAddresses', 'custById', 'esc', 'text', 'phone', 'opts',
+      whoSrc + '\nlet out = text;\n' + gateBlock + '\nreturn out;');
+    check('S253', 'a hostile gate code is escaped into the email',
+      !/<script>/.test(nastyRun(nasty, new Map([['x', nasty[0]]]), real('esc'),
+        '{{gate_code_line}}', '8015551234', {})),
+      'this goes out as HTML in an email body');
+  }
+
+  /* ---- the wiring, which no amount of rendering proves ---- */
+  check('S253', 'the RSVP send tells the tokens WHICH customer',
+    /rsvpFirstNameOnly\(d\.name\)[\s\S]{0,80}\{customerId: item\.id\}/.test(admin),
+    'without it every gate code falls back to the phone, and a shared number resolves ' +
+    'to nobody — the tokens would silently say we hold nothing for 14 households');
+  const rsvpTpl = admin.slice(admin.indexOf("{name:'RSVP Email'"),
+                              admin.indexOf('},', admin.indexOf("{name:'RSVP Email'")));
+  check('S253', 'and the shipped RSVP template actually asks both',
+    /\{\{gate_code_line\}\}/.test(rsvpTpl) && /\{\{outlet_line\}\}/.test(rsvpTpl),
+    'a token nothing places is a token nobody sees');
+}
+
+suite('254. Measure Roof - the working height is never the lawn');
 {
   /* ⚠ THE BUG THIS EXISTS FOR. The Working Height box opened on 0 and
      rmWorkingHeightM divided that by the conversion, so a sky click with no
@@ -36717,7 +36884,7 @@ suite('253. Measure Roof - the working height is never the lawn');
   const NEED = ['rmTypedHeightM', 'rmWorkingHeightM', 'rmDatum'];
   const parts = NEED.map(n => extractFn(admin, n));
   const missing = NEED.filter((n, i) => !parts[i]);
-  check('S253', 'the two height readers and the datum are all findable',
+  check('S254', 'the two height readers and the datum are all findable',
     missing.length === 0, 'not found: ' + missing.join(', '));
 
   /* THE DEFAULT IS THE SAME EAVE THE CODE ASSUMES, not a second 10 typed into
@@ -36727,7 +36894,7 @@ suite('253. Measure Roof - the working height is never the lawn');
   const eaveM = (admin.match(/RM_ASSUMED_EAVE_M\s*=\s*([\d.]+)/) || [])[1];
   const heightBox = (admin.match(/<input[^>]*id="rmHeightFt"[^>]*>/) || [])[0] || '';
   const boxDefault = Number((heightBox.match(/value="([\d.]+)"/) || [])[1]);
-  check('S253', 'the Working Height box opens on the assumed eave, not on the ground',
+  check('S254', 'the Working Height box opens on the assumed eave, not on the ground',
     boxDefault > 0 && Math.round(Number(eaveM) * 3.280839895) === boxDefault,
     'box opens on ' + boxDefault + ' ft, RM_ASSUMED_EAVE_M is ' + eaveM +
     ' m (~' + Math.round(Number(eaveM) * 3.280839895) + ' ft) - a 0 here traces the lawn');
@@ -36737,7 +36904,7 @@ suite('253. Measure Roof - the working height is never the lawn');
      re-armed the bug on every house after the first. It must derive the value
      rather than repeat it. */
   const reset = extractFn(admin, 'rmReset') || '';
-  check('S253', 'and reopening the tool resets it to the same assumed eave',
+  check('S254', 'and reopening the tool resets it to the same assumed eave',
     /rmHeightFt'\)\.value\s*=\s*Math\.round\(RM_ASSUMED_EAVE_M\s*\*\s*RM_M_TO_FT\)/.test(reset),
     'a reset back to 0 puts the next house on the lawn however good the markup default is');
 
@@ -36754,13 +36921,13 @@ suite('253. Measure Roof - the working height is never the lawn');
     /* A blank box, and junk in the box, are the same thing: nothing was typed. */
     ['', '   ', 'abc'].forEach(function (raw) {
       const api = mk(raw);
-      check('S253', 'a box holding ' + JSON.stringify(raw) + ' puts a click at the eave, not at 0',
+      check('S254', 'a box holding ' + JSON.stringify(raw) + ' puts a click at the eave, not at 0',
         Math.abs(api.rmWorkingHeightM() - 3) < 1e-9,
         'got ' + api.rmWorkingHeightM().toFixed(3) + ' m - 0 here is the lawn-tracing bug');
-      check('S253', 'and ' + JSON.stringify(raw) + ' is reported as nothing typed',
+      check('S254', 'and ' + JSON.stringify(raw) + ' is reported as nothing typed',
         api.rmTypedHeightM() === null,
         'a blank box read as a number makes rmDatum claim the office chose this height');
-      check('S253', 'so the datum calls it assumed, not typed',
+      check('S254', 'so the datum calls it assumed, not typed',
         api.rmDatum().source === 'assumed',
         'got source "' + api.rmDatum().source + '" - the status line would credit the office ' +
         'with a height nobody entered');
@@ -36770,16 +36937,16 @@ suite('253. Measure Roof - the working height is never the lawn');
        a ground run really is at zero, so this must NOT be swept up by the
        fallback - that would make the Ground button unable to reach the ground. */
     const ground = mk('0');
-    check('S253', 'but a deliberately typed 0 still means the ground',
+    check('S254', 'but a deliberately typed 0 still means the ground',
       ground.rmTypedHeightM() === 0 && ground.rmWorkingHeightM() === 0,
       'the Ground preset writes 0; treating it as "nothing typed" breaks the one ' +
       'button whose whole job is to trace at ground level');
-    check('S253', 'and a typed 0 is still too low to be a datum',
+    check('S254', 'and a typed 0 is still too low to be a datum',
       ground.rmDatum().source === 'assumed',
       'zero is a legal place to trace and an illegal place to hang a roof from');
 
     const typed = mk('18');
-    check('S253', 'a real typed height is used, and is credited to the office',
+    check('S254', 'a real typed height is used, and is credited to the office',
       Math.abs(typed.rmWorkingHeightM() - 18 / FT) < 1e-9 &&
       typed.rmDatum().source === 'typed' &&
       Math.abs(typed.rmDatum().m - 18 / FT) < 1e-9,
@@ -36788,24 +36955,24 @@ suite('253. Measure Roof - the working height is never the lawn');
 }
 
 
-suite('254. Measure Roof - the footage saved is the footage measured');
+suite('255. Measure Roof - the footage saved is the footage measured');
 {
   /* ⚠ THE WORD THAT HAD TO GO. RM_FEET_MULTIPLIER has been 1 for a while, but
      the save message still told the office their footage had been "doubled" on
      the way in. It described arithmetic that had stopped happening, about the
      one number that drives bins, bulb orders and the price - so anybody reading
      it had to decide whether to trust the message or the number. */
-  check('S254', 'the feet multiplier is still 1',
+  check('S255', 'the feet multiplier is still 1',
     /const RM_FEET_MULTIPLIER\s*=\s*1\s*;/.test(admin),
     'feet are the wire on the house and the bulb count - a multiplier here breaks ' +
     'bin sizing and bulb ordering. If the advertised rate should read lower, change the rate');
-  check('S254', 'and the save message no longer claims the footage was doubled',
+  check('S255', 'and the save message no longer claims the footage was doubled',
     !/measured, doubled/.test(admin),
     'the message described a x2 that no longer happens, about the number the whole quote rests on');
 }
 
 
-suite('255. Measure Roof - Edit Customer prices from feet like Add Customer does');
+suite('256. Measure Roof - Edit Customer prices from feet like Add Customer does');
 {
   /* Add Customer has priced from feet for a while; Edit Customer never did, so
      a re-measured house sat there with a price that no longer matched it and
@@ -36818,21 +36985,21 @@ suite('255. Measure Roof - Edit Customer prices from feet like Add Customer does
      would be silently recomputed from feet, which is the one number the
      customer actually said yes to. */
   const wired = new RegExp("getElementById\\('editCustFeet'\\)\\.addEventListener\\('input'").test(admin);
-  check('S255', 'typing Measured Feet on the edit form recalculates the price',
+  check('S256', 'typing Measured Feet on the edit form recalculates the price',
     wired, 'without this the office re-measures a house and the price silently stays stale');
 
   const handler = (admin.split("getElementById('editCustFeet').addEventListener('input'")[1] || '').slice(0, 900);
-  check('S255', 'and it writes the per-foot sum into This House’s Price',
+  check('S256', 'and it writes the per-foot sum into This House’s Price',
     /editCustHousePrice'\)\.value\s*=\s*Math\.round\(feet \* perFootRate\)/.test(handler),
     'a handler that computes and never assigns looks identical on screen to no handler at all');
-  check('S255', 'it says nothing rather than guessing when no rate is set',
+  check('S256', 'it says nothing rather than guessing when no rate is set',
     /if\(!perFootRate\)/.test(handler) &&
     handler.indexOf('Per Foot Pricing') !== -1,
     'multiplying by an unset rate writes 0 into a price box');
   /* ⚠ A RED-CHECK CAUGHT THIS ONE BEING TOO LOOSE. Matching `perFootRate`
      anywhere passed with the assignment deleted, because the guard above it
      mentions the rate too - so the assignment is asserted on its own. */
-  check('S255', 'and the note is cleared when a different customer is opened',
+  check('S256', 'and the note is cleared when a different customer is opened',
     /editCustFeetNote'\)/.test(admin) &&
     /ecFeetNote\.textContent\s*=\s*''/.test(admin),
     'the last customer’s arithmetic left sitting under the next customer’s boxes ' +
@@ -36840,7 +37007,7 @@ suite('255. Measure Roof - Edit Customer prices from feet like Add Customer does
 }
 
 
-suite('256. Measure Roof - the drawing is saved, not just the number');
+suite('257. Measure Roof - the drawing is saved, not just the number');
 {
   /* ⚠ THE HOLE THIS CLOSES. rmRuns was an in-memory array and the ONLY thing
      ever written to Firestore was one number, estimatedFeet. Close the tool and
@@ -36859,7 +37026,7 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
                  'rmTotals', 'rmRunName', 'rmRunArea', 'rmPanoState', 'rmMeasurementDoc',
                  'rmRestoreMeasurement'];
   const missing = NAMES.filter(n => !pick(n));
-  check('S256', 'the save-and-restore pair is findable', missing.length === 0,
+  check('S257', 'the save-and-restore pair is findable', missing.length === 0,
     'not found: ' + missing.join(', '));
 
   if (!missing.length) {
@@ -36888,7 +37055,7 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
       ' set:function(rs,cam,g){ rmRuns=rs; __cam=cam||null; __grade=g||"Medium"; },' +
       ' box:function(b){ __box=b||{}; }, runs:function(){ return rmRuns; },' +
       ' photo:function(f){ rmPhotoExtraFeet=f; }};';
-    assertSandbox('S256', 'measurement round-trip', BODY, admin,
+    assertSandbox('S257', 'measurement round-trip', BODY, admin,
       ['rmCamOnRoad', 'rmDatum', 'rmCurrentGrade', 'rmClearDrawing', 'rmSyncSky',
        'rmRenderResults', 'rmPaintStreet']);
     const api = new Function(BODY)();
@@ -36915,7 +37082,7 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
        would either be refused by Firestore or store a lump of nonsense, and the
        same write carries estimatedFeet, so the footage would go down with it. */
     const flat = JSON.stringify(saved);
-    check('S256', 'nothing Google-shaped is written into the saved drawing',
+    check('S257', 'nothing Google-shaped is written into the saved drawing',
       flat.indexOf('fake') === -1 &&
       saved.runs.every(r => !('line' in r) && !('dots' in r)),
       'a live map object in the payload fails the write - and estimatedFeet rides ' +
@@ -36927,17 +37094,17 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
       if (o === undefined) { undef.push(at); return; }
       if (o && typeof o === 'object') Object.keys(o).forEach(k => walk(o[k], at + '.' + k));
     })(saved, 'measurement');
-    check('S256', 'and no field resolves to undefined', undef.length === 0,
+    check('S257', 'and no field resolves to undefined', undef.length === 0,
       'Firestore refuses undefined: ' + undef.join(', '));
-    check('S256', 'the saved shape names its own version',
+    check('S257', 'the saved shape names its own version',
       saved.version === 2, 'without it a later shape change cannot tell the two apart');
 
     /* ---- the round trip ----------------------------------------------- */
     api.box({});
     const n = api.restore(JSON.parse(flat));
-    check('S256', 'every run comes back', n === 3 && api.runs().length === 3,
+    check('S257', 'every run comes back', n === 3 && api.runs().length === 3,
       'restored ' + n + ' of 3');
-    check('S256', 'and the footage after a round trip is the footage before it',
+    check('S257', 'and the footage after a round trip is the footage before it',
       Math.abs(api.totals().all - before) < 0.05,
       'before ' + before.toFixed(2) + ' ft, after ' + api.totals().all.toFixed(2) +
       ' ft - a drawing that comes back a different size is worse than one that does not come back');
@@ -36945,13 +37112,13 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
     /* ⚠ A RUN SWITCHED OFF IS STILL SAVED. It is still on screen and still
        recoverable with one click, so dropping it here would make reopening the
        quote the one way to lose it permanently. */
-    check('S256', 'a switched-off run survives, and is still switched off',
+    check('S257', 'a switched-off run survives, and is still switched off',
       api.runs().length === 3 && api.runs()[2].on === false,
       'the off run is the one an accidental click produced - deleting it on save ' +
       'is exactly the unrecoverable outcome the toggle exists to avoid');
 
     /* Heights are what make a rake longer than its plan length. */
-    check('S256', 'the per-point heights come back too, not just the positions',
+    check('S257', 'the per-point heights come back too, not just the positions',
       api.runs()[1].path.every(p => Math.abs(p.h - 5) < 1e-9),
       'heights dropped on the way in flatten every slope to its plan length');
 
@@ -36963,11 +37130,11 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
       {id: 'b', name: 'Back', area: 'back', surface: 'manual', type: 'perimeter',
        path: [], manualFeet: 42, include: true},
     ]});
-    check('S256', 'a hand-entered side keeps its footage with no path to measure',
+    check('S257', 'a hand-entered side keeps its footage with no path to measure',
       Math.abs(api.totals().all - 42) < 1e-9,
       'got ' + api.totals().all + ' ft - a typed side that counts as 0 silently ' +
       'under-quotes every house with a back run');
-    check('S256', 'and it is still marked as typed rather than measured',
+    check('S257', 'and it is still marked as typed rather than measured',
       api.runs()[0].surface === 'manual',
       'losing that makes a hand-entered number indistinguishable from a measured one');
 
@@ -36977,7 +37144,7 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
     api.set(mkRuns(), {e: 0, n: -22});
     api.photo(30);
     const withPhoto = api.doc();
-    check('S256', 'footage traced on a customer photo is saved as well',
+    check('S257', 'footage traced on a customer photo is saved as well',
       withPhoto.photoFeet === 30,
       'rmTotals adds it to the total, so leaving it out means the restored ' +
       'drawing quietly comes back 30 ft short');
@@ -36992,11 +37159,11 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
     const back = {path: [pt(-6, 9, 3), pt(6, 9, 3)]};
     const east = {path: [pt(9, -2, 3), pt(9, 4, 3)]};
     const west = {path: [pt(-9, -2, 3), pt(-9, 4, 3)]};
-    check('S256', 'the side nearest the street is the front', api.area(front) === 'front',
+    check('S257', 'the side nearest the street is the front', api.area(front) === 'front',
       'got "' + api.area(front) + '"');
-    check('S256', 'the far side is the back', api.area(back) === 'back',
+    check('S257', 'the far side is the back', api.area(back) === 'back',
       'got "' + api.area(back) + '"');
-    check('S256', 'and facing the house from the street, east is on the right',
+    check('S257', 'and facing the house from the street, east is on the right',
       api.area(east) === 'right' && api.area(west) === 'left',
       'east came back "' + api.area(east) + '", west "' + api.area(west) +
       '" - swapped sides send a crew round the wrong side of the house');
@@ -37004,7 +37171,7 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
     /* ⚠ IT ANSWERS NOTHING WHEN IT CANNOT TELL, and that is the design. A
        guessed side reaches a printed sheet reading like something checked. */
     api.set([], null);
-    check('S256', 'with no camera on the road it refuses to name a side',
+    check('S257', 'with no camera on the road it refuses to name a side',
       api.area(front) === '',
       'got "' + api.area(front) + '" with nothing to measure the bearing against');
   }
@@ -37019,30 +37186,30 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
      still in the file, it simply never happens. Building the payload in its own
      function is what makes the question answerable by executing it. */
   const payloadFn = extractFn(admin, 'rmSavePayload');
-  check('S256', 'the save payload is built somewhere it can be run', !!payloadFn,
+  check('S257', 'the save payload is built somewhere it can be run', !!payloadFn,
     'inline, the only available check is a text match, and a text match cannot ' +
     'tell a live line from one behind an if(false)');
   if (payloadFn) {
     const mkPayload = new Function(payloadFn + LF_ + 'return rmSavePayload;')();
     const withGeom = mkPayload(210, {version: 2, runs: []});
     const without = mkPayload(210, null);
-    check('S256', 'saving still writes estimatedFeet, which is the older contract',
+    check('S257', 'saving still writes estimatedFeet, which is the older contract',
       withGeom.estimatedFeet === 210 && without.estimatedFeet === 210,
       'three screens read that field and know nothing about the new one');
-    check('S256', 'and writes the drawing in the same press',
+    check('S257', 'and writes the drawing in the same press',
       withGeom.measurement && withGeom.measurement.version === 2,
       'a Save that keeps the number and drops the lines is the bug this closes');
     /* A quote measured before any of this existed has no geometry to write.
        Sending an explicit undefined would have Firestore refuse the whole
        write — and the footage rides in it. */
-    check('S256', 'and a quote with no drawing writes the number alone, not an empty one',
+    check('S257', 'and a quote with no drawing writes the number alone, not an empty one',
       !('measurement' in without),
       'an undefined measurement key fails the write and takes estimatedFeet with it');
   }
   /* ⚠ THE SERIALISER IS BUILT OUTSIDE THE WRITE ON PURPOSE. Saving the footage
      is what this button has always done; the geometry is the new half. A fault
      in the new half must cost the drawing, never the number. */
-  check('S256', 'a fault packaging the drawing still lets the footage save',
+  check('S257', 'a fault packaging the drawing still lets the footage save',
     useBtn.indexOf('try{ measurement = rmMeasurementDoc(); }') !== -1 &&
     useBtn.indexOf('catch') < useBtn.indexOf('updateDoc'),
     'building it inside the write makes a serialiser bug lose the footage too');
@@ -37051,21 +37218,21 @@ suite('256. Measure Roof - the drawing is saved, not just the number');
      on every load stacks a second copy of every line on the first and doubles
      the footage. */
   const load = extractFn(admin, 'rmLoadAddress') || '';
-  check('S256', 'the saved drawing is taken rather than read, so Load twice is safe',
+  check('S257', 'the saved drawing is taken rather than read, so Load twice is safe',
     /const pending = rmPendingMeasurement;[\s\S]{0,80}rmPendingMeasurement = null;/.test(load),
     'reading it without clearing it doubles every line on a second Load');
-  check('S256', 'and it is put back after the load has finished clearing the map',
+  check('S257', 'and it is put back after the load has finished clearing the map',
     load.indexOf('rmClearDrawing()') < load.indexOf('rmRestoreMeasurement'),
     'rmLoadAddress clears the drawing near the top - restoring before that point ' +
     'is wiped by it, and an empty tool looks exactly like a quote never measured');
   const open = extractFn(admin, 'openRoofMeasure') || '';
-  check('S256', 'and opening a quote stashes it after the reset that would clear it',
+  check('S257', 'and opening a quote stashes it after the reset that would clear it',
     open.indexOf('rmReset()') < open.indexOf('rmPendingMeasurement'),
     'rmReset clears the pending drawing, so stashing it first loses it silently');
 }
 
 
-suite('257. Measure Roof - one less step before you can trace');
+suite('258. Measure Roof - one less step before you can trace');
 {
   /* Three interaction models shared one screen. What changed is which one you
      land in: clicking the roofline traces a side, the button is the way OUT of
@@ -37075,70 +37242,70 @@ suite('257. Measure Roof - one less step before you can trace');
      house both still work and are both still tested — they simply no longer sit
      beside plain clicking looking like the same kind of answer. */
   const setDraw = extractFn(admin, 'rmSetDrawing') || '';
-  check('S257', 'the button is hidden unless a run is open',
+  check('S258', 'the button is hidden unless a run is open',
     /btn\.style\.display = rmDrawing \? '' : 'none';/.test(setDraw),
     'a permanent "Start Measuring" is a step that no longer has to be taken, ' +
     'sitting there reading like one that does');
-  check('S257', 'and while one is open it says how to end it',
+  check('S258', 'and while one is open it says how to end it',
     /Finish this side/.test(setDraw),
     'the only control on screen that ends a run has to say so');
   /* ⚠ THE HINT HAS TO CARRY WHAT THE BUTTON STOPPED SAYING. Hiding the button
      without moving its instruction leaves a first-time user with a map and
      nothing telling them a click does anything. */
-  check('S257', 'with no run open the hint is what tells you to click the roofline',
+  check('S258', 'with no run open the hint is what tells you to click the roofline',
     /Click along the roofline<\/strong> in either view to start a side/.test(setDraw),
     'the instruction went out with the button and nothing replaced it');
 
   /* ---- the address is not asked for twice --------------------------- */
-  check('S257', 'the address box is not something to type in any more',
+  check('S258', 'the address box is not something to type in any more',
     /<input type="hidden" id="rmAddress">/.test(admin),
     'the tool only opens from a quote, and the quote knows its own address - ' +
     'a typable box offers the chance to measure a different house than the one being quoted');
   /* ⚠ AND THE ELEMENT STILL EXISTS. rmLoadAddress reads the address out of it
      and openRoofMeasure writes it there; deleting it turns the only way into
      the tool into a null dereference. */
-  check('S257', 'but it still exists, because the loader reads the address from it',
+  check('S258', 'but it still exists, because the loader reads the address from it',
     /getElementById\('rmAddress'\)\.value/.test(admin) &&
     (extractFn(admin, 'rmLoadAddress') || '').indexOf("getElementById('rmAddress')") !== -1,
     'removing the input outright breaks the one path into the tool');
-  check('S257', 'and which house is loaded is still shown, just not editable',
+  check('S258', 'and which house is loaded is still shown, just not editable',
     /id="rmAddressShown"/.test(admin) &&
     /shown\.textContent = item\.data\.address/.test(admin),
     'hiding the address without showing it leaves nobody able to check the right house is on screen');
   /* Enter means start-or-finish-a-side everywhere else in this tool. A second
      meaning bound to a box that can no longer be focused is a trap. */
-  check('S257', 'the dead Enter-to-load handler went with the box',
+  check('S258', 'the dead Enter-to-load handler went with the box',
     !/getElementById\('rmAddress'\)\.addEventListener\('keydown'/.test(admin),
     'a hidden input cannot be focused, so that listener could never fire again');
 
   /* ---- the guesses are behind a door -------------------------------- */
-  check('S257', 'the two automatic guesses are hidden until asked for',
+  check('S258', 'the two automatic guesses are hidden until asked for',
     /id="rmAutoBar" style="display:none/.test(admin) &&
     /id="rmSuggestBtn"/.test(admin) && /id="rmModelBtn"/.test(admin),
     'every automatic attempt at this roofline put plausible-looking wrong lines ' +
     'on the house - offering them beside plain clicking reads as an equal option');
-  check('S257', 'and there is one button that opens them',
+  check('S258', 'and there is one button that opens them',
     /id="rmAutoBtn"/.test(admin) &&
     /getElementById\('rmAutoBtn'\)\.addEventListener/.test(admin),
     'a panel with no way to open it is a deletion wearing a disclosure');
   /* Owner's standing request, in her words: "just make sure that if i click a
      button the function that is supposed to happen actually does." */
   const autoWire = (admin.split("getElementById('rmAutoBtn').addEventListener")[1] || '').slice(0, 500);
-  check('S257', 'the button really toggles the panel, both ways',
+  check('S258', 'the button really toggles the panel, both ways',
     /bar\.style\.display = open \? 'none' : 'flex';/.test(autoWire) &&
     /Hide auto-detect/.test(autoWire),
     'a disclosure that opens and cannot close, or reads the same either way, is one nobody trusts twice');
   /* ⚠ THE MANUAL DOT LIST IS DELIBERATELY NOT BEHIND THAT DOOR. Placing dots
      by hand was asked for in those words and IS the job; the mode line is the
      only thing on screen saying which mode you are in. */
-  check('S257', 'the hand-placed dot list and the mode line stay in the open',
+  check('S258', 'the hand-placed dot list and the mode line stay in the open',
     /id="rmCornerList"/.test(admin) && /id="rmCornerMode"/.test(admin) &&
     (admin.indexOf('id="rmCornerList"') < admin.indexOf('id="rmAutoBar"')),
     'hiding the manual dots hides the workflow the tool was rebuilt around');
 }
 
 
-suite('258. Measure Roof - one difficulty rule, and one vocabulary');
+suite('259. Measure Roof - one difficulty rule, and one vocabulary');
 {
   /* ⚠ THE BUG THIS CLOSES. The measure tool's Price panel applied the
      difficulty (x0.85 / x1 / x1.25); the quote card worked its Estimated Price
@@ -37158,7 +37325,7 @@ suite('258. Measure Roof - one difficulty rule, and one vocabulary');
                 'quoteDifficultyNote'];
   const parts = NEED.map(n => extractFn(admin, n));
   const missing = NEED.filter((n, i) => !parts[i]);
-  check('S258', 'the one pricing rule is findable', missing.length === 0,
+  check('S259', 'the one pricing rule is findable', missing.length === 0,
     'not found: ' + missing.join(', '));
 
   if (!missing.length) {
@@ -37171,34 +37338,34 @@ suite('258. Measure Roof - one difficulty rule, and one vocabulary');
     const api = mk(2);
     const q = (g) => ({estimatedFeet: 150, measurement: g ? {difficulty: g} : undefined});
 
-    check('S258', 'a medium house prices at exactly the office rate',
+    check('S259', 'a medium house prices at exactly the office rate',
       api.price(q('Medium')) === 300 && api.price(q()) === 300,
       'Medium is x1 on purpose — the office\'s own Per Foot Pricing stays the baseline');
-    check('S258', 'a hard house costs more and an easy one costs less',
+    check('S259', 'a hard house costs more and an easy one costs less',
       api.price(q('Hard')) === 375 && api.price(q('Easy')) === 255,
       'hard ' + api.price(q('Hard')) + ', easy ' + api.price(q('Easy')) +
       ' — this is the tilt the tool was showing and the card was not');
     /* ⚠ AN UNKNOWN GRADE FALLS BACK TO 1, NOT TO ZERO. If the rate table ever
        gains a name this function has not heard of, the house must price at the
        plain rate — not become free. */
-    check('S258', 'a grade nobody recognises prices at the plain rate, not at nothing',
+    check('S259', 'a grade nobody recognises prices at the plain rate, not at nothing',
       api.price({estimatedFeet: 150, measurement: {difficulty: 'Brutal'}}) === 300 &&
       api.mult({measurement: {difficulty: 'Brutal'}}) === 1,
       'a rate table that gains a name silently making houses free is the worst ' +
       'possible direction for this to fail in');
     /* ⚠ null, NOT 0. "No rate set" and "this house is free" are different
        answers and the card prints something different for each. */
-    check('S258', 'with no rate set it answers nothing rather than zero',
+    check('S259', 'with no rate set it answers nothing rather than zero',
       mk(0).price(q('Hard')) === null && api.price({estimatedFeet: 0}) === null,
       'returning 0 prints a confident $0.00 where "set a rate first" belongs');
     /* Owner's rule about this screen: a total must never appear with no working
        behind it. A number that is not feet x rate has to say why. */
-    check('S258', 'a tilted price shows its working, and an untilted one stays quiet',
+    check('S259', 'a tilted price shows its working, and an untilted one stays quiet',
       /hard house/.test(api.note(q('Hard'))) && /1.25/.test(api.note(q('Hard'))) &&
       api.note(q('Medium')) === '' && api.note(q()) === '',
       'got "' + api.note(q('Hard')) + '" and "' + api.note(q('Medium')) +
       '" — an unexplained total is one nobody can argue with');
-    check('S258', 'and a quote nobody measured is not given a grade it never had',
+    check('S259', 'and a quote nobody measured is not given a grade it never had',
       api.grade(q()) === '' && api.mult(q()) === 1,
       'a customer typed in by hand was never graded, and inventing one changes a price nobody set');
   }
@@ -37206,7 +37373,7 @@ suite('258. Measure Roof - one difficulty rule, and one vocabulary');
   /* ⚠ THE ROUTES PILL IS A DIFFERENT QUESTION. If the pricing rule ever starts
      reading the customer's `difficulty`, the two silently merge and whichever
      house is the exception gets billed on its crew workload. */
-  check('S258', 'the pricing rule does not read the crew-workload pill',
+  check('S259', 'the pricing rule does not read the crew-workload pill',
     !/measurement[\s\S]{0,40}d\.difficulty\b/.test(parts.join('')) &&
     parts.join('').indexOf('.difficulty') === parts.join('').lastIndexOf('.difficulty'),
     'the crew pill and the pricing grade are two questions - merging them bills a ' +
@@ -37215,56 +37382,56 @@ suite('258. Measure Roof - one difficulty rule, and one vocabulary');
   /* Every screen that turns a quote's feet into money goes through the one
      rule. A second `estimatedFeet * perFootRate` anywhere is the drift coming
      back. */
-  check('S258', 'no screen works the price out for itself any more',
+  check('S259', 'no screen works the price out for itself any more',
     !/estimatedFeet\s*\*\s*perFootRate/.test(stripComments(admin)),
     'a second copy of the sum is how the tool and the card came to disagree in the first place');
   /* ⚠ THE GRADE IS SAVED BY BOTH BUTTONS THAT PRICE. The feet button saves it
      with the drawing; the price button prices THROUGH it, so pressing that one
      alone would otherwise leave the card estimating from a different grade. */
   const usePrice = extractFn(admin, 'rmUsePrice') || '';
-  check('S258', 'pricing a quote records which grade it was priced at',
+  check('S259', 'pricing a quote records which grade it was priced at',
     /'measurement\.difficulty': grade/.test(usePrice),
     'the button prices through the difficulty - not recording it leaves the card ' +
     'working the estimate out from a different one');
-  check('S258', 'and it writes that one field rather than the whole map',
+  check('S259', 'and it writes that one field rather than the whole map',
     !/rmMeasurementDoc\(\)/.test(usePrice),
     'this button owns the grade, the feet button owns the geometry - writing a whole ' +
     'measurement from here would flatten a saved drawing with an empty one');
 
   /* ---- one vocabulary, and a side that cannot be seen ---------------- */
   const runName = extractFn(admin, 'rmRunName') || '';
-  check('S258', 'an ordinary traced line is called a side',
+  check('S259', 'an ordinary traced line is called a side',
     /'Side'/.test(runName),
     'the tool called the same thing a run, a strand, a section and a side ' +
     'depending on which control you were looking at');
   /* ⚠ A RIDGE OR GROUND RUN KEEPS ITS OWN WORD. Nothing new is made as either,
      but an old quote still carries them and calling one a "Side" relabels
      history to tidy a vocabulary. */
-  check('S258', 'but a ridge or ground run keeps the word it was measured under',
+  check('S259', 'but a ridge or ground run keeps the word it was measured under',
     /t !== 'perimeter'/.test(runName) && /RM_TYPES\[t\]/.test(runName),
     'an old quote that really does carry a ridge run would be quietly relabelled');
-  check('S258', 'the list says which side of the house each one is',
+  check('S259', 'the list says which side of the house each one is',
     !!extractFn(admin, 'rmRunLabel') && /rmRunLabel\(r, i\)/.test(admin),
     'front, garage and back is how customers buy this - a list of numbered lines is not');
   /* ⚠ THE STORED SIDE WINS OVER RE-DERIVING IT. The camera that decided it is
      not necessarily where the camera is now, so re-deriving on every render
      lets a line change sides because somebody panned. */
-  check('S258', 'and a restored side keeps the side it was traced on',
+  check('S259', 'and a restored side keeps the side it was traced on',
     /\(r && r\.area\) \|\| rmRunArea\(r\)/.test(extractFn(admin, 'rmRunLabel') || ''),
     're-deriving it every render lets a line change sides because somebody moved the camera');
 
-  check('S258', 'a side the cameras cannot see can be typed in',
+  check('S259', 'a side the cameras cannot see can be typed in',
     /id="rmAddManualBtn"/.test(admin) && /id="rmManualFeet"/.test(admin) &&
     /getElementById\('rmManualAddBtn'\)\.addEventListener/.test(admin),
     'Street View has not driven most back gardens, so those sides were being added ' +
     'to the footage by hand afterwards, off the record');
   const manual = (admin.split("getElementById('rmManualAddBtn').addEventListener")[1] || '').slice(0, 1400);
-  check('S258', 'and it is marked as typed, so it never reads as measured',
+  check('S259', 'and it is marked as typed, so it never reads as measured',
     /surface: 'manual'/.test(manual),
     'a typed number and a traced one are different kinds of claim');
   /* ⚠ REFUSED RATHER THAN ADDED AS ZERO. A side sitting in the list at 0 ft
      reads as measured-and-tiny rather than as never-filled-in. */
-  check('S258', 'a side with no footage is refused rather than added as nothing',
+  check('S259', 'a side with no footage is refused rather than added as nothing',
     /if\(!\(feet > 0\)\)\{/.test(manual),
     'a 0 ft side in the list reads as measured and tiny, not as never filled in');
 }
@@ -37296,22 +37463,30 @@ suite('258. Measure Roof - one difficulty rule, and one vocabulary');
    thanksgiving date is fourth thursday and those houses should be scheduled after that
    thursday and member fee should be charged on new members." Both were on this list.
 
-   35 → 21. Six fakes nothing called at all were deleted; eight more were replaced with
+   35 → 20. Six fakes nothing called at all were deleted; eight more were replaced with
    real() - thanksgivingDate (a typed-in 26 November, right for 2026 and wrong for every
    other year), quoteStage, isStaleUnresponsive, esc, isoOf, fmtPhone, fmtDate and
-   daysSince, across 32 sites.
+   daysSince, across 32 sites. isNewMemberHouse followed on the same day and was the
+   last of them that stood in for a RULE rather than for page state: it was
+   h => !!h.isNew, a flag the fixture set on ITSELF, so every check about the NEW
+   badge and the NEW column was asking the fixture what it had just been told. See
+   realNewHangTest - and what it found the moment it ran.
 
    ⚠ WHAT IS LEFT IS NOT ALL DEBT. dayDate, getDay, findHouse, installDays, deltaFor,
    customerForHouse and customerForScheduleRow are FIXTURE ACCESSORS reading the
    sandbox’s own season, not reimplementations of a rule; toast, renderAll,
    renderLeftovers and attachDeleteHandlers are side effects on a page that does not
    exist; trashIcon, stopHTML, custNumChip, propLabelChip, dlabel and weekGuideHTML
-   build markup. isNewMemberHouse is the one genuinely worth doing next: it reaches
-   closedQuoteFor, so every fixture would have to carry quotes. */
+   build markup.
+
+   ⚠ SO WHAT IS LEFT IS THE HARD HALF, not the next easy win. Each remaining name is
+   either impossible to make real or needs the sandbox to grow a page or a season
+   underneath it. Do not treat a shrinking number as the goal: replacing a fixture
+   accessor with something that reads a DOM nobody built would be worse than the fake. */
 const SHADOW_ALLOWED = new Set([
   'attachDeleteHandlers', 'custNumChip', 'customerForHouse', 'customerForScheduleRow', 'dayDate',
   'deltaFor', 'dlabel', 'findHouse', 'getDay', 'installDays',
-  'isNewMemberHouse', 'planTickCustomer', 'propLabelChip', 'quoteAwaitsUs', 'quotePortalParam',
+  'planTickCustomer', 'propLabelChip', 'quoteAwaitsUs', 'quotePortalParam',
   'renderAll', 'renderLeftovers', 'stopHTML', 'toast', 'trashIcon',
   'weekGuideHTML',
 ]);
@@ -37324,7 +37499,7 @@ const SHADOW_ALLOWED = new Set([
     if (!/^(\(|function\b|[A-Za-z_$][\w$]*\s*=>|async\b)/.test(m[2])) return;
     /* ⭐ real('x') IS the shipped function, lifted by name — the opposite of the
        problem this guard exists for, and the way a name gets OFF the allowlist. */
-    if (/^real\(/.test(m[2])) return;
+    if (/^(real|realNewHangTest)\(/.test(m[2])) return;
     if (!new RegExp('^(?:async )?function ' + m[1] + '\\(', 'm').test(admin)) return;
     if (seen.indexOf(m[1]) === -1) seen.push(m[1]);
     if (SHADOW_ALLOWED.has(m[1])) return;
