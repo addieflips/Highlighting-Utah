@@ -41216,6 +41216,134 @@ if (!JSDOM) {
     dom.window.document.getElementById('editCustNewMemberFee').checked = true;
     check('S276', 'ticking a box counts as a change too', F.dirty() === true,
       'reading .value on a checkbox returns "on" whether it is ticked or not');
+
+    /* ================= THE WIRING, NOT THE MECHANISM =================
+       ⚠ EVERY CHECK ABOVE PASSES WITH THE TABS COMPLETELY UNPLUGGED. Measured,
+       not feared: deleting the four calls from openEditCustomerModal left the
+       whole 5162-check suite green, because this harness calls the renderer
+       itself. The strip would simply never appear in the real page and nothing
+       would say so.
+
+       That is the shape this repo has already shipped once — the recycle "bin
+       says" box rendered an input whose listener patch had silently not applied,
+       identical on screen to a working one, npm test green. So the calls are
+       asserted, and the two delegated listeners are RUN with real dispatched
+       events rather than matched. */
+    {
+      const openSrc = extractFn(admin, 'openEditCustomerModal');
+      check('S276', 'openEditCustomerModal is findable', !!openSrc,
+        'renamed? update this suite rather than deleting it');
+      if (openSrc) {
+        const body = stripComments(openSrc);
+        ['editCustSetSaveLabel(', 'editCustRenderHouseTabs(', 'editCustSnapshot(',
+          'editCustRefreshDirtyDot('].forEach(function (call) {
+          check('S276', 'the form actually calls ' + call + ')',
+            body.indexOf(call) !== -1,
+            'the renderer works and nothing invokes it — the tabs never appear');
+        });
+        /* ⚠ THE BASELINE IS TAKEN LAST, and this is the only ordering that can
+           go wrong silently: recorded before the fields are filled it captures a
+           half-filled form, so the tab opens already dirty and warns about losing
+           changes nobody made. Pinned to the last field-filling call, not to a
+           line number. */
+        const lastFill = body.indexOf('renderEditCustLayoutMapThumb(');
+        const baseline = body.indexOf('editCustDirtySnapshot =');
+        const shown = body.indexOf("style.display = 'flex'");
+        check('S276', 'the dirty baseline is taken after every field is filled',
+          lastFill > -1 && baseline > lastFill,
+          'taken earlier it records a half-filled form and the dot is on from the start');
+        check('S276', 'and before the form is put on screen',
+          shown > -1 && baseline < shown,
+          'the strip has to be built before the popup is shown, not after');
+      }
+    }
+    {
+      const listenSrc = ['editCustTabsClick', 'editCustFormTouched'].map(function (n) {
+        return extractFn(admin, n);
+      });
+      check('S276', 'the delegated handlers are named, so they can be run rather than read',
+        listenSrc.every(Boolean),
+        'an inline listener can only be checked by matching its source');
+      /* Registered on the real document — a handler nothing binds is the bin-says
+         box again. */
+      check('S276', 'and the page really binds all three events to them',
+        /addEventListener\('click', editCustTabsClick, true\)/.test(admin) &&
+        /addEventListener\('input', editCustFormTouched, true\)/.test(admin) &&
+        /addEventListener\('change', editCustFormTouched, true\)/.test(admin),
+        'a named handler nobody binds is exactly as dead as a broken one');
+
+      if (listenSrc.every(Boolean)) {
+        const opened = [];
+        const asked = [];
+        const live = new Function('document', 'window', 'confirm', 'openEditCustomerModal',
+          [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc, statusClassSrc,
+            'let jobAddresses = [];', 'let editCustomerId = null;',
+            'let requoteBeingConverted = null;', 'let invoiceById = new Map();',
+            'let editCustDirtySnapshot = "";', 'let invoiceSearchTerm = "";',
+            'function fmtMoney(n){ return "$" + Number(n||0).toFixed(2); }',
+            'function invoiceDisplayName(k){ return k; }',
+            'function switchToAdminPanel(){}',
+            'function renderInvoicesList(){}',
+            bodies.join('\n'), listenSrc.join('\n'),
+            "document.addEventListener('click', editCustTabsClick, true);",
+            "document.addEventListener('input', editCustFormTouched, true);",
+            'return { open:function(book,id,invs){ jobAddresses = book; editCustomerId = id;' +
+            '   invoiceById = new Map(); (invs||[]).forEach(function(p){ invoiceById.set(p[0], {id:p[0], data:p[1]}); });' +
+            '   editCustSetSaveLabel((book.find(function(a){return a.id===id;})||{data:{}}).data);' +
+            '   editCustRenderHouseTabs(); editCustDirtySnapshot = editCustSnapshot();' +
+            '   editCustRefreshDirtyDot(); } };'].join('\n')
+        )(dom.window.document, dom.window,
+          function (msg) { asked.push(msg); return true; },
+          function (id) { opened.push(id); });
+
+        live.open(BOOK, 'a14', INVOICES);
+        /* ⚠ THE CLICK LANDS ON THE SPAN INSIDE THE BUTTON, which is where a real
+           pointer lands — the tab's whole visible content is two spans. If the
+           handler read e.target.dataset instead of walking up with closest(),
+           every click would be a no-op and the source would look right. */
+        const target = dom.window.document.querySelector('[data-ecthouse="a20"] .ect-name');
+        check('S276', 'the tab has an inner element for a real click to land on', !!target,
+          'clicking dead centre of a tab hits its text, not the button');
+        if (target) {
+          target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+          check('S276', 'clicking a tab really repoints the form at that house',
+            opened.length === 1 && opened[0] === 'a20',
+            'this is the whole feature — got ' + JSON.stringify(opened));
+        }
+        /* Clicking the tab already being edited must do nothing at all: it would
+           otherwise re-read the record and throw away anything typed. */
+        opened.length = 0;
+        const self = dom.window.document.querySelector('[data-ecthouse="a14"] .ect-name');
+        if (self) self.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        check('S276', 'clicking the tab you are already on does nothing',
+          opened.length === 0,
+          'a repoint at yourself is a silent discard of everything typed');
+
+        /* ⚠ AND THE WARNING IS REACHED THROUGH A REAL CLICK, not by calling the
+           switch directly. */
+        opened.length = 0; asked.length = 0;
+        dom.window.document.getElementById('editCustFeet').value = '999';
+        const other = dom.window.document.querySelector('[data-ecthouse="a20"] .ect-name');
+        if (other) other.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        check('S276', 'switching away from unsaved edits asks first',
+          asked.length === 1 && /unsaved/i.test(asked[0]),
+          'the form is refilled from the other record, so anything typed is gone with no undo');
+        check('S276', 'and names the house being left, not just "this form"',
+          asked.length === 1 && asked[0].indexOf('Heather Anderson') !== -1,
+          'four tabs deep, "you have unsaved changes" does not say to what');
+
+        /* The dot, driven by a real input event through the real listener. */
+        live.open(BOOK, 'a14', INVOICES);
+        const dot2 = dom.window.document.querySelector('[data-ectdirty]');
+        const feet = dom.window.document.getElementById('editCustFeet');
+        feet.value = '451';
+        feet.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        check('S276', 'typing really moves the dot, through the bound listener',
+          !!dot2 && dot2.style.display === 'inline-block',
+          'the dot is what makes the confirm predictable rather than a surprise');
+      }
+    }
+
   }
 }
 

@@ -38138,7 +38138,14 @@ function editCustSwitchHouse(id){
   }
   openEditCustomerModal(id);
 }
-document.addEventListener('click', function(e){
+/* ⚠ NAMED, NOT ANONYMOUS, SO THE WIRING CAN BE TESTED. An inline listener can
+   only be checked by matching its source, and this repo has already shipped a
+   control whose handler patch silently did not apply — the recycle "bin says"
+   box rendered an input that saved nothing, looked identical on screen to a
+   working one, and npm test stayed green. Lifted out by name, a suite can
+   register it on a fake document and dispatch a real click at the SPAN inside
+   the tab, which is what proves the closest() walk reaches the button. */
+function editCustTabsClick(e){
   const tab = e.target.closest && e.target.closest('[data-ecthouse]');
   if(tab){ editCustSwitchHouse(tab.dataset.ecthouse); return; }
   const openInv = e.target.closest && e.target.closest('[data-ectinvoice]');
@@ -38162,17 +38169,17 @@ document.addEventListener('click', function(e){
     }
     if(typeof renderInvoicesList === 'function') renderInvoicesList();
   }
-}, true);
+}
 /* One listener for the whole form rather than forty. Capture phase so a field
-   that stops its own event still moves the dot. */
-document.addEventListener('input', function(e){
+   that stops its own event still moves the dot. Named for the same reason as
+   the click handler above. */
+function editCustFormTouched(e){
   if(!editCustomerId) return;
   if(e.target.closest && e.target.closest('.editcust-popup')) editCustRefreshDirtyDot();
-}, true);
-document.addEventListener('change', function(e){
-  if(!editCustomerId) return;
-  if(e.target.closest && e.target.closest('.editcust-popup')) editCustRefreshDirtyDot();
-}, true);
+}
+document.addEventListener('click', editCustTabsClick, true);
+document.addEventListener('input', editCustFormTouched, true);
+document.addEventListener('change', editCustFormTouched, true);
 function openEditCustomerModal(id){
   const item = jobAddresses.find(a => a.id === id);
   if(!item) return;
