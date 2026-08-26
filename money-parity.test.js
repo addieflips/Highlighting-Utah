@@ -707,6 +707,85 @@ check('the portal balance is cent-rounded the way the office copy is',
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// WHO IS ON THE BILL — the two copies must agree (added 2026-08-26, Q-012).
+//
+// Addie, 2026-08-26: "After the last persons house is done if there are multiple
+// people on one bill is when they will be charged." The nightly run holds a
+// multi-house bill until every house on it is complete, so WHO is counted decides
+// whether that bill ever goes out at all. Before this, a house that had answered
+// Back Next Year was still counted as one to wait for — and answering that pulls
+// them off every upcoming route, so it can never be completed and the whole
+// household's bill was held open for the season.
+//
+// This is money in exactly the way computeInvoiceStatus is: the browser decides
+// what the office sees on the Who Pays for Whom screen, the server decides who is
+// actually billed. Two copies that disagree bill somebody the office cannot see.
+// ---------------------------------------------------------------------------
+{
+  const clientBillSrc = extractFn(adminSrc, 'houseIsOnTheBill');
+  const serverBillSrc = extractFn(fnsSrc, 'houseIsOnTheBillServer');
+  check('houseIsOnTheBill found in admin.html', !!clientBillSrc,
+    'renamed or removed — a missing copy must FAIL, never skip');
+  check('houseIsOnTheBillServer found in functions/index.js', !!serverBillSrc,
+    'renamed or removed — a missing copy must FAIL, never skip');
+
+  if (clientBillSrc && serverBillSrc) {
+    const onBill = compile([clientBillSrc], 'houseIsOnTheBill');
+    const onBillServer = compile([serverBillSrc], 'houseIsOnTheBillServer');
+
+    // Every combination that can reach either copy, not a hand-picked few.
+    const STATES = ['', 'yes', 'no', 'backnextyear', 'unanswered', 'YES', 'BackNextYear', '  no  '];
+    const DONE = [true, false, undefined, null, 'true', 1, 0];
+    const MAYBE = [true, false, undefined, null];
+    let compared = 0, disagreed = 0, firstBad = null;
+    STATES.forEach(function (rsvpStatus) {
+      DONE.forEach(function (completed) {
+        MAYBE.forEach(function (maybeNextYear) {
+          const d = { rsvpStatus: rsvpStatus, completed: completed, maybeNextYear: maybeNextYear };
+          const a = onBill(d), b = onBillServer(d);
+          compared++;
+          if (a !== b && !firstBad) { firstBad = JSON.stringify(d) + ' → browser ' + a + ', server ' + b; }
+          if (a !== b) disagreed++;
+        });
+      });
+    });
+    // Null and undefined reach these too — portalInvoice hands over whatever it read.
+    [null, undefined, {}].forEach(function (d) {
+      compared++;
+      if (onBill(d) !== onBillServer(d) && !firstBad) firstBad = String(d) + ' disagrees';
+      if (onBill(d) !== onBillServer(d)) disagreed++;
+    });
+    check('the browser and the server agree about who is on a bill (' + compared + ' cases)',
+      disagreed === 0, firstBad || '');
+
+    // And the answers are RIGHT, not merely equal — two copies wrong the same way
+    // agree perfectly. These are the four cases the ruling actually turns on.
+    check('a house sitting the season out, never worked on, is NOT waited for',
+      onBill({ rsvpStatus: 'backnextyear', completed: false }) === false &&
+      onBillServer({ rsvpStatus: 'backnextyear', completed: false }) === false,
+      'this is Q-012: counting it held the whole household\'s bill open all season');
+    check('and the office Maybe Next Year toggle counts the same',
+      onBill({ maybeNextYear: true, completed: false }) === false &&
+      onBillServer({ maybeNextYear: true, completed: false }) === false,
+      'it sets the same two fields as the customer answering through the link');
+    check('but a house that WAS worked on still owes, whatever it said afterwards',
+      onBill({ rsvpStatus: 'backnextyear', completed: true }) === true &&
+      onBillServer({ rsvpStatus: 'backnextyear', completed: true }) === true,
+      'pullCustomerFromSeason: "not coming back next year is not the same as not ' +
+      'owing for last year" — filtering on the RSVP alone would drop a house that owes');
+    check('an ordinary house waiting on the crew is still waited for',
+      onBill({ rsvpStatus: 'yes', completed: false }) === true &&
+      onBillServer({ rsvpStatus: 'yes', completed: false }) === true,
+      'her rule is that the bill goes after the LAST house is done — this is what ' +
+      'makes it wait at all');
+    check('a flat "no" is unchanged, and still comes off the bill outright',
+      onBill({ rsvpStatus: 'no', completed: false }) === false &&
+      onBillServer({ rsvpStatus: 'no', completed: false }) === false,
+      'not what was asked about; changing it would have widened the ruling');
+  }
+}
+
+// ---------------------------------------------------------------------------
 failures.forEach(f => console.log('  FAIL  ' + f + '\n'));
 
 console.log(pass + ' passed, ' + fail + ' failed' +

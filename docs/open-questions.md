@@ -790,7 +790,7 @@ Suite 44.
 **Map rows (added 2026-08-26):** `SCH-23, SCH-24` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 ---
 
-## Q-012 · intent · OPEN · raised 2026-08-26
+## Q-012 · intent · ANSWERED · raised and answered 2026-08-26
 When one house on a shared bill sits the season out, what happens to the rest of
 that household's bill?
 
@@ -890,3 +890,67 @@ decision and does not depend on A or B — under B it is the whole fix.
 **Resulting map change:** whichever way it goes, the answer becomes the one shared
 "on the bill" rule plus a line in CLAUDE.md's money section, so the four copies cannot
 drift apart again.
+
+---
+
+### ⭐ ANSWERED 2026-08-26
+
+**Addie:** *"After the last persons house is done if there are multiple people on one
+bill is when they will be charged."*
+
+**The timing rule was already right; who counted was not.** `runInvoiceBatch` already
+holds a multi-house bill until every house on it is `completed` — exactly what she
+describes. What was wrong is that the group it waited on dropped only a flat `'no'`.
+
+⚠ **The one thing her sentence does not say outright, and the only workable reading.**
+"The last person's house is done" has to mean *the last house actually getting lights*.
+A house sitting the season out is pulled off every upcoming route the moment they
+answer, so no crew is ever sent and it can never be completed. If it counted as one of
+the houses to wait for, her rule could never fire for that household and she would
+never be paid at all. There is no reading in which a house nobody is visiting is one
+we wait on. Stated to her before building, not assumed silently.
+
+⚠ **AND WORK THAT WAS DONE IS OWED FOR** — already settled, not re-decided here.
+`pullCustomerFromSeason`'s own comment: *"not coming back next year is not the same as
+not owing for last year."* So `completed` is tested BEFORE the sitting-out branch. The
+exclusion is **"sitting out AND never worked on"**, never just "sitting out" —
+filtering on the RSVP alone would drop a house that genuinely owes.
+
+⚠ **A FLAT `'no'` IS DELIBERATELY UNCHANGED.** It has always come off the bill outright,
+and that is not what was asked about. See Q-013 below for the asymmetry that leaves.
+
+**What was built.** `houseIsOnTheBill` (admin.html) and `houseIsOnTheBillServer`
+(functions/index.js) — one rule, two copies, run side by side over every combination by
+`money-parity.test.js`, exactly as `applyLightChange` is. All four readers call it:
+`runInvoiceBatch`, `billedHousesByIds`, `billedHousesByKey`, `billingGroupsByPayer`.
+⚠ It is **not** `isOutForSeason` — that governs routes, the build queue, the recycle
+queue and the schedule and knows nothing about whether work was done. Two questions,
+two rules, on purpose.
+
+⚠ Red-checking found a hole worth recording: with money-parity guarding the helper,
+reverting `runInvoiceBatch`'s own filter to the old inline test sailed straight through.
+A rule in one place is worth nothing unless something asserts the callers ask it.
+
+**Resulting map change:** `MON-15` in `claude/questions-map.md`. R-023.
+
+---
+
+## Q-013 · intent · OPEN · raised 2026-08-26
+A house that was hung and THEN answered a flat "no" — does it still owe?
+
+Q-012 settled this for **back next year**: work that was done is owed for. A flat
+`'no'` was left exactly as it was, because changing it was not what was asked and
+widening a money ruling on my own is not on.
+
+That leaves one asymmetry standing: a house completed and then answering `'no'` is
+still dropped from the bill entirely, so the work is never charged for. By the same
+reasoning Addie already applied to back-next-year it probably should be charged — but
+*probably* is not a ruling on a money path.
+
+⚠ Likely rare: RSVP normally happens before the season, so a house is not usually hung
+first. Rare is not never, and it is silent when it happens.
+
+**The question:** somebody's lights went up, and afterwards they said no for the season.
+Do they get a bill for the work already done?
+
+One line in `houseIsOnTheBill` / `houseIsOnTheBillServer` either way.
