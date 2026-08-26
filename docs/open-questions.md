@@ -935,7 +935,7 @@ A rule in one place is worth nothing unless something asserts the callers ask it
 
 ---
 
-## Q-013 · intent · OPEN · raised 2026-08-26
+## Q-013 · intent · ANSWERED · raised and answered 2026-08-26
 A house that was hung and THEN answered a flat "no" — does it still owe?
 
 Q-012 settled this for **back next year**: work that was done is owed for. A flat
@@ -954,6 +954,63 @@ first. Rare is not never, and it is silent when it happens.
 Do they get a bill for the work already done?
 
 One line in `houseIsOnTheBill` / `houseIsOnTheBillServer` either way.
+
+### ⭐ ANSWERED 2026-08-26
+
+**Addie**, asked directly — *somebody's lights go up, and afterwards they tell you no
+for this season; do they get a bill for the work already done?* — **"Yes — bill them
+for the work."**
+
+⭐ **So `completed` is now tested ABOVE every answer, not above one of them.** The rule
+is no longer "back next year is rescued and a flat no is not"; it is the single
+sentence `pullCustomerFromSeason` has always carried — *work that was done is owed for,
+whatever they said afterwards* — applied to every way of leaving.
+
+⚠ **THE ORDER IS THE RULE, and nothing else guards it.** A copy that tests the answer
+first returns the identical result for every case except this one, so it is a revert
+that looks like a tidy-up and shows up in no other check. Both copies are red-checked
+against exactly that sabotage.
+
+⚠ **SAFE ONLY BECAUSE Start New Season CLEARS `completed`** on every customer. Verified
+in the season reset write before this shipped. If that ever stops, this line bills
+people for LAST season's work every season, for ever.
+
+⚠ **It narrows MON-15, which is kept.** That ruling rescued Back Next Year and left a
+flat "no" deliberately alone, because widening a money ruling nobody had asked about is
+not on. That was right at the time and is why this one was asked rather than assumed.
+
+**Resulting map change:** **MON-21**.
+
+---
+
+## Q-010a follow-up · 2026-08-26 — the ruling, restated, and still not switched on
+
+Asked when `SEASON_ELIGIBILITY` should flip, Addie answered with the rule rather than a
+date: **"Only people that RSVP are yes and should be scheduled and invoiced."**
+
+⚠ **NOT ACTED ON, and this is deliberate.** That is her standing intent (the same thing
+she said on 2026-08-21) and not an instruction to flip it today. **No RSVP has gone out**,
+so nearly every customer is `unanswered`, and turning it on now takes essentially the
+whole book out of the season: no routes, no builds, no installs. The switch's own
+comment says the same. What is still needed is a **date** — after the RSVP send, with
+some window for replies.
+
+⭐ **AND IT WIDENS THE RULE TO INVOICING**, which today is separate by design:
+`isOutForSeason` governs routes and builds, `houseIsOnTheBill` governs money, and
+`CLAUDE.md` warns by name against billing off the switch because it would empty every
+invoice the day it is flipped.
+
+⚠ **MON-21 is what makes her version safe**, and the interaction is worth stating
+because it was not obvious: with `completed` tested above every answer, anyone whose
+lights are actually up is billed whatever they did or did not reply. So the population
+that "only RSVP-yes gets invoiced" would newly exclude is exactly the population that
+had no work done. The danger the warning describes is real for the *scheduling* half and
+mostly defused for the *money* half.
+
+Still needs: the date, and a decision on whether the invoicing half goes in at the same
+moment or after a season of the scheduling half.
+
+**Resulting map change:** **MON-22**, recorded as *Decided — not built*.
 ### ⚠ AND THE SAME RULE WAS WRITTEN TWICE — folded into one on the merge, 2026-08-26
 
 The billing-groups branch reached the identical rule from the other side, in the same

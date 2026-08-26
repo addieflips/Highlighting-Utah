@@ -793,14 +793,31 @@ check('the portal balance is cent-rounded the way the office copy is',
       onBill({ rsvpStatus: 'no', completed: false }) === false &&
       onBillServer({ rsvpStatus: 'no', completed: false }) === false,
       'not what was asked about; changing it would have widened the ruling');
-    /* ⚠ AND A FLAT "no" IS OUT WHETHER OR NOT IT WAS INSTALLED — the `completed`
-       early return must not rescue it. The cross product above proves the two copies
-       AGREE about that case; this proves the answer is right. Folded in from the
-       billing-groups branch's sweep, 2026-08-26. */
-    check('and a flat "no" stays out even on a house that was installed',
-      onBill({ rsvpStatus: 'no', completed: true }) === false &&
-      onBillServer({ rsvpStatus: 'no', completed: true }) === false,
-      'the completed branch must not reopen a path that was already settled');
+    /* ⭐ REVERSED 2026-08-26 BY ADDIE'S OWN RULING (Q-013), and kept rather than
+       deleted so the reversal is visible. This asserted that a flat "no" stayed
+       out EVEN on a house that was installed — true when Q-012 landed, because
+       widening a money ruling that had not been asked about is not on. She was
+       then asked directly: somebody's lights go up and afterwards they say no
+       for the season — do they get a bill for the work already done? "Yes —
+       bill them for the work."
+       So `completed` is now tested above EVERY answer rather than one of them,
+       and the rule is the single sentence pullCustomerFromSeason always carried:
+       work that was done is owed for, whatever they said afterwards. */
+    check('a house that was installed and THEN said no is still billed',
+      onBill({ rsvpStatus: 'no', completed: true }) === true &&
+      onBillServer({ rsvpStatus: 'no', completed: true }) === true,
+      'the lights went up and the materials went out — dropping them bills nobody ' +
+      'for real work, silently (Q-013)');
+    /* ⚠ AND THE ORDER IS THE RULE. A copy that tests the answer first gives the
+       identical result for every case EXCEPT this one, so nothing but this check
+       stands between the ruling and a quiet revert. */
+    check('and being installed outranks every way of leaving, not just one',
+      ['no', 'backnextyear'].every(function (st) {
+        return onBill({ rsvpStatus: st, completed: true }) === true &&
+               onBillServer({ rsvpStatus: st, completed: true }) === true;
+      }) && onBill({ maybeNextYear: true, completed: true }) === true &&
+            onBillServer({ maybeNextYear: true, completed: true }) === true,
+      'rescuing Back Next Year but not a flat no is the asymmetry Q-013 closed');
   }
 }
 

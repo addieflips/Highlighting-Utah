@@ -13117,9 +13117,21 @@ function audienceBillingGroup(d){
    other, in the same push. money-parity runs the two side by side. */
 function houseIsOnTheBill(d){
   if(!d) return false;
+  /* ⭐ WORK THAT WAS DONE IS OWED FOR, WHATEVER THEY SAID AFTERWARDS — tested
+     FIRST, above every answer (Addie, 2026-08-26, Q-013: a house hung and THEN
+     answering a flat "no" still gets a bill for the work). Until then only Back
+     Next Year was rescued this way and a flat "no" was not, so somebody whose
+     lights were already up could say no and never be charged for them — the
+     lights out, the materials gone, nothing billed, and nothing on any screen
+     saying so. It is the same reasoning pullCustomerFromSeason has always
+     carried: "not coming back next year is not the same as not owing for last
+     year", now applied to every way of leaving rather than one of them.
+     ⚠ SAFE ONLY BECAUSE Start New Season CLEARS `completed` on every customer
+     (admin.html, the season reset write). If it ever stops, this line starts
+     billing people for LAST season's work every season, for ever. */
+  if(d.completed === true) return true;
   const said = String(d.rsvpStatus || '').trim().toLowerCase();
   if(said === 'no') return false;
-  if(d.completed === true) return true;
   if(said === 'backnextyear' || d.maybeNextYear === true) return false;
   return true;
 }
