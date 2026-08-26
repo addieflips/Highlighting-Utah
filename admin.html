@@ -40285,11 +40285,11 @@ function bumpCandidateIndex(stops, custData, okOn){
  * to `city` keeps every day that predates `towns` working exactly as it did.
  *
  * ⚠ NAMED routeDayTowns, NOT dayTownList. There is already a dayTownList lower
- * down for the timing sweep, and it answers a different question about a
- * different shape of object (a day of .houses, not a saved route). Two top-level
- * declarations of one name do not sit side by side in a browser — the later one
- * wins for the whole page — so the first draft of this silently handed the fill
- * the timing sweep's answer. run-all.js caught it; the name is the fix. */
+ * down for the timing sweep, answering a different question about a different
+ * shape of object (a day of .houses, not a saved route). Two top-level
+ * declarations of one name do not coexist in a browser — the later one wins for
+ * the whole page — so the first draft silently handed the fill the timing
+ * sweep's answer. run-all.js caught it; the name is the fix. */
 function routeDayTowns(day){
   if(!day) return [];
   const listed = (day.towns || []).filter(Boolean);
