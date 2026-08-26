@@ -901,10 +901,14 @@ function houseBillingRow(id, d) {
  * "The last person's house is done" has to mean the last house actually getting
  * lights, or her rule can never fire for that household at all.
  *
- * ⚠ A FLAT "NO" IS UNCHANGED, deliberately. It has always come off the bill outright
- * and that is not what was asked about here. It leaves one asymmetry standing — a
- * house completed and THEN answering "no" is still dropped — which is recorded in
- * docs/open-questions.md rather than quietly changed on the way past.
+ * ⚠ A FLAT "NO" WAS LEFT ALONE HERE, AND Q-013 THEN CLOSED IT (2026-08-26). This
+ * paragraph used to say the asymmetry stood — a house completed and THEN answering
+ * "no" was still dropped — and that was true when Q-012 shipped, because widening a
+ * money ruling nobody had asked about is not on. Addie was asked and answered: "Any
+ * house hung no matter what should be charged." The body below tests `completed`
+ * ahead of every status, so there is no asymmetry left. Corrected on the merge with
+ * the billing-groups branch, which reached the same ruling in parallel — the comment
+ * had been left describing behaviour its own function no longer had.
  *
  * ⚠ AND WORK THAT WAS DONE IS OWED FOR, whatever they have said since:
  * pullCustomerFromSeason's own comment is the settled rule — "not coming back next
@@ -927,7 +931,11 @@ function houseIsOnTheBillServer(d) {
      ⚠ "OVERRULED IF IT IS OUR FAULT" IS A HUMAN DECISION, NOT A FIELD. The office
      writes it off on the invoice — credits already exist for exactly that. Inventing
      an automatic our-fault test would be the app guessing at fault, which is the one
-     thing it must not do with money. */
+     thing it must not do with money.
+     ⚠ AND IT IS SAFE ONLY BECAUSE Start New Season CLEARS `completed` on every
+     customer — verified in the season reset write before this shipped. If that ever
+     stops, this line bills people for LAST season's work every season, for ever.
+     Folded in from the billing-groups branch, which reached this ruling in parallel. */
   if (d.completed === true) return true;
   const said = String(d.rsvpStatus || '').trim().toLowerCase();
   if (said === 'no') return false;

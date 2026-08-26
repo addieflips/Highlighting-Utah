@@ -978,6 +978,61 @@ The new case had to be asserted explicitly. Two sabotages red-checked: demoting
 `completed` back below the status checks fails on both sides.
 
 **Resulting map change:** `MON-21` in `claude/questions-map.md`. R-023.
+
+### ⚠ ASKED TWICE, ON THE SAME DAY, IN TWO SESSIONS — and the fuller answer is kept
+
+This branch put the same question to her and got **"Yes — bill them for the work."**
+Same ruling, less of it: the other session also got *"This will only be overuled if it
+is our fault"*, which is the half that says what to do when it should NOT be charged.
+Main's wording is therefore the one kept, and this branch's implementation was thrown
+away rather than merged — it was byte-for-byte the same reordering.
+
+⚠ **Two things did travel across**, and both are corrections rather than additions:
+
+- the **Start New Season** argument, now in both code comments. This rule is safe only
+  because the season reset clears `completed` on every customer; if that ever stops it
+  bills people for last season's work every season, for ever. Verified in the reset
+  write before either branch shipped, and written down in neither until now.
+- the header comment above `houseIsOnTheBillServer` **still described the pre-Q-013
+  rule** — *"a flat NO is unchanged… a house completed and THEN answering no is still
+  dropped"* — directly above a body that no longer does that. True when Q-012 shipped,
+  false the moment Q-013 landed, and the kind of stale comment that gets believed.
+
+⚠ **THIS IS THE THIRD TIME TWO SESSIONS HAVE BUILT ONE RULE IN PARALLEL** (the others
+are recorded below and under Q-012). Every time, both were red-checked and both were
+right; every time, the cost was the merge rather than the code. Worth noticing before
+starting a fourth.
+
+---
+
+## Q-010a follow-up · 2026-08-26 — the ruling, restated, and still not switched on
+
+Asked when `SEASON_ELIGIBILITY` should flip, Addie answered with the rule rather than a
+date: **"Only people that RSVP are yes and should be scheduled and invoiced."**
+
+⚠ **NOT ACTED ON, and this is deliberate.** That is her standing intent (the same thing
+she said on 2026-08-21) and not an instruction to flip it today. **No RSVP has gone out**,
+so nearly every customer is `unanswered`, and turning it on now takes essentially the
+whole book out of the season: no routes, no builds, no installs. The switch's own
+comment says the same. What is still needed is a **date** — after the RSVP send, with
+some window for replies.
+
+⭐ **AND IT WIDENS THE RULE TO INVOICING**, which today is separate by design:
+`isOutForSeason` governs routes and builds, `houseIsOnTheBill` governs money, and
+`CLAUDE.md` warns by name against billing off the switch because it would empty every
+invoice the day it is flipped.
+
+⚠ **MON-21 is what makes her version safe**, and the interaction is worth stating
+because it was not obvious: with `completed` tested above every answer, anyone whose
+lights are actually up is billed whatever they did or did not reply. So the population
+that "only RSVP-yes gets invoiced" would newly exclude is exactly the population that
+had no work done. The danger the warning describes is real for the *scheduling* half and
+mostly defused for the *money* half.
+
+Still needs: the date, and a decision on whether the invoicing half goes in at the same
+moment or after a season of the scheduling half.
+
+**Resulting map change:** **MON-22**, recorded as *Decided — not built*.
 ### ⚠ AND THE SAME RULE WAS WRITTEN TWICE — folded into one on the merge, 2026-08-26
 
 The billing-groups branch reached the identical rule from the other side, in the same
