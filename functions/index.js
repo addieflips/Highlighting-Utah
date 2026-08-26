@@ -3635,6 +3635,29 @@ function applyQuoteLinkLabelServer(text, url) {
     return '<a href="' + url + '" style="' + QUOTE_LINK_LABEL_STYLE_SERVER + '">' + safe + '</a>';
   });
 }
+/* ⭐ AND THE BUTTON, WHICH THIS RENDERER HAD NEVER HEARD OF (added 2026-08-26).
+ *
+ * Until today the nightly nudge understood {{name}}, {{price}}, {{price_block}},
+ * {{photo}}, the three quote buttons and {{link}}. NOT {{link_button}}. So a
+ * Nudge template carrying a button rendered a gold block when the office pressed
+ * Send and mailed the customer the literal text "{{link_button}}" when the 7 PM
+ * batch sent the very same template — the one send nobody is watching. That is
+ * the {{photo}} bug of 2026-08-17 exactly, in the token nobody thought to check.
+ *
+ * ⚠ THE STYLE STRING IS THE BROWSER'S, CHARACTER FOR CHARACTER. It is hoisted
+ * out of resolveLinkTokens there (QUOTE_LINK_BUTTON_STYLE) for no other reason
+ * than that this copy can be held to it, and Suite 279 compares the bytes.
+ */
+const QUOTE_LINK_BUTTON_STYLE_SERVER = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+const QUOTE_LINK_BUTTON_DEFAULT_SERVER = 'View & Respond';
+function applyQuoteLinkButtonServer(text, url, defaultLabel) {
+  const fallback = String(defaultLabel || QUOTE_LINK_BUTTON_DEFAULT_SERVER);
+  return String(text == null ? '' : text).replace(/\{\{link_button(?::([^{}]*))?\}\}/g, function (_m, words) {
+    const label = (words == null ? '' : String(words)).trim() || fallback;
+    const safe = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE_SERVER + '">' + safe + '</a>';
+  });
+}
 function escServer(str) {
   return String(str == null ? '' : str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -3792,6 +3815,7 @@ async function runQuoteNudgeBatch(source) {
       body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline' + qAddOn + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">' + qLabels.decline + '</a>');
       body = applyQuoteLinkLabelServer(body, base);
       body = body.split('{{link}}').join(base);
+      body = applyQuoteLinkButtonServer(body, base);
       body = body.replace(/\n/g, '<br>');
 
       const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {

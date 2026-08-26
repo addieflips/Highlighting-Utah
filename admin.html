@@ -6627,6 +6627,36 @@ function hlxEmailCustomer(phone, opts){
    anchor. {{link:}} with nothing between is a link nobody can see or press —
    the message reads as if the link were simply missing. */
 const QUOTE_LINK_LABEL_STYLE = 'color:#1E3B2C; font-weight:bold; text-decoration:underline;';
+/* The gold block, hoisted out of resolveLinkTokens so the server copy can be
+   held to the same string. Its value is unchanged — portal_button, pay_button
+   and view_portal_button still read it through btnStyleGold. */
+const QUOTE_LINK_BUTTON_STYLE = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+const QUOTE_LINK_BUTTON_DEFAULT = 'View & Respond';
+/* ⭐ THE BUTTON TAKES HER WORDS TOO (added 2026-08-26). {{link_button}} on its
+   own still says "View & Respond", the words it has always said;
+   {{link_button:See your home and approve}} says hers.
+
+   ⚠ AND THIS CLOSED A REAL LEAK. The nightly nudge renderer in
+   functions/index.js knew about {{name}}, {{price}}, {{price_block}},
+   {{photo}}, the three quote buttons and {{link}} — and NOT {{link_button}}.
+   So a Nudge template with a button in it rendered properly when the office
+   pressed Send and mailed the customer the literal text "{{link_button}}" when
+   the 7 PM batch sent the same template. Exactly the {{photo}} bug of
+   2026-08-17, in the one token nobody had checked. applyQuoteLinkButtonServer
+   is the other half, and Suite 279 runs them side by side.
+
+   ⚠ THE LABEL IS ESCAPED EVEN WHEN IT IS OURS. One path, no special case —
+   "View &amp; Respond" reads as "View & Respond" and is the valid spelling;
+   a branch that skips escaping for the default is a branch that eventually
+   gets handed something that is not the default. */
+function applyQuoteLinkButton(text, url, defaultLabel){
+  const fallback = String(defaultLabel || QUOTE_LINK_BUTTON_DEFAULT);
+  return String(text == null ? '' : text).replace(/\{\{link_button(?::([^{}]*))?\}\}/g, function(_m, words){
+    const label = (words == null ? '' : String(words)).trim() || fallback;
+    const safe = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">' + safe + '</a>';
+  });
+}
 function applyQuoteLinkLabel(text, url){
   return String(text == null ? '' : text).replace(/\{\{link:([^{}]*)\}\}/g, function(_m, words){
     const label = String(words).trim() || 'here';
@@ -6641,14 +6671,22 @@ function applyQuoteLinkLabel(text, url){
    underneath. So the same template gives her the sentence she asked for in an
    email and the closest a text can get to it. */
 function quoteLinkLabelPlain(text){
-  return String(text == null ? '' : text).replace(/\{\{link:([^{}]*)\}\}/g, function(_m, words){
-    return String(words).trim() || 'here';
-  });
+  return String(text == null ? '' : text)
+    .replace(/\{\{link:([^{}]*)\}\}/g, function(_m, words){
+      return String(words).trim() || 'here';
+    })
+    /* The button token too — a text has no buttons either, and until now a
+       {{link_button}} left in a text template went to the customer as those
+       exact fifteen characters. Its words survive; the URL still lands on the
+       line underneath. */
+    .replace(/\{\{link_button(?::([^{}]*))?\}\}/g, function(_m, words){
+      return (words == null ? '' : String(words)).trim() || QUOTE_LINK_BUTTON_DEFAULT;
+    });
 }
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
-  const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+  const btnStyleGold = QUOTE_LINK_BUTTON_STYLE;
   if(opts.name !== undefined) out = out.split('{{name}}').join(opts.name || 'there');
   if(opts.price !== undefined){
     out = out.split('{{price}}').join(opts.price || '');
@@ -6671,7 +6709,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
        specific-before-general rule the rest of this function follows. */
     out = applyQuoteLinkLabel(out, opts.link);
     out = out.split('{{link}}').join(opts.link);
-    out = out.split('{{link_button}}').join('<a href="'+opts.link+'" style="'+btnStyleGold+'">'+(opts.linkLabel || 'View & Respond')+'</a>');
+    out = applyQuoteLinkButton(out, opts.link, opts.linkLabel);
   }
   /* The due date the customer is told must be the same one the Invoice List
      chases them by, so it is worked out from the invoice's own timestamp using
@@ -14232,7 +14270,8 @@ const IC_CODES = {
     {token:'{{photo}}', label:'Their house photo'},
     {token:'{{link}}', label:'Quote link (plain URL)'},
     {token:'{{link:See your home and approve here}}', label:'Quote link behind your own words — insert it, then edit the words between the colon and the braces'},
-    {token:'{{link_button}}', label:'Quote link (button)'},
+    {token:'{{link_button}}', label:'Quote link (button, says "View & Respond")'},
+    {token:'{{link_button:See your home and approve}}', label:'Quote link as a button with your own words — edit the words after inserting'},
     {token:'{{quote_yes_button}}', label:'Quote Approve (button)'},
     {token:'{{addon_block}}', label:'Outstanding add-on: offer + Yes/No (block)'},
     {token:'{{quote_maybe_button}}', label:'Quote Maybe Next Year (button)'},
