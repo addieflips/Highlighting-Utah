@@ -32703,6 +32703,47 @@ function extractCleanCity(cityRaw){
   }).filter(function(p){ return p && !/\d/.test(p); });
   return parts.length ? parts[parts.length-1] : '';
 }
+/* ⭐ A STREET SITTING IN THE TOWN FIELD (added 2026-08-26).
+
+   ⚠ WHAT GOES WRONG. extractCleanCity strips zips and UT/Utah and drops anything
+   with a digit in it — so "S Summit Crest Ln" survives untouched and is returned as
+   a TOWN. Every route day is one town, so that house is filed under a town of its
+   own, and the day builder duly gives it a crew-day: one house, one morning, one
+   truck. It looks exactly like a legitimate quiet town (Levan really is one
+   customer) and nothing anywhere says otherwise.
+
+   ⚠ IT ONLY REPORTS. It does NOT change what extractCleanCity returns, and must not:
+   ~60 places read that answer — the route grouping, the schedule, every town
+   dropdown and filter, the crew sheets — so silently returning something different
+   would move houses between towns everywhere at once, which is far worse than the
+   phantom day. The record is what is wrong, so the office fixes the record; the
+   next customer sync carries the corrected town across on its own.
+
+   ⚠ THE SUFFIX LIST DELIBERATELY LEAVES OUT Grove, Springs, Hills, Heights/Hts,
+   Mountain, Fork, View, Cross, Park and City. Every one of those is a real street
+   type AND the tail of a real Utah town: with them in, this flags Pleasant Grove,
+   Saratoga Springs, Cedar Hills, Cottonwood Hts, Eagle Mountain, American Fork,
+   Spanish Fork, Woods Cross and Pleasant View — nine real towns, six of them in
+   DEFAULT_NEARBY_TOWNS and central to the business. A warning that fires on correct
+   data is one the office learns to click past, including on the day it is right.
+
+   ⚠ AND THERE IS NO DIRECTIONAL RULE, which was written and then dropped. A leading
+   bare N/S/E/W looks like a strong signal ("S Summit Crest Ln") and it is — but it
+   also flags "S Jordan", "N Salt Lake", "S Weber" and "W Point", which are real
+   towns somebody typed short. It bought nothing either: a street almost always
+   carries its type, and Utah's grid addresses ("1200 W") have digits, so
+   extractCleanCity has already dropped them before this is asked. */
+const CITY_STREET_SUFFIXES = ['ln','lane','st','street','ave','avenue','dr','drive',
+  'rd','road','ct','court','blvd','boulevard','cir','circle','pkwy','parkway',
+  'ter','terrace','pl','place','trl','trail','hwy','highway','loop','way'];
+function cityLooksLikeStreet(cityRaw){
+  const words = String(cityRaw || '').trim().replace(/[.,]+$/,'').split(/\s+/).filter(Boolean);
+  /* One word is never a street here — "Lehi", "Sandy", "Levan". It takes at least a
+     name and a type, and a lone "Ln" is somebody's typo, not a road. */
+  if(words.length < 2) return false;
+  const last = words[words.length - 1].toLowerCase().replace(/\.$/,'');
+  return CITY_STREET_SUFFIXES.indexOf(last) !== -1;
+}
 /* ---- filling in a town that was never imported ----
    A customer with no town cannot be scheduled at all: every route day is one
    town, so a blank one matches nothing and the house sits out the season in
@@ -46244,6 +46285,43 @@ function hcRunChecks(){
       if(!missing.length) return [];
       return [{label: 'Missing: ' + missing.join(', '),
                detail: 'until these are set, nobody is told a customer has written in'}];
+    })()
+  });
+  /* ⭐ A STREET IN THE TOWN FIELD EARNS ITSELF A CREW-DAY (added 2026-08-26).
+     See cityLooksLikeStreet for why this reports rather than corrects. Grouped by
+     the value, because one bad import can put the same street on several records
+     and that is one thing to fix, not five. The house count is shown rather than
+     used to suppress: a phantom town with six houses on it is more urgent than one
+     with a single house, not less. */
+  checks.push({
+    id: 'townIsStreet',
+    title: 'A street name is sitting in the Town field',
+    why: 'Every route day is one town, so this house is filed under a town of its ' +
+         'own and the schedule gives it a crew-day to itself — one house, one ' +
+         'morning, one truck. It looks exactly like a genuinely quiet town.',
+    fix: null,
+    fixNote: 'No button: only you know which town it should be. Open the customer ' +
+             'in All Customers and put the town in the Town box — the schedule ' +
+             'picks the correction up on its next sync.',
+    rows: (function(){
+      const byValue = {};
+      jobAddresses.forEach(function(c){
+        const town = extractCleanCity((c.data || {}).city);
+        if(!town || !cityLooksLikeStreet(town)) return;
+        /* A town the office has typed into its own nearby-towns list is a town,
+           whatever it looks like to a word list. */
+        if(NEARBY_TOWN_LIST && Object.prototype.hasOwnProperty.call(NEARBY_TOWN_LIST, town)) return;
+        (byValue[town] = byValue[town] || []).push(c);
+      });
+      return Object.keys(byValue).sort().map(function(town){
+        const who = byValue[town];
+        return {label: '"' + town + '"',
+                detail: who.length === 1
+                  ? hcName(who[0].data) + ' — filed as a town of one'
+                  : who.length + ' houses filed under it: ' +
+                    who.slice(0, 4).map(function(c){ return hcName(c.data); }).join(', ') +
+                    (who.length > 4 ? ' and ' + (who.length - 4) + ' more' : '')};
+      });
     })()
   });
   const hcCustIdSet = {};

@@ -3530,12 +3530,91 @@ console.log('\n=== 7. Health check engine ===');
      is unset or (as happened once) unreadable from the public site. index.html cannot
      report that itself: it has no login, and posting its own complaint into the Inbox
      would leave a note there on behalf of a customer who asked for none. This is the
-     screen the office already opens to be told something is wrong. */
-  check('health', 'all 20 checks present',
-    all.length === 20, 'got ' + all.length);
+     screen the office already opens to be told something is wrong.
+
+     ⭐ 21 SINCE 2026-08-26: 'townIsStreet'. extractCleanCity drops anything with a
+     digit in it but passes "S Summit Crest Ln" straight through as a TOWN, and every
+     route day is one town — so that house is filed under a town of its own and the
+     builder gives it a crew-day: one house, one morning, one truck, looking exactly
+     like a genuinely quiet town. */
+  check('health', 'all 21 checks present',
+    all.length === 21, 'got ' + all.length);
   /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
      form is truthy whatever happens and proves nothing. Red-checking caught it:
      renaming the id sailed straight through. */
+  /* ⭐ A STREET IN THE TOWN FIELD (added 2026-08-26). The detector is asserted
+     against the REAL town list lifted out of admin.html rather than a copy typed
+     here, because the whole risk in this check is a false positive: a warning that
+     fires on correct data is one the office learns to click past, including on the
+     day it is right. */
+  {
+    const sufM = admin.match(/const CITY_STREET_SUFFIXES = \[([\s\S]*?)\];/);
+    const fnSrc = extractFn(admin, 'cityLooksLikeStreet');
+    check('health', 'the street-in-town detector was found', !!sufM && !!fnSrc);
+    if (sufM && fnSrc) {
+      const suffixes = new Function('return [' + sufM[1] + '];')();
+      const looksLikeStreet = new Function('CITY_STREET_SUFFIXES',
+        'return ' + fnSrc + ';cityLooksLikeStreet')(suffixes);
+
+      /* The office's own list of real towns — read out of the page, so adding a town
+         there automatically widens what this proves. */
+      const townsM = admin.match(/const DEFAULT_NEARBY_TOWNS = \{[\s\S]*?\n\};/);
+      const realTowns = townsM ? Object.keys(new Function('return ' + townsM[0].replace('const DEFAULT_NEARBY_TOWNS = ', ''))()) : [];
+      check('health', 'the shipped town list was found to test against', realTowns.length >= 25,
+        'got ' + realTowns.length);
+      const wronglyFlagged = realTowns.filter(looksLikeStreet);
+      check('health', 'no town the office actually works in is called a street',
+        wronglyFlagged.length === 0,
+        'flagged: ' + wronglyFlagged.join(', '));
+
+      /* ⚠ THE NINE THAT MADE THIS HARD. Every one is a real street type AND the tail
+         of a real Utah town. With them in the list this fires on Pleasant Grove,
+         Saratoga Springs, Cedar Hills, Cottonwood Hts, Eagle Mountain, American Fork,
+         Spanish Fork, Woods Cross and Pleasant View. Asserted by NAME, so putting one
+         back is a failing build rather than a warning nobody trusts. */
+      const AMBIGUOUS = ['grove','springs','hills','heights','hts','mountain','fork','view','cross','park','city'];
+      const putBack = AMBIGUOUS.filter(w => suffixes.indexOf(w) !== -1);
+      check('health', 'and the street types that are also town names are left out',
+        putBack.length === 0,
+        'these would flag real towns: ' + putBack.join(', '));
+      ['Salt Lake City','West Valley City','North Salt Lake','Heber City','Cedar City',
+       'Pleasant View','Woods Cross','Smithfield','St George'].forEach(function (t) {
+        check('health', 'a real town is not flagged: ' + t, !looksLikeStreet(t));
+      });
+      /* ⚠ AND NO DIRECTIONAL RULE. A leading bare N/S/E/W reads as a strong signal
+         and was written, then dropped: it also flags these, which are real towns
+         somebody typed short. */
+      ['S Jordan','N Salt Lake','S Weber','W Point'].forEach(function (t) {
+        check('health', 'a town written short is not flagged: ' + t, !looksLikeStreet(t));
+      });
+
+      ['S Summit Crest Ln','N Canyon Rd','W Center St','Red Cedar Ln','Main Street',
+       'Foothill Dr','Canyon View Drive','Cherry Ln.'].forEach(function (v) {
+        check('health', 'a street is flagged: ' + v, looksLikeStreet(v));
+      });
+      check('health', 'a one-word value is never a street',
+        !looksLikeStreet('Lehi') && !looksLikeStreet('Levan') && !looksLikeStreet('Ln'),
+        'Levan really is a town of one customer, and a lone "Ln" is a typo, not a road');
+
+      /* ⚠ IT REPORTS AND DOES NOT CORRECT. ~60 places read extractCleanCity's answer
+         — the route grouping, the schedule, every town dropdown and filter, the crew
+         sheets — so returning something different would move houses between towns
+         everywhere at once, which is far worse than the phantom day. */
+      const cleanSrc = extractFn(admin, 'extractCleanCity');
+      const cleanCity = new Function('return ' + cleanSrc + ';extractCleanCity')();
+      check('health', 'and the town field is reported, never rewritten',
+        cleanCity('S Summit Crest Ln') === 'S Summit Crest Ln' &&
+        !/cityLooksLikeStreet/.test(cleanSrc),
+        'a silent correction here would re-file houses across the whole schedule');
+    }
+    check('health', 'and a street in the Town field is one of the checks',
+      all.some(c => c.id === 'townIsStreet'),
+      'it earns itself a crew-day and looks exactly like a genuinely quiet town');
+    check('health', 'it offers no fix button',
+      !get(all, 'townIsStreet').fix,
+      'only the office knows which town it should have been; guessing at scale ' +
+      'would re-file houses on a hunch');
+  }
   check('health', 'and the one that says the alerts are dead is among them',
     all.some(c => c.id === 'notifyOff'),
     'the messages still reach the Inbox; what stops is anybody being told');
