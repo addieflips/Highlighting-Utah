@@ -38477,115 +38477,88 @@ suite('167. Measure Roof - shift and drag moves a dot');
       return /RM_DRAG_GRAB_PX/.test(fn) && /RM_SKY_GRAB_M/.test(fn);
     })(),
     'a cursor that promises a grab the drag then refuses is worse than no cursor');
-  check('S167', 'a street-view drag changes the height and nothing else',
-    (function(){
-      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /c\.h = u;/.test(body) && !/c\.lat = /.test(body) && !/rmHouseHit\(/.test(body);
-    })(),
-    'crossing the ray with the house again moves east and north every frame, so ' +
-    'the map shows the dot creeping sideways while somebody sets its height');
-  check('S167', 'and it holds the plan position exactly, by solving on a vertical',
-    (function(){
-      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /const plan = Math\.hypot\(here\.e - cam\.e, here\.n - cam\.n\);/.test(body) &&
-             /cam\.u \+ plan \* Math\.tan\(el\)/.test(body);
-    })(),
-    'height is the horizontal distance times the tangent of the elevation, which ' +
-    'touches neither east nor north');
-  /* ⭐ A SKY DRAG SLIDES THE DOT ALONG ITS OWN RAY (2026-08-25). Owner: "when
-     i drag a dot on sky view it should stay in the same spot in street view,
-     its just to correct the offset if the system does get it wrong."
+  /* ⭐ THE STREET DRAG FOLLOWS THE POINTER (2026-08-26). Owner: "I should be
+     able to move a dot anywhere on street view, the only restriction is not
+     changing height on sky view."
 
-     ⚠ AND THAT IS PRECISELY A DEPTH CORRECTION. Every point along the ray from
-     the camera through a pixel draws at THAT SAME PIXEL, so moving a dot along
-     its own ray changes where it sits on the map and leaves Street View
-     untouched — which is the complaint exactly: right in the photograph, wrong
-     on the map, and the only thing wrong with it was how far away it was.
-     The check below is not a source match; it does the arithmetic. */
-  check('S167', 'a sky-view drag slides the dot along the ray it was seen along',
-    (function(){
-      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /rmRaySlideTo\(ray, w\)/.test(body) && /c\.h = t\.u;/.test(body);
-    })(),
-    'dropping it wherever the pointer went would move it in the photograph too, ' +
-    'and the corner it is marking has not moved');
-  check('S167', 'and a dot with no sighting moves in plan and keeps its height',
-    (function(){
-      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      /* The no-ray branch is the tail of the handler, so slice to the end of it
-         rather than to a round number of characters. */
-      const k = body.indexOf('c.lat = w.lat; c.lng = w.lng;');
-      return k !== -1 && body.slice(k).indexOf('c.h =') === -1;
-    })(),
-    'one placed from above has no ray to slide along, and from above there is ' +
-    'no height in the picture to read');
-  /* ⭐ THE ARITHMETIC ITSELF. A slid dot must land on the SAME Street View
-     pixel, or the drag has moved the corner rather than corrected its depth. */
-  {
-    const LF = String.fromCharCode(10);
-    const slideApi = new Function(
-      'let rmOrigin = {lat: 40.3854093, lng: -111.8627181};' + LF +
-      'let rmFaces = [];' + LF +
-      'const RM_EAVE_TOL_M = 0.8;' + LF +
-      'const rmRad = function(d){ return d*Math.PI/180; };' + LF +
-      'function rmFovDeg(z){ return 180/Math.pow(2, z); }' + LF +
-      'function rmRoofTopM(){ return 12; }' + LF +
-      [extractFn(admin, 'rmMetresPerDeg'), extractFn(admin, 'rmToLocal'),
-       extractFn(admin, 'rmToWorld'), extractFn(admin, 'rmBasis'),
-       extractFn(admin, 'rmSvProject'), extractFn(admin, 'rmRay'),
-       extractFn(admin, 'rmRaySlideTo')].join(LF) + LF +
-      'return {slide: rmRaySlideTo, toWorld: rmToWorld, toLocal: rmToLocal,' + LF +
-      '        project: rmSvProject, ray: rmRay};')();
-    const W = 554, H = 456, pov = {heading: 74.7, pitch: 5.3, zoom: 1.46};
-    const cam = {e: -26.58, n: -7.25, u: 2.46};
-    /* A dot placed by clicking one pixel, sitting somewhere along that ray. */
-    const dir = slideApi.ray(200, 180, W, H, pov);
-    const ray = {cam: cam, dir: dir};
-    const t0 = 22;
-    const dot = {e: cam.e + dir.e*t0, n: cam.n + dir.n*t0, u: cam.u + dir.u*t0};
-    const before = slideApi.project(slideApi.toWorld(dot), W, H, pov, cam);
-    /* Drag it several feet across the map, well off the line of sight. */
-    const dropped = slideApi.toWorld({e: dot.e + 3.5, n: dot.n - 2.5, u: 0});
-    const moved = slideApi.slide(ray, dropped);
-    const after = moved ? slideApi.project(slideApi.toWorld(moved), W, H, pov, cam) : null;
-    const shift = after ? Math.hypot(after.x - before.x, after.y - before.y) : null;
-    const depthChange = moved
-      ? Math.abs(Math.hypot(moved.e - cam.e, moved.n - cam.n) - Math.hypot(dot.e - cam.e, dot.n - cam.n))
-      : 0;
-    check('S167', 'a slid dot draws on the very same Street View pixel',
-      shift !== null && shift < 0.01,
-      'it moved ' + (shift === null ? 'nowhere - the slide was refused' : shift.toFixed(3) + ' px'));
-    check('S167', 'and it really did move on the map, so the slide is not a no-op',
-      depthChange > 1,
-      'depth changed by ' + depthChange.toFixed(2) + ' m; a check that passes because ' +
-      'nothing moved would pass on a broken drag too');
-    check('S167', 'the height comes with it, because a ray climbs as it goes out',
-      moved && Math.abs(moved.u - dot.u) > 0.05,
-      'holding the height while sliding the depth leaves the dot off its own ray, ' +
-      'which puts it back in the wrong place in Street View');
-    check('S167', 'a drop behind the camera is refused rather than answered',
-      slideApi.slide(ray, slideApi.toWorld({e: cam.e - dir.e*40, n: cam.n - dir.n*40, u: 0})) === null);
-    check('S167', 'and one that would end up above the roof is refused too',
-      slideApi.slide(ray, slideApi.toWorld({e: cam.e + dir.e*160, n: cam.n + dir.n*160, u: 0})) === null,
-      'a drag must not reach a place a click could not');
-  }
-  check('S167', 'and neither drag can put a dot underground or above the roof',
+     ⚠ THIS REPLACES A HEIGHT-ONLY DRAG that these checks asserted, and the
+     reasoning for that one names the trade. From the street the unknown is DEPTH:
+     a dot can sit perfectly on the gutter and be ten feet into next door's garden
+     in plan, and nothing in the panorama can show it. Holding the plan meant the
+     drag could never make that worse - but it also meant the dot would not go
+     where it was dragged, which is not a drag.
+
+     ⚠ SO IT KEEPS ITS RANGE AND RE-AIMS: the distance out is taken when the dot
+     is picked up and held for the whole drag; the pointer chooses the direction.
+     The dot sits under the cursor, goes anywhere on screen, and leaves the drag
+     exactly as far out as it arrived - so the depth is neither invented nor
+     destroyed by moving it. And the depth has its own answer now: two sightings
+     cross, and that also measures the model displacement, after which single
+     clicks land right on their own. */
+  check('S167', 'a street-view drag puts the dot under the pointer',
     (function(){
       const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
       const j = admin.indexOf("['mouseup', 'mouseleave']", i);
       const body = i === -1 ? '' : admin.slice(i, j);
-      return /const top = rmRoofTopM\(\);/.test(body) && /u > top \+ RM_EAVE_TOL_M/.test(body) &&
-             /if\(!\(u > 0\.3\)\) return;/.test(body);
+      return /cam\.e \+ dir\.e \* range/.test(body) && /c\.lat = wpt\.lat/.test(body);
     })(),
-    'the same ceiling that stops a click on the sky');
+    'a drag that will not go where it is dragged is not a drag');
+  check('S167', 'and it keeps the range it was picked up at, so the depth is untouched',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousedown'");
+      const j = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'", i);
+      const grab = i === -1 ? '' : admin.slice(i, j);
+      return /rmDragRange = p0/.test(grab) && /const range = rmDragRange/.test(admin);
+    })(),
+    'recomputing it every move would let the depth wander as the dot is waved about');
+  /* ⭐ A SKY DRAG MOVES FREELY IN PLAN AND HOLDS THE HEIGHT (2026-08-26).
+     Owner: "on sky view I can only drag left and right — I said I dont want
+     dragging the dot on sky view to change the height and thats still true, but i
+     should be able to move it in any direction still."
+
+     ⚠ THIS REPLACES A SLIDE ALONG THE CAMERA RAY, which these checks asserted
+     yesterday, and the reasoning for that was not wrong — it was over-constrained.
+     Every point along a ray draws at the same pixel, so sliding along it corrects
+     the DEPTH and leaves the photograph untouched, which is what "it should stay
+     in the same spot in street view" asked for. But a ray is a LINE: constrained
+     to it the dot can only travel one direction across the map, which reads as a
+     broken drag and cannot put the dot where the roof plainly is.
+
+     ⚠ THE TWO CANNOT BOTH HOLD. Moving freely in plan while holding the height
+     necessarily moves the dot in Street View — same height, different distance,
+     different elevation, different pixel. Staying fixed in the photograph
+     necessarily means moving along the ray, which necessarily changes the height.
+     Freedom in plan is the better half: from above you can SEE where the dot
+     belongs, and the depth has a proper answer of its own now in the measured
+     model displacement rather than needing to be nudged by hand. */
+  check('S167', 'a sky-view drag moves freely in plan',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /c\.lat = w\.lat; c\.lng = w\.lng;/.test(body) && !/rmRaySlideTo/.test(body);
+    })(),
+    'a ray is a line, and constrained to it the dot can only go one way across the map');
+  check('S167', 'and it does not touch the height',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return !/c\.h = /.test(body);
+    })(),
+    'from above there is no height in the picture to read, so it must be left alone');
+  check('S167', 'and the slide it replaced is deleted, not left looking live',
+    !/function rmRaySlideTo/.test(admin) && /rmRaySlideTo IS GONE/.test(admin),
+    'dead code that looks live is worse than dead code that says so');
+  check('S167', 'and the street drag still refuses underground and above the roof',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const top = rmRoofTopM\(\);/.test(body) && /to\.u > top \+ RM_EAVE_TOL_M/.test(body) &&
+             /if\(!\(to\.u > 0\.3\)\) return;/.test(body);
+    })(),
+    'a drag must not reach a place a click could not');
   /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */
   check('S167', 'a moved dot stops being pinned',
     /c\.rays = \[\]; c\.pinned = 0; c\.spread = 0;/.test(admin),
