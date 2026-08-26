@@ -747,6 +747,19 @@
     border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12px;
     background:var(--snow); color:var(--ink); max-width:110px;
   }
+  /* ⭐ THE TYPO WARNING THAT SITS UNDER THE FIELD (2026-08-26). Deliberately not a
+     popup: this fires while somebody is still typing, and a dialog that interrupts
+     every keystroke would be shut without being read. */
+  .email-typo-note{
+    display:none; margin-top:6px; font-size:12px; line-height:1.45;
+    background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:7px 10px;
+  }
+  .email-typo-note.show{ display:block; }
+  .email-typo-note button{
+    margin-left:6px; border:1px solid var(--gold-dim); background:#fff; color:var(--ink);
+    border-radius:6px; padding:2px 8px; font-size:11.5px; font-weight:700; cursor:pointer;
+  }
+  .email-typo-note button:hover{ background:var(--gold); }
   .form-row{ margin-bottom:16px; }
   .form-row label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; }
   .form-row input, .form-row textarea, .form-row select{
@@ -13769,6 +13782,78 @@ function emailTypoSuggestion(addr){
   }
   return null;
 }
+/* ⭐ THE SAME TYPO, WHERE IT COSTS FAR MORE (2026-08-26). Owner asked for the test-
+   invoice guard to be put on the customer's own email box too. It is the same one
+   letter and a much worse outcome: a test that does not arrive is noticed in a
+   minute, whereas a customer record holding …@gmai.com is noticed by NOBODY. The
+   nightly run hands their invoice to a domain that does not exist, EmailJS answers
+   OK, the bounce goes to the sending account nobody reads, and the customer simply
+   never gets a bill. Nothing anywhere goes red.
+   ⚠ IT IS A NOTE UNDER THE FIELD, NOT A POPUP, and that is a deliberate difference
+   from the test-invoice guard. That one guards a single decisive press, so a dialog
+   fits. This one fires while somebody is still typing an address — a dialog on every
+   keystroke is one that gets dismissed unread — and Edit Customer already opens up
+   to three popups on one save. A fourth await in that handler buys nothing the note
+   does not already say, and that handler is the one with a history of swallowing
+   errors whole.
+   ⚠ IT WARNS, IT NEVER REFUSES, AND IT NEVER EDITS THE BOX BY ITSELF. Correcting an
+   address on somebody's behalf is how a real address at an unusual domain gets
+   quietly replaced with a wrong one. The office presses Use it, or ignores it.
+   ⚠ AND PREVENTION IS ONLY HALF. It does nothing for the addresses already on file,
+   which is what the Health Check row added alongside it is for. */
+function emailTypoWatch(input){
+  if(!input) return;
+  /* ⚠ ALREADY WATCHED MEANS RE-CHECK IT, NOT WALK AWAY. The first draft returned
+     here, and that silently broke the case this exists for: the boxes are bound once
+     at start-up, so by the time Edit Customer is filled from a record the guard was
+     already set and the note was never refreshed — a customer whose stored address
+     is ALREADY a typo showed nothing at all. Binding must not repeat; checking must. */
+  if(input._typoRefresh){ input._typoRefresh(); return; }
+  input.dataset.typowatch = '1';
+  const note = document.createElement('div');
+  note.className = 'email-typo-note';
+  input.insertAdjacentElement('afterend', note);
+  const refresh = function(){
+    const typed = input.value.trim();
+    const suggestion = emailTypoSuggestion(typed);
+    if(!suggestion){ note.classList.remove('show'); note.innerHTML = ''; note.dataset.shown = ''; return; }
+    /* ⚠ REBUILD ONLY WHEN THE ANSWER CHANGES. Clicking Use it BLURS the field, and
+       blur runs this — so rebuilding unconditionally destroyed the button node
+       between mousedown and mouseup and the click never landed. Pressing it did
+       nothing at all, which is the one failure this whole note exists to avoid.
+       Caught by driving it in a real browser; every source check passed throughout. */
+    if(note.dataset.shown === suggestion){ note.classList.add('show'); return; }
+    note.dataset.shown = suggestion;
+    note.innerHTML = 'Did you mean <strong>' + esc(suggestion) + '</strong>? ' +
+      '<span style="color:var(--slate);">That domain is one letter from a common one, so mail to it would go nowhere.</span>' +
+      '<button type="button" data-usetypofix>Use it</button>';
+    note.classList.add('show');
+    note.querySelector('[data-usetypofix]').addEventListener('click', function(){
+      input.value = suggestion;
+      /* Fire input so anything watching the field sees the change, exactly as if it
+         had been typed. Not `change`: nothing listens for it on these boxes today,
+         and firing one would be inventing an event a future handler did not expect. */
+      note.dataset.shown = '';
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+      note.classList.remove('show');
+      input.focus();
+    });
+  };
+  input._typoRefresh = refresh;
+  input.addEventListener('input', refresh);
+  input.addEventListener('blur', refresh);
+  /* A record opened with a typo already on it must say so before anything is typed —
+     that is the commonest case by far, since the bad address is already saved. */
+  refresh();
+}
+/* Wire the boxes a person types an address into. ⚠ NOT the bulk importers or the
+   sheet sync: those write hundreds of rows from a spreadsheet, the addresses are not
+   being typed, and a note per row would be both useless and unreadable. */
+const EMAIL_TYPO_WATCHED_IDS = ['addCustEmail','addCustEmail2','editCustEmail','editCustEmail2',
+  'etTestEmailInput','invTestTo','qEmailTestTo'];
+function emailTypoWatchAll(){
+  EMAIL_TYPO_WATCHED_IDS.forEach(function(id){ emailTypoWatch(document.getElementById(id)); });
+}
 /* Three answers, so it cannot be a confirm(): use the correction, send to what was
    typed anyway, or go back and edit it. */
 function askEmailTypo(typed, suggestion){
@@ -13905,6 +13990,8 @@ async function invTestSend(){
   }
 }
 if(document.getElementById('invTestSendBtn')) document.getElementById('invTestSendBtn').addEventListener('click', invTestSend);
+/* Every box a person types an email address into, watched from load. */
+emailTypoWatchAll();
 function invRenderRecipientList(){
   invTestPopulate();
   const list = document.getElementById('invRecipientList');
@@ -33736,6 +33823,9 @@ function attachAddressRowHandlers(container){
         }, {merge:true});
         toast('Invoice updated to '+fmtMoney(total)+' — flagged for price review before sending');
       });
+      /* The card is rebuilt by innerHTML each time it opens, so this is a fresh
+         element every time and emailTypoWatch's own guard cannot leak across them. */
+      emailTypoWatch(panel.querySelector('.hd-email2'));
       panel.querySelector('.hd-save').addEventListener('click', async function(){
         const newPhone2 = panel.querySelector('.hd-phone2').value.replace(/\D/g,'');
         const newEmail2 = panel.querySelector('.hd-email2').value.trim();
@@ -38831,6 +38921,11 @@ function openEditCustomerModal(id){
   document.getElementById('editCustNoAutoEmails').checked = d.noAutomationEmails === true;
   document.getElementById('editCustEmail').value = d.email || '';
   document.getElementById('editCustEmail2').value = d.email2 || '';
+  /* ⚠ RE-CHECKED HERE, not only when the page loads. The house tabs repoint this
+     same form at another record without rebuilding it, so a note left over from the
+     previous house would otherwise still be on screen — pointing at an address that
+     is no longer in the box. emailTypoWatch binds once and is safe to call again. */
+  emailTypoWatchAll();
   document.getElementById('editCustAddress').value = d.address || '';
   document.getElementById('editCustCity').value = d.city || '';
   /* Offer the towns already in use, so a corrected town matches the others
@@ -47462,6 +47557,41 @@ function hcRunChecks(){
      told staff to "search Needs Pin in the customer list" — a search that did
      not exist. Now there is a filter by that name in All Customers, and this
      row, which finds hand-typed ones the flag never covered. */
+  /* ⭐ THE TYPOS ALREADY ON FILE (2026-08-26). The note under the email box stops the
+     NEXT one; it does nothing about the ~960 addresses already typed, and those are
+     the ones actually costing money right now. This is the only thing that finds
+     them, because the failure is completely silent: the nightly run hands the
+     invoice to a domain that does not exist, EmailJS answers OK, and the bounce goes
+     to the sending account nobody reads. The customer is never billed and nothing
+     anywhere turns red.
+     ⚠ NO FIX BUTTON, deliberately. Every other guess here is about our own data;
+     this one is about somebody else's address, and the correction is a guess. Mass-
+     rewriting nine hundred email addresses on a Damerau distance would eventually
+     replace a real address at an unusual domain with a wrong one, and nobody would
+     ever know which. It lists them and a person decides.
+     ⚠ It reads the SAME emailTypoSuggestion the form does, so the two cannot start
+     disagreeing about what counts as a typo. */
+  const emailTypoRows = [];
+  jobAddresses.forEach(function(c){
+    const d = c.data || {};
+    [['email', d.email], ['email2', d.email2]].forEach(function(pair){
+      const suggestion = emailTypoSuggestion(String(pair[1] || '').trim());
+      if(!suggestion) return;
+      emailTypoRows.push({
+        label: hcName(d),
+        detail: (pair[0] === 'email2' ? 'Secondary email ' : 'Email ') + String(pair[1]).trim() +
+          ' — looks like ' + suggestion + (hcAddr(d) ? ' (' + hcAddr(d) + ')' : '')
+      });
+    });
+  });
+  checks.push({
+    id: 'emailTypo',
+    title: 'Email address that looks like a typo',
+    why: 'Their invoice is handed to a domain that does not exist. The mail service accepts it, answers OK, and the bounce goes to the sending account rather than to anyone in the office — so the customer is simply never billed and nothing goes red. One letter, and it stays wrong until somebody reads it.',
+    fix: null,
+    fixNote: 'No button: only the customer can confirm their own address, and correcting nine hundred of them on a guess would eventually overwrite a real address at an unusual domain. Open each customer, check the address against what they gave you, and save.',
+    rows: emailTypoRows
+  });
   checks.push({
     id: 'noPin',
     title: 'Customer with no map pin',

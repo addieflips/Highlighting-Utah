@@ -554,6 +554,21 @@ const RB_COLOR_ALIAS = (function(){
    Lifted from admin.html rather than stubbed, for the same reason as the
    colours: a stub would keep this suite green through a change to what the app
    actually counts as a town. */
+/* The four names the Health Check's email-typo row needs: the two domain lists and
+   the two functions. Lifted out of admin.html so the suite is testing the shipped
+   rule rather than a copy of it. */
+const hcEmailTypoSrc = (function () {
+  const parts = [];
+  ['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL'].forEach(function (c) {
+    const i = admin.indexOf('const ' + c + ' =');
+    if (i > -1) parts.push(admin.slice(i, admin.indexOf('];', i) + 2));
+  });
+  ['emailEditDistance', 'emailTypoSuggestion'].forEach(function (n) {
+    const fn = extractFn(admin, n);
+    if (fn) parts.push(fn);
+  });
+  return parts.join(';\n');
+})();
 const hcCleanCitySrc = (function(){
   const at = admin.indexOf('function extractCleanCity(');
   if (at < 0) return '';
@@ -3320,6 +3335,14 @@ console.log('\n=== 7. Health check engine ===');
     /* The "customer with no number" check reads the town off the record, and
        lifts the real cleaner for the same reason as the colours above. */
     ${hcCleanCitySrc || ''}
+    /* ⚠ The "email that looks like a typo" check RUNS the real suggester. Lifted,
+       never stubbed: a stub would keep this suite green through a change to what
+       the app counts as a typo, and the whole value of that row is that Health
+       Check and the box in the form agree about one customer. Adding this row
+       without adding these four names crashed the run with a bare ReferenceError
+       attributed to an unrelated async suite — the exact failure sandboxDeps
+       exists to name (CLAUDE.md §3). */
+    ${hcEmailTypoSrc || ''}
   `;
   let hc;
   try {
@@ -3681,8 +3704,15 @@ console.log('\n=== 7. Health check engine ===');
      — the rebuild writes install: 0 over a real total. This row IS Q-019: Addie asked
      for the real data before anything was built on it, and an empty row closes the
      question. */
-  check('health', 'all 23 checks present',
-    all.length === 23, 'got ' + all.length);
+  /* ⭐ 24 SINCE 2026-08-26: 'emailTypo'. An email address one letter from a real
+     domain — …@gmai.com. The nightly run hands the invoice to a domain that does not
+     exist, the mail service answers OK, and the bounce goes to the sending account
+     nobody reads, so the customer is simply never billed and nothing goes red. The
+     note under the email box in Add/Edit Customer stops the NEXT one; this row is
+     the only thing that finds the ones already on file. It offers no fix button on
+     purpose — see suite 279. */
+  check('health', 'all 24 checks present',
+    all.length === 24, 'got ' + all.length);
   /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
      form is truthy whatever happens and proves nothing. Red-checking caught it:
      renaming the id sailed straight through. */
@@ -42820,6 +42850,148 @@ suite('278. The invoice document - what each person is asked for');
         /How to pay/.test(payer),
         'the exclusion must not have taken it off the invoice that does collect');
     }
+  }
+}
+
+
+// =====================================================================
+suite('279. A customer email that is one letter wrong');
+/* ⭐ THE SAME TYPO, WHERE IT COSTS FAR MORE (2026-08-26). Suite 274 guards the box
+   the office types its OWN address into for a test send; owner then asked for the
+   same protection on the CUSTOMER's email. It is one letter and a much worse
+   outcome: a test that does not arrive is noticed in a minute, whereas a customer
+   record holding …@gmai.com is noticed by nobody at all. The nightly run hands their
+   invoice to a domain that does not exist, EmailJS answers OK, and the bounce goes
+   to the sending account nobody reads. The customer is never billed and nothing
+   anywhere turns red.
+   ⚠ TWO HALVES, AND THE SECOND IS THE ONE THAT PAYS. The note under the field stops
+   the NEXT typo; it does nothing about the ~960 addresses already on file, which is
+   what the Health Check row is for. A fix that cannot reach the records that are
+   already wrong is half a fix. */
+{
+  /* ---- the shape of the guard: a note, not a popup ---- */
+  const watchSrc = extractFn(admin, 'emailTypoWatch') || '';
+  check('S279', 'emailTypoWatch is in admin.html', !!watchSrc,
+    'renamed or removed — update this test rather than deleting it');
+
+  check('S279', 'it reads the SAME typo rule the test-invoice guard uses',
+    /emailTypoSuggestion\(/.test(watchSrc),
+    'a second opinion about what counts as a typo is how the form and Health Check start disagreeing');
+
+  /* ⚠ NOT A POPUP, deliberately. This fires while somebody is still typing, and
+     Edit Customer already opens up to three dialogs on one save. */
+  check('S279', 'the warning is a note under the field, never a dialog',
+    !/confirm\(/.test(watchSrc) && !/alert\(/.test(watchSrc) && /email-typo-note/.test(watchSrc),
+    'a dialog on every keystroke is one that gets dismissed unread');
+
+  /* ⚠ IT NEVER EDITS THE BOX BY ITSELF. Correcting somebody else\'s address on their
+     behalf is how a real address at an unusual domain is quietly replaced. */
+  check('S279', 'the box is only rewritten when Use it is actually pressed',
+    /\[data-usetypofix\]'\)\.addEventListener\('click', function\(\)\{\r?\n\s*input\.value = suggestion;/.test(watchSrc),
+    'the assignment must sit inside the click handler and nowhere else');
+  check('S279', 'and pressing it tells anything watching the field',
+    /dispatchEvent\(new Event\('input'/.test(watchSrc),
+    'a value set by script fires no event of its own, so a dirty-dot or preview would miss it');
+
+  /* ⚠ THE BUG THIS ONE CATCHES, AND IT SHIPPED IN THE FIRST DRAFT. refresh() runs on
+     BLUR as well as on input, and clicking Use it blurs the field — so rebuilding
+     note.innerHTML unconditionally destroyed the button node between mousedown and
+     mouseup, and the click never landed. Pressing Use it did nothing at all: the one
+     failure this whole note exists to prevent. Every source check passed throughout;
+     only driving it in a real browser found it. */
+  check('S279', 'the note is not rebuilt when the suggestion has not changed',
+    /note\.dataset\.shown === suggestion/.test(watchSrc),
+    'blur fires refresh, so an unconditional innerHTML rewrite destroys the Use it button mid-click');
+  check('S279', 'and applying the fix clears that marker, so re-typing the typo warns again',
+    /note\.dataset\.shown = '';[\s\S]{0,120}dispatchEvent/.test(watchSrc),
+    'left set, the second identical typo in the same box would be silent');
+
+  check('S279', 'a record opened with a typo already on it says so before anything is typed',
+    /refresh\(\);\r?\n\}/.test(watchSrc),
+    'the commonest case by far is a bad address that is ALREADY saved — waiting for a keystroke never fires for it');
+  /* ⚠ THE SECOND BUG THE BROWSER FOUND, and it silently disabled the commonest case.
+     The first draft returned early when the box was already watched — but the boxes
+     are bound once at start-up, so by the time Edit Customer is filled from a record
+     that guard was already set and refresh() never ran again. A customer whose STORED
+     address is already a typo showed nothing at all: the exact case the Health Check
+     row exists to mop up, failing silently in the form. Binding must not repeat;
+     checking must. */
+  check('S279', 'a box that is already watched is RE-CHECKED, not skipped',
+    /input\._typoRefresh\)\{ input\._typoRefresh\(\); return; \}/.test(watchSrc),
+    'returning early here means a record opened with a typo already on it says nothing');
+  check('S279', 'and the refresh is kept on the element so it can be called again',
+    /input\._typoRefresh = refresh;/.test(watchSrc),
+    'without a handle on it there is no way to re-check a box that is already bound');
+  check('S279', 'binding the listeners twice on one element is still a no-op',
+    /input\.dataset\.typowatch = '1';/.test(watchSrc) &&
+    watchSrc.indexOf("input._typoRefresh(); return;") < watchSrc.indexOf("input.addEventListener('input'"),
+    'the Edit form is repointed at another house without being rebuilt, so this is called again on the same box');
+
+  /* ---- which boxes are watched, and which deliberately are not ---- */
+  const idsLine = (admin.match(/const EMAIL_TYPO_WATCHED_IDS = \[[\s\S]*?\];/) || [''])[0];
+  check('S279', 'the watched list names both Add Customer boxes and both Edit Customer boxes',
+    ['addCustEmail', 'addCustEmail2', 'editCustEmail', 'editCustEmail2']
+      .every(function (id) { return idsLine.indexOf("'" + id + "'") > -1; }),
+    'a typo in the secondary address loses a bill just as completely as one in the first');
+  check('S279', 'the per-house card on the bill is watched too',
+    /emailTypoWatch\(panel\.querySelector\('\.hd-email2'\)\)/.test(admin),
+    'that card is built by innerHTML, so it is a fresh element the id list can never reach');
+  check('S279', 'Edit Customer re-checks when the form is repointed at another house',
+    /editCustEmail2'\)\.value = d\.email2 \|\| '';[\s\S]{0,400}emailTypoWatchAll\(\)/.test(admin),
+    'the house tabs refill this same form, so a note from the previous house would sit over the new address');
+
+  /* ⚠ THE IMPORTERS ARE NOT WATCHED, AND MUST NOT BE. They write hundreds of rows
+     from a spreadsheet; the addresses are not being typed and a note per row is
+     both useless and unreadable. */
+  check('S279', 'the bulk importers and the sheet sync are NOT watched',
+    !/rbImportBtn|ibImportBtn|rbSyncAllBtn/.test(idsLine),
+    'hundreds of rows from a spreadsheet is not somebody typing an address');
+
+  /* ---- the half that reaches the records already on file ---- */
+  const hcSrc = extractFn(admin, 'hcRunChecks') || admin;
+  check('S279', 'Health Check has a row for the typos already on file',
+    /id: 'emailTypo'/.test(hcSrc),
+    'the note under the field only stops the NEXT one — the ~960 already typed are the ones costing money now');
+  check('S279', 'it checks the secondary address as well as the first',
+    /\['email', d\.email\], \['email2', d\.email2\]/.test(hcSrc),
+    'a bill can go to either');
+  check('S279', 'it reads the same rule as the form, not a second copy',
+    /emailTypoRows[\s\S]{0,400}emailTypoSuggestion\(/.test(hcSrc),
+    'two opinions about what a typo is means Health Check and the form contradicting each other about one customer');
+
+  /* ⚠ NO FIX BUTTON. Every other repair here is about our own data; this one is a
+     guess about somebody else's address, at scale, with no undo. */
+  check('S279', 'the Health Check row offers NO automatic fix button',
+    /id: 'emailTypo'[\s\S]{0,900}?fix: null/.test(hcSrc),
+    'mass-rewriting nine hundred addresses on an edit distance would eventually overwrite a real one, and nobody would know which');
+  check('S279', 'and it says why there is no button',
+    /id: 'emailTypo'[\s\S]{0,900}?fixNote: 'No button/.test(hcSrc),
+    'a missing button with no reason reads as an oversight, and somebody adds one');
+}
+{
+  /* ---- run the rule the form and Health Check share, on customer-shaped input ---- */
+  const names = ['emailEditDistance', 'emailTypoSuggestion'];
+  const bodies = names.map(function (n) { return extractFn(admin, n); });
+  if (bodies.every(Boolean)) {
+    const lists = ['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL'].map(function (c) {
+      const i = admin.indexOf('const ' + c + ' =');
+      return admin.slice(i, admin.indexOf('];', i) + 2);
+    });
+    const F = new Function(lists.join(';') + ';' + bodies.join(';') + ';return {emailTypoSuggestion};')();
+    /* A customer record carries whatever the office typed, including blanks and the
+       odd stray space — none of which may produce a suggestion. */
+    check('S279', 'a blank email on a customer raises nothing',
+      F.emailTypoSuggestion('') === null && F.emailTypoSuggestion(null) === null &&
+      F.emailTypoSuggestion(undefined) === null,
+      'most customers have no secondary address at all — a warning on every one of them is noise');
+    check('S279', 'a real customer address at a business domain raises nothing',
+      F.emailTypoSuggestion('office@highlightingutah.com') === null &&
+      F.emailTypoSuggestion('jane@comcast.net') === null,
+      'the office types real addresses far more often than typos');
+    check('S279', 'and a customer typo is caught',
+      F.emailTypoSuggestion('jane@gmai.com') === 'jane@gmail.com' &&
+      F.emailTypoSuggestion('bob@hotmial.com') === 'bob@hotmail.com',
+      'this is the whole point');
   }
 }
 
