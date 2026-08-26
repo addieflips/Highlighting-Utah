@@ -179,6 +179,28 @@ the rule, map, or registry entry it came from.
 **Do not automate a low-blast-radius cosmetic test.** Archive it.
 Screenshot baselines cover that ground, and each automated test is maintenance forever.
 
+### R-023 · read + code
+**A ruling from Addie is written into `claude/questions-map.md` in the same change
+that acts on it.** A superseded ruling is marked `Superseded → #ID`, never edited in
+place and never deleted.
+*Why:* Addie, 2026-08-26 — "any questions we answer about this christmas lights either
+through code or through here is added to the map so you can refer back to that instead
+of us reanswering the same questions and answering inconsistently." Her rulings were
+spread across `CLAUDE.md`, `system-map.md`, nine Project docs and chat history. 133 were
+recoverable and **six of them REVERSE an earlier answer** — which is the case that goes
+wrong, because the superseded reasoning was sound when it was made and reads
+convincingly to whoever finds it first.
+*What is enforced, and what is not:* `questions-map.test.js` gates the map's internal
+soundness — six columns, unique ids, a status from the declared set, and above all that
+every `Superseded → #ID` still resolves. It also closes the loop `docs/open-questions.md`
+already promised, requiring every answered `intent` question to say what it changed and,
+from 2026-08-26, to name the row it created. **The obligation to APPEND cannot be
+enforced** — no check can see a conversation — which is why this rule is `read` on that
+half. It is item 5 of `CLAUDE.md` §9.9.
+⚠ *Do not* add a staleness check on the map's own date. It would go red on every day
+nobody decided anything, and a gate that cries wolf gets clicked past on the day it is
+right.
+
 ---
 
 ## Proposed
@@ -266,6 +288,9 @@ Every change to this file gets a line. Never silently edit a rule.
 | 2026-08-21 | R-015 status updated — the portal is fixed | The member portal computed the balance in raw floating point while js/money.js and the Cloud Function compared whole cents, so an invoice settled to exactly zero could read as money owed and print "Balance Due" above $0.00, with the Venmo link pre-filled for $0.00. It now imports `centsOf` from js/money.js — the script is a module, so the real helper rather than a thirteenth copy. The parity check for it was promoted from gap() to check() the same day: a gap only reports, and this suite gates the functions deploy, so leaving it as one meant the rounding could be reverted with the build staying green. The rule stays TARGET — the ~12 hand-inlined amount sites are untouched. |
 | 2026-08-21 | R-009 marked ENFORCED | It shipped as a statement of fact that was false: it claimed branch protection was requiring the test workflow, and `main` was unprotected. Addie enabled protection on 2026-08-21 and `main` now reports `protected: true`. Noted in the rule what the check does and does not prove — that protection exists, not which rules it carries. Third rule this session found asserting a guard that did not exist (R-005, R-009, R-015), which is what P-001 was proposed for. |
 | 2026-08-21 | RETIRED R-005 | It required a `disputed` confirmation state that does not exist and is not being built. The confirmation turned out to be the RSVP email (Addie, 2026-08-21), which accepts only `yes`, `no` and `backnextyear` — `portalRsvp` rejects anything else. So R-005 was tier-1 protection against a condition the system cannot produce, which is worse than no rule: it reads as cover while providing none. The behaviour that mattered is already implemented without it — an answered `no` pulls them off upcoming routes and `isOutForSeason` keeps them off. Marked retired in place rather than deleted, so the numbering holds and the history stays readable. A catch-all "something is wrong" reply was considered and rejected in the same conversation. |
+| 2026-08-26 | Promoted P-004 to R-023, same day it was proposed | Addie asked for it directly. Recorded rather than silently renumbered, because filing it as PROPOSED was the wrong call and the reasoning is worth keeping: it was withheld on the grounds that the append half is unenforceable, citing R-005's retirement. That misread R-005 — R-005 failed because the STATE it governed (a "disputed" confirmation) does not exist, not because it was hard to check. Rulings from Addie plainly exist; there are 133 in the map. And this rulebook already has a tier for exactly that case: `read`, "must be read and honored — drifts, and gets promoted after two violations", which is what R-020 and R-021 are. Leaving it proposed also contradicted `CLAUDE.md` §9.9, which already lists the map as item 5 of the standing rule — the two files could not both be right. |
+| 2026-08-26 | Proposed P-004 | Addie asked for a questions map so a ruling is not re-answered inconsistently. Built as `claude/questions-map.md` (132 rulings swept out of CLAUDE.md, system-map.md and the nine Project docs) with `questions-map.test.js` gating it, its own file per R-018. Recorded as PROPOSED rather than active because the half that matters — remembering to append — is unenforceable, and a rule that reads as protection while providing none is exactly what retired R-005. |
+| 2026-08-26 | Noted against R-018 | The owner asked for this check "in run.js". R-018 says not to add checks to `run-all.js`, so it went into its own file wired into `npm test`, which gives the same behaviour — it runs on every push and gates every merge. R-018 was followed rather than amended; if she wants it inside `run-all.js` instead, that is a rule change and gets logged here. |
 | 2026-08-21 | Proposed P-003 | Addie, deriving the option registry: "Everything saved in crew should also print on the schedule sheet we print off." Three fields reach the crew portal and never print — the gate code and the which-outlet install notes among them. Tier 1, because a crew that cannot get through the gate does not install the lights. Noted in the proposal that it is one-directional and would not catch `useEaves`, which prints and is missing from the portal. |
 | 2026-08-21 | Revised P-002, and raised it from tier 3 to tier 2 | Q-008 and Q-009 answered. Two changes. Denial is PER MEMBER, so the decision cannot live on the notice — `messages` caps at 5,000 characters and a check with fifty rows could never offer per-member choice; it is keyed on check+member+fingerprint instead. And approving now RUNS the auto-fix, which turns a notice into a bulk write path: one click on "43 invoices have drifted" is 43 money writes, so R-006's preview, R-007's blast-radius cap and R-008's log all attach, and the rule moves to the irreversibility tier where those live. |
 | 2026-08-21 | Proposed P-002 | Design agreed in conversation: health-check findings that need a judgement call should arrive in the System inbox to be approved or denied, rather than accumulating in a panel with no way to express an exception. Two intent questions have to be answered before it can be built — what Deny means over time (Q-008) and which checks may notify at all (Q-009). |
