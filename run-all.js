@@ -1221,6 +1221,8 @@ const RETIRED_CHECKLIST_TERMS = [
       216,  // reading the options list for what is missing
       217,  // getting the soft-light houses switched before the list is lost
       218,  // the RSVP asking the right household for its own gate code
+      219,  // the Overdue list read against the real book, after the invoice-date fix
+      220,  // the house tabs on a real shared bill - layout, and real record shapes
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -36942,17 +36944,47 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   check('S149', 'and it says which click would fix it, rather than just refusing',
     /Click once on a WALL in the street view first/.test(admin),
     'a refusal with no way out reads as the tool being broken');
-  /* ⭐ THE PICTURE LINES ITSELF UP FROM THE DOTS. Owner: "i click a corner on
-     skyview but its still a few feet off from where I clicked" — that is the
-     satellite tile being displaced, with the correction never applied because
-     rmAutoAlign only ran after a hand-traced RUN was finished, and the workflow
-     stopped producing those the day dots replaced tracing. */
-  check('S149', 'placing dots is enough to line the two pictures up',
+  /* ⛔ THE PICTURE DOES NOT LINE ITSELF UP FROM THE DOTS (reverted 2026-08-26,
+     one day after these checks asserted the opposite).
+
+     ⚠ MEASURED FAILING, ON 209 S 850 W. Three dots across the front gable made
+     rmAutoAlign fit an offset of 19.2 FT and apply it; the displacement really
+     measured on that house is about six. Every dot then drew about twenty feet
+     off the building, while their TRUE positions were fine - rmRoofRelativeAt
+     answered non-null for all three. The drawing was wrong and the measurement
+     was right, which is the worst way round, because the office judges the tool
+     by the drawing.
+
+     ⚠ WHY IT FITS BADLY FROM DOTS. The fit matches traced lines against the
+     model's EAVE segments. A run built from corners across a gable is two RAKES
+     and a peak, so it is matched against edges it does not lie along and the
+     minimum goes soft - and a soft minimum lands wherever the search started
+     and reports a confident number for it. That is the same under-determined
+     failure written up in js/svdepth.js, arrived at from the other direction.
+
+     ⚠ THE COMPLAINT IT WAS MEANT TO ANSWER STANDS. "i click a corner on skyview
+     but its still a few feet off" is the tile being displaced, and the honest
+     answer is Line them up: two clicks, one spot, measured. */
+  check('S149', 'placing dots does NOT try to line the two pictures up',
     (function(){
       const fn = extractFn(admin, 'rmCornersChanged') || '';
+      return !/rmAutoAlign\(\);/.test(fn);
+    })(),
+    'three dots on a gable fitted 19.2 ft on a house whose displacement is six, ' +
+    'and drew every dot off the building');
+  check('S149', 'and a corner-built run cannot reach the fit even if something calls it',
+    (function(){
+      const fn = extractFn(admin, 'rmFitSkyOffset') || '';
+      return /!r\.fromCorners/.test(fn) && /rmTracedSamples\(usable\)/.test(fn);
+    })(),
+    'the guard is what stops this coming back through a different caller');
+  check('S149', 'the fit still runs when a real side has been traced',
+    (function(){
+      const fn = extractFn(admin, 'rmFinishRun') || '';
       return /rmAutoAlign\(\);/.test(fn);
     })(),
-    'it fired only on rmFinishRun, which the dot workflow never calls');
+    'a whole traced gutter is long, straight and actually an eave - that is the ' +
+    'case it was built and tested for, and it is not being removed');
   check('S149', 'and it still never overrides an answer somebody measured',
     /if\(rmSkyOffset \|\| rmAligning\) return;/.test(extractFn(admin, 'rmAutoAlign') || ''),
     'a fit is arithmetic about a model; a measured alignment is a person saying where a spot is');
@@ -37334,7 +37366,7 @@ suite('151. Measure Roof - a clicked dot takes its depth from the wall, not the 
      from where it was placed and floats in the garden from anywhere else. */
   check('S151', 'the part of the house the ray points at is tried first',
     (function(){
-      const i = admin.indexOf('let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);');
+      const i = admin.indexOf('let best = rmCastHouse(dir, cam);');
       return i !== -1;
     })(),
     'a house is not a box - it is several parts at different depths');
@@ -37431,6 +37463,30 @@ suite('152. Measure Roof - a dot seen twice is exact, with no model at all');
      on the corner. Aiming at the corner missed the dot and made a second one.
      See RM_RESIGHT_DEPTH_SLOP_M for why the net widens only once the camera has
      moved far enough for a second sighting to mean anything. */
+  /* ⭐ AND THE CLICK ACTUALLY REACHES THAT CODE WHILE PLACING (2026-08-26).
+     Owner: "i cant place two dots on top of each other", said while trying to
+     click the same corner from a second angle — which is the one gesture that
+     fixes drift, because two sightings cross at a point.
+
+     ⚠ THE INVISIBLE DOT TARGET WAS EATING IT. It sits on the SVG layer above
+     the sheet that catches clicks and calls stopPropagation, so a click within
+     seven pixels of a drawn dot toggled that dot and stopped — no message, no
+     pin, no new dot. The re-sight path below was unreachable exactly when the
+     dot was drawn where you were aiming. Narrowing the radius cannot fix it
+     (that was tried, 12 to 7): re-sighting means clicking where the dot IS. */
+  check('S152', 'a dot does not swallow its own click while placing',
+    /el\.style\.pointerEvents = \(rmCornerMode === 'dot'\) \? 'none' : 'all';/.test(admin),
+    'the toggle target stopPropagation-ed the one gesture that fixes drift');
+  check('S152', 'and it still toggles while picking, which is what that mode is for',
+    (function(){
+      const i = admin.indexOf("svg.querySelectorAll('[data-rmcornerdot]')");
+      const j = admin.indexOf("svg.querySelectorAll('[data-rmtoggle]')", i);
+      return i !== -1 && /rmToggleCorner\(i\);/.test(admin.slice(i, j));
+    })(),
+    'losing the toggle would trade one gesture for another');
+  check('S152', 'and the right button still toggles in either mode, on both views',
+    /\['rmPanoLock', 'rmMapLock'\]\.forEach/.test(admin) && /rmToggleCorner/.test(admin),
+    'that is what makes it safe to hand the left button to placing');
   check('S152', 'clicking an existing dot pins it rather than adding another',
     /const near = rmDotToResight\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
   check('S152', 'and the net only widens once a second sighting could fix a depth',
@@ -41666,6 +41722,81 @@ suite('271. Measure Roof - the front eaves are offered, and an offer is not a me
 }
 
 
+suite('273b. Measure Roof - the model is measured against the real house');
+{
+  /* ⭐ THE THIRD DISPLACEMENT (2026-08-26). Owner: "some offsets are because the
+     house is offset making it so the dot acted as though the house wasnt clicked",
+     and "you have to calculate the offset based on how big the angle change is."
+
+     ⚠ MEASURED ON 209 S 850 W BEFORE ANY OF THIS WAS WRITTEN. The same corner was
+     clicked from two panoramas 41.5 ft apart:
+         the two rays crossed to within     0.8 INCHES
+         both dots landed                   ~6.7 ft from that crossing
+         all four dots on the roof landed at e = -7.93 to -7.95
+         the true corner was at              e = -5.94
+     Google's cameras are near perfect. What is wrong is the SURFACE being cast
+     at: it stands about six and a half feet in front of the house, so every dot
+     lands short, on one flat plane, and the error is almost entirely in PLAN -
+     which is why it looks right in Street View and wrong on the map.
+
+     ⚠ SO A PER-ANGLE FUDGE WOULD HAVE BEEN THE WRONG BUILD, and this is the check
+     that records why. Rays that cross to within an inch have no disagreement to
+     correct. The angle change is the INSTRUMENT, not the fault: depth error =
+     apparent shift x range / baseline. Below, a displacement is planted in a
+     model and the measurement is asked to find it. */
+  const LF = String.fromCharCode(10);
+  const NEED = ['rmCastHouse', 'rmMeasureModelShift'];
+  const missing = NEED.filter(n => !extractFn(admin, n));
+  check('S273b', 'the caster and the measurement are both findable',
+    missing.length === 0, 'not found: ' + missing.join(', '));
+
+  /* A wall standing north-south at e = TRUE_E, cast at from a camera to the west.
+     Google's "model" is the same wall at e = MODEL_E - planted 2 m too near. */
+  const TRUE_E = 0, MODEL_E = -2;
+  const api = new Function(
+    'const RM_MODEL_SHIFT_MAX_M = 4, RM_MODEL_SHIFT_OK_M = 0.35;' + LF +
+    'let rmModelShift = null;' + LF +
+    'function rmHouseHit(dir, cam){' + LF +
+    '  if(Math.abs(dir.e) < 1e-9) return null;' + LF +
+    '  const t = (' + MODEL_E + ' - cam.e) / dir.e;' + LF +
+    '  if(!(t > 0)) return null;' + LF +
+    '  return {e: cam.e + dir.e*t, n: cam.n + dir.n*t, u: cam.u + dir.u*t, t: t, kind: "wall"};' + LF +
+    '}' + LF +
+    'function rmFootprintWallHit(){ return null; }' + LF +
+    extractFn(admin, 'rmCastHouse') + LF + extractFn(admin, 'rmMeasureModelShift') + LF +
+    'return {cast: rmCastHouse, measure: rmMeasureModelShift};')();
+
+  /* The camera 20 m west and 8 m south, aiming at the true corner on the real wall. */
+  const cam = {e: -20, n: -8, u: 2.4};
+  const truePt = {e: TRUE_E, n: 0, u: 4.5};
+  const v = {e: truePt.e-cam.e, n: truePt.n-cam.n, u: truePt.u-cam.u};
+  const L = Math.hypot(v.e, v.n, v.u);
+  const ray = {cam: cam, dir: {e: v.e/L, n: v.n/L, u: v.u/L}};
+
+  const naive = api.cast(ray.dir, cam, null);
+  check('S273b', 'without it, a click lands short - on the model, not the house',
+    naive && Math.abs(naive.e - MODEL_E) < 1e-6 && Math.abs(naive.e - truePt.e) > 1.9,
+    'got e=' + (naive && naive.e.toFixed(2)) + ', the real corner is at e=' + TRUE_E);
+
+  const ms = api.measure(truePt, ray);
+  check('S273b', 'two sightings recover the planted displacement',
+    ms && ms.ok && Math.abs(ms.e - (TRUE_E - MODEL_E)) < 0.12,
+    'planted ' + (TRUE_E - MODEL_E) + ' m, measured ' + (ms && ms.ok ? ms.e.toFixed(2) : JSON.stringify(ms)));
+
+  const fixed = api.cast(ray.dir, cam, {e: ms.e, n: ms.n});
+  check('S273b', 'and a later SINGLE click then lands on the house, no second angle needed',
+    fixed && Math.hypot(fixed.e-truePt.e, fixed.n-truePt.n, fixed.u-truePt.u) < 0.12,
+    'that is the point of measuring it: pin one corner, the rest come free');
+
+  /* ⚠ AND IT REFUSES RATHER THAN GUESSING. A model that is the wrong SHAPE here,
+     not merely moved, cannot be rescued by any translation - and a number invented
+     from that would be applied to every later click on the house. */
+  const nowhere = api.measure({e: 0, n: 0, u: 40}, ray);
+  check('S273b', 'a corner no displacement can explain is refused, not fitted',
+    !nowhere || nowhere.ok !== true,
+    'got ' + JSON.stringify(nowhere) + ' - inventing one here would poison the whole house');
+}
+
 suite('272. Measure Roof - why a dot drifts, and putting it back');
 {
   /* ⭐ Owner: "when you switch angles of which you are looking at the picture
@@ -41715,6 +41846,11 @@ suite('272. Measure Roof - why a dot drifts, and putting it back');
       '  return {e: cam.e + dir.e*t, n: cam.n + dir.n*t, u: __roofM, kind: "roof"};' + LF_ +
       '}' + LF_ +
       'function rmFootprintWallHit(){ return null; }' + LF_ +
+      /* No measured displacement in this suite - it is about depth, not about
+         where the model stands, so the caster passes straight through and its
+         arithmetic is unchanged from before rmCastHouse existed. */
+      'let rmModelShift = null;' + LF_ +
+      'function rmCastHouse(dir, cam){ return rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam); }' + LF_ +
       'function rmWallPlane(){ return null; }' + LF_ +
       'function rmWallHit(){ return null; }' + LF_ +
       'function rmRoofHeightAt(){ return __roofM; }' + LF_ +
@@ -41732,7 +41868,7 @@ suite('272. Measure Roof - why a dot drifts, and putting it back');
       ' changed:function(){ return __changed; }};';
     assertSandbox('S272', 'dot re-solve', BODY, admin,
       ['rmHouseHit', 'rmFootprintWallHit', 'rmWallPlane', 'rmWallHit',
-       'rmRoofHeightAt', 'rmRoofTopM', 'rmDatum', 'rmCornersChanged']);
+       'rmRoofHeightAt', 'rmRoofTopM', 'rmDatum', 'rmCornersChanged', 'rmCastHouse']);
     const api = new Function(BODY)();
 
     const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.5527);
