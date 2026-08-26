@@ -228,6 +228,8 @@ new scheduler, no N. The option list becomes a block in the existing RSVP email.
 
 ---
 
+**Map rows (added 2026-08-26):** `RS-11` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
+
 ## Q-006 · intent · answered · 2026-08-21
 What happens to a job whose confirmation comes back disputed?
 
@@ -282,6 +284,8 @@ job in admin"* are both superseded — the RSVP's own four states
 (`yes`/`no`/`backnextyear`/`unanswered`) are the whole vocabulary.
 
 ---
+
+**Map rows (added 2026-08-26):** `RS-12` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 
 ## Q-007 · intent · ANSWERED · 2026-08-21, closed 2026-08-25
 What is the real option set for `js/options.js`?
@@ -373,6 +377,8 @@ Resulting map change:
 
 ---
 
+**Map rows (added 2026-08-26):** `OPT-01` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
+
 ## Q-008 · intent · answered · 2026-08-21
 On a health-check notice in the System inbox, what does **Deny** mean?
 
@@ -423,6 +429,8 @@ moment its fingerprint changes, which is what "not until the data changes" buys.
 fingerprint is now part of phase 5's walker, not a bolt-on to the panel.
 
 ---
+
+**Map rows (added 2026-08-26):** `HC-01` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 
 ## Q-009 · intent · answered · 2026-08-21
 Which health checks should raise a System notice at all?
@@ -484,6 +492,8 @@ preview and no record. It is only an improvement if the preview is real.
 and pick up R-006/R-007/R-008 on the way.
 
 ---
+
+**Map rows (added 2026-08-26):** `HC-02` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 
 ## Q-010 · intent · part answered 2026-08-22 · Q-010a still open
 "Straight yes only" — when should `SEASON_ELIGIBILITY` be flipped, and does a
@@ -686,6 +696,8 @@ Resulting map change: `isOutForSeason`'s `confirmed-only` branch now requires
 
 ---
 
+**Map rows (added 2026-08-26):** `RS-13, RS-14` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
+
 ## Q-011 · intent · answered · 2026-08-21
 An admin sets "Before Thanksgiving" in Customers. Should that re-place them on
 the schedule — and is it worth what it costs?
@@ -775,9 +787,147 @@ October day has room.
 Covered by six new checks in run-all.js Suite 46 and a rewritten assertion in
 Suite 44.
 
+**Map rows (added 2026-08-26):** `SCH-23, SCH-24` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 ---
 
-## Q-012 · intent · ANSWERED · 2026-08-26
+## Q-012 · intent · OPEN · raised 2026-08-26
+When one house on a shared bill sits the season out, what happens to the rest of
+that household's bill?
+
+**⚠ This blocks a change on a customer-facing money path, so per CLAUDE.md §4 it is
+not being worked around. Nothing has been changed.**
+
+### What the code does today, verified
+
+`functions/index.js:3081` builds the payer's group and drops only a flat "no":
+
+```js
+const active = houses.filter(function (h) { return String(h.data.rsvpStatus || '') !== 'no'; });
+```
+
+Eleven lines later, the whole bill waits for every one of them:
+
+```js
+if (active.some(function (h) { return h.data.completed !== true; })) { skippedNotDone++; continue; }
+```
+
+A **Back Next Year** house (`rsvpStatus: 'backnextyear'`, `maybeNextYear: true`) is
+therefore *in* `active` — and it is pulled off every upcoming route by
+`removeCustomerFromUpcomingRoutes`, so no crew ever installs it and `completed`
+**can never become true**.
+
+**So the bill for that whole household is held open for the rest of the season.**
+Every night the run reaches that payer, counts `skippedNotDone`, and moves on. The
+nightly summary says "N skipped", which is the same words it uses for the ordinary
+case of the crew not having got there yet — so nothing distinguishes a bill that is
+waiting from one that can never send.
+
+⚠ **This is the opposite of what `claude/silent-failures.md` §6 recorded.** That entry
+said a Back Next Year house is "summed into the payer's invoice". It would be — line
+3187 sums `housePrice` across `active`, and line 3290 writes them into
+`billedHouseIds`, so their address would print on the invoice — but the hold above
+fires first, so in practice **nobody is billed at all**. The money is not
+over-charged; it is **not collected**.
+
+### Scale
+
+Only bites a shared bill. CLAUDE.md records **17 phone numbers held by two customers**
+in the live book, **14 of them genuine households** (a parent paying for a child's
+house). A lone Back Next Year customer is unaffected and correctly gets nothing — no
+work was done.
+
+### The disagreement underneath it
+
+| Rule | Excludes |
+|---|---|
+| `isOutForSeason` (admin.html) — routes, build queue, recycle queue, schedule | `'no'`, `'backnextyear'`, `maybeNextYear === true` |
+| `billedHousesByIds` / `billedHousesByKey` (server), `billingGroupsByPayer` (admin) | `'no'` **only** |
+
+The browser and the server agree with *each other*, so `money-parity.test.js` cannot
+see this — it compares the status string and the invoice key, not who is on the bill.
+
+### Already settled — NOT being reopened
+
+`pullCustomerFromSeason` states it in its own comment: *"Deliberately touches no money:
+not coming back next year is not the same as not owing for last year."* Nothing here
+proposes writing off work already done.
+
+### The question
+
+**Q-012a — the decision.** One house sits the season out; the others in the same
+household have had their lights hung. Do they get their bill?
+
+- **A. Bill the rest.** Leave the sitting-out house out of the group, invoice the
+  others as soon as their work is done. Their invoice names only the houses actually
+  lit, and the total is only those houses.
+- **B. Keep holding the whole bill.** What happens today — but by accident, not by
+  decision. If this is what she wants, it needs to be *visible*: the nightly summary
+  must say which bills are held and why, instead of counting them as "skipped".
+
+**Q-012b — the trap, stated as the assumption I would build under.** A house whose
+lights *were* hung and who *then* said Back Next Year has had work done and owes for
+it. So the exclusion would be **"sitting out AND never completed"**, never "sitting
+out" — filtering on the RSVP alone would drop a house that genuinely owes, which is
+the settled rule above pointing the other way. Confirm.
+
+**Q-012c — the smaller one.** The office's own **Maybe Next Year** toggle sets the same
+two fields as the customer answering through the RSVP link. Assumption: it counts the
+same, as it does everywhere else in the season. Confirm.
+
+### What would change if A
+
+- One shared rule for "is this house on the bill", called by `runInvoiceBatch`,
+  `billedHousesByIds`, `billedHousesByKey` and `billingGroupsByPayer` — four places
+  today, which is how the two halves came to differ from the season definition.
+- The nightly summary separates "waiting on the crew" from "held".
+- Tests run the batch against a fixture household where one house sits out.
+
+### Doing regardless of the answer
+
+The nightly summary distinguishing a held bill from a waiting one is not a business
+decision and does not depend on A or B — under B it is the whole fix.
+
+**Resulting map change:** whichever way it goes, the answer becomes the one shared
+"on the bill" rule plus a line in CLAUDE.md's money section, so the four copies cannot
+drift apart again.
+
+---
+
+### ⚠ UPDATE ON THE MERGE, 2026-08-26 — Q-012a is answered, b and c are not
+
+The billing-groups branch put the same question to her from the other side and she
+answered it: **"No — take them off the bill"** (Q-021, **MON-17**). That is option
+**A** above, and it is now built — `billedThisSeason` / `billedThisSeasonServer`,
+one rule read by `runInvoiceBatch`, `syncPayerInvoice` and `billingGroupsByPayer`,
+which is exactly the "one shared rule" this entry asked for.
+
+**This entry stays OPEN**, because two of its three parts are still assumptions:
+
+- **Q-012b** — *"sitting out AND never completed", never "sitting out"*. This was
+  read on the merge and **built as stated**: both copies of the rule end
+  `&& dd.completed !== true`, so a house whose lights were hung and who then said
+  Back Next Year is still billed for the work done. `money-parity.test.js` sweeps a
+  completed axis over it. ⚠ **Still needs her confirmation** — it is a money rule
+  built on a reading of a settled comment, not on anything she said.
+- **Q-012c** — the office's own Maybe Next Year toggle counts the same as the
+  customer answering through the link. Built that way (`maybeNextYear` is one of the
+  three ways out), and unconfirmed.
+
+⚠ **The nightly summary still does not separate a held bill from a waiting one.**
+That was listed above as "doing regardless of the answer" and it has not been done —
+under A it matters less, but a bill that can never send is still counted in the same
+word as one the crew simply has not reached.
+
+---
+
+> ⚠ **NUMBERING, 2026-08-26.** Two sessions ran at once and both reached Q-012.
+> Main's is the published one and keeps the number; the five raised on the
+> billing-groups branch became Q-018 to Q-022 on the merge. Main's Q-012 and this
+> branch's Q-021 are about the SAME customers from opposite sides — read them
+> together before touching who is on a bill.
+---
+
+## Q-018 · intent · ANSWERED · 2026-08-26
 When a house is billed to somebody else, what payment status should its own
 row show?
 
@@ -821,12 +971,12 @@ those `[Billed elsewhere]` and has a group filter to exclude them, so it is
 visible and avoidable rather than silent.
 
 ⚠ **The other two conditions she named are handled elsewhere, not here.**
-Somebody who said no or Back Next Year is not billed at all (Q-015,
+Somebody who said no or Back Next Year is not billed at all (Q-021,
 `billedThisSeason`); a house that had already paid carries its money across as a
-credit (Q-014, `paidBeforeBillTo`). This function only reports what the bill
+credit (Q-020, `paidBeforeBillTo`). This function only reports what the bill
 says.
 
-**Resulting map change:** `getLiveInvoiceStatus` answers "what does the bill this
+**Resulting map change:** **MON-15**. `getLiveInvoiceStatus` answers "what does the bill this
 house is on say", not "what does this house's own invoice say". `allCustInvoiceFor`
 still answers the second — the Edit Customer save needs it to find and zero a
 leftover — and Suite 275 no longer asserts the two agree for a billed-elsewhere
@@ -857,7 +1007,7 @@ they ship, since a non-payer tab has to say something.
 
 ---
 
-## Q-013 · factual → intent · open · 2026-08-26
+## Q-019 · factual → intent · open · 2026-08-26
 Can `syncPayerInvoice` zero a real invoice when a customer's stored phone is not
 digits-only?
 
@@ -898,7 +1048,7 @@ rather than re-sync one.
 
 ---
 
-## Q-014 · intent · ANSWERED · 2026-08-26
+## Q-020 · intent · ANSWERED · 2026-08-26
 When a house moves onto somebody else's bill, what happens to money the
 customer had already paid?
 
@@ -985,7 +1135,7 @@ record of a settled house. So the leftover is no longer the symptom; a leftover
 with no `paidBeforeBillTo` on the house is. Left as it was, the check would have
 fired on every move it had just been fixed to make safe.
 
-**Resulting map change:** `paidBeforeBillTo` is a new customer field —
+**Resulting map change:** **MON-16**. `paidBeforeBillTo` is a new customer field —
 written by the Edit Customer save, read by `syncPayerInvoice` and by Health
 Check's `strandedPayment`.
 
@@ -1022,13 +1172,13 @@ theoretical and the decision can wait. If it is not, the rows name the money.
 
 Blocks: nothing shipping. It blocks deciding, which is why detection went first.
 
-**Resulting map change:** none yet. Whichever answer is chosen becomes a rule
-about where a payment goes when a bill-to changes, and the Fix button that
-implements it.
+⚠ **The paragraph above is kept as it stood before she answered** — it is the
+argument for detecting first and deciding after, and it is why there is still no
+Fix button on that Health Check row. The ruling that superseded it is MON-16.
 
 ---
 
-## Q-015 · intent · answered · 2026-08-26
+## Q-021 · intent · answered · 2026-08-26
 Should somebody who said Back Next Year still be billed for this season?
 
 Asked because `billingGroupsByPayer`, `syncPayerInvoice` and `runInvoiceBatch`
@@ -1055,13 +1205,13 @@ the whole book off its invoices on the day it is flipped.
 rule, so the portal box, the `{{houses_block}}` email token and the Edit
 Customer house tabs stop naming a house the total leaves out.
 
-**Resulting map change:** `billedThisSeason` is the one answer to "is this house
+**Resulting map change:** **MON-17**. `billedThisSeason` is the one answer to "is this house
 billed this season", read by the office rebuild, the nightly run and the group
 list. It supersedes the bare `rsvpStatus !== 'no'` test in all three.
 
 ---
 
-## Q-016 · intent · answered · 2026-08-26
+## Q-022 · intent · answered · 2026-08-26
 When Who Pays for Whom is retired, does its Excel export survive?
 
 **Answer (Addie, 2026-08-26): keep the Excel export somewhere.** The whole-book
@@ -1071,3 +1221,7 @@ Not yet built — retirement itself is deliberately after the house tabs have be
 used for a season (see CLAUDE.md). Where it lands is a placement decision, not a
 rule: the Invoices tab is the obvious home, since that is where the money lives
 and where somebody wanting a spreadsheet of who owes what would look.
+
+**Resulting map change:** **MON-19**, recorded as *Decided — not built*. The
+ruling is that the export survives the tab; nothing is written until the tab is
+actually retired, and a row marked built when it is not is worse than no row.

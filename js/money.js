@@ -248,7 +248,17 @@ export function billedThisSeason(d) {
   const dd = d || {};
   const said = String(dd.rsvpStatus || '').trim().toLowerCase();
   if (said === 'no') return false;
-  if (said === 'backnextyear') return false;
-  if (dd.maybeNextYear) return false;
+  /* ⚠ SITTING OUT **AND NEVER INSTALLED** — never the answer alone (corrected
+   * 2026-08-26, on the merge with main). A house whose lights WERE hung and who
+   * THEN said Back Next Year has had the work done and owes for it: the season
+   * they are sitting out is the NEXT one. Filtering on the answer alone writes
+   * off work already delivered, which is the settled rule pointing the other
+   * way — pullCustomerFromSeason says it in its own comment: "not coming back
+   * next year is not the same as not owing for last year."
+   *
+   * The owner's instruction was about somebody "billed for a season nobody works
+   * for them", and a completed house is not that. Both readings are satisfied by
+   * the same guard. */
+  if ((said === 'backnextyear' || dd.maybeNextYear) && dd.completed !== true) return false;
   return true;
 }

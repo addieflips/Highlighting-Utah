@@ -731,7 +731,12 @@ const SEASON_RECORDS = [
   {rsvpStatus: ' backnextyear '}, {maybeNextYear: true}, {maybeNextYear: false},
   {rsvpStatus: 'yes', maybeNextYear: true}, {rsvpStatus: 'backnextyear', maybeNextYear: true},
   {rsvpStatus: 'no', maybeNextYear: false}, {rsvpStatus: null}, {rsvpStatus: undefined},
-  {rsvpStatus: 'maybe'}, {rsvpStatus: 'cancelled'}, null, undefined
+  {rsvpStatus: 'maybe'}, {rsvpStatus: 'cancelled'}, null, undefined,
+  /* ⚠ THE COMPLETED AXIS. Without these the sweep cannot see the two copies
+     disagreeing about a house that was installed and then sat out. */
+  {rsvpStatus: 'backnextyear', completed: true}, {maybeNextYear: true, completed: true},
+  {rsvpStatus: 'backnextyear', completed: false}, {maybeNextYear: true, completed: false},
+  {rsvpStatus: 'no', completed: true}, {completed: true}, {rsvpStatus: 'yes', completed: true}
 ];
 let billedMismatch = 0, billedFirst = '';
 SEASON_RECORDS.forEach(function (r) {
@@ -757,6 +762,26 @@ check('Back Next Year is not billed, said either way',
   clientBilled({rsvpStatus: 'backnextyear'}) === false &&
   clientBilled({maybeNextYear: true}) === false,
   'portalRsvp writes the status alone; the office button also sets the flag');
+
+/* ⚠ BUT ONLY IF THE WORK WAS NEVER DONE. A house whose lights WERE hung and who
+   THEN said Back Next Year owes for them — the season they are sitting out is the
+   NEXT one. Filtering on the answer alone writes off work already delivered, which
+   is the settled rule pointing the other way (pullCustomerFromSeason: "not coming
+   back next year is not the same as not owing for last year"). Raised on main as
+   Q-012b and corrected here on the merge. */
+check('a house that WAS installed and then said Back Next Year still owes',
+  clientBilled({rsvpStatus: 'backnextyear', completed: true}) === true &&
+  clientBilled({maybeNextYear: true, completed: true}) === true,
+  'their lights went up — writing that off is the settled rule pointing the other way');
+check('and the nightly run agrees about that house',
+  serverBilled({rsvpStatus: 'backnextyear', completed: true}) === true &&
+  serverBilled({maybeNextYear: true, completed: true}) === true,
+  'the office would show a total the customer never gets asked for');
+/* A flat "no" is unchanged: that path is settled and is not reopened here. */
+check('a flat no is still out whether or not it was installed',
+  clientBilled({rsvpStatus: 'no'}) === false &&
+  clientBilled({rsvpStatus: 'no', completed: true}) === false,
+  'pre-existing behaviour, deliberately untouched by the Back Next Year work');
 
 // ---------------------------------------------------------------------------
 failures.forEach(f => console.log('  FAIL  ' + f + '\n'));

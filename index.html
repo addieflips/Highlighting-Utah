@@ -2236,18 +2236,18 @@ function navigate(){
   var forceHomepage = false;
   try{
     forceHomepage = window.location.pathname === '/home' || /(^|[?&])home=1(&|$)/.test(window.location.search);
-  } catch(e){}
+  } catch(e){ /* quiet on purpose: no readable location means no /home override, and the ordinary route below is the right answer anyway */ }
   if(forceHomepage){
-    try{ window.history.replaceState(null, '', '/' + window.location.hash); } catch(e){}
+    try{ window.history.replaceState(null, '', '/' + window.location.hash); } catch(e){ /* quiet on purpose: tidying the address bar. A blocked replaceState leaves /home visible and changes nothing else */ }
     return;
   }
   var savedPortalToken = null;
   var savedCreds = null;
-  try{ savedPortalToken = localStorage.getItem('huPortalToken'); } catch(e){}
+  try{ savedPortalToken = localStorage.getItem('huPortalToken'); } catch(e){ /* quiet on purpose: private browsing or storage disabled — they sign in normally, which is the same path a first-time visitor takes */ }
   try{
     var rawCreds = localStorage.getItem('huPortalCreds');
     if(rawCreds) savedCreds = JSON.parse(rawCreds);
-  } catch(e){}
+  } catch(e){ /* quiet on purpose: storage blocked, or a half-written entry from an older version. Either way there is nothing to remember and the sign-in box appears empty rather than wrong */ }
   var initialHash = window.location.hash.replace('#','').split('?')[0];
   var initialQuery = window.location.hash.split('?')[1] || '';
   var onBarePaymentPage = initialHash === '/payment' && !initialQuery;
@@ -2651,7 +2651,18 @@ function uploadPhotoToCloudinary(file, onProgress){
         };
         xhr.onload = function(){
           var data = null;
-          try{ data = JSON.parse(xhr.responseText); } catch(err){}
+          try{ data = JSON.parse(xhr.responseText); }
+          catch(err){
+            /* ⚠ NOT QUIET ON PURPOSE. The customer does hear about this — a failed
+               parse leaves `data` null and the promise rejects with "Upload failed"
+               below — but throwing the parse error away loses the only thing that
+               says WHICH failure it was. Cloudinary down, a bad signature and a
+               proxy serving an HTML error page all arrive here as the same five
+               words, and the first two are ours to fix. The status code and the
+               first of the reply are what separate them. */
+            console.error('[HU] Cloudinary replied with something that is not JSON (HTTP ' +
+              xhr.status + '):', String(xhr.responseText || '').slice(0, 200), err);
+          }
           if(data && data.secure_url) resolve(data.secure_url);
           else reject(new Error((data && data.error && data.error.message) || 'Upload failed'));
         };
@@ -3081,12 +3092,44 @@ callPortalFn('publicConfig', {}).then(function(res){
   if(res && res.configured) emailjsSettings = res;
 }).catch(function(){ /* not configured yet, notifications just won't send */ });
 function notifyBusinessOfMessage(params){
-  if(!emailjsSettings || !emailjsSettings.serviceId || !emailjsSettings.notifyTemplateId || !emailjsSettings.publicKey) return;
-  if(!window.emailjs) return;
+  /* ⚠ THE THREE SILENT EXITS BELOW ARE THE REAL FAILURE, not the catch. When
+     settings/emailjs is unset — or, as happened once, readable only by staff so the
+     public site was denied it — EVERY "you have a new message" email stops, for every
+     customer, with nothing anywhere saying so. It is not detectable from here: this
+     page has no login and cannot write anywhere the office would look without
+     spamming the Inbox on behalf of a customer who asked for none of it. So it is
+     said in the console with a reason, and the DETECTOR lives in the dashboard's
+     Health Check ("New-message alerts are switched off"), which is where the office
+     already goes to be told something is wrong. The message itself is safely in
+     Firestore either way — only the nudge is lost. */
+  if(!emailjsSettings || !emailjsSettings.serviceId || !emailjsSettings.notifyTemplateId || !emailjsSettings.publicKey){
+    console.warn('[HU] no "new message" alert sent: EmailJS is not configured for the public site. ' +
+      'The message itself saved fine. Admin → Automation Emails has the settings.');
+    return;
+  }
+  if(!window.emailjs){
+    console.warn('[HU] no "new message" alert sent: the EmailJS script did not load. ' +
+      'The message itself saved fine.');
+    return;
+  }
   try{
     emailjs.init(emailjsSettings.publicKey);
-    emailjs.send(emailjsSettings.serviceId, emailjsSettings.notifyTemplateId, params);
-  } catch(err){ /* notification is a nice-to-have, never block the actual message from saving */ }
+    /* ⚠ THE try/catch AROUND THIS NEVER COVERED THE COMMON CASE. emailjs.send returns
+       a PROMISE, so a rejected send — a bad template id, a blocked request, EmailJS
+       over quota — was an unhandled rejection, not something this caught. The catch
+       was documented and still wrong about what it was documenting. */
+    emailjs.send(emailjsSettings.serviceId, emailjsSettings.notifyTemplateId, params)
+      .catch(function(err){
+        console.error('[HU] the "new message" alert was refused by EmailJS. The message ' +
+          'itself saved fine; only the alert failed.', err);
+      });
+  } catch(err){
+    /* Synchronous throw — a malformed init, or emailjs replaced by an extension.
+       Notification is a nice-to-have and must never block the message from saving,
+       so it is still swallowed here; what it is not is silent. */
+    console.error('[HU] the "new message" alert could not be sent at all. The message ' +
+      'itself saved fine.', err);
+  }
 }
 var HM_INV_COLORS = ['#F4BE55','#E0574B','#2E6B3E','#4338CA','#F97316','#3E7A5B'];
 function hmEsc(s){ return (s||'').toString().replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -4417,15 +4460,22 @@ function generatePortalToken(){
 function savePortalLogin(token){
   try{ localStorage.setItem('huPortalToken', token); } catch(e){ /* private browsing or storage disabled — login just won't persist */ }
 }
+/* ⚠ THE THREE BELOW ARE QUIET ON PURPOSE FOR ONE REASON, and it is worth saying once:
+   storage is a convenience here, never the source of truth. Signing out is decided by
+   the page, not by localStorage — the token in memory is dropped either way — so a
+   blocked remove costs a browser that offers to fill the sign-in box in next time and
+   nothing more. Telling a customer their browser would not delete a key is noise they
+   can do nothing with. (The sibling at savePortalLogin has carried this reason since
+   it was written; these three were the ones that did not.) */
 function clearPortalLogin(){
-  try{ localStorage.removeItem('huPortalToken'); } catch(e){}
-  try{ localStorage.removeItem('huPortalCreds'); } catch(e){}
+  try{ localStorage.removeItem('huPortalToken'); } catch(e){ /* quiet on purpose — see above */ }
+  try{ localStorage.removeItem('huPortalCreds'); } catch(e){ /* quiet on purpose — see above */ }
 }
 function savePortalCreds(contactRaw, lastNameInput){
-  try{ localStorage.setItem('huPortalCreds', JSON.stringify({c: contactRaw, ln: lastNameInput})); } catch(e){}
+  try{ localStorage.setItem('huPortalCreds', JSON.stringify({c: contactRaw, ln: lastNameInput})); } catch(e){ /* quiet on purpose — see clearPortalLogin above */ }
 }
 function clearPortalCreds(){
-  try{ localStorage.removeItem('huPortalCreds'); } catch(e){}
+  try{ localStorage.removeItem('huPortalCreds'); } catch(e){ /* quiet on purpose — see clearPortalLogin above */ }
   pendingPortalCreds = null;
 }
 function commitPendingPortalCreds(){

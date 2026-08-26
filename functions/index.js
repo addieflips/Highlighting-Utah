@@ -2980,8 +2980,10 @@ function billedThisSeasonServer(d) {
   const dd = d || {};
   const said = String(dd.rsvpStatus || '').trim().toLowerCase();
   if (said === 'no') return false;
-  if (said === 'backnextyear') return false;
-  if (dd.maybeNextYear) return false;
+  /* ⚠ SITTING OUT AND NEVER INSTALLED — see billedThisSeason in js/money.js.
+   * A house whose lights were hung and who then said Back Next Year owes for the
+   * work: the season they are sitting out is the next one. */
+  if ((said === 'backnextyear' || dd.maybeNextYear) && dd.completed !== true) return false;
   return true;
 }
 function applyLightChangeServer(o) {

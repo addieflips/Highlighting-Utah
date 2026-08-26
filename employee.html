@@ -917,7 +917,7 @@ let dailyChecklistUnsub = null;
 function loadDailyChecklist(){
   const todayStr = toDateStr(new Date());
   const docId = todayStr + '_' + currentPersonName;
-  if(dailyChecklistUnsub){ try{ dailyChecklistUnsub(); }catch(e){} dailyChecklistUnsub = null; }
+  if(dailyChecklistUnsub){ try{ dailyChecklistUnsub(); }catch(e){ /* quiet on purpose: detaching a listener that has already gone. The point is that the reference is dropped on the next line either way, and a failed unsubscribe costs one stale listener, not a wrong screen */ } dailyChecklistUnsub = null; }
   dailyChecklistUnsub = onSnapshot(doc(db,'dailyChecklists',docId),
     function(snap){ renderDailyChecklist(snap, docId); },
     function(err){
@@ -1344,7 +1344,19 @@ async function whToggleRecycle(key, checked){
   await updateDoc(doc(db,'jobAddresses', key), num ? {needsLightRecycle: !checked, customerNumber: ''} : {needsLightRecycle: !checked});
   if(num){
     const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
-    try{ await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()}); } catch(err){}
+    try{ await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()}); }
+    catch(err){
+      /* ⚠ NOT QUIET ON PURPOSE, AND THIS ONE LOSES A NUMBER OUTRIGHT. The line above
+         has ALREADY cleared the number off the customer — deliberately, so one label
+         has one owner — so if this write is refused the number is on nobody's record
+         and in no pool, and the bin in the warehouse painted with it belongs to
+         nobody. Ticking again will not retry it either: the number is gone from the
+         record, so `num` is null next time. Somebody has to add it back by hand from
+         the office, which they can only do if they are told. */
+      console.error('[HU] customer number #' + num + ' was taken off the record but ' +
+        'would not go back into the pool', err);
+      toast('Number #' + num + ' could not be put back in the pool — tell the office to add it in Customer Numbers.');
+    }
   }
 }
 async function whToggleTimer(key, checked){
