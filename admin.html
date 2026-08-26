@@ -16603,7 +16603,30 @@ const RM_TYPES = {
    and the rest of the app never agreed about the same house. Left at 1 rather
    than deleted, because the multiplier is the thing anyone would reach for if
    the pricing model changes again. */
-const RM_FEET_MULTIPLIER = 1;
+/* ⭐ SET TO 2.9 ON THE OWNER'S INSTRUCTION, 2026-08-26: "make it so a foot is
+   2.9 times smaller than it currently is, so 50 feet would be a little under
+   150 ft instead."
+
+   ⚠ AND THE LENGTH ARITHMETIC IS NOT WHAT IS WRONG, which has to be recorded
+   here or this number becomes folklore. rmFeetBetween was driven directly: two
+   points 10 m apart report 32.808 ft against a true 32.808, and 10 m across
+   with 3 m of rise reports 34.253 against a true 34.252. The metre-to-foot
+   conversion and the Pythagoras over plan and height are both exact to a
+   thousandth of a foot. 2.9 is close to 3.281 and it is worth saying plainly
+   that it is NOT a metres-read-as-feet bug - that was the first thing checked.
+
+   ⚠ SO WHAT IT IS COMPENSATING FOR IS WHERE THE DOTS LAND, not how they are
+   measured, and that has a real cause being worked on: dots were landing about
+   6.7 ft from the truth on 209 S 850 W, on a surface standing in front of the
+   house. If the model displacement work lands that error properly, THIS NUMBER
+   MUST BE REVISITED - leaving 2.9 on top of a fixed measurement would inflate
+   every quote by nearly three times.
+
+   ⚠ IT IS APPLIED TO PRICING ONLY AND BOTH FIGURES ARE ON SCREEN. The panel
+   shows Measured and then ×2.9 for pricing as separate lines, so nobody has to
+   work out which number is which - that disclosure is the whole reason this is
+   a multiplier rather than a change to the maths. */
+const RM_FEET_MULTIPLIER = 2.9;
 const RM_STATIC_MAX = 640;
 const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
 const RM_M_TO_FT = 3.280839895;
@@ -18021,9 +18044,16 @@ function rmEndStrand(){
   const used = rmCorners.some(function(c){ return (c.band || 0) === rmCurrentBand; });
   if(!used) return false;            /* an empty strand is not a strand */
   rmCurrentBand++;
-  rmRenderCornerBar();
+  /* ⭐ AND IT JOINS THEM UP THERE AND THEN (2026-08-26). Owner: "end this strand
+     should immediately connect the dots."
+     ⚠ IT ONLY RELABELLED THE STRIP BEFORE. rmCornersToRun is what turns dots into
+     a drawn line, and nothing called it here - so pressing the button changed a
+     caption and left the picture exactly as it was. Whatever it had or had not
+     already drawn, the one gesture whose whole meaning is "this run is finished"
+     has to be the moment the run appears finished. */
+  rmCornersChanged();
   const note = document.getElementById('rmCornerNote');
-  if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished. The next dot starts a new one.';
+  if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished and joined up. The next dot starts a new one.';
   return true;
 }
 /* Take the last dot back off. */

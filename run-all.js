@@ -33326,7 +33326,7 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      named constant so the number can be found and changed, and BOTH figures
      have to reach the screen — a total twice the size of the line just drawn,
      with no working shown, reads as a bug in the measuring. */
-  const mult = admin.match(/const RM_FEET_MULTIPLIER = (\d+)/);
+  const mult = admin.match(/const RM_FEET_MULTIPLIER = ([\d.]+)/);
   check('S126', 'the doubling is a named constant, not a bare 2 in the sum',
     !!mult, 'RM_FEET_MULTIPLIER is gone — the rule is now buried where nobody will find it');
   /* ⚠ WAS "and it is set to 2". The doubling is GONE - the owner's real
@@ -33334,8 +33334,19 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      $280-300, and 150 doubled at $2 is $600. Left at 1 rather than deleted so
      the lever still exists, and asserted at 1 so it cannot creep back
      unnoticed and silently double every quote in the system. */
-  check('S126', 'the footage is NOT doubled any more', mult && mult[1] === '1',
-    'a multiplier other than 1 doubles every price on this screen and disagrees with the rest of the admin');
+  /* ⭐ SET TO 2.9 ON THE OWNER'S INSTRUCTION, 2026-08-26: "make it so a foot is
+     2.9 times smaller than it currently is, so 50 feet would be a little under
+     150 ft instead", and then "the length of a foot is the only variable".
+     ⚠ THE PREVIOUS RULING IS KEPT ABOVE because it was reasoned from real
+     numbers and may be right again. ⚠ AND THE LENGTH ARITHMETIC IS NOT WHAT IS
+     WRONG: rmFeetBetween was driven directly and 10 m reports 32.808 ft against
+     a true 32.808, Pythagoras included. This compensates for WHERE DOTS LAND -
+     about 6.7 ft out on 209 S 850 W - so if the model-displacement work lands
+     that error properly this number must be revisited, or every quote inflates
+     by nearly three. */
+  check('S126', 'the feet multiplier is the owner-set 2.9', mult && mult[1] === '2.9',
+    'this multiplies the price, the bin count and the bulb order together; ' +
+    'it is not a display setting');
   /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
      0 and slices from the top of the file — which still contains enough words
      to make a loose check pass. Two of these three were doing exactly that. */
@@ -39566,10 +39577,16 @@ suite('255. Measure Roof - the footage saved is the footage measured');
      the way in. It described arithmetic that had stopped happening, about the
      one number that drives bins, bulb orders and the price - so anybody reading
      it had to decide whether to trust the message or the number. */
-  check('S255', 'the feet multiplier is still 1',
-    /const RM_FEET_MULTIPLIER\s*=\s*1\s*;/.test(admin),
-    'feet are the wire on the house and the bulb count - a multiplier here breaks ' +
-    'bin sizing and bulb ordering. If the advertised rate should read lower, change the rate');
+  /* ⭐ NOW 2.9, ON THE OWNER'S INSTRUCTION (2026-08-26). The warning this check
+     carried is NOT withdrawn and is repeated here on purpose: feet are the wire
+     on the house and the bulb count, so this multiplies the bin sizing and the
+     bulb order along with the price. That is what was asked for - the owner's
+     position is that the measurement itself reads short, so the corrected
+     footage should drive all three. It is a single constant and reversible. */
+  check('S255', 'the feet multiplier is the owner-set 2.9',
+    /const RM_FEET_MULTIPLIER\s*=\s*2\.9\s*;/.test(admin),
+    'if this ever moves without a ruling behind it, every quote, bin count ' +
+    'and bulb order moves with it');
   check('S255', 'and the save message no longer claims the footage was doubled',
     !/measured, doubled/.test(admin),
     'the message described a x2 that no longer happens, about the number the whole quote rests on');
