@@ -32892,10 +32892,20 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
     return null;
   };
 
+  /* ⚠ newQuoteToken JOINED THIS LIST 2026-08-26, in the same commit that made
+     the four token-minting sites share one generator. addOnEmailBlock mints a
+     token when a quote has none, so without it this sandbox throws a
+     ReferenceError and "a quote with no token gets one" fails against code that
+     is perfectly correct — the exact failure CLAUDE.md describes. Supplied, never
+     stubbed: a stub would agree with itself about the one thing the check reads. */
   const NEED = ['pendingAddOnFor', 'addOnEmailBlock', 'rsvpTemplateHasAddOn',
-    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteWasSentOut', 'quotePortalParam'];
+    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteWasSentOut', 'quotePortalParam',
+    'newQuoteToken'];
   const src = {};
   NEED.forEach(n => { src[n] = lift(n); });
+  const tokenAlphabet = admin.match(/const QUOTE_TOKEN_ALPHABET = '[^']+';/);
+  check('S131', 'the token alphabet came with the generator',
+    !!tokenAlphabet, 'lifting newQuoteToken alone leaves a live reference to a name the sandbox never got');
   const gone = NEED.filter(n => !src[n]);
   check('S131', 'every function this suite runs is findable',
     !gone.length, 'missing: ' + gone.join(', '));
@@ -32909,7 +32919,7 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
     /* quoteStage and quotePortalParam are the REAL ones. quoteStage in
        particular decides "still waiting for an answer", and a stub of it would
        agree with itself about the one thing most worth getting wrong. */
-    const body = NEED.map(n =>
+    const body = (tokenAlphabet ? tokenAlphabet[0] + '\n' : '') + NEED.map(n =>
       (n === 'addOnEmailBlock' ? 'async ' : '') + src[n]).join('\n');
 
     const QUOTE = (over) => Object.assign({
@@ -43049,6 +43059,198 @@ suite('279. A quote link behind her own words');
   check('S279', 'and Manage custom codes is no longer hidden one tab deep',
     /manageWrap\.style\.display = 'block';/.test(admin),
     'owner, 2026-08-26: "it says customize when I open insert code but nowhere to customize it"');
+}
+
+// =====================================================================
+suite('280. The short quote link');
+/* ⭐ Owner, 2026-08-26: "I don't want a long link." The quote link was
+   https://highlightingutah.com/#/quote-details?token=qt_s5k89n9wnmh_1787775998287
+   — 79 characters. A text is billed in 160-character segments, so that link
+   alone put every quote text into a SECOND segment: double the cost of every
+   quote she sends.
+
+   highlightingutah.com/q/<token> is the same page, reached the same way.
+
+   ⚠ IT IS A REWRITE, NOT A LOOKUP. The bit after /q/ IS the quote token, so
+   there is no short-code table, no extra read, and every quote that already
+   exists works at the short address immediately. Both spellings work for ever
+   — which is what makes this safe to ship while long links sit in inboxes.
+*/
+{
+  const idx = read('index.html');
+  const redirects = read('_redirects');
+
+  /* ---- the plumbing. Miss any one of these three and the link 404s. ---- */
+  check('S280', 'Netlify rewrites /q/* to the app',
+    /^\/q\/\*\s+\/index\.html\s+200\s*$/m.test(redirects),
+    'without the rewrite the short link is a 404 on a static host — the page never loads at all');
+  /* ⚠ AND IT NEEDS THE APP'S OWN CACHE RULE. _headers gives no-cache to
+     /index.html and to /, and a request for /q/<token> matches NEITHER — so this
+     would be the one address the app is reachable at that a browser may serve
+     from cache. A customer following a quote link would be the single person
+     running a stale copy, which is the exact problem _headers was written for. */
+  check('S280', 'and the short address gets the same no-cache rule as the app',
+    /^\/q\/\*\s*$/m.test(read('_headers')) &&
+    /^\/q\/\*\s*\r?\n\s+Cache-Control: no-cache\s*$/m.test(read('_headers')),
+    'a cached index.html served at /q/ is a stale half of the app answering a live link');
+
+  const shortBlock = idx.slice(idx.indexOf('var m = null;'), idx.indexOf('var forceHomepage = false;'));
+  check('S280', 'the app reads the token out of the path',
+    /\/\^\\\/q\\\/\(\[A-Za-z0-9_-\]\+\)/.test(shortBlock) ||
+    /\^\\\/q\\\//.test(shortBlock),
+    'the rewrite serves index.html at /q/<token>; something has to turn that path back into a route');
+  check('S280', 'and turns it into the same route the long link uses',
+    /window\.location\.hash = '\/quote-details\?token=' \+ encodeURIComponent/.test(shortBlock),
+    'a second way of opening a quote is a second thing to keep in step — this reuses the long link\'s own route');
+  check('S280', 'the portal token still rides along when there is one',
+    /'&p=' \+ encodeURIComponent/.test(shortBlock),
+    'dropping it silently costs an existing member a sign-in on every re-quote');
+
+  /* ⭐ THE ORDERING IS THE WHOLE SAFETY ARGUMENT. The saved-login block sends
+     anybody with a remembered sign-in to /payment when the hash is empty — and
+     a bare /q/ URL has an empty hash. Run second and a customer following a
+     quote link lands on their balance instead of the quote. */
+  check('S280', 'it runs BEFORE the saved-login redirect',
+    idx.indexOf('var m = null;') !== -1 &&
+    idx.indexOf('var m = null;') < idx.indexOf("savedPortalToken = localStorage.getItem"),
+    'run second, a remembered sign-in sends the customer to /payment and the quote is never seen');
+
+  /* ---- run the real path matcher, rather than reading it ---- */
+  const reMatch = shortBlock.match(/\/\^[^\n]*?\/\.exec\(window\.location\.pathname/);
+  check('S280', 'the path pattern is findable', !!reMatch);
+  if (reMatch) {
+    const rePart = reMatch[0].slice(0, reMatch[0].indexOf('.exec('));
+    const re = new Function('return ' + rePart)();
+    const tok = (p) => { const m = re.exec(p); return m && m[1]; };
+    check('S280', 'a short link resolves to its token',
+      tok('/q/qt_k7m2x9p4qw3z') === 'qt_k7m2x9p4qw3z');
+    check('S280', 'a trailing slash is the same link',
+      tok('/q/qt_k7m2x9p4qw3z/') === 'qt_k7m2x9p4qw3z',
+      'phones and mail clients add one — a link that dies on a slash dies at random');
+    check('S280', 'an old long-form token still works at the short address',
+      tok('/q/qt_s5k89n9wnmh_1787775998287') === 'qt_s5k89n9wnmh_1787775998287',
+      'every quote already in the book has one of these; the short address must not be new-quotes-only');
+    check('S280', 'the 20-character token the PUBLIC form mints works too',
+      tok('/q/abcdefghij0123456789') === 'abcdefghij0123456789',
+      'index.html generates its own shape for a quote a visitor raises — a third shape, and it must not 404');
+    check('S280', 'the homepage is not swallowed',
+      tok('/') === null && tok('/home') === null && tok('/q') === null && tok('/q/') === null,
+      'a pattern loose enough to match / would hijack every visit to the site');
+    check('S280', 'and a path with another segment is not a quote link',
+      tok('/q/abc/def') === null,
+      'matching loosely here turns a mistyped URL into a lookup for a token nobody has');
+  }
+
+  /* ---- the token generator ---- */
+  const genSrc = extractFn(admin, 'newQuoteToken');
+  const alpha = admin.match(/const QUOTE_TOKEN_ALPHABET = '[^']+';/);
+  check('S280', 'the shared token generator is findable', !!genSrc && !!alpha);
+
+  /* ⚠ COMMENTS STRIPPED. The block above newQuoteToken quotes the old shape in
+     prose to explain why it went — a plain search finds the explanation and
+     calls it a violation. Suites 58, 274 and 275 each learned this separately. */
+  check('S280', 'nothing mints a quote token by hand any more',
+    !/'qt_' \+ Math\.random/.test(stripComments(admin)),
+    'it was written out four times identically; the fifth copy is the one that drifts');
+  check('S280', 'and all four sites go through it',
+    (admin.match(/= newQuoteToken\(\);/g) || []).length === 4,
+    'a site left behind keeps minting the 28-character shape and its links stay long');
+
+  if (genSrc && alpha) {
+    const gen = new Function('crypto', 'console',
+      alpha[0] + '\n' + genSrc + '\nreturn newQuoteToken;');
+    const realCrypto = { getRandomValues: (b) => { for (let i = 0; i < b.length; i++) b[i] = (i * 37 + 11) % 256; return b; } };
+    const quiet = { warn: () => {}, error: () => {} };
+    const make = gen(realCrypto, quiet);
+
+    const t = make();
+    check('S280', 'a token is short enough to matter',
+      t.length === 15,
+      'got ' + t.length + ' — the old shape was 28, of which 13 were a timestamp nothing reads');
+    check('S280', 'it is still a quote token by sight',
+      t.indexOf('qt_') === 0,
+      'the prefix is what makes one recognisable in the database and in a log line');
+    check('S280', 'it uses no characters people misread',
+      !/[lo01]/.test(t.slice(3)),
+      'this string now appears in a text message somebody may read aloud or retype');
+
+    /* ⚠ THE FALLBACK MUST STILL PRODUCE A USABLE TOKEN. A browser with no
+       crypto has to send the quote, not fail at the last step. */
+    const broken = gen({ getRandomValues: () => { throw new Error('nope'); } }, quiet);
+    const f = broken();
+    check('S280', 'a browser without crypto still gets a working token',
+      f.indexOf('qt_') === 0 && f.length === 15 && !/[lo01]/.test(f.slice(3)),
+      'failing here would mean the quote cannot be sent at all — worse than the weaker generator');
+
+    /* Uniqueness, run rather than assumed — with REAL randomness, not the
+       counting stub above, which cannot collide by construction. */
+    const realGen = gen(require('crypto').webcrypto || require('crypto'), quiet);
+    const seen = new Set();
+    for (let i = 0; i < 4000; i++) seen.add(realGen());
+    check('S280', 'four thousand tokens are four thousand different tokens',
+      seen.size === 4000,
+      'two quotes sharing a token means one customer opening the other\'s quote — ' +
+      'the server finds one by equality and takes the first');
+  }
+
+  /* ---- what actually goes in the text ---- */
+  const shortFn = extractFn(admin, 'quoteShortLink');
+  check('S280', 'the short-link builder is findable', !!shortFn);
+  if (shortFn) {
+    const build = new Function('quotePortalParam',
+      shortFn + '\nreturn quoteShortLink;');
+    const plain = build(() => '')({ quoteToken: 'qt_k7m2x9p4qw3z' });
+    const member = build(() => '&p=abcdefghij0123456789')({ quoteToken: 'qt_k7m2x9p4qw3z' });
+
+    check('S280', 'a new lead gets the bare short link',
+      plain === 'highlightingutah.com/q/qt_k7m2x9p4qw3z',
+      'got ' + plain);
+    /* ⚠ The long link joins its params with &, because ?token= comes first.
+       The short one has no query at all until this, so the FIRST one must be a
+       ? — pasting the long form's "&p=" straight on gives a URL whose query is
+       never parsed and a member who is not logged in. */
+    check('S280', 'an existing member gets ?p=, not the long link\'s &p=',
+      member === 'highlightingutah.com/q/qt_k7m2x9p4qw3z?p=abcdefghij0123456789',
+      'got ' + member);
+    check('S280', 'no https:// and no www',
+      plain.indexOf('http') === -1 && plain.indexOf('www.') === -1,
+      'phones linkify a bare domain, and eight characters here is the difference between one billed text and two');
+
+    /* ⭐ THE POINT OF THE WHOLE EXERCISE, measured rather than asserted:
+       the real shipped template, a realistically long name, one segment. */
+    const tmpl = admin.match(/body: 'Hi \{\{name\}\}, your Highlighting Utah Christmas light quote is ready: \{\{price\}\}\.[^']*'/);
+    check('S280', 'the shipped text template is findable', !!tmpl);
+    if (tmpl) {
+      const bodyText = new Function('return ' + tmpl[0].slice(tmpl[0].indexOf("'")))()
+        .split('{{name}}').join('Christopher')
+        .split('{{price}}').join('$1,250.00')
+        .split('{{link}}').join(plain);
+      check('S280', 'a quote text now fits in ONE billed message',
+        bodyText.length <= 160,
+        'got ' + bodyText.length + ' characters — this is the entire reason the short link exists');
+    }
+  }
+
+  /* ---- both text paths use it, and neither leaks a raw token ---- */
+  check('S280', 'both text paths build the short link',
+    (admin.match(/const link = quoteShortLink\(d\);/g) || []).length === 2,
+    'Send the text and Copy the text are two separate builders — one left behind sends the long link');
+  check('S280', 'and both strip the label tokens',
+    (admin.match(/quoteLinkLabelPlain\(htmlEmailToPlainText\(template\.data\.body/g) || []).length === 2,
+    'the copy-the-text path was left behind when {{link:...}} was added, so it put the raw token on the clipboard');
+
+  /* ⚠ THE EMAIL IS DELIBERATELY LEFT LONG. An email has no length problem, its
+     links carry &action=approve, and those URLs are already in inboxes. */
+  /* ⚠ COUNTED, NOT MERELY PRESENT. The first version of this asked only whether
+     the long form appeared ANYWHERE, and it appears at three sites — the quote
+     send, the re-quote send and the add-on send. A red-check switching ONE of
+     them to the short link sailed straight through on the strength of the other
+     two. Three is the number today; a fourth email path is welcome to exist, but
+     it should have to come past this line and say so. */
+  check('S280', 'all three email sends still use the long link',
+    (admin.match(/button_url: 'https:\/\/highlightingutah\.com\/#\/quote-details\?token=' \+ \(d\.quoteToken \|\| ''\) \+ quotePortalParam\(d\),/g) || []).length === 3,
+    'an email has no length problem, its links carry &action=approve, and those URLs are already in inboxes — ' +
+    'the short link is for the text message and nothing else');
 }
 
 Promise.all(pendingAsync).then(function () {
