@@ -2227,6 +2227,51 @@ function navigate(){
     }
   }
 }
+/* ⭐ THE SHORT QUOTE LINK — /q/<token> (added 2026-08-26).
+ *
+ * Owner, on the quote text message: "I don't want a long link." The full one is
+ *   https://highlightingutah.com/#/quote-details?token=qt_s5k89n9wnmh_1787775998287
+ * which is 79 characters. A text message is billed in 160-character segments, so
+ * that link alone pushed every quote text into a second segment — double the cost
+ * of every quote she sends, and a wall of characters nobody reads.
+ *
+ *   highlightingutah.com/q/<token>
+ *
+ * is the same page, reached the same way, ~40 characters shorter.
+ *
+ * ⚠ IT IS A REWRITE, NOT A LOOKUP. `/q/*` is a Netlify 200-rewrite to this file
+ * (see _redirects, exactly as /home already is), and the segment after /q/ IS the
+ * quote token — the same token the long link carries in ?token=. So there is no
+ * short-code table, no extra Firestore read, nothing to keep in step, and EVERY
+ * quote ever created already works at the short address, including ones whose
+ * long link is already sitting in somebody's inbox. Both spellings work for ever.
+ *
+ * ⚠ IT RUNS BEFORE THE SAVED-LOGIN BLOCK BELOW, and that ordering is the point.
+ * That block sends anybody with a remembered sign-in to /payment when the hash is
+ * empty — which is exactly what a bare /q/ URL has. Setting the hash here first
+ * means it reads /quote-details and leaves the quote alone. A customer following
+ * a quote link must land on the quote, not on their balance.
+ *
+ * ⚠ THE PORTAL TOKEN RIDES AS ?p=, the same name the long link uses, so the
+ * existing-member "let me straight in" path is unchanged. Absent for a new lead,
+ * who has no portal to be let into.
+ */
+(function(){
+  var m = null;
+  try{
+    m = /^\/q\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname || '');
+  } catch(e){ /* quiet on purpose: no readable location means this is not a /q/ link, and the ordinary hash route below is already the right answer */ }
+  if(!m) return;
+  var p = '';
+  try{
+    p = new URLSearchParams(window.location.search || '').get('p') || '';
+  } catch(e){ /* quiet on purpose: an unreadable query only costs an existing member one sign-in — the quote itself still opens, which is what the link is for */ }
+  window.location.hash = '/quote-details?token=' + encodeURIComponent(m[1]) +
+    (p ? ('&p=' + encodeURIComponent(p)) : '');
+  /* Tidy /q/<token> out of the address bar, exactly as /home does below. */
+  try{ window.history.replaceState(null, '', '/' + window.location.hash); }
+  catch(e){ /* quiet on purpose: cosmetic. A blocked replaceState leaves /q/<token> showing and changes nothing about which page opens */ }
+})();
 (function(){
   // Visiting /home (a Netlify rewrite to this same file — see _redirects) or a plain
   // link carrying ?home=1 forces the real homepage, bypassing the saved-login

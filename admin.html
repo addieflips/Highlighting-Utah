@@ -5672,6 +5672,68 @@ function quoteButtonLabels(d){
     ? {approve:'Yes, add it', maybe:'Maybe Next Year', decline:'No thanks \u2014 just my usual lights'}
     : {approve:'Approve Quote', maybe:'Maybe Next Year', decline:'Decline Quote'};
 }
+/* ⭐ ONE PLACE THAT MINTS A QUOTE TOKEN (added 2026-08-26).
+ *
+ * It was written out four times, identically, and the shape was
+ * 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now() — 28
+ * characters, of which THIRTEEN were a timestamp nothing has ever read. The
+ * token is opaque everywhere: both Cloud Functions find a quote with
+ * .where('quoteToken','==',token) and nothing in any of the three HTML files
+ * parses it. So the timestamp bought nothing and cost half the length of the
+ * link that goes in a text message.
+ *
+ * ⚠ AND substr(2,16) NEVER PRODUCED 16 CHARACTERS. Math.random().toString(36)
+ * is about 13 characters all in, so it yielded ~11 — the count was aspirational.
+ * Worth knowing before anybody "restores" it as the stronger option.
+ *
+ * ⚠ crypto.getRandomValues, NOT Math.random. This string is the only thing
+ * standing between a stranger and somebody's quote — V8's Math.random is
+ * xorshift128+, which is reconstructable from a handful of outputs, and a quote
+ * page shows a name, an address and a price. 12 characters from a 32-letter
+ * alphabet is ~60 bits. The Math.random fallback is kept only so that a browser
+ * without crypto still sends the quote rather than failing at the last step;
+ * it is the old behaviour, not a new weakness.
+ *
+ * ⚠ THE ALPHABET DROPS l, o, 0 AND 1. This token now shows up in a text message
+ * where somebody may read it aloud or type it, and those four are the pairs
+ * people get wrong.
+ *
+ * ⚠ EXISTING TOKENS ARE UNTOUCHED and keep working at both the long and the
+ * short address. This only changes what NEW quotes get.
+ */
+const QUOTE_TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+function newQuoteToken(){
+  const n = 12;
+  let out = '';
+  try{
+    const buf = new Uint8Array(n);
+    crypto.getRandomValues(buf);
+    for(let i = 0; i < n; i++) out += QUOTE_TOKEN_ALPHABET[buf[i] % QUOTE_TOKEN_ALPHABET.length];
+  } catch(err){
+    /* Reported rather than swallowed: falling back is safe, but silently using
+       the weaker generator for ever is the kind of thing nobody discovers. */
+    console.warn('[HU] crypto.getRandomValues unavailable — quote token fell back to Math.random', err);
+    out = '';
+    for(let i = 0; i < n; i++) out += QUOTE_TOKEN_ALPHABET[Math.floor(Math.random() * QUOTE_TOKEN_ALPHABET.length)];
+  }
+  return 'qt_' + out;
+}
+/* ⭐ THE SHORT ADDRESS FOR A QUOTE (added 2026-08-26). Owner: "I don't want a
+   long link." Same page, same token, ~40 characters less of it — see the block
+   above the router in index.html for how /q/<token> resolves.
+
+   ⚠ NO https:// AND NO www. Phones linkify a bare highlightingutah.com/... and
+   the eight characters matter here: this is the difference between one billed
+   text message and two. The long form is left exactly as it is everywhere else,
+   because an email has no length problem and those links are already sent.
+
+   ⚠ IT CARRIES ?p= WHEN THERE IS ONE, under the same name the long link uses,
+   so an existing member is still let straight in. */
+function quoteShortLink(d){
+  const portal = quotePortalParam(d);          /* '&p=...' or '' */
+  return 'highlightingutah.com/q/' + (d.quoteToken || '') +
+    (portal ? ('?' + portal.slice(1)) : '');
+}
 function quotePortalParam(d){
   const c = quoteExistingCustomer(d);
   const t = c && c.data ? c.data.portalToken : '';
@@ -6504,7 +6566,7 @@ async function addOnEmailBlock(customerId){
      warning itself was first written with the offending characters in it. */
   if(!q.data.quoteToken){
     try{
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       await updateDoc(doc(db,'quotes', q.id), {quoteToken: token});
       q.data.quoteToken = token;
     }catch(err){
@@ -11660,7 +11722,7 @@ function renderQuoteRows(filtered){
         ' Open <strong>Quote email settings</strong> above and pick one under Text message versions.</div>';
       return;
     }
-    const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
+    const link = quoteShortLink(d);
     /* Plain characters only. Anything HTML in the template body is stripped
        rather than sent as-is, so a template picked by mistake degrades to
        readable text instead of arriving as code. */
@@ -11885,8 +11947,11 @@ function renderQuoteRows(filtered){
         toast('No text template picked yet \u2014 open Quote email settings first.');
         return;
       }
-      const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
-      let msg = htmlEmailToPlainText(template.data.body || '')
+      const link = quoteShortLink(d);
+      /* Same stripping as the Send-the-text path. This one was left behind
+         when {{link:...}} was added, so a template using it copied the raw
+         token to the clipboard and straight into somebody's messages app. */
+      let msg = quoteLinkLabelPlain(htmlEmailToPlainText(template.data.body || ''))
         .split('{{name}}').join(firstName(d.name))
         .split('{{price}}').join(fmtMoney(d.quotedPrice))
         .split('{{link}}').join(link)
@@ -13058,7 +13123,7 @@ async function etUpdatePreview(){
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       quote.data.quoteToken = token;
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
@@ -14284,7 +14349,7 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
       const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
       const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
       if(quote && !quote.data.quoteToken){
-        const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+        const token = newQuoteToken();
         quote.data.quoteToken = token;
         await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
       }
@@ -14393,7 +14458,7 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       quote.data.quoteToken = token;
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
