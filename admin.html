@@ -632,6 +632,9 @@
      A star alone is a symbol somebody has to have been told the meaning of, on the
      one fact here that decides where money lands. */
   .editcust-tab.payer{ background:#FFF8E9; border-color:#E8D9A8; }
+  /* Crossed through, but still here. A house sitting the season out is not billed
+     and IS still findable — that is the whole reason the tab survives. */
+  .editcust-tab.notbilled .ect-name{ text-decoration:line-through; text-decoration-thickness:1px; }
   .editcust-tab.payer.current{ background:#FFF3D6; }
   .editcust-tab .ect-dirty{
     display:inline-block; width:7px; height:7px; border-radius:50%;
@@ -38556,6 +38559,41 @@ function editCustSetSaveLabel(d){
 function editCustBillKey(d){
   return String((d && d.billToPhone) || '').replace(/\D/g,'') || custInvoiceKey(d || {});
 }
+/* ⭐ THE HOUSEHOLD IS NOT THE SAME LIST AS THE BILL (added 2026-08-26).
+   Owner, asked what happens to the other houses when one sits the season out:
+   the rest are billed, and — separately — "a house that answered No does not
+   appear here at all; a Back next year house stays, crossed through and not
+   billed", because the office still has to be able to open it.
+
+   ⚠ SO THIS TAB STRIP CANNOT READ billedHousesFor. That answers "who is charged",
+   and since houseIsOnTheBill landed it correctly drops a house sitting the season
+   out — which silently removed that house's TAB as well. Verified against the
+   owner's own four-Anderson household: the strip came back with three tabs and
+   Ryan simply gone. Right for the invoice, wrong for the screen.
+
+   ⚠ THE KEY EXPRESSION IS editCustBillKey, the same one the tabs and the bill line
+   already use. The household and the bill must never disagree about WHICH bill a
+   house belongs to — only about who inside it is charged. */
+function editCustHouseholdHouses(key){
+  if(!key) return [];
+  return (jobAddresses || []).filter(function(a){
+    const d = a.data || {};
+    /* A flat No is out of the season and off this screen — the one case that
+       really does disappear. */
+    if(String(d.rsvpStatus || '').trim().toLowerCase() === 'no') return false;
+    return editCustBillKey(d) === key;
+  });
+}
+/* ⚠ ONE RULE FOR WHO IS CHARGED, AND THIS IS NOT A SECOND COPY OF IT.
+   houseIsOnTheBill is the answer the invoice, the nightly run and this strip all
+   read; crossed-through here means exactly "that rule said no". Writing the RSVP
+   test out again would duplicate a money rule AND miss the clause that matters
+   most — a house HUNG and then answered Back next year is `completed`, so it IS
+   billed and must not be crossed out. Owner: "if they were already hung and then
+   pushed back next year than they should still be charged." */
+function editCustTabNotBilled(d){
+  return !houseIsOnTheBill(d);
+}
 function editCustRenderHouseTabs(){
   const wrap = document.getElementById('editCustHouseTabs');
   const line = document.getElementById('editCustBillLine');
@@ -38568,8 +38606,14 @@ function editCustRenderHouseTabs(){
   if(!item) return;
   const d = item.data || {};
   const key = editCustBillKey(d);
-  const houses = billedHousesFor(d);
-  const payer = key ? payerHouseOf(key, houses) : null;
+  /* The HOUSEHOLD for the tabs — see editCustHouseholdHouses. A house sitting the
+     season out is off the bill and still on this strip. */
+  const houses = editCustHouseholdHouses(key);
+  /* ⚠ THE PAYER IS PICKED FROM THE BILLED HOUSES, NOT THE HOUSEHOLD. Whoever pays
+     has to be somebody who is actually being charged; letting a house that is not
+     on the bill win the lowest-customer-number sort would put the bill in the name
+     of the one person not paying it. */
+  const payer = key ? payerHouseOf(key, billedHousesFor(d)) : null;
 
   /* ⚠ NOT WHILE A RE-QUOTE IS BEING APPLIED. showApplyRequoteChoice opens this
      form and THEN writes the new price, footage, address and colours into it, and
@@ -38592,9 +38636,14 @@ function editCustRenderHouseTabs(){
       const isPayer = !!(payer && h.id === payer.id);
       const isCurrent = h.id === editCustomerId;
       const num = String(hd.customerNumber == null ? '' : hd.customerNumber).trim();
-      const sub = (num ? '#' + esc(num) + ' · ' : '') + fmtMoney(Number(hd.housePrice) || 0);
+      /* ⚠ NOT BILLED SHOWS INSTEAD OF THE PRICE, never beside it. A house nobody is
+         charging, wearing a figure, is the strip contradicting the invoice under it. */
+      const notBilled = editCustTabNotBilled(hd);
+      const sub = (num ? '#' + esc(num) + ' · ' : '') +
+        (notBilled ? 'Not billed' : fmtMoney(Number(hd.housePrice) || 0));
       return '<button type="button" role="tab" class="editcust-tab' +
-        (isCurrent ? ' current' : '') + (isPayer ? ' payer' : '') + '"' +
+        (isCurrent ? ' current' : '') + (isPayer ? ' payer' : '') +
+        (notBilled ? ' notbilled' : '') + '"' +
         ' aria-selected="' + (isCurrent ? 'true' : 'false') + '"' +
         ' data-ecthouse="' + esc(h.id) + '">' +
         '<span class="ect-name">' + (isPayer ? '★ ' : '') +
@@ -38632,7 +38681,15 @@ function editCustRenderHouseTabs(){
   if(payer && payer.id !== editCustomerId){
     bits.push('on <strong>' + esc((payer.data || {}).name || 'their payer') + '</strong>’s bill');
   } else if(houses.length > 1){
-    bits.push('covering <strong>' + houses.length + ' houses</strong>');
+    /* ⚠ SAY WHAT THE MONEY COVERS, not how many tabs there are. The balance beside
+       this counts the BILLED houses, so "covering 4 houses" over a figure for three
+       is the rows-not-adding-up problem that keeps a No house off the customer's
+       invoice, wearing office clothes. */
+    const billedCount = houses.filter(function(h){ return !editCustTabNotBilled(h.data || {}); }).length;
+    const sittingOut = houses.length - billedCount;
+    bits.push(sittingOut
+      ? 'covering <strong>' + billedCount + ' houses</strong>, ' + sittingOut + ' not billed'
+      : 'covering <strong>' + houses.length + ' houses</strong>');
   }
   if(key){
     bits.push('<button type="button" class="btn btn-outline btn-sm" data-ectinvoice="' + esc(key) +

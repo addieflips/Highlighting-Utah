@@ -42175,7 +42175,10 @@ if (!JSDOM) {
 } else {
   const NAMES = ['editCustSnapshot', 'editCustIsDirty', 'editCustSetSaveLabel', 'editCustBillKey',
     'editCustRenderHouseTabs', 'editCustRefreshDirtyDot', 'editCustSwitchHouse',
-    'billedHousesFor', 'billingGroupsByPayer', 'payerHouseOf', 'balanceDueAmount', 'esc'];
+    'billedHousesFor', 'billingGroupsByPayer', 'payerHouseOf', 'balanceDueAmount', 'esc',
+    /* The household list and the crossed-through rule, added 2026-08-26. Lifted, not
+       stubbed: which houses appear is the whole subject of this suite. */
+    'editCustHouseholdHouses', 'editCustTabNotBilled'];
   const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
   const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
   check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
@@ -42208,6 +42211,12 @@ if (!JSDOM) {
          fixture had no such house, and a red-check reverting billingGroupsByPayer
          to the no-only test went straight through. */
       { id: 'a55', data: { name: 'Nan Anderson', phone: '8013721805', customerNumber: '55', housePrice: 275, rsvpStatus: 'backnextyear' } },
+      /* ⭐ HUNG FIRST, THEN SAID BACK NEXT YEAR. Owner, 2026-08-26: "if they were
+         already hung and then pushed back next year than they should still be
+         charged." So they are ON the bill and must NOT be crossed out — which is the
+         clause a second copy of the RSVP test would miss, and the reason
+         editCustTabNotBilled derives from houseIsOnTheBill instead of restating it. */
+      { id: 'a31', data: { name: 'Zoe Anderson', phone: '8013721805', customerNumber: '31', housePrice: 300, rsvpStatus: 'backnextyear', completed: true } },
       { id: 'solo', data: { name: 'Solo Jones', phone: '8015556666', customerNumber: '500', housePrice: 200 } }
     ];
 
@@ -42246,8 +42255,11 @@ if (!JSDOM) {
     /* ---- the strip itself ---- */
     let out = F.open(BOOK, 'a14', INVOICES);
     const tabCount = out.tabs.querySelectorAll('[data-ecthouse]').length;
-    check('S276', 'a payer with several houses gets one tab each', tabCount === 3,
-      'expected Heather, Brit and Loren — got ' + tabCount + ' tabs');
+    /* Five: Heather, Brit, Loren and Zoe are billed — Zoe was hung before she said
+       Back next year — and Nan is sitting the season out, not billed but still on the
+       strip. Ryan said no outright and is the only one gone. */
+    check('S276', 'a payer with several houses gets one tab each', tabCount === 5,
+      'expected Heather, Brit, Loren, Zoe and Nan (crossed through) — got ' + tabCount + ' tabs');
 
     check('S276', 'the strip is actually shown, not built into a hidden box',
       out.tabs.style.display === 'flex',
@@ -42268,9 +42280,32 @@ if (!JSDOM) {
     check('S276', 'a house that RSVP’d no is absent',
       out.tabs.innerHTML.indexOf('Ryan Anderson') === -1,
       'the money excludes them, so the list must too');
-    check('S276', 'and so is one sitting the season out',
-      out.tabs.innerHTML.indexOf('Nan Anderson') === -1,
-      'Back Next Year is off the bill since 2026-08-26, so it is off the strip');
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-08-26). This asserted that a Back-next-year
+       house is off the STRIP because it is off the BILL. The first half is right and
+       is still checked below; the second was an inference, and the owner ruled the
+       other way the same day: "a house that answered No does not appear here at all;
+       Ryan is Back next year, so he stays, crossed through and not billed." The
+       office still has to be able to open that house — being unable to find somebody
+       who is sitting out is how they are never asked back.
+       ⚠ AND IT WAS REAL, not theoretical: run against the live Anderson household the
+       strip came back with three tabs and that house simply gone. */
+    check('S276', 'a house sitting the season out KEEPS its tab, crossed through',
+      out.tabs.innerHTML.indexOf('Nan Anderson') !== -1 &&
+      /editcust-tab[^"]*notbilled/.test(out.tabs.innerHTML),
+      'not billed is not not shown — editCustHouseholdHouses keeps them, houseIsOnTheBill crosses them out');
+    check('S276', 'and its tab says Not billed where the price would be',
+      /Not billed/.test(out.tabs.innerHTML) && out.tabs.innerHTML.indexOf('$275.00') === -1,
+      'a house nobody is charging, wearing a figure, is the strip contradicting the invoice under it');
+    check('S276', 'a house hung BEFORE it said Back next year is billed, not crossed through',
+      /Zoe Anderson/.test(out.tabs.innerHTML) &&
+      !/notbilled[^>]*>[^<]*<span class="ect-name">★? ?Zoe/.test(out.tabs.innerHTML) &&
+      /\$300\.00/.test(out.tabs.innerHTML),
+      'work was done, so they owe for it — "not coming back next year is not the same as ' +
+      'not owing for last year". A second copy of the RSVP test would cross them out');
+    check('S276', 'the bill line counts the billed houses, and says how many are not',
+      /covering <strong>4 houses<\/strong>, 1 not billed/.test(out.line.innerHTML),
+      'the balance beside it covers four — "covering 5 houses" over a figure for four is ' +
+      'the rows-not-adding-up problem in office clothes. Got: ' + out.line.innerHTML);
 
     check('S276', 'somebody else’s customer is nowhere near the strip',
       out.tabs.innerHTML.indexOf('Solo Jones') === -1,
