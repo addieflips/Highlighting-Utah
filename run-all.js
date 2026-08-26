@@ -7574,7 +7574,13 @@ suite('18. Forty houses a day');
         try {
           return api.towns({ towns: null, city: 'Orem' }).join() === 'Orem' &&
                  api.towns(null).length === 0 &&
-                 api.towns({ towns: [null, '', 'Lehi'] }).join() === 'Lehi';
+                 api.towns({ towns: [null, '', 'Lehi'] }).join() === 'Lehi' &&
+                 /* A number is the other shape .filter() dies on, and it is the
+                    one this title used to claim without ever passing one in.
+                    Wrapped, not dropped: it matches no real town, so the day
+                    reads as an unrecognised one and its houses are left visible
+                    rather than silently belonging nowhere. */
+                 api.towns({ towns: 5 }).join() === '5';
         } catch (e) { return false; }
       })());
 
