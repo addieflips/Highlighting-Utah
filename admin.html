@@ -21237,7 +21237,29 @@ function rmPaintStreet(){
      so panning the panorama still works everywhere else. */
   svg.style.pointerEvents = (rmDrawing || rmWallPicking) ? 'none' : 'none';
   svg.querySelectorAll('[data-rmcornerdot]').forEach(function(el){
-    el.style.pointerEvents = 'all';
+    /* ⭐ WHILE PLACING, A DOT DOES NOT SWALLOW ITS OWN CLICK (2026-08-26).
+       Owner: "i cant place two dots on top of each other", asked while trying to
+       click the SAME corner from a second angle.
+
+       ⚠ AND THAT IS THE ONE GESTURE THAT FIXES DRIFT. Two sightings of a corner
+       cross at a point, which is geometry rather than a model - it is the whole
+       answer to a dot moving when the camera does. But this invisible r=7 target
+       sits on the SVG layer ABOVE the sheet that catches clicks, and it calls
+       stopPropagation, so a click within seven pixels of a drawn dot never reached
+       the placing code at all: it TOGGLED the dot instead. Nothing about that looks
+       like a refusal - no message, no new dot, no pin - which is exactly how it was
+       reported. The re-sighting path underneath was unreachable precisely when the
+       dot was drawn where you were aiming, which is most of the time.
+
+       ⚠ THIS IS THE SECOND TIME THIS TARGET HAS EATEN A GESTURE. The note above
+       records it swallowing dot PLACEMENT and being narrowed from 12 to 7 in
+       response. Narrowing cannot fix it, because the whole point of re-sighting is
+       to click where the dot already is. So the mode decides instead: while PLACING
+       the click falls through to the sheet, where rmDotToResight chooses between
+       re-sighting this dot and putting down a new one; while PICKING it toggles as
+       before. Nothing is lost - the right button toggles in either mode, on both
+       views, and that is what it is for. */
+    el.style.pointerEvents = (rmCornerMode === 'dot') ? 'none' : 'all';
     el.addEventListener('click', function(ev){
       ev.stopPropagation();
       const i = Number(el.dataset.rmcornerdot);
