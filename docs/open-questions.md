@@ -935,7 +935,7 @@ A rule in one place is worth nothing unless something asserts the callers ask it
 
 ---
 
-## Q-013 · intent · OPEN · raised 2026-08-26
+## Q-013 · intent · ANSWERED · raised and answered 2026-08-26
 A house that was hung and THEN answered a flat "no" — does it still owe?
 
 Q-012 settled this for **back next year**: work that was done is owed for. A flat
@@ -954,3 +954,27 @@ first. Rare is not never, and it is silent when it happens.
 Do they get a bill for the work already done?
 
 One line in `houseIsOnTheBill` / `houseIsOnTheBillServer` either way.
+
+---
+
+### ⭐ ANSWERED 2026-08-26
+
+**Addie:** *"Any house hung no matter what should be charged. This will only be
+overuled if it is our fault. But there is no reason we should not charge them if we
+hung that lights and there is no reason to not charge them than we will charge them
+still."*
+
+**Hung is hung.** `completed` is now tested FIRST in both copies of the rule, ahead
+of every status — a flat `'no'` included. It was one line: the check moved to the top.
+
+⚠ **"OVERRULED IF IT IS OUR FAULT" IS A HUMAN DECISION, NOT A FIELD.** The office
+writes it off on the invoice, and credits already exist for exactly that. An
+automatic our-fault test would be the app guessing at fault, which is the one thing
+it must not do with money. Nothing was built for it and nothing should be.
+
+⚠ **The old check stayed green through the whole change**, because it tested the
+flat `'no'` with `completed: false` — the one combination the ruling does not touch.
+The new case had to be asserted explicitly. Two sabotages red-checked: demoting
+`completed` back below the status checks fails on both sides.
+
+**Resulting map change:** `MON-16` in `claude/questions-map.md`. R-023.
