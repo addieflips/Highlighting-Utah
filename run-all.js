@@ -37162,6 +37162,30 @@ suite('152. Measure Roof - a dot seen twice is exact, with no model at all');
      on the corner. Aiming at the corner missed the dot and made a second one.
      See RM_RESIGHT_DEPTH_SLOP_M for why the net widens only once the camera has
      moved far enough for a second sighting to mean anything. */
+  /* ⭐ AND THE CLICK ACTUALLY REACHES THAT CODE WHILE PLACING (2026-08-26).
+     Owner: "i cant place two dots on top of each other", said while trying to
+     click the same corner from a second angle — which is the one gesture that
+     fixes drift, because two sightings cross at a point.
+
+     ⚠ THE INVISIBLE DOT TARGET WAS EATING IT. It sits on the SVG layer above
+     the sheet that catches clicks and calls stopPropagation, so a click within
+     seven pixels of a drawn dot toggled that dot and stopped — no message, no
+     pin, no new dot. The re-sight path below was unreachable exactly when the
+     dot was drawn where you were aiming. Narrowing the radius cannot fix it
+     (that was tried, 12 to 7): re-sighting means clicking where the dot IS. */
+  check('S152', 'a dot does not swallow its own click while placing',
+    /el\.style\.pointerEvents = \(rmCornerMode === 'dot'\) \? 'none' : 'all';/.test(admin),
+    'the toggle target stopPropagation-ed the one gesture that fixes drift');
+  check('S152', 'and it still toggles while picking, which is what that mode is for',
+    (function(){
+      const i = admin.indexOf("svg.querySelectorAll('[data-rmcornerdot]')");
+      const j = admin.indexOf("svg.querySelectorAll('[data-rmtoggle]')", i);
+      return i !== -1 && /rmToggleCorner\(i\);/.test(admin.slice(i, j));
+    })(),
+    'losing the toggle would trade one gesture for another');
+  check('S152', 'and the right button still toggles in either mode, on both views',
+    /\['rmPanoLock', 'rmMapLock'\]\.forEach/.test(admin) && /rmToggleCorner/.test(admin),
+    'that is what makes it safe to hand the left button to placing');
   check('S152', 'clicking an existing dot pins it rather than adding another',
     /const near = rmDotToResight\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
   check('S152', 'and the net only widens once a second sighting could fix a depth',
