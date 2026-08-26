@@ -4967,7 +4967,7 @@
 <script type="module">
 import {
   CN_DOUBLE_BIN_FEET, cnBinsForFeet, fmtMoney,
-  computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey,
+  computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey, billedThisSeason,
   /* The colour-change rule. The SAME rule the portal runs — functions/index.js
      carries applyLightChangeServer and money-parity.test.js fails the build if
      the two ever disagree. The office changing somebody's colours on the phone
@@ -13063,7 +13063,7 @@ function billingGroupsByPayer(){
   const groups = new Map();
   (jobAddresses||[]).forEach(function(a){
     const d = a.data || {};
-    if(String(d.rsvpStatus||'') === 'no') return;
+    if(!billedThisSeason(d)) return;
     const key = String(d.billToPhone||'').replace(/\D/g,'') || custInvoiceKey(d);
     if(!key) return;
     if(!groups.has(key)) groups.set(key, []);
@@ -26133,7 +26133,7 @@ async function syncPayerInvoice(payerKey){
   /* A house that RSVP'd 'no' is not billed this season (see runInvoiceBatch in
      functions/index.js) — summing it back in here would silently undo that the
      next time an admin edit resyncs this invoice. */
-  const active = linked.filter(h => String(h.data.rsvpStatus||'') !== 'no');
+  const active = linked.filter(h => billedThisSeason(h.data));
   if(linked.length && !active.length){
     /* Every linked house sat out this season. That is not the same as the
        payer having no houses at all (the case the guard above protects) — the

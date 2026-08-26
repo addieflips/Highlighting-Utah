@@ -217,3 +217,38 @@ export function custInvoiceKey(d) {
   if (phone) return phone;
   return String((d && d.email) || '').toLowerCase().trim();
 }
+
+/* ⭐ IS THIS HOUSE BILLED FOR THIS SEASON? (added 2026-08-26)
+ *
+ * Owner, asked whether somebody who said Back Next Year should still get an
+ * invoice for a season nobody works for them: no — take them off the bill.
+ * They are already off the routes and out of the build queue; the invoice was
+ * the one place they were still being charged.
+ *
+ * ⚠ THREE ANSWERS MEAN OUT, AND NOTHING ELSE DOES. "no", the Maybe Next Year
+ * flag, and an RSVP of "backnextyear" — which are exactly the three ways a
+ * customer says they are not doing this season. Both halves of Back Next Year
+ * are needed: portalRsvp writes the STATUS alone while the office button also
+ * sets the flag, so reading one of them misses everybody who answered through
+ * the RSVP link.
+ *
+ * ⚠ AND IT IS DELIBERATELY *NOT* isOutForSeason, which answers a different
+ * question and would be wrong here twice over. That one also returns true for
+ * `needsLightRecycle` — a warehouse state, not a decision about money — and,
+ * once SEASON_ELIGIBILITY is flipped to 'confirmed-only', for every customer
+ * who has not personally answered yes. Billing off that switch would take the
+ * whole book off its invoices the day it is flipped, silently.
+ *
+ * ⚠ ONE RULE, TWO COPIES. billedThisSeasonServer in functions/index.js is the
+ * nightly run's copy and money-parity.test.js fails the build if the two ever
+ * disagree — the office screen and the bill the customer receives must not have
+ * different opinions about who is being charged.
+ */
+export function billedThisSeason(d) {
+  const dd = d || {};
+  const said = String(dd.rsvpStatus || '').trim().toLowerCase();
+  if (said === 'no') return false;
+  if (said === 'backnextyear') return false;
+  if (dd.maybeNextYear) return false;
+  return true;
+}

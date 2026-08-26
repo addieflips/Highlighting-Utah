@@ -2863,9 +2863,37 @@ check('flow', 'payer invoice resync never writes an email into the phone field',
 // active houses the same way the server does, and to skip the write entirely
 // (not zero the invoice) when every linked house has opted out — a payer with
 // zero active houses is not the same as a payer with zero houses at all.
-check('flow', 'payer invoice resync excludes RSVP-no houses from the total',
-  /rsvpStatus\|\|''\)\s*!==\s*'no'/.test(syncPayer),
+/* ⚠ REPOINTED 2026-08-26, NOT WEAKENED. This matched the literal expression
+   `rsvpStatus||'') !== 'no'`, so it failed on correct code the moment the rule
+   moved into billedThisSeason — which also widened it to Back Next Year, on the
+   owner's instruction. Pinned to what must be TRUE (the active list goes through
+   the shared rule) rather than to how it happens to be spelled. Same slow-fuse
+   shape as S82 and S129. The rule's own behaviour is swept in money-parity. */
+check('flow', 'payer invoice resync excludes houses that are not doing this season',
+  /const active = linked\.filter\([^;]*billedThisSeason/.test(syncPayer),
   "a cancelled house's price would get resummed back onto the invoice on the next edit");
+check('flow', 'and it does not hand-roll that test beside the shared rule',
+  !/rsvpStatus/.test(stripComments(syncPayer)),
+  'a second opinion here is how the office total and the nightly bill start to disagree');
+
+/* ⚠ AND THE SAME OF THE NIGHTLY RUN, which is the copy that actually sends the
+   bill. money-parity proves the two RULES agree; this proves runInvoiceBatch
+   still asks its one. A red-check reverting that filter to a hand-rolled
+   `!== 'no'` went straight through the first version of this pass — nothing
+   anywhere read the server's active list. */
+{
+  const batchStart = fnsSrc.indexOf('for (const [invoiceKey, houses] of payerGroups)');
+  /* sectionFrom, not a character count — the suite has its own meta-check
+     against fixed-length windows and it is right: they fail on correct code the
+     moment it grows. */
+  const batchSlice = batchStart > -1 ? stripComments(sectionFrom(fnsSrc, batchStart)) : '';
+  check('flow', 'the nightly run asks the shared rule for who is billed',
+    /const active = houses\.filter\([^;]*billedThisSeasonServer/.test(batchSlice),
+    'the customer would be sent a bill for a season the office screen says they are out of');
+  check('flow', 'and does not hand-roll it either',
+    !!batchSlice && !/rsvpStatus/.test(batchSlice),
+    'two opinions about who is charged, one of them in the email that goes out');
+}
 check('flow', 'payer invoice resync does not zero an invoice when every house opted out',
   /linked\.length\s*&&\s*!active\.length/.test(syncPayer),
   'a payer whose houses are all RSVP-no would have their real balance wiped to $0');
@@ -4977,7 +5005,12 @@ suite('13. Season prep — crew portal (§4)');
   // payerHouseOf comes along because syncPayerInvoice calls it: the rule about whose
   // name goes on a shared bill lives in one place now, and running the function
   // without it is running something that is not what ships.
+  /* ⚠ AND billedThisSeason, which syncPayerInvoice asks to decide who is on the
+     bill this season. LIFTED OUT OF js/money.js, never stubbed: a stub would keep
+     this suite green through a change to who gets charged, which is the one thing
+     it exists to protect. money-parity sweeps it against the nightly run's copy. */
   const src = extractFn(admin, 'payerHouseOf') + '\n' +
+    extractFn(read('js/money.js'), 'billedThisSeason') + '\n' +
     admin.slice(start, admin.indexOf('\n}', start) + 2);
 
   // A tiny fake Firestore. Every call records what it was asked for; setDoc
@@ -5056,6 +5089,34 @@ suite('13. Season prep — crew portal (§4)');
       w2.install === 400 && Array.isArray(w2.billedHouseIds) &&
       w2.billedHouseIds.length === 1 && w2.billedHouseIds[0] === 'h1',
       'the invoice rows and the invoice total would disagree');
+
+    /* ⭐ AND SO DOES SOMEBODY SITTING THE SEASON OUT (2026-08-26). Owner, asked
+       whether a Back Next Year customer should still be billed for a season
+       nobody works for them: no, take them off the bill. They were already off
+       the routes and out of the build queue; the invoice was the last place they
+       were still being charged.
+       ⚠ BOTH WAYS OF SAYING IT, in one sweep: portalRsvp writes the STATUS alone
+       while the office button also sets maybeNextYear, so a rule reading one of
+       them silently keeps billing everybody who answered through the RSVP link.
+       That is the exact bug isOutForSeason was fixed for in 2026-08-22. */
+    for (const [label, out] of [
+      ['answered Back Next Year through the RSVP link', { rsvpStatus: 'backnextyear' }],
+      ['badged Maybe Next Year by the office', { maybeNextYear: true }],
+      ['both at once, as the office button writes it', { rsvpStatus: 'backnextyear', maybeNextYear: true }]
+    ]) {
+      const sitting = [
+        houses[0],
+        { id: 'h2', data: Object.assign({ name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300 }, out) }
+      ];
+      const hb = makeHarness(sitting, { install: 700 });
+      await hb.fn('8011112222');
+      const wb = hb.written[0] || {};
+      check('sync', 'a house ' + label + ' is off the bill',
+        wb.install === 400 && (wb.billedHouseIds || []).length === 1 &&
+        (wb.billedHouseIds || [])[0] === 'h1',
+        'they get an invoice for a season nobody works for them — got $' + wb.install +
+        ' across ' + JSON.stringify(wb.billedHouseIds));
+    }
 
     // The $30 join fee is not part of any house price, so a rebuild that
     // forgets it silently un-charges the fee.
@@ -19229,7 +19290,13 @@ suite('Suite 69. Who pays for whom');
     ];
     const bg = {};
     new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'invoiceById',
-      'balanceDueAmount', 'computeInvoiceStatus', 'document', 'let billingGroupSearchTerm = "";\n' +
+      'balanceDueAmount', 'computeInvoiceStatus', 'document',
+      /* ⭐ THE REAL who-is-billed RULE, LIFTED — not stubbed. billingGroupsByPayer
+         asks it, and a stub would keep this suite green through a change to who
+         appears on somebody's bill. Its own behaviour is swept in money-parity
+         against the nightly run's copy. */
+      extractFn(read('js/money.js'), 'billedThisSeason') + '\n' +
+      'let billingGroupSearchTerm = "";\n' +
       billingSrc.join('\n') + '\n' +
       'this.groups = billingGroupsByPayer; this.forCust = billedHousesFor;' +
       'this.payerOf = billingGroupPayer; this.forContact = billedHousesForContact;' +
@@ -19361,6 +19428,10 @@ if (!JSDOM) {
     ];
     const paint = new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'fmtPhone',
       'invoiceById', 'balanceDueAmount', 'computeInvoiceStatus', 'document', 'openEditCustomerModal',
+      /* The real who-is-billed rule, lifted — billingGroupsByPayer asks it, and
+         a stub would keep this render green through a change to who appears on
+         a bill. Same reason it is lifted into the logic harness above. */
+      extractFn(read('js/money.js'), 'billedThisSeason') + '\n' +
       'let billingGroupSearchTerm = "";\n' + renderSrc.join('\n') +
       '\nreturn function(term){ billingGroupSearchTerm = term || ""; renderBillingGroups();' +
       ' return { list: document.getElementById("billingGroupList"),' +
@@ -41338,10 +41409,19 @@ if (!JSDOM) {
       { id: 'a20', data: { name: 'Brit Anderson', phone: '(801) 372-1805', customerNumber: '20', housePrice: 350 } },
       { id: 'a27', data: { name: 'Loren Anderson', phone: '8015559999', billToPhone: '8013721805', customerNumber: '27', housePrice: 300 } },
       { id: 'a972', data: { name: 'Ryan Anderson', phone: '8013721805', customerNumber: '972', housePrice: 250, rsvpStatus: 'no' } },
+      /* ⚠ AND ONE SITTING THE SEASON OUT. Since 2026-08-26 they are off the bill
+         the same as a no, so they must be off the strip too — naming a house the
+         money does not include is the bug the exclusion exists to prevent. The
+         fixture had no such house, and a red-check reverting billingGroupsByPayer
+         to the no-only test went straight through. */
+      { id: 'a55', data: { name: 'Nan Anderson', phone: '8013721805', customerNumber: '55', housePrice: 275, rsvpStatus: 'backnextyear' } },
       { id: 'solo', data: { name: 'Solo Jones', phone: '8015556666', customerNumber: '500', housePrice: 200 } }
     ];
 
     const code = [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc, statusClassSrc,
+      /* billedHousesFor asks billingGroupsByPayer asks this. Lifted, not
+         stubbed: who is on a bill is the whole subject of this suite. */
+      extractFn(read('js/money.js'), 'billedThisSeason'),
       'let jobAddresses = [];', 'let editCustomerId = null;', 'let requoteBeingConverted = null;',
       'let invoiceById = new Map();', 'let editCustDirtySnapshot = "";',
       'function fmtMoney(n){ return "$" + Number(n||0).toFixed(2); }',
@@ -41395,6 +41475,9 @@ if (!JSDOM) {
     check('S276', 'a house that RSVP’d no is absent',
       out.tabs.innerHTML.indexOf('Ryan Anderson') === -1,
       'the money excludes them, so the list must too');
+    check('S276', 'and so is one sitting the season out',
+      out.tabs.innerHTML.indexOf('Nan Anderson') === -1,
+      'Back Next Year is off the bill since 2026-08-26, so it is off the strip');
 
     check('S276', 'somebody else’s customer is nowhere near the strip',
       out.tabs.innerHTML.indexOf('Solo Jones') === -1,
@@ -41573,6 +41656,7 @@ if (!JSDOM) {
         const asked = [];
         const live = new Function('document', 'window', 'confirm', 'openEditCustomerModal',
           [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc, statusClassSrc,
+            extractFn(read('js/money.js'), 'billedThisSeason'),
             'let jobAddresses = [];', 'let editCustomerId = null;',
             'let requoteBeingConverted = null;', 'let invoiceById = new Map();',
             'let editCustDirtySnapshot = "";', 'let invoiceSearchTerm = "";',

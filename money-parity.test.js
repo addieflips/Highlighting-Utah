@@ -139,6 +139,8 @@ function extractConst(src, name) {
   const m = re.exec(src);
   return m ? ('const ' + name + ' = ' + m[1] + ';') : null;
 }
+const clientBilledSrc = extractFn(moneySrc, 'billedThisSeason');
+const serverBilledSrc = extractFn(fnsSrc, 'billedThisSeasonServer');
 const clientLightSrc = extractFn(moneySrc, 'applyLightChange');
 const serverLightSrc = extractFn(fnsSrc, 'applyLightChangeServer');
 /* Extracted rather than stubbed, on the same principle as centsOf above: if
@@ -158,6 +160,8 @@ const found = {
   'functions/index.js digitsOnly': digitsOnlySrc,
   'js/money.js centsOf': clientCentsSrc,
   'functions/index.js centsOf': serverCentsSrc,
+  'js/money.js billedThisSeason': clientBilledSrc,
+  'functions/index.js billedThisSeasonServer': serverBilledSrc,
   'js/money.js applyLightChange': clientLightSrc,
   'functions/index.js applyLightChangeServer': serverLightSrc,
   'js/money.js LIGHT_CHANGE_FEE': clientFeeSrc,
@@ -185,6 +189,8 @@ const clientStatus = compile([clientCentsSrc, clientStatusSrc], 'computeInvoiceS
 const serverStatus = compile([serverCentsSrc, serverStatusSrc], 'computeInvoiceStatusServer');
 const clientKey = compile([clientKeySrc], 'custInvoiceKey');
 const serverKey = compile([digitsOnlySrc, serverKeySrc], 'invoiceKeyFor');
+const clientBilled = compile([clientBilledSrc], 'billedThisSeason');
+const serverBilled = compile([serverBilledSrc], 'billedThisSeasonServer');
 const clientLight = compile([clientFeeSrc, clientWinSrc, clientLightSrc], 'applyLightChange');
 const serverLight = compile([serverFeeSrc, serverWinSrc, serverLightSrc], 'applyLightChangeServer');
 
@@ -705,6 +711,52 @@ check('the portal balance is cent-rounded the way the office copy is',
   'Fix: route the portal through the shared balance helper, or apply centsOf.');
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 6. Who is billed for this season — the office copy vs the nightly run's.
+//
+// Owner, 2026-08-26: somebody who said Back Next Year is off the routes and out
+// of the build queue, so take them off the bill too. Both copies decide that,
+// and a disagreement means the office screen shows a total the customer's
+// actual invoice does not.
+//
+// Every shape a real record comes in, including the two ways Back Next Year is
+// recorded: portalRsvp writes the STATUS alone, the office button also sets the
+// flag. A copy reading only one of them misses half those customers.
+// ---------------------------------------------------------------------------
+const SEASON_RECORDS = [
+  {}, {rsvpStatus: ''}, {rsvpStatus: 'yes'}, {rsvpStatus: 'Yes'},
+  {rsvpStatus: 'unanswered'}, {rsvpStatus: 'no'}, {rsvpStatus: 'NO'},
+  {rsvpStatus: ' no '}, {rsvpStatus: 'backnextyear'}, {rsvpStatus: 'BackNextYear'},
+  {rsvpStatus: ' backnextyear '}, {maybeNextYear: true}, {maybeNextYear: false},
+  {rsvpStatus: 'yes', maybeNextYear: true}, {rsvpStatus: 'backnextyear', maybeNextYear: true},
+  {rsvpStatus: 'no', maybeNextYear: false}, {rsvpStatus: null}, {rsvpStatus: undefined},
+  {rsvpStatus: 'maybe'}, {rsvpStatus: 'cancelled'}, null, undefined
+];
+let billedMismatch = 0, billedFirst = '';
+SEASON_RECORDS.forEach(function (r) {
+  const c = clientBilled(r), sv = serverBilled(r);
+  if (c !== sv) {
+    billedMismatch++;
+    if (!billedFirst) billedFirst = JSON.stringify(r) + ' -> office ' + c + ', nightly ' + sv;
+  }
+});
+check('both copies agree who is billed this season, over every record shape',
+  billedMismatch === 0,
+  billedMismatch + ' disagreed, first: ' + billedFirst +
+  ' — the office would show a total the customer\'s real invoice does not.');
+
+/* ⚠ AND THAT THEY ARE RIGHT, NOT MERELY EQUAL. Two copies wrong in the same way
+   agree perfectly, which is the one thing a parity sweep cannot see on its own. */
+check('an ordinary customer is billed',
+  clientBilled({rsvpStatus: 'yes'}) === true && clientBilled({}) === true,
+  'nobody would be invoiced at all');
+check('a no is not billed',
+  clientBilled({rsvpStatus: 'no'}) === false, 'they said no');
+check('Back Next Year is not billed, said either way',
+  clientBilled({rsvpStatus: 'backnextyear'}) === false &&
+  clientBilled({maybeNextYear: true}) === false,
+  'portalRsvp writes the status alone; the office button also sets the flag');
 
 // ---------------------------------------------------------------------------
 failures.forEach(f => console.log('  FAIL  ' + f + '\n'));

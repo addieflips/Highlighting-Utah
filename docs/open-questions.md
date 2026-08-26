@@ -990,3 +990,49 @@ Blocks: nothing shipping. It blocks deciding, which is why detection went first.
 **Resulting map change:** none yet. Whichever answer is chosen becomes a rule
 about where a payment goes when a bill-to changes, and the Fix button that
 implements it.
+
+---
+
+## Q-015 · intent · answered · 2026-08-26
+Should somebody who said Back Next Year still be billed for this season?
+
+Asked because `billingGroupsByPayer`, `syncPayerInvoice` and `runInvoiceBatch`
+all excluded only `rsvpStatus === 'no'`, while `isOutForSeason` — which decides
+routes, builds and the schedule — has excluded Back Next Year and Maybe Next
+Year since 2026-08-22. So those customers were taken off every crew day and out
+of the build queue, and still invoiced for the season.
+
+**Answer (Addie, 2026-08-26): no — take them off the bill.**
+
+Built as `billedThisSeason` (js/money.js) and `billedThisSeasonServer`
+(functions/index.js), swept against each other by `money-parity.test.js`. Out
+means `'no'`, `rsvpStatus === 'backnextyear'`, or the `maybeNextYear` flag —
+both halves of Back Next Year, because `portalRsvp` writes the status alone
+while the office button also sets the flag.
+
+⚠ **Deliberately not `isOutForSeason`.** That also returns true for
+`needsLightRecycle` — a warehouse state, not a decision about money — and, once
+`SEASON_ELIGIBILITY` is flipped to `'confirmed-only'` (Q-010a), for every
+customer who has not personally answered yes. Billing off that switch would take
+the whole book off its invoices on the day it is flipped.
+
+⚠ **The house list follows the money.** `billingGroupsByPayer` applies the same
+rule, so the portal box, the `{{houses_block}}` email token and the Edit
+Customer house tabs stop naming a house the total leaves out.
+
+**Resulting map change:** `billedThisSeason` is the one answer to "is this house
+billed this season", read by the office rebuild, the nightly run and the group
+list. It supersedes the bare `rsvpStatus !== 'no'` test in all three.
+
+---
+
+## Q-016 · intent · answered · 2026-08-26
+When Who Pays for Whom is retired, does its Excel export survive?
+
+**Answer (Addie, 2026-08-26): keep the Excel export somewhere.** The whole-book
+view goes with the tab; the export does not.
+
+Not yet built — retirement itself is deliberately after the house tabs have been
+used for a season (see CLAUDE.md). Where it lands is a placement decision, not a
+rule: the Invoices tab is the obvious home, since that is where the money lives
+and where somebody wanting a spreadsheet of who owes what would look.

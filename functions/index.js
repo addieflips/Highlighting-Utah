@@ -2959,6 +2959,31 @@ function computeInvoiceStatusServer(install, removal, deposit, credits, changeFe
 const LIGHT_CHANGE_FEE = 30;
 const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
+/* ⭐ IS THIS HOUSE BILLED FOR THIS SEASON? — the nightly run's copy.
+ *
+ * Owner, 2026-08-26, asked whether somebody who said Back Next Year should
+ * still get an invoice for a season nobody works for them: no, take them off
+ * the bill. They were already off the routes and out of the build queue; the
+ * invoice was the one place they were still being charged.
+ *
+ * ⚠ ONE RULE, TWO COPIES — billedThisSeason in js/money.js is the office's,
+ * and money-parity.test.js runs both over the same records and fails the build
+ * the moment they disagree. The office screen and the bill the customer
+ * actually receives must not have different opinions about who is charged.
+ *
+ * ⚠ BOTH HALVES OF BACK NEXT YEAR ARE NEEDED. portalRsvp writes the STATUS
+ * alone while the office button also sets maybeNextYear, so reading one of them
+ * misses everybody who answered through the RSVP link — the same trap
+ * isOutForSeason was fixed for.
+ */
+function billedThisSeasonServer(d) {
+  const dd = d || {};
+  const said = String(dd.rsvpStatus || '').trim().toLowerCase();
+  if (said === 'no') return false;
+  if (said === 'backnextyear') return false;
+  if (dd.maybeNextYear) return false;
+  return true;
+}
 function applyLightChangeServer(o) {
   const opts = o || {};
   const now = Number(opts.nowMs) || 0;
@@ -3077,8 +3102,10 @@ async function runInvoiceBatch(triggeredBy) {
 
     for (const [invoiceKey, houses] of payerGroups) {
       try {
-        // Houses that said no are not part of this season at all.
-        const active = houses.filter(function (h) { return String(h.data.rsvpStatus || '') !== 'no'; });
+        /* Houses that are not doing this season are not billed for it — "no",
+           Back Next Year either way it was said, or the Maybe Next Year flag.
+           See billedThisSeasonServer. */
+        const active = houses.filter(function (h) { return billedThisSeasonServer(h.data); });
         if (!active.length) continue;
 
         // Nothing to do unless at least one of them is waiting on its first bill.
