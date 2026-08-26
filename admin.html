@@ -47117,6 +47117,68 @@ function hcRunChecks(){
       };
     })
   });
+  /* ⭐ A STORED PHONE THAT AN EXACT-MATCH QUERY CANNOT FIND (added 2026-08-26,
+     Q-019). Addie asked for the real data before anything was built on top of
+     this, and this row IS that question — if it comes back empty, Q-019 is
+     theoretical and closes.
+
+     ⚠ WHAT IS AT RISK. syncPayerInvoice is the authoritative money writer. For a
+     phone key it resolves the payer's own houses with an EXACT match:
+
+         where('phone','==',key)     // key is always digits — custInvoiceKey's output
+
+     CLAUDE.md says in two places that stored phones are not all digits-only —
+     "the office types '(801) 555-0123' and the import keeps it" — and warns by
+     name against this query shape. If such a record exists that query matches
+     nothing, `linked` comes back empty, and the `!isPhoneKey && !linked.length`
+     refusal DELIBERATELY does not fire for phone keys, so the rebuild writes
+     install: 0 over a real total. Silently, on an ordinary Edit Customer save.
+
+     ⚠ THE EMAIL BRANCH ALREADY SOLVED THIS and the phone branch did not — twenty
+     lines above, an email key that fails its equality query falls back to the
+     loaded jobAddresses list, with a comment saying an equality query cannot
+     match a case difference. That is the same failure in the same function. The
+     fix is therefore patterned rather than invented; it is not applied here
+     because changing a money writer is its own change with its own red-check,
+     and because she asked to see the data first.
+
+     ⚠ ONLY A PAYER CAN BE HURT. A house with billToPhone set is found by the
+     billToPhone query instead, which is fed a digits key from the same record —
+     so it is reached whatever its own phone field looks like. Flagging those
+     would be noise, and noise is what teaches the office to click past a row.
+
+     ⚠ NO BUTTON. Rewriting a customer's stored phone changes what the office
+     reads on screen and in exports, across however many records; and the real
+     repair is arguably in the query, not the data. Both are decisions. */
+  checks.push({
+    id: 'phoneNotDigits',
+    title: 'A stored phone the invoice rebuild cannot match',
+    why: 'syncPayerInvoice looks a payer up by an exact phone match on digits. A record storing (801) 555-0123 is not found, and the rebuild can then write the invoice down to $0 without saying so.',
+    fix: null,
+    fixNote: 'No button: normalising a stored phone changes what the office reads everywhere, and the better repair may be in the query instead. Empty here means Q-019 is theoretical.',
+    rows: (jobAddresses || []).filter(function(c){
+      const d = c.data || {};
+      if(hcDigits(d.billToPhone)) return false;   // billed elsewhere — reached by the other query
+      const raw = String(d.phone == null ? '' : d.phone);
+      const digits = raw.replace(/\D/g,'');
+      if(!digits) return false;                   // no phone at all keys by email, a different path
+      return raw !== digits;
+    }).map(function(c){
+      const d = c.data || {};
+      const digits = String(d.phone || '').replace(/\D/g,'');
+      const inv = invById[digits];
+      /* Say whether money is exposed TODAY, not just that the format is odd —
+         the two need different urgency and the office cannot tell them apart
+         from a name alone. */
+      const gross = inv ? (Number((inv.data||{}).install)||0) + (Number((inv.data||{}).removal)||0) + (Number((inv.data||{}).changeFees)||0) : 0;
+      return {
+        label: hcName(d),
+        detail: 'stored as "' + d.phone + '", keyed as ' + digits +
+          (gross > 0 ? ' — an invoice of $' + gross.toFixed(2) + ' is filed under that key and a resync could zero it'
+                     : ' — no invoice under that key yet, so nothing to lose today')
+      };
+    })
+  });
   checks.push({
     id: 'totalDrift',
     title: 'Invoice total does not match the houses on it',
