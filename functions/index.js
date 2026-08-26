@@ -887,6 +887,41 @@ function houseBillingRow(id, d) {
     removalDone: !!d.removalDone
   };
 }
+/* ⭐ IS THIS HOUSE ON THE BILL — ONE RULE (added 2026-08-26, Q-012).
+ * Addie, 2026-08-26: "After the last persons house is done if there are multiple
+ * people on one bill is when they will be charged."
+ *
+ * ⚠ THE TIMING RULE WAS ALREADY RIGHT; WHO COUNTS WAS NOT. runInvoiceBatch holds a
+ * multi-house bill until every house on it is `completed`, which is exactly what she
+ * describes. But the group it waited on dropped only a flat "no" — so a house that
+ * had said BACK NEXT YEAR was still counted as one of the houses to wait for, and it
+ * is pulled off every upcoming route the moment they answer, so no crew ever visits
+ * and `completed` can never become true. The whole household's bill was therefore
+ * held open for the season and nobody was charged for the work that WAS done.
+ * "The last person's house is done" has to mean the last house actually getting
+ * lights, or her rule can never fire for that household at all.
+ *
+ * ⚠ A FLAT "NO" IS UNCHANGED, deliberately. It has always come off the bill outright
+ * and that is not what was asked about here. It leaves one asymmetry standing — a
+ * house completed and THEN answering "no" is still dropped — which is recorded in
+ * docs/open-questions.md rather than quietly changed on the way past.
+ *
+ * ⚠ AND WORK THAT WAS DONE IS OWED FOR, whatever they have said since:
+ * pullCustomerFromSeason's own comment is the settled rule — "not coming back next
+ * year is not the same as not owing for last year." So `completed` is tested BEFORE
+ * the sitting-out branch, never after. Filtering on the RSVP alone would drop a house
+ * that genuinely owes, which is that rule pointing the other way.
+ *
+ * Mirrored by houseIsOnTheBill in admin.html. Change one, change the other, in the
+ * same push — money-parity runs the two side by side. */
+function houseIsOnTheBillServer(d) {
+  if (!d) return false;
+  const said = String(d.rsvpStatus || '').trim().toLowerCase();
+  if (said === 'no') return false;
+  if (d.completed === true) return true;
+  if (said === 'backnextyear' || d.maybeNextYear === true) return false;
+  return true;
+}
 async function billedHousesByIds(ids) {
   const wanted = (Array.isArray(ids) ? ids : []).filter(Boolean);
   if (!wanted.length) return [];
@@ -896,7 +931,7 @@ async function billedHousesByIds(ids) {
   snaps.forEach(function (s) {
     if (!s.exists) return;                       // deleted since the bill was built
     const d = s.data() || {};
-    if (String(d.rsvpStatus || '') === 'no') return;
+    if (!houseIsOnTheBillServer(d)) return;
     out.push(houseBillingRow(s.id, d));
   });
   return out;
@@ -905,7 +940,7 @@ async function billedHousesByKey(key, selfId, selfData) {
   const out = [];
   const seen = {};
   const add = function (id, d) {
-    if (seen[id] || String(d.rsvpStatus || '') === 'no') return;
+    if (seen[id] || !houseIsOnTheBillServer(d)) return;
     seen[id] = true;
     out.push(houseBillingRow(id, d));
   };
@@ -2959,33 +2994,6 @@ function computeInvoiceStatusServer(install, removal, deposit, credits, changeFe
 const LIGHT_CHANGE_FEE = 30;
 const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
-/* ⭐ IS THIS HOUSE BILLED FOR THIS SEASON? — the nightly run's copy.
- *
- * Owner, 2026-08-26, asked whether somebody who said Back Next Year should
- * still get an invoice for a season nobody works for them: no, take them off
- * the bill. They were already off the routes and out of the build queue; the
- * invoice was the one place they were still being charged.
- *
- * ⚠ ONE RULE, TWO COPIES — billedThisSeason in js/money.js is the office's,
- * and money-parity.test.js runs both over the same records and fails the build
- * the moment they disagree. The office screen and the bill the customer
- * actually receives must not have different opinions about who is charged.
- *
- * ⚠ BOTH HALVES OF BACK NEXT YEAR ARE NEEDED. portalRsvp writes the STATUS
- * alone while the office button also sets maybeNextYear, so reading one of them
- * misses everybody who answered through the RSVP link — the same trap
- * isOutForSeason was fixed for.
- */
-function billedThisSeasonServer(d) {
-  const dd = d || {};
-  const said = String(dd.rsvpStatus || '').trim().toLowerCase();
-  if (said === 'no') return false;
-  /* ⚠ SITTING OUT AND NEVER INSTALLED — see billedThisSeason in js/money.js.
-   * A house whose lights were hung and who then said Back Next Year owes for the
-   * work: the season they are sitting out is the next one. */
-  if ((said === 'backnextyear' || dd.maybeNextYear) && dd.completed !== true) return false;
-  return true;
-}
 function applyLightChangeServer(o) {
   const opts = o || {};
   const now = Number(opts.nowMs) || 0;
@@ -3104,10 +3112,10 @@ async function runInvoiceBatch(triggeredBy) {
 
     for (const [invoiceKey, houses] of payerGroups) {
       try {
-        /* Houses that are not doing this season are not billed for it — "no",
-           Back Next Year either way it was said, or the Maybe Next Year flag.
-           See billedThisSeasonServer. */
-        const active = houses.filter(function (h) { return billedThisSeasonServer(h.data); });
+        /* Who is on this bill at all — see houseIsOnTheBillServer. A house sitting
+           the season out is not one of the houses the hold below waits for, because
+           no crew is ever sent to it. */
+        const active = houses.filter(function (h) { return houseIsOnTheBillServer(h.data); });
         if (!active.length) continue;
 
         // Nothing to do unless at least one of them is waiting on its first bill.

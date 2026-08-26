@@ -2865,12 +2865,12 @@ check('flow', 'payer invoice resync never writes an email into the phone field',
 // zero active houses is not the same as a payer with zero houses at all.
 /* ⚠ REPOINTED 2026-08-26, NOT WEAKENED. This matched the literal expression
    `rsvpStatus||'') !== 'no'`, so it failed on correct code the moment the rule
-   moved into billedThisSeason — which also widened it to Back Next Year, on the
+   moved into houseIsOnTheBill — which also widened it to Back Next Year, on the
    owner's instruction. Pinned to what must be TRUE (the active list goes through
    the shared rule) rather than to how it happens to be spelled. Same slow-fuse
    shape as S82 and S129. The rule's own behaviour is swept in money-parity. */
 check('flow', 'payer invoice resync excludes houses that are not doing this season',
-  /const active = linked\.filter\([^;]*billedThisSeason/.test(syncPayer),
+  /const active = linked\.filter\([^;]*houseIsOnTheBill/.test(syncPayer),
   "a cancelled house's price would get resummed back onto the invoice on the next edit");
 check('flow', 'and it does not hand-roll that test beside the shared rule',
   !/rsvpStatus/.test(stripComments(syncPayer)),
@@ -2888,7 +2888,7 @@ check('flow', 'and it does not hand-roll that test beside the shared rule',
      moment it grows. */
   const batchSlice = batchStart > -1 ? stripComments(sectionFrom(fnsSrc, batchStart)) : '';
   check('flow', 'the nightly run asks the shared rule for who is billed',
-    /const active = houses\.filter\([^;]*billedThisSeasonServer/.test(batchSlice),
+    /const active = houses\.filter\([^;]*houseIsOnTheBillServer/.test(batchSlice),
     'the customer would be sent a bill for a season the office screen says they are out of');
   check('flow', 'and does not hand-roll it either',
     !!batchSlice && !/rsvpStatus/.test(batchSlice),
@@ -4448,6 +4448,25 @@ suite('10f. Portal sign-in reads, and multi-property customers');
     /async function billedHousesByKey/.test(fns),
     'portalLookup and portalInvoice both name the houses on a bill — two copies of that ' +
     'grouping drift, and then the list stops agreeing with the total printed under it');
+  /* ⭐ AND ALL FOUR READERS ASK THAT ONE PLACE (added 2026-08-26, Q-012). The rule
+     living in one function is worth nothing if the nightly batch still decides for
+     itself — and the batch is where it MATTERS, because that is what holds a bill
+     until every house on it is complete. Red-checking found exactly this hole: with
+     money-parity guarding the helper, reverting runInvoiceBatch's own filter to the
+     old inline `rsvpStatus !== 'no'` sailed straight through. */
+  check('multi-house', 'the nightly batch asks the shared rule, not its own filter',
+    /const active = houses\.filter\(function \(h\) \{ return houseIsOnTheBillServer\(h\.data\); \}\);/.test(fns) &&
+    !/houses\.filter\(function \(h\) \{ return String\(h\.data\.rsvpStatus \|\| ''\) !== 'no'; \}\)/.test(fns),
+    'this filter decides who the hold waits for; a house sitting the season out is ' +
+    'never completed, so counting it holds the whole household\'s bill for ever');
+  check('multi-house', 'and so do both of the house-naming helpers',
+    (fns.match(/houseIsOnTheBillServer\(/g) || []).length >= 4,
+    'found ' + (fns.match(/houseIsOnTheBillServer\(/g) || []).length + ' — one declaration ' +
+    'plus billedHousesByIds, billedHousesByKey and runInvoiceBatch');
+  check('multi-house', 'and the office screen asks its own copy of the same rule',
+    /if\(!houseIsOnTheBill\(d\)\) return;/.test(admin),
+    'billingGroupsByPayer is what Who Pays for Whom draws from — if it and the server ' +
+    'disagree, the office cannot see who is actually being billed');
   check('multi-house', 'portalLookup returns every house on the bill',
     /houses = await billedHousesByKey\(billKey, match\.id, match\.data\)/.test(fns),
     'the portal stopped at the first match and the rest were invisible');
@@ -4491,7 +4510,13 @@ suite('10f. Portal sign-in reads, and multi-property customers');
         h1: { name: 'Dana Pratt', address: '1 Elm', housePrice: 400, phone: '8015550111' },
         h2: { name: 'Kyle Pratt', address: '2 Oak', housePrice: 350, billToPhone: '8015550111' },
         h3: { name: 'Sam Pratt', address: '3 Ash', housePrice: 300, billToPhone: '8015550111', rsvpStatus: 'no' },
-        h4: { name: 'Rae Downs', address: '4 Fir', housePrice: 500, billToPhone: '8015559999' }
+        h4: { name: 'Rae Downs', address: '4 Fir', housePrice: 500, billToPhone: '8015559999' },
+        /* Q-012's two cases, and they must come out opposite ways round. Added to
+           this book rather than Suite 69's, which several checks count and total. */
+        h7: { name: 'Pat Pratt', address: '7 Yew', housePrice: 275, billToPhone: '8015550111',
+              rsvpStatus: 'backnextyear', maybeNextYear: true },
+        h8: { name: 'Wes Pratt', address: '8 Bay', housePrice: 325, billToPhone: '8015550111',
+              rsvpStatus: 'backnextyear', maybeNextYear: true, completed: true }
       };
       const fakeDb = {
         getAll: async (...refs) => refs.map(r => ({
@@ -4510,8 +4535,13 @@ suite('10f. Portal sign-in reads, and multi-property customers');
         })
       };
       const bh = {};
+      /* ⭐ houseIsOnTheBillServer, LIFTED (2026-08-26, Q-012) — it is what decides
+         which houses these two name, so a stub would answer the question under test
+         with itself. Its browser twin is proved identical by money-parity. */
+      const onBillSrc = extractFn(fns, 'houseIsOnTheBillServer');
+      check('multi-house', 'the who-is-on-the-bill rule was found to lift', !!onBillSrc);
       new Function('db',
-        rowSrc + '\n' + 'async ' + byIdsSrc + '\n' + 'async ' + byKeySrc + '\n' +
+        (onBillSrc || '') + '\n' + rowSrc + '\n' + 'async ' + byIdsSrc + '\n' + 'async ' + byKeySrc + '\n' +
         'this.byIds = billedHousesByIds; this.byKey = billedHousesByKey;'
       ).call(bh, fakeDb);
 
@@ -4532,10 +4562,36 @@ suite('10f. Portal sign-in reads, and multi-property customers');
           '"who exactly am I paying for" is the question, and a street on its own does not ' +
           'answer it for a parent paying for two children');
 
+        /* ⭐ THE RULING, RUN (added 2026-08-26, Q-012). Addie: "After the last
+           persons house is done if there are multiple people on one bill is when
+           they will be charged." The timing was already right; WHO counted was not.
+           A house that had answered Back Next Year was still one of the houses the
+           nightly hold waited for — and answering that pulls them off every upcoming
+           route, so no crew visits and it can never be completed. The household's
+           whole bill was held open all season and nobody was billed for the work
+           that WAS done. */
+        const sittingOut = await bh.byIds(['h1', 'h7']);
+        check('multi-house', 'a house sitting the season out is not named on the bill',
+          !sittingOut.some(h => h.name === 'Pat Pratt'),
+          'no lights went up there, so there is nothing to charge for');
+        check('multi-house', 'and the house that WAS done is still on it',
+          sittingOut.some(h => h.name === 'Dana Pratt'),
+          'if the sitting-out house were still counted, the hold would never lift and ' +
+          'this bill would never go out at all');
+        const lateNo = await bh.byIds(['h8']);
+        check('multi-house', 'a house hung BEFORE it said back-next-year still owes',
+          lateNo.length === 1 && lateNo[0].name === 'Wes Pratt',
+          'pullCustomerFromSeason: "not coming back next year is not the same as not ' +
+          'owing for last year" — filtering on the RSVP alone would drop a real debt');
+
         const byKey = await bh.byKey('8015550111', 'h1', book.h1);
+        /* ⚠ h8 JOINED THIS EXPECTATION 2026-08-26 and that is the ruling, not drift:
+           it was hung and only afterwards said back-next-year, so the work is owed
+           for. h7 said it BEFORE any crew went, so there is nothing to charge. */
         check('multi-house', 'the fallback finds the payer AND everyone billed to them',
-          byKey.map(h => h.id).sort().join('|') === 'h1|h2',
-          'h3 said no; h4 is billed to somebody else');
+          byKey.map(h => h.id).sort().join('|') === 'h1|h2|h8',
+          'h3 said no; h4 is billed to somebody else; h7 is sitting the season out ' +
+          'and was never worked on; h8 was hung before it answered, so it owes');
         check('multi-house', 'and it never reaches into another payer’s group',
           !byKey.some(h => h.id === 'h4'),
           'a bill must only ever name its own houses');
@@ -5247,12 +5303,12 @@ suite('13. Season prep — crew portal (§4)');
   // payerHouseOf comes along because syncPayerInvoice calls it: the rule about whose
   // name goes on a shared bill lives in one place now, and running the function
   // without it is running something that is not what ships.
-  /* ⚠ AND billedThisSeason, which syncPayerInvoice asks to decide who is on the
+  /* ⚠ AND houseIsOnTheBill, which syncPayerInvoice asks to decide who is on the
      bill this season. LIFTED OUT OF js/money.js, never stubbed: a stub would keep
      this suite green through a change to who gets charged, which is the one thing
      it exists to protect. money-parity sweeps it against the nightly run's copy. */
   const src = extractFn(admin, 'payerHouseOf') + '\n' +
-    extractFn(read('js/money.js'), 'billedThisSeason') + '\n' +
+    extractFn(admin, 'houseIsOnTheBill') + '\n' +
     admin.slice(start, admin.indexOf('\n}', start) + 2);
 
   // A tiny fake Firestore. Every call records what it was asked for; setDoc
@@ -19619,7 +19675,12 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
 suite('Suite 69. Who pays for whom');
 
 {
-  const billingSrc = ['billingGroupsByPayer', 'billedHousesFor', 'payerHouseOf', 'billingGroupPayer',
+  /* ⭐ houseIsOnTheBill JOINED THIS LIST 2026-08-26, in the same commit that made
+     billingGroupsByPayer call it — the extraction-list trap CLAUDE.md describes,
+     hit again and caught again by the sandbox guard rather than shipping. LIFTED,
+     not stubbed: it decides who appears on the Who Pays for Whom screen, and a
+     stub would agree with itself about exactly that. */
+  const billingSrc = ['houseIsOnTheBill', 'billingGroupsByPayer', 'billedHousesFor', 'payerHouseOf', 'billingGroupPayer',
                       'billedHousesForContact', 'billedHousesRows', 'billedHousesEmailBlock',
                       'billedHousesPlainText', 'rsvpTemplateHasHouses',
                       'billingGroupRows', 'billingGroupMatches', 'renderBillingGroups']
@@ -19648,7 +19709,7 @@ suite('Suite 69. Who pays for whom');
          asks it, and a stub would keep this suite green through a change to who
          appears on somebody's bill. Its own behaviour is swept in money-parity
          against the nightly run's copy. */
-      extractFn(read('js/money.js'), 'billedThisSeason') + '\n' +
+      extractFn(admin, 'houseIsOnTheBill') + '\n' +
       'let billingGroupSearchTerm = "";\n' +
       billingSrc.join('\n') + '\n' +
       'this.groups = billingGroupsByPayer; this.forCust = billedHousesFor;' +
@@ -19767,7 +19828,7 @@ suite('Suite 69. Who pays for whom');
 if (!JSDOM) {
   note('jsdom not installed — skipping the Who Pays for Whom render run');
 } else {
-  const renderSrc = ['billingGroupsByPayer', 'payerHouseOf', 'billingGroupPayer', 'billingGroupRows',
+  const renderSrc = ['houseIsOnTheBill', 'billingGroupsByPayer', 'payerHouseOf', 'billingGroupPayer', 'billingGroupRows',
                      'billingGroupMatches', 'renderBillingGroups'].map(n => extractFn(admin, n));
   if (!renderSrc.every(Boolean)) {
     check('who-pays', 'the Who Pays for Whom renderer is findable', false,
@@ -19784,7 +19845,7 @@ if (!JSDOM) {
       /* The real who-is-billed rule, lifted — billingGroupsByPayer asks it, and
          a stub would keep this render green through a change to who appears on
          a bill. Same reason it is lifted into the logic harness above. */
-      extractFn(read('js/money.js'), 'billedThisSeason') + '\n' +
+      extractFn(admin, 'houseIsOnTheBill') + '\n' +
       'let billingGroupSearchTerm = "";\n' + renderSrc.join('\n') +
       '\nreturn function(term){ billingGroupSearchTerm = term || ""; renderBillingGroups();' +
       ' return { list: document.getElementById("billingGroupList"),' +
@@ -42049,7 +42110,7 @@ if (!JSDOM) {
     const code = [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc, statusClassSrc,
       /* billedHousesFor asks billingGroupsByPayer asks this. Lifted, not
          stubbed: who is on a bill is the whole subject of this suite. */
-      extractFn(read('js/money.js'), 'billedThisSeason'),
+      extractFn(admin, 'houseIsOnTheBill'),
       'let jobAddresses = [];', 'let editCustomerId = null;', 'let requoteBeingConverted = null;',
       'let invoiceById = new Map();', 'let editCustDirtySnapshot = "";',
       'function fmtMoney(n){ return "$" + Number(n||0).toFixed(2); }',
@@ -42284,7 +42345,7 @@ if (!JSDOM) {
         const asked = [];
         const live = new Function('document', 'window', 'confirm', 'openEditCustomerModal',
           [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc, statusClassSrc,
-            extractFn(read('js/money.js'), 'billedThisSeason'),
+            extractFn(admin, 'houseIsOnTheBill'),
             'let jobAddresses = [];', 'let editCustomerId = null;',
             'let requoteBeingConverted = null;', 'let invoiceById = new Map();',
             'let editCustDirtySnapshot = "";', 'let invoiceSearchTerm = "";',

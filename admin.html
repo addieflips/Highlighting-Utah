@@ -4967,7 +4967,7 @@
 <script type="module">
 import {
   CN_DOUBLE_BIN_FEET, cnBinsForFeet, fmtMoney,
-  computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey, billedThisSeason,
+  computeInvoiceStatus, statusClass, enrollmentYearOf, custInvoiceKey,
   /* The colour-change rule. The SAME rule the portal runs — functions/index.js
      carries applyLightChangeServer and money-parity.test.js fails the build if
      the two ever disagree. The office changing somebody's colours on the phone
@@ -12912,7 +12912,7 @@ function getLiveInvoiceStatus(who){
      the office can see it and act on it.
 
      ⚠ THE OTHER TWO CASES SHE NAMED ARE HANDLED ELSEWHERE, not here: somebody who
-     said no or Back Next Year is not billed at all (billedThisSeason), and a house
+     said no or Back Next Year is not billed at all (houseIsOnTheBill), and a house
      that had already paid carries its money across as a credit (paidBeforeBillTo).
      This function only answers what the bill says. */
   const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
@@ -13080,11 +13080,54 @@ function audienceBillingGroup(d){
    ⚠ A house that RSVP'd 'no' is not billed this season, so it is not in the
    group — the same rule syncPayerInvoice and runInvoiceBatch apply to the
    total. Naming a house the money does not include is the bug this prevents. */
+/* ⭐ IS THIS HOUSE ON THE BILL — ONE RULE (added 2026-08-26, Q-012).
+   Addie, 2026-08-26: "After the last persons house is done if there are multiple
+   people on one bill is when they will be charged."
+
+   ⚠ THE TIMING WAS ALREADY RIGHT; WHO COUNTS WAS NOT. The nightly run holds a
+   multi-house bill until every house on it is complete — exactly her rule. But the
+   group it waited on dropped only a flat "no", so a house that had answered BACK
+   NEXT YEAR still counted as one to wait for, and answering that pulls them off
+   every upcoming route, so no crew ever visits and it can never be completed. The
+   household's whole bill was held open all season and nobody was charged for the
+   work that WAS done. "The last person's house is done" has to mean the last house
+   actually getting lights, or her rule can never fire for that household.
+
+   ⚠ A FLAT "NO" IS UNCHANGED. It has always come off the bill outright and is not
+   what was asked about; the one asymmetry that leaves (completed and THEN "no") is
+   written down in docs/open-questions.md rather than changed on the way past.
+
+   ⚠ WORK THAT WAS DONE IS OWED FOR, whatever they have said since — the settled
+   rule in pullCustomerFromSeason, "not coming back next year is not the same as not
+   owing for last year". So `completed` is tested BEFORE the sitting-out branch.
+
+   ⚠ THIS IS NOT isOutForSeason. That one governs routes, the build queue, the
+   recycle queue and the schedule, and it has no idea whether work was done. Reusing
+   it here would drop a house that was hung and later said no — which is the settled
+   rule above pointing the other way. Two questions, two rules, on purpose.
+   ⚠ AND IT WOULD GET WORSE, NOT BETTER, ON ITS OWN. isOutForSeason also returns
+   true for needsLightRecycle — a warehouse state, not a decision about money — and
+   once SEASON_ELIGIBILITY is flipped to 'confirmed-only' it returns true for every
+   customer who has not personally answered yes. Billing off that switch would take
+   the WHOLE BOOK off its invoices the day it is flipped, silently. (Folded in from
+   the billing-groups branch's own copy of this rule, 2026-08-26, when the two were
+   collapsed into one — see docs/open-questions.md Q-012.)
+
+   Mirrored by houseIsOnTheBillServer in functions/index.js — change one, change the
+   other, in the same push. money-parity runs the two side by side. */
+function houseIsOnTheBill(d){
+  if(!d) return false;
+  const said = String(d.rsvpStatus || '').trim().toLowerCase();
+  if(said === 'no') return false;
+  if(d.completed === true) return true;
+  if(said === 'backnextyear' || d.maybeNextYear === true) return false;
+  return true;
+}
 function billingGroupsByPayer(){
   const groups = new Map();
   (jobAddresses||[]).forEach(function(a){
     const d = a.data || {};
-    if(!billedThisSeason(d)) return;
+    if(!houseIsOnTheBill(d)) return;
     const key = String(d.billToPhone||'').replace(/\D/g,'') || custInvoiceKey(d);
     if(!key) return;
     if(!groups.has(key)) groups.set(key, []);
@@ -26250,7 +26293,7 @@ async function syncPayerInvoice(payerKey){
   /* A house that RSVP'd 'no' is not billed this season (see runInvoiceBatch in
      functions/index.js) — summing it back in here would silently undo that the
      next time an admin edit resyncs this invoice. */
-  const active = linked.filter(h => billedThisSeason(h.data));
+  const active = linked.filter(h => houseIsOnTheBill(h.data));
   if(linked.length && !active.length){
     /* Every linked house sat out this season. That is not the same as the
        payer having no houses at all (the case the guard above protects) — the

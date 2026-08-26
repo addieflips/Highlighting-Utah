@@ -139,8 +139,6 @@ function extractConst(src, name) {
   const m = re.exec(src);
   return m ? ('const ' + name + ' = ' + m[1] + ';') : null;
 }
-const clientBilledSrc = extractFn(moneySrc, 'billedThisSeason');
-const serverBilledSrc = extractFn(fnsSrc, 'billedThisSeasonServer');
 const clientLightSrc = extractFn(moneySrc, 'applyLightChange');
 const serverLightSrc = extractFn(fnsSrc, 'applyLightChangeServer');
 /* Extracted rather than stubbed, on the same principle as centsOf above: if
@@ -160,8 +158,6 @@ const found = {
   'functions/index.js digitsOnly': digitsOnlySrc,
   'js/money.js centsOf': clientCentsSrc,
   'functions/index.js centsOf': serverCentsSrc,
-  'js/money.js billedThisSeason': clientBilledSrc,
-  'functions/index.js billedThisSeasonServer': serverBilledSrc,
   'js/money.js applyLightChange': clientLightSrc,
   'functions/index.js applyLightChangeServer': serverLightSrc,
   'js/money.js LIGHT_CHANGE_FEE': clientFeeSrc,
@@ -189,8 +185,6 @@ const clientStatus = compile([clientCentsSrc, clientStatusSrc], 'computeInvoiceS
 const serverStatus = compile([serverCentsSrc, serverStatusSrc], 'computeInvoiceStatusServer');
 const clientKey = compile([clientKeySrc], 'custInvoiceKey');
 const serverKey = compile([digitsOnlySrc, serverKeySrc], 'invoiceKeyFor');
-const clientBilled = compile([clientBilledSrc], 'billedThisSeason');
-const serverBilled = compile([serverBilledSrc], 'billedThisSeasonServer');
 const clientLight = compile([clientFeeSrc, clientWinSrc, clientLightSrc], 'applyLightChange');
 const serverLight = compile([serverFeeSrc, serverWinSrc, serverLightSrc], 'applyLightChangeServer');
 
@@ -713,75 +707,102 @@ check('the portal balance is cent-rounded the way the office copy is',
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// 6. Who is billed for this season — the office copy vs the nightly run's.
+// WHO IS ON THE BILL — the two copies must agree (added 2026-08-26, Q-012).
 //
-// Owner, 2026-08-26: somebody who said Back Next Year is off the routes and out
-// of the build queue, so take them off the bill too. Both copies decide that,
-// and a disagreement means the office screen shows a total the customer's
-// actual invoice does not.
+// Addie, 2026-08-26: "After the last persons house is done if there are multiple
+// people on one bill is when they will be charged." The nightly run holds a
+// multi-house bill until every house on it is complete, so WHO is counted decides
+// whether that bill ever goes out at all. Before this, a house that had answered
+// Back Next Year was still counted as one to wait for — and answering that pulls
+// them off every upcoming route, so it can never be completed and the whole
+// household's bill was held open for the season.
 //
-// Every shape a real record comes in, including the two ways Back Next Year is
-// recorded: portalRsvp writes the STATUS alone, the office button also sets the
-// flag. A copy reading only one of them misses half those customers.
+// This is money in exactly the way computeInvoiceStatus is: the browser decides
+// what the office sees on the Who Pays for Whom screen, the server decides who is
+// actually billed. Two copies that disagree bill somebody the office cannot see.
 // ---------------------------------------------------------------------------
-const SEASON_RECORDS = [
-  {}, {rsvpStatus: ''}, {rsvpStatus: 'yes'}, {rsvpStatus: 'Yes'},
-  {rsvpStatus: 'unanswered'}, {rsvpStatus: 'no'}, {rsvpStatus: 'NO'},
-  {rsvpStatus: ' no '}, {rsvpStatus: 'backnextyear'}, {rsvpStatus: 'BackNextYear'},
-  {rsvpStatus: ' backnextyear '}, {maybeNextYear: true}, {maybeNextYear: false},
-  {rsvpStatus: 'yes', maybeNextYear: true}, {rsvpStatus: 'backnextyear', maybeNextYear: true},
-  {rsvpStatus: 'no', maybeNextYear: false}, {rsvpStatus: null}, {rsvpStatus: undefined},
-  {rsvpStatus: 'maybe'}, {rsvpStatus: 'cancelled'}, null, undefined,
-  /* ⚠ THE COMPLETED AXIS. Without these the sweep cannot see the two copies
-     disagreeing about a house that was installed and then sat out. */
-  {rsvpStatus: 'backnextyear', completed: true}, {maybeNextYear: true, completed: true},
-  {rsvpStatus: 'backnextyear', completed: false}, {maybeNextYear: true, completed: false},
-  {rsvpStatus: 'no', completed: true}, {completed: true}, {rsvpStatus: 'yes', completed: true}
-];
-let billedMismatch = 0, billedFirst = '';
-SEASON_RECORDS.forEach(function (r) {
-  const c = clientBilled(r), sv = serverBilled(r);
-  if (c !== sv) {
-    billedMismatch++;
-    if (!billedFirst) billedFirst = JSON.stringify(r) + ' -> office ' + c + ', nightly ' + sv;
+{
+  const clientBillSrc = extractFn(adminSrc, 'houseIsOnTheBill');
+  const serverBillSrc = extractFn(fnsSrc, 'houseIsOnTheBillServer');
+  check('houseIsOnTheBill found in admin.html', !!clientBillSrc,
+    'renamed or removed — a missing copy must FAIL, never skip');
+  check('houseIsOnTheBillServer found in functions/index.js', !!serverBillSrc,
+    'renamed or removed — a missing copy must FAIL, never skip');
+
+  if (clientBillSrc && serverBillSrc) {
+    const onBill = compile([clientBillSrc], 'houseIsOnTheBill');
+    const onBillServer = compile([serverBillSrc], 'houseIsOnTheBillServer');
+
+    // Every combination that can reach either copy, not a hand-picked few.
+    /* The extra spellings are folded in from the billing-groups branch's own sweep,
+       when the two copies of this rule were collapsed into one (2026-08-26).
+       ⚠ AND NONE OF THEM CATCHES ANYTHING THE LIST ALREADY CAUGHT — measured, not
+       assumed: dropping ' backnextyear ' and then removing .trim() from a copy still
+       FAILS, because '  no  ' was already here and the trim is shared by every
+       branch. 'maybe' and 'cancelled' are covered the same way by 'unanswered'.
+       They are kept as symmetry insurance for the day a branch grows its own
+       normalisation, which is worth four array entries and is NOT the same claim as
+       "these find a bug today". Said plainly so nobody reads this list as proof of
+       coverage it does not give. */
+    const STATES = ['', 'yes', 'no', 'NO', 'backnextyear', 'unanswered', 'YES',
+                    'BackNextYear', '  no  ', ' backnextyear ', 'maybe', 'cancelled'];
+    const DONE = [true, false, undefined, null, 'true', 1, 0];
+    const MAYBE = [true, false, undefined, null];
+    let compared = 0, disagreed = 0, firstBad = null;
+    STATES.forEach(function (rsvpStatus) {
+      DONE.forEach(function (completed) {
+        MAYBE.forEach(function (maybeNextYear) {
+          const d = { rsvpStatus: rsvpStatus, completed: completed, maybeNextYear: maybeNextYear };
+          const a = onBill(d), b = onBillServer(d);
+          compared++;
+          if (a !== b && !firstBad) { firstBad = JSON.stringify(d) + ' → browser ' + a + ', server ' + b; }
+          if (a !== b) disagreed++;
+        });
+      });
+    });
+    // Null and undefined reach these too — portalInvoice hands over whatever it read.
+    [null, undefined, {}].forEach(function (d) {
+      compared++;
+      if (onBill(d) !== onBillServer(d) && !firstBad) firstBad = String(d) + ' disagrees';
+      if (onBill(d) !== onBillServer(d)) disagreed++;
+    });
+    check('the browser and the server agree about who is on a bill (' + compared + ' cases)',
+      disagreed === 0, firstBad || '');
+
+    // And the answers are RIGHT, not merely equal — two copies wrong the same way
+    // agree perfectly. These are the four cases the ruling actually turns on.
+    check('a house sitting the season out, never worked on, is NOT waited for',
+      onBill({ rsvpStatus: 'backnextyear', completed: false }) === false &&
+      onBillServer({ rsvpStatus: 'backnextyear', completed: false }) === false,
+      'this is Q-012: counting it held the whole household\'s bill open all season');
+    check('and the office Maybe Next Year toggle counts the same',
+      onBill({ maybeNextYear: true, completed: false }) === false &&
+      onBillServer({ maybeNextYear: true, completed: false }) === false,
+      'it sets the same two fields as the customer answering through the link');
+    check('but a house that WAS worked on still owes, whatever it said afterwards',
+      onBill({ rsvpStatus: 'backnextyear', completed: true }) === true &&
+      onBillServer({ rsvpStatus: 'backnextyear', completed: true }) === true,
+      'pullCustomerFromSeason: "not coming back next year is not the same as not ' +
+      'owing for last year" — filtering on the RSVP alone would drop a house that owes');
+    check('an ordinary house waiting on the crew is still waited for',
+      onBill({ rsvpStatus: 'yes', completed: false }) === true &&
+      onBillServer({ rsvpStatus: 'yes', completed: false }) === true,
+      'her rule is that the bill goes after the LAST house is done — this is what ' +
+      'makes it wait at all');
+    check('a flat "no" is unchanged, and still comes off the bill outright',
+      onBill({ rsvpStatus: 'no', completed: false }) === false &&
+      onBillServer({ rsvpStatus: 'no', completed: false }) === false,
+      'not what was asked about; changing it would have widened the ruling');
+    /* ⚠ AND A FLAT "no" IS OUT WHETHER OR NOT IT WAS INSTALLED — the `completed`
+       early return must not rescue it. The cross product above proves the two copies
+       AGREE about that case; this proves the answer is right. Folded in from the
+       billing-groups branch's sweep, 2026-08-26. */
+    check('and a flat "no" stays out even on a house that was installed',
+      onBill({ rsvpStatus: 'no', completed: true }) === false &&
+      onBillServer({ rsvpStatus: 'no', completed: true }) === false,
+      'the completed branch must not reopen a path that was already settled');
   }
-});
-check('both copies agree who is billed this season, over every record shape',
-  billedMismatch === 0,
-  billedMismatch + ' disagreed, first: ' + billedFirst +
-  ' — the office would show a total the customer\'s real invoice does not.');
-
-/* ⚠ AND THAT THEY ARE RIGHT, NOT MERELY EQUAL. Two copies wrong in the same way
-   agree perfectly, which is the one thing a parity sweep cannot see on its own. */
-check('an ordinary customer is billed',
-  clientBilled({rsvpStatus: 'yes'}) === true && clientBilled({}) === true,
-  'nobody would be invoiced at all');
-check('a no is not billed',
-  clientBilled({rsvpStatus: 'no'}) === false, 'they said no');
-check('Back Next Year is not billed, said either way',
-  clientBilled({rsvpStatus: 'backnextyear'}) === false &&
-  clientBilled({maybeNextYear: true}) === false,
-  'portalRsvp writes the status alone; the office button also sets the flag');
-
-/* ⚠ BUT ONLY IF THE WORK WAS NEVER DONE. A house whose lights WERE hung and who
-   THEN said Back Next Year owes for them — the season they are sitting out is the
-   NEXT one. Filtering on the answer alone writes off work already delivered, which
-   is the settled rule pointing the other way (pullCustomerFromSeason: "not coming
-   back next year is not the same as not owing for last year"). Raised on main as
-   Q-012b and corrected here on the merge. */
-check('a house that WAS installed and then said Back Next Year still owes',
-  clientBilled({rsvpStatus: 'backnextyear', completed: true}) === true &&
-  clientBilled({maybeNextYear: true, completed: true}) === true,
-  'their lights went up — writing that off is the settled rule pointing the other way');
-check('and the nightly run agrees about that house',
-  serverBilled({rsvpStatus: 'backnextyear', completed: true}) === true &&
-  serverBilled({maybeNextYear: true, completed: true}) === true,
-  'the office would show a total the customer never gets asked for');
-/* A flat "no" is unchanged: that path is settled and is not reopened here. */
-check('a flat no is still out whether or not it was installed',
-  clientBilled({rsvpStatus: 'no'}) === false &&
-  clientBilled({rsvpStatus: 'no', completed: true}) === false,
-  'pre-existing behaviour, deliberately untouched by the Back Next Year work');
+}
 
 // ---------------------------------------------------------------------------
 failures.forEach(f => console.log('  FAIL  ' + f + '\n'));

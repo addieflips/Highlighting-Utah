@@ -790,7 +790,7 @@ Suite 44.
 **Map rows (added 2026-08-26):** `SCH-23, SCH-24` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 ---
 
-## Q-012 · intent · OPEN · raised 2026-08-26
+## Q-012 · intent · ANSWERED · raised and answered 2026-08-26
 When one house on a shared bill sits the season out, what happens to the rest of
 that household's bill?
 
@@ -893,57 +893,105 @@ drift apart again.
 
 ---
 
-### ⚠ UPDATE ON THE MERGE, 2026-08-26 — Q-012a is answered, b and c are not
+### ⭐ ANSWERED 2026-08-26
 
-The billing-groups branch put the same question to her from the other side and she
-answered it: **"No — take them off the bill"** (Q-021, **MON-17**). That is option
-**A** above, and it is now built — `billedThisSeason` / `billedThisSeasonServer`,
-one rule read by `runInvoiceBatch`, `syncPayerInvoice` and `billingGroupsByPayer`,
-which is exactly the "one shared rule" this entry asked for.
+**Addie:** *"After the last persons house is done if there are multiple people on one
+bill is when they will be charged."*
 
-**This entry stays OPEN**, because two of its three parts are still assumptions:
+**The timing rule was already right; who counted was not.** `runInvoiceBatch` already
+holds a multi-house bill until every house on it is `completed` — exactly what she
+describes. What was wrong is that the group it waited on dropped only a flat `'no'`.
 
-- **Q-012b** — *"sitting out AND never completed", never "sitting out"*. Built as
-  stated on this branch: both copies end `&& dd.completed !== true`, and
-  `money-parity.test.js` sweeps a completed axis over them. ⭐ **CONFIRMED by her own
-  words in the other session** — *"After the last persons house is done if there are
-  multiple people on one bill is when they will be charged"* — and PR #140 implements
-  the same ordering, testing `completed` **before** the sitting-out branch. Two
-  sessions reached the identical rule from opposite sides, which is the strongest
-  evidence available that it is the right one.
-- **Q-012c** — the office's own Maybe Next Year toggle counts the same as the
-  customer answering through the link. Built that way on both branches
-  (`maybeNextYear` is one of the ways out). Never stated in words, but no longer a
-  lone assumption.
+⚠ **The one thing her sentence does not say outright, and the only workable reading.**
+"The last person's house is done" has to mean *the last house actually getting lights*.
+A house sitting the season out is pulled off every upcoming route the moment they
+answer, so no crew is ever sent and it can never be completed. If it counted as one of
+the houses to wait for, her rule could never fire for that household and she would
+never be paid at all. There is no reading in which a house nobody is visiting is one
+we wait on. Stated to her before building, not assumed silently.
 
-### ⚠ ONE RULE, TWO NAMES — this must not merge as it stands
+⚠ **AND WORK THAT WAS DONE IS OWED FOR** — already settled, not re-decided here.
+`pullCustomerFromSeason`'s own comment: *"not coming back next year is not the same as
+not owing for last year."* So `completed` is tested BEFORE the sitting-out branch. The
+exclusion is **"sitting out AND never worked on"**, never just "sitting out" —
+filtering on the RSVP alone would drop a house that genuinely owes.
 
-Both branches wrote the rule, and they are **semantically identical**:
+⚠ **A FLAT `'no'` IS DELIBERATELY UNCHANGED.** It has always come off the bill outright,
+and that is not what was asked about. See Q-013 below for the asymmetry that leaves.
 
-| | this branch | PR #140 |
+**What was built.** `houseIsOnTheBill` (admin.html) and `houseIsOnTheBillServer`
+(functions/index.js) — one rule, two copies, run side by side over every combination by
+`money-parity.test.js`, exactly as `applyLightChange` is. All four readers call it:
+`runInvoiceBatch`, `billedHousesByIds`, `billedHousesByKey`, `billingGroupsByPayer`.
+⚠ It is **not** `isOutForSeason` — that governs routes, the build queue, the recycle
+queue and the schedule and knows nothing about whether work was done. Two questions,
+two rules, on purpose.
+
+⚠ Red-checking found a hole worth recording: with money-parity guarding the helper,
+reverting `runInvoiceBatch`'s own filter to the old inline test sailed straight through.
+A rule in one place is worth nothing unless something asserts the callers ask it.
+
+**Resulting map change:** `MON-15` in `claude/questions-map.md`. R-023.
+
+---
+
+## Q-013 · intent · OPEN · raised 2026-08-26
+A house that was hung and THEN answered a flat "no" — does it still owe?
+
+Q-012 settled this for **back next year**: work that was done is owed for. A flat
+`'no'` was left exactly as it was, because changing it was not what was asked and
+widening a money ruling on my own is not on.
+
+That leaves one asymmetry standing: a house completed and then answering `'no'` is
+still dropped from the bill entirely, so the work is never charged for. By the same
+reasoning Addie already applied to back-next-year it probably should be charged — but
+*probably* is not a ruling on a money path.
+
+⚠ Likely rare: RSVP normally happens before the season, so a house is not usually hung
+first. Rare is not never, and it is silent when it happens.
+
+**The question:** somebody's lights went up, and afterwards they said no for the season.
+Do they get a bill for the work already done?
+
+One line in `houseIsOnTheBill` / `houseIsOnTheBillServer` either way.
+### ⚠ AND THE SAME RULE WAS WRITTEN TWICE — folded into one on the merge, 2026-08-26
+
+The billing-groups branch reached the identical rule from the other side, in the same
+hours, and gave it a different name. Both were built, both were red-checked, both had a
+completed axis in `money-parity.test.js`:
+
+| | PR #140 (this entry) | the billing-groups branch |
 |---|---|---|
-| browser copy | `billedThisSeason` in **js/money.js** | `houseIsOnTheBill` in **admin.html** |
-| server copy | `billedThisSeasonServer` | `houseIsOnTheBillServer` |
+| browser copy | `houseIsOnTheBill` in **admin.html** | `billedThisSeason` in **js/money.js** |
+| server copy | `houseIsOnTheBillServer` | `billedThisSeasonServer` |
 | `'no'` | out | out |
-| `completed === true` | in (the `&& completed !== true` tail) | in (an early return) |
+| `completed === true` | in (an early return) | in (a `&& completed !== true` tail) |
 | backnextyear / maybeNextYear | out | out |
-| parity sweep | completed axis | completed axis |
 
-⚠ **Whichever merges second folds into the first — it does not sit beside it.**
-CLAUDE.md says it in as many words about this exact rule: *"a rule about who gets
-billed cannot have two implementations."* Two names would be found by two different
-sets of callers and would drift the first time either is changed.
+⭐ **`houseIsOnTheBill` survived and `billedThisSeason` was deleted.** Not because it is
+better placed — `js/money.js` is arguably the righter home for a money rule — but
+because it was already on `main`, already had four callers, and already carried nine
+red-checked sabotages. Moving a freshly-proved rule for a placement nicety spends that
+proof for nothing.
 
-**Recommended resolution, so it is decided rather than raced:** keep **one** name and
-put it in **js/money.js**, which is the file `money-parity.test.js` and the whole
-money story already point at, and where a rule read by the office, the nightly run
-and the group list belongs. The name matters less than the count; `houseIsOnTheBill`
-reads better at the call sites and is the one already reviewed on an open PR.
+⚠ **NOTHING WAS LOST IN THE FOLD, and this is the part worth checking if it is ever
+touched again.** Three things travelled across from the deleted copy:
 
-⚠ **The nightly summary still does not separate a held bill from a waiting one.**
-That was listed above as "doing regardless of the answer" and it has not been done —
-under A it matters less, but a bill that can never send is still counted in the same
-word as one the crew simply has not reached.
+- the **`SEASON_ELIGIBILITY`** argument, into `houseIsOnTheBill`'s comment — `isOutForSeason`
+  also returns true for `needsLightRecycle`, and once that switch is flipped to
+  `'confirmed-only'` it returns true for everybody who has not personally answered yes,
+  so billing off it would empty the whole book's invoices in one day;
+- four record shapes into the parity sweep's `STATES`. ⚠ **Measured afterwards, and
+  none of them catches anything the existing list did not** — dropping
+  `' backnextyear '` and then removing `.trim()` from a copy still fails, because
+  `'  no  '` was already there and the trim is shared by every branch. They are kept
+  as symmetry insurance, not as coverage, and the comment in the file says so;
+- one correctness check: **a flat `'no'` stays out even on a house that was installed**,
+  so the `completed` early return cannot reopen a path that was already settled.
+
+⚠ **Q-012c is no longer a lone assumption.** Both branches independently treated the
+office's own Maybe Next Year toggle as counting the same as the customer answering
+through the link. Still never stated in words, but two independent readings agreed.
 
 ---
 
@@ -999,11 +1047,11 @@ visible and avoidable rather than silent.
 
 ⚠ **The other two conditions she named are handled elsewhere, not here.**
 Somebody who said no or Back Next Year is not billed at all (Q-021,
-`billedThisSeason`); a house that had already paid carries its money across as a
+`houseIsOnTheBill`); a house that had already paid carries its money across as a
 credit (Q-020, `paidBeforeBillTo`). This function only reports what the bill
 says.
 
-**Resulting map change:** **MON-15**. `getLiveInvoiceStatus` answers "what does the bill this
+**Resulting map change:** **MON-16**. `getLiveInvoiceStatus` answers "what does the bill this
 house is on say", not "what does this house's own invoice say". `allCustInvoiceFor`
 still answers the second — the Edit Customer save needs it to find and zero a
 leftover — and Suite 275 no longer asserts the two agree for a billed-elsewhere
@@ -1034,7 +1082,13 @@ they ship, since a non-payer tab has to say something.
 
 ---
 
-## Q-019 · factual → intent · open · 2026-08-26
+## Q-019 · intent · open · 2026-08-26
+<!-- ⚠ FILED AS intent, THOUGH IT STARTS FACTUAL. The heading was
+     "factual → intent" and questions-map.test.js parses the kind as [a-z]+, so
+     the arrow made the whole entry invisible to the gate — an open question on a
+     money writer that the open-questions count did not know existed. The first
+     half really is factual and is answerable by one query against the live book;
+     what is left after that is a decision, which is why it is filed here. -->
 Can `syncPayerInvoice` zero a real invoice when a customer's stored phone is not
 digits-only?
 
@@ -1162,7 +1216,7 @@ record of a settled house. So the leftover is no longer the symptom; a leftover
 with no `paidBeforeBillTo` on the house is. Left as it was, the check would have
 fired on every move it had just been fixed to make safe.
 
-**Resulting map change:** **MON-16**. `paidBeforeBillTo` is a new customer field —
+**Resulting map change:** **MON-17**. `paidBeforeBillTo` is a new customer field —
 written by the Edit Customer save, read by `syncPayerInvoice` and by Health
 Check's `strandedPayment`.
 
@@ -1216,11 +1270,19 @@ of the build queue, and still invoiced for the season.
 
 **Answer (Addie, 2026-08-26): no — take them off the bill.**
 
-Built as `billedThisSeason` (js/money.js) and `billedThisSeasonServer`
-(functions/index.js), swept against each other by `money-parity.test.js`. Out
-means `'no'`, `rsvpStatus === 'backnextyear'`, or the `maybeNextYear` flag —
-both halves of Back Next Year, because `portalRsvp` writes the status alone
-while the office button also sets the flag.
+⭐ **Q-012 is the same rule, asked from the other side, and answered the same way.**
+Both were built in parallel and folded into one on the merge — see the comparison
+table there. The survivor is `houseIsOnTheBill` (admin.html) /
+`houseIsOnTheBillServer` (functions/index.js), swept against each other by
+`money-parity.test.js`. Out means `'no'`, or `rsvpStatus === 'backnextyear'` or the
+`maybeNextYear` flag **while `completed !== true`** — both halves of Back Next Year,
+because `portalRsvp` writes the status alone while the office button also sets the
+flag.
+
+⚠ **The `completed` qualifier came from Q-012, not from here.** This branch first
+filtered on the answer alone, which writes off a house whose lights were hung and who
+only then said Back Next Year. That is `pullCustomerFromSeason`'s settled rule pointing
+the other way, and it is the one substantive correction the merge produced.
 
 ⚠ **Deliberately not `isOutForSeason`.** That also returns true for
 `needsLightRecycle` — a warehouse state, not a decision about money — and, once
@@ -1232,9 +1294,10 @@ the whole book off its invoices on the day it is flipped.
 rule, so the portal box, the `{{houses_block}}` email token and the Edit
 Customer house tabs stop naming a house the total leaves out.
 
-**Resulting map change:** **MON-17**. `billedThisSeason` is the one answer to "is this house
-billed this season", read by the office rebuild, the nightly run and the group
-list. It supersedes the bare `rsvpStatus !== 'no'` test in all three.
+**Resulting map change:** **MON-18**, cross-referenced to **MON-15** (Q-012's row) —
+two rulings, one implementation. `houseIsOnTheBill` is the one answer to "is this house
+billed this season", read by the office rebuild, the nightly run and the group list. It
+supersedes the bare `rsvpStatus !== 'no'` test in all of them.
 
 ---
 
@@ -1249,6 +1312,6 @@ used for a season (see CLAUDE.md). Where it lands is a placement decision, not a
 rule: the Invoices tab is the obvious home, since that is where the money lives
 and where somebody wanting a spreadsheet of who owes what would look.
 
-**Resulting map change:** **MON-19**, recorded as *Decided — not built*. The
+**Resulting map change:** **MON-20**, recorded as *Decided — not built*. The
 ruling is that the export survives the tab; nothing is written until the tab is
 actually retired, and a row marked built when it is not is worse than no row.
