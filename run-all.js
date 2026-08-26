@@ -7558,6 +7558,26 @@ suite('18. Forty houses a day');
       (admin.match(/\bfunction dayTownList\(/g) || []).length === 1,
       'one declaration each — a duplicate top-level name is silently the last one');
 
+    /* ⚠ A MALFORMED DAY MUST NOT TAKE THE SWEEP DOWN WITH IT. Anything this
+       throws is caught in runReconcileAuto and turned into a console line, so a
+       single bad route abandons the whole pass — silently, every pass, for ever.
+       That is what reorderFlatStops was fixed for; `towns` is the same trap. */
+    check('towns', 'a route carrying towns as a bare string does not throw',
+      (() => {
+        try { return api.towns({ towns: 'Lehi', city: 'Orem' }).join() === 'Lehi'; }
+        catch (e) { return false; }
+      })(),
+      'planNewCrewDays writes an array, but nothing stops an older or hand-edited ' +
+      "route holding a string, and 'Lehi'.filter is not a function");
+    check('towns', 'and neither does a null, a number or a missing day',
+      (() => {
+        try {
+          return api.towns({ towns: null, city: 'Orem' }).join() === 'Orem' &&
+                 api.towns(null).length === 0 &&
+                 api.towns({ towns: [null, '', 'Lehi'] }).join() === 'Lehi';
+        } catch (e) { return false; }
+      })());
+
     check('towns', 'two days sharing one town are seen to share it',
       api.shares({ towns: ['Alpine', 'Cedar Hills'] }, { towns: ['Cedar Hills'] }) === true &&
       api.shares({ towns: ['Alpine'] }, { towns: ['Orem'] }) === false);

@@ -40292,7 +40292,18 @@ function bumpCandidateIndex(stops, custData, okOn){
  * sweep's answer. run-all.js caught it; the name is the fix. */
 function routeDayTowns(day){
   if(!day) return [];
-  const listed = (day.towns || []).filter(Boolean);
+  /* ⚠ A THROW HERE WOULD KILL THE WHOLE SWEEP, SILENTLY AND FOR EVER.
+     runReconcileAuto catches everything reconcileUpcomingRoutes throws and does
+     nothing but console.error, so one malformed day abandons the entire pass —
+     every other day that pass would have fixed is left alone, and the next pass
+     hits the same day and gives up again. That is exactly what reorderFlatStops
+     was fixed for on 2026-08-21, and `towns` is the same trap: it is written as
+     an array by planNewCrewDays, but nothing stops an older or hand-edited route
+     carrying a bare string, and `'Lehi'.filter` is not a function. Coerce, never
+     assume. */
+  const raw = day.towns;
+  const listed = Array.isArray(raw) ? raw.filter(Boolean)
+               : (raw ? [raw] : []);
   if(listed.length) return listed;
   return day.city ? [day.city] : [];
 }
