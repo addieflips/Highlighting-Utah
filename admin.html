@@ -26848,7 +26848,7 @@ async function syncPayerInvoice(payerKey){
   if(isPhoneKey){
     const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
     selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) addHouse(docSnap.id, docSnap.data()); });
-    if(!linked.length && Array.isArray(jobAddresses)){
+    if(Array.isArray(jobAddresses)){
       /* ⭐ A STORED PHONE IS NOT ALWAYS DIGITS-ONLY (2026-08-26, Q-019). The key is
          always digits — that is what custInvoiceKey produces — but the office types
          "(801) 555-0123" and the import keeps it, so an equality query matches nothing
@@ -26860,11 +26860,17 @@ async function syncPayerInvoice(payerKey){
          one rule for which invoice a customer files under, so this asks IT rather than
          comparing phone fields — comparing the raw strings is the mistake that quietly
          duplicated the whole book once.
-         ⚠ ONLY WHEN THE QUERY FOUND NOBODY, matching the email branch. A group where
-         SOME houses are stored digits-only and some are not still resolves only the
-         digits ones — that is a real remaining gap and it is recorded in Q-019 rather
-         than widened into here, because changing how a live invoice's group is built
-         is its own change with its own red-check. */
+         ⚠ IT RUNS ALWAYS, NOT ONLY WHEN THE QUERY FOUND NOBODY (widened 2026-08-26,
+         Q-019a). Conditional, it fixed a payer whose ONLY house is stored formatted and
+         silently missed the worse case: a payer with SEVERAL houses where one is typed
+         `(801) 111-2222` and the rest are digits. The query finds the digits ones, so
+         the fallback never ran, and the formatted house was left off the bill — the
+         total AND billedHouseIds both omit it, so the invoice adds up and is wrong.
+         That is UNDERCHARGING, and it lands squarely on the ~17 shared-phone households
+         in the real book, which are grouped by exactly this match.
+         ⚠ SAFE TO RUN ALWAYS BECAUSE addHouse DEDUPES BY DOCUMENT ID, and every house it
+         can add has already passed the same custInvoiceKey rule the query enforces. It
+         can only ever ADD a house that genuinely belongs on this bill. */
       jobAddresses.forEach(function(c){
         const d = c.data || {};
         if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(c.id, d);
@@ -26877,9 +26883,16 @@ async function syncPayerInvoice(payerKey){
       /* A house with a phone of its own keys off that phone, not this email. */
       if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(docSnap.id, d);
     });
-    if(!linked.length && Array.isArray(jobAddresses)){
+    if(Array.isArray(jobAddresses)){
       /* A stored email can differ in case from the lowercased invoice key, and
-         an equality query can't match that — fall back to the loaded list. */
+         an equality query can't match that — fall back to the loaded list.
+         ⚠ ALSO RUNS ALWAYS (widened 2026-08-26, Q-019a). This branch had the identical
+         `!linked.length` shape and therefore the identical hole: a payer with two houses,
+         one stored `dana@x.com` and one `Dana@X.com`, resolved only the one the query
+         matched and the other silently left the bill. Fixing the phone branch and not
+         this one is the half-fix CLAUDE.md already records by name — "a fix in one
+         direction is half a fix" — and it would re-create the very asymmetry that hid
+         the phone bug, since this branch was the precedent the phone fix was copied from. */
       jobAddresses.forEach(function(c){
         const d = c.data || {};
         if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(c.id, d);

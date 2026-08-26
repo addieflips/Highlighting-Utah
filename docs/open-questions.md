@@ -1299,6 +1299,42 @@ settled and no chase-the-unpaid send ever contains them. And the first status fi
 still had a sibling house reachable by the `billToPhone` query, so the group was never
 truly empty and the status stayed plausible; it takes a payer **alone** to bite.
 
+### ⭐ Q-019a ANSWERED THE SAME DAY — the fallback is unconditional
+
+Addie, shown the four scenarios run side by side and asked whether to widen it:
+**"yes"**.
+
+She had first read Q-019a as being about customers with no email; it is not, and the
+confusion was my wording. It is **one payer with several houses whose phone is typed
+differently on each record** — `8011112222` on one and `(801) 111-2222` on another.
+The query finds the digits-only ones, so `linked` was non-empty, the fallback never
+ran, and the formatted house was left off the bill. The total **and** `billedHouseIds`
+both omit it, so the invoice adds up and is wrong: an **undercharge** nothing
+announces.
+
+⚠ **And it is not an edge case.** The real book has ~17 phone numbers shared by more
+than one house (the four Anderson houses among them), and those groups are formed by
+exactly this match. Q-019 originally deferred this as "its own change"; that was right
+about the care needed and wrong about the likelihood, and the deferral note said so
+without saying which.
+
+**What was built.** Both fallbacks now run always instead of only when the query
+resolved nobody. Safe because `addHouse` dedupes by document id and every house the
+fallback can add has already passed the same `custInvoiceKey` rule the query enforces
+— it can only ever ADD a house that genuinely belongs on the bill.
+
+⚠ **The EMAIL branch was widened too**, and that is not scope creep: it had the
+identical `!linked.length` shape and therefore the identical hole (`dana@x.com` and
+`Dana@X.com` on one payer). It was also the precedent the phone fix was copied FROM,
+so leaving it conditional would re-create the very asymmetry that hid the phone bug —
+"a fix in one direction is half a fix", which this repo already records by name.
+
+**What is still deliberately NOT done:** normalising the *stored* phone or email.
+That changes what the office reads on every screen and export, and is a separate
+decision.
+
+**Resulting map change:** **MON-25**.
+
 **Resulting map change:** **MON-23**.
 
 ---
