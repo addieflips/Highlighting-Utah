@@ -40778,6 +40778,213 @@ suite('274. The test invoice - an address that is one letter wrong');
 }
 
 
+// =====================================================================
+suite('275. Which invoice a customer is on - one rule, not four');
+/* ⭐ THE HOLE, found 2026-08-26 while mapping the billing-group work.
+   "Which invoice is this customer on" was answered FOUR different ways and three
+   of them were wrong. The right answer already existed — allCustInvoiceFor, which
+   asks custInvoiceKey (phone digits, else the lowercased email) and reads the
+   keyed invoiceById map — and its own comment says it exists to be "called once
+   per row of the All Customers table". The row builder was not calling it.
+
+   ⚠ TWO DISTINCT MISTAKES, and they miss different people.
+
+   1. KEYED ON PHONE DIGITS ALONE (getLiveInvoiceStatus, etResolveVars). A
+      customer with no phone is filed under their EMAIL, so both returned null
+      for every email-only customer. getLiveInvoiceStatus is what Automation
+      Emails' Unpaid / Partial / Paid audience filters and the Dashboard's RSVP
+      list read, so a chase-the-unpaid send did not contain those people at all
+      — and a send to nobody looks exactly like a send that worked.
+      etResolveVars is worse in kind: it fills {{price}} in a REAL EMAIL.
+
+   2. COMPARED THE STORED PHONE FIELDS AS EXACT STRINGS (buildAddressRowHtml,
+      the post-install billing list). Every writer of an invoice stores `phone`
+      digits-only — syncPayerInvoice writes the key itself — while an imported
+      customer record keeps whatever the office typed, "(801) 555-0123". The two
+      never matched. On All Customers that meant the FILTER counted somebody
+      Unpaid (it used allCustInvoiceFor) while the row drawn underneath showed no
+      price and no status: two halves of one screen disagreeing about one
+      customer. On the post-install list it meant a completed house was counted
+      into `noInvoiceCount` and dropped off the printed invoice batch — work
+      done, materials out, no bill printed.
+
+   ⚠ THE RULE WAS ALREADY WRITTEN DOWN IN THIS FILE, beside the bulk-email
+   amount: "Match on the invoice KEY, not the phone field. A customer with no
+   phone is keyed by email, so comparing phones matched '' === '' and could pull
+   a different customer's invoice — and this amount goes out in an email." Three
+   places had not been brought to it. That is what this suite pins.
+
+   ⚠ AND THE BEHAVIOURAL HALF RUNS THE REAL FUNCTION rather than matching its
+   source, because every claim here is about what a lookup RESOLVES TO. A regex
+   proving the words `custInvoiceKey` appear says nothing about whether the
+   email-only customer comes back. */
+{
+  const gliSrc = extractFn(admin, 'getLiveInvoiceStatus');
+  const acifSrc = extractFn(admin, 'allCustInvoiceFor');
+  check('S275', 'both invoice resolvers are in admin.html', !!gliSrc && !!acifSrc,
+    'getLiveInvoiceStatus / allCustInvoiceFor — renamed? update this suite rather than deleting it');
+
+  if (gliSrc && acifSrc) {
+    const code = [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc,
+      'let invoiceById = new Map();', gliSrc, acifSrc,
+      'return {load:function(pairs){ invoiceById = new Map(); pairs.forEach(function(p){' +
+      ' invoiceById.set(p[0], {id:p[0], data:p[1]}); }); },' +
+      ' status:getLiveInvoiceStatus, forCust:allCustInvoiceFor};'].join('\n');
+    assertSandbox('S275', 'invoice resolvers', code, admin,
+      ['getLiveInvoiceStatus', 'allCustInvoiceFor', 'custInvoiceKey',
+        'computeInvoiceStatus', 'centsOf', 'invoiceById']);
+    const F = new Function(code)();
+
+    /* One phone-keyed invoice and one email-keyed one — the two shapes
+       custInvoiceKey can produce, which is the whole point. */
+    F.load([
+      ['8015550123', { install: 200, removal: 0, deposit: 0, credits: 0, changeFees: 0 }],
+      ['jane@example.com', { install: 150, removal: 0, deposit: 150, credits: 0, changeFees: 0 }]
+    ]);
+
+    /* ⚠ THE CHECK THE WHOLE SUITE EXISTS FOR. On the old code this is null,
+       because there are no phone digits to key on and it gave up there. */
+    check('S275', 'an email-only customer has a payment status at all',
+      F.status({ email: 'Jane@Example.COM' }) === 'Paid in Full',
+      'their invoice is filed under their email — got ' + F.status({ email: 'Jane@Example.COM' }) +
+      '. Null here is the Unpaid filter silently skipping them.');
+
+    check('S275', 'a formatted phone still finds the digits-keyed invoice',
+      F.status({ phone: '(801) 555-0123' }) === 'Unpaid',
+      'custInvoiceKey strips punctuation; the invoice id is digits');
+
+    check('S275', 'the record and the whole item are both accepted',
+      F.status({ data: { email: 'Jane@Example.COM' } }) === 'Paid in Full',
+      'call sites pass m.data; a stray item must not answer null');
+
+    /* ⚠ THE BARE-STRING CONTRACT IS KEPT ON PURPOSE. Eight call sites were
+       repointed in one change; a ninth written later against the old shape must
+       not silently start answering null, which is the failure mode this whole
+       suite is about. */
+    check('S275', 'a bare phone string still answers, so an old caller cannot go quiet',
+      F.status('(801) 555-0123') === 'Unpaid',
+      'the both-shapes contract billedHousesFor already has');
+
+    check('S275', 'a customer with no phone and no email answers null, not a wrong invoice',
+      F.status({}) === null && F.status({ phone: '', email: '' }) === null,
+      'no key means no invoice — never somebody else');
+
+    check('S275', 'a customer whose invoice does not exist answers null',
+      F.status({ phone: '8019999999' }) === null,
+      'a missing invoice is not a status');
+
+    /* ⭐ THE INVARIANT, STATED AS A TEST. The All Customers filter and the row
+       drawn under it must never disagree about one customer, which is exactly
+       what the exact-string compare produced. */
+    const SAME = [
+      { phone: '(801) 555-0123' },
+      { email: 'Jane@Example.COM' },
+      { phone: '801-555-0123', email: 'other@example.com' },
+      { phone: '8019999999' },
+      {}
+    ];
+    const agree = SAME.every(function (d) {
+      return !!F.forCust({ data: d }) === (F.status(d) !== null);
+    });
+    check('S275', 'the two resolvers agree about every shape of customer', agree,
+      'one screen filtering somebody in while the next draws them blank is the bug');
+  }
+
+  /* ---- and the four call sites really ask that one rule ----
+     ⚠ SCOPED TO EACH FUNCTION'S OWN SLICE, never a file-wide search: the exact
+     phrases below are legitimate elsewhere (the Edit Customer save has to find a
+     leftover invoice by key to zero it), and a whole-file grep would pass while
+     the row builder went on comparing strings. */
+  const SITES = [
+    ['getLiveInvoiceStatus', extractFn(admin, 'getLiveInvoiceStatus'), 'custInvoiceKey',
+      'the payment status behind the audience filters'],
+    ['etResolveVars', extractFn(admin, 'etResolveVars'), 'allCustInvoiceFor',
+      '{{price}} in a real email'],
+    ['buildAddressRowHtml', extractFn(admin, 'buildAddressRowHtml'), 'allCustInvoiceFor',
+      'the All Customers row, under its own filter']
+  ];
+  {
+    const s = admin.indexOf("pibLoadBtn')?.addEventListener");
+    const e = admin.indexOf('function renderPibRow(', s > -1 ? s : 0);
+    SITES.push(['the post-install billing list',
+      (s > -1 && e > s) ? admin.slice(s, e) : '', 'allCustInvoiceFor',
+      'who gets a printed invoice after their install']);
+  }
+  SITES.forEach(function (t) {
+    const name = t[0], why = t[3], wants = t[2];
+    /* ⚠ COMMENTS STRIPPED, and the first version of this suite was caught by
+       exactly that. Each of these fixes carries a comment NAMING allCustInvoiceFor
+       and explaining why it is the one rule — so the "asks the shared rule" check
+       passed on the strength of the prose while a red-check had put the phone scan
+       back in the code underneath it. Suite 58 learned this same lesson; so has
+       the guard-ordering check in Suite 274. */
+    const src = t[1] ? stripComments(t[1]) : '';
+    check('S275', name + ' resolves the invoice through the shared rule',
+      !!src && src.indexOf(wants) !== -1,
+      why + ' — it must ask ' + wants + ', not the phone');
+    /* The exact-string compare, in either argument order. This is the shape that
+       shipped and the shape that would come back. */
+    check('S275', name + ' does not compare the two stored phone fields',
+      !!src && !/\.data\.phone\s*===\s*d\.phone|d\.phone\s*===\s*[a-z]+\.data\.phone/.test(src),
+      why + ' — invoices store digits, imported records keep "(801) 555-0123", so this never matches');
+    /* ⚠ NOT "does not scan allInvoicesCache FOR A PHONE" — that was the first
+       wording and it could not see the callback form: `allInvoicesCache.find(
+       function(i){ return i.data.phone === ... })` puts a `)` before the word
+       phone ever appears, so the match died at the first bracket. None of these
+       four has any business touching the unkeyed list at all now, so say that
+       instead of trying to describe the shape of a scan. */
+    check('S275', name + ' does not touch the unkeyed invoice list',
+      !!src && src.indexOf('allInvoicesCache') === -1,
+      why + ' — invoiceById is the one lookup, and a scan by phone misses email-only customers');
+  });
+
+  /* ---- "Use This Total for Their Invoice" — the same mistake, but WRITING ----
+     ⚠ THE WORST OF THE FAMILY, because it is not a display. It wrote to
+     `invoices/<d.phone>` with the phone EXACTLY as typed, so an imported record
+     holding "(801) 555-0123" minted a SECOND invoice document under a punctuated
+     id — a legal Firestore id that no screen in this app reads — while the real
+     invoice sat unchanged showing the old price, and the toast said it had
+     worked. It also wrote `removal: 0, deposit: 0` on every press, wiping a
+     recorded payment; that is the bug Invoice Bulk Update was guarded against on
+     2026-08-08, in a second place, unguarded. And on a shared bill it wrote one
+     house's drawing total straight into `install`, which on a group invoice is
+     the SUM of every house — deleting the others' money in one click. */
+  {
+    const s = admin.indexOf('useForInvoiceBtn.addEventListener');
+    const e = admin.indexOf("panel.querySelector('.hd-save')", s > -1 ? s : 0);
+    const raw = (s > -1 && e > s) ? admin.slice(s, e) : '';
+    const src = raw ? stripComments(raw) : '';
+    check('S275', 'the Use This Total button is still findable', !!src,
+      'useForInvoiceBtn — renamed? update this suite rather than deleting it');
+    if (src) {
+      check('S275', 'it keys the invoice write on custInvoiceKey, never the raw phone field',
+        /custInvoiceKey\(d\)/.test(src) && !/doc\(db,'invoices',\s*d\.phone\s*\)/.test(src),
+        'invoices/(801) 555-0123 is a legal document id and an orphan nothing reads');
+      check('S275', 'a house billed to somebody else lands on THEIR bill',
+        /billToPhone/.test(src),
+        'their money is on the payer\'s invoice, not one of their own');
+      check('S275', 'it does not zero a recorded payment',
+        !/removal:\s*0\s*,\s*deposit:\s*0/.test(src),
+        'pressing this after a customer had paid wiped the payment off their invoice');
+      check('S275', 'it refuses rather than overwriting a shared bill',
+        /billedHousesFor\(/.test(src) && /length > 1/.test(src),
+        'install on a group invoice is the sum of every house — one drawing total deletes the rest');
+      check('S275', 'it refuses when there is no invoice key at all',
+        /if\(!hdKey\)/.test(src),
+        'doc(db,"invoices","") throws; saying so beats an unexplained failure');
+    }
+    /* The button was HIDDEN from every email-only customer too — same blindness,
+       one line up from the handler. */
+    const gate = admin.slice(Math.max(0, admin.indexOf('useForInvoiceBtn.style.display') - 400),
+      admin.indexOf('useForInvoiceBtn.style.display') + 200);
+    check('S275', 'and it is offered to an email-only customer at all',
+      /useForInvoiceBtn\.style\.display\s*=[\s\S]{0,200}custInvoiceKey\(d\)/.test(gate),
+      'gated on d.phone, the button never appeared for somebody whose invoice is filed under their email');
+  }
+}
+
+
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

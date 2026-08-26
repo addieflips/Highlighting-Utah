@@ -774,3 +774,89 @@ October day has room.
 **Resulting map change:** none to the registry — this is scheduler behaviour.
 Covered by six new checks in run-all.js Suite 46 and a rewritten assertion in
 Suite 44.
+
+---
+
+## Q-012 · intent · open · 2026-08-26
+When a house is billed to somebody else, what payment status should its own
+row show?
+
+Found while mapping the billing-group / house-tabs work. `getLiveInvoiceStatus`
+answers "what is this customer's payment status" for two screens — Automation
+Emails' Unpaid / Partial / Paid audience filters, and the Dashboard's RSVP list.
+Its key bug is fixed (it asked the phone, so email-only customers had no status
+at all — see Suite 275). This is the half that is **not** a bug with one right
+answer.
+
+A house with `billToPhone` set has no bill of its own. Its money is on the
+payer's invoice. Today, and still after the fix, it resolves to whatever sits
+under its own key — which is usually nothing, but **can be a real document**:
+when a customer with a recorded deposit is switched to bill elsewhere, the Edit
+Customer save keeps their old invoice and zeroes it (`install: 0, removal: 0,
+changeFees: 0`) rather than deleting it, so the payment is not lost. A zeroed
+invoice with a deposit computes to **Paid in Full**.
+
+So that house reads "Paid in Full" on both screens while the bill it is actually
+on may be entirely unpaid.
+
+Three readings, and they behave very differently on a chase-the-unpaid send:
+
+1. **Show the payer's status.** Honest about the money. But the Unpaid filter
+   then includes people who owe nothing personally, and a chase email would go
+   to a tenant about a landlord's bill.
+2. **Show no status at all (null).** The `[Billed elsewhere]` badge already says
+   why, `audienceBillingGroup` already computes it, and the nightly run only ever
+   emails payers — so nothing about money is being hidden from anybody who could
+   act on it. This is the recommendation.
+3. **Leave it as it is.** Rejected: "Paid in Full" is a claim about money that
+   can be false, and it is the one answer no reading supports.
+
+Not guessed, because (1) and (2) send different email to different people.
+
+⚠ **Related, and the reason this was not just fixed to (2):** the zeroed-invoice
+shape is itself worth a decision. An invoice carrying only a deposit and no
+charge is a payment archive, not a bill, and nothing marks it as one.
+
+Blocks: nothing today. The house tabs' header balance needs it answered before
+they ship, since a non-payer tab has to say something.
+
+---
+
+## Q-013 · factual → intent · open · 2026-08-26
+Can `syncPayerInvoice` zero a real invoice when a customer's stored phone is not
+digits-only?
+
+`syncPayerInvoice` is the authoritative money writer. For a phone key it resolves
+the payer's own houses with:
+
+```js
+const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
+```
+
+`key` is always digits (that is what `custInvoiceKey` produces). `CLAUDE.md`
+states in two places that stored phones are **not** all digits-only — "the office
+types '(801) 555-0123' and the import keeps it" — and warns by name against
+`where('phone','==',digits)` for exactly this reason.
+
+If such a record exists, that query matches nothing, `linked` is empty, and the
+`!isPhoneKey && !linked.length` guard **deliberately does not fire for phone
+keys** — so the rebuild writes `install: 0` over a real total.
+
+Why this is not simply fixed: the phone-key exemption is intentional and
+documented — "so the bill-to change flow can still zero a payer whose last house
+moved away." A blanket refusal would break that. Telling the two apart needs a
+decision about which is the safer failure.
+
+What is not in doubt: **the query should normalise.** `custByPhoneDigits` is the
+established normaliser, and every other matcher in the app strips punctuation
+first. But normalising a Firestore `where` needs either a stored digits field or
+a client-side pass over the loaded list, which is a change to a money writer and
+so is not being made in the same pass as the read fixes.
+
+⚠ **This may be entirely theoretical.** If every `jobAddresses.phone` in the live
+book is already digits-only, there is nothing here. That is one query against
+real data and it has not been run. Do that before building anything on top of it.
+
+Blocks: routing any new caller through `syncPayerInvoice` — which is why the
+"Use This Total for Their Invoice" button was made to *refuse* on a shared bill
+rather than re-sync one.

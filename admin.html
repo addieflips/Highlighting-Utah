@@ -7602,7 +7602,16 @@ document.getElementById('pibLoadBtn')?.addEventListener('click', function(){
   let noInvoiceCount = 0;
   completedThatDay.forEach(function(item){
     const d = item.data;
-    const inv = d.phone ? allInvoicesCache.find(function(i){ return i.data.phone === d.phone; }) : null;
+    /* ⚠ THE KEY, NOT THE STORED PHONE FIELD (fixed 2026-08-26). This compared
+       the invoice's `phone` against the customer's as EXACT STRINGS. Every
+       writer of an invoice stores that field digits-only (syncPayerInvoice
+       writes the key itself), while an imported customer record keeps whatever
+       the office typed — "(801) 555-0123" — so the two never matched and the
+       house fell into noInvoiceCount. That is a completed house dropped off the
+       printed invoice batch: work done, materials out, no bill printed, and the
+       only trace a count nobody reads as a fault. Email-only customers were
+       missed the same way. allCustInvoiceFor is the one rule. */
+    const inv = allCustInvoiceFor(item);
     if(!inv){ noInvoiceCount++; return; }
     const status = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
     const row = {
@@ -12783,7 +12792,12 @@ function etGetMembers(){
 function etResolveVars(item){
   const d = item.data;
   const phoneDigits = (d.phone||'').replace(/\D/g,'');
-  const inv = allInvoicesCache.find(i => i.id === phoneDigits);
+  /* ⚠ THE KEY, NOT THE PHONE (fixed 2026-08-26). {{price}} goes out in a real
+     email, and an email-only customer's invoice is filed under their address —
+     so this used to hand them the quote fallback, or a bare em dash, while a
+     real balance sat on a real invoice. phoneDigits below is a QUOTE lookup and
+     is right to stay a phone. */
+  const inv = allCustInvoiceFor(item);
   let price = inv ? fmtMoney(balanceDueAmount(inv.data)) : '';
   if(!price){
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
@@ -12796,10 +12810,30 @@ function etResolveVars(item){
      would put one household's quote and price in another's email. */
   return {name: d.name || 'there', price: price, phone: d.phone || '', link: link, linkLabel: 'Log Into Your Portal', customerId: item.id};
 }
-function getLiveInvoiceStatus(phone){
-  const phoneDigits = (phone||'').replace(/\D/g,'');
-  if(!phoneDigits) return null;
-  const inv = allInvoicesCache.find(i => i.id === phoneDigits);
+/* ⭐ WHICH INVOICE A CUSTOMER'S OWN MONEY IS ON — ASK custInvoiceKey, NEVER THE
+   PHONE (fixed 2026-08-26). This keyed the lookup on phone digits alone and
+   returned null the moment there were none. A customer with no phone is filed
+   under their EMAIL — that is the whole of what custInvoiceKey answers for them
+   — so every email-only customer came back with NO payment status at all.
+
+   ⚠ AND THAT IS A SEND TO NOBODY, WHICH LOOKS EXACTLY LIKE A SEND THAT WORKED.
+   Automation Emails' Unpaid / Partial / Paid audience filters and the
+   Dashboard's RSVP list are the two readers: a chase-the-unpaid send simply did
+   not contain those people, and nothing on either screen said so.
+
+   ⚠ THE SAME MISTAKE IS ALREADY WRITTEN DOWN a few thousand lines up, beside
+   the bulk-email amount: "Match on the invoice KEY, not the phone field. A
+   customer with no phone is keyed by email." allCustInvoiceFor is where that
+   rule lives, and this now asks the same question of the same keyed map.
+
+   ⚠ IT TAKES THE RECORD NOW, and still accepts a bare phone string so an older
+   caller cannot silently start answering null — the same both-shapes contract
+   billedHousesFor already has, for the same reason. */
+function getLiveInvoiceStatus(who){
+  const d = (who && typeof who === 'object') ? (who.data || who) : {phone: who};
+  const key = custInvoiceKey(d);
+  if(!key) return null;
+  const inv = invoiceById.get(key) || null;
   if(!inv) return null;
   return computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit, inv.data.credits, inv.data.changeFees);
 }
@@ -13085,9 +13119,9 @@ function etRenderRecipientList(){
   if(etFilterGateCode === 'missing') members = members.filter(m => !m.data.gateCode);
   else if(etFilterGateCode === 'has') members = members.filter(m => !!m.data.gateCode);
   // Payment this season (live invoice)
-  if(etFilterPayment === 'unpaid') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Unpaid');
-  else if(etFilterPayment === 'partial') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Partial Payment');
-  else if(etFilterPayment === 'paid') members = members.filter(m => getLiveInvoiceStatus(m.data.phone) === 'Paid in Full');
+  if(etFilterPayment === 'unpaid') members = members.filter(m => getLiveInvoiceStatus(m.data) === 'Unpaid');
+  else if(etFilterPayment === 'partial') members = members.filter(m => getLiveInvoiceStatus(m.data) === 'Partial Payment');
+  else if(etFilterPayment === 'paid') members = members.filter(m => getLiveInvoiceStatus(m.data) === 'Paid in Full');
   // RSVP
   /* ⚠ A real answer, not an assumed one — a "Yes" audience holding people who have
      never replied is a send that skips exactly the people it should reach. */
@@ -13197,7 +13231,7 @@ function etRenderRecipientList(){
   const previouslyChecked = new Set(Array.from(list.querySelectorAll('input:checked')).map(el => el.value));
   list.innerHTML = members.map(function(m){
     const checked = previouslyChecked.has(m.id) ? 'checked' : '';
-    const payStatus = getLiveInvoiceStatus(m.data.phone);
+    const payStatus = getLiveInvoiceStatus(m.data);
     const grp = audienceBillingGroup(m.data);
     let badges = '';
     if(!m.data.gateCode) badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[No Gate Code]</span>';
@@ -13564,7 +13598,7 @@ function invTestPopulate(){
     return String(a.data.name||'').localeCompare(String(b.data.name||''));
   });
   sel.innerHTML = '<option value="">Choose a customer…</option>' + people.map(function(m){
-    const st = getLiveInvoiceStatus(m.data.phone);
+    const st = getLiveInvoiceStatus(m.data);
     return '<option value="'+esc(m.id)+'">'+esc(m.data.name||'(no name)')+' — '+esc(st)+'</option>';
   }).join('');
   if(keep) sel.value = keep;
@@ -32810,7 +32844,17 @@ function buildAddressRowHtml(item){
   const completed = !!d.completed;
   const needsRemoval = completed && !d.removalDone;
   const hasHouseDetails = !!(d.housePhotoUrl || d.lightsDescription || d.phone2 || d.email2);
-  const matchedInvoice = d.phone ? allInvoicesCache.find(inv => inv.data.phone === d.phone) : null;
+  /* ⚠ THE ROW AND THE FILTER ABOVE IT WERE ASKING DIFFERENT QUESTIONS (fixed
+     2026-08-26). allCustFilterRows already resolved the invoice through
+     allCustInvoiceFor — whose own comment says it exists to be "called once per
+     row of the All Customers table" — while THIS, the row builder, compared the
+     invoice's `phone` field against the customer's as exact strings. Invoices
+     store that field digits-only; an imported record keeps "(801) 555-0123".
+     So the filter could count somebody Unpaid and the row drawn underneath it
+     showed no price and no status at all — two halves of one screen
+     disagreeing about one customer, which is the failure this repo keeps
+     paying for. One rule, one lookup, one answer. */
+  const matchedInvoice = allCustInvoiceFor(item);
   const seasonStatusLabels = {confirmed: 'Confirmed', needs_changes: 'Needs Changes', address_changed: 'Address Changed', cancellation_requested: 'Cancellation Requested'};
   const seasonStatusClasses = {confirmed: 'status-paid', needs_changes: 'status-due', address_changed: 'diff-Fix', cancellation_requested: 'status-due'};
   const seasonStatusLabel = seasonStatusLabels[d.seasonStatus] || '';
@@ -33194,7 +33238,12 @@ function attachAddressRowHandlers(container){
         });
         const total = currentHighlights.reduce((s,h) => s + (Number(h.price)||0), 0);
         totalEl.textContent = currentHighlights.length ? 'Total from Sections: ' + fmtMoney(total) : '';
-        useForInvoiceBtn.style.display = (currentHighlights.length && d.phone) ? 'inline-flex' : 'none';
+        /* ⚠ AN INVOICE KEY, NOT A PHONE (fixed 2026-08-26). Gated on d.phone, this
+           button was hidden from every email-only customer — who has a perfectly
+           ordinary invoice, filed under their address, exactly as custInvoiceKey
+           says. Same blindness as the four resolvers fixed the same day. */
+        useForInvoiceBtn.style.display =
+          (currentHighlights.length && custInvoiceKey(d)) ? 'inline-flex' : 'none';
       }
       renderHighlights();
       /* Rebuilds this panel from the freshest copy of the customer - the same
@@ -33280,11 +33329,46 @@ function attachAddressRowHandlers(container){
       });
       useForInvoiceBtn.addEventListener('click', async function(){
         const total = currentHighlights.reduce((s,h) => s + (Number(h.price)||0), 0);
-        const existingHdInv = allInvoicesCache.find(i => i.id === d.phone);
-        const existingHdFees = existingHdInv ? Number(existingHdInv.data.changeFees)||0 : 0;
-        await setDoc(doc(db,'invoices',d.phone), {
-          name: d.name||'', phone: d.phone, install: total, removal: 0, deposit: 0,
-          status: computeInvoiceStatus(total, 0, 0, 0, existingHdFees), priceReviewed: false, updatedAt: serverTimestamp()
+        /* ⚠ THE INVOICE KEY, NOT THE RAW PHONE FIELD (fixed 2026-08-26). This
+           wrote to `invoices/<d.phone>` — the phone EXACTLY as the office typed
+           it. Every invoice in the system is keyed by digits (or a lowercased
+           email); an imported record keeps "(801) 555-0123", and that is a legal
+           Firestore document id. So the button minted a SECOND, orphan invoice
+           under a punctuated id that no screen anywhere reads, while the real one
+           sat unchanged showing the old price. Nothing errored and the toast said
+           it had worked. custInvoiceKey is the one rule, and a house billed to
+           somebody else keys off THEIR bill, not its own. */
+        const hdKey = String(d.billToPhone||'').replace(/\D/g,'') || custInvoiceKey(d);
+        if(!hdKey){
+          toast('No phone or email on this record, so there is no invoice to put this on.');
+          return;
+        }
+        const existingHdInv = invoiceById.get(hdKey) || null;
+        const hdInvData = existingHdInv ? existingHdInv.data : {};
+        /* ⚠ AND IT REFUSES ON A SHARED BILL RATHER THAN OVERWRITING IT. `install`
+           on a group invoice is the SUM of every house on it — syncPayerInvoice
+           builds it that way — so writing one house's drawing total straight into
+           that field deletes the other houses' money in a single click, silently.
+           Seventeen numbers in the real book are shared. syncPayerInvoice is the
+           authoritative money writer for a group and this is not it, so the
+           honest answer here is to say so and send the office to the record. */
+        const hdGroup = billedHousesFor(d);
+        if(hdGroup.length > 1){
+          toast('This total is for one house, but ' + hdGroup.length + ' houses share this bill — ' +
+            'put ' + fmtMoney(total) + ' in the House Price box on their record instead, ' +
+            'which rebuilds the whole bill correctly.');
+          return;
+        }
+        /* ⚠ A RECORDED PAYMENT IS NOT ZEROED. This wrote `removal: 0, deposit: 0`
+           on every press, so pressing it after a customer had paid wiped the
+           payment off their invoice. That is the same bug Invoice Bulk Update was
+           guarded against on 2026-08-08, in a second place, unguarded. */
+        await setDoc(doc(db,'invoices',hdKey), {
+          name: d.name||'', phone: String(d.phone||'').replace(/\D/g,''), install: total,
+          removal: Number(hdInvData.removal)||0, deposit: Number(hdInvData.deposit)||0,
+          status: computeInvoiceStatus(total, Number(hdInvData.removal)||0, Number(hdInvData.deposit)||0,
+            Number(hdInvData.credits)||0, Number(hdInvData.changeFees)||0),
+          priceReviewed: false, updatedAt: serverTimestamp()
         }, {merge:true});
         toast('Invoice updated to '+fmtMoney(total)+' — flagged for price review before sending');
       });
@@ -35256,9 +35340,9 @@ function renderDashRsvpPanel(){
   if(dashRsvpFilterCameBack === 'yes') activeList = activeList.filter(a => cameBackThisSeason(a.data));
   if(dashRsvpFilterGateCode === 'missing') activeList = activeList.filter(a => !a.data.gateCode);
   else if(dashRsvpFilterGateCode === 'has') activeList = activeList.filter(a => !!a.data.gateCode);
-  if(dashRsvpFilterPayment === 'unpaid') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data.phone) === 'Unpaid');
-  else if(dashRsvpFilterPayment === 'partial') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data.phone) === 'Partial Payment');
-  else if(dashRsvpFilterPayment === 'paid') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data.phone) === 'Paid in Full');
+  if(dashRsvpFilterPayment === 'unpaid') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data) === 'Unpaid');
+  else if(dashRsvpFilterPayment === 'partial') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data) === 'Partial Payment');
+  else if(dashRsvpFilterPayment === 'paid') activeList = activeList.filter(a => getLiveInvoiceStatus(a.data) === 'Paid in Full');
   activeList = activeList.slice().sort((a,b) => (a.data.name||'').localeCompare(b.data.name||''));
   if(!activeList.length){
     listEl.innerHTML = '<div class="empty-note">No members match this filter.</div>';
@@ -35276,7 +35360,7 @@ function renderDashRsvpPanel(){
       ? ('<div class="rtext">Responded '+fmtDate(d.rsvpRespondedAt)+
          (cameBackThisSeason(d) ? ' \u2014 after saying no or Back Next Year earlier' : '')+'</div>')
       : '';
-    const payStatus = getLiveInvoiceStatus(d.phone);
+    const payStatus = getLiveInvoiceStatus(d);
     const gateBadge = d.gateCode ? ' <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-size:10.5px;">Gate Code: '+esc(d.gateCode)+'</span>' : ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">No Gate Code</span>';
     const payBadge = payStatus === 'Unpaid' ? ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">Unpaid</span>' : (payStatus === 'Partial Payment' ? ' <span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-size:10.5px;">Partial</span>' : '');
     return '<div class="row-item">'+
