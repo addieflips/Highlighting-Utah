@@ -1238,6 +1238,7 @@ const RETIRED_CHECKLIST_TERMS = [
       218,  // the RSVP asking the right household for its own gate code
       219,  // the Overdue list read against the real book, after the invoice-date fix
       220,  // the house tabs on a real shared bill - layout, and real record shapes
+      221,  // whether a flagged email is REALLY wrong for that customer, in the live book
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
