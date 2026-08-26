@@ -14140,7 +14140,24 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
      failing to write a note about them must not report the send as failed. */
   if(etTemplateIsRsvp(template)){
     const noted = await noteRsvpSendHappened(sent);
-    if(noted) statusEl.textContent += ' Recorded that the RSVP has gone out.';
+    if(noted){
+      /* ⭐ AND IT POINTS AT THE SWITCH. Owner, 2026-08-26: "any RSVP should be a
+         straight yes starting when emails are sent" — so from this moment only somebody
+         who actually answered is in the season. Recording the send does NOT do that;
+         SEASON_ELIGIBILITY is a separate deliberate act, and until now nothing said so
+         at the one moment it matters. The office would send, read a green confirmation,
+         and leave the season quietly counting everybody — which is the whole of
+         "nothing should fail quietly", on the switch that decides who a crew is sent to.
+         ⚠ IT NAMES THE SWITCH RATHER THAN THROWING IT. Flipping takes ~960 unanswered
+         customers off the routes, the schedule and the build queue in one go, and the
+         switch on the Dashboard shows that count BEFORE it does anything. Doing it from
+         here would skip the one number that makes the decision answerable. */
+      statusEl.textContent += ' Recorded that the RSVP has gone out.';
+      if(SEASON_ELIGIBILITY !== 'confirmed-only'){
+        statusEl.textContent += ' \u26a0 Crews still go to everybody who has not said no.'
+          + ' Switch that on the Dashboard ("Who the crews are sent to") when you are ready.';
+      }
+    }
   }
 });
 function openSendModal(templateId){
@@ -26521,6 +26538,28 @@ async function syncPayerInvoice(payerKey){
   if(isPhoneKey){
     const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
     selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) addHouse(docSnap.id, docSnap.data()); });
+    if(!linked.length && Array.isArray(jobAddresses)){
+      /* ⭐ A STORED PHONE IS NOT ALWAYS DIGITS-ONLY (2026-08-26, Q-019). The key is
+         always digits — that is what custInvoiceKey produces — but the office types
+         "(801) 555-0123" and the import keeps it, so an equality query matches nothing
+         and the group comes back empty. This is the authoritative money writer: with
+         no houses resolved it rebuilds the invoice as install: 0, wiping a real total
+         on an ordinary Edit Customer save, silently.
+         ⚠ THE SAME FALLBACK THE EMAIL BRANCH BELOW ALREADY HAS, for the same reason:
+         an equality query cannot match what normalising would. custInvoiceKey is the
+         one rule for which invoice a customer files under, so this asks IT rather than
+         comparing phone fields — comparing the raw strings is the mistake that quietly
+         duplicated the whole book once.
+         ⚠ ONLY WHEN THE QUERY FOUND NOBODY, matching the email branch. A group where
+         SOME houses are stored digits-only and some are not still resolves only the
+         digits ones — that is a real remaining gap and it is recorded in Q-019 rather
+         than widened into here, because changing how a live invoice's group is built
+         is its own change with its own red-check. */
+      jobAddresses.forEach(function(c){
+        const d = c.data || {};
+        if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(c.id, d);
+      });
+    }
   } else {
     const emailSnap = await getDocs(query(collection(db,'jobAddresses'), where('email','==',key)));
     emailSnap.forEach(function(docSnap){
@@ -38660,6 +38699,31 @@ let requoteBuildChoice = null;
    colours exactly as the form filled them in. */
 let requoteLightsPattern = '';
 let requoteColorsSnapshot = null;
+/* ⭐ WHAT THE COLOUR BOXES COULD ACTUALLY SHOW WHEN THIS FORM OPENED (2026-08-26).
+
+   The ten tick boxes are an exact-string match against their own labels, so a record
+   whose colours are spelled any other way ticks NOTHING — and the save handler then
+   wrote lightColors and lightsDescription UNCONDITIONALLY. Open Edit Customer to
+   correct a phone number, press Save, and the colours were gone. Measured by running
+   the real round trip: "ww/r" and "red" (lower case) were wiped outright, "Red, Green,
+   Red, Green" was flattened to "Red, Green" — two different builds, one heading — and
+   "Warm White (every third bulb)" lost its note.
+
+   ⚠ EDIT CUSTOMER WAS THE ONLY UNGUARDED WRITER OF THESE TWO FIELDS. The bulk
+   importer, the sheet comparison and the schedule sync all follow "a blank never wipes
+   what the record has"; this one did not, and it is the form opened most.
+
+   ⚠ THE TEST IS NOT "IS IT BLANK", IT IS "COULD THE FORM HAVE SHOWN IT". Refusing every
+   empty save would take away the office's ability to legitimately clear a house's
+   colours. What is refused is an empty save of a record the boxes were never able to
+   display — where the emptiness is the form's, not a decision.
+
+   ⚠ SET ON EVERY OPEN, INCLUDING A HOUSE-TAB CLICK, which re-runs openEditCustomerModal
+   for the sibling. That is deliberately NOT how requoteLightsPattern above works: those
+   are set once by the re-quote flow and cleared by it, and overloading them here would
+   carry one house's answer onto the next — the leak the tab strip was guarded against. */
+let editCustLightsRaw = '';
+let editCustLightsTicked = null;
 /* Puts the Save button's ordinary wording back. Called from both places that stop a
    re-quote being in hand — finishing it and abandoning it — because a button still
    promising to finish a re-quote on the NEXT customer somebody edits is worse than the
@@ -39097,6 +39161,14 @@ function openEditCustomerModal(id){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);
   });
+  /* What was on file, and what the boxes managed to show of it — see
+     editCustLightsRaw. Taken AFTER the ticking above, because that is the only
+     thing that knows what the form could represent. The description wins where
+     there is one: it carries the ORDER, and the colour list does not. */
+  editCustLightsRaw = String(d.lightsDescription || '').trim() ||
+    (Array.isArray(d.lightColors) ? d.lightColors.filter(Boolean).join(', ') : '');
+  editCustLightsTicked = Array.from(document.querySelectorAll('.editcust-color-check:checked'))
+    .map(function(cb){ return cb.value; });
   /* Which sides. An ABSENT list and an empty one are the same thing here:
      nobody has been asked. That is why nothing is ticked by default rather
      than front. */
@@ -39881,9 +39953,28 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const keptRequotePattern = requoteLightsPattern && Array.isArray(requoteColorsSnapshot) &&
     newColors.length === requoteColorsSnapshot.length &&
     newColors.every(function(c){ return requoteColorsSnapshot.indexOf(c) !== -1; });
+  /* ⭐ THE BOXES ARE A SET; WHAT IS ON FILE MAY BE MORE THAN A SET. Same rule the
+     re-quote branch above states, generalised to every open — see editCustLightsRaw.
+     Nobody has re-ticked anything, and the stored wording says something the ticked
+     boxes cannot: an ORDER ("Red, Green, Red, Green" is a strand, not a palette) or a
+     note in brackets. Keep what is on file. Re-tick a box and the office's choice
+     wins, which is how a wrong pattern is still corrected. */
+  const lightsUnchanged = Array.isArray(editCustLightsTicked) &&
+    newColors.length === editCustLightsTicked.length &&
+    newColors.every(function(c){ return editCustLightsTicked.indexOf(c) !== -1; });
+  const keptStoredWording = lightsUnchanged && !!editCustLightsRaw &&
+    editCustLightsRaw !== newColors.join(', ');
+  /* ⚠ AND THE FORM NEVER SHOWED THESE COLOURS AT ALL. The record holds something, the
+     boxes ticked none of it, and nothing has been ticked since — so an empty save here
+     is the form's emptiness, not a decision to clear the house. Both fields are left
+     exactly as they are. Ticking a box is what turns this into a real correction, which
+     is the remedy Health Check's "colours written as words" row already names. */
+  const cannotShowLights = !!editCustLightsRaw && Array.isArray(editCustLightsTicked) &&
+    editCustLightsTicked.length === 0 && newColors.length === 0;
   const newLightsDescription = keptRequotePattern
     ? requoteLightsPattern
-    : compileLightsDescription(newColors.join(', '), '');
+    : (keptStoredWording ? editCustLightsRaw
+       : compileLightsDescription(newColors.join(', '), ''));
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
@@ -39975,8 +40066,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     // Lights, house areas, install timing and permanent notes now live on the
     // customer. A colour change means a new pattern to build, so it re-queues
     // the warehouse the same way the old route editor did.
-    addrUpdates.lightsDescription = newLightsDescription;
-    addrUpdates.lightColors = newColors;
+    /* ⚠ THE ONLY TWO FIELDS THIS HANDLER MAY DECLINE TO WRITE — see cannotShowLights.
+       Written unconditionally, an ordinary save of a house whose colours the boxes
+       cannot spell erased them. Left out of addrUpdates entirely rather than written
+       back as themselves: a no-op write still stamps lightsChangedAt downstream and
+       would queue the warehouse to rebuild a house nobody touched. */
+    if(!cannotShowLights){
+      addrUpdates.lightsDescription = newLightsDescription;
+      addrUpdates.lightColors = newColors;
+    }
     addrUpdates.installPreference = newInstallPref;
     addrUpdates.notes = newHouseNotes;
     // Same field the route/dispatch note editor and the crew portal already
@@ -40751,6 +40849,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     document.getElementById('editCustOverlay').style.display = 'none';
     editCustomerId = null;
+    /* ⚠ AND IT SAYS SO. Declining to write is the right answer and a silent one is
+       indistinguishable from the colours having been saved — which is the whole of
+       "nothing should fail quietly". It names the wording that was kept, so the
+       office can see WHY the boxes were blank and correct it if it is wrong. */
+    if(cannotShowLights){
+      toast('Saved. Light colours left as they are — "' + editCustLightsRaw +
+            '" is not something the tick boxes can show, so they were not overwritten. ' +
+            'Tick the real colours and save again to correct it.');
+    }
     toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.'
       : (lightChange.feeAmount > 0 && !lightFeeWaived
           ? ('Customer info updated — ' + fmtMoney(lightChange.feeAmount) + ' light-change fee ' +
