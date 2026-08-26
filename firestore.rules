@@ -142,6 +142,16 @@ service cloud.firestore {
     // people to read, which is what makes it safe to write from a dozen
     // handlers without any of them becoming riskier.
     match /activity/{id}               { allow read, write: if request.auth != null; }
+    // ---- Health Check decisions ------------------------------------------
+    // One document per row somebody has judged: "fine as it is" or "not now",
+    // with a fingerprint of what the row said at the time, and who decided it.
+    // Shared across the office on purpose — four people use that dashboard and
+    // one person clearing a row clears it for everyone.
+    // ⚠ WITHOUT THIS RULE THE COLLECTION IS DENIED BY DEFAULT AND FAILS SILENTLY,
+    // which would look exactly like dismissals not saving. The reader fails open
+    // (every row shows) and says so on screen, so a missing rule is loud rather
+    // than a report that has quietly stopped remembering anything.
+    match /healthCheckDecisions/{id}   { allow read, write: if request.auth != null; }
     // ---- Payment ledger --------------------------------------------------
     // One row per payment: amount, method, when, who entered it, and a
     // reference (a PayPal capture id, or the tag of the file it was imported

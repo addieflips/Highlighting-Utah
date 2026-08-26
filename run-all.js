@@ -3324,7 +3324,14 @@ console.log('\n=== 7. Health check engine ===');
   let hc;
   try {
     hc = new Function(prelude + code + `
-      return {set:function(o){jobAddresses=o.j||[];allInvoicesCache=o.i||[];quotesCache=o.q||[];availableCustomerNumbers=o.a||[];scheduledRoutesCache=o.r||{};},setNightly:function(n){nightlyHealthCache=n;},run:hcRunChecks};
+      return {set:function(o){jobAddresses=o.j||[];allInvoicesCache=o.i||[];quotesCache=o.q||[];availableCustomerNumbers=o.a||[];scheduledRoutesCache=o.r||{};},setNightly:function(n){nightlyHealthCache=n;},run:hcRunChecks,
+        /* The decision layer, exposed so the checks below can RUN it rather than
+           match its source. Every one of them is pure — the store, today's date and
+           the session's Fixed-it set are all arguments — which is exactly why they
+           were written that way. */
+        rowState:hcRowState, decorate:hcDecorate, fingerprint:hcFingerprint, decisionId:hcDecisionId,
+        bands:HC_BANDS, strip:HC_STRIP_CHECKS, bandFor:hcBandFor, neverAside:HC_NEVER_SET_ASIDE,
+        snoozeCap:HC_SNOOZE_CAP_DAYS, snoozeDays:HC_SNOOZE_DAYS};
     `)();
   } catch (e) {
     check('health', 'health check engine evaluates', false, e.message);
@@ -3914,6 +3921,559 @@ console.log('\n=== 7. Health check engine ===');
   check('health', 'the words-not-colours check never offers to fix itself',
     !get(all, 'lightsNotPicked').fix,
     'a Fix button here would guess at what the words meant and change what the crew builds');
+
+  /* ================================================================
+     ⭐ THE REPORT REMEMBERS WHAT YOU DECIDED (added 2026-08-26).
+     Addie: "I can't approve anything or make an exception for certain people so
+     all health check just sits there forever also the way it looks is
+     unorganized and I have to scroll down forever."
+
+     Both complaints are one fault — the report had no memory of her judgement —
+     and the blocker underneath it was that rows had no IDENTITY: only 6 of the
+     23 checks put a document id on their rows, and the other 17 emitted a label
+     that is usually a customer's NAME.
+
+     ⚠ EVERY CHECK BELOW RUNS THE REAL FUNCTIONS against a fabricated store. A
+     regex cannot see which row a decision lands on, and that is the entire
+     claim being made here.
+     ================================================================ */
+
+  /* ---- 1. every row can be told apart from every other row ---- */
+  hc.set({
+    j: [{ id: 'c1', data: { name: 'Ashley Wray', phone: '8015551000', customerNumber: '' } },
+        { id: 'c2', data: { name: 'Ashley Wray', phone: '8015552000', customerNumber: '' } }],
+    i: []
+  });
+  {
+    const rows = get(hc.run(), 'noNumber').rows;
+    /* ⚠ THE SAME-NAME CASE IS THE WHOLE REASON THIS IS KEYED ON A DOCUMENT ID.
+       This book was imported over itself once and produced 944 same-name pairs;
+       on a name key, setting one aside would silently hide the other. */
+    check('health', 'two customers of the same name get DIFFERENT row keys',
+      rows.length === 2 && rows[0].key !== rows[1].key,
+      'on a name key one of these would inherit the other\'s exception and vanish ' +
+      'from the report — got ' + JSON.stringify(rows.map(r => r.key)));
+    check('health', 'and the key is the document id, not anything typed',
+      rows.length === 2 && rows[0].key === 'cust:c1' && rows[1].key === 'cust:c2',
+      'anything derived from a field can be edited, and then the row comes back');
+  }
+
+  /* ---- 2. renaming a customer does not resurrect a dismissed row ---- */
+  hc.set({ j: [{ id: 'c1', data: { name: 'Ashley Wray', phone: '8015551000', customerNumber: '' } }], i: [] });
+  const beforeRename = get(hc.run(), 'noNumber').rows[0];
+  hc.set({ j: [{ id: 'c1', data: { name: 'Ashley Wray-Smith', phone: '8015551000', customerNumber: '' } }], i: [] });
+  const afterRename = get(hc.run(), 'noNumber').rows[0];
+  check('health', 'a row key survives the customer being renamed',
+    beforeRename && afterRename && beforeRename.key === afterRename.key,
+    'a dismissal keyed on a name is undone by a spelling correction');
+
+  /* ---- 3. a set-aside row leaves the count, and is still findable ---- */
+  {
+    const today = '2026-08-26';
+    hc.set({ j: [{ id: 'c1', data: { name: 'Ashley Wray', phone: '8015551000', customerNumber: '' } }], i: [] });
+    const raw = hc.run();
+    const row = get(raw, 'noNumber').rows[0];
+    const store = {};
+    store[hc.decisionId('noNumber', row.key)] =
+      { verdict: 'ok', fingerprint: hc.fingerprint(row.detail), by: 'addie@x.com' };
+    const dec = hc.decorate(raw, store, today, {});
+    const view = dec.find(c => c.id === 'noNumber');
+    check('health', 'a set-aside row leaves the awaiting list',
+      view.open.length === 0,
+      'this is the whole complaint: a row she has accepted came back every ten minutes');
+    check('health', 'and it is still findable under Set aside',
+      view.aside.length === 1 && view.aside[0].key === row.key,
+      'an exception you cannot review or reverse is a hole, not a feature');
+    /* The badge is the sum of the open piles — the number that never went down.
+       ⚠ NOT "drops to zero": this one customer also has no address, no pin and no
+       price, so several other checks fire on the same record and SHOULD still be
+       counted. The claim is that setting one row aside removes exactly that one
+       from the badge — asserted as a difference, which is what a badge is. */
+    const badgeBefore = hc.decorate(raw, {}, today, {}).reduce((s, v) => s + v.open.length, 0);
+    const badgeAfter = dec.reduce((s, v) => s + v.open.length, 0);
+    check('health', 'and the badge count drops by exactly that one row',
+      badgeBefore - badgeAfter === 1,
+      'the sidebar badge counting set-aside rows is what made it a number nobody could ' +
+      'clear — got ' + badgeBefore + ' -> ' + badgeAfter);
+  }
+
+  /* ---- 4. the exception lapses when the facts move ---- */
+  {
+    const today = '2026-08-26';
+    hc.set({
+      j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', housePrice: 500, customerNumber: '101', measuredFeet: 100 } }],
+      i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }]
+    });
+    const drift1 = get(hc.run(), 'totalDrift').rows[0];
+    const store = {};
+    store[hc.decisionId('totalDrift', drift1.key)] =
+      { verdict: 'ok', fingerprint: hc.fingerprint(drift1.detail) };
+    check('health', 'a set-aside drift stays set aside while the numbers hold',
+      hc.rowState('totalDrift', drift1, store, today, {}) === 'ok',
+      'an exception that lapsed for no reason would be no exception at all');
+    /* Same customer, same key — a DIFFERENT amount. The row now claims something
+       she never agreed to, so it must come back. */
+    hc.set({
+      j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', housePrice: 900, customerNumber: '101', measuredFeet: 100 } }],
+      i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }]
+    });
+    const drift2 = get(hc.run(), 'totalDrift').rows[0];
+    check('health', 'and the SAME row with a different amount comes back',
+      drift2.key === drift1.key &&
+      hc.rowState('totalDrift', drift2, store, today, {}) === 'open',
+      'without the fingerprint one click blinds that row permanently — the same class ' +
+      'of failure as a badge nobody ever saw');
+  }
+
+  /* ---- 5. nightly billing can be put off, never set aside ---- */
+  {
+    const today = '2026-08-26';
+    const row = { key: 'nightly:stale', label: 'stopped', detail: 'Last run Aug 20' };
+    const aside = {};
+    aside[hc.decisionId('nightlyBilling', row.key)] =
+      { verdict: 'ok', fingerprint: hc.fingerprint(row.detail) };
+    /* ⚠ REFUSED ON READ, not only in the button that writes it. A document
+       written by hand, or by an older build, must not be able to blind the most
+       expensive silent failure there is. */
+    check('health', 'nightly billing refuses a set-aside even if one is stored',
+      hc.rowState('nightlyBilling', row, aside, today, {}) === 'open',
+      'an outage is not an exception — installed houses simply never invoiced');
+    check('health', 'and it is declared un-set-asideable in one place',
+      hc.neverAside.nightlyBilling === true && Object.keys(hc.neverAside).length === 1,
+      'every other row, including the alerts one, is a judgement she is allowed to make');
+    const snooze = {};
+    snooze[hc.decisionId('nightlyBilling', row.key)] =
+      { verdict: 'snoozed', until: '2026-09-01', fingerprint: hc.fingerprint(row.detail) };
+    check('health', 'but it accepts being put off',
+      hc.rowState('nightlyBilling', row, snooze, today, {}) === 'snoozed',
+      'refusing every delay is how a panel gets ignored wholesale');
+    check('health', 'and the snooze is capped at 7 days for that check',
+      hc.snoozeCap.nightlyBilling === 7 && hc.snoozeCap.nightlyBilling < hc.snoozeDays,
+      'a fortnight of silence on billing having stopped is most of a season\'s work unbilled');
+    const lapsed = {};
+    lapsed[hc.decisionId('nightlyBilling', row.key)] =
+      { verdict: 'snoozed', until: '2026-08-20', fingerprint: hc.fingerprint(row.detail) };
+    check('health', 'and a snooze that has run out puts the row back',
+      hc.rowState('nightlyBilling', row, lapsed, today, {}) === 'open',
+      '"not now" that never returns is "never", which is not what was pressed');
+  }
+
+  /* ---- 6. fail open, in every direction ---- */
+  {
+    const today = '2026-08-26';
+    hc.set({ j: [{ id: 'c1', data: { name: 'Ashley Wray', phone: '8015551000', customerNumber: '' } }], i: [] });
+    const raw = hc.run();
+    /* A failed decisions read leaves hcDecisions as it was and reports it; the
+       shape a caller must survive is an empty store. */
+    const dec = hc.decorate(raw, {}, today, {});
+    check('health', 'a decisions store that could not be read shows every row',
+      dec.find(c => c.id === 'noNumber').open.length === 1,
+      'a read error must never hide a problem — that is a green light nobody checked');
+    check('health', 'and a row with no key at all is shown, never hidden',
+      hc.rowState('noNumber', { label: 'x', detail: 'y' }, {}, today, {}) === 'open',
+      'no identity means no safe way to dismiss it, so it stays on the list');
+    /* An undefined store is what a caller sees if the load never ran at all. */
+    check('health', 'and an undefined store does not throw',
+      hc.rowState('noNumber', { key: 'cust:c1', detail: 'y' }, undefined, today, {}) === 'open',
+      'the first render can beat the read home, and it must draw rather than break');
+  }
+
+  /* ---- 7. "Fixed it" hides the row WITHOUT storing anything ---- */
+  {
+    const today = '2026-08-26';
+    hc.set({ j: [{ id: 'c1', data: { name: 'Ashley Wray', phone: '8015551000', customerNumber: '' } }], i: [] });
+    const raw = hc.run();
+    const row = get(raw, 'noNumber').rows[0];
+    const fixed = {}; fixed[hc.decisionId('noNumber', row.key)] = true;
+    const dec = hc.decorate(raw, {}, today, fixed);
+    const view = dec.find(c => c.id === 'noNumber');
+    check('health', '"Fixed it" takes the row off the awaiting list at once',
+      view.open.length === 0 && view.rows[0].state === 'fixed',
+      'she has just changed the record; making her wait ten minutes to see that is why ' +
+      'nothing ever felt finished');
+    /* ⚠ AND IT IS NOT A STORED VERDICT. It is cleared by the next derivation, so a
+       row that was NOT really fixed returns on its own — which is what makes it
+       safe to offer with no confirmation and no write. */
+    check('health', 'and it is cleared by the next derivation, so it self-corrects',
+      /function hcRunChecks\(\)\{[\s\S]{0,600}hcFixedNow = \{\};/.test(admin) &&
+      !/verdict: 'fixed'/.test(admin),
+      'if "Fixed it" were stored, pressing it and doing nothing would hide a real ' +
+      'problem forever');
+  }
+
+  /* ---- 8. presentation changed, detection did not ---- */
+  {
+    /* ⚠ THE POINT OF THE WHOLE EXERCISE. Run a book that trips many checks at
+       once and prove the decorated OPEN piles are row-for-row what the raw check
+       produced, with an empty store. If this ever fails, the redesign has started
+       deciding what the office does and does not get told. */
+    hc.set({
+      j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', housePrice: 500, customerNumber: '101' } },
+          { id: 'b', data: { name: 'Jones', phone: '8013334444', customerNumber: '101' } },
+          { id: 'c', data: { name: 'NoContact', customerNumber: '103', housePrice: 200 } }],
+      i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } },
+          { id: 'orphan@x.com', data: { name: 'Orphan', install: 100, removal: 0, deposit: 0, status: 'Unpaid' } }],
+      a: [{ id: '101', data: {} }]
+    });
+    const raw = hc.run();
+    const dec = hc.decorate(raw, {}, '2026-08-26', {});
+    const mismatch = raw.filter(function (c) {
+      const v = dec.find(x => x.id === c.id);
+      return !v || v.open.length !== c.rows.length;
+    }).map(c => c.id);
+    check('health', 'with an empty decisions store, no check reports fewer rows than before',
+      mismatch.length === 0,
+      'the redesign is presentation only — these checks are what the office is told ' +
+      'is wrong, and hiding one silently is the worst outcome here: ' + mismatch.join(', '));
+    /* And it really did trip several, or the check above proves nothing. */
+    check('health', 'and that fixture genuinely trips several checks',
+      raw.filter(c => c.rows.length).length >= 4,
+      'a fixture where nothing fires would pass this whether the decorator is right or not');
+  }
+
+  /* ---- 9. every check is placed on the page exactly once ---- */
+  {
+    const placed = {};
+    let dupes = [];
+    hc.strip.forEach(function (id) { placed[id] = (placed[id] || 0) + 1; });
+    hc.bands.forEach(function (b) { b.checks.forEach(function (id) { placed[id] = (placed[id] || 0) + 1; }); });
+    const ids = all.map(c => c.id);
+    const missing = ids.filter(id => !placed[id]);
+    Object.keys(placed).forEach(function (id) {
+      if (placed[id] > 1) dupes.push(id);
+      if (ids.indexOf(id) === -1) dupes.push(id + ' (no such check)');
+    });
+    /* ⚠ A CHECK NAMED IN NO BAND IS INVISIBLE UNLESS SOMETHING SAYS SO. The
+       renderer falls back rather than dropping it, but a silent fallback is how
+       a new check ends up filed under "tidy-up" for a year. */
+    check('health', 'every one of the 23 checks is placed in the strip or a band',
+      missing.length === 0, 'unplaced: ' + missing.join(', '));
+    check('health', 'and none is placed twice, or named that does not exist',
+      dupes.length === 0, 'drawn twice or misspelled: ' + dupes.join(', '));
+    check('health', 'and an unplaced check would still be drawn, not dropped',
+      hc.bandFor('somethingBrandNew') === 'records',
+      'failing loud is the safe direction: a check nobody can see is worse than one ' +
+      'in the wrong band');
+    /* The strip is for the two machine-is-alive checks and nothing else — they
+       are 0-or-1 rows about whether something still runs, not a list of houses. */
+    check('health', 'the strip holds exactly the two that say whether the machinery runs',
+      hc.strip.length === 2 &&
+      hc.strip.indexOf('nightlyBilling') !== -1 && hc.strip.indexOf('notifyOff') !== -1,
+      'putting them in a band buries the one thing that must never be missed under ' +
+      '900 rows of tidy-up');
+  }
+
+  /* ---- 10. a bulk Fix never touches a row somebody set aside ---- */
+  check('health', 'the bulk Fix acts on the rows awaiting a decision, not on every row',
+    /const check = hcLastViews\.find/.test(admin) &&
+    /if\(!check \|\| !check\.open\.length\) return;/.test(admin) &&
+    !/for\(let i = 0; i < check\.rows\.length; i\+\+\)/.test(admin),
+    'setting a row aside means nothing acts on it — a bulk fix that swept it up ' +
+    'anyway would make the exception worthless');
+
+  /* ---- 11. the decisions collection is actually allowed to be written ---- */
+  check('health', 'healthCheckDecisions has a rule in firestore.rules',
+    /match \/healthCheckDecisions\/\{id\}/.test(rules),
+    'a collection with no rule is denied by default and fails SILENTLY — which would ' +
+    'look exactly like dismissals not saving');
+
+  /* ---- 12. one customer stale on TWO routes is two rows, not one ----
+     ⚠ THE ROW KEY HAD TO GAIN routeId FOR THIS. A stale stop is pushed once per
+     route per customer, so on a custId-only key the two rows would share one
+     decision — and setting one aside would silently hide a stale stop on a
+     DIFFERENT day's sheet, which the crew is the one who finds out about. */
+  {
+    const dstr2 = dt => dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    const d1 = dstr2(new Date(Date.now() + 86400000));
+    const d2 = dstr2(new Date(Date.now() + 2 * 86400000));
+    hc.set({
+      j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', address: '12 New St', housePrice: 1, customerNumber: '1' } }],
+      r: { [d1]: [{ id: 'r1', date: d1, stops: [{ id: 'a', name: 'Smith', address: '99 Old St', phone: '8011112222' }] }],
+           [d2]: [{ id: 'r2', date: d2, stops: [{ id: 'a', name: 'Smith', address: '99 Old St', phone: '8011112222' }] }] }
+    });
+    const rows = get(hc.run(), 'staleStops').rows;
+    check('health', 'the same customer stale on two routes gets two distinct keys',
+      rows.length === 2 && rows[0].key !== rows[1].key,
+      'on a customer-only key, setting one aside would hide a stale stop on another ' +
+      'day\'s crew sheet — got ' + JSON.stringify(rows.map(r => r.key)));
+    check('health', 'and each key names the route it is on',
+      rows.length === 2 && rows.every(r => /^stop:r[12]:a$/.test(r.key)),
+      'the route is what makes the two rows different');
+  }
+})();
+
+/* =====================================================================
+   ⭐ THE HEALTH CHECK PANEL, ACTUALLY DRAWN (added 2026-08-26).
+   ⚠ EVERY CLAIM IN THE REDESIGN IS ABOUT A ROW ON A SCREEN, and this repo has
+   been caught at least three times by a check that matched the SOURCE of a
+   message which could never reach the page — the ledger's overwritten `right`
+   cell, the recycle "bin says" box whose listener never applied, the quote
+   buttons rendered behind an if(false). So this runs hcRender against jsdom and
+   reads the HTML it produces.
+   ===================================================================== */
+suite('7b. The Health Check panel, actually drawn');
+if (!JSDOM) {
+  note('jsdom not installed — skipping the Health Check render tests');
+} else (function () {
+  const hcStartMatch = admin.match(/\/\* =+\r?\n\s*HEALTH CHECK/);
+  const hcStart = hcStartMatch ? hcStartMatch.index : -1;
+  const hcEnd = admin.indexOf('function attachDeleteHandlers');
+  if (hcStart === -1 || hcEnd === -1) {
+    check('health', 'health check render block found', false, 'banner or end anchor moved');
+    return;
+  }
+  const code = admin.slice(hcStart, hcEnd)
+    .replace(/\(function\(\)\{\s*const btn = document\.getElementById\('runHealthCheckBtn'\);[\s\S]*$/, '');
+  /* The real panel markup, so the renderer writes into the containers it will
+     really find. Hand-written markup that the renderer happens to fit would pass
+     whether the renderer is right or not — these ids come from admin.html. */
+  const dom = new JSDOM(
+    '<div id="hcStrip"></div><div id="hcFilters"></div>' +
+    '<input id="hcSearch"><input type="checkbox" id="hcHideClean" checked>' +
+    '<span id="badgeHealth"></span><div id="hcResults"></div>');
+  const prelude = `
+    var document = arguments[0], window = arguments[1];
+    function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+    function toDateStr(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
+    function toast(){}
+    function custInvoiceKey(d){const p=String((d&&d.phone)||'').replace(/\\D/g,'');return p?p:String((d&&d.email)||'').toLowerCase().trim();}
+    function computeInvoiceStatus(){return 'Unpaid';}
+    var jobAddresses=[],allInvoicesCache=[],quotesCache=[],availableCustomerNumbers=[],scheduledRoutesCache={};
+    var nightlyHealthCache={loaded:false,enabled:false,alertPhone:'',newestRunAt:null,hasRuns:false};
+    var db=null, auth=null;
+    ${whLightColorsSrc || ''}
+    ${whColorsFromWordsSrc || ''}
+    ${whUnreadableSrc || ''}
+    ${hcCleanCitySrc || ''}
+  `;
+  let R;
+  try {
+    R = new Function(prelude + code + `
+      return {
+        render: hcRender,
+        setChecks: function(cs){ hcLastChecks = cs; },
+        setDecisions: function(d){ hcDecisions = d; },
+        setError: function(e){ hcDecisionsError = e; },
+        setFilter: function(f){ hcFilter = f; },
+        setFixed: function(f){ hcFixedNow = f; },
+        views: function(){ return hcLastViews; }
+      };
+    `)(dom.window.document, dom.window);
+  } catch (e) {
+    check('health', 'the Health Check renderer evaluates', false, e.message);
+    return;
+  }
+  check('health', 'the Health Check renderer evaluates', true, '');
+
+  const doc = dom.window.document;
+  const results = () => doc.getElementById('hcResults').innerHTML;
+  const mkRows = (n, prefix) => Array.from({ length: n }, (_, i) =>
+    ({ key: prefix + i, label: 'Name ' + i, detail: 'detail ' + i }));
+
+  /* A book that trips one check in each band plus both strip checks. */
+  const fixture = () => ([
+    { id: 'nightlyBilling', title: 'Nightly billing has stopped, or cannot tell you it has', why: 'w', fix: null, fixNote: 'n', rows: [] },
+    { id: 'notifyOff', title: 'New-message alerts are switched off', why: 'w', fix: null, fixNote: 'n', rows: [] },
+    { id: 'totalDrift', title: 'Invoice total does not match the houses on it', why: 'w', fix: 'totalDrift', fixLabel: 'Resync totals', fixNote: 'n', rows: mkRows(40, 'payer:') },
+    { id: 'noPin', title: 'Customer with no map pin', why: 'w', fix: null, fixNote: 'n', rows: mkRows(2, 'cust:') },
+    { id: 'orphanExtra', title: 'Warehouse extra linked to a deleted customer', why: 'w', fix: null, fixNote: 'n', rows: [] },
+    { id: 'phoneNotDigits', title: 'A stored phone the invoice rebuild cannot match', why: 'w', fix: null, fixNote: 'n', rows: [] }
+  ]);
+
+  R.setDecisions({}); R.setFixed({}); R.setError(''); R.setFilter('open');
+  R.setChecks(fixture());
+  R.render();
+
+  /* ---- the strip ---- */
+  const strip = doc.getElementById('hcStrip').innerHTML;
+  check('health', 'the strip draws both machine-is-alive lights',
+    strip.indexOf('Nightly billing') !== -1 && strip.indexOf('New-message alerts') !== -1,
+    'these are the two that must never be scrolled past — an empty strip is the ' +
+    'whole redesign failing silently');
+  check('health', 'and they are green when nothing is wrong',
+    (strip.match(/#10B981/g) || []).length === 2,
+    'a light that is never green is a light nobody reads');
+  check('health', 'and the strip checks are NOT repeated down in the bands',
+    results().indexOf('Nightly billing has stopped') === -1,
+    'drawn twice, the office fixes one and is still shown the other');
+
+  /* ---- collapsed by default: the actual complaint ---- */
+  const html = results();
+  check('health', 'every check is COLLAPSED by default',
+    html.indexOf('<details') !== -1 && !/<details[^>]*\sopen/.test(html),
+    '"I have to scroll down forever" is exactly this: hcRender used to write ' +
+    '<details open> for every check that found anything');
+  check('health', 'and the bands are drawn with their headings',
+    html.indexOf('Money and billing') !== -1 && html.indexOf('Crew and warehouse') !== -1,
+    'grouping is the other half of "unorganized"');
+  /* ⚠ A BAND WITH NOTHING IN IT MUST NOT DRAW ITS HEADING — a page of empty
+     headings is the same noise in a tidier font. */
+  check('health', 'and an empty band draws no heading at all',
+    html.indexOf('Records and tidy-up') === -1,
+    'both of that band\'s checks are clean in this fixture');
+
+  /* ---- 25 at a time, not 100 dumped inline ---- */
+  const liCount = (results().match(/<li /g) || []).length;
+  check('health', 'a 40-row check draws 25 rows, not all 40',
+    liCount === 27,
+    'the old renderer dumped up to 100 rows inline into an already-open panel — ' +
+    'got ' + liCount + ' rows (25 drift + 2 pins expected)');
+  check('health', 'and offers to show the rest',
+    results().indexOf('data-hcmore="totalDrift"') !== -1 &&
+    results().indexOf('Show 15 more of 40') !== -1,
+    'paging that cannot be paged is just truncation');
+
+  /* ---- the three verdicts are on every open row ---- */
+  check('health', 'each open row offers all three verdicts',
+    results().indexOf('data-hcv="fixed"') !== -1 &&
+    results().indexOf('data-hcv="snoozed"') !== -1 &&
+    results().indexOf('data-hcv="ok"') !== -1,
+    'this is the "I can\'t approve anything or make an exception" complaint — ' +
+    'none of these buttons existed');
+
+  /* ---- and the un-set-asideable one offers only two ---- */
+  R.setChecks(fixture().map(c => c.id === 'nightlyBilling'
+    ? Object.assign({}, c, { rows: [{ key: 'nightly:stale', label: 'stopped', detail: 'Last run Aug 20' }] }) : c));
+  R.render();
+  {
+    /* It renders in the strip, so ask the decorated view rather than the HTML. */
+    const v = R.views().find(x => x.id === 'nightlyBilling');
+    check('health', 'a nightly-billing row still counts as awaiting a decision',
+      v.open.length === 1,
+      'the strip must go red, not merely warm');
+    const s2 = doc.getElementById('hcStrip').innerHTML;
+    check('health', 'and the strip light goes red and says what is wrong',
+      s2.indexOf('#DC2626') !== -1 && s2.indexOf('stopped') !== -1,
+      'a red light that does not say why sends somebody hunting');
+  }
+  /* ⚠ AND A PUT-OFF ROW NAMES THE DATE IT COMES BACK — off the DECISION, not off
+     the row. The row's label is the problem; the date lives on the decision. The
+     first version printed the label after the word "until", which reads as a date
+     and is not one, and nothing failed. */
+  {
+    const until = '2099-01-01';
+    const st = {};
+    st['nightlyBilling__nightly:stale'] = { verdict: 'snoozed', until: until, fingerprint: null };
+    R.setDecisions(st);
+    R.render();
+    const s3 = doc.getElementById('hcStrip').innerHTML;
+    check('health', 'a put-off strip light names the date it comes back',
+      s3.indexOf('put off until ' + until) !== -1,
+      '"put off until Nightly billing has not run for 3 days" is what printing the ' +
+      'label there gives you');
+    check('health', 'and it goes amber rather than red or green',
+      s3.indexOf('#D97706') !== -1,
+      'green would say the run is fine, red would say nobody has looked — neither is true');
+    R.setDecisions({});
+  }
+
+  /* ---- a set-aside row leaves the list and the badge ---- */
+  R.setChecks(fixture());
+  const dstore = {};
+  mkRows(40, 'payer:').forEach(function (r) {
+    dstore['totalDrift__' + r.key] = { verdict: 'ok', fingerprint: null, by: 'addie@x.com' };
+  });
+  /* ⚠ fingerprint null means "no fingerprint recorded", which must NOT lapse —
+     a decision written before fingerprints existed still stands. */
+  R.setDecisions(dstore);
+  R.render();
+  check('health', 'setting every drift row aside removes the check from the list',
+    results().indexOf('Invoice total does not match') === -1,
+    'the rows are all decided, so nothing is waiting on her');
+  check('health', 'and the badge counts only what is still awaiting a decision',
+    doc.getElementById('badgeHealth').textContent === '2',
+    'the two map-pin rows — the badge counting set-aside rows is what made it a ' +
+    'number that never went down; got ' + doc.getElementById('badgeHealth').textContent);
+
+  /* ---- but they are findable, and reversible, under Set aside ---- */
+  R.setFilter('aside');
+  R.render();
+  check('health', 'the Set aside filter shows them again',
+    results().indexOf('Invoice total does not match') !== -1,
+    'an exception you cannot review is a hole, not a feature');
+  check('health', 'and every one offers to be put back',
+    results().indexOf('data-hcundo="1"') !== -1 && results().indexOf('Put it back') !== -1,
+    'reversible in one click was the condition for offering it at all');
+  check('health', 'and it says who decided it',
+    results().indexOf('addie@x.com') !== -1,
+    'four people share this dashboard — an exception with no author cannot be questioned');
+  /* ⚠ AND NO FIX BUTTON ON A CHECK WHOSE ROWS ARE ALL SET ASIDE. Every row here
+     has been judged, so there is nothing for a bulk fix to act on — offering
+     "Resync totals (0)" invites a press that silently does nothing, which is how
+     the office learns the buttons are unreliable. Found by red-checking: with the
+     button gated on rows rather than open rows, nothing failed. */
+  check('health', 'and no Fix button is offered when every row is set aside',
+    results().indexOf('data-hcfix') === -1,
+    'a bulk fix with nothing to fix is a button that lies about what it will do');
+
+  /* ---- a failed decisions read is said out loud, and shows everything ---- */
+  R.setFilter('open');
+  R.setDecisions({});
+  R.setError('Your "set aside" and "not now" decisions could not be read, so everything is being shown.');
+  R.render();
+  check('health', 'a failed decisions read is reported on screen',
+    results().indexOf('could not be read') !== -1,
+    'silently showing everything would look identical to nobody having set anything ' +
+    'aside — the failure has to be visible');
+  check('health', 'and every row is shown while it is failing',
+    results().indexOf('Invoice total does not match') !== -1,
+    'a read error must never hide a problem');
+
+  /* ---- search ---- */
+  R.setError('');
+  doc.getElementById('hcSearch').value = 'Name 7';
+  R.render();
+  {
+    const n = (results().match(/<li /g) || []).length;
+    check('health', 'the search narrows to matching rows',
+      n === 1 && results().indexOf('Name 7') !== -1,
+      'searching a 900-row report is the difference between using it and not — got ' + n);
+    check('health', 'and opens the check it found them in',
+      /<details[^>]*\sopen/.test(results()),
+      'a match hidden inside a collapsed section is a match nobody sees');
+  }
+  doc.getElementById('hcSearch').value = '';
+
+  /* ---- "Fixed it" ---- */
+  R.setFixed({ 'noPin__cust:0': true });
+  R.render();
+  check('health', '"Fixed it" takes that row off the list immediately',
+    (results().match(/Name 0/g) || []).length === 1,
+    'only the drift check\'s Name 0 should be left — she has just changed the record, ' +
+    'and making her wait ten minutes to see it is why nothing felt finished');
+  R.setFixed({});
+
+  /* ---- the clean checks, on one line ---- */
+  doc.getElementById('hcHideClean').checked = false;
+  R.render();
+  check('health', 'the clean checks collapse to a single line',
+    results().indexOf('checks all clear') !== -1 &&
+    results().indexOf('Warehouse extra linked to a deleted customer') !== -1,
+    'four clean checks used to be four more sections to scroll past');
+  doc.getElementById('hcHideClean').checked = true;
+
+  /* ---- hostile input ---- */
+  R.setChecks([{ id: 'noPin', title: 'Customer with no map pin', why: 'w', fix: null, fixNote: 'n',
+    rows: [{ key: 'cust:x"><script>alert(1)</script>', label: '<img src=x onerror=alert(1)>', detail: '"><b>bold</b>' }] }]);
+  R.render();
+  /* ⚠ ASSERTED ON THE DOM, NOT ON innerHTML. Reading innerHTML back re-serializes
+     every attribute, and the HTML spec's attribute serialiser escapes & and "
+     but NOT < or > — so a key holding the TEXT "<script>" comes back out looking
+     like a tag while being nothing but data. The first version of this check read
+     that string and failed on code that is right. What actually matters is
+     whether an ELEMENT was created, so ask the tree. */
+  check('health', 'a hostile name creates no element and is shown as text',
+    doc.getElementById('hcResults').querySelector('script, img') === null &&
+    doc.getElementById('hcResults').textContent.indexOf('<img src=x onerror=alert(1)>') !== -1,
+    'these labels are customer-typed data — the old renderer escaped them and so ' +
+    'must this one');
+  check('health', 'and a hostile key stays intact as attribute DATA',
+    (function () {
+      const b = doc.getElementById('hcResults').querySelector('[data-hcv="ok"]');
+      return b && b.getAttribute('data-hck') === 'cust:x"><script>alert(1)</script>';
+    })(),
+    'an unescaped quote here would end the attribute early and start real markup — ' +
+    'and the key must survive byte-for-byte, or the verdict lands on no row at all');
 })();
 
 // =====================================================================

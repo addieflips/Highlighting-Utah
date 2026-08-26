@@ -2191,6 +2191,22 @@
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="hcHideClean" checked> Hide checks that pass</label>
         <span id="hcStatus" class="muted" style="font-size:13px;"></span>
       </div>
+      <!-- ⭐ THE TWO "IS THE MACHINERY ALIVE" CHECKS, ABOVE EVERYTHING (2026-08-26).
+           Both are 0-or-1 rows about whether something still runs, not a list of
+           houses to work through, so they do not belong in a list you scroll past.
+           Written by hcRender; no inputs, so replacing its contents costs nothing. -->
+      <div id="hcStrip" style="display:flex; gap:10px; flex-wrap:wrap; margin:0 0 14px;"></div>
+      <!-- ⚠ STATIC, NOT DRAWN BY hcRender. The search box lives here because
+           #hcResults is replaced wholesale on every draw, and a box inside it would
+           lose focus on every keystroke. Its listeners are bound once, below. -->
+      <div id="hcFilters" style="display:none; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 14px;">
+        <button class="btn-sm" data-hcfilter="open">Needs a decision</button>
+        <button class="btn-sm" data-hcfilter="aside">Set aside</button>
+        <button class="btn-sm" data-hcfilter="snoozed">Put off</button>
+        <button class="btn-sm" data-hcfilter="all">All</button>
+        <input id="hcSearch" type="search" placeholder="Search a name or address…"
+               style="padding:7px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; min-width:200px;">
+      </div>
       <!-- What changed today, and who changed it. Nothing recorded this until
            now — four people share this dashboard and the app has always known
            who is signed in. Read-only, and nothing decides anything from it. -->
@@ -46950,7 +46966,216 @@ async function hcLoadNotifyCfg(){
     console.error('[HU] could not read the EmailJS settings for Health Check', err);
   }
 }
+/* ⭐ WHAT YOU HAVE ALREADY DECIDED ABOUT A ROW (added 2026-08-26).
+   Addie: "I can't approve anything or make an exception for certain people so all
+   health check just sits there forever". Both halves of that are one fault — the
+   report had no memory of her judgement. hcRunChecks re-derives from live caches
+   every ten minutes, so a row she had looked at and accepted came back within ten
+   minutes, forever, and went on counting in the sidebar badge.
+
+   THREE VERDICTS, AND ONLY TWO OF THEM ARE STORED:
+     Fixed it      — she changed the record. In memory only, cleared by the next
+                     derivation, so if it was NOT really fixed the row returns on
+                     its own within ten minutes. That self-correction is what makes
+                     it safe to offer with no confirmation and no write.
+     Not now       — real, not today. Comes back on a date.
+     Fine as it is — not a problem. The exception she asked for.
+
+   ⚠ IT LASTS FOREVER, UNLESS THE FACTS MOVE. Each decision stores a fingerprint of
+   the row's DETAIL string, and a decision whose fingerprint no longer matches is
+   ignored — the row comes back. A drifted amount becoming a DIFFERENT amount, a
+   group of two houses becoming three, a customer with no email gaining a broken
+   one: all of those are new facts wearing an old row's name. Without this, one
+   click blinds that row permanently, which is the same class of failure as a badge
+   nobody ever saw.
+
+   ⚠ THE FINGERPRINT IS ON THE DETAIL, NOT THE LABEL. The label is usually a
+   customer's NAME, which changes for reasons that have nothing to do with the
+   problem; the detail is what the row actually claims.
+
+   ⚠ AND IT IS KEYED ON A DOCUMENT ID, NEVER ON A NAME. Renaming a customer would
+   otherwise resurrect a dismissed row, and a SECOND customer of the same name would
+   silently inherit somebody else's exception and vanish from the report. This book
+   has already been imported over itself once and produced 944 same-name pairs, so
+   that is not theoretical. Every row carries `key` — see hcRunChecks.
+
+   ⚠ FAIL OPEN, EVERYWHERE. A row with no key, a decision that cannot be read, a
+   collection denied by the rules: every one of those shows the row. A read error
+   must never hide a problem, and hcDecisionsError says so on screen rather than
+   letting a failed read look like "nobody has set anything aside".
+
+   ⚠ SHARED ACROSS THE OFFICE. Four people use this dashboard; one person clearing a
+   row clears it for everyone, stamped with who and when. */
+const HC_DECISIONS_COLL = 'healthCheckDecisions';
+const HC_SNOOZE_DAYS = 14;
+/* ⚠ AN OUTAGE IS NOT AN EXCEPTION. Nightly billing stopping is the most expensive
+   silent failure there is — installed houses simply never invoiced — so it can be
+   put off for a week and can never be set aside. Enforced on READ as well as on
+   write, so a document written by hand or by an older build cannot blind it. */
+const HC_NEVER_SET_ASIDE = {nightlyBilling: true};
+const HC_SNOOZE_CAP_DAYS = {nightlyBilling: 7};
+let hcDecisions = {};
+let hcDecisionsError = '';
+/* Rows pressed "Fixed it" this session. Deliberately NOT stored: it is cleared by
+   the next derivation, which is what makes the row come back if nothing was really
+   fixed. Keyed the same way so it cannot collide with a stored decision. */
+let hcFixedNow = {};
+function hcDecisionId(checkId, rowKey){ return checkId + '__' + rowKey; }
+/* djb2, plus the length. Short enough to store, and the length makes the cheap
+   collisions (two details of different lengths hashing alike) impossible. */
+function hcFingerprint(detail){
+  const str = String(detail == null ? '' : detail);
+  let h = 5381;
+  for(let i = 0; i < str.length; i++){ h = (((h * 33) ^ str.charCodeAt(i)) >>> 0); }
+  return String(h) + ':' + str.length;
+}
+/* Read once, and again on every hand-run of the button — that press is also how
+   somebody picks up a decision a colleague made since they signed in. A one-off
+   read rather than a listener: this is a small collection nobody watches live, and
+   §2 of CLAUDE.md is explicit about not adding listeners for panels. */
+async function hcLoadDecisions(){
+  try{
+    const snap = await getDocs(collection(db, HC_DECISIONS_COLL));
+    const next = {};
+    snap.forEach(function(d){ next[d.id] = d.data() || {}; });
+    hcDecisions = next;
+    hcDecisionsError = '';
+  }catch(err){
+    /* ⚠ LEFT AS IT WAS AND REPORTED. Emptying it would be the safe direction too
+       (every row shows), but silently swapping a good cache for an empty one mid
+       session would make somebody's exceptions reappear with no explanation. */
+    hcDecisionsError = 'Your "set aside" and "not now" decisions could not be read, so everything is being shown. ' +
+      'If this keeps happening the healthCheckDecisions rule may be missing from firestore.rules.';
+    console.error('[HU] could not read the Health Check decisions', err);
+  }
+}
+/* What is standing against ONE row, right now. Pure and synchronous — every
+   argument is passed in — so a test can run it against a fabricated store rather
+   than matching its source. Returns 'open' | 'ok' | 'snoozed' | 'fixed'. */
+function hcRowState(checkId, row, decisions, todayStr, fixedNow){
+  const key = row && row.key;
+  if(!key) return 'open';                                   // no identity, no hiding
+  const id = hcDecisionId(checkId, key);
+  if(fixedNow && fixedNow[id]) return 'fixed';
+  const d = decisions && decisions[id];
+  if(!d) return 'open';
+  /* The facts moved since the decision was made, so the decision is about a row
+     that no longer exists. Show it again. */
+  if(d.fingerprint && d.fingerprint !== hcFingerprint(row.detail)) return 'open';
+  if(d.verdict === 'snoozed'){
+    if(!d.until || String(d.until) <= String(todayStr)) return 'open';   // lapsed
+    return 'snoozed';
+  }
+  if(d.verdict === 'ok') return HC_NEVER_SET_ASIDE[checkId] ? 'open' : 'ok';
+  return 'open';
+}
+/* Sort every check's rows into the four piles once, so the badge, the filter and
+   the Fix buttons all read one answer. Does not mutate what it is given. */
+function hcDecorate(checks, decisions, todayStr, fixedNow){
+  return (checks || []).map(function(c){
+    const rows = (c.rows || []).map(function(r){
+      return Object.assign({}, r, {state: hcRowState(c.id, r, decisions, todayStr, fixedNow)});
+    });
+    return Object.assign({}, c, {
+      rows: rows,
+      open: rows.filter(function(r){ return r.state === 'open'; }),
+      aside: rows.filter(function(r){ return r.state === 'ok'; }),
+      snoozed: rows.filter(function(r){ return r.state === 'snoozed'; })
+    });
+  });
+}
+/* Record a verdict. Both guards are applied HERE as well as on read, so neither a
+   keyboard-reachable disabled button nor a future caller can write one that the
+   reader would then have to refuse. */
+async function hcDecide(checkId, row, verdict){
+  if(!row || !row.key) return false;
+  if(verdict === 'ok' && HC_NEVER_SET_ASIDE[checkId]){
+    toast('That one cannot be set aside — it can only be put off for a few days.');
+    return false;
+  }
+  const id = hcDecisionId(checkId, row.key);
+  const payload = {
+    checkId: checkId,
+    rowKey: row.key,
+    verdict: verdict,
+    fingerprint: hcFingerprint(row.detail),
+    label: String(row.label || ''),
+    by: (auth && auth.currentUser && auth.currentUser.email) || 'someone in the office',
+    at: serverTimestamp()
+  };
+  if(verdict === 'snoozed'){
+    const cap = HC_SNOOZE_CAP_DAYS[checkId] || HC_SNOOZE_DAYS;
+    const days = Math.min(HC_SNOOZE_DAYS, cap);
+    payload.until = toDateStr(new Date(Date.now() + days * 86400000));
+  }
+  try{
+    await setDoc(doc(db, HC_DECISIONS_COLL, id), payload);
+    /* Mirrored locally so the row leaves at once — the panel repaints from this
+       cache, not from Firestore, exactly as Edit Customer does. */
+    hcDecisions[id] = Object.assign({}, payload, {at: new Date()});
+    hcRender();
+    return true;
+  }catch(err){
+    console.error('[HU] could not save that Health Check decision', err);
+    toast('That could not be saved — the row is still showing.');
+    return false;
+  }
+}
+/* Put a row back on the list. One click, from the Set aside / Snoozed filters. */
+async function hcUndecide(checkId, rowKey){
+  const id = hcDecisionId(checkId, rowKey);
+  try{
+    await deleteDoc(doc(db, HC_DECISIONS_COLL, id));
+    delete hcDecisions[id];
+    hcRender();
+  }catch(err){
+    console.error('[HU] could not undo that Health Check decision', err);
+    toast('That could not be undone — try again.');
+  }
+}
+/* ⭐ THE SHAPE OF THE PAGE (added 2026-08-26). Addie: "the way it looks is
+   unorganized and I have to scroll down forever".
+
+   Why it scrolled forever, exactly: hcRender wrote <details open> for EVERY check
+   that found anything, so the whole book arrived expanded; each check dumped up to
+   100 rows inline; and they rendered in authoring order with no grouping and no
+   sort. The only control was a Hide-checks-that-pass tick box.
+
+   ⚠ THE TWO MACHINE-IS-ALIVE CHECKS ARE NOT IN A BAND. They are 0-or-1 rows about
+   whether the machinery still works, not a list of houses, so they sit in a strip
+   at the top that does not scroll away. Putting them in a band buries the one
+   thing that must never be missed under 900 rows of tidy-up.
+
+   ⚠ AND A CHECK IN NO BAND STILL DRAWS. hcBandFor falls back rather than dropping
+   it: a new check whose author forgot this list must be noisy, never invisible. */
+const HC_STRIP_CHECKS = ['nightlyBilling', 'notifyOff'];
+const HC_BANDS = [
+  {id: 'money',   title: 'Money and billing',
+   checks: ['missingInvoice','totalDrift','staleStatus','orphanInvoice','strandedPayment',
+            'badBillTo','sharedPhone','noEmail','noContact','lostQuotes']},
+  {id: 'crew',    title: 'Crew and warehouse',
+   checks: ['dupNumbers','poolConflict','noNumber','noBundleBasis','lightsNotPicked',
+            'noPin','ghostStops','staleStops','townIsStreet']},
+  {id: 'records', title: 'Records and tidy-up',
+   checks: ['orphanExtra','phoneNotDigits']}
+];
+function hcBandFor(checkId){
+  for(let i = 0; i < HC_BANDS.length; i++){
+    if(HC_BANDS[i].checks.indexOf(checkId) !== -1) return HC_BANDS[i].id;
+  }
+  return 'records';   // fail loud: an unplaced check is drawn, never dropped
+}
+const HC_PAGE = 25;
+let hcFilter = 'open';
+let hcShowMore = {};
+
 function hcRunChecks(){
+  /* ⚠ CLEARED HERE, AND ONLY HERE. "Fixed it" hides a row until the next time the
+     checks are derived from live data — every ten minutes, and on every customer
+     write. So pressing it and doing nothing costs at most ten minutes of quiet,
+     and pressing it after really fixing the record is simply the truth arriving
+     early. Clearing it in hcRender instead would undo the press immediately. */
+  hcFixedNow = {};
   const checks = [];
   const groups = hcInvoiceGroups();
   const invById = {};
@@ -46973,7 +47198,7 @@ function hcRunChecks(){
     fix: null,
     fixNote: 'No button: the code cannot know which house keeps the number. Whoever already has bins labelled should keep it.',
     rows: Object.keys(byNumber).filter(function(n){ return byNumber[n].length > 1; }).map(function(n){
-      return {label: 'Number ' + n, detail: byNumber[n].map(function(c){ return hcName(c.data); }).join('  vs  ')};
+      return {key: 'num:' + n, label: 'Number ' + n, detail: byNumber[n].map(function(c){ return hcName(c.data); }).join('  vs  ')};
     })
   });
   /* Three fields, named individually — "EmailJS is misconfigured" sends somebody to
@@ -46994,7 +47219,7 @@ function hcRunChecks(){
       if(!hcNotifyCfg.notifyTemplateId) missing.push('Notify Template ID');
       if(!hcNotifyCfg.publicKey) missing.push('Public Key');
       if(!missing.length) return [];
-      return [{label: 'Missing: ' + missing.join(', '),
+      return [{key: 'notifyOff', label: 'Missing: ' + missing.join(', '),
                detail: 'until these are set, nobody is told a customer has written in'}];
     })()
   });
@@ -47026,7 +47251,7 @@ function hcRunChecks(){
       });
       return Object.keys(byValue).sort().map(function(town){
         const who = byValue[town];
-        return {label: '"' + town + '"',
+        return {key: 'town:' + town, label: '"' + town + '"',
                 detail: who.length === 1
                   ? hcName(who[0].data) + ' — filed as a town of one'
                   : who.length + ' houses filed under it: ' +
@@ -47044,7 +47269,7 @@ function hcRunChecks(){
     fix: null,
     fixNote: 'No button: decide whether the extra is still needed, then remove it in Warehouse if not.',
     rows: (typeof warehouseExtras !== 'undefined' && Array.isArray(warehouseExtras) ? warehouseExtras : []).filter(function(e){ return e.data.customerId && !hcCustIdSet[e.data.customerId]; }).map(function(e){
-      return {label: (e.data.label || e.data.pattern || 'Extra'), detail: 'linked customer is gone' + (e.data.customerNumber ? ' (was #' + e.data.customerNumber + ')' : '')};
+      return {key: 'extra:' + e.id, label: (e.data.label || e.data.pattern || 'Extra'), detail: 'linked customer is gone' + (e.data.customerNumber ? ' (was #' + e.data.customerNumber + ')' : '')};
     })
   });
   const assignedNumbers = {};
@@ -47058,7 +47283,7 @@ function hcRunChecks(){
     fixNote: 'Safe to fix: the assignment is the truth, so the pool entry is simply wrong.',
     rows: availableCustomerNumbers.filter(function(a){ return assignedNumbers[String(a.id)]; }).map(function(a){
       const holder = byNumber[String(a.id)][0];
-      return {label: 'Number ' + a.id, detail: 'still assigned to ' + hcName(holder.data), numId: String(a.id)};
+      return {key: 'num:' + a.id, label: 'Number ' + a.id, detail: 'still assigned to ' + hcName(holder.data), numId: String(a.id)};
     })
   });
   checks.push({
@@ -47089,7 +47314,7 @@ function hcRunChecks(){
       else bits.push(town ? 'no street, only "' + town + '" — looks like a stray copy'
                           : 'no address at all — looks like a stray copy');
       if(price > 0) bits.push('priced $' + price + ', so the warehouse cannot build for them');
-      return {label: hcName(d), detail: bits.join(' · ')};
+      return {key: 'cust:' + c.id, label: hcName(d), detail: bits.join(' · ')};
     })
   });
   checks.push({
@@ -47101,7 +47326,7 @@ function hcRunChecks(){
     rows: jobAddresses.filter(function(c){
       const d = c.data || {};
       return !(Number(d.measuredFeet) || 0) && !(Number(d.housePrice) || 0);
-    }).map(function(c){ return {label: hcName(c.data), detail: hcAddr(c.data) || 'no address on file'}; })
+    }).map(function(c){ return {key: 'cust:' + c.id, label: hcName(c.data), detail: hcAddr(c.data) || 'no address on file'}; })
   });
   /* The only remaining reason the warehouse has to interpret anything. Nothing
      in the app writes free text into a light description any more, so every
@@ -47122,6 +47347,7 @@ function hcRunChecks(){
       const bad = whUnreadableLightParts(d.lightsDescription);
       if(!bad.length) return null;
       return {
+        key: 'cust:' + c.id,
         label: hcName(d),
         detail: (hcAddr(d) || 'no address on file') + ' — reads "' + (d.lightsDescription || '') +
           '", not recognised: ' + bad.map(function(b){ return '"' + b + '"'; }).join(', ')
@@ -47141,7 +47367,7 @@ function hcRunChecks(){
       return groups[payer].some(function(c){ return (Number((c.data || {}).housePrice) || 0) > 0; });
     }).map(function(payer){
       const first = groups[payer][0];
-      return {label: hcName(first.data), detail: 'payer ' + payer + ' — no invoice exists', payer: payer};
+      return {key: 'payer:' + payer, label: hcName(first.data), detail: 'payer ' + payer + ' — no invoice exists', payer: payer};
     })
   });
   checks.push({
@@ -47152,7 +47378,7 @@ function hcRunChecks(){
     fixNote: 'No button: deleting an invoice can destroy a payment record. Check it before removing anything.',
     rows: allInvoicesCache.filter(function(i){ return !groups[i.id]; }).map(function(i){
       const d = i.data || {};
-      return {label: (d.name || i.id), detail: 'invoice key ' + i.id + ' matches no customer — total $' + ((Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0))};
+      return {key: 'inv:' + i.id, label: (d.name || i.id), detail: 'invoice key ' + i.id + ' matches no customer — total $' + ((Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0))};
     })
   });
   /* ⭐ A PAYMENT LEFT ON AN INVOICE THAT BILLS NOTHING (added 2026-08-26).
@@ -47214,7 +47440,7 @@ function hcRunChecks(){
       const own = jobAddresses.filter(function(c){ return custInvoiceKey(c.data || {}) === i.id; });
       const paid = '$' + (Number(d.deposit) || 0).toFixed(2);
       if(!own.length){
-        return {label: (d.name || i.id), detail: paid + ' paid, and no customer is filed under ' + i.id + ' at all'};
+        return {key: 'inv:' + i.id, label: (d.name || i.id), detail: paid + ' paid, and no customer is filed under ' + i.id + ' at all'};
       }
       /* Name where their money should probably be going, so the decision can be
          made from this row rather than by going and looking it up. */
@@ -47224,6 +47450,7 @@ function hcRunChecks(){
         return (p && hcName(p.data)) || key;
       }))].join(', ');
       return {
+        key: 'inv:' + i.id,
         label: own.map(function(c){ return hcName(c.data); }).join(', '),
         detail: paid + ' paid before they moved onto ' + payers + '’s bill — the payment stayed here and reads as Paid in Full'
       };
@@ -47284,6 +47511,7 @@ function hcRunChecks(){
          from a name alone. */
       const gross = inv ? (Number((inv.data||{}).install)||0) + (Number((inv.data||{}).removal)||0) + (Number((inv.data||{}).changeFees)||0) : 0;
       return {
+        key: 'cust:' + c.id,
         label: hcName(d),
         detail: 'stored as "' + d.phone + '", keyed as ' + digits +
           (gross > 0 ? ' — an invoice of $' + gross.toFixed(2) + ' is filed under that key and a resync could zero it'
@@ -47310,6 +47538,7 @@ function hcRunChecks(){
       const expected = groups[payer].reduce(function(sum, c){ return sum + (Number((c.data || {}).housePrice) || 0); }, 0)
                      + (d.newMemberFeeApplied ? 30 : 0);
       return {
+        key: 'payer:' + payer,
         label: (d.name || payer),
         detail: 'invoice says $' + (Number(d.install)||0) + ', houses add up to $' + expected
               + (d.newMemberFeeApplied ? ' (incl. $30 new member fee)' : '')
@@ -47331,7 +47560,7 @@ function hcRunChecks(){
       return (d.status || '') !== should;
     }).map(function(i){
       const d = i.data || {};
-      return {label: (d.name || i.id), detail: 'says "' + (d.status || 'blank') + '", should be "' + computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees) + '"', invId: i.id};
+      return {key: 'inv:' + i.id, label: (d.name || i.id), detail: 'says "' + (d.status || 'blank') + '", should be "' + computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees) + '"', invId: i.id};
     })
   });
   /* ---------- routes ---------- */
@@ -47343,7 +47572,7 @@ function hcRunChecks(){
       (route.stops || []).forEach(function(st){
         const cust = custIds[st.id];
         if(!cust){
-          ghostStops.push({label: (st.name || st.id), detail: 'on the ' + dateStr + ' route, customer no longer exists', routeId: route.id, stopId: st.id});
+          ghostStops.push({key: 'stop:' + route.id + ':' + st.id, label: (st.name || st.id), detail: 'on the ' + dateStr + ' route, customer no longer exists', routeId: route.id, stopId: st.id});
           return;
         }
         const d = cust.data || {};
@@ -47351,7 +47580,7 @@ function hcRunChecks(){
         if((st.name || '') !== (d.name || '')) diffs.push('name');
         if((st.address || '') !== (d.address || '')) diffs.push('address');
         if(hcDigits(st.phone) !== hcDigits(d.phone)) diffs.push('phone');
-        if(diffs.length) staleStops.push({label: hcName(d), detail: dateStr + ' route has an old ' + diffs.join(' and '), custId: st.id, fields: {name: d.name || '', address: d.address || '', phone: d.phone || ''}});
+        if(diffs.length) staleStops.push({key: 'stop:' + route.id + ':' + st.id, label: hcName(d), detail: dateStr + ' route has an old ' + diffs.join(' and '), routeId: route.id, custId: st.id, fields: {name: d.name || '', address: d.address || '', phone: d.phone || ''}});
       });
     });
   });
@@ -47391,7 +47620,7 @@ function hcRunChecks(){
       return !custKeys[custInvoiceKey(d)];
     }).map(function(q){
       const d = q.data || {};
-      return {label: hcName(d), detail: (hcAddr(d) || 'no address') + ' — approved, no customer record'};
+      return {key: 'quote:' + q.id, label: hcName(d), detail: (hcAddr(d) || 'no address') + ' — approved, no customer record'};
     })
   });
   checks.push({
@@ -47403,7 +47632,7 @@ function hcRunChecks(){
     rows: jobAddresses.filter(function(c){
       const d = c.data || {};
       return !hcDigits(d.phone) && !String(d.email || '').trim();
-    }).map(function(c){ return {label: hcName(c.data), detail: hcAddr(c.data) || 'no address either'}; })
+    }).map(function(c){ return {key: 'cust:' + c.id, label: hcName(c.data), detail: hcAddr(c.data) || 'no address either'}; })
   });
   /* An invoice is emailed or it is not sent at all — there is no paper fallback.
      The nightly run looks for an email address across the whole payer group
@@ -47431,6 +47660,7 @@ function hcRunChecks(){
       const g = noEmailGroups[k];
       const first = g.members[0] || {};
       return {
+        key: 'bill:' + k,
         label: hcName(first),
         detail: (hcAddr(first) || 'no address') +
           (g.members.length > 1 ? ' — and ' + (g.members.length - 1) + ' more on this bill' : '') +
@@ -47449,6 +47679,7 @@ function hcRunChecks(){
     fixNote: 'No button: only you can tell whether these are two households that need separate numbers, or one payer whose second house should have Bill To set to that number. Both fixes are on the customer record.',
     rows: hcSharedPhoneGroups(jobAddresses).map(function(g){
       return {
+        key: 'phone:' + g.key,
         label: g.members.map(function(d){ return hcName(d); }).join('  +  '),
         detail: 'both filed under ' + fmtPhone(g.key) + ' — ' +
           g.members.map(function(d){ return hcAddr(d) || 'no address'; }).join(' / ') +
@@ -47474,7 +47705,7 @@ function hcRunChecks(){
       return !hcHasMapPin(d);
     }).map(function(c){
       const d = c.data || {};
-      return {label: hcName(d), detail: (hcAddr(d) || 'no address on file') + ' — no map pin, cannot be routed'};
+      return {key: 'cust:' + c.id, label: hcName(d), detail: (hcAddr(d) || 'no address on file') + ' — no map pin, cannot be routed'};
     })
   });
   /* ---------- the nightly billing run ---------- */
@@ -47485,19 +47716,19 @@ function hcRunChecks(){
   const nightlyRows = [];
   if(nightlyHealthCache.loaded && nightlyHealthCache.enabled){
     if(!nightlyHealthCache.hasRuns){
-      nightlyRows.push({label: 'Nightly billing has never run',
+      nightlyRows.push({key: 'nightly:neverRun', label: 'Nightly billing has never run',
         detail: 'It is switched on but there is no record of it ever running. Check the Cloud Functions are deployed and Firebase billing is active.'});
     } else if(nightlyHealthCache.newestRunAt){
       const hours = (Date.now() - nightlyHealthCache.newestRunAt.getTime()) / 3600000;
       if(hours > 36){
         const days = Math.floor(hours / 24);
-        nightlyRows.push({label: 'Nightly billing has not run for ' + (days >= 1 ? days + ' day' + (days===1?'':'s') : Math.round(hours) + ' hours'),
+        nightlyRows.push({key: 'nightly:stale', label: 'Nightly billing has not run for ' + (days >= 1 ? days + ' day' + (days===1?'':'s') : Math.round(hours) + ' hours'),
           detail: 'Last run ' + nightlyHealthCache.newestRunAt.toLocaleDateString('en-US',{month:'short',day:'numeric'}) +
             '. Every house finished since then is waiting to be invoiced. Check Cloud Functions and Firebase billing.'});
       }
     }
     if(!nightlyHealthCache.alertPhone){
-      nightlyRows.push({label: 'No phone number set for the nightly billing text',
+      nightlyRows.push({key: 'nightly:noAlertPhone', label: 'No phone number set for the nightly billing text',
         detail: 'That text is what tells you the run happened at all. With it blank, a run that stops firing is invisible until someone notices a customer was never billed.'});
     }
   }
@@ -47520,66 +47751,227 @@ function hcRunChecks(){
     rows: jobAddresses.filter(function(c){
       const b = hcDigits((c.data || {}).billToPhone);
       return b && !allPhones[b];
-    }).map(function(c){ return {label: hcName(c.data), detail: 'billed to ' + hcDigits((c.data||{}).billToPhone) + ', which matches no customer'}; })
+    }).map(function(c){ return {key: 'cust:' + c.id, label: hcName(c.data), detail: 'billed to ' + hcDigits((c.data||{}).billToPhone) + ', which matches no customer'}; })
   });
   return checks;
 }
 let hcLastChecks = [];
+let hcLastViews = [];
+function hcSearchText(){
+  const el = document.getElementById('hcSearch');
+  return el ? String(el.value || '').trim().toLowerCase() : '';
+}
+function hcRowsForFilter(view){
+  if(hcFilter === 'aside') return view.aside;
+  if(hcFilter === 'snoozed') return view.snoozed;
+  if(hcFilter === 'all') return view.open.concat(view.snoozed, view.aside);
+  return view.open;
+}
+/* One row of the top strip: a light, a name, and what it means in words. */
+function hcLightHtml(view){
+  const bad = view.open.length > 0;
+  const held = view.snoozed.length > 0 && !bad;
+  const colour = bad ? '#DC2626' : (held ? '#D97706' : '#10B981');
+  /* ⚠ THE DATE COMES OFF THE DECISION, NOT OFF THE ROW. The row's label is the
+     problem ("Nightly billing has not run for 3 days"); the date somebody put it
+     off until lives on the stored decision. Printing the label after the word
+     "until" reads as a date and is not one.
+     ⚠ AND NOTHING IS ESCAPED HERE — `words` goes through esc() once at the end,
+     so escaping it now would print &amp;quot; on any row with a quote in it. */
+  const heldUntil = held
+    ? String((hcDecisions[hcDecisionId(view.id, view.snoozed[0].key)] || {}).until || '')
+    : '';
+  const words = bad ? view.open[0].label
+              : (held ? (heldUntil ? 'put off until ' + heldUntil : 'put off') : 'working');
+  return '<div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:10px; ' +
+         'background:' + (bad ? '#FEF2F2' : (held ? '#FFFBEB' : '#ECFDF5')) + '; ' +
+         'border:1px solid ' + (bad ? '#FECACA' : (held ? '#FDE68A' : '#A7F3D0')) + '; flex:1 1 260px;">' +
+         '<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:' + colour + '; flex:0 0 auto;"></span>' +
+         '<span style="font-weight:600; font-size:13px;">' + esc(view.stripName || view.title) + '</span>' +
+         '<span class="muted" style="font-size:12px;">' + esc(words) + '</span></div>';
+}
+/* One row inside a check, with its three verdict buttons. */
+function hcRowHtml(view, r){
+  const k = esc(String(r.key || ''));
+  const can = !!r.key;
+  let buttons = '';
+  if(!can){
+    buttons = '<span class="muted" style="font-size:11.5px;">no id on this row, so it cannot be set aside</span>';
+  } else if(r.state === 'open'){
+    buttons = '<button class="btn-sm" data-hcv="fixed" data-hcc="' + esc(view.id) + '" data-hck="' + k + '">Fixed it</button> ' +
+              '<button class="btn-sm" data-hcv="snoozed" data-hcc="' + esc(view.id) + '" data-hck="' + k + '">Not now</button>' +
+              (HC_NEVER_SET_ASIDE[view.id] ? '' :
+               ' <button class="btn-sm" data-hcv="ok" data-hcc="' + esc(view.id) + '" data-hck="' + k + '">Fine as it is</button>');
+  } else {
+    const d = hcDecisions[hcDecisionId(view.id, r.key)] || {};
+    const when = d.until ? ' until ' + esc(String(d.until)) : '';
+    buttons = '<span class="muted" style="font-size:11.5px;">' +
+              (r.state === 'ok' ? 'set aside' : 'put off') + when +
+              (d.by ? ' by ' + esc(String(d.by)) : '') + '</span> ' +
+              '<button class="btn-sm" data-hcundo="1" data-hcc="' + esc(view.id) + '" data-hck="' + k + '">Put it back</button>';
+  }
+  return '<li style="margin:0 0 6px; padding:6px 0; border-bottom:1px solid var(--line); list-style:none;">' +
+         '<div><strong>' + esc(r.label) + '</strong> <span class="muted">— ' + esc(r.detail) + '</span></div>' +
+         '<div style="margin-top:4px;">' + buttons + '</div></li>';
+}
 function hcRender(){
   const wrap = document.getElementById('hcResults');
   if(!wrap) return;
-  const hideClean = document.getElementById('hcHideClean').checked;
-  const problems = hcLastChecks.filter(function(c){ return c.rows.length; });
-  const totalRows = problems.reduce(function(s,c){ return s + c.rows.length; }, 0);
+  const hideCleanEl = document.getElementById('hcHideClean');
+  const hideClean = hideCleanEl ? hideCleanEl.checked : true;
+  const todayStr = toDateStr(new Date());
+  hcLastViews = hcDecorate(hcLastChecks, hcDecisions, todayStr, hcFixedNow);
+  const byId = {};
+  hcLastViews.forEach(function(v){ byId[v.id] = v; });
+  /* ⚠ THE BADGE COUNTS ROWS AWAITING A DECISION, and nothing else. Counting set
+     aside rows is what made it a number that never went down. */
+  const awaiting = hcLastViews.reduce(function(s, v){ return s + v.open.length; }, 0);
   const badge = document.getElementById('badgeHealth');
   if(badge){
-    badge.textContent = totalRows;
-    badge.style.display = totalRows ? 'inline-block' : 'none';
+    badge.textContent = awaiting;
+    badge.style.display = awaiting ? 'inline-block' : 'none';
   }
+  /* ---- the strip that never scrolls away ---- */
+  const strip = document.getElementById('hcStrip');
+  if(strip){
+    const nightly = byId.nightlyBilling, notify = byId.notifyOff;
+    let sh = '';
+    if(nightly) sh += hcLightHtml(Object.assign({}, nightly, {stripName: 'Nightly billing'}));
+    if(notify)  sh += hcLightHtml(Object.assign({}, notify,  {stripName: 'New-message alerts'}));
+    strip.innerHTML = sh;
+  }
+  const filters = document.getElementById('hcFilters');
+  if(filters) filters.style.display = 'flex';
+  const q = hcSearchText();
   let html = '';
-  if(!totalRows){
-    html += '<div style="padding:18px; border-radius:12px; background:#ECFDF5; border:1px solid #A7F3D0; font-weight:600;">Everything lines up. No problems found.</div>';
-  } else {
-    html += '<div style="padding:14px 16px; border-radius:12px; background:#FEF2F2; border:1px solid #FECACA; margin-bottom:14px;"><strong>' + totalRows + ' thing' + (totalRows===1?'':'s') + ' to look at</strong> across ' + problems.length + ' check' + (problems.length===1?'':'s') + '.</div>';
+  if(hcDecisionsError){
+    html += '<div style="padding:12px 14px; border-radius:10px; background:#FFFBEB; border:1px solid #FDE68A; margin-bottom:12px; font-size:13px;">' +
+            esc(hcDecisionsError) + '</div>';
   }
-  hcLastChecks.forEach(function(c){
-    const clean = !c.rows.length;
-    if(clean && hideClean) return;
-    html += '<details class="quote-section" style="margin-bottom:8px;"' + (clean ? '' : ' open') + '>';
-    html += '<summary style="cursor:pointer; padding:10px 12px; font-weight:600;">'
-          + '<span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:' + (clean ? '#10B981' : '#DC2626') + '; margin-right:8px;"></span>'
-          + c.title + ' <span class="muted" style="font-weight:400;">— ' + (clean ? 'all clear' : c.rows.length + ' found') + '</span></summary>';
-    html += '<div style="padding:4px 14px 14px;">';
-    html += '<p class="muted" style="margin:4px 0 10px; font-size:13px;">' + c.why + '</p>';
-    if(!clean){
-      html += '<ul style="margin:0 0 10px; padding-left:18px;">';
-      c.rows.slice(0, 100).forEach(function(r){
-        html += '<li style="margin-bottom:4px;"><strong>' + esc(r.label) + '</strong> <span class="muted">— ' + esc(r.detail) + '</span></li>';
+  const totalAside = hcLastViews.reduce(function(s, v){ return s + v.aside.length; }, 0);
+  const totalSnoozed = hcLastViews.reduce(function(s, v){ return s + v.snoozed.length; }, 0);
+  if(!awaiting && hcFilter === 'open'){
+    html += '<div style="padding:18px; border-radius:12px; background:#ECFDF5; border:1px solid #A7F3D0; font-weight:600;">' +
+            'Nothing is waiting on you.' +
+            (totalAside || totalSnoozed ? ' <span style="font-weight:400;">' + totalAside + ' set aside, ' + totalSnoozed + ' put off — the filters above show them.</span>' : '') +
+            '</div>';
+  } else if(hcFilter === 'open'){
+    html += '<div style="padding:14px 16px; border-radius:12px; background:#FEF2F2; border:1px solid #FECACA; margin-bottom:14px;">' +
+            '<strong>' + awaiting + ' thing' + (awaiting === 1 ? '' : 's') + ' waiting on a decision</strong>' +
+            (totalAside || totalSnoozed ? ' <span class="muted">· ' + totalAside + ' set aside · ' + totalSnoozed + ' put off</span>' : '') +
+            '</div>';
+  }
+  /* ---- the bands ---- */
+  const cleanTitles = [];
+  HC_BANDS.forEach(function(band){
+    const views = hcLastViews.filter(function(v){
+      return HC_STRIP_CHECKS.indexOf(v.id) === -1 && hcBandFor(v.id) === band.id;
+    });
+    let body = '';
+    views.forEach(function(v){
+      let rows = hcRowsForFilter(v);
+      if(q) rows = rows.filter(function(r){
+        return (String(r.label || '') + ' ' + String(r.detail || '')).toLowerCase().indexOf(q) !== -1;
       });
-      html += '</ul>';
-      if(c.rows.length > 100) html += '<p class="muted" style="font-size:12px;">Showing the first 100 of ' + c.rows.length + '.</p>';
-      if(c.fix){
-        html += '<button class="btn" data-hcfix="' + c.id + '">' + c.fixLabel + ' (' + c.rows.length + ')</button> ';
+      if(!rows.length){
+        /* Nothing to show for THIS filter. Only a check with no problems at all
+           counts as clean — one whose rows are merely all set aside is not. */
+        if(!v.rows.length && !q) cleanTitles.push(v.title);
+        return;
       }
-    }
-    html += '<p class="muted" style="font-size:12px; margin:8px 0 0;">' + c.fixNote + '</p>';
-    html += '</div></details>';
+      const shown = Math.max(HC_PAGE, hcShowMore[v.id] || 0);
+      const page = rows.slice(0, shown);
+      /* ⚠ COLLAPSED BY DEFAULT — that is the whole of "I have to scroll down
+         forever". Opened only when a search has singled it out. */
+      body += '<details class="quote-section" style="margin-bottom:8px;"' + (q ? ' open' : '') + '>';
+      body += '<summary style="cursor:pointer; padding:10px 12px; font-weight:600;">' +
+              '<span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:' +
+              (v.open.length ? '#DC2626' : '#D97706') + '; margin-right:8px;"></span>' +
+              esc(v.title) + ' <span class="muted" style="font-weight:400;">— ' + rows.length +
+              (hcFilter === 'open' ? ' waiting' : ' shown') + '</span></summary>';
+      body += '<div style="padding:4px 14px 14px;">';
+      body += '<p class="muted" style="margin:4px 0 10px; font-size:13px;">' + v.why + '</p>';
+      body += '<ul style="margin:0 0 10px; padding-left:0;">';
+      page.forEach(function(r){ body += hcRowHtml(v, r); });
+      body += '</ul>';
+      if(rows.length > page.length){
+        body += '<button class="btn-sm" data-hcmore="' + esc(v.id) + '">Show ' +
+                Math.min(HC_PAGE, rows.length - page.length) + ' more of ' + rows.length + '</button> ';
+      }
+      /* ⚠ THE FIX BUTTON ACTS ON THE ROWS AWAITING A DECISION, never on a set-aside
+         one — the whole point of setting one aside is that nothing acts on it. */
+      if(v.fix && v.open.length){
+        body += '<button class="btn" data-hcfix="' + esc(v.id) + '">' + v.fixLabel + ' (' + v.open.length + ')</button> ';
+      }
+      body += '<p class="muted" style="font-size:12px; margin:8px 0 0;">' + v.fixNote + '</p>';
+      body += '</div></details>';
+    });
+    if(!body) return;
+    html += '<h3 style="font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--slate); margin:18px 0 8px;">' +
+            esc(band.title) + '</h3>' + body;
   });
+  /* ---- everything that is clean, on one line ---- */
+  if(cleanTitles.length && !hideClean){
+    html += '<details style="margin-top:18px;"><summary style="cursor:pointer; padding:10px 12px; font-weight:600;">' +
+            '<span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#10B981; margin-right:8px;"></span>' +
+            cleanTitles.length + ' check' + (cleanTitles.length === 1 ? '' : 's') + ' all clear</summary>' +
+            '<ul style="margin:6px 0 0; padding-left:26px; font-size:13px; color:var(--slate);">' +
+            cleanTitles.map(function(t){ return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></details>';
+  } else if(cleanTitles.length){
+    html += '<p class="muted" style="margin-top:18px; font-size:13px;">' + cleanTitles.length +
+            ' check' + (cleanTitles.length === 1 ? '' : 's') + ' all clear.</p>';
+  }
   wrap.innerHTML = html;
+  /* ⚠ BOUND TO THE NODES THIS RENDER JUST MADE, never to the surviving container.
+     A listener on `wrap` would be added again on every draw and never removed —
+     that is the bug that fired 2,815 Firestore writes from one drag in the Inbox. */
   wrap.querySelectorAll('[data-hcfix]').forEach(function(btn){
     btn.addEventListener('click', function(){ hcApplyFix(btn.dataset.hcfix, btn); });
   });
+  wrap.querySelectorAll('[data-hcmore]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const id = btn.dataset.hcmore;
+      hcShowMore[id] = Math.max(HC_PAGE, hcShowMore[id] || 0) + HC_PAGE;
+      hcRender();
+    });
+  });
+  wrap.querySelectorAll('[data-hcv]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const cid = btn.dataset.hcc, key = btn.dataset.hck, verdict = btn.dataset.hcv;
+      const v = hcLastViews.find(function(x){ return x.id === cid; });
+      const row = v && v.rows.find(function(r){ return String(r.key) === key; });
+      if(!row) return;
+      if(verdict === 'fixed'){
+        /* No write and no confirmation: the next derivation re-reads live data, so
+           a row that was not really fixed comes back on its own. */
+        hcFixedNow[hcDecisionId(cid, key)] = true;
+        hcRender();
+        return;
+      }
+      btn.disabled = true;
+      hcDecide(cid, row, verdict);
+    });
+  });
+  wrap.querySelectorAll('[data-hcundo]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      btn.disabled = true;
+      hcUndecide(btn.dataset.hcc, btn.dataset.hck);
+    });
+  });
 }
 async function hcApplyFix(id, btn){
-  const check = hcLastChecks.find(function(c){ return c.id === id; });
-  if(!check || !check.rows.length) return;
-  if(!confirm(check.fixLabel + ' for ' + check.rows.length + ' item(s)?\n\n' + check.fixNote)) return;
+  /* ⚠ THE DECORATED VIEW, NOT THE RAW CHECK. `open` is the rows still awaiting a
+     decision; a row somebody has set aside or put off must not be swept up by a
+     bulk fix, which is the whole point of having set it aside. */
+  const check = hcLastViews.find(function(c){ return c.id === id; });
+  if(!check || !check.open.length) return;
+  if(!confirm(check.fixLabel + ' for ' + check.open.length + ' item(s)?\n\n' + check.fixNote)) return;
   btn.disabled = true;
   const original = btn.textContent;
   let done = 0, failed = 0;
-  for(let i = 0; i < check.rows.length; i++){
-    const r = check.rows[i];
-    btn.textContent = 'Working… ' + (i+1) + '/' + check.rows.length;
+  for(let i = 0; i < check.open.length; i++){
+    const r = check.open[i];
+    btn.textContent = 'Working… ' + (i+1) + '/' + check.open.length;
     try {
       if(id === 'poolConflict'){
         await deleteDoc(doc(db,'availableCustomerNumbers', r.numId));
@@ -47620,6 +48012,11 @@ async function hcApplyFix(id, btn){
 }
 function runHealthCheck(){
   const status = document.getElementById('hcStatus');
+  /* ⚠ THE HAND-RUN RE-READS THE DECISIONS. They are read once at sign-in, so this
+     press is also how somebody picks up an exception a colleague made since — four
+     people share this dashboard. It does not block the run: the checks below draw
+     from the cache already in hand and redraw when the read lands. */
+  hcLoadDecisions().then(function(){ if(hcLastChecks.length) hcRender(); });
   try {
     hcLastChecks = hcRunChecks();
     hcRender();
@@ -47903,8 +48300,12 @@ function runHealthCheckAuto(){
 }
 function startHealthCheckAuto(){
   if(hcAutoTimer) return;
-  /* Read once, before the first pass. Its own failure is reported inside. */
+  /* Read once, before the first pass. Their own failures are reported inside. */
   hcLoadNotifyCfg();
+  /* ⚠ AND REDRAW WHEN IT LANDS. The first pass runs on a timer and may well beat
+     this read home; without the redraw, every set-aside row would be on screen
+     until something else happened to draw the panel again. */
+  hcLoadDecisions().then(function(){ if(hcLastChecks.length) hcRender(); });
   /* A few seconds after login, then every ten minutes. The first attempt waits
      for the listeners; if the data is not in yet it simply tries again on the
      interval rather than reporting on nothing. */
@@ -47916,6 +48317,21 @@ function startHealthCheckAuto(){
   if(btn) btn.addEventListener('click', runHealthCheck);
   const hide = document.getElementById('hcHideClean');
   if(hide) hide.addEventListener('change', hcRender);
+  /* Bound ONCE, to elements that live in the markup rather than in #hcResults —
+     so nothing accumulates however many times the results are redrawn. */
+  document.querySelectorAll('[data-hcfilter]').forEach(function(b){
+    b.addEventListener('click', function(){
+      hcFilter = b.dataset.hcfilter;
+      document.querySelectorAll('[data-hcfilter]').forEach(function(x){
+        x.style.background = x === b ? 'var(--ink, #111827)' : '';
+        x.style.color = x === b ? '#fff' : '';
+      });
+      hcShowMore = {};          // a new filter is a new list; start it at the top
+      hcRender();
+    });
+  });
+  const hcq = document.getElementById('hcSearch');
+  if(hcq) hcq.addEventListener('input', function(){ hcShowMore = {}; hcRender(); });
   /* The archived toggle only changes what is drawn, so it redraws and nothing else. */
   const sa = document.getElementById('invShowArchived');
   if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){ /* quiet on purpose: a toggle that only changes what is DRAWN \u2014 no invoice is touched. Toggling back and forth redraws it. */ } });
