@@ -184,6 +184,13 @@ run-all.js	Main test suite (see §3) — needs `npm install` once at repo root (
 money-parity.test.js	Proves the browser and server copies of the invoice maths still agree. See §9.2 — this is the one that stops the office and the nightly billing run disagreeing about a bill.
 verify-syntax.js	Verification gate A (inline JS parses, <div> tags balance). `npm run verify`. Lives at the REPO ROOT alongside run-all.js, not in a scripts/ folder.
 selector-contract.test.js	Checks every #id a browser spec uses still exists in the page it drives. `npm run test:selectors`. No browser needed — see §9.3.
+silent-failures.test.js	⭐ NOTHING FAILS QUIETLY (added 2026-08-26). `npm run test:silent`. Its own file per R-018. Owner, 2026-08-25: "nothing should fail quietly." ONE rule: **no empty catch block, in any of the four source files, may be left without a reason written INSIDE the braces.** An empty catch is often exactly right — "logging must never break a save path", "private browsing, so the login just won't be remembered" — and this argues with none of them; what it refuses is one that does not say why, which is indistinguishable from one somebody forgot to finish. ⚠ MEASURE THE COUNTS RATHER THAN BELIEVING THIS LINE — `npm run test:silent` prints them, and this sentence was already one out about index.html within the hour of being written. On 2026-08-26: 55 empty in admin.html, 12 in index.html, 6 in employee.html, 3 in functions/index.js, and **0 bare** in any of them. The bare count is the only figure the gate actually holds; the rest move whenever anybody adds a try/catch.
+  ⚠ A COUNT CEILING WAS THE OBVIOUS GATE AND IT DOES NOT WORK. The number goes up for good reasons as often as bad, so a red build says nothing about which happened, and within a week somebody raises the ceiling to get past it. A reason scales: it names WHICH catch is new and the fix is one sentence from whoever added it.
+  ⚠ IN THE BRACES, NOT NEAR THEM. A comment three lines above a `try` can be about the function, the write or the branch, and code moves away from it.
+  ⚠ AND IT RED-CHECKS ITSELF EVERY RUN, against a fixture holding a bare catch, a commented one, a brace inside a string and a brace inside a comment. Not decoration: WITH THE REAL COUNT AT ZERO THERE IS NOTHING LEFT IN THE REPO FOR THIS GATE TO FIND, so gutting the detection changes nothing and the build stays green. Red-checking MISSED exactly that sabotage until the fixture was made to go through the same `scanText` the real files do — a fixture carrying its own copy of the classification proves the copy works and says nothing at all about the code that runs.
+  ⚠ EVERY FILE ALSO ASSERTS A FLOOR on how many catch blocks were found at all. A brace matcher that has quietly stopped matching reports NO bare catches — a green build for the worst possible reason, the same shape as a suite that cannot find its target and skips.
+  ⚠ employee.html IS SWEPT, though `claude/silent-failures.md` deliberately left it out as dormant this season. Dormant is not harmless: `whToggleRecycle` clears the customer number off the record and THEN swallowed the pool write, so a refusal left the number on nobody's record and in no pool — and ticking again cannot retry it, because `num` is null by then.
+  `claude/sweep-silent-failures.py` is the exploratory scanner beside it: it classifies every catch and counts the 843 silent early returns, which no gate touches. ⚠ Its paths were hard-coded to /tmp copies, so from a clean checkout it scanned nothing and printed "missing" three times — which reads exactly like a clean repo. Fixed.
 ⭐ THE WAREHOUSE BUILD SHEET IS ONE PAGE PER COLOUR GROUP (2026-08-24). Addie chose this over splitting by badge. A colour-and-wire group IS the pile somebody pulls from, so two people can build at once without sharing paper; splitting by BADGE cuts across the piles and sends each person to every shelf.
   ⚠ THE PAGE ORDER IS DECIDED BY `whSheetRowsForBuild`, NOT BY THE PAGER. It emits blocked rows before any group, so walking its rows in order already puts "Waiting on light colours" first and keeps every other page in the tab's order. A sort in the pager was written and REMOVED: it could never fire, and a red-check proved it.
   ⚠ EACH PAGE COUNTS ITSELF, not the morning — a page handed to somebody building one pile needs THEIR numbers — and ends "sheet X of Y", because once a stack is handed out the one thing nobody can tell from a single page is whether they hold all of them. ⚠ parseInt, NOT Number: the Bundles cell carries "+3" and "3 est" markers and Number("3 est") is NaN, which silently drops that house.
@@ -275,6 +282,36 @@ bash
 # line that used to be here (`git push origin main`) has not worked for a while.
 # The route to production is therefore: branch → push branch → open a PR → both
 # checks go green → merge. Netlify publishes from main once the merge lands.
+# ⚠ AND A PR OPENED THROUGH THE GITHUB APP TOKEN GETS NO CI AT ALL (2026-08-26).
+#   PR #137 sat with ZERO workflow runs on its branch. Nothing was wrong with the
+#   code: tests.yml triggers on `push: branches: [main]` and `pull_request`, so a
+#   branch push is never eligible, and the pull_request event produced no run —
+#   GitHub suppresses workflow triggering from events generated with an app token,
+#   to stop workflows setting each other off. So the two REQUIRED checks never
+#   report, the PR sits blocked for ever, and it reads exactly like a queue.
+#   ⚠ workflow_dispatch RUNS THE TESTS AND DOES NOT UNBLOCK THE MERGE. Run it
+#   against the BRANCH and GitHub does attach the run to the open PR
+#   (`pull_requests:[137]`) and both jobs go green on the exact head SHA — so it is
+#   worth doing, because it is the only way to prove the branch passes CI at all.
+#   ⚠ BUT BRANCH PROTECTION STILL REFUSES: `405 Repository rule violations found —
+#   2 of 2 required status checks are expected`, with mergeable_state "blocked" and
+#   both checks visibly SUCCESS on that SHA. The required contexts have to be
+#   reported by the PULL REQUEST's own check suite, and a dispatched run is not it.
+#   ⚠ THIS LINE FIRST CLAIMED THE OPPOSITE — "its check runs land as the required
+#   contexts and the PR goes green" — written after watching both jobs pass and
+#   BEFORE anybody tried the merge. The jobs passing was verified; the merge
+#   consequence was inferred and was wrong. Corrected within the hour, by pressing
+#   merge and being refused.
+#   ⭐ WHAT IS LEFT IS A HUMAN-GENERATED EVENT, because the whole cause is that an
+#   app token cannot raise one. Any of: the owner pushes a commit to the branch from
+#   her own account; the owner merges in the browser, where an admin can bypass; or
+#   branch protection is changed. ⚠ NOT VERIFIED — none of the three has been tried
+#   here, and this note has already been wrong once by guessing one step past what
+#   was actually observed.
+#   ⚠ DO NOT reach for an empty commit or a close-and-reopen to kick CI. Both are
+#   forbidden, and workflow_dispatch is the supported trigger the file already has.
+#   ⚠ A PR opened BY THE OWNER in the browser is unaffected — this is about who
+#   generated the event, not about the branch or the code.
 git add index.html admin.html employee.html && git commit -m "..."
 git push -u origin <your-branch>          # then open a PR against main and merge it
 # Cloud Functions:
@@ -335,7 +372,13 @@ Measured Feet is the highest-leverage field — one number drives four things (b
   - ⚠ AND `extractFn` DROPS THE `async` KEYWORD, which is written down in §5 and cost this suite a run anyway: `rmAlignOnLoad` arrived as a plain function full of bare `await`, a parse error that kills the whole suite as one unattributable crash. Suite 269 lifts its own with an indexOf helper that tries `async function NAME(` first.
   - ⚠ TWO SESSIONS NUMBERED A SUITE 268 AT THE SAME TIME, for the second time this week. Both are kept and this one is 269. The conflict boundary cuts the first block off BEFORE its closing brace, so restore that rather than borrowing the other side's — the error surfaces as “Unexpected end of input” hundreds of lines from the cause.
 
-The one correct money formula, everywhere: owed = (install + removal + changeFees) − credits − deposit, floored at 0. As of 2026-08-08 this is actually true everywhere in admin.html and functions/index.js — it wasn't before (see §4 history).
+The one correct money formula, everywhere: owed = (install + removal + changeFees) − credits − deposit, floored at 0.
+⭐ WHEN A BILL STARTS COUNTING — ONE ANSWER, `invoiceIssuedAt` (2026-08-26). Payment terms are 30 days from the invoice DATE, so this decides both the due date printed on the customer's copy and whether the office list calls a row Overdue.
+  ⚠ IT WAS FOUR COPIES AND THE FOURTH WAS NEVER WIRED. `functions/index.js` stamps `invoicedAt` once and never moves it, and the comment beside that stamp names the four readers — the `{{due_date}}` on the email, the printed invoice's date, the office copy of the due-date maths, and the Overdue flag. Three were changed to read it. `isInvoiceOverdue` was not, and went on counting from `updatedAt`.
+  ⚠ SO THE PAPER AND THE SCREEN DISAGREED, SILENTLY AND IN THE CUSTOMER'S FAVOUR. `updatedAt` moves whenever anybody touches the record for any reason — a corrected spelling, a sheet re-sync, `syncPayerInvoice` rebuilding the payer's group — so every edit pushed the Overdue clock another 30 days out and took a genuinely late bill off the list, while the invoice in the customer's hand still said the original due date. Nothing threw and nothing was logged.
+  ⚠ THE `updatedAt` FALLBACK IS NOT THE BUG AND STAYS. An invoice that has never been through the nightly run has no `invoicedAt` — and has not been billed either, so what it counts from is moot; dropping it would make every one of those un-datable instead. ⚠ AND NO DATE AT ALL IS NOT OVERDUE, never overdue-since-the-epoch.
+  ⚠ ONE HELPER, because this bug WAS one reader left behind when three were changed. A check asserts nothing spells `toJsDate(x.invoicedAt) || …` out for itself again outside the helper's own body — scoped to cut that body out first, since the declaration is the one place allowed to. Six sabotages red-checked; the checks RUN the rule, because a regex cannot see arithmetic reading the wrong field.
+ As of 2026-08-08 this is actually true everywhere in admin.html and functions/index.js — it wasn't before (see §4 history).
 ⭐ REMOVAL IS INCLUDED IN THE PRICE, AND `removal` IS DELIBERATELY UNSETTABLE (settled with the owner 2026-08-21). This was on the hole list as "removal never billed" and it is NOT a hole — the public FAQ in index.html says "Post-season removal is included in every package", so charging a fee when a takedown is marked done would bill customers for something they have been told is free. Owner, asked directly: "No we don't need that we'll just add on a fee if we need that."
   - ⚠ SO DO NOT WIRE `removalDone` TO MONEY. Marking a takedown complete touches no invoice, on purpose.
   - ⚠ AND DO NOT "FIX" THE FIELD EITHER. `removal` is read in ~20 places, summed into the balance, printed as its own line item on the invoice document, carried across Start New Season, and defended by a comment recording a real bug where opening an invoice wiped it — but EVERY write of it in the whole app is a preservation (`removal: x.removal`, `keptRemoval`, `existing.removal || 0`). Nothing can give it a value, and that is the settled answer, not an omission. An exceptional charge goes on as a fee instead.
@@ -858,9 +901,10 @@ The highest-value monitor already exists and predates all of this: the nightly b
 bash
 npm install                    # once per machine
 npx playwright install chromium # once per machine, ONLY for browser tests (~150MB)
-npm test                       # gate A + selectors + money parity + option audit + season state + run-all.js. No browser. ~8 seconds.
+npm test                       # gate A + selectors + money parity + option audit + season state + colours + reason + fix + portal + silent failures + run-all.js. No browser. ⚠ MEASURE the count rather than believing any number written down here.
 npm run test:options           # the option registry audit on its own
 npm run test:season            # where each RSVP answer ends up, on its own
+npm run test:silent           # no empty catch is left without a reason, on its own
 npm run test:browser           # Playwright specs. Needs the chromium install above.
 npm run test:all               # both
 npm run test:browser:headed    # watch a browser test run, for debugging
@@ -915,5 +959,8 @@ If a future session is tempted to add visual regression, synthetic monitoring, o
   ⭐ BOTH HALVES NOW ASK `routeDayTowns(day)`, the day's full allowed list, falling back to `day.city` so every route saved before the builder stamped `towns` behaves exactly as it did. `evenOutDays` and `fillDays` each take an optional `townOf(id)` last argument; the sweep passes `townOfCustomer`, which cleans the customer's town through `extractCleanCity` — the same cleaning step 1 uses, so the two passes cannot disagree about the HOUSE either. Omit the argument and both behave precisely as before, which is what keeps the existing suite-18 fixtures honest.
   ⚠ NAMED `routeDayTowns`, NOT `dayTownList`. `dayTownList` already exists lower down for the timing sweep and answers a different question about a different shape of object (a day of `.houses`, not a saved route). Two top-level declarations of one name do not coexist in a browser — the later one wins for the WHOLE page — so the first draft silently handed the fill the timing sweep's answer. Suite 98 caught it, and a check in suite 18 now asserts one declaration each so it cannot come back.
   ⭐ AND THE NOTICE NO LONGER REPEATS ITSELF. `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour, guarded twice: an in-memory `lastReconcileNote` that catches a repeat before the messages listener has reported our own write back, and a scan of `allMessages` that catches one across a reload, a second tab, or the other office machine. ⚠ IT SUPPRESSES THE NOTICE, NOT THE SWEEP — a backstop, not the fix, and it writes a console warning naming the loop rather than going quiet. A different note always gets through. Suite 18b RUNS it rather than reading it.
-  ⚠ STILL OPEN, AND IT IS A DATA FIX: a customer record carries a STREET in its `city` field ("S Summit Crest Ln"), and `extractCleanCity` only ever strips zips and UT/Utah — anything else with letters and no digits passes through as a town. That mints a town out of nothing and the builder gives it a crew-day of its own. Fixing the loop does not remove the phantom day.
+  ⭐ THE PHANTOM TOWN IS NOW REPORTED (2026-08-26). A customer record carries a STREET in its `city` field ("S Summit Crest Ln"), and `extractCleanCity` only ever strips zips and UT/Utah — anything else with letters and no digits passes through as a town, minting one out of nothing, and the builder gives it a crew-day of its own: one house, one morning, one truck, looking exactly like a genuinely quiet town. `cityLooksLikeStreet` finds it and Health Check's `townIsStreet` row names the houses.
+  ⚠ IT REPORTS, IT NEVER CORRECTS, and that is the whole design. ~60 places read what `extractCleanCity` returns — the route grouping, the schedule, every town dropdown and filter, the crew sheets — so silently returning something different would re-file houses between towns everywhere at once, which is far worse than the phantom day. It is a DATA fix: the office puts the town right on the record and the customer sync carries it across. A red-check that made `extractCleanCity` blank a street-shaped town is caught.
+  ⚠ THE SUFFIX LIST DELIBERATELY OMITS Grove, Springs, Hills, Heights/Hts, Mountain, Fork, View, Cross, Park and City. Each is a real street type AND the tail of a real Utah town: with them in, it flags Pleasant Grove, Saratoga Springs, Cedar Hills, Cottonwood Hts, Eagle Mountain, American Fork, Spanish Fork, Woods Cross and Pleasant View — nine real towns, six of them in `DEFAULT_NEARBY_TOWNS`. Asserted BY NAME, so putting one back is a failing build.
+  ⚠ AND THERE IS NO DIRECTIONAL RULE. A leading bare N/S/E/W reads as a strong signal and was written, then dropped: it also flags "S Jordan", "N Salt Lake", "S Weber" and "W Point", which are real towns typed short — and it bought nothing, because a street almost always carries its type and Utah's grid addresses ("1200 W") have digits, so `extractCleanCity` has already dropped them. The checks run against the shipped town list lifted out of the page, not a copy, so adding a town there widens what they prove. Seven sabotages red-checked.
   ⚠ REBASED ONTO A MOVED main ON 2026-08-25. This work was first built on `98da675` and, before it was ever uploaded, main gained ~1,200 lines of Inbox folder-tree work. Uploading the older copy would have reverted all of it — the August 21 incident again. The patch was replayed onto current main and every anchor still matched. ⭐ RE-PULL AND RE-CHECK THE HASH IMMEDIATELY BEFORE DELIVERY, NOT JUST BEFORE EDITING.

@@ -3194,9 +3194,31 @@ check('flow', 'route resync only touches upcoming routes',
   'past routes are history and should stay as they were on the day');
 check('flow', 'route resync never blanks an unchanged field',
   /!== undefined && fields\[k\] !== null/.test(admin));
+/* ⚠ THIS MATCHED THE EXACT WORDS 'Route stop resync failed' — a console.warn string
+   — so it broke the moment that warning was replaced by something that actually
+   reaches somebody (2026-08-26). The §7 slow fuse again: pinned to how a thing was
+   spelled rather than to what has to be true. What has to be true is that the write
+   is caught at all, because the jobAddresses write has already happened by then. */
 check('flow', 'route resync failure cannot lose the customer edit',
-  /Route stop resync failed/.test(admin),
+  /\{stops: updatedStops\}\);\s*\}\s*catch/.test(admin),
   'the jobAddresses write happens first and must not be rolled back');
+/* ⭐ AND IT IS NO LONGER ONLY A CONSOLE LINE (2026-08-26). The saved route is what
+   the printed crew sheet is built from, so a refused write leaves that sheet saying
+   something the office has already corrected — a stale gate code, or a house that
+   cancelled and is still on the run. Owner's rule, 2026-08-25: "nothing should fail
+   quietly." */
+check('flow', 'and a route sheet left out of date raises a System note',
+  /async function noticeRouteStopStuck\(/.test(admin) &&
+  /topic: 'A Route Sheet Is Out Of Date'/.test(admin),
+  'a console.warn is nobody, and the crew is the one who pays for it');
+check('flow', 'both the resync and the removal report into it',
+  (admin.match(/noticeRouteStopStuck\('/g) || []).length === 2,
+  'found ' + (admin.match(/noticeRouteStopStuck\('/g) || []).length + ' of 2 — a stop ' +
+  'that would not come off sends a crew to a house that has cancelled, which is the ' +
+  'worse of the two');
+check('flow', 'and one note per save, not one per day the customer is on',
+  /if\(stuck\.length\) await noticeRouteStopStuck/.test(admin),
+  'a customer on four upcoming days is four failures and one problem');
 
 gap('editing House Price updates the existing invoice',
   /invoiceUpdates\.install\s*=\s*newHousePrice/.test(editSave),
@@ -3502,9 +3524,147 @@ console.log('\n=== 7. Health check engine ===');
      checks the same id. If a new check really is needed, give it its own id
      and change this number in the same edit.
      The count is deliberately hard-coded: a check silently disappearing is
-     exactly the kind of thing nobody notices. */
-  check('health', 'all 19 checks present',
-    all.length === 19, 'got ' + all.length);
+     exactly the kind of thing nobody notices.
+     ⭐ 20 SINCE 2026-08-26: 'notifyOff'. claude/silent-failures.md job 4 — a customer
+     writes in and the email telling you about it never goes, because settings/emailjs
+     is unset or (as happened once) unreadable from the public site. index.html cannot
+     report that itself: it has no login, and posting its own complaint into the Inbox
+     would leave a note there on behalf of a customer who asked for none. This is the
+     screen the office already opens to be told something is wrong.
+
+     ⭐ 21 SINCE 2026-08-26: 'townIsStreet'. extractCleanCity drops anything with a
+     digit in it but passes "S Summit Crest Ln" straight through as a TOWN, and every
+     route day is one town — so that house is filed under a town of its own and the
+     builder gives it a crew-day: one house, one morning, one truck, looking exactly
+     like a genuinely quiet town. */
+  check('health', 'all 21 checks present',
+    all.length === 21, 'got ' + all.length);
+  /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
+     form is truthy whatever happens and proves nothing. Red-checking caught it:
+     renaming the id sailed straight through. */
+  /* ⭐ A STREET IN THE TOWN FIELD (added 2026-08-26). The detector is asserted
+     against the REAL town list lifted out of admin.html rather than a copy typed
+     here, because the whole risk in this check is a false positive: a warning that
+     fires on correct data is one the office learns to click past, including on the
+     day it is right. */
+  {
+    const sufM = admin.match(/const CITY_STREET_SUFFIXES = \[([\s\S]*?)\];/);
+    const fnSrc = extractFn(admin, 'cityLooksLikeStreet');
+    check('health', 'the street-in-town detector was found', !!sufM && !!fnSrc);
+    if (sufM && fnSrc) {
+      const suffixes = new Function('return [' + sufM[1] + '];')();
+      const looksLikeStreet = new Function('CITY_STREET_SUFFIXES',
+        'return ' + fnSrc + ';cityLooksLikeStreet')(suffixes);
+
+      /* The office's own list of real towns — read out of the page, so adding a town
+         there automatically widens what this proves. */
+      const townsM = admin.match(/const DEFAULT_NEARBY_TOWNS = \{[\s\S]*?\n\};/);
+      const realTowns = townsM ? Object.keys(new Function('return ' + townsM[0].replace('const DEFAULT_NEARBY_TOWNS = ', ''))()) : [];
+      check('health', 'the shipped town list was found to test against', realTowns.length >= 25,
+        'got ' + realTowns.length);
+      const wronglyFlagged = realTowns.filter(looksLikeStreet);
+      check('health', 'no town the office actually works in is called a street',
+        wronglyFlagged.length === 0,
+        'flagged: ' + wronglyFlagged.join(', '));
+
+      /* ⚠ THE NINE THAT MADE THIS HARD. Every one is a real street type AND the tail
+         of a real Utah town. With them in the list this fires on Pleasant Grove,
+         Saratoga Springs, Cedar Hills, Cottonwood Hts, Eagle Mountain, American Fork,
+         Spanish Fork, Woods Cross and Pleasant View. Asserted by NAME, so putting one
+         back is a failing build rather than a warning nobody trusts. */
+      const AMBIGUOUS = ['grove','springs','hills','heights','hts','mountain','fork','view','cross','park','city'];
+      const putBack = AMBIGUOUS.filter(w => suffixes.indexOf(w) !== -1);
+      check('health', 'and the street types that are also town names are left out',
+        putBack.length === 0,
+        'these would flag real towns: ' + putBack.join(', '));
+      ['Salt Lake City','West Valley City','North Salt Lake','Heber City','Cedar City',
+       'Pleasant View','Woods Cross','Smithfield','St George'].forEach(function (t) {
+        check('health', 'a real town is not flagged: ' + t, !looksLikeStreet(t));
+      });
+      /* ⚠ AND NO DIRECTIONAL RULE. A leading bare N/S/E/W reads as a strong signal
+         and was written, then dropped: it also flags these, which are real towns
+         somebody typed short. */
+      ['S Jordan','N Salt Lake','S Weber','W Point'].forEach(function (t) {
+        check('health', 'a town written short is not flagged: ' + t, !looksLikeStreet(t));
+      });
+
+      ['S Summit Crest Ln','N Canyon Rd','W Center St','Red Cedar Ln','Main Street',
+       'Foothill Dr','Canyon View Drive','Cherry Ln.'].forEach(function (v) {
+        check('health', 'a street is flagged: ' + v, looksLikeStreet(v));
+      });
+      check('health', 'a one-word value is never a street',
+        !looksLikeStreet('Lehi') && !looksLikeStreet('Levan') && !looksLikeStreet('Ln'),
+        'Levan really is a town of one customer, and a lone "Ln" is a typo, not a road');
+
+      /* ⚠ IT REPORTS AND DOES NOT CORRECT. ~60 places read extractCleanCity's answer
+         — the route grouping, the schedule, every town dropdown and filter, the crew
+         sheets — so returning something different would move houses between towns
+         everywhere at once, which is far worse than the phantom day. */
+      const cleanSrc = extractFn(admin, 'extractCleanCity');
+      const cleanCity = new Function('return ' + cleanSrc + ';extractCleanCity')();
+      check('health', 'and the town field is reported, never rewritten',
+        cleanCity('S Summit Crest Ln') === 'S Summit Crest Ln' &&
+        !/cityLooksLikeStreet/.test(cleanSrc),
+        'a silent correction here would re-file houses across the whole schedule');
+    }
+    check('health', 'and a street in the Town field is one of the checks',
+      all.some(c => c.id === 'townIsStreet'),
+      'it earns itself a crew-day and looks exactly like a genuinely quiet town');
+    check('health', 'it offers no fix button',
+      !get(all, 'townIsStreet').fix,
+      'only the office knows which town it should have been; guessing at scale ' +
+      'would re-file houses on a hunch');
+  }
+  check('health', 'and the one that says the alerts are dead is among them',
+    all.some(c => c.id === 'notifyOff'),
+    'the messages still reach the Inbox; what stops is anybody being told');
+  check('health', 'it names WHICH setting is missing',
+    /Notify Template ID/.test(admin) && /Public Key/.test(admin),
+    '"EmailJS is misconfigured" sends somebody to compare six boxes by eye');
+  check('health', 'and it says nothing at all until the settings have been read',
+    /if\(!hcNotifyCfg\) return \[\];/.test(admin) && /let hcNotifyCfg = null;/.test(admin),
+    'null means "we do not know" — reporting the alerts as off because a READ ' +
+    'failed is a false alarm on the one screen that must not cry wolf');
+  /* ⭐ AND THE OTHER HALF OF THAT JOB LIVES IN index.html (2026-08-26). The check
+     above is the DETECTOR for alerts being switched off; this is the sender itself.
+     ⚠ Its try/catch never covered the common case: emailjs.send returns a PROMISE, so
+     a refused send — a bad template id, a blocked request, EmailJS over quota — was an
+     unhandled rejection, not something that catch could see. The catch was documented
+     and was wrong about what it was documenting. */
+  {
+    const index = publicSite;
+    const at = index.indexOf('function notifyBusinessOfMessage(');
+    let d = 0, end = at;
+    if (at > 0) { for (end = index.indexOf('{', at);; end++) { if (index[end] === '{') d++; else if (index[end] === '}') { d--; if (!d) break; } } }
+    const notify = at > 0 ? index.slice(at, end + 1) : '';
+    check('health', 'the "new message" alert was found', !!notify);
+    check('health', 'a send the mail service refuses is caught, not an unhandled rejection',
+      /emailjs\.send\([^;]*\)\s*\r?\n?\s*\.catch\(/.test(notify),
+      'emailjs.send returns a promise; the try/catch around it only ever caught a ' +
+      'synchronous throw, which is not how a refused send arrives');
+    /* ⚠ EACH EXIT, NOT A TOTAL. The first version counted console calls and asked for
+       three or more — which passed with one of the three exits made silent again,
+       because the others made up the number. Red-checking caught it. */
+    check('health', 'and neither silent exit just returns any more',
+      !/\)\s*return;/.test(stripComments(notify)) &&
+      /EmailJS is not configured/.test(notify) && /did not load/.test(notify),
+      'no settings and no script each stopped every alert for every customer, for as ' +
+      'long as it lasted, with nothing anywhere saying so');
+    check('health', 'and a refused send says which of the two it was',
+      /could not be sent at all/.test(notify) && /refused by EmailJS/.test(notify),
+      '"the alert failed" does not separate our configuration from their service');
+    /* ⚠ COMMENTS STRIPPED. The word "throw" appears in the comment explaining that a
+       synchronous throw is swallowed here — a plain search finds the explanation and
+       reports it as the violation, which is the trap Suite 58 already learned. */
+    check('health', 'and it still never blocks the message from saving',
+      !/\bthrow\b/.test(stripComments(notify)) && !/return false/.test(notify),
+      'the message is the thing that matters and it is already in Firestore; the ' +
+      'nudge is the nice-to-have');
+  }
+  check('health', 'and something actually reads them',
+    /hcLoadNotifyCfg\(\);/.test(admin) &&
+    /function startHealthCheckAuto\(\)\{[\s\S]{0,300}hcLoadNotifyCfg\(\);/.test(admin),
+    'a check reading a field nobody writes is how the Contact 2027 tab shipped');
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');
@@ -4498,9 +4658,85 @@ suite('11. Reliability pass');
     /invoicedAt: null/.test(admin),
     "last year's date would make every new invoice read as ~10 months overdue");
 
+  /* ⭐ AND THE FOURTH READER WAS NEVER WIRED UP (added 2026-08-26).
+     The two checks above assert invoicedAt is WRITTEN, and the comment beside them in
+     functions/index.js names the four places it is READ — the {{due_date}} on the
+     email, the printed invoice's date, the office copy of the due-date maths, and the
+     Overdue flag. Three of the four were changed to read it. isInvoiceOverdue was
+     not, and went on counting from updatedAt.
+
+     ⚠ SO THE PAPER AND THE SCREEN DISAGREED IN THE CUSTOMER'S FAVOUR, silently.
+     updatedAt moves whenever anybody touches the record — a corrected spelling, a
+     re-sync from the master sheet, syncPayerInvoice rebuilding the payer's group — so
+     every edit pushed the Overdue clock 30 days out and stopped a genuinely late bill
+     being chased, while the invoice in the customer's hand still said the original
+     due date. Nothing threw and nothing was logged: the row just left the list.
+
+     ⚠ RUN, not matched. The claim is about WHICH DAY a bill starts counting from, and
+     a regex over the source cannot see an arithmetic that reads the wrong field. */
+  {
+    const issuedSrc = extractFn(admin, 'invoiceIssuedAt');
+    const overdueSrc = extractFn(admin, 'isInvoiceOverdue');
+    check('reliability', 'the issued-date rule and the Overdue flag were both found',
+      !!issuedSrc && !!overdueSrc);
+    if (issuedSrc && overdueSrc) {
+      const toJsDate = (v) => (v && typeof v.toDate === 'function') ? v.toDate()
+        : (v instanceof Date ? v : null);
+      const issuedAt = new Function('toJsDate', 'return ' + issuedSrc + ';invoiceIssuedAt')(toJsDate);
+      const overdue = new Function('computeInvoiceStatus', 'OVERDUE_DAYS', 'invoiceIssuedAt',
+        'return ' + overdueSrc + ';isInvoiceOverdue'
+      )(computeInvoiceStatus, 30, issuedAt);
+
+      const ago = (n) => ({ toDate: () => new Date(Date.now() - n * 86400000) });
+      const owing = { install: 400, removal: 0, deposit: 0, credits: 0, changeFees: 0 };
+
+      check('reliability', 'a bill issued 40 days ago is overdue',
+        overdue(Object.assign({}, owing, { invoicedAt: ago(40), updatedAt: ago(40) })) === true);
+      /* THE BUG, stated as the case that produced it. */
+      check('reliability', 'and editing it yesterday does NOT reset the clock',
+        overdue(Object.assign({}, owing, { invoicedAt: ago(40), updatedAt: ago(1) })) === true,
+        'correcting a spelling used to push the due date another 30 days out and take ' +
+        'a genuinely overdue bill off the list, while the customer\'s copy still said ' +
+        'the original date');
+      check('reliability', 'a bill issued 10 days ago is not overdue',
+        overdue(Object.assign({}, owing, { invoicedAt: ago(10), updatedAt: ago(10) })) === false);
+      check('reliability', 'and a bill paid in full never is, however old',
+        overdue({ install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0,
+                  invoicedAt: ago(400), updatedAt: ago(400) }) === false);
+      /* ⚠ The fallback is not the bug and must survive: an invoice that has never been
+         through the nightly run has no invoicedAt, and dropping the fallback would
+         make every one of those un-datable rather than merely un-billed. */
+      check('reliability', 'an invoice never issued still dates from its own write',
+        overdue(Object.assign({}, owing, { updatedAt: ago(40) })) === true &&
+        overdue(Object.assign({}, owing, { updatedAt: ago(10) })) === false);
+      check('reliability', 'and no date at all is not overdue, rather than overdue since the epoch',
+        overdue(Object.assign({}, owing)) === false,
+        'an invoice that was never issued has not been billed; chasing it is chasing nobody');
+      check('reliability', 'the printed due date reads the same rule as the flag',
+        issuedAt({ invoicedAt: ago(40), updatedAt: ago(1) }).getTime() ===
+        ago(40).toDate().getTime(),
+        'the whole point is that the paper and the screen cannot disagree');
+    }
+    /* ⚠ AND NO FIFTH COPY. This bug was one reader left behind when three were
+       changed; the guard against it happening again is that there is only one place
+       to change. */
+    /* ⚠ THE HELPER'S OWN BODY IS THE ONE PLACE ALLOWED TO SPELL IT OUT, so it is cut
+       out before looking — the first version of this check matched the declaration
+       and failed on code that is right. */
+    const outsideHelper = admin.replace(issuedSrc || '~~none~~', '');
+    check('reliability', 'nothing computes an issue date its own way any more',
+      !/toJsDate\([^)]*\.invoicedAt\)/.test(outsideHelper) &&
+      (admin.match(/invoiceIssuedAt\(/g) || []).length >= 5,
+      'found ' + (admin.match(/invoiceIssuedAt\(/g) || []).length + ' uses — one ' +
+      'declaration plus the four readers');
+  }
+
   // ---- 2.6 Bin numbers on Delete All -------------------------------------
-  const delAll = admin.slice(admin.indexOf("getElementById('deleteAllAddressesBtn').addEventListener"),
-                             admin.indexOf("getElementById('deleteAllAddressesBtn').addEventListener") + 2600);
+  /* ⚠ THIS WAS A FIXED 2600-CHARACTER WINDOW AND IT WENT STALE, exactly as CLAUDE.md
+     §7 says these always do: a comment added inside the handler on 2026-08-26 pushed
+     the "returned to the pool" line past the end of the window and the check failed on
+     code that is right. Sliced to the end of its own top-level construct instead. */
+  const delAll = sectionFrom(admin, admin.indexOf("getElementById('deleteAllAddressesBtn').addEventListener"));
   check('reliability', 'Delete All Customers returns the numbers to the pool',
     /availableCustomerNumbers/.test(delAll),
     'numbering restarts above the old maximum and every labelled bin means nothing');
@@ -5744,6 +5980,13 @@ if (!JSDOM) {
       computeInvoiceStatus: computeInvoiceStatus,
       esc: s => String(s == null ? '' : s),
       toJsDate: v => (v instanceof Date ? v : null),
+      /* ⭐ THE ONE ANSWER TO "WHEN WAS THIS ISSUED", LIFTED — not a stub (2026-08-26).
+         It decides the due date printed on the customer's copy, so a stub here would
+         make the printed date agree with itself and prove nothing. It closes over the
+         harness's own toJsDate, which is why it is built with that passed in. */
+      invoiceIssuedAt: new Function('toJsDate',
+        'return ' + extractFn(admin, 'invoiceIssuedAt') + ';invoiceIssuedAt'
+      )(v => (v instanceof Date ? v : null)),
       addDays: (d, n) => new Date((d instanceof Date ? d.getTime() : Date.now()) + n * 86400000),
       niceDate: () => 'Nov 20, 2026',
       invoiceNumberFor: () => 'INV-0001',
@@ -11695,25 +11938,48 @@ suite('Suite 38. Panels draw when they are opened');
     return null;
   };
   const safeSrc = grab('safeRender'), openSrc = grab('adminPanelIsOpen'), flushSrc = grab('flushPendingRenders');
+  /* ⭐ THE FAILURE SIDE, LIFTED TOO (2026-08-26). safeRender's catch used to be a
+     console.error and nothing else, which is why "a section renders empty for no
+     reason" is in system-map.md as a symptom with no cause. These four are what it
+     does instead; they are lifted rather than stubbed because what is under test is
+     exactly what the person is shown. */
+  const noteSrc = grab('noteRenderFailure'), barSrc = grab('drawRenderFailureBar'),
+        retrySrc = grab('retryFailedRenders'), panelLabelSrc = grab('adminPanelLabel'),
+        escSrc = grab('esc');
   check('S38', 'safeRender, adminPanelIsOpen and flushPendingRenders all exist',
     !!safeSrc && !!openSrc && !!flushSrc);
+  check('S38', 'and so does the "this didn’t load" bar it falls back to',
+    !!noteSrc && !!barSrc && !!retrySrc && !!panelLabelSrc,
+    'an empty panel and a broken panel look identical without it');
 
   if (!JSDOM) {
     note('jsdom not installed — skipping the deferred-render behaviour run');
-  } else if (safeSrc && openSrc && flushSrc && mapMatch) {
+  } else if (safeSrc && openSrc && flushSrc && mapMatch && noteSrc && barSrc && retrySrc) {
+    /* The nav buttons are here because the bar reads the panel's name off HER nav
+       rather than keeping a second list of tab names — so a fixture without them
+       would be testing a different function from the one that ships. */
     const dom = new JSDOM(
+      '<button class="nav-item" data-panel="addcustomer"><span class="nav-label">Customers</span></button>' +
+      '<button class="nav-item" data-panel="routes"><span class="nav-label">Routes and Schedule</span></button>' +
+      '<button class="nav-item" data-panel="warehouse"><span class="nav-label">Warehouse</span></button>' +
       '<div class="panel active" id="panel-addcustomer"></div>' +
       '<div class="panel" id="panel-routes"></div>' +
       '<div class="panel" id="panel-warehouse"></div>'
     );
     const doc = dom.window.document;
     const sb = {};
-    new Function('document',
+    const toasted = [];
+    new Function('document', 'toast', 'console',
       'const RENDER_PANEL = {' + mapMatch[1] + '\n};' +
       'const pendingRenders = new Map();' +
       openSrc + safeSrc + flushSrc +
-      'this.safeRender = safeRender; this.flush = flushPendingRenders; this.pending = pendingRenders;'
-    ).call(sb, doc);
+      (escSrc || 'function esc(s){ return String(s == null ? "" : s); }') +
+      panelLabelSrc + noteSrc + barSrc + retrySrc +
+      'const renderFailures = new Map();' +
+      'this.safeRender = safeRender; this.flush = flushPendingRenders; this.pending = pendingRenders;' +
+      'this.failures = renderFailures; this.retry = retryFailedRenders;'
+    ).call(sb, doc, (m) => toasted.push(m),
+           {error(){}, warn(){}, log(){}});
 
     let openPanelDrew = 0, closedPanelDrew = 0;
     sb.safeRender('allCustomersTable', () => { openPanelDrew++; });
@@ -11751,6 +12017,54 @@ suite('Suite 38. Panels draw when they are opened');
     sb.safeRender('warehouseQueue', () => { after++; });
     console.error = realErr;
     check('S38', 'one render throwing does not stop the next', after === 1);
+
+    /* ⭐ AND THE PANEL THAT DID NOT DRAW SAYS SO (added 2026-08-26). Owner's rule,
+       2026-08-25: "nothing should fail quietly." Forced the failure above; these
+       assert the SIGNAL, which is the whole of what the silent-failure map asks for.
+       Run against a real DOM rather than matched in the source, because every claim
+       here is about WHAT IS ON THE SCREEN — a regex proves the words exist in the
+       file, which is a different and weaker claim (CLAUDE.md §5, the ledger bug). */
+    const bar = doc.getElementById('renderFailureBar');
+    check('S38', 'a render that threw puts a bar on the screen', !!bar,
+      'an empty panel and a broken panel look identical, which is the mystery this ends');
+    check('S38', 'and the bar names the panel in her words, not the internal label',
+      !!bar && /Warehouse/.test(bar.textContent) && !/whCustomerList/.test(bar.textContent),
+      'read off the nav item, so renaming a tab renames this too');
+    check('S38', 'and it offers a Try again rather than only bad news',
+      !!doc.getElementById('renderFailureRetry'),
+      'a reload costs every listener and cache; most of these are one transient read');
+
+    /* ⚠ ONE PANEL, ONE LINE. Five renders failing inside one panel is one thing that
+       did not load; listing it five times reads as five separate faults. */
+    console.error = function(){};
+    sb.safeRender('warehouseRecycleQueue', () => { throw new Error('boom too'); });
+    console.error = realErr;
+    const bar2 = doc.getElementById('renderFailureBar');
+    check('S38', 'two failures in one panel are named once, not twice',
+      !!bar2 && bar2.textContent.split('Warehouse').length === 2,
+      'got: ' + ((bar2 && bar2.textContent) || '(no bar)'));
+
+    /* Retry re-runs the render that threw. A render that comes good must leave the
+       list; one that fails again must keep its place, or a Retry that changes nothing
+       is indistinguishable from a button that does nothing. */
+    let healed = 0;
+    sb.failures.set('whCustomerList', () => { healed++; });
+    console.error = function(){};
+    sb.retry();
+    console.error = realErr;
+    check('S38', 'Try again re-runs the render that threw', healed === 1);
+    check('S38', 'and one that fails again keeps its place on the bar',
+      sb.failures.has('warehouseRecycleQueue') && !sb.failures.has('whCustomerList'),
+      'a Retry that silently leaves the same bar up teaches her the button is broken');
+    check('S38', 'and says so, rather than looking like it worked',
+      /Still not loading/.test((doc.getElementById('renderFailureBar') || {}).textContent || ''));
+
+    /* Everything coming good takes the bar away entirely — a warning that outlives
+       the fault is the next thing people learn to ignore. */
+    sb.failures.set('warehouseRecycleQueue', () => {});
+    sb.retry();
+    check('S38', 'and the bar goes when everything draws again',
+      !doc.getElementById('renderFailureBar') && sb.failures.size === 0);
   }
 
   check('S38', 'opening a panel flushes what it was owed',
@@ -11891,8 +12205,15 @@ suite('Suite 39. Importing in batches, and remembering the place');
     /if\(remembered\)\{[\s\S]{0,200}?location\.reload/.test(admin),
     'reloading after a failed save would lose the run with nothing to resume from');
 
+  /* ⚠ THIS USED TO MATCH THE EXACT TEXT `renderBulkResumeBanner(); } catch(err){}` —
+     that is, it was pinned to the catch being EMPTY AND WORDLESS, so giving that
+     swallow the reason silent-failures.test.js now requires broke a check about
+     something else entirely. The §7 slow fuse again: anchored on how a thing happens
+     to be spelled rather than on what has to be true. What has to be true is that the
+     banner is drawn once everything is parsed, and that a failure to draw it cannot
+     take the page down with it. */
   check('S39', 'an unfinished job announces itself when the page comes back',
-    /renderBulkResumeBanner\(\); \} catch\(err\)\{\}/.test(admin),
+    /setTimeout\(function\(\)\{\s*try\{\s*renderBulkResumeBanner\(\);\s*\}\s*catch/.test(admin),
     'a refresh would otherwise look exactly like the import having vanished');
 
   /* ---- the job store, run for real ---- */
@@ -24427,6 +24748,27 @@ suite('Suite 108. The Edit Customer save, actually run');
         return o.feeAnswer || 'charge';
       }
     };
+    /* ⭐ THE REAL POOL-FAILURE NOTICE, LIFTED — not a stub (2026-08-26). The whole
+       point of the `breakPool` run below is what the office is TOLD when the pool
+       write is refused, and a stub would answer that question with itself. Lifted the
+       long way round because extractFn matches "function NAME(" and so drops the
+       `async` keyword — a body full of bare `await` is a parse error that kills the
+       whole suite as one unattributable crash (CLAUDE.md §5). `cnStuckToastAt` is a
+       module-level `let` the function closes over, so the preamble declares it; the
+       Firestore stubs and `toast` come in as parameters because a `new Function` body
+       sees globals, never this ctx. */
+    {
+      const st = admin.indexOf('async function noticeCustomerNumberStuck(');
+      let b = admin.indexOf('{', st), d2 = 0, e = b;
+      if (st > 0) { for (;; e++) { if (admin[e] === '{') d2++; else if (admin[e] === '}') { d2--; if (!d2) break; } } }
+      const noticeSrc = st > 0 ? admin.slice(st, e + 1) : '';
+      check('S108', 'the pool-failure notice was found to run', !!noticeSrc,
+        'without it the breakPool checks below prove nothing about what is said');
+      ctx.noticeCustomerNumberStuck = new Function(
+        'addDoc', 'collection', 'db', 'serverTimestamp', 'toast', 'jobAddresses', 'console',
+        'let cnStuckToastAt = 0; return ' + noticeSrc + ';noticeCustomerNumberStuck'
+      )(ctx.addDoc, ctx.collection, ctx.db, ctx.serverTimestamp, ctx.toast, ctx.jobAddresses, ctx.console);
+    }
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
@@ -24470,6 +24812,30 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and the pool failure is at least written to the console',
       broke.errs.some(e => /pool/i.test(e)),
       'silently losing the bin number is how two bins end up wearing one label');
+    /* ⭐ AND THE CONSOLE IS NOT WHERE THIS GETS NOTICED (added 2026-08-26). Owner's
+       rule, 2026-08-25: "nothing should fail quietly." system-map.md already records
+       the symptom blind — "a customer number appears on two houses… the Health Check
+       report finds them but can't auto-fix" — and a console.error in a browser nobody
+       has the console open in is how it got there. Forcing the failure and asserting
+       the SIGNAL is what the silent-failure map asks for; asserting the console line
+       alone is what let this stay invisible. */
+    const poolNote = broke.writes.find(w => w.col === 'messages' && w.op === 'add' &&
+      w.payload && w.payload.topic === 'Customer Number Needs Fixing');
+    check('S108', 'and a System note is raised about the number',
+      !!poolNote && poolNote.payload.folder === 'System',
+      'the fix is a human typing a number into Customer Numbers later, so it has to ' +
+      'keep — a toast is gone the moment they look away');
+    check('S108', 'and that note names the number and which way it went wrong',
+      !!poolNote && /#894/.test(poolNote.payload.message) &&
+      /put back into the available pool/.test(poolNote.payload.message),
+      'releasing and taking are opposite faults with opposite fixes; a note that ' +
+      'says neither leaves somebody guessing which');
+    check('S108', 'and the note stays inside the 5000-character rule',
+      !!poolNote && poolNote.payload.message.length < 5000,
+      'firestore.rules refuses a longer message as "insufficient permissions"');
+    check('S108', 'and somebody standing there is told to go and look',
+      broke.errs.some(e => /note about it in the Inbox/i.test(e)),
+      'the note keeps, the toast is the half that gets noticed immediately');
 
     /* ⭐ AND A SAVE THAT REALLY FAILS SAYS WHAT FAILED. */
     const dead = await (async function(){
@@ -25871,17 +26237,18 @@ pendingAsync.push((async () => {
       (groups[k] = groups[k] || []).push(c);
     });
     const synced = [];
+    const jobSignals = {ok: 0, failed: []};
     const box = {};
     new Function(
       'hcCachesReady', 'jobAddresses', 'allInvoicesCache', 'hcInvoiceGroups',
       'syncPayerInvoice', 'updateDoc', 'doc', 'db', 'serverTimestamp',
-      'computeInvoiceStatus', 'logActivity', 'console',
+      'computeInvoiceStatus', 'logActivity', 'console', 'bgJobOk', 'bgJobFailed',
       'const INV_AUTOSYNC_PER_RUN = ' + (opts.perRun || 25) + '; let invAutoSyncBusy = false;' +
       src + 'this.f = invoiceAutoSync;'
     ).call(box,
       () => opts.ready !== false,
       customers, invoices,
-      () => groups,
+      () => { if(opts.blowUp) throw new Error('Missing or insufficient permissions.'); return groups; },
       async (payer) => { synced.push(payer); },
       async (ref, patch) => { wrote.push({ref: ref, patch: patch}); },
       (db, col, id) => (col + '/' + id), {},
@@ -25893,12 +26260,44 @@ pendingAsync.push((async () => {
         return paid >= total ? 'Paid in Full' : 'Partial Payment';
       },
       (msg) => { logged.push(msg); },
-      {error: function(){}, log: function(){}});
-    return box.f().then(r => ({res: r, wrote: wrote, synced: synced, logged: logged}));
+      {error: function(){}, log: function(){}},
+      /* ⭐ THE BACKGROUND-JOB STREAK, STUBBED BUT RECORDING (2026-08-26). Not lifted:
+         what it does is write a System note, which is run for real by the checks that
+         own it — here the question is only whether the sync REPORTS itself, and a stub
+         that remembers being called answers exactly that. Before this, invoiceAutoSync
+         turned any throw into one console line and the caller could not tell a clean
+         pass from a dead one. */
+      () => { jobSignals.ok++; },
+      (key, label) => { jobSignals.failed.push(label || key); });
+    return box.f().then(r => ({res: r, wrote: wrote, synced: synced, logged: logged,
+                               jobSignals: jobSignals}));
   }
 
   const cust = (id, phone, price) => ({id: id, data: {name: id, phone: phone, housePrice: price}});
   const inv = (id, d) => ({id: id, data: d || {}});
+
+  /* ⭐ AND THE PASS SAYS WHETHER IT RAN (added 2026-08-26). Owner's rule, 2026-08-25:
+     "nothing should fail quietly." This is money reconciliation on a ten-minute timer
+     with nobody watching: if it stops, invoices and customer records drift apart and
+     the first sign of it is a customer disputing a figure. It used to turn any throw
+     into one console.error and return, so a dead sync and a quiet night looked the
+     same from outside. Forcing the failure and asserting the signal, per
+     claude/silent-failures.md section 10. */
+  {
+    const good = await run79([cust('ada', '8015550001', 400)], []);
+    check('S79', 'a pass that ran reports that it ran',
+      good.jobSignals.ok === 1 && !good.jobSignals.failed.length,
+      'without the success side the failure streak never resets, so one bad tick ' +
+      'would raise a note and then stay quiet for ever');
+    const dead = await run79([cust('ada', '8015550001', 400)], [], {blowUp: true});
+    check('S79', 'and a pass that died says so where it keeps',
+      dead.jobSignals.failed.length === 1 && !dead.jobSignals.ok,
+      'a console line in a browser nobody has the console open in is the same as no ' +
+      'handling at all for a job running on a timer');
+    check('S79', 'and it still does not take the page down with it', !!dead.res,
+      'never let a background check break the page it runs behind — that half was ' +
+      'always right and is not what changed');
+  }
 
   /* ---- created ---- */
   {
@@ -27698,6 +28097,107 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
 }
 
 
+/*
+ * Suite 71b. Bulk actions say how many really went through.
+ *
+ * ⭐ Owner's rule, 2026-08-25: "nothing should fail quietly." claude/silent-failures.md
+ * §5 names the shape: "tick twelve, move them, three quietly do not move — the count
+ * still says twelve." Two loops in admin.html were written that way, each with a
+ * per-row `.catch(function(){})` and a total printed from the length of the INPUT
+ * list rather than from what actually worked.
+ *
+ * ⚠ Both are TIER 2: somebody pressed a button and is standing there. Reported by
+ * scoping to each handler's own slice, because the two loops are spelled almost
+ * identically and a file-wide search would pass with either one still broken — the
+ * same trap the two duplicate-customer tools set (Suite 42).
+ */
+suite('Suite 71b. Bulk actions say how many really went through');
+/* ⚠ async because the Inbox check below RUNS msgBulkApply. pendingAsync is awaited by
+   the summary; a check that scores after it can never fail the build. */
+pendingAsync.push((async () => {
+  const queueBtn = sectionFrom(admin, admin.indexOf("if(btn) btn.addEventListener('click', async function(){\n    if(!confirm('Send '"));
+  const queue = queueBtn || admin.slice(admin.indexOf("Send ' + notFlagged.length + ' customer(s) to the build queue"),
+                                        admin.indexOf("whFindNotQueuedBtn').click();"));
+  check('S71b', 'the build-queue button was found', !!queue.length);
+  check('S71b', 'a house that would not queue is counted, not swallowed',
+    /catch\(err\)\{[\s\S]{0,200}missed\.push/.test(queue),
+    'a refused write left the house out of the build queue with nothing saying so, ' +
+    'and being in that queue is the whole point of the button');
+  check('S71b', 'and the total reported is what worked, never the list length',
+    !/toast\(notFlagged\.length/.test(queue) && /sent \+ ' of ' \+ notFlagged\.length/.test(queue),
+    'reporting the input length is what made three silent failures read as twelve ' +
+    'successes');
+  check('S71b', 'and the ones that failed are named, so they can be re-sent',
+    /missed\.slice\(0, 8\)/.test(queue),
+    '"3 failed" with no names means finding them again by hand in a book of a thousand');
+  /* ⚠ TIED TO THE BRANCH THAT FIRES IT. A search for the wording survived the whole
+     `if(missed.length)` being switched off — the words were still sitting there
+     inside a branch that can never run, which is the shape Suite 112 records for the
+     bin-number box that rendered and saved nothing. */
+  check('S71b', 'and that report is reached when, and only when, something failed',
+    /if\(missed\.length\)\{[\s\S]{0,400}?missed\.slice\(0, 8\)/.test(queue),
+    'the wording existing is not the wording appearing');
+
+  const stale = sectionFrom(admin, admin.indexOf("const clr = document.getElementById('cnClearStaleBtn');"));
+  check('S71b', 'clearing stale pool entries counts what really cleared',
+    /cleared\+\+/.test(stale) && !/toast\(stale\.length/.test(stale),
+    'the toast said N removed whatever happened, so an entry that would not delete ' +
+    'came back on the next Find conflicts looking like the button did not work');
+  check('S71b', 'and says when some would not clear',
+    /would not clear/.test(stale));
+
+  /* ⭐ THE INBOX ALREADY SAID "9 of 12" — AND THEN LOST THE THREE (2026-08-26).
+     claude/silent-failures.md §5 has this one half right: msgBulkApply did report
+     the failures, so the count was honest. What it did next was clear EVERY tick,
+     so the moment the toast went the three that failed were indistinguishable from
+     the nine that worked, and finding them again meant remembering which twelve had
+     been ticked in the first place. Left ticked, pressing the button again IS the
+     retry, and it retries only them.
+
+     ⚠ RUN, not matched: the claim is about which rows are still selected. */
+  {
+    const src = (function(){
+      const at = admin.indexOf('async function msgBulkApply(');
+      if (at < 0) return '';
+      let d = 0;
+      for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+      }
+      return '';
+    })();
+    check('S71b', 'msgBulkApply was found to run', !!src);
+    if (src) {
+      const picked = new Set(['a', 'b', 'c']);
+      const toasts = [];
+      let drew = 0;
+      const fn = new Function('updateDoc', 'doc', 'db', 'pickedMsgIds', 'refreshMsgToolbar',
+        'renderMessagesList', 'toast', 'console',
+        src + ';return msgBulkApply;'
+      )(async (ref) => { if (ref.id === 'b') throw new Error('Missing or insufficient permissions.'); },
+        (db, col, id) => ({col: col, id: id}), {}, picked, () => {}, () => { drew++; },
+        (t) => toasts.push(t), {error(){}, log(){}, warn(){}});
+
+      await fn(['a', 'b', 'c'], {folder: 'Done'}, 'moved');
+      check('S71b', 'the ones that worked lose their tick',
+        !picked.has('a') && !picked.has('c'));
+      check('S71b', 'and the one that failed keeps it, so pressing again retries it',
+        picked.has('b') && picked.size === 1,
+        'still ticked: ' + Array.from(picked).join(', ') + ' — clearing every tick made ' +
+        'the failures indistinguishable from the successes the moment the toast went');
+      check('S71b', 'the count is what really went through',
+        toasts.some(t => /^2 messages moved/.test(t)), 'got: ' + toasts.join(' | '));
+      check('S71b', 'and it says the failures are still ticked',
+        toasts.some(t => /still ticked, press again to retry/.test(t)),
+        'a tick nobody is told about is a tick nobody uses');
+      check('S71b', 'and the list is redrawn, not just the toolbar',
+        drew === 1,
+        'the tick boxes are drawn by renderMessagesList — without it the rows would ' +
+        'be selected in pickedMsgIds and unticked on screen, which is worse than either');
+    }
+  }
+})());
+
 suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
 {
   /* ⚠ RESTORED 2026-08-19 after a paste-over from a stale read dropped it (the
@@ -27725,6 +28225,69 @@ suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
   check('S71', 'a second failure cannot take the sweep down with it',
     /catch\(err2\)/.test(catchBlock),
     'the routes are already written — throwing here would strand the caller');
+
+  /* ⭐ AND THE SWEEP'S OWN FAILED WRITES ARE IN THE NOTE (added 2026-08-26). Owner's
+     rule, 2026-08-25: "nothing should fail quietly." The sweep writes each move onto
+     the ROUTE and onto the CUSTOMER, and the three customer writes sat behind bare
+     catches — so a refused write left the two halves disagreeing about which day a
+     house is on, silently, which is the exact fault this file warns about again and
+     again. Counted into report.writeFailed and said in the note; tier 3, because the
+     sweep runs on a timer with nobody standing there.
+
+     ⚠ RUN, not matched. The claim is about a SENTENCE THAT REACHES THE INBOX, and a
+     regex over the source proves the words exist in the file — which is a different
+     and weaker claim, and is exactly what let the ledger render bug ship. */
+  /* ⚠ PUSHED ONTO pendingAsync, which the summary awaits — a check that scores after
+     the summary has printed can never fail the build. */
+  pendingAsync.push((async () => {
+    const wrote = [];
+    const fn = new Function('addDoc', 'collection', 'db', 'serverTimestamp', 'toast',
+      'console', 'formatDateNice', 'reconcileNoteIsRepeat', 'allMessages',
+      'let lastReconcileNote = {body: "", at: 0};' + notice + ';return noticeRoutesReconciled;'
+    )(async (r, p) => { wrote.push(p); return {id: 'n1'}; }, () => ({}), {}, () => 'NOW',
+      () => {}, {error(){}, warn(){}, log(){}}, (d) => String(d), () => false, []);
+
+    const base = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
+      filled: [], pulled: [], built: [], retired: [], overByHand: [], resynced: [],
+      writeFailed: [], stranded: {noCity: [], noPin: [], byCity: {}}};
+
+    await fn(Object.assign({}, base, {refreshed: 2}));
+    check('S71', 'an ordinary sweep note says nothing about failed writes',
+      wrote.length === 1 && !/would not update/.test(wrote[0].message),
+      'a warning that appears when nothing is wrong is the next one people skim past');
+
+    wrote.length = 0;
+    await fn(Object.assign({}, base, {refreshed: 2, writeFailed: [
+      {name: 'Ashley Wray', what: 'moving them off a full day'},
+      {name: 'Rachel Oslund', what: 'putting them on a day'}]}));
+    check('S71', 'a sweep whose customer writes were refused names them',
+      wrote.length === 1 && /2 customer records would not update/.test(wrote[0].message) &&
+      /Ashley Wray/.test(wrote[0].message),
+      'got: ' + ((wrote[0] || {}).message || '(no note)').slice(0, 160));
+    check('S71', 'and says what it means for the crew',
+      wrote.length === 1 && /disagree/.test(wrote[0].message),
+      '"2 records would not update" is not something anybody can act on');
+    check('S71', 'and puts it FIRST, where the length trim cannot reach it',
+      wrote.length === 1 &&
+      wrote[0].message.indexOf('would not update') < wrote[0].message.indexOf('updated to match'),
+      'the body is trimmed from the END to fit the 5000-character rule, so the one ' +
+      'line saying part of the sweep did not take has to be at the top');
+  })());
+  /* ⚠ AND THE THREE PLACES THAT FEED IT. Structural, because running the whole sweep
+     is a different and much heavier harness (Suite 18) — but a note nothing pushes
+     into is a note that never appears, which is the shape of the Contact 2027 tab
+     reading a field nobody wrote. */
+  {
+    const sweep = sectionFrom(admin, admin.indexOf('async function reconcileUpcomingRoutes'));
+    check('S71', 'all three customer writes in the sweep report a refusal',
+      (sweep.match(/report\.writeFailed\.push\(/g) || []).length === 3,
+      'found ' + (sweep.match(/report\.writeFailed\.push\(/g) || []).length + ' of 3 — ' +
+      'freeing a house, shedding one off a full day, and placing one on a day');
+    check('S71', 'and a sweep whose ONLY outcome was failures still speaks',
+      /report\.changed[\s\S]{0,700}report\.writeFailed\.length > 0/.test(sweep),
+      'left out of report.changed, a pass where every write was refused is ' +
+      'indistinguishable from a quiet night');
+  }
 }
 
 /*

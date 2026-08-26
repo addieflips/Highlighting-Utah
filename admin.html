@@ -1024,7 +1024,7 @@
         return String(a);
       });
       add(parts.join(' '));
-    } catch(x){}
+    } catch(x){ /* quiet on purpose: this IS the error reporter. Anything thrown while building the copy of a console line must not replace the real message, which is passed straight through on the next line. */ }
     origError.apply(console, arguments);
   };
   window.errCatchToggle = function(){
@@ -5199,7 +5199,7 @@ function switchToAdminPanel(panelName){
   ensurePanelData(panelName);
   /* Anything this panel was owed while it was closed — see safeRender. */
   flushPendingRenders(panelName);
-  try{ sessionStorage.setItem('huLastPanel', panelName); }catch(e){}
+  try{ sessionStorage.setItem('huLastPanel', panelName); }catch(e){ /* quiet on purpose: remembering which tab was open. Storage blocked means the next sign-in opens the default tab, which is where a first sign-in starts anyway. */ }
 }
 /* ---------------- Panel data loads when the panel is opened ----------------
    Every panel used to open its Firestore listeners at login — about forty of
@@ -5264,7 +5264,7 @@ function currentAdminPanel(){
 }
 function restoreLastAdminPanel(){
   let saved = null;
-  try{ saved = sessionStorage.getItem('huLastPanel'); }catch(e){}
+  try{ saved = sessionStorage.getItem('huLastPanel'); }catch(e){ /* quiet on purpose: nothing remembered, so the default tab opens. `saved` stays null and the guard below handles it. */ }
   if(saved && document.querySelector('.nav-item[data-panel="'+saved+'"]')) switchToAdminPanel(saved);
 }
 document.querySelectorAll('.nav-item[data-panel]').forEach(function(btn){
@@ -6287,7 +6287,7 @@ async function sendPaymentReceipt(invId, invData, paidNow){
     console.error('Payment receipt failed for ' + invId + ':', err);
     /* Recorded on the invoice as well as shown on screen, so a failure that
        happened while nobody was looking still surfaces later. */
-    try{ await updateDoc(doc(db,'invoices',invId), {receiptError: msg, receiptErrorAt: serverTimestamp()}); }catch(e){}
+    try{ await updateDoc(doc(db,'invoices',invId), {receiptError: msg, receiptErrorAt: serverTimestamp()}); }catch(e){ /* quiet on purpose: this is the SECOND place the failure is recorded, and the first has already worked \u2014 the reason is returned to the caller on the next line and shown on screen. Losing the copy on the invoice costs the banner later, never the message now, and a receipt that failed must not also break the payment that succeeded. */ }
     return {sent:false, quiet:false, why:'Receipt failed to send: ' + msg + ' The payment was still recorded.'};
   }
 }
@@ -6562,7 +6562,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
   if(out.indexOf('{{due_date}}') !== -1){
     const dueKey = (String(phone||'').replace(/\D/g,'')) || String(phone||'').toLowerCase().trim();
     const dueInv = allInvoicesCache.find(i => i.id === dueKey);
-    const issued = (dueInv && (toJsDate(dueInv.data.invoicedAt) || toJsDate(dueInv.data.updatedAt))) || new Date();
+    const issued = (dueInv && invoiceIssuedAt(dueInv.data)) || new Date();
     out = out.split('{{due_date}}').join(niceDate(addDays(issued, PAYMENT_TERMS_DAYS)));
   }
   if(out.indexOf('{{feet_line}}') !== -1 || out.indexOf('{{new_member_fee_line}}') !== -1 || out.indexOf('{{amount_due}}') !== -1 || out.indexOf('{{amount_paid}}') !== -1){
@@ -7836,18 +7836,18 @@ function initData(){
      counts open items before anyone opens the checklist. */
   // Keep the checklist current without anyone having to remember to press
   // Sync — quiet unless it actually finds something to add or flag.
-  runProjectTestSync().catch(function(){});
+  runProjectTestSync().catch(function(){ /* quiet on purpose: the checklist syncs again on the next sign-in, and the list on screen is whatever Firestore already holds \u2014 a failed sync shows a slightly old checklist, never a wrong one. */ });
   // Same idea for Health Check: run it on our own and light the sidebar badge,
   // instead of waiting for someone to suspect a problem and press a button.
   // Read the nightly run's health once at login, then again on the same ten
   // minute beat as the checks that report it.
-  loadNightlyHealth().catch(function(){});
-  setInterval(function(){ loadNightlyHealth().catch(function(){}); }, 10 * 60 * 1000);
+  loadNightlyHealth().catch(function(){ /* quiet on purpose: the ten-minute beat below re-reads it, and the stale-run banner is driven by the LAST successful read \u2014 so a failed read leaves the banner saying the run is stale, which is the safe direction. */ });
+  setInterval(function(){ loadNightlyHealth().catch(function(){ /* quiet on purpose: see above \u2014 the next tick re-reads it. */ }); }, 10 * 60 * 1000);
   startHealthCheckAuto();
   /* Before the sweep, not after: the sweep builds and re-spreads crew-days, and
      doing that on the default two while the office has saved one would build a
      season it then has to take apart again. */
-  loadSchedulingSettings().catch(function(){});
+  loadSchedulingSettings().catch(function(){ /* quiet on purpose: a failed read falls back to the built-in nearby-towns list and two crews, which is what an unconfigured office gets. Resetting to empty would be worse than either \u2014 see DEFAULT_NEARBY_TOWNS. */ });
   startReconcileAuto();
   loadSettings();
   loadJobAddresses();
@@ -9793,7 +9793,7 @@ _tpBtn.addEventListener('click', async function(){
     logActivity('Created a test person', 'customers', id);
     /* Straight into the record, because the thing being tested is done in there and
        finding a customer called Test in a book of nine hundred is its own errand. */
-    setTimeout(function(){ try{ openEditCustomerModal(id); }catch(e){ } }, 400);
+    setTimeout(function(){ try{ openEditCustomerModal(id); }catch(e){ /* quiet on purpose: a convenience. The test person HAS been created \u2014 that is reported above \u2014 and they are in the customer list either way; this only saves an errand. */ } }, 400);
   }catch(err){
     console.error('Could not create the test person:', err);
     toast('Could not create it \u2014 ' + ((err && err.message) || err));
@@ -11459,7 +11459,7 @@ function renderQuoteRows(filtered){
        an older browser throwing here must never stop the buttons above from
        being wired up. */
     try{ resultEl.scrollIntoView({behavior:'smooth', block:'nearest'}); }
-    catch(scrollErr){ try{ resultEl.scrollIntoView(); }catch(e2){} }
+    catch(scrollErr){ try{ resultEl.scrollIntoView(); }catch(e2){ /* quiet on purpose: the fallback to the fallback. Nothing scrolls; the box is on screen and the buttons above it are wired either way, which is the thing that must not be lost. */ } }
   }
   /* The text version. Deliberately its own path rather than a flag on the
      email one: the email sends HTML so its buttons survive, and that same
@@ -13267,6 +13267,36 @@ function invoiceNumberFor(invoiceKey, year){
 }
 function addDays(date, n){ const d = new Date(date.getTime()); d.setDate(d.getDate() + n); return d; }
 function niceDate(d){ return d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); }
+/* ⭐ THE DAY AN INVOICE WAS ISSUED — ONE ANSWER (added 2026-08-26).
+   Payment terms run 30 days from the invoice DATE, so this decides both the due date
+   printed on the customer's copy and whether the office list calls a bill Overdue.
+
+   ⚠ IT WAS FOUR COPIES AND ONE OF THEM WAS WRONG. functions/index.js stamps
+   `invoicedAt` once and never moves it, and its comment there says in as many words
+   that the date "was read in four places — the {{due_date}} on the email, the printed
+   invoice's date, the Overdue flag, and the office copy of the due-date maths". Three
+   of those four were changed to read it. `isInvoiceOverdue` was not, and went on
+   counting from `updatedAt`.
+
+   ⚠ SO THE PAPER AND THE SCREEN DISAGREED, SILENTLY AND IN THE CUSTOMER'S FAVOUR.
+   `updatedAt` moves every time anybody touches the record for any reason — correcting
+   a spelling, a re-sync from the sheet, syncPayerInvoice rebuilding the group — so
+   each edit pushed the Overdue clock a further 30 days out and un-flagged a bill that
+   really was overdue. Nothing threw, nothing was logged: the row just quietly stopped
+   being chased while the invoice in the customer's hand still said the same due date.
+
+   ⚠ THE `updatedAt` FALLBACK STAYS, and is not the bug. An invoice that has never
+   been through the nightly run has no `invoicedAt` at all — and has not been billed
+   either, so what it counts from is moot. Dropping the fallback would make every one
+   of those un-datable instead.
+
+   Returns null rather than `new Date()` for "no date at all": today is the right
+   default for something being PRINTED, and exactly the wrong one for deciding
+   whether a bill is late, so that choice belongs to each caller. */
+function invoiceIssuedAt(d){
+  if(!d) return null;
+  return toJsDate(d.invoicedAt) || toJsDate(d.updatedAt) || null;
+}
 function toJsDate(ts){
   if(!ts) return null;
   if(typeof ts.toDate === 'function') return ts.toDate();
@@ -13370,10 +13400,14 @@ function buildInvoiceDocHtml(member){
   const feetLineLabel = feetLabelFor(feet);
   const feetLineAmount = fmtMoney(basePrice || (total - (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0)));
   const showNewMemberLine = isNewMember && (!inv || newMemberFeeAlreadyApplied || (total - basePrice) === 30);
-  /* Dates. The invoice date is when the invoice was last written (the same
-     stamp the Overdue flag counts from), so the printed due date and the admin
-     list can never disagree. */
-  const invoiceDate = (inv && (toJsDate(inv.invoicedAt) || toJsDate(inv.updatedAt))) || new Date();
+  /* Dates. The invoice date is the day it was ISSUED — invoiceIssuedAt, the same
+     one answer the Overdue flag counts from, so the printed due date and the admin
+     list cannot disagree.
+     ⚠ THIS COMMENT USED TO SAY "when the invoice was last written", and by
+     2026-08-26 that was untrue of both halves of its own claim: this line already
+     read invoicedAt, and the Overdue flag was the only thing still counting from
+     updatedAt — so the two it promised could never disagree, did. */
+  const invoiceDate = (inv && invoiceIssuedAt(inv)) || new Date();
   const dueDate = addDays(invoiceDate, PAYMENT_TERMS_DAYS);
   const paidDate = inv ? (toJsDate(inv.lastPaymentAt) || toJsDate(inv.updatedAt)) : null;
   const season = invoiceDate.getFullYear();
@@ -13641,7 +13675,7 @@ async function invTestSend(){
     body = body.split('{{fee_lines}}').join(feeLines);
     body = body.split('{{amount_due}}').join(fmtMoney(amountDue));
     body = body.split('{{amount_paid}}').join(fmtMoney(deposit));
-    const issuedOn = toJsDate(inv.invoicedAt) || toJsDate(inv.updatedAt) || new Date();
+    const issuedOn = invoiceIssuedAt(inv) || new Date();
     body = body.split('{{due_date}}').join(niceDate(addDays(issuedOn, PAYMENT_TERMS_DAYS)));
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || key, amountDue);
     body = body.replace(/\n/g, '<br>');
@@ -14195,9 +14229,9 @@ function folderCount(folderName, folderId, collapsed){
 /* Which folders are closed. Remembered per browser so the tree does not spring
    back open on every render, and a corrupt value reads as "nothing closed". */
 let collapsedFolders = new Set();
-try{ collapsedFolders = new Set(JSON.parse(localStorage.getItem('hu.inboxCollapsed.v1') || '[]')); }catch(e){}
+try{ collapsedFolders = new Set(JSON.parse(localStorage.getItem('hu.inboxCollapsed.v1') || '[]')); }catch(e){ /* quiet on purpose: a corrupt or blocked value reads as nothing closed, which the comment above states as the intended fallback \u2014 an open tree shows every folder, so nothing can be hidden by this failing. */ }
 function saveCollapsedFolders(){
-  try{ localStorage.setItem('hu.inboxCollapsed.v1', JSON.stringify(Array.from(collapsedFolders))); }catch(e){}
+  try{ localStorage.setItem('hu.inboxCollapsed.v1', JSON.stringify(Array.from(collapsedFolders))); }catch(e){ /* quiet on purpose: the tree springs back open next time and nothing else changes. */ }
 }
 // Build a tree of {folder, children:[...]} starting from top-level (parentId null or pointing at a missing folder)
 function buildFolderTree(){
@@ -14745,14 +14779,27 @@ function refreshMsgToolbar(){
    the ticks cannot drift apart between four buttons. ⚠ A FAILED WRITE IS COUNTED
    AND REPORTED rather than swallowed — half a move looks exactly like a whole one. */
 async function msgBulkApply(ids, patch, wordDone){
-  let ok = 0, failed = 0;
+  let ok = 0;
+  /* ⭐ THE ONES THAT FAILED KEEP THEIR TICK (changed 2026-08-26). The count already
+     said "9 moved — 3 failed", which is the honest half; what it did next was clear
+     EVERY tick, so the three that failed were indistinguishable from the nine that
+     worked the moment the toast went. Finding them again meant knowing which twelve
+     had been ticked. Left ticked, pressing the button again is the retry. */
+  const stuck = [];
   for(const id of ids){
     try{ await updateDoc(doc(db,'messages',id), patch); ok++; }
-    catch(err){ console.error('Inbox bulk action failed on ' + id + ':', err); failed++; }
+    catch(err){ console.error('Inbox bulk action failed on ' + id + ':', err); stuck.push(id); }
   }
   pickedMsgIds.clear();
+  stuck.forEach(function(id){ pickedMsgIds.add(id); });
+  /* ⚠ THE LIST HAS TO REDRAW, not just the toolbar — the tick boxes are drawn by
+     renderMessagesList, so leaving it out would keep the failed rows selected in
+     pickedMsgIds and show them unticked on screen, which is worse than either. */
+  renderMessagesList();
   refreshMsgToolbar();
-  toast(ok + ' message' + (ok === 1 ? '' : 's') + ' ' + wordDone + (failed ? ' \u2014 ' + failed + ' failed' : ''));
+  toast(ok + ' message' + (ok === 1 ? '' : 's') + ' ' + wordDone +
+    (stuck.length ? ' \u2014 ' + stuck.length + ' failed and ' +
+      (stuck.length === 1 ? 'is' : 'are') + ' still ticked, press again to retry' : ''));
 }
 function pickedIds(){ return Array.from(pickedMsgIds); }
 (function wireMsgToolbar(){
@@ -14793,14 +14840,21 @@ function pickedIds(){ return Array.from(pickedMsgIds); }
        so it is the one bulk action that asks first — and it names the count, because
        the whole point of the toolbar is that it acts on more than one row. */
     if(!confirm('Delete ' + ids.length + ' message' + (ids.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
-    let ok = 0, failed = 0;
+    let ok = 0;
+    const stuck = [];
     for(const id of ids){
       try{ await deleteDoc(doc(db,'messages',id)); ok++; }
-      catch(err){ console.error('Inbox delete failed on ' + id + ':', err); failed++; }
+      catch(err){ console.error('Inbox delete failed on ' + id + ':', err); stuck.push(id); }
     }
+    /* Same rule as msgBulkApply: what failed stays ticked so pressing again retries
+       it, and only it. ⚠ The confirm is not asked a second time by this — pressing
+       the button again is a fresh press and asks again, which is right for a delete. */
     pickedMsgIds.clear();
+    stuck.forEach(function(id){ pickedMsgIds.add(id); });
+    renderMessagesList();
     refreshMsgToolbar();
-    toast(ok + ' deleted' + (failed ? ' \u2014 ' + failed + ' failed' : ''));
+    toast(ok + ' deleted' + (stuck.length ? ' \u2014 ' + stuck.length + ' failed and ' +
+      (stuck.length === 1 ? 'is' : 'are') + ' still ticked, press again to retry' : ''));
   });
 })();
 document.getElementById('msgFilterSelect').addEventListener('change', function(){
@@ -14900,8 +14954,16 @@ const OVERDUE_DAYS = 30;
 function isInvoiceOverdue(d){
   const status = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
   if(status === 'Paid in Full') return false;
-  if(!d.updatedAt || !d.updatedAt.toDate) return false;
-  const days = (Date.now() - d.updatedAt.toDate().getTime()) / 86400000;
+  /* ⚠ FROM THE DAY IT WAS ISSUED, NOT THE LAST TIME ANYBODY TOUCHED IT. Counting
+     from updatedAt meant every edit — a corrected spelling, a re-sync, syncPayerInvoice
+     rebuilding the payer's group — pushed this a further 30 days out and quietly
+     un-flagged a bill that really was late, while the copy in the customer's hand went
+     on saying the original due date. See invoiceIssuedAt.
+     ⚠ NO DATE MEANS NOT OVERDUE, never "overdue since the epoch": an invoice that has
+     never been issued has not been billed, and chasing it would be chasing nobody. */
+  const issued = invoiceIssuedAt(d);
+  if(!issued) return false;
+  const days = (Date.now() - issued.getTime()) / 86400000;
   return days >= OVERDUE_DAYS;
 }
 function loadInvoices(){
@@ -28082,7 +28144,7 @@ const rbRefreshCounts = wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumber
    or a refresh looks exactly like the run having vanished. Defined later in
    the file, so this waits until everything is parsed. */
 setTimeout(function(){
-  try{ renderBulkResumeBanner(); } catch(err){}
+  try{ renderBulkResumeBanner(); } catch(err){ /* quiet on purpose: drawn again by every later call to renderBulkResumeBanner, and the saved job itself is untouched in localStorage \u2014 this is the banner, not the run. */ }
 }, 0);
 /* ---- Check First for the customer bulk importer -------------------------
  *
@@ -30614,7 +30676,11 @@ async function rbApplyTickedAdds(statusEl){
      again by Find conflicts, whereas one deleted in error is simply gone. */
   for(const h of cnAlloc.taken()){
     await deleteDoc(doc(db, 'availableCustomerNumbers', h.number))
-      .catch(function(err){ console.error('[HU] could not take number ' + h.number + ' out of the pool', err); });
+      /* ⚠ THE CUSTOMER IS ALREADY WRITTEN BY THE TIME THIS RUNS, so a refused delete
+         leaves the number reading as available on a house that holds it — the next
+         person handed a number is handed this one. Find conflicts would catch it
+         eventually; a console line in a browser nobody is watching would not. */
+      .catch(function(err){ return noticeCustomerNumberStuck('out', h.number, '', err); });
   }
   return {done: done, failed: failed, noPin: noPin, updatedExisting: updatedExisting,
           numbered: numbered, ran: true};
@@ -31415,7 +31481,7 @@ setTimeout(function(){
     rbShowSheetStatus("Your master sheet is \u201c" + saved.name + "\u201d" +
       (saved.rows ? " (" + saved.rows + " rows)" : "") +
       " \u2014 this computer has not been given access to it yet. Press the button and pick that file once.");
-  }).catch(function(){});
+  }).catch(function(){ /* quiet on purpose: reading which master sheet was chosen. No answer leaves the status line as it was and the Use my master sheet button still works \u2014 this only saves her being told which file to pick. */ });
 }, 0);
 document.getElementById('rbFindMissingBtn')?.addEventListener('click', async function(){
   const report = document.getElementById('rbMissingReport');
@@ -31470,7 +31536,7 @@ document.getElementById('rbFindMissingBtn')?.addEventListener('click', async fun
      columns first rather than making somebody find the other button. */
   const sheetBox = document.getElementById('rbSheetArea');
   if(!usedConnected && sheetBox && sheetBox.value.trim() && typeof rbSplitSheetIntoBoxes === 'function'){
-    try{ rbSplitSheetIntoBoxes(); }catch(err){}
+    try{ rbSplitSheetIntoBoxes(); }catch(err){ /* quiet on purpose: a convenience that splits a pasted sheet into the column boxes for her. The paste is still in the box and the Split button beside it does the same thing, so nothing is lost but a click. */ }
   }
   const found = rbCollectMissingCustomers();
   /* ⭐ A COMPARISON THAT DID NOT READ THE SHEET IS NOT A RESULT.
@@ -32637,6 +32703,47 @@ function extractCleanCity(cityRaw){
   }).filter(function(p){ return p && !/\d/.test(p); });
   return parts.length ? parts[parts.length-1] : '';
 }
+/* ⭐ A STREET SITTING IN THE TOWN FIELD (added 2026-08-26).
+
+   ⚠ WHAT GOES WRONG. extractCleanCity strips zips and UT/Utah and drops anything
+   with a digit in it — so "S Summit Crest Ln" survives untouched and is returned as
+   a TOWN. Every route day is one town, so that house is filed under a town of its
+   own, and the day builder duly gives it a crew-day: one house, one morning, one
+   truck. It looks exactly like a legitimate quiet town (Levan really is one
+   customer) and nothing anywhere says otherwise.
+
+   ⚠ IT ONLY REPORTS. It does NOT change what extractCleanCity returns, and must not:
+   ~60 places read that answer — the route grouping, the schedule, every town
+   dropdown and filter, the crew sheets — so silently returning something different
+   would move houses between towns everywhere at once, which is far worse than the
+   phantom day. The record is what is wrong, so the office fixes the record; the
+   next customer sync carries the corrected town across on its own.
+
+   ⚠ THE SUFFIX LIST DELIBERATELY LEAVES OUT Grove, Springs, Hills, Heights/Hts,
+   Mountain, Fork, View, Cross, Park and City. Every one of those is a real street
+   type AND the tail of a real Utah town: with them in, this flags Pleasant Grove,
+   Saratoga Springs, Cedar Hills, Cottonwood Hts, Eagle Mountain, American Fork,
+   Spanish Fork, Woods Cross and Pleasant View — nine real towns, six of them in
+   DEFAULT_NEARBY_TOWNS and central to the business. A warning that fires on correct
+   data is one the office learns to click past, including on the day it is right.
+
+   ⚠ AND THERE IS NO DIRECTIONAL RULE, which was written and then dropped. A leading
+   bare N/S/E/W looks like a strong signal ("S Summit Crest Ln") and it is — but it
+   also flags "S Jordan", "N Salt Lake", "S Weber" and "W Point", which are real
+   towns somebody typed short. It bought nothing either: a street almost always
+   carries its type, and Utah's grid addresses ("1200 W") have digits, so
+   extractCleanCity has already dropped them before this is asked. */
+const CITY_STREET_SUFFIXES = ['ln','lane','st','street','ave','avenue','dr','drive',
+  'rd','road','ct','court','blvd','boulevard','cir','circle','pkwy','parkway',
+  'ter','terrace','pl','place','trl','trail','hwy','highway','loop','way'];
+function cityLooksLikeStreet(cityRaw){
+  const words = String(cityRaw || '').trim().replace(/[.,]+$/,'').split(/\s+/).filter(Boolean);
+  /* One word is never a street here — "Lehi", "Sandy", "Levan". It takes at least a
+     name and a type, and a lone "Ln" is somebody's typo, not a road. */
+  if(words.length < 2) return false;
+  const last = words[words.length - 1].toLowerCase().replace(/\.$/,'');
+  return CITY_STREET_SUFFIXES.indexOf(last) !== -1;
+}
 /* ---- filling in a town that was never imported ----
    A customer with no town cannot be scheduled at all: every route day is one
    town, so a blank one matches nothing and the house sits out the season in
@@ -33614,7 +33721,7 @@ function whWatchArchivedPending(){
         /* Shaped like a customer so the queue can treat both the same. */
         whArchivedPending.push({id: docSnap.id, archived: true, data: v.customer || {}});
       });
-      try{ safeRender('warehouseRecycleQueue', renderWarehouseRecycleQueue); } catch(err){}
+      try{ safeRender('warehouseRecycleQueue', renderWarehouseRecycleQueue); } catch(err){ /* quiet on purpose: safeRender has its own catch and its own \u201cthis didn\u2019t load\u201d bar, so anything reaching here is the call itself, not the render. The archive data is already in whArchivedPending and draws on the next pass. */ }
     });
   } catch(err){ console.error("[HU] archived recycle watch failed", err); }
 }
@@ -33905,7 +34012,7 @@ function safeRender(label, fn){
   }
   pendingRenders.delete(label);
   try{ fn(); }
-  catch(err){ console.error('Render failed: ' + label, err); }
+  catch(err){ noteRenderFailure(label, fn, err); }
 }
 /* Draw everything this panel was owed, then forget it. Called from
    switchToAdminPanel AFTER the panel is marked active, so anything the render
@@ -33915,8 +34022,101 @@ function flushPendingRenders(panelName){
     if(RENDER_PANEL[label] !== panelName) return;
     pendingRenders.delete(label);
     try{ fn(); }
-    catch(err){ console.error('Render failed: ' + label, err); }
+    catch(err){ noteRenderFailure(label, fn, err); }
   });
+}
+/* ⭐ A PANEL THAT THREW SAYS SO, AND OFFERS A WAY BACK (added 2026-08-26).
+   Owner's rule, 2026-08-25: "nothing should fail quietly."
+
+   ⚠ safeRender IS THE SILENCE, and it is the one worth fixing first because it is
+   one change that covers every panel. system-map.md records the symptom blind — "a
+   section renders empty for no reason → check firestore.rules first" — and the
+   reason nobody can tell is that AN EMPTY PANEL AND A BROKEN PANEL LOOK IDENTICAL.
+   A list with nothing in it and a list whose renderer threw on the first row are the
+   same white rectangle.
+
+   ⚠ THE CATCH STAYS. Letting a render throw is not the fix: safeRender exists
+   because an uncaught throw in a Firestore listener stops the whole cascade, so one
+   bad record would take every other panel down with it. What changes is what happens
+   inside the catch.
+
+   ⚠ TIER 2 — SOMEBODY IS STANDING THERE. A render only runs for an OPEN panel (a
+   closed one is deferred, and its failure surfaces when it is opened and flushed), so
+   there is always a person looking at the thing that did not draw. But it is a bar
+   rather than a toast, because a toast is gone in 2.6 seconds and the panel is still
+   blank afterwards — and the whole point is that the blankness stops being a mystery.
+
+   ⚠ IT NAMES THE PANEL IN THE OWNER'S WORDS, READ OFF HER OWN NAV. `overviewMap` is
+   an internal label; "Routes and Schedule" is what the button says. Derived from the
+   markup rather than a second hand-written list, so renaming a tab renames this too.
+
+   ⚠ AND RETRY RE-RUNS THE RENDER THAT THREW, not a page reload. A reload costs every
+   listener and every cache; most of these failures are one transient read. A render
+   that succeeds leaves the list; one that fails again keeps its place and says so, so
+   Retry cannot look like it worked when it did not. */
+const renderFailures = new Map();   // label -> the render that threw, so Retry can re-run it
+function adminPanelLabel(panelName){
+  if(!panelName) return '';
+  const el = document.querySelector('.nav-item[data-panel="' + panelName + '"] .nav-label');
+  return (el && el.textContent.trim()) || panelName;
+}
+function noteRenderFailure(label, fn, err){
+  console.error('Render failed: ' + label, err);
+  renderFailures.set(label, fn);
+  drawRenderFailureBar();
+}
+function drawRenderFailureBar(){
+  let bar = document.getElementById('renderFailureBar');
+  if(!renderFailures.size){ if(bar) bar.remove(); return; }
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'renderFailureBar';
+    bar.style.cssText = 'position:fixed; left:0; right:0; bottom:0; z-index:9000; ' +
+      'background:#FDECEA; border-top:2px solid #E0574B; color:#9A2A1F; ' +
+      'padding:10px 16px; font-size:13.5px; display:flex; align-items:center; ' +
+      'gap:12px; flex-wrap:wrap; box-shadow:0 -2px 10px rgba(0,0,0,0.12);';
+    document.body.appendChild(bar);
+  }
+  /* Named panels first and de-duplicated: five renders failing inside one panel is
+     one thing that did not load, not five, and listing it five times reads as five
+     separate faults. A label with no panel of its own (the handful RENDER_PANEL
+     deliberately leaves eager) falls back to its own name — worse than her words,
+     and still far better than a blank rectangle. */
+  const seen = [];
+  renderFailures.forEach(function(fn, label){
+    const name = adminPanelLabel(RENDER_PANEL[label]) || label;
+    if(seen.indexOf(name) === -1) seen.push(name);
+  });
+  bar.innerHTML = '<span><strong>&#9888; This didn’t load:</strong> ' + esc(seen.join(', ')) +
+    '. What you can see may be out of date &mdash; nothing has been lost.</span>' +
+    '<button type="button" id="renderFailureRetry" class="btn btn-sm" ' +
+    'style="background:#9A2A1F; color:#fff; border:none;">Try again</button>' +
+    '<span id="renderFailureNote" style="font-size:12.5px;"></span>';
+  document.getElementById('renderFailureRetry').addEventListener('click', retryFailedRenders);
+}
+function retryFailedRenders(){
+  const again = Array.from(renderFailures.entries());
+  renderFailures.clear();
+  let stillBroken = 0;
+  again.forEach(function(pair){
+    try{ pair[1](); }
+    catch(err){
+      stillBroken++;
+      console.error('Render failed again: ' + pair[0], err);
+      renderFailures.set(pair[0], pair[1]);
+    }
+  });
+  drawRenderFailureBar();
+  /* ⚠ SAID AFTER THE REDRAW, because the redraw rebuilds the bar and would wipe it.
+     A second failure has to say so out loud: a Retry that quietly leaves the same bar
+     on screen is indistinguishable from a button that does nothing, and then nobody
+     presses it again on the day it would have worked. */
+  if(stillBroken){
+    const note = document.getElementById('renderFailureNote');
+    if(note) note.textContent = 'Still not loading. Try signing out and back in, or reload the page.';
+  } else if(typeof toast === 'function'){
+    toast('Loaded.');
+  }
 }
 /* Drawing all of this is EXPENSIVE: eighteen renders across every customer on
    file, one of them a Google map that builds a marker per house. Fine for a
@@ -34091,7 +34291,7 @@ function bulkJobLoad(){
   } catch(err){ return null; }
 }
 function bulkJobClear(){
-  try{ localStorage.removeItem(BULK_JOB_KEY); } catch(err){}
+  try{ localStorage.removeItem(BULK_JOB_KEY); } catch(err){ /* quiet on purpose: the saved import job is only ever OFFERED, never resumed on its own, and a cursor from a different paste is refused by bulkJobFingerprint \u2014 so a job that will not delete is declined the next time rather than acted on. */ }
 }
 /* Put the saved columns back in the boxes, so Check First and the row counts
    work on a resumed job exactly as they do on a fresh paste. */
@@ -34192,6 +34392,86 @@ function cnHighestAssigned(type){
 }
 function cnNumberIsHeld(num){
   return jobAddresses.some(function(item){ return String(item.data.customerNumber||'') === String(num); });
+}
+/* ⭐ A CUSTOMER NUMBER THAT WOULD NOT MOVE SAYS SO, IN THE INBOX (added 2026-08-26).
+   Owner's rule, 2026-08-25: "nothing should fail quietly."
+
+   ⚠ THIS IS THE CAUSE OF A SYMPTOM system-map.md ALREADY RECORDS BLIND: "A customer
+   number appears on two houses → the return-to-pool step didn't run for the old
+   holder. The Health Check report finds them but can't auto-fix." Every pool write in
+   this file is deliberately guarded so a pool failure cannot undo a save that already
+   worked — that rule is right and is NOT changing here. What was wrong is what
+   happened afterwards: a console.error, in a browser nobody has the console open in.
+   The save survived and the pool quietly went out of step with it, and the first
+   anybody knew was a bin label on two houses.
+
+   ⚠ TIER 3 — A NOTE, NOT ONLY A TOAST. Putting this right means opening the Customer
+   Numbers panel and typing a number in, which is not something anybody does mid-save.
+   So it has to keep until they get to it, and a toast is gone the moment they look
+   away. The toast is kept as well — it is the half that gets noticed immediately.
+   Same pair, and the same reasoning, as the reconcile note's own failure path.
+
+   ⚠ AND IT NAMES THE NUMBER AND THE FIX. "A customer number could not be filed" is a
+   sentence nobody can act on.
+
+   `direction` is the whole of what separates two OPPOSITE faults with opposite fixes:
+     'back' — releasing it failed. Nobody holds it and it is not in the pool, so the
+              next customer is issued a brand new number and the bin painted with this
+              one belongs to nobody. The bins are physical; the app cannot undo that.
+     'out'  — taking it failed. It is in the pool AND held, so it can be handed out a
+              second time and two bins end up wearing one label.
+   Saying "the pool did not update" without saying which would leave somebody guessing
+   between adding a number and removing one.
+
+   ⚠ IT NEVER THROWS. Every caller is already inside a catch on a path that has done
+   the real work; a failure in the telling must not become the thing that breaks it. */
+let cnStuckToastAt = 0;
+async function noticeCustomerNumberStuck(direction, number, who, err){
+  const num = String(number || '').trim();
+  const out = direction === 'out';
+  /* A caller that has a name passes one; the pool allocator only ever knows the
+     number, so look the holder up rather than sending somebody to hunt for a bare
+     number in a list of a thousand. Never overrides a name it was given. */
+  if(!who){
+    const holder = jobAddresses.find(function(item){
+      return String(item.data.customerNumber || '') === num;
+    });
+    who = (holder && holder.data && (holder.data.name || holder.data.address)) || '';
+  }
+  console.error('[HU] customer number #' + num + ' could not be ' +
+    (out ? 'taken out of' : 'returned to') + ' the available pool', err);
+  /* ⚠ ONE TOAST, NOT ONE PER NUMBER. Two of the callers run in a loop over the whole
+     book (Delete All Customers, the sheet sync), so a toast each would stack a
+     thousand of them and be dismissed unread — which is the toast-fatigue failure the
+     silent-failure map warns about, arrived at from the other direction. The NOTE is
+     per number and is the record; the toast only has to make somebody look. */
+  if(typeof toast === 'function' && Date.now() - cnStuckToastAt > 15000){
+    cnStuckToastAt = Date.now();
+    toast('A customer number could not be filed — there is a note about it in the Inbox.');
+  }
+  const trouble = out
+    ? 'It is still listed as available while ' + (who || 'a customer') + ' is using it, so it can ' +
+      'be handed to a second house and two bins would end up wearing one label.\n\n' +
+      'To put it right: open Customer Numbers and take #' + num + ' out of the available pool.'
+    : 'Nobody holds it and it is not in the available pool, so the next customer is given a ' +
+      'brand new number instead — and the bin already painted #' + num + ' in the warehouse ' +
+      'belongs to nobody.\n\n' +
+      'To put it right: open Customer Numbers and add #' + num + ' back to the available pool.';
+  try{
+    await addDoc(collection(db,'messages'), {
+      topic: 'Customer Number Needs Fixing', folder: 'System',
+      name: who || '', phone: '', email: '', contactMethod: '',
+      message: 'Customer number #' + num + ' could not be ' + (out ? 'taken out of' : 'put back into') +
+        ' the available pool' + (who ? ' (' + who + ')' : '') + '.\n\n' + trouble +
+        '\n\nEverything else about that save went through — this is the number bookkeeping only.',
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+  }catch(noteErr){
+    /* Tier 3 with nowhere left to write. The console line above already carries the
+       number and the direction; there is no third place to put it. */
+    console.error('[HU] and the note about #' + num + ' could not be saved either', noteErr);
+  }
 }
 /* ⭐ ONE ANSWER TO "WHICH NUMBERS ARE FREE" (changed 2026-08-20). Owner: "rachel
    oslund is number 479 but still in customer numbers is this Available — Regular".
@@ -34549,8 +34829,17 @@ document.getElementById('cnFindConflictsBtn').addEventListener('click', function
     '</div>';
   const clr = document.getElementById('cnClearStaleBtn');
   if(clr) clr.addEventListener('click', async function(){
-    for(const n of stale){ await deleteDoc(doc(db,'availableCustomerNumbers', n)).catch(function(){}); }
-    toast(stale.length + ' stale pool entr' + (stale.length===1?'y':'ies') + ' removed');
+    /* ⚠ THE COUNT USED TO BE `stale.length` WHATEVER HAPPENED, with every delete
+       swallowed — so a refused write left the entry sitting there while the toast
+       said it had gone, and the same "stale" numbers came back on the next Find
+       conflicts looking like the button did not work. Says what really happened. */
+    let cleared = 0, stuck = 0;
+    for(const n of stale){
+      try{ await deleteDoc(doc(db,'availableCustomerNumbers', n)); cleared++; }
+      catch(err){ stuck++; console.error('[HU] could not clear stale pool entry #' + n, err); }
+    }
+    toast(cleared + ' stale pool entr' + (cleared===1?'y':'ies') + ' removed' +
+      (stuck ? ' — ' + stuck + ' would not clear, try again' : ''));
     document.getElementById('cnFindConflictsBtn').click();
   });
 });
@@ -36022,7 +36311,14 @@ function renderWarehouseQueue(){
          is gone with the old set. See whBinNumberFor. */
       updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
         {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null})
-        .catch(function(){});
+        /* ⚠ THE ROW STAYING PUT IS NOT A MESSAGE. Somebody who has just built a
+           bundle presses this and watches the house stay on the list, which reads
+           as the button doing nothing — so they press it again, and then work
+           around it. Tier 2: they are standing right there. */
+        .catch(function(err){
+          console.error('[HU] could not mark that build done', err);
+          toast('That did not save — the house is still on the build list. Try again.');
+        });
     });
   });
   /* Opens the ordinary Edit Customer popup, which is the one place these
@@ -36043,7 +36339,12 @@ function renderWarehouseQueue(){
   list.querySelectorAll('[data-whdoneextra]').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
-      deleteDoc(doc(db,'warehouseExtras', btn.dataset.whdoneextra)).catch(function(){});
+      deleteDoc(doc(db,'warehouseExtras', btn.dataset.whdoneextra))
+        /* Same as the house row above — a row that will not go looks like a dead button. */
+        .catch(function(err){
+          console.error('[HU] could not clear that buffer-stock row', err);
+          toast('That did not save — the row is still on the list. Try again.');
+        });
     });
   });
   list.querySelectorAll('[data-whcompletebtn]').forEach(function(btn){
@@ -36906,7 +37207,15 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
     whExtraPatternFromRecord = '';
     whExtraSync();
     if(whPendingMessageId){
-      await updateDoc(doc(db,'messages', whPendingMessageId), {addedToWarehouseAt: serverTimestamp()}).catch(function(){});
+      await updateDoc(doc(db,'messages', whPendingMessageId), {addedToWarehouseAt: serverTimestamp()})
+        /* ⚠ THE BUNDLE IS ALREADY ON THE QUEUE by the time this runs — this only
+           marks the message that asked for it as dealt with. Swallowed, the note
+           stays looking unhandled and somebody adds the same bundle a second time.
+           It must NOT undo the work above, so it says so and carries on. */
+        .catch(function(err){
+          console.error('[HU] could not mark that message added-to-warehouse', err);
+          toast('Added to the warehouse — but the message could not be marked done, so it will still look unhandled.');
+        });
       whPendingMessageId = null;
     }
     statusEl.textContent = existing
@@ -36938,10 +37247,29 @@ document.getElementById('whFindNotQueuedBtn').addEventListener('click', function
   const btn = document.getElementById('whQueueTheseBtn');
   if(btn) btn.addEventListener('click', async function(){
     if(!confirm('Send ' + notFlagged.length + ' customer(s) to the build queue? Only do this if their lights really do still need building.')) return;
+    /* ⚠ TICK TWELVE, THREE QUIETLY DO NOT MOVE, AND THE COUNT STILL SAYS TWELVE.
+       That was this loop: a refused write left the house out of the build queue with
+       nothing anywhere saying so, and the whole point of the button is that those
+       houses get built. Tier 2 — somebody pressed this and is standing there. */
+    let sent = 0; const missed = [];
     for(const i of notFlagged){
-      await updateDoc(doc(db,'jobAddresses', i.id), {needsLightBuild: true}).catch(function(){});
+      try{ await updateDoc(doc(db,'jobAddresses', i.id), {needsLightBuild: true}); sent++; }
+      catch(err){
+        missed.push((i.data && i.data.name) || i.id);
+        console.error('[HU] could not send ' + i.id + ' to the build queue', err);
+      }
     }
-    toast(notFlagged.length + ' sent to the build queue');
+    if(missed.length){
+      alert(sent + ' of ' + notFlagged.length + ' sent to the build queue. ' +
+        missed.length + ' did not go through: ' + missed.slice(0, 8).join(', ') +
+        (missed.length > 8 ? ' and ' + (missed.length - 8) + ' more' : '') +
+        '. Try again — the ones that worked will not be sent twice.');
+    } else {
+      toast(sent + ' customer(s) sent to the build queue');
+    }
+    /* ⚠ THE OLD LINE HERE SAID `notFlagged.length` FLAT, whatever happened — the count
+       that made three silent failures read as twelve successes. It is the count that
+       actually went through now, and it is said in one place. */
     document.getElementById('whFindNotQueuedBtn').click();
   });
 });
@@ -37174,7 +37502,7 @@ document.getElementById('rsvpResetBtn')?.addEventListener('click', async functio
   document.getElementById('rsvpResetConfirmInput').value = '';
   document.getElementById('rsvpResetBtn').disabled = true;
   document.getElementById('rsvpResetBtn').style.opacity = '.4';
-  try{ renderDashRsvpPanel(); } catch(err){}
+  try{ renderDashRsvpPanel(); } catch(err){ /* quiet on purpose: the reset itself has already run and is reported above; this is the panel redrawing to match. It draws again on the next customer change. */ }
 });
 document.getElementById('deleteAllConfirmInput').addEventListener('input', function(){
   const btn = document.getElementById('deleteAllAddressesBtn');
@@ -37212,7 +37540,13 @@ document.getElementById('deleteAllAddressesBtn').addEventListener('click', async
         await setDoc(doc(db,'availableCustomerNumbers', num),
           {type: parseInt(num,10) >= 5000 ? 'double' : 'regular', releasedAt: serverTimestamp(), releasedFrom: (item.data.name || '')}
         ).then(function(){ recycled++; })
-         .catch(function(){ /* a number that will not pool must not stop the delete */ });
+         /* ⚠ A NUMBER THAT WILL NOT POOL MUST NOT STOP THE DELETE — that half is
+            unchanged and is right. What is new is that it no longer vanishes: the
+            customer is gone, so nobody holds this number and nothing else in the app
+            will ever mention it again. Tier 3, because this loop runs over every
+            customer in the book and a toast per failure would be unreadable — the
+            note is per number and keeps. */
+         .catch(function(e){ return noticeCustomerNumberStuck('back', num, item.data.name || '', e); });
       }
       await deleteDoc(doc(db,'jobAddresses',item.id));
       deleted++;
@@ -37776,7 +38110,7 @@ function setEditCustExpanded(expanded){
   btn.innerHTML = expanded ? '\u25A1 Minimize' : '\u25A1 Expand';
   btn.title = expanded ? 'Back to the compact form' : 'Expand to the full form';
   // Remembered so it stays the way you left it next time you open a customer.
-  try{ localStorage.setItem('editCustExpanded', expanded ? '1' : '0'); }catch(e){}
+  try{ localStorage.setItem('editCustExpanded', expanded ? '1' : '0'); }catch(e){ /* quiet on purpose: the form is already expanded or compact on screen; this only remembers it for next time. */ }
 }
 function editCustExpandedPref(){
   try{ return localStorage.getItem('editCustExpanded') === '1'; }catch(e){ return false; }
@@ -38517,7 +38851,7 @@ function archRender(){
       '</div></div>';
   }).join('');
 }
-document.getElementById('archSearch')?.addEventListener('input', function(){ try{ archRender(); }catch(e){} });
+document.getElementById('archSearch')?.addEventListener('input', function(){ try{ archRender(); }catch(e){ /* quiet on purpose: a search box redrawing a list. The next keystroke calls it again, so a one-off failure fixes itself; nothing is written and nothing is lost. */ } });
 document.getElementById('archReload')?.addEventListener('click', function(){ archLoad(true); });
 document.querySelector('.nav-item[data-panel="archive"]')?.addEventListener('click', function(){ archLoad(false); });
 function formPreviewShow(src){
@@ -39044,8 +39378,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           try{
             await setDoc(doc(db,'availableCustomerNumbers', existingNum),
               {type: isDoubleNum ? 'double' : 'regular', releasedAt: serverTimestamp()});
-          }catch(e){ console.error('Could not return #' + existingNum + ' to the pool', e); }
-          await deleteDoc(doc(db,'availableCustomerNumbers', suggested)).catch(function(){});
+          }catch(e){ await noticeCustomerNumberStuck('back', existingNum, newName || (d.name || ''), e); }
+          /* ⚠ AND THE OTHER HALF OF THE SWAP. This delete is what stops the number
+             they have just been GIVEN from also sitting in the pool waiting to be
+             handed to somebody else. It was a bare swallow, which is the same fault
+             as the line above pointing the other way. */
+          await deleteDoc(doc(db,'availableCustomerNumbers', suggested))
+            .catch(function(e){ return noticeCustomerNumberStuck('out', suggested, newName || (d.name || ''), e); });
         }
       }
     }
@@ -39171,11 +39510,18 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
           releasedAt: serverTimestamp(),
           releasedFrom: newName || (d.name || '')
         }); }
-        catch(e){ console.error('Could not return #' + oldCustNumber + ' to the pool', e); }
+        catch(e){ await noticeCustomerNumberStuck('back', oldCustNumber, newName || (d.name || ''), e); }
       }
       if(newCustNumber){
         try{ await deleteDoc(doc(db,'availableCustomerNumbers', newCustNumber)); }
-        catch(e){ /* fine — it was never in the pool */ }
+        catch(e){
+          /* ⚠ NOT "fine — it was never in the pool", WHICH IS WHAT THIS USED TO SAY.
+             Deleting a document that does not exist does not throw in Firestore; it
+             resolves. So reaching this catch means the delete was REFUSED — the entry
+             is still there, still reading as available, on a number this customer now
+             holds. That is the two-bins-one-label case, not a no-op. */
+          await noticeCustomerNumberStuck('out', newCustNumber, newName || (d.name || ''), e);
+        }
       }
     }
     logActivity('Edited customer ' + (newName || editCustomerId), 'customers', editCustomerId);
@@ -41592,6 +41938,16 @@ async function reconcileUpcomingRoutes(){
   const report = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
                   filled: [], pulled: [], moreToDo: false, built: [], retired: [], overByHand: [],
                   resynced: [],
+                  /* ⭐ THE CUSTOMER WRITES THAT WOULD NOT GO THROUGH (added 2026-08-26).
+                     Owner's rule, 2026-08-25: "nothing should fail quietly." The sweep
+                     writes the day onto the ROUTE and onto the CUSTOMER, and the three
+                     customer writes below were wrapped in a bare catch — so a refused
+                     write left the two disagreeing about which day a house is on, which
+                     is the exact class of fault this file warns about over and over
+                     (whichever runs last wins and neither says a word). Counted here and
+                     said in the note, because a sweep runs on a timer with nobody
+                     standing there: tier 3, not a toast. */
+                  writeFailed: [],
                   stranded: {noCity: [], noPin: [], byCity: {}}};
   /* Retired FIRST, and excluded from this pass, so nothing below builds on a
      day that is about to be taken apart. Their houses come free and get
@@ -41767,7 +42123,12 @@ async function reconcileUpcomingRoutes(){
       /* A new hang that has never been on a day is already unscheduled — say so
          without a pointless write to their record. */
       if((cust.data || {}).scheduled){
-        try{ await updateDoc(doc(db,'jobAddresses', cust.id), freeUpFieldForType('install')); } catch(err){}
+        try{ await updateDoc(doc(db,'jobAddresses', cust.id), freeUpFieldForType('install')); }
+        catch(err){
+          /* Their record still says they are on a day the routes no longer hold. */
+          report.writeFailed.push({name: cust.data.name || 'a house', what: 'taking them off a day'});
+          console.error('[HU] reconcile: could not free up ' + cust.id, err);
+        }
       }
       /* ⚠ REMEMBERED FOR THE POOL BELOW. jobAddresses is only refreshed by the
          Firestore listener, so the record we just freed still reads
@@ -41821,7 +42182,12 @@ async function reconcileUpcomingRoutes(){
       try{
         await updateDoc(doc(db,'jobAddresses', m.id),
           scheduledFieldForType('install', m.to, (target && target.crew) || '1'));
-      } catch(err){}
+      } catch(err){
+        /* The route now holds them on the new day and their own record still names
+           the old one — the two-halves-disagreeing fault, silently. */
+        report.writeFailed.push({name: (m && m.name) || 'a house', what: 'moving them off a full day'});
+        console.error('[HU] reconcile: could not move ' + m.id + ' to ' + m.to, err);
+      }
       report.capped.push(m);
     }
     report.over = evened.over;
@@ -41862,7 +42228,12 @@ async function reconcileUpcomingRoutes(){
       try{
         await updateDoc(doc(db,'jobAddresses', m.id),
           scheduledFieldForType('install', m.to, (target && target.crew) || '1'));
-      } catch(err){}
+      } catch(err){
+        /* Same fault as 3b above: on the day as far as the route is concerned, and
+           not as far as their own record is concerned. */
+        report.writeFailed.push({name: (m && m.name) || 'a house', what: 'putting them on a day'});
+        console.error('[HU] reconcile: could not place ' + m.id + ' on ' + m.to, err);
+      }
     }
     report.filled = topped.placed;
     report.pulled = topped.pulled;
@@ -41964,7 +42335,11 @@ async function reconcileUpcomingRoutes(){
                    report.freed.length > 0 || report.dropped.length > 0 ||
                    report.capped.length > 0 || report.over.length > 0 || report.built.length > 0 ||
                    report.retired.length > 0 || report.resynced.length > 0 ||
-                   report.filled.length > 0 || report.pulled.length > 0;
+                   report.filled.length > 0 || report.pulled.length > 0 ||
+                   /* ⚠ A SWEEP WHOSE ONLY OUTCOME WAS FAILURES STILL HAS TO SAY SO.
+                      Left out of this list, a pass that changed nothing BECAUSE every
+                      write was refused would be indistinguishable from a quiet night. */
+                   report.writeFailed.length > 0;
   if(report.changed) await noticeRoutesReconciled(report);
   return report;
 }
@@ -42034,6 +42409,16 @@ async function noticeRoutesReconciled(report){
   const tallyText = function(by, label){
     return Object.keys(by).sort().map(function(k){ return (label ? label(k) : k) + ': ' + by[k]; }).join(', ');
   };
+  /* ⚠ FIRST IN THE LIST, DELIBERATELY. The body is trimmed from the END to fit inside
+     the 5,000-character rule, so anything that must survive a busy sweep has to be at
+     the top — and this is the one line that says part of the sweep did not take. */
+  if((report.writeFailed || []).length){
+    lines.push('⚠ ' + report.writeFailed.length + ' customer record' +
+      (report.writeFailed.length === 1 ? '' : 's') + ' would not update — ' +
+      nameFew(report.writeFailed) + ' (' + tallyText(tally(report.writeFailed, function(x){ return x.what; })) + ').' +
+      ' Their day on the route and the day on their own record now disagree, so open ' +
+      'Routes and check those houses before anything is printed.');
+  }
   if(report.refreshed) lines.push(report.refreshed + ' stop' + (report.refreshed === 1 ? '' : 's') +
     ' updated to match the customer record (address, phone, gate code and the like).');
   if((report.moved || []).length){
@@ -42947,12 +43332,54 @@ function loadScheduledRoutes(){
    holds a snapshot of them. Undefined fields are skipped so an unchanged value
    is never overwritten with a blank. Failures are non-fatal — the customer edit
    itself has already been saved by this point. */
+/* ⭐ A ROUTE THAT WOULD NOT BE REWRITTEN SAYS SO (added 2026-08-26). Owner's rule,
+   2026-08-25: "nothing should fail quietly."
+
+   ⚠ THE CREW PAYS FOR THIS ONE. Both callers below rewrite SAVED route documents —
+   the snapshot the printed sheet is built from — so a refused write leaves the sheet
+   saying something the office has already corrected. Either a crew drives to a house
+   that cancelled, or they arrive at one holding last month's gate code. Both were a
+   console.warn, which is nobody.
+
+   ⚠ ONE NOTE PER SAVE, NOT ONE PER ROUTE. A customer on four upcoming days produces
+   four failures and one problem.
+
+   ⚠ AND IT NAMES THE DATES. "A route could not be updated" cannot be acted on; the
+   dates are what somebody takes to the Routes tab, and they are the sheets that must
+   not be printed until it is sorted. */
+async function noticeRouteStopStuck(what, customerId, dates, err){
+  const who = (function(){
+    const c = jobAddresses.find(function(item){ return item.id === customerId; });
+    return (c && c.data && (c.data.name || c.data.address)) || 'A customer';
+  })();
+  console.error('[HU] could not ' + what + ' on ' + dates.join(', ') + ' for ' + customerId, err);
+  if(typeof toast === 'function'){
+    toast('Saved — but an upcoming route could not be updated. There is a note in the Inbox.');
+  }
+  try{
+    await addDoc(collection(db,'messages'), {
+      topic: 'A Route Sheet Is Out Of Date', folder: 'System',
+      name: who, phone: '', email: '', contactMethod: '',
+      message: who + '’s record was saved, but the upcoming route' +
+        (dates.length === 1 ? '' : 's') + ' for ' + dates.join(', ') +
+        ' could not be updated to match (' + what + ').\n\n' +
+        'The saved route is what the printed crew sheet is built from, so those ' +
+        'sheets are now out of date for this house. Open Routes on ' + dates.join(', ') +
+        ' and check it before anything is printed.',
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+  }catch(noteErr){
+    console.error('[HU] and the note about that route could not be saved either', noteErr);
+  }
+}
 async function resyncSavedRouteStops(customerId, fields){
   const clean = {};
   Object.keys(fields).forEach(function(k){ if(fields[k] !== undefined && fields[k] !== null) clean[k] = fields[k]; });
   if(!Object.keys(clean).length) return;
   const todayStr = toDateStr(new Date());
   const dates = Object.keys(scheduledRoutesCache || {});
+  const stuck = []; let lastErr = null;
   for(let i = 0; i < dates.length; i++){
     if(dates[i] < todayStr) continue;
     const routes = scheduledRoutesCache[dates[i]] || [];
@@ -42963,9 +43390,12 @@ async function resyncSavedRouteStops(customerId, fields){
         return st.id === customerId ? Object.assign({}, st, clean) : st;
       });
       try { await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: updatedStops}); }
-      catch(err){ console.warn('Route stop resync failed for ' + route.id, err); }
+      catch(err){ stuck.push(dates[i]); lastErr = err; }
     }
   }
+  /* One note for the save, however many days it touched. */
+  if(stuck.length) await noticeRouteStopStuck('bring the stop up to date', customerId, stuck, lastErr);
+  return {stuck: stuck.length};
 }
 /* Takes a customer off every UPCOMING saved route. Past routes are left exactly
    as they are - they are history, and rewriting them would change what the crew
@@ -42975,6 +43405,7 @@ async function removeCustomerFromUpcomingRoutes(customerId){
   const todayStr = toDateStr(new Date());
   const dates = Object.keys(scheduledRoutesCache || {});
   let removed = 0;
+  const stuck = []; let lastErr = null;
   for(let i = 0; i < dates.length; i++){
     if(dates[i] < todayStr) continue;
     const routes = scheduledRoutesCache[dates[i]] || [];
@@ -42983,9 +43414,13 @@ async function removeCustomerFromUpcomingRoutes(customerId){
       if(!route.stops || !route.stops.some(function(st){ return st.id === customerId; })) continue;
       const kept = route.stops.filter(function(st){ return st.id !== customerId; });
       try { await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: kept}); removed++; }
-      catch(err){ console.warn('Could not remove stop from ' + route.id, err); }
+      catch(err){ stuck.push(dates[i]); lastErr = err; }
     }
   }
+  /* ⚠ THE WORSE HALF OF THE TWO. A stop that would not come off sends a crew to a
+     house that has cancelled or been deleted — they knock on a door for a job that
+     does not exist, and the stop points at a customer record that may be gone. */
+  if(stuck.length) await noticeRouteStopStuck('take them off the route', customerId, stuck, lastErr);
   return removed;
 }
 /* The one place that flips a customer between Confirmed and Maybe Next Year, so
@@ -43166,7 +43601,7 @@ function loadTimeLogs(){
   cutoff.setHours(0,0,0,0);
   timeLogsWindowStart = cutoff;
   const q = query(collection(db,'timeLogs'), where('createdAt','>=', cutoff), orderBy('createdAt','desc'));
-  if(timeLogsUnsub){ try{ timeLogsUnsub(); }catch(e){} timeLogsUnsub = null; }
+  if(timeLogsUnsub){ try{ timeLogsUnsub(); }catch(e){ /* quiet on purpose: detaching a listener that has usually already gone. The reference is dropped on the same line either way; a refused unsubscribe costs one stale listener, never a wrong figure. */ } timeLogsUnsub = null; }
   timeLogsUnsub = onSnapshot(q, function(snap){
     allTimeLogsCache = [];
     snap.forEach(function(docSnap){ allTimeLogsCache.push({id:docSnap.id, data:docSnap.data()}); });
@@ -44574,7 +45009,7 @@ function loadChecklistForSelection(){
   const dateEl = document.getElementById('checklistDateInput');
   if(dateEl && !dateEl.value) dateEl.value = toDateStr(new Date());
   updateChecklistDateHint();
-  if(checklistLiveUnsub){ try{ checklistLiveUnsub(); }catch(e){} checklistLiveUnsub = null; }
+  if(checklistLiveUnsub){ try{ checklistLiveUnsub(); }catch(e){ /* quiet on purpose: same as loadTimeLogs \u2014 the reference is dropped on the same line and a refused unsubscribe costs one stale listener. */ } checklistLiveUnsub = null; }
   const dateStr = document.getElementById('checklistDateInput').value;
   const empName = document.getElementById('checklistEmployeeSelect').value;
   if(!dateStr || !empName) return;
@@ -45781,6 +46216,29 @@ function hcInvoiceGroups(){
   });
   return groups;
 }
+/* ⭐ CAN THE PUBLIC SITE STILL RAISE THE ALARM (added 2026-08-26).
+   claude/silent-failures.md job 4: a customer wrote to you and the notification
+   failed. The MESSAGE is safe — it is in Firestore and it is in the Inbox — but the
+   nudge that puts it in front of somebody today is not, and index.html cannot report
+   that itself: the public site has no login, and having it post its own complaint
+   into the Inbox would put a note there on behalf of a customer who asked for none.
+
+   ⚠ THE FAULT IT IS FOR HAS ALREADY HAPPENED ONCE, and index.html says so in its own
+   comment: settings/emailjs is staff-only, the public site was denied it, and that
+   "silently disabled every 'you have a new message' email". Nothing anywhere said so.
+   Read once at sign-in, so hcRunChecks — which is synchronous — can just look. */
+let hcNotifyCfg = null;
+async function hcLoadNotifyCfg(){
+  try{
+    const snap = await getDoc(doc(db,'settings','emailjs'));
+    hcNotifyCfg = snap.exists() ? (snap.data() || {}) : {};
+  }catch(err){
+    /* ⚠ LEFT null, NOT {}. Null means "we do not know", and the check below reports
+       nothing rather than announcing the alerts are off because a read failed —
+       which would be a false alarm on the one screen that must not cry wolf. */
+    console.error('[HU] could not read the EmailJS settings for Health Check', err);
+  }
+}
 function hcRunChecks(){
   const checks = [];
   const groups = hcInvoiceGroups();
@@ -45806,6 +46264,65 @@ function hcRunChecks(){
     rows: Object.keys(byNumber).filter(function(n){ return byNumber[n].length > 1; }).map(function(n){
       return {label: 'Number ' + n, detail: byNumber[n].map(function(c){ return hcName(c.data); }).join('  vs  ')};
     })
+  });
+  /* Three fields, named individually — "EmailJS is misconfigured" sends somebody to
+     a settings screen to compare six boxes; "the Notify Template ID is blank" does
+     not. Silent when the settings have not been read yet (see hcLoadNotifyCfg). */
+  checks.push({
+    id: 'notifyOff',
+    title: 'New-message alerts are switched off',
+    why: 'When a customer sends a message, asks to cancel, or approves a quote, the ' +
+         'website emails you about it. Without these settings that email never goes. ' +
+         'The messages still arrive in the Inbox — but nothing tells you they are there.',
+    fix: null,
+    fixNote: 'No button: fill these in under Automation Emails → EmailJS settings.',
+    rows: (function(){
+      if(!hcNotifyCfg) return [];
+      const missing = [];
+      if(!hcNotifyCfg.serviceId) missing.push('Service ID');
+      if(!hcNotifyCfg.notifyTemplateId) missing.push('Notify Template ID');
+      if(!hcNotifyCfg.publicKey) missing.push('Public Key');
+      if(!missing.length) return [];
+      return [{label: 'Missing: ' + missing.join(', '),
+               detail: 'until these are set, nobody is told a customer has written in'}];
+    })()
+  });
+  /* ⭐ A STREET IN THE TOWN FIELD EARNS ITSELF A CREW-DAY (added 2026-08-26).
+     See cityLooksLikeStreet for why this reports rather than corrects. Grouped by
+     the value, because one bad import can put the same street on several records
+     and that is one thing to fix, not five. The house count is shown rather than
+     used to suppress: a phantom town with six houses on it is more urgent than one
+     with a single house, not less. */
+  checks.push({
+    id: 'townIsStreet',
+    title: 'A street name is sitting in the Town field',
+    why: 'Every route day is one town, so this house is filed under a town of its ' +
+         'own and the schedule gives it a crew-day to itself — one house, one ' +
+         'morning, one truck. It looks exactly like a genuinely quiet town.',
+    fix: null,
+    fixNote: 'No button: only you know which town it should be. Open the customer ' +
+             'in All Customers and put the town in the Town box — the schedule ' +
+             'picks the correction up on its next sync.',
+    rows: (function(){
+      const byValue = {};
+      jobAddresses.forEach(function(c){
+        const town = extractCleanCity((c.data || {}).city);
+        if(!town || !cityLooksLikeStreet(town)) return;
+        /* A town the office has typed into its own nearby-towns list is a town,
+           whatever it looks like to a word list. */
+        if(NEARBY_TOWN_LIST && Object.prototype.hasOwnProperty.call(NEARBY_TOWN_LIST, town)) return;
+        (byValue[town] = byValue[town] || []).push(c);
+      });
+      return Object.keys(byValue).sort().map(function(town){
+        const who = byValue[town];
+        return {label: '"' + town + '"',
+                detail: who.length === 1
+                  ? hcName(who[0].data) + ' — filed as a town of one'
+                  : who.length + ' houses filed under it: ' +
+                    who.slice(0, 4).map(function(c){ return hcName(c.data); }).join(', ') +
+                    (who.length > 4 ? ' and ' + (who.length - 4) + ' more' : '')};
+      });
+    })()
   });
   const hcCustIdSet = {};
   jobAddresses.forEach(function(c){ hcCustIdSet[c.id] = true; });
@@ -46259,7 +46776,7 @@ function runHealthCheck(){
   try {
     hcLastChecks = hcRunChecks();
     hcRender();
-    renderActivityToday().catch(function(){});
+    renderActivityToday().catch(function(){ /* quiet on purpose: the Activity list beside the checks. This is the HAND-RUN check, so the status line below reports the run itself; the list redraws on the next customer write and on the ten-minute tick. */ });
     if(status) status.textContent = 'Checked ' + jobAddresses.length + ' customers, ' + allInvoicesCache.length + ' invoices, ' + quotesCache.length + ' quotes at ' + new Date().toLocaleTimeString() + '.';
   } catch(err){
     console.error('Health check failed', err);
@@ -46416,41 +46933,131 @@ async function invoiceAutoSync(){
       }
     }
 
-    if(out.created || out.archived || out.restored){
+    if(out.created || out.archived || out.restored || out.failed){
       const bits = [];
       if(out.created) bits.push(out.created + " invoice(s) created");
       if(out.archived) bits.push(out.archived + " archived (no customer)");
       if(out.restored) bits.push(out.restored + " brought back");
+      /* ⚠ COUNTED AND THEN NEVER MENTIONED. out.failed was incremented by the three
+         write guards above and appeared in no line anywhere, so a pass that fixed
+         four invoices and failed on six read as an unqualified success. */
+      if(out.failed) bits.push(out.failed + " could not be written");
       logActivity("Invoices kept in step: " + bits.join(", "), "invoices", "");
     }
+    /* A pass that reached the end is a pass that ran, whatever it found. */
+    bgJobOk('invoiceAutoSync');
   } catch(err){
-    console.error("[HU] invoice auto-sync failed", err);
+    /* ⚠ IT DOES NOT RETHROW, so the caller's .catch below can never see this — which
+       is why the streak has to be recorded here rather than there. The caller's own
+       catch stays as the backstop for a throw on the way in. */
+    bgJobFailed('invoiceAutoSync', 'The automatic invoice sync',
+      'Invoices are no longer being kept in step with the customer list, so a house ' +
+      'added or removed since it last ran may have no invoice, or an invoice with ' +
+      'nobody behind it. Nothing has been billed wrongly — it simply has not been ' +
+      'reconciled. Open Health Check and press Run to do it by hand.', err);
   } finally {
     invAutoSyncBusy = false;
   }
   return out;
+}
+/* ⭐ A BACKGROUND JOB THAT HAS STOPPED WORKING SAYS SO (added 2026-08-26).
+   Owner's rule, 2026-08-25: "nothing should fail quietly."
+
+   ⚠ THE TWO JOBS THIS IS FOR ARE THE TWO WHERE SILENCE READS AS GOOD NEWS. The
+   automatic Health Check is the thing that finds problems, so a Health Check that
+   has quietly stopped checking is WORSE than none at all — no warnings is exactly
+   what a healthy book looks like. And invoiceAutoSync is money reconciliation: if it
+   stops, invoices and customers drift apart and the first sign of it is a customer
+   disputing a figure. Both ran behind a catch that reached the console and nowhere
+   else, which for a job running on a ten-minute timer with nobody watching is the
+   same as no handling at all.
+
+   ⚠ TIER 3, NEVER TIER 2. Nobody is standing there — that is the entire point — so a
+   toast fired while the tab is in the background is the same as no toast. A System
+   note keeps until somebody reads the Inbox.
+
+   ⚠ A STREAK, NOT A SINGLE FAILURE. One refused read on a ten-minute beat is a
+   dropped connection and fixes itself on the next tick; noting it would put six
+   notes an hour in the Inbox for nothing, and an Inbox nobody reads is the failure
+   this whole exercise is against. Three in a row is half an hour of not working.
+
+   ⚠ AND ONE NOTE PER OUTAGE, not one per tick. It stays quiet until the job has
+   succeeded again, so a job that is down all day leaves one note rather than 144.
+   Recovery is deliberately silent — the note says when it last worked, which is the
+   part that matters, and a second note saying "it is fine now" is what teaches
+   people to skim past the first. */
+const BG_FAIL_STREAK_TO_NOTE = 3;
+const bgJobState = {};   // key -> {fails, lastOkAt, noted}
+function bgJob(key){
+  return bgJobState[key] || (bgJobState[key] = {fails: 0, lastOkAt: 0, noted: false});
+}
+function bgJobOk(key){
+  const st = bgJob(key);
+  st.fails = 0; st.noted = false; st.lastOkAt = Date.now();
+}
+async function bgJobFailed(key, label, consequence, err){
+  const st = bgJob(key);
+  st.fails++;
+  console.error('[HU] ' + label + ' failed (' + st.fails + ' in a row)', err);
+  if(st.fails < BG_FAIL_STREAK_TO_NOTE || st.noted) return;
+  st.noted = true;
+  const lastOk = st.lastOkAt
+    ? 'It last completed at ' + new Date(st.lastOkAt).toLocaleString() + '.'
+    : 'It has not completed once since this page was opened.';
+  try{
+    await addDoc(collection(db,'messages'), {
+      topic: 'A Background Check Has Stopped', folder: 'System',
+      name: '', phone: '', email: '', contactMethod: '',
+      message: label + ' has failed ' + st.fails + ' times in a row. ' + lastOk + '\n\n' +
+        consequence + '\n\n' +
+        'The reason is in the browser console. Reloading the dashboard restarts it; if it ' +
+        'keeps stopping, that is worth looking at rather than working around.',
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+  }catch(noteErr){
+    /* Nowhere left to write. Leave `noted` set anyway: retrying a note on every tick
+       of a job that is already failing is how one outage becomes a hundred writes. */
+    console.error('[HU] and the note about ' + label + ' could not be saved either', noteErr);
+  }
 }
 function runHealthCheckAuto(){
   if(!hcCachesReady()) return;
   try{
     hcLastChecks = hcRunChecks();
     hcRender();          // this is what writes the sidebar badge
-    renderActivityToday().catch(function(){});
+    bgJobOk('healthCheck');
+    renderActivityToday().catch(function(){ /* quiet on purpose: the Activity list redraws on the next customer write and on the next ten-minute tick. It reports nothing the checks above have not already scored. */ });
     /* Behind the check that just found the problems, and never in front of it:
        the sync leans on hcInvoiceGroups, and a failure here must not stop the badge
        being written. */
     invoiceAutoSync().then(function(r){
       if(r && (r.created || r.resynced || r.archived || r.restored)){
-        try{ hcLastChecks = hcRunChecks(); hcRender(); } catch(err){}
+        try{ hcLastChecks = hcRunChecks(); hcRender(); } catch(err){ /* quiet on purpose: a redraw AFTER the sync has already written what it found. The badge from the run above is still on screen and the next tick redraws it; nothing here decides anything. */ }
       }
-    }).catch(function(){});
+    }).catch(function(err){
+      /* ⚠ MONEY RECONCILIATION, RUNNING WHERE NOBODY CAN SEE IT. If this stops,
+         invoices and customer records drift apart and the first anybody hears is a
+         customer disputing a figure. It used to be a bare swallow. */
+      bgJobFailed('invoiceAutoSync', 'The automatic invoice sync',
+        'Invoices are no longer being kept in step with the customer list, so a house ' +
+        'added or removed since it last ran may have no invoice, or an invoice with ' +
+        'nobody behind it. Nothing has been billed wrongly — it simply has not been ' +
+        'reconciled. Open Health Check and press Run to do it by hand.', err);
+    });
   } catch(err){
     // Never let a background check break the page it is running behind.
-    console.error('[HU] automatic health check failed', err);
+    bgJobFailed('healthCheck', 'The automatic Health Check',
+      'It is the thing that FINDS problems — a missing invoice, a customer number on ' +
+      'two houses, a route stop pointing at somebody who is gone. While it is not ' +
+      'running, no warnings does not mean no problems. Open Health Check and press ' +
+      'Run to check by hand.', err);
   }
 }
 function startHealthCheckAuto(){
   if(hcAutoTimer) return;
+  /* Read once, before the first pass. Its own failure is reported inside. */
+  hcLoadNotifyCfg();
   /* A few seconds after login, then every ten minutes. The first attempt waits
      for the listeners; if the data is not in yet it simply tries again on the
      interval rather than reporting on nothing. */
@@ -46464,7 +47071,7 @@ function startHealthCheckAuto(){
   if(hide) hide.addEventListener('change', hcRender);
   /* The archived toggle only changes what is drawn, so it redraws and nothing else. */
   const sa = document.getElementById('invShowArchived');
-  if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){} });
+  if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){ /* quiet on purpose: a toggle that only changes what is DRAWN \u2014 no invoice is touched. Toggling back and forth redraws it. */ } });
 })();
 /* ---------------- PROJECT: TEST CHECKLIST ----------------
    Three tabs, three collections:
