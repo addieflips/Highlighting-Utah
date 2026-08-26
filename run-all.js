@@ -42151,8 +42151,9 @@ if (!JSDOM) {
     /* ---- the strip itself ---- */
     let out = F.open(BOOK, 'a14', INVOICES);
     const tabCount = out.tabs.querySelectorAll('[data-ecthouse]').length;
-    /* Four: Heather, Brit and Loren are billed, and Nan is sitting the season out —
-       not billed, still on the strip. Ryan said no outright and is the only one gone. */
+    /* Five: Heather, Brit, Loren and Zoe are billed — Zoe was hung before she said
+       Back next year — and Nan is sitting the season out, not billed but still on the
+       strip. Ryan said no outright and is the only one gone. */
     check('S276', 'a payer with several houses gets one tab each', tabCount === 5,
       'expected Heather, Brit, Loren, Zoe and Nan (crossed through) — got ' + tabCount + ' tabs');
 
@@ -42199,7 +42200,7 @@ if (!JSDOM) {
       'not owing for last year". A second copy of the RSVP test would cross them out');
     check('S276', 'the bill line counts the billed houses, and says how many are not',
       /covering <strong>4 houses<\/strong>, 1 not billed/.test(out.line.innerHTML),
-      'the balance beside it covers three — "covering 4 houses" over a figure for three is ' +
+      'the balance beside it covers four — "covering 5 houses" over a figure for four is ' +
       'the rows-not-adding-up problem in office clothes. Got: ' + out.line.innerHTML);
 
     check('S276', 'somebody else’s customer is nowhere near the strip',
