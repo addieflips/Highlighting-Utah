@@ -79,6 +79,24 @@
     --gold:#F4BE55; --gold-dim:#D89F3D; --ember:#E0574B;
     --snow:#FFFBF3; --paper:#F1F5EB; --slate:#6E6858; --line:#E3E8DA;
     --radius:12px; --shadow:0 16px 40px -20px rgba(30,59,44,.35);
+    /* ⭐ SIX NAMES THE PAGE ALREADY USED AND NOBODY HAD DECLARED (2026-08-26).
+       Found while asking what a jsdom render still cannot see. Seventeen places
+       write one of these — and an undeclared custom property does not fall back
+       to anything, it makes the whole declaration INVALID, so
+       `el.style.color = 'var(--rose)'` is a silent no-op and the element keeps
+       whatever colour it already had.
+       ⚠ TWO OF THEM ARE THE SAVE MESSAGES. --emerald is the success colour in
+       five places and --rose the failure colour in one, so "Could not save that
+       — try again." never turned red, and one toggle (`checked ? emerald :
+       slate`) only ever changed colour in the OFF direction.
+       ⚠ AND THEY ARE ALIASES, NOT NEW COLOURS. The palette is the twelve above;
+       these point the orphaned names at their obvious neighbours rather than
+       inventing a thirteenth, fourteenth and fifteenth shade nobody chose.
+       ⚠ --green/--red/--muted and friends are NOT the answer to any of these:
+       those live in `:host{}` inside the Schedule widget's shadow-DOM style
+       string, which is a different scope entirely and reaches nothing out here. */
+    --emerald:var(--dusk); --moss:var(--dusk-2); --rose:var(--ember);
+    --mist:var(--paper); --amber-dim:var(--gold-dim); --text-muted:var(--slate);
   }
   *{box-sizing:border-box;}
   body{margin:0; font-family:'Inter',system-ui,sans-serif; color:var(--ink); background:var(--paper); -webkit-font-smoothing:antialiased;}
@@ -607,8 +625,8 @@
   /* The one being edited. A border alone is too quiet on a strip that is itself
      inside a bordered sticky bar. */
   .editcust-tab.current{
-    background:#fff; border-bottom-color:var(--gold, #C9A227);
-    box-shadow:inset 0 -2px 0 var(--gold, #C9A227);
+    background:#fff; border-bottom-color:var(--gold);
+    box-shadow:inset 0 -2px 0 var(--gold);
   }
   /* ⚠ THE PAYER IS TINTED AS WELL AS STARRED, and says "Pays the bill" in words.
      A star alone is a symbol somebody has to have been told the meaning of, on the
@@ -617,7 +635,7 @@
   .editcust-tab.payer.current{ background:#FFF3D6; }
   .editcust-tab .ect-dirty{
     display:inline-block; width:7px; height:7px; border-radius:50%;
-    background:var(--ember, #9A2A1F); margin-left:5px; vertical-align:middle;
+    background:var(--ember); margin-left:5px; vertical-align:middle;
   }
   .ec-grid{ display:grid; grid-template-columns:1fr; gap:0 14px; }
   .editcust-popup.expanded .ec-grid{ grid-template-columns:1fr 1fr 1fr; }

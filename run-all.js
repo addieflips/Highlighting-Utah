@@ -41349,6 +41349,84 @@ if (!JSDOM) {
 
 
 
+
+// =====================================================================
+suite('277. Every CSS colour name the page uses is declared somewhere');
+/* ⭐ ADDED 2026-08-26, from asking what a jsdom render still cannot see — the
+   answer being CSS, because jsdom does no layout and applies no stylesheet.
+   admin.html was writing SIX custom properties nobody had declared anywhere at
+   all: --emerald, --moss, --rose, --mist, --amber-dim and --text-muted, across
+   seventeen places.
+
+   ⚠ AN UNDECLARED CUSTOM PROPERTY DOES NOT FALL BACK, IT INVALIDATES. `color:
+   var(--rose)` with no --rose declared is not "some default colour" — it is a
+   declaration the browser discards, so `el.style.color = 'var(--rose)'` is a
+   silent no-op and the element keeps whatever colour it already had. Nothing
+   errors and nothing logs.
+
+   ⚠ TWO OF THE SIX WERE THE SAVE MESSAGES. --emerald was the success colour in
+   five places and --rose the failure colour in one, so "Could not save that —
+   try again." never turned red; and a toggle reading
+   `checked ? 'var(--emerald)' : 'var(--slate)'` only ever changed colour in the
+   OFF direction, because only one branch was a real token.
+
+   ⚠ WHAT THIS CHECKS, EXACTLY: declared NOWHERE in its own file. That is the
+   class that shipped, and it cannot false-positive.
+
+   ⚠ WHAT IT DELIBERATELY DOES NOT CHECK, and why: whether a name is in SCOPE
+   where it is used. The Schedule tab is a shadow-DOM widget declaring its own
+   palette on `:host{}` — --green, --red, --muted, --card, --bg, --sel, --done,
+   --green-l — which is a different scope that reaches nothing in the main
+   document. Telling the two apart means slicing the widget's region out of a
+   52,000-line file, and the widget builds its HTML in JS spread well past its
+   stylesheet, so any such slice is a guess that silently widens the check to
+   nothing the day it stops matching. A precise-but-fragile gate that goes quietly
+   green is worse than an honest narrow one. The narrow one would have caught all
+   six. */
+{
+  ['admin.html', 'index.html', 'employee.html'].forEach(function (file) {
+    const src = read(file);
+    const declared = new Set((src.match(/--[a-z][a-z0-9-]*\s*:/g) || [])
+      .map(function (x) { return x.replace(/\s*:$/, '').trim(); }));
+    /* A use carrying its own fallback — var(--x, #fff) — cannot go blank, so it
+       is not this bug and is not counted. Only the bare form. */
+    const used = (src.match(/var\(\s*--[a-z][a-z0-9-]*\s*\)/g) || [])
+      .map(function (x) { return x.replace(/var\(\s*/, '').replace(/\s*\)$/, ''); });
+    const missing = [...new Set(used)].filter(function (u) { return !declared.has(u); });
+    check('S277', file + ' declares every colour name it uses',
+      missing.length === 0,
+      'declared nowhere: ' + missing.join(', ') + ' — an undeclared custom property makes ' +
+      'the whole declaration invalid, so the property silently does not apply. Declare it ' +
+      'in :root (an alias to an existing token is fine) or give the use a fallback.');
+  });
+
+  /* ⚠ AND THE SIX THAT WERE MISSING ARE NAMED, so this suite cannot be satisfied
+     by somebody deleting the uses instead of declaring the names — which would
+     take the save messages' colour away rather than giving it back. */
+  {
+    /* ⚠ COMMENTS STRIPPED FIRST. The :root block carries the explanation of why
+       these six exist, and that prose mentions `:host{}` — so slicing to the
+       first `}` after :root{ cut the block off before the declarations and
+       failed on code that is right. Third time this suite family has been caught
+       by its own prose; Suite 58 learned it first. */
+    const admin277 = stripComments(read('admin.html'));
+    const rootAt = admin277.indexOf(':root{');
+    const root = rootAt > -1 ? admin277.slice(rootAt, admin277.indexOf('}', rootAt)) : '';
+    ['--emerald', '--moss', '--rose', '--mist', '--amber-dim', '--text-muted'].forEach(function (t) {
+      check('S277', t + ' is declared in :root, where the main document can see it',
+        root.indexOf(t + ':') !== -1,
+        'this is one of the six that were used and never declared');
+    });
+    /* They are aliases to the twelve real tokens, not a second palette invented
+       beside the first. */
+    check('S277', 'and the six are aliases to the existing palette, not new colours',
+      /--emerald:var\(--dusk\)/.test(root) && /--rose:var\(--ember\)/.test(root) &&
+      /--mist:var\(--paper\)/.test(root) && /--text-muted:var\(--slate\)/.test(root),
+      'a hard-coded hex here is a thirteenth shade nobody chose');
+  }
+}
+
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
