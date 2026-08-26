@@ -4583,25 +4583,31 @@
                    eave, and failing that it is a one-storey house. rmDatumNote
                    already said which of the three it was, so that sentence IS
                    the status and everything around it was scaffolding.
-                   ⚠ THE CONTROLS ARE MOVED, NOT DELETED. The box is still the
-                   only way to overrule a wrong roof model, and a height the
-                   office types still beats anything derived (test S130 exists
-                   for exactly that). It lives under More options now. -->
+                   ⭐ AND THE TYPED HEIGHT IS GONE ALTOGETHER (2026-08-25).
+                   Owner: "we dont want anything like using garage door to
+                   measure height because then we go pixel for pixel but there
+                   is depth and more stuff like that, so we want it to find the
+                   height through proper geometry", and of this very panel:
+                   "also meaning we dont need this: Eave 10 ft — ASSUMED, one
+                   storey … 1 storey / 2 storey / Ground".
+
+                   ⚠ A BOX THAT SAYS 10 IS AN ANSWER, and it was the answer
+                   under every dot on every house nobody had measured. The
+                   presets are worse: "1 storey" is a guess wearing a button.
+                   Height now comes from the one place it can be seen — a ray
+                   from the street meeting a real wall — and where that has not
+                   happened yet the tool says so and asks for one click rather
+                   than quietly filling in ten feet.
+
+                   ⚠ THE OVERRULE IS NOT LOST, it moved to the picture: a
+                   shift-drag on a dot in Street View sets its height by eye,
+                   against the photograph, which is a better overrule than a
+                   number typed into a box with nothing to check it against. -->
               <div class="rm-panel" id="rmHeightPanel" style="display:none;">
                 <p id="rmDatumNote" style="font-size:12px; color:var(--dusk); margin:0; font-weight:600;"></p>
                 <button type="button" id="rmMoreBtn" style="border:0; background:none; padding:4px 0 0; font-size:11px; color:var(--slate); cursor:pointer; text-decoration:underline;">More options</button>
                 <div id="rmMoreBox" style="display:none; margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
-                  <p class="rm-sub" style="margin-bottom:6px;">What height a click on the sky view sits at.</p>
-                  <div style="display:flex; gap:8px; align-items:center;">
-                    <input type="number" id="rmHeightFt" value="10" min="0" max="60" step="0.5" style="width:80px; padding:7px 9px; border-radius:8px; border:1px solid var(--line); font-size:13px;">
-                    <span style="font-size:12px; color:var(--slate);">ft off the ground</span>
-                  </div>
-                  <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-                    <button type="button" class="btn btn-outline btn-sm" data-rmheight="9" style="padding:4px 9px; font-size:11px;">1 storey</button>
-                    <button type="button" class="btn btn-outline btn-sm" data-rmheight="18" style="padding:4px 9px; font-size:11px;">2 storey</button>
-                    <button type="button" class="btn btn-outline btn-sm" data-rmheight="0" style="padding:4px 9px; font-size:11px;">Ground</button>
-                  </div>
-                  <p id="rmHeightNote" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Measure one eave in Street View and this fills itself in.</p>
+                  <p class="rm-sub" style="margin-bottom:6px;">Heights are measured in Street View. Put a dot on a wall, or shift-drag one up or down, and the roof height follows from where the ray meets the house.</p>
                   <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
                     <kbd>Esc</kbd> cancel &middot; <kbd>A</kbd> all suggested on/off &middot;
                     <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
@@ -4681,22 +4687,20 @@
                   <p id="rmAlignNote" style="font-size:11.5px; margin:7px 0 0; line-height:1.5; color:var(--slate);">Not checked on this house. Until it is, a line traced from above may draw in the wrong place in Street View.</p>
                 </div>
 
-                <div style="margin-top:10px; border-top:1px dotted var(--line); padding-top:9px;">
-                  <div style="font-size:11.5px; font-weight:700; margin-bottom:5px;">Check the scale</div>
-                  <p class="rm-sub" style="margin:0 0 6px;">Measure something you already know the size of, and see what this says it is.</p>
-                  <div style="display:flex; gap:5px; flex-wrap:wrap;">
-                    <select id="rmCalPick" style="flex:1 1 130px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
-                      <option value="16">Double garage door — 16 ft</option>
-                      <option value="9">Single garage door — 9 ft</option>
-                      <option value="3">Front door — 3 ft</option>
-                      <option value="9" data-other="1">Parking stall — 9 ft</option>
-                      <option value="">Something else…</option>
-                    </select>
-                    <input type="number" id="rmCalFeet" min="0.5" step="0.5" placeholder="ft" style="display:none; flex:0 0 62px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
-                  </div>
-                  <button type="button" class="btn btn-outline btn-sm" id="rmCalBtn" style="width:100%; justify-content:center; margin-top:6px;">Trace it and compare</button>
-                  <p id="rmCalResult" style="font-size:11.5px; margin:7px 0 0; line-height:1.5;"></p>
-                </div>
+                <!-- ⛔ THE SCALE CHECK IS GONE (2026-08-25). Owner: "we dont want
+                     anything like using garage door to measure height because then we go
+                     pixel for pixel but there is depth and more stuff like that — we want
+                     it to find the height through proper geometry, not through a rough
+                     estimate of how many pixels tall is the garage."
+
+                     ⚠ IT NEVER CORRECTED ANYTHING, and that is not a defence. It put a
+                     list of known-size objects on screen next to the measuring, which
+                     teaches the tool's own workflow: find something you recognise, trace
+                     it, scale by the ratio. Every number this tool reports comes from
+                     camera pose and geometry instead, and leaving a pixel-ratio control
+                     beside them invites somebody to trust the wrong one. rmCalibrating and
+                     rmReportCalibration are left in place, unreachable, so that nothing
+                     that reads rmCalibration breaks; delete them once nothing does. -->
               </div>
 
               <div class="rm-panel" id="rmPricePanel" style="display:none;">
@@ -13463,6 +13467,88 @@ function buildInvoiceDocHtml(member){
     '</div>';
 }
 let invRecipientSearchTerm = '';
+/* ⭐ AN ADDRESS THAT IS ONE LETTER WRONG (2026-08-25). Owner: "I can't get a test
+   invoice sent to me." Nothing was broken. The address typed into the box was
+   …@gmai.com — one letter short of gmail.com — so the mail was handed to a domain
+   that does not exist and the page said, in green, that it had been sent.
+   ⚠ EMAILJS RETURNING OK IS NOT DELIVERY. It accepts the request and answers
+   immediately; a domain that does not resolve is discovered minutes later by a
+   bounce that goes to the sending account, which nobody in the office reads. So a
+   confident "Sent to …" was making a claim it had no way to check, about an address
+   that could never arrive. Both halves are fixed: the typo is caught BEFORE the
+   send, and the line afterwards says what actually happened.
+   ⚠ IT WARNS, IT NEVER REFUSES. A real address at an unusual domain must still go
+   through on one more click — a guard that blocks a legitimate send is worse than
+   the typo it prevents, because there is no way round it at all. */
+const EMAIL_COMMON_DOMAINS = ['gmail.com','googlemail.com','yahoo.com','ymail.com','hotmail.com',
+  'outlook.com','live.com','msn.com','icloud.com','me.com','mac.com','aol.com','comcast.net',
+  'protonmail.com','proton.me','att.net','verizon.net','sbcglobal.net','cox.net'];
+/* ⚠ REAL DOMAINS THAT SIT ONE LETTER FROM A BIG ONE. Without this, email.com (one
+   letter from gmail.com) and gmx.com would be queried on every send, and a warning
+   that cries wolf is a warning the office learns to click past — including the day
+   it is right. */
+const EMAIL_LOOKALIKE_BUT_REAL = ['email.com','gmx.com','gmx.net','mail.com','live.co.uk',
+  'yahoo.co.uk','me.co.uk','aol.co.uk','icloud.co.uk','cox.com','att.com'];
+/* Damerau-Levenshtein: a SWAPPED PAIR counts as one mistake, not two. That matters
+   here — gmial, hotmial and yahoi are all transpositions, and plain Levenshtein
+   scores them 2, which is the same distance as genuinely different domains. */
+function emailEditDistance(a, b){
+  const m = a.length, n = b.length;
+  const d = [];
+  for(let i = 0; i <= m; i++){ d[i] = [i]; }
+  for(let j = 0; j <= n; j++){ d[0][j] = j; }
+  for(let i = 1; i <= m; i++){
+    for(let j = 1; j <= n; j++){
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + cost);
+      if(i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1]){
+        d[i][j] = Math.min(d[i][j], d[i-2][j-2] + 1);
+      }
+    }
+  }
+  return d[m][n];
+}
+/* The whole address, corrected, or null when there is nothing to say. ⚠ ONE
+   MISTAKE ONLY. At a distance of two, "hotmail.com" and "hotmail.co.nz" start
+   suggesting each other and the guard becomes noise. */
+function emailTypoSuggestion(addr){
+  const at = String(addr || '').lastIndexOf('@');
+  if(at < 1) return null;
+  const local = addr.slice(0, at);
+  const domain = addr.slice(at + 1).toLowerCase();
+  if(!domain || !local) return null;
+  /* An exact match is right by definition, and must never be 'corrected'. */
+  if(EMAIL_COMMON_DOMAINS.indexOf(domain) !== -1) return null;
+  if(EMAIL_LOOKALIKE_BUT_REAL.indexOf(domain) !== -1) return null;
+  for(const good of EMAIL_COMMON_DOMAINS){
+    if(emailEditDistance(domain, good) === 1) return local + '@' + good;
+  }
+  return null;
+}
+/* Three answers, so it cannot be a confirm(): use the correction, send to what was
+   typed anyway, or go back and edit it. */
+function askEmailTypo(typed, suggestion){
+  return new Promise(function(resolve){
+    const overlay = document.createElement('div');
+    overlay.className = 'needsfix-popup-overlay';
+    overlay.innerHTML = '<div class="needsfix-popup" style="max-width:460px;">'+
+      '<h3 style="color:var(--dusk);">Did you mean '+esc(suggestion)+'?</h3>'+
+      '<p>You typed <strong>'+esc(typed)+'</strong>. That domain is one letter away from a common one, '+
+      'so the email would most likely go nowhere and bounce somewhere nobody looks.</p>'+
+      '<div style="display:flex; flex-direction:column; gap:9px; margin-top:12px;">'+
+        '<button type="button" class="btn btn-gold" data-emailfix="use">Send it to '+esc(suggestion)+'</button>'+
+        '<button type="button" class="btn btn-outline" data-emailfix="anyway">No, '+esc(typed)+' is right — send it</button>'+
+        '<button type="button" class="btn btn-outline" data-emailfix="cancel">Cancel, let me edit it</button>'+
+      '</div></div>';
+    document.body.appendChild(overlay);
+    overlay.querySelectorAll('[data-emailfix]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        overlay.remove();
+        resolve(btn.dataset.emailfix);
+      });
+    });
+  });
+}
 /* ---- Send one customer's invoice to yourself ---------------------------
    There was no way to send a single invoice: the only send was the whole
    nightly batch, which meant the only way to see a real invoice email was to
@@ -13482,6 +13568,15 @@ function invTestPopulate(){
     return '<option value="'+esc(m.id)+'">'+esc(m.data.name||'(no name)')+' — '+esc(st)+'</option>';
   }).join('');
   if(keep) sel.value = keep;
+  /* ⭐ THE BOX STARTS ON WHOEVER IS SIGNED IN. The button is called "Send yourself
+     one customer's invoice" and the address is already known, so making somebody
+     type it is asking for the exact typo that prompted this. ⚠ ONLY WHEN IT IS
+     EMPTY — overwriting an address somebody has just typed would be worse than not
+     filling it at all, and this runs on every render. */
+  const toBox = document.getElementById('invTestTo');
+  if(toBox && !toBox.value.trim() && auth && auth.currentUser && auth.currentUser.email){
+    toBox.value = auth.currentUser.email;
+  }
 }
 async function invTestSend(){
   const statusEl = document.getElementById('invTestStatus');
@@ -13492,6 +13587,22 @@ async function invTestSend(){
   const to = document.getElementById('invTestTo').value.trim();
   if(!custId) return say('Choose a customer first.', true);
   if(!to || to.indexOf('@') === -1) return say('Enter the email address to send it to.', true);
+  /* ⚠ ASKED BEFORE ANYTHING IS BUILT OR SENT. Once emailjs.send has been called
+     there is nothing to take back — the whole point is to catch it while it is
+     still a box on the screen. */
+  let sendTo = to;
+  const suggestion = emailTypoSuggestion(to);
+  if(suggestion){
+    const answer = await askEmailTypo(to, suggestion);
+    if(answer === 'cancel'){
+      document.getElementById('invTestTo').focus();
+      return say('Nothing was sent — check the address and try again.', true);
+    }
+    if(answer === 'use'){
+      sendTo = suggestion;
+      document.getElementById('invTestTo').value = suggestion;
+    }
+  }
   const member = etGetMembers().find(m => m.id === custId);
   if(!member) return say('That customer could not be found - try reloading the page.', true);
   const d = member.data;
@@ -13538,8 +13649,12 @@ async function invTestSend(){
       '<strong>Test copy.</strong> This is ' + esc(d.name || 'this customer') + '\'s real invoice, sent to you. They were not emailed and nothing on their record changed.'+
       '</div>' + body;
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: to, to_name: 'Test', message: body });
-    say('Sent to ' + to + ' \u2014 using the "' + tplName + '" template, amount due ' + fmtMoney(amountDue) + '. ' + (d.name||'The customer') + ' was not emailed.');
+    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: 'Test', message: body });
+    /* ⚠ "HANDED TO", NOT "SENT TO". EmailJS accepting the request says the request
+       was well formed, and nothing about whether the address exists. Claiming
+       delivery is what sent somebody looking for a bug in the invoice code when the
+       address was one letter wrong. */
+    say('Handed to the mail service for ' + sendTo + ' \u2014 using the "' + tplName + '" template, amount due ' + fmtMoney(amountDue) + '. ' + (d.name||'The customer') + ' was not emailed. If it has not arrived in a couple of minutes, check the address above and your spam folder.');
   } catch(err){
     const msg = (err && (err.text || err.message)) ? (err.text || err.message) : String(err);
     say('Send failed: ' + msg, true);
@@ -16289,6 +16404,12 @@ function rmLowestPlaneM(){
    a height nobody can trace back is a height nobody can argue with. */
 function rmDatum(){
   if(rmRoofDatumM !== null) return {m: rmRoofDatumM, source: rmDatumSource || 'street'};
+  /* ⚠ NO TYPED SOURCE ANY MORE (2026-08-25). The box that held one is gone —
+     see the block over #rmHeightPanel. What is left is a LAST-RESORT number for
+     drawing scaffolding, and it is labelled 'assumed' so nothing can mistake it
+     for a measurement: rmDatumNote says so on screen, and a dot may not be
+     placed against it (see the sky click). */
+  return {m: RM_ASSUMED_EAVE_M, source: 'assumed'};
   const typed = rmTypedHeightM();
   if(typed !== null && typed > 0.5) return {m: typed, source: 'typed'};
   return {m: RM_ASSUMED_EAVE_M, source: 'assumed'};
@@ -17270,7 +17391,13 @@ function rmAddCorner(pt){
   if(!pt) return false;
   /* The ray it was seen along is kept, so a second sighting from elsewhere can
      be crossed with this one and the guess replaced by the real point. */
-  rmCorners.push({lat: pt.lat, lng: pt.lng, h: pt.h || rmDatum().m, on: true,
+  /* ⚠ A HEIGHT OF ZERO IS A HEIGHT. `pt.h || rmDatum().m` quietly swapped a
+     dot on the ground for one up at the eave, which is the one place the
+     fallback is guaranteed wrong — and it went unnoticed while only the
+     street view placed corners, because a ray that meets the ground is
+     refused there anyway. From above, ground runs are a real thing to trace. */
+  const h = (typeof pt.h === 'number' && isFinite(pt.h)) ? pt.h : rmDatum().m;
+  rmCorners.push({lat: pt.lat, lng: pt.lng, h: h, on: true,
                   byHand: true, band: rmCurrentBand, rays: pt.ray ? [pt.ray] : []});
   rmCornersChanged();
   return true;
@@ -17333,11 +17460,67 @@ function rmCornersToRun(){
   return first;
 }
 
+/* ⭐ THE CORNERS ON THE SKY VIEW, WITH THEIR NUMBERS ON (2026-08-25). Owner:
+   "I place a dot in sky view and its a different type of dot then the one on
+   street view they should be the same and in sync."
+
+   ⚠ HALF OF "A DIFFERENT TYPE OF DOT" WAS THAT THE MAP DREW NO CORNERS AT
+   ALL. A corner only reached the map as a vertex of the run rmCornersToRun
+   builds from it — and a band with one dot in it makes no run, so the first
+   dot of every strand was invisible from above and the rest were unnumbered
+   handles. Street View has always drawn each corner itself, numbered, on or
+   off, whether or not it joins anything. This is that same drawing, from above.
+
+   ⚠ PICTURE POSITIONS. The stored point is true and the tile is displaced, so
+   every marker goes out through rmSkyUnshift — see the block on it. */
+let rmCornerMarkers = [];
+function rmClearCornerMarkers(){
+  rmCornerMarkers.forEach(function(m){ m.setMap(null); });
+  rmCornerMarkers = [];
+}
+function rmSyncCornersSky(){
+  rmClearCornerMarkers();
+  if(!rmMap) return;
+  rmCorners.forEach(function(c, i){
+    const lit = !!c.on;
+    const q = rmSkyUnshift(c.lat, c.lng);
+    rmCornerMarkers.push(new google.maps.Marker({
+      position: q, map: rmMap, clickable: false, zIndex: 7,
+      /* Small, for the reason the street view dots are small: a marker big
+         enough to hold its number is big enough to hide the corner it marks.
+         The number sits beside it. A pinned dot is ringed — it has been seen
+         from more than one place and is where it says it is. */
+      icon: {path: google.maps.SymbolPath.CIRCLE, scale: 4,
+             fillColor: lit ? '#E0574B' : 'rgba(255,255,255,.85)', fillOpacity: 1,
+             strokeColor: c.pinned ? (lit ? '#E0574B' : '#8b95a1') : (lit ? '#ffffff' : '#8b95a1'),
+             strokeWeight: c.pinned ? 3 : 1.4,
+             labelOrigin: new google.maps.Point(2.6, -2.2)},
+      label: {text: rmCornerLabel(i), color: lit ? '#E0574B' : '#6b7683',
+              fontSize: '11px', fontWeight: '700'}
+    }));
+  });
+}
 function rmCornersChanged(){
   rmCornersToRun();
+  rmSyncCornersSky();
   rmRenderResults();
   rmPaintStreet();
   rmRenderCornerBar();
+  /* ⭐ AND LINE THE PICTURE UP ONCE THERE IS SOMETHING TO LINE IT UP WITH
+     (2026-08-25). Owner: "i click a corner on skyview but its still a few feet
+     off from where I clicked."
+
+     ⚠ THAT IS THE SATELLITE TILE BEING DISPLACED, and on the test house nobody
+     had pressed Line them up, so the correction was zero and every sky click
+     was stored several feet from the corner it was aimed at. rmAutoAlign works
+     the offset out by matching what has been traced against Google's roof model
+     — it just only ran after a hand-traced RUN was finished, and the workflow
+     stopped producing those the day dots replaced tracing. So it never ran.
+
+     ⚠ IT STILL NEVER OVERRIDES A MEASURED ANSWER — rmAutoAlign returns early if
+     an offset already exists — and it still announces itself as arithmetic
+     rather than a measurement. This only reaches it earlier. */
+  rmAutoAlign();
 }
 
 /* The strip of numbers under the pictures: what exists, and what is on. */
@@ -17561,6 +17744,36 @@ const RM_PIN_MIN_BASE_M = 3;     /* two clicks nearer than this cannot fix depth
    that two dots a hand's breadth apart both land, and pinning still works
    because it only needs a click ON the dot. */
 const RM_PIN_GRAB_PX = 8;
+/* ⭐ HOW WIDE THE NET IS WHEN YOU COME BACK FROM SOMEWHERE ELSE (2026-08-25).
+   Owner: "if I click dots at a different angle on street view then it offsets
+   to be correct, because when you go to a different angle the dots get
+   slightly offset."
+
+   ⚠ THE CORRECTION ALREADY EXISTED AND COULD NOT BE REACHED. Clicking a dot a
+   second time from another spot crosses the two rays and replaces the guessed
+   depth with geometry — that is rmPinCorner, and it is the right answer. But it
+   only fires if the click lands within 8 px OF THE DRIFTED DOT, and the whole
+   reason to re-sight is that the dot is no longer on the corner. So the office
+   aims at the CORNER, which is where the dot should be, misses the dot, and
+   gets a second dot a few feet from the first. The one gesture that fixes drift
+   was unreachable exactly when drift had happened.
+
+   ⚠ SO THE NET WIDENS ONLY WHEN A SECOND SIGHTING WOULD MEAN SOMETHING. From
+   where the dot was first seen, 8 px stands — you are placing neighbours along
+   a gutter and they must not swallow each other. Once the camera has moved far
+   enough to fix a depth at all (RM_PIN_MIN_BASE_M, the same bar rmPinCorner
+   itself applies), a click near a dot is far more likely to be somebody
+   re-sighting it than somebody placing a new corner on top of it — and if it
+   was not, the dot is still switchable off and the sighting droppable.
+
+   ⚠ AND IT IS BOUNDED BY THE DOT'S OWN UNCERTAINTY, not a flat number. How far
+   a dot can have drifted on screen is how far its depth can be out times how
+   much a foot of depth shows as from here — the driftPerFtFt already reported
+   in rmDebug. A dot seen from almost the same place has barely moved and keeps
+   a tight net; one seen from far along the street may be yards out and gets a
+   net that can actually reach it. */
+const RM_RESIGHT_DEPTH_SLOP_M = 1.2;   /* how wrong a one-sighting depth may be */
+const RM_RESIGHT_MAX_PX = 90;          /* past this it is a different corner */
 /* ⚠ AND GRABBING A DOT TO MOVE IT IS A DIFFERENT QUESTION FROM PINNING ONE.
    Owner: "shift grab doesnt drag dots and I want it too."
    Shrinking the pin radius to 8 px so two corners could be placed close
@@ -17571,6 +17784,12 @@ const RM_PIN_GRAB_PX = 8;
    generous target; a plain click has not, so it cannot. */
 const RM_DRAG_GRAB_PX = 18;
 const RM_DRAG_SLOP_PX = 4;       /* below this the pointer only wobbled */
+/* ⚠ THE MAP GRABS IN METRES, NOT PIXELS, because how many pixels a dot is
+   away from the cursor up there depends entirely on the zoom — the same
+   18 px is half a house at zoom 18 and half a gutter at zoom 22. Four metres
+   is what the right-click already uses to decide which dot was meant, so the
+   two gestures agree about what counts as aiming at a dot. */
+const RM_SKY_GRAB_M = 4;
 let rmDragMoved = false;         /* a drag happened, so the click that ends it is not a swap */
 
 /* The point that best satisfies every ray it has been seen along. */
@@ -17621,6 +17840,42 @@ function rmSolveFromRays(rays){
 }
 
 /* Which existing dot is this click meant for, if any. */
+/* How big a target dot i should be RIGHT NOW, in pixels. See the block on
+   RM_RESIGHT_DEPTH_SLOP_M for why this is not a constant. */
+function rmResightGrabPx(c, W, H, pov, cam){
+  if(!c || !cam) return RM_PIN_GRAB_PX;
+  if(c.pinned) return RM_PIN_GRAB_PX;            /* already crossed; it is where it says */
+  const ray = (c.rays || [])[0];
+  if(!ray || !ray.cam) return RM_PIN_GRAB_PX;    /* placed from above; no ray to have drifted along */
+  const base = Math.hypot(ray.cam.e - cam.e, ray.cam.n - cam.n);
+  if(!(base >= RM_PIN_MIN_BASE_M)) return RM_PIN_GRAB_PX;
+  const here = rmToLocal(c.lat, c.lng, c.h || 0);
+  const dist = Math.hypot(here.e - cam.e, here.n - cam.n);
+  if(!(dist > 0.5)) return RM_PIN_GRAB_PX;
+  /* Apparent movement per metre of depth error is the baseline over the range;
+     turn metres on screen into pixels with the focal length. */
+  const focal = (W / 2) / Math.tan(rmRad(rmFovDeg(pov.zoom)) / 2);
+  const slipM = RM_RESIGHT_DEPTH_SLOP_M * (base / dist);
+  const px = slipM / dist * focal;
+  return Math.max(RM_PIN_GRAB_PX, Math.min(RM_RESIGHT_MAX_PX, px));
+}
+/* Which dot a click means, with each dot judged at its own size. */
+function rmDotToResight(px, py, W, H, pov, cam){
+  let best = -1, bestScore = Infinity;
+  rmCorners.forEach(function(c, i){
+    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+    if(!q) return;
+    const grab = rmResightGrabPx(c, W, H, pov, cam);
+    const d = Math.hypot(q.x - px, q.y - py);
+    if(d > grab) return;
+    /* ⚠ NEAREST AS A FRACTION OF ITS OWN NET, not in raw pixels. Otherwise a
+       tight-net dot two pixels away always loses to a wide-net dot one pixel
+       away, and the wide net swallows its neighbours. */
+    const score = d / grab;
+    if(score < bestScore){ bestScore = score; best = i; }
+  });
+  return best;
+}
 function rmDotUnderClick(px, py, W, H, pov, cam, grabPx){
   let best = -1, bd = (typeof grabPx === 'number' ? grabPx : RM_PIN_GRAB_PX);
   rmCorners.forEach(function(c, i){
@@ -19230,6 +19485,37 @@ function rmSolveRayNow(ray){
   if(top !== null && best.u > top + RM_EAVE_TOL_M) return null;
   return best;
 }
+/* ⭐ WHERE ALONG A RAY THE POINTER IS ASKING FOR. The dot may only move along
+   the line it was seen along (see the sky drag), so a drop anywhere on the map
+   has to become a distance out from the camera. That is the foot of the
+   perpendicular from the dropped PLAN position onto the ray's plan direction —
+   in plain terms, how far out along the line of sight the pointer got to.
+
+   ⚠ IN PLAN, NOT IN THREE DIMENSIONS. The map has no height in it, so the
+   pointer can only ever be asking about the horizontal; projecting in 3D would
+   let the vertical part of the ray drag the answer somewhere the pointer never
+   indicated. The height then falls out of the ray at that distance.
+
+   ⚠ AND IT REFUSES RATHER THAN RETURNING SOMETHING SILLY: behind the camera,
+   past the far limit every other cast here uses, underground, or above the
+   roof. A drag must not reach a place a click could not. */
+function rmRaySlideTo(ray, world){
+  if(!ray || !ray.cam || !ray.dir || !world || !rmOrigin) return null;
+  const cam = ray.cam, dir = ray.dir;
+  const planLen = Math.hypot(dir.e, dir.n);
+  if(!(planLen > 1e-9)) return null;                /* pointing straight up */
+  const de = dir.e / planLen, dn = dir.n / planLen;
+  const p = rmToLocal(world.lat, world.lng, 0);
+  const along = (p.e - cam.e) * de + (p.n - cam.n) * dn;
+  if(!(along > 0.5 && along < 200)) return null;
+  /* Back into the ray's own parameter, so the climb is right. */
+  const t = along / planLen;
+  const u = cam.u + dir.u * t;
+  if(!(u > 0.3)) return null;
+  const top = rmRoofTopM();
+  if(top !== null && u > top + RM_EAVE_TOL_M) return null;
+  return {e: cam.e + dir.e * t, n: cam.n + dir.n * t, u: u};
+}
 /* Puts every unpinned dot back where its own ray now says it is, and REPORTS
    how far each one had to move - which is the number the office asked for. */
 function rmRefreshCorners(){
@@ -19811,15 +20097,17 @@ function rmRestoreMeasurement(m){
   const sel = document.getElementById('rmDifficulty');
   if(sel && m.difficulty) sel.value = m.difficulty;
   if(m.datum && Number(m.datum.m) > 0){
-    const box = document.getElementById('rmHeightFt');
+    const box = null;   /* the typed-height box is gone; see #rmHeightPanel */
     if(box) box.value = Math.round(Number(m.datum.m) * RM_M_TO_FT * 10) / 10;
     if(m.datum.source === 'street' || m.datum.source === 'photo'){
       rmRoofDatumM = Number(m.datum.m); rmDatumSource = m.datum.source;
     }
-    /* ⚠ A SAVED TYPED HEIGHT WAS TYPED BY SOMEBODY, so it comes back as typed
-       rather than being demoted to the shipped default on reopening. A saved
-       ASSUMED one deliberately does not — nobody answered it then either. */
-    if(m.datum.source === 'typed') rmHeightTyped = true;
+    /* ⛔ A SAVED 'typed' DATUM IS NO LONGER HONOURED (2026-08-25). Drawings
+       saved before the typed-height box was removed can still carry one, and
+       restoring it would put a hand-guessed number back in force on a house
+       where nothing on screen can now show it, explain it or overrule it. It is
+       read and dropped: the house reads as unmeasured until somebody puts a dot
+       on a wall, which takes one click and answers it properly. */
   }
   rmRenderResults(); rmPaintStreet();
   return restored;
@@ -19850,22 +20138,17 @@ function rmFmtFeet(f){
  * office the sensible starting number, and rmWorkingHeightM would then have to
  * carry the default alone — two places holding one figure. */
 let rmHeightTyped = false;
-function rmTypedHeightM(){
-  if(!rmHeightTyped) return null;
-  const el = document.getElementById('rmHeightFt');
-  if(!el) return null;
-  const v = parseFloat(el.value);
-  return isFinite(v) ? v / RM_M_TO_FT : null;
-}
-/* THE HEIGHT A SKY CLICK LANDS AT when Google has no roof plane under it.
- * ⚠ NEVER ZERO FROM A BLANK BOX. It used to divide 0 by the conversion and put
- * the line on the LAWN — the one height a gutter run is certainly not at — so a
- * cleared box silently measured the ground. It falls back to the SAME
- * one-storey eave rmDatum assumes, so the two cannot drift apart. */
-function rmWorkingHeightM(){
-  const typed = rmTypedHeightM();
-  return typed === null ? RM_ASSUMED_EAVE_M : typed;
-}
+/* ⛔ THE TYPED HEIGHT IS GONE (2026-08-25) and these two are what is left of
+   it. Owner: "we dont need this: Eave 10 ft — ASSUMED, one storey … 1 storey /
+   2 storey / Ground", and behind it "find the height through proper geometry".
+
+   ⚠ rmWorkingHeightM SURVIVES AS A DRAWING FALLBACK ONLY. It is what a sky
+   click would land at where Google has no roof plane — and a click that would
+   have to use it is now REFUSED rather than answered, so in practice it reaches
+   only scaffolding. It returns the same constant rmDatum falls back to, so the
+   two cannot drift apart. */
+function rmTypedHeightM(){ return null; }
+function rmWorkingHeightM(){ return RM_ASSUMED_EAVE_M; }
 /* ---- filters ----------------------------------------------------------- */
 function rmFilterCss(){
   const b = document.getElementById('rmBright').value;
@@ -19899,14 +20182,11 @@ function rmApplyTypeHeight(){
   const m = rmHeightForType(rmType);
   if(m === null) return;
   const ft = Math.round(m * RM_M_TO_FT * 2) / 2;
-  document.getElementById('rmHeightFt').value = ft;
-  const note = document.getElementById('rmHeightNote');
-  if(note){
-    note.textContent = rmType === 'ground'
-      ? 'Ground runs sit at zero. Switch to Perimeter or Ridge and this jumps back to the roof.'
-      : 'Google’s roof model puts the ' + (rmType === 'ridge' ? 'peak' : 'eave') +
-        ' about ' + ft + ' ft up. Type over it if you know better.';
-  }
+  /* ⛔ NOTHING TO FILL IN. The typed box and its note are gone (2026-08-25);
+     the roof model's own opinion of the eave is not something the office should
+     be asked to accept or overrule as a number — it is measured from the street
+     or it is marked unmeasured. Kept as a no-op so callers that switch run type
+     do not need to know. */
 }
 function rmSetType(type){
   if(!RM_TYPES[type]) return;
@@ -19975,7 +20255,13 @@ function rmSyncSky(run){
   /* A suggested line carries no handles until it is switched on - four dots on
      every offered edge is a thicket, and nobody nudges a line they have not
      decided to keep. */
-  run.dots = (run.suggested && !on) ? [] : run.path.map(function(_, i){ return rmDot(run, i); });
+  /* ⚠ A RUN BUILT FROM CORNERS DRAWS NO HANDLES OF ITS OWN — the same rule
+     rmPaintStreet already follows. Its path is a COPY of rmCorners rebuilt on
+     every change, so a handle on it drags the copy: the dot appears to move
+     and is back where it started the next time anything redraws. The corners
+     are drawn once, by rmSyncCornersSky, with their numbers on, and they drag
+     the corner itself. */
+  run.dots = (run.fromCorners || (run.suggested && !on)) ? [] : run.path.map(function(_, i){ return rmDot(run, i); });
 }
 function rmClearDrawing(){
   rmRuns.forEach(function(r){
@@ -20032,7 +20318,7 @@ function rmFinishRun(){
    clean factor anyway — it comes from the camera angle and the imagery, which
    vary across a house. This is a number to read and judge, not a lever. */
 function rmReportCalibration(measuredFt){
-  const box = document.getElementById('rmCalResult');
+  const box = null;      /* the scale check is unwired; see #rmHeightPanel */
   if(!box) return;
   const known = rmCalKnownFt();
   if(!(measuredFt > 0)){
@@ -20064,8 +20350,8 @@ function rmReportCalibration(measuredFt){
       : ' Something is off on this house — check the wall you pinned, or that the camera really sees it.');
 }
 function rmCalKnownFt(){
-  const sel = document.getElementById('rmCalPick');
-  const typed = document.getElementById('rmCalFeet');
+  const sel = null;      /* the scale check is unwired; see #rmHeightPanel */
+  const typed = null;
   if(sel && sel.value) return Number(sel.value) || 0;
   return typed ? Number(typed.value) || 0 : 0;
 }
@@ -20808,6 +21094,7 @@ function rmForgetLastHouse(){
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
   rmCorners = []; rmCurrentBand = 0; rmCandidates = [];
+  rmClearCornerMarkers();
   rmRenderCornerBar();
   /* the roof model and everything derived from it */
   rmFaces = []; rmBuilding = null; rmRoofGrade = ''; rmRoofFacts = null;
@@ -21926,7 +22213,7 @@ function rmReset(){
   /* A scale check belongs to the house it was taken on. Carrying one across
      to the next quote would report a figure about somebody else's roof. */
   rmCalibrating = false; rmCalibration = null;
-  const calBox = document.getElementById('rmCalResult');
+  const calBox = null;   /* the scale check is unwired; see #rmHeightPanel */
   if(calBox) calBox.textContent = '';
   /* ⚠ AND THE ALIGNMENT, WHICH BELONGS TO ONE PICTURE OF ONE HOUSE. Carried
      across, the next address would open silently corrected by however far the
@@ -21965,7 +22252,7 @@ function rmReset(){
   /* ⚠ OPENS ON THE ASSUMED EAVE, NOT ON ZERO, and derives it from the one
      constant rather than typing 10 again — a reset that put the box back to 0
      re-armed the lawn-tracing bug on the second house of every session. */
-  document.getElementById('rmHeightFt').value = Math.round(RM_ASSUMED_EAVE_M * RM_M_TO_FT);
+  /* No typed-height box to reset any more (2026-08-25). */
   /* ⚠ AND IT IS THE ASSUMED FIGURE AGAIN, not one somebody stands behind. A
      height typed for the last house is not an answer about this one, and left
      set it reads as typed for ever after the first time anybody touches it. */
@@ -22036,22 +22323,12 @@ function openRoofMeasure(quoteId){
     rmRenderResults();
     rmSaveGrade();
   });
-  document.querySelectorAll('#roofMeasureOverlay [data-rmheight]').forEach(function(b){
-    b.addEventListener('click', function(){
-      document.getElementById('rmHeightFt').value = b.dataset.rmheight;
-      /* A preset IS somebody answering — they looked at the house and said one
-         storey. That is a typed height, and it must stop reading as assumed. */
-      rmHeightTyped = true;
-      rmRefreshHeights();
-    });
-  });
-  /* ⚠ AND THE BOX ITSELF, or a number entered by hand still reads as the
-     default it replaced. `input` rather than `change` so the panel stops
-     calling it assumed as soon as it stops being the shipped figure. */
-  document.getElementById('rmHeightFt').addEventListener('input', function(){
-    rmHeightTyped = true;
-    rmRefreshHeights();
-  });
+  /* ⛔ 1 STOREY / 2 STOREY / GROUND, AND THE BOX THEY FILLED, ARE GONE
+     (2026-08-25). Owner: "we dont need this". A preset is a guess wearing a
+     button, and it was the height under every dot on a house nobody had
+     measured. Heights come from the street now — a dot on a wall measures the
+     eave, and a shift-drag in Street View sets one by eye against the
+     photograph. */
   /* A side button switches every suggested eave on that side at once. It only
      ever touches SUGGESTED runs - a line traced by hand belongs to whoever
      drew it, and having it vanish because a side was toggled would be its own
@@ -22103,40 +22380,8 @@ function openRoofMeasure(quoteId){
       rmToggleCorner(i);
     }
   });
-  document.getElementById('rmCalPick').addEventListener('change', function(){
-    /* "Something else" is the only option with no size of its own, so the box
-       appears exactly then rather than sitting there empty the rest of the time. */
-    const box = document.getElementById('rmCalFeet');
-    box.style.display = this.value ? 'none' : 'block';
-    if(!this.value) box.focus();
-  });
-  document.getElementById('rmAlignBtn').addEventListener('click', function(){
-    if(rmAligning){ rmCancelAlign(); return; }
-    /* ⚠ ANY RUN IN PROGRESS IS FINISHED FIRST, the same as the scale check does
-       and for the same reason: the two alignment clicks would otherwise be
-       swallowed into the side being traced and billed as roofline. */
-    if(rmDrawing) rmFinishRun();
-    rmAligning = 'sky';
-    rmAlignSky = null;
-    rmSetAlignBtn();
-    rmAlignNote('Click one spot on the SKY VIEW — a corner of the garage roof is easiest. Then click the same spot in Street View.');
-  });
-  document.getElementById('rmCalBtn').addEventListener('click', function(){
-    if(!rmCalKnownFt()){
-      document.getElementById('rmCalResult').style.color = 'var(--slate)';
-      document.getElementById('rmCalResult').textContent = 'Say how many feet it really is first.';
-      return;
-    }
-    /* ⚠ ANY RUN IN PROGRESS IS FINISHED FIRST, as a real run. Starting a scale
-       check on top of a half-traced side would otherwise swallow that side into
-       the check and drop it. */
-    if(rmDrawing) rmFinishRun();
-    rmCalibrating = true;
-    rmSetDrawing(true);
-    document.getElementById('rmCalResult').style.color = 'var(--slate)';
-    document.getElementById('rmCalResult').textContent =
-      'Click each end of it in either view, then press Enter. It is only a check — it is not added to the house.';
-  });
+  /* ⛔ THE SCALE CHECK IS UNWIRED (2026-08-25) — see the block where its panel
+     used to be. Nothing on screen offers a known-size object to trace any more. */
   document.getElementById('rmMoreBtn').addEventListener('click', function(){
     const box = document.getElementById('rmMoreBox');
     const open = box.style.display !== 'none';
@@ -22240,11 +22485,28 @@ function openRoofMeasure(quoteId){
   });
   document.getElementById('rmModelBtn').addEventListener('click', function(){ rmSetShowModel(!rmShowModel); });
   document.getElementById('rmEndStrandBtn').addEventListener('click', function(){ rmEndStrand(); });
+  /* ⭐ CLEAR MEANS CLEAR, IN BOTH PICTURES (2026-08-25). Owner: "when i click
+     clear dots it clears all dots on both perspectives."
+
+     ⚠ IT USED TO CLEAR HALF OF WHAT WAS ON SCREEN. There were two buttons and
+     two structures behind them — this one emptied rmCorners, and "Clear" over
+     in the drawing panel emptied rmRuns — so whichever one you pressed, some
+     of the marks stayed and the tool looked like it had ignored you. That split
+     only ever made sense while the sky view made runs and the street view made
+     corners, which is the whole fault this branch removes.
+
+     ⚠ rmClearDrawing FIRST, because it repaints from what is left: emptying
+     the corners after it means rmCornersChanged has the last word and the
+     screen agrees with the model. Any half-traced run goes with it — leaving
+     one open would put the next click into a run nobody remembers starting. */
   document.getElementById('rmClearDotsBtn').addEventListener('click', function(){
+    rmClearDrawing();
     rmCorners = []; rmCurrentBand = 0; rmSwapFrom = null;
+    rmSetDrawing(false);
     rmCornersChanged();
+    rmRenderResults();
     const note = document.getElementById('rmCornerNote');
-    if(note) note.textContent = '';
+    if(note) note.textContent = 'Cleared — both pictures are empty.';
   });
   window.rmRefreshSideButtons = rmRefreshSideButtons;
   /* A READ-ONLY WINDOW INTO THE MEASURING, for diagnosing placement from the
@@ -22344,6 +22606,9 @@ function openRoofMeasure(quoteId){
      underneath be completely inert while a line is being drawn. */
   document.getElementById('rmMapLock').addEventListener('click', function(e){
     if(!rmMap) return;
+    /* A shift-click is the end of a drag, not a placement — same rule as the
+       panorama, so the two views answer the gesture identically. */
+    if(e.shiftKey) return;
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
     /* ⚠ AHEAD OF EVERY OTHER MEANING A CLICK CAN HAVE. Lining the pictures up
@@ -22355,50 +22620,181 @@ function openRoofMeasure(quoteId){
       return;
     }
     if(rmCornerMode === 'dot' && !rmDrawing){
-      /* ⭐ THE MAP DOES NOT PLACE CORNERS. Owner: "make sure that you use the
-         street view to draw the lines not the sky view", and before that "its
-         using skyview to place corners which is bad it should use street view
-         only to detect where corners are", and "sky view is only used to
-         calculate the length of lines but still it shouldnt be used that much
-         because you need depth, height, and length to find the actual size of
-         a line and sky view cant give height."
+      /* ⭐ A CLICK UP HERE PLACES A CORNER — THE SAME CORNER THE STREET
+         VIEW PLACES (2026-08-25). Owner: "I place a dot in sky view and its a
+         different type of dot then the one on street view they should be the
+         same and in sync so that when I click end strand the dots connect no
+         matter which one I placed it on."
 
-         ⚠ AND SHE IS RIGHT ON THE GEOMETRY, not just the workflow. Looking
-         straight down there is no height in the picture at all, so a dot
-         placed from above had to INVENT one - it took the typed working height
-         or the roof model's guess. A dot at the wrong height is at the wrong
-         place, and parallax swings it across the house the moment the camera
-         moves, which is the drifting she has been reporting all along. There
-         is no version of a sky-view click that does not guess.
+         ⚠ WHAT WAS WRONG WAS NOT THE LOOK OF THE DOT — IT WAS A SECOND KIND
+         OF POINT. A click up here used to start a free-hand RUN
+         (rmSetDrawing/rmAddPoint), which lives in rmRuns: no number, no band,
+         no strand, ended by a double-click. A click in Street View makes a
+         CORNER, which lives in rmCorners and is what "End this strand" acts
+         on. So the two views were never two windows onto one set of points;
+         they were two drawings that could not be joined, and End Strand was
+         deaf to half of them by construction.
 
-         From the street a click is a ray that meets the actual wall, so the
-         height falls out of the geometry instead of being supplied. That is
-         also the only view where a gutter can be told apart from a chimney, a
-         satellite dish or a tree.
+         ⚠ THIS REVERSES AN EARLIER RULING, kept below because the reasoning was
+         sound at the time: a dot placed from above had to INVENT a height, and
+         a dot at the wrong height parallaxes across the house the moment the
+         camera moves.
 
-         The map keeps everything it is genuinely better at: seeing where a run
-         really lies, measuring its true length, and picking a dot to work with
-         (right-click still toggles one on or off). It just no longer invents
-         one. */
-      /* ⭐ A CLICK UP HERE STARTS A SIDE (2026-08-25). It used to be refused
-         outright with the note below, so the commonest thing anybody does with
-         a map — click on it — did nothing at all, and tracing meant finding
-         "Start Measuring" in the sidebar first.
-         ⚠ THIS IS NOT THE THING THAT NOTE WAS REFUSING. Placing a CORNER from
-         above has to invent a height and parallax then swings it across the
-         house, which is why it goes in from the street. Tracing a RUN is the
-         opposite case: an eave and a ridge are level, so plan length IS true
-         length, and above is the one place the line can be seen whole. The
-         note stays, because corners really do still go in from the street. */
+         ⭐ WHAT CHANGED IS THAT THE HEIGHT IS NO LONGER INVENTED HERE.
+         rmMapPixelToWorld corrects the tile displacement first (rmSkyShift) and
+         then reads the ROOF'S OWN height at that spot out of Google's planes,
+         falling back to the working height only where there is no plane. Both
+         of those postdate the ruling.
+
+         ⚠ IT IS STILL THE WEAKER OF THE TWO SIGHTINGS, and it is placed saying
+         so: no ray, so no ring, so the office can see at a glance that the
+         height is the model's opinion. Clicking the same corner once from the
+         street crosses the two and replaces the model's number with geometry
+         (rmPinCorner) — which is exactly the workflow the old ruling wanted,
+         reached without a second kind of dot.
+
+         Tracing a run from above is not lost: the scale check starts one, and
+         so does Enter with no dots down.
+
+         ── THE RULING THIS REPLACES, kept whole because it may be right again.
+         Owner: "make sure that you use the street view to draw the lines not
+         the sky view", and before that "its using skyview to place corners
+         which is bad it should use street view only to detect where corners
+         are", and "sky view is only used to calculate the length of lines but
+         still it shouldnt be used that much because you need depth, height, and
+         length to find the actual size of a line and sky view cant give
+         height." Looking straight down there is no height in the picture at
+         all. From the street a click is a ray that meets the actual wall, so
+         the height falls out of the geometry instead of being supplied — and
+         it is the only view where a gutter can be told from a chimney, a
+         satellite dish or a tree. If dots from above start drifting again,
+         that is the argument to read first. */
+      /* ⛔ NOT AGAINST AN ASSUMED HEIGHT (2026-08-25). Owner: "find the height
+         through proper geometry, not through a rough estimate", and of the panel
+         that used to supply one: "we dont need this".
+
+         ⚠ A SKY CLICK'S HEIGHT IS THE ROOF MODEL'S PLANE AT THAT SPOT, and that
+         plane is EXACT relative to the lowest eave and floats on the datum. So
+         the whole question is whether the datum was measured. Once one dot has
+         met a wall in Street View it is, and every sky click after that is real
+         geometry. Before that it is ten feet because most houses are, and a dot
+         placed on it is wrong in plan as well as in height — the error goes
+         straight into the footage, which is the price.
+
+         ⚠ REFUSING COSTS ONE CLICK AND SAYS WHICH ONE. Accepting costs a quote
+         nobody can tell is wrong. */
+      if(rmDatum().source === 'assumed'){
+        const dn = document.getElementById('rmCornerNote');
+        if(dn) dn.textContent = '⚠ The roof height has not been measured yet, so a dot from up here would be placed at a guess. Click once on a WALL in the street view first — that measures the eave, and then dots go in from either picture.';
+        return;
+      }
+      rmAddCorner(w);
       const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = 'Tracing a side from up here. Corners still go in from the street view — that is the only place a gutter can be told from a chimney, and the only place a height is real rather than guessed.';
-      rmSetDrawing(true);
-      rmAddPoint(w);
+      if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
+        rmCornerLabel(rmCorners.length - 1) + ', at the roof height above that spot. ' +
+        'Click it again in the street view to pin the height exactly. Corners go in from either view now.';
       return;
     }
     if(rmDrawing) rmAddPoint(w);
   });
   document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
+  /* ⭐ SHIFT AND DRAG MOVES A DOT FROM ABOVE TOO (2026-08-25). The panorama
+     has had this for a while; the map had a handle that only LOOKED like one.
+     It belonged to the run rmCornersToRun rebuilds from the corners, so
+     dragging it edited a copy that the next redraw threw away — the dot slid
+     under the cursor and jumped back, which is its own version of "the two
+     views are not in sync".
+
+     ⚠ SHIFT IS WHAT MAKES IT SAFE, for the same reason as over the panorama: a
+     plain click up here now places a dot, so a bare grab-and-move would turn
+     every slightly-wobbly click into a moved corner.
+
+     ⚠ AND A MOVED DOT STOPS BEING PINNED. Its position was the crossing of the
+     rays it had been seen along; dragging it somewhere else makes those rays
+     describe a point it is no longer at. */
+  let rmSkyDragDot = -1, rmSkyDragFrom = null;
+  function rmSkyCornerNear(w){
+    let best = -1, bd = RM_SKY_GRAB_M;
+    rmCorners.forEach(function(c, k){
+      const d = Math.hypot((c.lat - w.lat) * 111320, (c.lng - w.lng) * 85000);
+      if(d < bd){ bd = d; best = k; }
+    });
+    return best;
+  }
+  document.getElementById('rmMapLock').addEventListener('mousedown', function(e){
+    if(!e.shiftKey || rmCornerMode !== 'dot' || !rmMap) return;
+    const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
+    if(!w) return;
+    const i = rmSkyCornerNear(w);
+    if(i < 0) return;
+    rmSkyDragDot = i;
+    rmSkyDragFrom = {x: e.clientX, y: e.clientY};
+    e.preventDefault();
+    const note = document.getElementById('rmCornerNote');
+    if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
+  });
+  document.getElementById('rmMapLock').addEventListener('mousemove', function(e){
+    if(rmSkyDragDot < 0) return;
+    /* A few pixels of travel is a shaky click, not a drag. */
+    if(rmSkyDragFrom && Math.hypot(e.clientX - rmSkyDragFrom.x, e.clientY - rmSkyDragFrom.y) < RM_DRAG_SLOP_PX) return;
+    const c = rmCorners[rmSkyDragDot];
+    if(!c){ rmSkyDragDot = -1; return; }
+    const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
+    if(!w) return;
+    /* ⭐ IT SLIDES ALONG THE RAY IT WAS SEEN ALONG (2026-08-25). Owner: "when i
+       drag a dot on sky view it should stay in the same spot in street view,
+       its just to correct the offset if the system does get it wrong."
+
+       ⭐ AND THAT IS EXACTLY WHAT A DEPTH CORRECTION IS. Every point along the
+       ray from the camera through a pixel draws at THAT SAME PIXEL, so moving a
+       dot along its own ray changes where it sits on the map and leaves Street
+       View untouched, to the pixel. Which is the whole complaint: the dot was
+       right in the photograph and wrong on the map, and the only thing wrong
+       with it was how far away it was.
+
+       ⚠ SO THE CURSOR CHOOSES A POINT ON THE RAY, NOT A POINT ON THE MAP. The
+       dot follows the pointer along one line rather than going wherever it is
+       dropped — that is not the drag being stiff, it is the drag refusing to
+       claim something the two pictures do not jointly say. Sliding sideways off
+       the ray would move the dot in the photograph too, and the corner it is
+       marking has not moved.
+
+       ⚠ THE HEIGHT COMES WITH IT, and it has to. A ray from the street climbs
+       as it goes out, so a point further along it is higher; holding the height
+       while sliding the depth would leave the dot off the ray and back in the
+       wrong place in Street View. The height still comes from the street — it
+       is that ray, read at the corrected distance — which is the rule, not an
+       exception to it.
+
+       ⚠ AND A DOT WITH NO SIGHTING CANNOT DO THIS. One placed from above has
+       no ray to slide along, so it moves in plan and keeps its height, which is
+       the only honest thing left: from above, height is not in the picture. */
+    const ray = (c.rays || [])[0];
+    if(ray && ray.cam && ray.dir){
+      const t = rmRaySlideTo(ray, w);
+      if(t){
+        const p = rmToWorld(t);
+        c.lat = p.lat; c.lng = p.lng; c.h = t.u;
+        c.pinned = 0; c.spread = 0;                 /* one sighting again, by hand */
+        c.rays = [ray];
+        rmCornersChanged();
+      }
+      return;
+    }
+    c.lat = w.lat; c.lng = w.lng;
+    c.rays = []; c.pinned = 0; c.spread = 0;
+    rmCornersChanged();
+  });
+  ['mouseup', 'mouseleave'].forEach(function(ev){
+    document.getElementById('rmMapLock').addEventListener(ev, function(){
+      if(rmSkyDragDot < 0) return;
+      const moved = rmCornerLabel(rmSkyDragDot);
+      rmSkyDragDot = -1;
+      const note = document.getElementById('rmCornerNote');
+      if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
+        'click it in the street view to fix its height exactly.';
+    });
+  });
   /* ⭐ SHIFT AND DRAG MOVES A DOT. Owner: "add a drage featue so if you grab a
      dot while holding shift it moves."
 
@@ -22441,14 +22837,41 @@ function openRoofMeasure(quoteId){
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
     const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
-    /* Where it goes is decided the same way a fresh click is - the house as a
-       solid - so a dragged dot cannot land somewhere a placed one could not. */
-    const hit = rmHouseHit(dir, cam);
-    if(!hit) return;
+    /* ⭐ FROM HERE, HEIGHT IS THE ONLY THING YOU CAN CHANGE (2026-08-25). Owner:
+       "if you drag on sky view the height stays the same and if you drag on
+       street view the height is the only thing you can change."
+
+       ⭐ AND IT IS THE RIGHT SPLIT, not just a preference — it gives each view
+       the one axis it can actually see. Looking straight down there is no
+       height in the picture, so the map must not touch it. From the street the
+       DEPTH along the ray is the unknown, so where a dot sits in plan is the
+       thing this view cannot judge: a dot can sit perfectly on the gutter here
+       and be ten feet into next door's garden on the map, and nothing in this
+       picture can show it. Letting a drag here move the plan position means
+       dragging the one number you cannot see, by eye, using the one view that
+       cannot see it. Between the two views every dot is fully correctable, and
+       neither view is ever asked to guess.
+
+       ⚠ THE PLAN POSITION IS HELD EXACTLY, so this is not a re-aim of the ray.
+       The dot sits on a VERTICAL LINE at a fixed horizontal distance from the
+       camera; the cursor's ray gives an elevation; height is that distance
+       times the tangent of it. Solving it that way rather than crossing the ray
+       with a surface is what keeps east and north bit-for-bit unchanged — a
+       re-crossed ray would nudge them every frame and the map would show the
+       dot creeping sideways while somebody set its height. */
+    const here = rmToLocal(c.lat, c.lng, c.h || 0);
+    const plan = Math.hypot(here.e - cam.e, here.n - cam.n);
+    if(!(plan > 0.5)) return;                       /* standing on top of it */
+    const len = Math.hypot(dir.e, dir.n, dir.u) || 1;
+    const el = Math.asin(Math.max(-1, Math.min(1, dir.u / len)));
+    const u = cam.u + plan * Math.tan(el);
+    /* ⚠ NOTHING IS UNDERGROUND AND NOTHING IS ABOVE THE ROOF, the same two
+       limits a fresh click answers to — a drag must not reach a place a click
+       could not. */
     const top = rmRoofTopM();
-    if(top !== null && hit.u > top + RM_EAVE_TOL_M) return;
-    const w = rmToWorld({e: hit.e, n: hit.n, u: hit.u});
-    c.lat = w.lat; c.lng = w.lng; c.h = hit.u;
+    if(!(u > 0.3)) return;
+    if(top !== null && u > top + RM_EAVE_TOL_M) return;
+    c.h = u;
     c.rays = []; c.pinned = 0; c.spread = 0;
     rmCornersChanged();
   });
@@ -22491,7 +22914,15 @@ function openRoofMeasure(quoteId){
       rmAlignTakeStreet(hit);
       return;
     }
-    if(rmCornerMode === 'dot'){
+    /* ⚠ AND NOT WHILE A RUN IS OPEN — THE SAME RULE THE MAP FOLLOWS. The map
+       branch has always read `rmCornerMode === 'dot' && !rmDrawing`; this one
+       read only the mode, so the two views answered an identical click two
+       different ways the moment anything opened a run. The scale check is the
+       thing that does: it says "click each end of it in either view", and in
+       the street view the click was landing as a CORNER instead — so the check
+       could not be taken from the one view that can see the thing being
+       checked, and the office got a stray dot for trying. */
+    if(rmCornerMode === 'dot' && !rmDrawing){
       /* ⭐ A CLICK PLACES A CORNER, on the roof it is pointing at. Owner:
          "also have a way to add a corner... space bar toggles select from make
          a dot." The dormer corners that meet the main roof are not against the
@@ -22520,7 +22951,9 @@ function openRoofMeasure(quoteId){
           rmCandidates.length + ' still offered.';
         return;
       }
-      const near = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
+      /* ⭐ EACH DOT AT ITS OWN SIZE, so a dot that has drifted can still be
+         re-sighted — see RM_RESIGHT_DEPTH_SLOP_M. */
+      const near = rmDotToResight(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
       if(near >= 0){
         const res = rmPinCorner(near, {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir});
         const noteEl = document.getElementById('rmCornerNote');
@@ -22688,9 +23121,8 @@ function openRoofMeasure(quoteId){
        one eave makes every later sky-view trace a true length. */
     const ft = world.h * RM_M_TO_FT;
     if(ft > 1){
-      document.getElementById('rmHeightFt').value = Math.round(ft*2)/2;
-      document.getElementById('rmHeightNote').textContent =
-        'Picked up ' + (Math.round(ft*10)/10) + ' ft from that Street View click.';
+      /* The measured eave is announced on rmDatumNote by rmRefreshHeights;
+         there is no typed box left to write it into. */
     }
   });
   /* ⭐ THE RIGHT BUTTON ALWAYS SELECTS. Owner: "make it so right click is
