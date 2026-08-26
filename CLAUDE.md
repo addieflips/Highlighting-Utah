@@ -274,6 +274,21 @@ bash
 # line that used to be here (`git push origin main`) has not worked for a while.
 # The route to production is therefore: branch → push branch → open a PR → both
 # checks go green → merge. Netlify publishes from main once the merge lands.
+# ⚠ AND A PR OPENED THROUGH THE GITHUB APP TOKEN GETS NO CI AT ALL (2026-08-26).
+#   PR #137 sat with ZERO workflow runs on its branch. Nothing was wrong with the
+#   code: tests.yml triggers on `push: branches: [main]` and `pull_request`, so a
+#   branch push is never eligible, and the pull_request event produced no run —
+#   GitHub suppresses workflow triggering from events generated with an app token,
+#   to stop workflows setting each other off. So the two REQUIRED checks never
+#   report, the PR sits blocked for ever, and it reads exactly like a queue.
+#   ⭐ THE FIX IS workflow_dispatch, which tests.yml already enables. Run it against
+#   the BRANCH and GitHub attaches the run to the open PR (`pull_requests:[137]`),
+#   so its check runs land as the required contexts and the PR goes green. Verified
+#   on #137: both jobs success on the exact head SHA.
+#   ⚠ DO NOT reach for an empty commit or a close-and-reopen to kick CI. Both are
+#   forbidden, and workflow_dispatch is the supported trigger the file already has.
+#   ⚠ A PR opened BY THE OWNER in the browser is unaffected — this is about who
+#   generated the event, not about the branch or the code.
 git add index.html admin.html employee.html && git commit -m "..."
 git push -u origin <your-branch>          # then open a PR against main and merge it
 # Cloud Functions:
