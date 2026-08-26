@@ -1221,6 +1221,8 @@ const RETIRED_CHECKLIST_TERMS = [
       216,  // reading the options list for what is missing
       217,  // getting the soft-light houses switched before the list is lost
       218,  // the RSVP asking the right household for its own gate code
+      219,  // the Overdue list read against the real book, after the invoice-date fix
+      220,  // the house tabs on a real shared bill - layout, and real record shapes
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
