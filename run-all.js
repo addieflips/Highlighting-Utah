@@ -11965,8 +11965,15 @@ suite('Suite 39. Importing in batches, and remembering the place');
     /if\(remembered\)\{[\s\S]{0,200}?location\.reload/.test(admin),
     'reloading after a failed save would lose the run with nothing to resume from');
 
+  /* ⚠ THIS USED TO MATCH THE EXACT TEXT `renderBulkResumeBanner(); } catch(err){}` —
+     that is, it was pinned to the catch being EMPTY AND WORDLESS, so giving that
+     swallow the reason silent-failures.test.js now requires broke a check about
+     something else entirely. The §7 slow fuse again: anchored on how a thing happens
+     to be spelled rather than on what has to be true. What has to be true is that the
+     banner is drawn once everything is parsed, and that a failure to draw it cannot
+     take the page down with it. */
   check('S39', 'an unfinished job announces itself when the page comes back',
-    /renderBulkResumeBanner\(\); \} catch\(err\)\{\}/.test(admin),
+    /setTimeout\(function\(\)\{\s*try\{\s*renderBulkResumeBanner\(\);\s*\}\s*catch/.test(admin),
     'a refresh would otherwise look exactly like the import having vanished');
 
   /* ---- the job store, run for real ---- */
@@ -25990,17 +25997,18 @@ pendingAsync.push((async () => {
       (groups[k] = groups[k] || []).push(c);
     });
     const synced = [];
+    const jobSignals = {ok: 0, failed: []};
     const box = {};
     new Function(
       'hcCachesReady', 'jobAddresses', 'allInvoicesCache', 'hcInvoiceGroups',
       'syncPayerInvoice', 'updateDoc', 'doc', 'db', 'serverTimestamp',
-      'computeInvoiceStatus', 'logActivity', 'console',
+      'computeInvoiceStatus', 'logActivity', 'console', 'bgJobOk', 'bgJobFailed',
       'const INV_AUTOSYNC_PER_RUN = ' + (opts.perRun || 25) + '; let invAutoSyncBusy = false;' +
       src + 'this.f = invoiceAutoSync;'
     ).call(box,
       () => opts.ready !== false,
       customers, invoices,
-      () => groups,
+      () => { if(opts.blowUp) throw new Error('Missing or insufficient permissions.'); return groups; },
       async (payer) => { synced.push(payer); },
       async (ref, patch) => { wrote.push({ref: ref, patch: patch}); },
       (db, col, id) => (col + '/' + id), {},
@@ -26012,12 +26020,44 @@ pendingAsync.push((async () => {
         return paid >= total ? 'Paid in Full' : 'Partial Payment';
       },
       (msg) => { logged.push(msg); },
-      {error: function(){}, log: function(){}});
-    return box.f().then(r => ({res: r, wrote: wrote, synced: synced, logged: logged}));
+      {error: function(){}, log: function(){}},
+      /* ⭐ THE BACKGROUND-JOB STREAK, STUBBED BUT RECORDING (2026-08-26). Not lifted:
+         what it does is write a System note, which is run for real by the checks that
+         own it — here the question is only whether the sync REPORTS itself, and a stub
+         that remembers being called answers exactly that. Before this, invoiceAutoSync
+         turned any throw into one console line and the caller could not tell a clean
+         pass from a dead one. */
+      () => { jobSignals.ok++; },
+      (key, label) => { jobSignals.failed.push(label || key); });
+    return box.f().then(r => ({res: r, wrote: wrote, synced: synced, logged: logged,
+                               jobSignals: jobSignals}));
   }
 
   const cust = (id, phone, price) => ({id: id, data: {name: id, phone: phone, housePrice: price}});
   const inv = (id, d) => ({id: id, data: d || {}});
+
+  /* ⭐ AND THE PASS SAYS WHETHER IT RAN (added 2026-08-26). Owner's rule, 2026-08-25:
+     "nothing should fail quietly." This is money reconciliation on a ten-minute timer
+     with nobody watching: if it stops, invoices and customer records drift apart and
+     the first sign of it is a customer disputing a figure. It used to turn any throw
+     into one console.error and return, so a dead sync and a quiet night looked the
+     same from outside. Forcing the failure and asserting the signal, per
+     claude/silent-failures.md section 10. */
+  {
+    const good = await run79([cust('ada', '8015550001', 400)], []);
+    check('S79', 'a pass that ran reports that it ran',
+      good.jobSignals.ok === 1 && !good.jobSignals.failed.length,
+      'without the success side the failure streak never resets, so one bad tick ' +
+      'would raise a note and then stay quiet for ever');
+    const dead = await run79([cust('ada', '8015550001', 400)], [], {blowUp: true});
+    check('S79', 'and a pass that died says so where it keeps',
+      dead.jobSignals.failed.length === 1 && !dead.jobSignals.ok,
+      'a console line in a browser nobody has the console open in is the same as no ' +
+      'handling at all for a job running on a timer');
+    check('S79', 'and it still does not take the page down with it', !!dead.res,
+      'never let a background check break the page it runs behind — that half was ' +
+      'always right and is not what changed');
+  }
 
   /* ---- created ---- */
   {
@@ -27817,6 +27857,54 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
 }
 
 
+/*
+ * Suite 71b. Bulk actions say how many really went through.
+ *
+ * ⭐ Owner's rule, 2026-08-25: "nothing should fail quietly." claude/silent-failures.md
+ * §5 names the shape: "tick twelve, move them, three quietly do not move — the count
+ * still says twelve." Two loops in admin.html were written that way, each with a
+ * per-row `.catch(function(){})` and a total printed from the length of the INPUT
+ * list rather than from what actually worked.
+ *
+ * ⚠ Both are TIER 2: somebody pressed a button and is standing there. Reported by
+ * scoping to each handler's own slice, because the two loops are spelled almost
+ * identically and a file-wide search would pass with either one still broken — the
+ * same trap the two duplicate-customer tools set (Suite 42).
+ */
+suite('Suite 71b. Bulk actions say how many really went through');
+{
+  const queueBtn = sectionFrom(admin, admin.indexOf("if(btn) btn.addEventListener('click', async function(){\n    if(!confirm('Send '"));
+  const queue = queueBtn || admin.slice(admin.indexOf("Send ' + notFlagged.length + ' customer(s) to the build queue"),
+                                        admin.indexOf("whFindNotQueuedBtn').click();"));
+  check('S71b', 'the build-queue button was found', !!queue.length);
+  check('S71b', 'a house that would not queue is counted, not swallowed',
+    /catch\(err\)\{[\s\S]{0,200}missed\.push/.test(queue),
+    'a refused write left the house out of the build queue with nothing saying so, ' +
+    'and being in that queue is the whole point of the button');
+  check('S71b', 'and the total reported is what worked, never the list length',
+    !/toast\(notFlagged\.length/.test(queue) && /sent \+ ' of ' \+ notFlagged\.length/.test(queue),
+    'reporting the input length is what made three silent failures read as twelve ' +
+    'successes');
+  check('S71b', 'and the ones that failed are named, so they can be re-sent',
+    /missed\.slice\(0, 8\)/.test(queue),
+    '"3 failed" with no names means finding them again by hand in a book of a thousand');
+  /* ⚠ TIED TO THE BRANCH THAT FIRES IT. A search for the wording survived the whole
+     `if(missed.length)` being switched off — the words were still sitting there
+     inside a branch that can never run, which is the shape Suite 112 records for the
+     bin-number box that rendered and saved nothing. */
+  check('S71b', 'and that report is reached when, and only when, something failed',
+    /if\(missed\.length\)\{[\s\S]{0,400}?missed\.slice\(0, 8\)/.test(queue),
+    'the wording existing is not the wording appearing');
+
+  const stale = sectionFrom(admin, admin.indexOf("const clr = document.getElementById('cnClearStaleBtn');"));
+  check('S71b', 'clearing stale pool entries counts what really cleared',
+    /cleared\+\+/.test(stale) && !/toast\(stale\.length/.test(stale),
+    'the toast said N removed whatever happened, so an entry that would not delete ' +
+    'came back on the next Find conflicts looking like the button did not work');
+  check('S71b', 'and says when some would not clear',
+    /would not clear/.test(stale));
+}
+
 suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
 {
   /* ⚠ RESTORED 2026-08-19 after a paste-over from a stale read dropped it (the
@@ -27844,6 +27932,69 @@ suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
   check('S71', 'a second failure cannot take the sweep down with it',
     /catch\(err2\)/.test(catchBlock),
     'the routes are already written — throwing here would strand the caller');
+
+  /* ⭐ AND THE SWEEP'S OWN FAILED WRITES ARE IN THE NOTE (added 2026-08-26). Owner's
+     rule, 2026-08-25: "nothing should fail quietly." The sweep writes each move onto
+     the ROUTE and onto the CUSTOMER, and the three customer writes sat behind bare
+     catches — so a refused write left the two halves disagreeing about which day a
+     house is on, silently, which is the exact fault this file warns about again and
+     again. Counted into report.writeFailed and said in the note; tier 3, because the
+     sweep runs on a timer with nobody standing there.
+
+     ⚠ RUN, not matched. The claim is about a SENTENCE THAT REACHES THE INBOX, and a
+     regex over the source proves the words exist in the file — which is a different
+     and weaker claim, and is exactly what let the ledger render bug ship. */
+  /* ⚠ PUSHED ONTO pendingAsync, which the summary awaits — a check that scores after
+     the summary has printed can never fail the build. */
+  pendingAsync.push((async () => {
+    const wrote = [];
+    const fn = new Function('addDoc', 'collection', 'db', 'serverTimestamp', 'toast',
+      'console', 'formatDateNice', 'reconcileNoteIsRepeat', 'allMessages',
+      'let lastReconcileNote = {body: "", at: 0};' + notice + ';return noticeRoutesReconciled;'
+    )(async (r, p) => { wrote.push(p); return {id: 'n1'}; }, () => ({}), {}, () => 'NOW',
+      () => {}, {error(){}, warn(){}, log(){}}, (d) => String(d), () => false, []);
+
+    const base = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],
+      filled: [], pulled: [], built: [], retired: [], overByHand: [], resynced: [],
+      writeFailed: [], stranded: {noCity: [], noPin: [], byCity: {}}};
+
+    await fn(Object.assign({}, base, {refreshed: 2}));
+    check('S71', 'an ordinary sweep note says nothing about failed writes',
+      wrote.length === 1 && !/would not update/.test(wrote[0].message),
+      'a warning that appears when nothing is wrong is the next one people skim past');
+
+    wrote.length = 0;
+    await fn(Object.assign({}, base, {refreshed: 2, writeFailed: [
+      {name: 'Ashley Wray', what: 'moving them off a full day'},
+      {name: 'Rachel Oslund', what: 'putting them on a day'}]}));
+    check('S71', 'a sweep whose customer writes were refused names them',
+      wrote.length === 1 && /2 customer records would not update/.test(wrote[0].message) &&
+      /Ashley Wray/.test(wrote[0].message),
+      'got: ' + ((wrote[0] || {}).message || '(no note)').slice(0, 160));
+    check('S71', 'and says what it means for the crew',
+      wrote.length === 1 && /disagree/.test(wrote[0].message),
+      '"2 records would not update" is not something anybody can act on');
+    check('S71', 'and puts it FIRST, where the length trim cannot reach it',
+      wrote.length === 1 &&
+      wrote[0].message.indexOf('would not update') < wrote[0].message.indexOf('updated to match'),
+      'the body is trimmed from the END to fit the 5000-character rule, so the one ' +
+      'line saying part of the sweep did not take has to be at the top');
+  })());
+  /* ⚠ AND THE THREE PLACES THAT FEED IT. Structural, because running the whole sweep
+     is a different and much heavier harness (Suite 18) — but a note nothing pushes
+     into is a note that never appears, which is the shape of the Contact 2027 tab
+     reading a field nobody wrote. */
+  {
+    const sweep = sectionFrom(admin, admin.indexOf('async function reconcileUpcomingRoutes'));
+    check('S71', 'all three customer writes in the sweep report a refusal',
+      (sweep.match(/report\.writeFailed\.push\(/g) || []).length === 3,
+      'found ' + (sweep.match(/report\.writeFailed\.push\(/g) || []).length + ' of 3 — ' +
+      'freeing a house, shedding one off a full day, and placing one on a day');
+    check('S71', 'and a sweep whose ONLY outcome was failures still speaks',
+      /report\.changed[\s\S]{0,700}report\.writeFailed\.length > 0/.test(sweep),
+      'left out of report.changed, a pass where every write was refused is ' +
+      'indistinguishable from a quiet night');
+  }
 }
 
 /*

@@ -2236,18 +2236,18 @@ function navigate(){
   var forceHomepage = false;
   try{
     forceHomepage = window.location.pathname === '/home' || /(^|[?&])home=1(&|$)/.test(window.location.search);
-  } catch(e){}
+  } catch(e){ /* quiet on purpose: no readable location means no /home override, and the ordinary route below is the right answer anyway */ }
   if(forceHomepage){
-    try{ window.history.replaceState(null, '', '/' + window.location.hash); } catch(e){}
+    try{ window.history.replaceState(null, '', '/' + window.location.hash); } catch(e){ /* quiet on purpose: tidying the address bar. A blocked replaceState leaves /home visible and changes nothing else */ }
     return;
   }
   var savedPortalToken = null;
   var savedCreds = null;
-  try{ savedPortalToken = localStorage.getItem('huPortalToken'); } catch(e){}
+  try{ savedPortalToken = localStorage.getItem('huPortalToken'); } catch(e){ /* quiet on purpose: private browsing or storage disabled — they sign in normally, which is the same path a first-time visitor takes */ }
   try{
     var rawCreds = localStorage.getItem('huPortalCreds');
     if(rawCreds) savedCreds = JSON.parse(rawCreds);
-  } catch(e){}
+  } catch(e){ /* quiet on purpose: storage blocked, or a half-written entry from an older version. Either way there is nothing to remember and the sign-in box appears empty rather than wrong */ }
   var initialHash = window.location.hash.replace('#','').split('?')[0];
   var initialQuery = window.location.hash.split('?')[1] || '';
   var onBarePaymentPage = initialHash === '/payment' && !initialQuery;
@@ -2651,7 +2651,18 @@ function uploadPhotoToCloudinary(file, onProgress){
         };
         xhr.onload = function(){
           var data = null;
-          try{ data = JSON.parse(xhr.responseText); } catch(err){}
+          try{ data = JSON.parse(xhr.responseText); }
+          catch(err){
+            /* ⚠ NOT QUIET ON PURPOSE. The customer does hear about this — a failed
+               parse leaves `data` null and the promise rejects with "Upload failed"
+               below — but throwing the parse error away loses the only thing that
+               says WHICH failure it was. Cloudinary down, a bad signature and a
+               proxy serving an HTML error page all arrive here as the same five
+               words, and the first two are ours to fix. The status code and the
+               first of the reply are what separate them. */
+            console.error('[HU] Cloudinary replied with something that is not JSON (HTTP ' +
+              xhr.status + '):', String(xhr.responseText || '').slice(0, 200), err);
+          }
           if(data && data.secure_url) resolve(data.secure_url);
           else reject(new Error((data && data.error && data.error.message) || 'Upload failed'));
         };
@@ -4417,15 +4428,22 @@ function generatePortalToken(){
 function savePortalLogin(token){
   try{ localStorage.setItem('huPortalToken', token); } catch(e){ /* private browsing or storage disabled — login just won't persist */ }
 }
+/* ⚠ THE THREE BELOW ARE QUIET ON PURPOSE FOR ONE REASON, and it is worth saying once:
+   storage is a convenience here, never the source of truth. Signing out is decided by
+   the page, not by localStorage — the token in memory is dropped either way — so a
+   blocked remove costs a browser that offers to fill the sign-in box in next time and
+   nothing more. Telling a customer their browser would not delete a key is noise they
+   can do nothing with. (The sibling at savePortalLogin has carried this reason since
+   it was written; these three were the ones that did not.) */
 function clearPortalLogin(){
-  try{ localStorage.removeItem('huPortalToken'); } catch(e){}
-  try{ localStorage.removeItem('huPortalCreds'); } catch(e){}
+  try{ localStorage.removeItem('huPortalToken'); } catch(e){ /* quiet on purpose — see above */ }
+  try{ localStorage.removeItem('huPortalCreds'); } catch(e){ /* quiet on purpose — see above */ }
 }
 function savePortalCreds(contactRaw, lastNameInput){
-  try{ localStorage.setItem('huPortalCreds', JSON.stringify({c: contactRaw, ln: lastNameInput})); } catch(e){}
+  try{ localStorage.setItem('huPortalCreds', JSON.stringify({c: contactRaw, ln: lastNameInput})); } catch(e){ /* quiet on purpose — see clearPortalLogin above */ }
 }
 function clearPortalCreds(){
-  try{ localStorage.removeItem('huPortalCreds'); } catch(e){}
+  try{ localStorage.removeItem('huPortalCreds'); } catch(e){ /* quiet on purpose — see clearPortalLogin above */ }
   pendingPortalCreds = null;
 }
 function commitPendingPortalCreds(){

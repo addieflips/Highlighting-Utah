@@ -10,8 +10,9 @@
     "test:reason": "node build-reason.test.js",
     "test:fix": "node fix-sheet.test.js",
     "test:portal": "node portal-repro.test.js",
+    "test:silent": "node silent-failures.test.js",
     "test:suite": "node run-all.js",
-    "test": "npm run verify && npm run test:selectors && npm run test:money && npm run test:options && npm run test:season && npm run test:colours && npm run test:reason && npm run test:fix && npm run test:portal && npm run test:suite",
+    "test": "npm run verify && npm run test:selectors && npm run test:money && npm run test:options && npm run test:season && npm run test:colours && npm run test:reason && npm run test:fix && npm run test:portal && npm run test:silent && npm run test:suite",
     "test:browser": "playwright test",
     "test:browser:headed": "playwright test --headed",
     "test:all": "npm test && npm run test:browser"
