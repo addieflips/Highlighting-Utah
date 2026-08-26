@@ -228,6 +228,8 @@ new scheduler, no N. The option list becomes a block in the existing RSVP email.
 
 ---
 
+**Map rows (added 2026-08-26):** `RS-11` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
+
 ## Q-006 · intent · answered · 2026-08-21
 What happens to a job whose confirmation comes back disputed?
 
@@ -282,6 +284,8 @@ job in admin"* are both superseded — the RSVP's own four states
 (`yes`/`no`/`backnextyear`/`unanswered`) are the whole vocabulary.
 
 ---
+
+**Map rows (added 2026-08-26):** `RS-12` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 
 ## Q-007 · intent · ANSWERED · 2026-08-21, closed 2026-08-25
 What is the real option set for `js/options.js`?
@@ -373,6 +377,8 @@ Resulting map change:
 
 ---
 
+**Map rows (added 2026-08-26):** `OPT-01` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
+
 ## Q-008 · intent · answered · 2026-08-21
 On a health-check notice in the System inbox, what does **Deny** mean?
 
@@ -423,6 +429,8 @@ moment its fingerprint changes, which is what "not until the data changes" buys.
 fingerprint is now part of phase 5's walker, not a bolt-on to the panel.
 
 ---
+
+**Map rows (added 2026-08-26):** `HC-01` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 
 ## Q-009 · intent · answered · 2026-08-21
 Which health checks should raise a System notice at all?
@@ -484,6 +492,8 @@ preview and no record. It is only an improvement if the preview is real.
 and pick up R-006/R-007/R-008 on the way.
 
 ---
+
+**Map rows (added 2026-08-26):** `HC-02` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 
 ## Q-010 · intent · part answered 2026-08-22 · Q-010a still open
 "Straight yes only" — when should `SEASON_ELIGIBILITY` be flipped, and does a
@@ -686,6 +696,8 @@ Resulting map change: `isOutForSeason`'s `confirmed-only` branch now requires
 
 ---
 
+**Map rows (added 2026-08-26):** `RS-13, RS-14` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
+
 ## Q-011 · intent · answered · 2026-08-21
 An admin sets "Before Thanksgiving" in Customers. Should that re-place them on
 the schedule — and is it worth what it costs?
@@ -774,3 +786,5 @@ October day has room.
 **Resulting map change:** none to the registry — this is scheduler behaviour.
 Covered by six new checks in run-all.js Suite 46 and a rewritten assertion in
 Suite 44.
+
+**Map rows (added 2026-08-26):** `SCH-23, SCH-24` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
