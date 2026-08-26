@@ -36643,17 +36643,47 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   check('S149', 'and it says which click would fix it, rather than just refusing',
     /Click once on a WALL in the street view first/.test(admin),
     'a refusal with no way out reads as the tool being broken');
-  /* ⭐ THE PICTURE LINES ITSELF UP FROM THE DOTS. Owner: "i click a corner on
-     skyview but its still a few feet off from where I clicked" — that is the
-     satellite tile being displaced, with the correction never applied because
-     rmAutoAlign only ran after a hand-traced RUN was finished, and the workflow
-     stopped producing those the day dots replaced tracing. */
-  check('S149', 'placing dots is enough to line the two pictures up',
+  /* ⛔ THE PICTURE DOES NOT LINE ITSELF UP FROM THE DOTS (reverted 2026-08-26,
+     one day after these checks asserted the opposite).
+
+     ⚠ MEASURED FAILING, ON 209 S 850 W. Three dots across the front gable made
+     rmAutoAlign fit an offset of 19.2 FT and apply it; the displacement really
+     measured on that house is about six. Every dot then drew about twenty feet
+     off the building, while their TRUE positions were fine - rmRoofRelativeAt
+     answered non-null for all three. The drawing was wrong and the measurement
+     was right, which is the worst way round, because the office judges the tool
+     by the drawing.
+
+     ⚠ WHY IT FITS BADLY FROM DOTS. The fit matches traced lines against the
+     model's EAVE segments. A run built from corners across a gable is two RAKES
+     and a peak, so it is matched against edges it does not lie along and the
+     minimum goes soft - and a soft minimum lands wherever the search started
+     and reports a confident number for it. That is the same under-determined
+     failure written up in js/svdepth.js, arrived at from the other direction.
+
+     ⚠ THE COMPLAINT IT WAS MEANT TO ANSWER STANDS. "i click a corner on skyview
+     but its still a few feet off" is the tile being displaced, and the honest
+     answer is Line them up: two clicks, one spot, measured. */
+  check('S149', 'placing dots does NOT try to line the two pictures up',
     (function(){
       const fn = extractFn(admin, 'rmCornersChanged') || '';
+      return !/rmAutoAlign\(\);/.test(fn);
+    })(),
+    'three dots on a gable fitted 19.2 ft on a house whose displacement is six, ' +
+    'and drew every dot off the building');
+  check('S149', 'and a corner-built run cannot reach the fit even if something calls it',
+    (function(){
+      const fn = extractFn(admin, 'rmFitSkyOffset') || '';
+      return /!r\.fromCorners/.test(fn) && /rmTracedSamples\(usable\)/.test(fn);
+    })(),
+    'the guard is what stops this coming back through a different caller');
+  check('S149', 'the fit still runs when a real side has been traced',
+    (function(){
+      const fn = extractFn(admin, 'rmFinishRun') || '';
       return /rmAutoAlign\(\);/.test(fn);
     })(),
-    'it fired only on rmFinishRun, which the dot workflow never calls');
+    'a whole traced gutter is long, straight and actually an eave - that is the ' +
+    'case it was built and tested for, and it is not being removed');
   check('S149', 'and it still never overrides an answer somebody measured',
     /if\(rmSkyOffset \|\| rmAligning\) return;/.test(extractFn(admin, 'rmAutoAlign') || ''),
     'a fit is arithmetic about a model; a measured alignment is a person saying where a spot is');
