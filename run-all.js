@@ -4499,8 +4499,11 @@ suite('11. Reliability pass');
     "last year's date would make every new invoice read as ~10 months overdue");
 
   // ---- 2.6 Bin numbers on Delete All -------------------------------------
-  const delAll = admin.slice(admin.indexOf("getElementById('deleteAllAddressesBtn').addEventListener"),
-                             admin.indexOf("getElementById('deleteAllAddressesBtn').addEventListener") + 2600);
+  /* ⚠ THIS WAS A FIXED 2600-CHARACTER WINDOW AND IT WENT STALE, exactly as CLAUDE.md
+     §7 says these always do: a comment added inside the handler on 2026-08-26 pushed
+     the "returned to the pool" line past the end of the window and the check failed on
+     code that is right. Sliced to the end of its own top-level construct instead. */
+  const delAll = sectionFrom(admin, admin.indexOf("getElementById('deleteAllAddressesBtn').addEventListener"));
   check('reliability', 'Delete All Customers returns the numbers to the pool',
     /availableCustomerNumbers/.test(delAll),
     'numbering restarts above the old maximum and every labelled bin means nothing');
@@ -24427,6 +24430,27 @@ suite('Suite 108. The Edit Customer save, actually run');
         return o.feeAnswer || 'charge';
       }
     };
+    /* ⭐ THE REAL POOL-FAILURE NOTICE, LIFTED — not a stub (2026-08-26). The whole
+       point of the `breakPool` run below is what the office is TOLD when the pool
+       write is refused, and a stub would answer that question with itself. Lifted the
+       long way round because extractFn matches "function NAME(" and so drops the
+       `async` keyword — a body full of bare `await` is a parse error that kills the
+       whole suite as one unattributable crash (CLAUDE.md §5). `cnStuckToastAt` is a
+       module-level `let` the function closes over, so the preamble declares it; the
+       Firestore stubs and `toast` come in as parameters because a `new Function` body
+       sees globals, never this ctx. */
+    {
+      const st = admin.indexOf('async function noticeCustomerNumberStuck(');
+      let b = admin.indexOf('{', st), d2 = 0, e = b;
+      if (st > 0) { for (;; e++) { if (admin[e] === '{') d2++; else if (admin[e] === '}') { d2--; if (!d2) break; } } }
+      const noticeSrc = st > 0 ? admin.slice(st, e + 1) : '';
+      check('S108', 'the pool-failure notice was found to run', !!noticeSrc,
+        'without it the breakPool checks below prove nothing about what is said');
+      ctx.noticeCustomerNumberStuck = new Function(
+        'addDoc', 'collection', 'db', 'serverTimestamp', 'toast', 'jobAddresses', 'console',
+        'let cnStuckToastAt = 0; return ' + noticeSrc + ';noticeCustomerNumberStuck'
+      )(ctx.addDoc, ctx.collection, ctx.db, ctx.serverTimestamp, ctx.toast, ctx.jobAddresses, ctx.console);
+    }
     const names = Object.keys(ctx);
     const fn = new AsyncFn(...names, handlerSrc);
     return fn(...names.map(n => ctx[n])).then(function(){
@@ -24470,6 +24494,30 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and the pool failure is at least written to the console',
       broke.errs.some(e => /pool/i.test(e)),
       'silently losing the bin number is how two bins end up wearing one label');
+    /* ⭐ AND THE CONSOLE IS NOT WHERE THIS GETS NOTICED (added 2026-08-26). Owner's
+       rule, 2026-08-25: "nothing should fail quietly." system-map.md already records
+       the symptom blind — "a customer number appears on two houses… the Health Check
+       report finds them but can't auto-fix" — and a console.error in a browser nobody
+       has the console open in is how it got there. Forcing the failure and asserting
+       the SIGNAL is what the silent-failure map asks for; asserting the console line
+       alone is what let this stay invisible. */
+    const poolNote = broke.writes.find(w => w.col === 'messages' && w.op === 'add' &&
+      w.payload && w.payload.topic === 'Customer Number Needs Fixing');
+    check('S108', 'and a System note is raised about the number',
+      !!poolNote && poolNote.payload.folder === 'System',
+      'the fix is a human typing a number into Customer Numbers later, so it has to ' +
+      'keep — a toast is gone the moment they look away');
+    check('S108', 'and that note names the number and which way it went wrong',
+      !!poolNote && /#894/.test(poolNote.payload.message) &&
+      /put back into the available pool/.test(poolNote.payload.message),
+      'releasing and taking are opposite faults with opposite fixes; a note that ' +
+      'says neither leaves somebody guessing which');
+    check('S108', 'and the note stays inside the 5000-character rule',
+      !!poolNote && poolNote.payload.message.length < 5000,
+      'firestore.rules refuses a longer message as "insufficient permissions"');
+    check('S108', 'and somebody standing there is told to go and look',
+      broke.errs.some(e => /note about it in the Inbox/i.test(e)),
+      'the note keeps, the toast is the half that gets noticed immediately');
 
     /* ⭐ AND A SAVE THAT REALLY FAILS SAYS WHAT FAILED. */
     const dead = await (async function(){
