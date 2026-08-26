@@ -13026,6 +13026,65 @@ function audienceOrderedLastYear(d){
 }
 // First-year customer, read off the same flag the invoice/new-member logic uses.
 function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
+/* ⭐ WHO WE HAVE NEVER ASKED (added 2026-08-26). Owner, before the first RSVP send.
+   THE RSVP ASKS "will you be getting lights hung AGAIN this year?" — nonsense to a
+   first-year customer, and it invites a "no" from somebody who was never asked a
+   sensible question. Choosing an RSVP template sets the audience to Returning so they
+   are not in the list at all.
+
+   ⚠ BUT "NEW" WAS DECIDED BY THE $30 FEE BOX ALONE, and that is narrower than it
+   looks. printIsNewHang already records why: Ashley Wray badges NEW on the Schedule
+   with her fee box UNTICKED, because the badge asks a different question — is there a
+   CLOSED QUOTE against this house. Two definitions of "new" were live in one page and
+   the RSVP had the quieter one. So anybody who joined this year with the fee waived —
+   a promotion, a favour, something agreed on the phone — was in the send.
+
+   ⭐ THE UNION IS THE HONEST RULE, and the asymmetry is why: excluding somebody by
+   mistake costs one email sent by hand; including a first-year customer asks them
+   about lights they have never had. Same argument printIsNewHang made for the photo.
+
+   ⚠ A RE-QUOTE IS NOT A JOIN. Their quote closes too, and a returning customer who was
+   re-quoted must NOT be dropped from the RSVP — that would silently shrink the one
+   send that has to reach everybody. isRequote and convertedToCustomerAt together mean
+   "this is the quote that CREATED them".
+
+   ⚠ AND IT EXPIRES, which is MON-07's rule: a 2026 quote is not new in 2027. Without
+   the year this would keep growing until it covered the whole book.
+
+   ⚠ NOT BY ENROLMENT DATE, ever. The old date guess called ~945 imported people new
+   members; here that would empty the RSVP entirely — the send failing silently, which
+   looks exactly like a send that worked.
+
+   ⚠ IT FAILS THE SAME WAY THE OLD RULE DID, not worse: with quotesCache unloaded this
+   answers on the fee box alone, which is precisely today's behaviour. */
+function audienceQuoteJoinYear(d){
+  if(typeof quotesCache === 'undefined' || !Array.isArray(quotesCache)) return null;
+  const digits = String((d && d.phone) || '').replace(/\D/g,'');
+  if(!digits) return null;
+  const addr = quoteMatchAddress((d && d.address) || '');
+  let year = null;
+  quotesCache.forEach(function(q){
+    const qd = (q && q.data) || {};
+    if(qd.status !== 'closed' || !qd.convertedToCustomerAt) return;
+    if(isRequote(qd)) return;
+    if(String(qd.phone || '').replace(/\D/g,'') !== digits) return;
+    /* ⚠ 17 phone numbers in the real book are shared, 14 of them a parent and a
+       child at two different houses. Phone alone would mark the parent new because
+       the child was quoted. Address decides when both sides have one. */
+    const qa = quoteMatchAddress(qd.address || '');
+    if(addr && qa && qa !== addr) return;
+    const y = enrollmentYearOf(qd.convertedToCustomerAt);
+    if(y !== null && (year === null || y > year)) year = y;
+  });
+  return year;
+}
+function audienceNeverAsked(d){
+  if(!d) return false;
+  /* The office's own tick stays first — it is the one somebody set deliberately. */
+  if(d.chargeNewMemberFee === true) return true;
+  const y = audienceQuoteJoinYear(d);
+  return y !== null && y === new Date().getFullYear();
+}
 /* ⚠ ITS OWN FUNCTION SO IT CAN BE RUN BY A TEST. Written inline in
    renderAllCustomersTable first, and a red-check proved the point immediately: the
    checks for it were passing against a reimplementation in the test file rather than
@@ -13034,6 +13093,13 @@ function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
 /* Null until the table has drawn once — the export renders first rather than falling
    back to the whole book, because silently exporting everybody is the bug being fixed. */
 let allCustVisibleRows = null;
+/* ⚠ THIS ONE STAYS ON THE FEE, and it is not the RSVP audience — 2026-08-26, after
+   repointing it by mistake and being caught by its own check. All Customers'
+   "New this year" filter answers WHO IS BEING CHARGED THE $30, which is why the
+   gate demands it match the billing. `audienceNeverAsked` answers a different
+   question — who has never been asked about a season — and is wider on purpose.
+   The two share the mode names 'new' and 'returning', which is exactly how they
+   get confused. Do not repoint this. */
 function allCustNewMemberRows(rows, mode){
   if(mode === 'new') return rows.filter(function(r){ return audienceIsNew(r.d); });
   if(mode === 'returning') return rows.filter(function(r){ return !audienceIsNew(r.d); });
@@ -13296,8 +13362,8 @@ function etRenderRecipientList(){
   if(etFilterOrderedLast === 'yes') members = members.filter(m => audienceOrderedLastYear(m.data) === 'yes');
   else if(etFilterOrderedLast === 'no') members = members.filter(m => audienceOrderedLastYear(m.data) === 'no');
   // New vs returning
-  if(etFilterNew === 'new') members = members.filter(m => audienceIsNew(m.data));
-  else if(etFilterNew === 'returning') members = members.filter(m => !audienceIsNew(m.data));
+  if(etFilterNew === 'new') members = members.filter(m => audienceNeverAsked(m.data));
+  else if(etFilterNew === 'returning') members = members.filter(m => !audienceNeverAsked(m.data));
   // Billing group
   if(etFilterGroup !== 'all') members = members.filter(m => audienceBillingGroup(m.data) === etFilterGroup);
   // Outlet timer
@@ -13379,7 +13445,7 @@ function etRenderRecipientList(){
     if(!m.data.gateCode) badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[No Gate Code]</span>';
     if(payStatus === 'Unpaid') badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[Unpaid]</span>';
     else if(payStatus === 'Partial Payment') badges += ' <span style="color:#8a6d1f; font-size:11px; font-weight:600;">[Partial]</span>';
-    if(audienceIsNew(m.data)) badges += ' <span style="color:#1f6d3a; font-size:11px; font-weight:600;">[New]</span>';
+    if(audienceNeverAsked(m.data)) badges += ' <span style="color:#1f6d3a; font-size:11px; font-weight:600;">[New]</span>';
     if(audiencePaidLastYear(m.data) === 'unpaid') badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[Didn\'t pay last yr]</span>';
     if(grp === 'multi') badges += ' <span style="color:#3a5a8a; font-size:11px; font-weight:600;">[Group payer]</span>';
     else if(grp === 'elsewhere') badges += ' <span style="color:#6a4a8a; font-size:11px; font-weight:600;">[Billed elsewhere]</span>';
@@ -25388,15 +25454,20 @@ function isOutForSeason(d){
        year?" never reaches somebody who has not had them once. Requiring an answer to
        a question we deliberately never send is a test nobody can pass.
 
-       ⚠ IT IS THE SAME PREDICATE THE RSVP AUDIENCE USES. audienceIsNew is what takes
-       them out of the send; asking it here is what makes the two halves agree. A second
-       copy of "is this a new customer" is how the send list and the season list start
-       disagreeing about the same person.
+       ⚠ IT IS THE SAME PREDICATE THE RSVP AUDIENCE USES. `audienceNeverAsked` is what
+       takes them out of the send; asking it here is what makes the two halves agree. A
+       second copy of "is this a new customer" is how the send list and the season list
+       start disagreeing about the same person.
+       ⚠ RENAMED FROM audienceIsNew ON 2026-08-26, and the two now mean different things
+       on purpose: audienceIsNew is "we are charging them the $30", which is a money
+       fact and still the right answer for the Excel export. This one is "nobody has
+       ever asked them about a season", which is the send's question, and it is WIDER —
+       a house that joined this year with the fee waived is in it. Do not merge them.
 
        ⚠ AND AN ANSWER STILL OUTRANKS IT. The no / back next year / maybeNextYear checks
        above return before this line, so a new hang who says no is still out. This only
        covers somebody who has said nothing because nothing was asked. */
-    if(typeof audienceIsNew === 'function' && audienceIsNew(d)) return false;
+    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
     return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
   }
   return false;
@@ -35695,7 +35766,7 @@ function effectiveRsvpStatus(d){
      Customer box and the Edit Customer box — and the last two are a person ticking
      something. No importer writes it, so an imported customer has no flag, no reply,
      and reads as Pending until somebody actually asks them. */
-  if(audienceIsNew(dd)) return 'yes';
+  if(audienceNeverAsked(dd)) return 'yes';
   return said;
 }
 function rsvpStatusLabel(v){
@@ -42919,7 +42990,19 @@ async function reconcileUpcomingRoutes(){
   const cutoffStr = toDateStr(cutoff);
   jobAddresses.forEach(function(a){
     const d = a.data || {};
-    if(!d.scheduled || d.completed || d.maybeNextYear) return;
+    /* ⭐ THE SAME RULE THE EVICTION USES (fixed 2026-08-26). This hand-rolled its
+       own season test and `stopProblem` asks `isOutForSeason`, so the two disagreed
+       about `needsLightRecycle` — a house queued to have its lights taken apart is
+       OUT by that rule and was IN by this one. So this pass put it on a day, step 1
+       took it straight back off, and the next run put it back: a house added to and
+       removed from a route every fifteen minutes, for ever, filling the Inbox with
+       identical notices. That is the exact failure the comment above `stopProblem`
+       already describes from 2026-08-15 — same disease, a different feeder.
+       ⚠ DO NOT RE-INLINE THIS TEST. Any list that decides who is in the season has
+       to ask the one predicate, or it will drift from the eviction again — and the
+       symptom is not an error, it is churn nobody reads. */
+    if(!d.scheduled || d.completed) return;
+    if(isOutForSeason(d)) return;
     if(!d.scheduledDate || d.scheduledDate >= cutoffStr) return;
     if(seen.has(a.id)) return;
     needHoming.push(a);
@@ -42941,8 +43024,11 @@ async function reconcileUpcomingRoutes(){
   jobAddresses.forEach(function(a){
     const d = a.data || {};
     if(!isNewHangHouse(d)) return;
-    if(d.scheduled || d.completed || d.maybeNextYear) return;
-    if(d.rsvpStatus === 'no' || d.rsvpStatus === 'backnextyear') return;
+    /* ⭐ Same fix as 2a, 2026-08-26 — see the note there. This one ALSO compared
+       rsvpStatus case-sensitively while isOutForSeason lowercases, so a stored
+       "No" slipped past here and was evicted by step 1 on the next pass. */
+    if(d.scheduled || d.completed) return;
+    if(isOutForSeason(d)) return;
     if(seen.has(a.id)) return;
     needHoming.push(a);
     newHangIds.add(a.id);

@@ -119,10 +119,22 @@ if (missing || !eligLine || !tabsSrc) {
 const TABS = new Function(tabsSrc + 'return HLX_STATE_TABS;')();
 const holds = (tab, d) => TABS.filter(t => t.tab === tab).map(t => t.holds(d))[0] === true;
 
-/* ⚠ audienceIsNew LIFTED, NOT LEFT OUT — isOutForSeason guards its call with typeof,
-   so omitting it silently skips the new-hang exemption instead of throwing. */
-const audienceIsNewSrc = fn('audienceIsNew');
-check('audienceIsNew is there to lift', !!audienceIsNewSrc,
+/* ⚠ THE NEW-HANG EXEMPTION IS LIFTED, NOT LEFT OUT — isOutForSeason guards its call
+   with typeof, so omitting it silently SKIPS the exemption instead of throwing. That
+   is not theoretical: on 2026-08-26 the exemption moved from audienceIsNew to the
+   wider audienceNeverAsked, this sandbox went on supplying only the old one, and the
+   preview check below started counting 3 people instead of 2 — a real answer, quietly
+   wrong, from a rule that was never there.
+   ⚠ EVERY PIECE IS THE SHIPPED ONE. quotesCache is declared empty, which is the
+   honest default: with no quotes loaded the rule falls back to the fee box exactly as
+   it does in the page before the quotes listener reports. */
+const audienceIsNewSrc = 'let quotesCache = [];\n' +
+  (fs.readFileSync(path.join(__dirname, 'js', 'money.js'), 'utf8')
+     .match(/export function enrollmentYearOf[\s\S]*?\n}/) || [''])[0].replace(/^export /, '') + '\n' +
+  fn('quoteMatchAddress') + fn('isRequote') + fn('audienceIsNew') +
+  fn('audienceQuoteJoinYear') + fn('audienceNeverAsked');
+check('the new-hang exemption is there to lift',
+  !!fn('audienceNeverAsked') && !!fn('audienceQuoteJoinYear') && !!fn('audienceIsNew'),
   'without it the confirmed-only new-hang exemption is untested, silently');
 const outForSeason = new Function('d',
   eligLine + audienceIsNewSrc + src.isOutForSeason + 'return isOutForSeason(d);');

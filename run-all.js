@@ -2419,6 +2419,130 @@ check('flow', 'quote is closed when converted to a customer',
     'the two halves must partition the book, or a customer is in neither list');
 }
 
+/* ⭐ WHO THE RSVP SKIPS (added 2026-08-26). Owner, before the first send.
+   The RSVP asks "will you be getting lights hung AGAIN this year?" — nonsense to a
+   first-year customer, and it invites a "no" to a question that does not apply. The
+   audience auto-sets to Returning so they are not in the list.
+
+   ⚠ "NEW" WAS THE $30 FEE BOX ALONE, which is narrower than it looks: printIsNewHang
+   already records that Ashley Wray badges NEW on the Schedule with her fee box
+   UNTICKED. So anybody who joined this year with the fee waived was in the send.
+
+   ⚠ THESE RUN THE PREDICATE. Every claim is about which records come out, and a regex
+   cannot see that. */
+{
+  const mk = (quotes) => new Function(
+    'let quotesCache = ' + JSON.stringify(quotes || []) + ';' +
+    extractFn(read('js/money.js'), 'enrollmentYearOf') +
+    extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'audienceQuoteJoinYear') + extractFn(admin, 'audienceNeverAsked') +
+    ';return audienceNeverAsked;')();
+  const yr = new Date().getFullYear();
+  const q = (over) => Object.assign({id:'q1', data: Object.assign({
+    status:'closed', convertedToCustomerAt:{seconds: Math.floor(Date.UTC(yr,6,1)/1000)},
+    phone:'8015550001', address:'1 Elm St'}, over || {})}, {});
+
+  check('rsvp-audience', 'the fee box still means new, on its own',
+    mk([])({chargeNewMemberFee:true}) === true,
+    'the office ticking it deliberately is the strongest signal there is');
+  check('rsvp-audience', 'and an ordinary returning customer is not',
+    mk([])({phone:'8015550001', address:'1 Elm St'}) === false,
+    'widening this must not quietly shrink the one send that has to reach everybody');
+
+  /* ⭐ THE CASE THAT PROMPTED IT: joined this year, fee waived. */
+  check('rsvp-audience', 'somebody who joined this year with the fee WAIVED is skipped',
+    mk([q()])({phone:'8015550001', address:'1 Elm St', chargeNewMemberFee:false}) === true,
+    'this is the gap — asking a first-year customer about lights "again" invites a no');
+
+  /* ⚠ A RE-QUOTE IS NOT A JOIN. Their quote closes too, and dropping a re-quoted
+     returning customer would silently shrink the send. */
+  check('rsvp-audience', 'a re-quote against an existing customer does NOT count',
+    mk([q({existingCustomerId:'c1'})])({phone:'8015550001', address:'1 Elm St'}) === false,
+    'they have had lights — the RSVP is exactly the email they should get');
+  /* ⚠ THIS ASSERTS THE OUTCOME, NOT THE GUARD, and the red-check is why the
+     distinction is written down. Deleting `!qd.convertedToCustomerAt` from the
+     filter changes NOTHING: with no conversion date enrollmentYearOf returns null,
+     the year stays null, and the rule answers false anyway. The guard is
+     belt-and-braces — kept because it states the intent and because it would start
+     mattering the moment the year came from another field — but a check claiming to
+     prove it would be claiming more than it does. */
+  check('rsvp-audience', 'nor does a quote that never became a customer',
+    mk([q({convertedToCustomerAt:null})])({phone:'8015550001', address:'1 Elm St'}) === false,
+    'a lead who never converted is not a customer at all');
+  check('rsvp-audience', 'nor an open quote',
+    mk([q({status:'new'})])({phone:'8015550001', address:'1 Elm St'}) === false,
+    'the quote has to have closed for them to be a customer through it');
+
+  /* ⚠ AND IT EXPIRES — MON-07. Without the year this grows until it covers the book. */
+  check('rsvp-audience', 'a quote from a previous year does not count',
+    mk([q({convertedToCustomerAt:{seconds: Math.floor(Date.UTC(yr-1,6,1)/1000)}})])
+      ({phone:'8015550001', address:'1 Elm St'}) === false,
+    'a 2026 quote is not new in 2027 — that is MON-07, and without it every customer ' +
+    'the business has ever quoted would fall out of the RSVP for ever');
+
+  /* ⚠ 17 NUMBERS IN THE REAL BOOK ARE SHARED, 14 of them a parent and a child at two
+     different houses. Phone alone would mark the parent new because the child was
+     quoted — and take a returning customer out of the send. */
+  check('rsvp-audience', 'a shared phone at a different address does not carry across',
+    mk([q()])({phone:'8015550001', address:'99 Other Rd'}) === false,
+    "a parent paying for a child's house has not become a new customer");
+  check('rsvp-audience', 'but the same house on the same number does',
+    mk([q()])({phone:'8015550001', address:'1 ELM ST.'}) === true,
+    'the address compare is normalised, or punctuation decides who gets an email');
+
+  /* ⚠ FAILS THE SAME WAY THE OLD RULE DID, not worse: no quotes loaded means the fee
+     box answers alone, which is exactly today's behaviour. */
+  check('rsvp-audience', 'with no quotes loaded it falls back to the fee box',
+    mk([])({phone:'8015550001', address:'1 Elm St', chargeNewMemberFee:true}) === true &&
+    mk([])({phone:'8015550001', address:'1 Elm St'}) === false,
+    'an unloaded cache must not silently widen or narrow the send');
+
+  /* ⭐ AND THE MONEY LIST IS DELIBERATELY NOT WIDENED. All Customers' "New this year"
+     answers WHO IS CHARGED THE $30 and its own gate demands it match the billing;
+     repointing it was tried on 2026-08-26 and that gate caught it. */
+  check('rsvp-audience', 'the Excel Installation Fee column still asks the fee, not this',
+    /'Installation Fee': audienceIsNew\(d\)/.test(admin),
+    'saying "Yes ($30)" for a house whose fee box is unticked claims money is being ' +
+    'charged that is not');
+  check('rsvp-audience', "and All Customers' New filter still asks the fee too",
+    /function allCustNewMemberRows[\s\S]{0,600}audienceIsNew\(/.test(admin.replace(/\r/g,'')),
+    'that list is about the $30, not about who has been asked — the two share the mode ' +
+    'names new/returning, which is exactly how they get confused');
+
+  /* ⚠ AND THE SEND ITSELF HAS TO ASK IT — which nothing checked until a red-check
+     put the recipient filter back to audienceIsNew and every one of these stayed
+     green. The predicate being right is worth nothing if the list does not use it.
+     Both halves of the filter, because reverting one leaves a partition that does
+     not partition: a customer in neither New nor Returning. */
+  {
+    /* ⚠ THE REAL FUNCTION BODY, NOT A CHARACTER WINDOW. The first version of this
+       sliced 6000 chars and the badge sits 9476 in — so it failed on correct code
+       immediately. CLAUDE.md §7 bans fixed-length extraction windows by name for
+       exactly this, and writing one anyway is how that rule keeps earning its place. */
+    const region = extractFn(admin, 'etRenderRecipientList').replace(/\r/g, '');
+    check('rsvp-audience', 'the recipient list renderer was found', !!region,
+      'a gate that cannot find its target must FAIL, never skip');
+    check('rsvp-audience', 'the recipient filter asks the wider rule, both ways',
+      (region.match(/audienceNeverAsked\(m\.data\)/g) || []).length >= 2 &&
+      !/audienceIsNew\(m\.data\)/.test(region),
+      'the send is the whole point — a first-year customer left in the list is asked ' +
+      'about lights they have never had');
+    check('rsvp-audience', 'and the [New] badge agrees with the filter beside it',
+      /audienceNeverAsked\(m\.data\)\) badges \+=/.test(region),
+      'a row badged New while the Returning filter keeps it is the screen ' +
+      'contradicting itself about who is being written to');
+  }
+
+  /* ⚠ AND THE SEASON HALF MUST ASK THE SAME ONE. isOutForSeason exempts a new hang
+     from needing an RSVP reply; if it asked a narrower question than the send does,
+     somebody could be excluded from the email AND dropped from the season for not
+     answering it. */
+  check('rsvp-audience', 'the confirmed-only exemption asks the same predicate as the send',
+    /audienceNeverAsked === 'function' && audienceNeverAsked\(d\)/.test(admin.replace(/\r/g,'')),
+    'excluded from the email and then dropped for not replying to it is the worst of ' +
+    'both, and it is silent');
+}
+
 /* ⭐ THE JOIN FEE IS CALLED THE SAME THING ON EVERY INVOICE SURFACE (added
    2026-08-24). Owner: "if it is currently called new member fee in invoice can we
    rename it installation fee?"
@@ -2712,10 +2836,21 @@ check('flow', 'but a customer typed in by hand still assumes nothing',
    ⚠ RUN, NOT READ — the whole point is which records come out as a yes. */
 {
   const g = (n) => { const at = admin.indexOf('function ' + n + '('); return at === -1 ? '' : admin.slice(at, admin.indexOf('\n}', at) + 2); };
-  const src = g('audienceIsNew') + g('effectiveRsvpStatus');
-  check('flow', 'the approval rule is there to run', !!g('effectiveRsvpStatus') && !!g('audienceIsNew'),
-    'audienceIsNew is called directly, NOT behind a typeof guard — a guard would let a ' +
-    'sandbox skip the rule and still pass, which is how a silent gap gets built');
+  /* ⚠ LIFT, NOT STUB (2026-08-26). effectiveRsvpStatus moved from audienceIsNew to
+     audienceNeverAsked when the RSVP exclusion was widened, and that one calls
+     audienceQuoteJoinYear, which needs quotesCache, quoteMatchAddress, isRequote and
+     enrollmentYearOf. Every one is the REAL function out of the shipped file; a stub
+     here would make the widened half untestable while reporting green — the trap
+     CLAUDE.md §3 names. quotesCache is declared empty, which is the honest default:
+     with no quotes loaded the rule falls back to the fee box, exactly as it ships. */
+  const src = 'let quotesCache = [];\n' +
+    extractFn(read('js/money.js'), 'enrollmentYearOf') + '\n' +
+    g('quoteMatchAddress') + g('isRequote') + g('audienceIsNew') +
+    g('audienceQuoteJoinYear') + g('audienceNeverAsked') + g('effectiveRsvpStatus');
+  check('flow', 'the approval rule is there to run',
+    !!g('effectiveRsvpStatus') && !!g('audienceNeverAsked') && !!g('audienceQuoteJoinYear'),
+    'audienceNeverAsked is called directly, NOT behind a typeof guard — a guard would ' +
+    'let a sandbox skip the rule and still pass, which is how a silent gap gets built');
   if (src) {
     const eff = new Function(src + 'return effectiveRsvpStatus;')();
     const D = new Date();
@@ -8015,6 +8150,129 @@ suite('17. A new customer lands on the next day in their city');
       check('reconcile', 'a set of routes that is already right writes NOTHING',
         h2.writes.length === 0 && h2.added.length === 0 && clean2.changed === false,
         'this runs every fifteen minutes in four browsers — the normal case has to be free');
+
+    /* ---- 18.9 THE SWEEP HAS TO SETTLE (added 2026-08-26) ------------------
+       Reported from the live book: ~90 "Routes kept up to date" notices in one
+       day, most of them "29 moved, 29 removed". A sweep doing real work finds
+       LESS to do next time; the same counts every fifteen minutes is a house
+       being put on a day and taken straight back off, for ever.
+
+       ⚠ THE CAUSE WAS TWO OPINIONS ABOUT WHO IS IN THE SEASON, which is the
+       exact failure the comment above stopProblem already records from
+       2026-08-15 — fixed there, and re-grown in a different feeder. Step 1
+       evicts through `isOutForSeason`; steps 2a and 2b hand-rolled their own
+       test and both missed `needsLightRecycle`. So a house queued to have its
+       lights taken apart was OUT by the eviction and IN by the homing.
+
+       ⚠ THESE RUN THE SWEEP RATHER THAN READING IT. A source check that both
+       call isOutForSeason would pass on code that still loops, because the
+       loop is about two rules AGREEING, not about either one existing. */
+    {
+      const soon = dstr(4);
+      const past = dstr(-9);
+      const sweepFor = houses => {
+        const cache = {};
+        cache[soon] = [{id:'d1', date:soon, type:'install', crew:'1', autoBuilt:true,
+          city:'Lehi', towns:['Lehi'], stops: []}];
+        return makeRec(houses, cache);
+      };
+      const homed = rep => (rep.moved || []).map(m => m.name);
+
+      /* A new hang whose lights are queued to be taken apart. Not "no", not
+         back next year, not maybe — so every hand-rolled test let it through. */
+      const recycler = [{id:'r', data:{name:'Recycle Queued', city:'Lehi', address:'1 St',
+        lat:40.39, lng:-111.85, chargeNewMemberFee:true, needsLightRecycle:true}}];
+      {
+        const h = sweepFor(recycler);
+        const rep = await h.api.reconcile();
+        check('reconcile', 'a house queued for recycle is not put on a day at all',
+          homed(rep).indexOf('Recycle Queued') === -1,
+          'step 1 evicts it through isOutForSeason, so homing it here is a house added ' +
+          'and removed from a route every fifteen minutes — got: ' + JSON.stringify(homed(rep)));
+      }
+
+      /* ⚠ recycleKeepingCustomer is the mover: their old set comes back AND a new
+         one is built, and they are still in the season. isOutForSeason already
+         makes that distinction; this proves the fix inherited it rather than
+         blanket-excluding everybody with a recycle flag. */
+      {
+        const mover = [{id:'m', data:{name:'Moved House', city:'Lehi', address:'2 St',
+          lat:40.39, lng:-111.85, chargeNewMemberFee:true,
+          needsLightRecycle:true, recycleKeepingCustomer:true}}];
+        const h = sweepFor(mover);
+        const rep = await h.api.reconcile();
+        check('reconcile', 'but somebody who MOVED is still scheduled',
+          homed(rep).indexOf('Moved House') !== -1,
+          'they are in the season and need hanging — excluding every recycle flag ' +
+          'would silently drop every mover');
+      }
+
+      /* ⚠ CASE. Step 2b compared rsvpStatus with === while isOutForSeason
+         lowercases, so a stored "No" slipped past the homing and was evicted by
+         step 1 on the next pass. A fixture spelling it 'no' cannot see this. */
+      {
+        const shouty = [{id:'n', data:{name:'Shouty No', city:'Lehi', address:'3 St',
+          lat:40.39, lng:-111.85, chargeNewMemberFee:true, rsvpStatus:'No'}}];
+        const h = sweepFor(shouty);
+        const rep = await h.api.reconcile();
+        check('reconcile', 'a stored "No" is read the same way by both halves',
+          homed(rep).indexOf('Shouty No') === -1,
+          'case-sensitive here and lowercased in the eviction is the same loop in ' +
+          'a spelling nobody would look for');
+      }
+
+      /* ⚠ AND A LEFTOVER TAKES THE OTHER FEEDER (2a): already scheduled, its day
+         long past. That branch never tested the RSVP at all. */
+      {
+        const leftover = [{id:'l', data:{name:'Old Leftover', city:'Lehi', address:'4 St',
+          lat:40.39, lng:-111.85, scheduled:true, scheduledDate:past, rsvpStatus:'no'}}];
+        const h = sweepFor(leftover);
+        const rep = await h.api.reconcile();
+        check('reconcile', 'a leftover who said no is not re-homed either',
+          homed(rep).indexOf('Old Leftover') === -1,
+          'the leftover feeder tested only maybeNextYear, so an RSVP-no house was ' +
+          'picked back up every pass');
+      }
+
+      /* ⭐ AND THE PROPERTY THAT ACTUALLY MATTERS: run it twice. Whatever the
+         first pass does, the second must find nothing left to do. This is the
+         only check here that would catch a NEW disagreement between two rules,
+         rather than the three known ones above. */
+      {
+        const mixed = [
+          {id:'a', data:{name:'Recycle Queued', city:'Lehi', address:'1 St', lat:40.39,
+            lng:-111.85, chargeNewMemberFee:true, needsLightRecycle:true}},
+          {id:'b', data:{name:'Ordinary', city:'Lehi', address:'2 St', lat:40.39,
+            lng:-111.85, chargeNewMemberFee:true}},
+          {id:'c', data:{name:'Said No', city:'Lehi', address:'3 St', lat:40.39,
+            lng:-111.85, chargeNewMemberFee:true, rsvpStatus:'no'}}
+        ];
+        const h1 = sweepFor(mixed);
+        const first = await h1.api.reconcile();
+        /* Feed the first pass's writes back onto the records, the way Firestore
+           would, then sweep again from that state. */
+        const after = mixed.map(x => {
+          const w = h1.writes.filter(z => z.path === 'jobAddresses/' + x.id);
+          const merged = Object.assign({}, x.data);
+          w.forEach(z => Object.assign(merged, z.payload || {}));
+          return {id: x.id, data: merged};
+        });
+        const cache2 = {};
+        cache2[soon] = [{id:'d1', date:soon, type:'install', crew:'1', autoBuilt:true,
+          city:'Lehi', towns:['Lehi'],
+          stops: after.filter(x => x.data.scheduled).map(x => ({id:x.id, name:x.data.name,
+            address:x.data.address, lat:x.data.lat, lng:x.data.lng, difficulty:'Unrated',
+            phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'',
+            customerNumber:''}))}];
+        const h2 = makeRec(after, cache2);
+        const second = await h2.api.reconcile();
+        check('reconcile', 'the sweep SETTLES — a second pass has nothing left to do',
+          (second.moved || []).length === 0 && (second.dropped || []).length === 0,
+          'this is the loop, stated as a property: the live book showed ~90 notices in ' +
+          'one day reading "29 moved, 29 removed" over and over. Second pass moved ' +
+          (second.moved || []).length + ', dropped ' + (second.dropped || []).length);
+      }
+    }
     })());
   }
 }
@@ -8530,9 +8788,32 @@ check('fill', 'a customer the lookup cannot find is never assumed to be allowed'
 check('cap', 'a new hang on no day at all is gone and got',
   /if\(!isNewHangHouse\(d\)\) return;[\s\S]{0,400}needHoming\.push\(a\);/.test(admin),
   "the owner's rule: as soon as a customer is listed as a new hang they go on the schedule");
+/* ⚠ REPOINTED 2026-08-26, NOT WEAKENED. This matched the literal `rsvpStatus === 'no'`
+   — that is, it was pinned to HOW the rule happened to be spelled inside the feeder. The
+   spelling was the bug: it hand-rolled a season test that disagreed with the eviction's
+   `isOutForSeason` about needsLightRecycle, so a house was homed and evicted every
+   fifteen minutes. Fixing the loop deleted the string and this failed on correct code.
+   It now asserts what must be TRUE — the feeder asks the one shared predicate — and the
+   behaviour itself is RUN in suite 18.9, which is the half a regex cannot do. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('cap', 'a new hang who said no, or is sitting out, is left alone',
-  /isNewHangHouse[\s\S]{0,300}rsvpStatus === 'no'[\s\S]{0,200}needHoming/.test(admin),
-  'auto-scheduling somebody who cancelled would put them back in front of the crew');
+  /if\(!isNewHangHouse\(d\)\) return;[\s\S]{0,400}isOutForSeason\(d\)\) return;[\s\S]{0,200}needHoming/
+    .test(admin.replace(/\r/g, '')),
+  'auto-scheduling somebody who cancelled would put them back in front of the crew — ' +
+  'and a second opinion about who is in the season is what caused the route churn');
+/* ⚠ AND NEITHER FEEDER MAY HAND-ROLL IT AGAIN. Both were wrong the same way; asserting
+   only the one that was reported would leave the other free to re-grow. */
+check('cap', 'neither homing feeder decides the season for itself',
+  (function(){
+    const src = admin.replace(/\r/g, '');
+    const a = src.indexOf('const cutoff = new Date();');
+    const b = src.indexOf('newHangIds.add(a.id);');
+    const region = a > -1 && b > -1 ? src.slice(a, b) : '';
+    return !!region && (region.match(/isOutForSeason\(d\)/g) || []).length >= 2 &&
+      !/rsvpStatus === '/.test(region) && !/d\.maybeNextYear\) return;/.test(region);
+  })(),
+  'step 1 evicts through isOutForSeason; a feeder testing anything else puts houses ' +
+  'back on the days it just took them off');
 check('cap', 'adding a customer only bumps somebody once that town is over twenty',
   /if\(withNew\.length > MAX_STOPS_PER_ROUTE\)\{/.test(admin),
   'it used to bump on EVERY add to hold the planned size — that moved a confirmed ' +
@@ -8789,8 +9070,17 @@ suite('21. Everyone is in unless they said otherwise');
      typeof, so omitting it here does not throw — it silently skips the new-hang
      exemption and every check below would pass against a rule that never ran. That is
      the worst shape a missing lift can take, because nothing goes red. */
-  const audienceIsNewSrc = extractFn(admin, 'audienceIsNew') || '';
-  check('season', 'audienceIsNew is there to lift', !!audienceIsNewSrc,
+  /* ⚠ WIDENED 2026-08-26 — see audienceNeverAsked. The confirmed-only exemption now
+     asks "has anybody ever asked them about a season", not "are we charging them the
+     $30", because a house that joined this year with the fee waived is in the first
+     and not the second. Its dependencies are LIFTED, never stubbed: a stub would make
+     the widened half untestable while reporting green. quotesCache empty is the honest
+     default — with no quotes loaded the rule falls back to the fee box, as it ships. */
+  const audienceIsNewSrc = 'let quotesCache = [];\n' + extractFn(read('js/money.js'), 'enrollmentYearOf') + '\n' +
+    extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+    extractFn(admin, 'audienceQuoteJoinYear') + extractFn(admin, 'audienceNeverAsked') || '';
+  check('season', 'the new-hang exemption is there to lift', !!audienceIsNewSrc &&
+    !!extractFn(admin, 'audienceNeverAsked'),
     'without it the confirmed-only new-hang exemption is untested, silently');
   const withMode = m => eval("const SEASON_ELIGIBILITY = '" + m + "';\n" +
     audienceIsNewSrc + '\n' + fnSrc + '\n;({out: isOutForSeason})');
@@ -31053,7 +31343,16 @@ suite('Suite 128. The do-not-send list — automation emails only');
         'function etRsvpAnswered(){ return true; }' +
         'function getLiveInvoiceStatus(){ return "Paid in Full"; }' +
         'function audienceBillingGroup(){ return "own"; }' +
-        'function audienceIsNew(){ return false; }' +
+        /* ⚠ THE REAL RULE, NOT A STUB (2026-08-26). This used to hand the renderer a
+           `return false` so nobody ever looked new — which meant the [New] badge and
+           the Returning filter, the two things this suite is about, were never
+           exercised at all. Lifted now, with quotesCache empty so it answers on the
+           fee box exactly as it does before quotes load. */
+        'let quotesCache = [];' +
+        extractFn(read('js/money.js'), 'enrollmentYearOf') +
+        extractFn(admin, 'quoteMatchAddress') + extractFn(admin, 'isRequote') +
+        extractFn(admin, 'audienceQuoteJoinYear') +
+        extractFn(admin, 'audienceNeverAsked') +
         'function audiencePaidLastYear(){ return "paid"; }' +
         'function audienceHasLastSeason(){ return true; }' +
         'function esc(s){ return String(s == null ? "" : s); }' +
