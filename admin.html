@@ -17833,26 +17833,64 @@ function rmClearCornerMarkers(){
   rmCornerMarkers.forEach(function(m){ m.setMap(null); });
   rmCornerMarkers = [];
 }
+/* ⭐ MARKERS ARE MOVED, NOT REBUILT (2026-08-26). Owner, of dragging a dot:
+   "it goes super slow, make it so it looks like real time."
+
+   ⚠ THE COST WAS HERE, AND IT WAS PER MOUSEMOVE. This threw away every
+   google.maps.Marker and constructed a fresh one on every call, and a drag calls
+   rmCornersChanged on every pointer event - sixty times a second, each one
+   allocating a Marker, a Symbol and a Point per dot and handing them to the Maps
+   API to re-attach to the overlay. Constructing map objects is the expensive
+   thing in this whole file; moving one is nearly free.
+
+   So when the count has not changed the markers are UPDATED IN PLACE, and only a
+   change in how many dots there are rebuilds the row. Same drawing either way -
+   this is purely about how it gets there. */
+function rmMarkerIcon(c){
+  const lit = !!c.on;
+  /* Small, for the reason the street view dots are small: a marker big enough to
+     hold its number is big enough to hide the corner it marks. The number sits
+     beside it. A pinned dot is ringed — it has been seen from more than one place
+     and is where it says it is. */
+  return {path: google.maps.SymbolPath.CIRCLE, scale: 4,
+          fillColor: lit ? '#E0574B' : 'rgba(255,255,255,.85)', fillOpacity: 1,
+          strokeColor: c.pinned ? (lit ? '#E0574B' : '#8b95a1') : (lit ? '#ffffff' : '#8b95a1'),
+          strokeWeight: c.pinned ? 3 : 1.4,
+          labelOrigin: new google.maps.Point(2.6, -2.2)};
+}
+function rmMarkerLabel(c, i){
+  return {text: rmCornerLabel(i), color: c.on ? '#E0574B' : '#6b7683',
+          fontSize: '11px', fontWeight: '700'};
+}
 function rmSyncCornersSky(){
-  rmClearCornerMarkers();
-  if(!rmMap) return;
+  if(!rmMap){ rmClearCornerMarkers(); return; }
+  if(rmCornerMarkers.length !== rmCorners.length) rmClearCornerMarkers();
   rmCorners.forEach(function(c, i){
-    const lit = !!c.on;
     const q = rmSkyUnshift(c.lat, c.lng);
+    const have = rmCornerMarkers[i];
+    if(have){ have.setPosition(q); have.setIcon(rmMarkerIcon(c)); have.setLabel(rmMarkerLabel(c, i)); return; }
     rmCornerMarkers.push(new google.maps.Marker({
       position: q, map: rmMap, clickable: false, zIndex: 7,
-      /* Small, for the reason the street view dots are small: a marker big
-         enough to hold its number is big enough to hide the corner it marks.
-         The number sits beside it. A pinned dot is ringed — it has been seen
-         from more than one place and is where it says it is. */
-      icon: {path: google.maps.SymbolPath.CIRCLE, scale: 4,
-             fillColor: lit ? '#E0574B' : 'rgba(255,255,255,.85)', fillOpacity: 1,
-             strokeColor: c.pinned ? (lit ? '#E0574B' : '#8b95a1') : (lit ? '#ffffff' : '#8b95a1'),
-             strokeWeight: c.pinned ? 3 : 1.4,
-             labelOrigin: new google.maps.Point(2.6, -2.2)},
-      label: {text: rmCornerLabel(i), color: lit ? '#E0574B' : '#6b7683',
-              fontSize: '11px', fontWeight: '700'}
+      icon: rmMarkerIcon(c), label: rmMarkerLabel(c, i)
     }));
+  });
+}
+/* ⭐ ONE REDRAW PER FRAME WHILE A DOT IS BEING DRAGGED. The pointer fires far
+   faster than the screen refreshes, so without this the same picture is computed
+   several times over between two frames anybody can see - work that can only ever
+   make the drag lag behind the cursor.
+   ⚠ AND THE PANEL AND THE STRIP ARE LEFT OUT OF IT. The footage, the price and
+   the numbered strip are all HTML rebuilds, and none of them is what somebody is
+   watching while they move a dot - they are watching the dot. They catch up the
+   moment it is dropped, which is also when the number stops changing. */
+let rmDragFrame = 0;
+function rmDragPaint(){
+  if(rmDragFrame) return;
+  rmDragFrame = requestAnimationFrame(function(){
+    rmDragFrame = 0;
+    rmCornersToRun();
+    rmSyncCornersSky();
+    rmPaintStreet();
   });
 }
 function rmCornersChanged(){
@@ -23359,13 +23397,13 @@ function openRoofMeasure(quoteId){
         c.lat = p.lat; c.lng = p.lng; c.h = t.u;
         c.pinned = 0; c.spread = 0;                 /* one sighting again, by hand */
         c.rays = [ray];
-        rmCornersChanged();
+        rmDragPaint();
       }
       return;
     }
     c.lat = w.lat; c.lng = w.lng;
     c.rays = []; c.pinned = 0; c.spread = 0;
-    rmCornersChanged();
+    rmDragPaint();
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmMapLock').addEventListener(ev, function(){
@@ -23373,6 +23411,11 @@ function openRoofMeasure(quoteId){
       const moved = rmCornerLabel(rmSkyDragDot);
       rmSkyDragDot = -1;
       rmRefreshCursors(false);
+      /* ⭐ THE NUMBERS CATCH UP ON THE DROP. rmDragPaint deliberately leaves
+         the panel and the strip alone while the pointer is down; this is where
+         the footage, the price and the numbering come back into agreement with
+         the picture - at the moment they stop changing. */
+      rmCornersChanged();
       const note = document.getElementById('rmCornerNote');
       if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
         'click it in the street view to fix its height exactly.';
@@ -23459,7 +23502,7 @@ function openRoofMeasure(quoteId){
     if(top !== null && u > top + RM_EAVE_TOL_M) return;
     c.h = u;
     c.rays = []; c.pinned = 0; c.spread = 0;
-    rmCornersChanged();
+    rmDragPaint();          /* one redraw per frame - see rmDragPaint */
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmPanoLock').addEventListener(ev, function(){
@@ -23467,6 +23510,11 @@ function openRoofMeasure(quoteId){
       const moved = rmCornerLabel(rmDragDot);
       rmDragDot = -1;
       rmRefreshCursors(false);
+      /* ⭐ THE NUMBERS CATCH UP ON THE DROP. rmDragPaint deliberately leaves
+         the panel and the strip alone while the pointer is down; this is where
+         the footage, the price and the numbering come back into agreement with
+         the picture - at the moment they stop changing. */
+      rmCornersChanged();
       const note = document.getElementById('rmCornerNote');
       if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
         'click it again from another angle to fix it exactly.';
