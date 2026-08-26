@@ -13127,7 +13127,11 @@ function houseIsOnTheBill(d){
      the work was never charged for. Q-012 settled the same thing for back-next-year;
      this finishes the case it deliberately left alone.
      ⚠ "OUR FAULT" IS A HUMAN DECISION, NOT A FIELD — the office writes it off with a
-     credit. An automatic our-fault test would be the app guessing at fault. */
+     credit. An automatic our-fault test would be the app guessing at fault.
+     ⚠ AND IT IS SAFE ONLY BECAUSE Start New Season CLEARS `completed` on every
+     customer (verified in the season reset write, 2026-08-26). If that ever stops,
+     this line bills people for LAST season's work every season, for ever. Folded in
+     from the billing-groups branch, which reached this same ruling in parallel. */
   if(d.completed === true) return true;
   const said = String(d.rsvpStatus || '').trim().toLowerCase();
   if(said === 'no') return false;
