@@ -18055,7 +18055,23 @@ const RM_PIN_GRAB_PX = 8;
    in rmDebug. A dot seen from almost the same place has barely moved and keeps
    a tight net; one seen from far along the street may be yards out and gets a
    net that can actually reach it. */
-const RM_RESIGHT_DEPTH_SLOP_M = 1.2;   /* how wrong a one-sighting depth may be */
+/* ⚠ RAISED FROM 1.2 TO 2.5 ON A MEASUREMENT, 2026-08-26. 1.2 m was a guess at
+   how wrong a one-sighting depth could be, and it was about half the truth. On
+   209 S 850 W the same corner clicked from two panoramas came out 6.6 to 7.0 ft
+   apart - call it 2.0 m - and that is the error this net has to be able to
+   reach across.
+
+   ⚠ AND BEING SHORT MADE THE WHOLE THING UNREACHABLE. Two clicks on one corner
+   sat 3.84 ft apart on screen, about 21 px at that range; the net was 12. So the
+   second click missed the dot and PLACED A NEW ONE - which is what the office
+   kept reporting, and it also means rmPinCorner never ran, so the model
+   displacement it would have measured was never measured either. The feature
+   was there; nothing could get to it.
+
+   2.5 m is the measured error with room over it, and it is still bounded by
+   RM_RESIGHT_MAX_PX - about 24 px on that house, which leaves plenty of room to
+   put a genuinely new corner down a few feet along the same gutter. */
+const RM_RESIGHT_DEPTH_SLOP_M = 2.5;   /* measured, not assumed - see above */
 const RM_RESIGHT_MAX_PX = 90;          /* past this it is a different corner */
 /* ⚠ AND GRABBING A DOT TO MOVE IT IS A DIFFERENT QUESTION FROM PINNING ONE.
    Owner: "shift grab doesnt drag dots and I want it too."
