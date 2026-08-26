@@ -13,6 +13,30 @@ When two rules disagree, or a rule is missing, stop and ask.
 
 ---
 
+## ⭐ R-023 — write the ruling down, in the same change
+
+**If Addie answers a question during this session, add a row to `claude/questions-map.md`
+before you finish.** Not later, not in a summary — a row, in the same change that acts on
+it. A superseded ruling is marked `Superseded → #ID`, never edited in place and never
+deleted; the old reasoning is usually why the new answer is right.
+
+Addie, 2026-08-26: *"any questions we answer about this christmas lights either through
+code or through here is added to the map so you can refer back to that instead of us
+reanswering the same questions and answering inconsistently."*
+
+⚠ **This is at the top because it was at the bottom.** The full rule is item 5 of §9.9,
+about forty thousand words down, and a session that starts work before reaching it has
+already missed it. `questions-map.test.js` gates the map's internal soundness — six
+columns, unique ids, and above all that every `Superseded → #ID` still resolves — but **no
+check can see a conversation**, so nothing anywhere can tell that a ruling was given and
+never written down. This paragraph is the whole of that enforcement. Six of the rulings in
+the map REVERSE an earlier one, which is the case that goes wrong: the superseded
+reasoning was sound when it was made and reads convincingly to whoever finds it first.
+
+The numbered rule is `docs/RULES.md` R-023, tier 5, `read` + `code`.
+
+---
+
 ## 1. Before finishing any change
 
 Check it against `docs/RULES.md`, `docs/data-map.md`, and `js/options.js`.
@@ -653,7 +677,12 @@ Pasting the master sheet TURNS THE NAMES ROUND by itself (added 2026-08-17). Own
   - It ticks ONCE per paste (`rbSplitSheetIntoBoxes._flipAutoSetFor` holds the sheet text it last did it for). Unticking and pressing the button again therefore sticks — without that, a sheet that really is First Last could never be imported at all. The state hangs off the function because the suite lifts the splitter out and runs it alone.
   - Businesses come out mangled by the flip ("Lehi Vision Care" → "Vision Care Lehi") and nobody spots one row in a thousand, so `rbLooksLikeBusiness` names them in the report. They are NOT excluded — the office may want the business listed like everyone else, and guessing either way is worse than saying so. The FIRST word is ignored because on a Last First sheet that is the surname slot: Mrs Church is a person, and flagging every one of her trains people to ignore the warning. On the real sheet it flags exactly two, both genuine.
 ⭐ BULK UPDATES IS RETIRED IN PRACTICE — USE THE SHEET COMPARISON (settled with the owner 2026-08-21). Owner: "It should update people that are already there but sometimes it misses people and adds new ones but we should no longer use bulk so this is no longer a concern." The everyday path for getting the master sheet and the website to agree is Bulk Updates → Use my master sheet → Compare → Sync (`rbApplyTickedAdds` and the ledger), which shows every difference for review before anything is written. The raw paste-the-columns importer stays in the page and still works; it is simply not the tool to reach for.
-  - ⚠ AND THAT IS WHY TWO KNOWN GAPS IN IT WERE DELIBERATELY NOT FIXED. Neither `rbImportBtn` (Bulk Updates) nor `ibImportBtn` (Invoice Bulk Update) sets `needsLightBuild` when it ADDS a customer, so somebody created that way carries their colours and their wire and never appears in Needs Building — no bundle is made and the crew arrives at a house with nothing for it. That is exactly hole B, which WAS fixed for the sheet sync. It is one line each; what stops it being a one-line change is that both write hundreds of records per press, and a matcher that misses (a blank street column is what produced the ~944 duplicates) would queue the entire book for building on top of duplicating it. If either tool is ever brought back into regular use, fix this first and test the add path on its own.
+  - ⭐ THE TWO KNOWN GAPS IN IT ARE CLOSED (2026-08-26). This bullet used to say they were deliberately left unfixed, and that reasoning is kept below because it is still the argument for being careful here. Neither `rbImportBtn` (Bulk Updates) nor `ibImportBtn` (Invoice Bulk Update) set `needsLightBuild` when they ADDED a customer, so somebody created that way carried their colours and their wire and never appeared in Needs Building — no bundle made, crew at the house with nothing for it. That is hole B, which WAS fixed for the sheet sync (`rbApplyTickedAdds`, 2026-08-19) and is now fixed for all three. `import-build-flag.test.js` holds it, its own file per R-018, with a named step in `tests.yml`.
+    - ⭐ **UNGATED — do not add a condition.** Questions map **WH-20**. A row with no colours is NOT excluded: it belongs in `whBuildQueueGroups`' own "Waiting on light colours" block, which is visible and carries an Add colours button. Leaving the flag off makes those houses invisible instead, which is the bug the fix closes. Owner: "we want to build everyone." WH-17 and WH-18 say the same thing from the Edit Customer and build-queue sides. If a gate ever looks right, stop and ask — do not add one.
+    - ⭐ **NEITHER UPDATE BRANCH WAS TOUCHED, AND THAT IS THE EXPENSIVE HALF.** Questions map **WH-21**. An import that MATCHES an existing customer must never flip the flag, or a 900-row press puts every house already built back on the warehouse list and somebody makes a second set for it. Both tools write hundreds of records a press, so this is the failure with real cost. Asserted in both directions.
+    - ⚠ **THE TWO TOOLS CARRY DIFFERENT RISK AND THIS IS THE PART WORTH READING.** `rbImportBtn`'s add rows CARRY COLOURS, so a row that fails to match no longer merely writes a duplicate — it joins a real build group and `computeColorDemand` ORDERS GLASS for a house that does not exist. That is the cost this change adds to a bad match, and the blank-street guard (`if(!existing && !street){ failed++; continue; }`, asserted twice in run-all.js) is what stands between the two. `ibImportBtn`'s add rows carry NO light information at all — no colours, no wire, no timer — so they can only ever reach the blocked block and can never order glass. If a bad match ever queues the book, look at Bulk Updates first.
+    - ⚠ **AND THE BLANK-STREET GUARD DOES NOT COVER `ibImportBtn`.** It belongs to Bulk Updates. The invoice importer has always been able to write an address-less customer (name, phone, email and nothing else) and now flags one for the warehouse as well — deliberately, because they are real customers who need a bundle and blocked-and-visible beats invisible. If that block ever fills with invoice side-effects, the answer is to stop creating customers there, not to hide them again.
+    - Nothing new travels in the batching job: a literal `true` reads no DOM element, so `hu.bulkImportJob.v1` is unchanged and Suite 41's walk still passes.
   - ⚠ "SOMETIMES IT MISSES PEOPLE AND ADDS NEW ONES" IS THE DUPLICATE FACTORY, said by the owner in as many words. See §5 for the diagnosis — the guard `if(!existing && !street){ failed++; continue; }` was added afterwards and only covers the blank-street case.
 Bulk Updates imports a fixed batch of rows at a time and REMEMBERS the place (added 2026-08-17). Owner: "we need to cut it up because it crashes at 250 so we need to go 250 at a time then refresh but it needs to remember", then the same day: "change it to 150 instead of 250 at a time". `BULK_CHUNK_SIZE = 50` — it went 250 → 150 → 50 in one afternoon as each size still used too much, so treat it as a dial the owner turns, not a settled number. One constant; the loop bound, the "next N rows" button and the progress line all read from it, and Suite 39 asserts its exact value so a change is deliberate; the loop runs `startAt`..`stopAt`, then writes the pasted columns, the cursor and the running totals to localStorage (`hu.bulkImportJob.v1`), reloads the page — the reload is the point, it is what hands the memory back — and shows a banner offering Continue. Finishing or cancelling deletes the saved job.
   - ⚠ ANYTHING THE IMPORT READS THAT IS NOT ONE OF THE TEXT BOXES HAS TO BE CARRIED IN THE JOB. Learned the hard way on 2026-08-17: the name flip is a checkbox, batching reloads the page, and the job saved only the eighteen `rbAreaIds` boxes — so the first batch wrote "Julie Cattani" and every batch after it wrote "Cattani Julie". At 50 rows a batch that is fifty right and nine hundred wrong, and it looks exactly like the flip never working. `job.flipNames` now travels with it, and Suite 41 walks every `getElementById` in the import AND in its per-row helpers (`rbName`, `rbCol`, `rbHeaderOffset`) and fails on any input that is neither a saved box nor in the job. Scanning the loop body alone would have missed it — `rbFlipNames` is read inside `rbName`.

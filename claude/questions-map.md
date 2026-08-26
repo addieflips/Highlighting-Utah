@@ -7,9 +7,11 @@ work, in one place, so it is never asked twice and never answered two different 
 (`CLAUDE.md`), not facts about the code. If a machine could derive the answer by reading
 the code, it does not belong here. Only decisions a person made.
 
-**Where it lives.** With the other Claude docs — the Project, not the repo. ⚠ There is no
-`claude/` folder on `main`; only `CLAUDE.md` and `system-map.md` are committed. If that
-changes, this file moves with the rest of them.
+**Where it lives.** `claude/questions-map.md`, committed to the repo alongside
+`CLAUDE.md`, `system-map.md` and `docs/RULES.md`. ⚠ This paragraph used to say there was
+no `claude/` folder on `main` and that only two docs were committed. That stopped being
+true and nothing noticed — which is the exact rot this file exists to prevent, in its own
+header. `git ls-files claude/` is the answer, not this sentence.
 
 **Three rules for keeping it true:**
 
@@ -88,6 +90,8 @@ the docs record it as settled but no dated quote survives — treat those as wea
 | WH-17 | Should a blank colour field clear the build flag? | No. "big problem, she went to the recycle but not to the build." Blank colours mean the build can't be *done*, not that it isn't *owed* | 2026-08-21 | `needsLightBuild` on the Edit Customer save | Standing |
 | WH-18 | Should a house with no colours be hidden from the queue? | No — its own blocked block with an Add colours button, and marked Blocked on the sheet | 2026-08-21 | `whBuildQueueGroups` | Standing |
 | WH-19 | Buffer stock — does it carry a badge? | No. No customer, so no claim | 2026-08-24 | `whBuildReasonKey`, `build-reason.test.js` | Standing |
+| WH-20 | Should an imported house be queued for a build only if it has colours? | No — **ungated**. "we want to build everyone." A row with no colours goes to the blocked "Waiting on light colours" block, which is visible and has an Add colours button; gating the flag makes those houses invisible instead, which is the bug being closed | 2026-08-26 | `needsLightBuild` in `rbImportBtn` / `ibImportBtn` add branches, `import-build-flag.test.js` | Standing |
+| WH-21 | Does an import that MATCHES an existing customer re-queue their build? | No, never. These tools write hundreds of records a press, so a matched row that re-queued would put every house already built back on the warehouse list and somebody would make a second set for it | 2026-08-26 | update branches of `rbImportBtn` / `ibImportBtn`, `import-build-flag.test.js` | Standing |
 
 ## Customer numbers
 
@@ -249,9 +253,11 @@ the docs record it as settled but no dated quote survives — treat those as wea
 | PROC-08 | ~~Should the buttons be repeated below a stack of photos?~~ | ~~Yes, so Approve is never far down a phone~~ | 2026-08-13 | `repeatQuoteButtonsServer`, removed | Superseded → PROC-07 |
 | PROC-09 | Remove an existing feature while doing something else? | No — features don't get removed unless she asks. Archive over delete | (standing) | project rules | Standing |
 | PROC-10 | Write code straight away, or explain first? | Explain first — the feature, the files, the cross-part impact — and wait for the go-ahead. Mockups before major UI changes | (standing) | project rules | Standing |
-| PROC-11 | Deliver snippets or whole files? | Whole files, through the file system — only the files she needs to upload | (standing) | project rules | Standing |
+| PROC-11 | ~~Deliver snippets or whole files?~~ | ~~Whole files, through the file system — only the files she needs to upload~~ | (standing) | project rules | Superseded → PROC-15 |
 | PROC-13 | Is "write the ruling down" an active rule or a proposal? | Active — **R-023**, `read` + `code`, tier 5. Filing it as proposed was wrong: R-005 was retired because the state it governed did not exist, not because it was unenforceable, and this rulebook already has a tier for rules that can only be honoured | 2026-08-26 | `docs/RULES.md` R-023 + amendment log | Standing |
 | PROC-12 | What does a test failure have to say? | Enough to be understood from the pasted text alone — "failures should read legibility so you can understand it when we ask you questions about failures." The file, the line, which row, **what that row says**, and the fix. Grouped by row, not one line per check | 2026-08-26 | `questions-map.test.js` reporter, 13 sabotages | Standing |
+| PROC-14 | How does a ruling reach the map when the work is done in Claude Code? | R-023 restated at the TOP of `CLAUDE.md`, not only as item 5 of §9.9 forty thousand words down. Chat-side work is covered by the Project instructions. Nothing can check that a ruling was given and never written down, so the placement IS the enforcement | 2026-08-26 | `CLAUDE.md` head section, `docs/RULES.md` R-023 | Standing |
+| PROC-15 | Does Claude Code hand back files to upload, or do the work in the repo? | Do it in the repo — branch, edit, run `npm test`, open the PR. **Do not hand back files to upload.** Reverses PROC-11, which was written for chat delivery where there was no repo to work in | 2026-08-26 | task briefs, 2026-08-26 | Standing |
 
 ## Fixes
 
