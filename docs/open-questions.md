@@ -903,15 +903,42 @@ which is exactly the "one shared rule" this entry asked for.
 
 **This entry stays OPEN**, because two of its three parts are still assumptions:
 
-- **Q-012b** — *"sitting out AND never completed", never "sitting out"*. This was
-  read on the merge and **built as stated**: both copies of the rule end
-  `&& dd.completed !== true`, so a house whose lights were hung and who then said
-  Back Next Year is still billed for the work done. `money-parity.test.js` sweeps a
-  completed axis over it. ⚠ **Still needs her confirmation** — it is a money rule
-  built on a reading of a settled comment, not on anything she said.
+- **Q-012b** — *"sitting out AND never completed", never "sitting out"*. Built as
+  stated on this branch: both copies end `&& dd.completed !== true`, and
+  `money-parity.test.js` sweeps a completed axis over them. ⭐ **CONFIRMED by her own
+  words in the other session** — *"After the last persons house is done if there are
+  multiple people on one bill is when they will be charged"* — and PR #140 implements
+  the same ordering, testing `completed` **before** the sitting-out branch. Two
+  sessions reached the identical rule from opposite sides, which is the strongest
+  evidence available that it is the right one.
 - **Q-012c** — the office's own Maybe Next Year toggle counts the same as the
-  customer answering through the link. Built that way (`maybeNextYear` is one of the
-  three ways out), and unconfirmed.
+  customer answering through the link. Built that way on both branches
+  (`maybeNextYear` is one of the ways out). Never stated in words, but no longer a
+  lone assumption.
+
+### ⚠ ONE RULE, TWO NAMES — this must not merge as it stands
+
+Both branches wrote the rule, and they are **semantically identical**:
+
+| | this branch | PR #140 |
+|---|---|---|
+| browser copy | `billedThisSeason` in **js/money.js** | `houseIsOnTheBill` in **admin.html** |
+| server copy | `billedThisSeasonServer` | `houseIsOnTheBillServer` |
+| `'no'` | out | out |
+| `completed === true` | in (the `&& completed !== true` tail) | in (an early return) |
+| backnextyear / maybeNextYear | out | out |
+| parity sweep | completed axis | completed axis |
+
+⚠ **Whichever merges second folds into the first — it does not sit beside it.**
+CLAUDE.md says it in as many words about this exact rule: *"a rule about who gets
+billed cannot have two implementations."* Two names would be found by two different
+sets of callers and would drift the first time either is changed.
+
+**Recommended resolution, so it is decided rather than raced:** keep **one** name and
+put it in **js/money.js**, which is the file `money-parity.test.js` and the whole
+money story already point at, and where a rule read by the office, the nightly run
+and the group list belongs. The name matters less than the count; `houseIsOnTheBill`
+reads better at the call sites and is the one already reviewed on an open PR.
 
 ⚠ **The nightly summary still does not separate a held bill from a waiting one.**
 That was listed above as "doing regardless of the answer" and it has not been done —
