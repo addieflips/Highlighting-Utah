@@ -1221,6 +1221,8 @@ const RETIRED_CHECKLIST_TERMS = [
       216,  // reading the options list for what is missing
       217,  // getting the soft-light houses switched before the list is lost
       218,  // the RSVP asking the right household for its own gate code
+      219,  // the Overdue list read against the real book, after the invoice-date fix
+      220,  // the house tabs on a real shared bill - layout, and real record shapes
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -36756,17 +36758,47 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   check('S149', 'and it says which click would fix it, rather than just refusing',
     /Click once on a WALL in the street view first/.test(admin),
     'a refusal with no way out reads as the tool being broken');
-  /* ⭐ THE PICTURE LINES ITSELF UP FROM THE DOTS. Owner: "i click a corner on
-     skyview but its still a few feet off from where I clicked" — that is the
-     satellite tile being displaced, with the correction never applied because
-     rmAutoAlign only ran after a hand-traced RUN was finished, and the workflow
-     stopped producing those the day dots replaced tracing. */
-  check('S149', 'placing dots is enough to line the two pictures up',
+  /* ⛔ THE PICTURE DOES NOT LINE ITSELF UP FROM THE DOTS (reverted 2026-08-26,
+     one day after these checks asserted the opposite).
+
+     ⚠ MEASURED FAILING, ON 209 S 850 W. Three dots across the front gable made
+     rmAutoAlign fit an offset of 19.2 FT and apply it; the displacement really
+     measured on that house is about six. Every dot then drew about twenty feet
+     off the building, while their TRUE positions were fine - rmRoofRelativeAt
+     answered non-null for all three. The drawing was wrong and the measurement
+     was right, which is the worst way round, because the office judges the tool
+     by the drawing.
+
+     ⚠ WHY IT FITS BADLY FROM DOTS. The fit matches traced lines against the
+     model's EAVE segments. A run built from corners across a gable is two RAKES
+     and a peak, so it is matched against edges it does not lie along and the
+     minimum goes soft - and a soft minimum lands wherever the search started
+     and reports a confident number for it. That is the same under-determined
+     failure written up in js/svdepth.js, arrived at from the other direction.
+
+     ⚠ THE COMPLAINT IT WAS MEANT TO ANSWER STANDS. "i click a corner on skyview
+     but its still a few feet off" is the tile being displaced, and the honest
+     answer is Line them up: two clicks, one spot, measured. */
+  check('S149', 'placing dots does NOT try to line the two pictures up',
     (function(){
       const fn = extractFn(admin, 'rmCornersChanged') || '';
+      return !/rmAutoAlign\(\);/.test(fn);
+    })(),
+    'three dots on a gable fitted 19.2 ft on a house whose displacement is six, ' +
+    'and drew every dot off the building');
+  check('S149', 'and a corner-built run cannot reach the fit even if something calls it',
+    (function(){
+      const fn = extractFn(admin, 'rmFitSkyOffset') || '';
+      return /!r\.fromCorners/.test(fn) && /rmTracedSamples\(usable\)/.test(fn);
+    })(),
+    'the guard is what stops this coming back through a different caller');
+  check('S149', 'the fit still runs when a real side has been traced',
+    (function(){
+      const fn = extractFn(admin, 'rmFinishRun') || '';
       return /rmAutoAlign\(\);/.test(fn);
     })(),
-    'it fired only on rmFinishRun, which the dot workflow never calls');
+    'a whole traced gutter is long, straight and actually an eave - that is the ' +
+    'case it was built and tested for, and it is not being removed');
   check('S149', 'and it still never overrides an answer somebody measured',
     /if\(rmSkyOffset \|\| rmAligning\) return;/.test(extractFn(admin, 'rmAutoAlign') || ''),
     'a fit is arithmetic about a model; a measured alignment is a person saying where a spot is');
@@ -37245,6 +37277,30 @@ suite('152. Measure Roof - a dot seen twice is exact, with no model at all');
      on the corner. Aiming at the corner missed the dot and made a second one.
      See RM_RESIGHT_DEPTH_SLOP_M for why the net widens only once the camera has
      moved far enough for a second sighting to mean anything. */
+  /* ⭐ AND THE CLICK ACTUALLY REACHES THAT CODE WHILE PLACING (2026-08-26).
+     Owner: "i cant place two dots on top of each other", said while trying to
+     click the same corner from a second angle — which is the one gesture that
+     fixes drift, because two sightings cross at a point.
+
+     ⚠ THE INVISIBLE DOT TARGET WAS EATING IT. It sits on the SVG layer above
+     the sheet that catches clicks and calls stopPropagation, so a click within
+     seven pixels of a drawn dot toggled that dot and stopped — no message, no
+     pin, no new dot. The re-sight path below was unreachable exactly when the
+     dot was drawn where you were aiming. Narrowing the radius cannot fix it
+     (that was tried, 12 to 7): re-sighting means clicking where the dot IS. */
+  check('S152', 'a dot does not swallow its own click while placing',
+    /el\.style\.pointerEvents = \(rmCornerMode === 'dot'\) \? 'none' : 'all';/.test(admin),
+    'the toggle target stopPropagation-ed the one gesture that fixes drift');
+  check('S152', 'and it still toggles while picking, which is what that mode is for',
+    (function(){
+      const i = admin.indexOf("svg.querySelectorAll('[data-rmcornerdot]')");
+      const j = admin.indexOf("svg.querySelectorAll('[data-rmtoggle]')", i);
+      return i !== -1 && /rmToggleCorner\(i\);/.test(admin.slice(i, j));
+    })(),
+    'losing the toggle would trade one gesture for another');
+  check('S152', 'and the right button still toggles in either mode, on both views',
+    /\['rmPanoLock', 'rmMapLock'\]\.forEach/.test(admin) && /rmToggleCorner/.test(admin),
+    'that is what makes it safe to hand the left button to placing');
   check('S152', 'clicking an existing dot pins it rather than adding another',
     /const near = rmDotToResight\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
   check('S152', 'and the net only widens once a second sighting could fix a depth',
