@@ -25352,7 +25352,44 @@ function thanksgivingDate(year){
    overrides it at login so the office can make this decision itself. The literal
    here is the DEFAULT and the fallback — a failed settings read leaves it standing,
    which keeps everybody in the season rather than emptying it. */
-let SEASON_ELIGIBILITY = 'all-but-maybe-next-year';   // or 'confirmed-only'
+/* ⭐ ONLY PEOPLE WHO ANSWERED ARE SCHEDULED — THE RULE, NOT A BUTTON (2026-08-26).
+   Owner: "can we just make RSVP hardcoded to only people that RSVP either through the
+   email, member portal or we put it in on costumer tab are they able to be scheduled
+   for this year and invoiced", and asked how to stop crews reaching non-repliers:
+   "Both — hardcode it AND warn me."
+
+   ⚠ WHAT SHE WAS ACTUALLY AFRAID OF, in her words: "if someone invoice goes out before
+   I get to the switch than they will be charged even though they didn't RSVP." The
+   billing is NOT where that gets fixed — Q-013 settled that a house that was hung is
+   charged, full stop. The chain is: in the season → routed → hung → completed →
+   invoiced, so the only place to stop it is the FIRST link. A manual switch she has to
+   remember to press in a busy October is not a guard, which is why this is a default.
+
+   ⚠ AND THIS IS WHY IT IS NOT SIMPLY `= 'confirmed-only'`. Hardcoding the value alone
+   empties the season the moment it ships and again the moment she presses send:
+   nobody has replied yet, so everybody reads as unconfirmed and every route, build and
+   crew day drains. `seasonRuleIsLive` is what makes the hardcoding safe — the rule
+   cannot bite until people have actually been ASKED and given time to answer. */
+const RSVP_REPLY_DAYS = 14;
+let SEASON_ELIGIBILITY = 'confirmed-only';   // or 'all-but-maybe-next-year' to turn it off
+/* ⚠ THREE THINGS MUST ALL BE TRUE, and each one is a separate way to empty a season.
+   1. The rule is on at all (she can still switch it off — it is a default, not a cage).
+   2. The RSVP HAS ACTUALLY GONE OUT. Requiring an answer to a question nobody sent is
+      a test nobody can pass, and it would drop the whole book on day one.
+   3. The reply window has closed. Without this the season empties the SECOND she
+      presses send, before a single customer has had the chance to reply — and every
+      reply that then arrived would re-add one person and re-shuffle the routes.
+   ⚠ IT FAILS TOWARDS KEEPING PEOPLE IN. Anything unknown — no marker, a cache that has
+   not loaded, an unreadable date — answers false, which means "everyone stays in the
+   season". Dropping somebody who wanted lights is the expensive mistake; carrying
+   somebody who did not costs one bundle. */
+function seasonRuleIsLive(nowMs){
+  if(SEASON_ELIGIBILITY !== 'confirmed-only') return false;
+  const sent = (typeof rsvpSentAtCache === 'undefined') ? null : toJsDate(rsvpSentAtCache);
+  if(!sent) return false;
+  const now = Number(nowMs) || Date.now();
+  return (now - sent.getTime()) >= RSVP_REPLY_DAYS * 86400000;
+}
 function isOutForSeason(d){
   if(!d) return true;
   const said = String(d.rsvpStatus || '').toLowerCase();
@@ -25443,7 +25480,7 @@ function isOutForSeason(d){
      `said === 'yes' && d.rsvpRespondedAt` since the tab was built; this one read the
      status alone. Two places answering "is this customer confirmed" two ways is how
      the office and the crew end up holding different lists. */
-  if(SEASON_ELIGIBILITY === 'confirmed-only'){
+  if(seasonRuleIsLive()){
     /* ⭐ A NEW HANG IS IN WITHOUT A REPLY (added 2026-08-22). Owner: "once a quote gets
        converted to costumer that is approved."
 
@@ -35884,13 +35921,22 @@ function seasonEligibilityWouldDrop(){
      opinion about who is in the season is exactly the drift this predicate exists to
      stop — and it is the number the office is about to act on. */
   const was = SEASON_ELIGIBILITY;
+  /* ⚠ THE SEND MARKER IS FAKED FOR THE MEASUREMENT TOO (2026-08-26). Since the rule
+     became a gated default, setting SEASON_ELIGIBILITY alone is no longer enough to
+     make it bite — seasonRuleIsLive also wants the RSVP to have gone out and the
+     reply window to have closed. Without this the preview answers "0 would drop"
+     before the send, which is not a reassuring answer, it is a WRONG one: it is the
+     number the office is about to act on. Restored in the same finally. */
+  const wasSent = (typeof rsvpSentAtCache === 'undefined') ? null : rsvpSentAtCache;
   let dropped = [];
   try{
     SEASON_ELIGIBILITY = 'all-but-maybe-next-year';
     const inNow = book.filter(function(a){ return !isOutForSeason(a.data); });
     SEASON_ELIGIBILITY = 'confirmed-only';
+    rsvpSentAtCache = new Date(Date.now() - (RSVP_REPLY_DAYS + 1) * 86400000);
     dropped = inNow.filter(function(a){ return isOutForSeason(a.data); });
   } finally {
+    rsvpSentAtCache = wasSent;
     /* ⚠ RESTORED IN A finally. A throw part-way through would otherwise leave the whole
        page running in confirmed-only without anybody choosing it. */
     SEASON_ELIGIBILITY = was;
@@ -47503,6 +47549,53 @@ function hcRunChecks(){
                      : ' — no invoice under that key yet, so nothing to lose today')
       };
     })
+  });
+  /* ⭐ WHO THE SEASON RULE IS LEAVING OUT (added 2026-08-26). Addie, asked how to stop
+     crews reaching people who never replied: "Both — hardcode it AND warn me." The
+     hardcoding is `SEASON_ELIGIBILITY` plus `seasonRuleIsLive`; this is the warning.
+
+     ⚠ WITHOUT IT THE HARDCODING IS SILENT, which is the whole objection to hardcoding.
+     A default that quietly removes customers is worse than a button she forgets,
+     because a forgotten button at least leaves everybody in. This row is what makes
+     the drops something she can see and argue with.
+
+     ⚠ IT SHOWS THE SAME NUMBER AS "Check first", from the same function. A second way
+     of counting who leaves the season is how the Dashboard and this panel start
+     telling her different things about the same people.
+
+     ⚠ AND IT REPORTS BEFORE IT BITES. While the rule is not yet live it still lists
+     them, saying so — that is the point at which she can still ring them. A warning
+     that only appears once the damage is done is a report, not a warning. */
+  checks.push({
+    id: 'seasonRuleDrops',
+    title: 'People who never replied to the RSVP',
+    why: 'Crews are not sent to them and no bundle is built for them. That is the rule working as asked — but not replying to an email is not the same as not wanting lights, so these are the people worth a phone call.',
+    fix: null,
+    fixNote: 'No button: only you can tell whether these have gone quiet or just never open email. Marking their answer on the customer record puts them straight back in.',
+    rows: (function(){
+      if(typeof seasonEligibilityWouldDrop !== 'function') return [];
+      const sent = (typeof rsvpSentAtCache === 'undefined') ? null : toJsDate(rsvpSentAtCache);
+      /* ⚠ NOTHING AT ALL UNTIL THE RSVP HAS GONE OUT, and this is the difference between
+         a warning and noise. Before the send NOBODY has replied, so every customer in
+         the book is a non-replier and this row would list all ~956 of them — the panel
+         crying wolf about a rule that is not even live, which is how the office learns
+         to scroll past it. There is also nothing to act on: you cannot chase somebody
+         for not answering a question you have not asked. */
+      if(!sent) return [];
+      const live = (typeof seasonRuleIsLive === 'function') && seasonRuleIsLive();
+      /* When it is not live yet, say WHEN — "would be dropped" with no date is a
+         warning nobody can act on, because there is nothing to act before. */
+      const when = (!live && sent)
+        ? new Date(sent.getTime() + RSVP_REPLY_DAYS * 86400000)
+        : null;
+      const tail = live
+        ? ' — not being scheduled'
+        : ' — would come off from ' + toDateStr(when);
+      return seasonEligibilityWouldDrop().map(function(a){
+        const d = a.data || {};
+        return {label: hcName(d), detail: (hcAddr(d) || 'no address') + tail};
+      });
+    })()
   });
   checks.push({
     id: 'totalDrift',

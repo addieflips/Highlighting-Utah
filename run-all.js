@@ -408,6 +408,25 @@ function sectionFrom(src, start) {
 
 const admin = read('admin.html');
 
+/* ⭐ EVERYTHING isOutForSeason NEEDS TO RUN, IN ONE PLACE (2026-08-26).
+   Eight sandboxes lift that predicate and each assembled its own preamble by hand, so
+   when the confirmed-only branch gained `seasonRuleIsLive` every one broke separately
+   — the same way three broke earlier the same day when the new-hang exemption widened.
+   A shared preamble makes the NEXT dependency one edit rather than a scavenger hunt
+   through failing suites.
+   ⚠ `rsvpSentAtCache = null` IS THE HONEST DEFAULT: no RSVP has gone out, so the rule
+   is not live and the lenient answer applies — exactly what the page does before the
+   send. A sandbox wanting the STRICT rule has to say so by supplying a sent date
+   (`seasonRuleLiveSrc`), so strictness is always something a test asked for rather
+   than something it inherited by accident. */
+const seasonRuleSrc = (sentAtExpr) =>
+  'let rsvpSentAtCache = ' + (sentAtExpr || 'null') + ';\n' +
+  (admin.match(/const RSVP_REPLY_DAYS = \d+;/) || [''])[0] + '\n' +
+  (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + '\n' +
+  extractFn(admin, 'toJsDate') + '\n' + extractFn(admin, 'seasonRuleIsLive') + '\n';
+/* A send far enough back that the reply window has closed — "the rule is live". */
+const seasonRuleLiveSrc = () => seasonRuleSrc('new Date(Date.now() - 400*86400000)');
+
 /* ⭐ LIFT THE REAL FUNCTION, RATHER THAN WRITING A FAKE OF IT (added 2026-08-25).
  *
  * A sandbox needing `thanksgivingDate` used to get `y => new Date(y, 10, 26)` —
@@ -3455,11 +3474,31 @@ console.log('\n=== 7. Health check engine ===');
     /* The "customer with no number" check reads the town off the record, and
        lifts the real cleaner for the same reason as the colours above. */
     ${hcCleanCitySrc || ''}
-  `;
+  ` + /* ⚠ THE STREET-IN-TOWN DETECTOR AND THE SEASON RULE, both lifted (2026-08-26).
+     Neither was needed until a fixture arrived carrying a `city`, and one needing the
+     season rule — which is exactly how a sandbox dependency stays invisible: it is not
+     missing until some test finally walks down that branch. Real ones, never stubs; a
+     stub would keep this suite green through a change to who the app leaves out of the
+     season. Concatenated rather than interpolated, because these bodies contain
+     backticks and ${} of their own and a template literal eats them.
+     rsvpSentAtCache is null — the honest pre-send state, so the row says "would". */
+    [ extractFn(admin, 'cityLooksLikeStreet'),
+      (admin.match(/const CITY_STREET_SUFFIXES = \[[\s\S]*?\];/) || [''])[0],
+      seasonRuleSrc(),
+      extractFn(admin, 'isOutForSeason'),
+      extractFn(admin, 'audienceIsNew'),
+      extractFn(admin, 'quoteMatchAddress'),
+      extractFn(admin, 'isRequote'),
+      extractFn(read('js/money.js'), 'enrollmentYearOf'),
+      extractFn(admin, 'audienceQuoteJoinYear'),
+      extractFn(admin, 'audienceNeverAsked'),
+      extractFn(admin, 'seasonEligibilityWouldDrop'),
+      extractFn(admin, 'toDateStr')
+    ].filter(Boolean).join('\n') + '\n'
   let hc;
   try {
     hc = new Function(prelude + code + `
-      return {set:function(o){jobAddresses=o.j||[];allInvoicesCache=o.i||[];quotesCache=o.q||[];availableCustomerNumbers=o.a||[];scheduledRoutesCache=o.r||{};},setNightly:function(n){nightlyHealthCache=n;},run:hcRunChecks};
+      return {set:function(o){jobAddresses=o.j||[];allInvoicesCache=o.i||[];quotesCache=o.q||[];availableCustomerNumbers=o.a||[];scheduledRoutesCache=o.r||{};},setNightly:function(n){nightlyHealthCache=n;},setRsvpSent:function(d){rsvpSentAtCache=d;},run:hcRunChecks};
     `)();
   } catch (e) {
     check('health', 'health check engine evaluates', false, e.message);
@@ -3815,12 +3854,86 @@ console.log('\n=== 7. Health check engine ===');
      `linked` comes back empty, and the phone-key branch deliberately does not refuse
      — the rebuild writes install: 0 over a real total. This row IS Q-019: Addie asked
      for the real data before anything was built on it, and an empty row closes the
-     question. */
-  check('health', 'all 23 checks present',
-    all.length === 23, 'got ' + all.length);
+     question.
+     ⭐ 24 SINCE 2026-08-26: 'seasonRuleDrops'. Addie, asked how to stop crews reaching
+     people who never replied to the RSVP: "Both — hardcode it AND warn me." The
+     hardcoding is SEASON_ELIGIBILITY + seasonRuleIsLive; this row is the warning half,
+     and without it the hardcoding is silent — which is the whole objection to
+     hardcoding. It reports BEFORE the rule bites, naming the date it will, because a
+     warning that only arrives once the damage is done is a report. */
+  check('health', 'all 24 checks present',
+    all.length === 24, 'got ' + all.length);
   /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
      form is truthy whatever happens and proves nothing. Red-checking caught it:
      renaming the id sailed straight through. */
+  /* ---- who the season rule is leaving out (2026-08-26) ------------------
+     Addie: "Both — hardcode it AND warn me." Without this row the hardcoding is
+     silent, which is the whole objection to hardcoding: a default that quietly
+     removes customers is worse than a button she forgets, because a forgotten
+     button at least leaves everybody in. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Replied Yes', phone: '8015550301', address: '1 St',
+            city: 'Lehi', rsvpStatus: 'yes', rsvpRespondedAt: 1, customerNumber: '301', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Never Replied', phone: '8015550302', address: '2 St',
+            city: 'Lehi', customerNumber: '302', measuredFeet: 100 } },
+        { id: 'c', data: { name: 'Said No', phone: '8015550303', address: '3 St',
+            city: 'Lehi', rsvpStatus: 'no', rsvpRespondedAt: 1, customerNumber: '303', measuredFeet: 100 } },
+        { id: 'd', data: { name: 'Brand New', phone: '8015550304', address: '4 St',
+            city: 'Lehi', chargeNewMemberFee: true, customerNumber: '304', measuredFeet: 100 } }],
+    i: []
+  });
+  {
+    /* ⚠ THE ROW IS SILENT UNTIL THE RSVP HAS GONE OUT, so the fixture has to say it
+       has. That is not a detail: before the send NOBODY has replied, so the row would
+       otherwise list the whole book — the panel crying wolf about a rule that is not
+       live, which is how the office learns to scroll past it. Checked on its own
+       below. Two days ago, so the reply window is still open and the row is in its
+       warning state rather than its reporting one. */
+    hc.setRsvpSent(new Date(Date.now() - 2 * 86400000));
+    const rows = get(hc.run(), 'seasonRuleDrops').rows;
+    const names = rows.map(r => r.label).join(', ');
+    check('health', 'the row names the person who never replied',
+      rows.length === 1 && /Never Replied/.test(names),
+      'this is the warning half of "hardcode it AND warn me" — got: ' + names);
+    /* ⚠ THE THREE IT MUST NOT NAME, each for its own reason. Somebody who replied is
+       the whole point of the rule. Somebody who said no is already out and was never
+       dropped BY this rule. A brand-new customer is never sent the RSVP at all, so
+       they can never answer it. Naming any of them makes the row noise. */
+    check('health', 'and nobody who replied Yes',
+      !/Replied Yes/.test(names),
+      'they answered — the rule exists to keep exactly these people');
+    check('health', 'nor somebody who said No',
+      !/Said No/.test(names),
+      'already out today, and by their own decision — not something this rule did');
+    check('health', 'nor a brand-new customer',
+      !/Brand New/.test(names),
+      'we never send them the RSVP, so requiring an answer to it is a test nobody can pass');
+    /* ⚠ IT REPORTS BEFORE IT BITES. With no send marker the rule is not live, and the
+       row must STILL list them — that is the only moment she can still ring them. */
+    check('health', 'it warns while the rule is not live yet, and says so',
+      rows.length === 1 && /would come off/.test(rows[0].detail),
+      'a warning that only appears once the damage is done is a report, not a warning');
+    /* ⭐ AND THE SILENCE ITSELF IS ASSERTED. Same book, no send marker: not one row. */
+    hc.setRsvpSent(null);
+    check('health', 'and it says NOTHING until the RSVP has actually gone out',
+      get(hc.run(), 'seasonRuleDrops').rows.length === 0,
+      'before the send every customer is a non-replier — listing all ~956 of them is ' +
+      'the panel crying wolf about a rule that is not even live yet');
+    hc.setRsvpSent(new Date(Date.now() - 2 * 86400000));
+    check('health', 'and it offers no Fix button',
+      !get(hc.run(), 'seasonRuleDrops').fix,
+      'only she can tell somebody who has gone quiet from somebody who never opens ' +
+      'email — and marking their answer on the record is the real fix');
+  }
+
+  /* ⚠ AND THE NUMBER IS THE SAME ONE "Check first" SHOWS, from the same function. A
+     second way of counting who leaves the season is how the Dashboard and this panel
+     start telling her different things about the same people. */
+  check('health', 'the row counts with the same rule the Dashboard preview uses',
+    /seasonEligibilityWouldDrop\(\)/.test(
+      (admin.replace(/\r/g, '').match(/id: 'seasonRuleDrops'[\s\S]*?\n  \}\);/) || [''])[0]),
+    'two counts of the same thing is two answers to "how many am I about to drop"');
+
   /* ---- a stored phone an exact-match query cannot find (Q-019) ----
      ⚠ THE THREE NEGATIVES MATTER AS MUCH AS THE POSITIVE. This row exists to
      answer "is Q-019 real in the live book", so a false positive does not just
@@ -7834,6 +7947,11 @@ suite('17. A new customer lands on the next day in their city');
                      rule most likely to be got wrong, and suite 21 only proves
                      the function itself, not that the sweep obeys it. */
                   'isOutForSeason','normInstallPref',
+                  /* ⚠ AND WHAT isOutForSeason NEEDS TO ANSWER AT ALL (2026-08-26).
+                     Its confirmed-only branch asks seasonRuleIsLive, which reads the
+                     RSVP-sent marker and the reply window. Lifted here rather than
+                     stubbed; the preamble below supplies the marker. */
+                  'toJsDate','seasonRuleIsLive',
                   'scheduledFieldForType','freeUpFieldForType'];
 
   if (recStart === -1 || recEnd < recStart) {
@@ -9082,7 +9200,17 @@ suite('21. Everyone is in unless they said otherwise');
   check('season', 'the new-hang exemption is there to lift', !!audienceIsNewSrc &&
     !!extractFn(admin, 'audienceNeverAsked'),
     'without it the confirmed-only new-hang exemption is untested, silently');
-  const withMode = m => eval("const SEASON_ELIGIBILITY = '" + m + "';\n" +
+  /* ⚠ AND THE SEASON RULE'S OWN DEPENDENCIES (2026-08-26). The confirmed-only branch
+     asks seasonRuleIsLive, which reads the RSVP-sent marker and the reply window. A
+     strict sandbox has to supply a send far enough back that the window has closed —
+     otherwise "confirmed-only" silently answers leniently and every strict check below
+     passes for the wrong reason. */
+  const withMode = m => eval(
+    'let rsvpSentAtCache = new Date(Date.now() - 400*86400000);\n' +
+    'const RSVP_REPLY_DAYS = ' +
+      ((admin.match(/const RSVP_REPLY_DAYS = (\d+);/) || [])[1] || '0') + ';\n' +
+    "let SEASON_ELIGIBILITY = '" + m + "';\n" +
+    extractFn(admin, 'toJsDate') + '\n' + extractFn(admin, 'seasonRuleIsLive') + '\n' +
     audienceIsNewSrc + '\n' + fnSrc + '\n;({out: isOutForSeason})');
   const api = withMode('all-but-maybe-next-year');
   const strict = withMode('confirmed-only');
@@ -9091,10 +9219,42 @@ suite('21. Everyone is in unless they said otherwise');
   check('season', 'the setting is one line, and says which mode is live',
     liveMode === 'all-but-maybe-next-year' || liveMode === 'confirmed-only',
     'found: ' + liveMode);
-  check('season', 'and it is on "everyone but Maybe Next Year" for now',
-    liveMode === 'all-but-maybe-next-year',
-    "owner, 2026-08-15: switch to 'confirmed-only' once the RSVP email is live " +
-    'and everybody has actually been asked — until then this must not change');
+  /* ⚠ REPOINTED 2026-08-26, AND IT IS STRONGER THAN WHAT IT REPLACED. This used to
+     assert the constant read 'all-but-maybe-next-year', because that string was the
+     only thing standing between one edit and an empty season. Addie then asked for
+     the rule to be the DEFAULT rather than a button she has to remember — "Both —
+     hardcode it AND warn me" — so the constant is now 'confirmed-only' and the
+     guarantee moved into `seasonRuleIsLive`.
+     The guarantee is unchanged and is what is asserted here: NOBODY IS DROPPED UNTIL
+     THEY HAVE ACTUALLY BEEN ASKED. It is RUN, not read — the old check compared a
+     string and could not have told you what the code does. */
+  {
+    const liveFn = new Function('sentAt', 'elig',
+      'let rsvpSentAtCache = sentAt;\nconst RSVP_REPLY_DAYS = ' +
+      ((admin.match(/const RSVP_REPLY_DAYS = (\d+);/) || [])[1] || '0') + ';\n' +
+      'let SEASON_ELIGIBILITY = elig;\n' + extractFn(admin, 'toJsDate') + '\n' +
+      extractFn(admin, 'seasonRuleIsLive') + '\nreturn seasonRuleIsLive();');
+    check('season', 'the rule is NOT live until the RSVP has actually gone out',
+      liveFn(null, 'confirmed-only') === false,
+      'requiring an answer to a question nobody sent is a test nobody can pass — it ' +
+      'would drop the entire book the day it shipped');
+    check('season', 'and not while people still have time to reply',
+      liveFn(new Date(), 'confirmed-only') === false,
+      'live the second she presses send means the season empties before one customer ' +
+      'has had the chance to answer');
+    check('season', 'it IS live once the reply window has closed',
+      liveFn(new Date(Date.now() - 400 * 86400000), 'confirmed-only') === true,
+      'if it never becomes live the hardcoding does nothing at all');
+    check('season', 'and switching it off still turns it off',
+      liveFn(new Date(Date.now() - 400 * 86400000), 'all-but-maybe-next-year') === false,
+      'it is a default, not a cage — she can still put everybody back');
+    /* ⚠ UNKNOWN MUST MEAN LENIENT. Dropping somebody who wanted lights is the
+       expensive mistake; carrying somebody who did not costs one bundle. */
+    check('season', 'an unreadable or missing marker keeps everybody IN',
+      liveFn(undefined, 'confirmed-only') === false &&
+      liveFn('not a date', 'confirmed-only') === false,
+      'a cache that has not loaded yet must not empty the season for a moment');
+  }
 
   // ---- the mode that is live today -------------------------------------
   check('season', 'a blank RSVP is IN — that is the normal state of the imported list',
@@ -14724,7 +14884,7 @@ suite('Suite 48. Days within two working days are set');
          shared definition rather than a second opinion of its own — a hand-written
          stub of isOutForSeason would prove the plumbing and nothing about the rule.
          The live setting comes with it for the same reason. */
-      (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + fn('isOutForSeason') +
+      seasonRuleSrc() + fn('isOutForSeason') +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
@@ -22833,8 +22993,10 @@ suite('Suite 106. Moving house, and withdrawing a re-quote');
   check('S106', 'the season rule is there to run', !!outSrc);
 
   if (outSrc) {
+    /* seasonRuleSrc supplies the rule's own dependencies with NO send marker, which
+       is the lenient state these checks were written against — see its own note. */
     const isOut = (d) => new Function('d',
-      "const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';" + outSrc +
+      seasonRuleSrc() + "SEASON_ELIGIBILITY = 'all-but-maybe-next-year';" + outSrc +
       'return isOutForSeason(d);')(d);
 
     check('S106', 'somebody whose lights are being recycled is still out',
@@ -23699,7 +23861,7 @@ suite('Suite 107. Pricing a re-quote from the popup');
        wanted to hear. The live setting comes with it. */
     const q = new Function('jobAddresses', 'warehouseExtras', 'whGroupKey', 'houseBundleNeed',
       'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
-      (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+      seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
       extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + 'return whBuildQueueGroups();');
     const B = (book) => q(book, [], (p, w) => p + '|' + (w || ''),
       (d) => ({feet: Number(d.measuredFeet) || 0, bundles: 1}), 100, 2, (p, r) => p / r);
@@ -24826,7 +24988,7 @@ suite('Suite 116. Deleting the test records');
   {
     const status = new Function('item', 'jobAddresses', 'warehouseExtras', 'whGroupKey',
       'houseBundleNeed',
-(admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
       extractFn(admin, 'houseLightsText') + extractFn(admin, 'whBuildQueueGroups') + extractFn(admin, 'whHouseBuildStatus') +
       'return whHouseBuildStatus(item);');
     const ask = function(d, extras){
@@ -25296,7 +25458,7 @@ suite('Suite 112. The number on the bin');
     {
       const list = new Function('jobAddresses', 'printLightColor', 'printYesNo',
         'houseBundleNeed', 'whPutIntoLabel',
-        (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + extractFn(admin, 'isOutForSeason') +
+        seasonRuleSrc() + extractFn(admin, 'isOutForSeason') +
         /* ⚠ whBinsForHouse IS LIFTED, NOT STUBBED. It is the Bins column's answer on
            this sheet since 2026-08-25, and it reads the real 260-foot bin rule. */
         extractFn(admin, 'whBinsForHouse') +

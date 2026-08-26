@@ -136,18 +136,29 @@ const audienceIsNewSrc = 'let quotesCache = [];\n' +
 check('the new-hang exemption is there to lift',
   !!fn('audienceNeverAsked') && !!fn('audienceQuoteJoinYear') && !!fn('audienceIsNew'),
   'without it the confirmed-only new-hang exemption is untested, silently');
+/* ⚠ AND THE RULE'S OWN GATE (2026-08-26). isOutForSeason's confirmed-only branch asks
+   seasonRuleIsLive, which reads the RSVP-sent marker and the reply window — so a
+   sandbox has to say WHICH of the two states it is testing rather than inheriting one.
+   No marker = the rule is not live = the lenient answer, which is what the page does
+   before the RSVP goes out. A send 400 days back = the window has closed = strict. */
+const ruleSrc = (sentAt) =>
+  'let rsvpSentAtCache = ' + sentAt + ';\n' +
+  (admin.match(/const RSVP_REPLY_DAYS = \d+;/) || [''])[0] + '\n' +
+  fn('toJsDate') + '\n' + fn('seasonRuleIsLive') + '\n';
 const outForSeason = new Function('d',
-  eligLine + audienceIsNewSrc + src.isOutForSeason + 'return isOutForSeason(d);');
+  ruleSrc('null') + eligLine + audienceIsNewSrc + src.isOutForSeason +
+  'return isOutForSeason(d);');
 /* The strict mode the owner is aiming at, so the rule is proved before it is live. */
 const outStrict = new Function('d',
-  "const SEASON_ELIGIBILITY = 'confirmed-only';" + audienceIsNewSrc + src.isOutForSeason +
+  ruleSrc('new Date(Date.now() - 400*86400000)') +
+  "SEASON_ELIGIBILITY = 'confirmed-only';" + audienceIsNewSrc + src.isOutForSeason +
   'return isOutForSeason(d);');
 
 const groupKey = (p, w) => (p || '') + '|' + (w || '');
 const bundleStub = () => ({ bundles: 1, estimated: false, topUp: false });
 
 const buildQueue = (d) => new Function('jobAddresses', 'warehouseExtras', 'whGroupKey',
-  'houseBundleNeed', eligLine + src.houseLightsText + src.isOutForSeason + src.whBuildQueueGroups +
+  'houseBundleNeed', ruleSrc('null') + eligLine + src.houseLightsText + src.isOutForSeason + src.whBuildQueueGroups +
   'return whBuildQueueGroups();')([{ id: 'x', data: d }], [], groupKey, bundleStub);
 
 const onBuildQueue = (d) => {
@@ -932,7 +943,8 @@ check('badging Back Next Year clears the build but not the recycle',
        "who leaves the season", and a stub would answer it with a fiction. */
     const mk = (book) => {
       const sandbox = new Function('jobAddresses', 'BOOKMODE',
-        'let SEASON_ELIGIBILITY = BOOKMODE;' + audienceIsNewSrc + src.isOutForSeason +
+        ruleSrc('new Date(Date.now() - 400*86400000)') +
+        'SEASON_ELIGIBILITY = BOOKMODE;' + audienceIsNewSrc + src.isOutForSeason +
         dropSrc + ';return {drop: seasonEligibilityWouldDrop, mode: () => SEASON_ELIGIBILITY};');
       return sandbox(book, 'all-but-maybe-next-year');
     };
@@ -1014,10 +1026,32 @@ check('badging Back Next Year clears the build but not the recycle',
   check('and only the two known modes are accepted from settings',
     /if\(mode === 'confirmed-only' \|\| mode === 'all-but-maybe-next-year'\) SEASON_ELIGIBILITY = mode;/.test(admin),
     'an unknown setting must never be read as the mode that empties the season');
-  /* ⚠ THE LITERAL IS THE FALLBACK. A failed settings read keeps everybody in. */
-  check('and the built-in default is the everyone-in one',
-    /let SEASON_ELIGIBILITY = 'all-but-maybe-next-year';/.test(admin),
-    'a failed settings read must leave the season full, never empty it');
+  /* ⚠ REPOINTED 2026-08-26, AND THE GUARANTEE IS UNCHANGED. This asserted the literal
+     read 'all-but-maybe-next-year', because that string was the only thing keeping a
+     failed settings read from emptying the season. Addie then asked for the rule to be
+     the DEFAULT rather than a switch she has to remember, so the literal is now
+     'confirmed-only' and the protection moved into `seasonRuleIsLive`.
+     What must still be true: A FAILED SETTINGS READ CANNOT EMPTY THE SEASON BEFORE
+     PEOPLE HAVE BEEN ASKED. That is RUN below rather than matched, which the old
+     string compare could not do. ⚠ Once the RSVP has gone out AND the reply window has
+     closed, the strict answer IS the intended one — so the guarantee is about the
+     before, not for ever. */
+  {
+    const live = (sentAt) => new Function(
+      'let rsvpSentAtCache = ' + sentAt + ';\n' +
+      (admin.match(/const RSVP_REPLY_DAYS = \d+;/) || [''])[0] + '\n' +
+      (admin.match(/let SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + '\n' +
+      fn('toJsDate') + '\n' + fn('seasonRuleIsLive') + '\nreturn seasonRuleIsLive();')();
+    check('the built-in default cannot empty the season before anybody is asked',
+      live('null') === false && live('undefined') === false,
+      'a failed settings read, or a cache that has not loaded, must leave everybody in');
+    check('nor while people still have time to reply',
+      live('new Date()') === false,
+      'live the moment she presses send is the season emptying before one reply lands');
+    check('and it does become the rule once the window has closed',
+      live('new Date(Date.now() - 400*86400000)') === true,
+      'if it never becomes live then hardcoding it achieved nothing');
+  }
   /* ⚠ EVERYTHING THAT READS THE SEASON IS REDRAWN — and NOT via renderAll, which
      belongs to the schedule widget's scope and would throw "is not defined" here,
      killing the handler silently. The suite caught exactly that when this was written. */
