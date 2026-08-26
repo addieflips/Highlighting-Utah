@@ -13181,6 +13181,65 @@ function audienceOrderedLastYear(d){
 }
 // First-year customer, read off the same flag the invoice/new-member logic uses.
 function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
+/* ⭐ WHO WE HAVE NEVER ASKED (added 2026-08-26). Owner, before the first RSVP send.
+   THE RSVP ASKS "will you be getting lights hung AGAIN this year?" — nonsense to a
+   first-year customer, and it invites a "no" from somebody who was never asked a
+   sensible question. Choosing an RSVP template sets the audience to Returning so they
+   are not in the list at all.
+
+   ⚠ BUT "NEW" WAS DECIDED BY THE $30 FEE BOX ALONE, and that is narrower than it
+   looks. printIsNewHang already records why: Ashley Wray badges NEW on the Schedule
+   with her fee box UNTICKED, because the badge asks a different question — is there a
+   CLOSED QUOTE against this house. Two definitions of "new" were live in one page and
+   the RSVP had the quieter one. So anybody who joined this year with the fee waived —
+   a promotion, a favour, something agreed on the phone — was in the send.
+
+   ⭐ THE UNION IS THE HONEST RULE, and the asymmetry is why: excluding somebody by
+   mistake costs one email sent by hand; including a first-year customer asks them
+   about lights they have never had. Same argument printIsNewHang made for the photo.
+
+   ⚠ A RE-QUOTE IS NOT A JOIN. Their quote closes too, and a returning customer who was
+   re-quoted must NOT be dropped from the RSVP — that would silently shrink the one
+   send that has to reach everybody. isRequote and convertedToCustomerAt together mean
+   "this is the quote that CREATED them".
+
+   ⚠ AND IT EXPIRES, which is MON-07's rule: a 2026 quote is not new in 2027. Without
+   the year this would keep growing until it covered the whole book.
+
+   ⚠ NOT BY ENROLMENT DATE, ever. The old date guess called ~945 imported people new
+   members; here that would empty the RSVP entirely — the send failing silently, which
+   looks exactly like a send that worked.
+
+   ⚠ IT FAILS THE SAME WAY THE OLD RULE DID, not worse: with quotesCache unloaded this
+   answers on the fee box alone, which is precisely today's behaviour. */
+function audienceQuoteJoinYear(d){
+  if(typeof quotesCache === 'undefined' || !Array.isArray(quotesCache)) return null;
+  const digits = String((d && d.phone) || '').replace(/\D/g,'');
+  if(!digits) return null;
+  const addr = quoteMatchAddress((d && d.address) || '');
+  let year = null;
+  quotesCache.forEach(function(q){
+    const qd = (q && q.data) || {};
+    if(qd.status !== 'closed' || !qd.convertedToCustomerAt) return;
+    if(isRequote(qd)) return;
+    if(String(qd.phone || '').replace(/\D/g,'') !== digits) return;
+    /* ⚠ 17 phone numbers in the real book are shared, 14 of them a parent and a
+       child at two different houses. Phone alone would mark the parent new because
+       the child was quoted. Address decides when both sides have one. */
+    const qa = quoteMatchAddress(qd.address || '');
+    if(addr && qa && qa !== addr) return;
+    const y = enrollmentYearOf(qd.convertedToCustomerAt);
+    if(y !== null && (year === null || y > year)) year = y;
+  });
+  return year;
+}
+function audienceNeverAsked(d){
+  if(!d) return false;
+  /* The office's own tick stays first — it is the one somebody set deliberately. */
+  if(d.chargeNewMemberFee === true) return true;
+  const y = audienceQuoteJoinYear(d);
+  return y !== null && y === new Date().getFullYear();
+}
 /* ⚠ ITS OWN FUNCTION SO IT CAN BE RUN BY A TEST. Written inline in
    renderAllCustomersTable first, and a red-check proved the point immediately: the
    checks for it were passing against a reimplementation in the test file rather than
@@ -13189,6 +13248,13 @@ function audienceIsNew(d){ return !!(d && d.chargeNewMemberFee === true); }
 /* Null until the table has drawn once — the export renders first rather than falling
    back to the whole book, because silently exporting everybody is the bug being fixed. */
 let allCustVisibleRows = null;
+/* ⚠ THIS ONE STAYS ON THE FEE, and it is not the RSVP audience — 2026-08-26, after
+   repointing it by mistake and being caught by its own check. All Customers'
+   "New this year" filter answers WHO IS BEING CHARGED THE $30, which is why the
+   gate demands it match the billing. `audienceNeverAsked` answers a different
+   question — who has never been asked about a season — and is wider on purpose.
+   The two share the mode names 'new' and 'returning', which is exactly how they
+   get confused. Do not repoint this. */
 function allCustNewMemberRows(rows, mode){
   if(mode === 'new') return rows.filter(function(r){ return audienceIsNew(r.d); });
   if(mode === 'returning') return rows.filter(function(r){ return !audienceIsNew(r.d); });
@@ -13282,7 +13348,11 @@ function houseIsOnTheBill(d){
      the work was never charged for. Q-012 settled the same thing for back-next-year;
      this finishes the case it deliberately left alone.
      ⚠ "OUR FAULT" IS A HUMAN DECISION, NOT A FIELD — the office writes it off with a
-     credit. An automatic our-fault test would be the app guessing at fault. */
+     credit. An automatic our-fault test would be the app guessing at fault.
+     ⚠ AND IT IS SAFE ONLY BECAUSE Start New Season CLEARS `completed` on every
+     customer (verified in the season reset write, 2026-08-26). If that ever stops,
+     this line bills people for LAST season's work every season, for ever. Folded in
+     from the billing-groups branch, which reached this same ruling in parallel. */
   if(d.completed === true) return true;
   const said = String(d.rsvpStatus || '').trim().toLowerCase();
   if(said === 'no') return false;
@@ -13447,8 +13517,8 @@ function etRenderRecipientList(){
   if(etFilterOrderedLast === 'yes') members = members.filter(m => audienceOrderedLastYear(m.data) === 'yes');
   else if(etFilterOrderedLast === 'no') members = members.filter(m => audienceOrderedLastYear(m.data) === 'no');
   // New vs returning
-  if(etFilterNew === 'new') members = members.filter(m => audienceIsNew(m.data));
-  else if(etFilterNew === 'returning') members = members.filter(m => !audienceIsNew(m.data));
+  if(etFilterNew === 'new') members = members.filter(m => audienceNeverAsked(m.data));
+  else if(etFilterNew === 'returning') members = members.filter(m => !audienceNeverAsked(m.data));
   // Billing group
   if(etFilterGroup !== 'all') members = members.filter(m => audienceBillingGroup(m.data) === etFilterGroup);
   // Outlet timer
@@ -13530,7 +13600,7 @@ function etRenderRecipientList(){
     if(!m.data.gateCode) badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[No Gate Code]</span>';
     if(payStatus === 'Unpaid') badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[Unpaid]</span>';
     else if(payStatus === 'Partial Payment') badges += ' <span style="color:#8a6d1f; font-size:11px; font-weight:600;">[Partial]</span>';
-    if(audienceIsNew(m.data)) badges += ' <span style="color:#1f6d3a; font-size:11px; font-weight:600;">[New]</span>';
+    if(audienceNeverAsked(m.data)) badges += ' <span style="color:#1f6d3a; font-size:11px; font-weight:600;">[New]</span>';
     if(audiencePaidLastYear(m.data) === 'unpaid') badges += ' <span style="color:#9A2A1F; font-size:11px; font-weight:600;">[Didn\'t pay last yr]</span>';
     if(grp === 'multi') badges += ' <span style="color:#3a5a8a; font-size:11px; font-weight:600;">[Group payer]</span>';
     else if(grp === 'elsewhere') badges += ' <span style="color:#6a4a8a; font-size:11px; font-weight:600;">[Billed elsewhere]</span>';
@@ -14225,7 +14295,24 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
      failing to write a note about them must not report the send as failed. */
   if(etTemplateIsRsvp(template)){
     const noted = await noteRsvpSendHappened(sent);
-    if(noted) statusEl.textContent += ' Recorded that the RSVP has gone out.';
+    if(noted){
+      /* ⭐ AND IT POINTS AT THE SWITCH. Owner, 2026-08-26: "any RSVP should be a
+         straight yes starting when emails are sent" — so from this moment only somebody
+         who actually answered is in the season. Recording the send does NOT do that;
+         SEASON_ELIGIBILITY is a separate deliberate act, and until now nothing said so
+         at the one moment it matters. The office would send, read a green confirmation,
+         and leave the season quietly counting everybody — which is the whole of
+         "nothing should fail quietly", on the switch that decides who a crew is sent to.
+         ⚠ IT NAMES THE SWITCH RATHER THAN THROWING IT. Flipping takes ~960 unanswered
+         customers off the routes, the schedule and the build queue in one go, and the
+         switch on the Dashboard shows that count BEFORE it does anything. Doing it from
+         here would skip the one number that makes the decision answerable. */
+      statusEl.textContent += ' Recorded that the RSVP has gone out.';
+      if(SEASON_ELIGIBILITY !== 'confirmed-only'){
+        statusEl.textContent += ' \u26a0 Crews still go to everybody who has not said no.'
+          + ' Switch that on the Dashboard ("Who the crews are sent to") when you are ready.';
+      }
+    }
   }
 });
 function openSendModal(templateId){
@@ -17946,22 +18033,33 @@ function rmCornersChanged(){
   rmRenderResults();
   rmPaintStreet();
   rmRenderCornerBar();
-  /* ⭐ AND LINE THE PICTURE UP ONCE THERE IS SOMETHING TO LINE IT UP WITH
-     (2026-08-25). Owner: "i click a corner on skyview but its still a few feet
-     off from where I clicked."
+  /* ⛔ AND IT DOES NOT TRY TO LINE THE PICTURES UP FROM THE DOTS (reverted
+     2026-08-26, one day after it was added here).
 
-     ⚠ THAT IS THE SATELLITE TILE BEING DISPLACED, and on the test house nobody
-     had pressed Line them up, so the correction was zero and every sky click
-     was stored several feet from the corner it was aimed at. rmAutoAlign works
-     the offset out by matching what has been traced against Google's roof model
-     — it just only ran after a hand-traced RUN was finished, and the workflow
-     stopped producing those the day dots replaced tracing. So it never ran.
+     ⚠ MEASURED FAILING, ON 209 S 850 W. Three dots on the front gable made
+     rmAutoAlign fit an offset of 19.2 FT and apply it. The displacement really
+     measured on that house is about six. Every dot was then drawn about twenty
+     feet up and to the left of the roof, off the building entirely, while their
+     true positions were fine — rmRoofRelativeAt answered non-null for all three,
+     so the model agreed they were on the roof. The drawing was wrong and the
+     measurement was right, which is the worst way round.
 
-     ⚠ IT STILL NEVER OVERRIDES A MEASURED ANSWER — rmAutoAlign returns early if
-     an offset already exists — and it still announces itself as arithmetic
-     rather than a measurement. This only reaches it earlier. */
-  rmAutoAlign();
+     ⚠ WHY IT FITS BADLY FROM DOTS, and this is the part worth keeping. The fit
+     matches what has been TRACED against the model's EAVE segments. A run built
+     from corners across a gable is two RAKES and a peak — not a gutter — so it
+     is being matched against edges it does not lie along, and the minimum is
+     soft. A soft minimum lands wherever the search started, and reports a
+     confident number for it. rmAutoAlign's own line still says "Called when a
+     run is finished", which is the case it was built and tested for: a whole
+     traced side, which is long, straight, and actually a gutter.
+
+     ⚠ SO THE ORIGINAL COMPLAINT STANDS AND IS NOT FIXED BY GUESSING. "i click a
+     corner on skyview but its still a few feet off" is the satellite tile being
+     displaced, and the honest answer to it is Line them up — two clicks, one
+     spot, measured. A fit is arithmetic about a model; a measured alignment is a
+     person saying where a spot is. Do not put this call back. */
 }
+
 
 /* The strip of numbers under the pictures: what exists, and what is on. */
 function rmRenderCornerBar(){
@@ -18212,7 +18310,23 @@ const RM_PIN_GRAB_PX = 8;
    in rmDebug. A dot seen from almost the same place has barely moved and keeps
    a tight net; one seen from far along the street may be yards out and gets a
    net that can actually reach it. */
-const RM_RESIGHT_DEPTH_SLOP_M = 1.2;   /* how wrong a one-sighting depth may be */
+/* ⚠ RAISED FROM 1.2 TO 2.5 ON A MEASUREMENT, 2026-08-26. 1.2 m was a guess at
+   how wrong a one-sighting depth could be, and it was about half the truth. On
+   209 S 850 W the same corner clicked from two panoramas came out 6.6 to 7.0 ft
+   apart - call it 2.0 m - and that is the error this net has to be able to
+   reach across.
+
+   ⚠ AND BEING SHORT MADE THE WHOLE THING UNREACHABLE. Two clicks on one corner
+   sat 3.84 ft apart on screen, about 21 px at that range; the net was 12. So the
+   second click missed the dot and PLACED A NEW ONE - which is what the office
+   kept reporting, and it also means rmPinCorner never ran, so the model
+   displacement it would have measured was never measured either. The feature
+   was there; nothing could get to it.
+
+   2.5 m is the measured error with room over it, and it is still bounded by
+   RM_RESIGHT_MAX_PX - about 24 px on that house, which leaves plenty of room to
+   put a genuinely new corner down a few feet along the same gutter. */
+const RM_RESIGHT_DEPTH_SLOP_M = 2.5;   /* measured, not assumed - see above */
 const RM_RESIGHT_MAX_PX = 90;          /* past this it is a different corner */
 /* ⚠ AND GRABBING A DOT TO MOVE IT IS A DIFFERENT QUESTION FROM PINNING ONE.
    Owner: "shift grab doesnt drag dots and I want it too."
@@ -18347,6 +18461,24 @@ function rmPinCorner(i, ray){
   c.lat = w.lat; c.lng = w.lng; c.h = sol.pt.u;
   c.pinned = c.rays.length;
   c.spread = sol.spread;
+  /* ⭐ AND THE SAME TWO SIGHTINGS MEASURE THE HOUSE ITSELF (2026-08-26).
+     The crossing is where the corner really is; casting the first ray at Google's
+     model says where the model thinks it is. The difference is how far the model
+     stands from the house - and once that is known EVERY LATER SINGLE CLICK lands
+     right without needing a second angle. That is the point of measuring it: the
+     office pins one corner properly and the rest of the house comes for free.
+     ⚠ ONLY FROM A CROSSING THAT ACTUALLY MET. A wide spread means the two clicks
+     were not the same corner, and a displacement measured off that would then be
+     applied to every click on the house. */
+  if(!rmModelShift && sol.spread !== undefined && sol.spread < 0.15){
+    const ms = rmMeasureModelShift(sol.pt, c.rays[0]);
+    if(ms && ms.ok && Math.hypot(ms.e, ms.n) > 0.3){
+      rmModelShift = {e: ms.e, n: ms.n};
+      rmModelShiftFt = Math.hypot(ms.e, ms.n) * RM_M_TO_FT;
+      rmModelShiftResidIn = ms.residM * RM_M_TO_FT * 12;
+      rmRefreshCorners();
+    }
+  }
   rmCornersChanged();
   return {ok: true, sightings: c.rays.length, spread: sol.spread};
 }
@@ -19007,6 +19139,88 @@ function rmSuggestCorners(){
 }
 
 /* Whatever the click is really pointing at: the nearest surface of the solid. */
+/* ⭐ HOW FAR GOOGLE'S MODEL SITS FROM THE REAL HOUSE (2026-08-26).
+ * {e, n} metres, or null until two sightings have measured it.
+ *
+ * ⚠ THIS IS A THIRD DISPLACEMENT AND IT IS NOT EITHER OF THE OTHER TWO.
+ * rmSkyShift is the satellite TILE against the model. This is the MODEL against
+ * the real house. Nothing measured it until now, and it is the one that decides
+ * where a clicked dot lands.
+ *
+ * ⭐ MEASURED ON 209 S 850 W, WHICH IS WHY IT EXISTS. Owner: "some offsets are
+ * because the house is offset making it so the dot acted as though the house
+ * wasnt clicked... it thinks the dot missed the house." Exactly that. The same
+ * corner was clicked from two panoramas 41.5 ft apart, and:
+ *
+ *     the two rays crossed to within        0.8 INCHES
+ *     both dots landed                      ~6.7 ft from that crossing
+ *     all four dots on the roof landed at   e = -7.93 to -7.95
+ *     the true corner was at                e = -5.94
+ *
+ * Google's cameras are near perfect — two sightings 41 ft apart agreeing to
+ * under an inch is as good as this ever gets. What is wrong is the SURFACE the
+ * ray is cast against: it sits about six and a half feet in front of the house,
+ * so every dot lands short, on one flat plane, and the error is almost entirely
+ * in PLAN. That is why it looks right in Street View and wrong on the map — a
+ * point at the wrong depth still draws on the pixel you clicked.
+ *
+ * ⭐ AND THE ANGLE CHANGE IS WHAT MEASURES IT. Owner: "you have to calculate the
+ * offset based on how big the angle change is." That is exactly the arithmetic:
+ * the shift a dot appears to make is the depth error times baseline/range, so
+ * turning it round, the depth error is the shift times range/baseline. Walk
+ * further and the parallax angle at the corner opens up and the answer sharpens;
+ * stand still and there is no angle and no answer, which is why rmPinCorner
+ * refuses two sightings from nearly the same spot. It is the PARALLAX ANGLE AT
+ * THE CORNER that does the work, not the change in where the camera is pointed. */
+let rmModelShift = null;
+let rmModelShiftFt = 0, rmModelShiftResidIn = 0;
+const RM_MODEL_SHIFT_MAX_M = 4;      /* past this it is not a displacement, it is a wrong house */
+const RM_MODEL_SHIFT_OK_M = 0.35;    /* the cast has to land on the measured point */
+
+/* Cast a ray at the house, through the measured displacement.
+   ⚠ MOVE THE CAMERA, NOT THE ANSWER. Shifting the hit afterwards would be wrong:
+   the ray has to meet the surface where the surface REALLY is, and only then come
+   back. Casting from cam-T against the model and adding T to the hit is exactly
+   the model standing T from where Google put it. */
+function rmCastHouse(dir, cam, shift){
+  const T = (shift === undefined) ? rmModelShift : shift;
+  if(!T) return rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
+  const c = {e: cam.e - T.e, n: cam.n - T.n, u: cam.u};
+  const hit = rmHouseHit(dir, c) || rmFootprintWallHit(dir, c);
+  if(!hit) return null;
+  return {e: hit.e + T.e, n: hit.n + T.n, u: hit.u, t: hit.t, kind: hit.kind};
+}
+
+/* What displacement would have made this ray land where the two sightings say the
+   corner really is? Searched rather than solved, because the answer runs through
+   whichever patch the ray happens to meet and that changes as T moves.
+   ⚠ IT REFUSES RATHER THAN REPORTING ITS BEST GUESS. If no displacement puts the
+   cast within RM_MODEL_SHIFT_OK_M of the measured corner, the model is not merely
+   moved - it is the wrong shape here - and a number invented from that would be
+   applied to every later click on the house. */
+function rmMeasureModelShift(truePt, ray){
+  if(!truePt || !ray || !ray.cam || !ray.dir) return null;
+  const miss = function(T){
+    const hit = rmCastHouse(ray.dir, ray.cam, T);
+    if(!hit) return Infinity;
+    return Math.hypot(hit.e - truePt.e, hit.n - truePt.n, hit.u - truePt.u);
+  };
+  let best = {T: null, d: Infinity};
+  const sweep = function(ce, cn, step, span){
+    for(let de = ce - span; de <= ce + span + 1e-9; de += step){
+      for(let dn = cn - span; dn <= cn + span + 1e-9; dn += step){
+        if(Math.hypot(de, dn) > RM_MODEL_SHIFT_MAX_M) continue;
+        const d = miss({e: de, n: dn});
+        if(d < best.d - 1e-9) best = {T: {e: de, n: dn}, d: d};
+      }
+    }
+  };
+  sweep(0, 0, 0.25, RM_MODEL_SHIFT_MAX_M);
+  if(!best.T) return null;
+  sweep(best.T.e, best.T.n, 0.05, 0.25);
+  if(!(best.d <= RM_MODEL_SHIFT_OK_M)) return {ok: false, residM: best.d};
+  return {ok: true, e: best.T.e, n: best.T.n, residM: best.d};
+}
 function rmHouseHit(dir, cam){
   const wall = rmFaceWallHit(dir, cam);
   const roof = rmRoofSurfaceHit(dir, cam);
@@ -19908,7 +20122,7 @@ function rmBuildSuggestions(faces){
 function rmSolveRayNow(ray){
   if(!ray || !ray.cam || !ray.dir) return null;
   const cam = ray.cam, dir = ray.dir;
-  let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
+  let best = rmCastHouse(dir, cam);
   if(!best){
     const wall = rmWallPlane();
     const w2 = wall ? rmWallHit(dir, cam, wall) : null;
@@ -21394,7 +21608,29 @@ function rmPaintStreet(){
      so panning the panorama still works everywhere else. */
   svg.style.pointerEvents = (rmDrawing || rmWallPicking) ? 'none' : 'none';
   svg.querySelectorAll('[data-rmcornerdot]').forEach(function(el){
-    el.style.pointerEvents = 'all';
+    /* ⭐ WHILE PLACING, A DOT DOES NOT SWALLOW ITS OWN CLICK (2026-08-26).
+       Owner: "i cant place two dots on top of each other", asked while trying to
+       click the SAME corner from a second angle.
+
+       ⚠ AND THAT IS THE ONE GESTURE THAT FIXES DRIFT. Two sightings of a corner
+       cross at a point, which is geometry rather than a model - it is the whole
+       answer to a dot moving when the camera does. But this invisible r=7 target
+       sits on the SVG layer ABOVE the sheet that catches clicks, and it calls
+       stopPropagation, so a click within seven pixels of a drawn dot never reached
+       the placing code at all: it TOGGLED the dot instead. Nothing about that looks
+       like a refusal - no message, no new dot, no pin - which is exactly how it was
+       reported. The re-sighting path underneath was unreachable precisely when the
+       dot was drawn where you were aiming, which is most of the time.
+
+       ⚠ THIS IS THE SECOND TIME THIS TARGET HAS EATEN A GESTURE. The note above
+       records it swallowing dot PLACEMENT and being narrowed from 12 to 7 in
+       response. Narrowing cannot fix it, because the whole point of re-sighting is
+       to click where the dot already is. So the mode decides instead: while PLACING
+       the click falls through to the sheet, where rmDotToResight chooses between
+       re-sighting this dot and putting down a new one; while PICKING it toggles as
+       before. Nothing is lost - the right button toggles in either mode, on both
+       views, and that is what it is for. */
+    el.style.pointerEvents = (rmCornerMode === 'dot') ? 'none' : 'all';
     el.addEventListener('click', function(ev){
       ev.stopPropagation();
       const i = Number(el.dataset.rmcornerdot);
@@ -21533,6 +21769,7 @@ function rmMeasureGroundDrop(){
 function rmForgetLastHouse(){
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
+  rmModelShift = null; rmModelShiftFt = 0; rmModelShiftResidIn = 0;
   rmCorners = []; rmCurrentBand = 0; rmCandidates = [];
   rmClearCornerMarkers();
   rmRenderCornerBar();
@@ -22199,8 +22436,18 @@ function rmFitResidual(samples, segs, de, dn){
    whole allowance is four thousand passes over every sample and every edge, on
    the click that ends a run - slow enough to feel like the tool hanging. */
 function rmFitSkyOffset(runs){
+  /* ⛔ A RUN BUILT FROM CORNERS IS NOT EVIDENCE, and this is the guard rather
+     than the comment. Measured on 209 S 850 W, 2026-08-26: three dots across a
+     front gable fitted an offset of 19.2 ft where the real displacement is about
+     six, and drew every dot off the building. The fit matches traced lines
+     against the model's EAVE segments; a corner run over a gable is two RAKES
+     and a peak, so it is being matched against edges it does not lie along and
+     the minimum goes soft. A soft minimum still reports a confident number.
+     Only a hand-traced side — long, straight, and actually a gutter — carries
+     enough to fit against. */
+  const usable = (runs || []).filter(function(r){ return r && !r.fromCorners; });
   const segs = rmModelEaveSegs();
-  const samples = rmTracedSamples(runs);
+  const samples = rmTracedSamples(usable);
   if(segs.length < 2 || samples.length < 2) return null;
   const base = rmFitResidual(samples, segs, 0, 0);
   let best = {e: 0, n: 0, resid: base};
@@ -23003,6 +23250,10 @@ function openRoofMeasure(quoteId){
           px: rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, size.W, size.H, pov, cam)
         };
       }),
+      modelShift: rmModelShift
+        ? {ft: +rmModelShiftFt.toFixed(1), e: +rmModelShift.e.toFixed(2),
+           n: +rmModelShift.n.toFixed(2), residIn: +rmModelShiftResidIn.toFixed(1)}
+        : null,
       skyOffset: rmSkyOffset
         ? {ft: +(rmSkyOffsetFt().toFixed(1)), e: +rmSkyOffset.e.toFixed(2),
            n: +rmSkyOffset.n.toFixed(2), source: rmSkyOffsetSource || 'measured'}
@@ -23346,7 +23597,7 @@ function openRoofMeasure(quoteId){
          the one that draws the lines, and then the offset would be measured
          against a house the drawing does not use. */
       const wall = rmWallPlane();
-      const hit = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam) ||
+      const hit = rmCastHouse(dir, cam) ||
                   (wall ? rmWallHit(dir, cam, wall) : null);
       /* ⚠ THE WHOLE HIT, NOT JUST WHERE IT IS. Its height and whether it landed
          on a WALL are what let the same click measure the roof — see
@@ -23399,14 +23650,20 @@ function openRoofMeasure(quoteId){
         const noteEl = document.getElementById('rmCornerNote');
         if(noteEl) noteEl.textContent = res && res.ok
           ? 'Dot ' + rmCornerLabel(near) + ' pinned from ' + res.sightings + ' angles — the two lines of sight meet to within ' +
-            (res.spread * RM_M_TO_FT * 12).toFixed(1) + ' inches.'
+            (res.spread * RM_M_TO_FT * 12).toFixed(1) + ' inches.' +
+            /* ⭐ AND SAY IF THAT PIN ALSO MEASURED THE HOUSE, because it changes
+               every click afterwards and silently improving is as confusing as
+               silently drifting. */
+            (rmModelShift ? ' Google’s model of this house sits ' + rmModelShiftFt.toFixed(1) +
+              ' ft from where it really is — measured from those two angles and now allowed for. ' +
+              'Single clicks should land on the house from here on.' : '')
           : '⚠ ' + ((res && res.why) || 'that sighting could not be used');
         return;
       }
       /* The part of the house the ray is really pointing at comes first; the
          whole-building outline is the fallback for a house Google has given no
          roof faces for. */
-      let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
+      let best = rmCastHouse(dir, cam);
       const note = document.getElementById('rmCornerNote');
       if(!best){
         /* ⚠ REFUSING A CLICK IS WORSE THAN PLACING IT ROUGHLY. Google's roof
@@ -25386,15 +25643,20 @@ function isOutForSeason(d){
        year?" never reaches somebody who has not had them once. Requiring an answer to
        a question we deliberately never send is a test nobody can pass.
 
-       ⚠ IT IS THE SAME PREDICATE THE RSVP AUDIENCE USES. audienceIsNew is what takes
-       them out of the send; asking it here is what makes the two halves agree. A second
-       copy of "is this a new customer" is how the send list and the season list start
-       disagreeing about the same person.
+       ⚠ IT IS THE SAME PREDICATE THE RSVP AUDIENCE USES. `audienceNeverAsked` is what
+       takes them out of the send; asking it here is what makes the two halves agree. A
+       second copy of "is this a new customer" is how the send list and the season list
+       start disagreeing about the same person.
+       ⚠ RENAMED FROM audienceIsNew ON 2026-08-26, and the two now mean different things
+       on purpose: audienceIsNew is "we are charging them the $30", which is a money
+       fact and still the right answer for the Excel export. This one is "nobody has
+       ever asked them about a season", which is the send's question, and it is WIDER —
+       a house that joined this year with the fee waived is in it. Do not merge them.
 
        ⚠ AND AN ANSWER STILL OUTRANKS IT. The no / back next year / maybeNextYear checks
        above return before this line, so a new hang who says no is still out. This only
        covers somebody who has said nothing because nothing was asked. */
-    if(typeof audienceIsNew === 'function' && audienceIsNew(d)) return false;
+    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
     return !(String(d.rsvpStatus || '').toLowerCase() === 'yes' && !!d.rsvpRespondedAt);
   }
   return false;
@@ -26448,6 +26710,28 @@ async function syncPayerInvoice(payerKey){
   if(isPhoneKey){
     const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
     selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) addHouse(docSnap.id, docSnap.data()); });
+    if(!linked.length && Array.isArray(jobAddresses)){
+      /* ⭐ A STORED PHONE IS NOT ALWAYS DIGITS-ONLY (2026-08-26, Q-019). The key is
+         always digits — that is what custInvoiceKey produces — but the office types
+         "(801) 555-0123" and the import keeps it, so an equality query matches nothing
+         and the group comes back empty. This is the authoritative money writer: with
+         no houses resolved it rebuilds the invoice as install: 0, wiping a real total
+         on an ordinary Edit Customer save, silently.
+         ⚠ THE SAME FALLBACK THE EMAIL BRANCH BELOW ALREADY HAS, for the same reason:
+         an equality query cannot match what normalising would. custInvoiceKey is the
+         one rule for which invoice a customer files under, so this asks IT rather than
+         comparing phone fields — comparing the raw strings is the mistake that quietly
+         duplicated the whole book once.
+         ⚠ ONLY WHEN THE QUERY FOUND NOBODY, matching the email branch. A group where
+         SOME houses are stored digits-only and some are not still resolves only the
+         digits ones — that is a real remaining gap and it is recorded in Q-019 rather
+         than widened into here, because changing how a live invoice's group is built
+         is its own change with its own red-check. */
+      jobAddresses.forEach(function(c){
+        const d = c.data || {};
+        if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(c.id, d);
+      });
+    }
   } else {
     const emailSnap = await getDocs(query(collection(db,'jobAddresses'), where('email','==',key)));
     emailSnap.forEach(function(docSnap){
@@ -35693,7 +35977,7 @@ function effectiveRsvpStatus(d){
      Customer box and the Edit Customer box — and the last two are a person ticking
      something. No importer writes it, so an imported customer has no flag, no reply,
      and reads as Pending until somebody actually asks them. */
-  if(audienceIsNew(dd)) return 'yes';
+  if(audienceNeverAsked(dd)) return 'yes';
   return said;
 }
 function rsvpStatusLabel(v){
@@ -38587,6 +38871,31 @@ let requoteBuildChoice = null;
    colours exactly as the form filled them in. */
 let requoteLightsPattern = '';
 let requoteColorsSnapshot = null;
+/* ⭐ WHAT THE COLOUR BOXES COULD ACTUALLY SHOW WHEN THIS FORM OPENED (2026-08-26).
+
+   The ten tick boxes are an exact-string match against their own labels, so a record
+   whose colours are spelled any other way ticks NOTHING — and the save handler then
+   wrote lightColors and lightsDescription UNCONDITIONALLY. Open Edit Customer to
+   correct a phone number, press Save, and the colours were gone. Measured by running
+   the real round trip: "ww/r" and "red" (lower case) were wiped outright, "Red, Green,
+   Red, Green" was flattened to "Red, Green" — two different builds, one heading — and
+   "Warm White (every third bulb)" lost its note.
+
+   ⚠ EDIT CUSTOMER WAS THE ONLY UNGUARDED WRITER OF THESE TWO FIELDS. The bulk
+   importer, the sheet comparison and the schedule sync all follow "a blank never wipes
+   what the record has"; this one did not, and it is the form opened most.
+
+   ⚠ THE TEST IS NOT "IS IT BLANK", IT IS "COULD THE FORM HAVE SHOWN IT". Refusing every
+   empty save would take away the office's ability to legitimately clear a house's
+   colours. What is refused is an empty save of a record the boxes were never able to
+   display — where the emptiness is the form's, not a decision.
+
+   ⚠ SET ON EVERY OPEN, INCLUDING A HOUSE-TAB CLICK, which re-runs openEditCustomerModal
+   for the sibling. That is deliberately NOT how requoteLightsPattern above works: those
+   are set once by the re-quote flow and cleared by it, and overloading them here would
+   carry one house's answer onto the next — the leak the tab strip was guarded against. */
+let editCustLightsRaw = '';
+let editCustLightsTicked = null;
 /* Puts the Save button's ordinary wording back. Called from both places that stop a
    re-quote being in hand — finishing it and abandoning it — because a button still
    promising to finish a re-quote on the NEXT customer somebody edits is worse than the
@@ -39024,6 +39333,14 @@ function openEditCustomerModal(id){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);
   });
+  /* What was on file, and what the boxes managed to show of it — see
+     editCustLightsRaw. Taken AFTER the ticking above, because that is the only
+     thing that knows what the form could represent. The description wins where
+     there is one: it carries the ORDER, and the colour list does not. */
+  editCustLightsRaw = String(d.lightsDescription || '').trim() ||
+    (Array.isArray(d.lightColors) ? d.lightColors.filter(Boolean).join(', ') : '');
+  editCustLightsTicked = Array.from(document.querySelectorAll('.editcust-color-check:checked'))
+    .map(function(cb){ return cb.value; });
   /* Which sides. An ABSENT list and an empty one are the same thing here:
      nobody has been asked. That is why nothing is ticked by default rather
      than front. */
@@ -39808,9 +40125,28 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const keptRequotePattern = requoteLightsPattern && Array.isArray(requoteColorsSnapshot) &&
     newColors.length === requoteColorsSnapshot.length &&
     newColors.every(function(c){ return requoteColorsSnapshot.indexOf(c) !== -1; });
+  /* ⭐ THE BOXES ARE A SET; WHAT IS ON FILE MAY BE MORE THAN A SET. Same rule the
+     re-quote branch above states, generalised to every open — see editCustLightsRaw.
+     Nobody has re-ticked anything, and the stored wording says something the ticked
+     boxes cannot: an ORDER ("Red, Green, Red, Green" is a strand, not a palette) or a
+     note in brackets. Keep what is on file. Re-tick a box and the office's choice
+     wins, which is how a wrong pattern is still corrected. */
+  const lightsUnchanged = Array.isArray(editCustLightsTicked) &&
+    newColors.length === editCustLightsTicked.length &&
+    newColors.every(function(c){ return editCustLightsTicked.indexOf(c) !== -1; });
+  const keptStoredWording = lightsUnchanged && !!editCustLightsRaw &&
+    editCustLightsRaw !== newColors.join(', ');
+  /* ⚠ AND THE FORM NEVER SHOWED THESE COLOURS AT ALL. The record holds something, the
+     boxes ticked none of it, and nothing has been ticked since — so an empty save here
+     is the form's emptiness, not a decision to clear the house. Both fields are left
+     exactly as they are. Ticking a box is what turns this into a real correction, which
+     is the remedy Health Check's "colours written as words" row already names. */
+  const cannotShowLights = !!editCustLightsRaw && Array.isArray(editCustLightsTicked) &&
+    editCustLightsTicked.length === 0 && newColors.length === 0;
   const newLightsDescription = keptRequotePattern
     ? requoteLightsPattern
-    : compileLightsDescription(newColors.join(', '), '');
+    : (keptStoredWording ? editCustLightsRaw
+       : compileLightsDescription(newColors.join(', '), ''));
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
@@ -39902,8 +40238,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     // Lights, house areas, install timing and permanent notes now live on the
     // customer. A colour change means a new pattern to build, so it re-queues
     // the warehouse the same way the old route editor did.
-    addrUpdates.lightsDescription = newLightsDescription;
-    addrUpdates.lightColors = newColors;
+    /* ⚠ THE ONLY TWO FIELDS THIS HANDLER MAY DECLINE TO WRITE — see cannotShowLights.
+       Written unconditionally, an ordinary save of a house whose colours the boxes
+       cannot spell erased them. Left out of addrUpdates entirely rather than written
+       back as themselves: a no-op write still stamps lightsChangedAt downstream and
+       would queue the warehouse to rebuild a house nobody touched. */
+    if(!cannotShowLights){
+      addrUpdates.lightsDescription = newLightsDescription;
+      addrUpdates.lightColors = newColors;
+    }
     addrUpdates.installPreference = newInstallPref;
     addrUpdates.notes = newHouseNotes;
     // Same field the route/dispatch note editor and the crew portal already
@@ -40678,6 +41021,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     document.getElementById('editCustOverlay').style.display = 'none';
     editCustomerId = null;
+    /* ⚠ AND IT SAYS SO. Declining to write is the right answer and a silent one is
+       indistinguishable from the colours having been saved — which is the whole of
+       "nothing should fail quietly". It names the wording that was kept, so the
+       office can see WHY the boxes were blank and correct it if it is wrong. */
+    if(cannotShowLights){
+      toast('Saved. Light colours left as they are — "' + editCustLightsRaw +
+            '" is not something the tick boxes can show, so they were not overwritten. ' +
+            'Tick the real colours and save again to correct it.');
+    }
     toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.'
       : (lightChange.feeAmount > 0 && !lightFeeWaived
           ? ('Customer info updated — ' + fmtMoney(lightChange.feeAmount) + ' light-change fee ' +
@@ -42917,7 +43269,19 @@ async function reconcileUpcomingRoutes(){
   const cutoffStr = toDateStr(cutoff);
   jobAddresses.forEach(function(a){
     const d = a.data || {};
-    if(!d.scheduled || d.completed || d.maybeNextYear) return;
+    /* ⭐ THE SAME RULE THE EVICTION USES (fixed 2026-08-26). This hand-rolled its
+       own season test and `stopProblem` asks `isOutForSeason`, so the two disagreed
+       about `needsLightRecycle` — a house queued to have its lights taken apart is
+       OUT by that rule and was IN by this one. So this pass put it on a day, step 1
+       took it straight back off, and the next run put it back: a house added to and
+       removed from a route every fifteen minutes, for ever, filling the Inbox with
+       identical notices. That is the exact failure the comment above `stopProblem`
+       already describes from 2026-08-15 — same disease, a different feeder.
+       ⚠ DO NOT RE-INLINE THIS TEST. Any list that decides who is in the season has
+       to ask the one predicate, or it will drift from the eviction again — and the
+       symptom is not an error, it is churn nobody reads. */
+    if(!d.scheduled || d.completed) return;
+    if(isOutForSeason(d)) return;
     if(!d.scheduledDate || d.scheduledDate >= cutoffStr) return;
     if(seen.has(a.id)) return;
     needHoming.push(a);
@@ -42939,8 +43303,11 @@ async function reconcileUpcomingRoutes(){
   jobAddresses.forEach(function(a){
     const d = a.data || {};
     if(!isNewHangHouse(d)) return;
-    if(d.scheduled || d.completed || d.maybeNextYear) return;
-    if(d.rsvpStatus === 'no' || d.rsvpStatus === 'backnextyear') return;
+    /* ⭐ Same fix as 2a, 2026-08-26 — see the note there. This one ALSO compared
+       rsvpStatus case-sensitively while isOutForSeason lowercases, so a stored
+       "No" slipped past here and was evicted by step 1 on the next pass. */
+    if(d.scheduled || d.completed) return;
+    if(isOutForSeason(d)) return;
     if(seen.has(a.id)) return;
     needHoming.push(a);
     newHangIds.add(a.id);
