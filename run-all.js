@@ -1098,6 +1098,11 @@ check('logic', 'projShouldPruneTest exists', typeof projShouldPruneTest === 'fun
  * renamed. Format: [retired phrase, why/what replaced it].
  */
 const RETIRED_CHECKLIST_TERMS = [
+  ['check the scale', 'removed 2026-08-25 — a known-size object traced and scaled is the pixel-ratio method the owner ruled out: "we want it to find the height through proper geometry, not through a rough estimate of how many pixels tall is the garage"'],
+  ['double garage door', 'the known-size list went with the scale check on 2026-08-25'],
+  ['trace it and compare', 'the scale check button, removed 2026-08-25'],
+  ['working height', 'the typed height box and its 1 storey / 2 storey / Ground presets were removed 2026-08-25 — heights are measured in Street View, or the tool says they are not measured yet'],
+  ['2 storey', 'the height presets went with the Working Height box on 2026-08-25'],
   ['approval link', 'the Get Approval Link button was renamed to Send Email on 2026-08-08 (it now also shows the filled-in email, not just the link)'],
   ['get approval link', 'renamed to Send Email on 2026-08-08'],
   ['copy quote email', 'renamed to Show Quote Email Again on 2026-08-08 (Send Email now shows the email on the first click)'],
@@ -1105,6 +1110,12 @@ const RETIRED_CHECKLIST_TERMS = [
   ['start measuring', 'clicking the picture starts a side now, so that button is gone — while one is open the button reads Finish this side (2026-08-25)'],
   ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
   ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
+  /* ⚠ THE TERM IS THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired
+     button read "Use <n> as Estimated Feet" with the footage in the middle, so
+     a seed row quoting it writes "Use ... as Estimated Feet" and a term
+     starting at "use" would sail straight past the ellipsis and match nothing —
+     which is a check that cannot fail, on the one row that was actually wrong. */
+  ['as estimated feet', 'the two commit buttons became ONE gold "Save to this quote" on 2026-08-25, because only one of them was gold and it saved the price without the feet; the feet-only link now reads "Save the feet only" (2026-08-25)'],
 ];
 {
   /* MOVED 2026-08-14: the seed lives in js/test-seed.js now, not inline in
@@ -5982,12 +5993,18 @@ if (!JSDOM) {
  * Inbox whenever it equals 'System').
  */
 (function () {
-  const addStart = admin.indexOf("addFolderBtn').addEventListener('click'");
-  const addSrc = addStart > -1 ? sectionFrom(admin, addStart) : '';
-  check('folder-names', 'addFolderBtn handler found in admin.html', addStart > -1,
+  /* ⚠ CORRECTED 2026-08-25. This used to anchor on
+     `addFolderBtn').addEventListener('click'` and read the section after it. That
+     is the shape CLAUDE.md §7 warns about — a check pinned to where a string
+     happens to SIT rather than to what must be TRUE. The create path was lifted
+     out into addMessageFolder() so the Enter key could reach it too (see suite
+     273), the click handler became a one-liner, and this check started failing on
+     code that is right. It reads the function now, wherever the button is wired. */
+  const addSrc = extractFn(admin, 'addMessageFolder');
+  check('folder-names', 'the folder-create path is findable in admin.html', !!addSrc,
     'renamed or removed — update this test rather than deleting it');
   check('folder-names', 'creating a folder named "system" is blocked, same as "inbox"',
-    /name\.toLowerCase\(\) === 'inbox'[\s\S]{0,60}name\.toLowerCase\(\) === 'system'/.test(addSrc),
+    /name\.toLowerCase\(\) === 'inbox'[\s\S]{0,80}name\.toLowerCase\(\) === 'system'/.test(addSrc || ''),
     'a folder named "System" is indistinguishable from real automated notices — messages moved into it ' +
     'vanish from Customer Messages and the folder itself becomes unclickable in the sidebar');
 })();
@@ -7297,7 +7314,15 @@ suite('18. Forty houses a day');
     const api = eval(admin.slice(capStart, capEnd) +
       '\n;({even: evenOutDays, fill: fillDays, pick: bumpCandidateIndex,' +
       ' max: MAX_STOPS_PER_ROUTE, budget: MAX_FILL_MOVES_PER_SWEEP,' +
-      ' inWindow: stillInWindow, latest: latestPreferredInstallDate, isNew: isNewHangHouse})');
+      ' inWindow: stillInWindow, latest: latestPreferredInstallDate, isNew: isNewHangHouse,' +
+      /* Tolerant on purpose: red-first. Against a build where these do not exist
+         yet, the BEHAVIOUR checks below must each fail on their own and say why,
+         rather than one ReferenceError taking the whole suite down and hiding
+         which rule is actually broken. */
+      ' towns: (typeof routeDayTowns === "function" ? routeDayTowns : function(d){' +
+      '   return (d && d.city) ? [d.city] : []; }),' +
+      ' shares: (typeof routeDaysShareATown === "function" ? routeDaysShareATown : function(a,b){' +
+      '   return !!(a && b && a.city && a.city === b.city); })})');
 
     check('cap', 'the cap is twenty houses per town per day', api.max === 20,
       "owner: 'only 20 houses per city' — 40 was the whole DAY, two crews of twenty");
@@ -7506,6 +7531,182 @@ suite('18. Forty houses a day');
         return dd[0].stops.length === 0 && r.placed.length === 0;
       })(),
       'a route whose city could not be judged would otherwise hoover up the pool');
+
+    /* ============ the day's TOWN LIST, not its majority town ============
+     * Found in the live book 2026-08-25 and this is the regression guard for
+     * it. The eviction pass judges a stop against the route's `towns`; the cap
+     * and the fill judged it against routeCityOf(), the commonest town ON the
+     * day. On a route stamped one town and carrying houses from another, those
+     * two answer differently, so step 1 evicted and step 3 re-filled the very
+     * same houses — for ever, four minutes apart, word-for-word identical
+     * notices. Everything below RUNS the two functions; none of it reads source.
+     */
+    check('towns', 'a day carrying `towns` is judged on the whole list',
+      api.towns({ towns: ['Alpine', 'Cedar Hills'], city: 'Alpine' }).length === 2 &&
+      api.towns({ towns: ['Alpine', 'Cedar Hills'], city: 'Alpine' })[1] === 'Cedar Hills');
+    check('towns', 'and a day that predates `towns` still answers with its city',
+      api.towns({ city: 'Lehi' }).join() === 'Lehi' && api.towns({}).length === 0,
+      'every saved route from before the builder stamped towns has to keep working');
+    /* ⚠ THE BUG THIS SUITE ALMOST SHIPPED. The first draft called this helper
+       dayTownList — a name already taken, lower down, by the timing sweep's
+       answer to a different question about a different shape of object. Two
+       top-level declarations of one name do not coexist in a browser: the later
+       one wins for the WHOLE page, so the fill would quietly have been handed
+       the timing sweep's answer. Nothing about that is visible in a diff. */
+    check('towns', 'the route-day town helper does not collide with the timing sweep\'s',
+      (admin.match(/\bfunction routeDayTowns\(/g) || []).length === 1 &&
+      (admin.match(/\bfunction dayTownList\(/g) || []).length === 1,
+      'one declaration each — a duplicate top-level name is silently the last one');
+
+    check('towns', 'two days sharing one town are seen to share it',
+      api.shares({ towns: ['Alpine', 'Cedar Hills'] }, { towns: ['Cedar Hills'] }) === true &&
+      api.shares({ towns: ['Alpine'] }, { towns: ['Orem'] }) === false);
+
+    check('towns', 'the second town of a day is filled, not just the majority one',
+      (() => {
+        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Alpine',
+                      towns: ['Alpine', 'Cedar Hills'], stops: stops(18, 'tw') }];
+        const r = api.fill(dd, look, poolOf(5, 'Cedar Hills'), yes);
+        return dd[0].stops.length === 20 && r.placed.length === 2;
+      })(),
+      'THE BUG: judged on the majority town alone, a Cedar Hills house could ' +
+      'never fill a seat on the day it is actually booked for');
+
+    check('towns', 'and a town that is on NEITHER list still cannot fill it',
+      (() => {
+        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Alpine',
+                      towns: ['Alpine', 'Cedar Hills'], stops: stops(12, 'tx') }];
+        const r = api.fill(dd, look, poolOf(9, 'Orem'), yes);
+        return dd[0].stops.length === 12 && r.placed.length === 0;
+      })(),
+      'widening this to the whole list must not widen it to everybody');
+
+    /* The pull-forward. Two days share Alpine; only the later one also does
+       Cedar Hills. Dragging its Cedar Hills house onto the Alpine-only day is
+       precisely what the next sweep evicts. */
+    check('towns', 'pulling forward never drags a house onto a day that forbids its town',
+      (() => {
+        const dd = [
+          { id: 'r1', date: '2026-11-02', city: 'Alpine', towns: ['Alpine'],
+            stops: [{ id: 'a1', name: 'a1' }] },
+          { id: 'r2', date: '2026-11-09', city: 'Alpine', towns: ['Alpine', 'Cedar Hills'],
+            stops: [{ id: 'ch1', name: 'ch1' }, { id: 'a2', name: 'a2' }] }
+        ];
+        people.a1 = {}; people.a2 = {}; people.ch1 = {};
+        const town = id => (id === 'ch1' ? 'Cedar Hills' : 'Alpine');
+        const r = api.fill(dd, look, [], yes, 20, 150, town);
+        const onFirst = dd[0].stops.map(x => x.id);
+        return onFirst.indexOf('ch1') === -1 && onFirst.indexOf('a2') !== -1 &&
+               r.pulled.length === 1;
+      })(),
+      'THE LOOP: shed onto a day that forbids the town, evicted next sweep, ' +
+      'shed again — identical System notices every fifteen minutes');
+
+    check('towns', 'and with no town lookup supplied it behaves exactly as it did',
+      (() => {
+        const dd = [
+          { id: 'r1', date: '2026-11-02', city: 'Alpine', stops: stops(19, 'ty') },
+          { id: 'r2', date: '2026-11-09', city: 'Alpine', stops: stops(3, 'tz') }
+        ];
+        const r = api.fill(dd, look, [], yes);
+        return dd[0].stops.length === 20 && r.pulled.length === 1;
+      })(),
+      'the new argument is optional on purpose — an omitted lookup must not ' +
+      'quietly change who moves');
+
+    /* The cap half. A two-town day over the cap must shed a house onto a later
+       day that ALLOWS that house's town, not merely onto the next day whose
+       majority town happens to match. */
+    check('towns', 'shedding over the cap picks a day the house is allowed on',
+      (() => {
+        const over = stops(20, 'cap');
+        over.push({ id: 'chx', name: 'chx' });
+        people.chx = {};
+        const dd = [
+          { id: 'r1', date: '2026-11-02', city: 'Alpine', towns: ['Alpine', 'Cedar Hills'],
+            stops: over },
+          { id: 'r2', date: '2026-11-05', city: 'Alpine', towns: ['Alpine'], stops: [] },
+          { id: 'r3', date: '2026-11-12', city: 'Cedar Hills', towns: ['Cedar Hills'], stops: [] }
+        ];
+        const town = id => (id === 'chx' ? 'Cedar Hills' : 'Alpine');
+        const out = api.even(dd, look, 20, town);
+        const moved = out.moves[0];
+        if (!moved) return false;
+        /* Whoever moved, they landed on a day that allows their town. */
+        const landedOn = dd.find(d => d.id === moved.targetId);
+        return dd[0].stops.length === 20 &&
+               api.towns(landedOn).indexOf(town(moved.id)) !== -1;
+      })(),
+      'shedding a house onto a day that forbids its town is a move the next ' +
+      'sweep undoes, which is a loop, not a schedule');
+
+    check('towns', 'and a day with nowhere legal to shed to is REPORTED, not fudged',
+      (() => {
+        const over = stops(21, 'lone');
+        const dd = [{ id: 'r1', date: '2026-11-02', city: 'Orem', towns: ['Orem'], stops: over }];
+        const out = api.even(dd, look, 20, () => 'Orem');
+        return dd[0].stops.length === 21 && out.over.length === 1 &&
+               out.over[0].date === '2026-11-02';
+      })(),
+      "the owner's rule: over the cap and said out loud beats somebody unscheduled");
+  }
+}
+
+/* ---- the same note, over and over, is a loop and not fifty events ----
+ * The suppressor that stops a churning sweep filling the System folder. RUN,
+ * not regexed — the whole point is what it does with a body it has already
+ * seen and with one it has not. */
+suite('18b. The route notice does not repeat itself');
+{
+  const noteStart = admin.indexOf('const RECONCILE_NOTE_REPEAT_MS');
+  const noteEnd = admin.indexOf('async function noticeRoutesReconciled', noteStart);
+  if (noteStart === -1 || noteEnd < noteStart) {
+    check('note', 'the repeat guard is findable', false,
+      'renamed or removed — update this test rather than deleting it');
+  } else {
+    const api = eval(admin.slice(noteStart, noteEnd) +
+      '\n;({is: reconcileNoteIsRepeat, window: RECONCILE_NOTE_REPEAT_MS,' +
+      ' reset: function(){ lastReconcileNote = {body: "", at: 0}; },' +
+      ' seen: function(b, t){ lastReconcileNote = {body: b, at: t}; }})');
+    const now = 1000000000;
+    const msg = (body, at) => ({ data: { topic: 'Routes Kept Up To Date', message: body,
+                                         createdAt: at } });
+
+    api.reset();
+    check('note', 'a note nobody has seen before is written',
+      api.is('first pass', now, []) === false);
+
+    api.reset();
+    check('note', 'the identical note minutes later is suppressed',
+      api.is('same body', now, [msg('same body', now - 4 * 60 * 1000)]) === true,
+      'THE SYMPTOM: two byte-identical notices four minutes apart, 2026-08-25');
+
+    api.reset();
+    check('note', 'a note that says something DIFFERENT always gets through',
+      api.is('29 houses moved', now, [msg('27 houses moved', now - 60000)]) === false,
+      'a sweep making progress reports different work each time, and must be heard');
+
+    api.reset();
+    check('note', 'and the same note an hour later is said again',
+      api.is('same body', now, [msg('same body', now - 61 * 60 * 1000)]) === false,
+      'a problem that is still there tomorrow has to be able to say so');
+
+    api.reset();
+    check('note', 'a note on some other topic never suppresses this one',
+      api.is('body', now, [{ data: { topic: 'Moved To Another Day', message: 'body',
+                                     createdAt: now } }]) === false);
+
+    /* The in-tab half, which catches a repeat before the messages listener has
+       even reported our own write back to us. */
+    api.reset();
+    api.seen('body', now - 1000);
+    check('note', 'a repeat is caught even before the listener has caught up',
+      api.is('body', now, []) === true,
+      'the write and the snapshot are not the same instant, and the sweep runs ' +
+      'again twenty seconds later on a busy pass');
+
+    check('note', 'the window covers both the fifteen-minute beat and the catch-up run',
+      api.window >= 15 * 60 * 1000 && api.window <= 24 * 60 * 60 * 1000);
   }
 }
 /* The wiring: the sweep has to actually call it, and has to go and find the new
@@ -7514,7 +7715,8 @@ suite('18. Forty houses a day');
    signature too, and that sits above step 3, so the naive version of this check
    passed by reading the wrong line. */
 check('cap', 'the sweep evens the days out after everything else has landed',
-  admin.indexOf('evenOutDays(days, custData)') > admin.indexOf('// ---- 3. Somewhere to go'),
+  admin.indexOf('evenOutDays(days, custData, MAX_STOPS_PER_ROUTE, townOfCustomer)') >
+    admin.indexOf('// ---- 3. Somewhere to go'),
   'evening out a half-built picture would move houses that were about to be dropped anyway');
 /* Anchored on the ASSIGNMENT, not the arguments. Argument names do not
    distinguish a call from its declaration — the declaration uses exactly the
@@ -7525,7 +7727,7 @@ check('cap', 'and tops the days up only once the overfull ones have been shed',
   'filling first would pack a day to forty that is about to shed houses anyway, ' +
   'and the two passes would fight each other every fifteen minutes');
 check('fill', 'the fill is bounded so one sweep cannot make hundreds of writes',
-  /fillDays\(days, custData, pool, allowedOn, MAX_STOPS_PER_ROUTE,\s*[\r\n ]*MAX_FILL_MOVES_PER_SWEEP\)/.test(admin),
+  /fillDays\(days, custData, pool, allowedOn, MAX_STOPS_PER_ROUTE,\s*[\r\n ]*MAX_FILL_MOVES_PER_SWEEP, townOfCustomer\)/.test(admin),
   'the first sweep after this shipped has the whole unscheduled pool to place');
 check('fill', 'every unscheduled customer is a candidate now, not just new hangs',
   /pool\.push\(\{id: a\.id/.test(admin) && /pool\.sort\(/.test(admin),
@@ -33574,8 +33776,17 @@ suite('131. Measure Roof — the roof is never on the ground');
     check('S131', 'and it says the height is only assumed, not measured',
       noDatum.rmDatum().source === 'assumed',
       'a guessed height that presents itself as measured is worse than no height');
-    check('S131', 'a typed height beats the assumption',
-      mk(14).rmDatum().source === 'typed' && Math.abs(mk(14).rmDatum().m - 14 / 3.280839895) < 0.01);
+    /* ⛔ THERE IS NO TYPED HEIGHT ANY MORE (2026-08-25). Owner, of the panel
+       that held it: "we dont need this: Eave 10 ft — ASSUMED, one storey …
+       1 storey / 2 storey / Ground", and behind it "find the height through
+       proper geometry, not through a rough estimate". This check used to prove
+       a typed number outranked the assumption; the point now is that no typed
+       number exists to outrank it, so the only thing that can is a measurement
+       from the street. */
+    check('S131', 'nothing can be typed over the assumption any more',
+      mk(14).rmDatum().source === 'assumed',
+      'a box that says 10 is an answer, and it was the height under every dot ' +
+      'on every house nobody had measured');
 
     /* ---- Street View pins it, and outranks both ----------------------- */
     const sv = mk(14);
@@ -33642,14 +33853,23 @@ suite('131. Measure Roof — the roof is never on the ground');
      claim is unchanged and now checks every branch rather than one. */
   check('S131', 'and the panel says which datum is in force',
     /id="rmDatumNote"/.test(admin) && /ASSUMED, one storey/.test(admin) &&
-    /measured in Street View/.test(admin) && /read off the street photo/.test(admin) &&
-    /typed by hand/.test(admin),
+    /measured in Street View/.test(admin) && /read off the street photo/.test(admin),
     'a height nobody can trace back is a height nobody can argue with');
-  check('S131', 'and the height controls are still reachable, just not in the way',
-    /id="rmHeightFt"/.test(admin) && /id="rmMoreBox"/.test(admin) &&
-    (admin.indexOf('id="rmMoreBox"') < admin.indexOf('id="rmHeightFt"')),
-    'the box is the only way to overrule a wrong roof model — moving it behind a ' +
-    'disclosure is fine, losing it is not');
+  /* ⛔ AND THE TYPED CONTROLS ARE GONE (2026-08-25). Owner: "we dont need
+     this: Eave 10 ft — ASSUMED, one storey … 1 storey / 2 storey / Ground",
+     and behind it "find the height through proper geometry".
+     ⚠ THIS REPLACES A CHECK THAT DEMANDED THE OPPOSITE — "the box is the only
+     way to overrule a wrong roof model, losing it is not fine". The overrule is
+     not lost, it moved into the picture: a shift-drag on a dot in Street View
+     sets its height by eye against the photograph, which is a better overrule
+     than a number typed into a box with nothing to check it against. */
+  check('S131', 'and there is no box or preset to type a height into',
+    !/id="rmHeightFt"/.test(admin) && !/data-rmheight=/.test(admin) &&
+    !/1 storey<\/button>/.test(admin),
+    'a preset is a guess wearing a button');
+  check('S131', 'and the panel says where a height does come from instead',
+    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
+    'removing the control without saying what replaced it reads as a feature going missing');
 }
 
 
@@ -33897,18 +34117,42 @@ suite('141. Measure Roof - the street decides, and it is allowed to be late');
   check('S141', 'the wait gives up after a while and draws anyway',
     /setTimeout\(rmStreetSettle, 10000\)/.test(admin),
     'an unbounded wait on a third party is a hang with better manners');
-  /* ⚠ RETIRED, NOT LOST. Nothing is guessed from the map any more - the owner
-     asked for the automatic lines to be taken out entirely ("delete everything
-     for now and give me a tool that I can show you what it should look like by
-     placing dots"), so there is no map-only line left to warn about. The
-     builder and its warning are still in the file and still tested; they are
-     simply not run. If automatic lines ever come back, so must this. */
-  /* The WARNING went with the status line it lived on - there is no map-only
-     line left to warn about. What must survive is the builder itself, so
-     turning guessing back on is one line rather than a rewrite. */
-  check('S141', 'the roofline builder is kept, ready for guessing to return',
-    !!pick('rmBuildSuggestions') && /NOTHING IS GUESSED ANY MORE/.test(admin),
-    'the automatic path is switched off, not deleted, and the file should say which');
+  /* ⭐ AND THE AUTOMATIC LINES ARE BACK ON (2026-08-25). Owner: "what if you
+     automatically wrote out the lines for the front and if they want a side we
+     can measure that on our own for now."
+     ⚠ THIS REVERSES HER OWN EARLIER RULING - "delete everything for now and
+     give me a tool that I can show you what it should look like by placing
+     dots" - and the old check asserted that reversal was still in force by
+     matching the words NOTHING IS GUESSED ANY MORE. Kept as a check with a new
+     subject rather than deleted: what has to be true now is that the builder
+     RUNS, and that what it draws is not billed as a measurement.
+     ⭐ WHY THE PREMISE CHANGED: the offered lines were "close enough to look
+     plausible and wrong enough to be useless" because Google's roof model is in
+     TRUE positions and its satellite tile is DISPLACED - about six feet on the
+     house that prompted this. That is measured and corrected now. */
+  /* ⭐ SETTLED: NOTHING IS DRAWN AUTOMATICALLY, asked and answered TWICE.
+     Owner, the first time: "delete everything for now and give me a tool that I
+     can show you what it should look like by placing dots." Shown the offered
+     front eaves a second time, with the six-foot satellite displacement now
+     measured and corrected: "we dont want it to assume just manually click
+     corners."
+     ⚠ SO THE CHECK ASSERTS THE OFF STATE AGAIN, and the reason it flipped
+     twice in one day is worth writing down: the argument for turning it on was
+     that the offered lines had only ever LOOKED wrong because of the
+     displacement. That argument was sound and it was still refused, because the
+     objection is not accuracy - it is that a line nobody placed is a line
+     nobody checked.
+     ⚠ THE BUILDER IS KEPT, NOT DELETED, so a third change of mind is one
+     line rather than a rewrite. */
+  const whenReady = pick('rmBuildWhenReady') || '';
+  check('S141', 'the roofline builder is kept but never run',
+    !!pick('rmBuildSuggestions') &&
+    /const guessed = 0;/.test(whenReady) &&
+    whenReady.indexOf('rmBuildSuggestions(') === -1,
+    'nothing is drawn automatically; the builder stays so turning it back on is one line');
+  check('S141', 'and the file records that it was asked for twice and refused twice',
+    /manually click corners/.test(whenReady),
+    'a decision reversed twice needs its reasoning kept, or it gets reversed a third time');
 
   /* ---- 3. a picked line is never re-picked ----------------------------- */
   const reside = pick('rmResideSuggestions');
@@ -35159,8 +35403,36 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
     /rmCornerMode = rmCornerMode === 'dot' \? 'select' : 'dot';/.test(admin),
     'owner asked for space bar to toggle select from make a dot');
   check('S149', 'a click on the panorama places a corner while in dot mode',
-    /if\(rmCornerMode === 'dot'\)\{/.test(admin) && /rmAddCorner\(\{lat: w\.lat/.test(admin),
+    /if\(rmCornerMode === 'dot' && !rmDrawing\)\{/.test(admin) && /rmAddCorner\(\{lat: w\.lat/.test(admin),
     'the dormer corners that meet the main roof are not against the sky and can only be placed by hand');
+  /* ⚠ ONE RULE, BOTH VIEWS: while a run is open a click adds to the run, and
+     otherwise it places a corner. The map branch always read `&& !rmDrawing`;
+     the panorama read only the mode, so an identical click meant two different
+     things the moment anything opened a run — and the scale check, which says
+     "click each end of it in either view", is the thing that opens one. */
+  check('S149', 'and both views answer a click by the same rule',
+    (function(){
+      const sky = admin.indexOf("rmCornerMode === 'dot' && !rmDrawing){");
+      const st = admin.indexOf("rmCornerMode === 'dot' && !rmDrawing){", sky + 10);
+      return sky !== -1 && st !== -1;
+    })(),
+    'the street view placed a corner during a scale check while the map added ' +
+    'to the check, which is the same split this branch exists to remove');
+  /* ⭐ AND CLEARING CLEARS BOTH. Owner: "when i click clear dots it clears all
+     dots on both perspectives." Two buttons emptied two structures, so whichever
+     was pressed left half the marks on screen. */
+  check('S149', 'clear all dots empties both pictures, not half of each',
+    (function(){
+      const i = admin.indexOf("getElementById('rmClearDotsBtn').addEventListener");
+      const j = admin.indexOf('window.rmRefreshSideButtons', i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmClearDrawing\(\);/.test(body) && /rmCorners = \[\]; rmCurrentBand = 0;/.test(body) &&
+             /rmSetDrawing\(false\);/.test(body);
+    })(),
+    'the corners went and the traced runs stayed, so the button looked ignored');
+  check('S149', 'and it says both are empty rather than going quiet',
+    /both pictures are empty/.test(admin),
+    'a clear that leaves the note blank reads the same as a clear that did nothing');
   check('S149', 'the panorama accepts clicks while placing, or nothing lands',
     /rmCornerMode === 'dot'\) && rmStreetReady/.test(admin),
     'the panorama swallows clicks for panning unless the sheet is over it');
@@ -35197,43 +35469,99 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   /* ⭐ TWO BUTTONS, SO THE MODE ONLY GOVERNS ONE. Owner: "make it so right
      click is always select and left click is place dot if thats what its on
      but it switches if you click space." */
-  /* ⭐ THE MAP DOES NOT PLACE DOTS AT ALL ANY MORE. Owner: "make sure that you
-     use the street view to draw the lines not the sky view", and earlier "its
-     using skyview to place corners which is bad it should use street view only
-     to detect where corners are... sky view cant give height."
+  /* ⭐ ONE KIND OF DOT, PLACED FROM EITHER VIEW (2026-08-25). Owner: "I place
+     a dot in sky view and its a different type of dot then the one on street
+     view they should be the same and in sync so that when I click end strand
+     the dots connect no matter which one I placed it on."
 
-     ⚠ THIS REPLACES A TEST THAT PINNED THE OPPOSITE, and the reason the old
-     behaviour could not be rescued is worth writing down. Looking straight
-     down there is no height in the picture, so a dot placed from above had to
-     INVENT one - the typed working height, or the roof model's guess. A dot at
-     the wrong height is at the wrong place, and parallax swings it across the
-     house the moment the camera moves. Making the guess cleverer only makes it
-     a better guess. From the street a click is a ray that meets a real wall
-     and the height falls out of the geometry, so there is nothing to invent. */
-  check('S149', 'the map does not place a corner',
-    (function(){
-      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
-      const j = admin.indexOf('addEventListener', i + 40);
-      return i !== -1 && admin.slice(i, j).indexOf('rmAddCorner') === -1;
-    })(),
-    'a dot from above has to invent a height, and an invented height drifts');
-  /* ⚠ THIS USED TO MATCH THE REFUSAL NOTE ("Dots go in from the street view"),
-     because a sky click did nothing else. It now STARTS A SIDE — tracing a run
-     from above is the one thing that view is best at, since an eave is level so
-     plan length is true length — and still names the street as where corners
-     go. The claim is unchanged and stronger: the click must not be silent. */
-  check('S149', 'and it says where dots do go, rather than doing nothing',
-    /go in from the street view/.test(admin),
-    'a click that silently does nothing reads as broken');
-  check('S149', 'a click up there traces a side instead of being refused outright',
+     ⚠ THESE CHECKS USED TO PIN THE OPPOSITE, and what they were pinning was
+     not a look — it was two incompatible structures. A click on the map made a
+     vertex in rmRuns (no number, no band, ended by a double-click); a click in
+     the panorama made a corner in rmCorners (numbered, banded, ended by "End
+     this strand"). rmEndStrand only ever reads rmCorners, so it was deaf to
+     half the dots on screen by construction, and no amount of restyling could
+     have joined them.
+
+     ⚠ THE OLD RULING'S REASONING WAS SOUND AND IS KEPT IN admin.html: a dot
+     placed from above had to invent a height. What changed is that
+     rmMapPixelToWorld now corrects the tile displacement (rmSkyShift) and reads
+     the roof's own height at the spot, and the corner is placed UNPINNED so the
+     office can see the height is the model's opinion until it is crossed with a
+     street-view sighting. If dots from above start drifting again, that is the
+     argument to read before deleting this. */
+  /* ⛔ AND NOT ONTO A GUESSED ROOF HEIGHT (2026-08-25). Owner: "find the height
+     through proper geometry, not through a rough estimate."
+     A sky click's height is the roof model's plane at that spot, which is exact
+     RELATIVE to the lowest eave and floats on the datum — so the whole question
+     is whether the datum was measured. One dot on a wall in Street View settles
+     it. Before that, a dot from above is wrong in plan as well as in height, and
+     the error goes into the footage, which is the price. */
+  check('S149', 'a dot from above is refused while the roof height is only assumed',
     (function(){
       const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
       const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
       const body = i === -1 ? '' : admin.slice(i, j);
-      return /rmSetDrawing\(true\);\s*\r?\n\s*rmAddPoint\(w\);/.test(body);
+      const g = body.indexOf("rmDatum().source === 'assumed'");
+      const add = body.indexOf('rmAddCorner(w);');
+      return g !== -1 && add !== -1 && g < add;
     })(),
-    'refusing the commonest gesture on a map means tracing starts by finding a ' +
-    'button in the sidebar first, which is the step this removes');
+    'accepting it costs a quote nobody can tell is wrong; refusing costs one click');
+  check('S149', 'and it says which click would fix it, rather than just refusing',
+    /Click once on a WALL in the street view first/.test(admin),
+    'a refusal with no way out reads as the tool being broken');
+  /* ⭐ THE PICTURE LINES ITSELF UP FROM THE DOTS. Owner: "i click a corner on
+     skyview but its still a few feet off from where I clicked" — that is the
+     satellite tile being displaced, with the correction never applied because
+     rmAutoAlign only ran after a hand-traced RUN was finished, and the workflow
+     stopped producing those the day dots replaced tracing. */
+  check('S149', 'placing dots is enough to line the two pictures up',
+    (function(){
+      const fn = extractFn(admin, 'rmCornersChanged') || '';
+      return /rmAutoAlign\(\);/.test(fn);
+    })(),
+    'it fired only on rmFinishRun, which the dot workflow never calls');
+  check('S149', 'and it still never overrides an answer somebody measured',
+    /if\(rmSkyOffset \|\| rmAligning\) return;/.test(extractFn(admin, 'rmAutoAlign') || ''),
+    'a fit is arithmetic about a model; a measured alignment is a person saying where a spot is');
+  check('S149', 'the map places the same corner the street view places',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmAddCorner\(w\);/.test(body);
+    })(),
+    'a vertex in rmRuns carries no band, so End Strand can never reach it');
+  check('S149', 'and it no longer starts a run of its own instead',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      /* The one rmAddPoint left is the open-run branch the scale check uses. */
+      /* indexOf, not a regex spanning a newline — the backslash-n does not
+         survive every route into this file, and a degraded escape gives a
+         broken regex rather than a failing check. */
+      return body.indexOf('rmSetDrawing(true);') === -1 &&
+             /if\(rmDrawing\) rmAddPoint\(w\);/.test(body);
+    })(),
+    'two kinds of dot on one house is the whole fault; tracing stays reachable ' +
+    'from the scale check and from Enter with no dots down');
+  check('S149', 'and it says what it just placed, rather than doing nothing',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmCornerLabel\(rmCorners\.length - 1\)/.test(body) &&
+             /pin the height exactly/.test(body);
+    })(),
+    'a click that silently does nothing reads as broken, and a dot whose height ' +
+    'came from the model has to say so');
+  check('S149', 'a shift-click up there is a drag ending, not a dot',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf('rmMapPixelToWorld', i);
+      return i !== -1 && /if\(e\.shiftKey\) return;/.test(admin.slice(i, j));
+    })(),
+    'without it every shift-drag drops a spare dot where it let go');
   /* The street view still does, and takes its height from the ray. */
   check('S149', 'the street view is what places a corner',
     (function(){
@@ -35283,8 +35611,65 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
     /id="rmEndStrandBtn"/.test(admin) && /rmEndStrandBtn'\)\.addEventListener/.test(admin),
     'not everybody reaches for a keyboard');
   check('S149', 'the map takes dots as well as the street view',
-    /rmCornerMode === 'dot' && !rmDrawing/.test(admin) && /const skyLock = \(rmDrawing \|\| rmCornerMode === 'dot'\)/.test(admin),
-    'from above a click is exact; from the street the height is what you can see');
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmCornerMode === 'dot' && !rmDrawing/.test(body) && /rmAddCorner\(w\)/.test(body) &&
+             /const skyLock = \(rmDrawing \|\| rmCornerMode === 'dot'\)/.test(admin);
+    })(),
+    'this used to pass on the mode guard alone, while the click behind it made ' +
+    'a run vertex — a check that green-lit the fault it was named after');
+  /* ⭐ AND THE MAP DRAWS THEM. Half of "a different type of dot" was that it
+     drew none: a corner reached the map only as a vertex of the run
+     rmCornersToRun builds, and a band with one dot in it makes no run — so the
+     first dot of every strand was invisible from above. */
+  check('S149', 'every corner is drawn on the map, numbered, run or no run',
+    /function rmSyncCornersSky\(\)/.test(admin) &&
+    /rmCornerMarkers\.push\(new google\.maps\.Marker/.test(admin) &&
+    /label: \{text: rmCornerLabel\(i\)/.test(admin),
+    'one dot on its own makes no run, so it had nothing to be drawn as');
+  check('S149', 'and they are redrawn whenever the corners change',
+    (function(){
+      const i = admin.indexOf('function rmCornersChanged(){');
+      return i !== -1 && admin.indexOf('rmSyncCornersSky();', i) > i &&
+             admin.indexOf('rmSyncCornersSky();', i) - i < 120;
+    })(),
+    'a marker layer nobody refreshes shows the dots as they were two edits ago');
+  check('S149', 'and cleared with the rest of the last house',
+    (function(){
+      const i = admin.indexOf('rmCorners = []; rmCurrentBand = 0; rmCandidates = [];');
+      return i !== -1 && admin.indexOf('rmClearCornerMarkers();', i) > i &&
+             admin.indexOf('rmClearCornerMarkers();', i) - i < 80;
+    })(),
+    'the next address would otherwise open with the last one dots floating on it');
+  /* ⚠ THE MAP'S OLD HANDLES ONLY LOOKED LIKE HANDLES. They belonged to the run
+     rmCornersToRun REBUILDS from the corners on every change, so a drag edited
+     a copy and the dot jumped back on the next redraw. */
+  check('S149', 'a run built from corners draws no handles of its own',
+    /run\.dots = \(run\.fromCorners \|\| \(run\.suggested && !on\)\)/.test(admin),
+    'those handles drag a copy that the next redraw throws away');
+  check('S149', 'shift and drag moves the corner itself, from above as well',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const c = rmCorners\[rmSkyDragDot\];/.test(body) &&
+             /c\.lat = w\.lat; c\.lng = w\.lng;/.test(body) &&
+             /c\.rays = \[\]; c\.pinned = 0;/.test(body);
+    })(),
+    'the panorama has had this for a while; the map had a handle that did nothing');
+  check('S149', 'and a dragged dot is grabbed in metres, not pixels',
+    /const RM_SKY_GRAB_M = 4;/.test(admin) && /bd = RM_SKY_GRAB_M;/.test(admin),
+    'the same pixel radius is half a house at one zoom and half a gutter at another');
+  /* ⚠ A HEIGHT OF ZERO IS A HEIGHT. Ground runs are a real thing to trace from
+     above, and `pt.h || rmDatum().m` put every one of them up at the eave. */
+  check('S149', 'a corner on the ground keeps its height instead of jumping to the eave',
+    (function(){
+      const fn = extractFn(admin, 'rmAddCorner') || '';
+      return /typeof pt\.h === 'number' && isFinite\(pt\.h\)/.test(fn) && !/h: pt\.h \|\|/.test(fn);
+    })(),
+    'the falsy fallback swapped a ground dot for one at roof height');
 }
 
 
@@ -35606,8 +35991,27 @@ suite('152. Measure Roof - a dot seen twice is exact, with no model at all');
   check('S152', 'a dot remembers the ray it was first placed along',
     /rays: pt\.ray \? \[pt\.ray\] : \[\]/.test(admin),
     'without it the second sighting has nothing to cross with');
+  /* ⭐ AND EACH DOT IS JUDGED AT ITS OWN SIZE (2026-08-25). Owner: "if I click
+     dots at a different angle on street view then it offsets to be correct."
+     The correction existed and could not be reached: it only fired within 8 px
+     OF THE DRIFTED DOT, and the reason to re-sight is that the dot is no longer
+     on the corner. Aiming at the corner missed the dot and made a second one.
+     See RM_RESIGHT_DEPTH_SLOP_M for why the net widens only once the camera has
+     moved far enough for a second sighting to mean anything. */
   check('S152', 'clicking an existing dot pins it rather than adding another',
-    /const near = rmDotUnderClick\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
+    /const near = rmDotToResight\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
+  check('S152', 'and the net only widens once a second sighting could fix a depth',
+    (function(){
+      const fn = extractFn(admin, 'rmResightGrabPx') || '';
+      return /if\(c\.pinned\) return RM_PIN_GRAB_PX;/.test(fn) &&
+             /base >= RM_PIN_MIN_BASE_M/.test(fn) &&
+             /Math\.min\(RM_RESIGHT_MAX_PX/.test(fn);
+    })(),
+    'a wide net from where the dot was placed would swallow the neighbour you ' +
+    'are trying to put down next to it');
+  check('S152', 'and the nearest dot wins as a fraction of its own net',
+    /const score = d \/ grab;/.test(admin),
+    'in raw pixels a wide-net dot always beats a tight-net one beside it');
   check('S152', 'and a pinned dot looks different from a guessed one',
     /if\(c\.pinned\) parts\.push\('<circle/.test(admin),
     'the office should be able to tell at a glance which dots are still guesses');
@@ -36247,18 +36651,125 @@ suite('167. Measure Roof - shift and drag moves a dot');
     /A shift-click is the end of a drag, not a placement[\s\S]{0,80}if\(e\.shiftKey\) return;/.test(admin),
     'otherwise letting go drops a second dot on top of the one just moved');
   /* ⭐ IT LANDS WHERE A FRESH CLICK WOULD. */
-  check('S167', 'a dragged dot is placed by the same solid-cast as a new one',
+  /* ⭐ ONE AXIS PER VIEW (2026-08-25). Owner: "if you drag on sky view the
+     height stays the same and if you drag on street view the height is the
+     only thing you can change."
+
+     ⚠ THESE TWO CHECKS USED TO PIN A SOLID-CAST DRAG — the pointer's ray was
+     crossed with the house and the dot went wherever it landed, plan and
+     height together. That is the tempting design and it is wrong, because it
+     lets each view drag the one number it cannot see. From the street the
+     unknown is DEPTH: a dot can sit perfectly on the gutter and be ten feet
+     into next door's garden in plan, and nothing in the panorama can show it.
+     From above there is no height in the picture at all. So each view now
+     moves only what it can judge, and the safety limits are kept. */
+  check('S167', 'a street-view drag changes the height and nothing else',
     (function(){
-      const i = admin.indexOf('if(rmDragDot < 0) return;');
-      const j = admin.indexOf('rmHouseHit(dir, cam)', i);
-      return i !== -1 && j > i && (j - i) < 1400;   /* the slop guard sits between */
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /c\.h = u;/.test(body) && !/c\.lat = /.test(body) && !/rmHouseHit\(/.test(body);
     })(),
-    'a dragged dot must not be able to land where a placed one could not');
-  check('S167', 'and it cannot be dragged above the roof',
+    'crossing the ray with the house again moves east and north every frame, so ' +
+    'the map shows the dot creeping sideways while somebody sets its height');
+  check('S167', 'and it holds the plan position exactly, by solving on a vertical',
     (function(){
-      const i = admin.indexOf('if(rmDragDot < 0) return;');
-      const j = admin.indexOf('rmRoofTopM()', i);
-      return i !== -1 && j > i && (j - i) < 900;
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const plan = Math\.hypot\(here\.e - cam\.e, here\.n - cam\.n\);/.test(body) &&
+             /cam\.u \+ plan \* Math\.tan\(el\)/.test(body);
+    })(),
+    'height is the horizontal distance times the tangent of the elevation, which ' +
+    'touches neither east nor north');
+  /* ⭐ A SKY DRAG SLIDES THE DOT ALONG ITS OWN RAY (2026-08-25). Owner: "when
+     i drag a dot on sky view it should stay in the same spot in street view,
+     its just to correct the offset if the system does get it wrong."
+
+     ⚠ AND THAT IS PRECISELY A DEPTH CORRECTION. Every point along the ray from
+     the camera through a pixel draws at THAT SAME PIXEL, so moving a dot along
+     its own ray changes where it sits on the map and leaves Street View
+     untouched — which is the complaint exactly: right in the photograph, wrong
+     on the map, and the only thing wrong with it was how far away it was.
+     The check below is not a source match; it does the arithmetic. */
+  check('S167', 'a sky-view drag slides the dot along the ray it was seen along',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /rmRaySlideTo\(ray, w\)/.test(body) && /c\.h = t\.u;/.test(body);
+    })(),
+    'dropping it wherever the pointer went would move it in the photograph too, ' +
+    'and the corner it is marking has not moved');
+  check('S167', 'and a dot with no sighting moves in plan and keeps its height',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      /* The no-ray branch is the tail of the handler, so slice to the end of it
+         rather than to a round number of characters. */
+      const k = body.indexOf('c.lat = w.lat; c.lng = w.lng;');
+      return k !== -1 && body.slice(k).indexOf('c.h =') === -1;
+    })(),
+    'one placed from above has no ray to slide along, and from above there is ' +
+    'no height in the picture to read');
+  /* ⭐ THE ARITHMETIC ITSELF. A slid dot must land on the SAME Street View
+     pixel, or the drag has moved the corner rather than corrected its depth. */
+  {
+    const LF = String.fromCharCode(10);
+    const slideApi = new Function(
+      'let rmOrigin = {lat: 40.3854093, lng: -111.8627181};' + LF +
+      'let rmFaces = [];' + LF +
+      'const RM_EAVE_TOL_M = 0.8;' + LF +
+      'const rmRad = function(d){ return d*Math.PI/180; };' + LF +
+      'function rmFovDeg(z){ return 180/Math.pow(2, z); }' + LF +
+      'function rmRoofTopM(){ return 12; }' + LF +
+      [extractFn(admin, 'rmMetresPerDeg'), extractFn(admin, 'rmToLocal'),
+       extractFn(admin, 'rmToWorld'), extractFn(admin, 'rmBasis'),
+       extractFn(admin, 'rmSvProject'), extractFn(admin, 'rmRay'),
+       extractFn(admin, 'rmRaySlideTo')].join(LF) + LF +
+      'return {slide: rmRaySlideTo, toWorld: rmToWorld, toLocal: rmToLocal,' + LF +
+      '        project: rmSvProject, ray: rmRay};')();
+    const W = 554, H = 456, pov = {heading: 74.7, pitch: 5.3, zoom: 1.46};
+    const cam = {e: -26.58, n: -7.25, u: 2.46};
+    /* A dot placed by clicking one pixel, sitting somewhere along that ray. */
+    const dir = slideApi.ray(200, 180, W, H, pov);
+    const ray = {cam: cam, dir: dir};
+    const t0 = 22;
+    const dot = {e: cam.e + dir.e*t0, n: cam.n + dir.n*t0, u: cam.u + dir.u*t0};
+    const before = slideApi.project(slideApi.toWorld(dot), W, H, pov, cam);
+    /* Drag it several feet across the map, well off the line of sight. */
+    const dropped = slideApi.toWorld({e: dot.e + 3.5, n: dot.n - 2.5, u: 0});
+    const moved = slideApi.slide(ray, dropped);
+    const after = moved ? slideApi.project(slideApi.toWorld(moved), W, H, pov, cam) : null;
+    const shift = after ? Math.hypot(after.x - before.x, after.y - before.y) : null;
+    const depthChange = moved
+      ? Math.abs(Math.hypot(moved.e - cam.e, moved.n - cam.n) - Math.hypot(dot.e - cam.e, dot.n - cam.n))
+      : 0;
+    check('S167', 'a slid dot draws on the very same Street View pixel',
+      shift !== null && shift < 0.01,
+      'it moved ' + (shift === null ? 'nowhere - the slide was refused' : shift.toFixed(3) + ' px'));
+    check('S167', 'and it really did move on the map, so the slide is not a no-op',
+      depthChange > 1,
+      'depth changed by ' + depthChange.toFixed(2) + ' m; a check that passes because ' +
+      'nothing moved would pass on a broken drag too');
+    check('S167', 'the height comes with it, because a ray climbs as it goes out',
+      moved && Math.abs(moved.u - dot.u) > 0.05,
+      'holding the height while sliding the depth leaves the dot off its own ray, ' +
+      'which puts it back in the wrong place in Street View');
+    check('S167', 'a drop behind the camera is refused rather than answered',
+      slideApi.slide(ray, slideApi.toWorld({e: cam.e - dir.e*40, n: cam.n - dir.n*40, u: 0})) === null);
+    check('S167', 'and one that would end up above the roof is refused too',
+      slideApi.slide(ray, slideApi.toWorld({e: cam.e + dir.e*160, n: cam.n + dir.n*160, u: 0})) === null,
+      'a drag must not reach a place a click could not');
+  }
+  check('S167', 'and neither drag can put a dot underground or above the roof',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const top = rmRoofTopM\(\);/.test(body) && /u > top \+ RM_EAVE_TOL_M/.test(body) &&
+             /if\(!\(u > 0\.3\)\) return;/.test(body);
     })(),
     'the same ceiling that stops a click on the sky');
   /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */
@@ -36621,7 +37132,7 @@ suite('161. Measure Roof - corners are offered, and only the ones clicked count'
   check('S161', 'a click on a ring takes it rather than dropping a new dot beside it',
     (function(){
       const a = admin.indexOf('const cand = rmCandidateUnderClick(');
-      const b = admin.indexOf('const near = rmDotUnderClick(', a);
+      const b = admin.indexOf('const near = rmDotToResight(', a);
       const c = admin.indexOf('rmAddCorner({lat: w.lat', a);
       return a !== -1 && b > a && c > a;      /* candidates checked first */
     })(),
@@ -37158,22 +37669,24 @@ suite('253. The RSVP asks the crew’s two questions, of the right house');
     'a token nothing places is a token nobody sees');
 }
 
-suite('254. Measure Roof - the working height is never the lawn');
+suite('254. Measure Roof - no height is ever typed, and none is ever the lawn');
 {
-  /* ⚠ THE BUG THIS EXISTS FOR. The Working Height box opened on 0 and
-     rmWorkingHeightM divided that by the conversion, so a sky click with no
-     Google roof plane under it landed at h = 0 - ON THE GROUND, the one height
-     a gutter run is certainly not at. Every foot traced that way was measured
-     across the lawn instead of along the eave, and nothing on screen said so.
+  /* ⛔ REWRITTEN 2026-08-25, BECAUSE THE THING IT GUARDED IS GONE. Owner: "we
+     dont need this: Eave 10 ft — ASSUMED, one storey … 1 storey / 2 storey /
+     Ground", and behind it "we want it to find the height through proper
+     geometry, not through a rough estimate".
 
-     ⚠ AND THE FIX HAD TO SPLIT ONE QUESTION INTO TWO. rmDatum reports whether a
-     height was TYPED or ASSUMED, and says which on screen. A working height
-     that quietly falls back to the assumed eave cannot answer that - it would
-     report every blank box as a number the office chose. So rmTypedHeightM
-     answers "what was actually typed" (null when nothing was) and
-     rmWorkingHeightM answers "where does a click land" (never zero from blank).
-     A red-check collapsing them back into one function fails the datum checks
-     below, not the height ones. */
+     ⚠ THE ORIGINAL BUG IS KEPT ON THE RECORD, because the constant that fixed
+     it is still load-bearing. The Working Height box opened on 0 and
+     rmWorkingHeightM divided that by the conversion, so a sky click with no
+     Google roof plane under it landed at h = 0 — ON THE GROUND, the one height
+     a gutter run is certainly not at. Every foot traced that way was measured
+     across the lawn and nothing on screen said so. The box is gone; the floor
+     it was eventually given is not, and that is what these checks hold.
+
+     ⚠ AND THE NO-GUESSING APPARATUS IS UNCHANGED IN SPIRIT. rmDatum still says
+     whether a height was MEASURED or merely ASSUMED, and 'typed' is no longer
+     one of the answers it can give, because nothing can type one. */
   const LF_ = String.fromCharCode(10);
   const NEED = ['rmTypedHeightM', 'rmWorkingHeightM', 'rmDatum'];
   const parts = NEED.map(n => extractFn(admin, n));
@@ -37181,71 +37694,51 @@ suite('254. Measure Roof - the working height is never the lawn');
   check('S254', 'the two height readers and the datum are all findable',
     missing.length === 0, 'not found: ' + missing.join(', '));
 
-  /* THE DEFAULT IS THE SAME EAVE THE CODE ASSUMES, not a second 10 typed into
-     the markup. A box opening on a different number than RM_ASSUMED_EAVE_M is
-     two answers to one question, and the one nobody reads is the one that
-     drifts. */
-  const eaveM = (admin.match(/RM_ASSUMED_EAVE_M\s*=\s*([\d.]+)/) || [])[1];
-  const heightBox = (admin.match(/<input[^>]*id="rmHeightFt"[^>]*>/) || [])[0] || '';
-  const boxDefault = Number((heightBox.match(/value="([\d.]+)"/) || [])[1]);
-  check('S254', 'the Working Height box opens on the assumed eave, not on the ground',
-    boxDefault > 0 && Math.round(Number(eaveM) * 3.280839895) === boxDefault,
-    'box opens on ' + boxDefault + ' ft, RM_ASSUMED_EAVE_M is ' + eaveM +
-    ' m (~' + Math.round(Number(eaveM) * 3.280839895) + ' ft) - a 0 here traces the lawn');
+  const api = new Function(
+    'const RM_M_TO_FT = 3.280839895;' + LF_ +
+    'const RM_ASSUMED_EAVE_M = 3;' + LF_ +
+    'let rmRoofDatumM = null, rmDatumSource = null;' + LF_ +
+    parts.join(LF_) + LF_ +
+    'return {rmTypedHeightM, rmWorkingHeightM, rmDatum,' + LF_ +
+    '        measure: function(m){ rmRoofDatumM = m; rmDatumSource = "street"; }};')();
 
-  /* ⚠ RESET IS THE SECOND DOOR AND IT WAS THE ONE LEFT OPEN. Opening the tool
-     on a second quote runs rmReset, so a reset that put the box back to 0
-     re-armed the bug on every house after the first. It must derive the value
-     rather than repeat it. */
-  const reset = extractFn(admin, 'rmReset') || '';
-  check('S254', 'and reopening the tool resets it to the same assumed eave',
-    /rmHeightFt'\)\.value\s*=\s*Math\.round\(RM_ASSUMED_EAVE_M\s*\*\s*RM_M_TO_FT\)/.test(reset),
-    'a reset back to 0 puts the next house on the lawn however good the markup default is');
+  check('S254', 'a click with no roof plane under it still lands at an eave, not at 0',
+    Math.abs(api.rmWorkingHeightM() - 3) < 1e-9,
+    'got ' + api.rmWorkingHeightM().toFixed(3) + ' m - 0 here is the lawn-tracing bug');
+  check('S254', 'and the last-resort eave is the SAME one the datum falls back to',
+    Math.abs(api.rmWorkingHeightM() - api.rmDatum().m) < 1e-9,
+    'two answers to one question, and the one nobody reads is the one that drifts');
+  check('S254', 'nothing can be typed, so the reader always says nothing was',
+    api.rmTypedHeightM() === null,
+    'a live reader against a deleted box would throw the moment anything called it');
+  check('S254', 'and an unmeasured house says ASSUMED rather than crediting anybody',
+    api.rmDatum().source === 'assumed',
+    'got source "' + api.rmDatum().source + '"');
+  api.measure(11 / 3.280839895);
+  check('S254', 'one Street View measurement outranks it and says so',
+    api.rmDatum().source === 'street' &&
+    Math.abs(api.rmDatum().m - 11 / 3.280839895) < 1e-9,
+    'the street is the only thing left that can answer this, so it had better win');
 
-  if (!missing.length) {
-    const mk = raw => new Function(
-      'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
-      'let rmRoofDatumM=null, rmDatumSource="";' + LF_ +
-      'const document={getElementById:function(){ return ' +
-        (raw === null ? 'null' : '{value:' + JSON.stringify(raw) + '}') + '; }};' + LF_ +
-      parts.join(LF_) + LF_ +
-      'return {rmTypedHeightM, rmWorkingHeightM, rmDatum};')();
-
-    const FT = 3.280839895;
-    /* A blank box, and junk in the box, are the same thing: nothing was typed. */
-    ['', '   ', 'abc'].forEach(function (raw) {
-      const api = mk(raw);
-      check('S254', 'a box holding ' + JSON.stringify(raw) + ' puts a click at the eave, not at 0',
-        Math.abs(api.rmWorkingHeightM() - 3) < 1e-9,
-        'got ' + api.rmWorkingHeightM().toFixed(3) + ' m - 0 here is the lawn-tracing bug');
-      check('S254', 'and ' + JSON.stringify(raw) + ' is reported as nothing typed',
-        api.rmTypedHeightM() === null,
-        'a blank box read as a number makes rmDatum claim the office chose this height');
-      check('S254', 'so the datum calls it assumed, not typed',
-        api.rmDatum().source === 'assumed',
-        'got source "' + api.rmDatum().source + '" - the status line would credit the office ' +
-        'with a height nobody entered');
-    });
-
-    /* ⚠ A TYPED ZERO IS AN ANSWER, NOT A BLANK. The Ground preset writes 0 and
-       a ground run really is at zero, so this must NOT be swept up by the
-       fallback - that would make the Ground button unable to reach the ground. */
-    const ground = mk('0');
-    check('S254', 'but a deliberately typed 0 still means the ground',
-      ground.rmTypedHeightM() === 0 && ground.rmWorkingHeightM() === 0,
-      'the Ground preset writes 0; treating it as "nothing typed" breaks the one ' +
-      'button whose whole job is to trace at ground level');
-    check('S254', 'and a typed 0 is still too low to be a datum',
-      ground.rmDatum().source === 'assumed',
-      'zero is a legal place to trace and an illegal place to hang a roof from');
-
-    const typed = mk('18');
-    check('S254', 'a real typed height is used, and is credited to the office',
-      Math.abs(typed.rmWorkingHeightM() - 18 / FT) < 1e-9 &&
-      typed.rmDatum().source === 'typed' &&
-      Math.abs(typed.rmDatum().m - 18 / FT) < 1e-9,
-      'a height the office measured must beat both the assumption and the model');
-  }
+  /* ⛔ AND THE CONTROLS ARE GONE FROM THE PAGE, not merely unused. */
+  check('S254', 'the last-resort eave is still an eave, not the ground',
+    (function(){
+      const m = Number((admin.match(/RM_ASSUMED_EAVE_M\s*=\s*([\d.]+)/) || [])[1]);
+      return m > 1.5 && m < 6;
+    })(),
+    'a 0 here traces the lawn');
+  check('S254', 'no control anywhere lets a height be typed',
+    !/id="rmHeightFt"/.test(admin) && !/data-rmheight=/.test(admin),
+    'the box that said 10 was the height under every dot on an unmeasured house');
+  check('S254', 'nothing marks the height as answered by hand any more',
+    !/rmHeightTyped\s*=\s*true/.test(admin),
+    'a preset or a typed box counted as somebody answering the height; neither exists');
+  check('S254', 'and the typed reader is a stub rather than a live control',
+    /function rmTypedHeightM\(\)\{ return null; \}/.test(admin),
+    'leaving it reading a deleted element would throw the moment anything called it');
+  check('S254', 'the panel says where a height comes from instead of offering a box',
+    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
+    'removing a control without saying what replaced it reads as a feature going missing');
 }
 
 
@@ -37336,6 +37829,10 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
          the scale check is saved with the drawing, and a sandbox missing it dies
          with a bare ReferenceError rather than failing a named check. */
       'let rmCalibration=null;' + LF_ +
+      /* ⚠ AND THE SKY OFFSET, for the same reason. It is recorded in the saved
+         drawing and set (never re-applied) on the way back in, so a sandbox
+         without it dies with a bare ReferenceError instead of failing by name. */
+      'let rmSkyOffset=null, rmSkyOffsetSource="";' + LF_ +
       'let __cam=null, __grade="Medium", __pano=null, __box={};' + LF_ +
       'function rmCamOnRoad(){ return __cam; }' + LF_ +
       'function rmDatum(){ return {m:3, source:"assumed"}; }' + LF_ +
@@ -37846,9 +38343,36 @@ suite('260. Measure Roof - no guessing: which feet are real');
   check('S260', 'and the question is asked before the write, not after',
     useBtn.indexOf('rmGuessedFeet()') < useBtn.indexOf('updateDoc'),
     'confirming after the write has already happened is not a confirmation');
-  check('S260', 'and it names the one thing that fixes it',
-    /Street View/.test(useBtn),
-    'telling somebody a number is wrong without saying how to fix it just stops them working');
+  /* ⚠ IT NAMES THE FIX, and WHICH fix depends on what is being guessed. It
+     used to hard-code Street View, which is right for an assumed roof height
+     and wrong for an offered line nobody has looked at - naming the wrong
+     remedy is worse than naming none, because it sends somebody to a control
+     that will not change the number. rmGuessedFix answers both.
+     ⚠ AND THERE ARE TWO SAVE BUTTONS. A red-check hard-coding the remedy
+     again went straight through, because the sabotage landed on rmCommitBtn -
+     which sits EARLIER in the file - while this check only ever read
+     rmUseFeetBtn's slice. Same shape as the two build sheets: guard one of a
+     pair and the other drifts. Each is named. */
+  [['rmCommitBtn', 'Save to this quote'], ['rmUseFeetBtn', 'Save the feet only']].forEach(function (pair) {
+    const from = "getElementById('" + pair[0] + "').addEventListener";
+    const body = (admin.split(from)[1] || '').slice(0, 2000);
+    /* ⚠ THE QUESTION ITSELF, not the handler around it. rmGuessedFix is
+       named twice in each of these - once in the confirm and once in the line
+       that reports not saving - so a check over the whole handler stayed green
+       with the remedy stripped out of the QUESTION, which is the half that has
+       to carry it. A red-check caught exactly that. */
+    const asked = body.indexOf('!confirm(') >= 0
+      ? body.slice(body.indexOf('!confirm('), body.indexOf(')) {', body.indexOf('!confirm(')))
+      : '';
+    check('S260', 'and it names the one thing that fixes it (' + pair[1] + ')',
+      /rmGuessedFix\(\)/.test(asked) && /rmGuessedWhy\(\)/.test(asked) &&
+      /const guessed = rmGuessedFeet\(\);/.test(body),
+      'telling somebody a number is wrong without saying how to fix it just stops them working');
+  });
+  const fix = extractFn(admin, 'rmGuessedFix') || '';
+  check('S260', 'and the remedy it names matches what is actually guessed',
+    /Street View/.test(fix) && /offered line/.test(fix),
+    'one remedy for two different causes sends somebody to a control that cannot help');
 }
 
 
@@ -37901,22 +38425,29 @@ suite('261. Measure Roof - the scale check never becomes footage');
     /if\(!\(measuredFt > 0\)\)\{/.test(report),
     'reporting 0 ft against a 16 ft door reads as a catastrophic error rather than as no answer');
 
-  check('S261', 'the check is on screen rather than hidden in a debug corner',
-    /id="rmCalBtn"/.test(admin) && /id="rmCalPick"/.test(admin) &&
-    /Double garage door/.test(admin),
-    'a check nobody can find is a check nobody runs');
-  /* Owner's standing request: if a button is pressed, the thing it promises has
-     to actually happen. */
-  check('S261', 'and its button is really wired',
-    /getElementById\('rmCalBtn'\)\.addEventListener/.test(admin),
-    'a control that renders and does nothing is worse than no control');
-  const wire = (admin.split("getElementById('rmCalBtn').addEventListener")[1] || '').slice(0, 900);
-  check('S261', 'starting a check finishes any side already being traced',
-    /if\(rmDrawing\) rmFinishRun\(\);/.test(wire),
-    'otherwise a half-traced side is swallowed into the check and lost');
-  check('S261', 'and a check with no known size is refused',
-    /if\(!rmCalKnownFt\(\)\)\{/.test(wire),
-    'comparing against nothing produces a percentage off an unknown, which is not a number');
+  /* ⛔ THE SCALE CHECK IS OFF THE SCREEN (2026-08-25). Owner: "we dont want
+     anything like using garage door to measure height because then we go pixel
+     for pixel but there is depth and more stuff like that — we want it to find
+     the height through proper geometry, not through a rough estimate of how
+     many pixels tall is the garage."
+
+     ⚠ THESE CHECKS USED TO INSIST IT BE FINDABLE, and that was right while it
+     was wanted. It never corrected anything, which is not a defence: putting a
+     list of known-size objects beside the measuring teaches the ratio method,
+     and every number this tool reports comes from camera pose and geometry
+     instead. The reporting function is left in place and unreachable, so
+     nothing that reads rmCalibration breaks. */
+  check('S261', 'no known-size object is offered anywhere on screen',
+    !/id="rmCalBtn"/.test(admin) && !/id="rmCalPick"/.test(admin) &&
+    !/Double garage door/.test(admin),
+    'a pixel-ratio control beside geometric measurements invites trusting the wrong one');
+  check('S261', 'and nothing is left wired to it',
+    !/getElementById\('rmCalBtn'\)\.addEventListener/.test(admin),
+    'a handler on a deleted element throws the moment the panel opens');
+  check('S261', 'and the reporter it used is left inert rather than half-deleted',
+    /function rmReportCalibration\(/.test(admin) && !/id="rmCalResult"/.test(admin),
+    'the saved drawing still carries a calibration field; removing the reader ' +
+    'would break reading an old one back');
 
   /* It belongs to the house it was taken on. */
   check('S261', 'and it is cleared when a different quote is opened',
@@ -38603,27 +39134,28 @@ suite('267. Measure Roof - a roof plane does not carry on into the sky');
       mid !== null && up1 !== null && Math.abs((up1 - mid) - 2 * Math.tan(PITCH * Math.PI / 180)) < 0.05,
       'the clamp must be a no-op within the face, or every real roof reading moves');
 
-    /* ⚠ THE ACTUAL FAULT: 20 m upslope, far outside the face. Extended, the
-       plane reaches ~10 m above the eave — a three-storey line in mid-air. */
+    /* ⚠ THE ACTUAL FAULT: 20 m upslope, far outside every face. Extending the
+       plane reaches ~10 m above the eave — a three-storey line in mid-air, which
+       is what put a traced gutter up in the sky in Street View. */
     const far = api.rel(ll(0, 20).lat, ll(0, 20).lng);
     const naive = 20 * Math.tan(PITCH * Math.PI / 180);
     check('S267', 'far outside the face the plane is NOT carried on',
       far !== null && far < naive / 2,
       'got ' + (far === null ? 'null' : far.toFixed(2)) + ' m; extending the plane gives ' +
       naive.toFixed(2) + ' m of rise out of nothing — that is the line in the sky');
-    /* Held to the face's own reach — and the reference is the lowest EAVE, which
-       already sits half the face below its centre. So the top edge is the FULL
-       rise across a 6 m face, not half of it.
-       ⚠ MY FIRST EXPECTATION HERE WAS WRONG (half this) and the suite said so:
-       it is measured from the eave, not from the plane's centre height. */
-    const edge = 6 * Math.tan(PITCH * Math.PI / 180);
-    check('S267', 'it is held to the height that face reaches at its own edge',
-      far !== null && Math.abs(far - edge) < 0.2,
-      'got ' + (far === null ? 'null' : far.toFixed(2)) + ' m, expected about ' + edge.toFixed(2) +
-      ' — the last height the model actually knows, rather than an extrapolation nobody measured');
+    /* ⭐ AND THE ANSWER IS THE EAVE. Google's satellite imagery is not perfectly
+       overhead, so a roof APPEARS shifted from where the model puts it — click
+       the gutter you can SEE and it lands outside every face. The nearest face's
+       plane, even held to its own edge, gives that face's RIDGE end, which is
+       several feet too high for a gutter. rel = 0 is the lowest real eave. */
+    check('S267', 'a point off the roof reads the eave, not the nearest ridge',
+      far === 0,
+      'got ' + (far === null ? 'null' : far.toFixed(2)) + ' m — the comment in this ' +
+      'function always said the eave was the right answer; the code did not do it');
 
-    /* ⚠ AND IT IS CLAMPED RATHER THAN REFUSED. Returning null sends the point to
-       the assumed eave, which is worse on a house whose roof really is stepped. */
+    /* ⚠ AND IT STILL ANSWERS RATHER THAN REFUSING. Returning null falls back to
+       the assumed one-storey height, which is a worse guess than the eave this
+       roof actually has. */
     check('S267', 'and it still answers rather than refusing',
       far !== null,
       'refusing sends the point to the assumed one-storey eave, which is a guess where ' +
@@ -38638,9 +39170,20 @@ suite('267. Measure Roof - a roof plane does not carry on into the sky');
   }
 
   const src = extractFn(admin, 'rmRoofRelativeAt') || '';
-  check('S267', 'the clamp is measured from the face itself, not a fixed number',
-    /const reach = Math\.abs\(\(bn\.e - bs\.e\) \/ 2 \* down\.e\) \+ Math\.abs\(\(bn\.n - bs\.n\) \/ 2 \* down\.n\);/.test(src),
-    'a fixed limit is right for one roof and wrong for the next — the face knows its own size');
+  /* ⚠ THE inBox TEST IS WHAT MAKES THE REST SAFE. An earlier version clamped
+     `along` to the face's extent instead; that became dead code the moment a
+     point outside every face stopped reaching the plane maths at all, and dead
+     guards are what this repo has been asked repeatedly not to leave lying
+     about. If the inBox test is ever softened, the extrapolation comes back —
+     which is precisely what the running checks above would catch. */
+  check('S267', 'the off-roof case is decided before any plane maths runs',
+    /if\(!best\.inBox\) return 0;/.test(src) &&
+    src.indexOf('!best.inBox') < src.indexOf('planeHeightM - along'),
+    'deciding it afterwards means the plane has already been extended to get there');
+  check('S267', 'and the dead clamp did not survive as a guard that cannot fire',
+    !/const held = Math\.max\(-reach/.test(src),
+    'everything reaching the plane maths is now inside its own face, where the clamp ' +
+    'can never bind — a guard that cannot fire is the dead code the owner asked about by name');
 }
 
 /* THE SHADOWING GUARD (added 2026-08-25). Owner, on unused code: "so we'll have code
@@ -38734,6 +39277,479 @@ const SHADOW_ALLOWED = new Set([
   check('reliability', 'and the allowlist holds no names that are already gone',
     stale.length === 0,
     'delete these from SHADOW_ALLOWED, the fakes are gone: ' + stale.join(', '));
+}
+
+suite('269. Measure Roof - lining the satellite picture up with the model');
+{
+  /* ⚠ THE FAULT THIS CLOSES, reported off a real house three times running:
+     "This is still wrong." The two fixes before it were both about HEIGHT and
+     the fault is POSITION. Google's aerial imagery is not shot from straight
+     overhead - on that house you can see a strip of the WALL down the side of
+     the roof - so a gutter traced on the picture you can SEE is several feet
+     from the gutter Google's MODEL knows about. It lands outside every roof
+     face, falls back to the eave, and draws into Street View beside the house.
+
+     ⚠ AND NO FORMULA CAN ANSWER IT. Google does not publish the angle the
+     satellite was at, so working the shift out would be the guess the owner has
+     ruled out twice. It is measured off two of her own clicks instead.
+
+     ⚠ THIS SUITE RUNS THE REAL FUNCTIONS. Every one of the alignment claims is
+     about where a point ENDS UP, which a text match cannot see - and this file
+     records four separate times a green text check sat over code that could not
+     run at all. */
+  const LF_ = String.fromCharCode(10);
+  /* ⚠ extractFn SEARCHES FOR "function NAME(" AND SO DROPS THE async
+     KEYWORD. Lifted that way, rmAlignOnLoad arrives as a plain function full of
+     bare `await` - a parse error, which kills the whole suite as one
+     unattributable crash with no clue which name did it. CLAUDE.md records this
+     costing an afternoon already. indexOf, not a regex, for the same reason it
+     is elsewhere in this file. */
+  const pick = (n) => {
+    let at = admin.indexOf('async function ' + n + '(');
+    if (at < 0) return extractFn(admin, n);
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmSkyShift', 'rmSkyOffsetFt',
+                 'rmSetSkyOffset', 'rmAlignTakeSky', 'rmAlignTakeStreet',
+                 'rmAlignIdleNote', 'rmAlignMetresApart', 'rmAlignNearest',
+                 'rmAlignMilesWord', 'rmAlignOnLoad', 'rmSkyUnshift', 'rmSkyPath'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S269', 'the alignment pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  /* ⚠ READ OUT OF THE FILE, NEVER COPIED. Suite 266 shipped with its tolerance
+     typed into the test, so widening the real one changed nothing the test
+     could see. A ceiling that stops refusing is exactly that failure. */
+  const maxM = Number((admin.match(/const RM_ALIGN_MAX_M\s*=\s*([\d.]+)/) || [])[1]);
+  const inheritM = Number((admin.match(/const RM_ALIGN_INHERIT_M\s*=\s*([\d.]+)/) || [])[1]);
+  const sameSpotM = Number((admin.match(/const RM_ALIGN_SAME_SPOT_M\s*=\s*([\d.]+)/) || [])[1]);
+  check('S269', 'the refusal ceiling and the inherit range are real numbers',
+    isFinite(maxM) && maxM > 0 && isFinite(inheritM) && inheritM > 0 && isFinite(sameSpotM),
+    'RM_ALIGN_MAX_M=' + maxM + ' RM_ALIGN_INHERIT_M=' + inheritM);
+
+  if (!missing.length && isFinite(maxM)) {
+    const PRE =
+      'const RM_M_TO_FT=3.280839895;' + LF_ +
+      'const RM_ALIGN_MAX_M=' + maxM + ', RM_ALIGN_INHERIT_M=' + inheritM + ';' + LF_ +
+      'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
+      'let rmRuns=[], rmSkyOffset=null, rmSkyOffsetSource="", rmAligning="", rmAlignSky=null;' + LF_ +
+      'let __notes=[], __synced=[], __roofH=null, __samples=[], __btn=0;' + LF_ +
+      /* Stubs are the SCREEN and the DATABASE only. Every metre of arithmetic
+         below is the real shipped code. */
+      'function rmAlignNote(m){ __notes.push(m); }' + LF_ +
+      'function rmSetAlignBtn(){ __btn++; }' + LF_ +
+      'function rmSyncSky(r){ __synced.push(r); }' + LF_ +
+      'function rmRenderResults(){}' + LF_ +
+      'function rmPaintStreet(){}' + LF_ +
+      'function rmRoofHeightAt(){ return __roofH; }' + LF_ +
+      /* The datum side. rmSetDatumFromStreet itself is stubbed - what is under
+         test here is WHICH clicks are allowed to reach it, not its own
+         arithmetic, which suite 253 already runs. */
+      'let __datum=null;' + LF_ +
+      'let rmDatumSource="";' + LF_ +
+      'function rmDatum(){ return {m: __datum === null ? 3 : __datum,' +
+      '  source: __datum === null ? "assumed" : "street"}; }' + LF_ +
+      'function rmSetDatumFromStreet(w){ __datum = w.h; rmDatumSource = "street"; return true; }' + LF_ +
+      'function rmToWorld(p){ const m=rmMetresPerDeg(rmOrigin.lat);' +
+      '  return {lat: rmOrigin.lat + p.n/m.lat, lng: rmOrigin.lng + p.e/m.lng, h: p.u}; }' + LF_ +
+      'function rmRefreshHeights(){}' + LF_ +
+      'async function rmAlignLoadSamples(){ return __samples; }' + LF_ +
+      'function rmAlignSaveSample(){ __saved=(__saved||0)+1; }' + LF_ +
+      'let __saved=0;' + LF_;
+    const BODY = PRE + NAMES.map(pick).join(LF_) + LF_ +
+      'return {shift:rmSkyShift, set:rmSetSkyOffset, takeSky:rmAlignTakeSky,' +
+      ' takeStreet:rmAlignTakeStreet, onLoad:rmAlignOnLoad, apart:rmAlignMetresApart,' +
+      ' nearest:rmAlignNearest, offFt:rmSkyOffsetFt, local:rmToLocal, idle:rmAlignIdleNote,' +
+      ' reset:function(runs){ rmRuns=runs||[]; rmSkyOffset=null; rmSkyOffsetSource="";' +
+      '   rmAligning=""; rmAlignSky=null; __notes=[]; __synced=[]; __saved=0;' +
+      '   __datum=null; rmDatumSource=""; },' +
+      ' offset:function(){ return rmSkyOffset; }, source:function(){ return rmSkyOffsetSource; },' +
+      ' runs:function(){ return rmRuns; }, notes:function(){ return __notes; },' +
+      ' saved:function(){ return __saved; }, synced:function(){ return __synced; },' +
+      ' roofH:function(h){ __roofH=h; }, samples:function(s){ __samples=s||[]; },' +
+      ' unshift:rmSkyUnshift, path:rmSkyPath,' +
+      ' datum:function(d){ __datum=d; rmDatumSource = d===null?"":"street"; },' +
+      ' datumSet:function(){ return __datum; },' +
+      ' origin:function(o){ rmOrigin=o; }};';
+    assertSandbox('S269', 'sky alignment', BODY, admin,
+      ['rmAlignNote', 'rmSetAlignBtn', 'rmSyncSky', 'rmRenderResults', 'rmPaintStreet',
+       'rmRoofHeightAt', 'rmAlignLoadSamples', 'rmAlignSaveSample', 'rmDatum',
+       'rmSetDatumFromStreet', 'rmToWorld', 'rmRefreshHeights']);
+    const api = new Function(BODY)();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
+    const ll = (e, n) => ({lat: 40.2969 + n / m.lat, lng: -111.6946 + e / m.lng});
+    const pt = (e, n, h) => ({lat: ll(e, n).lat, lng: ll(e, n).lng, h: h});
+    const near = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.05 : tol);
+
+    /* ---- a click is moved onto the model ----------------------------- */
+    api.reset([]);
+    const raw = ll(0, 0);
+    const un = api.shift(raw.lat, raw.lng);
+    const unL = api.local(un.lat, un.lng, 0);
+    check('S269', 'with nothing lined up a sky click is left exactly where it was',
+      near(unL.e, 0, 1e-6) && near(unL.n, 0, 1e-6),
+      'moved to e=' + unL.e.toFixed(3) + ' n=' + unL.n.toFixed(3));
+
+    api.set({e: 2.4, n: -1.1});
+    const on = api.shift(raw.lat, raw.lng);
+    const onL = api.local(on.lat, on.lng, 0);
+    check('S269', 'and once it is, every sky click is moved by exactly that much',
+      near(onL.e, 2.4) && near(onL.n, -1.1),
+      'expected e=2.40 n=-1.10, got e=' + onL.e.toFixed(2) + ' n=' + onL.n.toFixed(2));
+
+    /* ---- lines already traced move with it ---------------------------- */
+    const mkRuns = () => [
+      {surface: 'sky', type: 'perimeter', path: [pt(-6, -8, 3), pt(6, -8, 3)]},
+      {surface: 'street', type: 'perimeter', path: [pt(-6, 4, 3), pt(6, 4, 3)]},
+      {surface: 'manual', type: 'perimeter', path: [], manualFeet: 40},
+    ];
+    api.reset(mkRuns());
+    api.roofH(null);
+    api.set({e: 3, n: 0});
+    let rs = api.runs();
+    const skyEnd = api.local(rs[0].path[0].lat, rs[0].path[0].lng, 0);
+    check('S269', 'a line already traced from above moves with the correction',
+      near(skyEnd.e, -3) && near(skyEnd.n, -8),
+      'sky run start went to e=' + skyEnd.e.toFixed(2) + ' n=' + skyEnd.n.toFixed(2) + ', wanted e=-3.00 n=-8.00');
+    const stEnd = api.local(rs[1].path[0].lat, rs[1].path[0].lng, 0);
+    /* ⚠ THE HALF THAT WOULD BE INVISIBLE. A Street View line got its position
+       from the camera and the model - which is the thing being lined up TO - so
+       moving it as well would drag the one correct drawing off the house. */
+    check('S269', 'but a line traced in Street View is left alone',
+      near(stEnd.e, -6) && near(stEnd.n, 4),
+      'street run start moved to e=' + stEnd.e.toFixed(2) + ' n=' + stEnd.n.toFixed(2));
+    check('S269', 'and a typed side survives having no path to move',
+      rs[2].manualFeet === 40 && (rs[2].path || []).length === 0,
+      'typed side came back as ' + JSON.stringify(rs[2]));
+
+    /* ⚠ THE POINT OF THE WHOLE THING. A corrected click lands INSIDE the roof
+       face it belongs to, and that is what stops one end of a level gutter
+       reading as the eave while the other reads as the ridge. */
+    api.reset(mkRuns());
+    api.roofH(4.25);
+    api.set({e: 3, n: 0});
+    check('S269', 'the heights are re-read where the points landed',
+      api.runs()[0].path[0].h === 4.25,
+      'height stayed at ' + api.runs()[0].path[0].h);
+    api.reset(mkRuns());
+    api.roofH(null);
+    api.set({e: 3, n: 0});
+    check('S269', 'and a point that still finds no roof keeps the height it had',
+      api.runs()[0].path[0].h === 3,
+      'height became ' + api.runs()[0].path[0].h);
+
+    /* ---- the two clicks ---------------------------------------------- */
+    api.reset(mkRuns());
+    api.roofH(null);
+    api.takeSky(ll(0, 0));
+    api.takeStreet({e: 2, n: 1});
+    check('S269', 'two clicks on one spot become the correction',
+      api.offset() && near(api.offset().e, 2) && near(api.offset().n, 1),
+      'offset came out ' + JSON.stringify(api.offset()));
+    check('S269', 'a measured alignment is recorded as measured, and remembered',
+      api.source() === 'measured' && api.saved() === 1,
+      'source=' + api.source() + ' saved=' + api.saved());
+
+    /* ⚠ A SECOND PASS MEASURES WHAT IS LEFT OVER, not the whole thing again.
+       The sky click comes through the same correction an ordinary click does,
+       so lining up twice converges instead of swinging back and forth. */
+    const before2 = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0);
+    api.takeSky(api.shift(ll(0, 0).lat, ll(0, 0).lng));
+    api.takeStreet({e: 2.5, n: 1});
+    check('S269', 'lining up again adds what is still left, it does not start over',
+      near(api.offset().e, 2.5) && near(api.offset().n, 1),
+      'offset after the second pass ' + JSON.stringify(api.offset()));
+    const after2 = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0);
+    check('S269', 'and the lines move only by the difference, not twice over',
+      near(after2.e - before2.e, 0.5) && near(after2.n - before2.n, 0),
+      'the run moved by e=' + (after2.e - before2.e).toFixed(2) + ' n=' + (after2.n - before2.n).toFixed(2));
+
+    /* ⚠ REFUSED, NOT APPLIED. Past the ceiling the two clicks are not the same
+       spot, and accepting one would drag every line traced from above twenty
+       feet sideways off a single mis-click - silently, and looking exactly like
+       the tool working. */
+    api.reset(mkRuns());
+    api.roofH(null);
+    const keptE = api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0).e;
+    api.takeSky(ll(0, 0));
+    api.takeStreet({e: maxM + 3, n: 0});
+    check('S269', 'two clicks too far apart to be one spot are refused',
+      api.offset() === null,
+      'it accepted an offset of ' + JSON.stringify(api.offset()));
+    check('S269', 'and nothing moved when it refused',
+      near(api.local(api.runs()[0].path[0].lat, api.runs()[0].path[0].lng, 0).e, keptE),
+      'a run moved anyway');
+    check('S269', 'the refusal says how far apart they were',
+      /ft apart/.test(api.notes().join(' ')),
+      'said: ' + api.notes().join(' | '));
+
+    /* ⭐ THE SAME CLICK MEASURES THE ROOF HEIGHT (added 2026-08-25).
+       ⚠ THE FAULT THIS CLOSES, read off a real house's rmDebug: the picture was
+       lined up correctly and the lines STILL drew feet below the gutter,
+       because the roof height was the assumed one-storey eave on a two-storey
+       house. The office had traced entirely on the sky view, so nothing in
+       Street View had ever been clicked and the datum had never been measured.
+       Lining up is the one moment somebody deliberately clicks the house from
+       the street, so the height is free.
+       ⚠ FROM A WALL HIT ONLY. A roof crossing gets its height FROM the datum,
+       so setting the datum off one measures the assumption and calls it a
+       measurement - the circular move the dot path already refuses. */
+    api.reset(mkRuns());
+    api.roofH(null);
+    api.datum(null);
+    api.takeSky(ll(0, 0));
+    api.takeStreet({e: 2, n: 1, u: 5.4, kind: 'wall'});
+    check('S269', 'a wall click lines the picture up AND measures the roof height',
+      api.datumSet() !== null && Math.abs(api.datumSet() - 5.4) < 2,
+      'the datum came out ' + api.datumSet() + ' - a house traced only from above ' +
+      'never gets its height measured any other way');
+    check('S269', 'and the note says the height was measured too',
+      /roof height was measured/i.test(api.notes().join(' ')),
+      'said: ' + api.notes().join(' | '));
+
+    api.reset(mkRuns());
+    api.datum(null);
+    api.takeSky(ll(0, 0));
+    api.takeStreet({e: 2, n: 1, u: 5.4, kind: 'roof'});
+    check('S269', 'but a ROOF click never sets the datum, because it came FROM the datum',
+      api.datumSet() === null,
+      'measuring the assumption and calling it a measurement is the circular move ' +
+      'that cost a revert once already');
+    /* ⚠ SAID OUT LOUD, because the lines are now in the right PLACE and still
+       at the wrong HEIGHT, which looks like the alignment not having worked. */
+    check('S269', 'and it warns that the height is still assumed',
+      /still ASSUMED/.test(api.notes().join(' ')),
+      'said: ' + api.notes().join(' | '));
+
+    /* ⚠ A STREET CLICK THAT HIT NOTHING IS NOT AN ANSWER. Treating a miss as
+       {e:0,n:0} would read as "the picture is perfect" and cancel a correction
+       that was already right. */
+    api.reset(mkRuns());
+    api.takeSky(ll(0, 0));
+    api.takeStreet(null);
+    check('S269', 'a street click that landed on nothing sets no correction',
+      api.offset() === null,
+      'it took ' + JSON.stringify(api.offset()));
+
+    /* ---- the sky view draws the PICTURE, the model holds the TRUTH ----- */
+    /* ⚠ THE FAULT THIS CLOSES, reported off the same house with a
+       screenshot: after lining up, the traced line no longer sat on the roof IN
+       THE SKY VIEW. It had not gone wrong - it had gone RIGHT, and that is the
+       problem. The stored point is the TRUE position and the satellite tile is
+       the DISPLACED picture, so drawing a true point straight onto it puts the
+       line off the roof by exactly the amount just corrected. The one view that
+       used to look correct started looking broken.
+       ⚠ AND THE TWO DIRECTIONS MUST BE EXACT INVERSES. Anything else and the
+       drawing walks a few feet further every time a dot is dragged. */
+    api.reset([]);
+    api.set({e: 2.4, n: -1.1});
+    const there = api.shift(raw.lat, raw.lng);
+    const back = api.unshift(there.lat, there.lng);
+    const backL = api.local(back.lat, back.lng, 0);
+    check('S269', 'drawing a corrected point on the sky view puts it back where it was clicked',
+      near(backL.e, 0, 1e-6) && near(backL.n, 0, 1e-6),
+      'a click at 0,0 came back at e=' + backL.e.toFixed(3) + ' n=' + backL.n.toFixed(3) +
+      ' - the line would sit off the roof by exactly what the alignment corrected');
+    /* ⚠ SO LINING UP IS A NO-OP ON THE SKY VIEW, which is correct and is the
+       whole point: what moves is the height and where the line lands in Street
+       View, not where it sits on the picture it was traced on. */
+    api.reset(mkRuns());
+    api.roofH(null);
+    const beforeDraw = api.path(api.runs()[0].path);
+    api.set({e: 3, n: 0});
+    const afterDraw = api.path(api.runs()[0].path);
+    check('S269', 'so lining up never moves a line on the picture it was traced on',
+      near(afterDraw[0].lat, beforeDraw[0].lat, 1e-9) &&
+      near(afterDraw[0].lng, beforeDraw[0].lng, 1e-9),
+      'the drawn line moved, which is what made a correct correction look broken');
+    check('S269', 'with nothing lined up the drawn path is the stored path',
+      (function(){
+        api.reset(mkRuns());
+        const p = api.path(api.runs()[0].path);
+        return near(p[0].lat, api.runs()[0].path[0].lat, 1e-12);
+      })(),
+      'an unaligned house must not have its drawing shifted at all');
+
+    /* ---- inheriting from a neighbour ---------------------------------- */
+    check('S269', 'how far apart two houses are is measured, not guessed',
+      near(api.apart({lat: 40.2969, lng: -111.6946}, ll(0, 100)), 100, 0.5),
+      'came out ' + api.apart({lat: 40.2969, lng: -111.6946}, ll(0, 100)).toFixed(1) + ' m');
+
+    pendingAsync.push((async () => {
+      api.reset([]);
+      api.samples([Object.assign({e: 1.5, n: -2}, ll(0, 300))]);
+      await api.onLoad();
+      check('S269', 'a house with nothing measured inherits a nearby answer',
+        api.offset() && near(api.offset().e, 1.5) && near(api.offset().n, -2),
+        'inherited ' + JSON.stringify(api.offset()));
+      /* ⚠ INHERITED IS NOT MEASURED AND HAS TO SAY SO. Applied silently it is a
+         guess wearing a measurement's words, which is the one thing this tool
+         is not allowed to do. */
+      check('S269', 'and it says the answer came from somewhere else',
+        api.source() === 'inherited' && /not here/.test(api.notes().join(' ')),
+        'source=' + api.source() + ' said: ' + api.notes().join(' | '));
+      /* ⚠ NEVER WRITTEN BACK. An inherited offset saved as a fresh sample would
+         copy itself down the street gaining authority at every step, with
+         nothing left saying where it really came from. */
+      check('S269', 'an inherited answer is never saved back as a fresh one',
+        api.saved() === 0,
+        'it saved ' + api.saved() + ' sample(s)');
+
+      api.reset([]);
+      api.samples([Object.assign({e: 1.5, n: -2}, ll(0, inheritM + 500))]);
+      await api.onLoad();
+      check('S269', 'but not from a house too far away to share the same flyover',
+        api.offset() === null,
+        'inherited from ' + Math.round(inheritM + 500) + ' m away: ' + JSON.stringify(api.offset()));
+
+      /* ⚠ A HOUSE SOMEBODY ACTUALLY CHECKED KEEPS ITS OWN ANSWER. Inheriting
+         over the top of a restored drawing would move every line that was
+         traced under the saved offset. */
+      api.reset([]);
+      api.set({e: 4, n: 4});
+      api.samples([Object.assign({e: 1.5, n: -2}, ll(0, 50))]);
+      await api.onLoad();
+      check('S269', 'and a house that already has an answer keeps it',
+        near(api.offset().e, 4) && near(api.offset().n, 4),
+        'a neighbour overwrote it: ' + JSON.stringify(api.offset()));
+    })());
+  }
+
+  /* ---- the wiring a sandbox cannot see ------------------------------- */
+  /* ⚠ SLICED TO THE NEXT REAL ANCHOR, never to a character count. A fixed
+     window goes stale the moment the code inside it grows, and turns a true
+     pass into a false FAIL - CLAUDE.md §7. */
+  const slice = (src, from, to) => {
+    const a = src.indexOf(from);
+    if (a < 0) return '';
+    const b = src.indexOf(to, a + from.length);
+    return src.slice(a, b < 0 ? src.length : b);
+  };
+  /* ⚠ ONE FUNNEL. Every sky click - tracing, starting a run, picking a dot -
+     goes through rmMapPixelToWorld, which is what makes correcting it there
+     enough. A second route from a map pixel to a world point would bypass it. */
+  const funnel = slice(admin, 'function rmMapPixelToWorld', 'function rmPhotoPoint');
+  check('S269', 'the one place a sky click becomes a place applies the correction',
+    /rmSkyShift\(/.test(funnel),
+    'rmMapPixelToWorld does not call rmSkyShift');
+  /* ⚠ AND BEFORE THE HEIGHT IS READ. A displaced click lands outside every roof
+     face and falls back to the eave; the corrected one lands inside the face it
+     belongs to. Reading the height first throws that away. */
+  check('S269', 'and it does so before the roof height is read',
+    funnel.indexOf('rmSkyShift(') < funnel.indexOf('rmRoofHeightAt('),
+    'the height is read before the click is corrected');
+
+  /* ⚠ THE SAVED PATHS ARE ALREADY CORRECTED. Pushing a restored offset through
+     rmSetSkyOffset would shift the whole drawing a second time and put it twice
+     as far off as the picture ever was. */
+  const restore = slice(admin, 'function rmRestoreMeasurement', 'function rmFmtFeet');
+  check('S269', 'restoring a saved drawing sets the correction without re-applying it',
+    /rmSkyOffset\s*=\s*\{/.test(restore) && !/rmSetSkyOffset\(/.test(restore),
+    'rmRestoreMeasurement moves the restored lines again');
+  check('S269', 'and the correction is saved with the drawing in the first place',
+    /skyOffset:\s*rmSkyOffset\s*\?/.test(slice(admin, 'function rmMeasurementDoc', 'function rmSavePayload')),
+    'rmMeasurementDoc does not write skyOffset');
+
+  /* ⚠ IT BELONGS TO ONE PICTURE OF ONE HOUSE. Carried across, the next address
+     opens silently corrected by however far the LAST one's imagery leaned, and
+     the panel calls it lined up. */
+  ['rmForgetLastHouse', 'rmReset'].forEach(function (fn) {
+    const body = extractFn(admin, fn) || '';
+    check('S269', 'loading another house forgets the last one\'s correction (' + fn + ')',
+      /rmSkyOffset\s*=\s*null/.test(body),
+      fn + ' keeps rmSkyOffset');
+  });
+
+  /* ⚠ EVERY PAINTER ON THE MAP, NAMED. A sandbox cannot see which call sites
+     use it, and one missed painter draws that thing feet off the roof while
+     everything beside it is right. */
+  const sync = extractFn(admin, 'rmSyncSky') || '';
+  check('S269', 'the run polyline is drawn at its picture position',
+    /rmSkyPath\(run\.path\)/.test(sync),
+    'rmSyncSky draws the stored point straight onto a displaced tile');
+  const dot = extractFn(admin, 'rmDot') || '';
+  check('S269', 'and so is the handle on each end of it',
+    /position: rmSkyUnshift\(/.test(dot),
+    'the dots would sit off the line they belong to');
+  /* ⚠ A DRAGGED DOT IS READ THE OTHER WAY. Stored raw it undoes the
+     alignment for that one point, and the line walks further off every nudge. */
+  check('S269', 'a dragged handle is put back through the correction before it is stored',
+    /rmSkyShift\(e\.latLng\.lat\(\), e\.latLng\.lng\(\)\)/.test(dot),
+    'dragging a point would silently undo the alignment for that point');
+  check('S269', 'and the line follows it at its picture position',
+    /setPath\(rmSkyPath\(run\.path\)\)/.test(dot),
+    'the line and its handles would part company while dragging');
+  check('S269', 'the roof model overlay is un-shifted too, so it lands on the roof',
+    /path: \[rmSkyUnshift\(a\.lat, a\.lng\), rmSkyUnshift\(b\.lat, b\.lng\)\]/.test(admin),
+    'the overlay is the clearest confirmation the office has that lining up worked');
+  check('S269', 'and so is anything drawn on a captured sky picture',
+    /rmSkyPath\(r\.path\)\.map\(function\(p\)\{ return rmPointOnStatic/.test(admin),
+    'the captured image IS the displaced tile, so the same un-shift applies');
+
+  /* ⚠ AND THERE HAS TO BE A WAY OUT OF THE MODE. Reported as "now my dot to
+     dot won't work": while it waits for one of the two clicks it takes EVERY
+     click on both views, so a street click that missed the house left the
+     office in a mode they could not see, where clicking did nothing. */
+  const esc = slice(admin, "if(k === 'Escape'){", "} else if(k === 'ArrowLeft'");
+  check('S269', 'Escape gets out of an alignment, ahead of everything else it does',
+    esc.indexOf('rmAligning') !== -1 && esc.indexOf('rmAligning') < esc.indexOf('rmWallPicking'),
+    'Escape would close the tool or end a run while the alignment kept eating clicks');
+  check('S269', 'and starting a run cancels one, because a click means one thing',
+    /if\(on && rmAligning\) rmCancelAlign\(\);/.test(extractFn(admin, 'rmSetDrawing') || ''),
+    'the draw button would light up and the alignment would swallow the click after it');
+  /* ⚠ CLEARED BEFORE THE WORK, so a throw below cannot strand the mode with
+     no way out but a reload. */
+  const takeStreet = extractFn(admin, 'rmAlignTakeStreet') || '';
+  /* ⚠ lastIndexOf, NOT indexOf. The refusal branch clears the mode too and
+     sits earlier in the function, so indexOf found THAT one and the check was
+     vacuous - a red-check moving the real clear below rmSetSkyOffset went
+     straight through it. */
+  check('S269', 'the mode ends before the work that could throw, not after it',
+    takeStreet.lastIndexOf("rmAligning = ''") < takeStreet.indexOf('rmSetSkyOffset('),
+    'a throw in the repaint would leave every click on both views being eaten');
+  /* ⚠ BOTH HALVES, BOTH PANES, AND EACH HALF NAMING ITS OWN VIEW. Matching
+     the phrase once passed with the sky half deleted because the street half
+     still carried it; counting it passed too, because the guard below the
+     branches matches on the same words. Anchored on the opening quote, so only
+     the two MESSAGES count - and each has to name the view it is asking for
+     and the key that gets out. */
+  const alignNote = extractFn(admin, 'rmAlignNote') || '';
+  check('S269', 'and while it waits, both panes say so rather than looking dead',
+    (alignNote.match(/'LINING UP/g) || []).length >= 2 &&
+    alignNote.indexOf('SKY VIEW') !== -1 && alignNote.indexOf('STREET VIEW') !== -1 &&
+    alignNote.indexOf('Esc') !== -1 &&
+    alignNote.indexOf('rmStatus') !== -1 && alignNote.indexOf('rmCornerNote') !== -1,
+    'a mode with no visible state reads as the tool being broken');
+
+  check('S269', 'the button and the note the office reads are both on the page',
+    admin.indexOf('id="rmAlignBtn"') !== -1 && admin.indexOf('id="rmAlignNote"') !== -1,
+    'the alignment panel is missing from the markup');
+  /* ⚠ A CLICK MEANS ONE THING AT A TIME. While the tool is waiting for the
+     second half of an alignment, a click must not also land in the run being
+     traced - the two alignment clicks would be billed as roofline. */
+  const skyClick = slice(admin, "getElementById('rmMapLock').addEventListener('click'", "getElementById('rmMapLock').addEventListener('dblclick'");
+  /* ⚠ THE SANDBOX CANNOT SEE THIS, and a red-check proved it: it calls
+     rmAlignTakeStreet directly with a hit of its own, so throwing the hit away
+     in the CLICK HANDLER left every behavioural check above green while the
+     roof height silently stopped being measured on every real house. The hit's
+     height and whether it landed on a WALL are the whole input to that. */
+  const panoAlign = slice(admin, '    if(rmAligning){', "    if(rmCornerMode === 'dot'){");
+  check('S269', 'the street click hands the alignment the whole hit, not just where it is',
+    /rmAlignTakeStreet\(hit\)/.test(panoAlign),
+    'passing {e, n} drops the height and the wall/roof kind, so the same click ' +
+    'can no longer measure the eave — and no sandbox check can see it');
+  check('S269', 'an alignment click is taken before it can place or trace anything',
+    skyClick.indexOf('rmAligning') !== -1 &&
+    skyClick.indexOf('rmAligning') < skyClick.indexOf('rmAddCorner(') &&
+    skyClick.indexOf('rmAligning') < skyClick.indexOf('rmAddPoint('),
+    'the map click places a dot before it checks for an alignment, so the two ' +
+    'alignment clicks land on the roofline and are billed');
 }
 
 // =====================================================================
@@ -38883,6 +39899,884 @@ suite('268. Measure Roof - the feet and the price are one press');
       'this runs off a dropdown, not off a press - nobody asked for a dialog');
   }
 }
+
+
+suite('270. Measure Roof - lining up without being asked');
+{
+  /* ⭐ Owner: "Can we get it to be automatically lined up when I open it
+     instead of having to push line up?"
+
+     ⚠ THE HONEST LIMIT, recorded here because it will be asked again:
+     nothing can line the picture up before anything is drawn. The only things
+     that know where the roof APPEARS in a satellite photograph are a person
+     looking at it and image analysis this tool does not have - Google publishes
+     neither the angle its satellite was at nor where the roof landed on the
+     tile. A house near one already measured inherits the answer, so the gap was
+     only ever the FIRST house in an area, and the first line traced closes it:
+     the model's gutters are in TRUE positions and the office traces the gutter
+     it can SEE, so the shift that makes them coincide IS the displacement.
+
+     ⚠ THIS SUITE RUNS THE FIT. Every claim here is about a number a search
+     lands on, which no text match can see - and the acceptance test is the
+     whole safety argument, so it is exercised from both sides. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmDistToSegment', 'rmModelEaveSegs',
+                 'rmTracedSamples', 'rmFitResidual', 'rmFitSkyOffset', 'rmFitIsGood'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S270', 'the fitting pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  /* ⚠ READ OUT OF THE FILE. A tolerance typed into a test cannot notice the
+     real one being widened, which is exactly how suite 266 shipped blind. */
+  const num = n => Number((admin.match(new RegExp('const ' + n + '\\s*=\\s*([\\d.]+)')) || [])[1]);
+  const maxResid = num('RM_FIT_MAX_RESID_M'), minGain = num('RM_FIT_MIN_GAIN');
+  const maxAlign = num('RM_ALIGN_MAX_M');
+  check('S270', 'the acceptance thresholds are real numbers',
+    isFinite(maxResid) && maxResid > 0 && isFinite(minGain) && minGain > 0 && minGain < 1,
+    'resid=' + maxResid + ' gain=' + minGain);
+
+  if (!missing.length && isFinite(maxResid)) {
+    const PRE =
+      'const RM_M_TO_FT=3.280839895;' + LF_ +
+      'const RM_ALIGN_MAX_M=' + maxAlign + ';' + LF_ +
+      'const RM_FIT_COARSE_M=' + num('RM_FIT_COARSE_M') + ', RM_FIT_FINE_M=' + num('RM_FIT_FINE_M') + ';' + LF_ +
+      'const RM_FIT_MAX_RESID_M=' + maxResid + ', RM_FIT_MIN_GAIN=' + minGain + ';' + LF_ +
+      'const RM_FIT_MAX_SAMPLES=' + num('RM_FIT_MAX_SAMPLES') + ';' + LF_ +
+      'let rmOrigin={lat:40.5527,lng:-111.8574};' + LF_ +
+      'let rmFaces=[], __eaves=[];' + LF_ +
+      /* rmFaceEave is stubbed: WHICH edge of a face is its gutter is suite 253's
+         question, and running the real one here would need the whole Solar
+         bounding-box correction as well. What is under test is the SEARCH. */
+      'function rmFaceEave(f){ return __eaves[f.i] || null; }' + LF_;
+    const BODY = PRE + NAMES.map(pick).join(LF_) + LF_ +
+      'return {segs:rmModelEaveSegs, samples:rmTracedSamples, fit:rmFitSkyOffset,' +
+      ' good:rmFitIsGood, resid:rmFitResidual, local:rmToLocal,' +
+      ' model:function(list){ __eaves=list; rmFaces=list.map(function(_,i){ return {i:i}; }); }};';
+    assertSandbox('S270', 'sky fit', BODY, admin, ['rmFaceEave']);
+    const api = new Function(BODY)();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.5527);
+    const ll = (e, n) => ({lat: 40.5527 + n / m.lat, lng: -111.8574 + e / m.lng});
+    const seg = (ae, an, be, bn) => ({a: ll(ae, an), b: ll(be, bn)});
+
+    /* A rectangular house, 16 m by 10 m, with a gutter down each side - the
+       shape of Google's four faces on an ordinary hip roof. */
+    const HOUSE = [seg(-8, -5, 8, -5), seg(8, -5, 8, 5), seg(8, 5, -8, 5), seg(-8, 5, -8, -5)];
+    /* ⚠ THE TRACED LINE IS THE MODEL'S OWN GUTTER, MOVED. That is what a
+       displaced picture really produces, and it is the only fixture that can
+       tell a search that finds the shift from one that finds nothing. */
+    const traced = (de, dn) => [{surface: 'sky', path: [
+      {lat: ll(-8 + de, -5 + dn).lat, lng: ll(-8 + de, -5 + dn).lng, h: 3},
+      {lat: ll(8 + de, -5 + dn).lat, lng: ll(8 + de, -5 + dn).lng, h: 3}]}];
+
+    api.model(HOUSE);
+    check('S270', 'the model gutters come back as segments to fit against',
+      api.segs().length === 4, 'got ' + api.segs().length + ' of 4');
+    check('S270', 'and a traced line is sampled ALONG it, not just at its ends',
+      api.samples(traced(0, 0)).length > 4,
+      'sampling the ends alone is nearly indifferent to sliding along the roof');
+
+    const near = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.35 : tol);
+
+    /* ---- it finds a displacement that is really there ------------------ */
+    /* ⚠ A DISPLACEMENT OFF A WHOLE METRE, deliberately. The coarse pass steps
+       a metre at a time, so a fixture displaced by a round number is answered
+       correctly with the fine pass deleted - the first version used 1.8, -1.2
+       and a red-check dropping the fine sweep entirely sailed through it. */
+    const off = api.fit(traced(1.5, -1.5));
+    check('S270', 'a line traced on a displaced picture yields the displacement',
+      off && near(off.e, -1.5, 0.3) && near(off.n, 1.5, 0.3),
+      'came out ' + (off ? 'e=' + off.e.toFixed(2) + ' n=' + off.n.toFixed(2) : 'null') +
+      ' - wanted e=-1.50 n=1.50, the shift that puts the trace back on the gutter');
+    check('S270', 'and that answer is good enough to act on',
+      api.good(off), 'residual ' + (off && off.resid.toFixed(2)) +
+      ' gain ' + (off && ((off.before - off.resid) / off.before).toFixed(2)));
+
+    /* ---- and refuses far more readily than it accepts ------------------- */
+    /* ⚠ EACH GUARD IS EXERCISED ON ITS OWN, and it took a red-check to find
+       out they were masking each other: three of the four refusals below were
+       originally ONE fixture that any of the guards would have caught, so
+       deleting two of the three changed nothing a test could see. The numbers
+       quoted in each comment are what that fixture really produces. */
+
+    /* Already right, so there is nothing to correct. A fit that always finds
+       something would walk a correct drawing off the roof a few inches at a
+       time, every time a run was finished. */
+    check('S270', 'a picture that is already lined up is left exactly alone',
+      !api.good(api.fit(traced(0, 0))),
+      'it found something to correct on a house that needed nothing');
+
+    /* Isolates the SIZE guard: residual 0.00 and gain 100%, so only the
+       smaller-than-the-noise test can refuse it. Eight inches is churn. */
+    check('S270', 'a line eight inches off is not worth moving anything for',
+      !api.good(api.fit(traced(0, -0.2))),
+      'a correction below the noise floor is repainted work, not accuracy');
+
+    /* Isolates the GAIN test: residual 0.84, inside the ceiling, and a shift of
+       1.7 m, well over the size guard - but only 32% better than doing nothing.
+       A line that half fits is not evidence of a displacement. */
+    const half = [{surface: 'sky', path: [
+      {lat: ll(-8, -8).lat, lng: ll(-8, -8).lng, h: 3},
+      {lat: ll(8, -4).lat, lng: ll(8, -4).lng, h: 3}]}];
+    check('S270', 'a line that only half fits any gutter is refused',
+      !api.good(api.fit(half)),
+      'the gain was under the bar and it took the answer anyway');
+
+    /* Isolates the RESIDUAL ceiling: gain 60% and a shift of 7.9 m, so both the
+       other guards pass - and it still ends up 2.8 m from any gutter. Being the
+       best of a bad set is not the same as landing on a roof. */
+    const nowhere = [{surface: 'sky', path: [
+      {lat: ll(2, 6).lat, lng: ll(2, 6).lng, h: 3},
+      {lat: ll(18, 16).lat, lng: ll(18, 16).lng, h: 3}]}];
+    const nowhereFit = api.fit(nowhere);
+    check('S270', 'a line that moves a long way and still lands on no gutter is refused',
+      !api.good(nowhereFit),
+      'residual ' + (nowhereFit && nowhereFit.resid.toFixed(2)) + ' - it would move ' +
+      'every line by feet and call the house lined up');
+
+    /* ⚠ AND THE OBVIOUS CASE STILL HAS TO FAIL. The search returns its best
+       answer whatever it is given - that is what a search does. */
+    const wild = [{surface: 'sky', path: [
+      {lat: ll(-40, 30).lat, lng: ll(-40, 30).lng, h: 3},
+      {lat: ll(-25, 34).lat, lng: ll(-25, 34).lng, h: 3}]}];
+    check('S270', 'a line traced nowhere near a gutter is refused',
+      !api.good(api.fit(wild)),
+      'it would move every line by feet and call the house lined up');
+
+    /* ⚠ AND A DISPLACEMENT BEYOND THE ALLOWANCE IS NOT ONE. */
+    check('S270', 'and so is a shift bigger than the whole allowance',
+      (function(){
+        const f = api.fit(traced(maxAlign + 6, 0));
+        return !f || Math.hypot(f.e, f.n) <= maxAlign + 1e-6;
+      })(),
+      'the search wandered outside the ceiling that refuses a mis-click');
+
+    check('S270', 'nothing to fit against answers nothing rather than zero',
+      (function(){ api.model([]); const r = api.fit(traced(2, 0)); api.model(HOUSE); return r === null; })(),
+      'a house Google gave no roof faces for must not read as "already lined up"');
+    check('S270', 'and nothing traced yet answers nothing too',
+      api.fit([]) === null,
+      'this runs when a run is finished, so it has to cope with there being none');
+
+    /* ⚠ A STREET-TRACED RUN IS NOT EVIDENCE. Its position came from the
+       camera and the model - the thing being fitted TO - so including it drags
+       the answer toward zero and hides a displacement that is really there. */
+    check('S270', 'a line traced in Street View is not used as evidence',
+      api.samples([{surface: 'street', path: [
+        {lat: ll(0, 0).lat, lng: ll(0, 0).lng, h: 3},
+        {lat: ll(5, 0).lat, lng: ll(5, 0).lng, h: 3}]}]).length === 0,
+      'it would drag the fit toward zero and hide a real displacement');
+    check('S270', 'and neither is a side typed in by hand',
+      api.samples([{surface: 'manual', path: [], manualFeet: 40}]).length === 0,
+      'a typed side has no position at all');
+  }
+
+  /* ---- the wiring a sandbox cannot see ------------------------------- */
+  const auto = extractFn(admin, 'rmAutoAlign') || '';
+  /* ⚠ NEVER OVER AN ANSWER SOMEBODY ALREADY GAVE. A measured alignment is a
+     person saying where a spot is; a fit is arithmetic about a model. */
+  check('S270', 'it never overwrites an alignment somebody measured',
+    /if\(rmSkyOffset \|\| rmAligning\) return;/.test(auto),
+    'arithmetic would silently replace a person\'s own answer');
+  check('S270', 'and it says the answer was worked out, not measured',
+    /rmSkyOffsetSource = 'fitted'/.test(auto) && auto.indexOf('not a measurement') !== -1,
+    'a fit wearing a measurement\'s words is the one thing this must not do');
+  /* ⚠ NOT REMEMBERED FOR THE NEIGHBOURS. A fit copying itself down the
+     street would gain the authority of a measurement at every step. */
+  check('S270', 'and a fitted answer is never saved as a sample for other houses',
+    auto.indexOf('rmAlignSaveSample') === -1,
+    'one house\'s arithmetic would spread with nothing saying where it came from');
+  /* ⚠ AFTER THE RUN IS KEPT, NOT BEFORE. Run from the top of rmFinishRun the
+     fit matches everything EXCEPT the line just traced - which on the first run
+     of a house is nothing at all, so it could never fire when it matters. */
+  const finish = extractFn(admin, 'rmFinishRun') || '';
+  check('S270', 'it runs after the finished line has joined the list',
+    finish.indexOf('rmAutoAlign()') > finish.indexOf('rmRuns.push(rmCurrent)'),
+    'fitting before the push ignores the very line that would have answered it');
+  check('S270', 'and the panel distinguishes worked-out from measured from inherited',
+    (function(){
+      const idle = extractFn(admin, 'rmAlignIdleNote') || '';
+      return idle.indexOf("'fitted'") !== -1 && idle.indexOf("'inherited'") !== -1;
+    })(),
+    'three different levels of confidence reading the same is how a guess survives');
+}
+
+
+suite('271. Measure Roof - the front eaves are offered, and an offer is not a measurement');
+{
+  /* ⭐ Owner: "what if you automatically wrote out the lines for the front and
+     if they want a side we can measure that on our own for now."
+
+     ⚠ THIS REVERSES HER OWN EARLIER RULING, and the reasoning behind that one
+     is worth keeping: "delete everything for now and give me a tool that I can
+     show you what it should look like by placing dots." Every automatic version
+     put lines that were close enough to look plausible and wrong enough to be
+     useless. What changed is that we now know WHY - the roof model is in true
+     positions and the satellite tile is displaced, about six feet on the house
+     that prompted it - and that is measured and corrected now.
+
+     ⚠ THE DANGEROUS HALF IS THE MONEY, not the drawing. A suggested run is ON
+     by default when it faces the road, so its footage goes straight into the
+     total, and the total sizes the bins, picks the number series, counts the
+     bundles and sets the price. A line nobody has looked at must therefore be
+     COUNTED AS A GUESS, or "I need no guessing I need feet to be correct" is
+     quietly untrue again the moment this is switched on. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunFeet',
+                 'rmRunClimbs', 'rmGuessedFeet', 'rmGuessedWhy', 'rmGuessedFix'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S271', 'the guessed-footage pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const mk = (datumSource) => new Function(
+      'const RM_M_TO_FT=3.280839895, RM_CLIMB_TOL_M=' +
+        (Number((admin.match(/const RM_CLIMB_TOL_M\s*=\s*([\d.]+)/) || [])[1]) || 0.3) + ';' + LF_ +
+      'let rmOrigin={lat:40.5527,lng:-111.8574};' + LF_ +
+      'let rmRuns=[];' + LF_ +
+      'function rmDatum(){ return {m:3, source:' + JSON.stringify(datumSource) + '}; }' + LF_ +
+      NAMES.map(pick).join(LF_) + LF_ +
+      'return {feet:rmGuessedFeet, why:rmGuessedWhy, fix:rmGuessedFix,' +
+      ' set:function(rs){ rmRuns=rs; }, runFeet:rmRunFeet};')();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.5527);
+    const pt = (e, n, h) => ({lat: 40.5527 + n / m.lat, lng: -111.8574 + e / m.lng, h: h});
+    /* A 20 m gutter: level, so it is only ever a guess because of who drew it. */
+    const offered = (extra) => Object.assign(
+      {surface: 'sky', type: 'perimeter', suggested: true, path: [pt(-10, -5, 3), pt(10, -5, 3)]}, extra || {});
+    /* A rake: climbs 2 m, so it IS a guess when the roof height is assumed. */
+    const rake = () => ({surface: 'sky', type: 'perimeter', path: [pt(-10, 0, 3), pt(-4, 0, 5)]});
+
+    const api = mk('street');
+    api.set([offered()]);
+    const all = api.runFeet(offered());
+    check('S271', 'a line Google offered that nobody has touched is counted as a guess',
+      Math.abs(api.feet() - all) < 0.01,
+      'got ' + api.feet().toFixed(1) + ' of ' + all.toFixed(1) +
+      ' ft - an offer that counts as measured is the whole risk of switching this on');
+    /* ⚠ AND TOUCHING IT IS THE ANSWER. Dragging it, or switching it off and
+       on, is somebody looking at the roof and saying yes. */
+    api.set([offered({touched: true})]);
+    check('S271', 'and it stops being one the moment somebody touches it',
+      api.feet() === 0, 'got ' + api.feet().toFixed(1) + ' ft after it was confirmed');
+    /* ⚠ A LINE SWITCHED OFF IS NOT WORK AND IS NOT A GUESS EITHER. It counts
+       nothing, so warning about it would be a false alarm on a decision the
+       office has already made. */
+    api.set([offered({on: false})]);
+    check('S271', 'a line switched off is not counted, and not warned about',
+      api.feet() === 0, 'got ' + api.feet().toFixed(1) + ' ft for a line nobody is hanging');
+
+    /* ⚠ A HAND-TRACED LINE IS NEVER AN OFFER. The whole point of tracing is
+       that somebody looked; counting it would put the warning on every house. */
+    api.set([{surface: 'sky', type: 'perimeter', path: [pt(-10, -5, 3), pt(10, -5, 3)]}]);
+    check('S271', 'a line traced by hand is not a guess at all',
+      api.feet() === 0, 'got ' + api.feet().toFixed(1) + ' ft on work somebody did themselves');
+
+    /* ⚠ COUNTED ONCE, NOT TWICE. A suggested line that also climbs would
+       otherwise report more guessed feet than the house has, which reads as a
+       bug and teaches the office to ignore the line. */
+    const climby = mk('assumed');
+    const oneRake = Object.assign(rake(), {suggested: true});
+    climby.set([oneRake]);
+    check('S271', 'a line that is both offered AND climbing is counted once',
+      Math.abs(climby.feet() - climby.runFeet(oneRake)) < 0.01,
+      'got ' + climby.feet().toFixed(1) + ' for a run of ' + climby.runFeet(oneRake).toFixed(1) + ' ft');
+
+    /* ⚠ AND THE OLD REASON STILL FIRES. Switching suggestions on must not
+       have quietly replaced the assumed-roof-height warning. */
+    climby.set([rake()]);
+    check('S271', 'a climbing line on an assumed roof height is still a guess',
+      climby.feet() > 0, 'the reason this warning existed in the first place stopped working');
+    const measured = mk('street');
+    measured.set([rake()]);
+    check('S271', 'but not once the roof height has been measured',
+      measured.feet() === 0, 'a measured roof height must clear the climbing lines');
+
+    /* ⚠ THE MESSAGE HAS TO NAME THE RIGHT CAUSE AND THE RIGHT REMEDY.
+       Sending somebody to Street View to fix an offered line is naming a
+       control that cannot change the number - worse than saying nothing. */
+    api.set([offered()]);
+    check('S271', 'the reason given names the offered line, not a roof height',
+      /guess at the roofline/.test(api.why()) && !/climbs/.test(api.why()),
+      'said: ' + api.why());
+    check('S271', 'and the remedy given is the one that actually works on it',
+      /Drag an offered line/.test(api.fix()),
+      'said: ' + api.fix());
+    climby.set([rake()]);
+    check('S271', 'while an assumed roof height still points at Street View',
+      /climbs/.test(climby.why()) && /Street View/.test(climby.fix()),
+      'said: ' + climby.why() + ' | ' + climby.fix());
+    /* Both at once has to say both, or half the total looks unexplained. */
+    climby.set([offered(), rake()]);
+    check('S271', 'and both at once says both',
+      /roofline/.test(climby.why()) && /climbs/.test(climby.why()),
+      'said: ' + climby.why());
+  }
+
+  /* ---- only the front, which is what was asked for -------------------- */
+  const build = extractFn(admin, 'rmBuildSuggestions') || '';
+  /* ⚠ ON BY DEFAULT ONLY WHERE IT FACES THE ROAD. Every side switched on
+     would bill for three sides of a house nobody has looked at. */
+  check('S271', 'only the sides facing the road are switched on to start with',
+    /on: rmFaceFacesTheRoad\(line\)/.test(build),
+    'switching every side on bills for roof nobody has looked at');
+  /* ⚠ AND A PEAK IS NOT A GUTTER. Lights do not go along a ridge. */
+  check('S271', 'the peak is never offered as somewhere to hang lights',
+    build.indexOf('NOT the peak') !== -1 && !/addLine\(face, rmFaceRidge/.test(build),
+    'a ridge offered as roofline is footage for a run nobody hangs');
+  /* ⚠ AND A REBUILD MUST NOT THROW AWAY WORK. */
+  check('S271', 'rebuilding the offers keeps everything traced by hand',
+    /rmRuns = rmRuns\.filter\(function\(r\)\{[\s\S]{0,80}if\(!r\.suggested\) return true;/.test(build),
+    'a rebuild that clears hand-traced runs loses the work the office actually did');
+}
+
+
+suite('272. Measure Roof - why a dot drifts, and putting it back');
+{
+  /* ⭐ Owner: "when you switch angles of which you are looking at the picture
+     the dots become offset... figure out why thats happening to figure out how
+     much to offset it." And earlier, on the same fault: "when I moved instead
+     of staying at the gutter it came toward the camera and started hovering."
+
+     ⭐ THE GEOMETRY SAYS WHERE TO LOOK. A dot is a fixed point and rmSvProject
+     is exact, so a dot at the RIGHT place cannot drift - it lands on the same
+     brick from every angle. Drift means the point is wrong, and the click fixed
+     its DIRECTION exactly, so only its DEPTH can be wrong. Turning on the spot
+     cannot cause it either: panning at one panorama does not move the camera.
+
+     ⭐ AND THE BUG FOLLOWS. Depth comes from Google's roof model, which is
+     placed vertically by the DATUM - and rmRefreshHeights, which is what a
+     datum change fans out through, walked rmRuns and NEVER LOOKED AT THE DOTS.
+     So a dot placed while the roof height was still the assumed one-storey eave
+     kept its wrong depth for the rest of the session. A ray meets a wall
+     square-on and barely moves; it meets a roof plane at a shallow angle, where
+     the same error slides the crossing yards along the ray.
+
+     ⚠ THIS SUITE RUNS THE RE-SOLVE. Every claim is about where a point ENDS
+     UP, which no text match can see. */
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmToWorld', 'rmSolveRayNow', 'rmRefreshCorners'];
+  const missing = NAMES.filter(n => !pick(n));
+  check('S272', 'the re-solve pieces are findable', missing.length === 0,
+    'not found: ' + missing.join(', '));
+
+  if (!missing.length) {
+    /* The model is a flat roof at a height the sandbox controls, which is
+       exactly the thing a wrong datum gets wrong. rmHouseHit is stubbed to it:
+       what is under test is whether the dots are RE-SOLVED at all, not the
+       surface picker, which suite 253 already runs. */
+    const PRE =
+      'const RM_M_TO_FT=3.280839895, RM_EAVE_TOL_M=0.8;' + LF_ +
+      'let rmOrigin={lat:40.5527,lng:-111.8574};' + LF_ +
+      'let rmCorners=[], __roofM=3, __changed=0, __refuse=false;' + LF_ +
+      /* A ray cast at a horizontal roof at height __roofM. */
+      'function rmHouseHit(dir, cam){' + LF_ +
+      '  if(__refuse) return null;' + LF_ +
+      '  if(__above) return {e: cam.e, n: cam.n + 10, u: __roofM + 5, kind: "roof"};' + LF_ +
+      '  if(dir.u >= -1e-9 && cam.u >= __roofM) return null;' + LF_ +
+      '  const t = (__roofM - cam.u) / dir.u;' + LF_ +
+      '  if(!(t > 0)) return null;' + LF_ +
+      '  return {e: cam.e + dir.e*t, n: cam.n + dir.n*t, u: __roofM, kind: "roof"};' + LF_ +
+      '}' + LF_ +
+      'function rmFootprintWallHit(){ return null; }' + LF_ +
+      'function rmWallPlane(){ return null; }' + LF_ +
+      'function rmWallHit(){ return null; }' + LF_ +
+      'function rmRoofHeightAt(){ return __roofM; }' + LF_ +
+      'function rmRoofTopM(){ return __roofM; }' + LF_ +
+      /* Lets a solve be forced ABOVE the roof, which the plane stub alone can
+         never produce - a ray aimed over a horizontal plane simply misses it. */
+      'let __above=false;' + LF_ +
+      'function rmDatum(){ return {m: __roofM, source: "street"}; }' + LF_ +
+      'function rmCornersChanged(){ __changed++; }' + LF_;
+    const BODY = PRE + NAMES.map(pick).join(LF_) + LF_ +
+      'return {solve:rmSolveRayNow, refresh:rmRefreshCorners, local:rmToLocal,' +
+      ' set:function(cs){ rmCorners=cs; __changed=0; }, corners:function(){ return rmCorners; },' +
+      ' roof:function(m){ __roofM=m; }, refuse:function(v){ __refuse=v; },' +
+      ' above:function(v){ __above=v; },' +
+      ' changed:function(){ return __changed; }};';
+    assertSandbox('S272', 'dot re-solve', BODY, admin,
+      ['rmHouseHit', 'rmFootprintWallHit', 'rmWallPlane', 'rmWallHit',
+       'rmRoofHeightAt', 'rmRoofTopM', 'rmDatum', 'rmCornersChanged']);
+    const api = new Function(BODY)();
+
+    const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.5527);
+    const ll = (e, n) => ({lat: 40.5527 + n / m.lat, lng: -111.6946 * 0 + -111.8574 + e / m.lng});
+    /* Camera on the road 20 m south, eye at 2.5 m, looking north and slightly
+       up at a gutter. The ray is fixed; only the model's roof height moves. */
+    const cam = {e: 0, n: -20, u: 2.5};
+    const aim = function(roofM, atN){
+      const dz = roofM - cam.u, dn = atN - cam.n;
+      const len = Math.hypot(dn, dz);
+      return {e: 0, n: dn / len, u: dz / len};
+    };
+    /* Placed when the model said the roof was 3 m up: the ray aimed at the real
+       5.5 m gutter crossed the 3 m plane far nearer the camera. */
+    const ray = {cam: cam, dir: aim(5.5, 0)};
+    const dot = (extra) => Object.assign({on: true, rays: [ray], lat: 0, lng: 0, h: 0}, extra || {});
+
+    api.roof(3);
+    const shallow = api.solve(ray);
+    api.roof(5.5);
+    const truth = api.solve(ray);
+    check('S272', 'a wrong roof height puts the dot at the wrong DEPTH along its ray',
+      shallow && truth && Math.abs(shallow.n - truth.n) > 5,
+      'the same ray at a 3 m roof and a 5.5 m roof landed ' +
+      (shallow && truth ? Math.abs(shallow.n - truth.n).toFixed(1) : '?') +
+      ' m apart - if this is small the fixture is not exercising the shallow-angle case');
+
+    /* ---- and the re-solve puts it back -------------------------------- */
+    api.roof(3);
+    const placed = api.solve(ray);
+    const world = {lat: ll(placed.e, placed.n).lat, lng: ll(placed.e, placed.n).lng, h: placed.u};
+    api.roof(5.5);
+    api.set([dot({lat: world.lat, lng: world.lng, h: world.h})]);
+    const res = api.refresh();
+    const now = api.local(api.corners()[0].lat, api.corners()[0].lng, api.corners()[0].h);
+    check('S272', 'once the roof height is measured, the dot is put back on its own ray',
+      Math.abs(now.n - truth.n) < 0.2 && Math.abs(now.u - truth.u) < 0.2,
+      'ended at n=' + now.n.toFixed(2) + ' u=' + now.u.toFixed(2) +
+      ' - wanted n=' + truth.n.toFixed(2) + ' u=' + truth.u.toFixed(2));
+    /* ⚠ AND IT REPORTS HOW FAR, which is the number that was asked for. */
+    check('S272', 'and it says how far it had to move',
+      res.moved === 1 && res.maxM > 5,
+      'moved=' + res.moved + ' maxM=' + (res.maxM || 0).toFixed(2));
+
+    /* ⚠ A PINNED DOT IS NEVER TOUCHED. Two sightings crossing is real
+       geometry; the model is a model, and overwriting the first with the second
+       throws away the better answer to keep the guess tidy. */
+    api.roof(3);
+    api.set([dot({lat: world.lat, lng: world.lng, h: world.h, pinned: 2})]);
+    const before = api.local(world.lat, world.lng, world.h);
+    api.roof(5.5);
+    api.refresh();
+    const after = api.local(api.corners()[0].lat, api.corners()[0].lng, api.corners()[0].h);
+    check('S272', 'a dot pinned from two angles is never re-solved against a model',
+      Math.abs(after.n - before.n) < 1e-6,
+      'triangulated geometry beats any model, and this overwrote it');
+
+    /* ⚠ NEITHER IS ONE SOMEBODY DRAGGED. Dragging clears the rays, which is
+       what makes "leave it where I put it" the automatic answer - so this is
+       the check that stops a future change re-deriving a hand-placed dot. */
+    api.set([dot({lat: world.lat, lng: world.lng, h: world.h, rays: []})]);
+    api.roof(5.5);
+    const dragRes = api.refresh();
+    check('S272', 'and neither is one somebody dragged there by hand',
+      dragRes.moved === 0,
+      'a dragged dot has no ray to re-solve, and moving it anyway undoes the drag');
+
+    /* ⚠ A RE-SOLVE THAT FINDS NOTHING LEAVES THE DOT ALONE. Refusing is the
+       honest answer; moving it to a fallback would be inventing a new position
+       out of a failed lookup. */
+    api.set([dot({lat: world.lat, lng: world.lng, h: world.h})]);
+    api.refuse(true);
+    const gone = api.refresh();
+    api.refuse(false);
+    check('S272', 'and a ray that now hits nothing leaves the dot where it was',
+      gone.moved === 0,
+      'a failed lookup must not become a new position');
+
+    /* ⚠ AND A RE-SOLVE THAT LANDS ABOVE THE ROOF IS REFUSED, like every
+       other reading in this tool. An answer in the sky is worse than the one it
+       would replace, and nothing was asserting it - a red-check adding 40 m to
+       every solve went straight through. */
+    api.above(true);
+    check('S272', 'a re-solve that lands above the roof is refused, not taken',
+      api.solve(ray) === null,
+      'a point in the sky is a worse answer than the one it would replace');
+    api.above(false);
+
+    /* ⚠ A HAIR IS NOT A MOVE, or every datum nudge reports every dot and the
+       real one stops being noticed. */
+    api.roof(5.5);
+    api.set([dot({lat: ll(truth.e, truth.n).lat, lng: ll(truth.e, truth.n).lng, h: truth.u})]);
+    check('S272', 'a dot already in the right place is not reported as moved',
+      api.refresh().moved === 0,
+      'reporting every dot on every nudge is how a real move stops being noticed');
+  }
+
+  /* ---- the wiring a sandbox cannot see ------------------------------- */
+  /* ⚠ THE DOTS HAVE TO BE ON THE PATH A DATUM CHANGE TAKES. This is the whole
+     bug: rmRefreshHeights fanned a new roof height out to every RUN and never
+     once looked at the dots. */
+  const refresh = extractFn(admin, 'rmRefreshHeights') || '';
+  check('S272', 'a measured roof height reaches the dots, not just the runs',
+    /rmRefreshCorners\(\)/.test(refresh),
+    'this is the bug itself: the datum fanned out to every run and no dot');
+  /* ⚠ GUARDED ON dots.moved, not merely mentioning it. A red-check wrapping
+     the whole report in if(false) left every word of it in the file, and a
+     check that only looked for those words stayed green over a report that
+     could never print. */
+  check('S272', 'and the office is told how far the furthest one moved',
+    /if\(dots\.moved\)\{/.test(refresh) &&
+    refresh.indexOf('dots.maxM') !== -1 && refresh.indexOf('rmCornerNote') !== -1,
+    '"the dots moved" with no figure cannot be told from the tool wobbling');
+  /* ⚠ THE RAY IS WHAT MAKES THIS EXACT rather than a second guess. */
+  check('S272', 'a dot keeps the ray it was seen along',
+    /rays: pt\.ray \? \[pt\.ray\] : \[\]/.test(extractFn(admin, 'rmAddCorner') || ''),
+    'without the ray there is nothing to re-solve and the depth is lost for good');
+  /* ⚠ THE KEY, WITH ITS COLON. The block comment above it names the field
+     too, so matching the bare word stayed green with the field itself renamed. */
+  check('S272', 'and rmDebug says which dots are likely to drift and by how much',
+    /driftPerFtFt:/.test(admin) && /wouldMoveFt:/.test(admin),
+    'the question was how much and why; a log that cannot answer it sends somebody back to screenshots');
+}
+
+// =====================================================================
+suite('273. Inbox - the count is unread, and a message can be filed without a mouse');
+/* ⭐ WHAT THE OWNER REPORTED, 2026-08-25, in one message: "the add folder is not
+   working and we still cannot move things around there are no sub folders. and when
+   I push responded it still shows 1 in inbox... I only want the number to show how
+   many are unread."
+   ⚠ EVERY ONE OF THOSE MECHANISMS ALREADY EXISTED AND EVERY ONE ALREADY PASSED a
+   source check. Driving the real page in a browser is what separated them:
+     - Add folder DID write a folder. What did not work was the ENTER KEY (the input
+       is in no form and nothing listened), and every failure was silent.
+     - Moving DID work — by mouse drag or right-click, neither of which exists on the
+       tablet the office uses. There was no third way in, and nothing on screen said
+       a message could be dragged at all.
+     - Sub-folders DID nest. They were drawn as 14px of extra padding and nothing
+       else, so a tree read as a list somebody had indented by accident.
+     - The count was the one outright bug: it counted EVERY message in the folder.
+   ⚠ AND THE MEASUREMENT THAT MATTERED: on the old code, ONE drop onto Inbox after
+   eight folder clicks fired 2815 Firestore writes. renderFolderSidebar bound a fresh
+   click/dragover/drop listener to the STATIC Inbox row on every render and never
+   removed the old ones, and the click handler re-renders — so the listeners
+   compounded. Inbox is drawn inside #customFolderList now, with the rest, so the one
+   container is rebuilt wholesale and nothing can accumulate on it.
+   This suite RUNS the counting and the tree rendering rather than matching their
+   source, because every claim here is about a NUMBER ON SCREEN or a ROW THAT EXISTS,
+   which a regex cannot see. */
+{
+  const names = ['folderUnread', 'folderDescendantNames', 'folderCount', 'folderRowHtml', 'renderFolderNode'];
+  const bodies = names.map(function (n) { return extractFn(admin, n); });
+  const missing = names.filter(function (n, i) { return !bodies[i]; });
+  check('S273', 'the inbox counting and tree functions are all still in admin.html',
+    missing.length === 0, 'missing: ' + missing.join(', ') + ' — renamed? update this suite rather than deleting it');
+
+  if (!missing.length) {
+    /* The sandbox preamble supplies the module-level state these read. esc is the
+       real one lifted out of admin.html, not a stub — a stub would let an escaping
+       bug through while reporting green. */
+    const escSrc = extractFn(admin, 'esc');
+    check('S273', 'esc lifted from admin.html for the sandbox', !!escSrc,
+      'without the real one the rendered rows prove nothing about escaping');
+    const preamble =
+      'let allMessages = [], messageFolders = [], selectedFolder = "Inbox";' +
+      'let collapsedFolders = new Set();' +
+      (escSrc || 'function esc(x){return String(x==null?"":x);}') + ';';
+    const code = preamble + bodies.join(';') + ';' +
+      'return {folderUnread, folderDescendantNames, folderCount, folderRowHtml, renderFolderNode,' +
+      ' set(m, f, c, sel){ allMessages = m; messageFolders = f; collapsedFolders = new Set(c||[]);' +
+      ' if(sel) selectedFolder = sel; }};';
+    assertSandbox('S273', 'inbox folder tree', code, admin,
+      names.concat(['esc']));
+    const F = new Function(code)();
+
+    /* Two unread and one read in Inbox; one unread inside a child folder. */
+    const MSGS = [
+      { id: 'a', data: { folder: 'Inbox', read: false } },
+      { id: 'b', data: { folder: 'Inbox', read: true } },
+      { id: 'c', data: { folder: 'Inbox', read: false } },
+      { id: 'd', data: { folder: 'Child', read: false } },
+      { id: 'e', data: { folder: 'Child', read: true } }
+    ];
+    const FOLDERS = [
+      { id: 'p1', name: 'Parent', parentId: null },
+      { id: 'c1', name: 'Child', parentId: 'p1' }
+    ];
+    F.set(MSGS, FOLDERS, []);
+
+    check('S273', 'the number beside a folder is UNREAD, not every message in it',
+      F.folderUnread('Inbox') === 2 && F.folderCount('Inbox') === 2,
+      'Inbox holds 3 messages of which 2 are unread — got ' + F.folderCount('Inbox') +
+      '. This is the bug the owner reported: a count that never falls is a count nobody reads');
+
+    check('S273', 'a folder with nothing unread counts zero even when it holds messages',
+      F.folderCount('Parent') === 0,
+      'Parent itself holds no messages at all, so it must read 0 whatever its child holds while open');
+
+    /* ⚠ THE ROLL-UP IS THE HALF THAT LOSES MESSAGES IF IT GOES. Closing a parent
+       hides its children AND, without this, the only number saying they are there. */
+    check('S273', 'an OPEN parent does not swallow its child\'s count',
+      F.folderCount('Parent', 'p1', false) === 0,
+      'the child row is drawn right underneath with its own number — counting it twice is a lie');
+    check('S273', 'a CLOSED parent carries its child\'s unread up',
+      F.folderCount('Parent', 'p1', true) === 1,
+      'Child holds 1 unread; with the branch closed that number has nowhere else to appear');
+    check('S273', 'the roll-up reaches a grandchild, not just one level',
+      (function () {
+        F.set(MSGS.concat([{ id: 'g', data: { folder: 'Grand', read: false } }]),
+          FOLDERS.concat([{ id: 'g1', name: 'Grand', parentId: 'c1' }]), []);
+        const n = F.folderCount('Parent', 'p1', true);
+        F.set(MSGS, FOLDERS, []);
+        return n === 2;
+      })(),
+      'folderDescendantNames walks the whole branch — a one-level roll-up hides anything nested twice');
+
+    /* ---- the tree itself ---- */
+    const openHtml = F.renderFolderNode({ id: 'p1', name: 'Parent', parentId: null,
+      children: [{ id: 'c1', name: 'Child', parentId: 'p1', children: [] }] }, 0);
+    check('S273', 'a folder with children draws a caret to open and close it',
+      /data-togglefolder="p1"/.test(openHtml),
+      'without it a subfolder is 16px of padding and nothing else — which is why the office said there were none');
+    check('S273', 'an open branch really draws its child row',
+      /data-folder="Child"/.test(openHtml), 'the child must exist in the markup, not merely be counted');
+    check('S273', 'the child is indented past its parent',
+      (function () {
+        const pads = (openHtml.match(/padding-left:(\d+)px/g) || []).map(function (m) { return parseInt(m.replace(/\D/g, ''), 10); });
+        return pads.length >= 2 && pads[1] > pads[0];
+      })(), 'nesting has to be visible or it is not nesting');
+
+    F.set(MSGS, FOLDERS, ['p1']);
+    const shutHtml = F.renderFolderNode({ id: 'p1', name: 'Parent', parentId: null,
+      children: [{ id: 'c1', name: 'Child', parentId: 'p1', children: [] }] }, 0);
+    check('S273', 'a closed branch draws no child row',
+      !/data-folder="Child"/.test(shutHtml), 'a closed folder that still lists its children has not closed');
+    check('S273', 'and the closed parent shows the count it is now hiding',
+      />1</.test(shutHtml),
+      'Child holds 1 unread and its row is gone — the parent has to carry it or the message is invisible');
+
+    /* ⚠ A ZERO IS DRAWN AS NOTHING. A column of noughts reads as a broken counter,
+       and it is what made the old total-count so easy to ignore. */
+    F.set([{ id: 'z', data: { folder: 'Parent', read: true } }], FOLDERS, []);
+    const zeroHtml = F.folderRowHtml({ name: 'Parent', id: 'p1', indent: 0, hasKids: false, collapsed: false,
+      unread: F.folderCount('Parent', 'p1', false) });
+    check('S273', 'a folder with nothing unread shows no number at all',
+      /<span class="folder-count"><\/span>/.test(zeroHtml),
+      'Gmail hides a zero; drawing "0" beside every folder is how a real number stops being read');
+    check('S273', 'and it is not bold when there is nothing waiting',
+      !/has-unread/.test(zeroHtml), 'bold is the at-a-glance signal — bold everything and it says nothing');
+
+    F.set(MSGS, FOLDERS, []);
+    const boldHtml = F.folderRowHtml({ name: 'Inbox', id: null, indent: 0, hasKids: false, collapsed: false,
+      unread: F.folderUnread('Inbox') });
+    check('S273', 'a folder WITH unread is bold and shows the figure',
+      /has-unread/.test(boldHtml) && />2</.test(boldHtml), 'the two signals go together or neither is trusted');
+
+    /* ⚠ THE INBOX ROW CARRIES NO FOLDER ID, DELIBERATELY. That is what makes a
+       folder dropped on it move to the TOP LEVEL rather than nest inside "Inbox",
+       which is not a folder at all — and it is why it offers no rename or delete. */
+    check('S273', 'the Inbox row has no folder id, so it cannot be renamed or deleted',
+      !/data-folderid/.test(boldHtml) && !/data-delfolder/.test(boldHtml) && !/data-renfolder/.test(boldHtml),
+      'Inbox is not a document in messageFolders — offering to delete it is offering to delete nothing');
+
+    check('S273', 'a folder name is escaped before it reaches the sidebar',
+      !/<b>/.test(F.folderRowHtml({ name: '<b>x</b>', id: 'p1', indent: 0, hasKids: false, collapsed: false, unread: 0 })),
+      'folder names are typed by hand and go straight into innerHTML');
+  }
+}
+{
+  /* ---- the parts that live in markup and handlers, checked where they are ---- */
+  check('S273', 'Inbox is drawn inside #customFolderList, not left as a static row',
+    !/msg-sidebar-item active" data-folder="Inbox"/.test(admin) &&
+    /folderRowHtml\(\{name:'Inbox'/.test(admin),
+    'a persistent row outside the rebuilt container is what collected 2815 listeners; ' +
+    'one container, rebuilt wholesale, cannot accumulate');
+  check('S273', 'renderFolderSidebar binds inside the list it just rebuilt, never document-wide',
+    !/document\.querySelectorAll\('\.msg-sidebar-item'\)/.test(admin),
+    'a document-wide query reaches rows this render did not create and binds them again');
+
+  const addSrc = extractFn(admin, 'addMessageFolder') || '';
+  check('S273', 'Add Folder is its own function, so the Enter key can reach it',
+    !!addSrc, 'it lived inside the click handler, which is exactly why Enter could not run it');
+  check('S273', 'pressing Enter in the folder name box adds the folder',
+    /newFolderInput'\)\.addEventListener\('keydown'[\s\S]{0,200}addMessageFolder\(\)/.test(admin),
+    'the input is in no form, so without this Enter does nothing whatever — which reads as a dead button');
+  check('S273', 'every way of failing to add a folder says so on the page',
+    /folderAddSays\('Type a folder name first/.test(addSrc) &&
+    /folderAddSays\('There is already a folder/.test(addSrc) &&
+    /catch\(err\)[\s\S]{0,200}folderAddSays\('Could not add it/.test(addSrc),
+    '"nothing happened" is the one report that cannot be diagnosed over the phone');
+  check('S273', 'a folder added inside a closed parent opens that parent',
+    /collapsedFolders\.has\(parentId\)[\s\S]{0,120}collapsedFolders\.delete\(parentId\)/.test(addSrc),
+    'otherwise it is written correctly and never appears, which looks exactly like the add failing');
+
+  /* ⭐ THE THIRD WAY IN. Drag needs a mouse and right-click needs a mouse; the
+     office is on a tablet. Both are KEPT — this is an addition, not a replacement. */
+  check('S273', 'messages can be filed by ticking rows and picking a folder',
+    /id="msgMoveTo"/.test(admin) && /id="msgPickAll"/.test(admin) && /data-pickmsg=/.test(admin),
+    'drag and right-click both need a mouse; on a tablet there was no way to move anything at all');
+  check('S273', 'Move to… offers Inbox as well as the folders',
+    /populateMoveToSelect/.test(admin) && /<option value="Inbox">Inbox<\/option>/.test(admin),
+    'Inbox is not in messageFolders, so leaving it out makes filing a one-way trip');
+  check('S273', 'dragging a message onto a folder still works',
+    /const messageId = e\.dataTransfer\.getData\('text\/plain'\)/.test(admin),
+    'somebody already used to dragging must not lose it');
+  check('S273', 'right-click move still works',
+    /openContextMenu\(e\.clientX, e\.clientY, row\.dataset\.msgid\)/.test(admin),
+    'same reason — the toolbar is a third route in, not a replacement');
+  check('S273', 'the ticks are dropped when the folder or the filter changes',
+    (admin.match(/pickedMsgIds\.clear\(\)/g) || []).length >= 4,
+    'a tick belongs to the list it was made on — carried across, Move to… acts on rows nobody can see');
+  check('S273', 'the toolbar is reset when the list comes back empty',
+    /No messages in this folder[\s\S]{0,400}refreshMsgToolbar\(\)/.test(admin),
+    'the early return skips the wiring below it, so without this the bar offers actions over nothing');
+  check('S273', 'a bulk delete asks first and names the count',
+    /confirm\('Delete ' \+ ids\.length \+ ' message/.test(admin),
+    'it throws away the only copy of what somebody asked for');
+  check('S273', 'a failed bulk write is counted, not swallowed',
+    /catch\(err\)\{ console\.error\('Inbox bulk action failed/.test(admin),
+    'half a move looks exactly like a whole one');
+
+  /* ⭐ ANSWERING SOMETHING READS IT — one direction only. */
+  const listSrc = extractFn(admin, 'renderMessagesList') || '';
+  check('S273', 'Mark Responded also marks the message read',
+    /const patch = \{responded: !current\};[\s\S]{0,80}if\(!current\) patch\.read = true;/.test(listSrc),
+    'with the count now measuring unread, answering something would otherwise take two presses to clear');
+  check('S273', 'but Mark Awaiting does not put it back to unread',
+    !/patch\.read = false/.test(listSrc),
+    'taking a reply back is a note to herself that it still needs answering, not a claim nobody read it');
+}
+
+
+// =====================================================================
+suite('274. The test invoice - an address that is one letter wrong');
+/* ⭐ WHAT THE OWNER REPORTED, 2026-08-25: "I can't get a test invoice sent to me."
+   NOTHING WAS BROKEN. The address in the box was addiechichia@gmai.com — one letter
+   short of gmail.com — so the mail went to a domain that does not exist, and the
+   page said in green that it had been sent.
+   ⚠ EMAILJS RETURNING OK IS NOT DELIVERY. It accepts a well-formed request and
+   answers at once; a domain that does not resolve is found out minutes later by a
+   bounce sent to the sending account, which nobody in the office reads. The only
+   validation was `to.indexOf('@') === -1`, which anything with an @ passes.
+   Three things follow, and all three are needed — the guard alone would still have
+   let a green "Sent to" line overclaim, and the honest wording alone would not stop
+   the typo happening again. */
+{
+  const names = ['emailEditDistance', 'emailTypoSuggestion'];
+  const bodies = names.map(function (n) { return extractFn(admin, n); });
+  const missing = names.filter(function (n, i) { return !bodies[i]; });
+  check('S274', 'the address-typo helpers are in admin.html', missing.length === 0,
+    'missing: ' + missing.join(', ') + ' — renamed? update this suite rather than deleting it');
+
+  const listSrc = ['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL'].map(function (c) {
+    const i = admin.indexOf('const ' + c + ' =');
+    return i > -1 ? admin.slice(i, admin.indexOf('];', i) + 2) : '';
+  });
+  check('S274', 'both domain lists are in admin.html', listSrc.every(Boolean),
+    'the suggestion is only as good as the lists it compares against');
+
+  if (!missing.length && listSrc.every(Boolean)) {
+    const code = listSrc.join(';') + ';' + bodies.join(';') +
+      ';return {emailTypoSuggestion, emailEditDistance};';
+    assertSandbox('S274', 'email typo guard', code, admin, names.concat(['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL']));
+    const F = new Function(code)();
+
+    /* ⚠ THE ACTUAL ADDRESS FROM THE REPORT. A fixture that only tries invented
+       typos can pass while missing the one that happened. */
+    check('S274', 'the address she actually typed is caught, and corrected',
+      F.emailTypoSuggestion('addiechichia@gmai.com') === 'addiechichia@gmail.com',
+      'this is the whole reason the guard exists — got ' + F.emailTypoSuggestion('addiechichia@gmai.com'));
+
+    /* ⚠ A SWAPPED PAIR MUST COUNT AS ONE MISTAKE. Plain Levenshtein scores gmial
+       and hotmial at 2, which is the distance at which real domains start
+       suggesting each other — so without the transposition rule these are missed
+       at a threshold that is safe, and only caught at one that is not. */
+    check('S274', 'a transposition counts as one mistake, not two',
+      F.emailEditDistance('gmial.com', 'gmail.com') === 1 &&
+      F.emailEditDistance('hotmial.com', 'hotmail.com') === 1,
+      'Damerau, not plain Levenshtein — got ' + F.emailEditDistance('gmial.com', 'gmail.com'));
+
+    const CAUGHT = [
+      ['a@gmial.com', 'a@gmail.com', 'swapped pair'],
+      ['a@hotmial.com', 'a@hotmail.com', 'swapped pair'],
+      ['a@gmail.con', 'a@gmail.com', 'n for m'],
+      ['a@yahooo.com', 'a@yahoo.com', 'doubled letter'],
+      ['a@outlok.com', 'a@outlook.com', 'dropped letter'],
+      ['a@iclould.com', 'a@icloud.com', 'extra letter']
+    ];
+    CAUGHT.forEach(function (t) {
+      check('S274', 'a ' + t[2] + ' in the domain is caught (' + t[0] + ')',
+        F.emailTypoSuggestion(t[0]) === t[1],
+        'expected ' + t[1] + ', got ' + F.emailTypoSuggestion(t[0]));
+    });
+
+    /* ⚠ THE FALSE-POSITIVE SIDE IS THE ONE THAT MATTERS MORE. A warning that fires
+       on a correct address is one the office learns to click past — including on
+       the day it is right. Every one of these must stay silent. */
+    const SILENT = [
+      ['a@gmail.com', 'the correct spelling of the commonest domain'],
+      ['a@icloud.com', 'another exact match'],
+      ['a@yahoo.com', 'another exact match'],
+      ['a@email.com', 'a real domain one letter from gmail.com'],
+      ['a@gmx.com', 'a real domain that resembles a big one'],
+      ['a@mail.com', 'a real domain'],
+      ['a@highlightingutah.com', 'the business\'s own domain'],
+      ['a@byu.edu', 'a domain nothing like a provider'],
+      ['notanemail', 'no @ at all'],
+      ['@gmai.com', 'a domain typo but no local part — nothing to suggest'],
+      ['a@', 'an empty domain']
+    ];
+    SILENT.forEach(function (t) {
+      check('S274', 'no warning for ' + t[0] + ' (' + t[1] + ')',
+        F.emailTypoSuggestion(t[0]) === null,
+        'a guard that cries wolf gets clicked past on the day it is right — got ' + F.emailTypoSuggestion(t[0]));
+    });
+
+    check('S274', 'an exact match is never "corrected" into something else',
+      (function () {
+        const src = admin.slice(admin.indexOf('const EMAIL_COMMON_DOMAINS'));
+        const list = JSON.parse('[' + src.slice(src.indexOf('[') + 1, src.indexOf('];')).replace(/'/g, '"') + ']');
+        return list.every(function (dom) { return F.emailTypoSuggestion('x@' + dom) === null; });
+      })(),
+      'every domain on the known-good list must pass through untouched');
+  }
+}
+{
+  const sendSrc = extractFn(admin, 'invTestSend') || '';
+  check('S274', 'invTestSend is still findable', !!sendSrc,
+    'renamed or removed — update this test rather than deleting it');
+
+  /* ⚠ THE ORDER IS THE SAFETY ARGUMENT. Once emailjs.send has been called there is
+     nothing to take back, so the question has to come while it is still a box. */
+  /* ⚠ COMMENTS STRIPPED FIRST. The first version of this check matched the phrase
+     "emailjs.send" inside the COMMENT explaining the guard, which sits above the
+     real call — so it read the explanation as the code and failed on a file that
+     was right. Same shape as the rule Suite 58 already learned. */
+  const sendCode = stripComments(sendSrc);
+  check('S274', 'the typo is asked about BEFORE anything is sent',
+    sendCode.indexOf('emailTypoSuggestion') > -1 &&
+    sendCode.indexOf('emailjs.send') > -1 &&
+    sendCode.indexOf('emailTypoSuggestion') < sendCode.indexOf('emailjs.send'),
+    'asking afterwards is asking about mail that has already gone');
+
+  check('S274', 'it warns and never refuses — the typed address can still be used',
+    /data-emailfix="anyway"/.test(admin) && /answer === 'use'/.test(sendSrc),
+    'a guard that blocks a legitimate send is worse than the typo, because there is no way round it');
+  check('S274', 'cancelling sends nothing at all',
+    /answer === 'cancel'[\s\S]{0,200}return say\('Nothing was sent/.test(sendSrc),
+    'the third answer is "let me edit it", and it must not fall through into the send');
+  check('S274', 'the corrected address is what actually gets sent to',
+    /to_email: sendTo/.test(sendSrc),
+    'accepting the correction and then mailing the typo anyway is the worst of both');
+
+  /* ⭐ THE MESSAGE STOPS CLAIMING DELIVERY. */
+  check('S274', 'the success line says handed-to, not sent-to',
+    /say\('Handed to the mail service for ' \+ sendTo/.test(sendSrc) &&
+    !/say\('Sent to ' \+ to/.test(sendSrc),
+    'EmailJS answering OK says the request was well formed and nothing about whether the address exists');
+  check('S274', 'and it says what to do when nothing arrives',
+    /check the address above and your spam folder/.test(sendSrc),
+    '"it did not arrive" with no next step is what sent somebody looking for a bug in the invoice code');
+
+  /* ⭐ THE BOX STARTS ON WHOEVER IS SIGNED IN — the typo that cannot happen. */
+  const popSrc = extractFn(admin, 'invTestPopulate') || '';
+  check('S274', 'the Send it to box is pre-filled with the signed-in address',
+    /auth\.currentUser\.email/.test(popSrc),
+    'the button is called "send yourself" and the address is already known — making somebody type it invites this exact typo');
+  check('S274', 'but only when it is empty, so a typed address is never overwritten',
+    /!toBox\.value\.trim\(\)/.test(popSrc),
+    'this runs on every render; clobbering a half-typed address would be worse than not filling it');
+
+  /* Nothing about this may touch the customer — the card promises as much. */
+  check('S274', 'the test send still writes nothing to the customer or the invoice',
+    !/invoiceEmailSent/.test(sendSrc) && !/updateDoc/.test(sendSrc) && !/setDoc/.test(sendSrc),
+    'the card says "the customer is not emailed, nothing is marked as billed, and no fee is applied"');
+}
+
 
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
