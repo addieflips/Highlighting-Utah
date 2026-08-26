@@ -3671,12 +3671,116 @@ console.log('\n=== 7. Health check engine ===');
      bills nothing — the house moved onto somebody else's bill and the money did not
      follow it. Since the carried-payment rule shipped the same day this only finds
      moves made BEFORE it, plus money under a key no customer answers to; a correctly
-     handled move carries its payment across as a credit and is not flagged. */
-  check('health', 'all 22 checks present',
-    all.length === 22, 'got ' + all.length);
+     handled move carries its payment across as a credit and is not flagged.
+
+     ⭐ 23 SINCE 2026-08-26: 'phoneNotDigits'. syncPayerInvoice resolves a payer by an
+     EXACT match on phone digits, so a record storing "(801) 555-0123" is not found,
+     `linked` comes back empty, and the phone-key branch deliberately does not refuse
+     — the rebuild writes install: 0 over a real total. This row IS Q-019: Addie asked
+     for the real data before anything was built on it, and an empty row closes the
+     question. */
+  check('health', 'all 23 checks present',
+    all.length === 23, 'got ' + all.length);
   /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
      form is truthy whatever happens and proves nothing. Red-checking caught it:
      renaming the id sailed straight through. */
+  /* ---- a stored phone an exact-match query cannot find (Q-019) ----
+     ⚠ THE THREE NEGATIVES MATTER AS MUCH AS THE POSITIVE. This row exists to
+     answer "is Q-019 real in the live book", so a false positive does not just
+     add noise — it answers her question wrongly, and the answer decides whether
+     a money writer gets changed. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Typed Pretty', phone: '(801) 555-0123', housePrice: 400, customerNumber: '201', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Plain Digits', phone: '8015550124', housePrice: 400, customerNumber: '202', measuredFeet: 100 } }],
+    i: [{ id: '8015550123', data: { name: 'Typed Pretty', install: 400, removal: 0, deposit: 0, status: 'Unpaid' } },
+        { id: '8015550124', data: { name: 'Plain Digits', install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  {
+    const rows = get(hc.run(), 'phoneNotDigits').rows;
+    check('health', 'a payer whose phone is stored with punctuation is found',
+      rows.length === 1 && rows[0].label.indexOf('Typed Pretty') !== -1,
+      'syncPayerInvoice queries where(phone,==,digits), so this record is never matched and ' +
+      'the rebuild writes install: 0 over a real total — got ' + rows.length + ' rows');
+    check('health', 'and a digits-only phone is NOT flagged',
+      rows.length === 1,
+      'the equality query finds those perfectly — flagging them would bury the ones that matter');
+    /* ⚠ SAY WHETHER MONEY IS EXPOSED TODAY. "Odd format" and "an invoice can be
+       zeroed by the next save" need different urgency and a name alone cannot
+       tell them apart. */
+    check('health', 'and the row says an invoice is exposed, with the amount',
+      rows.length === 1 && rows[0].detail.indexOf('400.00') !== -1 &&
+      rows[0].detail.indexOf('zero') !== -1,
+      'the whole reason to act now is that there is a real total under that key');
+    check('health', 'and it quotes what is actually stored, and the key it misses',
+      rows.length === 1 && rows[0].detail.indexOf('(801) 555-0123') !== -1 &&
+      rows[0].detail.indexOf('8015550123') !== -1,
+      'the office has to see the two strings side by side to believe the row');
+  }
+
+  /* ⚠ A HOUSE BILLED ELSEWHERE IS REACHED BY THE OTHER QUERY. syncPayerInvoice
+     also runs where('billToPhone','==',key), and that key comes off the same
+     record — so its own phone field is never consulted and its format cannot
+     hurt it. Flagging it would be noise, and noise is what teaches the office
+     to click past a row. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '203', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Kyle Pratt', phone: '(801) 555-2222', billToPhone: '8015550111', housePrice: 350, customerNumber: '204', measuredFeet: 90 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 750, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  check('health', 'a house billed elsewhere is NOT flagged for its phone format',
+    get(hc.run(), 'phoneNotDigits').rows.length === 0,
+    'the billToPhone query reaches it whatever its own phone looks like');
+
+  /* ⚠ NO PHONE AT ALL IS AN EMAIL KEY — a different branch of syncPayerInvoice,
+     which already has the loaded-list fallback this one lacks. Not this row. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Email Only', email: 'e@x.com', housePrice: 400, customerNumber: '205', measuredFeet: 100 } }],
+    i: [{ id: 'e@x.com', data: { name: 'Email Only', install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  check('health', 'a customer with no phone at all is NOT flagged',
+    get(hc.run(), 'phoneNotDigits').rows.length === 0,
+    'they key by email, which takes the branch that already falls back to the loaded list');
+
+  /* ⚠ AND A PHONE COLUMN HOLDING WORDS IS THE SAME CUSTOMER, NOT A DIFFERENT ONE.
+     The fixture above has no `phone` key at all, so raw and digits are both ''
+     and the punctuation test answers false on its own — it passes whether the
+     no-digits guard is there or not. A red-check caught exactly that: deleting
+     the guard went straight through. An imported record with "n/a" or "none" in
+     the phone column is what actually reaches it — raw is non-empty, digits are
+     empty, so it LOOKS like punctuation while the customer really keys by email. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'No Phone Given', phone: 'n/a', email: 'e@x.com', housePrice: 400, customerNumber: '207', measuredFeet: 100 } }],
+    i: [{ id: 'e@x.com', data: { name: 'No Phone Given', install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  check('health', 'a phone column holding words rather than a number is NOT flagged',
+    get(hc.run(), 'phoneNotDigits').rows.length === 0,
+    'there are no digits to key by, so they key by email — flagging them points the office ' +
+    'at a phone-format problem that is not the reason their invoice is under that key');
+
+  /* Punctuation but no invoice yet: still worth naming — the next save creates
+     one under a key this record cannot be found by — but the row must say that
+     nothing is at stake today, or it reads as an emergency. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'No Bill Yet', phone: '801.555.0199', housePrice: 400, customerNumber: '206', measuredFeet: 100 } }],
+    i: []
+  });
+  {
+    const rows = get(hc.run(), 'phoneNotDigits').rows;
+    check('health', 'punctuation with no invoice yet is still named',
+      rows.length === 1, 'the risk is latent, and the fix is the same');
+    check('health', 'but the row says there is nothing to lose today',
+      rows.length === 1 && rows[0].detail.indexOf('nothing to lose today') !== -1,
+      'an urgent-sounding row about no money is how the whole panel gets ignored');
+  }
+
+  /* ⚠ AND IT OFFERS NO BUTTON. Rewriting a stored phone changes what the office
+     reads everywhere, and the better repair may be in the query instead — both
+     are decisions, and this row exists to inform one, not to pre-empt it. */
+  hc.set({ j: [], i: [] });
+  check('health', 'the stored-phone row offers no Fix button',
+    !get(hc.run(), 'phoneNotDigits').fix,
+    'a button here would normalise customer-facing data across the whole book without being asked');
+
   /* ⭐ A STREET IN THE TOWN FIELD (added 2026-08-26). The detector is asserted
      against the REAL town list lifted out of admin.html rather than a copy typed
      here, because the whole risk in this check is a false positive: a warning that

@@ -1120,8 +1120,31 @@ a client-side pass over the loaded list, which is a change to a money writer and
 so is not being made in the same pass as the read fixes.
 
 ⚠ **This may be entirely theoretical.** If every `jobAddresses.phone` in the live
-book is already digits-only, there is nothing here. That is one query against
-real data and it has not been run. Do that before building anything on top of it.
+book is already digits-only, there is nothing here.
+
+⭐ **AND IT IS NOW ONE PANEL AWAY, 2026-08-26.** Addie chose *check the real data
+first*, and rather than hand her a console command that answers it once, the
+question is now a Health Check row — **"A stored phone the invoice rebuild cannot
+match"** (`phoneNotDigits`). Empty row ⇒ this is theoretical and Q-019 closes.
+Non-empty ⇒ it names the customers, quotes what is stored beside the key it misses,
+and says whether an invoice with a real total is exposed today.
+
+⚠ **NO FIX BUTTON, and that is the whole question restated.** Two repairs exist and
+they are different decisions: normalise the stored phone (changes what the office
+reads on every screen and export), or normalise the query. **The second is already
+patterned in the same function** — twenty lines above, an email key that fails its
+equality query falls back to the loaded `jobAddresses` list, with a comment saying
+an equality query cannot match a case difference. That is this failure, in this
+function, already solved once for the other branch. It is not applied here because
+changing a money writer is its own change with its own red-check.
+
+⚠ **The row deliberately excludes three shapes**, each for a reason a false positive
+would cost: a house billed elsewhere (reached by the `billToPhone` query, so its own
+phone format cannot hurt it), a customer with no phone (keys by email — the branch
+that already has the fallback), and a phone column holding words rather than digits
+(same reason). ⚠ That last exclusion **was proved by a red-check to be untested** —
+the email-only fixture had no `phone` key at all, so it passed whether the guard
+existed or not. A fixture with `phone: 'n/a'` is what actually reaches it.
 
 Blocks: routing any new caller through `syncPayerInvoice` — which is why the
 "Use This Total for Their Invoice" button was made to *refuse* on a shared bill
