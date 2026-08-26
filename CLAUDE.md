@@ -282,36 +282,36 @@ bash
 # line that used to be here (`git push origin main`) has not worked for a while.
 # The route to production is therefore: branch → push branch → open a PR → both
 # checks go green → merge. Netlify publishes from main once the merge lands.
-# ⚠ AND A PR OPENED THROUGH THE GITHUB APP TOKEN GETS NO CI AT ALL (2026-08-26).
-#   PR #137 sat with ZERO workflow runs on its branch. Nothing was wrong with the
-#   code: tests.yml triggers on `push: branches: [main]` and `pull_request`, so a
-#   branch push is never eligible, and the pull_request event produced no run —
-#   GitHub suppresses workflow triggering from events generated with an app token,
-#   to stop workflows setting each other off. So the two REQUIRED checks never
-#   report, the PR sits blocked for ever, and it reads exactly like a queue.
-#   ⚠ workflow_dispatch RUNS THE TESTS AND DOES NOT UNBLOCK THE MERGE. Run it
-#   against the BRANCH and GitHub does attach the run to the open PR
-#   (`pull_requests:[137]`) and both jobs go green on the exact head SHA — so it is
-#   worth doing, because it is the only way to prove the branch passes CI at all.
-#   ⚠ BUT BRANCH PROTECTION STILL REFUSES: `405 Repository rule violations found —
-#   2 of 2 required status checks are expected`, with mergeable_state "blocked" and
-#   both checks visibly SUCCESS on that SHA. The required contexts have to be
-#   reported by the PULL REQUEST's own check suite, and a dispatched run is not it.
-#   ⚠ THIS LINE FIRST CLAIMED THE OPPOSITE — "its check runs land as the required
-#   contexts and the PR goes green" — written after watching both jobs pass and
-#   BEFORE anybody tried the merge. The jobs passing was verified; the merge
-#   consequence was inferred and was wrong. Corrected within the hour, by pressing
-#   merge and being refused.
-#   ⭐ WHAT IS LEFT IS A HUMAN-GENERATED EVENT, because the whole cause is that an
-#   app token cannot raise one. Any of: the owner pushes a commit to the branch from
-#   her own account; the owner merges in the browser, where an admin can bypass; or
-#   branch protection is changed. ⚠ NOT VERIFIED — none of the three has been tried
-#   here, and this note has already been wrong once by guessing one step past what
-#   was actually observed.
+# ⚠ CI ON A PR OPENED FROM A SESSION LIKE THIS IS UNRELIABLE, NOT ABSENT (2026-08-26).
+#   ⚠ THIS NOTE HAS NOW BEEN WRONG TWICE, both times by generalising from the first
+#   thing observed. Version 1 said workflow_dispatch makes the PR mergeable (it does
+#   not). Version 2 said the pull_request event never fires from an app token (it
+#   does, erratically). What follows is only what was actually watched happen, with
+#   the counts, and no rule inferred on top of it.
+#   WHAT WAS OBSERVED across PRs #137 and #140, same branch, same credentials:
+#     #137 opened, head 784730b .......... no pull_request run at all
+#     push bdda5af ...................... a pull_request run, ~14 minutes late
+#     push 99b9e48 ...................... none
+#     push 1722407 ...................... a pull_request run, ~16 minutes late
+#     #140 opened, head a0dc9df ......... a pull_request run within 2 seconds
+#   So it is not suppressed, and it is not dependable either. Do NOT conclude from
+#   one missing run that CI is broken or that the code is at fault; do not conclude
+#   from one prompt run that it will be there next time.
+#   ⭐ WHAT THE MERGE ACTUALLY NEEDS is a check suite raised by the PULL REQUEST
+#   itself. Verified both ways: with only a dispatched run present, merge returns
+#   `405 Repository rule violations found — 2 of 2 required status checks are
+#   expected` and mergeable_state stays "blocked" with both checks visibly SUCCESS;
+#   #140 carried a real pull_request run and merged normally.
+#   ⭐ workflow_dispatch IS STILL WORTH RUNNING — it is the only way to prove the
+#   branch passes CI when no pull_request run has appeared. It just is not what
+#   satisfies the required contexts, so do not read its green as mergeable.
+#   ⚠ IF THE MERGE IS REFUSED: wait and re-check before doing anything — twice the
+#   run turned up a quarter of an hour later. If it stays absent, it takes a
+#   human-generated event: the owner pushing a commit to the branch from her own
+#   account, or merging in the browser.
 #   ⚠ DO NOT reach for an empty commit or a close-and-reopen to kick CI. Both are
 #   forbidden, and workflow_dispatch is the supported trigger the file already has.
-#   ⚠ A PR opened BY THE OWNER in the browser is unaffected — this is about who
-#   generated the event, not about the branch or the code.
+#   ⚠ A PR opened BY THE OWNER in the browser is unaffected.
 git add index.html admin.html employee.html && git commit -m "..."
 git push -u origin <your-branch>          # then open a PR against main and merge it
 # Cloud Functions:
