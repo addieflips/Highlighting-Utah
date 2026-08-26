@@ -14745,14 +14745,27 @@ function refreshMsgToolbar(){
    the ticks cannot drift apart between four buttons. ⚠ A FAILED WRITE IS COUNTED
    AND REPORTED rather than swallowed — half a move looks exactly like a whole one. */
 async function msgBulkApply(ids, patch, wordDone){
-  let ok = 0, failed = 0;
+  let ok = 0;
+  /* ⭐ THE ONES THAT FAILED KEEP THEIR TICK (changed 2026-08-26). The count already
+     said "9 moved — 3 failed", which is the honest half; what it did next was clear
+     EVERY tick, so the three that failed were indistinguishable from the nine that
+     worked the moment the toast went. Finding them again meant knowing which twelve
+     had been ticked. Left ticked, pressing the button again is the retry. */
+  const stuck = [];
   for(const id of ids){
     try{ await updateDoc(doc(db,'messages',id), patch); ok++; }
-    catch(err){ console.error('Inbox bulk action failed on ' + id + ':', err); failed++; }
+    catch(err){ console.error('Inbox bulk action failed on ' + id + ':', err); stuck.push(id); }
   }
   pickedMsgIds.clear();
+  stuck.forEach(function(id){ pickedMsgIds.add(id); });
+  /* ⚠ THE LIST HAS TO REDRAW, not just the toolbar — the tick boxes are drawn by
+     renderMessagesList, so leaving it out would keep the failed rows selected in
+     pickedMsgIds and show them unticked on screen, which is worse than either. */
+  renderMessagesList();
   refreshMsgToolbar();
-  toast(ok + ' message' + (ok === 1 ? '' : 's') + ' ' + wordDone + (failed ? ' \u2014 ' + failed + ' failed' : ''));
+  toast(ok + ' message' + (ok === 1 ? '' : 's') + ' ' + wordDone +
+    (stuck.length ? ' \u2014 ' + stuck.length + ' failed and ' +
+      (stuck.length === 1 ? 'is' : 'are') + ' still ticked, press again to retry' : ''));
 }
 function pickedIds(){ return Array.from(pickedMsgIds); }
 (function wireMsgToolbar(){
@@ -14793,14 +14806,21 @@ function pickedIds(){ return Array.from(pickedMsgIds); }
        so it is the one bulk action that asks first — and it names the count, because
        the whole point of the toolbar is that it acts on more than one row. */
     if(!confirm('Delete ' + ids.length + ' message' + (ids.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
-    let ok = 0, failed = 0;
+    let ok = 0;
+    const stuck = [];
     for(const id of ids){
       try{ await deleteDoc(doc(db,'messages',id)); ok++; }
-      catch(err){ console.error('Inbox delete failed on ' + id + ':', err); failed++; }
+      catch(err){ console.error('Inbox delete failed on ' + id + ':', err); stuck.push(id); }
     }
+    /* Same rule as msgBulkApply: what failed stays ticked so pressing again retries
+       it, and only it. ⚠ The confirm is not asked a second time by this — pressing
+       the button again is a fresh press and asks again, which is right for a delete. */
     pickedMsgIds.clear();
+    stuck.forEach(function(id){ pickedMsgIds.add(id); });
+    renderMessagesList();
     refreshMsgToolbar();
-    toast(ok + ' deleted' + (failed ? ' \u2014 ' + failed + ' failed' : ''));
+    toast(ok + ' deleted' + (stuck.length ? ' \u2014 ' + stuck.length + ' failed and ' +
+      (stuck.length === 1 ? 'is' : 'are') + ' still ticked, press again to retry' : ''));
   });
 })();
 document.getElementById('msgFilterSelect').addEventListener('change', function(){
@@ -43229,12 +43249,54 @@ function loadScheduledRoutes(){
    holds a snapshot of them. Undefined fields are skipped so an unchanged value
    is never overwritten with a blank. Failures are non-fatal — the customer edit
    itself has already been saved by this point. */
+/* ⭐ A ROUTE THAT WOULD NOT BE REWRITTEN SAYS SO (added 2026-08-26). Owner's rule,
+   2026-08-25: "nothing should fail quietly."
+
+   ⚠ THE CREW PAYS FOR THIS ONE. Both callers below rewrite SAVED route documents —
+   the snapshot the printed sheet is built from — so a refused write leaves the sheet
+   saying something the office has already corrected. Either a crew drives to a house
+   that cancelled, or they arrive at one holding last month's gate code. Both were a
+   console.warn, which is nobody.
+
+   ⚠ ONE NOTE PER SAVE, NOT ONE PER ROUTE. A customer on four upcoming days produces
+   four failures and one problem.
+
+   ⚠ AND IT NAMES THE DATES. "A route could not be updated" cannot be acted on; the
+   dates are what somebody takes to the Routes tab, and they are the sheets that must
+   not be printed until it is sorted. */
+async function noticeRouteStopStuck(what, customerId, dates, err){
+  const who = (function(){
+    const c = jobAddresses.find(function(item){ return item.id === customerId; });
+    return (c && c.data && (c.data.name || c.data.address)) || 'A customer';
+  })();
+  console.error('[HU] could not ' + what + ' on ' + dates.join(', ') + ' for ' + customerId, err);
+  if(typeof toast === 'function'){
+    toast('Saved — but an upcoming route could not be updated. There is a note in the Inbox.');
+  }
+  try{
+    await addDoc(collection(db,'messages'), {
+      topic: 'A Route Sheet Is Out Of Date', folder: 'System',
+      name: who, phone: '', email: '', contactMethod: '',
+      message: who + '’s record was saved, but the upcoming route' +
+        (dates.length === 1 ? '' : 's') + ' for ' + dates.join(', ') +
+        ' could not be updated to match (' + what + ').\n\n' +
+        'The saved route is what the printed crew sheet is built from, so those ' +
+        'sheets are now out of date for this house. Open Routes on ' + dates.join(', ') +
+        ' and check it before anything is printed.',
+      autoQueuedToWarehouse: false, needsReassign: false,
+      createdAt: serverTimestamp()
+    });
+  }catch(noteErr){
+    console.error('[HU] and the note about that route could not be saved either', noteErr);
+  }
+}
 async function resyncSavedRouteStops(customerId, fields){
   const clean = {};
   Object.keys(fields).forEach(function(k){ if(fields[k] !== undefined && fields[k] !== null) clean[k] = fields[k]; });
   if(!Object.keys(clean).length) return;
   const todayStr = toDateStr(new Date());
   const dates = Object.keys(scheduledRoutesCache || {});
+  const stuck = []; let lastErr = null;
   for(let i = 0; i < dates.length; i++){
     if(dates[i] < todayStr) continue;
     const routes = scheduledRoutesCache[dates[i]] || [];
@@ -43245,9 +43307,12 @@ async function resyncSavedRouteStops(customerId, fields){
         return st.id === customerId ? Object.assign({}, st, clean) : st;
       });
       try { await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: updatedStops}); }
-      catch(err){ console.warn('Route stop resync failed for ' + route.id, err); }
+      catch(err){ stuck.push(dates[i]); lastErr = err; }
     }
   }
+  /* One note for the save, however many days it touched. */
+  if(stuck.length) await noticeRouteStopStuck('bring the stop up to date', customerId, stuck, lastErr);
+  return {stuck: stuck.length};
 }
 /* Takes a customer off every UPCOMING saved route. Past routes are left exactly
    as they are - they are history, and rewriting them would change what the crew
@@ -43257,6 +43322,7 @@ async function removeCustomerFromUpcomingRoutes(customerId){
   const todayStr = toDateStr(new Date());
   const dates = Object.keys(scheduledRoutesCache || {});
   let removed = 0;
+  const stuck = []; let lastErr = null;
   for(let i = 0; i < dates.length; i++){
     if(dates[i] < todayStr) continue;
     const routes = scheduledRoutesCache[dates[i]] || [];
@@ -43265,9 +43331,13 @@ async function removeCustomerFromUpcomingRoutes(customerId){
       if(!route.stops || !route.stops.some(function(st){ return st.id === customerId; })) continue;
       const kept = route.stops.filter(function(st){ return st.id !== customerId; });
       try { await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: kept}); removed++; }
-      catch(err){ console.warn('Could not remove stop from ' + route.id, err); }
+      catch(err){ stuck.push(dates[i]); lastErr = err; }
     }
   }
+  /* ⚠ THE WORSE HALF OF THE TWO. A stop that would not come off sends a crew to a
+     house that has cancelled or been deleted — they knock on a door for a job that
+     does not exist, and the stop points at a customer record that may be gone. */
+  if(stuck.length) await noticeRouteStopStuck('take them off the route', customerId, stuck, lastErr);
   return removed;
 }
 /* The one place that flips a customer between Confirmed and Maybe Next Year, so
@@ -46063,6 +46133,29 @@ function hcInvoiceGroups(){
   });
   return groups;
 }
+/* ⭐ CAN THE PUBLIC SITE STILL RAISE THE ALARM (added 2026-08-26).
+   claude/silent-failures.md job 4: a customer wrote to you and the notification
+   failed. The MESSAGE is safe — it is in Firestore and it is in the Inbox — but the
+   nudge that puts it in front of somebody today is not, and index.html cannot report
+   that itself: the public site has no login, and having it post its own complaint
+   into the Inbox would put a note there on behalf of a customer who asked for none.
+
+   ⚠ THE FAULT IT IS FOR HAS ALREADY HAPPENED ONCE, and index.html says so in its own
+   comment: settings/emailjs is staff-only, the public site was denied it, and that
+   "silently disabled every 'you have a new message' email". Nothing anywhere said so.
+   Read once at sign-in, so hcRunChecks — which is synchronous — can just look. */
+let hcNotifyCfg = null;
+async function hcLoadNotifyCfg(){
+  try{
+    const snap = await getDoc(doc(db,'settings','emailjs'));
+    hcNotifyCfg = snap.exists() ? (snap.data() || {}) : {};
+  }catch(err){
+    /* ⚠ LEFT null, NOT {}. Null means "we do not know", and the check below reports
+       nothing rather than announcing the alerts are off because a read failed —
+       which would be a false alarm on the one screen that must not cry wolf. */
+    console.error('[HU] could not read the EmailJS settings for Health Check', err);
+  }
+}
 function hcRunChecks(){
   const checks = [];
   const groups = hcInvoiceGroups();
@@ -46088,6 +46181,28 @@ function hcRunChecks(){
     rows: Object.keys(byNumber).filter(function(n){ return byNumber[n].length > 1; }).map(function(n){
       return {label: 'Number ' + n, detail: byNumber[n].map(function(c){ return hcName(c.data); }).join('  vs  ')};
     })
+  });
+  /* Three fields, named individually — "EmailJS is misconfigured" sends somebody to
+     a settings screen to compare six boxes; "the Notify Template ID is blank" does
+     not. Silent when the settings have not been read yet (see hcLoadNotifyCfg). */
+  checks.push({
+    id: 'notifyOff',
+    title: 'New-message alerts are switched off',
+    why: 'When a customer sends a message, asks to cancel, or approves a quote, the ' +
+         'website emails you about it. Without these settings that email never goes. ' +
+         'The messages still arrive in the Inbox — but nothing tells you they are there.',
+    fix: null,
+    fixNote: 'No button: fill these in under Automation Emails → EmailJS settings.',
+    rows: (function(){
+      if(!hcNotifyCfg) return [];
+      const missing = [];
+      if(!hcNotifyCfg.serviceId) missing.push('Service ID');
+      if(!hcNotifyCfg.notifyTemplateId) missing.push('Notify Template ID');
+      if(!hcNotifyCfg.publicKey) missing.push('Public Key');
+      if(!missing.length) return [];
+      return [{label: 'Missing: ' + missing.join(', '),
+               detail: 'until these are set, nobody is told a customer has written in'}];
+    })()
   });
   const hcCustIdSet = {};
   jobAddresses.forEach(function(c){ hcCustIdSet[c.id] = true; });
@@ -46821,6 +46936,8 @@ function runHealthCheckAuto(){
 }
 function startHealthCheckAuto(){
   if(hcAutoTimer) return;
+  /* Read once, before the first pass. Its own failure is reported inside. */
+  hcLoadNotifyCfg();
   /* A few seconds after login, then every ten minutes. The first attempt waits
      for the listeners; if the data is not in yet it simply tries again on the
      interval rather than reporting on nothing. */

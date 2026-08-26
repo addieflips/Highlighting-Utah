@@ -66,15 +66,39 @@ run), Suite 71b (the two bulk counts), Suite 79 (invoiceAutoSync, run). Roughly 
 sabotages red-checked across them; three checks that were MISSED on the first pass are
 recorded in the code beside the checks that replaced them.
 
+### Two more, after the first pass
+
+| Was | Now | Tier |
+|---|---|---|
+| `resyncSavedRouteStops` / `removeCustomerFromUpcomingRoutes` — `console.warn` (job 7) | one System note per save, naming the customer and the **dates**, because those are the sheets that must not be printed until it is sorted | 3 |
+| The Inbox bulk actions (job 8) | the count was already honest — "9 moved, 3 failed" — but it then cleared **every** tick, so the three that failed were indistinguishable from the nine that worked the moment the toast went. They keep their tick now, and pressing again retries only them | 2 |
+
+### `notifyBusinessOfMessage` — job 4, done from the other end
+
+Revision 2 called this "tier 3 — the Inbox is the place that should notice". Trying to
+make index.html notice was wrong: **the public site has no login**, and having it post
+its own complaint into the Inbox would leave a note there on behalf of a customer who
+asked for none. So it is split.
+
+- **The sender says what happened.** Its `try/catch` never covered the common case —
+  `emailjs.send` returns a **promise**, so a refused send was an unhandled rejection,
+  not something that catch could see. The catch was documented and was wrong about
+  what it was documenting. And two silent `return`s above it — no settings, no script
+   — each stopped *every* alert for *every* customer for as long as they lasted.
+- **The detector is a Health Check row**, `notifyOff`, on the screen the office
+  already opens to be told something is wrong. It names *which* setting is missing,
+  and says nothing at all until the settings have actually been read — `null` means
+  "we do not know", and reporting the alerts as dead because a *read* failed is a
+  false alarm on the one screen that must not cry wolf. (This exact fault has happened
+  once: `settings/emailjs` was staff-only, the public site was denied it, and that
+  "silently disabled every 'you have a new message' email".)
+
 ### Not done, and deliberately
 
 - **The 843 silent early returns.** Still the right call — most are ordinary guards.
 - **§6, silent-but-wrong.** Untouched. Still the most dangerous category and still its
   own job: nothing throws, nothing is caught, and a wrong number surfaces weeks later
   as a customer dispute.
-- **`notifyBusinessOfMessage`** (revision 2's job 4). Not done. The message is safely
-  in Firestore and only the nudge is lost, and the honest fix is for the Inbox to
-  notice — which is a change to the Inbox, not to that catch.
 
 ---
 

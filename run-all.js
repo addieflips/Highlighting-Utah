@@ -3194,9 +3194,31 @@ check('flow', 'route resync only touches upcoming routes',
   'past routes are history and should stay as they were on the day');
 check('flow', 'route resync never blanks an unchanged field',
   /!== undefined && fields\[k\] !== null/.test(admin));
+/* ⚠ THIS MATCHED THE EXACT WORDS 'Route stop resync failed' — a console.warn string
+   — so it broke the moment that warning was replaced by something that actually
+   reaches somebody (2026-08-26). The §7 slow fuse again: pinned to how a thing was
+   spelled rather than to what has to be true. What has to be true is that the write
+   is caught at all, because the jobAddresses write has already happened by then. */
 check('flow', 'route resync failure cannot lose the customer edit',
-  /Route stop resync failed/.test(admin),
+  /\{stops: updatedStops\}\);\s*\}\s*catch/.test(admin),
   'the jobAddresses write happens first and must not be rolled back');
+/* ⭐ AND IT IS NO LONGER ONLY A CONSOLE LINE (2026-08-26). The saved route is what
+   the printed crew sheet is built from, so a refused write leaves that sheet saying
+   something the office has already corrected — a stale gate code, or a house that
+   cancelled and is still on the run. Owner's rule, 2026-08-25: "nothing should fail
+   quietly." */
+check('flow', 'and a route sheet left out of date raises a System note',
+  /async function noticeRouteStopStuck\(/.test(admin) &&
+  /topic: 'A Route Sheet Is Out Of Date'/.test(admin),
+  'a console.warn is nobody, and the crew is the one who pays for it');
+check('flow', 'both the resync and the removal report into it',
+  (admin.match(/noticeRouteStopStuck\('/g) || []).length === 2,
+  'found ' + (admin.match(/noticeRouteStopStuck\('/g) || []).length + ' of 2 — a stop ' +
+  'that would not come off sends a crew to a house that has cancelled, which is the ' +
+  'worse of the two');
+check('flow', 'and one note per save, not one per day the customer is on',
+  /if\(stuck\.length\) await noticeRouteStopStuck/.test(admin),
+  'a customer on four upcoming days is four failures and one problem');
 
 gap('editing House Price updates the existing invoice',
   /invoiceUpdates\.install\s*=\s*newHousePrice/.test(editSave),
@@ -3502,9 +3524,68 @@ console.log('\n=== 7. Health check engine ===');
      checks the same id. If a new check really is needed, give it its own id
      and change this number in the same edit.
      The count is deliberately hard-coded: a check silently disappearing is
-     exactly the kind of thing nobody notices. */
-  check('health', 'all 19 checks present',
-    all.length === 19, 'got ' + all.length);
+     exactly the kind of thing nobody notices.
+     ⭐ 20 SINCE 2026-08-26: 'notifyOff'. claude/silent-failures.md job 4 — a customer
+     writes in and the email telling you about it never goes, because settings/emailjs
+     is unset or (as happened once) unreadable from the public site. index.html cannot
+     report that itself: it has no login, and posting its own complaint into the Inbox
+     would leave a note there on behalf of a customer who asked for none. This is the
+     screen the office already opens to be told something is wrong. */
+  check('health', 'all 20 checks present',
+    all.length === 20, 'got ' + all.length);
+  /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
+     form is truthy whatever happens and proves nothing. Red-checking caught it:
+     renaming the id sailed straight through. */
+  check('health', 'and the one that says the alerts are dead is among them',
+    all.some(c => c.id === 'notifyOff'),
+    'the messages still reach the Inbox; what stops is anybody being told');
+  check('health', 'it names WHICH setting is missing',
+    /Notify Template ID/.test(admin) && /Public Key/.test(admin),
+    '"EmailJS is misconfigured" sends somebody to compare six boxes by eye');
+  check('health', 'and it says nothing at all until the settings have been read',
+    /if\(!hcNotifyCfg\) return \[\];/.test(admin) && /let hcNotifyCfg = null;/.test(admin),
+    'null means "we do not know" — reporting the alerts as off because a READ ' +
+    'failed is a false alarm on the one screen that must not cry wolf');
+  /* ⭐ AND THE OTHER HALF OF THAT JOB LIVES IN index.html (2026-08-26). The check
+     above is the DETECTOR for alerts being switched off; this is the sender itself.
+     ⚠ Its try/catch never covered the common case: emailjs.send returns a PROMISE, so
+     a refused send — a bad template id, a blocked request, EmailJS over quota — was an
+     unhandled rejection, not something that catch could see. The catch was documented
+     and was wrong about what it was documenting. */
+  {
+    const index = publicSite;
+    const at = index.indexOf('function notifyBusinessOfMessage(');
+    let d = 0, end = at;
+    if (at > 0) { for (end = index.indexOf('{', at);; end++) { if (index[end] === '{') d++; else if (index[end] === '}') { d--; if (!d) break; } } }
+    const notify = at > 0 ? index.slice(at, end + 1) : '';
+    check('health', 'the "new message" alert was found', !!notify);
+    check('health', 'a send the mail service refuses is caught, not an unhandled rejection',
+      /emailjs\.send\([^;]*\)\s*\r?\n?\s*\.catch\(/.test(notify),
+      'emailjs.send returns a promise; the try/catch around it only ever caught a ' +
+      'synchronous throw, which is not how a refused send arrives');
+    /* ⚠ EACH EXIT, NOT A TOTAL. The first version counted console calls and asked for
+       three or more — which passed with one of the three exits made silent again,
+       because the others made up the number. Red-checking caught it. */
+    check('health', 'and neither silent exit just returns any more',
+      !/\)\s*return;/.test(stripComments(notify)) &&
+      /EmailJS is not configured/.test(notify) && /did not load/.test(notify),
+      'no settings and no script each stopped every alert for every customer, for as ' +
+      'long as it lasted, with nothing anywhere saying so');
+    check('health', 'and a refused send says which of the two it was',
+      /could not be sent at all/.test(notify) && /refused by EmailJS/.test(notify),
+      '"the alert failed" does not separate our configuration from their service');
+    /* ⚠ COMMENTS STRIPPED. The word "throw" appears in the comment explaining that a
+       synchronous throw is swallowed here — a plain search finds the explanation and
+       reports it as the violation, which is the trap Suite 58 already learned. */
+    check('health', 'and it still never blocks the message from saving',
+      !/\bthrow\b/.test(stripComments(notify)) && !/return false/.test(notify),
+      'the message is the thing that matters and it is already in Firestore; the ' +
+      'nudge is the nice-to-have');
+  }
+  check('health', 'and something actually reads them',
+    /hcLoadNotifyCfg\(\);/.test(admin) &&
+    /function startHealthCheckAuto\(\)\{[\s\S]{0,300}hcLoadNotifyCfg\(\);/.test(admin),
+    'a check reading a field nobody writes is how the Contact 2027 tab shipped');
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');
@@ -27872,7 +27953,9 @@ suite('Suite 72. An RSVP never goes to somebody who has never had lights');
  * same trap the two duplicate-customer tools set (Suite 42).
  */
 suite('Suite 71b. Bulk actions say how many really went through');
-{
+/* ⚠ async because the Inbox check below RUNS msgBulkApply. pendingAsync is awaited by
+   the summary; a check that scores after it can never fail the build. */
+pendingAsync.push((async () => {
   const queueBtn = sectionFrom(admin, admin.indexOf("if(btn) btn.addEventListener('click', async function(){\n    if(!confirm('Send '"));
   const queue = queueBtn || admin.slice(admin.indexOf("Send ' + notFlagged.length + ' customer(s) to the build queue"),
                                         admin.indexOf("whFindNotQueuedBtn').click();"));
@@ -27903,7 +27986,58 @@ suite('Suite 71b. Bulk actions say how many really went through');
     'came back on the next Find conflicts looking like the button did not work');
   check('S71b', 'and says when some would not clear',
     /would not clear/.test(stale));
-}
+
+  /* ⭐ THE INBOX ALREADY SAID "9 of 12" — AND THEN LOST THE THREE (2026-08-26).
+     claude/silent-failures.md §5 has this one half right: msgBulkApply did report
+     the failures, so the count was honest. What it did next was clear EVERY tick,
+     so the moment the toast went the three that failed were indistinguishable from
+     the nine that worked, and finding them again meant remembering which twelve had
+     been ticked in the first place. Left ticked, pressing the button again IS the
+     retry, and it retries only them.
+
+     ⚠ RUN, not matched: the claim is about which rows are still selected. */
+  {
+    const src = (function(){
+      const at = admin.indexOf('async function msgBulkApply(');
+      if (at < 0) return '';
+      let d = 0;
+      for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+        if (admin[i] === '{') d++;
+        else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+      }
+      return '';
+    })();
+    check('S71b', 'msgBulkApply was found to run', !!src);
+    if (src) {
+      const picked = new Set(['a', 'b', 'c']);
+      const toasts = [];
+      let drew = 0;
+      const fn = new Function('updateDoc', 'doc', 'db', 'pickedMsgIds', 'refreshMsgToolbar',
+        'renderMessagesList', 'toast', 'console',
+        src + ';return msgBulkApply;'
+      )(async (ref) => { if (ref.id === 'b') throw new Error('Missing or insufficient permissions.'); },
+        (db, col, id) => ({col: col, id: id}), {}, picked, () => {}, () => { drew++; },
+        (t) => toasts.push(t), {error(){}, log(){}, warn(){}});
+
+      await fn(['a', 'b', 'c'], {folder: 'Done'}, 'moved');
+      check('S71b', 'the ones that worked lose their tick',
+        !picked.has('a') && !picked.has('c'));
+      check('S71b', 'and the one that failed keeps it, so pressing again retries it',
+        picked.has('b') && picked.size === 1,
+        'still ticked: ' + Array.from(picked).join(', ') + ' — clearing every tick made ' +
+        'the failures indistinguishable from the successes the moment the toast went');
+      check('S71b', 'the count is what really went through',
+        toasts.some(t => /^2 messages moved/.test(t)), 'got: ' + toasts.join(' | '));
+      check('S71b', 'and it says the failures are still ticked',
+        toasts.some(t => /still ticked, press again to retry/.test(t)),
+        'a tick nobody is told about is a tick nobody uses');
+      check('S71b', 'and the list is redrawn, not just the toolbar',
+        drew === 1,
+        'the tick boxes are drawn by renderMessagesList — without it the rows would ' +
+        'be selected in pickedMsgIds and unticked on screen, which is worse than either');
+    }
+  }
+})());
 
 suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
 {
