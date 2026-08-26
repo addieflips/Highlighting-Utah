@@ -734,7 +734,18 @@ check('the portal balance is cent-rounded the way the office copy is',
     const onBillServer = compile([serverBillSrc], 'houseIsOnTheBillServer');
 
     // Every combination that can reach either copy, not a hand-picked few.
-    const STATES = ['', 'yes', 'no', 'backnextyear', 'unanswered', 'YES', 'BackNextYear', '  no  '];
+    /* The extra spellings are folded in from the billing-groups branch's own sweep,
+       when the two copies of this rule were collapsed into one (2026-08-26).
+       ⚠ AND NONE OF THEM CATCHES ANYTHING THE LIST ALREADY CAUGHT — measured, not
+       assumed: dropping ' backnextyear ' and then removing .trim() from a copy still
+       FAILS, because '  no  ' was already here and the trim is shared by every
+       branch. 'maybe' and 'cancelled' are covered the same way by 'unanswered'.
+       They are kept as symmetry insurance for the day a branch grows its own
+       normalisation, which is worth four array entries and is NOT the same claim as
+       "these find a bug today". Said plainly so nobody reads this list as proof of
+       coverage it does not give. */
+    const STATES = ['', 'yes', 'no', 'NO', 'backnextyear', 'unanswered', 'YES',
+                    'BackNextYear', '  no  ', ' backnextyear ', 'maybe', 'cancelled'];
     const DONE = [true, false, undefined, null, 'true', 1, 0];
     const MAYBE = [true, false, undefined, null];
     let compared = 0, disagreed = 0, firstBad = null;
@@ -782,6 +793,14 @@ check('the portal balance is cent-rounded the way the office copy is',
       onBill({ rsvpStatus: 'no', completed: false }) === false &&
       onBillServer({ rsvpStatus: 'no', completed: false }) === false,
       'not what was asked about; changing it would have widened the ruling');
+    /* ⚠ AND A FLAT "no" IS OUT WHETHER OR NOT IT WAS INSTALLED — the `completed`
+       early return must not rescue it. The cross product above proves the two copies
+       AGREE about that case; this proves the answer is right. Folded in from the
+       billing-groups branch's sweep, 2026-08-26. */
+    check('and a flat "no" stays out even on a house that was installed',
+      onBill({ rsvpStatus: 'no', completed: true }) === false &&
+      onBillServer({ rsvpStatus: 'no', completed: true }) === false,
+      'the completed branch must not reopen a path that was already settled');
   }
 }
 
