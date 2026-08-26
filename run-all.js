@@ -4579,6 +4579,79 @@ suite('11. Reliability pass');
     /invoicedAt: null/.test(admin),
     "last year's date would make every new invoice read as ~10 months overdue");
 
+  /* ⭐ AND THE FOURTH READER WAS NEVER WIRED UP (added 2026-08-26).
+     The two checks above assert invoicedAt is WRITTEN, and the comment beside them in
+     functions/index.js names the four places it is READ — the {{due_date}} on the
+     email, the printed invoice's date, the office copy of the due-date maths, and the
+     Overdue flag. Three of the four were changed to read it. isInvoiceOverdue was
+     not, and went on counting from updatedAt.
+
+     ⚠ SO THE PAPER AND THE SCREEN DISAGREED IN THE CUSTOMER'S FAVOUR, silently.
+     updatedAt moves whenever anybody touches the record — a corrected spelling, a
+     re-sync from the master sheet, syncPayerInvoice rebuilding the payer's group — so
+     every edit pushed the Overdue clock 30 days out and stopped a genuinely late bill
+     being chased, while the invoice in the customer's hand still said the original
+     due date. Nothing threw and nothing was logged: the row just left the list.
+
+     ⚠ RUN, not matched. The claim is about WHICH DAY a bill starts counting from, and
+     a regex over the source cannot see an arithmetic that reads the wrong field. */
+  {
+    const issuedSrc = extractFn(admin, 'invoiceIssuedAt');
+    const overdueSrc = extractFn(admin, 'isInvoiceOverdue');
+    check('reliability', 'the issued-date rule and the Overdue flag were both found',
+      !!issuedSrc && !!overdueSrc);
+    if (issuedSrc && overdueSrc) {
+      const toJsDate = (v) => (v && typeof v.toDate === 'function') ? v.toDate()
+        : (v instanceof Date ? v : null);
+      const issuedAt = new Function('toJsDate', 'return ' + issuedSrc + ';invoiceIssuedAt')(toJsDate);
+      const overdue = new Function('computeInvoiceStatus', 'OVERDUE_DAYS', 'invoiceIssuedAt',
+        'return ' + overdueSrc + ';isInvoiceOverdue'
+      )(computeInvoiceStatus, 30, issuedAt);
+
+      const ago = (n) => ({ toDate: () => new Date(Date.now() - n * 86400000) });
+      const owing = { install: 400, removal: 0, deposit: 0, credits: 0, changeFees: 0 };
+
+      check('reliability', 'a bill issued 40 days ago is overdue',
+        overdue(Object.assign({}, owing, { invoicedAt: ago(40), updatedAt: ago(40) })) === true);
+      /* THE BUG, stated as the case that produced it. */
+      check('reliability', 'and editing it yesterday does NOT reset the clock',
+        overdue(Object.assign({}, owing, { invoicedAt: ago(40), updatedAt: ago(1) })) === true,
+        'correcting a spelling used to push the due date another 30 days out and take ' +
+        'a genuinely overdue bill off the list, while the customer\'s copy still said ' +
+        'the original date');
+      check('reliability', 'a bill issued 10 days ago is not overdue',
+        overdue(Object.assign({}, owing, { invoicedAt: ago(10), updatedAt: ago(10) })) === false);
+      check('reliability', 'and a bill paid in full never is, however old',
+        overdue({ install: 400, removal: 0, deposit: 400, credits: 0, changeFees: 0,
+                  invoicedAt: ago(400), updatedAt: ago(400) }) === false);
+      /* ⚠ The fallback is not the bug and must survive: an invoice that has never been
+         through the nightly run has no invoicedAt, and dropping the fallback would
+         make every one of those un-datable rather than merely un-billed. */
+      check('reliability', 'an invoice never issued still dates from its own write',
+        overdue(Object.assign({}, owing, { updatedAt: ago(40) })) === true &&
+        overdue(Object.assign({}, owing, { updatedAt: ago(10) })) === false);
+      check('reliability', 'and no date at all is not overdue, rather than overdue since the epoch',
+        overdue(Object.assign({}, owing)) === false,
+        'an invoice that was never issued has not been billed; chasing it is chasing nobody');
+      check('reliability', 'the printed due date reads the same rule as the flag',
+        issuedAt({ invoicedAt: ago(40), updatedAt: ago(1) }).getTime() ===
+        ago(40).toDate().getTime(),
+        'the whole point is that the paper and the screen cannot disagree');
+    }
+    /* ⚠ AND NO FIFTH COPY. This bug was one reader left behind when three were
+       changed; the guard against it happening again is that there is only one place
+       to change. */
+    /* ⚠ THE HELPER'S OWN BODY IS THE ONE PLACE ALLOWED TO SPELL IT OUT, so it is cut
+       out before looking — the first version of this check matched the declaration
+       and failed on code that is right. */
+    const outsideHelper = admin.replace(issuedSrc || '~~none~~', '');
+    check('reliability', 'nothing computes an issue date its own way any more',
+      !/toJsDate\([^)]*\.invoicedAt\)/.test(outsideHelper) &&
+      (admin.match(/invoiceIssuedAt\(/g) || []).length >= 5,
+      'found ' + (admin.match(/invoiceIssuedAt\(/g) || []).length + ' uses — one ' +
+      'declaration plus the four readers');
+  }
+
   // ---- 2.6 Bin numbers on Delete All -------------------------------------
   /* ⚠ THIS WAS A FIXED 2600-CHARACTER WINDOW AND IT WENT STALE, exactly as CLAUDE.md
      §7 says these always do: a comment added inside the handler on 2026-08-26 pushed
@@ -5828,6 +5901,13 @@ if (!JSDOM) {
       computeInvoiceStatus: computeInvoiceStatus,
       esc: s => String(s == null ? '' : s),
       toJsDate: v => (v instanceof Date ? v : null),
+      /* ⭐ THE ONE ANSWER TO "WHEN WAS THIS ISSUED", LIFTED — not a stub (2026-08-26).
+         It decides the due date printed on the customer's copy, so a stub here would
+         make the printed date agree with itself and prove nothing. It closes over the
+         harness's own toJsDate, which is why it is built with that passed in. */
+      invoiceIssuedAt: new Function('toJsDate',
+        'return ' + extractFn(admin, 'invoiceIssuedAt') + ';invoiceIssuedAt'
+      )(v => (v instanceof Date ? v : null)),
       addDays: (d, n) => new Date((d instanceof Date ? d.getTime() : Date.now()) + n * 86400000),
       niceDate: () => 'Nov 20, 2026',
       invoiceNumberFor: () => 'INV-0001',

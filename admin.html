@@ -6562,7 +6562,7 @@ async function resolveLinkTokens(text, phone, amount, opts){
   if(out.indexOf('{{due_date}}') !== -1){
     const dueKey = (String(phone||'').replace(/\D/g,'')) || String(phone||'').toLowerCase().trim();
     const dueInv = allInvoicesCache.find(i => i.id === dueKey);
-    const issued = (dueInv && (toJsDate(dueInv.data.invoicedAt) || toJsDate(dueInv.data.updatedAt))) || new Date();
+    const issued = (dueInv && invoiceIssuedAt(dueInv.data)) || new Date();
     out = out.split('{{due_date}}').join(niceDate(addDays(issued, PAYMENT_TERMS_DAYS)));
   }
   if(out.indexOf('{{feet_line}}') !== -1 || out.indexOf('{{new_member_fee_line}}') !== -1 || out.indexOf('{{amount_due}}') !== -1 || out.indexOf('{{amount_paid}}') !== -1){
@@ -13267,6 +13267,36 @@ function invoiceNumberFor(invoiceKey, year){
 }
 function addDays(date, n){ const d = new Date(date.getTime()); d.setDate(d.getDate() + n); return d; }
 function niceDate(d){ return d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); }
+/* ⭐ THE DAY AN INVOICE WAS ISSUED — ONE ANSWER (added 2026-08-26).
+   Payment terms run 30 days from the invoice DATE, so this decides both the due date
+   printed on the customer's copy and whether the office list calls a bill Overdue.
+
+   ⚠ IT WAS FOUR COPIES AND ONE OF THEM WAS WRONG. functions/index.js stamps
+   `invoicedAt` once and never moves it, and its comment there says in as many words
+   that the date "was read in four places — the {{due_date}} on the email, the printed
+   invoice's date, the Overdue flag, and the office copy of the due-date maths". Three
+   of those four were changed to read it. `isInvoiceOverdue` was not, and went on
+   counting from `updatedAt`.
+
+   ⚠ SO THE PAPER AND THE SCREEN DISAGREED, SILENTLY AND IN THE CUSTOMER'S FAVOUR.
+   `updatedAt` moves every time anybody touches the record for any reason — correcting
+   a spelling, a re-sync from the sheet, syncPayerInvoice rebuilding the group — so
+   each edit pushed the Overdue clock a further 30 days out and un-flagged a bill that
+   really was overdue. Nothing threw, nothing was logged: the row just quietly stopped
+   being chased while the invoice in the customer's hand still said the same due date.
+
+   ⚠ THE `updatedAt` FALLBACK STAYS, and is not the bug. An invoice that has never
+   been through the nightly run has no `invoicedAt` at all — and has not been billed
+   either, so what it counts from is moot. Dropping the fallback would make every one
+   of those un-datable instead.
+
+   Returns null rather than `new Date()` for "no date at all": today is the right
+   default for something being PRINTED, and exactly the wrong one for deciding
+   whether a bill is late, so that choice belongs to each caller. */
+function invoiceIssuedAt(d){
+  if(!d) return null;
+  return toJsDate(d.invoicedAt) || toJsDate(d.updatedAt) || null;
+}
 function toJsDate(ts){
   if(!ts) return null;
   if(typeof ts.toDate === 'function') return ts.toDate();
@@ -13370,10 +13400,14 @@ function buildInvoiceDocHtml(member){
   const feetLineLabel = feetLabelFor(feet);
   const feetLineAmount = fmtMoney(basePrice || (total - (isNewMember && !newMemberFeeAlreadyApplied ? 30 : 0)));
   const showNewMemberLine = isNewMember && (!inv || newMemberFeeAlreadyApplied || (total - basePrice) === 30);
-  /* Dates. The invoice date is when the invoice was last written (the same
-     stamp the Overdue flag counts from), so the printed due date and the admin
-     list can never disagree. */
-  const invoiceDate = (inv && (toJsDate(inv.invoicedAt) || toJsDate(inv.updatedAt))) || new Date();
+  /* Dates. The invoice date is the day it was ISSUED — invoiceIssuedAt, the same
+     one answer the Overdue flag counts from, so the printed due date and the admin
+     list cannot disagree.
+     ⚠ THIS COMMENT USED TO SAY "when the invoice was last written", and by
+     2026-08-26 that was untrue of both halves of its own claim: this line already
+     read invoicedAt, and the Overdue flag was the only thing still counting from
+     updatedAt — so the two it promised could never disagree, did. */
+  const invoiceDate = (inv && invoiceIssuedAt(inv)) || new Date();
   const dueDate = addDays(invoiceDate, PAYMENT_TERMS_DAYS);
   const paidDate = inv ? (toJsDate(inv.lastPaymentAt) || toJsDate(inv.updatedAt)) : null;
   const season = invoiceDate.getFullYear();
@@ -13641,7 +13675,7 @@ async function invTestSend(){
     body = body.split('{{fee_lines}}').join(feeLines);
     body = body.split('{{amount_due}}').join(fmtMoney(amountDue));
     body = body.split('{{amount_paid}}').join(fmtMoney(deposit));
-    const issuedOn = toJsDate(inv.invoicedAt) || toJsDate(inv.updatedAt) || new Date();
+    const issuedOn = invoiceIssuedAt(inv) || new Date();
     body = body.split('{{due_date}}').join(niceDate(addDays(issuedOn, PAYMENT_TERMS_DAYS)));
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || key, amountDue);
     body = body.replace(/\n/g, '<br>');
@@ -14920,8 +14954,16 @@ const OVERDUE_DAYS = 30;
 function isInvoiceOverdue(d){
   const status = computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees);
   if(status === 'Paid in Full') return false;
-  if(!d.updatedAt || !d.updatedAt.toDate) return false;
-  const days = (Date.now() - d.updatedAt.toDate().getTime()) / 86400000;
+  /* ⚠ FROM THE DAY IT WAS ISSUED, NOT THE LAST TIME ANYBODY TOUCHED IT. Counting
+     from updatedAt meant every edit — a corrected spelling, a re-sync, syncPayerInvoice
+     rebuilding the payer's group — pushed this a further 30 days out and quietly
+     un-flagged a bill that really was late, while the copy in the customer's hand went
+     on saying the original due date. See invoiceIssuedAt.
+     ⚠ NO DATE MEANS NOT OVERDUE, never "overdue since the epoch": an invoice that has
+     never been issued has not been billed, and chasing it would be chasing nobody. */
+  const issued = invoiceIssuedAt(d);
+  if(!issued) return false;
+  const days = (Date.now() - issued.getTime()) / 86400000;
   return days >= OVERDUE_DAYS;
 }
 function loadInvoices(){
