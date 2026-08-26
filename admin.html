@@ -2990,7 +2990,7 @@
       <div class="et-popup-overlay" id="icOverlay">
         <div class="et-popup" style="max-width:560px;">
           <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Insert Codes</h3>
-          <p style="margin:0 0 12px; font-size:13px; color:var(--slate);">Check what you want, then insert &mdash; they'll drop in right where your cursor was in the body.</p>
+          <p style="margin:0 0 12px; font-size:13px; color:var(--slate);">Check what you want, then insert &mdash; they'll drop in right where your cursor was in the body. A code ending in <strong>_button</strong> is a big coloured block; one ending in <strong>_link</strong> or <strong>{{link}}</strong> prints the whole web address. To put a link behind your own words, use <span class="et-code-token">{{link:your words here}}</span> and edit the words after inserting it. To build a code of your own, use <strong>Manage custom codes</strong> below.</p>
           <input type="text" id="icSearchInput" placeholder="Search codes..." style="margin-bottom:12px;">
           <div class="et-tab-row" id="icTabs">
             <button type="button" class="et-tab-btn active" data-ictab="general">General</button>
@@ -5672,6 +5672,68 @@ function quoteButtonLabels(d){
     ? {approve:'Yes, add it', maybe:'Maybe Next Year', decline:'No thanks \u2014 just my usual lights'}
     : {approve:'Approve Quote', maybe:'Maybe Next Year', decline:'Decline Quote'};
 }
+/* ⭐ ONE PLACE THAT MINTS A QUOTE TOKEN (added 2026-08-26).
+ *
+ * It was written out four times, identically, and the shape was
+ * 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now() — 28
+ * characters, of which THIRTEEN were a timestamp nothing has ever read. The
+ * token is opaque everywhere: both Cloud Functions find a quote with
+ * .where('quoteToken','==',token) and nothing in any of the three HTML files
+ * parses it. So the timestamp bought nothing and cost half the length of the
+ * link that goes in a text message.
+ *
+ * ⚠ AND substr(2,16) NEVER PRODUCED 16 CHARACTERS. Math.random().toString(36)
+ * is about 13 characters all in, so it yielded ~11 — the count was aspirational.
+ * Worth knowing before anybody "restores" it as the stronger option.
+ *
+ * ⚠ crypto.getRandomValues, NOT Math.random. This string is the only thing
+ * standing between a stranger and somebody's quote — V8's Math.random is
+ * xorshift128+, which is reconstructable from a handful of outputs, and a quote
+ * page shows a name, an address and a price. 12 characters from a 32-letter
+ * alphabet is ~60 bits. The Math.random fallback is kept only so that a browser
+ * without crypto still sends the quote rather than failing at the last step;
+ * it is the old behaviour, not a new weakness.
+ *
+ * ⚠ THE ALPHABET DROPS l, o, 0 AND 1. This token now shows up in a text message
+ * where somebody may read it aloud or type it, and those four are the pairs
+ * people get wrong.
+ *
+ * ⚠ EXISTING TOKENS ARE UNTOUCHED and keep working at both the long and the
+ * short address. This only changes what NEW quotes get.
+ */
+const QUOTE_TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+function newQuoteToken(){
+  const n = 12;
+  let out = '';
+  try{
+    const buf = new Uint8Array(n);
+    crypto.getRandomValues(buf);
+    for(let i = 0; i < n; i++) out += QUOTE_TOKEN_ALPHABET[buf[i] % QUOTE_TOKEN_ALPHABET.length];
+  } catch(err){
+    /* Reported rather than swallowed: falling back is safe, but silently using
+       the weaker generator for ever is the kind of thing nobody discovers. */
+    console.warn('[HU] crypto.getRandomValues unavailable — quote token fell back to Math.random', err);
+    out = '';
+    for(let i = 0; i < n; i++) out += QUOTE_TOKEN_ALPHABET[Math.floor(Math.random() * QUOTE_TOKEN_ALPHABET.length)];
+  }
+  return 'qt_' + out;
+}
+/* ⭐ THE SHORT ADDRESS FOR A QUOTE (added 2026-08-26). Owner: "I don't want a
+   long link." Same page, same token, ~40 characters less of it — see the block
+   above the router in index.html for how /q/<token> resolves.
+
+   ⚠ NO https:// AND NO www. Phones linkify a bare highlightingutah.com/... and
+   the eight characters matter here: this is the difference between one billed
+   text message and two. The long form is left exactly as it is everywhere else,
+   because an email has no length problem and those links are already sent.
+
+   ⚠ IT CARRIES ?p= WHEN THERE IS ONE, under the same name the long link uses,
+   so an existing member is still let straight in. */
+function quoteShortLink(d){
+  const portal = quotePortalParam(d);          /* '&p=...' or '' */
+  return 'highlightingutah.com/q/' + (d.quoteToken || '') +
+    (portal ? ('?' + portal.slice(1)) : '');
+}
 function quotePortalParam(d){
   const c = quoteExistingCustomer(d);
   const t = c && c.data ? c.data.portalToken : '';
@@ -6504,7 +6566,7 @@ async function addOnEmailBlock(customerId){
      warning itself was first written with the offending characters in it. */
   if(!q.data.quoteToken){
     try{
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       await updateDoc(doc(db,'quotes', q.id), {quoteToken: token});
       q.data.quoteToken = token;
     }catch(err){
@@ -6611,10 +6673,95 @@ function hlxEmailCustomer(phone, opts){
   });
   return hits.length === 1 ? hits[0].data : null;
 }
+/* ⭐ A LINK BEHIND HER OWN WORDS (added 2026-08-26). Owner, on the quote
+   message: "I don't want a long li[n]k... I want it to say 'See your home and
+   approve here.' The link will be behind here?"
+
+   Until now a quote link had exactly two shapes: {{link}}, which prints the
+   whole 80-character URL in the middle of a sentence, and {{link_button}}, a
+   big gold block whose words are ours and not hers. There was no way to write
+   an ordinary sentence and put the link behind part of it. {{link:the words}}
+   is that third shape — whatever she types after the colon becomes the visible
+   text and the quote URL sits behind it.
+
+   ⚠ THE WORDS ARE ESCAPED, THE URL IS NOT — deliberately, and it matches every
+   other anchor in this file. The URL is one we build out of the quote token;
+   the words are typed into a box, so an apostrophe or an ampersand in "Bob &
+   Sue's quote" must not be able to break the tag it sits in.
+
+   ⚠ ONLY & < > AND " ARE ESCAPED, NOT THE APOSTROPHE, even though esc() here
+   does escape it. That is not an oversight: escServer in functions/index.js
+   escapes four, this rule exists TWICE (see applyQuoteLinkLabelServer), and
+   two copies that escape different characters send two different emails for
+   the same template the moment somebody writes "Here's". The escaping is
+   written out inside both copies rather than borrowed from either file's
+   general helper, so the two cannot drift apart through a change to something
+   else.
+
+   ⚠ AND A BLANK LABEL FALLS BACK TO "here" rather than rendering an empty
+   anchor. {{link:}} with nothing between is a link nobody can see or press —
+   the message reads as if the link were simply missing. */
+const QUOTE_LINK_LABEL_STYLE = 'color:#1E3B2C; font-weight:bold; text-decoration:underline;';
+/* The gold block, hoisted out of resolveLinkTokens so the server copy can be
+   held to the same string. Its value is unchanged — portal_button, pay_button
+   and view_portal_button still read it through btnStyleGold. */
+const QUOTE_LINK_BUTTON_STYLE = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+const QUOTE_LINK_BUTTON_DEFAULT = 'View & Respond';
+/* ⭐ THE BUTTON TAKES HER WORDS TOO (added 2026-08-26). {{link_button}} on its
+   own still says "View & Respond", the words it has always said;
+   {{link_button:See your home and approve}} says hers.
+
+   ⚠ AND THIS CLOSED A REAL LEAK. The nightly nudge renderer in
+   functions/index.js knew about {{name}}, {{price}}, {{price_block}},
+   {{photo}}, the three quote buttons and {{link}} — and NOT {{link_button}}.
+   So a Nudge template with a button in it rendered properly when the office
+   pressed Send and mailed the customer the literal text "{{link_button}}" when
+   the 7 PM batch sent the same template. Exactly the {{photo}} bug of
+   2026-08-17, in the one token nobody had checked. applyQuoteLinkButtonServer
+   is the other half, and Suite 279 runs them side by side.
+
+   ⚠ THE LABEL IS ESCAPED EVEN WHEN IT IS OURS. One path, no special case —
+   "View &amp; Respond" reads as "View & Respond" and is the valid spelling;
+   a branch that skips escaping for the default is a branch that eventually
+   gets handed something that is not the default. */
+function applyQuoteLinkButton(text, url, defaultLabel){
+  const fallback = String(defaultLabel || QUOTE_LINK_BUTTON_DEFAULT);
+  return String(text == null ? '' : text).replace(/\{\{link_button(?::([^{}]*))?\}\}/g, function(_m, words){
+    const label = (words == null ? '' : String(words)).trim() || fallback;
+    const safe = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">' + safe + '</a>';
+  });
+}
+function applyQuoteLinkLabel(text, url){
+  return String(text == null ? '' : text).replace(/\{\{link:([^{}]*)\}\}/g, function(_m, words){
+    const label = String(words).trim() || 'here';
+    const safe = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return '<a href="' + url + '" style="' + QUOTE_LINK_LABEL_STYLE + '">' + safe + '</a>';
+  });
+}
+/* The same token in a TEXT MESSAGE, where there is no such thing as a link
+   behind a word — a text is plain characters and nothing else. It keeps her
+   words and drops the token, and the SMS builder's existing "append the link if
+   it is not already in the message" rule then puts the URL on its own line
+   underneath. So the same template gives her the sentence she asked for in an
+   email and the closest a text can get to it. */
+function quoteLinkLabelPlain(text){
+  return String(text == null ? '' : text)
+    .replace(/\{\{link:([^{}]*)\}\}/g, function(_m, words){
+      return String(words).trim() || 'here';
+    })
+    /* The button token too — a text has no buttons either, and until now a
+       {{link_button}} left in a text template went to the customer as those
+       exact fifteen characters. Its words survive; the URL still lands on the
+       line underneath. */
+    .replace(/\{\{link_button(?::([^{}]*))?\}\}/g, function(_m, words){
+      return (words == null ? '' : String(words)).trim() || QUOTE_LINK_BUTTON_DEFAULT;
+    });
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
-  const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+  const btnStyleGold = QUOTE_LINK_BUTTON_STYLE;
   if(opts.name !== undefined) out = out.split('{{name}}').join(opts.name || 'there');
   if(opts.price !== undefined){
     out = out.split('{{price}}').join(opts.price || '');
@@ -6632,8 +6779,12 @@ async function resolveLinkTokens(text, phone, amount, opts){
   }
   if(opts.setupFeeLine !== undefined) out = out.split('{{setup_fee_line}}').join(opts.setupFeeLine || '');
   if(opts.link){
+    /* Labelled first. {{link}} is matched as a literal string, so it can never
+       eat the front of a {{link:...}} — but the reading order should match the
+       specific-before-general rule the rest of this function follows. */
+    out = applyQuoteLinkLabel(out, opts.link);
     out = out.split('{{link}}').join(opts.link);
-    out = out.split('{{link_button}}').join('<a href="'+opts.link+'" style="'+btnStyleGold+'">'+(opts.linkLabel || 'View & Respond')+'</a>');
+    out = applyQuoteLinkButton(out, opts.link, opts.linkLabel);
   }
   /* The due date the customer is told must be the same one the Invoice List
      chases them by, so it is worked out from the invoice's own timestamp using
@@ -11571,11 +11722,11 @@ function renderQuoteRows(filtered){
         ' Open <strong>Quote email settings</strong> above and pick one under Text message versions.</div>';
       return;
     }
-    const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
+    const link = quoteShortLink(d);
     /* Plain characters only. Anything HTML in the template body is stripped
        rather than sent as-is, so a template picked by mistake degrades to
        readable text instead of arriving as code. */
-    let msg = htmlEmailToPlainText(template.data.body || '')
+    let msg = quoteLinkLabelPlain(htmlEmailToPlainText(template.data.body || ''))
       .split('{{name}}').join(firstName(d.name))
       .split('{{price}}').join(fmtMoney(d.quotedPrice))
       .split('{{link}}').join(link)
@@ -11586,7 +11737,8 @@ function renderQuoteRows(filtered){
     resultEl.innerHTML =
       '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
         'Text, pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. '+
-        'A text can\'t show buttons or a photo &mdash; the link opens the page that has both.'+
+        'A text can\'t show buttons, a photo, or a link hidden behind a word &mdash; it is plain characters only, '+
+        'so the address has to be visible. The link opens the page that has the buttons and the photo.'+
       '</div>'+
       '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.phone||'')+'</strong></div>'+
       '<div style="background:#E9E9EB; color:#000; border-radius:16px; padding:11px 14px; font-size:14.5px; line-height:1.45; white-space:pre-wrap; max-width:330px;">'+esc(msg)+'</div>'+
@@ -11795,8 +11947,11 @@ function renderQuoteRows(filtered){
         toast('No text template picked yet \u2014 open Quote email settings first.');
         return;
       }
-      const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
-      let msg = htmlEmailToPlainText(template.data.body || '')
+      const link = quoteShortLink(d);
+      /* Same stripping as the Send-the-text path. This one was left behind
+         when {{link:...}} was added, so a template using it copied the raw
+         token to the clipboard and straight into somebody's messages app. */
+      let msg = quoteLinkLabelPlain(htmlEmailToPlainText(template.data.body || ''))
         .split('{{name}}').join(firstName(d.name))
         .split('{{price}}').join(fmtMoney(d.quotedPrice))
         .split('{{link}}').join(link)
@@ -12968,7 +13123,7 @@ async function etUpdatePreview(){
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       quote.data.quoteToken = token;
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
@@ -14194,7 +14349,7 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
       const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
       const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
       if(quote && !quote.data.quoteToken){
-        const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+        const token = newQuoteToken();
         quote.data.quoteToken = token;
         await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
       }
@@ -14303,7 +14458,7 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       quote.data.quoteToken = token;
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
@@ -14353,7 +14508,9 @@ const IC_CODES = {
     {token:'{{setup_fee_line}}', label:'One-time $30 set-up fee line (only if checked on the quote)'},
     {token:'{{photo}}', label:'Their house photo'},
     {token:'{{link}}', label:'Quote link (plain URL)'},
-    {token:'{{link_button}}', label:'Quote link (button)'},
+    {token:'{{link:See your home and approve here}}', label:'Quote link behind your own words — insert it, then edit the words between the colon and the braces'},
+    {token:'{{link_button}}', label:'Quote link (button, says "View & Respond")'},
+    {token:'{{link_button:See your home and approve}}', label:'Quote link as a button with your own words — edit the words after inserting'},
     {token:'{{quote_yes_button}}', label:'Quote Approve (button)'},
     {token:'{{addon_block}}', label:'Outstanding add-on: offer + Yes/No (block)'},
     {token:'{{quote_maybe_button}}', label:'Quote Maybe Next Year (button)'},
@@ -14379,7 +14536,14 @@ function icRenderList(){
   const box = document.getElementById('icCodeList');
   const manageWrap = document.getElementById('icManageLinkWrap');
   let codes = icActiveTab === 'custom' ? icGetCustomCodeList() : IC_CODES[icActiveTab];
-  manageWrap.style.display = (icActiveTab === 'custom') ? 'block' : 'none';
+  /* ⭐ ALWAYS SHOWN (2026-08-26). Owner: "how do I customize code — I see it says
+     customize when I open insert code but nowhere to customize it." The way in
+     was real and it was hidden one tab deep: the Custom TAB was visible from the
+     moment the modal opened, and the button that actually makes one only
+     appeared after clicking that tab. So the word "Custom" advertised something
+     with no visible way to reach it. Showing the button on every tab costs one
+     line of chrome and removes the dead end. */
+  manageWrap.style.display = 'block';
   if(icSearchTerm){
     const term = icSearchTerm.toLowerCase();
     codes = codes.filter(c => c.label.toLowerCase().indexOf(term) !== -1 || c.token.toLowerCase().indexOf(term) !== -1);
@@ -14449,8 +14613,16 @@ document.getElementById('icInsertBtn').addEventListener('click', function(){
   document.getElementById('etUnsavedNote').style.display = 'block';
   tokens.forEach(function(tok){
     const bare = tok.replace(/^\{\{|\}\}$/g,'');
-    const style = bare.endsWith('_button') ? 'button' : (bare.endsWith('_link') ? 'link' : 'plain');
-    if(!etCurrentLinkedTokens.some(lt => lt.code === bare)) etCurrentLinkedTokens.push({code: bare, style: style});
+    /* ⚠ {{link:her own words}} is one token whose tail is editable prose, so the
+       CODE is only the part in front of the colon. Storing the whole thing would
+       put a sentence in linkedTokens, and then editing the words in the body
+       would leave a stale copy of the old sentence declared beside it. It is a
+       'link' whatever the words say — that is the shape it renders as. */
+    const labelled = bare.indexOf(':') !== -1;
+    const code = labelled ? bare.slice(0, bare.indexOf(':')) : bare;
+    const style = code.endsWith('_button') ? 'button'
+      : (labelled || code.endsWith('_link') ? 'link' : 'plain');
+    if(!etCurrentLinkedTokens.some(lt => lt.code === code)) etCurrentLinkedTokens.push({code: code, style: style});
   });
   document.getElementById('icOverlay').style.display = 'none';
 });

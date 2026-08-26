@@ -21,6 +21,14 @@
 /index.html
   Cache-Control: no-cache
 
+# The short quote link (/q/<token>) is a Netlify rewrite to index.html — the
+# app itself, served under a path that matches neither /index.html nor / above.
+# Without this it is the one address the app is reachable at that a browser is
+# free to cache, and a customer following a quote link would be the one person
+# running a stale copy.
+/q/*
+  Cache-Control: no-cache
+
 /js/*
   Cache-Control: no-cache
 
