@@ -426,6 +426,37 @@
   .msg-sidebar-item.active .folder-del, .msg-sidebar-item.active .folder-ren{ color:rgba(255,255,255,.6); }
   .msg-sidebar-item .folder-del:hover{ color:var(--ember); }
   .msg-sidebar-item .folder-ren:hover{ color:var(--gold-dim); }
+  /* ⭐ GMAIL-SHAPED FOLDER TREE (2026-08-25). A subfolder used to be nothing but
+     14px of extra padding, which is why the office read the nesting as "there are
+     no sub folders" — it looked like a flat list that had been indented by accident.
+     A caret to open and close, a bold name when something is unread, and the count
+     hidden entirely at zero, the way Gmail hides it. */
+  .msg-sidebar-item.has-unread .folder-name{ font-weight:800; }
+  .msg-sidebar-item.has-unread .folder-count{ color:var(--ink); }
+  .msg-sidebar-item.active.has-unread .folder-count{ color:#fff; }
+  .folder-caret{
+    background:none; border:none; padding:0; margin:0; width:15px; flex-shrink:0;
+    font-size:10px; line-height:1; cursor:pointer; color:rgba(0,0,0,.45);
+  }
+  .msg-sidebar-item.active .folder-caret{ color:rgba(255,255,255,.75); }
+  .folder-caret-spacer{ width:15px; flex-shrink:0; display:inline-block; }
+  .folder-name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* ⭐ THE MOVE CONTROL THAT IS NOT A RIGHT-CLICK (2026-08-25). Dragging and
+     right-clicking both still work, but neither exists on a tablet, which is what
+     "we still cannot move things around" turned out to mean. Tick the rows and
+     pick a folder, exactly as Gmail does it. */
+  .msg-toolbar{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    padding:8px 10px; margin-bottom:12px; border:1px solid var(--line);
+    border-radius:10px; background:var(--snow);
+  }
+  .msg-toolbar.none-picked .msg-bulk{ display:none; }
+  .msg-toolbar .msg-pickcount{ font-size:12.5px; font-weight:600; color:var(--slate); }
+  .msg-toolbar label{ font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .msg-pick{ width:16px; height:16px; flex-shrink:0; cursor:pointer; }
+  .row-item .msg-pick{ margin-top:3px; }
+  .row-item.picked{ background:#FFF8E9; border-color:var(--gold-dim); }
+  .folder-add-status{ font-size:11.5px; margin-top:6px; min-height:14px; color:var(--slate); }
   /* Template folder rows (Automation Emails) — same idea, own markup */
   .et-folder-row{ display:flex; align-items:center; gap:4px; margin-top:4px; }
   .et-folder-row .et-folder-btn{ flex:1; min-width:0; }
@@ -3207,17 +3238,25 @@
     </div>
     <!-- MESSAGES -->
     <div class="panel" id="panel-messages">
-      <div class="panel-head"><div><h2>Inbox</h2><p>Contact messages from the site, and notes from employees, land in Inbox. Automatic notices the system generates &mdash; colour, wire and timer changes, reassign flags and weather warnings &mdash; go to the <strong>System</strong> tab to keep them out of the way. Drag a message onto a folder, or right-click it, to file it; drag a folder onto another to nest it.</p></div></div>
+      <div class="panel-head"><div><h2>Inbox</h2><p>Contact messages from the site, and notes from employees, land in Inbox. Automatic notices the system generates &mdash; colour, wire and timer changes, reassign flags and weather warnings &mdash; go to the <strong>System</strong> tab to keep them out of the way. To file messages, tick them and use <strong>Move to&hellip;</strong> &mdash; that works on a tablet, where dragging and right-clicking do not. Dragging a message onto a folder and right-clicking it both still work. Drag a folder onto another to nest it, or pick a parent under <strong>Inside</strong> when you add one, and use the arrow beside a folder to open and close it. <strong>The number beside a folder is how many are unread</strong>, not how many it holds.</p></div></div>
       <div class="messages-layout">
         <div class="messages-sidebar" id="messagesSidebar">
-          <div class="msg-sidebar-item active" data-folder="Inbox">Inbox</div>
+          <!-- The Inbox row is drawn by renderFolderSidebar into #customFolderList
+               along with every other folder. It used to be a static div OUTSIDE that
+               list, which meant renderFolderSidebar bound a fresh click, dragover and
+               drop listener to it on every single render and never removed the old
+               ones — so by mid-session one drop onto Inbox fired the handler dozens
+               of times. One container, rebuilt wholesale, cannot accumulate. -->
           <div id="customFolderList"></div>
           <div style="margin-top:14px;">
-            <input type="text" id="newFolderInput" placeholder="New folder name" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12.5px; margin-bottom:6px;">
+            <label for="newFolderInput" style="display:block; font-size:11.5px; font-weight:700; color:var(--slate); margin-bottom:4px;">New folder</label>
+            <input type="text" id="newFolderInput" placeholder="Folder name" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12.5px; margin-bottom:6px;">
+            <label for="newFolderParent" style="display:block; font-size:11.5px; font-weight:700; color:var(--slate); margin-bottom:4px;">Inside</label>
             <select id="newFolderParent" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--snow); font-size:12.5px; margin-bottom:6px;">
               <option value="">-- Top Level --</option>
             </select>
             <button type="button" class="btn btn-gold btn-sm" id="addFolderBtn" style="width:100%;">+ Add Folder</button>
+            <div class="folder-add-status" id="folderAddStatus"></div>
           </div>
         </div>
         <div class="messages-content">
@@ -3238,6 +3277,17 @@
                    so by mid-season finding one meant scrolling past hundreds. -->
               <input type="text" id="msgSearchInput" placeholder="Search name, phone, email, address or message…" style="flex:1; min-width:220px; padding:8px 14px; border-radius:999px; border:1px solid var(--line); background:var(--snow); font-size:13.5px;">
               <strong id="currentFolderLabel" style="font-size:13.5px; margin-left:auto;">Inbox</strong>
+            </div>
+            <div class="msg-toolbar none-picked" id="msgToolbar">
+              <label><input type="checkbox" class="msg-pick" id="msgPickAll"> Select all</label>
+              <span class="msg-pickcount" id="msgPickCount">Nothing selected</span>
+              <select class="msg-bulk" id="msgMoveTo" style="border-radius:8px; border:1px solid var(--line); padding:6px 10px; font-size:12.5px; background:#fff;">
+                <option value="">Move to…</option>
+              </select>
+              <button type="button" class="btn btn-outline btn-sm msg-bulk" id="msgMarkReadBtn">Mark read</button>
+              <button type="button" class="btn btn-outline btn-sm msg-bulk" id="msgMarkUnreadBtn">Mark unread</button>
+              <button type="button" class="btn btn-outline btn-sm msg-bulk" id="msgMarkRespondedBtn">Mark responded</button>
+              <button type="button" class="btn btn-outline btn-sm msg-bulk" id="msgDeleteBtn" style="color:var(--ember); border-color:#F3C8C2;">Delete</button>
             </div>
             <div class="row-list" id="messagesList"><div class="empty-note">Loading…</div></div>
           </div>
@@ -12193,6 +12243,10 @@ function mailOpenIcon(){ return '<svg viewBox="0 0 24 24" fill="none" stroke-wid
 let allMessages = [];
 let msgFilter = 'all';
 let selectedFolder = 'Inbox';
+/* Which rows are ticked. ⚠ NEVER STORED and never carried between folders — it is
+   about the list on screen right now, and a stale tick moves a message the office
+   cannot see. Pruned to what is actually drawn on every render. */
+let pickedMsgIds = new Set();
 let selectedEmployee = '';
 /* ---------------- EMAIL TEMPLATES (Automation > Templates) ---------------- */
 let emailTemplateFolders = [];
@@ -13413,6 +13467,88 @@ function buildInvoiceDocHtml(member){
     '</div>';
 }
 let invRecipientSearchTerm = '';
+/* ⭐ AN ADDRESS THAT IS ONE LETTER WRONG (2026-08-25). Owner: "I can't get a test
+   invoice sent to me." Nothing was broken. The address typed into the box was
+   …@gmai.com — one letter short of gmail.com — so the mail was handed to a domain
+   that does not exist and the page said, in green, that it had been sent.
+   ⚠ EMAILJS RETURNING OK IS NOT DELIVERY. It accepts the request and answers
+   immediately; a domain that does not resolve is discovered minutes later by a
+   bounce that goes to the sending account, which nobody in the office reads. So a
+   confident "Sent to …" was making a claim it had no way to check, about an address
+   that could never arrive. Both halves are fixed: the typo is caught BEFORE the
+   send, and the line afterwards says what actually happened.
+   ⚠ IT WARNS, IT NEVER REFUSES. A real address at an unusual domain must still go
+   through on one more click — a guard that blocks a legitimate send is worse than
+   the typo it prevents, because there is no way round it at all. */
+const EMAIL_COMMON_DOMAINS = ['gmail.com','googlemail.com','yahoo.com','ymail.com','hotmail.com',
+  'outlook.com','live.com','msn.com','icloud.com','me.com','mac.com','aol.com','comcast.net',
+  'protonmail.com','proton.me','att.net','verizon.net','sbcglobal.net','cox.net'];
+/* ⚠ REAL DOMAINS THAT SIT ONE LETTER FROM A BIG ONE. Without this, email.com (one
+   letter from gmail.com) and gmx.com would be queried on every send, and a warning
+   that cries wolf is a warning the office learns to click past — including the day
+   it is right. */
+const EMAIL_LOOKALIKE_BUT_REAL = ['email.com','gmx.com','gmx.net','mail.com','live.co.uk',
+  'yahoo.co.uk','me.co.uk','aol.co.uk','icloud.co.uk','cox.com','att.com'];
+/* Damerau-Levenshtein: a SWAPPED PAIR counts as one mistake, not two. That matters
+   here — gmial, hotmial and yahoi are all transpositions, and plain Levenshtein
+   scores them 2, which is the same distance as genuinely different domains. */
+function emailEditDistance(a, b){
+  const m = a.length, n = b.length;
+  const d = [];
+  for(let i = 0; i <= m; i++){ d[i] = [i]; }
+  for(let j = 0; j <= n; j++){ d[0][j] = j; }
+  for(let i = 1; i <= m; i++){
+    for(let j = 1; j <= n; j++){
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + cost);
+      if(i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1]){
+        d[i][j] = Math.min(d[i][j], d[i-2][j-2] + 1);
+      }
+    }
+  }
+  return d[m][n];
+}
+/* The whole address, corrected, or null when there is nothing to say. ⚠ ONE
+   MISTAKE ONLY. At a distance of two, "hotmail.com" and "hotmail.co.nz" start
+   suggesting each other and the guard becomes noise. */
+function emailTypoSuggestion(addr){
+  const at = String(addr || '').lastIndexOf('@');
+  if(at < 1) return null;
+  const local = addr.slice(0, at);
+  const domain = addr.slice(at + 1).toLowerCase();
+  if(!domain || !local) return null;
+  /* An exact match is right by definition, and must never be 'corrected'. */
+  if(EMAIL_COMMON_DOMAINS.indexOf(domain) !== -1) return null;
+  if(EMAIL_LOOKALIKE_BUT_REAL.indexOf(domain) !== -1) return null;
+  for(const good of EMAIL_COMMON_DOMAINS){
+    if(emailEditDistance(domain, good) === 1) return local + '@' + good;
+  }
+  return null;
+}
+/* Three answers, so it cannot be a confirm(): use the correction, send to what was
+   typed anyway, or go back and edit it. */
+function askEmailTypo(typed, suggestion){
+  return new Promise(function(resolve){
+    const overlay = document.createElement('div');
+    overlay.className = 'needsfix-popup-overlay';
+    overlay.innerHTML = '<div class="needsfix-popup" style="max-width:460px;">'+
+      '<h3 style="color:var(--dusk);">Did you mean '+esc(suggestion)+'?</h3>'+
+      '<p>You typed <strong>'+esc(typed)+'</strong>. That domain is one letter away from a common one, '+
+      'so the email would most likely go nowhere and bounce somewhere nobody looks.</p>'+
+      '<div style="display:flex; flex-direction:column; gap:9px; margin-top:12px;">'+
+        '<button type="button" class="btn btn-gold" data-emailfix="use">Send it to '+esc(suggestion)+'</button>'+
+        '<button type="button" class="btn btn-outline" data-emailfix="anyway">No, '+esc(typed)+' is right — send it</button>'+
+        '<button type="button" class="btn btn-outline" data-emailfix="cancel">Cancel, let me edit it</button>'+
+      '</div></div>';
+    document.body.appendChild(overlay);
+    overlay.querySelectorAll('[data-emailfix]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        overlay.remove();
+        resolve(btn.dataset.emailfix);
+      });
+    });
+  });
+}
 /* ---- Send one customer's invoice to yourself ---------------------------
    There was no way to send a single invoice: the only send was the whole
    nightly batch, which meant the only way to see a real invoice email was to
@@ -13432,6 +13568,15 @@ function invTestPopulate(){
     return '<option value="'+esc(m.id)+'">'+esc(m.data.name||'(no name)')+' — '+esc(st)+'</option>';
   }).join('');
   if(keep) sel.value = keep;
+  /* ⭐ THE BOX STARTS ON WHOEVER IS SIGNED IN. The button is called "Send yourself
+     one customer's invoice" and the address is already known, so making somebody
+     type it is asking for the exact typo that prompted this. ⚠ ONLY WHEN IT IS
+     EMPTY — overwriting an address somebody has just typed would be worse than not
+     filling it at all, and this runs on every render. */
+  const toBox = document.getElementById('invTestTo');
+  if(toBox && !toBox.value.trim() && auth && auth.currentUser && auth.currentUser.email){
+    toBox.value = auth.currentUser.email;
+  }
 }
 async function invTestSend(){
   const statusEl = document.getElementById('invTestStatus');
@@ -13442,6 +13587,22 @@ async function invTestSend(){
   const to = document.getElementById('invTestTo').value.trim();
   if(!custId) return say('Choose a customer first.', true);
   if(!to || to.indexOf('@') === -1) return say('Enter the email address to send it to.', true);
+  /* ⚠ ASKED BEFORE ANYTHING IS BUILT OR SENT. Once emailjs.send has been called
+     there is nothing to take back — the whole point is to catch it while it is
+     still a box on the screen. */
+  let sendTo = to;
+  const suggestion = emailTypoSuggestion(to);
+  if(suggestion){
+    const answer = await askEmailTypo(to, suggestion);
+    if(answer === 'cancel'){
+      document.getElementById('invTestTo').focus();
+      return say('Nothing was sent — check the address and try again.', true);
+    }
+    if(answer === 'use'){
+      sendTo = suggestion;
+      document.getElementById('invTestTo').value = suggestion;
+    }
+  }
   const member = etGetMembers().find(m => m.id === custId);
   if(!member) return say('That customer could not be found - try reloading the page.', true);
   const d = member.data;
@@ -13488,8 +13649,12 @@ async function invTestSend(){
       '<strong>Test copy.</strong> This is ' + esc(d.name || 'this customer') + '\'s real invoice, sent to you. They were not emailed and nothing on their record changed.'+
       '</div>' + body;
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: to, to_name: 'Test', message: body });
-    say('Sent to ' + to + ' \u2014 using the "' + tplName + '" template, amount due ' + fmtMoney(amountDue) + '. ' + (d.name||'The customer') + ' was not emailed.');
+    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: 'Test', message: body });
+    /* ⚠ "HANDED TO", NOT "SENT TO". EmailJS accepting the request says the request
+       was well formed, and nothing about whether the address exists. Claiming
+       delivery is what sent somebody looking for a bug in the invoice code when the
+       address was one letter wrong. */
+    say('Handed to the mail service for ' + sendTo + ' \u2014 using the "' + tplName + '" template, amount due ' + fmtMoney(amountDue) + '. ' + (d.name||'The customer') + ' was not emailed. If it has not arrived in a couple of minutes, check the address above and your spam folder.');
   } catch(err){
     const msg = (err && (err.text || err.message)) ? (err.text || err.message) : String(err);
     say('Send failed: ' + msg, true);
@@ -13999,8 +14164,40 @@ function loadMessageFolders(){
     renderMessagesList();
   });
 }
-function folderCount(folderName){
-  return allMessages.filter(m => (m.data.folder || 'Inbox') === folderName).length;
+/* ⭐ THE NUMBER BESIDE A FOLDER IS UNREAD, NOT TOTAL (2026-08-25). Owner: "when I
+   push responded it still shows 1 in inbox or whatever number is inbox. I only want
+   the number to show how many are unread."
+   ⚠ IT USED TO COUNT EVERY MESSAGE IN THE FOLDER, so the number beside Inbox was a
+   count of the season's post and never went down for any reason short of deleting
+   something. A count that never falls is a count nobody reads.
+   ⚠ AND THE SIDEBAR AND THE NAV BADGE NOW ASK ONE QUESTION. The badge already
+   counted unread (renderMessagesList) while the sidebar counted everything, so the
+   two sat there disagreeing about the same folder. */
+function folderUnread(folderName){
+  return allMessages.filter(m => (m.data.folder || 'Inbox') === folderName && !m.data.read).length;
+}
+/* Every folder nested under this one, at any depth. */
+function folderDescendantNames(folderId){
+  const out = [];
+  (function walk(id){
+    messageFolders.filter(f => f.parentId === id).forEach(function(c){ out.push(c.name); walk(c.id); });
+  })(folderId);
+  return out;
+}
+/* ⚠ A CLOSED FOLDER ROLLS ITS CHILDREN UP, an open one does not — same as Gmail.
+   Without the roll-up, closing a parent hides unread messages AND the only number
+   that said they were there, which is the one way a folder tree loses a message. */
+function folderCount(folderName, folderId, collapsed){
+  let n = folderUnread(folderName);
+  if(collapsed && folderId) folderDescendantNames(folderId).forEach(function(nm){ n += folderUnread(nm); });
+  return n;
+}
+/* Which folders are closed. Remembered per browser so the tree does not spring
+   back open on every render, and a corrupt value reads as "nothing closed". */
+let collapsedFolders = new Set();
+try{ collapsedFolders = new Set(JSON.parse(localStorage.getItem('hu.inboxCollapsed.v1') || '[]')); }catch(e){}
+function saveCollapsedFolders(){
+  try{ localStorage.setItem('hu.inboxCollapsed.v1', JSON.stringify(Array.from(collapsedFolders))); }catch(e){}
 }
 // Build a tree of {folder, children:[...]} starting from top-level (parentId null or pointing at a missing folder)
 function buildFolderTree(){
@@ -14025,47 +14222,99 @@ function isFolderDescendantOf(folderId, ancestorId){
   }
   return false;
 }
-function renderFolderNode(node, depth){
-  const indent = 14 * depth;
-  let html = '<div class="msg-sidebar-item'+(selectedFolder===node.name?' active':'')+'" data-folder="'+esc(node.name)+'" data-folderid="'+node.id+'" draggable="true" style="padding-left:'+(12+indent)+'px;">'+
-    '<span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(node.name)+'</span>'+
-    '<span class="folder-count">'+folderCount(node.name)+'</span>'+
-    '<button type="button" class="folder-ren" data-renfolder="'+node.id+'" data-renname="'+esc(node.name)+'" title="Rename folder">&#9998;</button>'+
-    '<button type="button" class="folder-del" data-delfolder="'+node.id+'" data-delname="'+esc(node.name)+'" title="Delete folder">&times;</button>'+
+/* One row of the tree. ⚠ A ZERO IS DRAWN AS NOTHING AT ALL, not as "0": a column of
+   zeroes reads as a broken counter, and the only number worth an eye is a folder
+   with something waiting in it. */
+function folderRowHtml(opts){
+  const unread = opts.unread;
+  return '<div class="msg-sidebar-item'+(selectedFolder===opts.name?' active':'')+(unread?' has-unread':'')+'"'+
+      ' data-folder="'+esc(opts.name)+'"'+(opts.id ? ' data-folderid="'+opts.id+'" draggable="true"' : '')+
+      ' style="padding-left:'+(10+opts.indent)+'px;">'+
+    (opts.hasKids
+      ? '<button type="button" class="folder-caret" data-togglefolder="'+opts.id+'" title="'+(opts.collapsed?'Show subfolders':'Hide subfolders')+'">'+(opts.collapsed?'&#9656;':'&#9662;')+'</button>'
+      : '<span class="folder-caret-spacer"></span>')+
+    '<span class="folder-name">'+esc(opts.name)+'</span>'+
+    '<span class="folder-count">'+(unread ? unread : '')+'</span>'+
+    (opts.id
+      ? '<button type="button" class="folder-ren" data-renfolder="'+opts.id+'" data-renname="'+esc(opts.name)+'" title="Rename folder">&#9998;</button>'+
+        '<button type="button" class="folder-del" data-delfolder="'+opts.id+'" data-delname="'+esc(opts.name)+'" title="Delete folder">&times;</button>'
+      : '')+
   '</div>';
-  node.children.forEach(function(child){ html += renderFolderNode(child, depth+1); });
+}
+function renderFolderNode(node, depth){
+  const collapsed = collapsedFolders.has(node.id);
+  const hasKids = node.children.length > 0;
+  let html = folderRowHtml({name:node.name, id:node.id, indent:16*depth, hasKids:hasKids,
+    collapsed:collapsed, unread:folderCount(node.name, node.id, hasKids && collapsed)});
+  /* A closed folder draws no children — and its count above already carries theirs. */
+  if(!collapsed) node.children.forEach(function(child){ html += renderFolderNode(child, depth+1); });
   return html;
+}
+/* The folder list, depth-first and indented, used by BOTH the "Inside" picker and
+   the Move to… control. ⚠ One builder, because two lists of the same folders that
+   are built separately are two lists that eventually disagree. */
+function flatFolderList(){
+  const flat = [];
+  (function walk(nodes, depth){
+    nodes.forEach(function(n){ flat.push({id:n.id, name:n.name, depth:depth}); walk(n.children, depth+1); });
+  })(buildFolderTree(), 0);
+  return flat;
+}
+/* Move to… names Inbox first — it is where things come back to, and it is not in
+   messageFolders, so leaving it out would make filing something a one-way trip. */
+function populateMoveToSelect(){
+  const sel = document.getElementById('msgMoveTo');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">Move to&hellip;</option><option value="Inbox">Inbox</option>' +
+    flatFolderList().map(f => '<option value="'+esc(f.name)+'">'+esc(new Array(f.depth+1).join('\u2014 ') + f.name)+'</option>').join('');
+  sel.value = '';
 }
 function populateNewFolderParentSelect(){
   const sel = document.getElementById('newFolderParent');
   if(!sel) return;
   const current = sel.value;
   // depth-ordered and indented, so nesting is obvious when picking a parent
-  const flat = [];
-  (function walk(nodes, depth){
-    nodes.forEach(function(n){ flat.push({id:n.id, name:n.name, depth:depth}); walk(n.children, depth+1); });
-  })(buildFolderTree(), 0);
+  const flat = flatFolderList();
   sel.innerHTML = '<option value="">-- Top Level --</option>' + flat.map(f => '<option value="'+f.id+'">'+esc(new Array(f.depth+1).join('\u2014 ') + f.name)+'</option>').join('');
   if([...sel.options].some(o => o.value === current)) sel.value = current;
 }
 function renderFolderSidebar(){
-  const inboxItem = document.querySelector('.msg-sidebar-item[data-folder="Inbox"]');
-  inboxItem.innerHTML = 'Inbox <span class="folder-count">'+folderCount('Inbox')+'</span>';
-  inboxItem.classList.toggle('active', selectedFolder === 'Inbox');
   /* The System folder entry was removed from this sidebar — system notices live
      on the System tab above instead. Messages still carry folder:'System' and are
      still filtered out of the customer list below; nothing about them changed. */
   if(selectedFolder === 'System') selectedFolder = 'Inbox';
   const wrap = document.getElementById('customFolderList');
+  if(!wrap) return;
   const tree = buildFolderTree();
-  wrap.innerHTML = tree.map(node => renderFolderNode(node, 0)).join('');
+  /* Inbox is the first row of the same list rather than a separate static div —
+     see the note in the markup. It carries no id, so it gets no caret, no rename
+     and no delete, and dropping a folder on it means "move to the top level". */
+  wrap.innerHTML = folderRowHtml({name:'Inbox', id:null, indent:0, hasKids:false,
+      collapsed:false, unread:folderUnread('Inbox')}) +
+    tree.map(node => renderFolderNode(node, 0)).join('');
   populateNewFolderParentSelect();
+  populateMoveToSelect();
+  /* Open and close a branch. ⚠ Bound before the row-level click handler below has
+     a chance to treat the caret as "select this folder" — the click handler bails
+     on a caret press for the same reason it bails on rename and delete. */
+  wrap.querySelectorAll('[data-togglefolder]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const id = btn.dataset.togglefolder;
+      if(collapsedFolders.has(id)) collapsedFolders.delete(id); else collapsedFolders.add(id);
+      saveCollapsedFolders();
+      renderFolderSidebar();
+    });
+  });
   // click to select folder (all sidebar items, including Inbox)
-  document.querySelectorAll('.msg-sidebar-item').forEach(function(item){
+  wrap.querySelectorAll('.msg-sidebar-item').forEach(function(item){
     item.addEventListener('click', function(e){
-      if(e.target.closest('.folder-del') || e.target.closest('.folder-ren')) return;
+      if(e.target.closest('.folder-del') || e.target.closest('.folder-ren') || e.target.closest('.folder-caret')) return;
       selectedFolder = item.dataset.folder;
       document.getElementById('currentFolderLabel').textContent = selectedFolder;
+      /* ⚠ A tick belongs to the list it was made on. Carrying the selection into
+         another folder means Move to… acts on rows nobody can see. */
+      pickedMsgIds.clear();
       renderFolderSidebar();
       renderMessagesList();
     });
@@ -14144,11 +14393,23 @@ function renderFolderSidebar(){
     });
   });
 }
-document.getElementById('addFolderBtn').addEventListener('click', async function(){
+/* ⭐ ADD FOLDER ANSWERS, WHATEVER HAPPENS (2026-08-25). Owner: "the add folder is
+   not working." The mechanism was fine — a folder really was written — but every
+   way of failing was silent or nearly so: an empty box returned with no word at
+   all, a duplicate name flashed a toast at the far corner of a 1.5MB page, and
+   ⚠ PRESSING ENTER IN THE NAME BOX DID NOTHING WHATEVER, because the input is not
+   in a form and nothing listened for the key. Typing a name and pressing Enter is
+   what everybody does, and it looked exactly like a dead button.
+   The status line under the button now says what happened, every time. */
+function folderAddSays(msg){
+  const el = document.getElementById('folderAddStatus');
+  if(el) el.textContent = msg || '';
+}
+async function addMessageFolder(){
   const input = document.getElementById('newFolderInput');
   const name = input.value.trim();
   const parentId = document.getElementById('newFolderParent').value || null;
-  if(!name){ return; }
+  if(!name){ folderAddSays('Type a folder name first.'); input.focus(); return; }
   /* 'system' is reserved the same way 'inbox' is (see the rename handler
      above, which already blocked it) — a folder literally named "System"
      is indistinguishable from real automated system notices: messages
@@ -14156,11 +14417,30 @@ document.getElementById('addFolderBtn').addEventListener('click', async function
      filtered out there unconditionally), and the folder itself becomes
      unclickable in the sidebar, which resets straight back to Inbox
      whenever selectedFolder === 'System'. */
-  if(name.toLowerCase() === 'inbox' || name.toLowerCase() === 'system' || messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ toast('That folder already exists'); return; }
-  await addDoc(collection(db,'messageFolders'), {name: name, parentId: parentId, createdAt: serverTimestamp()});
+  if(name.toLowerCase() === 'inbox' || name.toLowerCase() === 'system'){ folderAddSays('\u201C'+name+'\u201D is a reserved name \u2014 pick another.'); toast('That name is reserved'); return; }
+  if(messageFolders.some(f => f.name.toLowerCase() === name.toLowerCase())){ folderAddSays('There is already a folder called \u201C'+name+'\u201D.'); toast('That folder already exists'); return; }
+  const parentName = parentId ? (messageFolders.find(f => f.id === parentId) || {}).name : '';
+  /* ⚠ A THROW HERE USED TO BE AN UNHANDLED REJECTION AND NOTHING ELSE — no toast,
+     no cleared box, no line in the page. "Nothing happened" is the one report that
+     cannot be diagnosed over the phone. */
+  try{
+    folderAddSays('Adding\u2026');
+    await addDoc(collection(db,'messageFolders'), {name: name, parentId: parentId, createdAt: serverTimestamp()});
+  }catch(err){
+    console.error('Add folder failed:', err);
+    folderAddSays('Could not add it: ' + (err && err.message ? err.message : 'unknown error'));
+    return;
+  }
+  /* A folder added inside a closed parent would be written and never appear. */
+  if(parentId && collapsedFolders.has(parentId)){ collapsedFolders.delete(parentId); saveCollapsedFolders(); }
   input.value = '';
   document.getElementById('newFolderParent').value = '';
+  folderAddSays('Added \u201C'+name+'\u201D'+(parentName ? ' inside \u201C'+parentName+'\u201D' : ' at the top level')+'.');
   toast('Folder added');
+}
+document.getElementById('addFolderBtn').addEventListener('click', addMessageFolder);
+document.getElementById('newFolderInput').addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){ e.preventDefault(); addMessageFolder(); }
 });
 /* ---------------- RIGHT-CLICK MOVE MENU ---------------- */
 const contextMenuEl = document.getElementById('msgContextMenu');
@@ -14305,6 +14585,11 @@ function renderMessagesList(){
     list.innerHTML = '<div class="empty-note">' +
       (msgTerm ? 'No messages match &ldquo;' + esc(msgTerm) + '&rdquo; in this folder.' : 'No messages in this folder.') +
       '</div>';
+    /* ⚠ The early return skips the wiring below, so the toolbar has to be reset
+       here too — otherwise it goes on offering Move to… over an empty list. */
+    pickedMsgIds.clear();
+    msgPickShown = [];
+    refreshMsgToolbar();
     return;
   }
   let html = '';
@@ -14314,7 +14599,8 @@ function renderMessagesList(){
     const isResponded = !!d.responded;
     const address = messageAddressLookup(d);
     const feetEstimate = messageFeetEstimate(d);
-    html += '<div class="row-item'+(isUnread ? ' unread' : '')+'" draggable="true" data-msgid="'+item.id+'">'+
+    html += '<div class="row-item'+(isUnread ? ' unread' : '')+(pickedMsgIds.has(item.id) ? ' picked' : '')+'" draggable="true" data-msgid="'+item.id+'">'+
+      '<input type="checkbox" class="msg-pick" data-pickmsg="'+item.id+'"'+(pickedMsgIds.has(item.id)?' checked':'')+' title="Select this message">'+
       '<div class="rmain">'+
         '<h4>'+esc(d.name)+(d.topic ? ' <span class="status-pill status-new">'+esc(d.topic)+'</span>' : '')+' <span class="status-pill '+(isResponded?'status-paid':'status-due')+'">'+(isResponded?'Responded':'Awaiting Response')+'</span></h4>'+
         (address ? '<div class="row-phone-line">'+esc(address)+'</div>' : '')+
@@ -14338,6 +14624,21 @@ function renderMessagesList(){
     '</div>';
   });
   list.innerHTML = html;
+  /* ⚠ PRUNE BEFORE THE TOOLBAR IS DRAWN. A tick on a row that has since been
+     filtered out, moved or deleted would still be counted and still be acted on. */
+  const shown = new Set(filtered.map(m => m.id));
+  Array.from(pickedMsgIds).forEach(function(id){ if(!shown.has(id)) pickedMsgIds.delete(id); });
+  msgPickShown = filtered.map(m => m.id);
+  refreshMsgToolbar();
+  list.querySelectorAll('[data-pickmsg]').forEach(function(box){
+    box.addEventListener('click', function(e){ e.stopPropagation(); });
+    box.addEventListener('change', function(){
+      if(box.checked) pickedMsgIds.add(box.dataset.pickmsg); else pickedMsgIds.delete(box.dataset.pickmsg);
+      const row = box.closest('.row-item');
+      if(row) row.classList.toggle('picked', box.checked);
+      refreshMsgToolbar();
+    });
+  });
   list.querySelectorAll('[data-star]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const isOn = btn.classList.contains('on');
@@ -14353,7 +14654,16 @@ function renderMessagesList(){
   list.querySelectorAll('[data-respondtoggle]').forEach(function(btn){
     btn.addEventListener('click', function(){
       const current = btn.dataset.current === '1';
-      updateDoc(doc(db,'messages',btn.dataset.respondtoggle), {responded: !current});
+      /* ⭐ ANSWERING SOMETHING READS IT (2026-08-25). Owner: "when I push responded
+         it still shows 1 in inbox." With the count now measuring unread, a message
+         she has just replied to would still be counted until she also pressed the
+         envelope — two presses to clear one message.
+         ⚠ ONE DIRECTION ONLY. Mark Awaiting does NOT put it back to unread: taking
+         a reply back is a note to herself that it still needs answering, not a
+         claim that nobody has read it. */
+      const patch = {responded: !current};
+      if(!current) patch.read = true;
+      updateDoc(doc(db,'messages',btn.dataset.respondtoggle), patch);
     });
   });
   list.querySelectorAll('.row-item').forEach(function(row){
@@ -14404,8 +14714,100 @@ function renderMessagesList(){
   });
   attachDeleteHandlers(list);
 }
+/* ---------------- THE MOVE-TO TOOLBAR ----------------
+   ⭐ FILING A MESSAGE WITHOUT A MOUSE (2026-08-25). Owner: "we still cannot move
+   things around." Filing already had two routes and BOTH need a desktop: an HTML5
+   drag, which does not exist on a touch screen at all, and a right-click, which
+   the office does not have on a tablet either. Neither is discoverable — nothing
+   on the screen said a message could be dragged anywhere.
+   Tick the rows, pick a folder: the way Gmail does it, and the way that works on
+   every device. ⚠ DRAG AND RIGHT-CLICK ARE UNTOUCHED — this is a third route in,
+   not a replacement, and somebody already used to dragging keeps doing it. */
+let msgPickShown = [];
+function refreshMsgToolbar(){
+  const bar = document.getElementById('msgToolbar');
+  if(!bar) return;
+  const n = pickedMsgIds.size;
+  bar.classList.toggle('none-picked', n === 0);
+  const count = document.getElementById('msgPickCount');
+  if(count) count.textContent = n ? (n + ' selected') : 'Nothing selected';
+  const all = document.getElementById('msgPickAll');
+  if(all){
+    all.checked = msgPickShown.length > 0 && n === msgPickShown.length;
+    /* Some-but-not-all is its own state, and a plain tick would claim the whole
+       list is selected when it is not. */
+    all.indeterminate = n > 0 && n < msgPickShown.length;
+  }
+  const mv = document.getElementById('msgMoveTo');
+  if(mv) mv.value = '';
+}
+/* Every bulk action goes through here, so the write, the toast and the clearing of
+   the ticks cannot drift apart between four buttons. ⚠ A FAILED WRITE IS COUNTED
+   AND REPORTED rather than swallowed — half a move looks exactly like a whole one. */
+async function msgBulkApply(ids, patch, wordDone){
+  let ok = 0, failed = 0;
+  for(const id of ids){
+    try{ await updateDoc(doc(db,'messages',id), patch); ok++; }
+    catch(err){ console.error('Inbox bulk action failed on ' + id + ':', err); failed++; }
+  }
+  pickedMsgIds.clear();
+  refreshMsgToolbar();
+  toast(ok + ' message' + (ok === 1 ? '' : 's') + ' ' + wordDone + (failed ? ' \u2014 ' + failed + ' failed' : ''));
+}
+function pickedIds(){ return Array.from(pickedMsgIds); }
+(function wireMsgToolbar(){
+  const all = document.getElementById('msgPickAll');
+  if(all) all.addEventListener('change', function(){
+    pickedMsgIds.clear();
+    /* Select all means the rows CURRENTLY SHOWN — the folder and the filter and the
+       search box have already decided what that is. Reaching past them would tick
+       messages the office is not looking at. */
+    if(all.checked) msgPickShown.forEach(function(id){ pickedMsgIds.add(id); });
+    renderMessagesList();
+  });
+  const mv = document.getElementById('msgMoveTo');
+  if(mv) mv.addEventListener('change', async function(){
+    const folder = mv.value;
+    const ids = pickedIds();
+    if(!folder || !ids.length){ mv.value = ''; return; }
+    await msgBulkApply(ids, {folder: folder}, 'moved to \u201C' + folder + '\u201D');
+  });
+  const readBtn = document.getElementById('msgMarkReadBtn');
+  if(readBtn) readBtn.addEventListener('click', function(){
+    const ids = pickedIds(); if(ids.length) msgBulkApply(ids, {read:true}, 'marked read');
+  });
+  const unreadBtn = document.getElementById('msgMarkUnreadBtn');
+  if(unreadBtn) unreadBtn.addEventListener('click', function(){
+    const ids = pickedIds(); if(ids.length) msgBulkApply(ids, {read:false}, 'marked unread');
+  });
+  const respBtn = document.getElementById('msgMarkRespondedBtn');
+  if(respBtn) respBtn.addEventListener('click', function(){
+    /* Same rule as the per-row button: answering something reads it. */
+    const ids = pickedIds(); if(ids.length) msgBulkApply(ids, {responded:true, read:true}, 'marked responded');
+  });
+  const delBtn = document.getElementById('msgDeleteBtn');
+  if(delBtn) delBtn.addEventListener('click', async function(){
+    const ids = pickedIds();
+    if(!ids.length) return;
+    /* ⚠ Deleting a message throws away the only copy of what somebody asked for,
+       so it is the one bulk action that asks first — and it names the count, because
+       the whole point of the toolbar is that it acts on more than one row. */
+    if(!confirm('Delete ' + ids.length + ' message' + (ids.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
+    let ok = 0, failed = 0;
+    for(const id of ids){
+      try{ await deleteDoc(doc(db,'messages',id)); ok++; }
+      catch(err){ console.error('Inbox delete failed on ' + id + ':', err); failed++; }
+    }
+    pickedMsgIds.clear();
+    refreshMsgToolbar();
+    toast(ok + ' deleted' + (failed ? ' \u2014 ' + failed + ' failed' : ''));
+  });
+})();
 document.getElementById('msgFilterSelect').addEventListener('change', function(){
   msgFilter = this.value;
+  /* The filter changes which rows exist, so the ticks made against the old list
+     are no longer about anything the office can see. */
+  pickedMsgIds.clear();
   renderMessagesList();
 });
 (function(){

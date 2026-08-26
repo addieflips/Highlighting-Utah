@@ -5993,12 +5993,18 @@ if (!JSDOM) {
  * Inbox whenever it equals 'System').
  */
 (function () {
-  const addStart = admin.indexOf("addFolderBtn').addEventListener('click'");
-  const addSrc = addStart > -1 ? sectionFrom(admin, addStart) : '';
-  check('folder-names', 'addFolderBtn handler found in admin.html', addStart > -1,
+  /* ⚠ CORRECTED 2026-08-25. This used to anchor on
+     `addFolderBtn').addEventListener('click'` and read the section after it. That
+     is the shape CLAUDE.md §7 warns about — a check pinned to where a string
+     happens to SIT rather than to what must be TRUE. The create path was lifted
+     out into addMessageFolder() so the Enter key could reach it too (see suite
+     273), the click handler became a one-liner, and this check started failing on
+     code that is right. It reads the function now, wherever the button is wired. */
+  const addSrc = extractFn(admin, 'addMessageFolder');
+  check('folder-names', 'the folder-create path is findable in admin.html', !!addSrc,
     'renamed or removed — update this test rather than deleting it');
   check('folder-names', 'creating a folder named "system" is blocked, same as "inbox"',
-    /name\.toLowerCase\(\) === 'inbox'[\s\S]{0,60}name\.toLowerCase\(\) === 'system'/.test(addSrc),
+    /name\.toLowerCase\(\) === 'inbox'[\s\S]{0,80}name\.toLowerCase\(\) === 'system'/.test(addSrc || ''),
     'a folder named "System" is indistinguishable from real automated notices — messages moved into it ' +
     'vanish from Customer Messages and the folder itself becomes unclickable in the sidebar');
 })();
@@ -40232,6 +40238,360 @@ suite('272. Measure Roof - why a dot drifts, and putting it back');
     /driftPerFtFt:/.test(admin) && /wouldMoveFt:/.test(admin),
     'the question was how much and why; a log that cannot answer it sends somebody back to screenshots');
 }
+
+// =====================================================================
+suite('273. Inbox - the count is unread, and a message can be filed without a mouse');
+/* ⭐ WHAT THE OWNER REPORTED, 2026-08-25, in one message: "the add folder is not
+   working and we still cannot move things around there are no sub folders. and when
+   I push responded it still shows 1 in inbox... I only want the number to show how
+   many are unread."
+   ⚠ EVERY ONE OF THOSE MECHANISMS ALREADY EXISTED AND EVERY ONE ALREADY PASSED a
+   source check. Driving the real page in a browser is what separated them:
+     - Add folder DID write a folder. What did not work was the ENTER KEY (the input
+       is in no form and nothing listened), and every failure was silent.
+     - Moving DID work — by mouse drag or right-click, neither of which exists on the
+       tablet the office uses. There was no third way in, and nothing on screen said
+       a message could be dragged at all.
+     - Sub-folders DID nest. They were drawn as 14px of extra padding and nothing
+       else, so a tree read as a list somebody had indented by accident.
+     - The count was the one outright bug: it counted EVERY message in the folder.
+   ⚠ AND THE MEASUREMENT THAT MATTERED: on the old code, ONE drop onto Inbox after
+   eight folder clicks fired 2815 Firestore writes. renderFolderSidebar bound a fresh
+   click/dragover/drop listener to the STATIC Inbox row on every render and never
+   removed the old ones, and the click handler re-renders — so the listeners
+   compounded. Inbox is drawn inside #customFolderList now, with the rest, so the one
+   container is rebuilt wholesale and nothing can accumulate on it.
+   This suite RUNS the counting and the tree rendering rather than matching their
+   source, because every claim here is about a NUMBER ON SCREEN or a ROW THAT EXISTS,
+   which a regex cannot see. */
+{
+  const names = ['folderUnread', 'folderDescendantNames', 'folderCount', 'folderRowHtml', 'renderFolderNode'];
+  const bodies = names.map(function (n) { return extractFn(admin, n); });
+  const missing = names.filter(function (n, i) { return !bodies[i]; });
+  check('S273', 'the inbox counting and tree functions are all still in admin.html',
+    missing.length === 0, 'missing: ' + missing.join(', ') + ' — renamed? update this suite rather than deleting it');
+
+  if (!missing.length) {
+    /* The sandbox preamble supplies the module-level state these read. esc is the
+       real one lifted out of admin.html, not a stub — a stub would let an escaping
+       bug through while reporting green. */
+    const escSrc = extractFn(admin, 'esc');
+    check('S273', 'esc lifted from admin.html for the sandbox', !!escSrc,
+      'without the real one the rendered rows prove nothing about escaping');
+    const preamble =
+      'let allMessages = [], messageFolders = [], selectedFolder = "Inbox";' +
+      'let collapsedFolders = new Set();' +
+      (escSrc || 'function esc(x){return String(x==null?"":x);}') + ';';
+    const code = preamble + bodies.join(';') + ';' +
+      'return {folderUnread, folderDescendantNames, folderCount, folderRowHtml, renderFolderNode,' +
+      ' set(m, f, c, sel){ allMessages = m; messageFolders = f; collapsedFolders = new Set(c||[]);' +
+      ' if(sel) selectedFolder = sel; }};';
+    assertSandbox('S273', 'inbox folder tree', code, admin,
+      names.concat(['esc']));
+    const F = new Function(code)();
+
+    /* Two unread and one read in Inbox; one unread inside a child folder. */
+    const MSGS = [
+      { id: 'a', data: { folder: 'Inbox', read: false } },
+      { id: 'b', data: { folder: 'Inbox', read: true } },
+      { id: 'c', data: { folder: 'Inbox', read: false } },
+      { id: 'd', data: { folder: 'Child', read: false } },
+      { id: 'e', data: { folder: 'Child', read: true } }
+    ];
+    const FOLDERS = [
+      { id: 'p1', name: 'Parent', parentId: null },
+      { id: 'c1', name: 'Child', parentId: 'p1' }
+    ];
+    F.set(MSGS, FOLDERS, []);
+
+    check('S273', 'the number beside a folder is UNREAD, not every message in it',
+      F.folderUnread('Inbox') === 2 && F.folderCount('Inbox') === 2,
+      'Inbox holds 3 messages of which 2 are unread — got ' + F.folderCount('Inbox') +
+      '. This is the bug the owner reported: a count that never falls is a count nobody reads');
+
+    check('S273', 'a folder with nothing unread counts zero even when it holds messages',
+      F.folderCount('Parent') === 0,
+      'Parent itself holds no messages at all, so it must read 0 whatever its child holds while open');
+
+    /* ⚠ THE ROLL-UP IS THE HALF THAT LOSES MESSAGES IF IT GOES. Closing a parent
+       hides its children AND, without this, the only number saying they are there. */
+    check('S273', 'an OPEN parent does not swallow its child\'s count',
+      F.folderCount('Parent', 'p1', false) === 0,
+      'the child row is drawn right underneath with its own number — counting it twice is a lie');
+    check('S273', 'a CLOSED parent carries its child\'s unread up',
+      F.folderCount('Parent', 'p1', true) === 1,
+      'Child holds 1 unread; with the branch closed that number has nowhere else to appear');
+    check('S273', 'the roll-up reaches a grandchild, not just one level',
+      (function () {
+        F.set(MSGS.concat([{ id: 'g', data: { folder: 'Grand', read: false } }]),
+          FOLDERS.concat([{ id: 'g1', name: 'Grand', parentId: 'c1' }]), []);
+        const n = F.folderCount('Parent', 'p1', true);
+        F.set(MSGS, FOLDERS, []);
+        return n === 2;
+      })(),
+      'folderDescendantNames walks the whole branch — a one-level roll-up hides anything nested twice');
+
+    /* ---- the tree itself ---- */
+    const openHtml = F.renderFolderNode({ id: 'p1', name: 'Parent', parentId: null,
+      children: [{ id: 'c1', name: 'Child', parentId: 'p1', children: [] }] }, 0);
+    check('S273', 'a folder with children draws a caret to open and close it',
+      /data-togglefolder="p1"/.test(openHtml),
+      'without it a subfolder is 16px of padding and nothing else — which is why the office said there were none');
+    check('S273', 'an open branch really draws its child row',
+      /data-folder="Child"/.test(openHtml), 'the child must exist in the markup, not merely be counted');
+    check('S273', 'the child is indented past its parent',
+      (function () {
+        const pads = (openHtml.match(/padding-left:(\d+)px/g) || []).map(function (m) { return parseInt(m.replace(/\D/g, ''), 10); });
+        return pads.length >= 2 && pads[1] > pads[0];
+      })(), 'nesting has to be visible or it is not nesting');
+
+    F.set(MSGS, FOLDERS, ['p1']);
+    const shutHtml = F.renderFolderNode({ id: 'p1', name: 'Parent', parentId: null,
+      children: [{ id: 'c1', name: 'Child', parentId: 'p1', children: [] }] }, 0);
+    check('S273', 'a closed branch draws no child row',
+      !/data-folder="Child"/.test(shutHtml), 'a closed folder that still lists its children has not closed');
+    check('S273', 'and the closed parent shows the count it is now hiding',
+      />1</.test(shutHtml),
+      'Child holds 1 unread and its row is gone — the parent has to carry it or the message is invisible');
+
+    /* ⚠ A ZERO IS DRAWN AS NOTHING. A column of noughts reads as a broken counter,
+       and it is what made the old total-count so easy to ignore. */
+    F.set([{ id: 'z', data: { folder: 'Parent', read: true } }], FOLDERS, []);
+    const zeroHtml = F.folderRowHtml({ name: 'Parent', id: 'p1', indent: 0, hasKids: false, collapsed: false,
+      unread: F.folderCount('Parent', 'p1', false) });
+    check('S273', 'a folder with nothing unread shows no number at all',
+      /<span class="folder-count"><\/span>/.test(zeroHtml),
+      'Gmail hides a zero; drawing "0" beside every folder is how a real number stops being read');
+    check('S273', 'and it is not bold when there is nothing waiting',
+      !/has-unread/.test(zeroHtml), 'bold is the at-a-glance signal — bold everything and it says nothing');
+
+    F.set(MSGS, FOLDERS, []);
+    const boldHtml = F.folderRowHtml({ name: 'Inbox', id: null, indent: 0, hasKids: false, collapsed: false,
+      unread: F.folderUnread('Inbox') });
+    check('S273', 'a folder WITH unread is bold and shows the figure',
+      /has-unread/.test(boldHtml) && />2</.test(boldHtml), 'the two signals go together or neither is trusted');
+
+    /* ⚠ THE INBOX ROW CARRIES NO FOLDER ID, DELIBERATELY. That is what makes a
+       folder dropped on it move to the TOP LEVEL rather than nest inside "Inbox",
+       which is not a folder at all — and it is why it offers no rename or delete. */
+    check('S273', 'the Inbox row has no folder id, so it cannot be renamed or deleted',
+      !/data-folderid/.test(boldHtml) && !/data-delfolder/.test(boldHtml) && !/data-renfolder/.test(boldHtml),
+      'Inbox is not a document in messageFolders — offering to delete it is offering to delete nothing');
+
+    check('S273', 'a folder name is escaped before it reaches the sidebar',
+      !/<b>/.test(F.folderRowHtml({ name: '<b>x</b>', id: 'p1', indent: 0, hasKids: false, collapsed: false, unread: 0 })),
+      'folder names are typed by hand and go straight into innerHTML');
+  }
+}
+{
+  /* ---- the parts that live in markup and handlers, checked where they are ---- */
+  check('S273', 'Inbox is drawn inside #customFolderList, not left as a static row',
+    !/msg-sidebar-item active" data-folder="Inbox"/.test(admin) &&
+    /folderRowHtml\(\{name:'Inbox'/.test(admin),
+    'a persistent row outside the rebuilt container is what collected 2815 listeners; ' +
+    'one container, rebuilt wholesale, cannot accumulate');
+  check('S273', 'renderFolderSidebar binds inside the list it just rebuilt, never document-wide',
+    !/document\.querySelectorAll\('\.msg-sidebar-item'\)/.test(admin),
+    'a document-wide query reaches rows this render did not create and binds them again');
+
+  const addSrc = extractFn(admin, 'addMessageFolder') || '';
+  check('S273', 'Add Folder is its own function, so the Enter key can reach it',
+    !!addSrc, 'it lived inside the click handler, which is exactly why Enter could not run it');
+  check('S273', 'pressing Enter in the folder name box adds the folder',
+    /newFolderInput'\)\.addEventListener\('keydown'[\s\S]{0,200}addMessageFolder\(\)/.test(admin),
+    'the input is in no form, so without this Enter does nothing whatever — which reads as a dead button');
+  check('S273', 'every way of failing to add a folder says so on the page',
+    /folderAddSays\('Type a folder name first/.test(addSrc) &&
+    /folderAddSays\('There is already a folder/.test(addSrc) &&
+    /catch\(err\)[\s\S]{0,200}folderAddSays\('Could not add it/.test(addSrc),
+    '"nothing happened" is the one report that cannot be diagnosed over the phone');
+  check('S273', 'a folder added inside a closed parent opens that parent',
+    /collapsedFolders\.has\(parentId\)[\s\S]{0,120}collapsedFolders\.delete\(parentId\)/.test(addSrc),
+    'otherwise it is written correctly and never appears, which looks exactly like the add failing');
+
+  /* ⭐ THE THIRD WAY IN. Drag needs a mouse and right-click needs a mouse; the
+     office is on a tablet. Both are KEPT — this is an addition, not a replacement. */
+  check('S273', 'messages can be filed by ticking rows and picking a folder',
+    /id="msgMoveTo"/.test(admin) && /id="msgPickAll"/.test(admin) && /data-pickmsg=/.test(admin),
+    'drag and right-click both need a mouse; on a tablet there was no way to move anything at all');
+  check('S273', 'Move to… offers Inbox as well as the folders',
+    /populateMoveToSelect/.test(admin) && /<option value="Inbox">Inbox<\/option>/.test(admin),
+    'Inbox is not in messageFolders, so leaving it out makes filing a one-way trip');
+  check('S273', 'dragging a message onto a folder still works',
+    /const messageId = e\.dataTransfer\.getData\('text\/plain'\)/.test(admin),
+    'somebody already used to dragging must not lose it');
+  check('S273', 'right-click move still works',
+    /openContextMenu\(e\.clientX, e\.clientY, row\.dataset\.msgid\)/.test(admin),
+    'same reason — the toolbar is a third route in, not a replacement');
+  check('S273', 'the ticks are dropped when the folder or the filter changes',
+    (admin.match(/pickedMsgIds\.clear\(\)/g) || []).length >= 4,
+    'a tick belongs to the list it was made on — carried across, Move to… acts on rows nobody can see');
+  check('S273', 'the toolbar is reset when the list comes back empty',
+    /No messages in this folder[\s\S]{0,400}refreshMsgToolbar\(\)/.test(admin),
+    'the early return skips the wiring below it, so without this the bar offers actions over nothing');
+  check('S273', 'a bulk delete asks first and names the count',
+    /confirm\('Delete ' \+ ids\.length \+ ' message/.test(admin),
+    'it throws away the only copy of what somebody asked for');
+  check('S273', 'a failed bulk write is counted, not swallowed',
+    /catch\(err\)\{ console\.error\('Inbox bulk action failed/.test(admin),
+    'half a move looks exactly like a whole one');
+
+  /* ⭐ ANSWERING SOMETHING READS IT — one direction only. */
+  const listSrc = extractFn(admin, 'renderMessagesList') || '';
+  check('S273', 'Mark Responded also marks the message read',
+    /const patch = \{responded: !current\};[\s\S]{0,80}if\(!current\) patch\.read = true;/.test(listSrc),
+    'with the count now measuring unread, answering something would otherwise take two presses to clear');
+  check('S273', 'but Mark Awaiting does not put it back to unread',
+    !/patch\.read = false/.test(listSrc),
+    'taking a reply back is a note to herself that it still needs answering, not a claim nobody read it');
+}
+
+
+// =====================================================================
+suite('274. The test invoice - an address that is one letter wrong');
+/* ⭐ WHAT THE OWNER REPORTED, 2026-08-25: "I can't get a test invoice sent to me."
+   NOTHING WAS BROKEN. The address in the box was addiechichia@gmai.com — one letter
+   short of gmail.com — so the mail went to a domain that does not exist, and the
+   page said in green that it had been sent.
+   ⚠ EMAILJS RETURNING OK IS NOT DELIVERY. It accepts a well-formed request and
+   answers at once; a domain that does not resolve is found out minutes later by a
+   bounce sent to the sending account, which nobody in the office reads. The only
+   validation was `to.indexOf('@') === -1`, which anything with an @ passes.
+   Three things follow, and all three are needed — the guard alone would still have
+   let a green "Sent to" line overclaim, and the honest wording alone would not stop
+   the typo happening again. */
+{
+  const names = ['emailEditDistance', 'emailTypoSuggestion'];
+  const bodies = names.map(function (n) { return extractFn(admin, n); });
+  const missing = names.filter(function (n, i) { return !bodies[i]; });
+  check('S274', 'the address-typo helpers are in admin.html', missing.length === 0,
+    'missing: ' + missing.join(', ') + ' — renamed? update this suite rather than deleting it');
+
+  const listSrc = ['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL'].map(function (c) {
+    const i = admin.indexOf('const ' + c + ' =');
+    return i > -1 ? admin.slice(i, admin.indexOf('];', i) + 2) : '';
+  });
+  check('S274', 'both domain lists are in admin.html', listSrc.every(Boolean),
+    'the suggestion is only as good as the lists it compares against');
+
+  if (!missing.length && listSrc.every(Boolean)) {
+    const code = listSrc.join(';') + ';' + bodies.join(';') +
+      ';return {emailTypoSuggestion, emailEditDistance};';
+    assertSandbox('S274', 'email typo guard', code, admin, names.concat(['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL']));
+    const F = new Function(code)();
+
+    /* ⚠ THE ACTUAL ADDRESS FROM THE REPORT. A fixture that only tries invented
+       typos can pass while missing the one that happened. */
+    check('S274', 'the address she actually typed is caught, and corrected',
+      F.emailTypoSuggestion('addiechichia@gmai.com') === 'addiechichia@gmail.com',
+      'this is the whole reason the guard exists — got ' + F.emailTypoSuggestion('addiechichia@gmai.com'));
+
+    /* ⚠ A SWAPPED PAIR MUST COUNT AS ONE MISTAKE. Plain Levenshtein scores gmial
+       and hotmial at 2, which is the distance at which real domains start
+       suggesting each other — so without the transposition rule these are missed
+       at a threshold that is safe, and only caught at one that is not. */
+    check('S274', 'a transposition counts as one mistake, not two',
+      F.emailEditDistance('gmial.com', 'gmail.com') === 1 &&
+      F.emailEditDistance('hotmial.com', 'hotmail.com') === 1,
+      'Damerau, not plain Levenshtein — got ' + F.emailEditDistance('gmial.com', 'gmail.com'));
+
+    const CAUGHT = [
+      ['a@gmial.com', 'a@gmail.com', 'swapped pair'],
+      ['a@hotmial.com', 'a@hotmail.com', 'swapped pair'],
+      ['a@gmail.con', 'a@gmail.com', 'n for m'],
+      ['a@yahooo.com', 'a@yahoo.com', 'doubled letter'],
+      ['a@outlok.com', 'a@outlook.com', 'dropped letter'],
+      ['a@iclould.com', 'a@icloud.com', 'extra letter']
+    ];
+    CAUGHT.forEach(function (t) {
+      check('S274', 'a ' + t[2] + ' in the domain is caught (' + t[0] + ')',
+        F.emailTypoSuggestion(t[0]) === t[1],
+        'expected ' + t[1] + ', got ' + F.emailTypoSuggestion(t[0]));
+    });
+
+    /* ⚠ THE FALSE-POSITIVE SIDE IS THE ONE THAT MATTERS MORE. A warning that fires
+       on a correct address is one the office learns to click past — including on
+       the day it is right. Every one of these must stay silent. */
+    const SILENT = [
+      ['a@gmail.com', 'the correct spelling of the commonest domain'],
+      ['a@icloud.com', 'another exact match'],
+      ['a@yahoo.com', 'another exact match'],
+      ['a@email.com', 'a real domain one letter from gmail.com'],
+      ['a@gmx.com', 'a real domain that resembles a big one'],
+      ['a@mail.com', 'a real domain'],
+      ['a@highlightingutah.com', 'the business\'s own domain'],
+      ['a@byu.edu', 'a domain nothing like a provider'],
+      ['notanemail', 'no @ at all'],
+      ['@gmai.com', 'a domain typo but no local part — nothing to suggest'],
+      ['a@', 'an empty domain']
+    ];
+    SILENT.forEach(function (t) {
+      check('S274', 'no warning for ' + t[0] + ' (' + t[1] + ')',
+        F.emailTypoSuggestion(t[0]) === null,
+        'a guard that cries wolf gets clicked past on the day it is right — got ' + F.emailTypoSuggestion(t[0]));
+    });
+
+    check('S274', 'an exact match is never "corrected" into something else',
+      (function () {
+        const src = admin.slice(admin.indexOf('const EMAIL_COMMON_DOMAINS'));
+        const list = JSON.parse('[' + src.slice(src.indexOf('[') + 1, src.indexOf('];')).replace(/'/g, '"') + ']');
+        return list.every(function (dom) { return F.emailTypoSuggestion('x@' + dom) === null; });
+      })(),
+      'every domain on the known-good list must pass through untouched');
+  }
+}
+{
+  const sendSrc = extractFn(admin, 'invTestSend') || '';
+  check('S274', 'invTestSend is still findable', !!sendSrc,
+    'renamed or removed — update this test rather than deleting it');
+
+  /* ⚠ THE ORDER IS THE SAFETY ARGUMENT. Once emailjs.send has been called there is
+     nothing to take back, so the question has to come while it is still a box. */
+  /* ⚠ COMMENTS STRIPPED FIRST. The first version of this check matched the phrase
+     "emailjs.send" inside the COMMENT explaining the guard, which sits above the
+     real call — so it read the explanation as the code and failed on a file that
+     was right. Same shape as the rule Suite 58 already learned. */
+  const sendCode = stripComments(sendSrc);
+  check('S274', 'the typo is asked about BEFORE anything is sent',
+    sendCode.indexOf('emailTypoSuggestion') > -1 &&
+    sendCode.indexOf('emailjs.send') > -1 &&
+    sendCode.indexOf('emailTypoSuggestion') < sendCode.indexOf('emailjs.send'),
+    'asking afterwards is asking about mail that has already gone');
+
+  check('S274', 'it warns and never refuses — the typed address can still be used',
+    /data-emailfix="anyway"/.test(admin) && /answer === 'use'/.test(sendSrc),
+    'a guard that blocks a legitimate send is worse than the typo, because there is no way round it');
+  check('S274', 'cancelling sends nothing at all',
+    /answer === 'cancel'[\s\S]{0,200}return say\('Nothing was sent/.test(sendSrc),
+    'the third answer is "let me edit it", and it must not fall through into the send');
+  check('S274', 'the corrected address is what actually gets sent to',
+    /to_email: sendTo/.test(sendSrc),
+    'accepting the correction and then mailing the typo anyway is the worst of both');
+
+  /* ⭐ THE MESSAGE STOPS CLAIMING DELIVERY. */
+  check('S274', 'the success line says handed-to, not sent-to',
+    /say\('Handed to the mail service for ' \+ sendTo/.test(sendSrc) &&
+    !/say\('Sent to ' \+ to/.test(sendSrc),
+    'EmailJS answering OK says the request was well formed and nothing about whether the address exists');
+  check('S274', 'and it says what to do when nothing arrives',
+    /check the address above and your spam folder/.test(sendSrc),
+    '"it did not arrive" with no next step is what sent somebody looking for a bug in the invoice code');
+
+  /* ⭐ THE BOX STARTS ON WHOEVER IS SIGNED IN — the typo that cannot happen. */
+  const popSrc = extractFn(admin, 'invTestPopulate') || '';
+  check('S274', 'the Send it to box is pre-filled with the signed-in address',
+    /auth\.currentUser\.email/.test(popSrc),
+    'the button is called "send yourself" and the address is already known — making somebody type it invites this exact typo');
+  check('S274', 'but only when it is empty, so a typed address is never overwritten',
+    /!toBox\.value\.trim\(\)/.test(popSrc),
+    'this runs on every render; clobbering a half-typed address would be worse than not filling it');
+
+  /* Nothing about this may touch the customer — the card promises as much. */
+  check('S274', 'the test send still writes nothing to the customer or the invoice',
+    !/invoiceEmailSent/.test(sendSrc) && !/updateDoc/.test(sendSrc) && !/setDoc/.test(sendSrc),
+    'the card says "the customer is not emailed, nothing is marked as billed, and no fee is applied"');
+}
+
 
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
