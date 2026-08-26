@@ -2639,6 +2639,48 @@ check('flow', 'nothing closes a quote except converting it',
     !/noteRsvpSendHappened\(selectedIds/.test(sendBlk),
     'a send that failed for everybody has asked nobody');
 
+  /* ⭐ AND THE SEND POINTS AT THE SWITCH (2026-08-26). Owner: "any RSVP should be a
+     straight yes starting when emails are sent" — so from the send onwards only somebody
+     who actually answered is in the season. Recording the send does NOT do that:
+     SEASON_ELIGIBILITY is a separate deliberate act, and nothing said so at the one
+     moment it matters. The office would send, read a green confirmation, and leave the
+     season quietly counting everybody — the switch that decides who a crew is sent to,
+     failing quietly. */
+  /* ⚠ SCOPED TO THE GUARD'S BODY, NOT THE WHOLE SEND BLOCK, and that is the whole
+     value of these three. A red-check replacing the guard with `if(false)` left every
+     word in place and the first version of these checks passed — a message that is in
+     the source and can never reach the screen, which is the failure this repo has now
+     shipped three times. Slice the branch, then look inside it. */
+  const eligGuard = (function(){
+    const at = sendBlk.indexOf("if(SEASON_ELIGIBILITY !== 'confirmed-only'){");
+    if (at === -1) return '';
+    let depth = 0;
+    for (let k = sendBlk.indexOf('{', at); k < sendBlk.length; k++) {
+      if (sendBlk[k] === '{') depth++;
+      else if (sendBlk[k] === '}') { depth--; if (!depth) return sendBlk.slice(at, k + 1); }
+    }
+    return '';
+  })();
+  check('flow', 'and only when it has not already been switched',
+    !!eligGuard,
+    'a top-up send to fifteen stragglers would repeat a done instruction — and an ' +
+    'unguarded line cannot be told from one nobody wrote');
+  check('flow', 'a first RSVP send says the season is still counting everybody',
+    /Crews still go to everybody who has not said no/.test(eligGuard),
+    'she sends, sees a green confirmation, and the crews keep going to people who ' +
+    'never answered — with nothing on screen having said so');
+  check('flow', 'and it names where to change it',
+    /Who the crews are sent to/.test(eligGuard),
+    '"go and switch it" with no destination is a task nobody completes');
+  /* ⚠ IT NAMES THE SWITCH, IT DOES NOT THROW IT. Flipping takes every unanswered
+     customer off the routes, the schedule and the build queue at once, and the switch
+     on the Dashboard shows that count BEFORE acting. Doing it from the send would skip
+     the one number that makes the decision answerable. */
+  check('flow', 'the send does not flip the season eligibility itself',
+    !/setSeasonEligibility\(/.test(sendBlk),
+    'that skips the who-would-drop preview, which is the only thing making this ' +
+    'decision answerable — and it is ~960 people on the day the RSVP goes out');
+
   /* ⚠ SETTABLE BY HAND TOO. Owner: "however we still can manually". The automatic
      stamp only fires on a send made through Automation Emails, and an RSVP can go out
      another way; a marker with one route in is silently wrong the first time somebody
@@ -5521,6 +5563,69 @@ suite('13. Season prep — crew portal (§4)');
         'they get an invoice for a season nobody works for them — got $' + wb.install +
         ' across ' + JSON.stringify(wb.billedHouseIds));
     }
+
+    /* ⭐ A STORED PHONE THAT IS NOT DIGITS-ONLY (2026-08-26, Q-019 answered).
+       The invoice key is always digits — custInvoiceKey produces it — but the office
+       types "(801) 555-0123" and the import keeps it, so where('phone','==',digits)
+       matches nothing. This is the authoritative money writer: with no houses resolved
+       it rebuilt the invoice as install: 0, wiping a real total on an ordinary Edit
+       Customer save, silently and in the customer's favour.
+       ⚠ THE HARNESS REPRODUCES IT NATURALLY — its getDocs filters on the RAW field,
+       exactly as Firestore does — so this fixture fails on the unfixed code rather
+       than needing the bug simulated. Red-checked: install came back 0. */
+    const formatted = [
+      { id: 'h1', data: { name: 'Payer', phone: '(801) 111-2222', housePrice: 400 } },
+      { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300 } }
+    ];
+    const hp = makeHarness(formatted, { install: 700, deposit: 100 });
+    await hp.fn('8011112222');
+    const wp = hp.written[0] || {};
+    check('sync', 'a payer whose phone is stored formatted still resolves',
+      wp.install === 700 && (wp.billedHouseIds || []).indexOf('h1') !== -1,
+      'the equality query matches nothing, the group comes back empty and a real ' +
+      'total is rebuilt as install: 0 — got $' + wp.install);
+    /* ⚠ A PAYER WITH NO SIBLING HOUSE, DELIBERATELY. In the fixture above the rental
+       is still found by the billToPhone query, so the group is never fully empty and
+       the status stays plausible — a red-check proved the status check below passed
+       WITH the bug present. Alone, the group really is empty and install really is 0. */
+    const alone = [{ id: 'h1', data: { name: 'Payer', phone: '(801) 111-2222', housePrice: 700 } }];
+    const ha = makeHarness(alone, { install: 700, deposit: 100 });
+    await ha.fn('8011112222');
+    const wa = ha.written[0] || {};
+    /* ⚠ ASSERTED ON THE STATUS, NOT THE DEPOSIT. A red-check proved the deposit
+       survives the bug too — existing.deposit is preserved either way — so that check
+       passed whatever the code did. What actually goes wrong is what the zeroed
+       invoice then READS AS: computeInvoiceStatus(0, 0, 100, 0, 0) is **Paid in Full**.
+       Nothing owed, something paid. So the payer shows settled on every payment filter
+       and the chase-the-unpaid send simply does not contain them. */
+    check('sync', 'and the bill does not read settled when it should read partly paid',
+      wa.status === 'Partial Payment',
+      'a zeroed invoice carrying a payment computes to Paid in Full, so nobody ever ' +
+      'chases the rest — got ' + JSON.stringify(wa.status) + ' on $' + wa.install);
+    /* ⚠ IT ASKS custInvoiceKey, NEVER COMPARES PHONE FIELDS. Comparing the raw strings
+       is the mistake that quietly duplicated the whole book once, and it would fail on
+       this very fixture. Asserted by RUNNING it: a house keyed by EMAIL, whose phone
+       column holds words, must not be swept in by the phone branch. */
+    const wordsPhone = [
+      { id: 'h1', data: { name: 'Payer', phone: '(801) 111-2222', housePrice: 400 } },
+      { id: 'h9', data: { name: 'No phone', phone: 'n/a', email: 'x@y.com', housePrice: 250 } },
+      /* ⚠ AND A HOUSE ON THIS VERY PHONE THAT BILLS SOMEBODY ELSE. Without the
+         !billToPhone guard the fallback sweeps it in and this payer is charged for a
+         house whose bill goes to another person — charged twice between them. A
+         red-check deleting that guard went straight through until this row existed. */
+      { id: 'h8', data: { name: 'Bills elsewhere', phone: '(801) 111-2222',
+                          billToPhone: '8019998888', housePrice: 500 } }
+    ];
+    const hw = makeHarness(wordsPhone, { install: 400 });
+    await hw.fn('8011112222');
+    const ww = hw.written[0] || {};
+    check('sync', 'a customer keyed by email is not swept into a phone group',
+      (ww.billedHouseIds || []).indexOf('h9') === -1,
+      'they would be billed to somebody else entirely');
+    check('sync', 'nor is a house on that phone whose bill goes to somebody else',
+      (ww.billedHouseIds || []).indexOf('h8') === -1 && ww.install === 400,
+      'that house is on another payer\'s bill, so counting it here charges it twice ' +
+      '— got $' + ww.install + ' across ' + JSON.stringify(ww.billedHouseIds));
 
     // The $30 join fee is not part of any house price, so a rebuild that
     // forgets it silently un-charges the fee.

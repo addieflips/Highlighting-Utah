@@ -14074,7 +14074,24 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
      failing to write a note about them must not report the send as failed. */
   if(etTemplateIsRsvp(template)){
     const noted = await noteRsvpSendHappened(sent);
-    if(noted) statusEl.textContent += ' Recorded that the RSVP has gone out.';
+    if(noted){
+      /* ⭐ AND IT POINTS AT THE SWITCH. Owner, 2026-08-26: "any RSVP should be a
+         straight yes starting when emails are sent" — so from this moment only somebody
+         who actually answered is in the season. Recording the send does NOT do that;
+         SEASON_ELIGIBILITY is a separate deliberate act, and until now nothing said so
+         at the one moment it matters. The office would send, read a green confirmation,
+         and leave the season quietly counting everybody — which is the whole of
+         "nothing should fail quietly", on the switch that decides who a crew is sent to.
+         ⚠ IT NAMES THE SWITCH RATHER THAN THROWING IT. Flipping takes ~960 unanswered
+         customers off the routes, the schedule and the build queue in one go, and the
+         switch on the Dashboard shows that count BEFORE it does anything. Doing it from
+         here would skip the one number that makes the decision answerable. */
+      statusEl.textContent += ' Recorded that the RSVP has gone out.';
+      if(SEASON_ELIGIBILITY !== 'confirmed-only'){
+        statusEl.textContent += ' \u26a0 Crews still go to everybody who has not said no.'
+          + ' Switch that on the Dashboard ("Who the crews are sent to") when you are ready.';
+      }
+    }
   }
 });
 function openSendModal(templateId){
@@ -26323,6 +26340,28 @@ async function syncPayerInvoice(payerKey){
   if(isPhoneKey){
     const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
     selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) addHouse(docSnap.id, docSnap.data()); });
+    if(!linked.length && Array.isArray(jobAddresses)){
+      /* ⭐ A STORED PHONE IS NOT ALWAYS DIGITS-ONLY (2026-08-26, Q-019). The key is
+         always digits — that is what custInvoiceKey produces — but the office types
+         "(801) 555-0123" and the import keeps it, so an equality query matches nothing
+         and the group comes back empty. This is the authoritative money writer: with
+         no houses resolved it rebuilds the invoice as install: 0, wiping a real total
+         on an ordinary Edit Customer save, silently.
+         ⚠ THE SAME FALLBACK THE EMAIL BRANCH BELOW ALREADY HAS, for the same reason:
+         an equality query cannot match what normalising would. custInvoiceKey is the
+         one rule for which invoice a customer files under, so this asks IT rather than
+         comparing phone fields — comparing the raw strings is the mistake that quietly
+         duplicated the whole book once.
+         ⚠ ONLY WHEN THE QUERY FOUND NOBODY, matching the email branch. A group where
+         SOME houses are stored digits-only and some are not still resolves only the
+         digits ones — that is a real remaining gap and it is recorded in Q-019 rather
+         than widened into here, because changing how a live invoice's group is built
+         is its own change with its own red-check. */
+      jobAddresses.forEach(function(c){
+        const d = c.data || {};
+        if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(c.id, d);
+      });
+    }
   } else {
     const emailSnap = await getDocs(query(collection(db,'jobAddresses'), where('email','==',key)));
     emailSnap.forEach(function(docSnap){
