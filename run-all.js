@@ -37340,8 +37340,38 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   check('S149', 'every corner is drawn on the map, numbered, run or no run',
     /function rmSyncCornersSky\(\)/.test(admin) &&
     /rmCornerMarkers\.push\(new google\.maps\.Marker/.test(admin) &&
-    /label: \{text: rmCornerLabel\(i\)/.test(admin),
+    /text: rmCornerLabel\(i\)/.test(admin),
     'one dot on its own makes no run, so it had nothing to be drawn as');
+  /* ⭐ AND THEY ARE MOVED RATHER THAN REBUILT (2026-08-26). Owner, dragging a
+     dot: "it goes super slow, make it so it looks like real time." This threw
+     every Marker away and constructed fresh ones on every call, and a drag calls
+     the redraw on every pointer event. Constructing map objects is the expensive
+     thing in this file; moving one is nearly free. */
+  check('S149', 'and a redraw moves the markers instead of rebuilding them',
+    (function(){
+      const fn = extractFn(admin, 'rmSyncCornersSky') || '';
+      return /have\.setPosition\(q\)/.test(fn) &&
+             /rmCornerMarkers\.length !== rmCorners\.length/.test(fn);
+    })(),
+    'sixty Marker constructions a second is what the drag was waiting on');
+  check('S149', 'and a drag redraws once per frame, not once per pointer event',
+    (function(){
+      const fn = extractFn(admin, 'rmDragPaint') || '';
+      return /requestAnimationFrame/.test(fn) && /if\(rmDragFrame\) return;/.test(fn) &&
+             !/rmRenderResults/.test(fn) && !/rmRenderCornerBar/.test(fn);
+    })(),
+    'the pointer fires faster than the screen refreshes; the panel and strip are ' +
+    'HTML rebuilds nobody is looking at while a dot is moving');
+  check('S149', 'and the numbers catch up when it is dropped',
+    (function(){
+      /* sectionFrom, not a character window - these blocks grow. */
+      const i = admin.indexOf("['mouseup', 'mouseleave'].forEach");
+      const j = admin.indexOf("['mouseup', 'mouseleave'].forEach", i + 10);
+      if(i === -1 || j === -1) return false;
+      return /rmCornersChanged\(\);/.test(sectionFrom(admin, i)) &&
+             /rmCornersChanged\(\);/.test(sectionFrom(admin, j));
+    })(),
+    'leaving the footage stale after a drag would be worse than the lag');
   check('S149', 'and they are redrawn whenever the corners change',
     (function(){
       const i = admin.indexOf('function rmCornersChanged(){');
