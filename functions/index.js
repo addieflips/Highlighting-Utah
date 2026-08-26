@@ -3612,6 +3612,29 @@ function cloudEmailPhotoServer(url) {
   if (/\/image\/upload\/[a-z]_[^/]*\//.test(url)) return url;   // already has transforms
   return url.replace('/image/upload/', '/image/upload/w_1120,c_limit,q_auto,f_auto/');
 }
+/* ⭐ THE SERVER HALF OF {{link:her own words}} (added 2026-08-26).
+ *
+ * Paired with applyQuoteLinkLabel in admin.html and asserted identical by
+ * Suite 279 of run-all.js, the same way the photo block and the button labels
+ * are: the Nudge template is rendered in the browser when the office sends it
+ * and HERE when the nightly batch does, so a token one of them understands and
+ * the other does not mails a customer the raw "{{link:See your home and approve
+ * here}}" the moment nobody is watching.
+ *
+ * ⚠ THE ESCAPING IS WRITTEN OUT RATHER THAN CALLING escServer, and the browser
+ * copy does the same rather than calling esc(). esc() escapes the apostrophe
+ * and escServer does not, so borrowing each file's general helper would make
+ * the two copies disagree about "Here's" — the one word most likely to be in a
+ * label. Four characters, spelled out, in both.
+ */
+const QUOTE_LINK_LABEL_STYLE_SERVER = 'color:#1E3B2C; font-weight:bold; text-decoration:underline;';
+function applyQuoteLinkLabelServer(text, url) {
+  return String(text == null ? '' : text).replace(/\{\{link:([^{}]*)\}\}/g, function (_m, words) {
+    const label = String(words).trim() || 'here';
+    const safe = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return '<a href="' + url + '" style="' + QUOTE_LINK_LABEL_STYLE_SERVER + '">' + safe + '</a>';
+  });
+}
 function escServer(str) {
   return String(str == null ? '' : str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -3767,6 +3790,7 @@ async function runQuoteNudgeBatch(source) {
       body = body.split('{{quote_yes_button}}').join('<a href="' + base + '&action=approve" style="' + btn + ' background:#2E6B3E; color:#ffffff;">' + qLabels.approve + '</a>');
       body = body.split('{{quote_maybe_button}}').join('<a href="' + base + '&action=maybe_next_year" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">' + qLabels.maybe + '</a>');
       body = body.split('{{quote_decline_button}}').join('<a href="' + base + '&action=decline' + qAddOn + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">' + qLabels.decline + '</a>');
+      body = applyQuoteLinkLabelServer(body, base);
       body = body.split('{{link}}').join(base);
       body = body.replace(/\n/g, '<br>');
 
