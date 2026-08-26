@@ -734,7 +734,18 @@ check('the portal balance is cent-rounded the way the office copy is',
     const onBillServer = compile([serverBillSrc], 'houseIsOnTheBillServer');
 
     // Every combination that can reach either copy, not a hand-picked few.
-    const STATES = ['', 'yes', 'no', 'backnextyear', 'unanswered', 'YES', 'BackNextYear', '  no  '];
+    /* The extra spellings are folded in from the billing-groups branch's own sweep,
+       when the two copies of this rule were collapsed into one (2026-08-26).
+       ⚠ AND NONE OF THEM CATCHES ANYTHING THE LIST ALREADY CAUGHT — measured, not
+       assumed: dropping ' backnextyear ' and then removing .trim() from a copy still
+       FAILS, because '  no  ' was already here and the trim is shared by every
+       branch. 'maybe' and 'cancelled' are covered the same way by 'unanswered'.
+       They are kept as symmetry insurance for the day a branch grows its own
+       normalisation, which is worth four array entries and is NOT the same claim as
+       "these find a bug today". Said plainly so nobody reads this list as proof of
+       coverage it does not give. */
+    const STATES = ['', 'yes', 'no', 'NO', 'backnextyear', 'unanswered', 'YES',
+                    'BackNextYear', '  no  ', ' backnextyear ', 'maybe', 'cancelled'];
     const DONE = [true, false, undefined, null, 'true', 1, 0];
     const MAYBE = [true, false, undefined, null];
     let compared = 0, disagreed = 0, firstBad = null;
@@ -796,6 +807,13 @@ check('the portal balance is cent-rounded the way the office copy is',
       onBill({ rsvpStatus: 'no', maybeNextYear: true, completed: true }) === true &&
       onBillServer({ rsvpStatus: 'no', maybeNextYear: true, completed: true }) === true,
       'every way of being out of the season at once still loses to having been hung');
+    /* ⚠ THE BILLING-GROUPS BRANCH ASSERTED THE OPPOSITE OF THE TWO CHECKS ABOVE, and
+       it was RIGHT when it was written — it locked in the Q-012 status quo, where a
+       flat "no" was deliberately left alone because Addie had not been asked about it.
+       She was asked on 2026-08-26 and answered: "Any house hung no matter what should
+       be charged." So that check is superseded by a dated ruling, not overruled by a
+       preference, and it is recorded here so nobody restores it from the other branch
+       without meeting the ruling first. See Q-013 and MON-21. */
   }
 }
 

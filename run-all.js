@@ -2863,9 +2863,37 @@ check('flow', 'payer invoice resync never writes an email into the phone field',
 // active houses the same way the server does, and to skip the write entirely
 // (not zero the invoice) when every linked house has opted out — a payer with
 // zero active houses is not the same as a payer with zero houses at all.
-check('flow', 'payer invoice resync excludes RSVP-no houses from the total',
-  /rsvpStatus\|\|''\)\s*!==\s*'no'/.test(syncPayer),
+/* ⚠ REPOINTED 2026-08-26, NOT WEAKENED. This matched the literal expression
+   `rsvpStatus||'') !== 'no'`, so it failed on correct code the moment the rule
+   moved into houseIsOnTheBill — which also widened it to Back Next Year, on the
+   owner's instruction. Pinned to what must be TRUE (the active list goes through
+   the shared rule) rather than to how it happens to be spelled. Same slow-fuse
+   shape as S82 and S129. The rule's own behaviour is swept in money-parity. */
+check('flow', 'payer invoice resync excludes houses that are not doing this season',
+  /const active = linked\.filter\([^;]*houseIsOnTheBill/.test(syncPayer),
   "a cancelled house's price would get resummed back onto the invoice on the next edit");
+check('flow', 'and it does not hand-roll that test beside the shared rule',
+  !/rsvpStatus/.test(stripComments(syncPayer)),
+  'a second opinion here is how the office total and the nightly bill start to disagree');
+
+/* ⚠ AND THE SAME OF THE NIGHTLY RUN, which is the copy that actually sends the
+   bill. money-parity proves the two RULES agree; this proves runInvoiceBatch
+   still asks its one. A red-check reverting that filter to a hand-rolled
+   `!== 'no'` went straight through the first version of this pass — nothing
+   anywhere read the server's active list. */
+{
+  const batchStart = fnsSrc.indexOf('for (const [invoiceKey, houses] of payerGroups)');
+  /* sectionFrom, not a character count — the suite has its own meta-check
+     against fixed-length windows and it is right: they fail on correct code the
+     moment it grows. */
+  const batchSlice = batchStart > -1 ? stripComments(sectionFrom(fnsSrc, batchStart)) : '';
+  check('flow', 'the nightly run asks the shared rule for who is billed',
+    /const active = houses\.filter\([^;]*houseIsOnTheBillServer/.test(batchSlice),
+    'the customer would be sent a bill for a season the office screen says they are out of');
+  check('flow', 'and does not hand-roll it either',
+    !!batchSlice && !/rsvpStatus/.test(batchSlice),
+    'two opinions about who is charged, one of them in the email that goes out');
+}
 check('flow', 'payer invoice resync does not zero an invoice when every house opted out',
   /linked\.length\s*&&\s*!active\.length/.test(syncPayer),
   'a payer whose houses are all RSVP-no would have their real balance wiped to $0');
@@ -3515,6 +3543,107 @@ console.log('\n=== 7. Health check engine ===');
     'without naming the text there is nothing for anyone to go and fix');
 
   const all = hc.run();
+
+  /* ---- a payment left behind when a house moved onto somebody else's bill ----
+     ⚠ THE FALSE-ALARM CASE IS THE IMPORTANT ONE HERE, as this section's header
+     says. A prepayment — money in before the house is priced — has EXACTLY the
+     same shape on the invoice as a stranded one: no charge, a deposit. Only one
+     of them is a problem, and a warning that fires on ordinary prepayments is
+     one the office learns to click past, including on the day it is right. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '101', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Kyle Pratt', phone: '8015552222', billToPhone: '8015550111', housePrice: 350, customerNumber: '102', measuredFeet: 90 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 750, removal: 0, deposit: 0, status: 'Unpaid' } },
+        /* Kyle's own invoice, zeroed but kept because it carries his payment —
+           exactly what the Edit Customer save writes when a Bill To changes. */
+        { id: '8015552222', data: { name: 'Kyle Pratt', install: 0, removal: 0, changeFees: 0, deposit: 150, status: 'Paid in Full' } }]
+  });
+  {
+    const rows = get(hc.run(), 'strandedPayment').rows;
+    check('health', 'a payment left behind by a bill-to change is found',
+      rows.length === 1,
+      'Kyle paid $150, then his house moved onto Dana\'s bill and the money did not follow — got ' + rows.length + ' rows');
+    check('health', 'and the row names who is paying for him now',
+      rows.length === 1 && rows[0].detail.indexOf('Dana Pratt') !== -1,
+      'the decision is where the money should go, so the row has to say where the bill went');
+    check('health', 'and how much is sitting there',
+      rows.length === 1 && rows[0].detail.indexOf('150.00') !== -1,
+      'an amount is the whole reason to look at it');
+  }
+
+  /* ⚠ THE PREPAYMENT. Same shape, nobody has moved anywhere, nothing is wrong. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Early Bird', phone: '8015557777', housePrice: 0, customerNumber: '103', measuredFeet: 100 } }],
+    i: [{ id: '8015557777', data: { name: 'Early Bird', install: 0, removal: 0, deposit: 200, status: 'Paid in Full' } }]
+  });
+  check('health', 'somebody who paid before their house was priced is NOT flagged',
+    get(hc.run(), 'strandedPayment').rows.length === 0,
+    'they still bill to their own invoice — nothing has been stranded, and crying wolf here ' +
+    'is how the check gets ignored on the day it is right');
+
+  /* An ordinary part-paid invoice is not this either. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Half Paid', phone: '8015558888', housePrice: 400, customerNumber: '104', measuredFeet: 100 } }],
+    i: [{ id: '8015558888', data: { name: 'Half Paid', install: 400, removal: 0, deposit: 150, status: 'Partial Payment' } }]
+  });
+  check('health', 'an ordinary part-paid invoice is not flagged',
+    get(hc.run(), 'strandedPayment').rows.length === 0,
+    'there is a real charge on it — the money is not stranded, it is owed against something');
+
+  /* Money under a key no customer answers to any more. Deleting the customer is
+     the usual way in, and the payment record is all that is left of them. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 400, removal: 0, deposit: 0, status: 'Unpaid' } },
+        { id: '8015559999', data: { name: 'Gone Away', install: 0, removal: 0, deposit: 75, status: 'Paid in Full' } }]
+  });
+  {
+    const rows = get(hc.run(), 'strandedPayment').rows;
+    check('health', 'a payment under a key nobody answers to is found too',
+      rows.length === 1 && rows[0].detail.indexOf('no customer is filed under') !== -1,
+      'the customer is gone and the money is all that is left of them — got ' + rows.length + ' rows');
+  }
+
+  /* ⚠ AN EMPTY INVOICE WITH NO MONEY ON IT IS NOT THIS. There is nothing to
+     strand, so this check must stay silent — orphanInvoice is the one that
+     reports a document nobody answers to. The first version of this suite had no
+     fixture for it, and a red-check that deleted the `deposit > 0` condition
+     sailed straight through: every fixture happened to carry money, so nothing
+     could tell the two conditions apart. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 400, removal: 0, deposit: 0, status: 'Unpaid' } },
+        { id: '8015556666', data: { name: 'Empty', install: 0, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  check('health', 'an empty invoice carrying no money at all is not flagged',
+    get(hc.run(), 'strandedPayment').rows.length === 0,
+    'nothing has been stranded — there was never any money on it');
+
+  /* ⚠ AND A MOVE THAT WAS HANDLED PROPERLY IS NOT FLAGGED EITHER. Once the
+     carried-payment rule shipped, a correct move STILL leaves a zeroed invoice
+     with the payment on it — that is the record of a settled house, and what
+     travels is a credit on the payer's bill. paidBeforeBillTo on the house is
+     what says the money went somewhere; without this the check would fire on
+     every move it had just been fixed to make safe. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '101', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Kyle Pratt', phone: '8015552222', billToPhone: '8015550111', housePrice: 350, customerNumber: '102', measuredFeet: 90, paidBeforeBillTo: 150 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 750, removal: 0, deposit: 0, credits: 150, status: 'Unpaid' } },
+        { id: '8015552222', data: { name: 'Kyle Pratt', install: 0, removal: 0, changeFees: 0, deposit: 150, status: 'Paid in Full' } }]
+  });
+  check('health', 'a move whose payment was carried across is NOT flagged',
+    get(hc.run(), 'strandedPayment').rows.length === 0,
+    'the money went with the house as a credit — the leftover invoice is the ' +
+    'record, not a problem, and crying wolf here undoes the point of the fix');
+
+  /* ⚠ AND IT NEVER OFFERS A BUTTON. Crediting it to the new payer, refunding it
+     and leaving it as a record are three different answers about real money, and
+     a guess here moves somebody's payment onto somebody else's bill unasked. */
+  hc.set({ j: [], i: [] });
+  check('health', 'the stranded-payment check never offers to fix itself',
+    !get(hc.run(), 'strandedPayment').fix,
+    'a Fix button here would decide where a real payment goes without being asked — Q-014');
+
   /* 19 since 2026-08-15, when "light colours written as words" was added.
      STILL 19 after 2026-08-18: the owner asked for an indicator for customers
      with no customer number, and the honest answer was that one already
@@ -3536,9 +3665,15 @@ console.log('\n=== 7. Health check engine ===');
      digit in it but passes "S Summit Crest Ln" straight through as a TOWN, and every
      route day is one town — so that house is filed under a town of its own and the
      builder gives it a crew-day: one house, one morning, one truck, looking exactly
-     like a genuinely quiet town. */
-  check('health', 'all 21 checks present',
-    all.length === 21, 'got ' + all.length);
+     like a genuinely quiet town.
+
+     ⭐ 22 SINCE 2026-08-26: 'strandedPayment'. A payment left on an invoice that
+     bills nothing — the house moved onto somebody else's bill and the money did not
+     follow it. Since the carried-payment rule shipped the same day this only finds
+     moves made BEFORE it, plus money under a key no customer answers to; a correctly
+     handled move carries its payment across as a credit and is not flagged. */
+  check('health', 'all 22 checks present',
+    all.length === 22, 'got ' + all.length);
   /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
      form is truthy whatever happens and proves nothing. Red-checking caught it:
      renaming the id sailed straight through. */
@@ -5168,7 +5303,12 @@ suite('13. Season prep — crew portal (§4)');
   // payerHouseOf comes along because syncPayerInvoice calls it: the rule about whose
   // name goes on a shared bill lives in one place now, and running the function
   // without it is running something that is not what ships.
+  /* ⚠ AND houseIsOnTheBill, which syncPayerInvoice asks to decide who is on the
+     bill this season. LIFTED OUT OF js/money.js, never stubbed: a stub would keep
+     this suite green through a change to who gets charged, which is the one thing
+     it exists to protect. money-parity sweeps it against the nightly run's copy. */
   const src = extractFn(admin, 'payerHouseOf') + '\n' +
+    extractFn(admin, 'houseIsOnTheBill') + '\n' +
     admin.slice(start, admin.indexOf('\n}', start) + 2);
 
   // A tiny fake Firestore. Every call records what it was asked for; setDoc
@@ -5248,6 +5388,34 @@ suite('13. Season prep — crew portal (§4)');
       w2.billedHouseIds.length === 1 && w2.billedHouseIds[0] === 'h1',
       'the invoice rows and the invoice total would disagree');
 
+    /* ⭐ AND SO DOES SOMEBODY SITTING THE SEASON OUT (2026-08-26). Owner, asked
+       whether a Back Next Year customer should still be billed for a season
+       nobody works for them: no, take them off the bill. They were already off
+       the routes and out of the build queue; the invoice was the last place they
+       were still being charged.
+       ⚠ BOTH WAYS OF SAYING IT, in one sweep: portalRsvp writes the STATUS alone
+       while the office button also sets maybeNextYear, so a rule reading one of
+       them silently keeps billing everybody who answered through the RSVP link.
+       That is the exact bug isOutForSeason was fixed for in 2026-08-22. */
+    for (const [label, out] of [
+      ['answered Back Next Year through the RSVP link', { rsvpStatus: 'backnextyear' }],
+      ['badged Maybe Next Year by the office', { maybeNextYear: true }],
+      ['both at once, as the office button writes it', { rsvpStatus: 'backnextyear', maybeNextYear: true }]
+    ]) {
+      const sitting = [
+        houses[0],
+        { id: 'h2', data: Object.assign({ name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300 }, out) }
+      ];
+      const hb = makeHarness(sitting, { install: 700 });
+      await hb.fn('8011112222');
+      const wb = hb.written[0] || {};
+      check('sync', 'a house ' + label + ' is off the bill',
+        wb.install === 400 && (wb.billedHouseIds || []).length === 1 &&
+        (wb.billedHouseIds || [])[0] === 'h1',
+        'they get an invoice for a season nobody works for them — got $' + wb.install +
+        ' across ' + JSON.stringify(wb.billedHouseIds));
+    }
+
     // The $30 join fee is not part of any house price, so a rebuild that
     // forgets it silently un-charges the fee.
     const h3 = makeHarness(houses, { install: 730, newMemberFeeApplied: true });
@@ -5255,6 +5423,192 @@ suite('13. Season prep — crew portal (§4)');
     check('sync', 'the $30 join fee survives a rebuild',
       (h3.written[0] || {}).install === 730,
       'the fee would be quietly refunded on the next price edit');
+
+    /* ---- money already paid against a house follows that house ----
+       ⭐ THE OWNER'S RULE, 2026-08-26, in her own words: "if person already paid
+       bill but moved to bill to than person on bill to will not have to pay
+       anything and bill to person will just start paying for both people the
+       next year"; on a half-paid house, "Just pay what hasn't been paid yet";
+       and the other way round, "if bill to person already paid bill and someone
+       was added onto there bill that hasn't paid than they will get another bill
+       showing what they still owe."
+
+       ⚠ ALL THREE ARE ONE MECHANISM, which is why they are checked together —
+       if they ever need three branches, the rule has been implemented twice.
+       ⚠ AND THEY ARE RUN, not read. Every claim here is arithmetic about a
+       balance, and this suite exists because a text-only check let the forTotal
+       crash ship for a day. */
+    {
+      /* Rental has paid $300 in full and then joined the payer's bill. */
+      const paidOff = [
+        houses[0],
+        { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300, paidBeforeBillTo: 300 } }
+      ];
+      const hp = makeHarness(paidOff, { install: 400, deposit: 0 });
+      await hp.fn('8011112222');
+      const wp = hp.written[0] || {};
+      check('sync', 'a house that was already paid for is still ON the bill',
+        wp.install === 700 && (wp.billedHouseIds || []).indexOf('h2') !== -1,
+        'the rows have to keep adding up to the total — the price belongs on the ' +
+        'invoice, it is the credit that cancels it');
+      check('sync', 'and its payment comes across as a credit',
+        wp.credits === 300, 'got ' + wp.credits + ' — the payer would be billed for a house somebody already paid for');
+      check('sync', 'so the payer owes nothing more for it',
+        (wp.install || 0) - (wp.credits || 0) - (wp.deposit || 0) === 400,
+        'their own $400 house and nothing else — "person on bill to will not have to pay anything"');
+      check('sync', 'and the credit line says whose money it was',
+        (wp.creditNotes || []).some(function (c) { return c.kind === 'carried' && /Rental/.test(c.reason || ''); }),
+        'an unexplained credit on a bill is one nobody can check');
+
+      /* Half paid: $150 of a $300 house. */
+      const halfPaid = [
+        houses[0],
+        { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300, paidBeforeBillTo: 150 } }
+      ];
+      const hh = makeHarness(halfPaid, { install: 400, deposit: 0 });
+      await hh.fn('8011112222');
+      const wh = hh.written[0] || {};
+      check('sync', 'a half-paid house leaves only the rest to pay',
+        (wh.install || 0) - (wh.credits || 0) - (wh.deposit || 0) === 550,
+        '$400 of their own plus the $150 still owed on the rental — "just pay what hasn\'t been paid yet"');
+
+      /* ⚠ THE OTHER DIRECTION. The payer has settled their own $400; an unpaid
+         house joins. They must get a bill for it rather than staying settled. */
+      const joiner = [
+        houses[0],
+        { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300 } }
+      ];
+      const hj = makeHarness(joiner, { install: 400, deposit: 400 });
+      await hj.fn('8011112222');
+      const wj = hj.written[0] || {};
+      check('sync', 'an unpaid house joining a settled bill reopens it',
+        (wj.install || 0) - (wj.credits || 0) - (wj.deposit || 0) === 300 &&
+        wj.status !== 'Paid in Full',
+        '"they will get another bill showing what they still owe" — got ' + wj.status);
+
+      /* ⚠ REBUILT, NEVER ACCUMULATED. This runs on every save; a credit pushed
+         each time would discount the bill again and again until it hit zero. */
+      const hr = makeHarness(paidOff, {
+        install: 700, deposit: 0, credits: 300,
+        creditNotes: [{ amount: 300, reason: 'Already paid by Rental before this house joined your bill', kind: 'carried', houseId: 'h2' }]
+      });
+      await hr.fn('8011112222');
+      const wr = hr.written[0] || {};
+      check('sync', 'a resync does not add the same carried credit twice',
+        wr.credits === 300 && (wr.creditNotes || []).filter(function (c) { return c.kind === 'carried'; }).length === 1,
+        'got ' + wr.credits + ' across ' + (wr.creditNotes || []).length + ' notes — every save would discount them again');
+
+      /* ⚠ AND IT KEEPS EVERY OTHER KIND OF CREDIT. A resync triggered by an
+         unrelated edit must not wipe a referral or a hand-applied adjustment —
+         the same guarantee the Edit Customer save gives from the other side. */
+      const hk = makeHarness(paidOff, {
+        install: 700, deposit: 0, credits: 25,
+        creditNotes: [{ amount: 25, reason: 'Referral — 1 person', kind: 'referral' }]
+      });
+      await hk.fn('8011112222');
+      const wk = hk.written[0] || {};
+      check('sync', 'a referral credit survives the rebuild',
+        (wk.creditNotes || []).some(function (c) { return c.kind === 'referral'; }) && wk.credits === 325,
+        'got ' + wk.credits + ' — this rebuild owns "carried" and must keep the rest');
+
+      /* A house that said no is out of the total, so its carried payment must be
+         out of the credits too — or the bill is discounted for a house nobody is
+         being charged for. */
+      const noHouse = [
+        houses[0],
+        { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300, paidBeforeBillTo: 300, rsvpStatus: 'no' } }
+      ];
+      const hn = makeHarness(noHouse, { install: 400, deposit: 0 });
+      await hn.fn('8011112222');
+      const wn = hn.written[0] || {};
+      check('sync', 'a cancelled house takes its carried credit out with it',
+        wn.install === 400 && (wn.credits || 0) === 0,
+        'crediting a house that is not on the bill would discount the payer for nothing');
+
+      /* Nobody carrying anything must not gain a credits field out of nowhere. */
+      const hz = makeHarness(houses, { install: 700, deposit: 0 });
+      await hz.fn('8011112222');
+      const wz = hz.written[0] || {};
+      check('sync', 'an ordinary bill with nothing carried is credited nothing',
+        (wz.credits || 0) === 0 && (wz.creditNotes || []).length === 0,
+        'got ' + wz.credits + ' — this must be invisible on the ordinary case');
+
+      /* ⚠ AND THE STATUS HAS TO BE COMPUTED FROM THE CARRIED CREDIT, not from
+         whatever credits the invoice happened to hold before. A red-check that
+         swapped creditsTotal back for existing.credits went straight through the
+         first version of this suite: in every fixture there, either the credit
+         was zero or the status came out the same both ways. This one only
+         settles WITH the carried credit counted. */
+      const hs = makeHarness(paidOff, { install: 400, deposit: 400 });
+      await hs.fn('8011112222');
+      const ws = hs.written[0] || {};
+      check('sync', 'the status pill counts the carried credit too',
+        ws.status === 'Paid in Full',
+        'their own $400 is paid and the rental came across settled, so the bill is clear — got ' +
+        ws.status + '. A pill computed off the old credits would say Partial Payment.');
+
+      /* ---- and the stamp that feeds all of the above ----
+         ⚠ RUN, NOT READ. Three of this pass's sabotages went straight through
+         the first version because nothing exercised the stamp at all — it lived
+         inline in the Edit Customer save, so the only thing a suite could do was
+         match its text. It is its own function now for exactly that reason. */
+      const stampSrc = extractFn(admin, 'carriedPaymentOnBillToChange');
+      check('sync', 'the carried-payment rule is its own runnable function', !!stampSrc,
+        'renamed? update this suite rather than deleting it');
+      if (stampSrc) {
+        const stamp = new Function(stampSrc + '\nreturn carriedPaymentOnBillToChange;')();
+        const inv = function (install, deposit, extra) {
+          return { data: Object.assign({ install: install, removal: 0, changeFees: 0, deposit: deposit }, extra || {}) };
+        };
+        check('sync', 'moving onto another bill carries what they had paid',
+          stamp('', '8011112222', inv(300, 300)) === 300,
+          'the whole point — got ' + stamp('', '8011112222', inv(300, 300)));
+        check('sync', 'a part payment carries only what was actually paid',
+          stamp('', '8011112222', inv(300, 150)) === 150,
+          '"just pay what hasn\'t been paid yet"');
+        check('sync', 'somebody who had paid nothing carries nothing',
+          stamp('', '8011112222', inv(300, 0)) === null,
+          'a zero stamp is noise on the record and a zero credit line on the bill');
+        /* ⚠ THE CAP. A deposit bigger than the bill is an overpayment or a typo;
+           handing the difference to the new payer would be inventing money. */
+        check('sync', 'an overpayment is capped at what that house owed',
+          stamp('', '8011112222', inv(300, 500)) === 300,
+          'got ' + stamp('', '8011112222', inv(300, 500)) + ' — the extra is not the new payer\'s to have');
+        check('sync', 'the light-change fee counts as part of what they owed',
+          stamp('', '8011112222', inv(300, 330, { changeFees: 30 })) === 330,
+          'they paid the fee too, so it comes across with the rest');
+        /* ⚠ NOT RE-STAMPED on an ordinary save of somebody who ALREADY bills
+           elsewhere. Their own invoice has been zeroed by then, so reading it
+           again would reset the carried amount to nothing. */
+        /* ⚠ THE FIXTURE HERE NEEDS A LIVE INVOICE, NOT A ZEROED ONE, and the
+           first version got that wrong: it handed a zeroed invoice, so the CAP
+           returned 0 and the check passed whether the guard existed or not. A
+           red-check dropping `!was` went straight through it.
+           The case where it really bites: a payer whose own invoice is a
+           multi-house GROUP invoice is deliberately left un-zeroed when they are
+           pointed at somebody else, so re-reading it on every later save would
+           hand the new payer a credit for the whole group's payments. */
+        check('sync', 'an ordinary save of somebody already billed elsewhere leaves it alone',
+          stamp('8011112222', '8011112222', inv(700, 700)) === null,
+          'the field must survive every later edit of that customer, and a live invoice ' +
+          'behind them must never be re-read as if they had just moved');
+        check('sync', 'and so does an ordinary save of somebody paying for themselves',
+          stamp('', '', inv(300, 300)) === null,
+          'nothing has moved anywhere');
+        /* ⚠ CLEARED when they go back to paying for themselves, or the credit
+           keeps discounting a payer who no longer has this house. */
+        check('sync', 'coming back to their own bill clears the carried amount',
+          stamp('8011112222', '', inv(0, 0)) === 0,
+          'left set, the old payer stays discounted for a house they no longer have');
+        /* Switching from one payer to another is not a fresh move: their own
+           invoice was zeroed the first time, so there is nothing left to read. */
+        check('sync', 'switching from one payer to another does not re-read a zeroed invoice',
+          stamp('8011112222', '8019998888', inv(0, 300)) === null,
+          'it would reset the carried amount to nothing at the worst moment');
+      }
+
+    }
+
   })());
 })();
 
@@ -19350,7 +19704,13 @@ suite('Suite 69. Who pays for whom');
     ];
     const bg = {};
     new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'invoiceById',
-      'balanceDueAmount', 'computeInvoiceStatus', 'document', 'let billingGroupSearchTerm = "";\n' +
+      'balanceDueAmount', 'computeInvoiceStatus', 'document',
+      /* ⭐ THE REAL who-is-billed RULE, LIFTED — not stubbed. billingGroupsByPayer
+         asks it, and a stub would keep this suite green through a change to who
+         appears on somebody's bill. Its own behaviour is swept in money-parity
+         against the nightly run's copy. */
+      extractFn(admin, 'houseIsOnTheBill') + '\n' +
+      'let billingGroupSearchTerm = "";\n' +
       billingSrc.join('\n') + '\n' +
       'this.groups = billingGroupsByPayer; this.forCust = billedHousesFor;' +
       'this.payerOf = billingGroupPayer; this.forContact = billedHousesForContact;' +
@@ -19482,6 +19842,10 @@ if (!JSDOM) {
     ];
     const paint = new Function('jobAddresses', 'custInvoiceKey', 'esc', 'fmtMoney', 'fmtPhone',
       'invoiceById', 'balanceDueAmount', 'computeInvoiceStatus', 'document', 'openEditCustomerModal',
+      /* The real who-is-billed rule, lifted — billingGroupsByPayer asks it, and
+         a stub would keep this render green through a change to who appears on
+         a bill. Same reason it is lifted into the logic harness above. */
+      extractFn(admin, 'houseIsOnTheBill') + '\n' +
       'let billingGroupSearchTerm = "";\n' + renderSrc.join('\n') +
       '\nreturn function(term){ billingGroupSearchTerm = term || ""; renderBillingGroups();' +
       ' return { list: document.getElementById("billingGroupList"),' +
@@ -24768,6 +25132,15 @@ suite('Suite 108. The Edit Customer save, actually run');
       compileLightsDescription: () => (o.lights || ''), computeInvoiceStatus: () => 'Unpaid',
       custInvoiceKey: (d) => String(d.phone || '').replace(/[^0-9]/g, ''),
       allCustInvoiceFor: () => null, contactIndexFields: () => ({}),
+      /* ⭐ THE REAL CARRIED-PAYMENT RULE, LIFTED — not a stub, for the same
+         reason applyLightChange below is lifted: a stub would keep this suite
+         green through a change to how much of somebody's money follows their
+         house onto another bill. allCustInvoiceFor is stubbed to null above, so
+         it is handed nothing and correctly decides to stamp nothing; its own
+         arithmetic is exercised directly in Suite 10. */
+      carriedPaymentOnBillToChange: new Function(
+        extractFn(admin, 'carriedPaymentOnBillToChange') +
+        '\nreturn carriedPaymentOnBillToChange;')(),
       extractCleanCity: () => 'Highland', generatePortalToken: () => 'tok',
       geocodeAddress: async () => ({lat: 40, lng: -111}),
       houseSideCount: () => 1, quoteStage: () => 'send',
@@ -26041,7 +26414,14 @@ suite('Suite 82. Save and close stay on screen');
     /* No regex across the handler body: an escape that does not survive the
        route into this file degrades into something that matches nothing, and the
        check then fails against correct code. Slice and look. */
-    const topSave = admin.slice(admin.indexOf("getElementById('editCustTopSave')"));
+    /* ⚠ ANCHORED ON THE HANDLER, NOT ON THE ID (repointed 2026-08-26). This
+       sliced from the first mention of editCustTopSave anywhere in the file, so
+       the moment a second place touched that element — editCustSetSaveLabel,
+       which sets its tooltip to the house being edited, and which sits earlier —
+       the slice started there instead and this failed on code that was right.
+       The §7 slow-fuse shape: pinned to where a string happens to sit rather
+       than to the thing that must be true. */
+    const topSave = admin.slice(admin.indexOf("getElementById('editCustTopSave')?.addEventListener"));
     const body = topSave.slice(0, topSave.indexOf('});') + 3);
     check('S82', 'Save delegates to the real Save button',
       body.indexOf("getElementById('editCustSaveBtn')") !== -1 &&
@@ -41425,6 +41805,827 @@ suite('274. The test invoice - an address that is one letter wrong');
   check('S274', 'the test send still writes nothing to the customer or the invoice',
     !/invoiceEmailSent/.test(sendSrc) && !/updateDoc/.test(sendSrc) && !/setDoc/.test(sendSrc),
     'the card says "the customer is not emailed, nothing is marked as billed, and no fee is applied"');
+}
+
+
+// =====================================================================
+suite('275. Which invoice a customer is on - one rule, not four');
+/* ⭐ THE HOLE, found 2026-08-26 while mapping the billing-group work.
+   "Which invoice is this customer on" was answered FOUR different ways and three
+   of them were wrong. The right answer already existed — allCustInvoiceFor, which
+   asks custInvoiceKey (phone digits, else the lowercased email) and reads the
+   keyed invoiceById map — and its own comment says it exists to be "called once
+   per row of the All Customers table". The row builder was not calling it.
+
+   ⚠ TWO DISTINCT MISTAKES, and they miss different people.
+
+   1. KEYED ON PHONE DIGITS ALONE (getLiveInvoiceStatus, etResolveVars). A
+      customer with no phone is filed under their EMAIL, so both returned null
+      for every email-only customer. getLiveInvoiceStatus is what Automation
+      Emails' Unpaid / Partial / Paid audience filters and the Dashboard's RSVP
+      list read, so a chase-the-unpaid send did not contain those people at all
+      — and a send to nobody looks exactly like a send that worked.
+      etResolveVars is worse in kind: it fills {{price}} in a REAL EMAIL.
+
+   2. COMPARED THE STORED PHONE FIELDS AS EXACT STRINGS (buildAddressRowHtml,
+      the post-install billing list). Every writer of an invoice stores `phone`
+      digits-only — syncPayerInvoice writes the key itself — while an imported
+      customer record keeps whatever the office typed, "(801) 555-0123". The two
+      never matched. On All Customers that meant the FILTER counted somebody
+      Unpaid (it used allCustInvoiceFor) while the row drawn underneath showed no
+      price and no status: two halves of one screen disagreeing about one
+      customer. On the post-install list it meant a completed house was counted
+      into `noInvoiceCount` and dropped off the printed invoice batch — work
+      done, materials out, no bill printed.
+
+   ⚠ THE RULE WAS ALREADY WRITTEN DOWN IN THIS FILE, beside the bulk-email
+   amount: "Match on the invoice KEY, not the phone field. A customer with no
+   phone is keyed by email, so comparing phones matched '' === '' and could pull
+   a different customer's invoice — and this amount goes out in an email." Three
+   places had not been brought to it. That is what this suite pins.
+
+   ⚠ AND THE BEHAVIOURAL HALF RUNS THE REAL FUNCTION rather than matching its
+   source, because every claim here is about what a lookup RESOLVES TO. A regex
+   proving the words `custInvoiceKey` appear says nothing about whether the
+   email-only customer comes back. */
+{
+  const gliSrc = extractFn(admin, 'getLiveInvoiceStatus');
+  const acifSrc = extractFn(admin, 'allCustInvoiceFor');
+  check('S275', 'both invoice resolvers are in admin.html', !!gliSrc && !!acifSrc,
+    'getLiveInvoiceStatus / allCustInvoiceFor — renamed? update this suite rather than deleting it');
+
+  if (gliSrc && acifSrc) {
+    const code = [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc,
+      'let invoiceById = new Map();', gliSrc, acifSrc,
+      'return {load:function(pairs){ invoiceById = new Map(); pairs.forEach(function(p){' +
+      ' invoiceById.set(p[0], {id:p[0], data:p[1]}); }); },' +
+      ' status:getLiveInvoiceStatus, forCust:allCustInvoiceFor};'].join('\n');
+    assertSandbox('S275', 'invoice resolvers', code, admin,
+      ['getLiveInvoiceStatus', 'allCustInvoiceFor', 'custInvoiceKey',
+        'computeInvoiceStatus', 'centsOf', 'invoiceById']);
+    const F = new Function(code)();
+
+    /* One phone-keyed invoice and one email-keyed one — the two shapes
+       custInvoiceKey can produce, which is the whole point. */
+    F.load([
+      ['8015550123', { install: 200, removal: 0, deposit: 0, credits: 0, changeFees: 0 }],
+      ['jane@example.com', { install: 150, removal: 0, deposit: 150, credits: 0, changeFees: 0 }]
+    ]);
+
+    /* ⚠ THE CHECK THE WHOLE SUITE EXISTS FOR. On the old code this is null,
+       because there are no phone digits to key on and it gave up there. */
+    check('S275', 'an email-only customer has a payment status at all',
+      F.status({ email: 'Jane@Example.COM' }) === 'Paid in Full',
+      'their invoice is filed under their email — got ' + F.status({ email: 'Jane@Example.COM' }) +
+      '. Null here is the Unpaid filter silently skipping them.');
+
+    check('S275', 'a formatted phone still finds the digits-keyed invoice',
+      F.status({ phone: '(801) 555-0123' }) === 'Unpaid',
+      'custInvoiceKey strips punctuation; the invoice id is digits');
+
+    check('S275', 'the record and the whole item are both accepted',
+      F.status({ data: { email: 'Jane@Example.COM' } }) === 'Paid in Full',
+      'call sites pass m.data; a stray item must not answer null');
+
+    /* ⚠ THE BARE-STRING CONTRACT IS KEPT ON PURPOSE. Eight call sites were
+       repointed in one change; a ninth written later against the old shape must
+       not silently start answering null, which is the failure mode this whole
+       suite is about. */
+    check('S275', 'a bare phone string still answers, so an old caller cannot go quiet',
+      F.status('(801) 555-0123') === 'Unpaid',
+      'the both-shapes contract billedHousesFor already has');
+
+    check('S275', 'a customer with no phone and no email answers null, not a wrong invoice',
+      F.status({}) === null && F.status({ phone: '', email: '' }) === null,
+      'no key means no invoice — never somebody else');
+
+    check('S275', 'a customer whose invoice does not exist answers null',
+      F.status({ phone: '8019999999' }) === null,
+      'a missing invoice is not a status');
+
+    /* ⭐ THE INVARIANT, STATED AS A TEST. The All Customers filter and the row
+       drawn under it must never disagree about one customer, which is exactly
+       what the exact-string compare produced.
+       ⚠ FOR A HOUSE THAT PAYS FOR ITSELF. Since 2026-08-26 the two answer
+       DIFFERENT questions for a house billed elsewhere — allCustInvoiceFor finds
+       the invoice filed under that house's own key (which the Edit Customer save
+       needs, to zero it), while getLiveInvoiceStatus reports the bill the house
+       was actually added to. Asserting they agree there would be asserting the
+       wrong thing; the billed-elsewhere behaviour is checked on its own below. */
+    const SAME = [
+      { phone: '(801) 555-0123' },
+      { email: 'Jane@Example.COM' },
+      { phone: '801-555-0123', email: 'other@example.com' },
+      { phone: '8019999999' },
+      {}
+    ];
+    const agree = SAME.every(function (d) {
+      return !!F.forCust({ data: d }) === (F.status(d) !== null);
+    });
+    check('S275', 'the two resolvers agree about a house that pays for itself', agree,
+      'one screen filtering somebody in while the next draws them blank is the bug');
+
+    /* ---- a house billed to somebody else takes that bill's status ----
+       ⭐ Owner, 2026-08-26: "if Kyle didn't say no or back next year and his bill
+       wasn't already paid or partially paid but it added to Dana's bill than
+       should be paid in full by dana." */
+    F.load([
+      ['8015550111', { install: 750, removal: 0, deposit: 0, credits: 0, changeFees: 0 }],
+      /* ⚠ KYLE'S OWN LEFTOVER, kept and zeroed because it carried his deposit.
+         On its own it computes to "Paid in Full" — nothing owed, something paid —
+         which is exactly the false reading this change removes. */
+      ['8015552222', { install: 0, removal: 0, deposit: 150, credits: 0, changeFees: 0 }]
+    ]);
+    const KYLE = { phone: '8015552222', billToPhone: '8015550111' };
+    check('S275', 'a house billed elsewhere reports the bill it is really on',
+      F.status(KYLE) === 'Unpaid',
+      'Dana has not paid the $750 that includes his house — got ' + F.status(KYLE));
+    check('S275', 'and not the settled leftover sitting under its own key',
+      F.status({ phone: '8015552222' }) === 'Paid in Full' && F.status(KYLE) !== 'Paid in Full',
+      'the leftover really does read Paid in Full on its own, which is why the ' +
+      'billToPhone half has to win — otherwise the row says settled while the payer owes');
+    F.load([
+      ['8015550111', { install: 750, removal: 0, deposit: 750, credits: 0, changeFees: 0 }],
+      ['8015552222', { install: 0, removal: 0, deposit: 150, credits: 0, changeFees: 0 }]
+    ]);
+    check('S275', 'and it goes settled when the payer settles',
+      F.status(KYLE) === 'Paid in Full',
+      '"should be paid in full by dana" — got ' + F.status(KYLE));
+  }
+
+  /* ---- and the four call sites really ask that one rule ----
+     ⚠ SCOPED TO EACH FUNCTION'S OWN SLICE, never a file-wide search: the exact
+     phrases below are legitimate elsewhere (the Edit Customer save has to find a
+     leftover invoice by key to zero it), and a whole-file grep would pass while
+     the row builder went on comparing strings. */
+  const SITES = [
+    ['getLiveInvoiceStatus', extractFn(admin, 'getLiveInvoiceStatus'), 'custInvoiceKey',
+      'the payment status behind the audience filters'],
+    ['etResolveVars', extractFn(admin, 'etResolveVars'), 'allCustInvoiceFor',
+      '{{price}} in a real email'],
+    ['buildAddressRowHtml', extractFn(admin, 'buildAddressRowHtml'), 'allCustInvoiceFor',
+      'the All Customers row, under its own filter']
+  ];
+  {
+    const s = admin.indexOf("pibLoadBtn')?.addEventListener");
+    const e = admin.indexOf('function renderPibRow(', s > -1 ? s : 0);
+    SITES.push(['the post-install billing list',
+      (s > -1 && e > s) ? admin.slice(s, e) : '', 'allCustInvoiceFor',
+      'who gets a printed invoice after their install']);
+  }
+  SITES.forEach(function (t) {
+    const name = t[0], why = t[3], wants = t[2];
+    /* ⚠ COMMENTS STRIPPED, and the first version of this suite was caught by
+       exactly that. Each of these fixes carries a comment NAMING allCustInvoiceFor
+       and explaining why it is the one rule — so the "asks the shared rule" check
+       passed on the strength of the prose while a red-check had put the phone scan
+       back in the code underneath it. Suite 58 learned this same lesson; so has
+       the guard-ordering check in Suite 274. */
+    const src = t[1] ? stripComments(t[1]) : '';
+    check('S275', name + ' resolves the invoice through the shared rule',
+      !!src && src.indexOf(wants) !== -1,
+      why + ' — it must ask ' + wants + ', not the phone');
+    /* The exact-string compare, in either argument order. This is the shape that
+       shipped and the shape that would come back. */
+    check('S275', name + ' does not compare the two stored phone fields',
+      !!src && !/\.data\.phone\s*===\s*d\.phone|d\.phone\s*===\s*[a-z]+\.data\.phone/.test(src),
+      why + ' — invoices store digits, imported records keep "(801) 555-0123", so this never matches');
+    /* ⚠ NOT "does not scan allInvoicesCache FOR A PHONE" — that was the first
+       wording and it could not see the callback form: `allInvoicesCache.find(
+       function(i){ return i.data.phone === ... })` puts a `)` before the word
+       phone ever appears, so the match died at the first bracket. None of these
+       four has any business touching the unkeyed list at all now, so say that
+       instead of trying to describe the shape of a scan. */
+    check('S275', name + ' does not touch the unkeyed invoice list',
+      !!src && src.indexOf('allInvoicesCache') === -1,
+      why + ' — invoiceById is the one lookup, and a scan by phone misses email-only customers');
+  });
+
+  /* ---- "Use This Total for Their Invoice" — the same mistake, but WRITING ----
+     ⚠ THE WORST OF THE FAMILY, because it is not a display. It wrote to
+     `invoices/<d.phone>` with the phone EXACTLY as typed, so an imported record
+     holding "(801) 555-0123" minted a SECOND invoice document under a punctuated
+     id — a legal Firestore id that no screen in this app reads — while the real
+     invoice sat unchanged showing the old price, and the toast said it had
+     worked. It also wrote `removal: 0, deposit: 0` on every press, wiping a
+     recorded payment; that is the bug Invoice Bulk Update was guarded against on
+     2026-08-08, in a second place, unguarded. And on a shared bill it wrote one
+     house's drawing total straight into `install`, which on a group invoice is
+     the SUM of every house — deleting the others' money in one click. */
+  {
+    const s = admin.indexOf('useForInvoiceBtn.addEventListener');
+    const e = admin.indexOf("panel.querySelector('.hd-save')", s > -1 ? s : 0);
+    const raw = (s > -1 && e > s) ? admin.slice(s, e) : '';
+    const src = raw ? stripComments(raw) : '';
+    check('S275', 'the Use This Total button is still findable', !!src,
+      'useForInvoiceBtn — renamed? update this suite rather than deleting it');
+    if (src) {
+      check('S275', 'it keys the invoice write on custInvoiceKey, never the raw phone field',
+        /custInvoiceKey\(d\)/.test(src) && !/doc\(db,'invoices',\s*d\.phone\s*\)/.test(src),
+        'invoices/(801) 555-0123 is a legal document id and an orphan nothing reads');
+      check('S275', 'a house billed to somebody else lands on THEIR bill',
+        /billToPhone/.test(src),
+        'their money is on the payer\'s invoice, not one of their own');
+      check('S275', 'it does not zero a recorded payment',
+        !/removal:\s*0\s*,\s*deposit:\s*0/.test(src),
+        'pressing this after a customer had paid wiped the payment off their invoice');
+      check('S275', 'it refuses rather than overwriting a shared bill',
+        /billedHousesFor\(/.test(src) && /length > 1/.test(src),
+        'install on a group invoice is the sum of every house — one drawing total deletes the rest');
+      check('S275', 'it refuses when there is no invoice key at all',
+        /if\(!hdKey\)/.test(src),
+        'doc(db,"invoices","") throws; saying so beats an unexplained failure');
+    }
+    /* The button was HIDDEN from every email-only customer too — same blindness,
+       one line up from the handler. */
+    const gate = admin.slice(Math.max(0, admin.indexOf('useForInvoiceBtn.style.display') - 400),
+      admin.indexOf('useForInvoiceBtn.style.display') + 200);
+    check('S275', 'and it is offered to an email-only customer at all',
+      /useForInvoiceBtn\.style\.display\s*=[\s\S]{0,200}custInvoiceKey\(d\)/.test(gate),
+      'gated on d.phone, the button never appeared for somebody whose invoice is filed under their email');
+  }
+}
+
+
+
+// =====================================================================
+suite('276. Edit Customer - one tab per house on the bill');
+/* ⭐ ADDED 2026-08-26. A payer can be billed for several houses, and the only way
+   to edit the second one was to close the form, find them in All Customers and
+   open it again.
+
+   ⚠ THIS SUITE RENDERS. Every claim here is about a ROW THAT EXISTS on screen —
+   how many tabs, which one is starred, whose name is on the bill line — and this
+   repo has been caught three times by a check that matched the source of a message
+   that could never reach the page (the ledger's `right = rbLedgerCell('')` default
+   that overwrote both branches above it is the canonical one). A regex proving the
+   word "payer" appears says nothing about whether a tab was drawn.
+
+   ⚠ AND THE GROUP HAS TWO HALVES. A house with billToPhone joins that payer's
+   bill; a house with none whose custInvoiceKey matches is already on that invoice
+   with no field set anywhere. The fixture below carries one of each, on purpose —
+   a fixture of billToPhone houses alone passes whether the second half is read or
+   not. */
+if (!JSDOM) {
+  note('jsdom not installed — skipping the Edit Customer house-tabs render run');
+} else {
+  const NAMES = ['editCustSnapshot', 'editCustIsDirty', 'editCustSetSaveLabel', 'editCustBillKey',
+    'editCustRenderHouseTabs', 'editCustRefreshDirtyDot', 'editCustSwitchHouse',
+    'billedHousesFor', 'billingGroupsByPayer', 'payerHouseOf', 'balanceDueAmount', 'esc'];
+  const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
+  const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
+  check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
+    'missing: ' + missing.join(', ') + ' — renamed? update this suite rather than deleting it');
+
+  if (!missing.length) {
+    const dom = new JSDOM(
+      '<div class="editcust-popup">' +
+      '<div id="editCustHouseTabs" style="display:none;"></div>' +
+      '<div id="editCustBillLine" style="display:none;"></div>' +
+      '<input id="editCustName" value="Heather Anderson">' +
+      '<input id="editCustFeet" value="200">' +
+      '<input type="checkbox" id="editCustNewMemberFee">' +
+      '<button id="editCustSaveBtn">Save Changes</button>' +
+      '<button id="editCustTopSave">Save</button>' +
+      '</div>');
+
+    /* ⚠ THE FOUR ANDERSONS FROM THE LIVE BOOK, and the shape matters more than
+       the names: they share 8013721805, Heather holds the LOWEST customer number,
+       and one of them reaches the bill through billToPhone while the rest reach it
+       through custInvoiceKey alone. Ryan is the one who said no. */
+    const BOOK = [
+      { id: 'a14', data: { name: 'Heather Anderson', phone: '8013721805', customerNumber: '14', housePrice: 400 } },
+      { id: 'a20', data: { name: 'Brit Anderson', phone: '(801) 372-1805', customerNumber: '20', housePrice: 350 } },
+      { id: 'a27', data: { name: 'Loren Anderson', phone: '8015559999', billToPhone: '8013721805', customerNumber: '27', housePrice: 300 } },
+      { id: 'a972', data: { name: 'Ryan Anderson', phone: '8013721805', customerNumber: '972', housePrice: 250, rsvpStatus: 'no' } },
+      /* ⚠ AND ONE SITTING THE SEASON OUT. Since 2026-08-26 they are off the bill
+         the same as a no, so they must be off the strip too — naming a house the
+         money does not include is the bug the exclusion exists to prevent. The
+         fixture had no such house, and a red-check reverting billingGroupsByPayer
+         to the no-only test went straight through. */
+      { id: 'a55', data: { name: 'Nan Anderson', phone: '8013721805', customerNumber: '55', housePrice: 275, rsvpStatus: 'backnextyear' } },
+      { id: 'solo', data: { name: 'Solo Jones', phone: '8015556666', customerNumber: '500', housePrice: 200 } }
+    ];
+
+    const code = [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc, statusClassSrc,
+      /* billedHousesFor asks billingGroupsByPayer asks this. Lifted, not
+         stubbed: who is on a bill is the whole subject of this suite. */
+      extractFn(admin, 'houseIsOnTheBill'),
+      'let jobAddresses = [];', 'let editCustomerId = null;', 'let requoteBeingConverted = null;',
+      'let invoiceById = new Map();', 'let editCustDirtySnapshot = "";',
+      'function fmtMoney(n){ return "$" + Number(n||0).toFixed(2); }',
+      bodies.join('\n'),
+      'return {' +
+      ' open:function(book, id, invs, requote){' +
+      '   jobAddresses = book; editCustomerId = id; requoteBeingConverted = requote || null;' +
+      '   invoiceById = new Map(); (invs||[]).forEach(function(p){ invoiceById.set(p[0], {id:p[0], data:p[1]}); });' +
+      '   editCustSetSaveLabel((book.find(function(a){return a.id===id;})||{data:{}}).data);' +
+      '   editCustRenderHouseTabs();' +
+      '   editCustDirtySnapshot = editCustSnapshot();' +
+      '   editCustRefreshDirtyDot();' +
+      '   return {tabs:document.getElementById("editCustHouseTabs"),' +
+      '           line:document.getElementById("editCustBillLine"),' +
+      '           save:document.getElementById("editCustSaveBtn"),' +
+      '           top:document.getElementById("editCustTopSave")};' +
+      ' },' +
+      ' dirty:function(){ return editCustIsDirty(); },' +
+      ' refresh:editCustRefreshDirtyDot,' +
+      ' billKey:editCustBillKey' +
+      '};'].join('\n');
+
+    const F = new Function('document', 'window', 'confirm', 'openEditCustomerModal', code)(
+      dom.window.document, dom.window, function () { return true; }, function () { });
+
+    const INVOICES = [['8013721805', { install: 1050, removal: 0, deposit: 200, credits: 0, changeFees: 0 }],
+      ['8015556666', { install: 200, removal: 0, deposit: 0, credits: 0, changeFees: 0 }]];
+
+    /* ---- the strip itself ---- */
+    let out = F.open(BOOK, 'a14', INVOICES);
+    const tabCount = out.tabs.querySelectorAll('[data-ecthouse]').length;
+    check('S276', 'a payer with several houses gets one tab each', tabCount === 3,
+      'expected Heather, Brit and Loren — got ' + tabCount + ' tabs');
+
+    check('S276', 'the strip is actually shown, not built into a hidden box',
+      out.tabs.style.display === 'flex',
+      'building the markup and leaving display:none is this repo’s canonical render bug');
+
+    /* ⭐ THE HALF A billToPhone SCAN LOSES. Brit reaches this bill through
+       custInvoiceKey alone — no field set anywhere — and her phone is stored
+       formatted, which is how it is stored in the real book. */
+    check('S276', 'a house on the bill by matching key alone is on the strip',
+      out.tabs.innerHTML.indexOf('Brit Anderson') !== -1,
+      'billedHousesFor reads both halves; a billToPhone-only scan would swear she was separate');
+    check('S276', 'and so is one linked by billToPhone',
+      out.tabs.innerHTML.indexOf('Loren Anderson') !== -1,
+      'the other half of the same group');
+
+    /* ⚠ A HOUSE THAT SAID NO IS NOT ON THE BILL, so naming it would print a list
+       that does not add up to the amount beside it. */
+    check('S276', 'a house that RSVP’d no is absent',
+      out.tabs.innerHTML.indexOf('Ryan Anderson') === -1,
+      'the money excludes them, so the list must too');
+    check('S276', 'and so is one sitting the season out',
+      out.tabs.innerHTML.indexOf('Nan Anderson') === -1,
+      'Back Next Year is off the bill since 2026-08-26, so it is off the strip');
+
+    check('S276', 'somebody else’s customer is nowhere near the strip',
+      out.tabs.innerHTML.indexOf('Solo Jones') === -1,
+      'a group is the people on ONE bill');
+
+    /* ---- the payer ---- */
+    const payerTab = out.tabs.querySelector('.payer');
+    check('S276', 'the payer is marked, and it is the lowest customer number',
+      !!payerTab && payerTab.dataset.ecthouse === 'a14',
+      'Heather is #14 — the rule is stable so the same houses give the same answer every time');
+    check('S276', 'and it says "Pays the bill" in words, not only a star',
+      !!payerTab && payerTab.textContent.indexOf('Pays the bill') !== -1,
+      'a star alone is a symbol somebody has to have been told the meaning of, ' +
+      'on the one fact here that decides where money lands');
+    check('S276', 'the payer sorts first',
+      out.tabs.querySelector('[data-ecthouse]').dataset.ecthouse === 'a14',
+      'a strip that reshuffles when somebody edits one house is one nobody can navigate');
+
+    /* ---- which one is being edited ---- */
+    check('S276', 'the house being edited is the current tab',
+      out.tabs.querySelector('.current').dataset.ecthouse === 'a14' &&
+      out.tabs.querySelector('.current').getAttribute('aria-selected') === 'true',
+      'four identical tabs is worse than no tabs');
+    out = F.open(BOOK, 'a27', INVOICES);
+    check('S276', 'and it moves when another house is opened',
+      out.tabs.querySelector('.current').dataset.ecthouse === 'a27',
+      'the strip is rebuilt on every repoint');
+
+    /* ---- the bill line ---- */
+    check('S276', 'a non-payer tab says whose bill it is',
+      out.line.innerHTML.indexOf('Heather Anderson') !== -1 &&
+      /bill/.test(out.line.textContent),
+      'the balance shown is the GROUP’s, so an unattributed figure on Loren’s tab ' +
+      'reads as Loren’s own — and it is not');
+    check('S276', 'the balance is computed, not read off the stored status field',
+      out.line.textContent.indexOf('850.00') !== -1,
+      '1050 install less a 200 deposit — the stored field is only refreshed when ' +
+      'something resyncs that payer');
+    check('S276', 'and it offers the way through to that invoice',
+      !!out.line.querySelector('[data-ectinvoice="8013721805"]'),
+      'the payer’s key, not this house’s own');
+    check('S276', 'no Overdue flag is claimed anywhere',
+      out.line.innerHTML.indexOf('Overdue') === -1,
+      'Job 3 changes what Overdue means and the office copy counts from the wrong field');
+
+    /* ---- a customer who pays only for themselves ---- */
+    out = F.open(BOOK, 'solo', INVOICES);
+    check('S276', 'a single-house customer gets no tab strip at all',
+      out.tabs.style.display === 'none' && out.tabs.innerHTML === '',
+      '"this bill covers 1 property" is a row of chrome and no information');
+    check('S276', 'but still gets their bill and an Open invoice link',
+      out.line.style.display !== 'none' &&
+      !!out.line.querySelector('[data-ectinvoice="8015556666"]'),
+      '"what do they owe" is asked of a single-house customer just as often');
+    check('S276', 'and is not told whose bill it is, because it is their own',
+      out.line.innerHTML.indexOf('’s bill') === -1,
+      'naming yourself as your own payer is noise');
+
+    /* ---- a customer with no invoice yet ---- */
+    out = F.open(BOOK, 'solo', []);
+    check('S276', 'no invoice on file says so rather than showing a blank balance',
+      /No invoice on file/.test(out.line.textContent),
+      'a blank reads as zero owed');
+
+    /* ---- ⚠ THE RE-QUOTE LEAK ---- */
+    out = F.open(BOOK, 'a14', INVOICES, 'quote-123');
+    check('S276', 'the strip is hidden while a re-quote is being applied',
+      out.tabs.style.display === 'none',
+      'showApplyRequoteChoice opens this form and THEN writes the new price, footage, ' +
+      'address and colours into it — a tab click refills every field from the record ' +
+      'and throws them away, while requoteBuildChoice rides across onto the sibling house');
+    check('S276', 'but the bill line still shows, because it changes nothing',
+      out.line.style.display !== 'none',
+      'hiding it too would take the balance away for no reason');
+
+    /* ---- the save button ---- */
+    out = F.open(BOOK, 'a27', INVOICES);
+    check('S276', 'the Save button is named after the house being saved',
+      out.save.textContent === 'Save Loren Anderson',
+      'a bare "Save Changes" no longer says which of three houses it is about');
+    check('S276', 'and the sticky bar’s Save names it in its tooltip',
+      out.top.title === 'Save Loren Anderson',
+      'the two buttons must not say different things about what pressing them does');
+    /* ⚠ requoteRestoreSaveLabel reads dataset.plainLabel, and the re-quote flow
+       only caches it `if(!...)` — once, ever. Without this write the first
+       customer’s name is restored onto every customer after them. */
+    check('S276', 'the re-quote’s "put the plain wording back" gets THIS house’s wording',
+      out.save.dataset.plainLabel === 'Save Loren Anderson',
+      'cached once ever by the re-quote flow, so openEditCustomerModal has to set it every time');
+
+    /* ---- the unsaved-changes dot ---- */
+    out = F.open(BOOK, 'a14', INVOICES);
+    check('S276', 'a freshly opened house is not dirty', F.dirty() === false,
+      'the baseline is taken after every field is filled — taken earlier, the form ' +
+      'opens already warning about losing changes nobody made');
+    const dot = out.tabs.querySelector('[data-ectdirty]');
+    check('S276', 'the current tab carries a dot to show, hidden until it is earned',
+      !!dot && dot.style.display === 'none',
+      'no dot element means nothing can ever indicate unsaved work');
+    dom.window.document.getElementById('editCustFeet').value = '260';
+    check('S276', 'typing in any field makes it dirty', F.dirty() === true,
+      'the snapshot is derived from the form, so a field added later is covered ' +
+      'without anybody remembering to add it to a list');
+    F.refresh();
+    check('S276', 'and the dot appears', dot.style.display === 'inline-block',
+      'the warning before switching is only as good as the sign that it is coming');
+    dom.window.document.getElementById('editCustFeet').value = '200';
+    F.refresh();
+    check('S276', 'putting the value back clears it again',
+      F.dirty() === false && dot.style.display === 'none',
+      'a dot that never goes out is one nobody reads');
+    /* Checkboxes are read by .checked, not .value — a snapshot that reads .value
+       sees "on" whether it is ticked or not, and the dot never moves for any of
+       the eight tick-boxes on this form. */
+    dom.window.document.getElementById('editCustNewMemberFee').checked = true;
+    check('S276', 'ticking a box counts as a change too', F.dirty() === true,
+      'reading .value on a checkbox returns "on" whether it is ticked or not');
+
+    /* ================= THE WIRING, NOT THE MECHANISM =================
+       ⚠ EVERY CHECK ABOVE PASSES WITH THE TABS COMPLETELY UNPLUGGED. Measured,
+       not feared: deleting the four calls from openEditCustomerModal left the
+       whole 5162-check suite green, because this harness calls the renderer
+       itself. The strip would simply never appear in the real page and nothing
+       would say so.
+
+       That is the shape this repo has already shipped once — the recycle "bin
+       says" box rendered an input whose listener patch had silently not applied,
+       identical on screen to a working one, npm test green. So the calls are
+       asserted, and the two delegated listeners are RUN with real dispatched
+       events rather than matched. */
+    {
+      const openSrc = extractFn(admin, 'openEditCustomerModal');
+      check('S276', 'openEditCustomerModal is findable', !!openSrc,
+        'renamed? update this suite rather than deleting it');
+      if (openSrc) {
+        const body = stripComments(openSrc);
+        ['editCustSetSaveLabel(', 'editCustRenderHouseTabs(', 'editCustSnapshot(',
+          'editCustRefreshDirtyDot('].forEach(function (call) {
+          check('S276', 'the form actually calls ' + call + ')',
+            body.indexOf(call) !== -1,
+            'the renderer works and nothing invokes it — the tabs never appear');
+        });
+        /* ⚠ THE BASELINE IS TAKEN LAST, and this is the only ordering that can
+           go wrong silently: recorded before the fields are filled it captures a
+           half-filled form, so the tab opens already dirty and warns about losing
+           changes nobody made. Pinned to the last field-filling call, not to a
+           line number. */
+        const lastFill = body.indexOf('renderEditCustLayoutMapThumb(');
+        const baseline = body.indexOf('editCustDirtySnapshot =');
+        const shown = body.indexOf("style.display = 'flex'");
+        check('S276', 'the dirty baseline is taken after every field is filled',
+          lastFill > -1 && baseline > lastFill,
+          'taken earlier it records a half-filled form and the dot is on from the start');
+        check('S276', 'and before the form is put on screen',
+          shown > -1 && baseline < shown,
+          'the strip has to be built before the popup is shown, not after');
+      }
+    }
+    {
+      const listenSrc = ['editCustTabsClick', 'editCustFormTouched'].map(function (n) {
+        return extractFn(admin, n);
+      });
+      check('S276', 'the delegated handlers are named, so they can be run rather than read',
+        listenSrc.every(Boolean),
+        'an inline listener can only be checked by matching its source');
+      /* Registered on the real document — a handler nothing binds is the bin-says
+         box again. */
+      check('S276', 'and the page really binds all three events to them',
+        /addEventListener\('click', editCustTabsClick, true\)/.test(admin) &&
+        /addEventListener\('input', editCustFormTouched, true\)/.test(admin) &&
+        /addEventListener\('change', editCustFormTouched, true\)/.test(admin),
+        'a named handler nobody binds is exactly as dead as a broken one');
+
+      if (listenSrc.every(Boolean)) {
+        const opened = [];
+        const asked = [];
+        const live = new Function('document', 'window', 'confirm', 'openEditCustomerModal',
+          [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc, statusClassSrc,
+            extractFn(admin, 'houseIsOnTheBill'),
+            'let jobAddresses = [];', 'let editCustomerId = null;',
+            'let requoteBeingConverted = null;', 'let invoiceById = new Map();',
+            'let editCustDirtySnapshot = "";', 'let invoiceSearchTerm = "";',
+            'function fmtMoney(n){ return "$" + Number(n||0).toFixed(2); }',
+            'function invoiceDisplayName(k){ return k; }',
+            'function switchToAdminPanel(){}',
+            'function renderInvoicesList(){}',
+            bodies.join('\n'), listenSrc.join('\n'),
+            "document.addEventListener('click', editCustTabsClick, true);",
+            "document.addEventListener('input', editCustFormTouched, true);",
+            'return { open:function(book,id,invs){ jobAddresses = book; editCustomerId = id;' +
+            '   invoiceById = new Map(); (invs||[]).forEach(function(p){ invoiceById.set(p[0], {id:p[0], data:p[1]}); });' +
+            '   editCustSetSaveLabel((book.find(function(a){return a.id===id;})||{data:{}}).data);' +
+            '   editCustRenderHouseTabs(); editCustDirtySnapshot = editCustSnapshot();' +
+            '   editCustRefreshDirtyDot(); } };'].join('\n')
+        )(dom.window.document, dom.window,
+          function (msg) { asked.push(msg); return true; },
+          function (id) { opened.push(id); });
+
+        live.open(BOOK, 'a14', INVOICES);
+        /* ⚠ THE CLICK LANDS ON THE SPAN INSIDE THE BUTTON, which is where a real
+           pointer lands — the tab's whole visible content is two spans. If the
+           handler read e.target.dataset instead of walking up with closest(),
+           every click would be a no-op and the source would look right. */
+        const target = dom.window.document.querySelector('[data-ecthouse="a20"] .ect-name');
+        check('S276', 'the tab has an inner element for a real click to land on', !!target,
+          'clicking dead centre of a tab hits its text, not the button');
+        if (target) {
+          target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+          check('S276', 'clicking a tab really repoints the form at that house',
+            opened.length === 1 && opened[0] === 'a20',
+            'this is the whole feature — got ' + JSON.stringify(opened));
+        }
+        /* Clicking the tab already being edited must do nothing at all: it would
+           otherwise re-read the record and throw away anything typed. */
+        opened.length = 0;
+        const self = dom.window.document.querySelector('[data-ecthouse="a14"] .ect-name');
+        if (self) self.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        check('S276', 'clicking the tab you are already on does nothing',
+          opened.length === 0,
+          'a repoint at yourself is a silent discard of everything typed');
+
+        /* ⚠ AND THE WARNING IS REACHED THROUGH A REAL CLICK, not by calling the
+           switch directly. */
+        opened.length = 0; asked.length = 0;
+        dom.window.document.getElementById('editCustFeet').value = '999';
+        const other = dom.window.document.querySelector('[data-ecthouse="a20"] .ect-name');
+        if (other) other.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+        check('S276', 'switching away from unsaved edits asks first',
+          asked.length === 1 && /unsaved/i.test(asked[0]),
+          'the form is refilled from the other record, so anything typed is gone with no undo');
+        check('S276', 'and names the house being left, not just "this form"',
+          asked.length === 1 && asked[0].indexOf('Heather Anderson') !== -1,
+          'four tabs deep, "you have unsaved changes" does not say to what');
+
+        /* The dot, driven by a real input event through the real listener. */
+        live.open(BOOK, 'a14', INVOICES);
+        const dot2 = dom.window.document.querySelector('[data-ectdirty]');
+        const feet = dom.window.document.getElementById('editCustFeet');
+        feet.value = '451';
+        feet.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        check('S276', 'typing really moves the dot, through the bound listener',
+          !!dot2 && dot2.style.display === 'inline-block',
+          'the dot is what makes the confirm predictable rather than a surprise');
+      }
+    }
+
+  }
+}
+
+
+
+
+// =====================================================================
+suite('277. Every CSS colour name the page uses is declared somewhere');
+/* ⭐ ADDED 2026-08-26, from asking what a jsdom render still cannot see — the
+   answer being CSS, because jsdom does no layout and applies no stylesheet.
+   admin.html was writing SIX custom properties nobody had declared anywhere at
+   all: --emerald, --moss, --rose, --mist, --amber-dim and --text-muted, across
+   seventeen places.
+
+   ⚠ AN UNDECLARED CUSTOM PROPERTY DOES NOT FALL BACK, IT INVALIDATES. `color:
+   var(--rose)` with no --rose declared is not "some default colour" — it is a
+   declaration the browser discards, so `el.style.color = 'var(--rose)'` is a
+   silent no-op and the element keeps whatever colour it already had. Nothing
+   errors and nothing logs.
+
+   ⚠ TWO OF THE SIX WERE THE SAVE MESSAGES. --emerald was the success colour in
+   five places and --rose the failure colour in one, so "Could not save that —
+   try again." never turned red; and a toggle reading
+   `checked ? 'var(--emerald)' : 'var(--slate)'` only ever changed colour in the
+   OFF direction, because only one branch was a real token.
+
+   ⚠ WHAT THIS CHECKS, EXACTLY: declared NOWHERE in its own file. That is the
+   class that shipped, and it cannot false-positive.
+
+   ⚠ WHAT IT DELIBERATELY DOES NOT CHECK, and why: whether a name is in SCOPE
+   where it is used. The Schedule tab is a shadow-DOM widget declaring its own
+   palette on `:host{}` — --green, --red, --muted, --card, --bg, --sel, --done,
+   --green-l — which is a different scope that reaches nothing in the main
+   document. Telling the two apart means slicing the widget's region out of a
+   52,000-line file, and the widget builds its HTML in JS spread well past its
+   stylesheet, so any such slice is a guess that silently widens the check to
+   nothing the day it stops matching. A precise-but-fragile gate that goes quietly
+   green is worse than an honest narrow one. The narrow one would have caught all
+   six. */
+{
+  ['admin.html', 'index.html', 'employee.html'].forEach(function (file) {
+    const src = read(file);
+    const declared = new Set((src.match(/--[a-z][a-z0-9-]*\s*:/g) || [])
+      .map(function (x) { return x.replace(/\s*:$/, '').trim(); }));
+    /* A use carrying its own fallback — var(--x, #fff) — cannot go blank, so it
+       is not this bug and is not counted. Only the bare form. */
+    const used = (src.match(/var\(\s*--[a-z][a-z0-9-]*\s*\)/g) || [])
+      .map(function (x) { return x.replace(/var\(\s*/, '').replace(/\s*\)$/, ''); });
+    const missing = [...new Set(used)].filter(function (u) { return !declared.has(u); });
+    check('S277', file + ' declares every colour name it uses',
+      missing.length === 0,
+      'declared nowhere: ' + missing.join(', ') + ' — an undeclared custom property makes ' +
+      'the whole declaration invalid, so the property silently does not apply. Declare it ' +
+      'in :root (an alias to an existing token is fine) or give the use a fallback.');
+  });
+
+  /* ⚠ AND THE SIX THAT WERE MISSING ARE NAMED, so this suite cannot be satisfied
+     by somebody deleting the uses instead of declaring the names — which would
+     take the save messages' colour away rather than giving it back. */
+  {
+    /* ⚠ COMMENTS STRIPPED FIRST. The :root block carries the explanation of why
+       these six exist, and that prose mentions `:host{}` — so slicing to the
+       first `}` after :root{ cut the block off before the declarations and
+       failed on code that is right. Third time this suite family has been caught
+       by its own prose; Suite 58 learned it first. */
+    const admin277 = stripComments(read('admin.html'));
+    const rootAt = admin277.indexOf(':root{');
+    const root = rootAt > -1 ? admin277.slice(rootAt, admin277.indexOf('}', rootAt)) : '';
+    ['--emerald', '--moss', '--rose', '--mist', '--amber-dim', '--text-muted'].forEach(function (t) {
+      check('S277', t + ' is declared in :root, where the main document can see it',
+        root.indexOf(t + ':') !== -1,
+        'this is one of the six that were used and never declared');
+    });
+    /* They are aliases to the twelve real tokens, not a second palette invented
+       beside the first. */
+    check('S277', 'and the six are aliases to the existing palette, not new colours',
+      /--emerald:var\(--dusk\)/.test(root) && /--rose:var\(--ember\)/.test(root) &&
+      /--mist:var\(--paper\)/.test(root) && /--text-muted:var\(--slate\)/.test(root),
+      'a hard-coded hex here is a thirteenth shade nobody chose');
+  }
+}
+
+
+
+// =====================================================================
+suite('278. The invoice document - what each person is asked for');
+/* ⭐ Owner, 2026-08-26: "Every person should get an invoice based on what there
+   paying so if dana is paying for kyle than she gets her bill and kyles bill on
+   the invoice."
+
+   The PAYER's half already worked and is asserted here so it cannot be lost: an
+   invoice covering several houses prints a row per house, from billedHouseIds,
+   so the rows always add up to the total beside them.
+
+   ⚠ THE OTHER HALF DID NOT. The recipient list on the Invoices tab is EVERY
+   customer (etGetMembers), so the office can tick a house that bills elsewhere
+   and get a document demanding money from them — the same money the payer's
+   invoice is already asking for. Handed to both, that house is charged twice.
+   Rendered for Kyle it said "Amount due $350.00", "Unpaid", and told him where
+   to send it.
+
+   ⚠ AND IT IS RENDERED HERE, NOT MATCHED. Every claim is about a line on a
+   page. This repo has been caught three times by a check that matched the source
+   of a message that could never reach the screen. */
+{
+  const docSrc = extractFn(admin, 'buildInvoiceDocHtml');
+  check('S278', 'the invoice document builder is findable', !!docSrc,
+    'renamed? update this suite rather than deleting it');
+
+  if (docSrc) {
+    /* Lift what it calls, on demand, rather than guessing a list: run, catch
+       "X is not defined", lift X, try again. Anything genuinely absent gets a
+       named stub so a miss is visible instead of silent. */
+    const BOOK = [
+      /* ⚠ DANA'S PHONE IS STORED FORMATTED, as an imported record really holds it.
+         With clean digits a raw `a.data.phone === docBillTo` compare accidentally
+         works, and a red-check swapping custInvoiceKey for it went straight
+         through — the same blindness Suite 275 was written for. */
+      { id: 'dana', data: { name: 'Dana Pratt', phone: '(801) 555-0111', address: '1 Elm St', city: 'Lehi',
+                            housePrice: 400, measuredFeet: 200, customerNumber: '14' } },
+      { id: 'kyle', data: { name: 'Kyle Pratt', phone: '8015552222', address: '2 Oak Ave', city: 'Lehi',
+                            billToPhone: '8015550111', housePrice: 350, measuredFeet: 175, customerNumber: '20' } }
+    ];
+    const INV = [{ id: '8015550111', data: { name: 'Dana Pratt', install: 750, removal: 0, deposit: 0,
+                                             credits: 0, changeFees: 0, billedHouseIds: ['dana', 'kyle'] } }];
+    const moneySrc278 = read('js/money.js');
+    let pre = [centsOfSrc, computeInvoiceStatusSrc, extractFn(moneySrc278, 'fmtMoney'),
+      'let perFootRate = 2;', 'const settingsCache = {};'];
+    const stubbed = [];
+    let render = null;
+    for (let round = 0; round < 120; round++) {
+      try {
+        const f = new Function('jobAddresses', 'allInvoicesCache',
+          pre.join('\n') + '\n' + docSrc + '\nreturn buildInvoiceDocHtml;')(BOOK, INV);
+        f(BOOK[0]); f(BOOK[1]);
+        render = f;
+        break;
+      } catch (e) {
+        const m = /(\w+) is not defined/.exec(e.message || '');
+        if (!m) break;
+        const n = m[1];
+        let lifted = extractFn(admin, n) || extractFn(moneySrc278, n);
+        if (!lifted) {
+          const one = admin.match(new RegExp('(?:const|let)\\s+' + n + '\\s*=\\s*[^;\\n]+;'));
+          if (one) lifted = one[0];
+        }
+        if (!lifted) {
+          const at = admin.search(new RegExp('(?:const|let)\\s+' + n + '\\s*=\\s*[\\[{]'));
+          if (at > -1) {
+            let j = admin.indexOf('=', at), depth = 0, started = false;
+            for (; j < admin.length; j++) {
+              const ch = admin[j];
+              if (ch === '[' || ch === '{') { depth++; started = true; }
+              else if (ch === ']' || ch === '}') { depth--; if (started && depth === 0) break; }
+            }
+            lifted = admin.slice(at, j + 1) + ';';
+          }
+        }
+        if (lifted) pre.push(lifted);
+        else { pre.push('function ' + n + '(){ return ""; }'); stubbed.push(n); }
+      }
+    }
+    check('S278', 'the document renders at all', !!render,
+      'could not resolve its dependencies' + (stubbed.length ? ' (stubbed: ' + stubbed.join(', ') + ')' : ''));
+
+    if (render) {
+      const strip = function (h) {
+        return String(h)
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&mdash;/g, '-').replace(/&nbsp;/g, ' ')
+          .replace(/\s+/g, ' ');
+      };
+      const payer = strip(render(BOOK[0]));
+      const other = strip(render(BOOK[1]));
+
+      /* ---- the payer's copy: her bill AND his, itemised ---- */
+      check('S278', "the payer's invoice names every house on the bill",
+        /1 Elm St/.test(payer) && /2 Oak Ave/.test(payer),
+        'she is paying for two houses and must be able to see which — got: ' + payer.slice(0, 200));
+      check('S278', 'with a price against each',
+        /\$400\.00/.test(payer) && /\$350\.00/.test(payer),
+        'a lump sum on a two-house bill cannot be reconciled');
+      check('S278', 'and the rows add up to what is asked for',
+        /Total.*\$750\.00/.test(payer) && /Amount due.*\$750\.00/.test(payer),
+        '400 + 350 = 750; rows that do not add up to the total are the bug billedHouseIds exists to stop');
+      check('S278', 'and it says how many properties it covers',
+        /Covers 2 properties/.test(payer),
+        'so a three-house bill is not mistaken for a very expensive one-house bill');
+
+      /* ---- the other person's copy: their house, nothing to pay ---- */
+      check('S278', 'a house billed elsewhere still shows its own price',
+        /2 Oak Ave|175 ft/.test(other) && /\$350\.00/.test(other),
+        '"based on what they are paying" is not a blank page — they should see what their house costs');
+      check('S278', 'but nothing is due from them',
+        /Due from you\s*\$0\.00/.test(other),
+        'it asked Kyle for $350 that Dana is already being billed for — got: ' + other.slice(0, 300));
+      check('S278', 'and it names who is paying',
+        /Dana Pratt is paying for this house/.test(other),
+        'otherwise a $0 bill reads as a mistake');
+      /* ⚠ EMITTED, NOT HIDDEN. This document is printed AND emailed, and Outlook
+         strips most CSS — a display:none "Unpaid" still reaches them. */
+      check('S278', 'no payment status is claimed on it',
+        !/Payment status/.test(other),
+        'their house is not unpaid, it is somebody else\'s to pay');
+      check('S278', 'and it does not tell them where to send money',
+        !/How to pay/.test(other) && !/Venmo/.test(other),
+        'inviting the wrong person to pay a bill that is already on the payer\'s invoice');
+      check('S278', 'the payer is still told how to pay',
+        /How to pay/.test(payer),
+        'the exclusion must not have taken it off the invoice that does collect');
+    }
+  }
 }
 
 

@@ -977,4 +977,365 @@ flat `'no'` with `completed: false` — the one combination the ruling does not 
 The new case had to be asserted explicitly. Two sabotages red-checked: demoting
 `completed` back below the status checks fails on both sides.
 
-**Resulting map change:** `MON-16` in `claude/questions-map.md`. R-023.
+**Resulting map change:** `MON-21` in `claude/questions-map.md`. R-023.
+### ⚠ AND THE SAME RULE WAS WRITTEN TWICE — folded into one on the merge, 2026-08-26
+
+The billing-groups branch reached the identical rule from the other side, in the same
+hours, and gave it a different name. Both were built, both were red-checked, both had a
+completed axis in `money-parity.test.js`:
+
+| | PR #140 (this entry) | the billing-groups branch |
+|---|---|---|
+| browser copy | `houseIsOnTheBill` in **admin.html** | `billedThisSeason` in **js/money.js** |
+| server copy | `houseIsOnTheBillServer` | `billedThisSeasonServer` |
+| `'no'` | out | out |
+| `completed === true` | in (an early return) | in (a `&& completed !== true` tail) |
+| backnextyear / maybeNextYear | out | out |
+
+⭐ **`houseIsOnTheBill` survived and `billedThisSeason` was deleted.** Not because it is
+better placed — `js/money.js` is arguably the righter home for a money rule — but
+because it was already on `main`, already had four callers, and already carried nine
+red-checked sabotages. Moving a freshly-proved rule for a placement nicety spends that
+proof for nothing.
+
+⚠ **NOTHING WAS LOST IN THE FOLD, and this is the part worth checking if it is ever
+touched again.** Three things travelled across from the deleted copy:
+
+- the **`SEASON_ELIGIBILITY`** argument, into `houseIsOnTheBill`'s comment — `isOutForSeason`
+  also returns true for `needsLightRecycle`, and once that switch is flipped to
+  `'confirmed-only'` it returns true for everybody who has not personally answered yes,
+  so billing off it would empty the whole book's invoices in one day;
+- four record shapes into the parity sweep's `STATES`. ⚠ **Measured afterwards, and
+  none of them catches anything the existing list did not** — dropping
+  `' backnextyear '` and then removing `.trim()` from a copy still fails, because
+  `'  no  '` was already there and the trim is shared by every branch. They are kept
+  as symmetry insurance, not as coverage, and the comment in the file says so;
+- one correctness check: **a flat `'no'` stays out even on a house that was installed**,
+  so the `completed` early return cannot reopen a path that was already settled.
+
+⚠ **Q-012c is no longer a lone assumption.** Both branches independently treated the
+office's own Maybe Next Year toggle as counting the same as the customer answering
+through the link. Still never stated in words, but two independent readings agreed.
+
+---
+
+> ⚠ **NUMBERING, 2026-08-26.** Two sessions ran at once and both reached Q-012.
+> Main's is the published one and keeps the number; the five raised on the
+> billing-groups branch became Q-018 to Q-022 on the merge. Main's Q-012 and this
+> branch's Q-021 are about the SAME customers from opposite sides — read them
+> together before touching who is on a bill.
+---
+
+## Q-018 · intent · ANSWERED · 2026-08-26
+When a house is billed to somebody else, what payment status should its own
+row show?
+
+Found while mapping the billing-group / house-tabs work. `getLiveInvoiceStatus`
+answers "what is this customer's payment status" for two screens — Automation
+Emails' Unpaid / Partial / Paid audience filters, and the Dashboard's RSVP list.
+Its key bug is fixed (it asked the phone, so email-only customers had no status
+at all — see Suite 275). This is the half that is **not** a bug with one right
+answer.
+
+A house with `billToPhone` set has no bill of its own. Its money is on the
+payer's invoice. Today, and still after the fix, it resolves to whatever sits
+under its own key — which is usually nothing, but **can be a real document**:
+when a customer with a recorded deposit is switched to bill elsewhere, the Edit
+Customer save keeps their old invoice and zeroes it (`install: 0, removal: 0,
+changeFees: 0`) rather than deleting it, so the payment is not lost. A zeroed
+invoice with a deposit computes to **Paid in Full**.
+
+So that house reads "Paid in Full" on both screens while the bill it is actually
+on may be entirely unpaid.
+
+**ANSWER (Addie, 2026-08-26): the status follows the bill the house was added
+to.** In her words: *"if Kyle didn't say no or back next year and his bill wasn't
+already paid or partially paid but it added to Dana's bill than should be paid in
+full by dana."*
+
+`getLiveInvoiceStatus` now keys on `billToPhone || custInvoiceKey(d)` — the same
+expression `billingGroupsByPayer` builds its map from. So a house billed to
+somebody else reports that payer's bill: Unpaid while Dana owes, Paid in Full
+once she settles.
+
+⚠ **It removes the false reading as a side effect**, which is why this is the
+right answer rather than merely a chosen one. The leftover zeroed invoice under
+Kyle's own key computes to Paid in Full on its own; reading the payer's invoice
+instead gives the truth. Suite 275 asserts both — that the leftover really does
+read Paid in Full alone, and that the billToPhone half wins.
+
+⚠ **The cost, accepted knowingly:** a chase-the-unpaid audience now includes
+houses whose occupant personally owes nothing. Automation Emails already badges
+those `[Billed elsewhere]` and has a group filter to exclude them, so it is
+visible and avoidable rather than silent.
+
+⚠ **The other two conditions she named are handled elsewhere, not here.**
+Somebody who said no or Back Next Year is not billed at all (Q-021,
+`houseIsOnTheBill`); a house that had already paid carries its money across as a
+credit (Q-020, `paidBeforeBillTo`). This function only reports what the bill
+says.
+
+**Resulting map change:** **MON-16**. `getLiveInvoiceStatus` answers "what does the bill this
+house is on say", not "what does this house's own invoice say". `allCustInvoiceFor`
+still answers the second — the Edit Customer save needs it to find and zero a
+leftover — and Suite 275 no longer asserts the two agree for a billed-elsewhere
+house, because they deliberately do not.
+
+---
+
+**The three readings that were weighed, kept so they are not re-proposed:**
+
+1. **Show the payer's status.** Honest about the money. But the Unpaid filter
+   then includes people who owe nothing personally, and a chase email would go
+   to a tenant about a landlord's bill.
+2. **Show no status at all (null).** The `[Billed elsewhere]` badge already says
+   why, `audienceBillingGroup` already computes it, and the nightly run only ever
+   emails payers — so nothing about money is being hidden from anybody who could
+   act on it. This is the recommendation.
+3. **Leave it as it is.** Rejected: "Paid in Full" is a claim about money that
+   can be false, and it is the one answer no reading supports.
+
+Not guessed, because (1) and (2) send different email to different people.
+
+⚠ **Related, and the reason this was not just fixed to (2):** the zeroed-invoice
+shape is itself worth a decision. An invoice carrying only a deposit and no
+charge is a payment archive, not a bill, and nothing marks it as one.
+
+Blocks: nothing today. The house tabs' header balance needs it answered before
+they ship, since a non-payer tab has to say something.
+
+---
+
+## Q-019 · intent · open · 2026-08-26
+<!-- ⚠ FILED AS intent, THOUGH IT STARTS FACTUAL. The heading was
+     "factual → intent" and questions-map.test.js parses the kind as [a-z]+, so
+     the arrow made the whole entry invisible to the gate — an open question on a
+     money writer that the open-questions count did not know existed. The first
+     half really is factual and is answerable by one query against the live book;
+     what is left after that is a decision, which is why it is filed here. -->
+Can `syncPayerInvoice` zero a real invoice when a customer's stored phone is not
+digits-only?
+
+`syncPayerInvoice` is the authoritative money writer. For a phone key it resolves
+the payer's own houses with:
+
+```js
+const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
+```
+
+`key` is always digits (that is what `custInvoiceKey` produces). `CLAUDE.md`
+states in two places that stored phones are **not** all digits-only — "the office
+types '(801) 555-0123' and the import keeps it" — and warns by name against
+`where('phone','==',digits)` for exactly this reason.
+
+If such a record exists, that query matches nothing, `linked` is empty, and the
+`!isPhoneKey && !linked.length` guard **deliberately does not fire for phone
+keys** — so the rebuild writes `install: 0` over a real total.
+
+Why this is not simply fixed: the phone-key exemption is intentional and
+documented — "so the bill-to change flow can still zero a payer whose last house
+moved away." A blanket refusal would break that. Telling the two apart needs a
+decision about which is the safer failure.
+
+What is not in doubt: **the query should normalise.** `custByPhoneDigits` is the
+established normaliser, and every other matcher in the app strips punctuation
+first. But normalising a Firestore `where` needs either a stored digits field or
+a client-side pass over the loaded list, which is a change to a money writer and
+so is not being made in the same pass as the read fixes.
+
+⚠ **This may be entirely theoretical.** If every `jobAddresses.phone` in the live
+book is already digits-only, there is nothing here. That is one query against
+real data and it has not been run. Do that before building anything on top of it.
+
+Blocks: routing any new caller through `syncPayerInvoice` — which is why the
+"Use This Total for Their Invoice" button was made to *refuse* on a shared bill
+rather than re-sync one.
+
+---
+
+## Q-020 · intent · ANSWERED · 2026-08-26
+When a house moves onto somebody else's bill, what happens to money the
+customer had already paid?
+
+Found by asking what "a house billed elsewhere reads Paid in Full" actually
+means, and the display half turned out to be the smaller half.
+
+**The mechanism.** Changing a customer's Bill To rolls their house price onto the
+new payer's invoice. Their own invoice must then stop billing them, or the house
+is charged twice — so the Edit Customer save deletes it. Unless it carries a
+deposit, in which case it is kept and **zeroed** instead, so the recorded payment
+is not thrown away:
+
+```js
+if(Number(inv.data.deposit) > 0){
+  await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, changeFees: 0, … });
+} else {
+  await deleteDoc(doc(db,'invoices', inv.id));
+}
+```
+
+**What that leaves.** A document reading `install: 0, removal: 0, changeFees: 0,
+deposit: 150`. Two consequences:
+
+1. `computeInvoiceStatus(0, 0, 150, 0, 0)` is **`'Paid in Full'`** — verified by
+   running the real function. Nothing owed, something paid. So that customer
+   reads as settled on Automation Emails' payment filters and the Dashboard's
+   RSVP list, while the bill their house is really on may be untouched. In the
+   narrow sense it is true of *that document*; nobody reading the screen thinks
+   "their archived invoice".
+2. **The $150 does not follow them.** Only the light-change fee migrates
+   (`migratingFeeNotes`). `syncPayerInvoice` rebuilds the payer's invoice from
+   house prices and keeps `existing.deposit` — the *payer's* deposit. So the new
+   payer is billed the full price of that house with no credit for money already
+   paid against it, and the payment sits on an invoice no screen reads.
+
+The code comment says the money "isn't lost". That is true only in the sense that
+the document still exists. Nothing collects it.
+
+**ANSWER (Addie, 2026-08-26).** None of the three below. Her rule, in her own
+words, across two messages:
+
+> *"if person already paid bill but moved to bill to than person on bill to will
+> not have to pay anything and bill to person will just start paying for both
+> people the next year"*
+>
+> On a half-paid house: *"Just pay what hasn't been paid yet"*
+>
+> And the other direction: *"However if bill to person already paid bill and
+> someone was added onto there bill that hasn't paid than they will get another
+> bill showing what they still owe"*
+
+⭐ **All three are ONE mechanism: the money already paid follows the house.**
+That is what makes it implementable without three branches — if it ever needs
+three, the rule has been implemented twice.
+
+| the house that joins | price added | credited | payer ends up owing |
+|---|---|---|---|
+| fully paid | $350 | $350 | nothing more for it |
+| half paid ($150 of $350) | $350 | $150 | the $200 still owed |
+| unpaid | $350 | nothing | a fresh $350 |
+
+**Built as:** `paidBeforeBillTo` on the customer, stamped by
+`carriedPaymentOnBillToChange` when a house is newly pointed at another payer,
+and turned into a named credit line (`kind: 'carried'`) by `syncPayerInvoice`.
+
+⚠ **A credit, not a smaller `install`.** Taking it off the total would stop the
+invoice's own rows adding up to the amount printed beside them — the guarantee
+`billedHouseIds` exists for — and would make Health Check's `totalDrift` flag
+every one. As a credit it also *shows* the customer why a house on their bill is
+costing them nothing.
+
+⚠ **Rebuilt, never accumulated.** `syncPayerInvoice` runs on every save; pushing
+a credit each time would discount the bill again until it reached zero. It owns
+`kind: 'carried'` and keeps every other credit; the Edit Customer save owns
+`referral` and `manual` and keeps the rest. The two rebuilds cannot collide.
+
+⚠ **Capped at what that house actually owed.** A deposit larger than the bill is
+an overpayment or a typo, and handing the difference to the new payer would be
+inventing money.
+
+⚠ **And the Health Check row was retargeted in the same change.** A correctly
+handled move still leaves a zeroed invoice carrying the payment — that is the
+record of a settled house. So the leftover is no longer the symptom; a leftover
+with no `paidBeforeBillTo` on the house is. Left as it was, the check would have
+fired on every move it had just been fixed to make safe.
+
+**Resulting map change:** **MON-17**. `paidBeforeBillTo` is a new customer field —
+written by the Edit Customer save, read by `syncPayerInvoice` and by Health
+Check's `strandedPayment`.
+
+---
+
+**The three answers that were offered and NOT chosen**, kept so they are not
+re-proposed:
+
+1. **Credit it to the new payer.** Matches what most people would expect — the
+   money was paid toward that house, and the house is now on this bill. But it
+   moves a real payment onto somebody else's invoice automatically, and the two
+   parties may be a tenant and a landlord who have not agreed to that.
+2. **Refund it, or flag it for refund.** Cleanest morally, most work, and needs a
+   path that does not exist.
+3. **Leave it as a record and handle it by hand.** What happens today, except
+   nobody is told it happened.
+
+⚠ **Not guessed, because all three move real money differently.** What has been
+built is the *detection* only: Health Check now has a **"A payment sitting on an
+invoice that bills nothing"** row (`strandedPayment`), which names the customer,
+the amount, and who is paying for them now. It deliberately offers **no Fix
+button** — a button here would pick one of the three above without being asked.
+
+⚠ **It does not fire on a prepayment.** Somebody who pays before their house is
+priced has the identical invoice shape — no charge, a deposit — and is perfectly
+fine. The row appears only when every customer filed under that key now bills
+elsewhere, or when nobody is filed under it at all. A warning that cries wolf on
+ordinary prepayments is one the office learns to click past, including on the day
+it is right.
+
+⚠ **Whether this has ever actually happened is not known from here** — it needs
+the real book. Opening Health Check answers it: if the row is empty, this is
+theoretical and the decision can wait. If it is not, the rows name the money.
+
+Blocks: nothing shipping. It blocks deciding, which is why detection went first.
+
+⚠ **The paragraph above is kept as it stood before she answered** — it is the
+argument for detecting first and deciding after, and it is why there is still no
+Fix button on that Health Check row. The ruling that superseded it is MON-16.
+
+---
+
+## Q-021 · intent · answered · 2026-08-26
+Should somebody who said Back Next Year still be billed for this season?
+
+Asked because `billingGroupsByPayer`, `syncPayerInvoice` and `runInvoiceBatch`
+all excluded only `rsvpStatus === 'no'`, while `isOutForSeason` — which decides
+routes, builds and the schedule — has excluded Back Next Year and Maybe Next
+Year since 2026-08-22. So those customers were taken off every crew day and out
+of the build queue, and still invoiced for the season.
+
+**Answer (Addie, 2026-08-26): no — take them off the bill.**
+
+⭐ **Q-012 is the same rule, asked from the other side, and answered the same way.**
+Both were built in parallel and folded into one on the merge — see the comparison
+table there. The survivor is `houseIsOnTheBill` (admin.html) /
+`houseIsOnTheBillServer` (functions/index.js), swept against each other by
+`money-parity.test.js`. Out means `'no'`, or `rsvpStatus === 'backnextyear'` or the
+`maybeNextYear` flag **while `completed !== true`** — both halves of Back Next Year,
+because `portalRsvp` writes the status alone while the office button also sets the
+flag.
+
+⚠ **The `completed` qualifier came from Q-012, not from here.** This branch first
+filtered on the answer alone, which writes off a house whose lights were hung and who
+only then said Back Next Year. That is `pullCustomerFromSeason`'s settled rule pointing
+the other way, and it is the one substantive correction the merge produced.
+
+⚠ **Deliberately not `isOutForSeason`.** That also returns true for
+`needsLightRecycle` — a warehouse state, not a decision about money — and, once
+`SEASON_ELIGIBILITY` is flipped to `'confirmed-only'` (Q-010a), for every
+customer who has not personally answered yes. Billing off that switch would take
+the whole book off its invoices on the day it is flipped.
+
+⚠ **The house list follows the money.** `billingGroupsByPayer` applies the same
+rule, so the portal box, the `{{houses_block}}` email token and the Edit
+Customer house tabs stop naming a house the total leaves out.
+
+**Resulting map change:** **MON-18**, cross-referenced to **MON-15** (Q-012's row) —
+two rulings, one implementation. `houseIsOnTheBill` is the one answer to "is this house
+billed this season", read by the office rebuild, the nightly run and the group list. It
+supersedes the bare `rsvpStatus !== 'no'` test in all of them.
+
+---
+
+## Q-022 · intent · answered · 2026-08-26
+When Who Pays for Whom is retired, does its Excel export survive?
+
+**Answer (Addie, 2026-08-26): keep the Excel export somewhere.** The whole-book
+view goes with the tab; the export does not.
+
+Not yet built — retirement itself is deliberately after the house tabs have been
+used for a season (see CLAUDE.md). Where it lands is a placement decision, not a
+rule: the Invoices tab is the obvious home, since that is where the money lives
+and where somebody wanting a spreadsheet of who owes what would look.
+
+**Resulting map change:** **MON-20**, recorded as *Decided — not built*. The
+ruling is that the export survives the tab; nothing is written until the tab is
+actually retired, and a row marked built when it is not is worse than no row.
