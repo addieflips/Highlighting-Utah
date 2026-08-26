@@ -26165,6 +26165,43 @@ async function syncPayerInvoice(payerKey){
   // never go green).
   const memberFee = existing.newMemberFeeApplied ? 30 : 0;
   const installTotal = total + memberFee;
+  /* ⭐ MONEY ALREADY PAID AGAINST A HOUSE FOLLOWS THAT HOUSE ONTO THIS BILL
+     (added 2026-08-26). See paidBeforeBillTo in the Edit Customer save for the
+     owner's own wording. One rule, three outcomes: a fully paid house credits
+     its whole price back so the payer owes nothing more for it, a half paid one
+     credits what was paid, and an unpaid one credits nothing so the payer gets
+     a bill for it.
+
+     ⚠ A NAMED CREDIT LINE, NOT A SMALLER `install`. Taking it off the total
+     would make the invoice's own rows stop adding up to the amount printed
+     beside them — which the billedHouseIds comment below exists to guarantee —
+     and would make Health Check's totalDrift flag every one of these. As a
+     credit it also SHOWS the customer why a house on their bill is not costing
+     them anything.
+
+     ⚠ REBUILT, NEVER ACCUMULATED. This runs on every save, so pushing a credit
+     each time would discount the bill again on every edit until it reached zero.
+     The carried lines are stripped and regenerated from the houses, exactly as
+     the Edit Customer save rebuilds the referral and manual ones — and every
+     other kind of credit is kept untouched, so a resync cannot quietly wipe a
+     service adjustment somebody applied by hand. The two rebuilds do not
+     collide: this one owns 'carried' and keeps the rest; that one owns
+     'referral' and 'manual' and keeps the rest. */
+  const priorCredits = Array.isArray(existing.creditNotes) ? existing.creditNotes : [];
+  const keptCredits = priorCredits.filter(function(c){ return c.kind !== 'carried'; });
+  const carriedCredits = keptCredits.slice();
+  active.forEach(function(h){
+    const paid = Number((h.data || {}).paidBeforeBillTo) || 0;
+    if(paid <= 0) return;
+    carriedCredits.push({
+      amount: paid,
+      reason: 'Already paid by ' + ((h.data || {}).name || 'them') + ' before this house joined your bill',
+      kind: 'carried',
+      houseId: h.id,
+      date: new Date().toISOString()
+    });
+  });
+  const creditsTotal = carriedCredits.reduce(function(sum, c){ return sum + (Number(c.amount) || 0); }, 0);
   await setDoc(doc(db,'invoices',key), {
     name: (payerHouse && payerHouse.data.name) || existing.name || '',
     /* The key doubles as the phone only when it IS a phone — writing an email
@@ -26173,7 +26210,8 @@ async function syncPayerInvoice(payerKey){
     email: (payerHouse && payerHouse.data.email) || existing.email || (isPhoneKey ? '' : key),
     install: installTotal, removal: existing.removal || 0, deposit: existing.deposit || 0,
     newMemberFeeApplied: !!existing.newMemberFeeApplied,
-    status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, existing.credits||0, existing.changeFees||0),
+    credits: creditsTotal, creditNotes: carriedCredits,
+    status: computeInvoiceStatus(installTotal, existing.removal||0, existing.deposit||0, creditsTotal, existing.changeFees||0),
     priceReviewed: true, updatedAt: serverTimestamp(),
     /* The same houses the total was summed from, so the printed invoice's rows
        always add up to the amount printed beside them. A cancelled house is
@@ -37444,6 +37482,37 @@ function populateAllCustFilterCities(){
   sel.innerHTML = '<option value="all">All Cities</option>' + cities.map(c => '<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
   if([...sel.options].some(o => o.value === current)) sel.value = current;
 }
+/* ⭐ HOW MUCH OF THEIR OWN MONEY TRAVELS WITH A HOUSE ONTO SOMEBODY ELSE'S BILL.
+   Returns the amount to stamp on the customer, 0 to clear it, or null to leave
+   the field alone. See paidBeforeBillTo at the Edit Customer save for the owner's
+   own wording, and the credit line syncPayerInvoice builds from it.
+
+   ⚠ ITS OWN FUNCTION SO A TEST CAN RUN IT rather than match its source — the
+   same reason rmCommitPayload is one. Every claim about it is arithmetic, and
+   this repo has shipped a money rule whose checks all passed while the code
+   could not run.
+
+   ⚠ ONLY WHEN THEY ARE NEWLY BILLED ELSEWHERE. Re-stamping on an ordinary save
+   of somebody who already bills elsewhere would read their own invoice AFTER it
+   had been zeroed and quietly reset the carried amount to nothing.
+   ⚠ CAPPED AT WHAT THAT HOUSE ACTUALLY OWED. A deposit bigger than the bill is
+   an overpayment or a typo, and handing the difference to the new payer as
+   credit would be inventing money.
+   ⚠ CLEARED WHEN THEY GO BACK TO PAYING FOR THEMSELVES, or the credit keeps
+   discounting a payer who no longer has this house. */
+function carriedPaymentOnBillToChange(oldBillTo, newBillTo, ownInv){
+  const was = String(oldBillTo || '').replace(/\D/g,'');
+  const now = String(newBillTo || '').replace(/\D/g,'');
+  if(now && !was){
+    const d = (ownInv && ownInv.data) || {};
+    const gross = (Number(d.install) || 0) + (Number(d.removal) || 0) + (Number(d.changeFees) || 0);
+    const paid = Number(d.deposit) || 0;
+    const carried = Math.max(0, Math.min(paid, gross));
+    return carried > 0 ? carried : null;
+  }
+  if(was && !now) return 0;
+  return null;
+}
 function allCustInvoiceFor(addrItem){
   const key = custInvoiceKey(addrItem.data);
   if(!key) return null;
@@ -39115,6 +39184,44 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     const newNoTexts = document.getElementById('editCustNoTexts').checked;
     const newNoAutoEmails = document.getElementById('editCustNoAutoEmails').checked;
     const addrUpdates = {smsOptedOut: newNoTexts, noAutomationEmails: newNoAutoEmails, name: newName, propertyLabel: newPropertyLabel, phone: newPhone, phone2: newPhone2, email: newEmail, email2: newEmail2, address: newAddress, city: newCity, customerNumber: newCustNumber, rsvpStatus: newRsvp, housePrice: newHousePrice, measuredFeet: newMeasuredFeet, wireColor: newWireColor, billToPhone: newBillTo, gateCode: newGateCode, outletTimer: newOutletTimer, useEaves: newUseEaves, specificOutlet: newSpecificOutlet, specificOutletNotes: newSpecificOutletNotes, numberOfBins: newBins, wantsMailedInvoice: newWantsMailed, wantsTextedInvoice: newWantsTexted, houseSides: newHouseSides, layoutMapUrl: editCustLayoutMapUrl, earliestInstallDate: newEarliestInstallStr ? new Date(newEarliestInstallStr + 'T00:00:00') : null};
+    /* ⭐ WHAT THEY HAD ALREADY PAID WHEN THEIR HOUSE MOVED ONTO SOMEBODY ELSE'S
+       BILL (added 2026-08-26). Owner, asked directly: "if person already paid
+       bill but moved to bill to than person on bill to will not have to pay
+       anything and bill to person will just start paying for both people the
+       next year", and on a half-paid house: "Just pay what hasn't been paid
+       yet". And the other direction: "if bill to person already paid bill and
+       someone was added onto there bill that hasn't paid than they will get
+       another bill showing what they still owe."
+
+       All three are ONE rule — the money already paid follows the house — and
+       this field is what carries it. syncPayerInvoice turns it into a named
+       credit line on the payer's invoice, so:
+         fully paid house  → price in, same amount credited → payer owes nothing more
+         half paid house   → price in, part credited        → payer owes the rest
+         unpaid house      → price in, nothing credited     → payer gets a fresh bill
+
+       ⚠ WITHOUT IT THE BUSINESS COLLECTS TWICE for that house: the customer's
+       own payment stayed on their zeroed invoice and the new payer was billed
+       the full price with no credit for it. That is tier 1 in CLAUDE.md's
+       precedence table, not a tidiness question.
+
+       ⚠ CAPPED AT WHAT THAT HOUSE ACTUALLY OWED. A deposit larger than the bill
+       is somebody's overpayment or a typo; handing the difference to the new
+       payer as credit would be inventing money.
+       ⚠ STAMPED ONLY WHEN THEY ARE NEWLY BILLED ELSEWHERE, never re-stamped on
+       an ordinary save of somebody who already bills elsewhere — their own
+       invoice has been zeroed by then, so re-reading it would quietly reset the
+       carried amount to nothing.
+       ⚠ AND CLEARED WHEN THEY COME BACK to paying for themselves: the credit
+       belongs to whichever bill the house is on, and left set it would keep
+       discounting a payer who no longer has this house. */
+    {
+      const carried = carriedPaymentOnBillToChange(oldBillTo, newBillTo, allCustInvoiceFor(item));
+      if(carried !== null){
+        addrUpdates.paidBeforeBillTo = carried;
+        addrUpdates.paidBeforeBillToAt = carried > 0 ? serverTimestamp() : null;
+      }
+    }
     /* Stamped on every customer save. Without these two the concurrent-edit
        check above has nothing to compare — a customer record carried no
        updatedAt at all, so "has anyone touched this since I opened it?" was
@@ -46353,6 +46460,15 @@ function hcRunChecks(){
       /* Everyone whose own key is this invoice — a house billed elsewhere still
          keys to its own phone, which is exactly how it is spotted. */
       const own = jobAddresses.filter(function(c){ return custInvoiceKey(c.data || {}) === i.id; });
+      /* ⚠ AND NOT IF THE MONEY HAS ALREADY BEEN CARRIED (2026-08-26). Once the
+         rule below shipped, a correctly handled move STILL leaves this exact
+         shape behind — the payment stays here as the record of a settled house,
+         and what travels is a credit on the payer's bill. So the leftover
+         invoice is no longer the symptom; a leftover with no paidBeforeBillTo
+         on the house is. Without this the check would fire on every move it had
+         just been fixed to make safe, which is the fastest way to teach the
+         office to click past it. */
+      if(own.length && own.every(function(c){ return (Number((c.data || {}).paidBeforeBillTo) || 0) > 0; })) return false;
       /* Somebody still bills here, so this is a prepayment awaiting a price. */
       return own.length === 0 || own.every(function(c){ return hcDigits((c.data || {}).billToPhone); });
     }).map(function(i){

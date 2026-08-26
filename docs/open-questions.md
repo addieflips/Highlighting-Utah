@@ -863,7 +863,7 @@ rather than re-sync one.
 
 ---
 
-## Q-014 · intent · open · 2026-08-26
+## Q-014 · intent · ANSWERED · 2026-08-26
 When a house moves onto somebody else's bill, what happens to money the
 customer had already paid?
 
@@ -902,7 +902,62 @@ deposit: 150`. Two consequences:
 The code comment says the money "isn't lost". That is true only in the sense that
 the document still exists. Nothing collects it.
 
-**Three answers, and they are genuinely different:**
+**ANSWER (Addie, 2026-08-26).** None of the three below. Her rule, in her own
+words, across two messages:
+
+> *"if person already paid bill but moved to bill to than person on bill to will
+> not have to pay anything and bill to person will just start paying for both
+> people the next year"*
+>
+> On a half-paid house: *"Just pay what hasn't been paid yet"*
+>
+> And the other direction: *"However if bill to person already paid bill and
+> someone was added onto there bill that hasn't paid than they will get another
+> bill showing what they still owe"*
+
+⭐ **All three are ONE mechanism: the money already paid follows the house.**
+That is what makes it implementable without three branches — if it ever needs
+three, the rule has been implemented twice.
+
+| the house that joins | price added | credited | payer ends up owing |
+|---|---|---|---|
+| fully paid | $350 | $350 | nothing more for it |
+| half paid ($150 of $350) | $350 | $150 | the $200 still owed |
+| unpaid | $350 | nothing | a fresh $350 |
+
+**Built as:** `paidBeforeBillTo` on the customer, stamped by
+`carriedPaymentOnBillToChange` when a house is newly pointed at another payer,
+and turned into a named credit line (`kind: 'carried'`) by `syncPayerInvoice`.
+
+⚠ **A credit, not a smaller `install`.** Taking it off the total would stop the
+invoice's own rows adding up to the amount printed beside them — the guarantee
+`billedHouseIds` exists for — and would make Health Check's `totalDrift` flag
+every one. As a credit it also *shows* the customer why a house on their bill is
+costing them nothing.
+
+⚠ **Rebuilt, never accumulated.** `syncPayerInvoice` runs on every save; pushing
+a credit each time would discount the bill again until it reached zero. It owns
+`kind: 'carried'` and keeps every other credit; the Edit Customer save owns
+`referral` and `manual` and keeps the rest. The two rebuilds cannot collide.
+
+⚠ **Capped at what that house actually owed.** A deposit larger than the bill is
+an overpayment or a typo, and handing the difference to the new payer would be
+inventing money.
+
+⚠ **And the Health Check row was retargeted in the same change.** A correctly
+handled move still leaves a zeroed invoice carrying the payment — that is the
+record of a settled house. So the leftover is no longer the symptom; a leftover
+with no `paidBeforeBillTo` on the house is. Left as it was, the check would have
+fired on every move it had just been fixed to make safe.
+
+**Resulting map change:** `paidBeforeBillTo` is a new customer field —
+written by the Edit Customer save, read by `syncPayerInvoice` and by Health
+Check's `strandedPayment`.
+
+---
+
+**The three answers that were offered and NOT chosen**, kept so they are not
+re-proposed:
 
 1. **Credit it to the new payer.** Matches what most people would expect — the
    money was paid toward that house, and the house is now on this bill. But it

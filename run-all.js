@@ -3569,6 +3569,23 @@ console.log('\n=== 7. Health check engine ===');
     get(hc.run(), 'strandedPayment').rows.length === 0,
     'nothing has been stranded — there was never any money on it');
 
+  /* ⚠ AND A MOVE THAT WAS HANDLED PROPERLY IS NOT FLAGGED EITHER. Once the
+     carried-payment rule shipped, a correct move STILL leaves a zeroed invoice
+     with the payment on it — that is the record of a settled house, and what
+     travels is a credit on the payer's bill. paidBeforeBillTo on the house is
+     what says the money went somewhere; without this the check would fire on
+     every move it had just been fixed to make safe. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '101', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Kyle Pratt', phone: '8015552222', billToPhone: '8015550111', housePrice: 350, customerNumber: '102', measuredFeet: 90, paidBeforeBillTo: 150 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 750, removal: 0, deposit: 0, credits: 150, status: 'Unpaid' } },
+        { id: '8015552222', data: { name: 'Kyle Pratt', install: 0, removal: 0, changeFees: 0, deposit: 150, status: 'Paid in Full' } }]
+  });
+  check('health', 'a move whose payment was carried across is NOT flagged',
+    get(hc.run(), 'strandedPayment').rows.length === 0,
+    'the money went with the house as a credit — the leftover invoice is the ' +
+    'record, not a problem, and crying wolf here undoes the point of the fix');
+
   /* ⚠ AND IT NEVER OFFERS A BUTTON. Crediting it to the new payer, refunding it
      and leaving it as a record are three different answers about real money, and
      a guess here moves somebody's payment onto somebody else's bill unasked. */
@@ -5047,6 +5064,192 @@ suite('13. Season prep — crew portal (§4)');
     check('sync', 'the $30 join fee survives a rebuild',
       (h3.written[0] || {}).install === 730,
       'the fee would be quietly refunded on the next price edit');
+
+    /* ---- money already paid against a house follows that house ----
+       ⭐ THE OWNER'S RULE, 2026-08-26, in her own words: "if person already paid
+       bill but moved to bill to than person on bill to will not have to pay
+       anything and bill to person will just start paying for both people the
+       next year"; on a half-paid house, "Just pay what hasn't been paid yet";
+       and the other way round, "if bill to person already paid bill and someone
+       was added onto there bill that hasn't paid than they will get another bill
+       showing what they still owe."
+
+       ⚠ ALL THREE ARE ONE MECHANISM, which is why they are checked together —
+       if they ever need three branches, the rule has been implemented twice.
+       ⚠ AND THEY ARE RUN, not read. Every claim here is arithmetic about a
+       balance, and this suite exists because a text-only check let the forTotal
+       crash ship for a day. */
+    {
+      /* Rental has paid $300 in full and then joined the payer's bill. */
+      const paidOff = [
+        houses[0],
+        { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300, paidBeforeBillTo: 300 } }
+      ];
+      const hp = makeHarness(paidOff, { install: 400, deposit: 0 });
+      await hp.fn('8011112222');
+      const wp = hp.written[0] || {};
+      check('sync', 'a house that was already paid for is still ON the bill',
+        wp.install === 700 && (wp.billedHouseIds || []).indexOf('h2') !== -1,
+        'the rows have to keep adding up to the total — the price belongs on the ' +
+        'invoice, it is the credit that cancels it');
+      check('sync', 'and its payment comes across as a credit',
+        wp.credits === 300, 'got ' + wp.credits + ' — the payer would be billed for a house somebody already paid for');
+      check('sync', 'so the payer owes nothing more for it',
+        (wp.install || 0) - (wp.credits || 0) - (wp.deposit || 0) === 400,
+        'their own $400 house and nothing else — "person on bill to will not have to pay anything"');
+      check('sync', 'and the credit line says whose money it was',
+        (wp.creditNotes || []).some(function (c) { return c.kind === 'carried' && /Rental/.test(c.reason || ''); }),
+        'an unexplained credit on a bill is one nobody can check');
+
+      /* Half paid: $150 of a $300 house. */
+      const halfPaid = [
+        houses[0],
+        { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300, paidBeforeBillTo: 150 } }
+      ];
+      const hh = makeHarness(halfPaid, { install: 400, deposit: 0 });
+      await hh.fn('8011112222');
+      const wh = hh.written[0] || {};
+      check('sync', 'a half-paid house leaves only the rest to pay',
+        (wh.install || 0) - (wh.credits || 0) - (wh.deposit || 0) === 550,
+        '$400 of their own plus the $150 still owed on the rental — "just pay what hasn\'t been paid yet"');
+
+      /* ⚠ THE OTHER DIRECTION. The payer has settled their own $400; an unpaid
+         house joins. They must get a bill for it rather than staying settled. */
+      const joiner = [
+        houses[0],
+        { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300 } }
+      ];
+      const hj = makeHarness(joiner, { install: 400, deposit: 400 });
+      await hj.fn('8011112222');
+      const wj = hj.written[0] || {};
+      check('sync', 'an unpaid house joining a settled bill reopens it',
+        (wj.install || 0) - (wj.credits || 0) - (wj.deposit || 0) === 300 &&
+        wj.status !== 'Paid in Full',
+        '"they will get another bill showing what they still owe" — got ' + wj.status);
+
+      /* ⚠ REBUILT, NEVER ACCUMULATED. This runs on every save; a credit pushed
+         each time would discount the bill again and again until it hit zero. */
+      const hr = makeHarness(paidOff, {
+        install: 700, deposit: 0, credits: 300,
+        creditNotes: [{ amount: 300, reason: 'Already paid by Rental before this house joined your bill', kind: 'carried', houseId: 'h2' }]
+      });
+      await hr.fn('8011112222');
+      const wr = hr.written[0] || {};
+      check('sync', 'a resync does not add the same carried credit twice',
+        wr.credits === 300 && (wr.creditNotes || []).filter(function (c) { return c.kind === 'carried'; }).length === 1,
+        'got ' + wr.credits + ' across ' + (wr.creditNotes || []).length + ' notes — every save would discount them again');
+
+      /* ⚠ AND IT KEEPS EVERY OTHER KIND OF CREDIT. A resync triggered by an
+         unrelated edit must not wipe a referral or a hand-applied adjustment —
+         the same guarantee the Edit Customer save gives from the other side. */
+      const hk = makeHarness(paidOff, {
+        install: 700, deposit: 0, credits: 25,
+        creditNotes: [{ amount: 25, reason: 'Referral — 1 person', kind: 'referral' }]
+      });
+      await hk.fn('8011112222');
+      const wk = hk.written[0] || {};
+      check('sync', 'a referral credit survives the rebuild',
+        (wk.creditNotes || []).some(function (c) { return c.kind === 'referral'; }) && wk.credits === 325,
+        'got ' + wk.credits + ' — this rebuild owns "carried" and must keep the rest');
+
+      /* A house that said no is out of the total, so its carried payment must be
+         out of the credits too — or the bill is discounted for a house nobody is
+         being charged for. */
+      const noHouse = [
+        houses[0],
+        { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300, paidBeforeBillTo: 300, rsvpStatus: 'no' } }
+      ];
+      const hn = makeHarness(noHouse, { install: 400, deposit: 0 });
+      await hn.fn('8011112222');
+      const wn = hn.written[0] || {};
+      check('sync', 'a cancelled house takes its carried credit out with it',
+        wn.install === 400 && (wn.credits || 0) === 0,
+        'crediting a house that is not on the bill would discount the payer for nothing');
+
+      /* Nobody carrying anything must not gain a credits field out of nowhere. */
+      const hz = makeHarness(houses, { install: 700, deposit: 0 });
+      await hz.fn('8011112222');
+      const wz = hz.written[0] || {};
+      check('sync', 'an ordinary bill with nothing carried is credited nothing',
+        (wz.credits || 0) === 0 && (wz.creditNotes || []).length === 0,
+        'got ' + wz.credits + ' — this must be invisible on the ordinary case');
+
+      /* ⚠ AND THE STATUS HAS TO BE COMPUTED FROM THE CARRIED CREDIT, not from
+         whatever credits the invoice happened to hold before. A red-check that
+         swapped creditsTotal back for existing.credits went straight through the
+         first version of this suite: in every fixture there, either the credit
+         was zero or the status came out the same both ways. This one only
+         settles WITH the carried credit counted. */
+      const hs = makeHarness(paidOff, { install: 400, deposit: 400 });
+      await hs.fn('8011112222');
+      const ws = hs.written[0] || {};
+      check('sync', 'the status pill counts the carried credit too',
+        ws.status === 'Paid in Full',
+        'their own $400 is paid and the rental came across settled, so the bill is clear — got ' +
+        ws.status + '. A pill computed off the old credits would say Partial Payment.');
+
+      /* ---- and the stamp that feeds all of the above ----
+         ⚠ RUN, NOT READ. Three of this pass's sabotages went straight through
+         the first version because nothing exercised the stamp at all — it lived
+         inline in the Edit Customer save, so the only thing a suite could do was
+         match its text. It is its own function now for exactly that reason. */
+      const stampSrc = extractFn(admin, 'carriedPaymentOnBillToChange');
+      check('sync', 'the carried-payment rule is its own runnable function', !!stampSrc,
+        'renamed? update this suite rather than deleting it');
+      if (stampSrc) {
+        const stamp = new Function(stampSrc + '\nreturn carriedPaymentOnBillToChange;')();
+        const inv = function (install, deposit, extra) {
+          return { data: Object.assign({ install: install, removal: 0, changeFees: 0, deposit: deposit }, extra || {}) };
+        };
+        check('sync', 'moving onto another bill carries what they had paid',
+          stamp('', '8011112222', inv(300, 300)) === 300,
+          'the whole point — got ' + stamp('', '8011112222', inv(300, 300)));
+        check('sync', 'a part payment carries only what was actually paid',
+          stamp('', '8011112222', inv(300, 150)) === 150,
+          '"just pay what hasn\'t been paid yet"');
+        check('sync', 'somebody who had paid nothing carries nothing',
+          stamp('', '8011112222', inv(300, 0)) === null,
+          'a zero stamp is noise on the record and a zero credit line on the bill');
+        /* ⚠ THE CAP. A deposit bigger than the bill is an overpayment or a typo;
+           handing the difference to the new payer would be inventing money. */
+        check('sync', 'an overpayment is capped at what that house owed',
+          stamp('', '8011112222', inv(300, 500)) === 300,
+          'got ' + stamp('', '8011112222', inv(300, 500)) + ' — the extra is not the new payer\'s to have');
+        check('sync', 'the light-change fee counts as part of what they owed',
+          stamp('', '8011112222', inv(300, 330, { changeFees: 30 })) === 330,
+          'they paid the fee too, so it comes across with the rest');
+        /* ⚠ NOT RE-STAMPED on an ordinary save of somebody who ALREADY bills
+           elsewhere. Their own invoice has been zeroed by then, so reading it
+           again would reset the carried amount to nothing. */
+        /* ⚠ THE FIXTURE HERE NEEDS A LIVE INVOICE, NOT A ZEROED ONE, and the
+           first version got that wrong: it handed a zeroed invoice, so the CAP
+           returned 0 and the check passed whether the guard existed or not. A
+           red-check dropping `!was` went straight through it.
+           The case where it really bites: a payer whose own invoice is a
+           multi-house GROUP invoice is deliberately left un-zeroed when they are
+           pointed at somebody else, so re-reading it on every later save would
+           hand the new payer a credit for the whole group's payments. */
+        check('sync', 'an ordinary save of somebody already billed elsewhere leaves it alone',
+          stamp('8011112222', '8011112222', inv(700, 700)) === null,
+          'the field must survive every later edit of that customer, and a live invoice ' +
+          'behind them must never be re-read as if they had just moved');
+        check('sync', 'and so does an ordinary save of somebody paying for themselves',
+          stamp('', '', inv(300, 300)) === null,
+          'nothing has moved anywhere');
+        /* ⚠ CLEARED when they go back to paying for themselves, or the credit
+           keeps discounting a payer who no longer has this house. */
+        check('sync', 'coming back to their own bill clears the carried amount',
+          stamp('8011112222', '', inv(0, 0)) === 0,
+          'left set, the old payer stays discounted for a house they no longer have');
+        /* Switching from one payer to another is not a fresh move: their own
+           invoice was zeroed the first time, so there is nothing left to read. */
+        check('sync', 'switching from one payer to another does not re-read a zeroed invoice',
+          stamp('8011112222', '8019998888', inv(0, 300)) === null,
+          'it would reset the carried amount to nothing at the worst moment');
+      }
+
+    }
+
   })());
 })();
 
@@ -24444,6 +24647,15 @@ suite('Suite 108. The Edit Customer save, actually run');
       compileLightsDescription: () => (o.lights || ''), computeInvoiceStatus: () => 'Unpaid',
       custInvoiceKey: (d) => String(d.phone || '').replace(/[^0-9]/g, ''),
       allCustInvoiceFor: () => null, contactIndexFields: () => ({}),
+      /* ⭐ THE REAL CARRIED-PAYMENT RULE, LIFTED — not a stub, for the same
+         reason applyLightChange below is lifted: a stub would keep this suite
+         green through a change to how much of somebody's money follows their
+         house onto another bill. allCustInvoiceFor is stubbed to null above, so
+         it is handed nothing and correctly decides to stamp nothing; its own
+         arithmetic is exercised directly in Suite 10. */
+      carriedPaymentOnBillToChange: new Function(
+        extractFn(admin, 'carriedPaymentOnBillToChange') +
+        '\nreturn carriedPaymentOnBillToChange;')(),
       extractCleanCity: () => 'Highland', generatePortalToken: () => 'tok',
       geocodeAddress: async () => ({lat: 40, lng: -111}),
       houseSideCount: () => 1, quoteStage: () => 'send',
