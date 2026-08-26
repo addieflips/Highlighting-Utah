@@ -495,7 +495,7 @@ and pick up R-006/R-007/R-008 on the way.
 
 **Map rows (added 2026-08-26):** `HC-02` in `claude/questions-map.md` — the rulings in this answer, written where they can be found without reading this entry. R-023.
 
-## Q-010 · intent · part answered 2026-08-22 · Q-010a still open
+## Q-010 · intent · ANSWERED · part 2026-08-22, Q-010a 2026-08-26
 "Straight yes only" — when should `SEASON_ELIGIBILITY` be flipped, and does a
 converted customer's assumed yes count?
 
@@ -693,6 +693,33 @@ Answer: Q-010b answered 2026-08-22 — a reply is required; assumed yes does not
 count. Q-010a (the date) still open.
 Resulting map change: `isOutForSeason`'s `confirmed-only` branch now requires
 `rsvpRespondedAt`; asserted against the Yes-tab predicate so the two cannot drift.
+
+
+### ⭐ Q-010a ANSWERED 2026-08-26
+
+Addie: **"any RSVP should be a straight yes starting when emails are sent."**
+
+So there is **no grace window**, and the trigger is an EVENT rather than a date — which
+is better than a date, because the fact is already recorded: `rsvpSentAt`, stamped on
+the first real RSVP send. It also matches how she described this in August: *"That is
+just to tick a box once I send out RSVP emails right?"*
+
+**Nothing was flipped.** The RSVP has not gone out, so `SEASON_ELIGIBILITY` stays
+`all-but-maybe-next-year`; flipping it now would empty the season down to the handful
+who happened to reply to something else. That guard is unchanged.
+
+**What changed** is the one thing that was failing quietly: a first RSVP send recorded
+itself and said nothing about the switch, so the office would send, read a green
+confirmation, and leave the season counting everybody. It now says so and names where.
+
+⚠ **The send still does not flip it, and that is deliberate.** Flipping takes every
+unanswered customer — ~960 on send day — off the routes, the schedule and the build
+queue at once. The Dashboard switch shows that count *before* acting
+(`seasonEligibilityWouldDrop`, measured by running `isOutForSeason` both ways), and
+doing it from the send would skip the one number that makes the decision answerable.
+It is reversible either way: nothing is written to a customer.
+
+**Resulting map change:** **MON-24**, answering the open half of **MON-22**.
 
 ---
 
@@ -978,6 +1005,61 @@ The new case had to be asserted explicitly. Two sabotages red-checked: demoting
 `completed` back below the status checks fails on both sides.
 
 **Resulting map change:** `MON-21` in `claude/questions-map.md`. R-023.
+
+### ⚠ ASKED TWICE, ON THE SAME DAY, IN TWO SESSIONS — and the fuller answer is kept
+
+This branch put the same question to her and got **"Yes — bill them for the work."**
+Same ruling, less of it: the other session also got *"This will only be overuled if it
+is our fault"*, which is the half that says what to do when it should NOT be charged.
+Main's wording is therefore the one kept, and this branch's implementation was thrown
+away rather than merged — it was byte-for-byte the same reordering.
+
+⚠ **Two things did travel across**, and both are corrections rather than additions:
+
+- the **Start New Season** argument, now in both code comments. This rule is safe only
+  because the season reset clears `completed` on every customer; if that ever stops it
+  bills people for last season's work every season, for ever. Verified in the reset
+  write before either branch shipped, and written down in neither until now.
+- the header comment above `houseIsOnTheBillServer` **still described the pre-Q-013
+  rule** — *"a flat NO is unchanged… a house completed and THEN answering no is still
+  dropped"* — directly above a body that no longer does that. True when Q-012 shipped,
+  false the moment Q-013 landed, and the kind of stale comment that gets believed.
+
+⚠ **THIS IS THE THIRD TIME TWO SESSIONS HAVE BUILT ONE RULE IN PARALLEL** (the others
+are recorded below and under Q-012). Every time, both were red-checked and both were
+right; every time, the cost was the merge rather than the code. Worth noticing before
+starting a fourth.
+
+---
+
+## Q-010a follow-up · 2026-08-26 — the ruling, restated, and still not switched on
+
+Asked when `SEASON_ELIGIBILITY` should flip, Addie answered with the rule rather than a
+date: **"Only people that RSVP are yes and should be scheduled and invoiced."**
+
+⚠ **NOT ACTED ON, and this is deliberate.** That is her standing intent (the same thing
+she said on 2026-08-21) and not an instruction to flip it today. **No RSVP has gone out**,
+so nearly every customer is `unanswered`, and turning it on now takes essentially the
+whole book out of the season: no routes, no builds, no installs. The switch's own
+comment says the same. What is still needed is a **date** — after the RSVP send, with
+some window for replies.
+
+⭐ **AND IT WIDENS THE RULE TO INVOICING**, which today is separate by design:
+`isOutForSeason` governs routes and builds, `houseIsOnTheBill` governs money, and
+`CLAUDE.md` warns by name against billing off the switch because it would empty every
+invoice the day it is flipped.
+
+⚠ **MON-21 is what makes her version safe**, and the interaction is worth stating
+because it was not obvious: with `completed` tested above every answer, anyone whose
+lights are actually up is billed whatever they did or did not reply. So the population
+that "only RSVP-yes gets invoiced" would newly exclude is exactly the population that
+had no work done. The danger the warning describes is real for the *scheduling* half and
+mostly defused for the *money* half.
+
+Still needs: the date, and a decision on whether the invoicing half goes in at the same
+moment or after a season of the scheduling half.
+
+**Resulting map change:** **MON-22**, recorded as *Decided — not built*.
 ### ⚠ AND THE SAME RULE WAS WRITTEN TWICE — folded into one on the merge, 2026-08-26
 
 The billing-groups branch reached the identical rule from the other side, in the same
@@ -1106,7 +1188,7 @@ they ship, since a non-payer tab has to say something.
 
 ---
 
-## Q-019 · intent · open · 2026-08-26
+## Q-019 · intent · ANSWERED · raised and answered 2026-08-26
 <!-- ⚠ FILED AS intent, THOUGH IT STARTS FACTUAL. The heading was
      "factual → intent" and questions-map.test.js parses the kind as [a-z]+, so
      the arrow made the whole entry invisible to the gate — an open question on a
@@ -1173,6 +1255,51 @@ existed or not. A fixture with `phone: 'n/a'` is what actually reaches it.
 Blocks: routing any new caller through `syncPayerInvoice` — which is why the
 "Use This Total for Their Invoice" button was made to *refuse* on a shared bill
 rather than re-sync one.
+
+
+### ⭐ ANSWERED 2026-08-26
+
+Addie, asked whether to keep waiting on the Health Check row or just fix the query:
+**"yes"** — do the query-side fix.
+
+That answer came straight after she said she does not read Health Check
+("the design is weird and I can't mark anything as completed or outside of policy",
+HC-03). So the row this question was parked behind is not a route to an answer, and
+waiting on it was waiting on nothing. The measurement was only ever there to decide
+whether the fix was *worth* making; the fix is protective either way.
+
+**What was built.** `syncPayerInvoice`'s phone branch now falls back to the loaded
+`jobAddresses` list when the equality query resolves nobody — the identical fallback
+the **email** branch twenty lines below has always had, for the identical reason: an
+equality query cannot match what normalising would.
+
+- ⚠ **It asks `custInvoiceKey`, never compares phone fields.** Comparing the raw
+  strings is the mistake that quietly duplicated the whole book once, and it fails on
+  this very fixture. Red-checked.
+- ⚠ **Only when the query found nobody**, matching the email branch. **A real gap
+  remains and is deliberately not closed here:** a group where *some* houses are
+  stored digits-only and some are not still resolves only the digits ones, so the
+  formatted sibling is silently left off the bill — undercharging rather than
+  zeroing. Making the fallback unconditional is the obvious repair and is a larger
+  change to how a live invoice's group is built, so it is its own change with its own
+  red-check. **Carried forward as Q-019a.**
+- The stored-phone repair (normalising what is written) is **not** done and should not
+  be smuggled in: it changes what the office reads on every screen and export.
+
+**What the tests prove.** Suite 10 RUNS `syncPayerInvoice` against a fake Firestore
+whose `getDocs` filters on the RAW field, exactly as Firestore does — so the fixture
+fails on unfixed code rather than simulating the bug. Three sabotages red-checked.
+
+⚠ **Two of those checks were vacuous until the red-check caught them**, and both are
+worth recording because they are the same trap twice. "The payment is not lost"
+passed with the bug present, because `existing.deposit` is preserved either way — the
+real damage is that the zeroed invoice then computes to **Paid in Full**
+(`computeInvoiceStatus(0, 0, 100, 0, 0)`, run not reasoned about), so the payer reads
+settled and no chase-the-unpaid send ever contains them. And the first status fixture
+still had a sibling house reachable by the `billToPhone` query, so the group was never
+truly empty and the status stayed plausible; it takes a payer **alone** to bite.
+
+**Resulting map change:** **MON-23**.
 
 ---
 
