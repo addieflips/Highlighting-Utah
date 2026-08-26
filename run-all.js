@@ -38168,6 +38168,37 @@ suite('167. Measure Roof - shift and drag moves a dot');
      into next door's garden in plan, and nothing in the panorama can show it.
      From above there is no height in the picture at all. So each view now
      moves only what it can judge, and the safety limits are kept. */
+  /* ⭐ AND SHIFT HAS TO LOOK LIKE SOMETHING (2026-08-26). Owner: "when i hold
+     down shift my cursor doesnt switch to select", after "shift drag isnt
+     working".
+
+     ⚠ IT WAS NOT BROKEN, IT WAS INVISIBLE - which is worse, because there is
+     nothing to report and nothing to try. Driven straight at the handler the
+     drag works: mousedown with shift says "Moving dot 0", the height follows the
+     pointer, mouseup says it moved. But the sheet over both views was
+     `cursor: crosshair` at all times, so holding shift changed nothing, and
+     being near enough to grab looked identical to being too far. A modifier
+     gesture with no feedback is a feature only its author can use. */
+  check('S167', 'the cursor says when a dot is actually within reach',
+    (function(){
+      const fn = extractFn(admin, 'rmRefreshCursors') || '';
+      return /'grabbing'/.test(fn) && /'grab'/.test(fn) && /'crosshair'/.test(fn) &&
+             /rmDotWithinReach/.test(fn);
+    })(),
+    'three states: placing, grabbable, and moving - anything less is press and hope');
+  check('S167', 'and it answers the shift key itself, not only the mouse moving',
+    /addEventListener\('keydown'[\s\S]{0,200}rmShiftDown = true/.test(admin) &&
+    /addEventListener\('keyup'[\s\S]{0,200}rmShiftDown = false/.test(admin),
+    'holding shift without moving the pointer has to answer, or it still reads as dead');
+  check('S167', 'and a window that loses focus stops promising a grab',
+    /addEventListener\('blur'[\s\S]{0,120}rmShiftDown = false/.test(admin),
+    'no keyup arrives when focus goes, so the cursor would lie until the next click');
+  check('S167', 'reach is judged by the same radius the drag itself uses',
+    (function(){
+      const fn = extractFn(admin, 'rmDotWithinReach') || '';
+      return /RM_DRAG_GRAB_PX/.test(fn) && /RM_SKY_GRAB_M/.test(fn);
+    })(),
+    'a cursor that promises a grab the drag then refuses is worse than no cursor');
   check('S167', 'a street-view drag changes the height and nothing else',
     (function(){
       const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");

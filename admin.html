@@ -18155,6 +18155,66 @@ const RM_DRAG_SLOP_PX = 4;       /* below this the pointer only wobbled */
    is what the right-click already uses to decide which dot was meant, so the
    two gestures agree about what counts as aiming at a dot. */
 const RM_SKY_GRAB_M = 4;
+
+/* ⭐ SHIFT HAS TO LOOK LIKE SOMETHING (2026-08-26). Owner: "when i hold down
+   shift my cursor doesnt switch to select", after "shift drag isnt working".
+
+   ⚠ AND IT WAS NOT BROKEN - IT WAS INVISIBLE, which is worse, because there is
+   nothing to report and nothing to try. Driven straight at the handler the drag
+   works: mousedown with shift says "Moving dot 0", the height follows the
+   pointer, mouseup says it moved. But the sheet over both views is `cursor:
+   crosshair` at all times, so holding shift changes nothing on screen, being
+   near enough to grab a dot looks identical to being too far, and the only way
+   to find out is to press and hope.
+
+   A modifier gesture with no feedback is a feature only its author can use.
+   The cursor now says all three states: crosshair for placing, grab when shift
+   is down and a dot is actually within reach, grabbing while one is moving.
+   Which also answers "how do I drag" without anybody being told. */
+let rmShiftDown = false, rmLastPointer = null;
+function rmDotWithinReach(id, clientX, clientY){
+  if(rmCornerMode !== 'dot' || !rmCorners.length) return false;
+  const el = document.getElementById(id);
+  if(!el) return false;
+  const r = el.getBoundingClientRect();
+  if(id === 'rmPanoLock'){
+    const cam = rmCamLocal(); if(!cam) return false;
+    const s = rmPanoSize();
+    return rmDotUnderClick(clientX - r.left, clientY - r.top, s.W, s.H,
+                           rmPanoPov(), cam, RM_DRAG_GRAB_PX) >= 0;
+  }
+  if(!rmMap) return false;
+  const w = rmMapPixelToWorld(clientX, clientY, r);
+  if(!w) return false;
+  return rmCorners.some(function(c){
+    return Math.hypot((c.lat - w.lat) * 111320, (c.lng - w.lng) * 85000) < RM_SKY_GRAB_M;
+  });
+}
+/* Repaint both sheets' cursors from whatever is true right now. Cheap, and
+   called from the pointer AND from the shift key, so holding shift without
+   moving the mouse still answers. */
+function rmRefreshCursors(dragging){
+  ['rmPanoLock', 'rmMapLock'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(dragging){ el.style.cursor = 'grabbing'; return; }
+    const p = rmLastPointer;
+    const near = rmShiftDown && p && rmDotWithinReach(id, p.x, p.y);
+    el.style.cursor = near ? 'grab' : 'crosshair';
+  });
+}
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Shift' || rmShiftDown) return;
+  rmShiftDown = true; rmRefreshCursors(false);
+});
+document.addEventListener('keyup', function(e){
+  if(e.key !== 'Shift') return;
+  rmShiftDown = false; rmRefreshCursors(false);
+});
+/* ⚠ A WINDOW THAT LOSES FOCUS NEVER SENDS THE KEYUP, and the cursor would stay
+   promising a grab that is no longer armed. */
+window.addEventListener('blur', function(){ rmShiftDown = false; rmRefreshCursors(false); });
+
 let rmDragMoved = false;         /* a drag happened, so the click that ends it is not a swap */
 
 /* The point that best satisfies every ray it has been seen along. */
@@ -23234,9 +23294,12 @@ function openRoofMeasure(quoteId){
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
     if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
+    rmRefreshCursors(true);
   });
   document.getElementById('rmMapLock').addEventListener('mousemove', function(e){
-    if(rmSkyDragDot < 0) return;
+    /* The cursor answers before anything else does - see rmRefreshCursors. */
+    rmLastPointer = {x: e.clientX, y: e.clientY};
+    if(rmSkyDragDot < 0){ rmRefreshCursors(false); return; }
     /* A few pixels of travel is a shaky click, not a drag. */
     if(rmSkyDragFrom && Math.hypot(e.clientX - rmSkyDragFrom.x, e.clientY - rmSkyDragFrom.y) < RM_DRAG_SLOP_PX) return;
     const c = rmCorners[rmSkyDragDot];
@@ -23292,6 +23355,7 @@ function openRoofMeasure(quoteId){
       if(rmSkyDragDot < 0) return;
       const moved = rmCornerLabel(rmSkyDragDot);
       rmSkyDragDot = -1;
+      rmRefreshCursors(false);
       const note = document.getElementById('rmCornerNote');
       if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
         'click it in the street view to fix its height exactly.';
@@ -23325,9 +23389,12 @@ function openRoofMeasure(quoteId){
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
     if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
+    rmRefreshCursors(true);
   });
   document.getElementById('rmPanoLock').addEventListener('mousemove', function(e){
-    if(rmDragDot < 0) return;
+    /* The cursor answers before anything else does - see rmRefreshCursors. */
+    rmLastPointer = {x: e.clientX, y: e.clientY};
+    if(rmDragDot < 0){ rmRefreshCursors(false); return; }
     /* ⚠ A few pixels of travel is a shaky click, not a drag. Below this the dot
        is left exactly where it was, so shift-clicking to SWAP two dots is not
        quietly turned into moving one of them a hair. */
@@ -23382,6 +23449,7 @@ function openRoofMeasure(quoteId){
       if(rmDragDot < 0) return;
       const moved = rmCornerLabel(rmDragDot);
       rmDragDot = -1;
+      rmRefreshCursors(false);
       const note = document.getElementById('rmCornerNote');
       if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
         'click it again from another angle to fix it exactly.';
