@@ -20324,37 +20324,15 @@ function rmSolveRayNow(ray){
   if(top !== null && best.u > top + RM_EAVE_TOL_M) return null;
   return best;
 }
-/* ⭐ WHERE ALONG A RAY THE POINTER IS ASKING FOR. The dot may only move along
-   the line it was seen along (see the sky drag), so a drop anywhere on the map
-   has to become a distance out from the camera. That is the foot of the
-   perpendicular from the dropped PLAN position onto the ray's plan direction —
-   in plain terms, how far out along the line of sight the pointer got to.
-
-   ⚠ IN PLAN, NOT IN THREE DIMENSIONS. The map has no height in it, so the
-   pointer can only ever be asking about the horizontal; projecting in 3D would
-   let the vertical part of the ray drag the answer somewhere the pointer never
-   indicated. The height then falls out of the ray at that distance.
-
-   ⚠ AND IT REFUSES RATHER THAN RETURNING SOMETHING SILLY: behind the camera,
-   past the far limit every other cast here uses, underground, or above the
-   roof. A drag must not reach a place a click could not. */
-function rmRaySlideTo(ray, world){
-  if(!ray || !ray.cam || !ray.dir || !world || !rmOrigin) return null;
-  const cam = ray.cam, dir = ray.dir;
-  const planLen = Math.hypot(dir.e, dir.n);
-  if(!(planLen > 1e-9)) return null;                /* pointing straight up */
-  const de = dir.e / planLen, dn = dir.n / planLen;
-  const p = rmToLocal(world.lat, world.lng, 0);
-  const along = (p.e - cam.e) * de + (p.n - cam.n) * dn;
-  if(!(along > 0.5 && along < 200)) return null;
-  /* Back into the ray's own parameter, so the climb is right. */
-  const t = along / planLen;
-  const u = cam.u + dir.u * t;
-  if(!(u > 0.3)) return null;
-  const top = rmRoofTopM();
-  if(top !== null && u > top + RM_EAVE_TOL_M) return null;
-  return {e: cam.e + dir.e * t, n: cam.n + dir.n * t, u: u};
-}
+/* ⛔ rmRaySlideTo IS GONE (2026-08-26, one day old). It answered "where along
+   this ray is the pointer asking for", and the sky drag used it so a dot could be
+   moved without shifting in the photograph. Owner: "on sky view I can only drag
+   left and right... i should be able to move it in any direction still." A ray is
+   a line, so constrained to it the drag could only ever travel one direction
+   across the map. The drag moves freely in plan now and holds the height, and
+   nothing else ever called this. Deleted rather than left sitting there looking
+   live — the depth it existed to correct has a proper answer of its own now, in
+   the measured model displacement. */
 /* Puts every unpinned dot back where its own ray now says it is, and REPORTS
    how far each one had to move - which is the number the office asked for. */
 function rmRefreshCorners(){
@@ -23620,46 +23598,33 @@ function openRoofMeasure(quoteId){
     if(!c){ rmSkyDragDot = -1; return; }
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
-    /* ⭐ IT SLIDES ALONG THE RAY IT WAS SEEN ALONG (2026-08-25). Owner: "when i
-       drag a dot on sky view it should stay in the same spot in street view,
-       its just to correct the offset if the system does get it wrong."
+    /* ⭐ FREE IN PLAN, AND THE HEIGHT DOES NOT MOVE (2026-08-26). Owner: "on sky
+       view I can only drag left and right — I said I dont want dragging the dot on
+       sky view to change the height and thats still true, but i should be able to
+       move it in any direction still."
 
-       ⭐ AND THAT IS EXACTLY WHAT A DEPTH CORRECTION IS. Every point along the
-       ray from the camera through a pixel draws at THAT SAME PIXEL, so moving a
-       dot along its own ray changes where it sits on the map and leaves Street
-       View untouched, to the pixel. Which is the whole complaint: the dot was
-       right in the photograph and wrong on the map, and the only thing wrong
-       with it was how far away it was.
+       ⚠ THIS REPLACES A SLIDE ALONG THE CAMERA RAY, and the reasoning for that is
+       kept because it was not wrong, it was over-constrained. Every point along a
+       ray draws at the same pixel, so sliding a dot along its own ray corrects the
+       DEPTH and leaves the photograph untouched — which is a real and useful
+       thing, and it is what "it should stay in the same spot in street view"
+       asked for. But a ray is a LINE. Constrained to it, the dot can only travel
+       one direction across the map, which from above reads as a broken drag, and
+       it cannot be put where the roof plainly is.
 
-       ⚠ SO THE CURSOR CHOOSES A POINT ON THE RAY, NOT A POINT ON THE MAP. The
-       dot follows the pointer along one line rather than going wherever it is
-       dropped — that is not the drag being stiff, it is the drag refusing to
-       claim something the two pictures do not jointly say. Sliding sideways off
-       the ray would move the dot in the photograph too, and the corner it is
-       marking has not moved.
+       ⚠ THE TWO CANNOT BOTH HOLD, and this is the choice. Moving freely in plan
+       while holding the height necessarily moves the dot in Street View: same
+       height, different distance, different elevation, different pixel. Staying
+       fixed in the photograph necessarily means moving along the ray, which
+       necessarily changes the height. Asked which, the owner picked freedom in
+       plan — and it is the better half, because from above you can SEE where the
+       dot belongs, and the depth now has a proper answer of its own in the
+       measured model displacement (rmMeasureModelShift) rather than needing to be
+       nudged by hand.
 
-       ⚠ THE HEIGHT COMES WITH IT, and it has to. A ray from the street climbs
-       as it goes out, so a point further along it is higher; holding the height
-       while sliding the depth would leave the dot off the ray and back in the
-       wrong place in Street View. The height still comes from the street — it
-       is that ray, read at the corrected distance — which is the rule, not an
-       exception to it.
-
-       ⚠ AND A DOT WITH NO SIGHTING CANNOT DO THIS. One placed from above has
-       no ray to slide along, so it moves in plan and keeps its height, which is
-       the only honest thing left: from above, height is not in the picture. */
-    const ray = (c.rays || [])[0];
-    if(ray && ray.cam && ray.dir){
-      const t = rmRaySlideTo(ray, w);
-      if(t){
-        const p = rmToWorld(t);
-        c.lat = p.lat; c.lng = p.lng; c.h = t.u;
-        c.pinned = 0; c.spread = 0;                 /* one sighting again, by hand */
-        c.rays = [ray];
-        rmDragPaint();
-      }
-      return;
-    }
+       ⚠ AND THE SIGHTINGS GO, because they no longer describe it. Its position
+       was the crossing of the rays it had been seen along; dragging it somewhere
+       else makes those rays describe a point it is not at. */
     c.lat = w.lat; c.lng = w.lng;
     c.rays = []; c.pinned = 0; c.spread = 0;
     rmDragPaint();
@@ -23694,7 +23659,7 @@ function openRoofMeasure(quoteId){
      ring comes off. Keeping them would leave a dot claiming to be exact while
      sitting wherever it was last dragged - which is the confident-wrong state
      this tool keeps having to be rescued from. */
-  let rmDragDot = -1, rmDragFrom = null;
+  let rmDragDot = -1, rmDragFrom = null, rmDragRange = 0;
   document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
     if(!e.shiftKey || rmCornerMode !== 'dot') return;
     const cam = rmCamLocal();
@@ -23704,6 +23669,12 @@ function openRoofMeasure(quoteId){
     const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
     if(i < 0) return;
     rmDragDot = i;
+    /* How far out the dot is when it is picked up. The drag keeps that and
+       re-aims, so the dot tracks the pointer exactly - see the mousemove. */
+    (function(){
+      const c0 = rmCorners[i], p0 = c0 && rmToLocal(c0.lat, c0.lng, c0.h || 0);
+      rmDragRange = p0 ? Math.hypot(p0.e - cam.e, p0.n - cam.n, p0.u - cam.u) : 0;
+    })();
     rmDragFrom = {x: e.clientX, y: e.clientY};
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
@@ -23725,43 +23696,45 @@ function openRoofMeasure(quoteId){
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
     const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
-    /* ⭐ FROM HERE, HEIGHT IS THE ONLY THING YOU CAN CHANGE (2026-08-25). Owner:
-       "if you drag on sky view the height stays the same and if you drag on
-       street view the height is the only thing you can change."
+    /* ⭐ THE DOT FOLLOWS THE POINTER (2026-08-26). Owner: "I should be able to
+       move a dot anywhere on street view, the only restriction is not changing
+       height on sky view."
 
-       ⭐ AND IT IS THE RIGHT SPLIT, not just a preference — it gives each view
-       the one axis it can actually see. Looking straight down there is no
-       height in the picture, so the map must not touch it. From the street the
-       DEPTH along the ray is the unknown, so where a dot sits in plan is the
-       thing this view cannot judge: a dot can sit perfectly on the gutter here
-       and be ten feet into next door's garden on the map, and nothing in this
-       picture can show it. Letting a drag here move the plan position means
-       dragging the one number you cannot see, by eye, using the one view that
-       cannot see it. Between the two views every dot is fully correctable, and
-       neither view is ever asked to guess.
+       ⚠ THIS REPLACES A HEIGHT-ONLY DRAG, and the reasoning for that one is kept
+       because it explains what is being traded. From the street the unknown is
+       DEPTH along the ray: a dot can sit perfectly on the gutter here and be ten
+       feet into next door's garden in plan, and nothing in this picture can show
+       it. Holding the plan and moving only the height meant the drag could never
+       make that worse. But it also meant the dot would not go where it was
+       dragged, which is not a drag.
 
-       ⚠ THE PLAN POSITION IS HELD EXACTLY, so this is not a re-aim of the ray.
-       The dot sits on a VERTICAL LINE at a fixed horizontal distance from the
-       camera; the cursor's ray gives an elevation; height is that distance
-       times the tangent of it. Solving it that way rather than crossing the ray
-       with a surface is what keeps east and north bit-for-bit unchanged — a
-       re-crossed ray would nudge them every frame and the map would show the
-       dot creeping sideways while somebody set its height. */
-    const here = rmToLocal(c.lat, c.lng, c.h || 0);
-    const plan = Math.hypot(here.e - cam.e, here.n - cam.n);
-    if(!(plan > 0.5)) return;                       /* standing on top of it */
-    const len = Math.hypot(dir.e, dir.n, dir.u) || 1;
-    const el = Math.asin(Math.max(-1, Math.min(1, dir.u / len)));
-    const u = cam.u + plan * Math.tan(el);
-    /* ⚠ NOTHING IS UNDERGROUND AND NOTHING IS ABOVE THE ROOF, the same two
-       limits a fresh click answers to — a drag must not reach a place a click
-       could not. */
+       ⭐ SO IT KEEPS ITS RANGE AND RE-AIMS. The distance out from the camera is
+       taken when the dot is picked up and held for the whole drag; the pointer
+       chooses the direction. The dot therefore sits exactly under the cursor,
+       goes anywhere on screen, and its height and plan both follow - which is
+       what "anywhere" means. Nothing about the depth is invented or destroyed by
+       moving it: it leaves the drag as far out as it arrived.
+
+       ⚠ AND THE DEPTH HAS ITS OWN ANSWER NOW, which is why this is safe to give
+       up. Clicking the same corner from a second angle crosses two rays, and that
+       also measures how far Google's model stands from the house, after which
+       single clicks land right on their own. The drag no longer has to be the
+       thing that protects the plan position. */
+    const range = rmDragRange || (function(){
+      const p = rmToLocal(c.lat, c.lng, c.h || 0);
+      return Math.hypot(p.e - cam.e, p.n - cam.n, p.u - cam.u);
+    })();
+    if(!(range > 0.5)) return;
+    const to = {e: cam.e + dir.e * range, n: cam.n + dir.n * range, u: cam.u + dir.u * range};
+    /* ⚠ NOTHING UNDERGROUND AND NOTHING ABOVE THE ROOF, the same two limits a
+       fresh click answers to - a drag must not reach a place a click could not. */
     const top = rmRoofTopM();
-    if(!(u > 0.3)) return;
-    if(top !== null && u > top + RM_EAVE_TOL_M) return;
-    c.h = u;
+    if(!(to.u > 0.3)) return;
+    if(top !== null && to.u > top + RM_EAVE_TOL_M) return;
+    const wpt = rmToWorld(to);
+    c.lat = wpt.lat; c.lng = wpt.lng; c.h = to.u;
     c.rays = []; c.pinned = 0; c.spread = 0;
-    rmDragPaint();          /* one redraw per frame - see rmDragPaint */
+    rmDragPaint();
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmPanoLock').addEventListener(ev, function(){
