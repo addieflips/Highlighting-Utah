@@ -51,32 +51,58 @@ against the real panorama `rijaVLmbQ32UluJPvFy35A`:
 Do not spend another afternoon on this without new information. The convention
 above is worth keeping — it is correct and it was expensive to establish.
 
-## Queued, in the owner's words
+## Done since — the queue is empty
 
-1. **"when i drag a dot on sky view it should stay in the same spot in street
-   view — its just to correct the offset."** Geometrically this means a sky drag
-   should slide the dot ALONG THE CAMERA RAY: that changes the plan position and
-   leaves the Street View pixel exactly where it was, which is precisely a depth
-   correction. Deferred by the owner ("do that later though").
+1. **A sky drag slides the dot along its own line of sight.** "when i drag a dot
+   on sky view it should stay in the same spot in street view — its just to
+   correct the offset." Every point along a ray draws at the same pixel, so this
+   changes where the dot sits on the map and leaves the photograph untouched.
+   Proved by arithmetic in the suite rather than by a source match: a slid dot
+   reprojects to within 0.01 px of where it was while its depth moves by more
+   than a metre.
 
-2. **"use the actual height from street view, and sky view for the other two
-   dimensions, then Pythagoras for how long lines really are, then adjust for
-   how long we are saying a foot is."** Height from the street, plan from above,
-   true length from the two. Deferred with the same message.
+2. **A second click from a different angle now reaches the dot.** The correction
+   already existed — two rays crossing is geometry rather than a model — but it
+   only fired within 8 px of the DRIFTED dot, and the reason to re-sight is that
+   the dot is no longer on the corner. Aiming at the corner missed and made a
+   second dot. Each dot is now judged at its own size, widening only once the
+   camera has moved far enough for a second sighting to mean anything, and
+   bounded by that dot's own uncertainty.
 
-3. **"we dont want anything like using garage door to measure height, because
-   then we go pixel for pixel but there is depth and more stuff like that — find
-   the height through proper geometry not through a rough estimate of how many
-   pixels tall is the garage."** Audit every height path for anything that
-   scales pixels against a known object, and replace it with camera-pose
-   geometry. Note the existing scale check reports and never corrects, so it is
-   not in the measurement path; the photo-markup tool genuinely is pixel-scaled,
-   because a phone photo has no camera pose.
+3. **No height is typed or guessed anywhere.** The height box, the storey presets
+   and the known-size scale check are gone from the page and unwired. A saved
+   'typed' datum from before today is read and dropped rather than restored. What
+   is left is a last-resort eave for scaffolding — and a dot may not be placed
+   against it: a sky click on an unmeasured house is refused and names the one
+   click that fixes it.
 
-## Blocked
+4. **The two pictures line themselves up from the dots.** rmAutoAlign worked out
+   the satellite tile's displacement by matching what had been traced against the
+   roof model — it just only ran after a hand-traced RUN was finished, and the
+   workflow stopped producing those the day dots replaced tracing. It runs on
+   every change to the dots now, and still never overrides a measured answer.
 
-Testing the branch needs a working Google Maps key. The key is referrer-locked
-to the live domain: from `http://localhost:4180/` the Street View metadata
-endpoint answers REQUEST_DENIED, "This IP, site or mobile application is not
-authorized to use this API key." Either allow the test origin on the key, or
-test on a deploy preview whose domain the key already allows.
+5. **Pythagoras over plan and height** was already what rmFeetBetween does — the
+   horizontal run and the change in height, in the house's own local frame. What
+   was missing was heights worth putting into it, which is item 3.
+
+## Not done, and why
+
+**"then adjust it for how long we are saying a foot is."** The thing that measured
+that error was the known-size scale check, and it has been removed as a
+pixel-ratio method. There is nothing left that produces a scale factor, so there
+is nothing to apply. If a scale correction is still wanted it needs a source that
+is geometry rather than a traced object — say so and it can be built.
+
+## Still to do by hand
+
+Nothing here is provable by any suite: whether a dot lands on the actual gutter of
+an actual house is a human answer. Checklist test 207 is at version 7 and carries
+steps 15-17 for exactly this — the two drags doing different jobs, the second
+sighting from another angle, and the refusal on an unmeasured house.
+
+Testing it needs a working Google Maps key. The key is referrer-locked to the live
+domain: from `http://localhost:4180/` the Street View metadata endpoint answers
+REQUEST_DENIED, "This IP, site or mobile application is not authorized to use this
+API key." Either allow the test origin on the key, or test on a deploy preview
+whose domain the key already allows.

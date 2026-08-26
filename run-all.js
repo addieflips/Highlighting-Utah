@@ -1098,6 +1098,11 @@ check('logic', 'projShouldPruneTest exists', typeof projShouldPruneTest === 'fun
  * renamed. Format: [retired phrase, why/what replaced it].
  */
 const RETIRED_CHECKLIST_TERMS = [
+  ['check the scale', 'removed 2026-08-25 — a known-size object traced and scaled is the pixel-ratio method the owner ruled out: "we want it to find the height through proper geometry, not through a rough estimate of how many pixels tall is the garage"'],
+  ['double garage door', 'the known-size list went with the scale check on 2026-08-25'],
+  ['trace it and compare', 'the scale check button, removed 2026-08-25'],
+  ['working height', 'the typed height box and its 1 storey / 2 storey / Ground presets were removed 2026-08-25 — heights are measured in Street View, or the tool says they are not measured yet'],
+  ['2 storey', 'the height presets went with the Working Height box on 2026-08-25'],
   ['approval link', 'the Get Approval Link button was renamed to Send Email on 2026-08-08 (it now also shows the filled-in email, not just the link)'],
   ['get approval link', 'renamed to Send Email on 2026-08-08'],
   ['copy quote email', 'renamed to Show Quote Email Again on 2026-08-08 (Send Email now shows the email on the first click)'],
@@ -33580,8 +33585,17 @@ suite('131. Measure Roof — the roof is never on the ground');
     check('S131', 'and it says the height is only assumed, not measured',
       noDatum.rmDatum().source === 'assumed',
       'a guessed height that presents itself as measured is worse than no height');
-    check('S131', 'a typed height beats the assumption',
-      mk(14).rmDatum().source === 'typed' && Math.abs(mk(14).rmDatum().m - 14 / 3.280839895) < 0.01);
+    /* ⛔ THERE IS NO TYPED HEIGHT ANY MORE (2026-08-25). Owner, of the panel
+       that held it: "we dont need this: Eave 10 ft — ASSUMED, one storey …
+       1 storey / 2 storey / Ground", and behind it "find the height through
+       proper geometry, not through a rough estimate". This check used to prove
+       a typed number outranked the assumption; the point now is that no typed
+       number exists to outrank it, so the only thing that can is a measurement
+       from the street. */
+    check('S131', 'nothing can be typed over the assumption any more',
+      mk(14).rmDatum().source === 'assumed',
+      'a box that says 10 is an answer, and it was the height under every dot ' +
+      'on every house nobody had measured');
 
     /* ---- Street View pins it, and outranks both ----------------------- */
     const sv = mk(14);
@@ -33648,14 +33662,23 @@ suite('131. Measure Roof — the roof is never on the ground');
      claim is unchanged and now checks every branch rather than one. */
   check('S131', 'and the panel says which datum is in force',
     /id="rmDatumNote"/.test(admin) && /ASSUMED, one storey/.test(admin) &&
-    /measured in Street View/.test(admin) && /read off the street photo/.test(admin) &&
-    /typed by hand/.test(admin),
+    /measured in Street View/.test(admin) && /read off the street photo/.test(admin),
     'a height nobody can trace back is a height nobody can argue with');
-  check('S131', 'and the height controls are still reachable, just not in the way',
-    /id="rmHeightFt"/.test(admin) && /id="rmMoreBox"/.test(admin) &&
-    (admin.indexOf('id="rmMoreBox"') < admin.indexOf('id="rmHeightFt"')),
-    'the box is the only way to overrule a wrong roof model — moving it behind a ' +
-    'disclosure is fine, losing it is not');
+  /* ⛔ AND THE TYPED CONTROLS ARE GONE (2026-08-25). Owner: "we dont need
+     this: Eave 10 ft — ASSUMED, one storey … 1 storey / 2 storey / Ground",
+     and behind it "find the height through proper geometry".
+     ⚠ THIS REPLACES A CHECK THAT DEMANDED THE OPPOSITE — "the box is the only
+     way to overrule a wrong roof model, losing it is not fine". The overrule is
+     not lost, it moved into the picture: a shift-drag on a dot in Street View
+     sets its height by eye against the photograph, which is a better overrule
+     than a number typed into a box with nothing to check it against. */
+  check('S131', 'and there is no box or preset to type a height into',
+    !/id="rmHeightFt"/.test(admin) && !/data-rmheight=/.test(admin) &&
+    !/1 storey<\/button>/.test(admin),
+    'a preset is a guess wearing a button');
+  check('S131', 'and the panel says where a height does come from instead',
+    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
+    'removing the control without saying what replaced it reads as a feature going missing');
 }
 
 
@@ -35275,6 +35298,40 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
      office can see the height is the model's opinion until it is crossed with a
      street-view sighting. If dots from above start drifting again, that is the
      argument to read before deleting this. */
+  /* ⛔ AND NOT ONTO A GUESSED ROOF HEIGHT (2026-08-25). Owner: "find the height
+     through proper geometry, not through a rough estimate."
+     A sky click's height is the roof model's plane at that spot, which is exact
+     RELATIVE to the lowest eave and floats on the datum — so the whole question
+     is whether the datum was measured. One dot on a wall in Street View settles
+     it. Before that, a dot from above is wrong in plan as well as in height, and
+     the error goes into the footage, which is the price. */
+  check('S149', 'a dot from above is refused while the roof height is only assumed',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
+      const j = admin.indexOf("getElementById('rmMapLock').addEventListener('dblclick'");
+      const body = i === -1 ? '' : admin.slice(i, j);
+      const g = body.indexOf("rmDatum().source === 'assumed'");
+      const add = body.indexOf('rmAddCorner(w);');
+      return g !== -1 && add !== -1 && g < add;
+    })(),
+    'accepting it costs a quote nobody can tell is wrong; refusing costs one click');
+  check('S149', 'and it says which click would fix it, rather than just refusing',
+    /Click once on a WALL in the street view first/.test(admin),
+    'a refusal with no way out reads as the tool being broken');
+  /* ⭐ THE PICTURE LINES ITSELF UP FROM THE DOTS. Owner: "i click a corner on
+     skyview but its still a few feet off from where I clicked" — that is the
+     satellite tile being displaced, with the correction never applied because
+     rmAutoAlign only ran after a hand-traced RUN was finished, and the workflow
+     stopped producing those the day dots replaced tracing. */
+  check('S149', 'placing dots is enough to line the two pictures up',
+    (function(){
+      const fn = extractFn(admin, 'rmCornersChanged') || '';
+      return /rmAutoAlign\(\);/.test(fn);
+    })(),
+    'it fired only on rmFinishRun, which the dot workflow never calls');
+  check('S149', 'and it still never overrides an answer somebody measured',
+    /if\(rmSkyOffset \|\| rmAligning\) return;/.test(extractFn(admin, 'rmAutoAlign') || ''),
+    'a fit is arithmetic about a model; a measured alignment is a person saying where a spot is');
   check('S149', 'the map places the same corner the street view places',
     (function(){
       const i = admin.indexOf("getElementById('rmMapLock').addEventListener('click'");
@@ -35743,8 +35800,27 @@ suite('152. Measure Roof - a dot seen twice is exact, with no model at all');
   check('S152', 'a dot remembers the ray it was first placed along',
     /rays: pt\.ray \? \[pt\.ray\] : \[\]/.test(admin),
     'without it the second sighting has nothing to cross with');
+  /* ⭐ AND EACH DOT IS JUDGED AT ITS OWN SIZE (2026-08-25). Owner: "if I click
+     dots at a different angle on street view then it offsets to be correct."
+     The correction existed and could not be reached: it only fired within 8 px
+     OF THE DRIFTED DOT, and the reason to re-sight is that the dot is no longer
+     on the corner. Aiming at the corner missed the dot and made a second one.
+     See RM_RESIGHT_DEPTH_SLOP_M for why the net widens only once the camera has
+     moved far enough for a second sighting to mean anything. */
   check('S152', 'clicking an existing dot pins it rather than adding another',
-    /const near = rmDotUnderClick\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
+    /const near = rmDotToResight\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
+  check('S152', 'and the net only widens once a second sighting could fix a depth',
+    (function(){
+      const fn = extractFn(admin, 'rmResightGrabPx') || '';
+      return /if\(c\.pinned\) return RM_PIN_GRAB_PX;/.test(fn) &&
+             /base >= RM_PIN_MIN_BASE_M/.test(fn) &&
+             /Math\.min\(RM_RESIGHT_MAX_PX/.test(fn);
+    })(),
+    'a wide net from where the dot was placed would swallow the neighbour you ' +
+    'are trying to put down next to it');
+  check('S152', 'and the nearest dot wins as a fraction of its own net',
+    /const score = d \/ grab;/.test(admin),
+    'in raw pixels a wide-net dot always beats a tight-net one beside it');
   check('S152', 'and a pinned dot looks different from a guessed one',
     /if\(c\.pinned\) parts\.push\('<circle/.test(admin),
     'the office should be able to tell at a glance which dots are still guesses');
@@ -36415,15 +36491,87 @@ suite('167. Measure Roof - shift and drag moves a dot');
     })(),
     'height is the horizontal distance times the tangent of the elevation, which ' +
     'touches neither east nor north');
-  check('S167', 'a sky-view drag moves it across the roof and leaves the height alone',
+  /* ⭐ A SKY DRAG SLIDES THE DOT ALONG ITS OWN RAY (2026-08-25). Owner: "when
+     i drag a dot on sky view it should stay in the same spot in street view,
+     its just to correct the offset if the system does get it wrong."
+
+     ⚠ AND THAT IS PRECISELY A DEPTH CORRECTION. Every point along the ray from
+     the camera through a pixel draws at THAT SAME PIXEL, so moving a dot along
+     its own ray changes where it sits on the map and leaves Street View
+     untouched — which is the complaint exactly: right in the photograph, wrong
+     on the map, and the only thing wrong with it was how far away it was.
+     The check below is not a source match; it does the arithmetic. */
+  check('S167', 'a sky-view drag slides the dot along the ray it was seen along',
     (function(){
       const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
       const j = admin.indexOf("['mouseup', 'mouseleave']", i);
       const body = i === -1 ? '' : admin.slice(i, j);
-      return /c\.lat = w\.lat; c\.lng = w\.lng;/.test(body) && !/c\.h = /.test(body);
+      return /rmRaySlideTo\(ray, w\)/.test(body) && /c\.h = t\.u;/.test(body);
     })(),
-    're-reading the roof model on drop would overwrite a height measured from ' +
-    'the street with one the model guessed, for a sideways nudge');
+    'dropping it wherever the pointer went would move it in the photograph too, ' +
+    'and the corner it is marking has not moved');
+  check('S167', 'and a dot with no sighting moves in plan and keeps its height',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      /* The no-ray branch is the tail of the handler, so slice to the end of it
+         rather than to a round number of characters. */
+      const k = body.indexOf('c.lat = w.lat; c.lng = w.lng;');
+      return k !== -1 && body.slice(k).indexOf('c.h =') === -1;
+    })(),
+    'one placed from above has no ray to slide along, and from above there is ' +
+    'no height in the picture to read');
+  /* ⭐ THE ARITHMETIC ITSELF. A slid dot must land on the SAME Street View
+     pixel, or the drag has moved the corner rather than corrected its depth. */
+  {
+    const LF = String.fromCharCode(10);
+    const slideApi = new Function(
+      'let rmOrigin = {lat: 40.3854093, lng: -111.8627181};' + LF +
+      'let rmFaces = [];' + LF +
+      'const RM_EAVE_TOL_M = 0.8;' + LF +
+      'const rmRad = function(d){ return d*Math.PI/180; };' + LF +
+      'function rmFovDeg(z){ return 180/Math.pow(2, z); }' + LF +
+      'function rmRoofTopM(){ return 12; }' + LF +
+      [extractFn(admin, 'rmMetresPerDeg'), extractFn(admin, 'rmToLocal'),
+       extractFn(admin, 'rmToWorld'), extractFn(admin, 'rmBasis'),
+       extractFn(admin, 'rmSvProject'), extractFn(admin, 'rmRay'),
+       extractFn(admin, 'rmRaySlideTo')].join(LF) + LF +
+      'return {slide: rmRaySlideTo, toWorld: rmToWorld, toLocal: rmToLocal,' + LF +
+      '        project: rmSvProject, ray: rmRay};')();
+    const W = 554, H = 456, pov = {heading: 74.7, pitch: 5.3, zoom: 1.46};
+    const cam = {e: -26.58, n: -7.25, u: 2.46};
+    /* A dot placed by clicking one pixel, sitting somewhere along that ray. */
+    const dir = slideApi.ray(200, 180, W, H, pov);
+    const ray = {cam: cam, dir: dir};
+    const t0 = 22;
+    const dot = {e: cam.e + dir.e*t0, n: cam.n + dir.n*t0, u: cam.u + dir.u*t0};
+    const before = slideApi.project(slideApi.toWorld(dot), W, H, pov, cam);
+    /* Drag it several feet across the map, well off the line of sight. */
+    const dropped = slideApi.toWorld({e: dot.e + 3.5, n: dot.n - 2.5, u: 0});
+    const moved = slideApi.slide(ray, dropped);
+    const after = moved ? slideApi.project(slideApi.toWorld(moved), W, H, pov, cam) : null;
+    const shift = after ? Math.hypot(after.x - before.x, after.y - before.y) : null;
+    const depthChange = moved
+      ? Math.abs(Math.hypot(moved.e - cam.e, moved.n - cam.n) - Math.hypot(dot.e - cam.e, dot.n - cam.n))
+      : 0;
+    check('S167', 'a slid dot draws on the very same Street View pixel',
+      shift !== null && shift < 0.01,
+      'it moved ' + (shift === null ? 'nowhere - the slide was refused' : shift.toFixed(3) + ' px'));
+    check('S167', 'and it really did move on the map, so the slide is not a no-op',
+      depthChange > 1,
+      'depth changed by ' + depthChange.toFixed(2) + ' m; a check that passes because ' +
+      'nothing moved would pass on a broken drag too');
+    check('S167', 'the height comes with it, because a ray climbs as it goes out',
+      moved && Math.abs(moved.u - dot.u) > 0.05,
+      'holding the height while sliding the depth leaves the dot off its own ray, ' +
+      'which puts it back in the wrong place in Street View');
+    check('S167', 'a drop behind the camera is refused rather than answered',
+      slideApi.slide(ray, slideApi.toWorld({e: cam.e - dir.e*40, n: cam.n - dir.n*40, u: 0})) === null);
+    check('S167', 'and one that would end up above the roof is refused too',
+      slideApi.slide(ray, slideApi.toWorld({e: cam.e + dir.e*160, n: cam.n + dir.n*160, u: 0})) === null,
+      'a drag must not reach a place a click could not');
+  }
   check('S167', 'and neither drag can put a dot underground or above the roof',
     (function(){
       const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
@@ -36793,7 +36941,7 @@ suite('161. Measure Roof - corners are offered, and only the ones clicked count'
   check('S161', 'a click on a ring takes it rather than dropping a new dot beside it',
     (function(){
       const a = admin.indexOf('const cand = rmCandidateUnderClick(');
-      const b = admin.indexOf('const near = rmDotUnderClick(', a);
+      const b = admin.indexOf('const near = rmDotToResight(', a);
       const c = admin.indexOf('rmAddCorner({lat: w.lat', a);
       return a !== -1 && b > a && c > a;      /* candidates checked first */
     })(),
@@ -37330,22 +37478,24 @@ suite('253. The RSVP asks the crew’s two questions, of the right house');
     'a token nothing places is a token nobody sees');
 }
 
-suite('254. Measure Roof - the working height is never the lawn');
+suite('254. Measure Roof - no height is ever typed, and none is ever the lawn');
 {
-  /* ⚠ THE BUG THIS EXISTS FOR. The Working Height box opened on 0 and
-     rmWorkingHeightM divided that by the conversion, so a sky click with no
-     Google roof plane under it landed at h = 0 - ON THE GROUND, the one height
-     a gutter run is certainly not at. Every foot traced that way was measured
-     across the lawn instead of along the eave, and nothing on screen said so.
+  /* ⛔ REWRITTEN 2026-08-25, BECAUSE THE THING IT GUARDED IS GONE. Owner: "we
+     dont need this: Eave 10 ft — ASSUMED, one storey … 1 storey / 2 storey /
+     Ground", and behind it "we want it to find the height through proper
+     geometry, not through a rough estimate".
 
-     ⚠ AND THE FIX HAD TO SPLIT ONE QUESTION INTO TWO. rmDatum reports whether a
-     height was TYPED or ASSUMED, and says which on screen. A working height
-     that quietly falls back to the assumed eave cannot answer that - it would
-     report every blank box as a number the office chose. So rmTypedHeightM
-     answers "what was actually typed" (null when nothing was) and
-     rmWorkingHeightM answers "where does a click land" (never zero from blank).
-     A red-check collapsing them back into one function fails the datum checks
-     below, not the height ones. */
+     ⚠ THE ORIGINAL BUG IS KEPT ON THE RECORD, because the constant that fixed
+     it is still load-bearing. The Working Height box opened on 0 and
+     rmWorkingHeightM divided that by the conversion, so a sky click with no
+     Google roof plane under it landed at h = 0 — ON THE GROUND, the one height
+     a gutter run is certainly not at. Every foot traced that way was measured
+     across the lawn and nothing on screen said so. The box is gone; the floor
+     it was eventually given is not, and that is what these checks hold.
+
+     ⚠ AND THE NO-GUESSING APPARATUS IS UNCHANGED IN SPIRIT. rmDatum still says
+     whether a height was MEASURED or merely ASSUMED, and 'typed' is no longer
+     one of the answers it can give, because nothing can type one. */
   const LF_ = String.fromCharCode(10);
   const NEED = ['rmTypedHeightM', 'rmWorkingHeightM', 'rmDatum'];
   const parts = NEED.map(n => extractFn(admin, n));
@@ -37353,128 +37503,51 @@ suite('254. Measure Roof - the working height is never the lawn');
   check('S254', 'the two height readers and the datum are all findable',
     missing.length === 0, 'not found: ' + missing.join(', '));
 
-  /* THE DEFAULT IS THE SAME EAVE THE CODE ASSUMES, not a second 10 typed into
-     the markup. A box opening on a different number than RM_ASSUMED_EAVE_M is
-     two answers to one question, and the one nobody reads is the one that
-     drifts. */
-  const eaveM = (admin.match(/RM_ASSUMED_EAVE_M\s*=\s*([\d.]+)/) || [])[1];
-  const heightBox = (admin.match(/<input[^>]*id="rmHeightFt"[^>]*>/) || [])[0] || '';
-  const boxDefault = Number((heightBox.match(/value="([\d.]+)"/) || [])[1]);
-  check('S254', 'the Working Height box opens on the assumed eave, not on the ground',
-    boxDefault > 0 && Math.round(Number(eaveM) * 3.280839895) === boxDefault,
-    'box opens on ' + boxDefault + ' ft, RM_ASSUMED_EAVE_M is ' + eaveM +
-    ' m (~' + Math.round(Number(eaveM) * 3.280839895) + ' ft) - a 0 here traces the lawn');
+  const api = new Function(
+    'const RM_M_TO_FT = 3.280839895;' + LF_ +
+    'const RM_ASSUMED_EAVE_M = 3;' + LF_ +
+    'let rmRoofDatumM = null, rmDatumSource = null;' + LF_ +
+    parts.join(LF_) + LF_ +
+    'return {rmTypedHeightM, rmWorkingHeightM, rmDatum,' + LF_ +
+    '        measure: function(m){ rmRoofDatumM = m; rmDatumSource = "street"; }};')();
 
-  /* ⚠ RESET IS THE SECOND DOOR AND IT WAS THE ONE LEFT OPEN. Opening the tool
-     on a second quote runs rmReset, so a reset that put the box back to 0
-     re-armed the bug on every house after the first. It must derive the value
-     rather than repeat it. */
-  const reset = extractFn(admin, 'rmReset') || '';
-  check('S254', 'and reopening the tool resets it to the same assumed eave',
-    /rmHeightFt'\)\.value\s*=\s*Math\.round\(RM_ASSUMED_EAVE_M\s*\*\s*RM_M_TO_FT\)/.test(reset),
-    'a reset back to 0 puts the next house on the lawn however good the markup default is');
+  check('S254', 'a click with no roof plane under it still lands at an eave, not at 0',
+    Math.abs(api.rmWorkingHeightM() - 3) < 1e-9,
+    'got ' + api.rmWorkingHeightM().toFixed(3) + ' m - 0 here is the lawn-tracing bug');
+  check('S254', 'and the last-resort eave is the SAME one the datum falls back to',
+    Math.abs(api.rmWorkingHeightM() - api.rmDatum().m) < 1e-9,
+    'two answers to one question, and the one nobody reads is the one that drifts');
+  check('S254', 'nothing can be typed, so the reader always says nothing was',
+    api.rmTypedHeightM() === null,
+    'a live reader against a deleted box would throw the moment anything called it');
+  check('S254', 'and an unmeasured house says ASSUMED rather than crediting anybody',
+    api.rmDatum().source === 'assumed',
+    'got source "' + api.rmDatum().source + '"');
+  api.measure(11 / 3.280839895);
+  check('S254', 'one Street View measurement outranks it and says so',
+    api.rmDatum().source === 'street' &&
+    Math.abs(api.rmDatum().m - 11 / 3.280839895) < 1e-9,
+    'the street is the only thing left that can answer this, so it had better win');
 
-  if (!missing.length) {
-    /* ⚠ `typed` IS THE SECOND HALF OF THE QUESTION, and it defaults to true so
-       every check below still asks what it was written to ask: what happens to
-       the VALUE once somebody has answered. The shipped-default case is asked
-       separately, at the bottom, because that is a different question and it
-       was the one nobody was asking. */
-    const mk = (raw, typed) => new Function(
-      'const RM_M_TO_FT=3.280839895, RM_ASSUMED_EAVE_M=3;' + LF_ +
-      'let rmRoofDatumM=null, rmDatumSource="";' + LF_ +
-      'let rmHeightTyped=' + (typed === false ? 'false' : 'true') + ';' + LF_ +
-      'const document={getElementById:function(){ return ' +
-        (raw === null ? 'null' : '{value:' + JSON.stringify(raw) + '}') + '; }};' + LF_ +
-      parts.join(LF_) + LF_ +
-      'return {rmTypedHeightM, rmWorkingHeightM, rmDatum};')();
-
-    const FT = 3.280839895;
-    /* A blank box, and junk in the box, are the same thing: nothing was typed. */
-    ['', '   ', 'abc'].forEach(function (raw) {
-      const api = mk(raw);
-      check('S254', 'a box holding ' + JSON.stringify(raw) + ' puts a click at the eave, not at 0',
-        Math.abs(api.rmWorkingHeightM() - 3) < 1e-9,
-        'got ' + api.rmWorkingHeightM().toFixed(3) + ' m - 0 here is the lawn-tracing bug');
-      check('S254', 'and ' + JSON.stringify(raw) + ' is reported as nothing typed',
-        api.rmTypedHeightM() === null,
-        'a blank box read as a number makes rmDatum claim the office chose this height');
-      check('S254', 'so the datum calls it assumed, not typed',
-        api.rmDatum().source === 'assumed',
-        'got source "' + api.rmDatum().source + '" - the status line would credit the office ' +
-        'with a height nobody entered');
-    });
-
-    /* ⚠ A TYPED ZERO IS AN ANSWER, NOT A BLANK. The Ground preset writes 0 and
-       a ground run really is at zero, so this must NOT be swept up by the
-       fallback - that would make the Ground button unable to reach the ground. */
-    const ground = mk('0');
-    check('S254', 'but a deliberately typed 0 still means the ground',
-      ground.rmTypedHeightM() === 0 && ground.rmWorkingHeightM() === 0,
-      'the Ground preset writes 0; treating it as "nothing typed" breaks the one ' +
-      'button whose whole job is to trace at ground level');
-    check('S254', 'and a typed 0 is still too low to be a datum',
-      ground.rmDatum().source === 'assumed',
-      'zero is a legal place to trace and an illegal place to hang a roof from');
-
-    const typed = mk('18');
-    check('S254', 'a real typed height is used, and is credited to the office',
-      Math.abs(typed.rmWorkingHeightM() - 18 / FT) < 1e-9 &&
-      typed.rmDatum().source === 'typed' &&
-      Math.abs(typed.rmDatum().m - 18 / FT) < 1e-9,
-      'a height the office measured must beat both the assumption and the model');
-
-    /* ⭐ THE NUMBER THE BOX SHIPS WITH IS NOT AN ANSWER (added 2026-08-25).
-       ⚠ THIS SWITCHED THE WHOLE NO-GUESSING APPARATUS OFF and every check above
-       passed throughout, because every one of them supplies a value and asks
-       what happens to it. The box is NEVER blank - it ships with value="10" -
-       so rmDatum could not reach its `assumed` branch on any house, ever;
-       rmGuessedFeet returns 0 the moment the source is not assumed, so the
-       "this much rests on a guess" warning could never fire, and the panel
-       credited the office with a height nobody had entered. Found on a real
-       house, off rmDebug reporting {m: 3.048, source: "typed"} - 10.00 ft to
-       two decimals, which is the markup default and not a typed figure. */
-    const shipped = String(boxDefault);
-    const untouched = mk(shipped, false);
-    check('S254', 'the number the box ships with is not reported as typed',
-      untouched.rmTypedHeightM() === null,
-      'the box is never blank, so a default that reads as typed means rmDatum ' +
-      'can never say "assumed" on any house');
-    check('S254', 'so an untouched box leaves the datum ASSUMED',
-      untouched.rmDatum().source === 'assumed',
-      'got "' + untouched.rmDatum().source + '" - this is what silently switched ' +
-      'the no-guessing warning off, because rmGuessedFeet returns 0 unless the ' +
-      'source is assumed');
-    check('S254', 'and it still works AS a height, so a sky click is not put on the lawn',
-      Math.abs(untouched.rmWorkingHeightM() - 3) < 1e-9,
-      'got ' + untouched.rmWorkingHeightM().toFixed(3) + ' m - not answered is not zero');
-    check('S254', 'but the same number, once somebody enters it, IS typed',
-      mk(shipped, true).rmDatum().source === 'typed',
-      'the flag has to be about who put the number there, not about the number');
-  }
-
-  /* ⚠ AND SOMETHING HAS TO SET IT, or the box can never be answered at all and
-     every house reads as assumed for ever - the same bug from the other end.
-     Both doors: the preset buttons and the box itself. */
-  /* ⚠ SLICED TO THE NEXT HANDLER, not to a character count. The box's own
-     listener sits immediately below the presets and carries an identical
-     assignment, so a 700-character window found THAT one and stayed green with
-     the preset's deleted - a red-check caught it. CLAUDE.md §7, again. */
-  const presetAt = admin.indexOf('[data-rmheight]');
-  const presetEnd = admin.indexOf("getElementById('rmHeightFt').addEventListener('input'", presetAt);
-  const wiring = admin.slice(presetAt, presetEnd < 0 ? presetAt : presetEnd);
-  check('S254', 'pressing a storey preset counts as answering the height',
-    /rmHeightTyped\s*=\s*true/.test(wiring),
-    'a preset IS somebody looking at the house and saying one storey');
-  check('S254', 'and so does typing in the box',
-    new RegExp("getElementById\\('rmHeightFt'\\)\\.addEventListener\\('input'").test(admin),
-    'without this a hand-entered height still reads as the default it replaced');
-  /* ⚠ A HEIGHT ANSWERED FOR THE LAST HOUSE IS NOT AN ANSWER ABOUT THIS ONE. */
-  ['rmReset', 'rmForgetLastHouse'].forEach(function (fn) {
-    check('S254', 'opening another house forgets that it was answered (' + fn + ')',
-      /rmHeightTyped\s*=\s*false/.test(extractFn(admin, fn) || ''),
-      fn + ' carries the last house\'s answer forward, and the warning stays silent on the next one');
-  });
+  /* ⛔ AND THE CONTROLS ARE GONE FROM THE PAGE, not merely unused. */
+  check('S254', 'the last-resort eave is still an eave, not the ground',
+    (function(){
+      const m = Number((admin.match(/RM_ASSUMED_EAVE_M\s*=\s*([\d.]+)/) || [])[1]);
+      return m > 1.5 && m < 6;
+    })(),
+    'a 0 here traces the lawn');
+  check('S254', 'no control anywhere lets a height be typed',
+    !/id="rmHeightFt"/.test(admin) && !/data-rmheight=/.test(admin),
+    'the box that said 10 was the height under every dot on an unmeasured house');
+  check('S254', 'nothing marks the height as answered by hand any more',
+    !/rmHeightTyped\s*=\s*true/.test(admin),
+    'a preset or a typed box counted as somebody answering the height; neither exists');
+  check('S254', 'and the typed reader is a stub rather than a live control',
+    /function rmTypedHeightM\(\)\{ return null; \}/.test(admin),
+    'leaving it reading a deleted element would throw the moment anything called it');
+  check('S254', 'the panel says where a height comes from instead of offering a box',
+    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
+    'removing a control without saying what replaced it reads as a feature going missing');
 }
 
 
@@ -38161,22 +38234,29 @@ suite('261. Measure Roof - the scale check never becomes footage');
     /if\(!\(measuredFt > 0\)\)\{/.test(report),
     'reporting 0 ft against a 16 ft door reads as a catastrophic error rather than as no answer');
 
-  check('S261', 'the check is on screen rather than hidden in a debug corner',
-    /id="rmCalBtn"/.test(admin) && /id="rmCalPick"/.test(admin) &&
-    /Double garage door/.test(admin),
-    'a check nobody can find is a check nobody runs');
-  /* Owner's standing request: if a button is pressed, the thing it promises has
-     to actually happen. */
-  check('S261', 'and its button is really wired',
-    /getElementById\('rmCalBtn'\)\.addEventListener/.test(admin),
-    'a control that renders and does nothing is worse than no control');
-  const wire = (admin.split("getElementById('rmCalBtn').addEventListener")[1] || '').slice(0, 900);
-  check('S261', 'starting a check finishes any side already being traced',
-    /if\(rmDrawing\) rmFinishRun\(\);/.test(wire),
-    'otherwise a half-traced side is swallowed into the check and lost');
-  check('S261', 'and a check with no known size is refused',
-    /if\(!rmCalKnownFt\(\)\)\{/.test(wire),
-    'comparing against nothing produces a percentage off an unknown, which is not a number');
+  /* ⛔ THE SCALE CHECK IS OFF THE SCREEN (2026-08-25). Owner: "we dont want
+     anything like using garage door to measure height because then we go pixel
+     for pixel but there is depth and more stuff like that — we want it to find
+     the height through proper geometry, not through a rough estimate of how
+     many pixels tall is the garage."
+
+     ⚠ THESE CHECKS USED TO INSIST IT BE FINDABLE, and that was right while it
+     was wanted. It never corrected anything, which is not a defence: putting a
+     list of known-size objects beside the measuring teaches the ratio method,
+     and every number this tool reports comes from camera pose and geometry
+     instead. The reporting function is left in place and unreachable, so
+     nothing that reads rmCalibration breaks. */
+  check('S261', 'no known-size object is offered anywhere on screen',
+    !/id="rmCalBtn"/.test(admin) && !/id="rmCalPick"/.test(admin) &&
+    !/Double garage door/.test(admin),
+    'a pixel-ratio control beside geometric measurements invites trusting the wrong one');
+  check('S261', 'and nothing is left wired to it',
+    !/getElementById\('rmCalBtn'\)\.addEventListener/.test(admin),
+    'a handler on a deleted element throws the moment the panel opens');
+  check('S261', 'and the reporter it used is left inert rather than half-deleted',
+    /function rmReportCalibration\(/.test(admin) && !/id="rmCalResult"/.test(admin),
+    'the saved drawing still carries a calibration field; removing the reader ' +
+    'would break reading an old one back');
 
   /* It belongs to the house it was taken on. */
   check('S261', 'and it is cleared when a different quote is opened',
