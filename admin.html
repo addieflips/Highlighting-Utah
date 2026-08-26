@@ -4606,7 +4606,10 @@
                   <div id="rmCornerList" style="display:flex; gap:4px; flex-wrap:wrap;"></div>
                   <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
                     <button type="button" class="btn btn-outline btn-sm" id="rmEndStrandBtn" style="padding:4px 10px; font-size:11px;">End this strand</button>
-                    <button type="button" class="btn btn-outline btn-sm" id="rmClearDotsBtn" style="padding:4px 10px; font-size:11px;">Clear all dots</button>
+                    <!-- ⛔ CLEAR ALL DOTS IS GONE (2026-08-26). Owner: "we want clear to
+                         clear all dots everywhere so we dont need clear all dots". Two
+                         buttons, each clearing half of what was on screen, was the split
+                         that made either one look ignored. Clear does the lot now. -->
                     <!-- ⚠ OUT HERE, NOT BEHIND THE AUTO-DETECT DISCLOSURE. That bar
                          is for the two things that GUESS, and it is shut by default on
                          purpose - somebody who wants a guess asks for one. Recentring
@@ -4616,22 +4619,20 @@
                          reset filed under a disclosure about corner detection is one
                          nobody finds when they have lost the house. -->
                     <button type="button" class="btn btn-outline btn-sm" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre</button>
-                    <button type="button" class="btn btn-outline btn-sm" id="rmAutoBtn" style="padding:4px 10px; font-size:11px;">Auto-detect corners</button>
-                  </div>
-                  <!-- ⭐ THE AUTOMATIC ONES ARE BEHIND A DOOR (2026-08-25).
-                       ⚠ NOTHING IS DELETED — both still work, and both are still
-                       tested. Every automatic attempt at this roofline put lines
-                       on the house that were close enough to look plausible and
-                       wrong enough to be useless, so they no longer sit beside
-                       plain clicking as though they were the same kind of
-                       answer. Somebody who wants a guess can still ask for one.
-                       ⚠ THE DOT LIST AND THE MODE LINE STAY OUT HERE. Placing
-                       dots by hand is not the detector — it is the job, asked
-                       for in those words, and the line naming the mode is the
-                       only thing on screen that says which one you are in. -->
-                  <div id="rmAutoBar" style="display:none; gap:6px; margin-top:6px; flex-wrap:wrap;">
-                    <button type="button" class="btn btn-outline btn-sm" id="rmSuggestBtn" style="padding:4px 10px; font-size:11px;">Suggest corners</button>
-                    <button type="button" class="btn btn-outline btn-sm" id="rmModelBtn" style="padding:4px 10px; font-size:11px;">Show assumed house</button>
+                    <!-- ⛔ AUTO-DETECT, SUGGEST CORNERS AND SHOW ASSUMED HOUSE ARE GONE
+                         (2026-08-26). Owner asked for the tool to be stripped to what is
+                         needed, and named these first. They had already been ruled against
+                         twice: "delete everything for now and give me a tool that I can show
+                         you what it should look like by placing dots", and then, shown the
+                         offered lines a second time with the displacement corrected, "we dont
+                         want it to assume just manually click corners".
+                         ⚠ THEY WERE HIDDEN BEHIND A DISCLOSURE RATHER THAN REMOVED, on the
+                         argument that somebody who wants a guess can ask for one. Nobody did.
+                         Every automatic attempt at this roofline put lines on the house that
+                         were close enough to look plausible and wrong enough to be useless,
+                         and the 19.2 ft fit that had to be reverted this morning was the same
+                         failure once more. rmSuggestCorners and rmSetShowModel are left in
+                         place and unreachable, so nothing that reads them breaks. -->
                   </div>
                 </div>
                 <div id="rmSidesBar" style="display:none; margin-top:10px;">
@@ -4694,15 +4695,15 @@
                 </div>
               </div>
 
-              <div class="rm-panel" id="rmImagePanel" style="display:none;">
-                <h4>Make It Easier to See</h4>
-                <p class="rm-sub">Applies to the picture you attach, too.</p>
-                <label style="font-size:11.5px; color:var(--slate); display:block;">Brightness</label>
-                <input type="range" id="rmBright" min="60" max="180" value="100" style="width:100%;">
-                <label style="font-size:11.5px; color:var(--slate); display:block; margin-top:6px;">Contrast</label>
-                <input type="range" id="rmContrast" min="60" max="220" value="100" style="width:100%;">
-                <button type="button" class="btn btn-outline btn-sm" id="rmImageReset" style="width:100%; justify-content:center; margin-top:8px;">Reset</button>
-              </div>
+              <!-- ⛔ MAKE IT EASIER TO SEE IS GONE (2026-08-26), asked for in the
+                   same breath as the auto-detect controls. Brightness and contrast
+                   sliders over a satellite tile and a street photograph: they
+                   changed how the pictures looked and nothing about what was
+                   measured, and in a tool whose whole problem this week has been
+                   telling a real answer from a plausible-looking one, two controls
+                   that only alter the plausible-looking half are not worth the
+                   space. rmFilterCss now answers 'none' and the captures go out
+                   exactly as Google served them. -->
 
               <div class="rm-panel">
                 <h4>Distance Results</h4>
@@ -19263,7 +19264,7 @@ function rmSyncModelSky(){
 }
 function rmSetShowModel(on){
   rmShowModel = !!on;
-  const b = document.getElementById('rmModelBtn');
+  const b = null;   /* the Show assumed house button is gone (2026-08-26) */
   if(b) b.textContent = rmShowModel ? 'Hide assumed house' : 'Show assumed house';
   rmSyncModelSky();
   rmPaintStreet();
@@ -20997,11 +20998,10 @@ let rmHeightTyped = false;
 function rmTypedHeightM(){ return null; }
 function rmWorkingHeightM(){ return RM_ASSUMED_EAVE_M; }
 /* ---- filters ----------------------------------------------------------- */
-function rmFilterCss(){
-  const b = document.getElementById('rmBright').value;
-  const c = document.getElementById('rmContrast').value;
-  return 'brightness(' + (b/100) + ') contrast(' + (c/100) + ')';
-}
+/* ⛔ THE SLIDERS ARE GONE (2026-08-26). Kept as a function because the capture
+   path sets it on a canvas context, and 'none' is the right answer there: the
+   picture that goes on the quote is now exactly what Google served. */
+function rmFilterCss(){ return 'none'; }
 function rmApplyFilter(){
   const css = rmFilterCss();
   const m = document.getElementById('rmMap'), p = document.getElementById('rmPano');
@@ -22031,7 +22031,6 @@ async function rmLoadAddress(){
   if(rmHomeMarker) rmHomeMarker.setMap(null);
   rmHomeMarker = new google.maps.Marker({position: rmOrigin, map: rmMap, clickable:false, zIndex:1, opacity:.55});
   document.getElementById('rmCaptureSky').disabled = false;
-  document.getElementById('rmImagePanel').style.display = 'block';
   document.getElementById('rmHeightPanel').style.display = 'block';
   rmApplyFilter();
   rmSetDrawing(false);
@@ -23116,7 +23115,6 @@ function rmReset(){
   rmRenderStaged(); rmRenderResults(); rmBackToHouse();
   document.getElementById('rmStatus').textContent = '';
   document.getElementById('rmRoofFactsPanel').style.display = 'none';
-  document.getElementById('rmImagePanel').style.display = 'none';
   document.getElementById('rmHeightPanel').style.display = 'none';
   document.getElementById('rmPricePanel').style.display = 'none';
   rmCandidates = [];
@@ -23127,8 +23125,6 @@ function rmReset(){
   rmPhotoExtraFeet = 0; rmPhotoRuns = []; rmPhotoRef = null; rmPhotoRefPx = 0; rmPhotoBlob = null;
   document.getElementById('rmPhotoStage').style.display = 'none';
   document.getElementById('rmPhotoStatus').textContent = 'For the back of the house, or anywhere Street View cannot see.';
-  document.getElementById('rmBright').value = 100;
-  document.getElementById('rmContrast').value = 100;
   /* ⚠ OPENS ON THE ASSUMED EAVE, NOT ON ZERO, and derives it from the one
      constant rather than typing 10 again — a reset that put the box back to 0
      re-armed the lawn-tracing bug on the second house of every session. */
@@ -23179,14 +23175,8 @@ function openRoofMeasure(quoteId){
      input cannot be focused, so it could never fire again — and Enter is the
      start/finish-a-side key everywhere else in this tool, so leaving a second
      meaning bound to it was a trap waiting for the box to be un-hidden. */
-  ['rmBright','rmContrast'].forEach(function(id){
-    document.getElementById(id).addEventListener('input', rmApplyFilter);
-  });
-  document.getElementById('rmImageReset').addEventListener('click', function(){
-    document.getElementById('rmBright').value = 100;
-    document.getElementById('rmContrast').value = 100;
-    rmApplyFilter();
-  });
+  /* ⛔ The brightness and contrast sliders and their Reset are gone (2026-08-26)
+     - see the note where the panel was. Nothing is left to wire. */
   /* ⭐ THE GRADE SAVES ITSELF (2026-08-25). Owner: "when we assign
      easy,medium,hard that will automatically save right?" It did not — this
      listener only redrew the screen, so a grade the office set by hand survived
@@ -23299,71 +23289,10 @@ function openRoofMeasure(quoteId){
   });
   /* One door to both guesses, and it says which way it is about to go — a
      disclosure that reads the same open and shut is one nobody trusts twice. */
-  document.getElementById('rmAutoBtn').addEventListener('click', function(){
-    const bar = document.getElementById('rmAutoBar');
-    if(!bar) return;
-    const open = bar.style.display !== 'none';
-    bar.style.display = open ? 'none' : 'flex';
-    this.textContent = open ? 'Auto-detect corners' : 'Hide auto-detect';
-  });
-  /* ⭐ PUT BOTH VIEWS BACK ON THE HOUSE. Owner: "make a reset button so if you
-     zoom out on sky view it will readjust the camera."
-
-     ⚠ THE MAP HAS NO WAY BACK ON ITS OWN. It is framed once, when the roof
-     details arrive, and after that every scroll is the office's - which is
-     right, but it means one scroll too far leaves the house a speck with
-     nothing to press. Google's own recentre control is not on this map, and
-     adding it would recentre on the map's own centre rather than on the
-     building.
-
-     ⚠ AND IT PUTS BACK THE VIEW, NEVER THE WORK. It touches the two cameras and
-     nothing else - no dot, no side, no height, no grade. Somebody who has
-     traced half a roof and lost the house must be able to press this without
-     wondering what it cost them. */
-  document.getElementById('rmRecentreBtn').addEventListener('click', function(){
-    const note = document.getElementById('rmCornerNote');
-    let did = 0;
-    /* The sky view goes back to the building's own footprint, which is the
-       frame it was given when the house loaded. */
-    if(rmMap && rmBuilding && rmBuilding.sw && rmBuilding.ne){
-      rmMap.fitBounds(new google.maps.LatLngBounds(
-        new google.maps.LatLng(rmBuilding.sw.lat, rmBuilding.sw.lng),
-        new google.maps.LatLng(rmBuilding.ne.lat, rmBuilding.ne.lng)), 36);
-      did++;
-    } else if(rmMap && rmOrigin){
-      rmMap.setCenter({lat: rmOrigin.lat, lng: rmOrigin.lng});
-      rmMap.setZoom(20);
-      did++;
-    }
-    /* And the street view is re-aimed and re-framed. rmFramed is cleared
-       because rmFrameHouseInStreet refuses to work twice on purpose - it is
-       meant to happen once per house, and this is the one place that is a
-       deliberate second time. */
-    if(rmPano && rmOrigin){
-      rmFramed = false;
-      const framed = rmFrameHouseInStreet();
-      if(!framed){
-        /* No footprint yet, or the camera is not on the road - aim it at the
-           house anyway, which is better than leaving it pointed at a fence. */
-        const pos = rmPano.getPosition && rmPano.getPosition();
-        if(pos) rmPano.setPov({heading: rmHeadingTo(pos.lat(), pos.lng(), rmOrigin.lat, rmOrigin.lng),
-                               pitch: rmPanoPov().pitch});
-      }
-      rmPaintStreet();
-      did++;
-    }
-    if(note) note.textContent = did
-      ? 'Both views put back on the house. Nothing you traced has changed.'
-      : '⚠ No house loaded yet.';
-  });
-  document.getElementById('rmSuggestBtn').addEventListener('click', function(){
-    if(rmCandidates.length){ rmCandidates = []; rmPaintStreet();
-      const n = document.getElementById('rmCornerNote');
-      if(n) n.textContent = 'Suggestions cleared. The dots you kept stay.';
-      return; }
-    rmSuggestCorners();
-  });
-  document.getElementById('rmModelBtn').addEventListener('click', function(){ rmSetShowModel(!rmShowModel); });
+  /* ⛔ AUTO-DETECT, SUGGEST CORNERS AND SHOW ASSUMED HOUSE ARE UNWIRED
+     (2026-08-26) - see the note where their buttons were. rmSuggestCorners and
+     rmSetShowModel are left in place and unreachable so nothing that reads them
+     breaks; delete them once nothing does. */
   document.getElementById('rmEndStrandBtn').addEventListener('click', function(){ rmEndStrand(); });
   /* ⭐ CLEAR MEANS CLEAR, IN BOTH PICTURES (2026-08-25). Owner: "when i click
      clear dots it clears all dots on both perspectives."
@@ -23379,15 +23308,7 @@ function openRoofMeasure(quoteId){
      the corners after it means rmCornersChanged has the last word and the
      screen agrees with the model. Any half-traced run goes with it — leaving
      one open would put the next click into a run nobody remembers starting. */
-  document.getElementById('rmClearDotsBtn').addEventListener('click', function(){
-    rmClearDrawing();
-    rmCorners = []; rmCurrentBand = 0; rmSwapFrom = null;
-    rmSetDrawing(false);
-    rmCornersChanged();
-    rmRenderResults();
-    const note = document.getElementById('rmCornerNote');
-    if(note) note.textContent = 'Cleared — both pictures are empty.';
-  });
+  /* ⛔ Clear all dots is gone; Clear does the lot - see rmClearBtn below. */
   window.rmRefreshSideButtons = rmRefreshSideButtons;
   /* A READ-ONLY WINDOW INTO THE MEASURING, for diagnosing placement from the
      console. It changes nothing and exposes nothing the panel does not already
@@ -24186,7 +24107,21 @@ function openRoofMeasure(quoteId){
     }
     rmRenderResults(); rmPaintStreet();
   });
-  document.getElementById('rmClearBtn').addEventListener('click', function(){ rmClearDrawing(); rmRenderResults(); });
+  /* ⭐ CLEAR CLEARS EVERYTHING, EVERYWHERE (2026-08-26). Owner: "we want clear to
+     clear all dots everywhere so we dont need clear all dots."
+     ⚠ IT ONLY EMPTIED THE TRACED RUNS BEFORE, and a second button emptied the
+     dots. Two buttons each clearing half of what was on screen is the split that
+     made either one look ignored - press one and marks stay, which reads as the
+     tool refusing. One button, one meaning: nothing left in either picture. */
+  document.getElementById('rmClearBtn').addEventListener('click', function(){
+    rmClearDrawing();
+    rmCorners = []; rmCurrentBand = 0; rmSwapFrom = null;
+    rmSetDrawing(false);
+    rmCornersChanged();
+    rmRenderResults();
+    const note = document.getElementById('rmCornerNote');
+    if(note) note.textContent = 'Cleared — both pictures are empty.';
+  });
   document.getElementById('rmCaptureSky').addEventListener('click', function(){ rmCapture('sky'); });
   document.getElementById('rmCaptureStreet').addEventListener('click', function(){ rmCapture('street'); });
   document.getElementById('rmCropBackBtn').addEventListener('click', rmBackToHouse);
