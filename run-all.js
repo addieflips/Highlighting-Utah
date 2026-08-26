@@ -37190,6 +37190,22 @@ suite('152. Measure Roof - a dot seen twice is exact, with no model at all');
     'that is what makes it safe to hand the left button to placing');
   check('S152', 'clicking an existing dot pins it rather than adding another',
     /const near = rmDotToResight\(/.test(admin) && /if\(near >= 0\)\{/.test(admin));
+  /* ⚠ AND THE NET IS SIZED ON A MEASUREMENT, NOT A GUESS (2026-08-26). 1.2 m was
+     an estimate of how wrong a one-sighting depth could be and it was about half
+     the truth: on 209 S 850 W the same corner from two panoramas came out 6.6 to
+     7.0 ft apart. At that range the two clicks sat ~21 px apart and the net was
+     12, so the second click missed the dot and PLACED A NEW ONE - which is what
+     kept being reported, and it also meant rmPinCorner never ran, so the model
+     displacement it measures was never measured either. */
+  check('S152', 'the net is sized on the measured depth error, not an estimate',
+    (function(){
+      const m = admin.match(/RM_RESIGHT_DEPTH_SLOP_M = ([\d.]+)/);
+      return m && Number(m[1]) >= 2.0;
+    })(),
+    'a net shorter than the error it exists to reach across cannot ever reach it');
+  check('S152', 'and it is still bounded, so a new corner can go down beside an old one',
+    /Math\.min\(RM_RESIGHT_MAX_PX/.test(admin) && /RM_RESIGHT_MAX_PX = \d+/.test(admin),
+    'an unbounded net swallows the neighbour you are trying to place');
   check('S152', 'and the net only widens once a second sighting could fix a depth',
     (function(){
       const fn = extractFn(admin, 'rmResightGrabPx') || '';
