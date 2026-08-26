@@ -13117,18 +13117,18 @@ function audienceBillingGroup(d){
    other, in the same push. money-parity runs the two side by side. */
 function houseIsOnTheBill(d){
   if(!d) return false;
-  /* ⭐ WORK THAT WAS DONE IS OWED FOR, WHATEVER THEY SAID AFTERWARDS — tested
-     FIRST, above every answer (Addie, 2026-08-26, Q-013: a house hung and THEN
-     answering a flat "no" still gets a bill for the work). Until then only Back
-     Next Year was rescued this way and a flat "no" was not, so somebody whose
-     lights were already up could say no and never be charged for them — the
-     lights out, the materials gone, nothing billed, and nothing on any screen
-     saying so. It is the same reasoning pullCustomerFromSeason has always
-     carried: "not coming back next year is not the same as not owing for last
-     year", now applied to every way of leaving rather than one of them.
-     ⚠ SAFE ONLY BECAUSE Start New Season CLEARS `completed` on every customer
-     (admin.html, the season reset write). If it ever stops, this line starts
-     billing people for LAST season's work every season, for ever. */
+  /* ⭐ HUNG IS HUNG (2026-08-26, Q-013). Addie: "Any house hung no matter what should
+     be charged. This will only be overuled if it is our fault." So `completed` is
+     tested FIRST, ahead of every status — a flat "no" included. Until this ruling a
+     house hung and afterwards answering "no" was dropped from the bill outright and
+     the work was never charged for. Q-012 settled the same thing for back-next-year;
+     this finishes the case it deliberately left alone.
+     ⚠ "OUR FAULT" IS A HUMAN DECISION, NOT A FIELD — the office writes it off with a
+     credit. An automatic our-fault test would be the app guessing at fault.
+     ⚠ AND IT IS SAFE ONLY BECAUSE Start New Season CLEARS `completed` on every
+     customer (verified in the season reset write, 2026-08-26). If that ever stops,
+     this line bills people for LAST season's work every season, for ever. Folded in
+     from the billing-groups branch, which reached this same ruling in parallel. */
   if(d.completed === true) return true;
   const said = String(d.rsvpStatus || '').trim().toLowerCase();
   if(said === 'no') return false;

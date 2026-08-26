@@ -901,10 +901,14 @@ function houseBillingRow(id, d) {
  * "The last person's house is done" has to mean the last house actually getting
  * lights, or her rule can never fire for that household at all.
  *
- * ⚠ A FLAT "NO" IS UNCHANGED, deliberately. It has always come off the bill outright
- * and that is not what was asked about here. It leaves one asymmetry standing — a
- * house completed and THEN answering "no" is still dropped — which is recorded in
- * docs/open-questions.md rather than quietly changed on the way past.
+ * ⚠ A FLAT "NO" WAS LEFT ALONE HERE, AND Q-013 THEN CLOSED IT (2026-08-26). This
+ * paragraph used to say the asymmetry stood — a house completed and THEN answering
+ * "no" was still dropped — and that was true when Q-012 shipped, because widening a
+ * money ruling nobody had asked about is not on. Addie was asked and answered: "Any
+ * house hung no matter what should be charged." The body below tests `completed`
+ * ahead of every status, so there is no asymmetry left. Corrected on the merge with
+ * the billing-groups branch, which reached the same ruling in parallel — the comment
+ * had been left describing behaviour its own function no longer had.
  *
  * ⚠ AND WORK THAT WAS DONE IS OWED FOR, whatever they have said since:
  * pullCustomerFromSeason's own comment is the settled rule — "not coming back next
@@ -916,18 +920,22 @@ function houseBillingRow(id, d) {
  * same push — money-parity runs the two side by side. */
 function houseIsOnTheBillServer(d) {
   if (!d) return false;
-  /* ⭐ WORK THAT WAS DONE IS OWED FOR, WHATEVER THEY SAID AFTERWARDS — tested
-     FIRST, above every answer (Addie, 2026-08-26, Q-013: a house hung and THEN
-     answering a flat "no" still gets a bill for the work). Until then only Back
-     Next Year was rescued this way and a flat "no" was not, so somebody whose
-     lights were already up could say no and never be charged for them — the
-     lights out, the materials gone, nothing billed, and nothing on any screen
-     saying so. It is the same reasoning pullCustomerFromSeason has always
-     carried: "not coming back next year is not the same as not owing for last
-     year", now applied to every way of leaving rather than one of them.
-     ⚠ SAFE ONLY BECAUSE Start New Season CLEARS `completed` on every customer
-     (admin.html, the season reset write). If it ever stops, this line starts
-     billing people for LAST season's work every season, for ever. */
+  /* ⭐ HUNG IS HUNG (2026-08-26, Q-013). Addie: "Any house hung no matter what should
+     be charged. This will only be overuled if it is our fault... if we hung the lights
+     and there is no reason to not charge them than we will charge them still."
+     So `completed` is tested FIRST, ahead of every status — a flat "no" included.
+     ⚠ THIS IS WHY IT IS FIRST AND NOT LAST. Until this ruling a house that had been
+     hung and afterwards answered "no" was dropped from the bill outright, so the work
+     was never charged for and nothing said so. Q-012 had already settled the same
+     thing for back-next-year; this finishes it for the one case left over.
+     ⚠ "OVERRULED IF IT IS OUR FAULT" IS A HUMAN DECISION, NOT A FIELD. The office
+     writes it off on the invoice — credits already exist for exactly that. Inventing
+     an automatic our-fault test would be the app guessing at fault, which is the one
+     thing it must not do with money.
+     ⚠ AND IT IS SAFE ONLY BECAUSE Start New Season CLEARS `completed` on every
+     customer — verified in the season reset write before this shipped. If that ever
+     stops, this line bills people for LAST season's work every season, for ever.
+     Folded in from the billing-groups branch, which reached this ruling in parallel. */
   if (d.completed === true) return true;
   const said = String(d.rsvpStatus || '').trim().toLowerCase();
   if (said === 'no') return false;

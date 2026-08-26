@@ -955,31 +955,53 @@ Do they get a bill for the work already done?
 
 One line in `houseIsOnTheBill` / `houseIsOnTheBillServer` either way.
 
+---
+
 ### ⭐ ANSWERED 2026-08-26
 
-**Addie**, asked directly — *somebody's lights go up, and afterwards they tell you no
-for this season; do they get a bill for the work already done?* — **"Yes — bill them
-for the work."**
+**Addie:** *"Any house hung no matter what should be charged. This will only be
+overuled if it is our fault. But there is no reason we should not charge them if we
+hung that lights and there is no reason to not charge them than we will charge them
+still."*
 
-⭐ **So `completed` is now tested ABOVE every answer, not above one of them.** The rule
-is no longer "back next year is rescued and a flat no is not"; it is the single
-sentence `pullCustomerFromSeason` has always carried — *work that was done is owed for,
-whatever they said afterwards* — applied to every way of leaving.
+**Hung is hung.** `completed` is now tested FIRST in both copies of the rule, ahead
+of every status — a flat `'no'` included. It was one line: the check moved to the top.
 
-⚠ **THE ORDER IS THE RULE, and nothing else guards it.** A copy that tests the answer
-first returns the identical result for every case except this one, so it is a revert
-that looks like a tidy-up and shows up in no other check. Both copies are red-checked
-against exactly that sabotage.
+⚠ **"OVERRULED IF IT IS OUR FAULT" IS A HUMAN DECISION, NOT A FIELD.** The office
+writes it off on the invoice, and credits already exist for exactly that. An
+automatic our-fault test would be the app guessing at fault, which is the one thing
+it must not do with money. Nothing was built for it and nothing should be.
 
-⚠ **SAFE ONLY BECAUSE Start New Season CLEARS `completed`** on every customer. Verified
-in the season reset write before this shipped. If that ever stops, this line bills
-people for LAST season's work every season, for ever.
+⚠ **The old check stayed green through the whole change**, because it tested the
+flat `'no'` with `completed: false` — the one combination the ruling does not touch.
+The new case had to be asserted explicitly. Two sabotages red-checked: demoting
+`completed` back below the status checks fails on both sides.
 
-⚠ **It narrows MON-15, which is kept.** That ruling rescued Back Next Year and left a
-flat "no" deliberately alone, because widening a money ruling nobody had asked about is
-not on. That was right at the time and is why this one was asked rather than assumed.
+**Resulting map change:** `MON-21` in `claude/questions-map.md`. R-023.
 
-**Resulting map change:** **MON-21**.
+### ⚠ ASKED TWICE, ON THE SAME DAY, IN TWO SESSIONS — and the fuller answer is kept
+
+This branch put the same question to her and got **"Yes — bill them for the work."**
+Same ruling, less of it: the other session also got *"This will only be overuled if it
+is our fault"*, which is the half that says what to do when it should NOT be charged.
+Main's wording is therefore the one kept, and this branch's implementation was thrown
+away rather than merged — it was byte-for-byte the same reordering.
+
+⚠ **Two things did travel across**, and both are corrections rather than additions:
+
+- the **Start New Season** argument, now in both code comments. This rule is safe only
+  because the season reset clears `completed` on every customer; if that ever stops it
+  bills people for last season's work every season, for ever. Verified in the reset
+  write before either branch shipped, and written down in neither until now.
+- the header comment above `houseIsOnTheBillServer` **still described the pre-Q-013
+  rule** — *"a flat NO is unchanged… a house completed and THEN answering no is still
+  dropped"* — directly above a body that no longer does that. True when Q-012 shipped,
+  false the moment Q-013 landed, and the kind of stale comment that gets believed.
+
+⚠ **THIS IS THE THIRD TIME TWO SESSIONS HAVE BUILT ONE RULE IN PARALLEL** (the others
+are recorded below and under Q-012). Every time, both were red-checked and both were
+right; every time, the cost was the merge rather than the code. Worth noticing before
+starting a fourth.
 
 ---
 
