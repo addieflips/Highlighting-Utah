@@ -33909,7 +33909,7 @@ function safeRender(label, fn){
   }
   pendingRenders.delete(label);
   try{ fn(); }
-  catch(err){ console.error('Render failed: ' + label, err); }
+  catch(err){ noteRenderFailure(label, fn, err); }
 }
 /* Draw everything this panel was owed, then forget it. Called from
    switchToAdminPanel AFTER the panel is marked active, so anything the render
@@ -33919,8 +33919,101 @@ function flushPendingRenders(panelName){
     if(RENDER_PANEL[label] !== panelName) return;
     pendingRenders.delete(label);
     try{ fn(); }
-    catch(err){ console.error('Render failed: ' + label, err); }
+    catch(err){ noteRenderFailure(label, fn, err); }
   });
+}
+/* ⭐ A PANEL THAT THREW SAYS SO, AND OFFERS A WAY BACK (added 2026-08-26).
+   Owner's rule, 2026-08-25: "nothing should fail quietly."
+
+   ⚠ safeRender IS THE SILENCE, and it is the one worth fixing first because it is
+   one change that covers every panel. system-map.md records the symptom blind — "a
+   section renders empty for no reason → check firestore.rules first" — and the
+   reason nobody can tell is that AN EMPTY PANEL AND A BROKEN PANEL LOOK IDENTICAL.
+   A list with nothing in it and a list whose renderer threw on the first row are the
+   same white rectangle.
+
+   ⚠ THE CATCH STAYS. Letting a render throw is not the fix: safeRender exists
+   because an uncaught throw in a Firestore listener stops the whole cascade, so one
+   bad record would take every other panel down with it. What changes is what happens
+   inside the catch.
+
+   ⚠ TIER 2 — SOMEBODY IS STANDING THERE. A render only runs for an OPEN panel (a
+   closed one is deferred, and its failure surfaces when it is opened and flushed), so
+   there is always a person looking at the thing that did not draw. But it is a bar
+   rather than a toast, because a toast is gone in 2.6 seconds and the panel is still
+   blank afterwards — and the whole point is that the blankness stops being a mystery.
+
+   ⚠ IT NAMES THE PANEL IN THE OWNER'S WORDS, READ OFF HER OWN NAV. `overviewMap` is
+   an internal label; "Routes and Schedule" is what the button says. Derived from the
+   markup rather than a second hand-written list, so renaming a tab renames this too.
+
+   ⚠ AND RETRY RE-RUNS THE RENDER THAT THREW, not a page reload. A reload costs every
+   listener and every cache; most of these failures are one transient read. A render
+   that succeeds leaves the list; one that fails again keeps its place and says so, so
+   Retry cannot look like it worked when it did not. */
+const renderFailures = new Map();   // label -> the render that threw, so Retry can re-run it
+function adminPanelLabel(panelName){
+  if(!panelName) return '';
+  const el = document.querySelector('.nav-item[data-panel="' + panelName + '"] .nav-label');
+  return (el && el.textContent.trim()) || panelName;
+}
+function noteRenderFailure(label, fn, err){
+  console.error('Render failed: ' + label, err);
+  renderFailures.set(label, fn);
+  drawRenderFailureBar();
+}
+function drawRenderFailureBar(){
+  let bar = document.getElementById('renderFailureBar');
+  if(!renderFailures.size){ if(bar) bar.remove(); return; }
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'renderFailureBar';
+    bar.style.cssText = 'position:fixed; left:0; right:0; bottom:0; z-index:9000; ' +
+      'background:#FDECEA; border-top:2px solid #E0574B; color:#9A2A1F; ' +
+      'padding:10px 16px; font-size:13.5px; display:flex; align-items:center; ' +
+      'gap:12px; flex-wrap:wrap; box-shadow:0 -2px 10px rgba(0,0,0,0.12);';
+    document.body.appendChild(bar);
+  }
+  /* Named panels first and de-duplicated: five renders failing inside one panel is
+     one thing that did not load, not five, and listing it five times reads as five
+     separate faults. A label with no panel of its own (the handful RENDER_PANEL
+     deliberately leaves eager) falls back to its own name — worse than her words,
+     and still far better than a blank rectangle. */
+  const seen = [];
+  renderFailures.forEach(function(fn, label){
+    const name = adminPanelLabel(RENDER_PANEL[label]) || label;
+    if(seen.indexOf(name) === -1) seen.push(name);
+  });
+  bar.innerHTML = '<span><strong>&#9888; This didn’t load:</strong> ' + esc(seen.join(', ')) +
+    '. What you can see may be out of date &mdash; nothing has been lost.</span>' +
+    '<button type="button" id="renderFailureRetry" class="btn btn-sm" ' +
+    'style="background:#9A2A1F; color:#fff; border:none;">Try again</button>' +
+    '<span id="renderFailureNote" style="font-size:12.5px;"></span>';
+  document.getElementById('renderFailureRetry').addEventListener('click', retryFailedRenders);
+}
+function retryFailedRenders(){
+  const again = Array.from(renderFailures.entries());
+  renderFailures.clear();
+  let stillBroken = 0;
+  again.forEach(function(pair){
+    try{ pair[1](); }
+    catch(err){
+      stillBroken++;
+      console.error('Render failed again: ' + pair[0], err);
+      renderFailures.set(pair[0], pair[1]);
+    }
+  });
+  drawRenderFailureBar();
+  /* ⚠ SAID AFTER THE REDRAW, because the redraw rebuilds the bar and would wipe it.
+     A second failure has to say so out loud: a Retry that quietly leaves the same bar
+     on screen is indistinguishable from a button that does nothing, and then nobody
+     presses it again on the day it would have worked. */
+  if(stillBroken){
+    const note = document.getElementById('renderFailureNote');
+    if(note) note.textContent = 'Still not loading. Try signing out and back in, or reload the page.';
+  } else if(typeof toast === 'function'){
+    toast('Loaded.');
+  }
 }
 /* Drawing all of this is EXPENSIVE: eighteen renders across every customer on
    file, one of them a Google map that builds a marker per house. Fine for a

@@ -11698,25 +11698,48 @@ suite('Suite 38. Panels draw when they are opened');
     return null;
   };
   const safeSrc = grab('safeRender'), openSrc = grab('adminPanelIsOpen'), flushSrc = grab('flushPendingRenders');
+  /* ⭐ THE FAILURE SIDE, LIFTED TOO (2026-08-26). safeRender's catch used to be a
+     console.error and nothing else, which is why "a section renders empty for no
+     reason" is in system-map.md as a symptom with no cause. These four are what it
+     does instead; they are lifted rather than stubbed because what is under test is
+     exactly what the person is shown. */
+  const noteSrc = grab('noteRenderFailure'), barSrc = grab('drawRenderFailureBar'),
+        retrySrc = grab('retryFailedRenders'), panelLabelSrc = grab('adminPanelLabel'),
+        escSrc = grab('esc');
   check('S38', 'safeRender, adminPanelIsOpen and flushPendingRenders all exist',
     !!safeSrc && !!openSrc && !!flushSrc);
+  check('S38', 'and so does the "this didn’t load" bar it falls back to',
+    !!noteSrc && !!barSrc && !!retrySrc && !!panelLabelSrc,
+    'an empty panel and a broken panel look identical without it');
 
   if (!JSDOM) {
     note('jsdom not installed — skipping the deferred-render behaviour run');
-  } else if (safeSrc && openSrc && flushSrc && mapMatch) {
+  } else if (safeSrc && openSrc && flushSrc && mapMatch && noteSrc && barSrc && retrySrc) {
+    /* The nav buttons are here because the bar reads the panel's name off HER nav
+       rather than keeping a second list of tab names — so a fixture without them
+       would be testing a different function from the one that ships. */
     const dom = new JSDOM(
+      '<button class="nav-item" data-panel="addcustomer"><span class="nav-label">Customers</span></button>' +
+      '<button class="nav-item" data-panel="routes"><span class="nav-label">Routes and Schedule</span></button>' +
+      '<button class="nav-item" data-panel="warehouse"><span class="nav-label">Warehouse</span></button>' +
       '<div class="panel active" id="panel-addcustomer"></div>' +
       '<div class="panel" id="panel-routes"></div>' +
       '<div class="panel" id="panel-warehouse"></div>'
     );
     const doc = dom.window.document;
     const sb = {};
-    new Function('document',
+    const toasted = [];
+    new Function('document', 'toast', 'console',
       'const RENDER_PANEL = {' + mapMatch[1] + '\n};' +
       'const pendingRenders = new Map();' +
       openSrc + safeSrc + flushSrc +
-      'this.safeRender = safeRender; this.flush = flushPendingRenders; this.pending = pendingRenders;'
-    ).call(sb, doc);
+      (escSrc || 'function esc(s){ return String(s == null ? "" : s); }') +
+      panelLabelSrc + noteSrc + barSrc + retrySrc +
+      'const renderFailures = new Map();' +
+      'this.safeRender = safeRender; this.flush = flushPendingRenders; this.pending = pendingRenders;' +
+      'this.failures = renderFailures; this.retry = retryFailedRenders;'
+    ).call(sb, doc, (m) => toasted.push(m),
+           {error(){}, warn(){}, log(){}});
 
     let openPanelDrew = 0, closedPanelDrew = 0;
     sb.safeRender('allCustomersTable', () => { openPanelDrew++; });
@@ -11754,6 +11777,54 @@ suite('Suite 38. Panels draw when they are opened');
     sb.safeRender('warehouseQueue', () => { after++; });
     console.error = realErr;
     check('S38', 'one render throwing does not stop the next', after === 1);
+
+    /* ⭐ AND THE PANEL THAT DID NOT DRAW SAYS SO (added 2026-08-26). Owner's rule,
+       2026-08-25: "nothing should fail quietly." Forced the failure above; these
+       assert the SIGNAL, which is the whole of what the silent-failure map asks for.
+       Run against a real DOM rather than matched in the source, because every claim
+       here is about WHAT IS ON THE SCREEN — a regex proves the words exist in the
+       file, which is a different and weaker claim (CLAUDE.md §5, the ledger bug). */
+    const bar = doc.getElementById('renderFailureBar');
+    check('S38', 'a render that threw puts a bar on the screen', !!bar,
+      'an empty panel and a broken panel look identical, which is the mystery this ends');
+    check('S38', 'and the bar names the panel in her words, not the internal label',
+      !!bar && /Warehouse/.test(bar.textContent) && !/whCustomerList/.test(bar.textContent),
+      'read off the nav item, so renaming a tab renames this too');
+    check('S38', 'and it offers a Try again rather than only bad news',
+      !!doc.getElementById('renderFailureRetry'),
+      'a reload costs every listener and cache; most of these are one transient read');
+
+    /* ⚠ ONE PANEL, ONE LINE. Five renders failing inside one panel is one thing that
+       did not load; listing it five times reads as five separate faults. */
+    console.error = function(){};
+    sb.safeRender('warehouseRecycleQueue', () => { throw new Error('boom too'); });
+    console.error = realErr;
+    const bar2 = doc.getElementById('renderFailureBar');
+    check('S38', 'two failures in one panel are named once, not twice',
+      !!bar2 && bar2.textContent.split('Warehouse').length === 2,
+      'got: ' + ((bar2 && bar2.textContent) || '(no bar)'));
+
+    /* Retry re-runs the render that threw. A render that comes good must leave the
+       list; one that fails again must keep its place, or a Retry that changes nothing
+       is indistinguishable from a button that does nothing. */
+    let healed = 0;
+    sb.failures.set('whCustomerList', () => { healed++; });
+    console.error = function(){};
+    sb.retry();
+    console.error = realErr;
+    check('S38', 'Try again re-runs the render that threw', healed === 1);
+    check('S38', 'and one that fails again keeps its place on the bar',
+      sb.failures.has('warehouseRecycleQueue') && !sb.failures.has('whCustomerList'),
+      'a Retry that silently leaves the same bar up teaches her the button is broken');
+    check('S38', 'and says so, rather than looking like it worked',
+      /Still not loading/.test((doc.getElementById('renderFailureBar') || {}).textContent || ''));
+
+    /* Everything coming good takes the bar away entirely — a warning that outlives
+       the fault is the next thing people learn to ignore. */
+    sb.failures.set('warehouseRecycleQueue', () => {});
+    sb.retry();
+    check('S38', 'and the bar goes when everything draws again',
+      !doc.getElementById('renderFailureBar') && sb.failures.size === 0);
   }
 
   check('S38', 'opening a panel flushes what it was owed',
