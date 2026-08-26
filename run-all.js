@@ -41249,7 +41249,13 @@ suite('275. Which invoice a customer is on - one rule, not four');
 
     /* ⭐ THE INVARIANT, STATED AS A TEST. The All Customers filter and the row
        drawn under it must never disagree about one customer, which is exactly
-       what the exact-string compare produced. */
+       what the exact-string compare produced.
+       ⚠ FOR A HOUSE THAT PAYS FOR ITSELF. Since 2026-08-26 the two answer
+       DIFFERENT questions for a house billed elsewhere — allCustInvoiceFor finds
+       the invoice filed under that house's own key (which the Edit Customer save
+       needs, to zero it), while getLiveInvoiceStatus reports the bill the house
+       was actually added to. Asserting they agree there would be asserting the
+       wrong thing; the billed-elsewhere behaviour is checked on its own below. */
     const SAME = [
       { phone: '(801) 555-0123' },
       { email: 'Jane@Example.COM' },
@@ -41260,8 +41266,35 @@ suite('275. Which invoice a customer is on - one rule, not four');
     const agree = SAME.every(function (d) {
       return !!F.forCust({ data: d }) === (F.status(d) !== null);
     });
-    check('S275', 'the two resolvers agree about every shape of customer', agree,
+    check('S275', 'the two resolvers agree about a house that pays for itself', agree,
       'one screen filtering somebody in while the next draws them blank is the bug');
+
+    /* ---- a house billed to somebody else takes that bill's status ----
+       ⭐ Owner, 2026-08-26: "if Kyle didn't say no or back next year and his bill
+       wasn't already paid or partially paid but it added to Dana's bill than
+       should be paid in full by dana." */
+    F.load([
+      ['8015550111', { install: 750, removal: 0, deposit: 0, credits: 0, changeFees: 0 }],
+      /* ⚠ KYLE'S OWN LEFTOVER, kept and zeroed because it carried his deposit.
+         On its own it computes to "Paid in Full" — nothing owed, something paid —
+         which is exactly the false reading this change removes. */
+      ['8015552222', { install: 0, removal: 0, deposit: 150, credits: 0, changeFees: 0 }]
+    ]);
+    const KYLE = { phone: '8015552222', billToPhone: '8015550111' };
+    check('S275', 'a house billed elsewhere reports the bill it is really on',
+      F.status(KYLE) === 'Unpaid',
+      'Dana has not paid the $750 that includes his house — got ' + F.status(KYLE));
+    check('S275', 'and not the settled leftover sitting under its own key',
+      F.status({ phone: '8015552222' }) === 'Paid in Full' && F.status(KYLE) !== 'Paid in Full',
+      'the leftover really does read Paid in Full on its own, which is why the ' +
+      'billToPhone half has to win — otherwise the row says settled while the payer owes');
+    F.load([
+      ['8015550111', { install: 750, removal: 0, deposit: 750, credits: 0, changeFees: 0 }],
+      ['8015552222', { install: 0, removal: 0, deposit: 150, credits: 0, changeFees: 0 }]
+    ]);
+    check('S275', 'and it goes settled when the payer settles',
+      F.status(KYLE) === 'Paid in Full',
+      '"should be paid in full by dana" — got ' + F.status(KYLE));
   }
 
   /* ---- and the four call sites really ask that one rule ----

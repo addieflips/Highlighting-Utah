@@ -777,7 +777,7 @@ Suite 44.
 
 ---
 
-## Q-012 · intent · open · 2026-08-26
+## Q-012 · intent · ANSWERED · 2026-08-26
 When a house is billed to somebody else, what payment status should its own
 row show?
 
@@ -799,7 +799,42 @@ invoice with a deposit computes to **Paid in Full**.
 So that house reads "Paid in Full" on both screens while the bill it is actually
 on may be entirely unpaid.
 
-Three readings, and they behave very differently on a chase-the-unpaid send:
+**ANSWER (Addie, 2026-08-26): the status follows the bill the house was added
+to.** In her words: *"if Kyle didn't say no or back next year and his bill wasn't
+already paid or partially paid but it added to Dana's bill than should be paid in
+full by dana."*
+
+`getLiveInvoiceStatus` now keys on `billToPhone || custInvoiceKey(d)` — the same
+expression `billingGroupsByPayer` builds its map from. So a house billed to
+somebody else reports that payer's bill: Unpaid while Dana owes, Paid in Full
+once she settles.
+
+⚠ **It removes the false reading as a side effect**, which is why this is the
+right answer rather than merely a chosen one. The leftover zeroed invoice under
+Kyle's own key computes to Paid in Full on its own; reading the payer's invoice
+instead gives the truth. Suite 275 asserts both — that the leftover really does
+read Paid in Full alone, and that the billToPhone half wins.
+
+⚠ **The cost, accepted knowingly:** a chase-the-unpaid audience now includes
+houses whose occupant personally owes nothing. Automation Emails already badges
+those `[Billed elsewhere]` and has a group filter to exclude them, so it is
+visible and avoidable rather than silent.
+
+⚠ **The other two conditions she named are handled elsewhere, not here.**
+Somebody who said no or Back Next Year is not billed at all (Q-015,
+`billedThisSeason`); a house that had already paid carries its money across as a
+credit (Q-014, `paidBeforeBillTo`). This function only reports what the bill
+says.
+
+**Resulting map change:** `getLiveInvoiceStatus` answers "what does the bill this
+house is on say", not "what does this house's own invoice say". `allCustInvoiceFor`
+still answers the second — the Edit Customer save needs it to find and zero a
+leftover — and Suite 275 no longer asserts the two agree for a billed-elsewhere
+house, because they deliberately do not.
+
+---
+
+**The three readings that were weighed, kept so they are not re-proposed:**
 
 1. **Show the payer's status.** Honest about the money. But the Unpaid filter
    then includes people who owe nothing personally, and a chase email would go

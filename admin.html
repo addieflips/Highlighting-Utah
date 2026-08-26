@@ -12894,7 +12894,28 @@ function etResolveVars(item){
    billedHousesFor already has, for the same reason. */
 function getLiveInvoiceStatus(who){
   const d = (who && typeof who === 'object') ? (who.data || who) : {phone: who};
-  const key = custInvoiceKey(d);
+  /* ⭐ THE BILL THIS HOUSE IS ACTUALLY ON — the payer's when they bill elsewhere
+     (2026-08-26). Owner, asked what a house billed to somebody else should show:
+     "if Kyle didn't say no or back next year and his bill wasn't already paid or
+     partially paid but it added to Dana's bill than should be paid in full by
+     dana" — so the status follows the bill the house was added to.
+
+     ⚠ AND IT FIXES A FALSE 'Paid in Full' AT THE SAME TIME. Switching a customer
+     with a recorded deposit to bill elsewhere KEEPS their old invoice and zeroes
+     it, and a zeroed invoice carrying a deposit computes to Paid in Full. Reading
+     their own key found that leftover and reported settled while the bill their
+     house is really on was untouched. Reading the payer's invoice gives the truth.
+
+     ⚠ THE COST, ACCEPTED KNOWINGLY: a chase-the-unpaid audience now includes
+     houses whose occupant personally owes nothing. Automation Emails already
+     badges those [Billed elsewhere] and has a group filter to exclude them, so
+     the office can see it and act on it.
+
+     ⚠ THE OTHER TWO CASES SHE NAMED ARE HANDLED ELSEWHERE, not here: somebody who
+     said no or Back Next Year is not billed at all (billedThisSeason), and a house
+     that had already paid carries its money across as a credit (paidBeforeBillTo).
+     This function only answers what the bill says. */
+  const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
   if(!key) return null;
   const inv = invoiceById.get(key) || null;
   if(!inv) return null;
