@@ -46310,6 +46310,71 @@ function hcRunChecks(){
       return {label: (d.name || i.id), detail: 'invoice key ' + i.id + ' matches no customer — total $' + ((Number(d.install)||0) + (Number(d.removal)||0) + (Number(d.changeFees)||0))};
     })
   });
+  /* ⭐ A PAYMENT LEFT ON AN INVOICE THAT BILLS NOTHING (added 2026-08-26).
+     Found while asking what "billed elsewhere shows Paid in Full" actually means.
+
+     When a customer's Bill To is changed, their own invoice must stop billing
+     them or the house is charged twice. The save handler deletes it — UNLESS it
+     carries a deposit, in which case it is kept and zeroed instead, so the
+     recorded payment is not thrown away. That leaves a document reading
+     install 0, removal 0, changeFees 0, deposit $X.
+
+     ⚠ TWO THINGS FOLLOW, AND THE SECOND IS THE MONEY ONE.
+     (1) computeInvoiceStatus(0,0,deposit,…) is "Paid in Full" — nothing owed,
+         something paid — so that customer reads as settled on the Automation
+         Emails payment filters and the Dashboard, while the bill their house is
+         really on may be untouched.
+     (2) ONLY THE LIGHT-CHANGE FEE MIGRATES to the new payer. syncPayerInvoice
+         rebuilds the payer's invoice from house prices and keeps THEIR deposit,
+         so the money already paid here never crosses. The new payer is billed
+         the full price of that house with no credit for it.
+
+     ⚠ NO BUTTON, DELIBERATELY. Credit it to the new payer, refund it, or leave
+     it as a record are three different answers about real money and only Addie
+     can pick — Q-014 in docs/open-questions.md. A fix that guessed would move
+     somebody's payment onto somebody else's bill without being asked.
+
+     ⚠ AND IT MUST NOT FIRE ON A PREPAYMENT. Somebody who pays before their house
+     is priced has exactly this shape — no charge yet, money on the invoice — and
+     is perfectly fine. The difference is whether anything still bills to this
+     key: flagged only when every customer filed under it now bills elsewhere, or
+     when there is nobody under it at all. A warning that cries wolf on ordinary
+     prepayments is one the office learns to click past. */
+  checks.push({
+    id: 'strandedPayment',
+    title: 'A payment sitting on an invoice that bills nothing',
+    why: 'The money was recorded, then the house moved onto somebody else’s bill and the payment did not follow it. That customer also reads as Paid in Full while the bill their house is really on may be unpaid.',
+    fix: null,
+    fixNote: 'No button: crediting it to the new payer, refunding it, or leaving it as a record are three different answers about real money. Decide, then set it by hand on the Invoices tab.',
+    rows: allInvoicesCache.filter(function(i){
+      const d = i.data || {};
+      const gross = (Number(d.install) || 0) + (Number(d.removal) || 0) + (Number(d.changeFees) || 0);
+      if(gross > 0 || (Number(d.deposit) || 0) <= 0) return false;
+      /* Everyone whose own key is this invoice — a house billed elsewhere still
+         keys to its own phone, which is exactly how it is spotted. */
+      const own = jobAddresses.filter(function(c){ return custInvoiceKey(c.data || {}) === i.id; });
+      /* Somebody still bills here, so this is a prepayment awaiting a price. */
+      return own.length === 0 || own.every(function(c){ return hcDigits((c.data || {}).billToPhone); });
+    }).map(function(i){
+      const d = i.data || {};
+      const own = jobAddresses.filter(function(c){ return custInvoiceKey(c.data || {}) === i.id; });
+      const paid = '$' + (Number(d.deposit) || 0).toFixed(2);
+      if(!own.length){
+        return {label: (d.name || i.id), detail: paid + ' paid, and no customer is filed under ' + i.id + ' at all'};
+      }
+      /* Name where their money should probably be going, so the decision can be
+         made from this row rather than by going and looking it up. */
+      const payers = [...new Set(own.map(function(c){
+        const key = hcDigits((c.data || {}).billToPhone);
+        const p = jobAddresses.find(function(x){ return custInvoiceKey(x.data || {}) === key; });
+        return (p && hcName(p.data)) || key;
+      }))].join(', ');
+      return {
+        label: own.map(function(c){ return hcName(c.data); }).join(', '),
+        detail: paid + ' paid before they moved onto ' + payers + '’s bill — the payment stayed here and reads as Paid in Full'
+      };
+    })
+  });
   checks.push({
     id: 'totalDrift',
     title: 'Invoice total does not match the houses on it',

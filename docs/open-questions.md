@@ -860,3 +860,78 @@ real data and it has not been run. Do that before building anything on top of it
 Blocks: routing any new caller through `syncPayerInvoice` — which is why the
 "Use This Total for Their Invoice" button was made to *refuse* on a shared bill
 rather than re-sync one.
+
+---
+
+## Q-014 · intent · open · 2026-08-26
+When a house moves onto somebody else's bill, what happens to money the
+customer had already paid?
+
+Found by asking what "a house billed elsewhere reads Paid in Full" actually
+means, and the display half turned out to be the smaller half.
+
+**The mechanism.** Changing a customer's Bill To rolls their house price onto the
+new payer's invoice. Their own invoice must then stop billing them, or the house
+is charged twice — so the Edit Customer save deletes it. Unless it carries a
+deposit, in which case it is kept and **zeroed** instead, so the recorded payment
+is not thrown away:
+
+```js
+if(Number(inv.data.deposit) > 0){
+  await updateDoc(doc(db,'invoices', inv.id), { install: 0, removal: 0, changeFees: 0, … });
+} else {
+  await deleteDoc(doc(db,'invoices', inv.id));
+}
+```
+
+**What that leaves.** A document reading `install: 0, removal: 0, changeFees: 0,
+deposit: 150`. Two consequences:
+
+1. `computeInvoiceStatus(0, 0, 150, 0, 0)` is **`'Paid in Full'`** — verified by
+   running the real function. Nothing owed, something paid. So that customer
+   reads as settled on Automation Emails' payment filters and the Dashboard's
+   RSVP list, while the bill their house is really on may be untouched. In the
+   narrow sense it is true of *that document*; nobody reading the screen thinks
+   "their archived invoice".
+2. **The $150 does not follow them.** Only the light-change fee migrates
+   (`migratingFeeNotes`). `syncPayerInvoice` rebuilds the payer's invoice from
+   house prices and keeps `existing.deposit` — the *payer's* deposit. So the new
+   payer is billed the full price of that house with no credit for money already
+   paid against it, and the payment sits on an invoice no screen reads.
+
+The code comment says the money "isn't lost". That is true only in the sense that
+the document still exists. Nothing collects it.
+
+**Three answers, and they are genuinely different:**
+
+1. **Credit it to the new payer.** Matches what most people would expect — the
+   money was paid toward that house, and the house is now on this bill. But it
+   moves a real payment onto somebody else's invoice automatically, and the two
+   parties may be a tenant and a landlord who have not agreed to that.
+2. **Refund it, or flag it for refund.** Cleanest morally, most work, and needs a
+   path that does not exist.
+3. **Leave it as a record and handle it by hand.** What happens today, except
+   nobody is told it happened.
+
+⚠ **Not guessed, because all three move real money differently.** What has been
+built is the *detection* only: Health Check now has a **"A payment sitting on an
+invoice that bills nothing"** row (`strandedPayment`), which names the customer,
+the amount, and who is paying for them now. It deliberately offers **no Fix
+button** — a button here would pick one of the three above without being asked.
+
+⚠ **It does not fire on a prepayment.** Somebody who pays before their house is
+priced has the identical invoice shape — no charge, a deposit — and is perfectly
+fine. The row appears only when every customer filed under that key now bills
+elsewhere, or when nobody is filed under it at all. A warning that cries wolf on
+ordinary prepayments is one the office learns to click past, including on the day
+it is right.
+
+⚠ **Whether this has ever actually happened is not known from here** — it needs
+the real book. Opening Health Check answers it: if the row is empty, this is
+theoretical and the decision can wait. If it is not, the rows name the money.
+
+Blocks: nothing shipping. It blocks deciding, which is why detection went first.
+
+**Resulting map change:** none yet. Whichever answer is chosen becomes a rule
+about where a payment goes when a bill-to changes, and the Fix button that
+implements it.

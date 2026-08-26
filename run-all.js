@@ -3493,6 +3493,90 @@ console.log('\n=== 7. Health check engine ===');
     'without naming the text there is nothing for anyone to go and fix');
 
   const all = hc.run();
+
+  /* ---- a payment left behind when a house moved onto somebody else's bill ----
+     ⚠ THE FALSE-ALARM CASE IS THE IMPORTANT ONE HERE, as this section's header
+     says. A prepayment — money in before the house is priced — has EXACTLY the
+     same shape on the invoice as a stranded one: no charge, a deposit. Only one
+     of them is a problem, and a warning that fires on ordinary prepayments is
+     one the office learns to click past, including on the day it is right. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '101', measuredFeet: 100 } },
+        { id: 'b', data: { name: 'Kyle Pratt', phone: '8015552222', billToPhone: '8015550111', housePrice: 350, customerNumber: '102', measuredFeet: 90 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 750, removal: 0, deposit: 0, status: 'Unpaid' } },
+        /* Kyle's own invoice, zeroed but kept because it carries his payment —
+           exactly what the Edit Customer save writes when a Bill To changes. */
+        { id: '8015552222', data: { name: 'Kyle Pratt', install: 0, removal: 0, changeFees: 0, deposit: 150, status: 'Paid in Full' } }]
+  });
+  {
+    const rows = get(hc.run(), 'strandedPayment').rows;
+    check('health', 'a payment left behind by a bill-to change is found',
+      rows.length === 1,
+      'Kyle paid $150, then his house moved onto Dana\'s bill and the money did not follow — got ' + rows.length + ' rows');
+    check('health', 'and the row names who is paying for him now',
+      rows.length === 1 && rows[0].detail.indexOf('Dana Pratt') !== -1,
+      'the decision is where the money should go, so the row has to say where the bill went');
+    check('health', 'and how much is sitting there',
+      rows.length === 1 && rows[0].detail.indexOf('150.00') !== -1,
+      'an amount is the whole reason to look at it');
+  }
+
+  /* ⚠ THE PREPAYMENT. Same shape, nobody has moved anywhere, nothing is wrong. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Early Bird', phone: '8015557777', housePrice: 0, customerNumber: '103', measuredFeet: 100 } }],
+    i: [{ id: '8015557777', data: { name: 'Early Bird', install: 0, removal: 0, deposit: 200, status: 'Paid in Full' } }]
+  });
+  check('health', 'somebody who paid before their house was priced is NOT flagged',
+    get(hc.run(), 'strandedPayment').rows.length === 0,
+    'they still bill to their own invoice — nothing has been stranded, and crying wolf here ' +
+    'is how the check gets ignored on the day it is right');
+
+  /* An ordinary part-paid invoice is not this either. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Half Paid', phone: '8015558888', housePrice: 400, customerNumber: '104', measuredFeet: 100 } }],
+    i: [{ id: '8015558888', data: { name: 'Half Paid', install: 400, removal: 0, deposit: 150, status: 'Partial Payment' } }]
+  });
+  check('health', 'an ordinary part-paid invoice is not flagged',
+    get(hc.run(), 'strandedPayment').rows.length === 0,
+    'there is a real charge on it — the money is not stranded, it is owed against something');
+
+  /* Money under a key no customer answers to any more. Deleting the customer is
+     the usual way in, and the payment record is all that is left of them. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 400, removal: 0, deposit: 0, status: 'Unpaid' } },
+        { id: '8015559999', data: { name: 'Gone Away', install: 0, removal: 0, deposit: 75, status: 'Paid in Full' } }]
+  });
+  {
+    const rows = get(hc.run(), 'strandedPayment').rows;
+    check('health', 'a payment under a key nobody answers to is found too',
+      rows.length === 1 && rows[0].detail.indexOf('no customer is filed under') !== -1,
+      'the customer is gone and the money is all that is left of them — got ' + rows.length + ' rows');
+  }
+
+  /* ⚠ AN EMPTY INVOICE WITH NO MONEY ON IT IS NOT THIS. There is nothing to
+     strand, so this check must stay silent — orphanInvoice is the one that
+     reports a document nobody answers to. The first version of this suite had no
+     fixture for it, and a red-check that deleted the `deposit > 0` condition
+     sailed straight through: every fixture happened to carry money, so nothing
+     could tell the two conditions apart. */
+  hc.set({
+    j: [{ id: 'a', data: { name: 'Dana Pratt', phone: '8015550111', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
+    i: [{ id: '8015550111', data: { name: 'Dana Pratt', install: 400, removal: 0, deposit: 0, status: 'Unpaid' } },
+        { id: '8015556666', data: { name: 'Empty', install: 0, removal: 0, deposit: 0, status: 'Unpaid' } }]
+  });
+  check('health', 'an empty invoice carrying no money at all is not flagged',
+    get(hc.run(), 'strandedPayment').rows.length === 0,
+    'nothing has been stranded — there was never any money on it');
+
+  /* ⚠ AND IT NEVER OFFERS A BUTTON. Crediting it to the new payer, refunding it
+     and leaving it as a record are three different answers about real money, and
+     a guess here moves somebody's payment onto somebody else's bill unasked. */
+  hc.set({ j: [], i: [] });
+  check('health', 'the stranded-payment check never offers to fix itself',
+    !get(hc.run(), 'strandedPayment').fix,
+    'a Fix button here would decide where a real payment goes without being asked — Q-014');
+
   /* 19 since 2026-08-15, when "light colours written as words" was added.
      STILL 19 after 2026-08-18: the owner asked for an indicator for customers
      with no customer number, and the honest answer was that one already
@@ -3503,8 +3587,8 @@ console.log('\n=== 7. Health check engine ===');
      and change this number in the same edit.
      The count is deliberately hard-coded: a check silently disappearing is
      exactly the kind of thing nobody notices. */
-  check('health', 'all 19 checks present',
-    all.length === 19, 'got ' + all.length);
+  check('health', 'all 20 checks present',
+    all.length === 20, 'got ' + all.length);
   check('health', 'fix buttons limited to the unambiguous checks',
     all.filter(c => c.fix).length === 6,
     'auto-fixing a judgement call writes bad data at scale');
