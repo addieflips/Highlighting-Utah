@@ -12962,11 +12962,47 @@ function audienceBillingGroup(d){
    ⚠ A house that RSVP'd 'no' is not billed this season, so it is not in the
    group — the same rule syncPayerInvoice and runInvoiceBatch apply to the
    total. Naming a house the money does not include is the bug this prevents. */
+/* ⭐ IS THIS HOUSE ON THE BILL — ONE RULE (added 2026-08-26, Q-012).
+   Addie, 2026-08-26: "After the last persons house is done if there are multiple
+   people on one bill is when they will be charged."
+
+   ⚠ THE TIMING WAS ALREADY RIGHT; WHO COUNTS WAS NOT. The nightly run holds a
+   multi-house bill until every house on it is complete — exactly her rule. But the
+   group it waited on dropped only a flat "no", so a house that had answered BACK
+   NEXT YEAR still counted as one to wait for, and answering that pulls them off
+   every upcoming route, so no crew ever visits and it can never be completed. The
+   household's whole bill was held open all season and nobody was charged for the
+   work that WAS done. "The last person's house is done" has to mean the last house
+   actually getting lights, or her rule can never fire for that household.
+
+   ⚠ A FLAT "NO" IS UNCHANGED. It has always come off the bill outright and is not
+   what was asked about; the one asymmetry that leaves (completed and THEN "no") is
+   written down in docs/open-questions.md rather than changed on the way past.
+
+   ⚠ WORK THAT WAS DONE IS OWED FOR, whatever they have said since — the settled
+   rule in pullCustomerFromSeason, "not coming back next year is not the same as not
+   owing for last year". So `completed` is tested BEFORE the sitting-out branch.
+
+   ⚠ THIS IS NOT isOutForSeason. That one governs routes, the build queue, the
+   recycle queue and the schedule, and it has no idea whether work was done. Reusing
+   it here would drop a house that was hung and later said no — which is the settled
+   rule above pointing the other way. Two questions, two rules, on purpose.
+
+   Mirrored by houseIsOnTheBillServer in functions/index.js — change one, change the
+   other, in the same push. money-parity runs the two side by side. */
+function houseIsOnTheBill(d){
+  if(!d) return false;
+  const said = String(d.rsvpStatus || '').trim().toLowerCase();
+  if(said === 'no') return false;
+  if(d.completed === true) return true;
+  if(said === 'backnextyear' || d.maybeNextYear === true) return false;
+  return true;
+}
 function billingGroupsByPayer(){
   const groups = new Map();
   (jobAddresses||[]).forEach(function(a){
     const d = a.data || {};
-    if(String(d.rsvpStatus||'') === 'no') return;
+    if(!houseIsOnTheBill(d)) return;
     const key = String(d.billToPhone||'').replace(/\D/g,'') || custInvoiceKey(d);
     if(!key) return;
     if(!groups.has(key)) groups.set(key, []);
