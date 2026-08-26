@@ -289,10 +289,25 @@ bash
 #   GitHub suppresses workflow triggering from events generated with an app token,
 #   to stop workflows setting each other off. So the two REQUIRED checks never
 #   report, the PR sits blocked for ever, and it reads exactly like a queue.
-#   ⭐ THE FIX IS workflow_dispatch, which tests.yml already enables. Run it against
-#   the BRANCH and GitHub attaches the run to the open PR (`pull_requests:[137]`),
-#   so its check runs land as the required contexts and the PR goes green. Verified
-#   on #137: both jobs success on the exact head SHA.
+#   ⚠ workflow_dispatch RUNS THE TESTS AND DOES NOT UNBLOCK THE MERGE. Run it
+#   against the BRANCH and GitHub does attach the run to the open PR
+#   (`pull_requests:[137]`) and both jobs go green on the exact head SHA — so it is
+#   worth doing, because it is the only way to prove the branch passes CI at all.
+#   ⚠ BUT BRANCH PROTECTION STILL REFUSES: `405 Repository rule violations found —
+#   2 of 2 required status checks are expected`, with mergeable_state "blocked" and
+#   both checks visibly SUCCESS on that SHA. The required contexts have to be
+#   reported by the PULL REQUEST's own check suite, and a dispatched run is not it.
+#   ⚠ THIS LINE FIRST CLAIMED THE OPPOSITE — "its check runs land as the required
+#   contexts and the PR goes green" — written after watching both jobs pass and
+#   BEFORE anybody tried the merge. The jobs passing was verified; the merge
+#   consequence was inferred and was wrong. Corrected within the hour, by pressing
+#   merge and being refused.
+#   ⭐ WHAT IS LEFT IS A HUMAN-GENERATED EVENT, because the whole cause is that an
+#   app token cannot raise one. Any of: the owner pushes a commit to the branch from
+#   her own account; the owner merges in the browser, where an admin can bypass; or
+#   branch protection is changed. ⚠ NOT VERIFIED — none of the three has been tried
+#   here, and this note has already been wrong once by guessing one step past what
+#   was actually observed.
 #   ⚠ DO NOT reach for an empty commit or a close-and-reopen to kick CI. Both are
 #   forbidden, and workflow_dispatch is the supported trigger the file already has.
 #   ⚠ A PR opened BY THE OWNER in the browser is unaffected — this is about who
