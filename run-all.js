@@ -25588,7 +25588,14 @@ suite('Suite 82. Save and close stay on screen');
     /* No regex across the handler body: an escape that does not survive the
        route into this file degrades into something that matches nothing, and the
        check then fails against correct code. Slice and look. */
-    const topSave = admin.slice(admin.indexOf("getElementById('editCustTopSave')"));
+    /* ⚠ ANCHORED ON THE HANDLER, NOT ON THE ID (repointed 2026-08-26). This
+       sliced from the first mention of editCustTopSave anywhere in the file, so
+       the moment a second place touched that element — editCustSetSaveLabel,
+       which sets its tooltip to the house being edited, and which sits earlier —
+       the slice started there instead and this failed on code that was right.
+       The §7 slow-fuse shape: pinned to where a string happens to sit rather
+       than to the thing that must be true. */
+    const topSave = admin.slice(admin.indexOf("getElementById('editCustTopSave')?.addEventListener"));
     const body = topSave.slice(0, topSave.indexOf('});') + 3);
     check('S82', 'Save delegates to the real Save button',
       body.indexOf("getElementById('editCustSaveBtn')") !== -1 &&
@@ -40980,6 +40987,235 @@ suite('275. Which invoice a customer is on - one rule, not four');
     check('S275', 'and it is offered to an email-only customer at all',
       /useForInvoiceBtn\.style\.display\s*=[\s\S]{0,200}custInvoiceKey\(d\)/.test(gate),
       'gated on d.phone, the button never appeared for somebody whose invoice is filed under their email');
+  }
+}
+
+
+
+// =====================================================================
+suite('276. Edit Customer - one tab per house on the bill');
+/* ⭐ ADDED 2026-08-26. A payer can be billed for several houses, and the only way
+   to edit the second one was to close the form, find them in All Customers and
+   open it again.
+
+   ⚠ THIS SUITE RENDERS. Every claim here is about a ROW THAT EXISTS on screen —
+   how many tabs, which one is starred, whose name is on the bill line — and this
+   repo has been caught three times by a check that matched the source of a message
+   that could never reach the page (the ledger's `right = rbLedgerCell('')` default
+   that overwrote both branches above it is the canonical one). A regex proving the
+   word "payer" appears says nothing about whether a tab was drawn.
+
+   ⚠ AND THE GROUP HAS TWO HALVES. A house with billToPhone joins that payer's
+   bill; a house with none whose custInvoiceKey matches is already on that invoice
+   with no field set anywhere. The fixture below carries one of each, on purpose —
+   a fixture of billToPhone houses alone passes whether the second half is read or
+   not. */
+if (!JSDOM) {
+  note('jsdom not installed — skipping the Edit Customer house-tabs render run');
+} else {
+  const NAMES = ['editCustSnapshot', 'editCustIsDirty', 'editCustSetSaveLabel', 'editCustBillKey',
+    'editCustRenderHouseTabs', 'editCustRefreshDirtyDot', 'editCustSwitchHouse',
+    'billedHousesFor', 'billingGroupsByPayer', 'payerHouseOf', 'balanceDueAmount', 'esc'];
+  const bodies = NAMES.map(function (n) { return extractFn(admin, n); });
+  const missing = NAMES.filter(function (n, i) { return !bodies[i]; });
+  check('S276', 'the house-tab functions are all in admin.html', missing.length === 0,
+    'missing: ' + missing.join(', ') + ' — renamed? update this suite rather than deleting it');
+
+  if (!missing.length) {
+    const dom = new JSDOM(
+      '<div class="editcust-popup">' +
+      '<div id="editCustHouseTabs" style="display:none;"></div>' +
+      '<div id="editCustBillLine" style="display:none;"></div>' +
+      '<input id="editCustName" value="Heather Anderson">' +
+      '<input id="editCustFeet" value="200">' +
+      '<input type="checkbox" id="editCustNewMemberFee">' +
+      '<button id="editCustSaveBtn">Save Changes</button>' +
+      '<button id="editCustTopSave">Save</button>' +
+      '</div>');
+
+    /* ⚠ THE FOUR ANDERSONS FROM THE LIVE BOOK, and the shape matters more than
+       the names: they share 8013721805, Heather holds the LOWEST customer number,
+       and one of them reaches the bill through billToPhone while the rest reach it
+       through custInvoiceKey alone. Ryan is the one who said no. */
+    const BOOK = [
+      { id: 'a14', data: { name: 'Heather Anderson', phone: '8013721805', customerNumber: '14', housePrice: 400 } },
+      { id: 'a20', data: { name: 'Brit Anderson', phone: '(801) 372-1805', customerNumber: '20', housePrice: 350 } },
+      { id: 'a27', data: { name: 'Loren Anderson', phone: '8015559999', billToPhone: '8013721805', customerNumber: '27', housePrice: 300 } },
+      { id: 'a972', data: { name: 'Ryan Anderson', phone: '8013721805', customerNumber: '972', housePrice: 250, rsvpStatus: 'no' } },
+      { id: 'solo', data: { name: 'Solo Jones', phone: '8015556666', customerNumber: '500', housePrice: 200 } }
+    ];
+
+    const code = [centsOfSrc, computeInvoiceStatusSrc, custInvoiceKeySrc, statusClassSrc,
+      'let jobAddresses = [];', 'let editCustomerId = null;', 'let requoteBeingConverted = null;',
+      'let invoiceById = new Map();', 'let editCustDirtySnapshot = "";',
+      'function fmtMoney(n){ return "$" + Number(n||0).toFixed(2); }',
+      bodies.join('\n'),
+      'return {' +
+      ' open:function(book, id, invs, requote){' +
+      '   jobAddresses = book; editCustomerId = id; requoteBeingConverted = requote || null;' +
+      '   invoiceById = new Map(); (invs||[]).forEach(function(p){ invoiceById.set(p[0], {id:p[0], data:p[1]}); });' +
+      '   editCustSetSaveLabel((book.find(function(a){return a.id===id;})||{data:{}}).data);' +
+      '   editCustRenderHouseTabs();' +
+      '   editCustDirtySnapshot = editCustSnapshot();' +
+      '   editCustRefreshDirtyDot();' +
+      '   return {tabs:document.getElementById("editCustHouseTabs"),' +
+      '           line:document.getElementById("editCustBillLine"),' +
+      '           save:document.getElementById("editCustSaveBtn"),' +
+      '           top:document.getElementById("editCustTopSave")};' +
+      ' },' +
+      ' dirty:function(){ return editCustIsDirty(); },' +
+      ' refresh:editCustRefreshDirtyDot,' +
+      ' billKey:editCustBillKey' +
+      '};'].join('\n');
+
+    const F = new Function('document', 'window', 'confirm', 'openEditCustomerModal', code)(
+      dom.window.document, dom.window, function () { return true; }, function () { });
+
+    const INVOICES = [['8013721805', { install: 1050, removal: 0, deposit: 200, credits: 0, changeFees: 0 }],
+      ['8015556666', { install: 200, removal: 0, deposit: 0, credits: 0, changeFees: 0 }]];
+
+    /* ---- the strip itself ---- */
+    let out = F.open(BOOK, 'a14', INVOICES);
+    const tabCount = out.tabs.querySelectorAll('[data-ecthouse]').length;
+    check('S276', 'a payer with several houses gets one tab each', tabCount === 3,
+      'expected Heather, Brit and Loren — got ' + tabCount + ' tabs');
+
+    check('S276', 'the strip is actually shown, not built into a hidden box',
+      out.tabs.style.display === 'flex',
+      'building the markup and leaving display:none is this repo’s canonical render bug');
+
+    /* ⭐ THE HALF A billToPhone SCAN LOSES. Brit reaches this bill through
+       custInvoiceKey alone — no field set anywhere — and her phone is stored
+       formatted, which is how it is stored in the real book. */
+    check('S276', 'a house on the bill by matching key alone is on the strip',
+      out.tabs.innerHTML.indexOf('Brit Anderson') !== -1,
+      'billedHousesFor reads both halves; a billToPhone-only scan would swear she was separate');
+    check('S276', 'and so is one linked by billToPhone',
+      out.tabs.innerHTML.indexOf('Loren Anderson') !== -1,
+      'the other half of the same group');
+
+    /* ⚠ A HOUSE THAT SAID NO IS NOT ON THE BILL, so naming it would print a list
+       that does not add up to the amount beside it. */
+    check('S276', 'a house that RSVP’d no is absent',
+      out.tabs.innerHTML.indexOf('Ryan Anderson') === -1,
+      'the money excludes them, so the list must too');
+
+    check('S276', 'somebody else’s customer is nowhere near the strip',
+      out.tabs.innerHTML.indexOf('Solo Jones') === -1,
+      'a group is the people on ONE bill');
+
+    /* ---- the payer ---- */
+    const payerTab = out.tabs.querySelector('.payer');
+    check('S276', 'the payer is marked, and it is the lowest customer number',
+      !!payerTab && payerTab.dataset.ecthouse === 'a14',
+      'Heather is #14 — the rule is stable so the same houses give the same answer every time');
+    check('S276', 'and it says "Pays the bill" in words, not only a star',
+      !!payerTab && payerTab.textContent.indexOf('Pays the bill') !== -1,
+      'a star alone is a symbol somebody has to have been told the meaning of, ' +
+      'on the one fact here that decides where money lands');
+    check('S276', 'the payer sorts first',
+      out.tabs.querySelector('[data-ecthouse]').dataset.ecthouse === 'a14',
+      'a strip that reshuffles when somebody edits one house is one nobody can navigate');
+
+    /* ---- which one is being edited ---- */
+    check('S276', 'the house being edited is the current tab',
+      out.tabs.querySelector('.current').dataset.ecthouse === 'a14' &&
+      out.tabs.querySelector('.current').getAttribute('aria-selected') === 'true',
+      'four identical tabs is worse than no tabs');
+    out = F.open(BOOK, 'a27', INVOICES);
+    check('S276', 'and it moves when another house is opened',
+      out.tabs.querySelector('.current').dataset.ecthouse === 'a27',
+      'the strip is rebuilt on every repoint');
+
+    /* ---- the bill line ---- */
+    check('S276', 'a non-payer tab says whose bill it is',
+      out.line.innerHTML.indexOf('Heather Anderson') !== -1 &&
+      /bill/.test(out.line.textContent),
+      'the balance shown is the GROUP’s, so an unattributed figure on Loren’s tab ' +
+      'reads as Loren’s own — and it is not');
+    check('S276', 'the balance is computed, not read off the stored status field',
+      out.line.textContent.indexOf('850.00') !== -1,
+      '1050 install less a 200 deposit — the stored field is only refreshed when ' +
+      'something resyncs that payer');
+    check('S276', 'and it offers the way through to that invoice',
+      !!out.line.querySelector('[data-ectinvoice="8013721805"]'),
+      'the payer’s key, not this house’s own');
+    check('S276', 'no Overdue flag is claimed anywhere',
+      out.line.innerHTML.indexOf('Overdue') === -1,
+      'Job 3 changes what Overdue means and the office copy counts from the wrong field');
+
+    /* ---- a customer who pays only for themselves ---- */
+    out = F.open(BOOK, 'solo', INVOICES);
+    check('S276', 'a single-house customer gets no tab strip at all',
+      out.tabs.style.display === 'none' && out.tabs.innerHTML === '',
+      '"this bill covers 1 property" is a row of chrome and no information');
+    check('S276', 'but still gets their bill and an Open invoice link',
+      out.line.style.display !== 'none' &&
+      !!out.line.querySelector('[data-ectinvoice="8015556666"]'),
+      '"what do they owe" is asked of a single-house customer just as often');
+    check('S276', 'and is not told whose bill it is, because it is their own',
+      out.line.innerHTML.indexOf('’s bill') === -1,
+      'naming yourself as your own payer is noise');
+
+    /* ---- a customer with no invoice yet ---- */
+    out = F.open(BOOK, 'solo', []);
+    check('S276', 'no invoice on file says so rather than showing a blank balance',
+      /No invoice on file/.test(out.line.textContent),
+      'a blank reads as zero owed');
+
+    /* ---- ⚠ THE RE-QUOTE LEAK ---- */
+    out = F.open(BOOK, 'a14', INVOICES, 'quote-123');
+    check('S276', 'the strip is hidden while a re-quote is being applied',
+      out.tabs.style.display === 'none',
+      'showApplyRequoteChoice opens this form and THEN writes the new price, footage, ' +
+      'address and colours into it — a tab click refills every field from the record ' +
+      'and throws them away, while requoteBuildChoice rides across onto the sibling house');
+    check('S276', 'but the bill line still shows, because it changes nothing',
+      out.line.style.display !== 'none',
+      'hiding it too would take the balance away for no reason');
+
+    /* ---- the save button ---- */
+    out = F.open(BOOK, 'a27', INVOICES);
+    check('S276', 'the Save button is named after the house being saved',
+      out.save.textContent === 'Save Loren Anderson',
+      'a bare "Save Changes" no longer says which of three houses it is about');
+    check('S276', 'and the sticky bar’s Save names it in its tooltip',
+      out.top.title === 'Save Loren Anderson',
+      'the two buttons must not say different things about what pressing them does');
+    /* ⚠ requoteRestoreSaveLabel reads dataset.plainLabel, and the re-quote flow
+       only caches it `if(!...)` — once, ever. Without this write the first
+       customer’s name is restored onto every customer after them. */
+    check('S276', 'the re-quote’s "put the plain wording back" gets THIS house’s wording',
+      out.save.dataset.plainLabel === 'Save Loren Anderson',
+      'cached once ever by the re-quote flow, so openEditCustomerModal has to set it every time');
+
+    /* ---- the unsaved-changes dot ---- */
+    out = F.open(BOOK, 'a14', INVOICES);
+    check('S276', 'a freshly opened house is not dirty', F.dirty() === false,
+      'the baseline is taken after every field is filled — taken earlier, the form ' +
+      'opens already warning about losing changes nobody made');
+    const dot = out.tabs.querySelector('[data-ectdirty]');
+    check('S276', 'the current tab carries a dot to show, hidden until it is earned',
+      !!dot && dot.style.display === 'none',
+      'no dot element means nothing can ever indicate unsaved work');
+    dom.window.document.getElementById('editCustFeet').value = '260';
+    check('S276', 'typing in any field makes it dirty', F.dirty() === true,
+      'the snapshot is derived from the form, so a field added later is covered ' +
+      'without anybody remembering to add it to a list');
+    F.refresh();
+    check('S276', 'and the dot appears', dot.style.display === 'inline-block',
+      'the warning before switching is only as good as the sign that it is coming');
+    dom.window.document.getElementById('editCustFeet').value = '200';
+    F.refresh();
+    check('S276', 'putting the value back clears it again',
+      F.dirty() === false && dot.style.display === 'none',
+      'a dot that never goes out is one nobody reads');
+    /* Checkboxes are read by .checked, not .value — a snapshot that reads .value
+       sees "on" whether it is ticked or not, and the dot never moves for any of
+       the eight tick-boxes on this form. */
+    dom.window.document.getElementById('editCustNewMemberFee').checked = true;
+    check('S276', 'ticking a box counts as a change too', F.dirty() === true,
+      'reading .value on a checkbox returns "on" whether it is ticked or not');
   }
 }
 

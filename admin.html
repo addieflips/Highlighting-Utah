@@ -584,6 +584,41 @@
   #editCustTopClose{
     font-size:20px; line-height:1; padding:4px 12px; font-weight:700;
   }
+  /* ⭐ ONE TAB PER HOUSE ON THE BILL (2026-08-26). A payer can be billed for
+     several houses, and until now the only way to edit the second one was to
+     close this form, find them in All Customers and open it again.
+     ⚠ THE TABS SCROLL SIDEWAYS RATHER THAN WRAPPING. Wrapping pushes the form
+     down by a row per four houses on a popup that is already 85vh, and the tab
+     strip is sticky — so a six-house landlord would open the form with the
+     first field below the fold. */
+  .editcust-tabs{
+    display:flex; gap:6px; overflow-x:auto; padding:2px 0 8px;
+    margin:0 0 10px; border-bottom:1px solid var(--line);
+  }
+  .editcust-tab{
+    flex:0 0 auto; display:flex; flex-direction:column; gap:1px;
+    padding:7px 12px; border:1px solid var(--line); border-radius:10px 10px 0 0;
+    background:var(--snow); cursor:pointer; text-align:left; font:inherit;
+    border-bottom:2px solid transparent; min-width:110px;
+  }
+  .editcust-tab:hover{ background:#fff; }
+  .editcust-tab .ect-name{ font-size:12.5px; font-weight:600; white-space:nowrap; }
+  .editcust-tab .ect-sub{ font-size:11px; color:var(--slate); white-space:nowrap; }
+  /* The one being edited. A border alone is too quiet on a strip that is itself
+     inside a bordered sticky bar. */
+  .editcust-tab.current{
+    background:#fff; border-bottom-color:var(--gold, #C9A227);
+    box-shadow:inset 0 -2px 0 var(--gold, #C9A227);
+  }
+  /* ⚠ THE PAYER IS TINTED AS WELL AS STARRED, and says "Pays the bill" in words.
+     A star alone is a symbol somebody has to have been told the meaning of, on the
+     one fact here that decides where money lands. */
+  .editcust-tab.payer{ background:#FFF8E9; border-color:#E8D9A8; }
+  .editcust-tab.payer.current{ background:#FFF3D6; }
+  .editcust-tab .ect-dirty{
+    display:inline-block; width:7px; height:7px; border-radius:50%;
+    background:var(--ember, #9A2A1F); margin-left:5px; vertical-align:middle;
+  }
   .ec-grid{ display:grid; grid-template-columns:1fr; gap:0 14px; }
   .editcust-popup.expanded .ec-grid{ grid-template-columns:1fr 1fr 1fr; }
   @media (max-width:900px){
@@ -1859,6 +1894,16 @@
             <button type="button" class="btn btn-gold btn-sm" id="editCustTopSave" title="Save Changes">Save</button>
             <button type="button" class="btn btn-outline btn-sm" id="editCustTopClose" title="Close without saving" aria-label="Close without saving">&times;</button>
           </div>
+          <!-- ⭐ THE HOUSES ON THIS BILL, one tab each (2026-08-26). Hidden for a
+               customer who pays only for themselves - "this bill covers 1 property"
+               is a row of chrome and no information - and hidden while a re-quote is
+               being applied, because that flow fills this form in AFTER opening it
+               and switching would throw the new price away. -->
+          <div id="editCustHouseTabs" class="editcust-tabs" style="display:none;" role="tablist" aria-label="Houses on this bill"></div>
+          <!-- The bill this house is on: balance, and the way through to it. Shown
+               for everybody, group or not, because "what do they owe" is asked of a
+               single-house customer just as often. -->
+          <div id="editCustBillLine" style="display:none; margin:0 0 12px; font-size:12.5px; line-height:1.5;"></div>
           <p style="margin:0 0 16px; font-size:13px; color:var(--slate);">Everything about this house is edited here. Only the amount is set on Invoices, and only the house rating is set on Routes.</p>
           <!-- ===================== CUSTOMER INFO ===================== -->
           <div class="ec-grid">
@@ -37909,6 +37954,225 @@ document.addEventListener('DOMContentLoaded', function(){
   const editFeeEl = document.getElementById('editCustFee');
   if(editFeeEl) editFeeEl.addEventListener('input', updateEditCustFeeSummary);
 });
+/* ---- EDIT CUSTOMER: one tab per house on the bill (added 2026-08-26) --------
+   A payer can be billed for several houses — a parent paying for a child, a
+   landlord paying for tenants, a cabin as well as a house — and until now the
+   only way to edit the second one was to close this form, find them in All
+   Customers and open it again.
+
+   ⭐ ONE FORM, REPOINTED — NOT A SECOND EDITOR. openEditCustomerModal already
+   IS the repoint: it fills all forty controls plus the colours and the sides,
+   re-reads the invoice for the fee, the discount and the notes, clears BOTH file
+   inputs, re-captures the stale-record guard, and sets editCustomerId, which is
+   the only thing the save handler reads. So a tab click is that call and a
+   repaint. A second editor would be a second copy of forty fields plus the save
+   logic, the invoice re-sync, the 48-hour window and the needsLightBuild gate —
+   two implementations of one rule, which is what this app keeps paying for.
+
+   ⚠ THE GROUP HAS TWO HALVES AND THIS READS BOTH. A house with billToPhone set
+   joins that payer's bill; a house with none whose custInvoiceKey matches is
+   already on that invoice with no field set anywhere. billedHousesFor answers
+   both — a billToPhone-only scan finds the first half and silently loses the
+   second, which is the bug the office screen and the customer's own portal once
+   disagreed over.
+
+   ⚠ AND IT IS THE FOURTH CONSUMER OF THAT GROUP, not a replacement for one. The
+   Member Portal box and the {{houses_block}} email token are the other two, and
+   both are customer-facing: whatever is shown here has to name the same houses
+   the customer has already been shown. */
+
+/* Every control in the form, flattened, so "has anything been touched" is one
+   comparison rather than forty.
+   ⚠ DERIVED FROM THE FORM, NEVER A LIST OF IDS. A hand-written list of the forty
+   goes stale the first time somebody adds a field, and it goes stale silently —
+   the dot simply stops appearing for that field. File inputs are skipped: they
+   are cleared on every repoint and their uploads are immediate anyway. */
+function editCustSnapshot(){
+  const popup = document.querySelector('.editcust-popup');
+  if(!popup) return '';
+  return JSON.stringify(Array.from(popup.querySelectorAll('input, select, textarea')).map(function(el){
+    if(el.type === 'file') return '';
+    if(el.type === 'checkbox' || el.type === 'radio') return el.checked ? '1' : '0';
+    return String(el.value == null ? '' : el.value);
+  }));
+}
+/* The form as it stood when this house was opened. Compared, never trusted as a
+   source: it says whether to warn, and nothing reads it to decide what to save. */
+let editCustDirtySnapshot = '';
+function editCustIsDirty(){
+  return !!editCustomerId && editCustSnapshot() !== editCustDirtySnapshot;
+}
+/* ⭐ THE SAVE BUTTON IS NAMED AFTER THE HOUSE. With tabs on screen a bare "Save
+   Changes" no longer says which of four houses it is about, and that is the one
+   thing somebody has to be sure of before pressing it.
+   ⚠ AND IT WRITES dataset.plainLabel EVERY TIME. requoteRestoreSaveLabel puts
+   that value back when a re-quote finishes or is abandoned, and the re-quote flow
+   only caches it `if(!...)` — once, ever. Left to that, the first customer's name
+   would be restored onto every customer after them. */
+function editCustSetSaveLabel(d){
+  const btn = document.getElementById('editCustSaveBtn');
+  const who = String((d && d.name) || '').trim();
+  const label = who ? ('Save ' + who) : 'Save Changes';
+  if(btn){
+    btn.textContent = label;
+    btn.dataset.plainLabel = label;
+  }
+  /* The sticky bar's copy stays the short word — it sits beside Expand and a
+     close cross on one line — but its tooltip names the house, so the two
+     buttons cannot say different things about what pressing them does. */
+  const top = document.getElementById('editCustTopSave');
+  if(top) top.title = label;
+}
+/* Which invoice this house's money is on: their own key, or the payer's when
+   they are billed elsewhere. The same expression billingGroupsByPayer builds its
+   map from, so the strip and the money list cannot key differently. */
+function editCustBillKey(d){
+  return String((d && d.billToPhone) || '').replace(/\D/g,'') || custInvoiceKey(d || {});
+}
+function editCustRenderHouseTabs(){
+  const wrap = document.getElementById('editCustHouseTabs');
+  const line = document.getElementById('editCustBillLine');
+  if(!wrap || !line) return;
+  wrap.innerHTML = '';
+  wrap.style.display = 'none';
+  line.style.display = 'none';
+  line.innerHTML = '';
+  const item = (jobAddresses || []).find(function(a){ return a.id === editCustomerId; });
+  if(!item) return;
+  const d = item.data || {};
+  const key = editCustBillKey(d);
+  const houses = billedHousesFor(d);
+  const payer = key ? payerHouseOf(key, houses) : null;
+
+  /* ⚠ NOT WHILE A RE-QUOTE IS BEING APPLIED. showApplyRequoteChoice opens this
+     form and THEN writes the new price, footage, address and colours into it, and
+     leaves requoteBeingConverted, requoteBuildChoice, requoteLightsPattern and
+     requoteColorsSnapshot set. A tab click re-runs openEditCustomerModal, which
+     refills every field from the record — so the new price is thrown away — while
+     those four module-level values ride across onto the sibling house. That is
+     the leak the Cancel handler was fixed for, in a new place. */
+  const inRequote = !!requoteBeingConverted;
+  if(houses.length > 1 && !inRequote){
+    wrap.style.display = 'flex';
+    wrap.innerHTML = houses.slice().sort(function(a, b){
+      /* The payer first, then by name. Stable, so the strip does not reshuffle
+         itself when somebody edits one of them. */
+      const pa = payer && a.id === payer.id, pb = payer && b.id === payer.id;
+      if(pa !== pb) return pa ? -1 : 1;
+      return String((a.data || {}).name || '').localeCompare(String((b.data || {}).name || ''));
+    }).map(function(h){
+      const hd = h.data || {};
+      const isPayer = !!(payer && h.id === payer.id);
+      const isCurrent = h.id === editCustomerId;
+      const num = String(hd.customerNumber == null ? '' : hd.customerNumber).trim();
+      const sub = (num ? '#' + esc(num) + ' · ' : '') + fmtMoney(Number(hd.housePrice) || 0);
+      return '<button type="button" role="tab" class="editcust-tab' +
+        (isCurrent ? ' current' : '') + (isPayer ? ' payer' : '') + '"' +
+        ' aria-selected="' + (isCurrent ? 'true' : 'false') + '"' +
+        ' data-ecthouse="' + esc(h.id) + '">' +
+        '<span class="ect-name">' + (isPayer ? '★ ' : '') +
+          esc(hd.name || '(no name)') +
+          (isCurrent ? '<span class="ect-dirty" data-ectdirty style="display:none;"></span>' : '') +
+        '</span>' +
+        '<span class="ect-sub">' + sub + (isPayer ? ' · Pays the bill' : '') + '</span>' +
+        '</button>';
+    }).join('');
+  }
+
+  /* ---- the bill itself ----
+     ⚠ COMPUTED FROM THE INVOICE, NOT READ OFF THE STORED status FIELD, which is
+     only refreshed when something resyncs that payer.
+     ⚠ AND NO OVERDUE FLAG. Job 3 changes what Overdue means (30 days to 60) and
+     the office copy counts from updatedAt rather than invoicedAt, so a corrected
+     spelling pushes a due date a month out. Nothing here claims one. */
+  const inv = key ? (invoiceById.get(key) || null) : null;
+  const bits = [];
+  if(inv){
+    const st = computeInvoiceStatus(inv.data.install, inv.data.removal, inv.data.deposit,
+      inv.data.credits, inv.data.changeFees);
+    bits.push('<span class="status-pill ' + statusClass(st) + '" style="font-size:10.5px; padding:2px 8px;">' + esc(st) + '</span>');
+    bits.push('Balance <strong>' + fmtMoney(balanceDueAmount(inv.data)) + '</strong>');
+  } else {
+    bits.push('<span style="color:var(--slate);">No invoice on file yet.</span>');
+  }
+  /* ⭐ WHOSE BILL IT IS, IN WORDS, ON EVERY TAB THAT IS NOT THE PAYER'S. The
+     balance shown is the GROUP's, so on a sibling's tab an unattributed figure
+     would read as that house's own — and it is not. Naming the payer is also why
+     this can be shown at all: a bare status pill on a house billed elsewhere is
+     the open question (Q-012), because a zeroed-but-paid invoice reads "Paid in
+     Full" while the bill it is really on may be untouched. A named bill makes no
+     claim about this house. */
+  if(payer && payer.id !== editCustomerId){
+    bits.push('on <strong>' + esc((payer.data || {}).name || 'their payer') + '</strong>’s bill');
+  } else if(houses.length > 1){
+    bits.push('covering <strong>' + houses.length + ' houses</strong>');
+  }
+  if(key){
+    bits.push('<button type="button" class="btn btn-outline btn-sm" data-ectinvoice="' + esc(key) +
+      '" style="padding:2px 10px; font-size:11.5px;">Open invoice</button>');
+  }
+  line.style.display = 'flex';
+  line.style.flexWrap = 'wrap';
+  line.style.alignItems = 'center';
+  line.style.gap = '8px';
+  line.innerHTML = bits.join('');
+  editCustRefreshDirtyDot();
+}
+/* The dot on the tab being edited. Repainted on input rather than on a timer, so
+   it appears on the first keystroke and goes again if the field is put back. */
+function editCustRefreshDirtyDot(){
+  const dot = document.querySelector('[data-ectdirty]');
+  if(dot) dot.style.display = editCustIsDirty() ? 'inline-block' : 'none';
+}
+/* ⚠ THE WARNING IS THE WHOLE POINT OF THE SNAPSHOT. Switching repoints the form
+   by refilling it from the other record, so anything typed and not saved is gone
+   with no undo — and the tabs make that a one-click mistake where it used to take
+   closing the form. */
+function editCustSwitchHouse(id){
+  if(!id || id === editCustomerId) return;
+  if(editCustIsDirty()){
+    const who = document.getElementById('editCustName');
+    const name = (who && who.value.trim()) || 'this house';
+    if(!confirm('You have unsaved changes to ' + name + '.\n\n' +
+      'Switching to another house on this bill will lose them. Carry on?')) return;
+  }
+  openEditCustomerModal(id);
+}
+document.addEventListener('click', function(e){
+  const tab = e.target.closest && e.target.closest('[data-ecthouse]');
+  if(tab){ editCustSwitchHouse(tab.dataset.ecthouse); return; }
+  const openInv = e.target.closest && e.target.closest('[data-ectinvoice]');
+  if(openInv){
+    /* Leaving the form open behind the Invoices panel would put two editors on
+       one customer, which is the state the stale-record guard exists to catch.
+       ⚠ Through the Cancel button, not by hiding the overlay: Cancel is what
+       clears editCustomerId and the re-quote state, and says so when a re-quote
+       is being abandoned. */
+    const key = openInv.dataset.ectinvoice;
+    const cancel = document.getElementById('editCustCancelBtn');
+    if(cancel) cancel.click();
+    switchToAdminPanel('invoices');
+    const box = document.getElementById('invoiceSearchInput');
+    if(box){
+      /* Search by the payer's NAME, because that is what the money list draws and
+         what its search box matches — invoiceDisplayName derives it from the
+         houses, so a stale stored name cannot hide the row. */
+      box.value = invoiceDisplayName(key, '') || key;
+      invoiceSearchTerm = box.value.trim();
+    }
+    if(typeof renderInvoicesList === 'function') renderInvoicesList();
+  }
+}, true);
+/* One listener for the whole form rather than forty. Capture phase so a field
+   that stops its own event still moves the dot. */
+document.addEventListener('input', function(e){
+  if(!editCustomerId) return;
+  if(e.target.closest && e.target.closest('.editcust-popup')) editCustRefreshDirtyDot();
+}, true);
+document.addEventListener('change', function(e){
+  if(!editCustomerId) return;
+  if(e.target.closest && e.target.closest('.editcust-popup')) editCustRefreshDirtyDot();
+}, true);
 function openEditCustomerModal(id){
   const item = jobAddresses.find(a => a.id === id);
   if(!item) return;
@@ -38019,6 +38283,14 @@ function openEditCustomerModal(id){
   document.getElementById('editCustLayoutMapFile').value = '';
   renderEditCustLayoutMapThumb();
   document.getElementById('editCustStatus').textContent = '';
+  /* ⚠ ORDER MATTERS, AND ONLY IN ONE DIRECTION: the dirty baseline is taken LAST,
+     after every field above has been filled. Taken any earlier it records a
+     half-filled form, and the tab would open already showing unsaved changes and
+     warning about losing them. */
+  editCustSetSaveLabel(d);
+  editCustRenderHouseTabs();
+  editCustDirtySnapshot = editCustSnapshot();
+  editCustRefreshDirtyDot();
   document.getElementById('editCustOverlay').style.display = 'flex';
 }
 // lightsDescription is stored as "Red, Green (extra notes)". Split it back into
@@ -38131,17 +38403,30 @@ function renderEditCustPhotoThumb(d){
 document.getElementById('editCustPhotoFile').addEventListener('change', async function(e){
   const files = Array.prototype.slice.call(e.target.files || []);
   if(!files.length || !editCustomerId) return;
+  /* ⚠ WHOSE PHOTO THIS IS, CAPTURED BEFORE THE AWAIT (2026-08-26). The upload
+     itself was always safe — addCustomerPhotos is handed the id at call time —
+     but everything after the await re-read editCustomerId, and since the house
+     tabs it can have moved: a slow upload finishing after a tab click painted
+     "Photo saved" on the wrong house and repainted the thumb from that record.
+     The house tabs made a one-click switch out of what used to mean closing the
+     form, which is what turns this from theoretical into ordinary. */
+  const forId = editCustomerId;
   const statusEl = document.getElementById('editCustPhotoStatus');
   // Saved straight away so the markup editor has something to work on.
-  const added = await addCustomerPhotos(editCustomerId, files, function(n, total){
+  const added = await addCustomerPhotos(forId, files, function(n, total){
+    if(editCustomerId !== forId) return;
     statusEl.textContent = total > 1 ? ('Uploading ' + n + ' of ' + total + '…') : 'Uploading photo…';
   });
   e.target.value = '';
+  /* They are looking at a different house now. The photo is saved on the right
+     record either way; saying so on somebody else's form is the only harm, and
+     it is the confusing kind. */
+  if(editCustomerId !== forId) return;
   if(!added){ statusEl.textContent = 'Upload failed — try again.'; return; }
   statusEl.textContent = added > 1
     ? (added + ' photos saved — use the arrows to move between them.')
     : 'Photo saved — click “Highlight / Mark Up This Photo” to mark it up.';
-  const fresh = jobAddresses.find(a => a.id === editCustomerId);
+  const fresh = jobAddresses.find(a => a.id === forId);
   renderEditCustPhotoThumb(fresh ? fresh.data : {});
 });
 let editCustLayoutMapUrl = '';
