@@ -25201,7 +25201,12 @@ suite('Suite 108. The Edit Customer save, actually run');
     /* What the office was asked before anything was charged. */
     const asked = [];
     const ctx = {
-      document: {getElementById: elm, querySelectorAll: () => [], querySelector: () => null,
+      /* ⚠ SELECTOR-AWARE NOW, so the colour tick boxes can be driven. Everything
+         else still answers with an empty list exactly as before. */
+      document: {getElementById: elm,
+                 querySelectorAll: (sel) => (String(sel).indexOf('editcust-color-check') !== -1
+                   ? (o.ticked || []).map((v) => ({value: v})) : []),
+                 querySelector: () => null,
                  createElement: () => elm('_t')},
       doc: (db, col, id) => ({col: col, id: id}),
       collection: (db, col) => ({col: col}),
@@ -25218,6 +25223,14 @@ suite('Suite 108. The Edit Customer save, actually run');
       requoteBeingConverted: o.noRequote ? null : 'q1',
       requoteBuildChoice: o.noRequote ? null : {mode: 'recycle'},
       editCustLayoutMapUrl: '',
+      /* ⭐ WHAT THE COLOUR BOXES COULD SHOW WHEN THE FORM OPENED. Set by
+         openEditCustomerModal on every open, READ here — so the sandbox has to
+         supply them or the handler is a ReferenceError. That is the extraction-list
+         trap CLAUDE.md describes, hit a fourth time and caught a fourth time by
+         this suite failing loudly rather than skipping.
+         Defaults are the ordinary case: nothing on file, nothing ticked. */
+      editCustLightsRaw: o.lightsRaw || '',
+      editCustLightsTicked: o.lightsTicked || [],
       jobAddresses: [{id: 'c894', data: Object.assign({name: 'Ashley Wray',
         phone: '8016160714', email: 'wraynash@gmail.com',
         address: '9991 Red Cedar Ln, Highland, UT',
@@ -25316,6 +25329,106 @@ suite('Suite 108. The Edit Customer save, actually run');
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
+
+  /* ⭐ AND THE OPENER IS ASSERTED SEPARATELY FROM THE RULE, because red-checking
+     PROVED it was not. This sandbox SUPPLIES editCustLightsRaw and editCustLightsTicked,
+     so deleting the two lines that set them from openEditCustomerModal left every check
+     below green while the guard could never engage in the real page — the same shape as
+     the house-tab strip, whose four calls had to be asserted for exactly this reason.
+
+     ⚠ THE READ IS TAKEN AFTER THE TICKING, and that ordering is the whole point: it is
+     the only moment that knows what the boxes managed to show. Taken before, it records
+     an empty list for every customer and the guard refuses every save. */
+  {
+    const open = sectionFrom(admin, admin.indexOf('function openEditCustomerModal('));
+    check('S108', 'the opener records what was on file before the boxes were ticked',
+      /editCustLightsRaw\s*=/.test(open),
+      'without it the guard has nothing to compare and never fires');
+    check('S108', 'and records what the boxes managed to show',
+      /editCustLightsTicked\s*=\s*Array\.from\(/.test(open),
+      'a red-check deleting this left the whole suite green while the fix was dead');
+    const tick = open.indexOf("cb.checked = custColors.includes(cb.value)");
+    const read = open.indexOf('editCustLightsTicked =');
+    check('S108', 'and reads them AFTER the boxes are ticked, not before',
+      tick > -1 && read > tick,
+      'read first it records nothing for everybody, and every save is then refused');
+  }
+
+  /* ⭐ AN ORDINARY SAVE MUST NOT ERASE COLOURS THE FORM COULD NEVER SHOW (2026-08-26).
+     The ten tick boxes match their own labels exactly, so a record spelled any other
+     way ticks NOTHING — and this handler wrote lightColors and lightsDescription
+     unconditionally. Open Edit Customer to correct a phone number, press Save, and the
+     colours were gone. Edit Customer was the ONLY unguarded writer of these two: the
+     bulk importer, the sheet comparison and the schedule sync all already follow
+     "a blank never wipes what the record has".
+
+     ⚠ THE RULE IS "COULD THE FORM HAVE SHOWN IT", NOT "IS IT BLANK". Refusing every
+     empty save would take away the office's ability to clear a house's colours on
+     purpose, so both directions are checked below and neither is optional.
+
+     ⚠ AND THE FLATTENED-PATTERN CASE WAS A MONEY BUG TOO, not only a data one:
+     "Red, Green, Red, Green" ticks Red and Green, rebuilds as "Red, Green", and
+     applyLightChange scores that as a real change — a $30 fee prompt, a 48-hour route
+     lock and a warehouse rebuild, on a save where nobody touched the lights. */
+  if (handlerSrc) pendingAsync.push((async () => {
+    /* ⚠ noRequote, DELIBERATELY. The default fixture is a re-quote carrying
+       {mode:'recycle'}, which sets needsLightBuild itself — so the warehouse check
+       below would be scoring the re-quote's doing, not the colour path, and would
+       fail on code that is right. Caught by that check failing on the first run. */
+    const unreadable = await runSave({noRequote: true, lightsRaw: 'ww/r',
+                                      lightsTicked: [], ticked: []});
+    check('S108', 'a save never erases colours the tick boxes could not show',
+      !!unreadable.cust &&
+      !('lightsDescription' in unreadable.cust.payload) &&
+      !('lightColors' in unreadable.cust.payload),
+      'an ordinary save of a house reading "ww/r" wiped its colours and said nothing');
+    check('S108', 'and says so rather than saving quietly',
+      /not something the tick boxes can show/i.test(unreadable.errs.join(' | ')),
+      'owner, 2026-08-25: "nothing should fail quietly" — a silent skip is ' +
+      'indistinguishable from the colours having been saved');
+
+    /* ⚠ THE OTHER DIRECTION, and it is the one a careless fix breaks. A record the
+       boxes CAN show, with everything unticked, is the office clearing the house on
+       purpose and must still write. */
+    const cleared = await runSave({noRequote: true, lightsRaw: '',
+                                   lightsTicked: [], ticked: []});
+    check('S108', 'the office can still clear a house it really means to clear',
+      !!cleared.cust && ('lightColors' in cleared.cust.payload),
+      'guarding on blank alone would make clearing a house impossible');
+
+    /* ⭐ THE FLATTENED PATTERN, WHICH WAS THE MONEY HALF. "Red, Green, Red, Green"
+       ticks Red and Green; rebuilding the description from the boxes gives "Red, Green",
+       and applyLightChange scores that as a real colour change — a $30 fee prompt, a
+       48-hour route lock and a warehouse rebuild, on a save where nobody touched the
+       lights. Keeping the stored wording is what stops all three.
+       ⚠ ASSERTED ON THE FEE PROMPT, not on needsLightBuild: this fixture's wireColor
+       goes undefined -> '', which re-queues the warehouse on its own and would make the
+       check pass or fail for a reason that has nothing to do with colours. */
+    /* ⚠ `lights` IS WHAT compileLightsDescription IS STUBBED TO RETURN, and without
+       it this fixture proves nothing: the stub answers '' , applyLightChange reads an
+       empty new value as "not a change", and the fee check below passes whatever the
+       code does. Caught by red-checking — sabotage 2 failed only the wording check. */
+    const strand = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Red, Green, Red, Green'},
+      lightsRaw: 'Red, Green, Red, Green', lightsTicked: ['Red', 'Green'],
+      ticked: ['Red', 'Green']});
+    check('S108', 'a strand keeps its order, so an untouched save asks for no fee',
+      strand.asked.length === 0,
+      'flattening "Red, Green, Red, Green" to "Red, Green" reads as a colour change ' +
+      'and charges $30 for a save that changed nothing');
+    check('S108', 'and the stored wording survives the save',
+      !!strand.cust && strand.cust.payload.lightsDescription === 'Red, Green, Red, Green',
+      'a set and a strand are the same bulbs and two different builds');
+
+    /* And ticking the real colours on an unreadable house is a correction, which is
+       the remedy Health Check\'s "colours written as words" row already names. */
+    const fixed = await runSave({noRequote: true, lightsRaw: 'ww/r',
+                                 lightsTicked: [], ticked: ['Red']});
+    check('S108', 'ticking the real colours on an unreadable house still corrects it',
+      !!fixed.cust && Array.isArray(fixed.cust.payload.lightColors) &&
+      fixed.cust.payload.lightColors.join(',') === 'Red',
+      'the guard must not lock a house out of ever being corrected');
+  })());
 
   if (handlerSrc) pendingAsync.push((async () => {
     const ok = await runSave({});
