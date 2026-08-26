@@ -8013,6 +8013,129 @@ suite('17. A new customer lands on the next day in their city');
       check('reconcile', 'a set of routes that is already right writes NOTHING',
         h2.writes.length === 0 && h2.added.length === 0 && clean2.changed === false,
         'this runs every fifteen minutes in four browsers — the normal case has to be free');
+
+    /* ---- 18.9 THE SWEEP HAS TO SETTLE (added 2026-08-26) ------------------
+       Reported from the live book: ~90 "Routes kept up to date" notices in one
+       day, most of them "29 moved, 29 removed". A sweep doing real work finds
+       LESS to do next time; the same counts every fifteen minutes is a house
+       being put on a day and taken straight back off, for ever.
+
+       ⚠ THE CAUSE WAS TWO OPINIONS ABOUT WHO IS IN THE SEASON, which is the
+       exact failure the comment above stopProblem already records from
+       2026-08-15 — fixed there, and re-grown in a different feeder. Step 1
+       evicts through `isOutForSeason`; steps 2a and 2b hand-rolled their own
+       test and both missed `needsLightRecycle`. So a house queued to have its
+       lights taken apart was OUT by the eviction and IN by the homing.
+
+       ⚠ THESE RUN THE SWEEP RATHER THAN READING IT. A source check that both
+       call isOutForSeason would pass on code that still loops, because the
+       loop is about two rules AGREEING, not about either one existing. */
+    {
+      const soon = dstr(4);
+      const past = dstr(-9);
+      const sweepFor = houses => {
+        const cache = {};
+        cache[soon] = [{id:'d1', date:soon, type:'install', crew:'1', autoBuilt:true,
+          city:'Lehi', towns:['Lehi'], stops: []}];
+        return makeRec(houses, cache);
+      };
+      const homed = rep => (rep.moved || []).map(m => m.name);
+
+      /* A new hang whose lights are queued to be taken apart. Not "no", not
+         back next year, not maybe — so every hand-rolled test let it through. */
+      const recycler = [{id:'r', data:{name:'Recycle Queued', city:'Lehi', address:'1 St',
+        lat:40.39, lng:-111.85, chargeNewMemberFee:true, needsLightRecycle:true}}];
+      {
+        const h = sweepFor(recycler);
+        const rep = await h.api.reconcile();
+        check('reconcile', 'a house queued for recycle is not put on a day at all',
+          homed(rep).indexOf('Recycle Queued') === -1,
+          'step 1 evicts it through isOutForSeason, so homing it here is a house added ' +
+          'and removed from a route every fifteen minutes — got: ' + JSON.stringify(homed(rep)));
+      }
+
+      /* ⚠ recycleKeepingCustomer is the mover: their old set comes back AND a new
+         one is built, and they are still in the season. isOutForSeason already
+         makes that distinction; this proves the fix inherited it rather than
+         blanket-excluding everybody with a recycle flag. */
+      {
+        const mover = [{id:'m', data:{name:'Moved House', city:'Lehi', address:'2 St',
+          lat:40.39, lng:-111.85, chargeNewMemberFee:true,
+          needsLightRecycle:true, recycleKeepingCustomer:true}}];
+        const h = sweepFor(mover);
+        const rep = await h.api.reconcile();
+        check('reconcile', 'but somebody who MOVED is still scheduled',
+          homed(rep).indexOf('Moved House') !== -1,
+          'they are in the season and need hanging — excluding every recycle flag ' +
+          'would silently drop every mover');
+      }
+
+      /* ⚠ CASE. Step 2b compared rsvpStatus with === while isOutForSeason
+         lowercases, so a stored "No" slipped past the homing and was evicted by
+         step 1 on the next pass. A fixture spelling it 'no' cannot see this. */
+      {
+        const shouty = [{id:'n', data:{name:'Shouty No', city:'Lehi', address:'3 St',
+          lat:40.39, lng:-111.85, chargeNewMemberFee:true, rsvpStatus:'No'}}];
+        const h = sweepFor(shouty);
+        const rep = await h.api.reconcile();
+        check('reconcile', 'a stored "No" is read the same way by both halves',
+          homed(rep).indexOf('Shouty No') === -1,
+          'case-sensitive here and lowercased in the eviction is the same loop in ' +
+          'a spelling nobody would look for');
+      }
+
+      /* ⚠ AND A LEFTOVER TAKES THE OTHER FEEDER (2a): already scheduled, its day
+         long past. That branch never tested the RSVP at all. */
+      {
+        const leftover = [{id:'l', data:{name:'Old Leftover', city:'Lehi', address:'4 St',
+          lat:40.39, lng:-111.85, scheduled:true, scheduledDate:past, rsvpStatus:'no'}}];
+        const h = sweepFor(leftover);
+        const rep = await h.api.reconcile();
+        check('reconcile', 'a leftover who said no is not re-homed either',
+          homed(rep).indexOf('Old Leftover') === -1,
+          'the leftover feeder tested only maybeNextYear, so an RSVP-no house was ' +
+          'picked back up every pass');
+      }
+
+      /* ⭐ AND THE PROPERTY THAT ACTUALLY MATTERS: run it twice. Whatever the
+         first pass does, the second must find nothing left to do. This is the
+         only check here that would catch a NEW disagreement between two rules,
+         rather than the three known ones above. */
+      {
+        const mixed = [
+          {id:'a', data:{name:'Recycle Queued', city:'Lehi', address:'1 St', lat:40.39,
+            lng:-111.85, chargeNewMemberFee:true, needsLightRecycle:true}},
+          {id:'b', data:{name:'Ordinary', city:'Lehi', address:'2 St', lat:40.39,
+            lng:-111.85, chargeNewMemberFee:true}},
+          {id:'c', data:{name:'Said No', city:'Lehi', address:'3 St', lat:40.39,
+            lng:-111.85, chargeNewMemberFee:true, rsvpStatus:'no'}}
+        ];
+        const h1 = sweepFor(mixed);
+        const first = await h1.api.reconcile();
+        /* Feed the first pass's writes back onto the records, the way Firestore
+           would, then sweep again from that state. */
+        const after = mixed.map(x => {
+          const w = h1.writes.filter(z => z.path === 'jobAddresses/' + x.id);
+          const merged = Object.assign({}, x.data);
+          w.forEach(z => Object.assign(merged, z.payload || {}));
+          return {id: x.id, data: merged};
+        });
+        const cache2 = {};
+        cache2[soon] = [{id:'d1', date:soon, type:'install', crew:'1', autoBuilt:true,
+          city:'Lehi', towns:['Lehi'],
+          stops: after.filter(x => x.data.scheduled).map(x => ({id:x.id, name:x.data.name,
+            address:x.data.address, lat:x.data.lat, lng:x.data.lng, difficulty:'Unrated',
+            phone:'', gateCode:'', specificOutlet:'', specificOutletNotes:'',
+            customerNumber:''}))}];
+        const h2 = makeRec(after, cache2);
+        const second = await h2.api.reconcile();
+        check('reconcile', 'the sweep SETTLES — a second pass has nothing left to do',
+          (second.moved || []).length === 0 && (second.dropped || []).length === 0,
+          'this is the loop, stated as a property: the live book showed ~90 notices in ' +
+          'one day reading "29 moved, 29 removed" over and over. Second pass moved ' +
+          (second.moved || []).length + ', dropped ' + (second.dropped || []).length);
+      }
+    }
     })());
   }
 }
@@ -8528,9 +8651,32 @@ check('fill', 'a customer the lookup cannot find is never assumed to be allowed'
 check('cap', 'a new hang on no day at all is gone and got',
   /if\(!isNewHangHouse\(d\)\) return;[\s\S]{0,400}needHoming\.push\(a\);/.test(admin),
   "the owner's rule: as soon as a customer is listed as a new hang they go on the schedule");
+/* ⚠ REPOINTED 2026-08-26, NOT WEAKENED. This matched the literal `rsvpStatus === 'no'`
+   — that is, it was pinned to HOW the rule happened to be spelled inside the feeder. The
+   spelling was the bug: it hand-rolled a season test that disagreed with the eviction's
+   `isOutForSeason` about needsLightRecycle, so a house was homed and evicted every
+   fifteen minutes. Fixing the loop deleted the string and this failed on correct code.
+   It now asserts what must be TRUE — the feeder asks the one shared predicate — and the
+   behaviour itself is RUN in suite 18.9, which is the half a regex cannot do. Same
+   slow-fuse shape as S82, S129 and the folder-names suite. */
 check('cap', 'a new hang who said no, or is sitting out, is left alone',
-  /isNewHangHouse[\s\S]{0,300}rsvpStatus === 'no'[\s\S]{0,200}needHoming/.test(admin),
-  'auto-scheduling somebody who cancelled would put them back in front of the crew');
+  /if\(!isNewHangHouse\(d\)\) return;[\s\S]{0,400}isOutForSeason\(d\)\) return;[\s\S]{0,200}needHoming/
+    .test(admin.replace(/\r/g, '')),
+  'auto-scheduling somebody who cancelled would put them back in front of the crew — ' +
+  'and a second opinion about who is in the season is what caused the route churn');
+/* ⚠ AND NEITHER FEEDER MAY HAND-ROLL IT AGAIN. Both were wrong the same way; asserting
+   only the one that was reported would leave the other free to re-grow. */
+check('cap', 'neither homing feeder decides the season for itself',
+  (function(){
+    const src = admin.replace(/\r/g, '');
+    const a = src.indexOf('const cutoff = new Date();');
+    const b = src.indexOf('newHangIds.add(a.id);');
+    const region = a > -1 && b > -1 ? src.slice(a, b) : '';
+    return !!region && (region.match(/isOutForSeason\(d\)/g) || []).length >= 2 &&
+      !/rsvpStatus === '/.test(region) && !/d\.maybeNextYear\) return;/.test(region);
+  })(),
+  'step 1 evicts through isOutForSeason; a feeder testing anything else puts houses ' +
+  'back on the days it just took them off');
 check('cap', 'adding a customer only bumps somebody once that town is over twenty',
   /if\(withNew\.length > MAX_STOPS_PER_ROUTE\)\{/.test(admin),
   'it used to bump on EVERY add to hold the planned size — that moved a confirmed ' +
