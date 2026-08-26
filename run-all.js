@@ -5191,7 +5191,12 @@ suite('11. Reliability pass');
         'return ' + overdueSrc + ';isInvoiceOverdue'
       )(computeInvoiceStatus, 30, issuedAt);
 
-      const ago = (n) => ({ toDate: () => new Date(Date.now() - n * 86400000) });
+      /* ⚠ ONE INSTANT, NOT ONE PER CALL. This read Date.now() inside toDate(), so
+         the last check below compared two separately-computed "40 days ago" and
+         failed whenever the two landed a millisecond apart — a real flake, caught
+         on 2026-08-26. §9.7: a flaky test trains you to dismiss failures. */
+      const NOW = Date.now();
+      const ago = (n) => { const d = new Date(NOW - n * 86400000); return { toDate: () => d }; };
       const owing = { install: 400, removal: 0, deposit: 0, credits: 0, changeFees: 0 };
 
       check('reliability', 'a bill issued 40 days ago is overdue',
@@ -11876,15 +11881,28 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
      is a ReferenceError inside the sandbox — which is what the add-on work hit
      on its first run, and is exactly the failure CLAUDE.md describes. Add the
      helper, never a stub: a stub agrees with itself. */
+  /* ⚠ applyQuoteLinkLabelServer JOINED THIS LIST 2026-08-26, in the same commit
+     that made the nudge renderer call it. Same reasoning as the two above: this
+     suite lifts the renderer out by its anchors and RUNS it, so a helper missing
+     here is a ReferenceError inside the sandbox rather than a failing check.
+     Its style constant has to come with it — lifting the function alone leaves
+     a live reference to a name the sandbox has never heard of. */
   const serverParts = ['quotePhotosServer', 'cloudEmailPhotoServer', 'escServer',
     'quotePhotoEmailHtmlServer', 'properNameServer',
-    'quoteIsAddOn', 'quoteButtonLabelsServer']
+    'quoteIsAddOn', 'quoteButtonLabelsServer', 'applyQuoteLinkLabelServer',
+    'applyQuoteLinkButtonServer']
     .map(n => grabBrowser(n, fns));
+  const serverConsts = [
+    /const QUOTE_LINK_LABEL_STYLE_SERVER = '[^']+';/,
+    /const QUOTE_LINK_BUTTON_STYLE_SERVER = '[^']+';/,
+    /const QUOTE_LINK_BUTTON_DEFAULT_SERVER = '[^']+';/
+  ].map(re => fns.match(re));
+  const serverLabelStyle = serverConsts.every(Boolean) ? serverConsts.map(m => m[0]).join('\n') : null;
   const bStart = fns.indexOf("      const quoteToken = q.quoteToken || '';");
   const bEnd = fns.indexOf('      const res = await fetch(', bStart);
 
   check('S33', 'the server nudge renderer is findable',
-    serverParts.every(Boolean) && bStart !== -1 && bEnd > bStart,
+    serverParts.every(Boolean) && !!serverLabelStyle && bStart !== -1 && bEnd > bStart,
     'same reasoning — if the anchors move, this fails rather than quietly testing nothing');
 
   check('S33', 'the button-repeating logic is gone from the browser',
@@ -11904,7 +11922,7 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
      run dying with a stack trace three suites early. */
   try {
   if (browserParts.every(Boolean) && widthDecl && cloudDecl && serverParts.every(Boolean) &&
-      bStart !== -1 && bEnd > bStart && bodyDecl) {
+      serverLabelStyle && bStart !== -1 && bEnd > bStart && bodyDecl) {
     const NUDGE = new Function('return ' + bodyDecl[1].replace(/\r/g, ''))();
 
     const renderBrowser = new Function('body', 'photos',
@@ -11917,6 +11935,7 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
       ', photos, true);');
 
     const renderServer = new Function('q', 'templateBody',
+      (serverLabelStyle ? serverLabelStyle + '\n' : '') +
       serverParts.join('\n') + '\n' + fns.slice(bStart, bEnd) + '\nreturn body;');
 
     const shape = html => ({
@@ -43670,6 +43689,268 @@ suite('279. A customer email that is one letter wrong');
 }
 
 
+suite('280. A quote link behind her own words');
+/* ⭐ Owner, 2026-08-26, on the quote message: "I don't want a long li[n]k I want
+   it to say ... See your home and approve here. The link will be behind here?"
+
+   A quote link had two shapes and neither is a sentence: {{link}} prints the
+   whole ~80-character URL, and {{link_button}} is a gold block whose words are
+   ours. {{link:the words she types}} is the third — her words, the link behind
+   them.
+
+   ⚠ THE RULE EXISTS TWICE, like every other rule that crosses the wire. The
+   office sends the Nudge from the browser; the nightly batch renders it in
+   functions/index.js. A token one copy understands and the other does not mails
+   a customer the raw "{{link:See your home and approve here}}" on the one send
+   nobody is watching. So this suite RUNS both copies over the same inputs and
+   requires the same bytes out — it does not read either of them.
+
+   ⚠ AND IT ASSERTS THE ANSWER IS RIGHT, not merely equal. Two copies escaping
+   nothing agree perfectly.
+*/
+{
+  const fnsSrc = read('functions/index.js');
+
+  const browserFn = extractFn(admin, 'applyQuoteLinkLabel');
+  const browserPlain = extractFn(admin, 'quoteLinkLabelPlain');
+  const serverFn = extractFn(fnsSrc, 'applyQuoteLinkLabelServer');
+  const browserStyle = admin.match(/const QUOTE_LINK_LABEL_STYLE = '[^']+';/);
+  const serverStyle = fnsSrc.match(/const QUOTE_LINK_LABEL_STYLE_SERVER = '[^']+';/);
+
+  const browserBtn = extractFn(admin, 'applyQuoteLinkButton');
+  const serverBtn = extractFn(fnsSrc, 'applyQuoteLinkButtonServer');
+  const bBtnStyle = admin.match(/const QUOTE_LINK_BUTTON_STYLE = '[^']+';/);
+  const sBtnStyle = fnsSrc.match(/const QUOTE_LINK_BUTTON_STYLE_SERVER = '[^']+';/);
+  const bBtnDflt = admin.match(/const QUOTE_LINK_BUTTON_DEFAULT = '[^']+';/);
+  const sBtnDflt = fnsSrc.match(/const QUOTE_LINK_BUTTON_DEFAULT_SERVER = '[^']+';/);
+
+  /* A parity test that cannot find its target must never report green — the
+     rule money-parity.test.js is built on. */
+  check('S280', 'both copies of the rule are findable, and their styles with them',
+    !!browserFn && !!serverFn && !!browserPlain && !!browserStyle && !!serverStyle,
+    'a rename here fails loudly rather than quietly testing nothing');
+
+  if (browserFn && serverFn && browserPlain && browserStyle && serverStyle) {
+    const runBrowser = new Function('text', 'url',
+      browserStyle[0] + '\n' + browserFn + '\nreturn applyQuoteLinkLabel(text, url);');
+    const runServer = new Function('text', 'url',
+      serverStyle[0] + '\n' + serverFn + '\nreturn applyQuoteLinkLabelServer(text, url);');
+    const runPlain = new Function('text',
+      browserPlain + '\nreturn quoteLinkLabelPlain(text);');
+
+    const URL = 'https://highlightingutah.com/#/quote-details?token=qt_abc123&p=pt_x';
+
+    /* Her own sentence first, then the shapes that break naive implementations:
+       an apostrophe (the one esc/escServer disagree about), an ampersand, an
+       angle bracket, an empty label, a label of only spaces, two labelled links
+       in one body, a labelled link beside the plain and button forms, and a
+       body with none at all. */
+    const CASES = [
+      'See your home and approve {{link:here}}.',
+      'Hi Sam,\n\nYour quote is ready: $250.00.\n\n{{link:See your home and approve here}}',
+      "{{link:Here's your quote}}",
+      '{{link:Bob & Sue}}',
+      '{{link:<b>press me</b>}}',
+      '{{link:}}',
+      '{{link:   }}',
+      '{{link:one}} and {{link:two}}',
+      'Plain {{link}} button {{link_button}} words {{link:and these}}',
+      'Nothing to do here at all.',
+      ''
+    ];
+
+    let disagreed = null;
+    CASES.forEach(function (body) {
+      const b = runBrowser(body, URL);
+      const s = runServer(body, URL);
+      if (b !== s && !disagreed) disagreed = { body: body, browser: b, server: s };
+    });
+    check('S280', 'the office and the nightly batch render every case identically',
+      !disagreed,
+      disagreed ? ('on ' + JSON.stringify(disagreed.body) + '\n        browser: ' +
+        disagreed.browser + '\n        server:  ' + disagreed.server) : '');
+
+    /* ---- and that what they agree on is correct ---- */
+    const simple = runBrowser('See your home and approve {{link:here}}.', URL);
+    check('S280', 'her words are what the customer sees, not the address',
+      simple.indexOf('>here</a>') !== -1 && simple.indexOf('See your home and approve <a') !== -1,
+      'the whole point is a sentence, not a URL dropped into one');
+    check('S280', 'and the link is behind them',
+      simple.indexOf('href="' + URL + '"') !== -1,
+      'a label with no href is a word that does nothing');
+    check('S280', 'the token itself is gone',
+      simple.indexOf('{{link') === -1,
+      'a leftover token is what the customer reads');
+
+    check('S280', 'an apostrophe in the words survives as an apostrophe',
+      runBrowser("{{link:Here's your quote}}", URL).indexOf("Here's your quote") !== -1,
+      'esc() escapes the apostrophe and escServer does not — borrowing either would split the two copies on the commonest word there is');
+    check('S280', 'an ampersand is escaped',
+      runBrowser('{{link:Bob & Sue}}', URL).indexOf('Bob &amp; Sue') !== -1,
+      'a bare & in an email body is invalid and renders unpredictably');
+    check('S280', 'and markup typed into the words cannot break out of the tag',
+      /&lt;b&gt;press me&lt;\/b&gt;/.test(runBrowser('{{link:<b>press me</b>}}', URL)),
+      'the words come out of a text box; the URL is one we built');
+
+    check('S280', 'a blank label falls back to a word, never an empty link',
+      runBrowser('{{link:}}', URL).indexOf('>here</a>') !== -1 &&
+      runBrowser('{{link:   }}', URL).indexOf('>here</a>') !== -1,
+      'an empty anchor is a link nobody can see or press — the message reads as if it were missing');
+
+    const two = runBrowser('{{link:one}} and {{link:two}}', URL);
+    check('S280', 'every labelled link in one body is replaced, not just the first',
+      two.indexOf('>one</a>') !== -1 && two.indexOf('>two</a>') !== -1,
+      'a non-global regex leaves the second one as raw text');
+
+    /* ⚠ {{link}} is matched as a literal string elsewhere, so it cannot eat the
+       front of a {{link:...}}. Asserted, because the day somebody rewrites that
+       split as a regex is the day this stops being true and a customer gets
+       "https://...:See your home and approve here}}". */
+    const mixed = runBrowser('Plain {{link}} words {{link:and these}}', URL);
+    check('S280', 'the labelled form does not disturb the plain {{link}} beside it',
+      mixed.indexOf('Plain {{link}} words ') === 0 && mixed.indexOf('>and these</a>') !== -1,
+      'the two forms have to coexist in one body — the office writes both');
+    check('S280', 'and {{link_button}} is left for its own renderer',
+      runBrowser('{{link_button}}', URL) === '{{link_button}}',
+      'swallowing the button token would turn a gold block into the word "button"');
+
+    /* ---- the text-message half ---- */
+    check('S280', 'a text keeps her words and drops the token',
+      runPlain('See your home and approve {{link:here}}.') === 'See your home and approve here.',
+      'a text is plain characters — an anchor cannot exist, so the words have to survive on their own');
+    check('S280', 'and a text never carries HTML',
+      runPlain('{{link:Bob & Sue}}').indexOf('<') === -1 &&
+      runPlain('{{link:Bob & Sue}}').indexOf('&amp;') === -1,
+      'escaped markup pasted into a text message is read literally by the phone');
+    check('S280', 'a blank label in a text falls back the same way',
+      runPlain('{{link:}}') === 'here',
+      'the two halves must agree about what nothing means');
+  }
+
+  /* ---------------------------------------------------------------
+     THE BUTTON. Same rule, second shape — and this half also closed a
+     leak: until 2026-08-26 the nightly nudge renderer did not know
+     {{link_button}} existed at all, so a Nudge template carrying a
+     button rendered gold from the office and arrived as the literal
+     fifteen characters "{{link_button}}" from the 7 PM batch.
+     --------------------------------------------------------------- */
+  check('S280', 'both copies of the button rule are findable, with their style and default',
+    !!browserBtn && !!serverBtn && !!bBtnStyle && !!sBtnStyle && !!bBtnDflt && !!sBtnDflt,
+    'a parity test that cannot find its target must never report green');
+
+  /* ⚠ The style and the default word are compared as STRINGS, not merely both
+     present. Two buttons that agree about everything except their padding are
+     two different emails for one template. */
+  check('S280', 'the gold style is the same string on both sides',
+    !!bBtnStyle && !!sBtnStyle &&
+    bBtnStyle[0].slice(bBtnStyle[0].indexOf("'")) === sBtnStyle[0].slice(sBtnStyle[0].indexOf("'")),
+    'the browser hoisted this constant out of resolveLinkTokens for no other reason than that the server could be held to it');
+  check('S280', 'and so is the wording of the plain button',
+    !!bBtnDflt && !!sBtnDflt &&
+    bBtnDflt[0].slice(bBtnDflt[0].indexOf("'")) === sBtnDflt[0].slice(sBtnDflt[0].indexOf("'")),
+    'one saying "View & Respond" and the other saying something else is two emails for one template');
+
+  if (browserBtn && serverBtn && bBtnStyle && sBtnStyle && bBtnDflt && sBtnDflt && browserPlain) {
+    const runBtnB = new Function('text', 'url', 'dflt',
+      bBtnStyle[0] + '\n' + bBtnDflt[0] + '\n' + browserBtn +
+      '\nreturn applyQuoteLinkButton(text, url, dflt);');
+    const runBtnS = new Function('text', 'url', 'dflt',
+      sBtnStyle[0] + '\n' + sBtnDflt[0] + '\n' + serverBtn +
+      '\nreturn applyQuoteLinkButtonServer(text, url, dflt);');
+    const runPlain2 = new Function('text',
+      bBtnDflt[0] + '\n' + browserPlain + '\nreturn quoteLinkLabelPlain(text);');
+    const U = 'https://highlightingutah.com/#/quote-details?token=qt_abc123';
+
+    const BCASES = [
+      '{{link_button}}',
+      '{{link_button:See your home and approve}}',
+      "{{link_button:Here's your quote}}",
+      '{{link_button:Bob & Sue}}',
+      '{{link_button:}}',
+      '{{link_button:   }}',
+      '{{link_button:one}} {{link_button:two}}',
+      'Words {{link:here}} and a block {{link_button:approve}}',
+      'nothing at all'
+    ];
+    let bad = null;
+    BCASES.forEach(function (body) {
+      const b = runBtnB(body, U);
+      const sv = runBtnS(body, U);
+      if (b !== sv && !bad) bad = { body: body, browser: b, server: sv };
+    });
+    check('S280', 'the office and the nightly batch render every button case identically',
+      !bad,
+      bad ? ('on ' + JSON.stringify(bad.body) + '\n        browser: ' + bad.browser +
+        '\n        server:  ' + bad.server) : '');
+
+    check('S280', 'a bare {{link_button}} still says what it has always said',
+      runBtnB('{{link_button}}', U).indexOf('>View &amp; Respond</a>') !== -1,
+      'the words are ours here, and changing them would silently reword every template already using it');
+    check('S280', 'and her words replace them when she gives some',
+      runBtnB('{{link_button:See your home and approve}}', U)
+        .indexOf('>See your home and approve</a>') !== -1);
+    check('S280', 'the button still carries the gold block styling, not a bare link',
+      /background:#D89F3D/.test(runBtnB('{{link_button}}', U)),
+      'a button that renders as plain text is not the thing she picked');
+    check('S280', 'an empty label falls back to the default rather than an invisible button',
+      runBtnB('{{link_button:}}', U).indexOf('>View &amp; Respond</a>') !== -1 &&
+      runBtnB('{{link_button:   }}', U).indexOf('>View &amp; Respond</a>') !== -1);
+    check('S280', 'a caller-supplied label is still honoured',
+      runBtnB('{{link_button}}', U, 'Log Into Your Portal')
+        .indexOf('>Log Into Your Portal</a>') !== -1,
+      'etResolveVars passes one for the portal emails — dropping it would relabel every one of them');
+    check('S280', 'her words beat the caller-supplied label',
+      runBtnB('{{link_button:Pay now}}', U, 'Log Into Your Portal')
+        .indexOf('>Pay now</a>') !== -1,
+      'the words typed into the template are the more specific answer');
+    check('S280', 'the plain {{link}} beside it is left alone',
+      runBtnB('Words {{link}} block {{link_button:go}}', U).indexOf('{{link}}') !== -1,
+      'the two renderers run one after the other and must not eat each other\'s tokens');
+    check('S280', 'a text keeps the button words and carries no HTML',
+      runPlain2('{{link_button:See your home and approve}}') === 'See your home and approve' &&
+      runPlain2('{{link_button}}') === 'View & Respond',
+      'a button token left in a text template used to reach the customer as those exact characters');
+  }
+
+  /* ---- the wiring. Suite 276's lesson: a mechanism nothing calls is a
+     mechanism that never runs, and the suite proving it stays green. ---- */
+  /* Sliced between two real anchors, never "the next N characters" — §7, and
+     the suite's own meta-check enforces it. */
+  const linkStart = admin.indexOf('  if(opts.link){');
+  const linkBlock = linkStart === -1 ? '' :
+    admin.slice(linkStart, admin.indexOf("{{due_date}}", linkStart));
+  check('S280', 'the email renderer actually calls it',
+    !!linkBlock && /applyQuoteLinkLabel\(out, opts\.link\)/.test(linkBlock),
+    'defined and never called is how this ships doing nothing at all');
+
+  /* The whole expression, so no window is needed at all: there is exactly one
+     place the text body is built out of a template. */
+  check('S280', 'and the text builder strips it',
+    admin.indexOf('quoteLinkLabelPlain(htmlEmailToPlainText(template.data.body') !== -1,
+    'without this a text message carries the raw {{link:...}} token to the customer');
+  check('S280', 'the nightly nudge calls the server copy',
+    /body = applyQuoteLinkLabelServer\(body, base\);/.test(fnsSrc),
+    'the browser understanding a token the batch does not is exactly the {{photo}} bug of 2026-08-17');
+  check('S280', 'and the nightly nudge renders the button at all',
+    /body = applyQuoteLinkButtonServer\(body, base\);/.test(fnsSrc),
+    'this is the leak itself: without the call a Nudge with a button mails the raw "{{link_button}}" every night');
+  check('S280', 'the email renderer routes the button through the shared rule',
+    !!linkBlock && /applyQuoteLinkButton\(out, opts\.link, opts\.linkLabel\)/.test(linkBlock),
+    'an inline copy here is what let the server fall a token behind in the first place');
+  check('S280', 'and no second spelling of the gold style is left behind',
+    admin.indexOf("const btnStyleGold = QUOTE_LINK_BUTTON_STYLE;") !== -1,
+    'the hoist is the whole reason the two sides can be compared — a re-typed copy drifts');
+  check('S280', 'the button-with-your-words token is offered in Insert Codes',
+    admin.indexOf("{token:'{{link_button:See your home and approve}}'") !== -1);
+
+  /* The office has to be able to find it without being told it exists. */
+  check('S280', 'the token is offered in Insert Codes',
+    admin.indexOf("{token:'{{link:See your home and approve here}}'") !== -1,
+    'a feature only reachable by typing a syntax nobody documented is not a feature');
+  check('S280', 'and Manage custom codes is no longer hidden one tab deep',
+    /manageWrap\.style\.display = 'block';/.test(admin),
+    'owner, 2026-08-26: "it says customize when I open insert code but nowhere to customize it"');
+}
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

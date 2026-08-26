@@ -120,6 +120,7 @@ the docs record it as settled but no dated quote survives — treat those as wea
 | QT-15 | Are sides a second price input? | No — only measured feet sets the price. Sides raise a re-quote because the *footage* changes | 2026-08-21 | `docs/what-we-can-record.md` | Closed |
 | QT-16 | Nothing changed on a re-quote — is that a valid answer? | Yes, and it must not be a dead end. "to the system it looks like nothing changes" | 2026-08-21 | `requoteBeingConverted` | Standing |
 | QT-17 | Re-quote approval — how does the customer answer? | Three buttons: fill out a fresh form / change one thing in the portal / keep everything. The fresh form pre-fills from file, omits gate code and house notes, charges no portal change fee, sets no 48-hour lock | (chat) | not in repo yet | Decided — not built |
+| QT-18 | Can the quote link sit behind her own words instead of printing the whole address? | **In an email, yes, both shapes** — `{{link:See your home and approve here}}` for a sentence with the link behind part of it, or `{{link_button:See your home and approve}}` for the gold block wearing her words instead of "View & Respond". **In a text, no**: SMS is plain characters, there is no such thing as a link behind a word, so the address stays visible — the words survive and the link goes on its own line underneath | 2026-08-26 | `applyQuoteLinkLabel` / `applyQuoteLinkButton` + their Server twins, run-all.js Suite 279 | Standing |
 
 ## RSVP and season status
 
