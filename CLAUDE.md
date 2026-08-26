@@ -288,15 +288,30 @@ bash
 #   not). Version 2 said the pull_request event never fires from an app token (it
 #   does, erratically). What follows is only what was actually watched happen, with
 #   the counts, and no rule inferred on top of it.
-#   WHAT WAS OBSERVED across PRs #137 and #140, same branch, same credentials:
+#   WHAT WAS OBSERVED across PRs #137, #140 and #142, same credentials:
 #     #137 opened, head 784730b .......... no pull_request run at all
 #     push bdda5af ...................... a pull_request run, ~14 minutes late
 #     push 99b9e48 ...................... none
 #     push 1722407 ...................... a pull_request run, ~16 minutes late
 #     #140 opened, head a0dc9df ......... a pull_request run within 2 seconds
+#     #142 opened, head 522abce ......... a pull_request run within 2 seconds,
+#                                        both required jobs green in 45 seconds,
+#                                        mergeable_state "clean", merged normally
 #   So it is not suppressed, and it is not dependable either. Do NOT conclude from
 #   one missing run that CI is broken or that the code is at fault; do not conclude
 #   from one prompt run that it will be there next time.
+#   ⚠ TWO PROMPT RUNS IN A ROW IS NOT A TREND, and #142 is recorded here precisely
+#   so nobody reads it as one. It is the third observation and it agrees with the
+#   second; that is all it is. This note has been wrong twice already by treating
+#   the last thing seen as the rule, and the honest summary is still 2 of 3.
+#   ⚠ AND #142 SAYS NOTHING ABOUT THE MERGE PATH. It carried a real pull_request
+#   run, so it merged the ordinary way — it is NOT evidence about what happens when
+#   the run is absent, and the human-generated-event line below is untouched by it.
+#   ⭐ WHAT #142 DOES ADD is a reason not to spend a green: main moved while its CI
+#   was running, and a one-line doc commit was deliberately NOT pushed to it,
+#   because by this note's own evidence the re-run might not appear and would turn
+#   a green mergeable PR into a blocked one. On a PR that is green and mergeable,
+#   weigh any further push against losing that.
 #   ⭐ WHAT THE MERGE ACTUALLY NEEDS is a check suite raised by the PULL REQUEST
 #   itself. Verified both ways: with only a dispatched run present, merge returns
 #   `405 Repository rule violations found — 2 of 2 required status checks are
