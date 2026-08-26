@@ -13455,6 +13455,24 @@ function buildInvoiceDocHtml(member){
      payer's own house made a three-house bill impossible to reconcile, so when
      the invoice covers more than one property each gets its own row. The house
      ids are already recorded on the invoice by the billing code. */
+  /* ⭐ A HOUSE BILLED TO SOMEBODY ELSE ASKS THAT PERSON, NOT THIS ONE (2026-08-26).
+     Owner: "Every person should get an invoice based on what there paying so if
+     dana is paying for kyle than she gets her bill and kyles bill on the invoice."
+     The payer's document already itemises every house on the bill — that half has
+     worked for a while. This is the other half: the recipient list on the Invoices
+     tab is EVERY customer, so the office can tick a house that bills elsewhere and
+     get a document demanding money from them — the same money the payer's invoice
+     is already asking for. Handed to both, that house is charged twice.
+     ⚠ IT STILL SHOWS THEIR OWN HOUSE AND ITS PRICE. "Based on what they're paying"
+     is not a blank page: they should see what their house costs and who is settling
+     it. What changes is the amount DUE, which is nothing, and the invitation to pay,
+     which would be asking the wrong person. */
+  const docBillTo = String(d.billToPhone || '').replace(/\D/g,'');
+  const docPayer = docBillTo
+    ? jobAddresses.find(function(a){ return custInvoiceKey(a.data || {}) === docBillTo; })
+    : null;
+  const billedElsewhere = !!docBillTo;
+  const docPayerName = (docPayer && docPayer.data && docPayer.data.name) || '';
   const groupIds = (inv && Array.isArray(inv.billedHouseIds)) ? inv.billedHouseIds : [];
   let houses = groupIds.map(function(hid){ return jobAddresses.find(a => a.id === hid); }).filter(Boolean);
   if(houses.length < 2) houses = [];              // single-house invoice: keep the simple line
@@ -13544,23 +13562,39 @@ function buildInvoiceDocHtml(member){
         '<div style="width:100%; max-width:280px;">'+
           '<div style="display:flex; justify-content:space-between; padding:6px 0; font-size:14px; color:var(--slate);"><span>Total</span><span>'+fmtMoney(Math.max(0, total - credits))+'</span></div>'+
           (deposit ? '<div style="display:flex; justify-content:space-between; padding:6px 0; font-size:14px; color:var(--slate);"><span>Payment received'+(paidDate ? ' \u2014 '+esc(niceDate(paidDate)) : '')+'</span><span>\u2212'+fmtMoney(deposit)+'</span></div>' : '')+
-          '<div style="display:flex; justify-content:space-between; padding:10px 0 0; margin-top:4px; border-top:1px solid var(--line); font-size:18px; font-weight:700; color:var(--ink);"><span>'+(isPaid ? 'Amount paid' : 'Amount due')+'</span><span>'+(isPaid ? fmtMoney(deposit) : fmtMoney(amountDue))+'</span></div>'+
+          '<div style="display:flex; justify-content:space-between; padding:10px 0 0; margin-top:4px; border-top:1px solid var(--line); font-size:18px; font-weight:700; color:var(--ink);"><span>'+(billedElsewhere ? 'Due from you' : (isPaid ? 'Amount paid' : 'Amount due'))+'</span><span>'+(billedElsewhere ? fmtMoney(0) : (isPaid ? fmtMoney(deposit) : fmtMoney(amountDue)))+'</span></div>'+
         '</div>'+
       '</div>'+
+      (billedElsewhere
+        ? '<div style="background:var(--paper); border-radius:10px; padding:14px 16px;">'+
+            '<p style="font-size:11.5px; color:var(--slate); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin:0 0 6px;">Who pays this</p>'+
+            '<p style="font-size:14px; margin:0; font-weight:700; color:var(--dusk);">'+
+              (docPayerName ? esc(docPayerName)+' is paying for this house.' : 'This house is billed to somebody else.')+
+            '</p>'+
+            '<p style="font-size:12.5px; margin:6px 0 0; color:var(--slate);">It is on their invoice, so there is nothing for you to pay here.</p>'+
+          '</div>'
+        : '')+
+      /* ⚠ EMITTED, NOT HIDDEN. display:none is no use here — this document is
+         printed AND emailed, and Outlook strips most CSS, so a hidden "Unpaid"
+         would still reach the one person who does not owe anything. */
+      (billedElsewhere ? '' :
       '<div style="background:'+(isPaid ? '#E6F2EA' : 'var(--paper)')+'; border-radius:10px; padding:14px 16px;">'+
         '<p style="font-size:11.5px; color:var(--slate); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin:0 0 6px;">Payment status</p>'+
         '<p style="font-size:14px; margin:0; font-weight:700; color:'+(isPaid ? '#2E6B3E' : (status === 'Partial Payment' ? 'var(--gold-dim)' : 'var(--ember)'))+';">'+esc(status)+(isPaid && paidDate ? ' \u2014 '+esc(niceDate(paidDate)) : '')+'</p>'+
-      '</div>'+
+      '</div>')+
       /* How to pay is plain text on purpose. This document gets printed and
          posted, and a button does nothing on paper. The emailed invoice keeps
          its Pay button. Nothing here when the balance is already settled. */
       (isPaid ? '' :
-        '<div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line);">'+
+        /* ⚠ NOT ON A HOUSE SOMEBODY ELSE IS PAYING FOR. Telling them where to
+           send money is inviting the wrong person to pay a bill that is already
+           on the payer's invoice. */
+        (billedElsewhere ? '' : '<div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line);">'+
           '<p style="font-size:11.5px; color:var(--slate); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin:0 0 8px;">How to pay</p>'+
           '<p style="font-size:13px; color:var(--ink); margin:0 0 4px;">Online \u2014 '+esc(PORTAL_ADDRESS)+', sign in to your member portal</p>'+
           '<p style="font-size:13px; color:var(--ink); margin:0 0 4px;">Venmo \u2014 @'+esc(VENMO_HANDLE)+'</p>'+
           '<p style="font-size:13px; color:var(--ink); margin:0;">Cheque \u2014 payable to Highlighting Utah</p>'+
-        '</div>')+
+        '</div>'))+
     '</div>';
 }
 let invRecipientSearchTerm = '';

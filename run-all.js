@@ -41807,6 +41807,139 @@ suite('277. Every CSS colour name the page uses is declared somewhere');
 }
 
 
+
+// =====================================================================
+suite('278. The invoice document - what each person is asked for');
+/* ⭐ Owner, 2026-08-26: "Every person should get an invoice based on what there
+   paying so if dana is paying for kyle than she gets her bill and kyles bill on
+   the invoice."
+
+   The PAYER's half already worked and is asserted here so it cannot be lost: an
+   invoice covering several houses prints a row per house, from billedHouseIds,
+   so the rows always add up to the total beside them.
+
+   ⚠ THE OTHER HALF DID NOT. The recipient list on the Invoices tab is EVERY
+   customer (etGetMembers), so the office can tick a house that bills elsewhere
+   and get a document demanding money from them — the same money the payer's
+   invoice is already asking for. Handed to both, that house is charged twice.
+   Rendered for Kyle it said "Amount due $350.00", "Unpaid", and told him where
+   to send it.
+
+   ⚠ AND IT IS RENDERED HERE, NOT MATCHED. Every claim is about a line on a
+   page. This repo has been caught three times by a check that matched the source
+   of a message that could never reach the screen. */
+{
+  const docSrc = extractFn(admin, 'buildInvoiceDocHtml');
+  check('S278', 'the invoice document builder is findable', !!docSrc,
+    'renamed? update this suite rather than deleting it');
+
+  if (docSrc) {
+    /* Lift what it calls, on demand, rather than guessing a list: run, catch
+       "X is not defined", lift X, try again. Anything genuinely absent gets a
+       named stub so a miss is visible instead of silent. */
+    const BOOK = [
+      /* ⚠ DANA'S PHONE IS STORED FORMATTED, as an imported record really holds it.
+         With clean digits a raw `a.data.phone === docBillTo` compare accidentally
+         works, and a red-check swapping custInvoiceKey for it went straight
+         through — the same blindness Suite 275 was written for. */
+      { id: 'dana', data: { name: 'Dana Pratt', phone: '(801) 555-0111', address: '1 Elm St', city: 'Lehi',
+                            housePrice: 400, measuredFeet: 200, customerNumber: '14' } },
+      { id: 'kyle', data: { name: 'Kyle Pratt', phone: '8015552222', address: '2 Oak Ave', city: 'Lehi',
+                            billToPhone: '8015550111', housePrice: 350, measuredFeet: 175, customerNumber: '20' } }
+    ];
+    const INV = [{ id: '8015550111', data: { name: 'Dana Pratt', install: 750, removal: 0, deposit: 0,
+                                             credits: 0, changeFees: 0, billedHouseIds: ['dana', 'kyle'] } }];
+    const moneySrc278 = read('js/money.js');
+    let pre = [centsOfSrc, computeInvoiceStatusSrc, extractFn(moneySrc278, 'fmtMoney'),
+      'let perFootRate = 2;', 'const settingsCache = {};'];
+    const stubbed = [];
+    let render = null;
+    for (let round = 0; round < 120; round++) {
+      try {
+        const f = new Function('jobAddresses', 'allInvoicesCache',
+          pre.join('\n') + '\n' + docSrc + '\nreturn buildInvoiceDocHtml;')(BOOK, INV);
+        f(BOOK[0]); f(BOOK[1]);
+        render = f;
+        break;
+      } catch (e) {
+        const m = /(\w+) is not defined/.exec(e.message || '');
+        if (!m) break;
+        const n = m[1];
+        let lifted = extractFn(admin, n) || extractFn(moneySrc278, n);
+        if (!lifted) {
+          const one = admin.match(new RegExp('(?:const|let)\\s+' + n + '\\s*=\\s*[^;\\n]+;'));
+          if (one) lifted = one[0];
+        }
+        if (!lifted) {
+          const at = admin.search(new RegExp('(?:const|let)\\s+' + n + '\\s*=\\s*[\\[{]'));
+          if (at > -1) {
+            let j = admin.indexOf('=', at), depth = 0, started = false;
+            for (; j < admin.length; j++) {
+              const ch = admin[j];
+              if (ch === '[' || ch === '{') { depth++; started = true; }
+              else if (ch === ']' || ch === '}') { depth--; if (started && depth === 0) break; }
+            }
+            lifted = admin.slice(at, j + 1) + ';';
+          }
+        }
+        if (lifted) pre.push(lifted);
+        else { pre.push('function ' + n + '(){ return ""; }'); stubbed.push(n); }
+      }
+    }
+    check('S278', 'the document renders at all', !!render,
+      'could not resolve its dependencies' + (stubbed.length ? ' (stubbed: ' + stubbed.join(', ') + ')' : ''));
+
+    if (render) {
+      const strip = function (h) {
+        return String(h)
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&mdash;/g, '-').replace(/&nbsp;/g, ' ')
+          .replace(/\s+/g, ' ');
+      };
+      const payer = strip(render(BOOK[0]));
+      const other = strip(render(BOOK[1]));
+
+      /* ---- the payer's copy: her bill AND his, itemised ---- */
+      check('S278', "the payer's invoice names every house on the bill",
+        /1 Elm St/.test(payer) && /2 Oak Ave/.test(payer),
+        'she is paying for two houses and must be able to see which — got: ' + payer.slice(0, 200));
+      check('S278', 'with a price against each',
+        /\$400\.00/.test(payer) && /\$350\.00/.test(payer),
+        'a lump sum on a two-house bill cannot be reconciled');
+      check('S278', 'and the rows add up to what is asked for',
+        /Total.*\$750\.00/.test(payer) && /Amount due.*\$750\.00/.test(payer),
+        '400 + 350 = 750; rows that do not add up to the total are the bug billedHouseIds exists to stop');
+      check('S278', 'and it says how many properties it covers',
+        /Covers 2 properties/.test(payer),
+        'so a three-house bill is not mistaken for a very expensive one-house bill');
+
+      /* ---- the other person's copy: their house, nothing to pay ---- */
+      check('S278', 'a house billed elsewhere still shows its own price',
+        /2 Oak Ave|175 ft/.test(other) && /\$350\.00/.test(other),
+        '"based on what they are paying" is not a blank page — they should see what their house costs');
+      check('S278', 'but nothing is due from them',
+        /Due from you\s*\$0\.00/.test(other),
+        'it asked Kyle for $350 that Dana is already being billed for — got: ' + other.slice(0, 300));
+      check('S278', 'and it names who is paying',
+        /Dana Pratt is paying for this house/.test(other),
+        'otherwise a $0 bill reads as a mistake');
+      /* ⚠ EMITTED, NOT HIDDEN. This document is printed AND emailed, and Outlook
+         strips most CSS — a display:none "Unpaid" still reaches them. */
+      check('S278', 'no payment status is claimed on it',
+        !/Payment status/.test(other),
+        'their house is not unpaid, it is somebody else\'s to pay');
+      check('S278', 'and it does not tell them where to send money',
+        !/How to pay/.test(other) && !/Venmo/.test(other),
+        'inviting the wrong person to pay a bill that is already on the payer\'s invoice');
+      check('S278', 'the payer is still told how to pay',
+        /How to pay/.test(payer),
+        'the exclusion must not have taken it off the invoice that does collect');
+    }
+  }
+}
+
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
