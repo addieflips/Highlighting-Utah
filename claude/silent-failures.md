@@ -21,7 +21,7 @@ in place of a count ceiling; this is that.
 | | empty catches | bare |
 |---|---|---|
 | `admin.html` | 55 | **0** |
-| `index.html` | 13 | **0** |
+| `index.html` | 12 | **0** |
 | `employee.html` | 6 | **0** |
 | `functions/index.js` | 3 | **0** |
 
