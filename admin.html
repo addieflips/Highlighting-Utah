@@ -13117,9 +13117,17 @@ function audienceBillingGroup(d){
    other, in the same push. money-parity runs the two side by side. */
 function houseIsOnTheBill(d){
   if(!d) return false;
+  /* ⭐ HUNG IS HUNG (2026-08-26, Q-013). Addie: "Any house hung no matter what should
+     be charged. This will only be overuled if it is our fault." So `completed` is
+     tested FIRST, ahead of every status — a flat "no" included. Until this ruling a
+     house hung and afterwards answering "no" was dropped from the bill outright and
+     the work was never charged for. Q-012 settled the same thing for back-next-year;
+     this finishes the case it deliberately left alone.
+     ⚠ "OUR FAULT" IS A HUMAN DECISION, NOT A FIELD — the office writes it off with a
+     credit. An automatic our-fault test would be the app guessing at fault. */
+  if(d.completed === true) return true;
   const said = String(d.rsvpStatus || '').trim().toLowerCase();
   if(said === 'no') return false;
-  if(d.completed === true) return true;
   if(said === 'backnextyear' || d.maybeNextYear === true) return false;
   return true;
 }

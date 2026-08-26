@@ -789,18 +789,31 @@ check('the portal balance is cent-rounded the way the office copy is',
       onBillServer({ rsvpStatus: 'yes', completed: false }) === true,
       'her rule is that the bill goes after the LAST house is done — this is what ' +
       'makes it wait at all');
-    check('a flat "no" is unchanged, and still comes off the bill outright',
+    check('a flat "no" that was never hung comes off the bill',
       onBill({ rsvpStatus: 'no', completed: false }) === false &&
       onBillServer({ rsvpStatus: 'no', completed: false }) === false,
-      'not what was asked about; changing it would have widened the ruling');
-    /* ⚠ AND A FLAT "no" IS OUT WHETHER OR NOT IT WAS INSTALLED — the `completed`
-       early return must not rescue it. The cross product above proves the two copies
-       AGREE about that case; this proves the answer is right. Folded in from the
-       billing-groups branch's sweep, 2026-08-26. */
-    check('and a flat "no" stays out even on a house that was installed',
-      onBill({ rsvpStatus: 'no', completed: true }) === false &&
-      onBillServer({ rsvpStatus: 'no', completed: true }) === false,
-      'the completed branch must not reopen a path that was already settled');
+      'nothing was done, so there is nothing to charge for');
+    /* ⭐ Q-013, 2026-08-26. Addie: "Any house hung no matter what should be charged.
+       This will only be overuled if it is our fault." Q-012 deliberately left the
+       flat "no" alone because it had not been asked about; this is the answer, and
+       it is the case that had to be tested explicitly — the old check used
+       completed:false and so stayed green through the whole change. */
+    check('but a house that was HUNG is charged, whatever it said afterwards',
+      onBill({ rsvpStatus: 'no', completed: true }) === true &&
+      onBillServer({ rsvpStatus: 'no', completed: true }) === true,
+      'hung is hung — writing it off when it is our fault is the office\'s decision ' +
+      'on the invoice, never an automatic test in here');
+    check('and completed is tested BEFORE any status, which is what makes that true',
+      onBill({ rsvpStatus: 'no', maybeNextYear: true, completed: true }) === true &&
+      onBillServer({ rsvpStatus: 'no', maybeNextYear: true, completed: true }) === true,
+      'every way of being out of the season at once still loses to having been hung');
+    /* ⚠ THE BILLING-GROUPS BRANCH ASSERTED THE OPPOSITE OF THE TWO CHECKS ABOVE, and
+       it was RIGHT when it was written — it locked in the Q-012 status quo, where a
+       flat "no" was deliberately left alone because Addie had not been asked about it.
+       She was asked on 2026-08-26 and answered: "Any house hung no matter what should
+       be charged." So that check is superseded by a dated ruling, not overruled by a
+       preference, and it is recorded here so nobody restores it from the other branch
+       without meeting the ruling first. See Q-013 and MON-21. */
   }
 }
 

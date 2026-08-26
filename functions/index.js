@@ -916,9 +916,21 @@ function houseBillingRow(id, d) {
  * same push — money-parity runs the two side by side. */
 function houseIsOnTheBillServer(d) {
   if (!d) return false;
+  /* ⭐ HUNG IS HUNG (2026-08-26, Q-013). Addie: "Any house hung no matter what should
+     be charged. This will only be overuled if it is our fault... if we hung the lights
+     and there is no reason to not charge them than we will charge them still."
+     So `completed` is tested FIRST, ahead of every status — a flat "no" included.
+     ⚠ THIS IS WHY IT IS FIRST AND NOT LAST. Until this ruling a house that had been
+     hung and afterwards answered "no" was dropped from the bill outright, so the work
+     was never charged for and nothing said so. Q-012 had already settled the same
+     thing for back-next-year; this finishes it for the one case left over.
+     ⚠ "OVERRULED IF IT IS OUR FAULT" IS A HUMAN DECISION, NOT A FIELD. The office
+     writes it off on the invoice — credits already exist for exactly that. Inventing
+     an automatic our-fault test would be the app guessing at fault, which is the one
+     thing it must not do with money. */
+  if (d.completed === true) return true;
   const said = String(d.rsvpStatus || '').trim().toLowerCase();
   if (said === 'no') return false;
-  if (d.completed === true) return true;
   if (said === 'backnextyear' || d.maybeNextYear === true) return false;
   return true;
 }
