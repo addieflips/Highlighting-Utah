@@ -18190,6 +18190,24 @@ function rmPinCorner(i, ray){
   c.lat = w.lat; c.lng = w.lng; c.h = sol.pt.u;
   c.pinned = c.rays.length;
   c.spread = sol.spread;
+  /* ⭐ AND THE SAME TWO SIGHTINGS MEASURE THE HOUSE ITSELF (2026-08-26).
+     The crossing is where the corner really is; casting the first ray at Google's
+     model says where the model thinks it is. The difference is how far the model
+     stands from the house - and once that is known EVERY LATER SINGLE CLICK lands
+     right without needing a second angle. That is the point of measuring it: the
+     office pins one corner properly and the rest of the house comes for free.
+     ⚠ ONLY FROM A CROSSING THAT ACTUALLY MET. A wide spread means the two clicks
+     were not the same corner, and a displacement measured off that would then be
+     applied to every click on the house. */
+  if(!rmModelShift && sol.spread !== undefined && sol.spread < 0.15){
+    const ms = rmMeasureModelShift(sol.pt, c.rays[0]);
+    if(ms && ms.ok && Math.hypot(ms.e, ms.n) > 0.3){
+      rmModelShift = {e: ms.e, n: ms.n};
+      rmModelShiftFt = Math.hypot(ms.e, ms.n) * RM_M_TO_FT;
+      rmModelShiftResidIn = ms.residM * RM_M_TO_FT * 12;
+      rmRefreshCorners();
+    }
+  }
   rmCornersChanged();
   return {ok: true, sightings: c.rays.length, spread: sol.spread};
 }
@@ -18850,6 +18868,88 @@ function rmSuggestCorners(){
 }
 
 /* Whatever the click is really pointing at: the nearest surface of the solid. */
+/* ⭐ HOW FAR GOOGLE'S MODEL SITS FROM THE REAL HOUSE (2026-08-26).
+ * {e, n} metres, or null until two sightings have measured it.
+ *
+ * ⚠ THIS IS A THIRD DISPLACEMENT AND IT IS NOT EITHER OF THE OTHER TWO.
+ * rmSkyShift is the satellite TILE against the model. This is the MODEL against
+ * the real house. Nothing measured it until now, and it is the one that decides
+ * where a clicked dot lands.
+ *
+ * ⭐ MEASURED ON 209 S 850 W, WHICH IS WHY IT EXISTS. Owner: "some offsets are
+ * because the house is offset making it so the dot acted as though the house
+ * wasnt clicked... it thinks the dot missed the house." Exactly that. The same
+ * corner was clicked from two panoramas 41.5 ft apart, and:
+ *
+ *     the two rays crossed to within        0.8 INCHES
+ *     both dots landed                      ~6.7 ft from that crossing
+ *     all four dots on the roof landed at   e = -7.93 to -7.95
+ *     the true corner was at                e = -5.94
+ *
+ * Google's cameras are near perfect — two sightings 41 ft apart agreeing to
+ * under an inch is as good as this ever gets. What is wrong is the SURFACE the
+ * ray is cast against: it sits about six and a half feet in front of the house,
+ * so every dot lands short, on one flat plane, and the error is almost entirely
+ * in PLAN. That is why it looks right in Street View and wrong on the map — a
+ * point at the wrong depth still draws on the pixel you clicked.
+ *
+ * ⭐ AND THE ANGLE CHANGE IS WHAT MEASURES IT. Owner: "you have to calculate the
+ * offset based on how big the angle change is." That is exactly the arithmetic:
+ * the shift a dot appears to make is the depth error times baseline/range, so
+ * turning it round, the depth error is the shift times range/baseline. Walk
+ * further and the parallax angle at the corner opens up and the answer sharpens;
+ * stand still and there is no angle and no answer, which is why rmPinCorner
+ * refuses two sightings from nearly the same spot. It is the PARALLAX ANGLE AT
+ * THE CORNER that does the work, not the change in where the camera is pointed. */
+let rmModelShift = null;
+let rmModelShiftFt = 0, rmModelShiftResidIn = 0;
+const RM_MODEL_SHIFT_MAX_M = 4;      /* past this it is not a displacement, it is a wrong house */
+const RM_MODEL_SHIFT_OK_M = 0.35;    /* the cast has to land on the measured point */
+
+/* Cast a ray at the house, through the measured displacement.
+   ⚠ MOVE THE CAMERA, NOT THE ANSWER. Shifting the hit afterwards would be wrong:
+   the ray has to meet the surface where the surface REALLY is, and only then come
+   back. Casting from cam-T against the model and adding T to the hit is exactly
+   the model standing T from where Google put it. */
+function rmCastHouse(dir, cam, shift){
+  const T = (shift === undefined) ? rmModelShift : shift;
+  if(!T) return rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
+  const c = {e: cam.e - T.e, n: cam.n - T.n, u: cam.u};
+  const hit = rmHouseHit(dir, c) || rmFootprintWallHit(dir, c);
+  if(!hit) return null;
+  return {e: hit.e + T.e, n: hit.n + T.n, u: hit.u, t: hit.t, kind: hit.kind};
+}
+
+/* What displacement would have made this ray land where the two sightings say the
+   corner really is? Searched rather than solved, because the answer runs through
+   whichever patch the ray happens to meet and that changes as T moves.
+   ⚠ IT REFUSES RATHER THAN REPORTING ITS BEST GUESS. If no displacement puts the
+   cast within RM_MODEL_SHIFT_OK_M of the measured corner, the model is not merely
+   moved - it is the wrong shape here - and a number invented from that would be
+   applied to every later click on the house. */
+function rmMeasureModelShift(truePt, ray){
+  if(!truePt || !ray || !ray.cam || !ray.dir) return null;
+  const miss = function(T){
+    const hit = rmCastHouse(ray.dir, ray.cam, T);
+    if(!hit) return Infinity;
+    return Math.hypot(hit.e - truePt.e, hit.n - truePt.n, hit.u - truePt.u);
+  };
+  let best = {T: null, d: Infinity};
+  const sweep = function(ce, cn, step, span){
+    for(let de = ce - span; de <= ce + span + 1e-9; de += step){
+      for(let dn = cn - span; dn <= cn + span + 1e-9; dn += step){
+        if(Math.hypot(de, dn) > RM_MODEL_SHIFT_MAX_M) continue;
+        const d = miss({e: de, n: dn});
+        if(d < best.d - 1e-9) best = {T: {e: de, n: dn}, d: d};
+      }
+    }
+  };
+  sweep(0, 0, 0.25, RM_MODEL_SHIFT_MAX_M);
+  if(!best.T) return null;
+  sweep(best.T.e, best.T.n, 0.05, 0.25);
+  if(!(best.d <= RM_MODEL_SHIFT_OK_M)) return {ok: false, residM: best.d};
+  return {ok: true, e: best.T.e, n: best.T.n, residM: best.d};
+}
 function rmHouseHit(dir, cam){
   const wall = rmFaceWallHit(dir, cam);
   const roof = rmRoofSurfaceHit(dir, cam);
@@ -19751,7 +19851,7 @@ function rmBuildSuggestions(faces){
 function rmSolveRayNow(ray){
   if(!ray || !ray.cam || !ray.dir) return null;
   const cam = ray.cam, dir = ray.dir;
-  let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
+  let best = rmCastHouse(dir, cam);
   if(!best){
     const wall = rmWallPlane();
     const w2 = wall ? rmWallHit(dir, cam, wall) : null;
@@ -21398,6 +21498,7 @@ function rmMeasureGroundDrop(){
 function rmForgetLastHouse(){
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
+  rmModelShift = null; rmModelShiftFt = 0; rmModelShiftResidIn = 0;
   rmCorners = []; rmCurrentBand = 0; rmCandidates = [];
   rmClearCornerMarkers();
   rmRenderCornerBar();
@@ -22878,6 +22979,10 @@ function openRoofMeasure(quoteId){
           px: rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, size.W, size.H, pov, cam)
         };
       }),
+      modelShift: rmModelShift
+        ? {ft: +rmModelShiftFt.toFixed(1), e: +rmModelShift.e.toFixed(2),
+           n: +rmModelShift.n.toFixed(2), residIn: +rmModelShiftResidIn.toFixed(1)}
+        : null,
       skyOffset: rmSkyOffset
         ? {ft: +(rmSkyOffsetFt().toFixed(1)), e: +rmSkyOffset.e.toFixed(2),
            n: +rmSkyOffset.n.toFixed(2), source: rmSkyOffsetSource || 'measured'}
@@ -23221,7 +23326,7 @@ function openRoofMeasure(quoteId){
          the one that draws the lines, and then the offset would be measured
          against a house the drawing does not use. */
       const wall = rmWallPlane();
-      const hit = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam) ||
+      const hit = rmCastHouse(dir, cam) ||
                   (wall ? rmWallHit(dir, cam, wall) : null);
       /* ⚠ THE WHOLE HIT, NOT JUST WHERE IT IS. Its height and whether it landed
          on a WALL are what let the same click measure the roof — see
@@ -23274,14 +23379,20 @@ function openRoofMeasure(quoteId){
         const noteEl = document.getElementById('rmCornerNote');
         if(noteEl) noteEl.textContent = res && res.ok
           ? 'Dot ' + rmCornerLabel(near) + ' pinned from ' + res.sightings + ' angles — the two lines of sight meet to within ' +
-            (res.spread * RM_M_TO_FT * 12).toFixed(1) + ' inches.'
+            (res.spread * RM_M_TO_FT * 12).toFixed(1) + ' inches.' +
+            /* ⭐ AND SAY IF THAT PIN ALSO MEASURED THE HOUSE, because it changes
+               every click afterwards and silently improving is as confusing as
+               silently drifting. */
+            (rmModelShift ? ' Google’s model of this house sits ' + rmModelShiftFt.toFixed(1) +
+              ' ft from where it really is — measured from those two angles and now allowed for. ' +
+              'Single clicks should land on the house from here on.' : '')
           : '⚠ ' + ((res && res.why) || 'that sighting could not be used');
         return;
       }
       /* The part of the house the ray is really pointing at comes first; the
          whole-building outline is the fallback for a house Google has given no
          roof faces for. */
-      let best = rmHouseHit(dir, cam) || rmFootprintWallHit(dir, cam);
+      let best = rmCastHouse(dir, cam);
       const note = document.getElementById('rmCornerNote');
       if(!best){
         /* ⚠ REFUSING A CLICK IS WORSE THAN PLACING IT ROUGHLY. Google's roof
