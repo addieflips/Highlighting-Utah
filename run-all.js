@@ -33802,14 +33802,25 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
     !!setDrawing && /rmPano\.setOptions\(/.test(setDrawing) && /stLock/.test(setDrawing),
     'the panorama can swing away mid-trace again — the exact thing that was reported');
 
-  /* ---- placed points stay editable ------------------------------------- */
+  /* ⛔ PLACED POINTS ARE NO LONGER EDITABLE (2026-08-27). Owner: "dragging and
+     clicking old dots or editing them in any way on either perspective is no
+     longer an option other than backspace."
+
+     ⚠ THE OLD REASON WAS GOOD AND IS ANSWERED, not ignored: "a corner put
+     slightly wrong means starting the line again". Backspace takes back the last
+     point, so a slip costs one keystroke rather than the whole line.
+
+     ⭐ AND IT CURES THE BUG THAT ATE CLICKS BESIDE A DOT AT THE ROOT. A draggable
+     marker is a target: it swallows every click landing near it, so two lines
+     could not be drawn close together and nothing said why. Nothing to grab
+     means nothing to swallow. */
   const dot = extractFn(admin, 'rmDot');
-  check('S126', 'a placed point can be dragged afterwards',
-    !!dot && /draggable:\s*true/.test(dot),
-    'a corner put slightly wrong means starting the line again');
-  check('S126', 'and dragging it moves the world point, so both views follow',
-    !!dot && /run\.path\[idx\]\.lat/.test(dot) && /rmPaintStreet\(\)/.test(dot),
-    'dragging on the sky view would move the line there and leave Street View behind');
+  check('S126', 'a placed point cannot be dragged or clicked',
+    !!dot && /draggable: false, clickable: false/.test(dot),
+    'owner: editing old dots in any way is no longer an option other than backspace');
+  check('S126', 'so two lines can be drawn almost on the same spot',
+    !!dot && !/draggable:\s*true/.test(dot),
+    'a grabbable dot is a click target, and that is what stopped close lines');
 }
 
 /* =====================================================================
@@ -35615,8 +35626,11 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
   const totalsFn = pick('rmTotals'), onFn = pick('rmRunIsOn');
   if (totalsFn && onFn) {
     const t = new Function(
-      'let rmRuns=[], rmPhotoExtraFeet=0;' + LF_ +
+      'let rmRuns=[], rmPhotoExtraFeet=0, rmPeaks=[];' + LF_ +
       'function rmRunFeet(r){ return r.feet; }' + LF_ +
+      /* peaks are their own thing and have their own checks; this harness is
+         about which RUNS are counted, so it is given an empty peak list */
+      'function rmPeaksFeet(){ return 0; }' + LF_ +
       onFn + LF_ + totalsFn + LF_ +
       'return function(runs, extra){ rmRuns=runs; rmPhotoExtraFeet=extra||0; return rmTotals(); };')();
     const runs = [{type: 'perimeter', feet: 50}, {type: 'perimeter', feet: 30, on: false}];
@@ -39056,7 +39070,7 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
      run at all. */
   const LF_ = String.fromCharCode(10);
   const pick = n => extractFn(admin, n);
-  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunFeet',
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunSpanFeet', 'rmPeakExtraFraction', 'rmPeakSpanFeet', 'rmPeakFeet', 'rmPeaksFeet', 'rmRunFeet',
                  'rmTotals', 'rmRunName', 'rmRunArea', 'rmPanoState', 'rmMeasurementDoc',
                  'rmRestoreMeasurement'];
   const missing = NAMES.filter(n => !pick(n));
@@ -39071,7 +39085,7 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
       'const RM_MEASUREMENT_VERSION=2;' + LF_ +
       'const RM_TYPES={perimeter:{label:"Perimeter"},ridge:{label:"Ridge"},ground:{label:"Ground"}};' + LF_ +
       'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
-      'let rmRuns=[], rmPhotoExtraFeet=0, rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      'let rmPeaks=[], rmRuns=[], rmPhotoExtraFeet=0, rmRoofDatumM=null, rmDatumSource="";' + LF_ +
       /* Module-level state rmMeasurementDoc closes over. Declared, not stubbed —
          the scale check is saved with the drawing, and a sandbox missing it dies
          with a bare ReferenceError rather than failing a named check. */
@@ -39505,7 +39519,7 @@ suite('260. Measure Roof - no guessing: which feet are real');
      down - so the failure it caught cannot happen on the surface that replaced
      it. */
   /* ---- 2. which footage depends on a guessed height ------------------ */
-  const NEED = ['rmRunClimbs', 'rmGuessedFeet', 'rmRunFeet', 'rmRunIsOn'];
+  const NEED = ['rmRunClimbs', 'rmGuessedFeet', 'rmRunSpanFeet', 'rmPeakExtraFraction', 'rmPeakSpanFeet', 'rmPeakFeet', 'rmPeaksFeet', 'rmRunFeet', 'rmRunIsOn'];
   const parts = NEED.map(n => extractFn(admin, n));
   const missing = NEED.filter((n, i) => !parts[i]);
   check('S260', 'the guessed-footage rule is findable', missing.length === 0,
@@ -40212,7 +40226,7 @@ suite('266. Measure Roof - the same roofline traced twice');
      another look like one line, so nothing else on that screen would say so and
      the total just quietly reads high. */
   const LF_ = String.fromCharCode(10);
-  const NEED = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunFeet',
+  const NEED = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunSpanFeet', 'rmPeakExtraFraction', 'rmPeakSpanFeet', 'rmPeakFeet', 'rmPeaksFeet', 'rmRunFeet',
                 'rmDistToSegment', 'rmRunOverlapFeet', 'rmOverlappingRuns'];
   const parts = NEED.map(n => extractFn(admin, n));
   const missing = NEED.filter((n, i) => !parts[i]);
@@ -41368,7 +41382,7 @@ suite('271. Measure Roof - the front eaves are offered, and an offer is not a me
      quietly untrue again the moment this is switched on. */
   const LF_ = String.fromCharCode(10);
   const pick = n => extractFn(admin, n);
-  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunFeet',
+  const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunSpanFeet', 'rmPeakExtraFraction', 'rmPeakSpanFeet', 'rmPeakFeet', 'rmPeaksFeet', 'rmRunFeet',
                  'rmRunClimbs', 'rmGuessedFeet', 'rmGuessedWhy', 'rmGuessedFix'];
   const missing = NAMES.filter(n => !pick(n));
   check('S271', 'the guessed-footage pieces are findable', missing.length === 0,

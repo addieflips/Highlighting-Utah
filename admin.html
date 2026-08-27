@@ -4739,6 +4739,19 @@
                 <p class="rm-sub">Real ground distance, not pixels.</p>
                 <div id="rmResults"></div>
                 <div id="rmRuns" style="margin-top:8px;"></div>
+                <!-- ⭐ THE GRADE TOOL (2026-08-27). Owner: "build a tool where you
+                     can figure out the grade and after you let go of using the
+                     tool it automatically adds the extra."
+                     Drag along the slope of a gable in the picture; the angle of
+                     the drag is the grade; letting go re-costs every peak. -->
+                <div style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  <button type="button" class="btn btn-outline btn-sm" id="rmGradeBtn" style="padding:4px 10px; font-size:11px;">Measure the grade</button>
+                  <span id="rmGradeNote" style="font-size:11.5px; color:var(--slate);"></span>
+                </div>
+                <div id="rmGradePane" style="display:none; font-size:11.5px; color:var(--slate); margin-top:4px;">
+                  Drag along the sloping edge of a gable in the street picture.
+                  <span style="opacity:.75;">It reads true looking square at the gable end, and flattens as you go round.</span>
+                </div>
                 <!-- ⭐ A SIDE THAT CANNOT BE SEEN IS STILL A SIDE (2026-08-25).
                      Street View has not driven most back gardens and the sky
                      view cannot see a wall, so back and side features were
@@ -4898,6 +4911,9 @@
                 <div class="rm-panehead"><span>&#127968; Street View &mdash; heights, peaks, and the photo</span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span></div>
                 <div id="rmPano" class="rm-canvas"></div>
                 <svg id="rmSvLayer" class="rm-svlayer"></svg>
+                <!-- The line the grade is being read from, drawn while dragging. -->
+                <svg class="rm-svlayer" style="z-index:8;"><line id="rmGradeLine" style="display:none;"
+                  stroke="#F4BE55" stroke-width="3" stroke-linecap="round"/></svg>
                 <div class="rm-busy" id="rmStreetBusy"><span class="rm-spin"></span><span id="rmStreetBusyText">Looking for a street-level photo&hellip;</span></div>
                 <div class="rm-lock" id="rmPanoLock" style="display:none;"></div>
                 <div class="rm-frozen" id="rmPanoFrozen" style="display:none;">Frozen while measuring</div>
@@ -18033,7 +18049,12 @@ let rmSwapFrom = null;           /* the first half of a shift-click swap */
    already placed are untouched. */
 let rmCurrentBand = 0;
 
-const RM_LABELS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+/* ⭐ LETTERS, NOT NUMBERS. Owner: "we dont need sky view dots and street view
+   dots to be in sync anymore so have the sky view dot names be letters."
+   ⚠ AND A PEAK IS NAMED BY THE TWO IT SITS BETWEEN - "between which two dots is
+   it located" - so these labels are not decoration, they are how a peak is
+   written down. Digits were ambiguous next to a footage; letters never are. */
+const RM_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 function rmCornerLabel(i){ return i < RM_LABELS.length ? RM_LABELS[i] : '?'; }
 function rmCornerAt(label){
   const i = RM_LABELS.indexOf(String(label).toUpperCase());
@@ -20487,6 +20508,88 @@ function rmToggleRun(i){
   rmRenderResults(); rmPaintStreet();
 }
 /* ---- totals ------------------------------------------------------------ */
+/* ⭐ HOW MUCH LONGER A PEAK IS THAN THE SPAN YOU TRACED ACROSS IT.
+   Owner, asked what the extra should be: "under pythagrom theorum how much extra
+   feet would they be? because it can be 15 across and 20 in total so its an
+   extra of 5 ft but really i dont know."
+
+   ⭐ SHE DOES NOT HAVE TO KNOW, AND THERE IS NO TABLE TO WRITE. It is not a
+   number of feet at all - it is a FRACTION of the span, and the pitch sets it.
+   Trace across a gable end from above and you get the SPAN. The lights go up the
+   two rakes to the peak, and each rake is the hypotenuse of half the span and
+   the rise. Both rakes together are
+
+       span / cos(pitch)
+
+   so the extra is span x (1/cos(pitch) - 1). On a 6/12 roof that is 11.8%; on a
+   12/12 it is 41.4%. Her own example, 15 across and 20 in total, is a 10.6/12
+   roof - steeper than most.
+
+   ⚠ AND THE PITCH IS MEASURED, NOT CHOSEN. Google gives it for every roof face
+   and the difficulty rule already reads it, so the extra is computed from the
+   house in front of you rather than from an average of houses. 209 S 850 W comes
+   out at 13.6%; 10937 Edenbrook at 8.9%. Two real houses, two different answers,
+   neither of them typed in by anybody.
+
+   ⚠ A SPAN AND A PITCH ARE ALL IT NEEDS, so a peak marked on a side that was
+   typed in by hand works exactly the same way. */
+let rmGradeSet = null;      /* grade read off the picture by hand, in percent */
+let rmGradeArmed = false;   /* the grade tool is open and taking a drag */
+function rmPeakExtraFraction(){
+  const f = rmRoofFacts || {};
+  /* ⭐ A GRADE READ OFF THE PICTURE BEATS THE MODEL'S. Owner: "build a tool where
+     you can figure out the grade and after you let go of using the tool it
+     automatically adds the extra." Somebody looking at the gable is better
+     placed than an average over eleven facets, several of which are not this
+     gable. Nothing is overwritten - the measured figure is still there when the
+     hand-set one is cleared. */
+  if(isFinite(rmGradeSet) && rmGradeSet > 0){
+    const c = Math.cos(Math.atan(rmGradeSet / 100));
+    return (c > 0.05) ? (1 / c) - 1 : null;
+  }
+  /* The area-weighted pitch - what the roof is MOSTLY like - for the same reason
+     the difficulty rule uses it: one steep facet is not the whole house. */
+  const grade = Number(f.typicalGrade);
+  if(!isFinite(grade) || grade <= 0) return null;
+  const cos = Math.cos(Math.atan(grade / 100));
+  if(!(cos > 0.05)) return null;
+  return (1 / cos) - 1;
+}
+/* ⭐ A PEAK IS NAMED BY THE TWO DOTS IT SITS BETWEEN. Owner: "you should just
+   say between which two dots is it located ... and then it bases it off of the
+   distance between the two points and the grade and calculates it."
+
+   ⚠ AND THE SPAN IS THE PLAN DISTANCE, deliberately. Both ends of a gable span
+   sit on the eave, so they are at the same height and there is nothing vertical
+   between them - the rise is what the GRADE accounts for. Measuring the span
+   from above is therefore exact, which is the whole reason the sky view is the
+   one that measures. */
+let rmPeaks = [];
+function rmPeakSpanFeet(pk){
+  const a = rmCorners[pk && pk.a], b = rmCorners[pk && pk.b];
+  if(!a || !b || !rmOrigin) return 0;
+  const p = rmToLocal(a.lat, a.lng, 0), q = rmToLocal(b.lat, b.lng, 0);
+  return Math.hypot(q.e - p.e, q.n - p.n) * RM_M_TO_FT;
+}
+/* What one peak adds: the two rakes are span / cos(pitch), so the extra over
+   the span already traced is span x (1/cos - 1). Zero when no grade is known -
+   never a guess, and never a silent number that reads as measured. */
+function rmPeakFeet(pk){
+  const frac = rmPeakExtraFraction();
+  if(frac === null) return 0;
+  return rmPeakSpanFeet(pk) * frac;
+}
+function rmPeaksFeet(){
+  return rmPeaks.reduce(function(t, pk){ return t + rmPeakFeet(pk); }, 0);
+}
+/* The plain traced length of a side, before any peak is added to it. */
+function rmRunSpanFeet(run){
+  if(!run) return 0;
+  if(run.surface === 'manual') return Number(run.manualFeet) || 0;
+  let t = 0;
+  for(let i = 1; i < (run.path || []).length; i++) t += rmFeetBetween(run.path[i-1], run.path[i]);
+  return t;
+}
 function rmRunFeet(run){
   if(!run) return 0;
   /* ⚠ A HAND-ENTERED SIDE CARRIES ITS FOOTAGE AS A NUMBER, not as a path.
@@ -20494,10 +20597,7 @@ function rmRunFeet(run){
      in — there is nothing to measure between. Answering here rather than at
      every call site is what lets rmTotals, the price, the material list and
      the saved document all count them without knowing they are different. */
-  if(run.surface === 'manual') return Number(run.manualFeet) || 0;
-  let t = 0;
-  for(let i = 1; i < (run.path || []).length; i++) t += rmFeetBetween(run.path[i-1], run.path[i]);
-  return t;
+  return rmRunSpanFeet(run);
 }
 function rmRunIsOn(r){ return r && r.on !== false; }
 /* ⭐ EVERYTHING THE DIFFICULTY RULE ASKS FOR, GATHERED IN ONE PLACE. Owner:
@@ -20537,6 +20637,12 @@ function rmTotals(){
      cannot be a run with a path - it is a number, and it is counted here so the
      price and the material list see the whole house. */
   if(rmPhotoExtraFeet){ out.perimeter += rmPhotoExtraFeet; out.all += rmPhotoExtraFeet; }
+  /* ⭐ AND THE PEAKS. They are extra length on line already traced - the span
+     across a gable is drawn from above and the lights go up the two rakes - so
+     they belong in the perimeter beside the sides rather than in a total of
+     their own. */
+  const pk = rmPeaksFeet();
+  if(pk){ out.perimeter += pk; out.all += pk; }
   return out;
 }
 function rmRunsOn(){ return rmRuns.filter(rmRunIsOn); }
@@ -21092,7 +21198,18 @@ function rmSetType(type){
 function rmDot(run, idx){
   const w = run.path[idx];
   const mk = new google.maps.Marker({
-    position: rmSkyUnshift(w.lat, w.lng), map: rmMap, draggable: true, zIndex: 6, crossOnDrag: false,
+    /* ⭐ A DRAWN LINE IS NOT EDITABLE. Owner: "make it so if you create a line
+       the line or the dots arent editable so you can place two lines almost on
+       the same spot and if you mess up you just click backspace."
+
+       ⚠ AND THIS IS THE SAME BUG THAT ATE CLICKS BESIDE A DOT, cured at the
+       root rather than tuned. A draggable marker is a target: it swallows every
+       click that lands near it, so two lines could not be drawn close together
+       and nothing on screen said why. Nothing to grab means nothing to swallow,
+       so two lines can sit almost on top of each other - and a mistake costs one
+       backspace instead of a drag to put it back. */
+    position: rmSkyUnshift(w.lat, w.lng), map: rmMap, draggable: false, clickable: false,
+    zIndex: 6, crossOnDrag: false,
     icon: {path: google.maps.SymbolPath.CIRCLE, scale: 5.5, fillColor: '#fff',
            fillOpacity: 1, strokeColor: RM_TYPES[run.type].color, strokeWeight: 2.5}
   });
@@ -21416,6 +21533,7 @@ function rmRenderResults(){
     const hs = (r.path || []).map(function(p){ return (p.h||0)*RM_M_TO_FT; });
     const top = hs.length ? Math.round(Math.max.apply(null, hs)) : 0;
     const on = rmRunIsOn(r);
+    const extraFt = rmPeakExtraFeet(r);
     return '<div class="rm-runrow"'+(on ? '' : ' style="opacity:.55;"')+'>'+
       '<span><label style="cursor:pointer;"><input type="checkbox" data-rmonrun="'+i+'"'+(on ? ' checked' : '')+
       ' style="margin-right:5px; vertical-align:-1px;">'+
@@ -21423,10 +21541,32 @@ function rmRenderResults(){
       (r.surface === 'manual' ? ' <span style="opacity:.6;">typed</span>' : '')+
       (r.suggested ? ' <span style="opacity:.6;">'+esc(r.facing || 'suggested')+'</span>' : '')+
       (top > 1 ? ' <span style="opacity:.6;">('+top+' ft up)</span>' : '')+'</label></span>'+
+      /* ⭐ HOW MANY PEAKS ARE ON THIS SIDE. Owner: "we say how many peaks, so we
+         just insert it there are and add on how many extra feet based on the
+         type of peak."
+         A peak is not extra FEET, it is extra length on feet already traced -
+         the span across a gable is what you draw from above, and the lights go
+         up the two rakes. So it belongs on the side it sits on rather than in a
+         list of its own, and the row shows what it added. */
+      '<span style="opacity:.75; font-size:11px;">peaks '+
+        '<input type="number" min="0" max="9" step="1" value="'+(Number(r.peaks)||0)+'" '+
+        'data-rmpeaks="'+i+'" style="width:38px; padding:1px 3px; font-size:11px;">'+
+        (extraFt > 0.05 ? ' <span style="color:var(--gold-dim);">+'+rmFmtFeet(extraFt)+'</span>' : '')+
+      '</span>'+
       '<span>'+rmFmtFeet(rmRunFeet(r))+' <button type="button" data-rmdelrun="'+i+'" title="Delete this line">&#10005;</button></span></div>';
   }).join('');
   runsBox.querySelectorAll('[data-rmonrun]').forEach(function(cb){
     cb.addEventListener('change', function(){ rmToggleRun(Number(cb.dataset.rmonrun)); });
+  });
+  runsBox.querySelectorAll('[data-rmpeaks]').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      const r = rmRuns[Number(inp.dataset.rmpeaks)];
+      if(!r) return;
+      const n = Math.max(0, Math.min(9, Math.round(Number(inp.value) || 0)));
+      r.peaks = n;
+      r.touched = true;
+      rmRenderResults();
+    });
   });
   runsBox.querySelectorAll('[data-rmdelrun]').forEach(function(b){
     b.addEventListener('click', function(){
@@ -21816,54 +21956,17 @@ function rmPaintStreet(){
     parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="4" fill="none" stroke="#F4BE55" stroke-width="1.4"/>');
     parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="11" fill="rgba(0,0,0,0)" style="pointer-events:none;"/>');
   });
-  /* ⭐ THE CORNERS, WITH THEIR NUMBERS ON. Drawn last so they sit above the
-     lines, and drawn whether they are switched on or not - a corner you cannot
-     see is a corner you cannot pick, which is the whole point of numbering
-     them. Off ones are hollow and pale; on ones are solid. */
-  rmCorners.forEach(function(c, i){
-    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
-    if(!q) return;
-    const lit = !!c.on;
-    /* ⚠ SMALL. Owner: "the dots should look clean and small so theyre not
-       hindering the view of the house." A dot big enough to hold its number
-       comfortably is a dot big enough to hide the corner it is marking, which
-       defeats the whole purpose - you cannot judge whether a corner is in the
-       right place if the marker covers the place. So the dot is small and the
-       number sits BESIDE it, and the part that takes the click is invisible
-       and generous, which costs nothing on screen. */
-    /* A pinned dot gets a ring: it has been seen from more than one place and
-       is where it says it is. An unpinned one is still a guess, and the office
-       should be able to tell at a glance which is which. */
-    if(c.pinned) parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="none" stroke="'+
-      (lit ? '#E0574B' : '#8b95a1')+'" stroke-width="1" opacity=".85"/>');
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="3.2" fill="'+(lit ? '#E0574B' : 'rgba(255,255,255,.8)')+
-      '" stroke="'+(lit ? 'rgba(255,255,255,.9)' : '#8b95a1')+'" stroke-width="1.1"/>');
-    parts.push('<text x="'+(q.x + 6)+'" y="'+(q.y - 5)+'" font-size="9" font-weight="700" ' +
-      'fill="'+(lit ? '#E0574B' : '#6b7683')+'" stroke="rgba(255,255,255,.85)" stroke-width="2.2" ' +
-      'paint-order="stroke" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
-      rmCornerLabel(i) + '</text>');
-    /* The height beside the number: a dot at the wrong height is the one thing
-       that makes a dot appear to move, and it is invisible until it is said. */
-    parts.push('<text x="'+(q.x + 6)+'" y="'+(q.y + 5)+'" font-size="7.5" font-weight="600" ' +
-      'fill="'+(lit ? '#8a4038' : '#8b95a1')+'" stroke="rgba(255,255,255,.85)" stroke-width="2" ' +
-      'paint-order="stroke" style="pointer-events:none; font-family:system-ui,sans-serif;">' +
-      Math.round((c.h || 0) * RM_M_TO_FT) + '′</text>');
-    /* ⚠ THIS IS WHAT STOPPED TWO DOTS BEING PLACED CLOSE TOGETHER, and it is not
-       what it looked like. Owner: "it doesnt let me place dots if they are to
-       close fix that."
-       The invisible target was r=12 with pointer-events:all, on the SVG layer
-       ABOVE the sheet that catches clicks - so a click within twelve pixels of
-       an existing dot never reached the placing code at all. It toggled that dot
-       instead, and stopped there, because this handler calls stopPropagation.
-       Nothing about it looked like a refusal: no message, no new dot.
-       ⚠ THE PIN RADIUS WAS A RED HERRING. Narrowing that (22 to 8) was worth
-       doing on its own, but it could never have fixed this - the click was
-       already gone before anything asked how near the nearest dot was.
-       Seven pixels still takes a deliberate click on a dot drawn at 3.2, and
-       leaves room to put the next one down beside it. */
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="7" fill="rgba(0,0,0,0)" ' +
-      'style="pointer-events:all; cursor:pointer;" data-rmcornerdot="'+i+'"></circle>');
-  });
+    /* ⛔ THE SKY DOTS ARE NOT DRAWN HERE ANY MORE (2026-08-27). Owner: "you
+     shouldnt see the same dot on both perspectives anymore", and before it "we
+     dont need sky view dots and street view dots to be in sync anymore".
+
+     ⚠ THEY WERE THE SAME DOT IN TWO PICTURES, and that was the whole point when
+     one set of points had to serve both views - place it in one, see it in the
+     other. It stopped being the point when the street view stopped measuring:
+     a dot placed from above has no height, so drawing it here meant inventing
+     one, and an invented height put it somewhere on the photograph that is not
+     where the corner is. Showing it anyway is the tool asserting something it
+     does not know. */
   svg.innerHTML = parts.join('');
   /* The layer ignores the mouse as a whole; only the fat pick strokes take it,
      so panning the panorama still works everywhere else. */
@@ -23594,91 +23697,9 @@ function openRoofMeasure(quoteId){
     });
     return best;
   }
-  document.getElementById('rmMapLock').addEventListener('mousedown', function(e){
-    if(!e.shiftKey || rmCornerMode !== 'dot' || !rmMap) return;
-    const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
-    if(!w) return;
-    const i = rmSkyCornerNear(w);
-    if(i < 0) return;
-    rmSkyDragDot = i;
-    rmSkyDragFrom = {x: e.clientX, y: e.clientY};
-    e.preventDefault();
-    const note = document.getElementById('rmCornerNote');
-    if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
-    rmRefreshCursors(true);
-  });
-  document.getElementById('rmMapLock').addEventListener('mousemove', function(e){
-    /* The cursor answers before anything else does - see rmRefreshCursors. */
-    rmLastPointer = {x: e.clientX, y: e.clientY};
-    if(rmSkyDragDot < 0){ rmRefreshCursors(false); return; }
-    /* A few pixels of travel is a shaky click, not a drag. */
-    if(rmSkyDragFrom && Math.hypot(e.clientX - rmSkyDragFrom.x, e.clientY - rmSkyDragFrom.y) < RM_DRAG_SLOP_PX) return;
-    const c = rmCorners[rmSkyDragDot];
-    if(!c){ rmSkyDragDot = -1; return; }
-    const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
-    if(!w) return;
-    /* ⭐ FREE IN PLAN, AND THE HEIGHT DOES NOT MOVE (2026-08-26). Owner: "on sky
-       view I can only drag left and right — I said I dont want dragging the dot on
-       sky view to change the height and thats still true, but i should be able to
-       move it in any direction still."
-
-       ⚠ THIS REPLACES A SLIDE ALONG THE CAMERA RAY, and the reasoning for that is
-       kept because it was not wrong, it was over-constrained. Every point along a
-       ray draws at the same pixel, so sliding a dot along its own ray corrects the
-       DEPTH and leaves the photograph untouched — which is a real and useful
-       thing, and it is what "it should stay in the same spot in street view"
-       asked for. But a ray is a LINE. Constrained to it, the dot can only travel
-       one direction across the map, which from above reads as a broken drag, and
-       it cannot be put where the roof plainly is.
-
-       ⚠ THE TWO CANNOT BOTH HOLD, and this is the choice. Moving freely in plan
-       while holding the height necessarily moves the dot in Street View: same
-       height, different distance, different elevation, different pixel. Staying
-       fixed in the photograph necessarily means moving along the ray, which
-       necessarily changes the height. Asked which, the owner picked freedom in
-       plan — and it is the better half, because from above you can SEE where the
-       dot belongs, and the depth now has a proper answer of its own in the
-       measured model displacement (rmMeasureModelShift) rather than needing to be
-       nudged by hand.
-
-       ⚠ AND THE SIGHTINGS GO, because they no longer describe it. Its position
-       was the crossing of the rays it had been seen along; dragging it somewhere
-       else makes those rays describe a point it is not at. */
-    c.lat = w.lat; c.lng = w.lng;
-    c.rays = []; c.pinned = 0; c.spread = 0;
-    rmDragPaint();
-  });
-  ['mouseup', 'mouseleave'].forEach(function(ev){
-    document.getElementById('rmMapLock').addEventListener(ev, function(){
-      if(rmSkyDragDot < 0) return;
-      const moved = rmCornerLabel(rmSkyDragDot);
-      rmSkyDragDot = -1;
-      rmRefreshCursors(false);
-      /* ⭐ THE NUMBERS CATCH UP ON THE DROP. rmDragPaint deliberately leaves
-         the panel and the strip alone while the pointer is down; this is where
-         the footage, the price and the numbering come back into agreement with
-         the picture - at the moment they stop changing. */
-      rmCornersChanged();
-      const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
-        'click it in the street view to fix its height exactly.';
-    });
-  });
-  /* ⭐ SHIFT AND DRAG MOVES A DOT. Owner: "add a drage featue so if you grab a
-     dot while holding shift it moves."
-
-     ⚠ SHIFT IS WHAT MAKES IT SAFE. A plain drag on this sheet is how the office
-     places a dot and how it pins one, so a bare grab-and-move would turn every
-     slightly-wobbly click into a moved corner. Holding shift says move THIS
-     one, and nothing else on the sheet listens for it.
-
-     ⚠ AND A MOVED DOT STOPS BEING PINNED. Its position was the crossing of the
-     rays it had been seen along; dragging it somewhere else makes those rays
-     describe a point it is no longer at, so the sightings are dropped and the
-     ring comes off. Keeping them would leave a dot claiming to be exact while
-     sitting wherever it was last dragged - which is the confident-wrong state
-     this tool keeps having to be rescued from. */
-  let rmDragDot = -1, rmDragFrom = null, rmDragRange = 0;
+  /* ⛔ THE SKY DRAG IS GONE (2026-08-27). Owner: "dragging and clicking old dots
+     or editing them in any way on either perspective is no longer an option
+     other than backspace." Nothing to grab on either view now. */
   document.getElementById('rmMapLock').addEventListener('wheel', function(e){
     if(!rmMap) return;
     e.preventDefault();
@@ -23695,6 +23716,74 @@ function openRoofMeasure(quoteId){
     rmMap.panBy(dx * (scale - 1), dy * (scale - 1));
   }, {passive: false});
 
+  /* ⭐ THE GRADE TOOL. Owner: "build a tool where you can figure out the grade
+     and after you let go of using the tool it automatically adds the extra."
+
+     Drag along a rake - the sloping edge of a gable - and the angle of the drag
+     is the grade. Let go and every peak marked on the house is re-costed with
+     it, which is the "automatically adds the extra" half: nothing to confirm,
+     nothing to type.
+
+     ⚠ AND IT IS READ OFF A PHOTOGRAPH, WHICH IS ONLY SQUARE-ON. A rake's angle
+     on screen is its true pitch when you are looking straight at the gable end,
+     and flattens as you go round. So the readout says which it is rather than
+     implying a measurement: it is the office's eye, deliberately, and it beats
+     an average over eleven roof facets several of which are not this gable.
+     ⚠ IT IS ALSO WHY THIS DOES NOT MOVE ANYTHING. The picture is for looking at,
+     so the tool takes a number off it and never a position. */
+  let rmGradeDrag = null;
+  const rmGradeLine = document.getElementById('rmGradeLine');
+  function rmGradeFrom(a, b){
+    const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+    if(dx < 4) return null;                       /* straight up is not a pitch */
+    return (dy / dx) * 100;
+  }
+  function rmGradeSay(g){
+    const el = document.getElementById('rmGradeNote');
+    if(!el) return;
+    el.textContent = g === null ? 'Drag along the slope of a gable.'
+      : Math.round(g) + '% — ' + (Math.round(g * 12 / 100 * 10) / 10) + '/12, read off the picture';
+  }
+  document.getElementById('rmGradeBtn').addEventListener('click', function(){
+    rmGradeArmed = !rmGradeArmed;
+    this.textContent = rmGradeArmed ? 'Cancel' : 'Measure the grade';
+    document.getElementById('rmGradePane').style.display = rmGradeArmed ? 'block' : 'none';
+    document.getElementById('rmPanoLock').style.display = rmGradeArmed ? 'block' : 'none';
+    rmGradeSay(isFinite(rmGradeSet) ? rmGradeSet : null);
+  });
+  document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
+    if(!rmGradeArmed) return;
+    const r = this.getBoundingClientRect();
+    rmGradeDrag = {x: e.clientX - r.left, y: e.clientY - r.top};
+    e.preventDefault();
+  });
+  document.getElementById('rmPanoLock').addEventListener('mousemove', function(e){
+    if(!rmGradeArmed || !rmGradeDrag) return;
+    const r = this.getBoundingClientRect();
+    const to = {x: e.clientX - r.left, y: e.clientY - r.top};
+    if(rmGradeLine){
+      rmGradeLine.setAttribute('x1', rmGradeDrag.x); rmGradeLine.setAttribute('y1', rmGradeDrag.y);
+      rmGradeLine.setAttribute('x2', to.x); rmGradeLine.setAttribute('y2', to.y);
+      rmGradeLine.style.display = 'block';
+    }
+    rmGradeSay(rmGradeFrom(rmGradeDrag, to));
+  });
+  ['mouseup', 'mouseleave'].forEach(function(ev){
+    document.getElementById('rmPanoLock').addEventListener(ev, function(e){
+      if(!rmGradeArmed || !rmGradeDrag) return;
+      const r = this.getBoundingClientRect();
+      const g = rmGradeFrom(rmGradeDrag, {x: e.clientX - r.left, y: e.clientY - r.top});
+      rmGradeDrag = null;
+      if(rmGradeLine) rmGradeLine.style.display = 'none';
+      if(g === null){ rmGradeSay(null); return; }
+      /* ⭐ LETTING GO IS WHAT APPLIES IT. */
+      rmGradeSet = g;
+      rmGradeSay(g);
+      rmRenderResults();
+      const note = document.getElementById('rmGradeNote');
+      if(note) note.textContent += ' — every peak re-costed.';
+    });
+  });
   document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
     if(!rmPano) return;
     e.preventDefault();
