@@ -97,6 +97,49 @@ module.exports = [
     ]
   },
 
+  /* ⭐ ADDED 2026-08-27, WITH THE FIELD ITSELF. Owner's rule: somebody who changed their
+   * lights should be built, somebody who changed nothing should not. Nothing recorded a
+   * build before this, so a cleared needsLightBuild read the same whether the bundle was
+   * made in October or the house was never queued at all — and Check The Build Queue had
+   * to say "usually already built, or cleared by mistake" because the record did not know.
+   *
+   * ⚠ DECLARED THE DAY IT SHIPPED, deliberately. needsLightBuild is one of the seven
+   * watched things with nothing else guarding it; adding a companion field that decides
+   * what a screen tells you about a build, and then not watching it, is the exact shape
+   * of hole this map exists to catch.
+   *
+   * ⚠ TWO WRITERS, NOT THREE. whToggleLightsNew in employee.html clears the same flag and
+   * does NOT stamp this — owner, 2026-08-27, is not using the crew portal this year, so
+   * that file was left alone. It is also outside this map entirely: build.js scans
+   * admin.html and functions/index.js only. A house ticked there reads "no build
+   * recorded". If the crew portal comes back, that is the first thing to fix.
+   *
+   * ⚠ AND THE FIVE PLACES THAT MUST NEVER STAMP IT are not listed here as sets, because
+   * they are not writers of this field and never may be — colours cleared in the portal,
+   * Back Next Year, and the out-for-season paths. build-stamp.test.js holds that line;
+   * a presence map cannot express "must not appear over there". */
+  {
+    field: 'lightsMarkedBuiltAt',
+    areas: ['Warehouse'], record: 'cust',
+    title: 'Marked Built On',
+    plain: 'The day somebody in the warehouse said this bundle was made.',
+    states: [
+      ['A date on file', 'Shows as "marked built <date>" beside the name'],
+      ['No date', 'Shows as "no build recorded" \u2014 which is not the same as never built'],
+      ['Cleared some other way', 'Sitting the season out never stamps a build']
+    ],
+    sets: [
+      { file: 'admin', near: 'btn.dataset.whdonehouse),', where: 'Warehouse \u203a Build', when: 'one house is marked done',
+        rules: ['It records the button being pressed, not a bundle being made \u2014 so every screen says "marked built", never "built".'] },
+      { file: 'admin', near: 'const missedHouses = []', where: 'Warehouse \u203a Build', when: 'a whole colour group is marked finished',
+        rules: ['A house that will not save is named, and stays on the build list.'] }
+    ],
+    reads: [
+      { file: 'admin', el: 'whFindNotQueuedBtn', where: 'Warehouse \u203a Tools', when: 'Check The Build Queue is run',
+        rules: ['A missing date reads "no build recorded", never "never built" \u2014 every customer on file before this shipped has none.'] }
+    ]
+  },
+
   {
     field: 'needsLightRecycle',
     areas: ['Customers', 'Warehouse'], record: 'cust',

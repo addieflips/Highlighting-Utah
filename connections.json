@@ -1,9 +1,10 @@
 {
- "watched": 15,
+ "watched": 16,
  "red": 0,
  "breaks": [],
  "unguarded": [
   "needsLightBuild",
+  "lightsMarkedBuiltAt",
   "needsLightRecycle",
   "completed",
   "carryoverCharge",
