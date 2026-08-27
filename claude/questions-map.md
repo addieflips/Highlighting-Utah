@@ -7,9 +7,11 @@ work, in one place, so it is never asked twice and never answered two different 
 (`CLAUDE.md`), not facts about the code. If a machine could derive the answer by reading
 the code, it does not belong here. Only decisions a person made.
 
-**Where it lives.** With the other Claude docs — the Project, not the repo. ⚠ There is no
-`claude/` folder on `main`; only `CLAUDE.md` and `system-map.md` are committed. If that
-changes, this file moves with the rest of them.
+**Where it lives.** `claude/questions-map.md`, committed to the repo alongside
+`CLAUDE.md`, `system-map.md` and `docs/RULES.md`. ⚠ This paragraph used to say there was
+no `claude/` folder on `main` and that only two docs were committed. That stopped being
+true and nothing noticed — which is the exact rot this file exists to prevent, in its own
+header. `git ls-files claude/` is the answer, not this sentence.
 
 **Three rules for keeping it true:**
 
@@ -63,8 +65,10 @@ the docs record it as settled but no dated quote survives — treat those as wea
 | MON-20 | When Who Pays for Whom is retired, does its Excel export survive? | **Keep the Excel export somewhere.** The whole-book view goes with the tab; the export does not. Where it lands is a placement decision, not a rule — the Invoices tab is the obvious home | 2026-08-26 | — retirement is deliberately after a season of the house tabs | Decided — not built |
 | MON-21 | A house that was HUNG and afterwards said no — does it still get charged? | "Any house hung no matter what should be charged. This will only be overuled if it is our fault... if we hung the lights and there is no reason to not charge them than we will charge them still." So `completed` is tested FIRST, ahead of every status. ⚠ "Our fault" is the office writing it off with a credit — never an automatic test, which would be the app guessing at fault | 2026-08-26 | `houseIsOnTheBill` / `houseIsOnTheBillServer`, money-parity | Standing |
 | MON-22 | Who is in the season once the RSVP has gone out? | **"Only people that RSVP are yes and should be scheduled and invoiced."** ⚠ RECORDED, NOT YET SWITCHED ON — `SEASON_ELIGIBILITY` already implements it and flipping it before the RSVP is sent puts every unanswered customer out of the season, which is nearly everybody. Needs a date from her (Q-010a). ⚠ It also widens the rule to INVOICING, which today is a separate question by design; MON-21 is what makes that safe, since anyone whose lights are up is billed whatever they answered | 2026-08-26 | `SEASON_ELIGIBILITY`, `isOutForSeason` | Decided — not built |
+| MON-26 | Should only people who answered the RSVP be scheduled and invoiced — and how do we stop crews reaching non-repliers? | **Hardcode it AND warn me.** `SEASON_ELIGIBILITY` defaults to `confirmed-only` rather than being a switch she must remember. ⚠ Gated by `seasonRuleIsLive`: the RSVP must have gone out AND the reply window closed, or hardcoding empties the season on day one. ⚠ The BILLING is not where this is fixed — MON-21 says a hung house is charged; the only place to break the chain is not sending a crew. ⭐ Health Check `seasonRuleDrops` is the warning half, silent until the RSVP has gone out | 2026-08-26 | `seasonRuleIsLive`, `RSVP_REPLY_DAYS`, Health Check `seasonRuleDrops` | Standing |
 | MON-13 | ~~One fee or two for a new member changing lights~~ | ~~Only one — the change fee is folded into the join fee~~ | 2026-08-19 | — | Superseded → MON-01 |
 | MON-23 | A stored phone the invoice rebuild cannot match — measure it first, or just fix it? | **"yes"** — do the query-side fix, asked right after she said she does not read Health Check (HC-03), which is where the measurement was parked. `syncPayerInvoice`'s phone branch now falls back to the loaded `jobAddresses` list when the equality query resolves nobody — the same fallback the email branch already had. ⚠ It asks `custInvoiceKey`, never compares phone fields. ⚠ The STORED phone is deliberately not normalised: that changes what the office reads on every screen and export. ⚠ A mixed group (some digits-only, some not) still resolves only the digits ones — carried as Q-019a, not smuggled in | 2026-08-26 | `syncPayerInvoice`, Suite 10 | Standing |
+| MON-25 | Q-019a — should the invoice fallback run always, or only when the lookup found nobody? | **"yes"** — always. Conditional, it fixed a payer whose ONLY house is stored formatted and missed the worse case: one payer with SEVERAL houses, one typed `(801) 111-2222` and the rest digits. The query finds the digits ones, the fallback never ran, and the formatted house left the bill — total and `billedHouseIds` both omit it, so the invoice adds up and is wrong. UNDERCHARGING, and it lands on the ~17 shared-phone households. ⚠ The EMAIL branch was widened too: identical shape, identical hole, and it was the precedent the phone fix was copied from. ⚠ Safe because `addHouse` dedupes by id and every added house already passed the same `custInvoiceKey` rule. ⚠ Stored phones/emails are still not normalised | 2026-08-26 | `syncPayerInvoice`, Suite 10 | Standing |
 
 ## Warehouse — build, recycle, bins
 
@@ -89,6 +93,8 @@ the docs record it as settled but no dated quote survives — treat those as wea
 | WH-17 | Should a blank colour field clear the build flag? | No. "big problem, she went to the recycle but not to the build." Blank colours mean the build can't be *done*, not that it isn't *owed* | 2026-08-21 | `needsLightBuild` on the Edit Customer save | Standing |
 | WH-18 | Should a house with no colours be hidden from the queue? | No — its own blocked block with an Add colours button, and marked Blocked on the sheet | 2026-08-21 | `whBuildQueueGroups` | Standing |
 | WH-19 | Buffer stock — does it carry a badge? | No. No customer, so no claim | 2026-08-24 | `whBuildReasonKey`, `build-reason.test.js` | Standing |
+| WH-20 | Should an imported house be queued for a build only if it has colours? | No — **ungated**. "we want to build everyone." A row with no colours goes to the blocked "Waiting on light colours" block, which is visible and has an Add colours button; gating the flag makes those houses invisible instead, which is the bug being closed | 2026-08-26 | `needsLightBuild` in `rbImportBtn` / `ibImportBtn` add branches, `import-build-flag.test.js` | Standing |
+| WH-21 | Does an import that MATCHES an existing customer re-queue their build? | No, never. These tools write hundreds of records a press, so a matched row that re-queued would put every house already built back on the warehouse list and somebody would make a second set for it | 2026-08-26 | update branches of `rbImportBtn` / `ibImportBtn`, `import-build-flag.test.js` | Standing |
 
 ## Customer numbers
 
@@ -254,9 +260,11 @@ the docs record it as settled but no dated quote survives — treat those as wea
 | PROC-08 | ~~Should the buttons be repeated below a stack of photos?~~ | ~~Yes, so Approve is never far down a phone~~ | 2026-08-13 | `repeatQuoteButtonsServer`, removed | Superseded → PROC-07 |
 | PROC-09 | Remove an existing feature while doing something else? | No — features don't get removed unless she asks. Archive over delete | (standing) | project rules | Standing |
 | PROC-10 | Write code straight away, or explain first? | Explain first — the feature, the files, the cross-part impact — and wait for the go-ahead. Mockups before major UI changes | (standing) | project rules | Standing |
-| PROC-11 | Deliver snippets or whole files? | Whole files, through the file system — only the files she needs to upload | (standing) | project rules | Standing |
+| PROC-11 | ~~Deliver snippets or whole files?~~ | ~~Whole files, through the file system — only the files she needs to upload~~ | (standing) | project rules | Superseded → PROC-15 |
 | PROC-13 | Is "write the ruling down" an active rule or a proposal? | Active — **R-023**, `read` + `code`, tier 5. Filing it as proposed was wrong: R-005 was retired because the state it governed did not exist, not because it was unenforceable, and this rulebook already has a tier for rules that can only be honoured | 2026-08-26 | `docs/RULES.md` R-023 + amendment log | Standing |
 | PROC-12 | What does a test failure have to say? | Enough to be understood from the pasted text alone — "failures should read legibility so you can understand it when we ask you questions about failures." The file, the line, which row, **what that row says**, and the fix. Grouped by row, not one line per check | 2026-08-26 | `questions-map.test.js` reporter, 13 sabotages | Standing |
+| PROC-14 | How does a ruling reach the map when the work is done in Claude Code? | R-023 restated at the TOP of `CLAUDE.md`, not only as item 5 of §9.9 forty thousand words down. Chat-side work is covered by the Project instructions. Nothing can check that a ruling was given and never written down, so the placement IS the enforcement | 2026-08-26 | `CLAUDE.md` head section, `docs/RULES.md` R-023 | Standing |
+| PROC-15 | Does Claude Code hand back files to upload, or do the work in the repo? | Do it in the repo — branch, edit, run `npm test`, open the PR. **Do not hand back files to upload.** Reverses PROC-11, which was written for chat delivery where there was no repo to work in | 2026-08-26 | task briefs, 2026-08-26 | Standing |
 
 ## Fixes
 
