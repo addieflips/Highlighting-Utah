@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connections — one tab, two views</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--night:#0d1a22;--panel:#132530;--wire:#2c4553;--ww:#ffd49a;--pw:#eef6ff;
+ --red:#ef5a4c;--green:#4cc27f;--amber:#f2a93b;--blue:#7cc0e8;--purple:#c9a3f0;
+ --ink:#dce8ef;--dim:#89a2b1;--rule:rgba(255,255,255,.08)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--night);color:var(--ink);font-family:'Public Sans',system-ui,sans-serif;
+ font-size:16px;line-height:1.5;padding:0 22px 90px;
+ background-image:radial-gradient(ellipse 60% 35% at 40% -6%,#1a3341 0%,transparent 70%)}
+.wrap{max-width:1180px;margin:0 auto}
+.mock{margin:0 -22px;padding:9px 22px;background:var(--amber);color:#33220a;font-weight:700;font-size:13.5px;text-align:center}
+header{padding:26px 0 0}
+.eyebrow{font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim);margin:0 0 7px;font-weight:600}
+h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:clamp(25px,4vw,34px);
+ margin:0 0 14px;letter-spacing:-.02em;color:var(--pw)}
+.subtabs{display:flex;gap:2px;border-bottom:1px solid var(--rule);margin:0 0 22px}
+.subtabs button{background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;
+ color:var(--dim);font:700 14.5px 'Public Sans',sans-serif;padding:11px 18px;font-family:inherit}
+.subtabs button:hover{color:var(--ink)}
+.subtabs button[aria-selected="true"]{color:var(--pw);border-bottom-color:var(--ww)}
+.subtabs .b{display:inline-block;margin-left:7px;font-size:11px;font-weight:800;padding:2px 7px;border-radius:5px}
+.b.red{background:rgba(239,90,76,.2);color:var(--red)}
+.b.dim{background:rgba(255,255,255,.07);color:var(--dim)}
+
+.headline{border:1px solid rgba(239,90,76,.35);background:linear-gradient(180deg,rgba(239,90,76,.1),var(--panel) 70%);
+ border-radius:12px;padding:14px 16px;margin:0 0 20px;font-size:14.5px}
+.headline b{color:var(--pw);display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+.headline button{background:none;border:none;color:var(--ww);font:600 14px 'Public Sans',sans-serif;cursor:pointer;padding:0}
+
+.picker{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 8px}
+.picker button{font:600 13px/1 'Public Sans',sans-serif;color:var(--dim);background:none;
+ border:1px solid var(--wire);border-radius:999px;padding:9px 14px;cursor:pointer;font-family:inherit}
+.picker button[aria-pressed="true"]{background:var(--pw);color:#0d1a22;border-color:var(--pw)}
+.note{font-size:13px;color:var(--dim);margin:0 0 16px}
+
+.gridwrap{overflow-x:auto;border:1px solid var(--rule);border-radius:13px;background:var(--panel)}
+table{border-collapse:separate;border-spacing:0;font-size:13px;width:100%}
+th,td{padding:0;text-align:center}
+thead th{position:sticky;top:0;background:var(--panel);z-index:2;font-size:11px;font-weight:600;color:var(--dim);
+ padding:13px 6px 9px;border-bottom:1px solid var(--rule);vertical-align:bottom;line-height:1.2;min-width:58px}
+thead th.f{text-align:left;padding-left:16px;min-width:168px;position:sticky;left:0;z-index:3}
+thead th.rec{text-align:left;min-width:112px;position:sticky;left:168px;z-index:3;padding-left:12px}
+td.f{text-align:left;padding:9px 10px 9px 16px;color:var(--ink);font-size:13.5px;position:sticky;left:0;
+ background:var(--panel);white-space:nowrap;font-weight:500}
+td.rec{text-align:left;padding:9px 12px;position:sticky;left:168px;background:var(--panel);
+ border-right:1px solid var(--rule);white-space:nowrap}
+tbody tr:hover td{background:rgba(255,255,255,.04)}
+tbody tr:hover td.f,tbody tr:hover td.rec{background:#182f3c}
+.rt{font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px}
+.rt.cust{background:rgba(124,192,232,.16);color:var(--blue)}
+.rt.inv{background:rgba(201,163,240,.16);color:var(--purple)}
+.cell{width:18px;height:18px;border-radius:5px;display:inline-block}
+.cell.set{background:var(--ww)} .cell.read{background:none;border:1.5px solid var(--wire)}
+.cell.bad{background:var(--red);cursor:pointer} .cell.wrn{background:var(--amber);cursor:pointer}
+.legend{display:flex;gap:15px;flex-wrap:wrap;margin:13px 0 0;font-size:12.5px;color:var(--dim)}
+.legend span{display:flex;align-items:center;gap:6px}
+.detail{margin:15px 0 0;padding:14px 16px;border-radius:11px;font-size:14.5px;
+ background:rgba(255,255,255,.035);border-left:3px solid var(--wire);color:var(--dim)}
+.detail.bad{background:rgba(239,90,76,.1);border-left-color:var(--red);color:var(--ink)}
+.detail.wrn{background:rgba(242,169,59,.1);border-left-color:var(--amber);color:var(--ink)}
+.detail b{display:block;color:var(--pw);font-size:11px;letter-spacing:.07em;text-transform:uppercase;margin-bottom:4px}
+.detail ul{margin:7px 0 0;padding-left:18px;font-size:14px}
+.detail .go{background:none;border:1px solid var(--wire);border-radius:8px;color:var(--ww);
+ font:600 13px 'Public Sans',sans-serif;cursor:pointer;padding:8px 12px;margin-top:12px;font-family:inherit}
+.detail .go:hover{border-color:var(--ww)}
+
+/* rules side */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:13px;margin:0 0 22px}
+.areacard{border:1px solid var(--rule);border-radius:13px;background:var(--panel);padding:15px 16px 13px;
+ cursor:pointer;text-align:left;width:100%;font-family:inherit;color:inherit}
+.areacard:hover{border-color:var(--ww)}
+.areacard h3{font-family:'Bricolage Grotesque',sans-serif;font-size:17px;font-weight:700;color:var(--pw);
+ margin:0 0 3px;display:flex;align-items:center;gap:8px}
+.areacard .of{font-size:12.5px;color:var(--dim);margin:0 0 10px}
+.trk{height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin:0 0 10px}
+.trk i{display:block;height:100%;background:var(--green)}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tg{font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;background:rgba(255,255,255,.06);color:var(--dim)}
+.tg.a{background:rgba(242,169,59,.16);color:var(--amber)}
+.tg.r{background:rgba(239,90,76,.17);color:var(--red)}
+.tg.w{background:rgba(124,192,232,.14);color:var(--blue)}
+.back{background:none;border:none;color:var(--ww);font:600 13.5px 'Public Sans',sans-serif;cursor:pointer;padding:0 0 12px;font-family:inherit}
+.sec{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ww);font-weight:700;margin:20px 0 8px}
+.block{border:1px solid var(--rule);border-radius:11px;background:var(--panel);margin:0 0 8px;overflow:hidden}
+.block.open{border-color:var(--wire)}
+.block.hit{border-color:var(--ww)}
+.blockbtn{display:flex;align-items:center;gap:11px;width:100%;background:none;border:none;cursor:pointer;
+ color:var(--ink);font:600 15px/1.35 'Public Sans',sans-serif;text-align:left;padding:14px 15px;font-family:inherit}
+.blockbtn:hover{background:rgba(255,255,255,.035)}
+.tw{color:var(--dim);font-size:11px;flex:0 0 9px}
+.st{width:9px;height:9px;border-radius:50%;flex:0 0 9px}
+.st.new{background:var(--wire)} .st.ok{background:var(--green)}
+.st.flag{background:var(--red)} .st.lapsed{background:var(--amber)}
+.nm{flex:1} .n{font-size:11px;font-weight:700;color:var(--dim);background:rgba(255,255,255,.06);padding:3px 8px;border-radius:5px}
+.body{padding:0 15px 15px 35px;border-top:1px solid var(--rule)}
+ul.rl{list-style:none;margin:12px 0 0;padding:0}
+ul.rl li{padding:9px 0 9px 17px;border-bottom:1px solid var(--rule);position:relative;font-size:14.5px}
+ul.rl li:last-child{border-bottom:none}
+ul.rl li::before{content:'';position:absolute;left:0;top:16px;width:6px;height:6px;border-radius:50%;background:var(--wire)}
+.prov{margin:12px 0 0;font-size:12.5px;color:var(--dim);background:rgba(255,255,255,.035);
+ border-radius:8px;padding:9px 11px}
+.prov b{color:var(--ink)}
+.rev{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 0;padding:12px 0 0;border-top:1px dashed var(--wire)}
+.rev .lab{font-size:12px;color:var(--dim);margin-right:2px}
+.rev button{font:600 12.5px/1 'Public Sans',sans-serif;border-radius:7px;padding:8px 12px;cursor:pointer;
+ background:none;border:1px solid var(--wire);color:var(--ink);font-family:inherit}
+.rev button.y:hover{border-color:var(--green);color:var(--green)}
+.rev button.n:hover{border-color:var(--red);color:var(--red)}
+.locked{font-size:12px;color:var(--dim);font-style:italic}
+</style>
+</head>
+<body>
+<div class="mock">Mockup — red and amber results invented. The “stored on” column and the two faults are real.</div>
+<div class="wrap">
+<header>
+  <p class="eyebrow">Highlighting Utah · admin</p>
+  <h1>Connections</h1>
+  <div class="subtabs" role="tablist">
+    <button role="tab" aria-selected="true" onclick="tab('grid',this)">Where things go<span class="b red">2</span></button>
+    <button role="tab" aria-selected="false" onclick="tab('rules',this)">Rules<span class="b dim">9 to read</span></button>
+  </div>
+</header>
+
+<div id="grid">
+  <div class="headline"><b>Two connections are broken</b>
+    <button onclick="jump('Needs building','Customers')">Nothing gets built for an imported house</button> ·
+    <button onclick="jump('Needs recycling','Warehouse')">Back Next Year is recycling</button>
+  </div>
+  <div class="picker" id="picker"></div>
+  <p class="note" id="gnote"></p>
+  <div class="gridwrap"><table><thead><tr id="ghead"></tr></thead><tbody id="gbody"></tbody></table></div>
+  <div class="legend">
+    <span><i class="cell set"></i> writes it</span><span><i class="cell read"></i> reads it</span>
+    <span><i class="cell bad"></i> should, doesn't</span><span><i class="cell wrn"></i> does, never agreed</span>
+    <span><i class="rt cust">Customer</i> <i class="rt inv">Invoice</i> which record it is stored on</span>
+  </div>
+  <div class="detail" id="gdetail">Click any square to see its rules, or a red one to see what's wrong.</div>
+</div>
+
+<div id="rules" hidden></div>
+</div>
+
+<script>
+/* ---------------- grid data ---------------- */
+const DEST=['Customers','Warehouse','Routes','Schedule','Invoices','Print Today','Portal','7pm run'];
+const TABS={
+ 'Quote Requests':{note:'The eight things a quote captures. Six live on the customer, two on the invoice.',
+  rows:[['Light colours','cust','s','r','r','','','r','r',''],
+        ['Eaves','cust','s','r','r','','','r','r',''],
+        ['Timer','cust','s','r','r','','','r','r',''],
+        ['Light wire','cust','s','r','','','','r','r',''],
+        ['Permanent notes','cust','s','','r','r','','r','',''],
+        ['Invoice notes','inv','','','','','s','','r','r'],
+        ['Gate code','cust','s','','r','r','','r','r',''],
+        ['The $30 join fee','inv','s','','','','s','','r','r']]},
+ 'Customers':{note:'The one red is Bulk Updates — a sub-tab of this one. Add a Customer, beside it, does it right.',
+  rows:[['Light colours','cust','s','r','r','','','r','r',''],
+        ['Needs building','cust','x','r','','','','r','',''],
+        ['Needs recycling','cust','s','w','','r','','r','',''],
+        ['The price','cust','s','','r','','r','r','r','r'],
+        ['Permanent notes','cust','s','','r','r','','r','',''],
+        ['Gate code','cust','s','','r','r','','r','r',''],
+        ['Installed','cust','r','','s','s','r','r','','r'],
+        ['48-hour lock','cust','s','','r','r','','','','']]},
+ 'Warehouse':{note:'The two flags the warehouse is the only place allowed to clear.',
+  rows:[['Needs building','cust','x','s','','','','r','',''],
+        ['Needs recycling','cust','s','w','','r','','r','',''],
+        ['Light colours','cust','s','r','r','','','r','r',''],
+        ['Light wire','cust','s','r','','','','r','r',''],
+        ['Bins and number','cust','s','r','r','','','r','','']]},
+ 'Invoices':{note:'Money. Notice how little of it lives on the customer.',
+  rows:[['The price','cust','s','','r','','r','r','r','r'],
+        ['Invoice notes','inv','','','','','s','','r','r'],
+        ['Change fees','inv','s','','','','s','','s','r'],
+        ['The $30 join fee','inv','s','','','','s','','r','r'],
+        ['Installed','cust','r','','s','s','r','r','','r']]}
+};
+const FAULTS={
+ 'Needs building|Customers':['bad','Nothing gets built for an imported house',
+  ['Customers › Bulk Updates adds a house with its colours and wire, and never queues it.',
+   'No bundle is made. The crew arrives with nothing for it.',
+   'Add a Customer, on the same tab, does it correctly.'],'Warehouse','Needs Building'],
+ 'Needs recycling|Warehouse':['wrn','Back Next Year is recycling',
+  ['Something sets the recycle flag from the Back Next Year link.',
+   'Your ruling on 14 August was that it never should.'],'Warehouse','Needs Recycling']
+};
+const CELLRULES={
+ 'Invoice notes':['Lives on the invoice, not the customer',
+  ['Start New Season wipes invoices — this does not survive the year.','Never reaches a crew sheet.','Permanent Notes is the one that lasts.']],
+ 'The $30 join fee':['A tick on the customer, money on the invoice',
+  ['Only a person sets the tick — no importer ever does.','Added once by the nightly run, flagged so it cannot be charged twice.']],
+ 'The price':['What they agreed to',['Feet sets it. Difficulty does not change it.','Never worked out again once agreed.']],
+ 'Installed':['What the 7pm run bills',['One house at a time, never a whole day.','Takedown is separate.']]
+};
+let gtab='Customers';
+document.getElementById('picker').innerHTML=Object.keys(TABS).map((t,i)=>
+ '<button data-t="'+t+'" aria-pressed="'+(t===gtab)+'">'+t+'</button>').join('');
+document.getElementById('ghead').innerHTML='<th class="f">What it is</th><th class="rec">Stored on</th>'
+ +DEST.map(d=>'<th>'+d.replace(' ','<br>')+'</th>').join('');
+function drawGrid(){
+ const T=TABS[gtab];
+ document.getElementById('gnote').textContent=T.note;
+ document.querySelectorAll('.picker button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t===gtab));
+ const tag={cust:['cust','Customer'],inv:['inv','Invoice']};
+ document.getElementById('gbody').innerHTML=T.rows.map(r=>{
+  let h='<tr><td class="f">'+r[0]+'</td><td class="rec"><span class="rt '+tag[r[1]][0]+'">'+tag[r[1]][1]+'</span></td>';
+  for(let i=0;i<DEST.length;i++){const v=r[i+2]||'';
+   const c=v==='s'?'set':v==='r'?'read':v==='x'?'bad':v==='w'?'wrn':'';
+   h+='<td>'+(c?'<i class="cell '+c+'" data-f="'+r[0]+'" data-d="'+DEST[i]+'"></i>':'')+'</td>';}
+  return h+'</tr>';}).join('');
+ document.querySelectorAll('.cell[data-f]').forEach(c=>c.addEventListener('click',()=>{
+  const d=document.getElementById('gdetail'),f=FAULTS[c.dataset.f+'|'+c.dataset.d];
+  if(f){d.className='detail '+f[0];
+   d.innerHTML='<b>'+f[1]+'</b><ul>'+f[2].map(x=>'<li>'+x+'</li>').join('')+'</ul>'
+    +'<button class="go" onclick="jump(\''+c.dataset.f+'\',\''+c.dataset.d+'\')">Open the rule this breaks →</button>';return;}
+  const r=CELLRULES[c.dataset.f];d.className='detail';
+  d.innerHTML=r?'<b>'+c.dataset.f+' — '+r[0]+'</b><ul>'+r[1].map(x=>'<li>'+x+'</li>').join('')+'</ul>'
+   :'<b>'+c.dataset.f+'</b>No rule written down for this one yet — which is itself worth knowing.';}));
+}
+document.getElementById('picker').addEventListener('click',e=>{const b=e.target.closest('button');if(b){gtab=b.dataset.t;drawGrid();}});
+
+/* ---------------- rules data ---------------- */
+const RULES={
+ Money:{sections:[['Fees',[
+   ['The $30 join fee',['Added once by the nightly run, flagged so it cannot be charged twice.','No importer ever sets it — only a person ticking the box.','Start New Season clears the tick.'],'new','code','','','high'],
+   ['The $30 light-change fee',['The office is always asked first. Never charged silently.','A new member changing after 48 hours pays both — sixty dollars.'],'ok','code','Addie','21 Aug','high']]],
+  ['Invoices',[
+   ['The 7pm run',['One invoice per payer, keyed on phone digits or email.','Only houses marked installed.','Somebody with no email is skipped, and nobody chases it.'],'new','words','','','high'],
+   ['What the balance is',['Install plus removal plus change fees, less credits, less deposit.','Removal is included and never billed separately.'],'flag','code','Addie','21 Aug','high']]]]},
+ Quotes:{sections:[['Their answer',[
+   ['They approve it',['Approving counts as yes to the season, even over a recorded no.','A later no still wins.'],'lapsed','code','Addie','22 Aug',''],
+   ['They deny it',['Recorded immediately. A reason box is offered and optional.','Declining a quote and answering no to the RSVP are different answers.'],'ok','code','Addie','24 Aug','']]],
+  ['Sending',[
+   ['Send the quote email',['Photos stack one per row, full width, labelled.','One set of buttons — never repeated.','A slideshow is impossible in email.'],'ok','words','Addie','19 Aug','']]]]},
+ Warehouse:{sections:[['The two queues',[
+   ['Needs Building',['Only the warehouse takes it out again.','Blank colours do not cancel it — the house shows blocked, not hidden.','An import that matches an existing customer must never turn it on.'],'ok','code','Dad','26 Aug',''],
+   ['Needs Recycling',['Answering no turns it on. Back Next Year never does.','Saying yes again cancels it.'],'flag','code','Dad','14 Aug','']]]]},
+ Schedule:{sections:[['Getting on a day',[
+   ['How a new member arrives',['The five-minute sync matches on number then phone — never address.','New hangs outrank everything.'],'new','words','','',''],
+   ['Day sizes',['8 or fewer one man, 9–19 one crew, 20+ two crews.','Twenty is a hard cap.'],'lapsed','code','Addie','20 Aug','']]]]}
+};
+const LABEL={new:'Not reviewed',ok:'Confirmed',flag:'Flagged as wrong',lapsed:'Changed since confirmed'};
+const S={};Object.keys(RULES).forEach(a=>RULES[a].sections.forEach(s=>s[1].forEach(b=>
+ S[a+'|'+b[0]]={s:b[2],proof:b[3],by:b[4],d:b[5],hi:b[6]})));
+let rArea=null, rOpen={}, rHit=null;
+const ks=a=>Object.keys(S).filter(k=>k.indexOf(a+'|')===0);
+const c=(k,s)=>k.filter(x=>S[x].s===s).length;
+
+function drawRules(){
+ const v=document.getElementById('rules');
+ if(!rArea){
+  const all=Object.keys(S);
+  const unread=all.filter(k=>S[k].s==='new');
+  v.innerHTML='<div class="headline" style="border-color:rgba(255,255,255,.14);background:var(--panel)">'
+   +'<b>Where to start</b>'+c(all,'flag')+' flagged as wrong · '+unread.length+' never read · '
+   +c(all,'lapsed')+' changed since confirmed. '
+   +'<span style="color:var(--dim)">Longest unread: <b style="color:var(--ink)">'+unread[0].split('|')[1]+'</b>, never.</span></div>'
+   +'<div class="cards">'+Object.keys(RULES).map(a=>{
+    const k=ks(a),p=Math.round(c(k,'ok')/k.length*100);
+    const wd=k.filter(x=>S[x].proof==='words').length;
+    return '<button class="areacard" data-a="'+a+'"><h3>'+a+'</h3>'
+     +'<p class="of">'+c(k,'ok')+' of '+k.length+' confirmed</p><div class="trk"><i style="width:'+p+'%"></i></div>'
+     +'<div class="tags">'+(c(k,'new')?'<span class="tg">'+c(k,'new')+' never read</span>':'')
+     +(c(k,'lapsed')?'<span class="tg a">'+c(k,'lapsed')+' changed</span>':'')
+     +(c(k,'flag')?'<span class="tg r">'+c(k,'flag')+' flagged</span>':'')
+     +(wd?'<span class="tg w">'+wd+' not checkable</span>':'')+'</div></button>';}).join('')+'</div>';
+ } else {
+  let h='<button class="back">← All areas</button>';
+  RULES[rArea].sections.forEach(sec=>{
+   h+='<p class="sec">'+sec[0]+'</p>';
+   sec[1].forEach(b=>{
+    const key=rArea+'|'+b[0],st=S[key],o=!!rOpen[key];
+    h+='<div class="block'+(o?' open':'')+(rHit===key?' hit':'')+'"><button class="blockbtn" data-k="'+key+'">'
+     +'<span class="tw">'+(o?'▾':'▸')+'</span><span class="st '+st.s+'"></span><span class="nm">'+b[0]+'</span>'
+     +'<span class="n">'+b[1].length+'</span></button>';
+    if(o){
+     h+='<div class="body"><ul class="rl">'+b[1].map(r=>'<li>'+r+'</li>').join('')+'</ul>'
+      +'<div class="prov"><b>Where this came from:</b> read out of the code by Claude, '
+      +(st.proof==='code'?'and checkable — a test can prove it.':'but <b>not checkable</b> — no test can prove it.')
+      +' Confirming means you checked it, not that you agree with me.</div>'
+      +'<div class="rev"><span class="lab">'+LABEL[st.s]+(st.by?' · '+st.by+', '+st.d:'')+'</span>'
+      +(st.hi==='high'?'<span class="locked">money rule — say what you checked against</span>':'')
+      +'<button class="y" data-set="ok" data-k="'+key+'">Looks right</button>'
+      +'<button class="n" data-set="flag" data-k="'+key+'">Something\u2019s wrong</button>'
+      +(st.s==='flag'?'<span class="locked">→ sent back to the questions map for a new ruling</span>':'')
+      +'</div></div>';}
+    h+='</div>';});});
+  v.innerHTML=h;
+ }
+ v.querySelectorAll('[data-a]').forEach(b=>b.addEventListener('click',()=>{rArea=b.dataset.a;drawRules();}));
+ v.querySelectorAll('.back').forEach(b=>b.addEventListener('click',()=>{rArea=null;rHit=null;drawRules();}));
+ v.querySelectorAll('.blockbtn').forEach(b=>b.addEventListener('click',()=>{rOpen[b.dataset.k]=!rOpen[b.dataset.k];drawRules();}));
+ v.querySelectorAll('.rev button').forEach(b=>b.addEventListener('click',()=>{
+  S[b.dataset.k]={...S[b.dataset.k],s:b.dataset.set,by:'Addie',d:'today'};drawRules();}));
+}
+function tab(which,btn){
+ document.getElementById('grid').hidden=which!=='grid';
+ document.getElementById('rules').hidden=which!=='rules';
+ document.querySelectorAll('.subtabs button').forEach(b=>b.setAttribute('aria-selected',b===btn));
+ if(which==='rules') drawRules();
+}
+function jump(field,dest){
+ const f=FAULTS[field+'|'+dest]; if(!f) return;
+ rArea=f[3]; rHit=f[3]+'|'+f[4]; rOpen[rHit]=true;
+ tab('rules',document.querySelectorAll('.subtabs button')[1]);
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+drawGrid();
+</script>
+</body>
+</html>

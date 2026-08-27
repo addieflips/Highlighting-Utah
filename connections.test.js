@@ -110,12 +110,17 @@ check('every anchor still exists in the file it names',
 {
   const out = path.join(ROOT, 'connections.html');
   /* Everything the manifest decides, and nothing the surrounding code happens to do. */
+  /* ⚠ REPOINTED 2026-08-27 WITH THE PAGE, and the rule it follows is unchanged: compare
+     what the MANIFEST decides, never the whole file. The page is now Addie's grid
+     (connections/mockup.html), so the manifest-decided parts are TABS — every field, the
+     record it is stored on and its square in each column — and FAULTS, the red squares.
+     RULES is deliberately NOT compared: it comes from the questions map, which she edits
+     directly, and a gate that went red every time she recorded a ruling is a gate that
+     gets disabled inside a week. */
   const structure = html => {
-    const m = /const N=(\{[\s\S]*?\});\nconst ROOTS=(\{[\s\S]*?\});/.exec(html);
-    if (!m) return null;
-    const strip = o => JSON.parse(JSON.stringify(o, (k, v) =>
-      (k === 'undeclared' || k === 'also') ? undefined : v));
-    return JSON.stringify([strip(JSON.parse(m[1])), JSON.parse(m[2])]);
+    const t = /const TABS=(\{[\s\S]*?\});\nconst FAULTS=(\{[\s\S]*?\});/.exec(html);
+    if (!t) return null;
+    return JSON.stringify([JSON.parse(t[1]), JSON.parse(t[2])]);
   };
   if (!fs.existsSync(out)) {
     check('connections.html has been generated', false,
@@ -302,9 +307,100 @@ m.report.forEach(r => {
     'a stale count standing after a failed read, which is a number claiming to know ' +
     'something it does not');
   check('the map says when its counts were last rebuilt',
-    /counts last rebuilt at|rebuild date unknown/.test(fs.readFileSync(path.join(ROOT, 'connections.html'), 'utf8')),
+    /counts last rebuilt at|rebuild date unknown/i.test(fs.readFileSync(path.join(ROOT, 'connections.html'), 'utf8')),
     'the undeclared-writer counts drift between rebuilds and nothing forces a regenerate ' +
     'for them, so the page has to say how old they are');
+}
+
+/* ---------------------------------------------------------------------------
+ * 9. THE GRID AND THE RULES — Addie's mockup, drawn with real data.
+ *
+ * She replaced the tree with `connections/mockup.html`: one tab, two views. "Build to it,
+ * do not redesign it." What can go wrong is not the look — it is the page quietly saying
+ * less than it knows:
+ *   a destination with no column      → a connection falls off the right-hand side
+ *   a field in no area                → a whole row missing, and nothing goes red
+ *   rules authored instead of derived → a second copy of her rulings, stale in weeks
+ * ------------------------------------------------------------------------- */
+{
+  const gridMod = require('./connections/grid');
+  const rulesMod = require('./connections/rules');
+  const manifest = require('./connections/manifest');
+
+  /* ⭐ EVERY DESTINATION MUST HAVE A COLUMN. A `where` that maps to nothing is a square
+     that is never drawn — and an absent square and an empty one look identical, which is
+     the exact invisibility this page exists to remove. */
+  const orphans = gridMod.unmapped(manifest);
+  check('every declared destination has a column on the grid',
+    orphans.length === 0,
+    'no column for: ' + orphans.join(', ') + '. Add it to WHERE_TO_DEST in connections/grid.js, ' +
+    'or to DEST if it deserves a column of its own');
+
+  /* ⚠ AND EVERY FIELD MUST BE IN AN AREA AND ON A RECORD. A spine with neither is watched
+     by the engine and drawn nowhere — green in the JSON and invisible on the page. */
+  const homeless = manifest.filter(s => !(s.areas && s.areas.length) || !s.record);
+  check('every watched field has an area and a record',
+    homeless.length === 0,
+    homeless.map(s => s.field).join(', ') + ' would be checked and never drawn');
+
+  const G = gridMod.build(m.report, manifest);
+  const drawn = Object.keys(G.areas).reduce((n, a) => n + G.areas[a].rows.length, 0);
+  check('and every field is drawn at least once',
+    drawn >= m.report.length,
+    'drew ' + drawn + ' rows for ' + m.report.length + ' watched things');
+
+  /* ⭐ A BROKEN CONNECTION OUTRANKS A WORKING ONE IN THE SAME SQUARE. One place can both
+     write and read a field; if the write is gone the square must be RED, not quietly show
+     the read that still works. Run, not read — this is arithmetic about a colour. */
+  {
+    const rank = { bad: 4, wrn: 3, set: 2, read: 1 };
+    const fake = [{ spine: { field: 'x', title: 'X', plain: '', states: [] },
+      rows: [{ side: 'reads', where: 'Warehouse › Build', found: true, anchor: 'a()' },
+             { side: 'sets',  where: 'Warehouse › Build', found: false, anchor: 'b()', why: 'gone' }] }];
+    const out = gridMod.build(fake, [{ field: 'x', title: 'X', areas: ['Warehouse'], record: 'cust',
+      sets: [], reads: [] }]);
+    check('a broken connection wins the square over a working one',
+      out.areas.Warehouse.rows[0].cells.Warehouse.state === 'bad',
+      'got ' + out.areas.Warehouse.rows[0].cells.Warehouse.state + ' — a red hidden behind a ' +
+      'green in the same square is a break nobody sees');
+    check('and the ranking is the reason, not the order they happen to arrive in',
+      rank.bad > rank.set && rank.set > rank.read);
+  }
+
+  /* ⭐ THE RULES ARE HERS, PARSED — NEVER AUTHORED HERE. The brief is explicit: "Humans
+     write rulings; behaviour is derived." A hand-written rule on this page would be a
+     second copy of the questions map, and the two would disagree within a fortnight. */
+  const R = rulesMod.parse();
+  check('the Rules view reads the questions map rather than holding its own copy',
+    R.total > 100 && !R.missing,
+    'parsed ' + R.total + ' rulings — if this is small or zero the page is either empty ' +
+    'or, worse, showing rules somebody typed here');
+  check('and no family of rulings is silently dropped',
+    R.unknown.length === 0,
+    'prefixes with no area: ' + R.unknown.join(', ') + '. Add them to AREAS in ' +
+    'connections/rules.js — a whole family missing from the page is the page lying by omission');
+  /* ⚠ A MISSING MAP IS A NOTE, NEVER A CRASH. A branch older than the map must still build. */
+  check('a missing questions map degrades rather than throwing',
+    (function () { try { const x = rulesMod.parse('/nope/nothing.md'); return x.missing === true && x.total === 0; }
+                   catch (e) { return false; } })(),
+    'the generator must not die on a checkout that predates the map');
+
+  /* The page draws from that data — asserted against the built file, not the intent. */
+  const page = fs.readFileSync(path.join(ROOT, 'connections.html'), 'utf8');
+  check('the built page carries both views',
+    /id="grid"/.test(page) && /id="rules"/.test(page) &&
+    /Where things go/.test(page) && />Rules</.test(page),
+    'one tab, two views — that is the whole shape of her mockup');
+  check('and the legend names all four square kinds',
+    /writes it/.test(page) && /reads it/.test(page) &&
+    /should, doesn/.test(page) && /never agreed/.test(page),
+    'a colour with no key is a colour nobody can read');
+  /* ⚠ THE COVERAGE SENTENCE IS NOT DECORATION. Without it a green grid reads as "the app
+     is fine", which is a far larger claim than "the fifteen things written down are
+     still wired up". */
+  check('and the page still says what it cannot tell you',
+    /only whether it is/.test(page) && /nothing appears here until a person adds it/.test(page),
+    'a green page that does not state its own limits is the most confident kind of wrong');
 }
 
 /* ---------------------------------------------------------------------------

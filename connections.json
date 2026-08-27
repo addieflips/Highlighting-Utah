@@ -1,7 +1,7 @@
 {
  "watched": 15,
  "red": 0,
- "amber": 794,
+ "breaks": [],
  "unguarded": [
   "needsLightBuild",
   "needsLightRecycle",
@@ -21,6 +21,6 @@
   "maybeNextYear / isOutForSeason",
   "lightsLockedUntil"
  ],
- "builtFrom": "2026-08-27",
- "breaks": []
+ "rulings": 181,
+ "builtFrom": "2026-08-27"
 }

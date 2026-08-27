@@ -40,6 +40,7 @@ const NOT_WATCHED = [
 module.exports = [
   {
     field: 'needsLightBuild',
+    areas: ['Customers', 'Warehouse'], record: 'cust',
     title: 'Needs Building',
     plain: 'A house waiting for its bundle to be made.',
     /* ⭐ STATES, NOT PROSE. Addie: "I just want it sort of like this is what connects to
@@ -98,6 +99,7 @@ module.exports = [
 
   {
     field: 'needsLightRecycle',
+    areas: ['Customers', 'Warehouse'], record: 'cust',
     title: 'Needs Recycling',
     plain: 'A house whose lights have to be collected back in.',
     states: [
@@ -125,6 +127,7 @@ module.exports = [
 
   {
     field: 'completed',
+    areas: ['Customers', 'Schedule', 'Invoices'], record: 'cust',
     title: 'Installed',
     plain: 'Whether the crew has hung this house.',
     states: [
@@ -168,6 +171,7 @@ module.exports = [
 
   {
     field: 'housePrice',
+    areas: ['Quote Requests', 'Customers', 'Invoices'], record: 'cust',
     title: 'The price',
     plain: 'What the customer agreed to pay for their house.',
     guard: 'run-all.js covers this heavily — 126 checks mention it.',
@@ -191,6 +195,7 @@ module.exports = [
 
   {
     field: 'billToPhone',
+    areas: ['Customers', 'Invoices'], record: 'cust',
     title: 'Whose bill this is on',
     plain: 'Set when one person pays for another house as well as their own.',
     guard: 'run-all.js has 72 checks touching it, including the who-pays-for-whom grouping.',
@@ -214,6 +219,7 @@ module.exports = [
 
   {
     field: 'changeFees',
+    areas: ['Invoices'], record: 'inv',
     title: 'The $30 colour-change fee',
     plain: 'Added when a member changes their colours outside the free 48 hours.',
     guard: 'money-parity.test.js runs the browser and server copies side by side over ~1,100 combinations — the strongest guard in the repo.',
@@ -240,6 +246,7 @@ module.exports = [
 
   {
     field: 'chargeNewMemberFee',
+    areas: ['Quote Requests', 'Customers', 'Invoices'], record: 'cust',
     title: 'The $30 join fee',
     plain: 'Charged once, to somebody who joined this year through a quote.',
     guard: 'run-all.js has 63 checks, and season-state.test.js touches it — the every-season overcharge is specifically guarded.',
@@ -263,6 +270,7 @@ module.exports = [
 
   {
     field: 'carryoverCharge',
+    areas: ['Invoices'], record: 'cust',
     title: 'A fee held over to next season',
     plain: 'A charge that arrived after this year\'s invoice had already gone out.',
     guard: null,
@@ -296,6 +304,7 @@ module.exports = [
 
   {
     field: 'deposit',
+    areas: ['Invoices'], record: 'inv',
     title: 'Money recorded as paid',
     plain: 'What a customer has actually paid against their bill.',
     guard: 'money-parity.test.js sweeps the balance maths that reads it, but nothing checks the ten places that WRITE it agree.',
@@ -321,6 +330,7 @@ module.exports = [
 
   {
     field: 'stops',
+    areas: ['Schedule'], record: 'route',
     title: 'The route a crew drives',
     plain: 'The frozen list of houses on one crew day, in the order they are driven.',
     guard: null,
@@ -347,6 +357,7 @@ module.exports = [
 
   {
     field: 'status',
+    areas: ['Quote Requests'], record: 'quote',
     title: 'Where a quote sits',
     plain: 'New, priced, sent, approved or closed — which decides the folder it appears in.',
     guard: 'run-all.js covers the quote card and the folders, but the writers are spread across three files.',
@@ -381,6 +392,7 @@ module.exports = [
    * ---------------------------------------------------------------------- */
   {
     field: 'rsvpStatus',
+    areas: ['Customers', 'Schedule', 'Invoices'], record: 'cust',
     title: 'What they said about this season',
     plain: 'Their answer to "are you having lights again this year".',
     guard: 'season-state.test.js runs every answer through the five lists it lands on.',
@@ -416,6 +428,7 @@ module.exports = [
   },
   {
     field: 'rsvpRespondedAt',
+    areas: ['Customers', 'Schedule'], record: 'cust',
     title: 'When they actually answered',
     plain: 'The date that turns a stored "yes" into a real reply.',
     guard: 'season-state.test.js runs it through every list an answer lands on.',
@@ -446,6 +459,7 @@ module.exports = [
   },
   {
     field: 'measuredFeet',
+    areas: ['Quote Requests', 'Customers', 'Warehouse'], record: 'cust',
     title: 'How many feet of roofline',
     plain: 'The measurement the whole job is sized from.',
     guard: null,
@@ -483,6 +497,7 @@ module.exports = [
   },
   {
     field: 'customerNumber',
+    areas: ['Customers', 'Warehouse'], record: 'cust',
     title: 'The number on their bin',
     plain: 'How the warehouse finds this house’s lights on a shelf.',
     guard: null,
