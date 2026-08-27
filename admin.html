@@ -5672,6 +5672,68 @@ function quoteButtonLabels(d){
     ? {approve:'Yes, add it', maybe:'Maybe Next Year', decline:'No thanks \u2014 just my usual lights'}
     : {approve:'Approve Quote', maybe:'Maybe Next Year', decline:'Decline Quote'};
 }
+/* ⭐ ONE PLACE THAT MINTS A QUOTE TOKEN (added 2026-08-26).
+ *
+ * It was written out four times, identically, and the shape was
+ * 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now() — 28
+ * characters, of which THIRTEEN were a timestamp nothing has ever read. The
+ * token is opaque everywhere: both Cloud Functions find a quote with
+ * .where('quoteToken','==',token) and nothing in any of the three HTML files
+ * parses it. So the timestamp bought nothing and cost half the length of the
+ * link that goes in a text message.
+ *
+ * ⚠ AND substr(2,16) NEVER PRODUCED 16 CHARACTERS. Math.random().toString(36)
+ * is about 13 characters all in, so it yielded ~11 — the count was aspirational.
+ * Worth knowing before anybody "restores" it as the stronger option.
+ *
+ * ⚠ crypto.getRandomValues, NOT Math.random. This string is the only thing
+ * standing between a stranger and somebody's quote — V8's Math.random is
+ * xorshift128+, which is reconstructable from a handful of outputs, and a quote
+ * page shows a name, an address and a price. 12 characters from a 32-letter
+ * alphabet is ~60 bits. The Math.random fallback is kept only so that a browser
+ * without crypto still sends the quote rather than failing at the last step;
+ * it is the old behaviour, not a new weakness.
+ *
+ * ⚠ THE ALPHABET DROPS l, o, 0 AND 1. This token now shows up in a text message
+ * where somebody may read it aloud or type it, and those four are the pairs
+ * people get wrong.
+ *
+ * ⚠ EXISTING TOKENS ARE UNTOUCHED and keep working at both the long and the
+ * short address. This only changes what NEW quotes get.
+ */
+const QUOTE_TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+function newQuoteToken(){
+  const n = 12;
+  let out = '';
+  try{
+    const buf = new Uint8Array(n);
+    crypto.getRandomValues(buf);
+    for(let i = 0; i < n; i++) out += QUOTE_TOKEN_ALPHABET[buf[i] % QUOTE_TOKEN_ALPHABET.length];
+  } catch(err){
+    /* Reported rather than swallowed: falling back is safe, but silently using
+       the weaker generator for ever is the kind of thing nobody discovers. */
+    console.warn('[HU] crypto.getRandomValues unavailable — quote token fell back to Math.random', err);
+    out = '';
+    for(let i = 0; i < n; i++) out += QUOTE_TOKEN_ALPHABET[Math.floor(Math.random() * QUOTE_TOKEN_ALPHABET.length)];
+  }
+  return 'qt_' + out;
+}
+/* ⭐ THE SHORT ADDRESS FOR A QUOTE (added 2026-08-26). Owner: "I don't want a
+   long link." Same page, same token, ~40 characters less of it — see the block
+   above the router in index.html for how /q/<token> resolves.
+
+   ⚠ NO https:// AND NO www. Phones linkify a bare highlightingutah.com/... and
+   the eight characters matter here: this is the difference between one billed
+   text message and two. The long form is left exactly as it is everywhere else,
+   because an email has no length problem and those links are already sent.
+
+   ⚠ IT CARRIES ?p= WHEN THERE IS ONE, under the same name the long link uses,
+   so an existing member is still let straight in. */
+function quoteShortLink(d){
+  const portal = quotePortalParam(d);          /* '&p=...' or '' */
+  return 'highlightingutah.com/q/' + (d.quoteToken || '') +
+    (portal ? ('?' + portal.slice(1)) : '');
+}
 function quotePortalParam(d){
   const c = quoteExistingCustomer(d);
   const t = c && c.data ? c.data.portalToken : '';
@@ -6504,7 +6566,7 @@ async function addOnEmailBlock(customerId){
      warning itself was first written with the offending characters in it. */
   if(!q.data.quoteToken){
     try{
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       await updateDoc(doc(db,'quotes', q.id), {quoteToken: token});
       q.data.quoteToken = token;
     }catch(err){
@@ -11660,7 +11722,7 @@ function renderQuoteRows(filtered){
         ' Open <strong>Quote email settings</strong> above and pick one under Text message versions.</div>';
       return;
     }
-    const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
+    const link = quoteShortLink(d);
     /* Plain characters only. Anything HTML in the template body is stripped
        rather than sent as-is, so a template picked by mistake degrades to
        readable text instead of arriving as code. */
@@ -11885,8 +11947,11 @@ function renderQuoteRows(filtered){
         toast('No text template picked yet \u2014 open Quote email settings first.');
         return;
       }
-      const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
-      let msg = htmlEmailToPlainText(template.data.body || '')
+      const link = quoteShortLink(d);
+      /* Same stripping as the Send-the-text path. This one was left behind
+         when {{link:...}} was added, so a template using it copied the raw
+         token to the clipboard and straight into somebody's messages app. */
+      let msg = quoteLinkLabelPlain(htmlEmailToPlainText(template.data.body || ''))
         .split('{{name}}').join(firstName(d.name))
         .split('{{price}}').join(fmtMoney(d.quotedPrice))
         .split('{{link}}').join(link)
@@ -13058,7 +13123,7 @@ async function etUpdatePreview(){
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       quote.data.quoteToken = token;
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
@@ -14284,7 +14349,7 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
       const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
       const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
       if(quote && !quote.data.quoteToken){
-        const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+        const token = newQuoteToken();
         quote.data.quoteToken = token;
         await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
       }
@@ -14393,7 +14458,7 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       quote.data.quoteToken = token;
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
@@ -16538,7 +16603,30 @@ const RM_TYPES = {
    and the rest of the app never agreed about the same house. Left at 1 rather
    than deleted, because the multiplier is the thing anyone would reach for if
    the pricing model changes again. */
-const RM_FEET_MULTIPLIER = 1;
+/* ⭐ SET TO 2.9 ON THE OWNER'S INSTRUCTION, 2026-08-26: "make it so a foot is
+   2.9 times smaller than it currently is, so 50 feet would be a little under
+   150 ft instead."
+
+   ⚠ AND THE LENGTH ARITHMETIC IS NOT WHAT IS WRONG, which has to be recorded
+   here or this number becomes folklore. rmFeetBetween was driven directly: two
+   points 10 m apart report 32.808 ft against a true 32.808, and 10 m across
+   with 3 m of rise reports 34.253 against a true 34.252. The metre-to-foot
+   conversion and the Pythagoras over plan and height are both exact to a
+   thousandth of a foot. 2.9 is close to 3.281 and it is worth saying plainly
+   that it is NOT a metres-read-as-feet bug - that was the first thing checked.
+
+   ⚠ SO WHAT IT IS COMPENSATING FOR IS WHERE THE DOTS LAND, not how they are
+   measured, and that has a real cause being worked on: dots were landing about
+   6.7 ft from the truth on 209 S 850 W, on a surface standing in front of the
+   house. If the model displacement work lands that error properly, THIS NUMBER
+   MUST BE REVISITED - leaving 2.9 on top of a fixed measurement would inflate
+   every quote by nearly three times.
+
+   ⚠ IT IS APPLIED TO PRICING ONLY AND BOTH FIGURES ARE ON SCREEN. The panel
+   shows Measured and then ×2.9 for pricing as separate lines, so nobody has to
+   work out which number is which - that disclosure is the whole reason this is
+   a multiplier rather than a change to the maths. */
+const RM_FEET_MULTIPLIER = 2.9;
 const RM_STATIC_MAX = 640;
 const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
 const RM_M_TO_FT = 3.280839895;
@@ -17956,9 +18044,16 @@ function rmEndStrand(){
   const used = rmCorners.some(function(c){ return (c.band || 0) === rmCurrentBand; });
   if(!used) return false;            /* an empty strand is not a strand */
   rmCurrentBand++;
-  rmRenderCornerBar();
+  /* ⭐ AND IT JOINS THEM UP THERE AND THEN (2026-08-26). Owner: "end this strand
+     should immediately connect the dots."
+     ⚠ IT ONLY RELABELLED THE STRIP BEFORE. rmCornersToRun is what turns dots into
+     a drawn line, and nothing called it here - so pressing the button changed a
+     caption and left the picture exactly as it was. Whatever it had or had not
+     already drawn, the one gesture whose whole meaning is "this run is finished"
+     has to be the moment the run appears finished. */
+  rmCornersChanged();
   const note = document.getElementById('rmCornerNote');
-  if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished. The next dot starts a new one.';
+  if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished and joined up. The next dot starts a new one.';
   return true;
 }
 /* Take the last dot back off. */
@@ -20259,37 +20354,15 @@ function rmSolveRayNow(ray){
   if(top !== null && best.u > top + RM_EAVE_TOL_M) return null;
   return best;
 }
-/* ⭐ WHERE ALONG A RAY THE POINTER IS ASKING FOR. The dot may only move along
-   the line it was seen along (see the sky drag), so a drop anywhere on the map
-   has to become a distance out from the camera. That is the foot of the
-   perpendicular from the dropped PLAN position onto the ray's plan direction —
-   in plain terms, how far out along the line of sight the pointer got to.
-
-   ⚠ IN PLAN, NOT IN THREE DIMENSIONS. The map has no height in it, so the
-   pointer can only ever be asking about the horizontal; projecting in 3D would
-   let the vertical part of the ray drag the answer somewhere the pointer never
-   indicated. The height then falls out of the ray at that distance.
-
-   ⚠ AND IT REFUSES RATHER THAN RETURNING SOMETHING SILLY: behind the camera,
-   past the far limit every other cast here uses, underground, or above the
-   roof. A drag must not reach a place a click could not. */
-function rmRaySlideTo(ray, world){
-  if(!ray || !ray.cam || !ray.dir || !world || !rmOrigin) return null;
-  const cam = ray.cam, dir = ray.dir;
-  const planLen = Math.hypot(dir.e, dir.n);
-  if(!(planLen > 1e-9)) return null;                /* pointing straight up */
-  const de = dir.e / planLen, dn = dir.n / planLen;
-  const p = rmToLocal(world.lat, world.lng, 0);
-  const along = (p.e - cam.e) * de + (p.n - cam.n) * dn;
-  if(!(along > 0.5 && along < 200)) return null;
-  /* Back into the ray's own parameter, so the climb is right. */
-  const t = along / planLen;
-  const u = cam.u + dir.u * t;
-  if(!(u > 0.3)) return null;
-  const top = rmRoofTopM();
-  if(top !== null && u > top + RM_EAVE_TOL_M) return null;
-  return {e: cam.e + dir.e * t, n: cam.n + dir.n * t, u: u};
-}
+/* ⛔ rmRaySlideTo IS GONE (2026-08-26, one day old). It answered "where along
+   this ray is the pointer asking for", and the sky drag used it so a dot could be
+   moved without shifting in the photograph. Owner: "on sky view I can only drag
+   left and right... i should be able to move it in any direction still." A ray is
+   a line, so constrained to it the drag could only ever travel one direction
+   across the map. The drag moves freely in plan now and holds the height, and
+   nothing else ever called this. Deleted rather than left sitting there looking
+   live — the depth it existed to correct has a proper answer of its own now, in
+   the measured model displacement. */
 /* Puts every unpinned dot back where its own ray now says it is, and REPORTS
    how far each one had to move - which is the number the office asked for. */
 function rmRefreshCorners(){
@@ -23555,46 +23628,33 @@ function openRoofMeasure(quoteId){
     if(!c){ rmSkyDragDot = -1; return; }
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
-    /* ⭐ IT SLIDES ALONG THE RAY IT WAS SEEN ALONG (2026-08-25). Owner: "when i
-       drag a dot on sky view it should stay in the same spot in street view,
-       its just to correct the offset if the system does get it wrong."
+    /* ⭐ FREE IN PLAN, AND THE HEIGHT DOES NOT MOVE (2026-08-26). Owner: "on sky
+       view I can only drag left and right — I said I dont want dragging the dot on
+       sky view to change the height and thats still true, but i should be able to
+       move it in any direction still."
 
-       ⭐ AND THAT IS EXACTLY WHAT A DEPTH CORRECTION IS. Every point along the
-       ray from the camera through a pixel draws at THAT SAME PIXEL, so moving a
-       dot along its own ray changes where it sits on the map and leaves Street
-       View untouched, to the pixel. Which is the whole complaint: the dot was
-       right in the photograph and wrong on the map, and the only thing wrong
-       with it was how far away it was.
+       ⚠ THIS REPLACES A SLIDE ALONG THE CAMERA RAY, and the reasoning for that is
+       kept because it was not wrong, it was over-constrained. Every point along a
+       ray draws at the same pixel, so sliding a dot along its own ray corrects the
+       DEPTH and leaves the photograph untouched — which is a real and useful
+       thing, and it is what "it should stay in the same spot in street view"
+       asked for. But a ray is a LINE. Constrained to it, the dot can only travel
+       one direction across the map, which from above reads as a broken drag, and
+       it cannot be put where the roof plainly is.
 
-       ⚠ SO THE CURSOR CHOOSES A POINT ON THE RAY, NOT A POINT ON THE MAP. The
-       dot follows the pointer along one line rather than going wherever it is
-       dropped — that is not the drag being stiff, it is the drag refusing to
-       claim something the two pictures do not jointly say. Sliding sideways off
-       the ray would move the dot in the photograph too, and the corner it is
-       marking has not moved.
+       ⚠ THE TWO CANNOT BOTH HOLD, and this is the choice. Moving freely in plan
+       while holding the height necessarily moves the dot in Street View: same
+       height, different distance, different elevation, different pixel. Staying
+       fixed in the photograph necessarily means moving along the ray, which
+       necessarily changes the height. Asked which, the owner picked freedom in
+       plan — and it is the better half, because from above you can SEE where the
+       dot belongs, and the depth now has a proper answer of its own in the
+       measured model displacement (rmMeasureModelShift) rather than needing to be
+       nudged by hand.
 
-       ⚠ THE HEIGHT COMES WITH IT, and it has to. A ray from the street climbs
-       as it goes out, so a point further along it is higher; holding the height
-       while sliding the depth would leave the dot off the ray and back in the
-       wrong place in Street View. The height still comes from the street — it
-       is that ray, read at the corrected distance — which is the rule, not an
-       exception to it.
-
-       ⚠ AND A DOT WITH NO SIGHTING CANNOT DO THIS. One placed from above has
-       no ray to slide along, so it moves in plan and keeps its height, which is
-       the only honest thing left: from above, height is not in the picture. */
-    const ray = (c.rays || [])[0];
-    if(ray && ray.cam && ray.dir){
-      const t = rmRaySlideTo(ray, w);
-      if(t){
-        const p = rmToWorld(t);
-        c.lat = p.lat; c.lng = p.lng; c.h = t.u;
-        c.pinned = 0; c.spread = 0;                 /* one sighting again, by hand */
-        c.rays = [ray];
-        rmDragPaint();
-      }
-      return;
-    }
+       ⚠ AND THE SIGHTINGS GO, because they no longer describe it. Its position
+       was the crossing of the rays it had been seen along; dragging it somewhere
+       else makes those rays describe a point it is not at. */
     c.lat = w.lat; c.lng = w.lng;
     c.rays = []; c.pinned = 0; c.spread = 0;
     rmDragPaint();
@@ -23629,7 +23689,7 @@ function openRoofMeasure(quoteId){
      ring comes off. Keeping them would leave a dot claiming to be exact while
      sitting wherever it was last dragged - which is the confident-wrong state
      this tool keeps having to be rescued from. */
-  let rmDragDot = -1, rmDragFrom = null;
+  let rmDragDot = -1, rmDragFrom = null, rmDragRange = 0;
   document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
     if(!e.shiftKey || rmCornerMode !== 'dot') return;
     const cam = rmCamLocal();
@@ -23639,6 +23699,12 @@ function openRoofMeasure(quoteId){
     const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
     if(i < 0) return;
     rmDragDot = i;
+    /* How far out the dot is when it is picked up. The drag keeps that and
+       re-aims, so the dot tracks the pointer exactly - see the mousemove. */
+    (function(){
+      const c0 = rmCorners[i], p0 = c0 && rmToLocal(c0.lat, c0.lng, c0.h || 0);
+      rmDragRange = p0 ? Math.hypot(p0.e - cam.e, p0.n - cam.n, p0.u - cam.u) : 0;
+    })();
     rmDragFrom = {x: e.clientX, y: e.clientY};
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
@@ -23660,43 +23726,45 @@ function openRoofMeasure(quoteId){
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
     const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
-    /* ⭐ FROM HERE, HEIGHT IS THE ONLY THING YOU CAN CHANGE (2026-08-25). Owner:
-       "if you drag on sky view the height stays the same and if you drag on
-       street view the height is the only thing you can change."
+    /* ⭐ THE DOT FOLLOWS THE POINTER (2026-08-26). Owner: "I should be able to
+       move a dot anywhere on street view, the only restriction is not changing
+       height on sky view."
 
-       ⭐ AND IT IS THE RIGHT SPLIT, not just a preference — it gives each view
-       the one axis it can actually see. Looking straight down there is no
-       height in the picture, so the map must not touch it. From the street the
-       DEPTH along the ray is the unknown, so where a dot sits in plan is the
-       thing this view cannot judge: a dot can sit perfectly on the gutter here
-       and be ten feet into next door's garden on the map, and nothing in this
-       picture can show it. Letting a drag here move the plan position means
-       dragging the one number you cannot see, by eye, using the one view that
-       cannot see it. Between the two views every dot is fully correctable, and
-       neither view is ever asked to guess.
+       ⚠ THIS REPLACES A HEIGHT-ONLY DRAG, and the reasoning for that one is kept
+       because it explains what is being traded. From the street the unknown is
+       DEPTH along the ray: a dot can sit perfectly on the gutter here and be ten
+       feet into next door's garden in plan, and nothing in this picture can show
+       it. Holding the plan and moving only the height meant the drag could never
+       make that worse. But it also meant the dot would not go where it was
+       dragged, which is not a drag.
 
-       ⚠ THE PLAN POSITION IS HELD EXACTLY, so this is not a re-aim of the ray.
-       The dot sits on a VERTICAL LINE at a fixed horizontal distance from the
-       camera; the cursor's ray gives an elevation; height is that distance
-       times the tangent of it. Solving it that way rather than crossing the ray
-       with a surface is what keeps east and north bit-for-bit unchanged — a
-       re-crossed ray would nudge them every frame and the map would show the
-       dot creeping sideways while somebody set its height. */
-    const here = rmToLocal(c.lat, c.lng, c.h || 0);
-    const plan = Math.hypot(here.e - cam.e, here.n - cam.n);
-    if(!(plan > 0.5)) return;                       /* standing on top of it */
-    const len = Math.hypot(dir.e, dir.n, dir.u) || 1;
-    const el = Math.asin(Math.max(-1, Math.min(1, dir.u / len)));
-    const u = cam.u + plan * Math.tan(el);
-    /* ⚠ NOTHING IS UNDERGROUND AND NOTHING IS ABOVE THE ROOF, the same two
-       limits a fresh click answers to — a drag must not reach a place a click
-       could not. */
+       ⭐ SO IT KEEPS ITS RANGE AND RE-AIMS. The distance out from the camera is
+       taken when the dot is picked up and held for the whole drag; the pointer
+       chooses the direction. The dot therefore sits exactly under the cursor,
+       goes anywhere on screen, and its height and plan both follow - which is
+       what "anywhere" means. Nothing about the depth is invented or destroyed by
+       moving it: it leaves the drag as far out as it arrived.
+
+       ⚠ AND THE DEPTH HAS ITS OWN ANSWER NOW, which is why this is safe to give
+       up. Clicking the same corner from a second angle crosses two rays, and that
+       also measures how far Google's model stands from the house, after which
+       single clicks land right on their own. The drag no longer has to be the
+       thing that protects the plan position. */
+    const range = rmDragRange || (function(){
+      const p = rmToLocal(c.lat, c.lng, c.h || 0);
+      return Math.hypot(p.e - cam.e, p.n - cam.n, p.u - cam.u);
+    })();
+    if(!(range > 0.5)) return;
+    const to = {e: cam.e + dir.e * range, n: cam.n + dir.n * range, u: cam.u + dir.u * range};
+    /* ⚠ NOTHING UNDERGROUND AND NOTHING ABOVE THE ROOF, the same two limits a
+       fresh click answers to - a drag must not reach a place a click could not. */
     const top = rmRoofTopM();
-    if(!(u > 0.3)) return;
-    if(top !== null && u > top + RM_EAVE_TOL_M) return;
-    c.h = u;
+    if(!(to.u > 0.3)) return;
+    if(top !== null && to.u > top + RM_EAVE_TOL_M) return;
+    const wpt = rmToWorld(to);
+    c.lat = wpt.lat; c.lng = wpt.lng; c.h = to.u;
     c.rays = []; c.pinned = 0; c.spread = 0;
-    rmDragPaint();          /* one redraw per frame - see rmDragPaint */
+    rmDragPaint();
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmPanoLock').addEventListener(ev, function(){

@@ -1238,6 +1238,7 @@ const RETIRED_CHECKLIST_TERMS = [
       218,  // the RSVP asking the right household for its own gate code
       219,  // the Overdue list read against the real book, after the invoice-date fix
       220,  // the house tabs on a real shared bill - layout, and real record shapes
+      221,  // whether a flagged email is REALLY wrong for that customer, in the live book
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -33363,7 +33364,7 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      named constant so the number can be found and changed, and BOTH figures
      have to reach the screen — a total twice the size of the line just drawn,
      with no working shown, reads as a bug in the measuring. */
-  const mult = admin.match(/const RM_FEET_MULTIPLIER = (\d+)/);
+  const mult = admin.match(/const RM_FEET_MULTIPLIER = ([\d.]+)/);
   check('S126', 'the doubling is a named constant, not a bare 2 in the sum',
     !!mult, 'RM_FEET_MULTIPLIER is gone — the rule is now buried where nobody will find it');
   /* ⚠ WAS "and it is set to 2". The doubling is GONE - the owner's real
@@ -33371,8 +33372,19 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      $280-300, and 150 doubled at $2 is $600. Left at 1 rather than deleted so
      the lever still exists, and asserted at 1 so it cannot creep back
      unnoticed and silently double every quote in the system. */
-  check('S126', 'the footage is NOT doubled any more', mult && mult[1] === '1',
-    'a multiplier other than 1 doubles every price on this screen and disagrees with the rest of the admin');
+  /* ⭐ SET TO 2.9 ON THE OWNER'S INSTRUCTION, 2026-08-26: "make it so a foot is
+     2.9 times smaller than it currently is, so 50 feet would be a little under
+     150 ft instead", and then "the length of a foot is the only variable".
+     ⚠ THE PREVIOUS RULING IS KEPT ABOVE because it was reasoned from real
+     numbers and may be right again. ⚠ AND THE LENGTH ARITHMETIC IS NOT WHAT IS
+     WRONG: rmFeetBetween was driven directly and 10 m reports 32.808 ft against
+     a true 32.808, Pythagoras included. This compensates for WHERE DOTS LAND -
+     about 6.7 ft out on 209 S 850 W - so if the model-displacement work lands
+     that error properly this number must be revisited, or every quote inflates
+     by nearly three. */
+  check('S126', 'the feet multiplier is the owner-set 2.9', mult && mult[1] === '2.9',
+    'this multiplies the price, the bin count and the bulb order together; ' +
+    'it is not a display setting');
   /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
      0 and slices from the top of the file — which still contains enough words
      to make a loose check pass. Two of these three were doing exactly that. */
@@ -33479,10 +33491,20 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
     return null;
   };
 
+  /* ⚠ newQuoteToken JOINED THIS LIST 2026-08-26, in the same commit that made
+     the four token-minting sites share one generator. addOnEmailBlock mints a
+     token when a quote has none, so without it this sandbox throws a
+     ReferenceError and "a quote with no token gets one" fails against code that
+     is perfectly correct — the exact failure CLAUDE.md describes. Supplied, never
+     stubbed: a stub would agree with itself about the one thing the check reads. */
   const NEED = ['pendingAddOnFor', 'addOnEmailBlock', 'rsvpTemplateHasAddOn',
-    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteWasSentOut', 'quotePortalParam'];
+    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteWasSentOut', 'quotePortalParam',
+    'newQuoteToken'];
   const src = {};
   NEED.forEach(n => { src[n] = lift(n); });
+  const tokenAlphabet = admin.match(/const QUOTE_TOKEN_ALPHABET = '[^']+';/);
+  check('S131', 'the token alphabet came with the generator',
+    !!tokenAlphabet, 'lifting newQuoteToken alone leaves a live reference to a name the sandbox never got');
   const gone = NEED.filter(n => !src[n]);
   check('S131', 'every function this suite runs is findable',
     !gone.length, 'missing: ' + gone.join(', '));
@@ -33496,7 +33518,7 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
     /* quoteStage and quotePortalParam are the REAL ones. quoteStage in
        particular decides "still waiting for an answer", and a stub of it would
        agree with itself about the one thing most worth getting wrong. */
-    const body = NEED.map(n =>
+    const body = (tokenAlphabet ? tokenAlphabet[0] + '\n' : '') + NEED.map(n =>
       (n === 'addOnEmailBlock' ? 'async ' : '') + src[n]).join('\n');
 
     const QUOTE = (over) => Object.assign({
@@ -38534,115 +38556,88 @@ suite('167. Measure Roof - shift and drag moves a dot');
       return /RM_DRAG_GRAB_PX/.test(fn) && /RM_SKY_GRAB_M/.test(fn);
     })(),
     'a cursor that promises a grab the drag then refuses is worse than no cursor');
-  check('S167', 'a street-view drag changes the height and nothing else',
-    (function(){
-      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /c\.h = u;/.test(body) && !/c\.lat = /.test(body) && !/rmHouseHit\(/.test(body);
-    })(),
-    'crossing the ray with the house again moves east and north every frame, so ' +
-    'the map shows the dot creeping sideways while somebody sets its height');
-  check('S167', 'and it holds the plan position exactly, by solving on a vertical',
-    (function(){
-      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /const plan = Math\.hypot\(here\.e - cam\.e, here\.n - cam\.n\);/.test(body) &&
-             /cam\.u \+ plan \* Math\.tan\(el\)/.test(body);
-    })(),
-    'height is the horizontal distance times the tangent of the elevation, which ' +
-    'touches neither east nor north');
-  /* ⭐ A SKY DRAG SLIDES THE DOT ALONG ITS OWN RAY (2026-08-25). Owner: "when
-     i drag a dot on sky view it should stay in the same spot in street view,
-     its just to correct the offset if the system does get it wrong."
+  /* ⭐ THE STREET DRAG FOLLOWS THE POINTER (2026-08-26). Owner: "I should be
+     able to move a dot anywhere on street view, the only restriction is not
+     changing height on sky view."
 
-     ⚠ AND THAT IS PRECISELY A DEPTH CORRECTION. Every point along the ray from
-     the camera through a pixel draws at THAT SAME PIXEL, so moving a dot along
-     its own ray changes where it sits on the map and leaves Street View
-     untouched — which is the complaint exactly: right in the photograph, wrong
-     on the map, and the only thing wrong with it was how far away it was.
-     The check below is not a source match; it does the arithmetic. */
-  check('S167', 'a sky-view drag slides the dot along the ray it was seen along',
-    (function(){
-      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /rmRaySlideTo\(ray, w\)/.test(body) && /c\.h = t\.u;/.test(body);
-    })(),
-    'dropping it wherever the pointer went would move it in the photograph too, ' +
-    'and the corner it is marking has not moved');
-  check('S167', 'and a dot with no sighting moves in plan and keeps its height',
-    (function(){
-      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      /* The no-ray branch is the tail of the handler, so slice to the end of it
-         rather than to a round number of characters. */
-      const k = body.indexOf('c.lat = w.lat; c.lng = w.lng;');
-      return k !== -1 && body.slice(k).indexOf('c.h =') === -1;
-    })(),
-    'one placed from above has no ray to slide along, and from above there is ' +
-    'no height in the picture to read');
-  /* ⭐ THE ARITHMETIC ITSELF. A slid dot must land on the SAME Street View
-     pixel, or the drag has moved the corner rather than corrected its depth. */
-  {
-    const LF = String.fromCharCode(10);
-    const slideApi = new Function(
-      'let rmOrigin = {lat: 40.3854093, lng: -111.8627181};' + LF +
-      'let rmFaces = [];' + LF +
-      'const RM_EAVE_TOL_M = 0.8;' + LF +
-      'const rmRad = function(d){ return d*Math.PI/180; };' + LF +
-      'function rmFovDeg(z){ return 180/Math.pow(2, z); }' + LF +
-      'function rmRoofTopM(){ return 12; }' + LF +
-      [extractFn(admin, 'rmMetresPerDeg'), extractFn(admin, 'rmToLocal'),
-       extractFn(admin, 'rmToWorld'), extractFn(admin, 'rmBasis'),
-       extractFn(admin, 'rmSvProject'), extractFn(admin, 'rmRay'),
-       extractFn(admin, 'rmRaySlideTo')].join(LF) + LF +
-      'return {slide: rmRaySlideTo, toWorld: rmToWorld, toLocal: rmToLocal,' + LF +
-      '        project: rmSvProject, ray: rmRay};')();
-    const W = 554, H = 456, pov = {heading: 74.7, pitch: 5.3, zoom: 1.46};
-    const cam = {e: -26.58, n: -7.25, u: 2.46};
-    /* A dot placed by clicking one pixel, sitting somewhere along that ray. */
-    const dir = slideApi.ray(200, 180, W, H, pov);
-    const ray = {cam: cam, dir: dir};
-    const t0 = 22;
-    const dot = {e: cam.e + dir.e*t0, n: cam.n + dir.n*t0, u: cam.u + dir.u*t0};
-    const before = slideApi.project(slideApi.toWorld(dot), W, H, pov, cam);
-    /* Drag it several feet across the map, well off the line of sight. */
-    const dropped = slideApi.toWorld({e: dot.e + 3.5, n: dot.n - 2.5, u: 0});
-    const moved = slideApi.slide(ray, dropped);
-    const after = moved ? slideApi.project(slideApi.toWorld(moved), W, H, pov, cam) : null;
-    const shift = after ? Math.hypot(after.x - before.x, after.y - before.y) : null;
-    const depthChange = moved
-      ? Math.abs(Math.hypot(moved.e - cam.e, moved.n - cam.n) - Math.hypot(dot.e - cam.e, dot.n - cam.n))
-      : 0;
-    check('S167', 'a slid dot draws on the very same Street View pixel',
-      shift !== null && shift < 0.01,
-      'it moved ' + (shift === null ? 'nowhere - the slide was refused' : shift.toFixed(3) + ' px'));
-    check('S167', 'and it really did move on the map, so the slide is not a no-op',
-      depthChange > 1,
-      'depth changed by ' + depthChange.toFixed(2) + ' m; a check that passes because ' +
-      'nothing moved would pass on a broken drag too');
-    check('S167', 'the height comes with it, because a ray climbs as it goes out',
-      moved && Math.abs(moved.u - dot.u) > 0.05,
-      'holding the height while sliding the depth leaves the dot off its own ray, ' +
-      'which puts it back in the wrong place in Street View');
-    check('S167', 'a drop behind the camera is refused rather than answered',
-      slideApi.slide(ray, slideApi.toWorld({e: cam.e - dir.e*40, n: cam.n - dir.n*40, u: 0})) === null);
-    check('S167', 'and one that would end up above the roof is refused too',
-      slideApi.slide(ray, slideApi.toWorld({e: cam.e + dir.e*160, n: cam.n + dir.n*160, u: 0})) === null,
-      'a drag must not reach a place a click could not');
-  }
-  check('S167', 'and neither drag can put a dot underground or above the roof',
+     ⚠ THIS REPLACES A HEIGHT-ONLY DRAG that these checks asserted, and the
+     reasoning for that one names the trade. From the street the unknown is DEPTH:
+     a dot can sit perfectly on the gutter and be ten feet into next door's garden
+     in plan, and nothing in the panorama can show it. Holding the plan meant the
+     drag could never make that worse - but it also meant the dot would not go
+     where it was dragged, which is not a drag.
+
+     ⚠ SO IT KEEPS ITS RANGE AND RE-AIMS: the distance out is taken when the dot
+     is picked up and held for the whole drag; the pointer chooses the direction.
+     The dot sits under the cursor, goes anywhere on screen, and leaves the drag
+     exactly as far out as it arrived - so the depth is neither invented nor
+     destroyed by moving it. And the depth has its own answer now: two sightings
+     cross, and that also measures the model displacement, after which single
+     clicks land right on their own. */
+  check('S167', 'a street-view drag puts the dot under the pointer',
     (function(){
       const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
       const j = admin.indexOf("['mouseup', 'mouseleave']", i);
       const body = i === -1 ? '' : admin.slice(i, j);
-      return /const top = rmRoofTopM\(\);/.test(body) && /u > top \+ RM_EAVE_TOL_M/.test(body) &&
-             /if\(!\(u > 0\.3\)\) return;/.test(body);
+      return /cam\.e \+ dir\.e \* range/.test(body) && /c\.lat = wpt\.lat/.test(body);
     })(),
-    'the same ceiling that stops a click on the sky');
+    'a drag that will not go where it is dragged is not a drag');
+  check('S167', 'and it keeps the range it was picked up at, so the depth is untouched',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousedown'");
+      const j = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'", i);
+      const grab = i === -1 ? '' : admin.slice(i, j);
+      return /rmDragRange = p0/.test(grab) && /const range = rmDragRange/.test(admin);
+    })(),
+    'recomputing it every move would let the depth wander as the dot is waved about');
+  /* ⭐ A SKY DRAG MOVES FREELY IN PLAN AND HOLDS THE HEIGHT (2026-08-26).
+     Owner: "on sky view I can only drag left and right — I said I dont want
+     dragging the dot on sky view to change the height and thats still true, but i
+     should be able to move it in any direction still."
+
+     ⚠ THIS REPLACES A SLIDE ALONG THE CAMERA RAY, which these checks asserted
+     yesterday, and the reasoning for that was not wrong — it was over-constrained.
+     Every point along a ray draws at the same pixel, so sliding along it corrects
+     the DEPTH and leaves the photograph untouched, which is what "it should stay
+     in the same spot in street view" asked for. But a ray is a LINE: constrained
+     to it the dot can only travel one direction across the map, which reads as a
+     broken drag and cannot put the dot where the roof plainly is.
+
+     ⚠ THE TWO CANNOT BOTH HOLD. Moving freely in plan while holding the height
+     necessarily moves the dot in Street View — same height, different distance,
+     different elevation, different pixel. Staying fixed in the photograph
+     necessarily means moving along the ray, which necessarily changes the height.
+     Freedom in plan is the better half: from above you can SEE where the dot
+     belongs, and the depth has a proper answer of its own now in the measured
+     model displacement rather than needing to be nudged by hand. */
+  check('S167', 'a sky-view drag moves freely in plan',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /c\.lat = w\.lat; c\.lng = w\.lng;/.test(body) && !/rmRaySlideTo/.test(body);
+    })(),
+    'a ray is a line, and constrained to it the dot can only go one way across the map');
+  check('S167', 'and it does not touch the height',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return !/c\.h = /.test(body);
+    })(),
+    'from above there is no height in the picture to read, so it must be left alone');
+  check('S167', 'and the slide it replaced is deleted, not left looking live',
+    !/function rmRaySlideTo/.test(admin) && /rmRaySlideTo IS GONE/.test(admin),
+    'dead code that looks live is worse than dead code that says so');
+  check('S167', 'and the street drag still refuses underground and above the roof',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const top = rmRoofTopM\(\);/.test(body) && /to\.u > top \+ RM_EAVE_TOL_M/.test(body) &&
+             /if\(!\(to\.u > 0\.3\)\) return;/.test(body);
+    })(),
+    'a drag must not reach a place a click could not');
   /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */
   check('S167', 'a moved dot stops being pinned',
     /c\.rays = \[\]; c\.pinned = 0; c\.spread = 0;/.test(admin),
@@ -39620,10 +39615,16 @@ suite('255. Measure Roof - the footage saved is the footage measured');
      the way in. It described arithmetic that had stopped happening, about the
      one number that drives bins, bulb orders and the price - so anybody reading
      it had to decide whether to trust the message or the number. */
-  check('S255', 'the feet multiplier is still 1',
-    /const RM_FEET_MULTIPLIER\s*=\s*1\s*;/.test(admin),
-    'feet are the wire on the house and the bulb count - a multiplier here breaks ' +
-    'bin sizing and bulb ordering. If the advertised rate should read lower, change the rate');
+  /* ⭐ NOW 2.9, ON THE OWNER'S INSTRUCTION (2026-08-26). The warning this check
+     carried is NOT withdrawn and is repeated here on purpose: feet are the wire
+     on the house and the bulb count, so this multiplies the bin sizing and the
+     bulb order along with the price. That is what was asked for - the owner's
+     position is that the measurement itself reads short, so the corrected
+     footage should drive all three. It is a single constant and reversible. */
+  check('S255', 'the feet multiplier is the owner-set 2.9',
+    /const RM_FEET_MULTIPLIER\s*=\s*2\.9\s*;/.test(admin),
+    'if this ever moves without a ruling behind it, every quote, bin count ' +
+    'and bulb order moves with it');
   check('S255', 'and the save message no longer claims the footage was doubled',
     !/measured, doubled/.test(admin),
     'the message described a x2 that no longer happens, about the number the whole quote rests on');
@@ -43988,6 +43989,198 @@ suite('280. A quote link behind her own words');
   check('S280', 'and Manage custom codes is no longer hidden one tab deep',
     /manageWrap\.style\.display = 'block';/.test(admin),
     'owner, 2026-08-26: "it says customize when I open insert code but nowhere to customize it"');
+}
+
+// =====================================================================
+suite('281. The short quote link');
+/* ⭐ Owner, 2026-08-26: "I don't want a long link." The quote link was
+   https://highlightingutah.com/#/quote-details?token=qt_s5k89n9wnmh_1787775998287
+   — 79 characters. A text is billed in 160-character segments, so that link
+   alone put every quote text into a SECOND segment: double the cost of every
+   quote she sends.
+
+   highlightingutah.com/q/<token> is the same page, reached the same way.
+
+   ⚠ IT IS A REWRITE, NOT A LOOKUP. The bit after /q/ IS the quote token, so
+   there is no short-code table, no extra read, and every quote that already
+   exists works at the short address immediately. Both spellings work for ever
+   — which is what makes this safe to ship while long links sit in inboxes.
+*/
+{
+  const idx = read('index.html');
+  const redirects = read('_redirects');
+
+  /* ---- the plumbing. Miss any one of these three and the link 404s. ---- */
+  check('S281', 'Netlify rewrites /q/* to the app',
+    /^\/q\/\*\s+\/index\.html\s+200\s*$/m.test(redirects),
+    'without the rewrite the short link is a 404 on a static host — the page never loads at all');
+  /* ⚠ AND IT NEEDS THE APP'S OWN CACHE RULE. _headers gives no-cache to
+     /index.html and to /, and a request for /q/<token> matches NEITHER — so this
+     would be the one address the app is reachable at that a browser may serve
+     from cache. A customer following a quote link would be the single person
+     running a stale copy, which is the exact problem _headers was written for. */
+  check('S281', 'and the short address gets the same no-cache rule as the app',
+    /^\/q\/\*\s*$/m.test(read('_headers')) &&
+    /^\/q\/\*\s*\r?\n\s+Cache-Control: no-cache\s*$/m.test(read('_headers')),
+    'a cached index.html served at /q/ is a stale half of the app answering a live link');
+
+  const shortBlock = idx.slice(idx.indexOf('var m = null;'), idx.indexOf('var forceHomepage = false;'));
+  check('S281', 'the app reads the token out of the path',
+    /\/\^\\\/q\\\/\(\[A-Za-z0-9_-\]\+\)/.test(shortBlock) ||
+    /\^\\\/q\\\//.test(shortBlock),
+    'the rewrite serves index.html at /q/<token>; something has to turn that path back into a route');
+  check('S281', 'and turns it into the same route the long link uses',
+    /window\.location\.hash = '\/quote-details\?token=' \+ encodeURIComponent/.test(shortBlock),
+    'a second way of opening a quote is a second thing to keep in step — this reuses the long link\'s own route');
+  check('S281', 'the portal token still rides along when there is one',
+    /'&p=' \+ encodeURIComponent/.test(shortBlock),
+    'dropping it silently costs an existing member a sign-in on every re-quote');
+
+  /* ⭐ THE ORDERING IS THE WHOLE SAFETY ARGUMENT. The saved-login block sends
+     anybody with a remembered sign-in to /payment when the hash is empty — and
+     a bare /q/ URL has an empty hash. Run second and a customer following a
+     quote link lands on their balance instead of the quote. */
+  check('S281', 'it runs BEFORE the saved-login redirect',
+    idx.indexOf('var m = null;') !== -1 &&
+    idx.indexOf('var m = null;') < idx.indexOf("savedPortalToken = localStorage.getItem"),
+    'run second, a remembered sign-in sends the customer to /payment and the quote is never seen');
+
+  /* ---- run the real path matcher, rather than reading it ---- */
+  const reMatch = shortBlock.match(/\/\^[^\n]*?\/\.exec\(window\.location\.pathname/);
+  check('S281', 'the path pattern is findable', !!reMatch);
+  if (reMatch) {
+    const rePart = reMatch[0].slice(0, reMatch[0].indexOf('.exec('));
+    const re = new Function('return ' + rePart)();
+    const tok = (p) => { const m = re.exec(p); return m && m[1]; };
+    check('S281', 'a short link resolves to its token',
+      tok('/q/qt_k7m2x9p4qw3z') === 'qt_k7m2x9p4qw3z');
+    check('S281', 'a trailing slash is the same link',
+      tok('/q/qt_k7m2x9p4qw3z/') === 'qt_k7m2x9p4qw3z',
+      'phones and mail clients add one — a link that dies on a slash dies at random');
+    check('S281', 'an old long-form token still works at the short address',
+      tok('/q/qt_s5k89n9wnmh_1787775998287') === 'qt_s5k89n9wnmh_1787775998287',
+      'every quote already in the book has one of these; the short address must not be new-quotes-only');
+    check('S281', 'the 20-character token the PUBLIC form mints works too',
+      tok('/q/abcdefghij0123456789') === 'abcdefghij0123456789',
+      'index.html generates its own shape for a quote a visitor raises — a third shape, and it must not 404');
+    check('S281', 'the homepage is not swallowed',
+      tok('/') === null && tok('/home') === null && tok('/q') === null && tok('/q/') === null,
+      'a pattern loose enough to match / would hijack every visit to the site');
+    check('S281', 'and a path with another segment is not a quote link',
+      tok('/q/abc/def') === null,
+      'matching loosely here turns a mistyped URL into a lookup for a token nobody has');
+  }
+
+  /* ---- the token generator ---- */
+  const genSrc = extractFn(admin, 'newQuoteToken');
+  const alpha = admin.match(/const QUOTE_TOKEN_ALPHABET = '[^']+';/);
+  check('S281', 'the shared token generator is findable', !!genSrc && !!alpha);
+
+  /* ⚠ COMMENTS STRIPPED. The block above newQuoteToken quotes the old shape in
+     prose to explain why it went — a plain search finds the explanation and
+     calls it a violation. Suites 58, 274 and 275 each learned this separately. */
+  check('S281', 'nothing mints a quote token by hand any more',
+    !/'qt_' \+ Math\.random/.test(stripComments(admin)),
+    'it was written out four times identically; the fifth copy is the one that drifts');
+  check('S281', 'and all four sites go through it',
+    (admin.match(/= newQuoteToken\(\);/g) || []).length === 4,
+    'a site left behind keeps minting the 28-character shape and its links stay long');
+
+  if (genSrc && alpha) {
+    const gen = new Function('crypto', 'console',
+      alpha[0] + '\n' + genSrc + '\nreturn newQuoteToken;');
+    const realCrypto = { getRandomValues: (b) => { for (let i = 0; i < b.length; i++) b[i] = (i * 37 + 11) % 256; return b; } };
+    const quiet = { warn: () => {}, error: () => {} };
+    const make = gen(realCrypto, quiet);
+
+    const t = make();
+    check('S281', 'a token is short enough to matter',
+      t.length === 15,
+      'got ' + t.length + ' — the old shape was 28, of which 13 were a timestamp nothing reads');
+    check('S281', 'it is still a quote token by sight',
+      t.indexOf('qt_') === 0,
+      'the prefix is what makes one recognisable in the database and in a log line');
+    check('S281', 'it uses no characters people misread',
+      !/[lo01]/.test(t.slice(3)),
+      'this string now appears in a text message somebody may read aloud or retype');
+
+    /* ⚠ THE FALLBACK MUST STILL PRODUCE A USABLE TOKEN. A browser with no
+       crypto has to send the quote, not fail at the last step. */
+    const broken = gen({ getRandomValues: () => { throw new Error('nope'); } }, quiet);
+    const f = broken();
+    check('S281', 'a browser without crypto still gets a working token',
+      f.indexOf('qt_') === 0 && f.length === 15 && !/[lo01]/.test(f.slice(3)),
+      'failing here would mean the quote cannot be sent at all — worse than the weaker generator');
+
+    /* Uniqueness, run rather than assumed — with REAL randomness, not the
+       counting stub above, which cannot collide by construction. */
+    const realGen = gen(require('crypto').webcrypto || require('crypto'), quiet);
+    const seen = new Set();
+    for (let i = 0; i < 4000; i++) seen.add(realGen());
+    check('S281', 'four thousand tokens are four thousand different tokens',
+      seen.size === 4000,
+      'two quotes sharing a token means one customer opening the other\'s quote — ' +
+      'the server finds one by equality and takes the first');
+  }
+
+  /* ---- what actually goes in the text ---- */
+  const shortFn = extractFn(admin, 'quoteShortLink');
+  check('S281', 'the short-link builder is findable', !!shortFn);
+  if (shortFn) {
+    const build = new Function('quotePortalParam',
+      shortFn + '\nreturn quoteShortLink;');
+    const plain = build(() => '')({ quoteToken: 'qt_k7m2x9p4qw3z' });
+    const member = build(() => '&p=abcdefghij0123456789')({ quoteToken: 'qt_k7m2x9p4qw3z' });
+
+    check('S281', 'a new lead gets the bare short link',
+      plain === 'highlightingutah.com/q/qt_k7m2x9p4qw3z',
+      'got ' + plain);
+    /* ⚠ The long link joins its params with &, because ?token= comes first.
+       The short one has no query at all until this, so the FIRST one must be a
+       ? — pasting the long form's "&p=" straight on gives a URL whose query is
+       never parsed and a member who is not logged in. */
+    check('S281', 'an existing member gets ?p=, not the long link\'s &p=',
+      member === 'highlightingutah.com/q/qt_k7m2x9p4qw3z?p=abcdefghij0123456789',
+      'got ' + member);
+    check('S281', 'no https:// and no www',
+      plain.indexOf('http') === -1 && plain.indexOf('www.') === -1,
+      'phones linkify a bare domain, and eight characters here is the difference between one billed text and two');
+
+    /* ⭐ THE POINT OF THE WHOLE EXERCISE, measured rather than asserted:
+       the real shipped template, a realistically long name, one segment. */
+    const tmpl = admin.match(/body: 'Hi \{\{name\}\}, your Highlighting Utah Christmas light quote is ready: \{\{price\}\}\.[^']*'/);
+    check('S281', 'the shipped text template is findable', !!tmpl);
+    if (tmpl) {
+      const bodyText = new Function('return ' + tmpl[0].slice(tmpl[0].indexOf("'")))()
+        .split('{{name}}').join('Christopher')
+        .split('{{price}}').join('$1,250.00')
+        .split('{{link}}').join(plain);
+      check('S281', 'a quote text now fits in ONE billed message',
+        bodyText.length <= 160,
+        'got ' + bodyText.length + ' characters — this is the entire reason the short link exists');
+    }
+  }
+
+  /* ---- both text paths use it, and neither leaks a raw token ---- */
+  check('S281', 'both text paths build the short link',
+    (admin.match(/const link = quoteShortLink\(d\);/g) || []).length === 2,
+    'Send the text and Copy the text are two separate builders — one left behind sends the long link');
+  check('S281', 'and both strip the label tokens',
+    (admin.match(/quoteLinkLabelPlain\(htmlEmailToPlainText\(template\.data\.body/g) || []).length === 2,
+    'the copy-the-text path was left behind when {{link:...}} was added, so it put the raw token on the clipboard');
+
+  /* ⚠ THE EMAIL IS DELIBERATELY LEFT LONG. An email has no length problem, its
+     links carry &action=approve, and those URLs are already in inboxes. */
+  /* ⚠ COUNTED, NOT MERELY PRESENT. The first version of this asked only whether
+     the long form appeared ANYWHERE, and it appears at three sites — the quote
+     send, the re-quote send and the add-on send. A red-check switching ONE of
+     them to the short link sailed straight through on the strength of the other
+     two. Three is the number today; a fourth email path is welcome to exist, but
+     it should have to come past this line and say so. */
+  check('S281', 'all three email sends still use the long link',
+    (admin.match(/button_url: 'https:\/\/highlightingutah\.com\/#\/quote-details\?token=' \+ \(d\.quoteToken \|\| ''\) \+ quotePortalParam\(d\),/g) || []).length === 3,
+    'an email has no length problem, its links carry &action=approve, and those URLs are already in inboxes — ' +
+    'the short link is for the text message and nothing else');
 }
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
