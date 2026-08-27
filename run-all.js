@@ -38428,6 +38428,27 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     })(),
     'owner: it takes you to a screen ... and closes that page');
 
+  /* ⭐ A REFUSED KEY SAYS SO. Both panes clear on the map's idle event, which a
+     refused map never fires - so the tool spun on "Finding the house…" for ever
+     while the real answer sat in the console. */
+  check('S170', 'a refused map key is reported on the panes, not just the console',
+    /window\.gm_authFailure = function/.test(admin) &&
+    (function(){
+      const h = admin.indexOf('window.gm_authFailure = function');
+      const sky = admin.indexOf("rmPaneBusy(w, 'Google refused the map key", h);
+      const st = admin.indexOf('rmStatus', h);
+      return sky > h && st > h;
+    })(),
+    'gm_authFailure is the only signal Google gives - it does not throw and does not call back');
+  check('S170', 'and the message names both reasons it actually happens',
+    (function(){
+      const h = admin.indexOf('window.gm_authFailure = function');
+      const end = admin.indexOf('function rmPaneReady', h);
+      const msg = h === -1 ? '' : admin.slice(h, end);
+      return /allowed list/.test(msg) && /Maps JavaScript API is switched off/.test(msg);
+    })(),
+    'the hook names no reason, so a message that only guesses one sends you the wrong way');
+
   /* ⭐ THREE MAPS. Owner: "we need two street view maps, one for finding the
      grade and one for using as the picture." */
   check('S170', 'there is a third map, for reading the grade',

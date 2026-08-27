@@ -16918,6 +16918,25 @@ function rmPaneBusy(which, msg){
   const spin = box.querySelector('.rm-spin');
   if(spin) spin.style.display = arguments[2] === false ? 'none' : '';
 }
+/* ⭐ WHEN GOOGLE REFUSES THE KEY, SAY SO (2026-08-27).
+   Both panes clear their spinner off the map's own "idle" event. A map that
+   Google refuses never fires it, so the tool sat on "Finding the house…"
+   for ever with the real answer - RefererNotAllowedMapError - visible only in
+   a console nobody in the office is going to open. An hour went into chasing
+   the wrong things before that error was read.
+
+   gm_authFailure is Google's own hook and it is the only signal there is; the
+   library does not throw and does not call back. It names no reason, so the
+   two that actually happen are both spelled out. */
+window.gm_authFailure = function(){
+  rmMapsRefused = true;
+  ['sky', 'street'].forEach(function(w){
+    rmPaneBusy(w, 'Google refused the map key for this page — the address it is loaded from is not on the key’s allowed list, or the Maps JavaScript API is switched off for it.', false);
+  });
+  const st = document.getElementById('rmStatus');
+  if(st) st.textContent = 'Google refused the map key — nothing can be measured until it is allowed in the Google Cloud console.';
+};
+let rmMapsRefused = false;
 function rmPaneReady(which){
   const box = document.getElementById(which === 'street' ? 'rmStreetBusy' : 'rmSkyBusy');
   if(box) box.classList.add('done');

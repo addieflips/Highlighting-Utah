@@ -92,11 +92,21 @@ const cfg = between('const firebaseConfig = {', '};', 'firebaseConfig') + '};';
    localhost - the Maps JS API answers that by never calling your callback at
    all, so a geocode simply hangs and the page reports "could not find that
    address". The Firebase key does allow localhost, and allows the static APIs
-   too, which is what makes a local loop possible at all. */
+   too, which is what makes a local loop possible at all.
+
+   ⚠ AND EVEN THAT KEY CANNOT GEOCODE (2026-08-27). Its API restrictions no
+   longer list the Geocoding API, so the address lookup is refused - see the
+   OpenStreetMap fallback further down, which is why the harness still runs. */
 const fbKey = (cfg.match(/apiKey:\s*"([A-Za-z0-9_-]+)"/) || [])[1];
 const rawMapsTag = src.match(/<script src="https:\/\/maps\.googleapis\.com\/maps\/api\/js[^"]*"><\/script>/)[0];
-const mapsTag = fbKey ? rawMapsTag.replace(/key=[A-Za-z0-9_-]+/, 'key=' + fbKey) : rawMapsTag;
-if (!fbKey) console.log('WARNING: no firebase key found - maps will use the script key and may hang on localhost');
+/* ⚠ AND THE FIREBASE KEY LOST THE MAPS JS API ITSELF (2026-08-27):
+   ApiTargetBlockedMapError, and the pane renders "Oops! Something went wrong."
+   So the harness now runs the SHIPPED key by default - the same one the real
+   page uses, which is the honest thing to test against anyway - and the swap
+   above is kept behind ?key=firebase for when it is wanted back. */
+const wantFb = /[?&]key=firebase/.test('');
+const mapsTag = (wantFb && fbKey) ? rawMapsTag.replace(/key=[A-Za-z0-9_-]+/, 'key=' + fbKey) : rawMapsTag;
+console.log('maps key: ' + (mapsTag.match(/key=([A-Za-z0-9_-]+)/)||[])[1]);
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Measure Roof harness</title>
 ${styles}
@@ -117,6 +127,49 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 function showToast(){}
 function logAudit(){}
 const db = null;
+let perFootRate = 2;   /* the office setting, which lives in Firestore on the real page */
+/* ⚠ getGeocoder() CACHES INTO THIS, and without the declaration it throws a
+   ReferenceError inside geocodeAddress's promise - which rmLoadAddress catches
+   and reports as "could not find that address". A harness missing one
+   declaration looks exactly like a broken Google key from the outside, and cost
+   an hour of chasing API restrictions that were never the problem. */
+let geocoder = null;
+
+/* ⚠ GEOCODING IS BLOCKED FOR BOTH KEYS AS OF 2026-08-27, and the JS API says so
+   only in the console: ApiTargetBlockedMapError, then the geocode callback is
+   simply never called and the page reports "could not find that address".
+   Nothing here can fix that - the API restrictions live in the owner's Google
+   Cloud project. So the harness, and ONLY the harness, turns an address into a
+   latitude and longitude through OpenStreetMap, which needs no key. Everything
+   downstream - the tiles, Street View, Solar, the measuring - is still the real
+   thing at the real coordinates. */
+(function(){
+  const Real = google.maps.Geocoder;
+  google.maps.Geocoder = function(){
+    const real = new Real();
+    return {geocode: function(req, cb){
+      let answered = false;
+      const osm = () => {
+        if(answered) return; answered = true;
+        fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(req.address || ''))
+          .then(r => r.json())
+          .then(j => j.length
+            ? cb([{geometry: {location: new google.maps.LatLng(parseFloat(j[0].lat), parseFloat(j[0].lon))},
+                   formatted_address: j[0].display_name}], 'OK')
+            : cb([], 'ZERO_RESULTS'))
+          .catch(() => cb([], 'ERROR'));
+      };
+      try{
+        real.geocode(req, function(res, st){
+          if(answered) return;
+          if(st === 'OK' && res && res.length){ answered = true; cb(res, st); }
+          else osm();
+        });
+      }catch(e){ osm(); }
+      setTimeout(osm, 2500);   /* the blocked call never comes back at all */
+    }};
+  };
+})();
 ${deps}
 ${measure}
 /* ---- the harness's own hooks: expose what the loop needs to read ---- */
