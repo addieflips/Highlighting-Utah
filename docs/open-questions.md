@@ -1566,6 +1566,15 @@ had owner-driven changes *after* #14 was written, so it is a real piece of work
 rather than a merge. Closing it loses the rim-house argument, which no rule on
 main currently answers; the branch would stay intact and revivable.
 
+**UPDATE 2026-08-27 — the decay is off the table, the question is not.**
+`js/grid.js` is now on `main`, unwired, with `grid-parked.test.js` running it on
+every build (questions map PROC-22). It was the only file that existed solely on
+that branch, it is pure arithmetic with no DOM and no Firebase, and it conflicts
+with nothing — so the thing that was getting more expensive by the day was never
+the file, it was the six wiring commits around it. Those still have to be redone
+against today's admin.html whenever this is answered, and that cost is unchanged.
+What this removes is the pressure to answer quickly to avoid losing the work.
+
 **Resulting map change:** none yet — deliberately. A ruling that has not been
 given cannot become a row, and `claude/questions-map.md` holds answers, not
 open questions. When this is answered it earns a `MON-` row, and if the answer
