@@ -12,9 +12,10 @@
     "test:portal": "node portal-repro.test.js",
     "test:silent": "node silent-failures.test.js",
     "test:import-build": "node import-build-flag.test.js",
+    "test:connections": "node connections.test.js",
     "test:questions": "node questions-map.test.js",
     "test:suite": "node run-all.js",
-    "test": "npm run verify && npm run test:selectors && npm run test:money && npm run test:options && npm run test:season && npm run test:colours && npm run test:reason && npm run test:fix && npm run test:portal && npm run test:silent && npm run test:import-build && npm run test:suite && npm run test:questions",
+    "test": "npm run verify && npm run test:selectors && npm run test:money && npm run test:options && npm run test:season && npm run test:colours && npm run test:reason && npm run test:fix && npm run test:portal && npm run test:silent && npm run test:import-build && npm run test:connections && npm run test:suite && npm run test:questions",
     "test:browser": "playwright test",
     "test:browser:headed": "playwright test --headed",
     "test:all": "npm test && npm run test:browser"

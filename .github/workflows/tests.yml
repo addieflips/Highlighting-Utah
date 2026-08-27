@@ -113,6 +113,17 @@ jobs:
       - name: Who tells the warehouse a house needs building
         run: npm run test:import-build
 
+      # Is everything still connected. The connections map declares, by hand, what ought
+      # to reach what — and this fails the build when the code stops making one of those
+      # connections. Addie, asked how she should find out when it goes red: "It fails the
+      # build." Named separately like the gates above, because "a connection somebody
+      # relies on is gone" is a different thing to go and look at than a line inside the
+      # big suite. ⚠ Amber — a writer nobody declared — is a NOTE and never a failure: a
+      # gate that goes red every time somebody adds a legitimate reader gets disabled
+      # inside a week.
+      - name: Is everything still connected (the connections map)
+        run: npm run test:connections
+
       # Addie's rulings. Named separately for the same reason as the three above:
       # "a ruling lost its pointer" is a different thing to go and look at than a line
       # inside a 4,600-check run. ⚠ IT RUNS HERE AND LAST IN `npm test`, on purpose and
