@@ -24,28 +24,28 @@ module.exports = [
     sets: [
       { file: 'admin', near: 'needsGeocode: pinFailed', where: 'Customers › Add a Customer', when: 'a customer is created',
         rules: ['Every new house is flagged, colours or no colours.'] },
-      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates › Sync', when: 'the sheet adds a house',
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds a house',
         rules: ['Ungated — questions map WH-20.'] },
       { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer adds a house',
         rules: ['Add branch only. The update branch must never re-queue — WH-21.'] },
       { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'the invoice importer adds a house',
         rules: ['Carries no colours, so these land in the blocked block by design.'] },
-      { file: 'admin', el: 'editCustBuildStayBtn', where: 'Edit Customer', when: 'Build Them A New Set is pressed',
+      { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed',
         rules: ['Must NOT also set the recycle flag — the two buttons were split on purpose.'] },
-      { file: 'admin', near: 'if(warehouseRebuildFields(item.data, addrUpdates).length)', where: 'Edit Customer › Save', when: 'the wire or timer changed',
+      { file: 'admin', near: 'if(warehouseRebuildFields(item.data, addrUpdates).length)', where: 'Customers › All Customers', when: 'the wire or timer changed',
         rules: ['Only ever turns the flag ON.'] },
-      { file: 'server', fn: 'seasonYesUpdates', where: 'RSVP / quote approval', when: 'somebody rejoins after a recycle',
+      { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody rejoins after a recycle',
         rules: ['Re-queues only when a recycle actually happened.'] }
     ],
     reads: [
-      { file: 'admin', fn: 'whBuildQueueGroups', where: 'Warehouse › build queue', when: 'the queue is drawn',
+      { file: 'admin', fn: 'whBuildQueueGroups', where: 'Warehouse › Build', when: 'the queue is drawn',
         rules: ['A flagged house with no colours goes to the blocked block, never dropped — WH-18.'] },
-      { file: 'admin', fn: 'printNeedsBuildList', where: 'Printing › Needs Building', when: 'the sheet prints',
+      { file: 'admin', fn: 'printNeedsBuildList', where: 'Schedule › Printing', when: 'the sheet prints',
         rules: ['Must list the same people as the Warehouse tab.'] },
-      { file: 'admin', fn: 'computeColorDemand', where: 'Warehouse › colour totals', when: 'bulbs are ordered',
+      { file: 'admin', fn: 'computeColorDemand', where: 'Warehouse › Build', when: 'bulbs are ordered',
         rules: ['The costly reader. A phantom house here means glass ordered for nobody.'] },
-      { file: 'admin', fn: 'computePendingHouseCount', where: 'Warehouse › pending count', when: 'the tab header is drawn' },
-      { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › ask about one house', when: 'the office searches a name' }
+      { file: 'admin', fn: 'computePendingHouseCount', where: 'Warehouse › Build', when: 'the tab header is drawn' },
+      { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Tools', when: 'the office searches a name' }
     ]
   },
 
@@ -54,18 +54,18 @@ module.exports = [
     title: 'Does this house have a bundle to fetch back?',
     plain: 'Set when lights need collecting. Cleared by Mark Recycled, or by rejoining the season.',
     sets: [
-      { file: 'admin', el: 'editCustRecycleStayBtn', where: 'Edit Customer', when: 'Recycle Their Old Set is pressed',
+      { file: 'admin', el: 'editCustRecycleStayBtn', where: 'Customers › All Customers', when: 'Recycle Their Old Set is pressed',
         rules: ['Must NOT also set the build flag.'] },
-      { file: 'admin', near: 'addrUpdates.needsLightRecycle', where: 'Edit Customer › Save', when: 'the RSVP answer changes' },
+      { file: 'admin', near: 'addrUpdates.needsLightRecycle', where: 'Customers › All Customers', when: 'the RSVP answer changes' },
       { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers no',
         rules: ['The status alone is written by the portal — the flag half is why isOutForSeason reads both.'] },
-      { file: 'server', fn: 'seasonYesUpdates', where: 'RSVP / quote approval', when: 'somebody says yes',
+      { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody says yes',
         rules: ['Cancels a queued recycle. Must not clobber a re-quote that set it deliberately.'] }
     ],
     reads: [
-      { file: 'admin', fn: 'whRecycleGroups', where: 'Warehouse › recycle queue', when: 'the queue is drawn' },
-      { file: 'admin', fn: 'printRecycleList', where: 'Printing › Recycle sheet', when: 'the sheet prints' },
-      { file: 'admin', fn: 'isOutForSeason', where: 'everywhere', when: 'anything asks who is in the season',
+      { file: 'admin', fn: 'whRecycleGroups', where: 'Warehouse › Recycle', when: 'the queue is drawn' },
+      { file: 'admin', fn: 'printRecycleList', where: 'Schedule › Printing', when: 'the sheet prints' },
+      { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
         rules: ['A house queued for recycle is out. A mover (recycleKeepingCustomer) is not.'] }
     ]
   },
@@ -80,21 +80,21 @@ module.exports = [
        Narrowing to the customer-record readers is what keeps amber worth reading. */
     ignore: ['^(stopProblem|renderRouteOrderedList|renderRouteAddressList|runGenerateInstallRoute|findNearbyMissedHouses|nextVisitFor|visitBadgeType|renderTakedownsList|reconcileUpcomingRoutes|renderOverviewMap|isOctoberUrgent|isNewHangUrgent|isBeforeThanksgivingUrgent|derivedDoneFor|houseBillingRow)$'],
     sets: [
-      { file: 'admin', fn: 'planTickCustomer', where: 'Schedule › tick a stop', when: 'one house is marked done',
+      { file: 'admin', fn: 'planTickCustomer', where: 'Schedule › Scheduling', when: 'one house is marked done',
         rules: ['Ticking ONE stop marks that customer complete. It is what makes the nightly run bill them.'] },
-      { file: 'admin', near: 'const HLX_DONE_KINDS', where: 'the one done-marker', when: 'any of five doors marks a job done',
+      { file: 'admin', near: 'const HLX_DONE_KINDS', where: 'Routes › Install', when: 'any of five doors marks a job done',
         rules: ['Install, takedown and fix are independent. None may nest under another.'] }
     ],
     reads: [
-      { file: 'server', fn: 'runInvoiceBatch', where: 'Nightly invoicing', when: '7 PM Mountain',
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: '7 PM Mountain',
         rules: ['A multi-house bill waits until every house on it is completed.'] },
-      { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Nightly invoicing', when: 'deciding who is on a bill',
+      { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'deciding who is on a bill',
         rules: ['completed is tested FIRST, ahead of every status. Hung is hung — Q-013.'] },
-      { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices', when: 'deciding who is on a bill',
+      { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices › Invoice List', when: 'deciding who is on a bill',
         rules: ['Must give the same answer as the server copy. money-parity sweeps both.'] },
-      { file: 'admin', fn: 'allCustRouteStatus', where: 'All Customers › Route Status filter', when: 'the Install Complete filter runs',
+      { file: 'admin', fn: 'allCustRouteStatus', where: 'Customers › All Customers', when: 'the Install Complete filter runs',
         rules: ['This is the reader the original brief could not locate.'] },
-      { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails', when: 'an audience is counted' }
+      { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'an audience is counted' }
     ]
   }
 ];
