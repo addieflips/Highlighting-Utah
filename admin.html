@@ -747,6 +747,19 @@
     border-radius:8px; border:1px solid var(--line); padding:6px 8px; font-size:12px;
     background:var(--snow); color:var(--ink); max-width:110px;
   }
+  /* ⭐ THE TYPO WARNING THAT SITS UNDER THE FIELD (2026-08-26). Deliberately not a
+     popup: this fires while somebody is still typing, and a dialog that interrupts
+     every keystroke would be shut without being read. */
+  .email-typo-note{
+    display:none; margin-top:6px; font-size:12px; line-height:1.45;
+    background:#FFF8E9; border:1px solid var(--gold-dim); border-radius:8px; padding:7px 10px;
+  }
+  .email-typo-note.show{ display:block; }
+  .email-typo-note button{
+    margin-left:6px; border:1px solid var(--gold-dim); background:#fff; color:var(--ink);
+    border-radius:6px; padding:2px 8px; font-size:11.5px; font-weight:700; cursor:pointer;
+  }
+  .email-typo-note button:hover{ background:var(--gold); }
   .form-row{ margin-bottom:16px; }
   .form-row label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; }
   .form-row input, .form-row textarea, .form-row select{
@@ -2977,7 +2990,7 @@
       <div class="et-popup-overlay" id="icOverlay">
         <div class="et-popup" style="max-width:560px;">
           <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Insert Codes</h3>
-          <p style="margin:0 0 12px; font-size:13px; color:var(--slate);">Check what you want, then insert &mdash; they'll drop in right where your cursor was in the body.</p>
+          <p style="margin:0 0 12px; font-size:13px; color:var(--slate);">Check what you want, then insert &mdash; they'll drop in right where your cursor was in the body. A code ending in <strong>_button</strong> is a big coloured block; one ending in <strong>_link</strong> or <strong>{{link}}</strong> prints the whole web address. To put a link behind your own words, use <span class="et-code-token">{{link:your words here}}</span> and edit the words after inserting it. To build a code of your own, use <strong>Manage custom codes</strong> below.</p>
           <input type="text" id="icSearchInput" placeholder="Search codes..." style="margin-bottom:12px;">
           <div class="et-tab-row" id="icTabs">
             <button type="button" class="et-tab-btn active" data-ictab="general">General</button>
@@ -5659,6 +5672,68 @@ function quoteButtonLabels(d){
     ? {approve:'Yes, add it', maybe:'Maybe Next Year', decline:'No thanks \u2014 just my usual lights'}
     : {approve:'Approve Quote', maybe:'Maybe Next Year', decline:'Decline Quote'};
 }
+/* ⭐ ONE PLACE THAT MINTS A QUOTE TOKEN (added 2026-08-26).
+ *
+ * It was written out four times, identically, and the shape was
+ * 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now() — 28
+ * characters, of which THIRTEEN were a timestamp nothing has ever read. The
+ * token is opaque everywhere: both Cloud Functions find a quote with
+ * .where('quoteToken','==',token) and nothing in any of the three HTML files
+ * parses it. So the timestamp bought nothing and cost half the length of the
+ * link that goes in a text message.
+ *
+ * ⚠ AND substr(2,16) NEVER PRODUCED 16 CHARACTERS. Math.random().toString(36)
+ * is about 13 characters all in, so it yielded ~11 — the count was aspirational.
+ * Worth knowing before anybody "restores" it as the stronger option.
+ *
+ * ⚠ crypto.getRandomValues, NOT Math.random. This string is the only thing
+ * standing between a stranger and somebody's quote — V8's Math.random is
+ * xorshift128+, which is reconstructable from a handful of outputs, and a quote
+ * page shows a name, an address and a price. 12 characters from a 32-letter
+ * alphabet is ~60 bits. The Math.random fallback is kept only so that a browser
+ * without crypto still sends the quote rather than failing at the last step;
+ * it is the old behaviour, not a new weakness.
+ *
+ * ⚠ THE ALPHABET DROPS l, o, 0 AND 1. This token now shows up in a text message
+ * where somebody may read it aloud or type it, and those four are the pairs
+ * people get wrong.
+ *
+ * ⚠ EXISTING TOKENS ARE UNTOUCHED and keep working at both the long and the
+ * short address. This only changes what NEW quotes get.
+ */
+const QUOTE_TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+function newQuoteToken(){
+  const n = 12;
+  let out = '';
+  try{
+    const buf = new Uint8Array(n);
+    crypto.getRandomValues(buf);
+    for(let i = 0; i < n; i++) out += QUOTE_TOKEN_ALPHABET[buf[i] % QUOTE_TOKEN_ALPHABET.length];
+  } catch(err){
+    /* Reported rather than swallowed: falling back is safe, but silently using
+       the weaker generator for ever is the kind of thing nobody discovers. */
+    console.warn('[HU] crypto.getRandomValues unavailable — quote token fell back to Math.random', err);
+    out = '';
+    for(let i = 0; i < n; i++) out += QUOTE_TOKEN_ALPHABET[Math.floor(Math.random() * QUOTE_TOKEN_ALPHABET.length)];
+  }
+  return 'qt_' + out;
+}
+/* ⭐ THE SHORT ADDRESS FOR A QUOTE (added 2026-08-26). Owner: "I don't want a
+   long link." Same page, same token, ~40 characters less of it — see the block
+   above the router in index.html for how /q/<token> resolves.
+
+   ⚠ NO https:// AND NO www. Phones linkify a bare highlightingutah.com/... and
+   the eight characters matter here: this is the difference between one billed
+   text message and two. The long form is left exactly as it is everywhere else,
+   because an email has no length problem and those links are already sent.
+
+   ⚠ IT CARRIES ?p= WHEN THERE IS ONE, under the same name the long link uses,
+   so an existing member is still let straight in. */
+function quoteShortLink(d){
+  const portal = quotePortalParam(d);          /* '&p=...' or '' */
+  return 'highlightingutah.com/q/' + (d.quoteToken || '') +
+    (portal ? ('?' + portal.slice(1)) : '');
+}
 function quotePortalParam(d){
   const c = quoteExistingCustomer(d);
   const t = c && c.data ? c.data.portalToken : '';
@@ -6491,7 +6566,7 @@ async function addOnEmailBlock(customerId){
      warning itself was first written with the offending characters in it. */
   if(!q.data.quoteToken){
     try{
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       await updateDoc(doc(db,'quotes', q.id), {quoteToken: token});
       q.data.quoteToken = token;
     }catch(err){
@@ -6598,10 +6673,95 @@ function hlxEmailCustomer(phone, opts){
   });
   return hits.length === 1 ? hits[0].data : null;
 }
+/* ⭐ A LINK BEHIND HER OWN WORDS (added 2026-08-26). Owner, on the quote
+   message: "I don't want a long li[n]k... I want it to say 'See your home and
+   approve here.' The link will be behind here?"
+
+   Until now a quote link had exactly two shapes: {{link}}, which prints the
+   whole 80-character URL in the middle of a sentence, and {{link_button}}, a
+   big gold block whose words are ours and not hers. There was no way to write
+   an ordinary sentence and put the link behind part of it. {{link:the words}}
+   is that third shape — whatever she types after the colon becomes the visible
+   text and the quote URL sits behind it.
+
+   ⚠ THE WORDS ARE ESCAPED, THE URL IS NOT — deliberately, and it matches every
+   other anchor in this file. The URL is one we build out of the quote token;
+   the words are typed into a box, so an apostrophe or an ampersand in "Bob &
+   Sue's quote" must not be able to break the tag it sits in.
+
+   ⚠ ONLY & < > AND " ARE ESCAPED, NOT THE APOSTROPHE, even though esc() here
+   does escape it. That is not an oversight: escServer in functions/index.js
+   escapes four, this rule exists TWICE (see applyQuoteLinkLabelServer), and
+   two copies that escape different characters send two different emails for
+   the same template the moment somebody writes "Here's". The escaping is
+   written out inside both copies rather than borrowed from either file's
+   general helper, so the two cannot drift apart through a change to something
+   else.
+
+   ⚠ AND A BLANK LABEL FALLS BACK TO "here" rather than rendering an empty
+   anchor. {{link:}} with nothing between is a link nobody can see or press —
+   the message reads as if the link were simply missing. */
+const QUOTE_LINK_LABEL_STYLE = 'color:#1E3B2C; font-weight:bold; text-decoration:underline;';
+/* The gold block, hoisted out of resolveLinkTokens so the server copy can be
+   held to the same string. Its value is unchanged — portal_button, pay_button
+   and view_portal_button still read it through btnStyleGold. */
+const QUOTE_LINK_BUTTON_STYLE = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+const QUOTE_LINK_BUTTON_DEFAULT = 'View & Respond';
+/* ⭐ THE BUTTON TAKES HER WORDS TOO (added 2026-08-26). {{link_button}} on its
+   own still says "View & Respond", the words it has always said;
+   {{link_button:See your home and approve}} says hers.
+
+   ⚠ AND THIS CLOSED A REAL LEAK. The nightly nudge renderer in
+   functions/index.js knew about {{name}}, {{price}}, {{price_block}},
+   {{photo}}, the three quote buttons and {{link}} — and NOT {{link_button}}.
+   So a Nudge template with a button in it rendered properly when the office
+   pressed Send and mailed the customer the literal text "{{link_button}}" when
+   the 7 PM batch sent the same template. Exactly the {{photo}} bug of
+   2026-08-17, in the one token nobody had checked. applyQuoteLinkButtonServer
+   is the other half, and Suite 279 runs them side by side.
+
+   ⚠ THE LABEL IS ESCAPED EVEN WHEN IT IS OURS. One path, no special case —
+   "View &amp; Respond" reads as "View & Respond" and is the valid spelling;
+   a branch that skips escaping for the default is a branch that eventually
+   gets handed something that is not the default. */
+function applyQuoteLinkButton(text, url, defaultLabel){
+  const fallback = String(defaultLabel || QUOTE_LINK_BUTTON_DEFAULT);
+  return String(text == null ? '' : text).replace(/\{\{link_button(?::([^{}]*))?\}\}/g, function(_m, words){
+    const label = (words == null ? '' : String(words)).trim() || fallback;
+    const safe = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return '<a href="' + url + '" style="' + QUOTE_LINK_BUTTON_STYLE + '">' + safe + '</a>';
+  });
+}
+function applyQuoteLinkLabel(text, url){
+  return String(text == null ? '' : text).replace(/\{\{link:([^{}]*)\}\}/g, function(_m, words){
+    const label = String(words).trim() || 'here';
+    const safe = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return '<a href="' + url + '" style="' + QUOTE_LINK_LABEL_STYLE + '">' + safe + '</a>';
+  });
+}
+/* The same token in a TEXT MESSAGE, where there is no such thing as a link
+   behind a word — a text is plain characters and nothing else. It keeps her
+   words and drops the token, and the SMS builder's existing "append the link if
+   it is not already in the message" rule then puts the URL on its own line
+   underneath. So the same template gives her the sentence she asked for in an
+   email and the closest a text can get to it. */
+function quoteLinkLabelPlain(text){
+  return String(text == null ? '' : text)
+    .replace(/\{\{link:([^{}]*)\}\}/g, function(_m, words){
+      return String(words).trim() || 'here';
+    })
+    /* The button token too — a text has no buttons either, and until now a
+       {{link_button}} left in a text template went to the customer as those
+       exact fifteen characters. Its words survive; the URL still lands on the
+       line underneath. */
+    .replace(/\{\{link_button(?::([^{}]*))?\}\}/g, function(_m, words){
+      return (words == null ? '' : String(words)).trim() || QUOTE_LINK_BUTTON_DEFAULT;
+    });
+}
 async function resolveLinkTokens(text, phone, amount, opts){
   opts = opts || {};
   let out = text;
-  const btnStyleGold = 'display:inline-block; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:15px; margin:6px 8px 6px 0; background:#D89F3D; color:#1E3B2C;';
+  const btnStyleGold = QUOTE_LINK_BUTTON_STYLE;
   if(opts.name !== undefined) out = out.split('{{name}}').join(opts.name || 'there');
   if(opts.price !== undefined){
     out = out.split('{{price}}').join(opts.price || '');
@@ -6619,8 +6779,12 @@ async function resolveLinkTokens(text, phone, amount, opts){
   }
   if(opts.setupFeeLine !== undefined) out = out.split('{{setup_fee_line}}').join(opts.setupFeeLine || '');
   if(opts.link){
+    /* Labelled first. {{link}} is matched as a literal string, so it can never
+       eat the front of a {{link:...}} — but the reading order should match the
+       specific-before-general rule the rest of this function follows. */
+    out = applyQuoteLinkLabel(out, opts.link);
     out = out.split('{{link}}').join(opts.link);
-    out = out.split('{{link_button}}').join('<a href="'+opts.link+'" style="'+btnStyleGold+'">'+(opts.linkLabel || 'View & Respond')+'</a>');
+    out = applyQuoteLinkButton(out, opts.link, opts.linkLabel);
   }
   /* The due date the customer is told must be the same one the Invoice List
      chases them by, so it is worked out from the invoice's own timestamp using
@@ -11558,11 +11722,11 @@ function renderQuoteRows(filtered){
         ' Open <strong>Quote email settings</strong> above and pick one under Text message versions.</div>';
       return;
     }
-    const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
+    const link = quoteShortLink(d);
     /* Plain characters only. Anything HTML in the template body is stripped
        rather than sent as-is, so a template picked by mistake degrades to
        readable text instead of arriving as code. */
-    let msg = htmlEmailToPlainText(template.data.body || '')
+    let msg = quoteLinkLabelPlain(htmlEmailToPlainText(template.data.body || ''))
       .split('{{name}}').join(firstName(d.name))
       .split('{{price}}').join(fmtMoney(d.quotedPrice))
       .split('{{link}}').join(link)
@@ -11573,7 +11737,8 @@ function renderQuoteRows(filtered){
     resultEl.innerHTML =
       '<div style="font-size:11.5px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:8px; padding:9px 11px; margin-bottom:10px; color:#33397a; line-height:1.5;">'+
         'Text, pulled live from <strong>Automation Emails &rarr; Templates &rarr; '+esc(tmplName)+'</strong>. '+
-        'A text can\'t show buttons or a photo &mdash; the link opens the page that has both.'+
+        'A text can\'t show buttons, a photo, or a link hidden behind a word &mdash; it is plain characters only, '+
+        'so the address has to be visible. The link opens the page that has the buttons and the photo.'+
       '</div>'+
       '<div class="rtext" style="margin-bottom:6px;">To: <strong>'+esc(d.phone||'')+'</strong></div>'+
       '<div style="background:#E9E9EB; color:#000; border-radius:16px; padding:11px 14px; font-size:14.5px; line-height:1.45; white-space:pre-wrap; max-width:330px;">'+esc(msg)+'</div>'+
@@ -11782,8 +11947,11 @@ function renderQuoteRows(filtered){
         toast('No text template picked yet \u2014 open Quote email settings first.');
         return;
       }
-      const link = 'https://highlightingutah.com/#/quote-details?token=' + (d.quoteToken || '') + quotePortalParam(d);
-      let msg = htmlEmailToPlainText(template.data.body || '')
+      const link = quoteShortLink(d);
+      /* Same stripping as the Send-the-text path. This one was left behind
+         when {{link:...}} was added, so a template using it copied the raw
+         token to the clipboard and straight into somebody's messages app. */
+      let msg = quoteLinkLabelPlain(htmlEmailToPlainText(template.data.body || ''))
         .split('{{name}}').join(firstName(d.name))
         .split('{{price}}').join(fmtMoney(d.quotedPrice))
         .split('{{link}}').join(link)
@@ -12955,7 +13123,7 @@ async function etUpdatePreview(){
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       quote.data.quoteToken = token;
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
@@ -13835,6 +14003,78 @@ function emailTypoSuggestion(addr){
   }
   return null;
 }
+/* ⭐ THE SAME TYPO, WHERE IT COSTS FAR MORE (2026-08-26). Owner asked for the test-
+   invoice guard to be put on the customer's own email box too. It is the same one
+   letter and a much worse outcome: a test that does not arrive is noticed in a
+   minute, whereas a customer record holding …@gmai.com is noticed by NOBODY. The
+   nightly run hands their invoice to a domain that does not exist, EmailJS answers
+   OK, the bounce goes to the sending account nobody reads, and the customer simply
+   never gets a bill. Nothing anywhere goes red.
+   ⚠ IT IS A NOTE UNDER THE FIELD, NOT A POPUP, and that is a deliberate difference
+   from the test-invoice guard. That one guards a single decisive press, so a dialog
+   fits. This one fires while somebody is still typing an address — a dialog on every
+   keystroke is one that gets dismissed unread — and Edit Customer already opens up
+   to three popups on one save. A fourth await in that handler buys nothing the note
+   does not already say, and that handler is the one with a history of swallowing
+   errors whole.
+   ⚠ IT WARNS, IT NEVER REFUSES, AND IT NEVER EDITS THE BOX BY ITSELF. Correcting an
+   address on somebody's behalf is how a real address at an unusual domain gets
+   quietly replaced with a wrong one. The office presses Use it, or ignores it.
+   ⚠ AND PREVENTION IS ONLY HALF. It does nothing for the addresses already on file,
+   which is what the Health Check row added alongside it is for. */
+function emailTypoWatch(input){
+  if(!input) return;
+  /* ⚠ ALREADY WATCHED MEANS RE-CHECK IT, NOT WALK AWAY. The first draft returned
+     here, and that silently broke the case this exists for: the boxes are bound once
+     at start-up, so by the time Edit Customer is filled from a record the guard was
+     already set and the note was never refreshed — a customer whose stored address
+     is ALREADY a typo showed nothing at all. Binding must not repeat; checking must. */
+  if(input._typoRefresh){ input._typoRefresh(); return; }
+  input.dataset.typowatch = '1';
+  const note = document.createElement('div');
+  note.className = 'email-typo-note';
+  input.insertAdjacentElement('afterend', note);
+  const refresh = function(){
+    const typed = input.value.trim();
+    const suggestion = emailTypoSuggestion(typed);
+    if(!suggestion){ note.classList.remove('show'); note.innerHTML = ''; note.dataset.shown = ''; return; }
+    /* ⚠ REBUILD ONLY WHEN THE ANSWER CHANGES. Clicking Use it BLURS the field, and
+       blur runs this — so rebuilding unconditionally destroyed the button node
+       between mousedown and mouseup and the click never landed. Pressing it did
+       nothing at all, which is the one failure this whole note exists to avoid.
+       Caught by driving it in a real browser; every source check passed throughout. */
+    if(note.dataset.shown === suggestion){ note.classList.add('show'); return; }
+    note.dataset.shown = suggestion;
+    note.innerHTML = 'Did you mean <strong>' + esc(suggestion) + '</strong>? ' +
+      '<span style="color:var(--slate);">That domain is one letter from a common one, so mail to it would go nowhere.</span>' +
+      '<button type="button" data-usetypofix>Use it</button>';
+    note.classList.add('show');
+    note.querySelector('[data-usetypofix]').addEventListener('click', function(){
+      input.value = suggestion;
+      /* Fire input so anything watching the field sees the change, exactly as if it
+         had been typed. Not `change`: nothing listens for it on these boxes today,
+         and firing one would be inventing an event a future handler did not expect. */
+      note.dataset.shown = '';
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+      note.classList.remove('show');
+      input.focus();
+    });
+  };
+  input._typoRefresh = refresh;
+  input.addEventListener('input', refresh);
+  input.addEventListener('blur', refresh);
+  /* A record opened with a typo already on it must say so before anything is typed —
+     that is the commonest case by far, since the bad address is already saved. */
+  refresh();
+}
+/* Wire the boxes a person types an address into. ⚠ NOT the bulk importers or the
+   sheet sync: those write hundreds of rows from a spreadsheet, the addresses are not
+   being typed, and a note per row would be both useless and unreadable. */
+const EMAIL_TYPO_WATCHED_IDS = ['addCustEmail','addCustEmail2','editCustEmail','editCustEmail2',
+  'etTestEmailInput','invTestTo','qEmailTestTo'];
+function emailTypoWatchAll(){
+  EMAIL_TYPO_WATCHED_IDS.forEach(function(id){ emailTypoWatch(document.getElementById(id)); });
+}
 /* Three answers, so it cannot be a confirm(): use the correction, send to what was
    typed anyway, or go back and edit it. */
 function askEmailTypo(typed, suggestion){
@@ -13971,6 +14211,8 @@ async function invTestSend(){
   }
 }
 if(document.getElementById('invTestSendBtn')) document.getElementById('invTestSendBtn').addEventListener('click', invTestSend);
+/* Every box a person types an email address into, watched from load. */
+emailTypoWatchAll();
 function invRenderRecipientList(){
   invTestPopulate();
   const list = document.getElementById('invRecipientList');
@@ -14107,7 +14349,7 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
       const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
       const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
       if(quote && !quote.data.quoteToken){
-        const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+        const token = newQuoteToken();
         quote.data.quoteToken = token;
         await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
       }
@@ -14140,7 +14382,24 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
      failing to write a note about them must not report the send as failed. */
   if(etTemplateIsRsvp(template)){
     const noted = await noteRsvpSendHappened(sent);
-    if(noted) statusEl.textContent += ' Recorded that the RSVP has gone out.';
+    if(noted){
+      /* ⭐ AND IT POINTS AT THE SWITCH. Owner, 2026-08-26: "any RSVP should be a
+         straight yes starting when emails are sent" — so from this moment only somebody
+         who actually answered is in the season. Recording the send does NOT do that;
+         SEASON_ELIGIBILITY is a separate deliberate act, and until now nothing said so
+         at the one moment it matters. The office would send, read a green confirmation,
+         and leave the season quietly counting everybody — which is the whole of
+         "nothing should fail quietly", on the switch that decides who a crew is sent to.
+         ⚠ IT NAMES THE SWITCH RATHER THAN THROWING IT. Flipping takes ~960 unanswered
+         customers off the routes, the schedule and the build queue in one go, and the
+         switch on the Dashboard shows that count BEFORE it does anything. Doing it from
+         here would skip the one number that makes the decision answerable. */
+      statusEl.textContent += ' Recorded that the RSVP has gone out.';
+      if(SEASON_ELIGIBILITY !== 'confirmed-only'){
+        statusEl.textContent += ' \u26a0 Crews still go to everybody who has not said no.'
+          + ' Switch that on the Dashboard ("Who the crews are sent to") when you are ready.';
+      }
+    }
   }
 });
 function openSendModal(templateId){
@@ -14199,7 +14458,7 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
     const phoneDigits = (member.data.phone||'').replace(/\D/g,'');
     const quote = quotesCache.find(q => (q.data.phone||'').replace(/\D/g,'') === phoneDigits);
     if(quote && !quote.data.quoteToken){
-      const token = 'qt_' + Math.random().toString(36).substr(2,16) + '_' + Date.now();
+      const token = newQuoteToken();
       quote.data.quoteToken = token;
       await updateDoc(doc(db,'quotes', quote.id), {quoteToken: token});
     }
@@ -14249,7 +14508,9 @@ const IC_CODES = {
     {token:'{{setup_fee_line}}', label:'One-time $30 set-up fee line (only if checked on the quote)'},
     {token:'{{photo}}', label:'Their house photo'},
     {token:'{{link}}', label:'Quote link (plain URL)'},
-    {token:'{{link_button}}', label:'Quote link (button)'},
+    {token:'{{link:See your home and approve here}}', label:'Quote link behind your own words — insert it, then edit the words between the colon and the braces'},
+    {token:'{{link_button}}', label:'Quote link (button, says "View & Respond")'},
+    {token:'{{link_button:See your home and approve}}', label:'Quote link as a button with your own words — edit the words after inserting'},
     {token:'{{quote_yes_button}}', label:'Quote Approve (button)'},
     {token:'{{addon_block}}', label:'Outstanding add-on: offer + Yes/No (block)'},
     {token:'{{quote_maybe_button}}', label:'Quote Maybe Next Year (button)'},
@@ -14275,7 +14536,14 @@ function icRenderList(){
   const box = document.getElementById('icCodeList');
   const manageWrap = document.getElementById('icManageLinkWrap');
   let codes = icActiveTab === 'custom' ? icGetCustomCodeList() : IC_CODES[icActiveTab];
-  manageWrap.style.display = (icActiveTab === 'custom') ? 'block' : 'none';
+  /* ⭐ ALWAYS SHOWN (2026-08-26). Owner: "how do I customize code — I see it says
+     customize when I open insert code but nowhere to customize it." The way in
+     was real and it was hidden one tab deep: the Custom TAB was visible from the
+     moment the modal opened, and the button that actually makes one only
+     appeared after clicking that tab. So the word "Custom" advertised something
+     with no visible way to reach it. Showing the button on every tab costs one
+     line of chrome and removes the dead end. */
+  manageWrap.style.display = 'block';
   if(icSearchTerm){
     const term = icSearchTerm.toLowerCase();
     codes = codes.filter(c => c.label.toLowerCase().indexOf(term) !== -1 || c.token.toLowerCase().indexOf(term) !== -1);
@@ -14345,8 +14613,16 @@ document.getElementById('icInsertBtn').addEventListener('click', function(){
   document.getElementById('etUnsavedNote').style.display = 'block';
   tokens.forEach(function(tok){
     const bare = tok.replace(/^\{\{|\}\}$/g,'');
-    const style = bare.endsWith('_button') ? 'button' : (bare.endsWith('_link') ? 'link' : 'plain');
-    if(!etCurrentLinkedTokens.some(lt => lt.code === bare)) etCurrentLinkedTokens.push({code: bare, style: style});
+    /* ⚠ {{link:her own words}} is one token whose tail is editable prose, so the
+       CODE is only the part in front of the colon. Storing the whole thing would
+       put a sentence in linkedTokens, and then editing the words in the body
+       would leave a stale copy of the old sentence declared beside it. It is a
+       'link' whatever the words say — that is the shape it renders as. */
+    const labelled = bare.indexOf(':') !== -1;
+    const code = labelled ? bare.slice(0, bare.indexOf(':')) : bare;
+    const style = code.endsWith('_button') ? 'button'
+      : (labelled || code.endsWith('_link') ? 'link' : 'plain');
+    if(!etCurrentLinkedTokens.some(lt => lt.code === code)) etCurrentLinkedTokens.push({code: code, style: style});
   });
   document.getElementById('icOverlay').style.display = 'none';
 });
@@ -16327,7 +16603,30 @@ const RM_TYPES = {
    and the rest of the app never agreed about the same house. Left at 1 rather
    than deleted, because the multiplier is the thing anyone would reach for if
    the pricing model changes again. */
-const RM_FEET_MULTIPLIER = 1;
+/* ⭐ SET TO 2.9 ON THE OWNER'S INSTRUCTION, 2026-08-26: "make it so a foot is
+   2.9 times smaller than it currently is, so 50 feet would be a little under
+   150 ft instead."
+
+   ⚠ AND THE LENGTH ARITHMETIC IS NOT WHAT IS WRONG, which has to be recorded
+   here or this number becomes folklore. rmFeetBetween was driven directly: two
+   points 10 m apart report 32.808 ft against a true 32.808, and 10 m across
+   with 3 m of rise reports 34.253 against a true 34.252. The metre-to-foot
+   conversion and the Pythagoras over plan and height are both exact to a
+   thousandth of a foot. 2.9 is close to 3.281 and it is worth saying plainly
+   that it is NOT a metres-read-as-feet bug - that was the first thing checked.
+
+   ⚠ SO WHAT IT IS COMPENSATING FOR IS WHERE THE DOTS LAND, not how they are
+   measured, and that has a real cause being worked on: dots were landing about
+   6.7 ft from the truth on 209 S 850 W, on a surface standing in front of the
+   house. If the model displacement work lands that error properly, THIS NUMBER
+   MUST BE REVISITED - leaving 2.9 on top of a fixed measurement would inflate
+   every quote by nearly three times.
+
+   ⚠ IT IS APPLIED TO PRICING ONLY AND BOTH FIGURES ARE ON SCREEN. The panel
+   shows Measured and then ×2.9 for pricing as separate lines, so nobody has to
+   work out which number is which - that disclosure is the whole reason this is
+   a multiplier rather than a change to the maths. */
+const RM_FEET_MULTIPLIER = 2.9;
 const RM_STATIC_MAX = 640;
 const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
 const RM_M_TO_FT = 3.280839895;
@@ -17745,9 +18044,16 @@ function rmEndStrand(){
   const used = rmCorners.some(function(c){ return (c.band || 0) === rmCurrentBand; });
   if(!used) return false;            /* an empty strand is not a strand */
   rmCurrentBand++;
-  rmRenderCornerBar();
+  /* ⭐ AND IT JOINS THEM UP THERE AND THEN (2026-08-26). Owner: "end this strand
+     should immediately connect the dots."
+     ⚠ IT ONLY RELABELLED THE STRIP BEFORE. rmCornersToRun is what turns dots into
+     a drawn line, and nothing called it here - so pressing the button changed a
+     caption and left the picture exactly as it was. Whatever it had or had not
+     already drawn, the one gesture whose whole meaning is "this run is finished"
+     has to be the moment the run appears finished. */
+  rmCornersChanged();
   const note = document.getElementById('rmCornerNote');
-  if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished. The next dot starts a new one.';
+  if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished and joined up. The next dot starts a new one.';
   return true;
 }
 /* Take the last dot back off. */
@@ -17816,26 +18122,64 @@ function rmClearCornerMarkers(){
   rmCornerMarkers.forEach(function(m){ m.setMap(null); });
   rmCornerMarkers = [];
 }
+/* ⭐ MARKERS ARE MOVED, NOT REBUILT (2026-08-26). Owner, of dragging a dot:
+   "it goes super slow, make it so it looks like real time."
+
+   ⚠ THE COST WAS HERE, AND IT WAS PER MOUSEMOVE. This threw away every
+   google.maps.Marker and constructed a fresh one on every call, and a drag calls
+   rmCornersChanged on every pointer event - sixty times a second, each one
+   allocating a Marker, a Symbol and a Point per dot and handing them to the Maps
+   API to re-attach to the overlay. Constructing map objects is the expensive
+   thing in this whole file; moving one is nearly free.
+
+   So when the count has not changed the markers are UPDATED IN PLACE, and only a
+   change in how many dots there are rebuilds the row. Same drawing either way -
+   this is purely about how it gets there. */
+function rmMarkerIcon(c){
+  const lit = !!c.on;
+  /* Small, for the reason the street view dots are small: a marker big enough to
+     hold its number is big enough to hide the corner it marks. The number sits
+     beside it. A pinned dot is ringed — it has been seen from more than one place
+     and is where it says it is. */
+  return {path: google.maps.SymbolPath.CIRCLE, scale: 4,
+          fillColor: lit ? '#E0574B' : 'rgba(255,255,255,.85)', fillOpacity: 1,
+          strokeColor: c.pinned ? (lit ? '#E0574B' : '#8b95a1') : (lit ? '#ffffff' : '#8b95a1'),
+          strokeWeight: c.pinned ? 3 : 1.4,
+          labelOrigin: new google.maps.Point(2.6, -2.2)};
+}
+function rmMarkerLabel(c, i){
+  return {text: rmCornerLabel(i), color: c.on ? '#E0574B' : '#6b7683',
+          fontSize: '11px', fontWeight: '700'};
+}
 function rmSyncCornersSky(){
-  rmClearCornerMarkers();
-  if(!rmMap) return;
+  if(!rmMap){ rmClearCornerMarkers(); return; }
+  if(rmCornerMarkers.length !== rmCorners.length) rmClearCornerMarkers();
   rmCorners.forEach(function(c, i){
-    const lit = !!c.on;
     const q = rmSkyUnshift(c.lat, c.lng);
+    const have = rmCornerMarkers[i];
+    if(have){ have.setPosition(q); have.setIcon(rmMarkerIcon(c)); have.setLabel(rmMarkerLabel(c, i)); return; }
     rmCornerMarkers.push(new google.maps.Marker({
       position: q, map: rmMap, clickable: false, zIndex: 7,
-      /* Small, for the reason the street view dots are small: a marker big
-         enough to hold its number is big enough to hide the corner it marks.
-         The number sits beside it. A pinned dot is ringed — it has been seen
-         from more than one place and is where it says it is. */
-      icon: {path: google.maps.SymbolPath.CIRCLE, scale: 4,
-             fillColor: lit ? '#E0574B' : 'rgba(255,255,255,.85)', fillOpacity: 1,
-             strokeColor: c.pinned ? (lit ? '#E0574B' : '#8b95a1') : (lit ? '#ffffff' : '#8b95a1'),
-             strokeWeight: c.pinned ? 3 : 1.4,
-             labelOrigin: new google.maps.Point(2.6, -2.2)},
-      label: {text: rmCornerLabel(i), color: lit ? '#E0574B' : '#6b7683',
-              fontSize: '11px', fontWeight: '700'}
+      icon: rmMarkerIcon(c), label: rmMarkerLabel(c, i)
     }));
+  });
+}
+/* ⭐ ONE REDRAW PER FRAME WHILE A DOT IS BEING DRAGGED. The pointer fires far
+   faster than the screen refreshes, so without this the same picture is computed
+   several times over between two frames anybody can see - work that can only ever
+   make the drag lag behind the cursor.
+   ⚠ AND THE PANEL AND THE STRIP ARE LEFT OUT OF IT. The footage, the price and
+   the numbered strip are all HTML rebuilds, and none of them is what somebody is
+   watching while they move a dot - they are watching the dot. They catch up the
+   moment it is dropped, which is also when the number stops changing. */
+let rmDragFrame = 0;
+function rmDragPaint(){
+  if(rmDragFrame) return;
+  rmDragFrame = requestAnimationFrame(function(){
+    rmDragFrame = 0;
+    rmCornersToRun();
+    rmSyncCornersSky();
+    rmPaintStreet();
   });
 }
 function rmCornersChanged(){
@@ -18155,6 +18499,66 @@ const RM_DRAG_SLOP_PX = 4;       /* below this the pointer only wobbled */
    is what the right-click already uses to decide which dot was meant, so the
    two gestures agree about what counts as aiming at a dot. */
 const RM_SKY_GRAB_M = 4;
+
+/* ⭐ SHIFT HAS TO LOOK LIKE SOMETHING (2026-08-26). Owner: "when i hold down
+   shift my cursor doesnt switch to select", after "shift drag isnt working".
+
+   ⚠ AND IT WAS NOT BROKEN - IT WAS INVISIBLE, which is worse, because there is
+   nothing to report and nothing to try. Driven straight at the handler the drag
+   works: mousedown with shift says "Moving dot 0", the height follows the
+   pointer, mouseup says it moved. But the sheet over both views is `cursor:
+   crosshair` at all times, so holding shift changes nothing on screen, being
+   near enough to grab a dot looks identical to being too far, and the only way
+   to find out is to press and hope.
+
+   A modifier gesture with no feedback is a feature only its author can use.
+   The cursor now says all three states: crosshair for placing, grab when shift
+   is down and a dot is actually within reach, grabbing while one is moving.
+   Which also answers "how do I drag" without anybody being told. */
+let rmShiftDown = false, rmLastPointer = null;
+function rmDotWithinReach(id, clientX, clientY){
+  if(rmCornerMode !== 'dot' || !rmCorners.length) return false;
+  const el = document.getElementById(id);
+  if(!el) return false;
+  const r = el.getBoundingClientRect();
+  if(id === 'rmPanoLock'){
+    const cam = rmCamLocal(); if(!cam) return false;
+    const s = rmPanoSize();
+    return rmDotUnderClick(clientX - r.left, clientY - r.top, s.W, s.H,
+                           rmPanoPov(), cam, RM_DRAG_GRAB_PX) >= 0;
+  }
+  if(!rmMap) return false;
+  const w = rmMapPixelToWorld(clientX, clientY, r);
+  if(!w) return false;
+  return rmCorners.some(function(c){
+    return Math.hypot((c.lat - w.lat) * 111320, (c.lng - w.lng) * 85000) < RM_SKY_GRAB_M;
+  });
+}
+/* Repaint both sheets' cursors from whatever is true right now. Cheap, and
+   called from the pointer AND from the shift key, so holding shift without
+   moving the mouse still answers. */
+function rmRefreshCursors(dragging){
+  ['rmPanoLock', 'rmMapLock'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(dragging){ el.style.cursor = 'grabbing'; return; }
+    const p = rmLastPointer;
+    const near = rmShiftDown && p && rmDotWithinReach(id, p.x, p.y);
+    el.style.cursor = near ? 'grab' : 'crosshair';
+  });
+}
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Shift' || rmShiftDown) return;
+  rmShiftDown = true; rmRefreshCursors(false);
+});
+document.addEventListener('keyup', function(e){
+  if(e.key !== 'Shift') return;
+  rmShiftDown = false; rmRefreshCursors(false);
+});
+/* ⚠ A WINDOW THAT LOSES FOCUS NEVER SENDS THE KEYUP, and the cursor would stay
+   promising a grab that is no longer armed. */
+window.addEventListener('blur', function(){ rmShiftDown = false; rmRefreshCursors(false); });
+
 let rmDragMoved = false;         /* a drag happened, so the click that ends it is not a swap */
 
 /* The point that best satisfies every ray it has been seen along. */
@@ -19950,37 +20354,15 @@ function rmSolveRayNow(ray){
   if(top !== null && best.u > top + RM_EAVE_TOL_M) return null;
   return best;
 }
-/* ⭐ WHERE ALONG A RAY THE POINTER IS ASKING FOR. The dot may only move along
-   the line it was seen along (see the sky drag), so a drop anywhere on the map
-   has to become a distance out from the camera. That is the foot of the
-   perpendicular from the dropped PLAN position onto the ray's plan direction —
-   in plain terms, how far out along the line of sight the pointer got to.
-
-   ⚠ IN PLAN, NOT IN THREE DIMENSIONS. The map has no height in it, so the
-   pointer can only ever be asking about the horizontal; projecting in 3D would
-   let the vertical part of the ray drag the answer somewhere the pointer never
-   indicated. The height then falls out of the ray at that distance.
-
-   ⚠ AND IT REFUSES RATHER THAN RETURNING SOMETHING SILLY: behind the camera,
-   past the far limit every other cast here uses, underground, or above the
-   roof. A drag must not reach a place a click could not. */
-function rmRaySlideTo(ray, world){
-  if(!ray || !ray.cam || !ray.dir || !world || !rmOrigin) return null;
-  const cam = ray.cam, dir = ray.dir;
-  const planLen = Math.hypot(dir.e, dir.n);
-  if(!(planLen > 1e-9)) return null;                /* pointing straight up */
-  const de = dir.e / planLen, dn = dir.n / planLen;
-  const p = rmToLocal(world.lat, world.lng, 0);
-  const along = (p.e - cam.e) * de + (p.n - cam.n) * dn;
-  if(!(along > 0.5 && along < 200)) return null;
-  /* Back into the ray's own parameter, so the climb is right. */
-  const t = along / planLen;
-  const u = cam.u + dir.u * t;
-  if(!(u > 0.3)) return null;
-  const top = rmRoofTopM();
-  if(top !== null && u > top + RM_EAVE_TOL_M) return null;
-  return {e: cam.e + dir.e * t, n: cam.n + dir.n * t, u: u};
-}
+/* ⛔ rmRaySlideTo IS GONE (2026-08-26, one day old). It answered "where along
+   this ray is the pointer asking for", and the sky drag used it so a dot could be
+   moved without shifting in the photograph. Owner: "on sky view I can only drag
+   left and right... i should be able to move it in any direction still." A ray is
+   a line, so constrained to it the drag could only ever travel one direction
+   across the map. The drag moves freely in plan now and holds the height, and
+   nothing else ever called this. Deleted rather than left sitting there looking
+   live — the depth it existed to correct has a proper answer of its own now, in
+   the measured model displacement. */
 /* Puts every unpinned dot back where its own ray now says it is, and REPORTS
    how far each one had to move - which is the number the office asked for. */
 function rmRefreshCorners(){
@@ -23234,64 +23616,60 @@ function openRoofMeasure(quoteId){
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
     if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
+    rmRefreshCursors(true);
   });
   document.getElementById('rmMapLock').addEventListener('mousemove', function(e){
-    if(rmSkyDragDot < 0) return;
+    /* The cursor answers before anything else does - see rmRefreshCursors. */
+    rmLastPointer = {x: e.clientX, y: e.clientY};
+    if(rmSkyDragDot < 0){ rmRefreshCursors(false); return; }
     /* A few pixels of travel is a shaky click, not a drag. */
     if(rmSkyDragFrom && Math.hypot(e.clientX - rmSkyDragFrom.x, e.clientY - rmSkyDragFrom.y) < RM_DRAG_SLOP_PX) return;
     const c = rmCorners[rmSkyDragDot];
     if(!c){ rmSkyDragDot = -1; return; }
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
-    /* ⭐ IT SLIDES ALONG THE RAY IT WAS SEEN ALONG (2026-08-25). Owner: "when i
-       drag a dot on sky view it should stay in the same spot in street view,
-       its just to correct the offset if the system does get it wrong."
+    /* ⭐ FREE IN PLAN, AND THE HEIGHT DOES NOT MOVE (2026-08-26). Owner: "on sky
+       view I can only drag left and right — I said I dont want dragging the dot on
+       sky view to change the height and thats still true, but i should be able to
+       move it in any direction still."
 
-       ⭐ AND THAT IS EXACTLY WHAT A DEPTH CORRECTION IS. Every point along the
-       ray from the camera through a pixel draws at THAT SAME PIXEL, so moving a
-       dot along its own ray changes where it sits on the map and leaves Street
-       View untouched, to the pixel. Which is the whole complaint: the dot was
-       right in the photograph and wrong on the map, and the only thing wrong
-       with it was how far away it was.
+       ⚠ THIS REPLACES A SLIDE ALONG THE CAMERA RAY, and the reasoning for that is
+       kept because it was not wrong, it was over-constrained. Every point along a
+       ray draws at the same pixel, so sliding a dot along its own ray corrects the
+       DEPTH and leaves the photograph untouched — which is a real and useful
+       thing, and it is what "it should stay in the same spot in street view"
+       asked for. But a ray is a LINE. Constrained to it, the dot can only travel
+       one direction across the map, which from above reads as a broken drag, and
+       it cannot be put where the roof plainly is.
 
-       ⚠ SO THE CURSOR CHOOSES A POINT ON THE RAY, NOT A POINT ON THE MAP. The
-       dot follows the pointer along one line rather than going wherever it is
-       dropped — that is not the drag being stiff, it is the drag refusing to
-       claim something the two pictures do not jointly say. Sliding sideways off
-       the ray would move the dot in the photograph too, and the corner it is
-       marking has not moved.
+       ⚠ THE TWO CANNOT BOTH HOLD, and this is the choice. Moving freely in plan
+       while holding the height necessarily moves the dot in Street View: same
+       height, different distance, different elevation, different pixel. Staying
+       fixed in the photograph necessarily means moving along the ray, which
+       necessarily changes the height. Asked which, the owner picked freedom in
+       plan — and it is the better half, because from above you can SEE where the
+       dot belongs, and the depth now has a proper answer of its own in the
+       measured model displacement (rmMeasureModelShift) rather than needing to be
+       nudged by hand.
 
-       ⚠ THE HEIGHT COMES WITH IT, and it has to. A ray from the street climbs
-       as it goes out, so a point further along it is higher; holding the height
-       while sliding the depth would leave the dot off the ray and back in the
-       wrong place in Street View. The height still comes from the street — it
-       is that ray, read at the corrected distance — which is the rule, not an
-       exception to it.
-
-       ⚠ AND A DOT WITH NO SIGHTING CANNOT DO THIS. One placed from above has
-       no ray to slide along, so it moves in plan and keeps its height, which is
-       the only honest thing left: from above, height is not in the picture. */
-    const ray = (c.rays || [])[0];
-    if(ray && ray.cam && ray.dir){
-      const t = rmRaySlideTo(ray, w);
-      if(t){
-        const p = rmToWorld(t);
-        c.lat = p.lat; c.lng = p.lng; c.h = t.u;
-        c.pinned = 0; c.spread = 0;                 /* one sighting again, by hand */
-        c.rays = [ray];
-        rmCornersChanged();
-      }
-      return;
-    }
+       ⚠ AND THE SIGHTINGS GO, because they no longer describe it. Its position
+       was the crossing of the rays it had been seen along; dragging it somewhere
+       else makes those rays describe a point it is not at. */
     c.lat = w.lat; c.lng = w.lng;
     c.rays = []; c.pinned = 0; c.spread = 0;
-    rmCornersChanged();
+    rmDragPaint();
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmMapLock').addEventListener(ev, function(){
       if(rmSkyDragDot < 0) return;
       const moved = rmCornerLabel(rmSkyDragDot);
       rmSkyDragDot = -1;
+      rmRefreshCursors(false);
+      /* ⭐ THE NUMBERS CATCH UP ON THE DROP. rmDragPaint deliberately leaves
+         the panel and the strip alone while the pointer is down; this is where
+         the footage, the price and the numbering come back into agreement with
+         the picture - at the moment they stop changing. */
+      rmCornersChanged();
       const note = document.getElementById('rmCornerNote');
       if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
         'click it in the street view to fix its height exactly.';
@@ -23311,7 +23689,7 @@ function openRoofMeasure(quoteId){
      ring comes off. Keeping them would leave a dot claiming to be exact while
      sitting wherever it was last dragged - which is the confident-wrong state
      this tool keeps having to be rescued from. */
-  let rmDragDot = -1, rmDragFrom = null;
+  let rmDragDot = -1, rmDragFrom = null, rmDragRange = 0;
   document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
     if(!e.shiftKey || rmCornerMode !== 'dot') return;
     const cam = rmCamLocal();
@@ -23321,13 +23699,22 @@ function openRoofMeasure(quoteId){
     const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
     if(i < 0) return;
     rmDragDot = i;
+    /* How far out the dot is when it is picked up. The drag keeps that and
+       re-aims, so the dot tracks the pointer exactly - see the mousemove. */
+    (function(){
+      const c0 = rmCorners[i], p0 = c0 && rmToLocal(c0.lat, c0.lng, c0.h || 0);
+      rmDragRange = p0 ? Math.hypot(p0.e - cam.e, p0.n - cam.n, p0.u - cam.u) : 0;
+    })();
     rmDragFrom = {x: e.clientX, y: e.clientY};
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
     if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
+    rmRefreshCursors(true);
   });
   document.getElementById('rmPanoLock').addEventListener('mousemove', function(e){
-    if(rmDragDot < 0) return;
+    /* The cursor answers before anything else does - see rmRefreshCursors. */
+    rmLastPointer = {x: e.clientX, y: e.clientY};
+    if(rmDragDot < 0){ rmRefreshCursors(false); return; }
     /* ⚠ A few pixels of travel is a shaky click, not a drag. Below this the dot
        is left exactly where it was, so shift-clicking to SWAP two dots is not
        quietly turned into moving one of them a hair. */
@@ -23339,49 +23726,57 @@ function openRoofMeasure(quoteId){
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
     const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
-    /* ⭐ FROM HERE, HEIGHT IS THE ONLY THING YOU CAN CHANGE (2026-08-25). Owner:
-       "if you drag on sky view the height stays the same and if you drag on
-       street view the height is the only thing you can change."
+    /* ⭐ THE DOT FOLLOWS THE POINTER (2026-08-26). Owner: "I should be able to
+       move a dot anywhere on street view, the only restriction is not changing
+       height on sky view."
 
-       ⭐ AND IT IS THE RIGHT SPLIT, not just a preference — it gives each view
-       the one axis it can actually see. Looking straight down there is no
-       height in the picture, so the map must not touch it. From the street the
-       DEPTH along the ray is the unknown, so where a dot sits in plan is the
-       thing this view cannot judge: a dot can sit perfectly on the gutter here
-       and be ten feet into next door's garden on the map, and nothing in this
-       picture can show it. Letting a drag here move the plan position means
-       dragging the one number you cannot see, by eye, using the one view that
-       cannot see it. Between the two views every dot is fully correctable, and
-       neither view is ever asked to guess.
+       ⚠ THIS REPLACES A HEIGHT-ONLY DRAG, and the reasoning for that one is kept
+       because it explains what is being traded. From the street the unknown is
+       DEPTH along the ray: a dot can sit perfectly on the gutter here and be ten
+       feet into next door's garden in plan, and nothing in this picture can show
+       it. Holding the plan and moving only the height meant the drag could never
+       make that worse. But it also meant the dot would not go where it was
+       dragged, which is not a drag.
 
-       ⚠ THE PLAN POSITION IS HELD EXACTLY, so this is not a re-aim of the ray.
-       The dot sits on a VERTICAL LINE at a fixed horizontal distance from the
-       camera; the cursor's ray gives an elevation; height is that distance
-       times the tangent of it. Solving it that way rather than crossing the ray
-       with a surface is what keeps east and north bit-for-bit unchanged — a
-       re-crossed ray would nudge them every frame and the map would show the
-       dot creeping sideways while somebody set its height. */
-    const here = rmToLocal(c.lat, c.lng, c.h || 0);
-    const plan = Math.hypot(here.e - cam.e, here.n - cam.n);
-    if(!(plan > 0.5)) return;                       /* standing on top of it */
-    const len = Math.hypot(dir.e, dir.n, dir.u) || 1;
-    const el = Math.asin(Math.max(-1, Math.min(1, dir.u / len)));
-    const u = cam.u + plan * Math.tan(el);
-    /* ⚠ NOTHING IS UNDERGROUND AND NOTHING IS ABOVE THE ROOF, the same two
-       limits a fresh click answers to — a drag must not reach a place a click
-       could not. */
+       ⭐ SO IT KEEPS ITS RANGE AND RE-AIMS. The distance out from the camera is
+       taken when the dot is picked up and held for the whole drag; the pointer
+       chooses the direction. The dot therefore sits exactly under the cursor,
+       goes anywhere on screen, and its height and plan both follow - which is
+       what "anywhere" means. Nothing about the depth is invented or destroyed by
+       moving it: it leaves the drag as far out as it arrived.
+
+       ⚠ AND THE DEPTH HAS ITS OWN ANSWER NOW, which is why this is safe to give
+       up. Clicking the same corner from a second angle crosses two rays, and that
+       also measures how far Google's model stands from the house, after which
+       single clicks land right on their own. The drag no longer has to be the
+       thing that protects the plan position. */
+    const range = rmDragRange || (function(){
+      const p = rmToLocal(c.lat, c.lng, c.h || 0);
+      return Math.hypot(p.e - cam.e, p.n - cam.n, p.u - cam.u);
+    })();
+    if(!(range > 0.5)) return;
+    const to = {e: cam.e + dir.e * range, n: cam.n + dir.n * range, u: cam.u + dir.u * range};
+    /* ⚠ NOTHING UNDERGROUND AND NOTHING ABOVE THE ROOF, the same two limits a
+       fresh click answers to - a drag must not reach a place a click could not. */
     const top = rmRoofTopM();
-    if(!(u > 0.3)) return;
-    if(top !== null && u > top + RM_EAVE_TOL_M) return;
-    c.h = u;
+    if(!(to.u > 0.3)) return;
+    if(top !== null && to.u > top + RM_EAVE_TOL_M) return;
+    const wpt = rmToWorld(to);
+    c.lat = wpt.lat; c.lng = wpt.lng; c.h = to.u;
     c.rays = []; c.pinned = 0; c.spread = 0;
-    rmCornersChanged();
+    rmDragPaint();
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmPanoLock').addEventListener(ev, function(){
       if(rmDragDot < 0) return;
       const moved = rmCornerLabel(rmDragDot);
       rmDragDot = -1;
+      rmRefreshCursors(false);
+      /* ⭐ THE NUMBERS CATCH UP ON THE DROP. rmDragPaint deliberately leaves
+         the panel and the strip alone while the pointer is down; this is where
+         the footage, the price and the numbering come back into agreement with
+         the picture - at the moment they stop changing. */
+      rmCornersChanged();
       const note = document.getElementById('rmCornerNote');
       if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
         'click it again from another angle to fix it exactly.';
@@ -26521,6 +26916,28 @@ async function syncPayerInvoice(payerKey){
   if(isPhoneKey){
     const selfSnap = await getDocs(query(collection(db,'jobAddresses'), where('phone','==',key)));
     selfSnap.forEach(function(docSnap){ if(!docSnap.data().billToPhone) addHouse(docSnap.id, docSnap.data()); });
+    if(!linked.length && Array.isArray(jobAddresses)){
+      /* ⭐ A STORED PHONE IS NOT ALWAYS DIGITS-ONLY (2026-08-26, Q-019). The key is
+         always digits — that is what custInvoiceKey produces — but the office types
+         "(801) 555-0123" and the import keeps it, so an equality query matches nothing
+         and the group comes back empty. This is the authoritative money writer: with
+         no houses resolved it rebuilds the invoice as install: 0, wiping a real total
+         on an ordinary Edit Customer save, silently.
+         ⚠ THE SAME FALLBACK THE EMAIL BRANCH BELOW ALREADY HAS, for the same reason:
+         an equality query cannot match what normalising would. custInvoiceKey is the
+         one rule for which invoice a customer files under, so this asks IT rather than
+         comparing phone fields — comparing the raw strings is the mistake that quietly
+         duplicated the whole book once.
+         ⚠ ONLY WHEN THE QUERY FOUND NOBODY, matching the email branch. A group where
+         SOME houses are stored digits-only and some are not still resolves only the
+         digits ones — that is a real remaining gap and it is recorded in Q-019 rather
+         than widened into here, because changing how a live invoice's group is built
+         is its own change with its own red-check. */
+      jobAddresses.forEach(function(c){
+        const d = c.data || {};
+        if(!d.billToPhone && custInvoiceKey(d) === key) addHouse(c.id, d);
+      });
+    }
   } else {
     const emailSnap = await getDocs(query(collection(db,'jobAddresses'), where('email','==',key)));
     emailSnap.forEach(function(docSnap){
@@ -33972,6 +34389,9 @@ function attachAddressRowHandlers(container){
         }, {merge:true});
         toast('Invoice updated to '+fmtMoney(total)+' — flagged for price review before sending');
       });
+      /* The card is rebuilt by innerHTML each time it opens, so this is a fresh
+         element every time and emailTypoWatch's own guard cannot leak across them. */
+      emailTypoWatch(panel.querySelector('.hd-email2'));
       panel.querySelector('.hd-save').addEventListener('click', async function(){
         const newPhone2 = panel.querySelector('.hd-phone2').value.replace(/\D/g,'');
         const newEmail2 = panel.querySelector('.hd-email2').value.trim();
@@ -38698,6 +39118,31 @@ let requoteBuildChoice = null;
    colours exactly as the form filled them in. */
 let requoteLightsPattern = '';
 let requoteColorsSnapshot = null;
+/* ⭐ WHAT THE COLOUR BOXES COULD ACTUALLY SHOW WHEN THIS FORM OPENED (2026-08-26).
+
+   The ten tick boxes are an exact-string match against their own labels, so a record
+   whose colours are spelled any other way ticks NOTHING — and the save handler then
+   wrote lightColors and lightsDescription UNCONDITIONALLY. Open Edit Customer to
+   correct a phone number, press Save, and the colours were gone. Measured by running
+   the real round trip: "ww/r" and "red" (lower case) were wiped outright, "Red, Green,
+   Red, Green" was flattened to "Red, Green" — two different builds, one heading — and
+   "Warm White (every third bulb)" lost its note.
+
+   ⚠ EDIT CUSTOMER WAS THE ONLY UNGUARDED WRITER OF THESE TWO FIELDS. The bulk
+   importer, the sheet comparison and the schedule sync all follow "a blank never wipes
+   what the record has"; this one did not, and it is the form opened most.
+
+   ⚠ THE TEST IS NOT "IS IT BLANK", IT IS "COULD THE FORM HAVE SHOWN IT". Refusing every
+   empty save would take away the office's ability to legitimately clear a house's
+   colours. What is refused is an empty save of a record the boxes were never able to
+   display — where the emptiness is the form's, not a decision.
+
+   ⚠ SET ON EVERY OPEN, INCLUDING A HOUSE-TAB CLICK, which re-runs openEditCustomerModal
+   for the sibling. That is deliberately NOT how requoteLightsPattern above works: those
+   are set once by the re-quote flow and cleared by it, and overloading them here would
+   carry one house's answer onto the next — the leak the tab strip was guarded against. */
+let editCustLightsRaw = '';
+let editCustLightsTicked = null;
 /* Puts the Save button's ordinary wording back. Called from both places that stop a
    re-quote being in hand — finishing it and abandoning it — because a button still
    promising to finish a re-quote on the NEXT customer somebody edits is worse than the
@@ -39067,6 +39512,11 @@ function openEditCustomerModal(id){
   document.getElementById('editCustNoAutoEmails').checked = d.noAutomationEmails === true;
   document.getElementById('editCustEmail').value = d.email || '';
   document.getElementById('editCustEmail2').value = d.email2 || '';
+  /* ⚠ RE-CHECKED HERE, not only when the page loads. The house tabs repoint this
+     same form at another record without rebuilding it, so a note left over from the
+     previous house would otherwise still be on screen — pointing at an address that
+     is no longer in the box. emailTypoWatch binds once and is safe to call again. */
+  emailTypoWatchAll();
   document.getElementById('editCustAddress').value = d.address || '';
   document.getElementById('editCustCity').value = d.city || '';
   /* Offer the towns already in use, so a corrected town matches the others
@@ -39135,6 +39585,14 @@ function openEditCustomerModal(id){
     cb.checked = custColors.includes(cb.value);
     cb.closest('.pill-check').classList.toggle('checked', cb.checked);
   });
+  /* What was on file, and what the boxes managed to show of it — see
+     editCustLightsRaw. Taken AFTER the ticking above, because that is the only
+     thing that knows what the form could represent. The description wins where
+     there is one: it carries the ORDER, and the colour list does not. */
+  editCustLightsRaw = String(d.lightsDescription || '').trim() ||
+    (Array.isArray(d.lightColors) ? d.lightColors.filter(Boolean).join(', ') : '');
+  editCustLightsTicked = Array.from(document.querySelectorAll('.editcust-color-check:checked'))
+    .map(function(cb){ return cb.value; });
   /* Which sides. An ABSENT list and an empty one are the same thing here:
      nobody has been asked. That is why nothing is ticked by default rather
      than front. */
@@ -39919,9 +40377,28 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const keptRequotePattern = requoteLightsPattern && Array.isArray(requoteColorsSnapshot) &&
     newColors.length === requoteColorsSnapshot.length &&
     newColors.every(function(c){ return requoteColorsSnapshot.indexOf(c) !== -1; });
+  /* ⭐ THE BOXES ARE A SET; WHAT IS ON FILE MAY BE MORE THAN A SET. Same rule the
+     re-quote branch above states, generalised to every open — see editCustLightsRaw.
+     Nobody has re-ticked anything, and the stored wording says something the ticked
+     boxes cannot: an ORDER ("Red, Green, Red, Green" is a strand, not a palette) or a
+     note in brackets. Keep what is on file. Re-tick a box and the office's choice
+     wins, which is how a wrong pattern is still corrected. */
+  const lightsUnchanged = Array.isArray(editCustLightsTicked) &&
+    newColors.length === editCustLightsTicked.length &&
+    newColors.every(function(c){ return editCustLightsTicked.indexOf(c) !== -1; });
+  const keptStoredWording = lightsUnchanged && !!editCustLightsRaw &&
+    editCustLightsRaw !== newColors.join(', ');
+  /* ⚠ AND THE FORM NEVER SHOWED THESE COLOURS AT ALL. The record holds something, the
+     boxes ticked none of it, and nothing has been ticked since — so an empty save here
+     is the form's emptiness, not a decision to clear the house. Both fields are left
+     exactly as they are. Ticking a box is what turns this into a real correction, which
+     is the remedy Health Check's "colours written as words" row already names. */
+  const cannotShowLights = !!editCustLightsRaw && Array.isArray(editCustLightsTicked) &&
+    editCustLightsTicked.length === 0 && newColors.length === 0;
   const newLightsDescription = keptRequotePattern
     ? requoteLightsPattern
-    : compileLightsDescription(newColors.join(', '), '');
+    : (keptStoredWording ? editCustLightsRaw
+       : compileLightsDescription(newColors.join(', '), ''));
   const newInstallPref = document.getElementById('editCustInstallPref').value;
   const newHouseNotes = document.getElementById('editCustNotes').value.trim();
   if(!newName || (!newPhone && !newEmail)){ statusEl.textContent = 'Name plus a phone number or email are required.'; return; }
@@ -40013,8 +40490,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     // Lights, house areas, install timing and permanent notes now live on the
     // customer. A colour change means a new pattern to build, so it re-queues
     // the warehouse the same way the old route editor did.
-    addrUpdates.lightsDescription = newLightsDescription;
-    addrUpdates.lightColors = newColors;
+    /* ⚠ THE ONLY TWO FIELDS THIS HANDLER MAY DECLINE TO WRITE — see cannotShowLights.
+       Written unconditionally, an ordinary save of a house whose colours the boxes
+       cannot spell erased them. Left out of addrUpdates entirely rather than written
+       back as themselves: a no-op write still stamps lightsChangedAt downstream and
+       would queue the warehouse to rebuild a house nobody touched. */
+    if(!cannotShowLights){
+      addrUpdates.lightsDescription = newLightsDescription;
+      addrUpdates.lightColors = newColors;
+    }
     addrUpdates.installPreference = newInstallPref;
     addrUpdates.notes = newHouseNotes;
     // Same field the route/dispatch note editor and the crew portal already
@@ -40789,6 +41273,15 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
     }
     document.getElementById('editCustOverlay').style.display = 'none';
     editCustomerId = null;
+    /* ⚠ AND IT SAYS SO. Declining to write is the right answer and a silent one is
+       indistinguishable from the colours having been saved — which is the whole of
+       "nothing should fail quietly". It names the wording that was kept, so the
+       office can see WHY the boxes were blank and correct it if it is wrong. */
+    if(cannotShowLights){
+      toast('Saved. Light colours left as they are — "' + editCustLightsRaw +
+            '" is not something the tick boxes can show, so they were not overwritten. ' +
+            'Tick the real colours and save again to correct it.');
+    }
     toast(geocodeFailed ? 'Saved — but the new address could not be located on the map. Check it manually so routes stay accurate.'
       : (lightChange.feeAmount > 0 && !lightFeeWaived
           ? ('Customer info updated — ' + fmtMoney(lightChange.feeAmount) + ' light-change fee ' +
@@ -47713,6 +48206,41 @@ function hcRunChecks(){
      told staff to "search Needs Pin in the customer list" — a search that did
      not exist. Now there is a filter by that name in All Customers, and this
      row, which finds hand-typed ones the flag never covered. */
+  /* ⭐ THE TYPOS ALREADY ON FILE (2026-08-26). The note under the email box stops the
+     NEXT one; it does nothing about the ~960 addresses already typed, and those are
+     the ones actually costing money right now. This is the only thing that finds
+     them, because the failure is completely silent: the nightly run hands the
+     invoice to a domain that does not exist, EmailJS answers OK, and the bounce goes
+     to the sending account nobody reads. The customer is never billed and nothing
+     anywhere turns red.
+     ⚠ NO FIX BUTTON, deliberately. Every other guess here is about our own data;
+     this one is about somebody else's address, and the correction is a guess. Mass-
+     rewriting nine hundred email addresses on a Damerau distance would eventually
+     replace a real address at an unusual domain with a wrong one, and nobody would
+     ever know which. It lists them and a person decides.
+     ⚠ It reads the SAME emailTypoSuggestion the form does, so the two cannot start
+     disagreeing about what counts as a typo. */
+  const emailTypoRows = [];
+  jobAddresses.forEach(function(c){
+    const d = c.data || {};
+    [['email', d.email], ['email2', d.email2]].forEach(function(pair){
+      const suggestion = emailTypoSuggestion(String(pair[1] || '').trim());
+      if(!suggestion) return;
+      emailTypoRows.push({
+        label: hcName(d),
+        detail: (pair[0] === 'email2' ? 'Secondary email ' : 'Email ') + String(pair[1]).trim() +
+          ' — looks like ' + suggestion + (hcAddr(d) ? ' (' + hcAddr(d) + ')' : '')
+      });
+    });
+  });
+  checks.push({
+    id: 'emailTypo',
+    title: 'Email address that looks like a typo',
+    why: 'Their invoice is handed to a domain that does not exist. The mail service accepts it, answers OK, and the bounce goes to the sending account rather than to anyone in the office — so the customer is simply never billed and nothing goes red. One letter, and it stays wrong until somebody reads it.',
+    fix: null,
+    fixNote: 'No button: only the customer can confirm their own address, and correcting nine hundred of them on a guess would eventually overwrite a real address at an unusual domain. Open each customer, check the address against what they gave you, and save.',
+    rows: emailTypoRows
+  });
   checks.push({
     id: 'noPin',
     title: 'Customer with no map pin',
