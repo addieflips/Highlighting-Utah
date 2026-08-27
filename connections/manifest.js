@@ -131,5 +131,129 @@ module.exports = [
         rules: ['Feeds the Install Complete filter on All Customers.'] },
       { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'an audience is counted' }
     ]
+  },
+
+  /* ═══════════════ BATCH 2 — the money spines ═══════════════
+     Addie chose these next: "the money ones first". A break here costs real money and
+     nobody notices, which is the invoice-key bug from earlier this week exactly.
+
+     ⭐ EACH SPINE SAYS WHAT ALREADY GUARDS IT — her answer to "show everything, marked
+     which is which". A box that is connected AND covered by a test is a different fact
+     from one that is connected and watched by nothing, and flattening the two is how a
+     page stops being worth reading. `guard: null` means nothing else is watching. */
+
+  {
+    field: 'housePrice',
+    title: 'The price',
+    plain: 'What the customer agreed to pay for their house.',
+    guard: 'run-all.js covers this heavily — 126 checks mention it.',
+    states: [
+      ['Agreed on a quote', 'Becomes the price on their record'],
+      ['Edited on the record', 'The invoice is rebuilt from it'],
+      ['Never re-derived from feet', 'They are billed what they agreed, not a recalculation']
+    ],
+    sets: [
+      { file: 'admin', near: 'needsGeocode: pinFailed', where: 'Customers › Add a Customer', when: 'a customer is created',
+        rules: ['The agreed price is copied across, never worked out again.'] },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds a house' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'syncPayerInvoice', where: 'Invoices › Invoice List', when: 'the invoice is rebuilt',
+        rules: ['The invoice total is the sum of the house prices on the bill.'] },
+      { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
+      { file: 'server', fn: 'houseBillingRow', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+    ]
+  },
+
+  {
+    field: 'billToPhone',
+    title: 'Whose bill this is on',
+    plain: 'Set when one person pays for another house as well as their own.',
+    guard: 'run-all.js has 72 checks touching it, including the who-pays-for-whom grouping.',
+    states: [
+      ['Not set', 'They pay for their own house'],
+      ['Set to somebody else', 'Their house joins that person\'s bill'],
+      ['Set, and they had already paid', 'What they paid follows the house onto the new bill']
+    ],
+    sets: [
+      { file: 'admin', fn: 'rbResolveBillTo', where: 'Customers › Bulk Updates', when: 'the sheet says bill somebody else',
+        rules: ['A payer who is not a customer is left as a note, never invented.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'billingGroupsByPayer', where: 'Customers › Who Pays for Whom', when: 'the screen is drawn',
+        rules: ['Two houses on one phone are already one bill, even with nothing set.'] },
+      { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Customers › All Customers', when: 'a row shows Paid or Unpaid' },
+      { file: 'server', fn: 'billedHousesByKey', where: 'Invoices › Nightly Automation', when: 'the nightly run groups a bill',
+        rules: ['A house with no Bill To whose own key matches is already on that bill.'] }
+    ]
+  },
+
+  {
+    field: 'changeFees',
+    title: 'The £30 colour-change fee',
+    plain: 'Added when a member changes their colours outside the free 48 hours.',
+    guard: 'money-parity.test.js runs the browser and server copies side by side over ~1,100 combinations — the strongest guard in the repo.',
+    states: [
+      ['Inside the free 48 hours', 'No fee'],
+      ['Outside it, invoice not sent', 'Added to this year\'s invoice'],
+      ['Outside it, invoice already sent', 'Carried to next season instead'],
+      ['The office waives it', 'No fee, but the route still locks for 48 hours']
+    ],
+    sets: [
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a member changes colours late',
+        rules: ['The office is always asked first. Never charged silently.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'a balance is worked out',
+        rules: ['The office screen and the nightly run must always agree.'] },
+      { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Customers › All Customers', when: 'a row shows Paid or Unpaid' },
+      { file: 'server', fn: 'paypalCaptureOrder', where: 'Member Portal › Pay', when: 'a card is charged',
+        rules: ['The fee is part of what the card is charged, not an extra afterwards.'] },
+      { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed',
+        rules: ['It is its own line, so the total adds up on the page.'] }
+    ]
+  },
+
+  {
+    field: 'chargeNewMemberFee',
+    title: 'The £30 join fee',
+    plain: 'Charged once, to somebody who joined this year through a quote.',
+    guard: 'run-all.js has 63 checks, and season-state.test.js touches it — the every-season overcharge is specifically guarded.',
+    states: [
+      ['Joined through a quote this year', 'Charged once'],
+      ['Added by an import', 'Never charged — it is not set by bulk'],
+      ['A new member who also changes colours late', 'Pays both fees, £60'],
+      ['Next season', 'Cleared by Start New Season, so it is never charged twice']
+    ],
+    sets: [
+      { file: 'admin', near: 'addCustNewMemberFee', where: 'Quote Requests', when: 'a quote becomes a customer',
+        rules: ['By quote, never by bulk, and it expires — a 2026 quote is not new in 2027.'] }
+    ],
+    reads: [
+      { file: 'server', fn: 'looksLikeNewMember', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' },
+      { file: 'admin', fn: 'whBuildReasonKey', where: 'Warehouse › Build', when: 'the NEW badge is drawn' },
+      { file: 'admin', fn: 'audienceNeverAsked', where: 'Automation Emails › Recipients', when: 'the RSVP audience is chosen',
+        rules: ['A first-year customer is never asked if they want lights AGAIN.'] }
+    ]
+  },
+
+  {
+    field: 'carryoverCharge',
+    title: 'A fee held over to next season',
+    plain: 'A charge that arrived after this year\'s invoice had already gone out.',
+    guard: null,
+    states: [
+      ['Invoice not yet sent', 'The fee goes on this year\'s invoice instead'],
+      ['Invoice already sent', 'Held here until next season'],
+      ['Next season\'s first bill', 'Collected, then cleared']
+    ],
+    sets: [
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a late fee lands after the bill went out',
+        rules: ['It lives on the customer, not the invoice — Start New Season wipes invoices.'] }
+    ],
+    reads: [
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'next season\'s first bill is built',
+        rules: ['Summed across the whole bill, not just the payer.'] }
+    ]
   }
 ];

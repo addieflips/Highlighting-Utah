@@ -28,7 +28,11 @@ const ROOT = path.join(__dirname, '..');
 const FILES = {
   admin: path.join(ROOT, 'admin.html'),
   server: path.join(ROOT, 'functions', 'index.js'),
-  site: path.join(ROOT, 'index.html')
+  site: path.join(ROOT, 'index.html'),
+  /* js/money.js holds the invoice maths the office screen runs. changeFees is read
+     there and nowhere else on the browser side, so leaving it out would report that
+     reader missing on code that is perfectly correct. */
+  money: path.join(ROOT, 'js', 'money.js')
 };
 
 const esc = s => String(s == null ? '' : s)
@@ -115,6 +119,7 @@ function build() {
       field: spine.field,
       plain: spine.plain,
       states: spine.states || [],
+      guard: spine.guard || null,
       on: sets.map(r => [r.where, r.when, r.found ? '' : 'bad']),
       off: [],
       rules: [].concat.apply([], result.rows.map(r => r.rules || [])).slice(0, 6),
@@ -283,6 +288,9 @@ function openRules(id){
       +o.states.map(function(r){return '<tr><td><span class="chip">'+esc(r[0])+'</span></td>'
         +'<td class="when">'+esc(r[1])+'</td></tr>';}).join('')+'</tbody></table>':'')
     +'<table><caption>Set by</caption><thead><tr><th>Where</th><th>When</th></tr></thead><tbody>'+rowsOf(o.on)+'</tbody></table>'
+    +'<table><caption>What else is watching</caption><tbody><tr><td colspan="2" class="when">'
+      +(o.guard?esc(o.guard):'<span style="color:var(--amber)">Nothing else. This map is the only thing watching it.</span>')
+      +'</td></tr></tbody></table>'
     +((o.rules&&o.rules.length)?'<table><caption>Rules</caption></table><ul class="rules">'
       +o.rules.map(function(r){return '<li>'+esc(r)+'</li>';}).join('')+'</ul>':'')
     +((o.undeclared&&o.undeclared.length)?'<table><caption>Touched here, never declared</caption></table><ul class="rules">'

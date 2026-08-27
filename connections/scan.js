@@ -140,7 +140,35 @@ function enclosing(ix, pos) {
       if (!best || (f.end - f.start) < (best.end - best.start)) best = f;
     }
   }
-  return best ? best.name : null;
+  if (best) return best.name;
+
+  /* ⭐ AN ANONYMOUS HANDLER STILL HAS A NAME — the element it is wired to.
+   *
+   * A great deal of this codebase lives in `getElementById('x').addEventListener(...)`,
+   * which has no function name, so every touch inside one came back as "(a handler)".
+   * On the money spines that was the single largest group in amber — eleven touches of
+   * changeFees, all reported as the same nameless thing. A row nobody can act on is the
+   * amber equivalent of noise, and the brief is explicit that amber which stops being
+   * read stops being worth having.
+   *
+   * ⚠ IT IS CHECKED, NOT GUESSED — and the first version was guessed, which is why this
+   * paragraph exists. Taking the nearest wiring line above the position named
+   * `allCustExportBtn` correctly and `addBudgetCatBtn` wrongly, because a budget button
+   * happened to be the closest thing above an unrelated export block. A confidently
+   * wrong name is worse than no name: "(a handler)" sends somebody looking, whereas
+   * "addBudgetCatBtn handler" sends them to the wrong place and wastes the trip.
+   *
+   * So the candidate handler's END is computed with sectionFrom — every top-level
+   * construct in these files closes with `}`/`});` at column zero — and the name is
+   * only claimed when the position really falls inside it. Anything else stays
+   * anonymous, which is honest. */
+  const src = ix.blanked;
+  const re = /(?:getElementById|querySelector)\(\s*['"]#?([A-Za-z_$][\w$-]*)['"]\s*\)[^;\n]{0,80}addEventListener/g;
+  let m, found = null;
+  while ((m = re.exec(src)) && m.index < pos) {
+    if (sectionFrom(src, m.index) >= pos) found = m[1];
+  }
+  return found ? found + ' handler' : null;
 }
 
 /* ---------------------------------------------------------------------------
