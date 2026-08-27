@@ -34421,8 +34421,21 @@ function attachAddressRowHandlers(container){
         }
         const updates = Object.assign({
           phone2: newPhone2, email2: newEmail2, lightsDescription: newLights,
-          // A colour change means a new pattern to build, so send it to the warehouse.
-          needsLightBuild: newLights ? (newLights !== (existingCust.lightsDescription || '') ? true : !!existingCust.needsLightBuild) : false,
+          /* A colour change means a new pattern to build, so send it to the warehouse.
+
+             ⚠ THE TAIL WAS `: false` AND IT TOOK HOUSES OFF THE BUILD LIST (fixed
+             2026-08-26). Questions map WH-17, from Addie on 2026-08-21: "big problem,
+             she went to the recycle but not to the build." Blank colours mean the build
+             cannot be DONE yet, not that it is not OWED — that is the whole reason the
+             warehouse has a "Waiting on light colours" block, and a house dropped from
+             the flag is in neither list rather than in that one.
+
+             ⚠ THE SAME RULE WAS FIXED IN THE EDIT CUSTOMER SAVE ON 2026-08-21 AND THIS
+             COPY WAS MISSED — one rule, two writers, one of them repaired. Both tails
+             now read `!!existingCust.needsLightBuild` / `!!item.data.needsLightBuild`.
+             A build is finished by the warehouse pressing Mark Done, or cancelled by
+             Back Next Year. Never by a field being empty. */
+          needsLightBuild: newLights ? (newLights !== (existingCust.lightsDescription || '') ? true : !!existingCust.needsLightBuild) : !!existingCust.needsLightBuild,
           houseHighlights: currentHighlights
         }, customerPhotoUpdates(photosNow));
         if(diffSelect) updates.difficulty = diffSelect.value;

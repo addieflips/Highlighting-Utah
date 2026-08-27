@@ -95,6 +95,7 @@ the docs record it as settled but no dated quote survives — treat those as wea
 | WH-19 | Buffer stock — does it carry a badge? | No. No customer, so no claim | 2026-08-24 | `whBuildReasonKey`, `build-reason.test.js` | Standing |
 | WH-20 | Should an imported house be queued for a build only if it has colours? | No — **ungated**. "we want to build everyone." A row with no colours goes to the blocked "Waiting on light colours" block, which is visible and has an Add colours button; gating the flag makes those houses invisible instead, which is the bug being closed | 2026-08-26 | `needsLightBuild` in `rbImportBtn` / `ibImportBtn` add branches, `import-build-flag.test.js` | Standing |
 | WH-21 | Does an import that MATCHES an existing customer re-queue their build? | No, never. These tools write hundreds of records a press, so a matched row that re-queued would put every house already built back on the warehouse list and somebody would make a second set for it | 2026-08-26 | update branches of `rbImportBtn` / `ibImportBtn`, `import-build-flag.test.js` | Standing |
+| WH-22 | The All Customers panel was clearing the build flag on blank colours — fix it, or keep reporting it? | **Fix it now.** WH-17 already ruled the behaviour in 2026-08-21; the same rule had two writers and only one was repaired. Nothing left to decide | 2026-08-26 | `attachAddressRowHandlers`, `import-build-flag.test.js` | Standing |
 
 ## Customer numbers
 
