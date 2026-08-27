@@ -33270,6 +33270,25 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
           lightsDescription: pattern,
           installPreference: installPref || 'Normal Schedule',
           wireColor: wireColorVal || '', outletTimer: outletTimerVal || '', useEaves: useEavesVal || '',
+          /* ⭐ AND THE WAREHOUSE IS TOLD. Six places create a customer record; this was
+             one of the two that never did, so a house added from a pasted sheet kept its
+             colours, its wire and its timer and appeared in Needs Building nowhere at
+             all. No bundle was made and the crew arrived with nothing for it.
+
+             ⚠ UNGATED, DELIBERATELY — do not add `pattern ? true : false` here. A row
+             with no colours belongs in whBuildQueueGroups' own "Waiting on light colours"
+             block, which is visible and has an Add colours button; leaving the flag off
+             instead makes them invisible, which is the bug this closes. Owner: "we want
+             to build everyone." Questions map WH-20, and WH-17 says the same thing from
+             the Edit Customer side.
+
+             ⚠ AND THIS RAISES THE COST OF A BAD MATCH, which is the thing to weigh before
+             touching the matcher. These rows CARRY COLOURS, so a row that fails to match
+             an existing customer no longer just writes a duplicate — it joins a real
+             build group and computeColorDemand ORDERS GLASS for a house that does not
+             exist. The blank-street guard above is what stands between a missed match and
+             that, and it is asserted in run-all.js. Do not weaken it. */
+          needsLightBuild: true,
           portalToken: generatePortalToken(),
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
@@ -33546,6 +33565,25 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
       } else {
         await addDoc(collection(db,'jobAddresses'), {
           name: name, phone: phone, email: email, difficulty: 'Unrated', portalToken: generatePortalToken(),
+          /* ⭐ AND THE WAREHOUSE IS TOLD HERE TOO — same hole, same answer, questions map
+             WH-20. Ungated for the same reason as the Bulk Updates copy above: a house
+             nobody flagged is in no list at all, and the tab then reports there is
+             nothing to build about work that is genuinely outstanding.
+
+             ⚠ THIS BRANCH CAPTURES NO LIGHT INFORMATION AT ALL — no colours, no wire, no
+             timer — so every customer it creates lands in the "Waiting on light colours"
+             block rather than a build group. THAT IS INTENDED. They are real customers
+             who need a bundle, and blocked-and-visible beats invisible. It also means
+             this tool can never order glass for a house that does not exist, which the
+             Bulk Updates copy above can — so if a bad match ever queues the book, look
+             there first, not here.
+
+             ⚠ AND THERE IS NO BLANK-STREET GUARD ON THIS PATH. The `if(!existing &&
+             !street)` refusal belongs to Bulk Updates; this branch has always been able
+             to write an address-less customer, and now flags one for the warehouse as
+             well. If that block ever fills with invoice side-effects, the answer is to
+             stop creating customers here — not to hide them again. */
+          needsLightBuild: true,
           scheduled: false, createdAt: serverTimestamp()
         });
         customersCreated++;
