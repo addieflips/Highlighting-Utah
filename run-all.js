@@ -9467,8 +9467,13 @@ check('names', 'the customer index is rebuilt whenever the customer list changes
   /custByNumber = new Map\(\);[\s\S]{0,120}custByAddrKey = new Map\(\)/.test(admin) &&
   admin.indexOf('custByNumber.set') > admin.indexOf('function rebuildCustomerIndexes'),
   'a stale index shows last week\'s name, which is the bug wearing a different hat');
+/* ⚠ COMMENT-STRIPPED, AND IT WENT RED ON CORRECT CODE BEFORE IT WAS (2026-08-27). This
+   matched the raw file, so a COMMENT explaining why some new code deliberately does not
+   call personName — naming the function to say so — read as a call site with no row
+   argument and failed. The same trap this repo has now hit five times in different
+   places, and the same fix each time: strip the comments before matching source. */
 check('names', 'every display site passes the row, not just the name',
-  (admin.match(/personName\([^)]*\)/g) || [])
+  (stripComments(admin).match(/personName\([^)]*\)/g) || [])
     .every(function (m) { return m === 'personName(n, h)' || /,/.test(m); }),
   'personName(name) alone cannot find the customer, and would silently fall ' +
   'back to the imported name everywhere');
