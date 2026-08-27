@@ -1045,12 +1045,23 @@ check('badging Back Next Year clears the build but not the recycle',
     check('the built-in default cannot empty the season before anybody is asked',
       live('null') === false && live('undefined') === false,
       'a failed settings read, or a cache that has not loaded, must leave everybody in');
-    check('nor while people still have time to reply',
-      live('new Date()') === false,
-      'live the moment she presses send is the season emptying before one reply lands');
-    check('and it does become the rule once the window has closed',
-      live('new Date(Date.now() - 400*86400000)') === true,
-      'if it never becomes live then hardcoding it achieved nothing');
+    /* ⭐ REPOINTED 2026-08-26, AND IT IS THE OPPOSITE ASSERTION ON PURPOSE — questions
+       map RS-15. This used to require that the rule was NOT live the moment she pressed
+       send, protecting a 14-day reply window. Addie removed the window: "a house won't
+       be a yes or no because of how long they haven't responded for. They are just
+       unresponsive and we won't do there house unless we get a yes from them."
+       So the guarantee flipped rather than weakened. What is asserted now is that
+       nothing except the SEND decides it — before, not live; after, live immediately;
+       and elapsed time changes nothing either way. */
+    check('it becomes the rule the moment the RSVP goes out',
+      live('new Date()') === true,
+      'waiting is not an answer — an unresponsive house is unresponsive on day one, ' +
+      'and holding the rule off would route and build for somebody who never said yes');
+    check('and waiting neither starts nor stops it',
+      live('new Date(Date.now() - 400*86400000)') === true &&
+      live('new Date(Date.now() - 86400000)') === true,
+      'time was the only thing here that changed an answer without a customer doing ' +
+      'anything, which is the whole of what RS-15 removed');
   }
   /* ⚠ EVERYTHING THAT READS THE SEASON IS REDRAWN — and NOT via renderAll, which
      belongs to the schedule widget's scope and would throw "is not defined" here,
