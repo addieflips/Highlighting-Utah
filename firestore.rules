@@ -118,6 +118,16 @@ service cloud.firestore {
     // ---- Staff-only: internal QA / Test Checklist tab -------------------
     match /projectPeople/{id}          { allow read, write: if request.auth != null; }
     match /projectTests/{id}           { allow read, write: if request.auth != null; }
+    // ---- Health-check decisions -----------------------------------------
+    // Addie, 2026-08-21: "I want to be able to approve or deny it", and the deny
+    // is PER MEMBER — "I should be able to choose what member I'm denying for and
+    // approve for all other members". So the decision cannot live on the finding
+    // or on a System notice: `messages` refuses any create over 5,000 characters,
+    // and a check with fifty rows could never carry fifty answers. One document
+    // per check+finding, keyed on a fingerprint of the values, so an exception
+    // lapses by itself when that member's data moves.
+    // Staff only. Nothing public ever reads or writes these.
+    match /healthCheckDecisions/{id}   { allow read, write: if request.auth != null; }
     // ---- Per-login preferences -----------------------------------------
     // Favourites, pinned nav items, collapsed sections and sub-tab order.
     // The document id IS the signed-in user's uid (see savePrefs /
