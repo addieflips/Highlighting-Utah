@@ -143,6 +143,12 @@ check('the new-hang exemption is there to lift',
    before the RSVP goes out. A send 400 days back = the window has closed = strict. */
 const ruleSrc = (sentAt) =>
   'let rsvpSentAtCache = ' + sentAt + ';\n' +
+  /* ⚠ THE MEASUREMENT LEVER HAS TO BE DECLARED OR THE WHOLE FILE DIES ON LINE ONE.
+     seasonRuleIsLive reads it, and a sandbox that omits a name the lifted function
+     READS throws a bare ReferenceError with no suite attached — the failure
+     `sandboxDeps` exists to name in run-all.js, which this file does not have. It is
+     always false here: nothing in a test is measuring, so the rule is simply on. */
+  'let seasonRuleOffForMeasurement = false;\n' +
   (admin.match(/const RSVP_REPLY_DAYS = \d+;/) || [''])[0] + '\n' +
   fn('toJsDate') + '\n' + fn('seasonRuleIsLive') + '\n';
 const outForSeason = new Function('d',
@@ -150,8 +156,11 @@ const outForSeason = new Function('d',
   'return isOutForSeason(d);');
 /* The strict mode the owner is aiming at, so the rule is proved before it is live. */
 const outStrict = new Function('d',
+  /* ⚠ NOTHING IS SET HERE ANY MORE. The mode was a `let` that a sandbox could flip;
+     since 2026-08-27 it is a const and the send marker above is the whole of what makes
+     the rule live. Assigning it would now throw. */
   ruleSrc('new Date(Date.now() - 400*86400000)') +
-  "SEASON_ELIGIBILITY = 'confirmed-only';" + audienceIsNewSrc + src.isOutForSeason +
+  eligLine + audienceIsNewSrc + src.isOutForSeason +
   'return isOutForSeason(d);');
 
 const groupKey = (p, w) => (p || '') + '|' + (w || '');
@@ -928,9 +937,12 @@ check('badging Back Next Year clears the build but not the recycle',
   }
 }
 
-/* ⭐ THE OFFICE'S OWN SWITCH FOR WHO THE CREWS ARE SENT TO (added 2026-08-24).
-   Owner: "goa head and add that. That is just to tick a box once I send out RSVP emails
-   right?" — yes, a box she ticks, and this is what ticking it does.
+/* ⭐ WHO THE RULE IS LEAVING OUT — THE COUNT, NOT A SWITCH (2026-08-24, rewritten
+   2026-08-27). This began as the preview behind an office control: press Check first,
+   see how many would drop, then decide. The control is gone — Addie: "I tried to make
+   it clear I didn't want a switch" — and the count is the half that survived, because
+   her earlier ruling was "Both — hardcode it AND warn me". It is now the only thing the
+   Dashboard row does, and it feeds Health Check's chase-these-people list.
 
    ⚠ RUN, NOT READ. The whole risk here is which customers stop being in the season, and
    a regex over the source cannot see that. */
@@ -942,11 +954,14 @@ check('badging Back Next Year clears the build but not the recycle',
     /* The REAL isOutForSeason and audienceIsNew, lifted — the preview exists to answer
        "who leaves the season", and a stub would answer it with a fiction. */
     const mk = (book) => {
-      const sandbox = new Function('jobAddresses', 'BOOKMODE',
+      /* ⚠ NOTHING SETS THE MODE ANY MORE — it is a const, and assigning it would throw.
+         The rule is live because ruleSrc supplies a send marker, which is the whole of
+         what makes it live now. */
+      const sandbox = new Function('jobAddresses',
         ruleSrc('new Date(Date.now() - 400*86400000)') +
-        'SEASON_ELIGIBILITY = BOOKMODE;' + audienceIsNewSrc + src.isOutForSeason +
-        dropSrc + ';return {drop: seasonEligibilityWouldDrop, mode: () => SEASON_ELIGIBILITY};');
-      return sandbox(book, 'all-but-maybe-next-year');
+        audienceIsNewSrc + src.isOutForSeason + dropSrc +
+        ';return {drop: seasonEligibilityWouldDrop, suspended: () => seasonRuleOffForMeasurement};');
+      return sandbox(book);
     };
     const answeredYes = { rsvpStatus: 'yes', rsvpRespondedAt: 1 };
     const neverAsked  = {};
@@ -965,16 +980,21 @@ check('badging Back Next Year clears the build but not the recycle',
       dropped.length === 2,
       'it counted ' + dropped.length + ' — somebody already out is not dropped BY the ' +
       'switch, and a new hang is deliberately kept in because we never ask them');
-    /* ⚠ AND IT PUTS THE SETTING BACK. Measuring the damage must not cause it. */
-    check('and measuring it leaves the season exactly as it was',
-      s1.mode() === 'all-but-maybe-next-year',
-      'the preview flips the mode to count, and a throw part-way would otherwise ' +
-      'leave the whole page running in confirmed-only with nobody having chosen it');
+    /* ⚠ AND IT PUTS THE LEVER BACK. Measuring the damage must not cause it: while the
+       lever is on, isOutForSeason answers the LENIENT way for the whole page, which is
+       the season silently counting everybody again. */
+    check('and measuring it leaves the rule exactly as it was',
+      s1.suspended() === false,
+      'the count suspends the rule to run isOutForSeason both ways, and leaving it ' +
+      'suspended puts every unanswered customer back into the season with nobody ' +
+      'having chosen that');
     /* ⚠ RESTORED IN A `finally`, asserted structurally because the behavioural check
-       above passes on the happy path whether or not the guard is there. */
+       above passes on the happy path whether or not the guard is there.
+       ⚠ SLICED, NOT WINDOWED — dropSrc is already the function's own braces, so this is
+       scoped without a character count (CLAUDE.md §7). */
     check('and the restore is in a finally, not just on the happy path',
-      /finally\s*\{[\s\S]{0,200}SEASON_ELIGIBILITY = was;/.test(dropSrc),
-      'a throw mid-count would leave the page in a mode nobody picked');
+      /finally\s*\{[\s\S]*seasonRuleOffForMeasurement = was;/.test(dropSrc),
+      'a throw mid-count would leave the rule suspended for the whole page');
     /* ⚠ AND IT ASKS THE REAL PREDICATE BOTH WAYS rather than re-deciding. A second
        opinion about who is in the season is the drift isOutForSeason exists to stop —
        and this is the number the office acts on. */
@@ -987,45 +1007,57 @@ check('badging Back Next Year clears the build but not the recycle',
       empty.drop().length === 0);
   }
 
-  /* ⭐ THE RSVP MARK IS THE GATE, and this is what that mark was built for. With nobody
-     asked, nobody has answered, so confirmed-only empties the season down to whoever
-     happened to reply to something else. */
-  check('the switch is refused until the RSVP has been marked sent',
-    /if\(!confirmedOnly && !sent\)\{[\s\S]{0,300}return;/.test(admin),
-    'this is the mistake the whole marker exists to prevent');
-  /* ⚠ CHECKED IN THE HANDLER, not only by dimming the button. A disabled-looking
-     button is still reachable by keyboard, and this one empties a season. */
-  /* ⚠ SCOPED BY COUNTING BRACES, NOT BY A CHARACTER WINDOW. The window this used to
-     use ({0,900}) is the trap CLAUDE.md §7 names by hand: it goes stale the moment
-     somebody adds a comment to the handler, and a true pass then turns into a FAIL
-     nobody can explain. fnBraced already walks the braces — use it. */
-  const eligHandler = (function(){
-    const at = admin.indexOf("switchBtn.addEventListener('click'");
-    if (at === -1) return '';
-    let i = admin.indexOf('{', at), depth = 0;
-    for (; i < admin.length; i++) {
-      if (admin[i] === '{') depth++;
-      else if (admin[i] === '}') { depth--; if (!depth) return admin.slice(at, i + 1); }
-    }
-    return '';
-  })();
-  check('the switch handler can be found at all', !!eligHandler,
-    'every check below is about its contents, so an empty slice would pass them all');
-  check('and refused in the handler, not just greyed out',
-    /if\(!confirmedOnly && !sent\)\{/.test(eligHandler),
-    'a dimmed button is still reachable by keyboard');
-  /* ⚠ AND GOING BACK IS NEVER GATED. Putting people back into the season is the safe
-     direction and must always be available — a switch you cannot reverse is one nobody
-     will press. */
-  check('but going back to everyone is never blocked',
-    /const next = confirmedOnly \? 'all-but-maybe-next-year' : 'confirmed-only';/.test(admin),
-    'the safe direction must always be available');
-  /* ⚠ AN UNRECOGNISED SAVED VALUE LEAVES THE DEFAULT STANDING. A typo or a field from
-     a future version must never be read as confirmed-only — that is the direction that
-     takes people out of the season. */
-  check('and only the two known modes are accepted from settings',
-    /if\(mode === 'confirmed-only' \|\| mode === 'all-but-maybe-next-year'\) SEASON_ELIGIBILITY = mode;/.test(admin),
-    'an unknown setting must never be read as the mode that empties the season');
+  /* ⭐ THERE IS NO SWITCH, AND THAT IS NOW THE THING BEING CHECKED (2026-08-27).
+     Everything between here and the run below used to be about an office control on the
+     Dashboard: that it was refused before the RSVP had gone out, that the safe direction
+     was never blocked, that an unrecognised saved value left the default standing. Addie
+     removed the control — "I tried to make it clear I didn't want a switch and that RSVP
+     Approved in any of the approval ways should be hardcoded". The old checks are gone
+     WITH the thing they guarded rather than weakened; what replaces them is stricter,
+     because a value that cannot be written cannot be written wrongly.
+
+     ⚠ THE THREE OLD GUARANTEES DID NOT DISAPPEAR, they collapsed into one: nothing may
+     put the rule back to "everybody". A settings read that could do it was the largest
+     of the three, and it is the one checked first. */
+  check('the season rule is hardcoded, not a variable something can reassign',
+    /const SEASON_ELIGIBILITY = 'confirmed-only';/.test(admin),
+    'a `let` is a value a stored setting, a handler or a stray line can put back to ' +
+    'everybody — which is a season quietly counting people nobody asked');
+
+  {
+    /* ⚠ COMMENTS STRIPPED. The rule is explained at length in prose right beside the
+       declaration, and every one of those paragraphs contains the words this is looking
+       for — a plain search finds the explanation and calls it an assignment. */
+    const bare = admin.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const writes = (bare.match(/SEASON_ELIGIBILITY\s*=/g) || []).length;
+    check('and exactly one thing in the file assigns it — the declaration',
+      writes === 1,
+      'found ' + writes + '. Anything past the declaration is a switch by another name');
+    check('and no stored setting can turn it off',
+      !/seasonEligibility\s*\|\|/.test(bare) && !/setSeasonEligibility/.test(bare),
+      'a value written weeks ago by a control that no longer exists must not decide ' +
+      'who a crew is sent to');
+  }
+
+  /* ⭐ THE ONE LEVER, AND WHY IT IS NOT THE SWITCH COMING BACK. The count of who the
+     rule leaves out is measured by RUNNING isOutForSeason both ways — that is what makes
+     it trustworthy, since a second opinion about who is in the season is the exact drift
+     the predicate exists to stop. With the mode a const there is nothing to flip, so one
+     `let` exists purely for that measurement. It is a switch the moment anything else
+     touches it, which is why this counts the writers. */
+  {
+    const bare = admin.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const writes = (bare.match(/seasonRuleOffForMeasurement\s*=/g) || []).length;
+    check('the measurement lever is written only by its declaration and the measurement',
+      writes === 4,
+      'found ' + writes + ' assignments (expected 4: the declaration, off, back on, and ' +
+      'the restore in finally). Anything else can leave the rule suspended for the whole ' +
+      'page, which is the season silently counting everybody again');
+    check('and it is put back in a finally, so a throw cannot leave the rule suspended',
+      /finally\s*\{[^}]*seasonRuleOffForMeasurement = was;/.test(admin),
+      'a throw part-way through the count would otherwise leave every screen reading ' +
+      'the lenient answer with nobody having chosen it');
+  }
   /* ⚠ REPOINTED 2026-08-26, AND THE GUARANTEE IS UNCHANGED. This asserted the literal
      read 'all-but-maybe-next-year', because that string was the only thing keeping a
      failed settings read from emptying the season. Addie then asked for the rule to be
@@ -1040,7 +1072,8 @@ check('badging Back Next Year clears the build but not the recycle',
     const live = (sentAt) => new Function(
       'let rsvpSentAtCache = ' + sentAt + ';\n' +
       (admin.match(/const RSVP_REPLY_DAYS = \d+;/) || [''])[0] + '\n' +
-      (admin.match(/let SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + '\n' +
+      (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + '\n' +
+      'let seasonRuleOffForMeasurement = false;\n' +
       fn('toJsDate') + '\n' + fn('seasonRuleIsLive') + '\nreturn seasonRuleIsLive();')();
     check('the built-in default cannot empty the season before anybody is asked',
       live('null') === false && live('undefined') === false,
@@ -1063,14 +1096,68 @@ check('badging Back Next Year clears the build but not the recycle',
       'time was the only thing here that changed an answer without a customer doing ' +
       'anything, which is the whole of what RS-15 removed');
   }
-  /* ⚠ EVERYTHING THAT READS THE SEASON IS REDRAWN — and NOT via renderAll, which
-     belongs to the schedule widget's scope and would throw "is not defined" here,
-     killing the handler silently. The suite caught exactly that when this was written. */
-  check('and switching redraws the panels that read the season',
-    /renderJobAddressPanels\(\);/.test(eligHandler) &&
-    !/[^a-zA-Z]renderAll\(\)/.test(eligHandler),
-    'leaving the routes and the warehouse showing the old answer is two seasons on ' +
-    'two tabs — and renderAll is the schedule widget\'s, not the main app\'s');
+  /* ⭐ REPOINTED WITH THE BEHAVIOUR, NOT DROPPED (2026-08-27). This asserted that the
+     Dashboard SWITCH redrew everything that reads the season. The switch is gone, but
+     the guarantee is not — it moved to the thing that now flips the season: the
+     RSVP-sent mark. Set it and ~960 unanswered customers leave the routes, the schedule
+     and the build queue; clear it and they come back.
+
+     ⚠ AND THAT MOVE FOUND A REAL HOLE. Both mark handlers redrew the banner alone, and
+     the clear dialog said in as many words "This only changes what this banner says" —
+     true when it was written, false the moment the rule was hardcoded to the mark. The
+     routes, the warehouse and the customer table would have gone on showing the old
+     season until something else happened to repaint them.
+
+     ⚠ ONE FUNCTION, THREE CALLERS — the two buttons and the automatic stamp from an
+     RSVP sent through Automation Emails. Three copies is how one of them quietly stops
+     redrawing, so the count is asserted. */
+  {
+    const changed = fnBraced('seasonRuleChanged');
+    check('the season-changed redraw exists and does not call renderAll',
+      /renderJobAddressPanels\(\)/.test(changed) && !/[^a-zA-Z]renderAll\(\)/.test(changed),
+      'renderAll belongs to the schedule widget\'s scope — calling it from the main app ' +
+      'throws "is not defined" and kills the handler silently');
+    const bare = admin.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const calls = (bare.match(/seasonRuleChanged\(\);/g) || []).length;
+    check('and all three routes that move the mark call it',
+      calls === 3,
+      'found ' + calls + ' (expected 3: mark by hand, clear by hand, and the automatic ' +
+      'stamp from an RSVP send). A route that skips it leaves the routes and the ' +
+      'warehouse showing the season as it was before the RSVP went out');
+    /* ⚠ SLICED TO THE HANDLER AND CHECKED FOR REACHABILITY, NOT JUST FOR THE WORDS.
+       The first version of this matched the sentence anywhere in admin.html, and a
+       red-check wrapping the guard as `if(false && confirm(...))` left every word in
+       place and it PASSED — a warning that is in the source and can never reach the
+       screen, which is the failure this repo has now shipped four times. What is
+       asserted is the SHAPE (`if(!confirm(`) and the ORDER: it has to refuse before
+       anything is written, because once the mark is set the season has already
+       changed. */
+    const markH = (function(){
+      const at = admin.indexOf("markBtn.addEventListener('click'");
+      if (at === -1) return '';
+      let d = 0;
+      for (let k = admin.indexOf('{', at); k < admin.length; k++) {
+        if (admin[k] === '{') d++;
+        else if (admin[k] === '}') { d--; if (!d) return admin.slice(at, k + 1); }
+      }
+      return '';
+    })();
+    check('and setting the mark warns what it does before it does it',
+      /if\(!confirm\(/.test(markH) &&
+      /come off the routes, the schedule and the warehouse queue/.test(markH) &&
+      markH.indexOf('confirm(') < markH.indexOf('markRsvpSent('),
+      'this press now takes every unanswered customer out of the season — it used to ' +
+      'be a note to file, and it is the deliberate act now that the switch is gone');
+    /* ⚠ COMMENT-STRIPPED. The note recording WHY that sentence went quotes the sentence
+       itself, three lines above the dialog — so a raw match finds the explanation and
+       fails on code that is right. The same trap this file has hit three times. */
+    check('and clearing it no longer claims it changes nothing',
+      !/This only changes what this banner says/.test(bare) &&
+      /back into the season/.test(bare),
+      'that sentence was true until the rule was hardcoded to this mark, and a dialog ' +
+      'promising it changes nothing while it puts ~960 people back is the quiet ' +
+      'failure this repo keeps writing rules about');
+  }
 }
 
 // ---------------------------------------------------------------------------

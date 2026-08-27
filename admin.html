@@ -13387,9 +13387,10 @@ function audienceBillingGroup(d){
    rule above pointing the other way. Two questions, two rules, on purpose.
    ⚠ AND IT WOULD GET WORSE, NOT BETTER, ON ITS OWN. isOutForSeason also returns
    true for needsLightRecycle — a warehouse state, not a decision about money — and
-   once SEASON_ELIGIBILITY is flipped to 'confirmed-only' it returns true for every
-   customer who has not personally answered yes. Billing off that switch would take
-   the WHOLE BOOK off its invoices the day it is flipped, silently. (Folded in from
+   once the RSVP has gone out it returns true for every customer who has not
+   personally answered yes (SEASON_ELIGIBILITY, hardcoded since 2026-08-27). Billing
+   off that rule would take the WHOLE BOOK off its invoices the day the RSVP is sent,
+   silently. (Folded in from
    the billing-groups branch's own copy of this rule, 2026-08-26, when the two were
    collapsed into one — see docs/open-questions.md Q-012.)
 
@@ -14426,22 +14427,20 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
   if(etTemplateIsRsvp(template)){
     const noted = await noteRsvpSendHappened(sent);
     if(noted){
-      /* ⭐ AND IT POINTS AT THE SWITCH. Owner, 2026-08-26: "any RSVP should be a
-         straight yes starting when emails are sent" — so from this moment only somebody
-         who actually answered is in the season. Recording the send does NOT do that;
-         SEASON_ELIGIBILITY is a separate deliberate act, and until now nothing said so
-         at the one moment it matters. The office would send, read a green confirmation,
-         and leave the season quietly counting everybody — which is the whole of
-         "nothing should fail quietly", on the switch that decides who a crew is sent to.
-         ⚠ IT NAMES THE SWITCH RATHER THAN THROWING IT. Flipping takes ~960 unanswered
-         customers off the routes, the schedule and the build queue in one go, and the
-         switch on the Dashboard shows that count BEFORE it does anything. Doing it from
-         here would skip the one number that makes the decision answerable. */
-      statusEl.textContent += ' Recorded that the RSVP has gone out.';
-      if(SEASON_ELIGIBILITY !== 'confirmed-only'){
-        statusEl.textContent += ' \u26a0 Crews still go to everybody who has not said no.'
-          + ' Switch that on the Dashboard ("Who the crews are sent to") when you are ready.';
-      }
+      /* ⭐ AND IT SAYS WHAT THAT MEANS, BECAUSE THIS IS THE MOMENT IT STARTS. Owner,
+         2026-08-26: "any RSVP should be a straight yes starting when emails are sent."
+         Recording the send is not a note to file — it is the event that makes the
+         season rule live, so from here only somebody who actually answered is routed,
+         scheduled or built for.
+
+         ⚠ THIS USED TO POINT AT A SWITCH ON THE DASHBOARD, and the switch is gone
+         (2026-08-27, "I tried to make it clear I didn't want a switch"). The line is
+         KEPT and rewritten rather than deleted: the send is still the one moment the
+         office needs to be told, and a green confirmation that does not mention it is
+         the same quiet failure the old wording existed to prevent — just with nothing
+         left for anybody to press. */
+      statusEl.textContent += ' Recorded that the RSVP has gone out \u2014 from now on'
+        + ' only people who answer are scheduled. The Dashboard lists who has not.';
     }
   }
 });
@@ -25742,7 +25741,35 @@ function thanksgivingDate(year){
    nobody has replied yet, so everybody reads as unconfirmed and every route, build and
    crew day drains. `seasonRuleIsLive` is what makes the hardcoding safe — the rule
    cannot bite until people have actually been ASKED and given time to answer. */
-let SEASON_ELIGIBILITY = 'confirmed-only';   // or 'all-but-maybe-next-year' to turn it off
+/* ⭐ HARDCODED. THERE IS NO SWITCH. Addie, 2026-08-27, after being shown one:
+   "I tried to make it clear I didn't want a switch and that RSVP Approved in any of
+   the approval ways should be hardcoded and anyone who didn't respond is not approved
+   and should not be scheduled."
+
+   ⚠ THIS REVERSES THE 2026-08-24 DESIGN, and the old reasoning is kept above because
+   it explains why the switch existed rather than why it was right. It shipped as a
+   DEFAULT with an office control that could turn it off, on the argument that a rule
+   this large should be reversible from the screen. What that actually bought was a
+   second way for the season to be wrong that nobody would see: a stored setting could
+   silently put it back to everybody, and the state lived in a Firestore document
+   rather than in the code. `const`, and nothing anywhere assigns it.
+
+   ⚠ WHAT IS NOT HARDCODED IS WHEN IT BITES, and that is not a loophole — it is what
+   "did not respond" means. You cannot fail to answer a question nobody sent you, so
+   the rule waits for the RSVP to have actually gone out. That gate is automatic
+   (`rsvpSentAt`, stamped by the send itself), so there is nothing to remember and
+   nothing to forget. Without it, shipping this line empties the season today: nobody
+   has been asked, so everybody reads as unconfirmed and every route, build and crew
+   day drains at once. */
+const SEASON_ELIGIBILITY = 'confirmed-only';
+/* ⚠ ONE LEVER, AND IT IS NOT A SETTING. `seasonEligibilityWouldDrop` has to run
+   isOutForSeason BOTH ways to count who the rule is leaving out — that is the whole of
+   why it is trustworthy, since a second opinion about who is in the season is exactly
+   the drift the predicate exists to stop. With the mode now a constant there is
+   nothing to flip, so this is the flip: set and restored inside that one function's
+   `finally`, exactly as the send marker already is. Nothing in the UI can reach it,
+   and a check asserts nothing else writes it. */
+let seasonRuleOffForMeasurement = false;
 /* ⚠ TWO THINGS MUST BOTH BE TRUE, and each one is a separate way to empty a season.
    1. The rule is on at all (she can still switch it off — it is a default, not a cage).
    2. The RSVP HAS ACTUALLY GONE OUT. Requiring an answer to a question nobody sent is
@@ -25774,7 +25801,7 @@ let SEASON_ELIGIBILITY = 'confirmed-only';   // or 'all-but-maybe-next-year' to 
    in the season". Dropping somebody who wanted lights is the expensive mistake;
    carrying somebody who did not costs one bundle. */
 function seasonRuleIsLive(){
-  if(SEASON_ELIGIBILITY !== 'confirmed-only') return false;
+  if(seasonRuleOffForMeasurement) return false;
   const sent = (typeof rsvpSentAtCache === 'undefined') ? null : toJsDate(rsvpSentAtCache);
   return !!sent;
 }
@@ -36295,11 +36322,15 @@ function rsvpStatusLabel(v){
    RSVP has gone out", and "however we still can manually".
 
    ⚠ WHY THIS EXISTS AT ALL. Whether the RSVP has been sent is the ONE fact that decides
-   whether SEASON_ELIGIBILITY may be flipped to confirmed-only. Flip it before the send
-   and the season empties: everybody reads as not-yet-confirmed because nobody has been
-   asked, and the crews are handed a fraction of the book. Until now that fact lived
-   nowhere — it was a thing somebody remembered, which is exactly the sort of thing this
-   file keeps having to reconstruct from git history months later.
+   whether the season rule is live. Without it the rule would bite the day it shipped:
+   everybody reads as not-yet-confirmed because nobody has been asked, and the crews are
+   handed a fraction of the book. Until this marker existed that fact lived nowhere — it
+   was a thing somebody remembered, which is exactly the sort of thing this file keeps
+   having to reconstruct from git history months later.
+   ⚠ SO SINCE 2026-08-27 IT IS NOT MERELY A PRECONDITION, IT IS THE TRIGGER. The switch
+   it used to guard is gone and the mode is hardcoded, which makes this stamp the whole
+   of "when does the rule start". Do not make it settable by anything that is not a
+   deliberate act — it now decides who a crew is sent to, on its own.
 
    ⚠ THE FIRST SEND IS THE ONE RECORDED, not the latest. "Has the season's RSVP gone
    out" is answered by the first one; a top-up send to fifteen stragglers a week later
@@ -36311,10 +36342,30 @@ function rsvpStatusLabel(v){
    the first time somebody uses another. Clearing it is offered too — a mark nobody can
    take back is one nobody dares set.
 
-   ⚠ IT DECIDES NOTHING ON ITS OWN. It is a record, not a switch: it does not flip
-   SEASON_ELIGIBILITY and must not be made to. That flip changes who a crew is sent to,
-   and it stays a deliberate act. */
+   ⚠ AND IT IS THE ONE THING THAT STARTS THE SEASON RULE. That was not true when this
+   was written — there was a switch as well, and this was only its precondition. The
+   switch is gone, so setting or clearing this mark is now the act that decides whether
+   unanswered customers are routed. Clearing it puts everybody back in; that is the
+   honest undo, and it is why clearing stayed available. */
 let rsvpSentAtCache = null;
+/* ⭐ THE SEASON JUST CHANGED FOR EVERY SCREEN, NOT JUST THIS ONE. Setting or clearing
+   the RSVP-sent mark now moves people in and out of the season wholesale, and the
+   routes, the warehouse queues, the customer table and the schedule all ask
+   isOutForSeason. Leaving them showing the old answer is how the office ends up reading
+   two different seasons on two tabs.
+
+   ⚠ renderJobAddressPanels, NOT renderAll. renderAll belongs to the schedule widget's
+   own scope; calling it from here throws "is not defined" and kills the handler
+   silently — the suite caught exactly that when the old switch was written, and the
+   lesson moved here with the behaviour. The schedule picks the change up on its own
+   sync.
+
+   ⚠ ONE FUNCTION, THREE CALLERS. The mark can be set from a button, cleared from a
+   button, or stamped automatically by an RSVP send; three copies of this is how one of
+   them quietly stops redrawing. */
+function seasonRuleChanged(){
+  if(typeof renderJobAddressPanels === 'function') renderJobAddressPanels();
+}
 function rsvpSentSummary(){
   const t = rsvpSentAtCache;
   if(!t) return '';
@@ -36340,6 +36391,11 @@ async function noteRsvpSendHappened(count){
     await markRsvpSent(null, count);
     rsvpSentAtCache = new Date();
     if(typeof safeRender === 'function') safeRender('dashRsvp', renderDashRsvpPanel);
+    /* ⚠ THE SAME REDRAW AS THE TWO BUTTONS. This path sets the same marker, so it makes
+       the same change to who is in the season — and it is the one that fires without
+       anybody pressing anything on the Dashboard, so the screens most likely to be open
+       are the ones it would otherwise leave showing the old season. */
+    seasonRuleChanged();
     return true;
   }catch(err){
     console.error('[HU] could not record that the RSVP went out:', err);
@@ -36352,12 +36408,11 @@ async function loadRsvpSentMark(){
   try{
     const snap = await getDoc(doc(db,'settings','season'));
     rsvpSentAtCache = (snap.exists() && snap.data().rsvpSentAt) || null;
-    /* ⚠ ONLY THE TWO KNOWN MODES ARE ACCEPTED. Anything else — a typo, a half-written
-       value, a field from a future version — leaves the built-in default standing.
-       An unrecognised setting must never be read as "confirmed-only", because that is
-       the direction that takes people OUT of the season. */
-    const mode = snap.exists() ? String(snap.data().seasonEligibility || '') : '';
-    if(mode === 'confirmed-only' || mode === 'all-but-maybe-next-year') SEASON_ELIGIBILITY = mode;
+    /* ⚠ THE STORED `seasonEligibility` IS DELIBERATELY NOT READ ANY MORE (2026-08-27).
+       It used to be able to put the rule back to "everybody", and a value written by a
+       switch that no longer exists must not quietly decide who a crew is sent to. The
+       document may still carry the field; it means nothing now, and it is left in
+       place rather than deleted so the record of what was once set survives. */
   }catch(err){
     /* ⚠ A FAILED READ LEAVES IT UNKNOWN, and unknown renders as "not sent yet" — the
        cautious answer. Claiming it HAS gone out on a read that never landed is what
@@ -36397,19 +36452,17 @@ function seasonEligibilityWouldDrop(){
   /* ⚠ MEASURED BY RUNNING isOutForSeason BOTH WAYS, never by re-deciding here. A second
      opinion about who is in the season is exactly the drift this predicate exists to
      stop — and it is the number the office is about to act on. */
-  const was = SEASON_ELIGIBILITY;
-  /* ⚠ THE SEND MARKER IS FAKED FOR THE MEASUREMENT TOO (2026-08-26). Since the rule
-     became a gated default, setting SEASON_ELIGIBILITY alone is no longer enough to
-     make it bite — seasonRuleIsLive also wants the RSVP to have gone out.
-     Without this the preview answers "0 would drop"
-     before the send, which is not a reassuring answer, it is a WRONG one: it is the
-     number the office is about to act on. Restored in the same finally. */
+  const was = seasonRuleOffForMeasurement;
+  /* ⚠ THE SEND MARKER IS FAKED FOR THE MEASUREMENT TOO (2026-08-26). seasonRuleIsLive
+     wants the RSVP to have gone out, so without this the count answers "0" before the
+     send — not a reassuring answer, a WRONG one, and it is the number the office acts
+     on when deciding who still needs a telephone call. Restored in the same finally. */
   const wasSent = (typeof rsvpSentAtCache === 'undefined') ? null : rsvpSentAtCache;
   let dropped = [];
   try{
-    SEASON_ELIGIBILITY = 'all-but-maybe-next-year';
+    seasonRuleOffForMeasurement = true;
     const inNow = book.filter(function(a){ return !isOutForSeason(a.data); });
-    SEASON_ELIGIBILITY = 'confirmed-only';
+    seasonRuleOffForMeasurement = false;
     /* Any past date will do now that the reply window is gone (RS-15) — the rule is
        live as soon as the RSVP has gone out. */
     rsvpSentAtCache = new Date(Date.now() - 86400000);
@@ -36418,97 +36471,54 @@ function seasonEligibilityWouldDrop(){
     rsvpSentAtCache = wasSent;
     /* ⚠ RESTORED IN A finally. A throw part-way through would otherwise leave the whole
        page running in confirmed-only without anybody choosing it. */
-    SEASON_ELIGIBILITY = was;
+    seasonRuleOffForMeasurement = was;
   }
   return dropped;
 }
-async function setSeasonEligibility(mode){
-  await setDoc(doc(db,'settings','season'), {
-    seasonEligibility: mode,
-    seasonEligibilitySetAt: serverTimestamp(),
-    seasonEligibilitySetBy: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : ''
-  }, {merge: true});
-  SEASON_ELIGIBILITY = mode;
-}
+/* ⭐ IT SAYS THE RULE, IT DOES NOT OFFER TO CHANGE IT (rewritten 2026-08-27).
+   This was a switch — "Who the crews are sent to", with Check first and a button that
+   flipped between answered-Yes-only and everybody. Addie: "I tried to make it clear I
+   didn't want a switch." So the rule is in the code (SEASON_ELIGIBILITY) and this row
+   reports it.
+
+   ⚠ THE COUNT STAYS, AND IT IS THE HALF THAT WAS ALWAYS WORTH HAVING. Her own earlier
+   ruling was "Both — hardcode it AND warn me": a rule that quietly removes customers is
+   worse than a button somebody forgets, because a forgotten button at least leaves
+   everybody in. Removing the switch does not remove the obligation to show the damage —
+   it makes it the only thing this row does.
+
+   ⚠ IT COUNTS BEFORE THE RULE BITES TOO, saying so. Before the RSVP goes out nobody has
+   answered, so the number is "how many have not replied YET" and the point of showing
+   it then is that there is still time to ring them. Health Check's own row stays silent
+   until the send for the opposite and equally deliberate reason — it lists people to
+   chase, and before the send that list is the entire book. */
 function renderSeasonEligibilityRow(){
   const el = document.getElementById('seasonEligibilityRow');
   if(!el) return;
-  const confirmedOnly = SEASON_ELIGIBILITY === 'confirmed-only';
   const sent = !!rsvpSentAtCache;
+  /* ⚠ ASKED FRESH, NEVER CACHED. The book changes under this panel all day — every
+     answer that arrives moves the number, and a stale count here is a stale count on
+     the one screen she is using to decide who to telephone. */
+  const waiting = (typeof seasonEligibilityWouldDrop === 'function')
+    ? seasonEligibilityWouldDrop() : [];
+  const names = waiting.slice(0, 6).map(function(a){ return a.data.name || '(no name)'; }).join(', ');
   el.innerHTML =
-    '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:9px 13px; font-size:12.5px;">'+
-      '<span style="font-weight:700;">Who the crews are sent to:</span>'+
-      '<span style="color:'+(confirmedOnly?'#2E6B3E':'var(--slate)')+'; font-weight:600;">'+
-        (confirmedOnly
-          ? 'Only people who answered Yes'
-          : 'Everyone except Back Next Year')+'</span>'+
-      '<span style="margin-left:auto; display:flex; gap:8px;">'+
-        '<button type="button" id="seasonEligCheckBtn" class="icon-btn" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700;">Check first</button>'+
-        '<button type="button" id="seasonEligSwitchBtn" class="icon-btn" style="width:auto; padding:0 10px; font-size:11.5px; font-weight:700;'+
-          ((!confirmedOnly && !sent) ? ' opacity:.45;' : '')+'">'+
-          (confirmedOnly ? 'Go back to everyone' : 'Switch to answered Yes only')+'</button>'+
-      '</span>'+
-      ((!confirmedOnly && !sent)
-        ? '<div style="flex-basis:100%; color:#8a6d1f;">Mark the RSVP as sent first \u2014 with nobody asked, nobody has answered, so this would empty the season.</div>'
-        : '')+
-      '<div id="seasonEligNote" style="flex-basis:100%; color:var(--slate);"></div>'+
+    '<div style="background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:9px 13px; font-size:12.5px;">'+
+      '<div><span style="font-weight:700;">Who the crews are sent to:</span> '+
+        '<span style="color:#2E6B3E; font-weight:600;">only people who answered Yes</span> '+
+        '<span style="color:var(--slate);">\u2014 by the RSVP link, the member portal, or you marking '+
+        'their answer on their record. This is the rule, not a setting.</span></div>'+
+      '<div style="margin-top:5px; color:'+(waiting.length ? '#8a6d1f' : 'var(--slate)')+';">'+
+        (waiting.length
+          ? '<b>' + waiting.length + '</b> ' + (sent
+              ? 'have not replied, so no crew is sent and no bundle is built for them'
+              : 'have not answered yet \u2014 they stay in the season until the RSVP goes out')+
+            ': ' + esc(names) + (waiting.length > 6 ? ' and ' + (waiting.length - 6) + ' more' : '') + '.'
+          : 'Everybody still in the season has answered.')+
+      '</div>'+
+      (sent ? '' : '<div style="margin-top:4px; color:var(--slate);">The RSVP has not been '+
+        'marked as sent, so nobody is being left out yet.</div>')+
     '</div>';
-  const noteEl = document.getElementById('seasonEligNote');
-  const checkBtn = document.getElementById('seasonEligCheckBtn');
-  if(checkBtn) checkBtn.addEventListener('click', function(){
-    const dropped = seasonEligibilityWouldDrop();
-    if(confirmedOnly){
-      noteEl.textContent = 'Going back would put ' + dropped.length + ' customer' +
-        (dropped.length === 1 ? '' : 's') + ' back into the season.';
-      return;
-    }
-    const names = dropped.slice(0, 6).map(function(a){ return a.data.name || '(no name)'; }).join(', ');
-    noteEl.innerHTML = dropped.length
-      ? '<b>' + dropped.length + ' customer' + (dropped.length === 1 ? '' : 's') +
-        '</b> would come off the routes, the schedule and the warehouse queue \u2014 ' +
-        esc(names) + (dropped.length > 6 ? ' and ' + (dropped.length - 6) + ' more' : '') + '.'
-      : 'Nobody would drop out \u2014 everybody still in the season has answered.';
-  });
-  const switchBtn = document.getElementById('seasonEligSwitchBtn');
-  if(switchBtn) switchBtn.addEventListener('click', async function(){
-    /* ⚠ CHECKED AGAIN HERE, not only by dimming the button. A disabled-looking button
-       is still reachable by keyboard, and this one empties a season. */
-    if(!confirmedOnly && !sent){
-      toast('Mark the RSVP as sent first \u2014 otherwise this takes everybody who has not answered out of the season.');
-      return;
-    }
-    const next = confirmedOnly ? 'all-but-maybe-next-year' : 'confirmed-only';
-    const dropped = seasonEligibilityWouldDrop();
-    const msg = confirmedOnly
-      ? 'Put everybody who has not answered back into the season?\n\n' + dropped.length +
-        ' customer(s) would come back onto the routes and the schedule.'
-      : 'Send crews only to people who answered Yes?\n\n' + dropped.length +
-        ' customer(s) would come OFF the routes, the schedule and the warehouse queue.\n\n' +
-        'Nothing is deleted and this can be switched back.';
-    if(!confirm(msg)) return;
-    switchBtn.disabled = true;
-    try{
-      await setSeasonEligibility(next);
-      toast(next === 'confirmed-only'
-        ? 'Crews now go only to people who answered Yes.'
-        : 'Crews go to everybody except Back Next Year again.');
-      /* ⚠ EVERYTHING THAT READS THE SEASON IS REDRAWN, not just this row — the routes,
-         the warehouse queues, the customer table and the schedule all ask
-         isOutForSeason, and leaving them showing the old answer is how the office ends
-         up reading two different seasons on two tabs.
-
-         ⚠ renderJobAddressPanels, NOT renderAll. renderAll belongs to the schedule
-         widget's own scope; calling it from here throws "is not defined" and kills the
-         handler silently — caught by the suite the moment it was written, which is what
-         that check is for. The schedule picks the change up on its own sync. */
-      if(typeof renderJobAddressPanels === 'function') renderJobAddressPanels();
-      renderDashRsvpPanel();
-    }catch(err){
-      console.error('[HU] could not change who the crews are sent to:', err);
-      toast('Could not save that \u2014 try again.');
-      switchBtn.disabled = false;
-    }
-  });
 }
 function renderRsvpSentBanner(){
   const el = document.getElementById('rsvpSentBanner');
@@ -36528,12 +36538,25 @@ function renderRsvpSentBanner(){
   renderSeasonEligibilityRow();
   const markBtn = document.getElementById('rsvpSentMarkBtn');
   if(markBtn) markBtn.addEventListener('click', async function(){
+    /* ⚠ THIS IS NO LONGER A NOTE TO FILE. Since the season rule was hardcoded
+       (2026-08-27) this mark IS the trigger: from the moment it is set, anybody who has
+       not answered comes off the routes, off the schedule and out of the build queue.
+       It used to be a precondition for a switch somebody then pressed deliberately;
+       with the switch gone, pressing THIS is the deliberate act, so it has to say what
+       it does before it does it. */
+    const waiting = (typeof seasonEligibilityWouldDrop === 'function')
+      ? seasonEligibilityWouldDrop().length : 0;
+    if(!confirm('Record that the RSVP has gone out?\n\nFrom now on only people who have '+
+      'answered are scheduled. ' + waiting + ' customer(s) who have not answered yet will '+
+      'come off the routes, the schedule and the warehouse queue until they reply.\n\n'+
+      'You can undo this by marking it as not sent.')) return;
     markBtn.disabled = true;
     try{
       await markRsvpSent(null, 0);
       rsvpSentAtCache = new Date();
-      toast('Recorded \u2014 the RSVP has gone out.');
+      toast('Recorded \u2014 only people who answer are scheduled from now on.');
       renderRsvpSentBanner();
+      seasonRuleChanged();
     }catch(err){
       console.error('[HU] could not mark the RSVP as sent:', err);
       toast('Could not save that \u2014 try again.');
@@ -36542,12 +36565,24 @@ function renderRsvpSentBanner(){
   });
   const clearBtn = document.getElementById('rsvpSentClearBtn');
   if(clearBtn) clearBtn.addEventListener('click', async function(){
-    if(!confirm('Mark the RSVP as NOT sent?\n\nThis only changes what this banner says. Nobody is emailed and no customer record changes.')) return;
+    /* ⚠ THE OLD WORDING HERE WAS "This only changes what this banner says", AND THAT
+       BECAME UNTRUE the moment the season rule was hardcoded to the mark (2026-08-27).
+       Clearing it puts every unanswered customer back into the season — which is the
+       honest undo, and exactly why clearing stayed available, but a dialog promising it
+       changes nothing is the quiet failure this repo keeps writing rules about.
+       ⚠ STILL TRUE, AND STILL WORTH SAYING: no customer record is touched and nobody is
+       emailed. It changes how one predicate reads records that are already there. */
+    const back = (typeof seasonEligibilityWouldDrop === 'function')
+      ? seasonEligibilityWouldDrop().length : 0;
+    if(!confirm('Mark the RSVP as NOT sent?\n\nThat puts ' + back + ' customer(s) who have '+
+      'not answered back into the season \u2014 back onto the routes, the schedule and the '+
+      'warehouse queue.\n\nNobody is emailed and no customer record changes.')) return;
     clearBtn.disabled = true;
     try{
       await setDoc(doc(db,'settings','season'), {rsvpSentAt: null, rsvpSentCount: 0}, {merge: true});
       rsvpSentAtCache = null;
       renderRsvpSentBanner();
+      seasonRuleChanged();
     }catch(err){
       console.error('[HU] could not clear the RSVP-sent mark:', err);
       toast('Could not save that \u2014 try again.');
