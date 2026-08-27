@@ -239,6 +239,79 @@ function flagValue(win) {
 }
 
 /* ---------------------------------------------------------------------------
+ * 5. AND NOTHING UN-TELLS THE WAREHOUSE BECAUSE A FIELD IS EMPTY.
+ *
+ * The other direction, and the one that actually bit. Two places write the build flag
+ * from a colour box: the Edit Customer save and the house-details panel on an All
+ * Customers row. Both decide the same thing — "the colours changed, so rebuild" — and
+ * both have a tail for the case where the box is EMPTY.
+ *
+ * Addie, 2026-08-21 (questions map WH-17): "big problem, she went to the recycle but not
+ * to the build." Blank colours mean the build cannot be DONE yet, not that it is not
+ * OWED. That is the whole reason the warehouse has a "Waiting on light colours" block:
+ * a house dropped from the flag is in NEITHER list, which is invisible rather than
+ * blocked.
+ *
+ * Edit Customer was fixed that day. The All Customers panel was missed and kept
+ * `: false` until 2026-08-26 — one rule, two writers, one repaired. Nothing asserted
+ * that the two agreed, which is the shape money-parity.test.js exists to prevent
+ * elsewhere.
+ *
+ * ⚠ RUN, NOT GREPPED. The claim is about what the expression RETURNS for a house whose
+ * build is owed, and a text check cannot see arithmetic. Each tail is lifted out of the
+ * real file and evaluated against the four cases that matter.
+ * ------------------------------------------------------------------------- */
+{
+  const WRITERS = [
+    { label: 'the All Customers house-details panel', fn: 'attachAddressRowHandlers',
+      re: /needsLightBuild:\s*(newLights[^\r\n]*?),\r?\n/, cust: 'existingCust', now: 'newLights' },
+    { label: 'the Edit Customer save', fn: null,
+      re: /addrUpdates\.needsLightBuild\s*=\s*(newLightsDescription[\s\S]*?);/, cust: 'item.data', now: 'newLightsDescription' }
+  ];
+
+  WRITERS.forEach(w => {
+    const hay = w.fn ? between(admin, 'function ' + w.fn, null, w.fn) : admin;
+    const m = w.re.exec(stripComments(hay));
+    check(w.label + ' still decides the build flag from the colours',
+      !!m,
+      'the expression was not found — if it moved or was reshaped, repoint this lift ' +
+      'rather than deleting the check; what must stay true is below');
+    if (!m) return;
+
+    const body = m[1];
+    check(w.label + ' does not clear the flag when the colour box is empty',
+      !/:\s*false\s*$/.test(body.trim()),
+      'found a tail of `: false`. WH-17: blank colours mean the build cannot be DONE ' +
+      'yet, not that it is not OWED. A house dropped from the flag appears in neither ' +
+      'the build queue nor the Waiting on light colours block — invisible, not blocked, ' +
+      'and no bundle is made for it');
+
+    /* And prove it by running it, for the case that bit: a house whose build is owed
+       and whose colours have never been filled in.
+
+       ⚠ THE TWO WRITERS NAME THEIR INPUTS DIFFERENTLY — the panel reads the old value
+       off the record (`existingCust.lightsDescription`), the Edit Customer save has it
+       in a local (`oldLightsForBuild`). Every name both could use is supplied as a
+       parameter so one runner drives both, rather than a copy of the expression per
+       writer, which is the duplication this whole check exists to catch. */
+    const run = new Function('existingCust', 'item', 'newLights', 'newLightsDescription',
+      'oldLightsForBuild', 'return (' + body.replace(/;$/, '') + ');');
+    const call = (rec, now, old) => run(rec, { data: rec }, now, now, old);
+    const owed  = { lightsDescription: '', needsLightBuild: true };
+    const built = { lightsDescription: 'Red, Green', needsLightBuild: false };
+    check(w.label + ' keeps a build that is still owed',
+      call(owed, '', '') === true,
+      'saving with an empty colour box must leave an outstanding build outstanding');
+    check(w.label + ' does not invent a build that is finished',
+      call(built, 'Red, Green', 'Red, Green') === false,
+      'a house whose bundle is made must not be re-queued by a save that changed nothing');
+    check(w.label + ' still queues a real colour change',
+      call(built, 'Red, Blue', 'Red, Green') === true,
+      'a genuinely different pattern is a new bundle and must reach the warehouse');
+  });
+}
+
+/* ---------------------------------------------------------------------------
  * Nothing new travels in the batching job.
  *
  * Bulk Updates imports BULK_CHUNK_SIZE rows, saves its place to localStorage and reloads
