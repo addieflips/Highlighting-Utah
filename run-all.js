@@ -39513,8 +39513,13 @@ suite('258. Measure Roof - one less step before you can trace');
   /* ⚠ THE HINT HAS TO CARRY WHAT THE BUTTON STOPPED SAYING. Hiding the button
      without moving its instruction leaves a first-time user with a map and
      nothing telling them a click does anything. */
+  /* ⚠ "IN EITHER VIEW" WAS TRUE AND IS NOT ANY MORE (owner, 2026-08-27): sky
+     view is the only surface you measure on, and Street View is for reading a
+     grade and for the picture. The check kept its point - the hint still has to
+     carry the instruction the button stopped giving - and lost only the half
+     that named the wrong place. */
   check('S258', 'with no run open the hint is what tells you to click the roofline',
-    /Click along the roofline<\/strong> in either view to start a side/.test(setDraw),
+    /Click along the roofline<\/strong> on the sky view to start a side/.test(setDraw),
     'the instruction went out with the button and nothing replaced it');
 
   /* ---- the address is not asked for twice --------------------------- */

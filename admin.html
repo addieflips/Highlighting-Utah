@@ -4583,7 +4583,7 @@
             #roofMeasureOverlay .rm-saidit{font-size:11px; color:#B9C9BC; margin:9px 0 0; text-align:center; line-height:1.5;}
           </style>
           <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
-          <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">One set of points, seen from above and from the street. Mark it in either &mdash; it shows up in both.</p>
+          <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">Trace the roofline on the sky view, then say where the peaks are. Street View is for the grade and for the picture.</p>
 
           <!-- ⭐ NO ADDRESS BAR (2026-08-25). The tool only ever opens from a
                quote, and a quote already knows its own address — so typing one
@@ -4613,7 +4613,7 @@
                      RM_TYPES still knows all three so a quote measured before
                      today still renders and still prices - nothing new is ever
                      made as either. -->
-                <p class="rm-sub">Click along the roofline in either view.</p>
+                <p class="rm-sub">Click along the roofline on the sky view.</p>
                 <button type="button" class="btn btn-gold btn-sm" id="rmDrawBtn" style="width:100%; justify-content:center;">Start Measuring</button>
                 <div style="display:flex; gap:6px; margin-top:6px;">
                   <button type="button" class="btn btn-outline btn-sm" id="rmUndoBtn" style="flex:1; justify-content:center;">Undo</button>
@@ -16876,9 +16876,9 @@ function rmBuildWhenReady(){
   const status = document.getElementById('rmStatus');
   if(status){
     rmRenderCornerBar();
-    status.textContent = 'Click along the roofline in either picture to place dots. ' +
-      'They join up in the order you place them, and each one gets a number you can press to take it out again. ' +
-      'Space stops placing so you can pick instead; + Measure another run starts a second strand.';
+    status.textContent = 'Click along the roofline on the sky view to place dots. ' +
+      'They join up in the order you place them and are lettered A, B, C… so a peak can name the two it sits between. ' +
+      'Backspace takes the last one back.';
   }
   return guessed;
 }
@@ -21524,7 +21524,7 @@ function rmSetDrawing(on){
        instruction the button used to. */
     hint.innerHTML = rmRuns.length
       ? 'Click the roofline again for another side — each one is listed below with its own footage, and the &times; removes it.'
-      : '<strong>Click along the roofline</strong> in either view to start a side. Drag any point afterwards to nudge it.';
+      : '<strong>Click along the roofline</strong> on the sky view to start a side. Backspace takes a point back.';
   }
   const lock = rmDrawing || rmWallPicking;
   /* Sky takes clicks whenever we are drawing; Street only once the wall is
