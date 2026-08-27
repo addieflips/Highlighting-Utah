@@ -1160,6 +1160,80 @@ check('badging Back Next Year clears the build but not the recycle',
   }
 }
 
+/* ⭐ WHY THIS PERSON IS IN THE SEASON WITHOUT AN RSVP REPLY (added 2026-08-27).
+   Addie, settling the one exception to "we need a yes": "once we convert a quote to
+   costumer that is the only exception... they are already approved through converting
+   to costumer this year and 2 they don't get send an RSVP. If we need to put a badge on
+   new member for converted costumer to make this easier that they are approved than we
+   can do that."
+
+   ⚠ RUN, NOT READ. The claim is about a label appearing on a row, and a regex over the
+   source proves the words exist — a weaker claim, and the one this repo has been caught
+   by three times. */
+{
+  const badgeSrc = fnBraced('approvedOnJoinBadge');
+  check('the badge is there to run', !!badgeSrc,
+    'a gate that cannot find its target must FAIL, never skip');
+
+  if (badgeSrc) {
+    const api = new Function(
+      audienceIsNewSrc + badgeSrc + fn('effectiveRsvpStatus') + fn('rsvpStatusLabel') +
+      'return {badge: approvedOnJoinBadge, eff: effectiveRsvpStatus, label: rsvpStatusLabel};')();
+    const has = (d) => !!api.badge(d);
+
+    check('a new customer from a quote this year carries it',
+      has({ chargeNewMemberFee: true }),
+      'this is the whole exception — they were approved when the quote was converted ' +
+      'and are deliberately never sent an RSVP');
+    check('somebody who actually replied does NOT',
+      !has({ rsvpStatus: 'yes', rsvpRespondedAt: 1 }),
+      'they answered; the badge is for people who did not have to');
+    check('and nor does a returning customer who never replied',
+      !has({}) && !has({ rsvpStatus: 'yes' }),
+      'badging them would say they are approved when the season rule leaves them off ' +
+      'every route — a confident label on the one screen somebody checks before ringing');
+
+    /* ⚠ THE BADGE AND THE SEASON MUST AGREE, ALWAYS. This is the real risk: a badge
+       with its own idea of "new this year" is worse than no badge, because it is a
+       wrong answer somebody acts on. Asserted by RUNNING both over the same records. */
+    const outStrictLocal = (d) => outStrict(d);
+    [{ chargeNewMemberFee: true }, { rsvpStatus: 'yes', rsvpRespondedAt: 1 },
+     {}, { rsvpStatus: 'yes' }, { rsvpStatus: 'no' }].forEach(function (d) {
+      if (!has(d)) return;
+      check('a badged customer is genuinely in the season: ' + JSON.stringify(d),
+        outStrictLocal(d) === false,
+        'the badge says approved and the rule leaves them out — two screens ' +
+        'disagreeing about one customer, which is the failure the shared predicate exists to stop');
+    });
+
+    check('and it asks the shared predicate rather than deciding for itself',
+      /audienceNeverAsked/.test(badgeSrc) && !/chargeNewMemberFee/.test(badgeSrc),
+      'a second definition of "new this year" here would eventually contradict the ' +
+      'season it is describing');
+  }
+
+  /* ⚠ ALL THREE RSVP PILLS CARRY IT. Three copies of a pill is how one of them quietly
+     stops showing the badge — and the row that stops showing it is the row somebody
+     reads before deciding this customer never replied. */
+  const bare = admin.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const calls = (bare.match(/approvedOnJoinBadge\(/g) || []).length;
+  check('every place that draws an RSVP pill draws the badge',
+    calls === 4,
+    'found ' + calls + ' (expected 4: the declaration plus the invoice card, the ' +
+    'Dashboard RSVP list and the All Customers row)');
+
+  /* ⭐ AND THE ROW UNDER IT TELLS THE TRUTH. Found while adding the badge: the All
+     Customers row printed the RAW rsvpStatus, so a record holding a bare 'yes' with no
+     reply behind it read "RSVP: Yes" there while the Dashboard said Pending and the
+     season rule left them off every route. The badge would have sat on a row already
+     contradicting it. */
+  check('the All Customers row shows the effective status, not the stored field',
+    /const rsvpEff = effectiveRsvpStatus\(r\.d\);/.test(admin) &&
+    !/rsvpStatusLabel\(r\.d\.rsvpStatus\)/.test(bare),
+    'a bare stored yes is not an answer — printing it raw is one screen calling ' +
+    'somebody confirmed while every other one calls them Pending');
+}
+
 // ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
 console.log('\n=== Where each RSVP answer ends up ===\n');
