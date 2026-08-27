@@ -56,14 +56,14 @@ const m = build();
 const reds = [];
 m.report.forEach(r => {
   r.rows.filter(x => !x.found).forEach(x => {
-    reds.push({ field: r.spine.field, side: x.side, where: x.where, why: x.why, wrong: !!x.wrongValue });
+    reds.push({ field: r.spine.field, side: x.side, where: x.where, anchor: x.anchor, why: x.why, wrong: !!x.wrongValue });
   });
 });
 
 check('every declared connection is still made by the code',
   reds.length === 0,
   reds.map(r =>
-    '\n          ' + r.field + ' · ' + r.where + '\n            ' + r.why +
+    '\n          ' + r.field + ' · ' + r.where + ' · ' + r.anchor + '\n            ' + r.why +
     '\n            (' + (r.wrong
       ? 'the connection is there and does the WRONG THING — a rule this spine declares is being broken'
       : 'declared as a ' + (r.side === 'sets' ? 'writer' : 'reader') + ', and the code no longer does it') + ')'
@@ -83,7 +83,7 @@ check('every declared connection is still made by the code',
 const lostAnchors = reds.filter(r => /anchor itself is gone/.test(r.why));
 check('every anchor still exists in the file it names',
   lostAnchors.length === 0,
-  lostAnchors.map(r => '\n          ' + r.field + ' · ' + r.where).join('') +
+  lostAnchors.map(r => '\n          ' + r.field + ' · ' + r.where + ' · ' + r.anchor).join('') +
   '\n        A renamed or moved function. Repoint the anchor in connections/manifest.js.');
 
 /* ---------------------------------------------------------------------------

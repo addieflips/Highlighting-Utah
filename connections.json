@@ -1,12 +1,13 @@
 {
- "watched": 8,
+ "watched": 11,
  "red": 0,
- "amber": 222,
+ "amber": 598,
  "unguarded": [
   "needsLightBuild",
   "needsLightRecycle",
   "completed",
-  "carryoverCharge"
+  "carryoverCharge",
+  "stops"
  ],
  "notWatched": [
   "scheduledRoutes",
@@ -20,6 +21,6 @@
   "maybeNextYear / isOutForSeason",
   "lightsLockedUntil"
  ],
- "builtFrom": "18655e0 2026-08-26",
+ "builtFrom": "46c3982 2026-08-27",
  "breaks": []
 }

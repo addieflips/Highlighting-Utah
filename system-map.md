@@ -200,6 +200,8 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 
 Two lists, and the picture is the difference between them: **declared** (what ought to connect — only a person knows this) against **found** (what the code really does, re-derived on every run). Green is both. **Red is declared and gone, and it fails the build**, so a break cannot be merged and cannot reach the website. Amber is code touching something nobody declared — worth seeing, never a failure.
 
+It watches the fields most likely to disagree with themselves, ranked by how many separate places WRITE each one — Addie, 2026-08-26: *"what are most important most likely to fail. For example quotes, invoices, costumers, schedule, and routes"*, and then *"oh and warehouse"*. Eighty-two fields in those six areas have more than one writer, which is the shape every bug found this week had: one rule, several writers, one of them out of step.
+
 ⚠ It can tell whether a connection EXISTS, never whether it is RIGHT — except where a rule declares an exact broken shape that must not appear. And it only watches what has been declared: the page says how many things that is, and lists what it does NOT watch, so a green page is never read as "the app is fine".
 
 ---
