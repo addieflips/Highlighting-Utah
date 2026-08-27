@@ -14,12 +14,10 @@
 const NOT_WATCHED = [
   ['scheduledRoutes', 'which houses a crew is sent to on a given day'],
   ['lightColors / lightsDescription', 'what colours a house gets'],
-  ['measuredFeet', 'the footage that decides bins, number series and bundle count'],
   ['difficulty', 'the easy / medium / hard grade'],
   ['quotePhotos → housePhotos', 'the pictures that reach a crew sheet'],
   ['gateCode', 'how a crew gets in'],
   ['outletTimer', 'whether a house asked for a timer'],
-  ['rsvpStatus / rsvpRespondedAt', 'who answered, and what they said'],
   ['maybeNextYear / isOutForSeason', 'who is in the season at all'],
   ['lightsLockedUntil', 'the 48-hour route lock and free-change window']
 ];
@@ -216,7 +214,7 @@ module.exports = [
 
   {
     field: 'changeFees',
-    title: 'The £30 colour-change fee',
+    title: 'The $30 colour-change fee',
     plain: 'Added when a member changes their colours outside the free 48 hours.',
     guard: 'money-parity.test.js runs the browser and server copies side by side over ~1,100 combinations — the strongest guard in the repo.',
     states: [
@@ -242,13 +240,13 @@ module.exports = [
 
   {
     field: 'chargeNewMemberFee',
-    title: 'The £30 join fee',
+    title: 'The $30 join fee',
     plain: 'Charged once, to somebody who joined this year through a quote.',
     guard: 'run-all.js has 63 checks, and season-state.test.js touches it — the every-season overcharge is specifically guarded.',
     states: [
       ['Joined through a quote this year', 'Charged once'],
       ['Added by an import', 'Never charged — it is not set by bulk'],
-      ['A new member who also changes colours late', 'Pays both fees, £60'],
+      ['A new member who also changes colours late', 'Pays both fees, $60'],
       ['Next season', 'Cleared by Start New Season, so it is never charged twice']
     ],
     sets: [
@@ -373,7 +371,150 @@ module.exports = [
          right — one rule, one reader — so it is not declared as a reader of `status`. */
       { file: 'admin', fn: 'closedQuoteFor', where: 'Quote Requests', when: 'a house is checked for a closed quote' }
     ]
-  }
+  },
+  /* ------------------------------------------------------------------------
+   * BATCH 4 (2026-08-27). Addie: "I want to start getting our connection sections
+   * together so we can work on getting all website connections in one spot."
+   * Three fields chosen by how many separate places WRITE them, inside the six areas
+   * she named — the shape every bug found this week had: one rule, several writers,
+   * one of them out of step.
+   * ---------------------------------------------------------------------- */
+  {
+    field: 'rsvpStatus',
+    title: 'What they said about this season',
+    plain: 'Their answer to "are you having lights again this year".',
+    guard: 'season-state.test.js runs every answer through the five lists it lands on.',
+    states: [
+      ['Yes, and they replied', 'Routed, scheduled, built for and billed'],
+      ['No', 'Out of the season, and their lights are collected back in'],
+      ['Back Next Year', 'Out this season, on the 2027 list — still billed for work already done'],
+      ['Nothing yet', 'In the season until the RSVP goes out, out of it afterwards'],
+      ['Yes with no reply behind it', 'Not an answer — an import or a hand-edit, and distrusted']
+    ],
+    /* The office dropdown, the portal and the quote link all write this, and the
+       important part is that the OFFICE one stamps a date too — an answer taken over
+       the phone is still an answer (Addie, 2026-08-22: "We should be able to approve
+       for them in costumers as well"). */
+    sets: [
+      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers the RSVP',
+        rules: ['Answering through the link and the office button must land in the same place.'] },
+      { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody says yes',
+        rules: ['One yes cancels a queued recycle and clears a Maybe Next Year badge.'] },
+      { file: 'server', fn: 'pullCustomerFromSeason', where: 'Member Portal › RSVP', when: 'they ask to sit the season out' },
+      { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office marks the answer for them',
+        rules: ['This is one of the three ways to say yes, so it stamps a reply date like the others.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
+        rules: ['Only somebody who actually replied yes is in, once the RSVP has gone out.'] },
+      { file: 'admin', fn: 'effectiveRsvpStatus', where: 'Customers › All Customers', when: 'a status is shown anywhere',
+        rules: ['A stored yes with no reply date behind it is not an answer.'] },
+      { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices › Nightly Automation', when: 'the bill is built',
+        rules: ['A house that was hung is billed whatever they have said since.'] },
+      { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+    ]
+  },
+  {
+    field: 'rsvpRespondedAt',
+    title: 'When they actually answered',
+    plain: 'The date that turns a stored "yes" into a real reply.',
+    guard: 'season-state.test.js runs it through every list an answer lands on.',
+    states: [
+      ['Stamped', 'They really answered — routed, scheduled and built for'],
+      ['Missing, with a yes on file', 'Not an answer. An import, a hand-edit, or the assumed yes written at conversion'],
+      ['Missing, and new this year', 'In anyway — they were never sent an RSVP, and converting the quote was the approval']
+    ],
+    /* ⚠ THIS IS THE FIELD THAT MAKES A YES REAL, and it is why the office dropdown had
+       to be taught to stamp it (Addie, 2026-08-22: "We should be able to approve for
+       them in costumers as well" — an answer taken over the phone is still an answer).
+       A writer that sets the status and forgets the date is writing a yes nothing will
+       believe. */
+    sets: [
+      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers' },
+      { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody says yes',
+        rules: ['Every route that takes a yes stamps this, or the yes is not believed.'] },
+      { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office answers for them' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'effectiveRsvpStatus', where: 'Customers › All Customers', when: 'a status is shown',
+        rules: ['A yes with no date behind it is emptied before anything else is decided.'] },
+      { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season' },
+      { file: 'admin', fn: 'renderDashRsvpPanel', where: 'Customers › All Customers', when: 'the RSVP list is drawn' },
+      { file: 'admin', fn: 'hlxReadSheet', where: 'Customers › Bulk Updates', when: 'the Yes tab of the workbook is filled',
+        rules: ['The Yes sheet holds people who ANSWERED, never people we assumed.'] }
+    ]
+  },
+  {
+    field: 'measuredFeet',
+    title: 'How many feet of roofline',
+    plain: 'The measurement the whole job is sized from.',
+    guard: null,
+    states: [
+      ['Up to 260 ft', 'One bin, and a regular customer number'],
+      ['Over 260 ft', 'Another bin for every 260, and a 5000-series number'],
+      ['Changed', 'Raises a re-quote, and the bin count is worked out again'],
+      ['Blank', 'The price is divided back into a guess, and nothing says so loudly']
+    ],
+    /* ⚠ FOUR WRITERS AND NO SERVER ONE. Everything that can change this number is in
+       the office: the form, the measuring tool, the sheet sync and the bulk importer.
+       That is why it is worth watching — one of them writing a different number from
+       the others is invisible until a crew is short of glass. */
+    sets: [
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved',
+        rules: ['Changing this raises a re-quote by itself — the house is measurably different.'] },
+      /* ⚠ NOT rmCommitPayload, WHICH IS WHAT I DECLARED FIRST AND THE GATE REFUSED.
+         The measuring tool writes `estimatedFeet` on the QUOTE — a different field on a
+         different record. `measuredFeet` is the customer's, and it only gets there when
+         the quote is converted or the office types it. That is the whole point of the
+         two lists: the declaration was plausible, wrong, and went red in seconds. */
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is created' },
+      { file: 'admin', el: 'whFillFeetFromPriceBtn', where: 'Warehouse › Tools', when: 'the feet are worked back out of the price',
+        rules: ['A figure derived from the price is a guess — the warehouse builds to it all the same.'] },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the master sheet adds somebody' },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'a bulk import runs' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'whBinsForHouse', where: 'Warehouse › Build', when: 'the bins are counted',
+        rules: ['260 ft per bin, and the rule lives in one place.'] },
+      { file: 'admin', fn: 'houseBundleNeed', where: 'Warehouse › Build', when: 'the bundles are counted' },
+      { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'an invoice is printed or emailed' },
+      { file: 'server', fn: 'feetLineFor', where: 'Invoices › Nightly Automation', when: 'the nightly email is built' }
+    ]
+  },
+  {
+    field: 'customerNumber',
+    title: 'The number on their bin',
+    plain: 'How the warehouse finds this house’s lights on a shelf.',
+    guard: null,
+    states: [
+      ['Regular series', 'One bin'],
+      ['5000 series', 'More than one bin'],
+      ['Customer removed', 'The number goes back into the pool for somebody new'],
+      ['Moved to another series', 'The bin on the shelf still wears the OLD number']
+    ],
+    /* ⚠ THE LAST STATE IS THE ONE THAT CATCHES PEOPLE. Re-measuring can move somebody
+       from a regular number to the 5000 series, but nobody has walked to the shelf, so
+       the box still says the old one. `binLabelNumber` records what the bin SAYS;
+       this field is what the record says, and the recycle list has to ask for the
+       first (Addie, 2026-08-21: "we need the old one in the recycle section because
+       thats how they find it"). */
+    sets: [
+      { file: 'admin', el: 'cnAssignBtn', where: 'Customer Numbers', when: 'a number is handed out' },
+      { file: 'admin', el: 'cnBulkAssignBtn', where: 'Customer Numbers', when: 'numbers are assigned in bulk' },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved',
+        rules: ['Crossing 260 ft moves them to the 5000 series, and the office is told which number changed.'] },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the master sheet adds somebody' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'whBinNumberFor', where: 'Warehouse › Recycle', when: 'somebody is sent to fetch a bin',
+        rules: ['This asks what the BIN says, which is not always what the record says.'] },
+      { file: 'admin', fn: 'payerHouseOf', where: 'Customers › Who Pays for Whom', when: 'a shared bill picks a name',
+        rules: ['The lowest customer number pays — the longest-standing account.'] },
+      { file: 'admin', fn: 'whWhoLabel', where: 'Warehouse › Build', when: 'a build row is named' },
+      { file: 'admin', fn: 'customerToStop', where: 'Routes › Install', when: 'a house is frozen onto a route' }
+    ]
+  },
 ];
+
 
 module.exports.NOT_WATCHED = NOT_WATCHED;
