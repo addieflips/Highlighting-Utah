@@ -3988,7 +3988,10 @@ console.log('\n=== 7. Health check engine ===');
      hardcoding is SEASON_ELIGIBILITY + seasonRuleIsLive; this row is the warning half,
      and without it the hardcoding is silent — which is the whole objection to
      hardcoding. It reports BEFORE the rule bites, naming the date it will, because a
-     warning that only arrives once the damage is done is a report. */
+     warning that only arrives once the damage is done is a report.
+     ⚠ TWO SESSIONS BOTH NUMBERED THEIR ROW 24 on the same day — this one is 25, and
+     the count below is what caught it. That is the check earning its keep: a hard
+     number is the only thing that notices two people adding a row at once. */
   check('health', 'all 25 checks present',
     all.length === 25, 'got ' + all.length);
   /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
