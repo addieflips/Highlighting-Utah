@@ -326,6 +326,19 @@ if (require.main === module) {
   const m = build();
   const out = path.join(ROOT, 'connections.html');
   fs.writeFileSync(out, render(m));
+  /* ⭐ A TINY SUMMARY BESIDE THE PAGE, so the admin badge can be right BEFORE anybody
+     opens the tab. This app's own rule: a badge has to be correct before anyone clicks
+     anything, which is why the badge loaders are the ones left eager. The page itself is
+     ~25KB and loads on open; this is a couple of hundred bytes and loads with the panel.
+     ⚠ ONE GENERATED SET, NOT A SECOND COPY. The numbers come from the same build() the
+     page does, so the badge and the map cannot disagree. */
+  fs.writeFileSync(path.join(ROOT, 'connections.json'), JSON.stringify({
+    watched: m.watched,
+    red: m.red,
+    amber: m.amber,
+    unguarded: m.report.filter(r => !r.spine.guard).map(r => r.spine.field),
+    breaks: m.flags.map(f => ({ where: f.path, what: f.title }))
+  }, null, 1) + '\n');
   console.log('connections.html written — ' + m.watched + ' watched, ' +
     m.red + ' red, ' + m.amber + ' undeclared touches');
 }

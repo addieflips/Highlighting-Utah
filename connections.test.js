@@ -148,6 +148,48 @@ m.report.forEach(r => {
 });
 
 /* ---------------------------------------------------------------------------
+ * 5. The admin tab that shows it is still wired.
+ *
+ * Addie: "will I need to open this everytime cause if so maybe it's better if we add it
+ * to admin under checklist." It lives under Project › Connections now, so these hold the
+ * three things that can quietly unwire it.
+ *
+ * ⚠ STRUCTURAL, DELIBERATELY. Driving the real tab needs a browser, and the repo has
+ * already decided against a full admin Playwright harness — "Browser tests" is a
+ * REQUIRED check on main, so a slow or flaky admin spec blocks every merge. The three
+ * behaviours WERE driven in Chromium while this was built, and all three sabotages below
+ * were watched to fail there; these checks keep them from creeping back without adding
+ * a browser to the fast suite.
+ * ------------------------------------------------------------------------- */
+{
+  const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
+
+  check('the Connections pane is in the sub-tab show/hide list',
+    /\['tests','results','add','connections'\]/.test(admin),
+    'a pane left out of that list is never shown or hidden by the switcher — it sits ' +
+    'underneath whichever tab is open. Same trap as syncTabs, which has caught this repo twice');
+
+  check('opening the tab is what loads the map',
+    /projtab === 'connections'\) projConnectionsOpen\(\)/.test(admin),
+    'without this the frame never gets a src and the tab is permanently blank');
+
+  check('the map is fetched once, not on every click',
+    /!f\.getAttribute\('src'\)\) f\.setAttribute\('src', 'connections\.html'\)/.test(admin),
+    're-assigning src on every click reloads the frame and throws away whichever box ' +
+    'she had open');
+
+  check('the badge is loaded eagerly, the map is not',
+    /loadConnectionsSummary\(\);/.test(admin) && !/connFrame[^]{0,200}src="connections\.html"/.test(admin),
+    'a badge that only becomes right once you open the tab is not a badge; a ~25KB map ' +
+    'fetched on every admin load is the thing panel-data-loads-on-open exists to stop');
+
+  check('connections.json is generated beside the page',
+    fs.existsSync(path.join(ROOT, 'connections.json')),
+    'the admin badge reads it — without it the summary box reports that it could not tell, ' +
+    'which is correct but useless. Run `node connections/build.js`');
+}
+
+/* ---------------------------------------------------------------------------
  * Amber — reported, never fatal.
  * ------------------------------------------------------------------------- */
 const amberTotal = m.report.reduce((a, r) => a + r.undeclaredTotal, 0);
