@@ -573,6 +573,21 @@ const RB_COLOR_ALIAS = (function(){
    Lifted from admin.html rather than stubbed, for the same reason as the
    colours: a stub would keep this suite green through a change to what the app
    actually counts as a town. */
+/* The four names the Health Check's email-typo row needs: the two domain lists and
+   the two functions. Lifted out of admin.html so the suite is testing the shipped
+   rule rather than a copy of it. */
+const hcEmailTypoSrc = (function () {
+  const parts = [];
+  ['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL'].forEach(function (c) {
+    const i = admin.indexOf('const ' + c + ' =');
+    if (i > -1) parts.push(admin.slice(i, admin.indexOf('];', i) + 2));
+  });
+  ['emailEditDistance', 'emailTypoSuggestion'].forEach(function (n) {
+    const fn = extractFn(admin, n);
+    if (fn) parts.push(fn);
+  });
+  return parts.join(';\n');
+})();
 const hcCleanCitySrc = (function(){
   const at = admin.indexOf('function extractCleanCity(');
   if (at < 0) return '';
@@ -1242,6 +1257,7 @@ const RETIRED_CHECKLIST_TERMS = [
       218,  // the RSVP asking the right household for its own gate code
       219,  // the Overdue list read against the real book, after the invoice-date fix
       220,  // the house tabs on a real shared bill - layout, and real record shapes
+      221,  // whether a flagged email is REALLY wrong for that customer, in the live book
     ];
     const have = SEED_ROWS.map(function (r) { return r[0]; });
     const missing = MANUAL_ONLY_IDS.filter(function (id) { return !have.includes(id); });
@@ -2782,6 +2798,48 @@ check('flow', 'nothing closes a quote except converting it',
     !/noteRsvpSendHappened\(selectedIds/.test(sendBlk),
     'a send that failed for everybody has asked nobody');
 
+  /* ⭐ AND THE SEND POINTS AT THE SWITCH (2026-08-26). Owner: "any RSVP should be a
+     straight yes starting when emails are sent" — so from the send onwards only somebody
+     who actually answered is in the season. Recording the send does NOT do that:
+     SEASON_ELIGIBILITY is a separate deliberate act, and nothing said so at the one
+     moment it matters. The office would send, read a green confirmation, and leave the
+     season quietly counting everybody — the switch that decides who a crew is sent to,
+     failing quietly. */
+  /* ⚠ SCOPED TO THE GUARD'S BODY, NOT THE WHOLE SEND BLOCK, and that is the whole
+     value of these three. A red-check replacing the guard with `if(false)` left every
+     word in place and the first version of these checks passed — a message that is in
+     the source and can never reach the screen, which is the failure this repo has now
+     shipped three times. Slice the branch, then look inside it. */
+  const eligGuard = (function(){
+    const at = sendBlk.indexOf("if(SEASON_ELIGIBILITY !== 'confirmed-only'){");
+    if (at === -1) return '';
+    let depth = 0;
+    for (let k = sendBlk.indexOf('{', at); k < sendBlk.length; k++) {
+      if (sendBlk[k] === '{') depth++;
+      else if (sendBlk[k] === '}') { depth--; if (!depth) return sendBlk.slice(at, k + 1); }
+    }
+    return '';
+  })();
+  check('flow', 'and only when it has not already been switched',
+    !!eligGuard,
+    'a top-up send to fifteen stragglers would repeat a done instruction — and an ' +
+    'unguarded line cannot be told from one nobody wrote');
+  check('flow', 'a first RSVP send says the season is still counting everybody',
+    /Crews still go to everybody who has not said no/.test(eligGuard),
+    'she sends, sees a green confirmation, and the crews keep going to people who ' +
+    'never answered — with nothing on screen having said so');
+  check('flow', 'and it names where to change it',
+    /Who the crews are sent to/.test(eligGuard),
+    '"go and switch it" with no destination is a task nobody completes');
+  /* ⚠ IT NAMES THE SWITCH, IT DOES NOT THROW IT. Flipping takes every unanswered
+     customer off the routes, the schedule and the build queue at once, and the switch
+     on the Dashboard shows that count BEFORE acting. Doing it from the send would skip
+     the one number that makes the decision answerable. */
+  check('flow', 'the send does not flip the season eligibility itself',
+    !/setSeasonEligibility\(/.test(sendBlk),
+    'that skips the who-would-drop preview, which is the only thing making this ' +
+    'decision answerable — and it is ~960 people on the day the RSVP goes out');
+
   /* ⚠ SETTABLE BY HAND TOO. Owner: "however we still can manually". The automatic
      stamp only fires on a send made through Automation Emails, and an RSVP can go out
      another way; a marker with one route in is silently wrong the first time somebody
@@ -3474,6 +3532,14 @@ console.log('\n=== 7. Health check engine ===');
     /* The "customer with no number" check reads the town off the record, and
        lifts the real cleaner for the same reason as the colours above. */
     ${hcCleanCitySrc || ''}
+    /* ⚠ The "email that looks like a typo" check RUNS the real suggester. Lifted,
+       never stubbed: a stub would keep this suite green through a change to what
+       the app counts as a typo, and the whole value of that row is that Health
+       Check and the box in the form agree about one customer. Adding this row
+       without adding these four names crashed the run with a bare ReferenceError
+       attributed to an unrelated async suite — the exact failure sandboxDeps
+       exists to name (CLAUDE.md §3). */
+    ${hcEmailTypoSrc || ''}
   ` + /* ⚠ THE STREET-IN-TOWN DETECTOR AND THE SEASON RULE, both lifted (2026-08-26).
      Neither was needed until a fixture arrived carrying a `city`, and one needing the
      season rule — which is exactly how a sandbox dependency stays invisible: it is not
@@ -3494,7 +3560,7 @@ console.log('\n=== 7. Health check engine ===');
       extractFn(admin, 'audienceNeverAsked'),
       extractFn(admin, 'seasonEligibilityWouldDrop'),
       extractFn(admin, 'toDateStr')
-    ].filter(Boolean).join('\n') + '\n'
+    ].filter(Boolean).join('\n') + '\n';
   let hc;
   try {
     hc = new Function(prelude + code + `
@@ -3854,15 +3920,25 @@ console.log('\n=== 7. Health check engine ===');
      `linked` comes back empty, and the phone-key branch deliberately does not refuse
      — the rebuild writes install: 0 over a real total. This row IS Q-019: Addie asked
      for the real data before anything was built on it, and an empty row closes the
-     question.
-     ⭐ 24 SINCE 2026-08-26: 'seasonRuleDrops'. Addie, asked how to stop crews reaching
+     question. */
+  /* ⭐ 24 SINCE 2026-08-26: 'emailTypo'. An email address one letter from a real
+     domain — …@gmai.com. The nightly run hands the invoice to a domain that does not
+     exist, the mail service answers OK, and the bounce goes to the sending account
+     nobody reads, so the customer is simply never billed and nothing goes red. The
+     note under the email box in Add/Edit Customer stops the NEXT one; this row is
+     the only thing that finds the ones already on file. It offers no fix button on
+     purpose — see suite 279. */
+  /* ⭐ 25 SINCE 2026-08-26: 'seasonRuleDrops'. Addie, asked how to stop crews reaching
      people who never replied to the RSVP: "Both — hardcode it AND warn me." The
      hardcoding is SEASON_ELIGIBILITY + seasonRuleIsLive; this row is the warning half,
      and without it the hardcoding is silent — which is the whole objection to
      hardcoding. It reports BEFORE the rule bites, naming the date it will, because a
-     warning that only arrives once the damage is done is a report. */
-  check('health', 'all 24 checks present',
-    all.length === 24, 'got ' + all.length);
+     warning that only arrives once the damage is done is a report.
+     ⚠ TWO SESSIONS BOTH NUMBERED THEIR ROW 24 on the same day — this one is 25, and
+     the count below is what caught it. That is the check earning its keep: a hard
+     number is the only thing that notices two people adding a row at once. */
+  check('health', 'all 25 checks present',
+    all.length === 25, 'got ' + all.length);
   /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
      form is truthy whatever happens and proves nothing. Red-checking caught it:
      renaming the id sailed straight through. */
@@ -5232,7 +5308,12 @@ suite('11. Reliability pass');
         'return ' + overdueSrc + ';isInvoiceOverdue'
       )(computeInvoiceStatus, 30, issuedAt);
 
-      const ago = (n) => ({ toDate: () => new Date(Date.now() - n * 86400000) });
+      /* ⚠ ONE INSTANT, NOT ONE PER CALL. This read Date.now() inside toDate(), so
+         the last check below compared two separately-computed "40 days ago" and
+         failed whenever the two landed a millisecond apart — a real flake, caught
+         on 2026-08-26. §9.7: a flaky test trains you to dismiss failures. */
+      const NOW = Date.now();
+      const ago = (n) => { const d = new Date(NOW - n * 86400000); return { toDate: () => d }; };
       const owing = { install: 400, removal: 0, deposit: 0, credits: 0, changeFees: 0 };
 
       check('reliability', 'a bill issued 40 days ago is overdue',
@@ -5769,6 +5850,69 @@ suite('13. Season prep — crew portal (§4)');
         'they get an invoice for a season nobody works for them — got $' + wb.install +
         ' across ' + JSON.stringify(wb.billedHouseIds));
     }
+
+    /* ⭐ A STORED PHONE THAT IS NOT DIGITS-ONLY (2026-08-26, Q-019 answered).
+       The invoice key is always digits — custInvoiceKey produces it — but the office
+       types "(801) 555-0123" and the import keeps it, so where('phone','==',digits)
+       matches nothing. This is the authoritative money writer: with no houses resolved
+       it rebuilt the invoice as install: 0, wiping a real total on an ordinary Edit
+       Customer save, silently and in the customer's favour.
+       ⚠ THE HARNESS REPRODUCES IT NATURALLY — its getDocs filters on the RAW field,
+       exactly as Firestore does — so this fixture fails on the unfixed code rather
+       than needing the bug simulated. Red-checked: install came back 0. */
+    const formatted = [
+      { id: 'h1', data: { name: 'Payer', phone: '(801) 111-2222', housePrice: 400 } },
+      { id: 'h2', data: { name: 'Rental', phone: '8013334444', billToPhone: '8011112222', housePrice: 300 } }
+    ];
+    const hp = makeHarness(formatted, { install: 700, deposit: 100 });
+    await hp.fn('8011112222');
+    const wp = hp.written[0] || {};
+    check('sync', 'a payer whose phone is stored formatted still resolves',
+      wp.install === 700 && (wp.billedHouseIds || []).indexOf('h1') !== -1,
+      'the equality query matches nothing, the group comes back empty and a real ' +
+      'total is rebuilt as install: 0 — got $' + wp.install);
+    /* ⚠ A PAYER WITH NO SIBLING HOUSE, DELIBERATELY. In the fixture above the rental
+       is still found by the billToPhone query, so the group is never fully empty and
+       the status stays plausible — a red-check proved the status check below passed
+       WITH the bug present. Alone, the group really is empty and install really is 0. */
+    const alone = [{ id: 'h1', data: { name: 'Payer', phone: '(801) 111-2222', housePrice: 700 } }];
+    const ha = makeHarness(alone, { install: 700, deposit: 100 });
+    await ha.fn('8011112222');
+    const wa = ha.written[0] || {};
+    /* ⚠ ASSERTED ON THE STATUS, NOT THE DEPOSIT. A red-check proved the deposit
+       survives the bug too — existing.deposit is preserved either way — so that check
+       passed whatever the code did. What actually goes wrong is what the zeroed
+       invoice then READS AS: computeInvoiceStatus(0, 0, 100, 0, 0) is **Paid in Full**.
+       Nothing owed, something paid. So the payer shows settled on every payment filter
+       and the chase-the-unpaid send simply does not contain them. */
+    check('sync', 'and the bill does not read settled when it should read partly paid',
+      wa.status === 'Partial Payment',
+      'a zeroed invoice carrying a payment computes to Paid in Full, so nobody ever ' +
+      'chases the rest — got ' + JSON.stringify(wa.status) + ' on $' + wa.install);
+    /* ⚠ IT ASKS custInvoiceKey, NEVER COMPARES PHONE FIELDS. Comparing the raw strings
+       is the mistake that quietly duplicated the whole book once, and it would fail on
+       this very fixture. Asserted by RUNNING it: a house keyed by EMAIL, whose phone
+       column holds words, must not be swept in by the phone branch. */
+    const wordsPhone = [
+      { id: 'h1', data: { name: 'Payer', phone: '(801) 111-2222', housePrice: 400 } },
+      { id: 'h9', data: { name: 'No phone', phone: 'n/a', email: 'x@y.com', housePrice: 250 } },
+      /* ⚠ AND A HOUSE ON THIS VERY PHONE THAT BILLS SOMEBODY ELSE. Without the
+         !billToPhone guard the fallback sweeps it in and this payer is charged for a
+         house whose bill goes to another person — charged twice between them. A
+         red-check deleting that guard went straight through until this row existed. */
+      { id: 'h8', data: { name: 'Bills elsewhere', phone: '(801) 111-2222',
+                          billToPhone: '8019998888', housePrice: 500 } }
+    ];
+    const hw = makeHarness(wordsPhone, { install: 400 });
+    await hw.fn('8011112222');
+    const ww = hw.written[0] || {};
+    check('sync', 'a customer keyed by email is not swept into a phone group',
+      (ww.billedHouseIds || []).indexOf('h9') === -1,
+      'they would be billed to somebody else entirely');
+    check('sync', 'nor is a house on that phone whose bill goes to somebody else',
+      (ww.billedHouseIds || []).indexOf('h8') === -1 && ww.install === 400,
+      'that house is on another payer\'s bill, so counting it here charges it twice ' +
+      '— got $' + ww.install + ' across ' + JSON.stringify(ww.billedHouseIds));
 
     // The $30 join fee is not part of any house price, so a rebuild that
     // forgets it silently un-charges the fee.
@@ -11901,15 +12045,28 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
      is a ReferenceError inside the sandbox — which is what the add-on work hit
      on its first run, and is exactly the failure CLAUDE.md describes. Add the
      helper, never a stub: a stub agrees with itself. */
+  /* ⚠ applyQuoteLinkLabelServer JOINED THIS LIST 2026-08-26, in the same commit
+     that made the nudge renderer call it. Same reasoning as the two above: this
+     suite lifts the renderer out by its anchors and RUNS it, so a helper missing
+     here is a ReferenceError inside the sandbox rather than a failing check.
+     Its style constant has to come with it — lifting the function alone leaves
+     a live reference to a name the sandbox has never heard of. */
   const serverParts = ['quotePhotosServer', 'cloudEmailPhotoServer', 'escServer',
     'quotePhotoEmailHtmlServer', 'properNameServer',
-    'quoteIsAddOn', 'quoteButtonLabelsServer']
+    'quoteIsAddOn', 'quoteButtonLabelsServer', 'applyQuoteLinkLabelServer',
+    'applyQuoteLinkButtonServer']
     .map(n => grabBrowser(n, fns));
+  const serverConsts = [
+    /const QUOTE_LINK_LABEL_STYLE_SERVER = '[^']+';/,
+    /const QUOTE_LINK_BUTTON_STYLE_SERVER = '[^']+';/,
+    /const QUOTE_LINK_BUTTON_DEFAULT_SERVER = '[^']+';/
+  ].map(re => fns.match(re));
+  const serverLabelStyle = serverConsts.every(Boolean) ? serverConsts.map(m => m[0]).join('\n') : null;
   const bStart = fns.indexOf("      const quoteToken = q.quoteToken || '';");
   const bEnd = fns.indexOf('      const res = await fetch(', bStart);
 
   check('S33', 'the server nudge renderer is findable',
-    serverParts.every(Boolean) && bStart !== -1 && bEnd > bStart,
+    serverParts.every(Boolean) && !!serverLabelStyle && bStart !== -1 && bEnd > bStart,
     'same reasoning — if the anchors move, this fails rather than quietly testing nothing');
 
   check('S33', 'the button-repeating logic is gone from the browser',
@@ -11929,7 +12086,7 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
      run dying with a stack trace three suites early. */
   try {
   if (browserParts.every(Boolean) && widthDecl && cloudDecl && serverParts.every(Boolean) &&
-      bStart !== -1 && bEnd > bStart && bodyDecl) {
+      serverLabelStyle && bStart !== -1 && bEnd > bStart && bodyDecl) {
     const NUDGE = new Function('return ' + bodyDecl[1].replace(/\r/g, ''))();
 
     const renderBrowser = new Function('body', 'photos',
@@ -11942,6 +12099,7 @@ suite('Suite 33. One nudge template, one email, whoever sends it');
       ', photos, true);');
 
     const renderServer = new Function('q', 'templateBody',
+      (serverLabelStyle ? serverLabelStyle + '\n' : '') +
       serverParts.join('\n') + '\n' + fns.slice(bStart, bEnd) + '\nreturn body;');
 
     const shape = html => ({
@@ -25655,7 +25813,12 @@ suite('Suite 108. The Edit Customer save, actually run');
     /* What the office was asked before anything was charged. */
     const asked = [];
     const ctx = {
-      document: {getElementById: elm, querySelectorAll: () => [], querySelector: () => null,
+      /* ⚠ SELECTOR-AWARE NOW, so the colour tick boxes can be driven. Everything
+         else still answers with an empty list exactly as before. */
+      document: {getElementById: elm,
+                 querySelectorAll: (sel) => (String(sel).indexOf('editcust-color-check') !== -1
+                   ? (o.ticked || []).map((v) => ({value: v})) : []),
+                 querySelector: () => null,
                  createElement: () => elm('_t')},
       doc: (db, col, id) => ({col: col, id: id}),
       collection: (db, col) => ({col: col}),
@@ -25672,6 +25835,14 @@ suite('Suite 108. The Edit Customer save, actually run');
       requoteBeingConverted: o.noRequote ? null : 'q1',
       requoteBuildChoice: o.noRequote ? null : {mode: 'recycle'},
       editCustLayoutMapUrl: '',
+      /* ⭐ WHAT THE COLOUR BOXES COULD SHOW WHEN THE FORM OPENED. Set by
+         openEditCustomerModal on every open, READ here — so the sandbox has to
+         supply them or the handler is a ReferenceError. That is the extraction-list
+         trap CLAUDE.md describes, hit a fourth time and caught a fourth time by
+         this suite failing loudly rather than skipping.
+         Defaults are the ordinary case: nothing on file, nothing ticked. */
+      editCustLightsRaw: o.lightsRaw || '',
+      editCustLightsTicked: o.lightsTicked || [],
       jobAddresses: [{id: 'c894', data: Object.assign({name: 'Ashley Wray',
         phone: '8016160714', email: 'wraynash@gmail.com',
         address: '9991 Red Cedar Ln, Highland, UT',
@@ -25770,6 +25941,106 @@ suite('Suite 108. The Edit Customer save, actually run');
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
+
+  /* ⭐ AND THE OPENER IS ASSERTED SEPARATELY FROM THE RULE, because red-checking
+     PROVED it was not. This sandbox SUPPLIES editCustLightsRaw and editCustLightsTicked,
+     so deleting the two lines that set them from openEditCustomerModal left every check
+     below green while the guard could never engage in the real page — the same shape as
+     the house-tab strip, whose four calls had to be asserted for exactly this reason.
+
+     ⚠ THE READ IS TAKEN AFTER THE TICKING, and that ordering is the whole point: it is
+     the only moment that knows what the boxes managed to show. Taken before, it records
+     an empty list for every customer and the guard refuses every save. */
+  {
+    const open = sectionFrom(admin, admin.indexOf('function openEditCustomerModal('));
+    check('S108', 'the opener records what was on file before the boxes were ticked',
+      /editCustLightsRaw\s*=/.test(open),
+      'without it the guard has nothing to compare and never fires');
+    check('S108', 'and records what the boxes managed to show',
+      /editCustLightsTicked\s*=\s*Array\.from\(/.test(open),
+      'a red-check deleting this left the whole suite green while the fix was dead');
+    const tick = open.indexOf("cb.checked = custColors.includes(cb.value)");
+    const read = open.indexOf('editCustLightsTicked =');
+    check('S108', 'and reads them AFTER the boxes are ticked, not before',
+      tick > -1 && read > tick,
+      'read first it records nothing for everybody, and every save is then refused');
+  }
+
+  /* ⭐ AN ORDINARY SAVE MUST NOT ERASE COLOURS THE FORM COULD NEVER SHOW (2026-08-26).
+     The ten tick boxes match their own labels exactly, so a record spelled any other
+     way ticks NOTHING — and this handler wrote lightColors and lightsDescription
+     unconditionally. Open Edit Customer to correct a phone number, press Save, and the
+     colours were gone. Edit Customer was the ONLY unguarded writer of these two: the
+     bulk importer, the sheet comparison and the schedule sync all already follow
+     "a blank never wipes what the record has".
+
+     ⚠ THE RULE IS "COULD THE FORM HAVE SHOWN IT", NOT "IS IT BLANK". Refusing every
+     empty save would take away the office's ability to clear a house's colours on
+     purpose, so both directions are checked below and neither is optional.
+
+     ⚠ AND THE FLATTENED-PATTERN CASE WAS A MONEY BUG TOO, not only a data one:
+     "Red, Green, Red, Green" ticks Red and Green, rebuilds as "Red, Green", and
+     applyLightChange scores that as a real change — a $30 fee prompt, a 48-hour route
+     lock and a warehouse rebuild, on a save where nobody touched the lights. */
+  if (handlerSrc) pendingAsync.push((async () => {
+    /* ⚠ noRequote, DELIBERATELY. The default fixture is a re-quote carrying
+       {mode:'recycle'}, which sets needsLightBuild itself — so the warehouse check
+       below would be scoring the re-quote's doing, not the colour path, and would
+       fail on code that is right. Caught by that check failing on the first run. */
+    const unreadable = await runSave({noRequote: true, lightsRaw: 'ww/r',
+                                      lightsTicked: [], ticked: []});
+    check('S108', 'a save never erases colours the tick boxes could not show',
+      !!unreadable.cust &&
+      !('lightsDescription' in unreadable.cust.payload) &&
+      !('lightColors' in unreadable.cust.payload),
+      'an ordinary save of a house reading "ww/r" wiped its colours and said nothing');
+    check('S108', 'and says so rather than saving quietly',
+      /not something the tick boxes can show/i.test(unreadable.errs.join(' | ')),
+      'owner, 2026-08-25: "nothing should fail quietly" — a silent skip is ' +
+      'indistinguishable from the colours having been saved');
+
+    /* ⚠ THE OTHER DIRECTION, and it is the one a careless fix breaks. A record the
+       boxes CAN show, with everything unticked, is the office clearing the house on
+       purpose and must still write. */
+    const cleared = await runSave({noRequote: true, lightsRaw: '',
+                                   lightsTicked: [], ticked: []});
+    check('S108', 'the office can still clear a house it really means to clear',
+      !!cleared.cust && ('lightColors' in cleared.cust.payload),
+      'guarding on blank alone would make clearing a house impossible');
+
+    /* ⭐ THE FLATTENED PATTERN, WHICH WAS THE MONEY HALF. "Red, Green, Red, Green"
+       ticks Red and Green; rebuilding the description from the boxes gives "Red, Green",
+       and applyLightChange scores that as a real colour change — a $30 fee prompt, a
+       48-hour route lock and a warehouse rebuild, on a save where nobody touched the
+       lights. Keeping the stored wording is what stops all three.
+       ⚠ ASSERTED ON THE FEE PROMPT, not on needsLightBuild: this fixture's wireColor
+       goes undefined -> '', which re-queues the warehouse on its own and would make the
+       check pass or fail for a reason that has nothing to do with colours. */
+    /* ⚠ `lights` IS WHAT compileLightsDescription IS STUBBED TO RETURN, and without
+       it this fixture proves nothing: the stub answers '' , applyLightChange reads an
+       empty new value as "not a change", and the fee check below passes whatever the
+       code does. Caught by red-checking — sabotage 2 failed only the wording check. */
+    const strand = await runSave({noRequote: true, lights: 'Red, Green',
+      cust: {lightsDescription: 'Red, Green, Red, Green'},
+      lightsRaw: 'Red, Green, Red, Green', lightsTicked: ['Red', 'Green'],
+      ticked: ['Red', 'Green']});
+    check('S108', 'a strand keeps its order, so an untouched save asks for no fee',
+      strand.asked.length === 0,
+      'flattening "Red, Green, Red, Green" to "Red, Green" reads as a colour change ' +
+      'and charges $30 for a save that changed nothing');
+    check('S108', 'and the stored wording survives the save',
+      !!strand.cust && strand.cust.payload.lightsDescription === 'Red, Green, Red, Green',
+      'a set and a strand are the same bulbs and two different builds');
+
+    /* And ticking the real colours on an unreadable house is a correction, which is
+       the remedy Health Check\'s "colours written as words" row already names. */
+    const fixed = await runSave({noRequote: true, lightsRaw: 'ww/r',
+                                 lightsTicked: [], ticked: ['Red']});
+    check('S108', 'ticking the real colours on an unreadable house still corrects it',
+      !!fixed.cust && Array.isArray(fixed.cust.payload.lightColors) &&
+      fixed.cust.payload.lightColors.join(',') === 'Red',
+      'the guard must not lock a house out of ever being corrected');
+  })());
 
   if (handlerSrc) pendingAsync.push((async () => {
     const ok = await runSave({});
@@ -33220,7 +33491,7 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      named constant so the number can be found and changed, and BOTH figures
      have to reach the screen — a total twice the size of the line just drawn,
      with no working shown, reads as a bug in the measuring. */
-  const mult = admin.match(/const RM_FEET_MULTIPLIER = (\d+)/);
+  const mult = admin.match(/const RM_FEET_MULTIPLIER = ([\d.]+)/);
   check('S126', 'the doubling is a named constant, not a bare 2 in the sum',
     !!mult, 'RM_FEET_MULTIPLIER is gone — the rule is now buried where nobody will find it');
   /* ⚠ WAS "and it is set to 2". The doubling is GONE - the owner's real
@@ -33228,8 +33499,19 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      $280-300, and 150 doubled at $2 is $600. Left at 1 rather than deleted so
      the lever still exists, and asserted at 1 so it cannot creep back
      unnoticed and silently double every quote in the system. */
-  check('S126', 'the footage is NOT doubled any more', mult && mult[1] === '1',
-    'a multiplier other than 1 doubles every price on this screen and disagrees with the rest of the admin');
+  /* ⭐ SET TO 2.9 ON THE OWNER'S INSTRUCTION, 2026-08-26: "make it so a foot is
+     2.9 times smaller than it currently is, so 50 feet would be a little under
+     150 ft instead", and then "the length of a foot is the only variable".
+     ⚠ THE PREVIOUS RULING IS KEPT ABOVE because it was reasoned from real
+     numbers and may be right again. ⚠ AND THE LENGTH ARITHMETIC IS NOT WHAT IS
+     WRONG: rmFeetBetween was driven directly and 10 m reports 32.808 ft against
+     a true 32.808, Pythagoras included. This compensates for WHERE DOTS LAND -
+     about 6.7 ft out on 209 S 850 W - so if the model-displacement work lands
+     that error properly this number must be revisited, or every quote inflates
+     by nearly three. */
+  check('S126', 'the feet multiplier is the owner-set 2.9', mult && mult[1] === '2.9',
+    'this multiplies the price, the bin count and the bulb order together; ' +
+    'it is not a display setting');
   /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
      0 and slices from the top of the file — which still contains enough words
      to make a loose check pass. Two of these three were doing exactly that. */
@@ -33336,10 +33618,20 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
     return null;
   };
 
+  /* ⚠ newQuoteToken JOINED THIS LIST 2026-08-26, in the same commit that made
+     the four token-minting sites share one generator. addOnEmailBlock mints a
+     token when a quote has none, so without it this sandbox throws a
+     ReferenceError and "a quote with no token gets one" fails against code that
+     is perfectly correct — the exact failure CLAUDE.md describes. Supplied, never
+     stubbed: a stub would agree with itself about the one thing the check reads. */
   const NEED = ['pendingAddOnFor', 'addOnEmailBlock', 'rsvpTemplateHasAddOn',
-    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteWasSentOut', 'quotePortalParam'];
+    'quoteIsAddOn', 'quoteButtonLabels', 'quoteStage', 'quoteWasSentOut', 'quotePortalParam',
+    'newQuoteToken'];
   const src = {};
   NEED.forEach(n => { src[n] = lift(n); });
+  const tokenAlphabet = admin.match(/const QUOTE_TOKEN_ALPHABET = '[^']+';/);
+  check('S131', 'the token alphabet came with the generator',
+    !!tokenAlphabet, 'lifting newQuoteToken alone leaves a live reference to a name the sandbox never got');
   const gone = NEED.filter(n => !src[n]);
   check('S131', 'every function this suite runs is findable',
     !gone.length, 'missing: ' + gone.join(', '));
@@ -33353,7 +33645,7 @@ suite('Suite 131. An outstanding add-on rides along with the RSVP');
     /* quoteStage and quotePortalParam are the REAL ones. quoteStage in
        particular decides "still waiting for an answer", and a stub of it would
        agree with itself about the one thing most worth getting wrong. */
-    const body = NEED.map(n =>
+    const body = (tokenAlphabet ? tokenAlphabet[0] + '\n' : '') + NEED.map(n =>
       (n === 'addOnEmailBlock' ? 'async ' : '') + src[n]).join('\n');
 
     const QUOTE = (over) => Object.assign({
@@ -37254,8 +37546,38 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
   check('S149', 'every corner is drawn on the map, numbered, run or no run',
     /function rmSyncCornersSky\(\)/.test(admin) &&
     /rmCornerMarkers\.push\(new google\.maps\.Marker/.test(admin) &&
-    /label: \{text: rmCornerLabel\(i\)/.test(admin),
+    /text: rmCornerLabel\(i\)/.test(admin),
     'one dot on its own makes no run, so it had nothing to be drawn as');
+  /* ⭐ AND THEY ARE MOVED RATHER THAN REBUILT (2026-08-26). Owner, dragging a
+     dot: "it goes super slow, make it so it looks like real time." This threw
+     every Marker away and constructed fresh ones on every call, and a drag calls
+     the redraw on every pointer event. Constructing map objects is the expensive
+     thing in this file; moving one is nearly free. */
+  check('S149', 'and a redraw moves the markers instead of rebuilding them',
+    (function(){
+      const fn = extractFn(admin, 'rmSyncCornersSky') || '';
+      return /have\.setPosition\(q\)/.test(fn) &&
+             /rmCornerMarkers\.length !== rmCorners\.length/.test(fn);
+    })(),
+    'sixty Marker constructions a second is what the drag was waiting on');
+  check('S149', 'and a drag redraws once per frame, not once per pointer event',
+    (function(){
+      const fn = extractFn(admin, 'rmDragPaint') || '';
+      return /requestAnimationFrame/.test(fn) && /if\(rmDragFrame\) return;/.test(fn) &&
+             !/rmRenderResults/.test(fn) && !/rmRenderCornerBar/.test(fn);
+    })(),
+    'the pointer fires faster than the screen refreshes; the panel and strip are ' +
+    'HTML rebuilds nobody is looking at while a dot is moving');
+  check('S149', 'and the numbers catch up when it is dropped',
+    (function(){
+      /* sectionFrom, not a character window - these blocks grow. */
+      const i = admin.indexOf("['mouseup', 'mouseleave'].forEach");
+      const j = admin.indexOf("['mouseup', 'mouseleave'].forEach", i + 10);
+      if(i === -1 || j === -1) return false;
+      return /rmCornersChanged\(\);/.test(sectionFrom(admin, i)) &&
+             /rmCornersChanged\(\);/.test(sectionFrom(admin, j));
+    })(),
+    'leaving the footage stale after a drag would be worse than the lag');
   check('S149', 'and they are redrawn whenever the corners change',
     (function(){
       const i = admin.indexOf('function rmCornersChanged(){');
@@ -38330,115 +38652,119 @@ suite('167. Measure Roof - shift and drag moves a dot');
      into next door's garden in plan, and nothing in the panorama can show it.
      From above there is no height in the picture at all. So each view now
      moves only what it can judge, and the safety limits are kept. */
-  check('S167', 'a street-view drag changes the height and nothing else',
-    (function(){
-      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /c\.h = u;/.test(body) && !/c\.lat = /.test(body) && !/rmHouseHit\(/.test(body);
-    })(),
-    'crossing the ray with the house again moves east and north every frame, so ' +
-    'the map shows the dot creeping sideways while somebody sets its height');
-  check('S167', 'and it holds the plan position exactly, by solving on a vertical',
-    (function(){
-      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /const plan = Math\.hypot\(here\.e - cam\.e, here\.n - cam\.n\);/.test(body) &&
-             /cam\.u \+ plan \* Math\.tan\(el\)/.test(body);
-    })(),
-    'height is the horizontal distance times the tangent of the elevation, which ' +
-    'touches neither east nor north');
-  /* ⭐ A SKY DRAG SLIDES THE DOT ALONG ITS OWN RAY (2026-08-25). Owner: "when
-     i drag a dot on sky view it should stay in the same spot in street view,
-     its just to correct the offset if the system does get it wrong."
+  /* ⭐ AND SHIFT HAS TO LOOK LIKE SOMETHING (2026-08-26). Owner: "when i hold
+     down shift my cursor doesnt switch to select", after "shift drag isnt
+     working".
 
-     ⚠ AND THAT IS PRECISELY A DEPTH CORRECTION. Every point along the ray from
-     the camera through a pixel draws at THAT SAME PIXEL, so moving a dot along
-     its own ray changes where it sits on the map and leaves Street View
-     untouched — which is the complaint exactly: right in the photograph, wrong
-     on the map, and the only thing wrong with it was how far away it was.
-     The check below is not a source match; it does the arithmetic. */
-  check('S167', 'a sky-view drag slides the dot along the ray it was seen along',
+     ⚠ IT WAS NOT BROKEN, IT WAS INVISIBLE - which is worse, because there is
+     nothing to report and nothing to try. Driven straight at the handler the
+     drag works: mousedown with shift says "Moving dot 0", the height follows the
+     pointer, mouseup says it moved. But the sheet over both views was
+     `cursor: crosshair` at all times, so holding shift changed nothing, and
+     being near enough to grab looked identical to being too far. A modifier
+     gesture with no feedback is a feature only its author can use. */
+  check('S167', 'the cursor says when a dot is actually within reach',
     (function(){
-      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      return /rmRaySlideTo\(ray, w\)/.test(body) && /c\.h = t\.u;/.test(body);
+      const fn = extractFn(admin, 'rmRefreshCursors') || '';
+      return /'grabbing'/.test(fn) && /'grab'/.test(fn) && /'crosshair'/.test(fn) &&
+             /rmDotWithinReach/.test(fn);
     })(),
-    'dropping it wherever the pointer went would move it in the photograph too, ' +
-    'and the corner it is marking has not moved');
-  check('S167', 'and a dot with no sighting moves in plan and keeps its height',
+    'three states: placing, grabbable, and moving - anything less is press and hope');
+  check('S167', 'and it answers the shift key itself, not only the mouse moving',
+    /addEventListener\('keydown'[\s\S]{0,200}rmShiftDown = true/.test(admin) &&
+    /addEventListener\('keyup'[\s\S]{0,200}rmShiftDown = false/.test(admin),
+    'holding shift without moving the pointer has to answer, or it still reads as dead');
+  check('S167', 'and a window that loses focus stops promising a grab',
+    /addEventListener\('blur'[\s\S]{0,120}rmShiftDown = false/.test(admin),
+    'no keyup arrives when focus goes, so the cursor would lie until the next click');
+  check('S167', 'reach is judged by the same radius the drag itself uses',
     (function(){
-      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
-      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
-      const body = i === -1 ? '' : admin.slice(i, j);
-      /* The no-ray branch is the tail of the handler, so slice to the end of it
-         rather than to a round number of characters. */
-      const k = body.indexOf('c.lat = w.lat; c.lng = w.lng;');
-      return k !== -1 && body.slice(k).indexOf('c.h =') === -1;
+      const fn = extractFn(admin, 'rmDotWithinReach') || '';
+      return /RM_DRAG_GRAB_PX/.test(fn) && /RM_SKY_GRAB_M/.test(fn);
     })(),
-    'one placed from above has no ray to slide along, and from above there is ' +
-    'no height in the picture to read');
-  /* ⭐ THE ARITHMETIC ITSELF. A slid dot must land on the SAME Street View
-     pixel, or the drag has moved the corner rather than corrected its depth. */
-  {
-    const LF = String.fromCharCode(10);
-    const slideApi = new Function(
-      'let rmOrigin = {lat: 40.3854093, lng: -111.8627181};' + LF +
-      'let rmFaces = [];' + LF +
-      'const RM_EAVE_TOL_M = 0.8;' + LF +
-      'const rmRad = function(d){ return d*Math.PI/180; };' + LF +
-      'function rmFovDeg(z){ return 180/Math.pow(2, z); }' + LF +
-      'function rmRoofTopM(){ return 12; }' + LF +
-      [extractFn(admin, 'rmMetresPerDeg'), extractFn(admin, 'rmToLocal'),
-       extractFn(admin, 'rmToWorld'), extractFn(admin, 'rmBasis'),
-       extractFn(admin, 'rmSvProject'), extractFn(admin, 'rmRay'),
-       extractFn(admin, 'rmRaySlideTo')].join(LF) + LF +
-      'return {slide: rmRaySlideTo, toWorld: rmToWorld, toLocal: rmToLocal,' + LF +
-      '        project: rmSvProject, ray: rmRay};')();
-    const W = 554, H = 456, pov = {heading: 74.7, pitch: 5.3, zoom: 1.46};
-    const cam = {e: -26.58, n: -7.25, u: 2.46};
-    /* A dot placed by clicking one pixel, sitting somewhere along that ray. */
-    const dir = slideApi.ray(200, 180, W, H, pov);
-    const ray = {cam: cam, dir: dir};
-    const t0 = 22;
-    const dot = {e: cam.e + dir.e*t0, n: cam.n + dir.n*t0, u: cam.u + dir.u*t0};
-    const before = slideApi.project(slideApi.toWorld(dot), W, H, pov, cam);
-    /* Drag it several feet across the map, well off the line of sight. */
-    const dropped = slideApi.toWorld({e: dot.e + 3.5, n: dot.n - 2.5, u: 0});
-    const moved = slideApi.slide(ray, dropped);
-    const after = moved ? slideApi.project(slideApi.toWorld(moved), W, H, pov, cam) : null;
-    const shift = after ? Math.hypot(after.x - before.x, after.y - before.y) : null;
-    const depthChange = moved
-      ? Math.abs(Math.hypot(moved.e - cam.e, moved.n - cam.n) - Math.hypot(dot.e - cam.e, dot.n - cam.n))
-      : 0;
-    check('S167', 'a slid dot draws on the very same Street View pixel',
-      shift !== null && shift < 0.01,
-      'it moved ' + (shift === null ? 'nowhere - the slide was refused' : shift.toFixed(3) + ' px'));
-    check('S167', 'and it really did move on the map, so the slide is not a no-op',
-      depthChange > 1,
-      'depth changed by ' + depthChange.toFixed(2) + ' m; a check that passes because ' +
-      'nothing moved would pass on a broken drag too');
-    check('S167', 'the height comes with it, because a ray climbs as it goes out',
-      moved && Math.abs(moved.u - dot.u) > 0.05,
-      'holding the height while sliding the depth leaves the dot off its own ray, ' +
-      'which puts it back in the wrong place in Street View');
-    check('S167', 'a drop behind the camera is refused rather than answered',
-      slideApi.slide(ray, slideApi.toWorld({e: cam.e - dir.e*40, n: cam.n - dir.n*40, u: 0})) === null);
-    check('S167', 'and one that would end up above the roof is refused too',
-      slideApi.slide(ray, slideApi.toWorld({e: cam.e + dir.e*160, n: cam.n + dir.n*160, u: 0})) === null,
-      'a drag must not reach a place a click could not');
-  }
-  check('S167', 'and neither drag can put a dot underground or above the roof',
+    'a cursor that promises a grab the drag then refuses is worse than no cursor');
+  /* ⭐ THE STREET DRAG FOLLOWS THE POINTER (2026-08-26). Owner: "I should be
+     able to move a dot anywhere on street view, the only restriction is not
+     changing height on sky view."
+
+     ⚠ THIS REPLACES A HEIGHT-ONLY DRAG that these checks asserted, and the
+     reasoning for that one names the trade. From the street the unknown is DEPTH:
+     a dot can sit perfectly on the gutter and be ten feet into next door's garden
+     in plan, and nothing in the panorama can show it. Holding the plan meant the
+     drag could never make that worse - but it also meant the dot would not go
+     where it was dragged, which is not a drag.
+
+     ⚠ SO IT KEEPS ITS RANGE AND RE-AIMS: the distance out is taken when the dot
+     is picked up and held for the whole drag; the pointer chooses the direction.
+     The dot sits under the cursor, goes anywhere on screen, and leaves the drag
+     exactly as far out as it arrived - so the depth is neither invented nor
+     destroyed by moving it. And the depth has its own answer now: two sightings
+     cross, and that also measures the model displacement, after which single
+     clicks land right on their own. */
+  check('S167', 'a street-view drag puts the dot under the pointer',
     (function(){
       const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
       const j = admin.indexOf("['mouseup', 'mouseleave']", i);
       const body = i === -1 ? '' : admin.slice(i, j);
-      return /const top = rmRoofTopM\(\);/.test(body) && /u > top \+ RM_EAVE_TOL_M/.test(body) &&
-             /if\(!\(u > 0\.3\)\) return;/.test(body);
+      return /cam\.e \+ dir\.e \* range/.test(body) && /c\.lat = wpt\.lat/.test(body);
     })(),
-    'the same ceiling that stops a click on the sky');
+    'a drag that will not go where it is dragged is not a drag');
+  check('S167', 'and it keeps the range it was picked up at, so the depth is untouched',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousedown'");
+      const j = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'", i);
+      const grab = i === -1 ? '' : admin.slice(i, j);
+      return /rmDragRange = p0/.test(grab) && /const range = rmDragRange/.test(admin);
+    })(),
+    'recomputing it every move would let the depth wander as the dot is waved about');
+  /* ⭐ A SKY DRAG MOVES FREELY IN PLAN AND HOLDS THE HEIGHT (2026-08-26).
+     Owner: "on sky view I can only drag left and right — I said I dont want
+     dragging the dot on sky view to change the height and thats still true, but i
+     should be able to move it in any direction still."
+
+     ⚠ THIS REPLACES A SLIDE ALONG THE CAMERA RAY, which these checks asserted
+     yesterday, and the reasoning for that was not wrong — it was over-constrained.
+     Every point along a ray draws at the same pixel, so sliding along it corrects
+     the DEPTH and leaves the photograph untouched, which is what "it should stay
+     in the same spot in street view" asked for. But a ray is a LINE: constrained
+     to it the dot can only travel one direction across the map, which reads as a
+     broken drag and cannot put the dot where the roof plainly is.
+
+     ⚠ THE TWO CANNOT BOTH HOLD. Moving freely in plan while holding the height
+     necessarily moves the dot in Street View — same height, different distance,
+     different elevation, different pixel. Staying fixed in the photograph
+     necessarily means moving along the ray, which necessarily changes the height.
+     Freedom in plan is the better half: from above you can SEE where the dot
+     belongs, and the depth has a proper answer of its own now in the measured
+     model displacement rather than needing to be nudged by hand. */
+  check('S167', 'a sky-view drag moves freely in plan',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /c\.lat = w\.lat; c\.lng = w\.lng;/.test(body) && !/rmRaySlideTo/.test(body);
+    })(),
+    'a ray is a line, and constrained to it the dot can only go one way across the map');
+  check('S167', 'and it does not touch the height',
+    (function(){
+      const i = admin.indexOf("getElementById('rmMapLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return !/c\.h = /.test(body);
+    })(),
+    'from above there is no height in the picture to read, so it must be left alone');
+  check('S167', 'and the slide it replaced is deleted, not left looking live',
+    !/function rmRaySlideTo/.test(admin) && /rmRaySlideTo IS GONE/.test(admin),
+    'dead code that looks live is worse than dead code that says so');
+  check('S167', 'and the street drag still refuses underground and above the roof',
+    (function(){
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return /const top = rmRoofTopM\(\);/.test(body) && /to\.u > top \+ RM_EAVE_TOL_M/.test(body) &&
+             /if\(!\(to\.u > 0\.3\)\) return;/.test(body);
+    })(),
+    'a drag must not reach a place a click could not');
   /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */
   check('S167', 'a moved dot stops being pinned',
     /c\.rays = \[\]; c\.pinned = 0; c\.spread = 0;/.test(admin),
@@ -39416,10 +39742,16 @@ suite('255. Measure Roof - the footage saved is the footage measured');
      the way in. It described arithmetic that had stopped happening, about the
      one number that drives bins, bulb orders and the price - so anybody reading
      it had to decide whether to trust the message or the number. */
-  check('S255', 'the feet multiplier is still 1',
-    /const RM_FEET_MULTIPLIER\s*=\s*1\s*;/.test(admin),
-    'feet are the wire on the house and the bulb count - a multiplier here breaks ' +
-    'bin sizing and bulb ordering. If the advertised rate should read lower, change the rate');
+  /* ⭐ NOW 2.9, ON THE OWNER'S INSTRUCTION (2026-08-26). The warning this check
+     carried is NOT withdrawn and is repeated here on purpose: feet are the wire
+     on the house and the bulb count, so this multiplies the bin sizing and the
+     bulb order along with the price. That is what was asked for - the owner's
+     position is that the measurement itself reads short, so the corrected
+     footage should drive all three. It is a single constant and reversible. */
+  check('S255', 'the feet multiplier is the owner-set 2.9',
+    /const RM_FEET_MULTIPLIER\s*=\s*2\.9\s*;/.test(admin),
+    'if this ever moves without a ruling behind it, every quote, bin count ' +
+    'and bulb order moves with it');
   check('S255', 'and the save message no longer claims the footage was doubled',
     !/measured, doubled/.test(admin),
     'the message described a x2 that no longer happens, about the number the whole quote rests on');
@@ -43381,6 +43713,602 @@ suite('278. The invoice document - what each person is asked for');
 }
 
 
+// =====================================================================
+suite('279. A customer email that is one letter wrong');
+/* ⭐ THE SAME TYPO, WHERE IT COSTS FAR MORE (2026-08-26). Suite 274 guards the box
+   the office types its OWN address into for a test send; owner then asked for the
+   same protection on the CUSTOMER's email. It is one letter and a much worse
+   outcome: a test that does not arrive is noticed in a minute, whereas a customer
+   record holding …@gmai.com is noticed by nobody at all. The nightly run hands their
+   invoice to a domain that does not exist, EmailJS answers OK, and the bounce goes
+   to the sending account nobody reads. The customer is never billed and nothing
+   anywhere turns red.
+   ⚠ TWO HALVES, AND THE SECOND IS THE ONE THAT PAYS. The note under the field stops
+   the NEXT typo; it does nothing about the ~960 addresses already on file, which is
+   what the Health Check row is for. A fix that cannot reach the records that are
+   already wrong is half a fix. */
+{
+  /* ---- the shape of the guard: a note, not a popup ---- */
+  const watchSrc = extractFn(admin, 'emailTypoWatch') || '';
+  check('S279', 'emailTypoWatch is in admin.html', !!watchSrc,
+    'renamed or removed — update this test rather than deleting it');
+
+  check('S279', 'it reads the SAME typo rule the test-invoice guard uses',
+    /emailTypoSuggestion\(/.test(watchSrc),
+    'a second opinion about what counts as a typo is how the form and Health Check start disagreeing');
+
+  /* ⚠ NOT A POPUP, deliberately. This fires while somebody is still typing, and
+     Edit Customer already opens up to three dialogs on one save. */
+  check('S279', 'the warning is a note under the field, never a dialog',
+    !/confirm\(/.test(watchSrc) && !/alert\(/.test(watchSrc) && /email-typo-note/.test(watchSrc),
+    'a dialog on every keystroke is one that gets dismissed unread');
+
+  /* ⚠ IT NEVER EDITS THE BOX BY ITSELF. Correcting somebody else\'s address on their
+     behalf is how a real address at an unusual domain is quietly replaced. */
+  check('S279', 'the box is only rewritten when Use it is actually pressed',
+    /\[data-usetypofix\]'\)\.addEventListener\('click', function\(\)\{\r?\n\s*input\.value = suggestion;/.test(watchSrc),
+    'the assignment must sit inside the click handler and nowhere else');
+  check('S279', 'and pressing it tells anything watching the field',
+    /dispatchEvent\(new Event\('input'/.test(watchSrc),
+    'a value set by script fires no event of its own, so a dirty-dot or preview would miss it');
+
+  /* ⚠ THE BUG THIS ONE CATCHES, AND IT SHIPPED IN THE FIRST DRAFT. refresh() runs on
+     BLUR as well as on input, and clicking Use it blurs the field — so rebuilding
+     note.innerHTML unconditionally destroyed the button node between mousedown and
+     mouseup, and the click never landed. Pressing Use it did nothing at all: the one
+     failure this whole note exists to prevent. Every source check passed throughout;
+     only driving it in a real browser found it. */
+  check('S279', 'the note is not rebuilt when the suggestion has not changed',
+    /note\.dataset\.shown === suggestion/.test(watchSrc),
+    'blur fires refresh, so an unconditional innerHTML rewrite destroys the Use it button mid-click');
+  check('S279', 'and applying the fix clears that marker, so re-typing the typo warns again',
+    /note\.dataset\.shown = '';[\s\S]{0,120}dispatchEvent/.test(watchSrc),
+    'left set, the second identical typo in the same box would be silent');
+
+  check('S279', 'a record opened with a typo already on it says so before anything is typed',
+    /refresh\(\);\r?\n\}/.test(watchSrc),
+    'the commonest case by far is a bad address that is ALREADY saved — waiting for a keystroke never fires for it');
+  /* ⚠ THE SECOND BUG THE BROWSER FOUND, and it silently disabled the commonest case.
+     The first draft returned early when the box was already watched — but the boxes
+     are bound once at start-up, so by the time Edit Customer is filled from a record
+     that guard was already set and refresh() never ran again. A customer whose STORED
+     address is already a typo showed nothing at all: the exact case the Health Check
+     row exists to mop up, failing silently in the form. Binding must not repeat;
+     checking must. */
+  check('S279', 'a box that is already watched is RE-CHECKED, not skipped',
+    /input\._typoRefresh\)\{ input\._typoRefresh\(\); return; \}/.test(watchSrc),
+    'returning early here means a record opened with a typo already on it says nothing');
+  check('S279', 'and the refresh is kept on the element so it can be called again',
+    /input\._typoRefresh = refresh;/.test(watchSrc),
+    'without a handle on it there is no way to re-check a box that is already bound');
+  check('S279', 'binding the listeners twice on one element is still a no-op',
+    /input\.dataset\.typowatch = '1';/.test(watchSrc) &&
+    watchSrc.indexOf("input._typoRefresh(); return;") < watchSrc.indexOf("input.addEventListener('input'"),
+    'the Edit form is repointed at another house without being rebuilt, so this is called again on the same box');
+
+  /* ---- which boxes are watched, and which deliberately are not ---- */
+  const idsLine = (admin.match(/const EMAIL_TYPO_WATCHED_IDS = \[[\s\S]*?\];/) || [''])[0];
+  check('S279', 'the watched list names both Add Customer boxes and both Edit Customer boxes',
+    ['addCustEmail', 'addCustEmail2', 'editCustEmail', 'editCustEmail2']
+      .every(function (id) { return idsLine.indexOf("'" + id + "'") > -1; }),
+    'a typo in the secondary address loses a bill just as completely as one in the first');
+  check('S279', 'the per-house card on the bill is watched too',
+    /emailTypoWatch\(panel\.querySelector\('\.hd-email2'\)\)/.test(admin),
+    'that card is built by innerHTML, so it is a fresh element the id list can never reach');
+  check('S279', 'Edit Customer re-checks when the form is repointed at another house',
+    /editCustEmail2'\)\.value = d\.email2 \|\| '';[\s\S]{0,400}emailTypoWatchAll\(\)/.test(admin),
+    'the house tabs refill this same form, so a note from the previous house would sit over the new address');
+
+  /* ⚠ THE IMPORTERS ARE NOT WATCHED, AND MUST NOT BE. They write hundreds of rows
+     from a spreadsheet; the addresses are not being typed and a note per row is
+     both useless and unreadable. */
+  check('S279', 'the bulk importers and the sheet sync are NOT watched',
+    !/rbImportBtn|ibImportBtn|rbSyncAllBtn/.test(idsLine),
+    'hundreds of rows from a spreadsheet is not somebody typing an address');
+
+  /* ---- the half that reaches the records already on file ---- */
+  const hcSrc = extractFn(admin, 'hcRunChecks') || admin;
+  check('S279', 'Health Check has a row for the typos already on file',
+    /id: 'emailTypo'/.test(hcSrc),
+    'the note under the field only stops the NEXT one — the ~960 already typed are the ones costing money now');
+  check('S279', 'it checks the secondary address as well as the first',
+    /\['email', d\.email\], \['email2', d\.email2\]/.test(hcSrc),
+    'a bill can go to either');
+  check('S279', 'it reads the same rule as the form, not a second copy',
+    /emailTypoRows[\s\S]{0,400}emailTypoSuggestion\(/.test(hcSrc),
+    'two opinions about what a typo is means Health Check and the form contradicting each other about one customer');
+
+  /* ⚠ NO FIX BUTTON. Every other repair here is about our own data; this one is a
+     guess about somebody else's address, at scale, with no undo. */
+  check('S279', 'the Health Check row offers NO automatic fix button',
+    /id: 'emailTypo'[\s\S]{0,900}?fix: null/.test(hcSrc),
+    'mass-rewriting nine hundred addresses on an edit distance would eventually overwrite a real one, and nobody would know which');
+  check('S279', 'and it says why there is no button',
+    /id: 'emailTypo'[\s\S]{0,900}?fixNote: 'No button/.test(hcSrc),
+    'a missing button with no reason reads as an oversight, and somebody adds one');
+}
+{
+  /* ---- run the rule the form and Health Check share, on customer-shaped input ---- */
+  const names = ['emailEditDistance', 'emailTypoSuggestion'];
+  const bodies = names.map(function (n) { return extractFn(admin, n); });
+  if (bodies.every(Boolean)) {
+    const lists = ['EMAIL_COMMON_DOMAINS', 'EMAIL_LOOKALIKE_BUT_REAL'].map(function (c) {
+      const i = admin.indexOf('const ' + c + ' =');
+      return admin.slice(i, admin.indexOf('];', i) + 2);
+    });
+    const F = new Function(lists.join(';') + ';' + bodies.join(';') + ';return {emailTypoSuggestion};')();
+    /* A customer record carries whatever the office typed, including blanks and the
+       odd stray space — none of which may produce a suggestion. */
+    check('S279', 'a blank email on a customer raises nothing',
+      F.emailTypoSuggestion('') === null && F.emailTypoSuggestion(null) === null &&
+      F.emailTypoSuggestion(undefined) === null,
+      'most customers have no secondary address at all — a warning on every one of them is noise');
+    check('S279', 'a real customer address at a business domain raises nothing',
+      F.emailTypoSuggestion('office@highlightingutah.com') === null &&
+      F.emailTypoSuggestion('jane@comcast.net') === null,
+      'the office types real addresses far more often than typos');
+    check('S279', 'and a customer typo is caught',
+      F.emailTypoSuggestion('jane@gmai.com') === 'jane@gmail.com' &&
+      F.emailTypoSuggestion('bob@hotmial.com') === 'bob@hotmail.com',
+      'this is the whole point');
+  }
+}
+
+
+suite('280. A quote link behind her own words');
+/* ⭐ Owner, 2026-08-26, on the quote message: "I don't want a long li[n]k I want
+   it to say ... See your home and approve here. The link will be behind here?"
+
+   A quote link had two shapes and neither is a sentence: {{link}} prints the
+   whole ~80-character URL, and {{link_button}} is a gold block whose words are
+   ours. {{link:the words she types}} is the third — her words, the link behind
+   them.
+
+   ⚠ THE RULE EXISTS TWICE, like every other rule that crosses the wire. The
+   office sends the Nudge from the browser; the nightly batch renders it in
+   functions/index.js. A token one copy understands and the other does not mails
+   a customer the raw "{{link:See your home and approve here}}" on the one send
+   nobody is watching. So this suite RUNS both copies over the same inputs and
+   requires the same bytes out — it does not read either of them.
+
+   ⚠ AND IT ASSERTS THE ANSWER IS RIGHT, not merely equal. Two copies escaping
+   nothing agree perfectly.
+*/
+{
+  const fnsSrc = read('functions/index.js');
+
+  const browserFn = extractFn(admin, 'applyQuoteLinkLabel');
+  const browserPlain = extractFn(admin, 'quoteLinkLabelPlain');
+  const serverFn = extractFn(fnsSrc, 'applyQuoteLinkLabelServer');
+  const browserStyle = admin.match(/const QUOTE_LINK_LABEL_STYLE = '[^']+';/);
+  const serverStyle = fnsSrc.match(/const QUOTE_LINK_LABEL_STYLE_SERVER = '[^']+';/);
+
+  const browserBtn = extractFn(admin, 'applyQuoteLinkButton');
+  const serverBtn = extractFn(fnsSrc, 'applyQuoteLinkButtonServer');
+  const bBtnStyle = admin.match(/const QUOTE_LINK_BUTTON_STYLE = '[^']+';/);
+  const sBtnStyle = fnsSrc.match(/const QUOTE_LINK_BUTTON_STYLE_SERVER = '[^']+';/);
+  const bBtnDflt = admin.match(/const QUOTE_LINK_BUTTON_DEFAULT = '[^']+';/);
+  const sBtnDflt = fnsSrc.match(/const QUOTE_LINK_BUTTON_DEFAULT_SERVER = '[^']+';/);
+
+  /* A parity test that cannot find its target must never report green — the
+     rule money-parity.test.js is built on. */
+  check('S280', 'both copies of the rule are findable, and their styles with them',
+    !!browserFn && !!serverFn && !!browserPlain && !!browserStyle && !!serverStyle,
+    'a rename here fails loudly rather than quietly testing nothing');
+
+  if (browserFn && serverFn && browserPlain && browserStyle && serverStyle) {
+    const runBrowser = new Function('text', 'url',
+      browserStyle[0] + '\n' + browserFn + '\nreturn applyQuoteLinkLabel(text, url);');
+    const runServer = new Function('text', 'url',
+      serverStyle[0] + '\n' + serverFn + '\nreturn applyQuoteLinkLabelServer(text, url);');
+    const runPlain = new Function('text',
+      browserPlain + '\nreturn quoteLinkLabelPlain(text);');
+
+    const URL = 'https://highlightingutah.com/#/quote-details?token=qt_abc123&p=pt_x';
+
+    /* Her own sentence first, then the shapes that break naive implementations:
+       an apostrophe (the one esc/escServer disagree about), an ampersand, an
+       angle bracket, an empty label, a label of only spaces, two labelled links
+       in one body, a labelled link beside the plain and button forms, and a
+       body with none at all. */
+    const CASES = [
+      'See your home and approve {{link:here}}.',
+      'Hi Sam,\n\nYour quote is ready: $250.00.\n\n{{link:See your home and approve here}}',
+      "{{link:Here's your quote}}",
+      '{{link:Bob & Sue}}',
+      '{{link:<b>press me</b>}}',
+      '{{link:}}',
+      '{{link:   }}',
+      '{{link:one}} and {{link:two}}',
+      'Plain {{link}} button {{link_button}} words {{link:and these}}',
+      'Nothing to do here at all.',
+      ''
+    ];
+
+    let disagreed = null;
+    CASES.forEach(function (body) {
+      const b = runBrowser(body, URL);
+      const s = runServer(body, URL);
+      if (b !== s && !disagreed) disagreed = { body: body, browser: b, server: s };
+    });
+    check('S280', 'the office and the nightly batch render every case identically',
+      !disagreed,
+      disagreed ? ('on ' + JSON.stringify(disagreed.body) + '\n        browser: ' +
+        disagreed.browser + '\n        server:  ' + disagreed.server) : '');
+
+    /* ---- and that what they agree on is correct ---- */
+    const simple = runBrowser('See your home and approve {{link:here}}.', URL);
+    check('S280', 'her words are what the customer sees, not the address',
+      simple.indexOf('>here</a>') !== -1 && simple.indexOf('See your home and approve <a') !== -1,
+      'the whole point is a sentence, not a URL dropped into one');
+    check('S280', 'and the link is behind them',
+      simple.indexOf('href="' + URL + '"') !== -1,
+      'a label with no href is a word that does nothing');
+    check('S280', 'the token itself is gone',
+      simple.indexOf('{{link') === -1,
+      'a leftover token is what the customer reads');
+
+    check('S280', 'an apostrophe in the words survives as an apostrophe',
+      runBrowser("{{link:Here's your quote}}", URL).indexOf("Here's your quote") !== -1,
+      'esc() escapes the apostrophe and escServer does not — borrowing either would split the two copies on the commonest word there is');
+    check('S280', 'an ampersand is escaped',
+      runBrowser('{{link:Bob & Sue}}', URL).indexOf('Bob &amp; Sue') !== -1,
+      'a bare & in an email body is invalid and renders unpredictably');
+    check('S280', 'and markup typed into the words cannot break out of the tag',
+      /&lt;b&gt;press me&lt;\/b&gt;/.test(runBrowser('{{link:<b>press me</b>}}', URL)),
+      'the words come out of a text box; the URL is one we built');
+
+    check('S280', 'a blank label falls back to a word, never an empty link',
+      runBrowser('{{link:}}', URL).indexOf('>here</a>') !== -1 &&
+      runBrowser('{{link:   }}', URL).indexOf('>here</a>') !== -1,
+      'an empty anchor is a link nobody can see or press — the message reads as if it were missing');
+
+    const two = runBrowser('{{link:one}} and {{link:two}}', URL);
+    check('S280', 'every labelled link in one body is replaced, not just the first',
+      two.indexOf('>one</a>') !== -1 && two.indexOf('>two</a>') !== -1,
+      'a non-global regex leaves the second one as raw text');
+
+    /* ⚠ {{link}} is matched as a literal string elsewhere, so it cannot eat the
+       front of a {{link:...}}. Asserted, because the day somebody rewrites that
+       split as a regex is the day this stops being true and a customer gets
+       "https://...:See your home and approve here}}". */
+    const mixed = runBrowser('Plain {{link}} words {{link:and these}}', URL);
+    check('S280', 'the labelled form does not disturb the plain {{link}} beside it',
+      mixed.indexOf('Plain {{link}} words ') === 0 && mixed.indexOf('>and these</a>') !== -1,
+      'the two forms have to coexist in one body — the office writes both');
+    check('S280', 'and {{link_button}} is left for its own renderer',
+      runBrowser('{{link_button}}', URL) === '{{link_button}}',
+      'swallowing the button token would turn a gold block into the word "button"');
+
+    /* ---- the text-message half ---- */
+    check('S280', 'a text keeps her words and drops the token',
+      runPlain('See your home and approve {{link:here}}.') === 'See your home and approve here.',
+      'a text is plain characters — an anchor cannot exist, so the words have to survive on their own');
+    check('S280', 'and a text never carries HTML',
+      runPlain('{{link:Bob & Sue}}').indexOf('<') === -1 &&
+      runPlain('{{link:Bob & Sue}}').indexOf('&amp;') === -1,
+      'escaped markup pasted into a text message is read literally by the phone');
+    check('S280', 'a blank label in a text falls back the same way',
+      runPlain('{{link:}}') === 'here',
+      'the two halves must agree about what nothing means');
+  }
+
+  /* ---------------------------------------------------------------
+     THE BUTTON. Same rule, second shape — and this half also closed a
+     leak: until 2026-08-26 the nightly nudge renderer did not know
+     {{link_button}} existed at all, so a Nudge template carrying a
+     button rendered gold from the office and arrived as the literal
+     fifteen characters "{{link_button}}" from the 7 PM batch.
+     --------------------------------------------------------------- */
+  check('S280', 'both copies of the button rule are findable, with their style and default',
+    !!browserBtn && !!serverBtn && !!bBtnStyle && !!sBtnStyle && !!bBtnDflt && !!sBtnDflt,
+    'a parity test that cannot find its target must never report green');
+
+  /* ⚠ The style and the default word are compared as STRINGS, not merely both
+     present. Two buttons that agree about everything except their padding are
+     two different emails for one template. */
+  check('S280', 'the gold style is the same string on both sides',
+    !!bBtnStyle && !!sBtnStyle &&
+    bBtnStyle[0].slice(bBtnStyle[0].indexOf("'")) === sBtnStyle[0].slice(sBtnStyle[0].indexOf("'")),
+    'the browser hoisted this constant out of resolveLinkTokens for no other reason than that the server could be held to it');
+  check('S280', 'and so is the wording of the plain button',
+    !!bBtnDflt && !!sBtnDflt &&
+    bBtnDflt[0].slice(bBtnDflt[0].indexOf("'")) === sBtnDflt[0].slice(sBtnDflt[0].indexOf("'")),
+    'one saying "View & Respond" and the other saying something else is two emails for one template');
+
+  if (browserBtn && serverBtn && bBtnStyle && sBtnStyle && bBtnDflt && sBtnDflt && browserPlain) {
+    const runBtnB = new Function('text', 'url', 'dflt',
+      bBtnStyle[0] + '\n' + bBtnDflt[0] + '\n' + browserBtn +
+      '\nreturn applyQuoteLinkButton(text, url, dflt);');
+    const runBtnS = new Function('text', 'url', 'dflt',
+      sBtnStyle[0] + '\n' + sBtnDflt[0] + '\n' + serverBtn +
+      '\nreturn applyQuoteLinkButtonServer(text, url, dflt);');
+    const runPlain2 = new Function('text',
+      bBtnDflt[0] + '\n' + browserPlain + '\nreturn quoteLinkLabelPlain(text);');
+    const U = 'https://highlightingutah.com/#/quote-details?token=qt_abc123';
+
+    const BCASES = [
+      '{{link_button}}',
+      '{{link_button:See your home and approve}}',
+      "{{link_button:Here's your quote}}",
+      '{{link_button:Bob & Sue}}',
+      '{{link_button:}}',
+      '{{link_button:   }}',
+      '{{link_button:one}} {{link_button:two}}',
+      'Words {{link:here}} and a block {{link_button:approve}}',
+      'nothing at all'
+    ];
+    let bad = null;
+    BCASES.forEach(function (body) {
+      const b = runBtnB(body, U);
+      const sv = runBtnS(body, U);
+      if (b !== sv && !bad) bad = { body: body, browser: b, server: sv };
+    });
+    check('S280', 'the office and the nightly batch render every button case identically',
+      !bad,
+      bad ? ('on ' + JSON.stringify(bad.body) + '\n        browser: ' + bad.browser +
+        '\n        server:  ' + bad.server) : '');
+
+    check('S280', 'a bare {{link_button}} still says what it has always said',
+      runBtnB('{{link_button}}', U).indexOf('>View &amp; Respond</a>') !== -1,
+      'the words are ours here, and changing them would silently reword every template already using it');
+    check('S280', 'and her words replace them when she gives some',
+      runBtnB('{{link_button:See your home and approve}}', U)
+        .indexOf('>See your home and approve</a>') !== -1);
+    check('S280', 'the button still carries the gold block styling, not a bare link',
+      /background:#D89F3D/.test(runBtnB('{{link_button}}', U)),
+      'a button that renders as plain text is not the thing she picked');
+    check('S280', 'an empty label falls back to the default rather than an invisible button',
+      runBtnB('{{link_button:}}', U).indexOf('>View &amp; Respond</a>') !== -1 &&
+      runBtnB('{{link_button:   }}', U).indexOf('>View &amp; Respond</a>') !== -1);
+    check('S280', 'a caller-supplied label is still honoured',
+      runBtnB('{{link_button}}', U, 'Log Into Your Portal')
+        .indexOf('>Log Into Your Portal</a>') !== -1,
+      'etResolveVars passes one for the portal emails — dropping it would relabel every one of them');
+    check('S280', 'her words beat the caller-supplied label',
+      runBtnB('{{link_button:Pay now}}', U, 'Log Into Your Portal')
+        .indexOf('>Pay now</a>') !== -1,
+      'the words typed into the template are the more specific answer');
+    check('S280', 'the plain {{link}} beside it is left alone',
+      runBtnB('Words {{link}} block {{link_button:go}}', U).indexOf('{{link}}') !== -1,
+      'the two renderers run one after the other and must not eat each other\'s tokens');
+    check('S280', 'a text keeps the button words and carries no HTML',
+      runPlain2('{{link_button:See your home and approve}}') === 'See your home and approve' &&
+      runPlain2('{{link_button}}') === 'View & Respond',
+      'a button token left in a text template used to reach the customer as those exact characters');
+  }
+
+  /* ---- the wiring. Suite 276's lesson: a mechanism nothing calls is a
+     mechanism that never runs, and the suite proving it stays green. ---- */
+  /* Sliced between two real anchors, never "the next N characters" — §7, and
+     the suite's own meta-check enforces it. */
+  const linkStart = admin.indexOf('  if(opts.link){');
+  const linkBlock = linkStart === -1 ? '' :
+    admin.slice(linkStart, admin.indexOf("{{due_date}}", linkStart));
+  check('S280', 'the email renderer actually calls it',
+    !!linkBlock && /applyQuoteLinkLabel\(out, opts\.link\)/.test(linkBlock),
+    'defined and never called is how this ships doing nothing at all');
+
+  /* The whole expression, so no window is needed at all: there is exactly one
+     place the text body is built out of a template. */
+  check('S280', 'and the text builder strips it',
+    admin.indexOf('quoteLinkLabelPlain(htmlEmailToPlainText(template.data.body') !== -1,
+    'without this a text message carries the raw {{link:...}} token to the customer');
+  check('S280', 'the nightly nudge calls the server copy',
+    /body = applyQuoteLinkLabelServer\(body, base\);/.test(fnsSrc),
+    'the browser understanding a token the batch does not is exactly the {{photo}} bug of 2026-08-17');
+  check('S280', 'and the nightly nudge renders the button at all',
+    /body = applyQuoteLinkButtonServer\(body, base\);/.test(fnsSrc),
+    'this is the leak itself: without the call a Nudge with a button mails the raw "{{link_button}}" every night');
+  check('S280', 'the email renderer routes the button through the shared rule',
+    !!linkBlock && /applyQuoteLinkButton\(out, opts\.link, opts\.linkLabel\)/.test(linkBlock),
+    'an inline copy here is what let the server fall a token behind in the first place');
+  check('S280', 'and no second spelling of the gold style is left behind',
+    admin.indexOf("const btnStyleGold = QUOTE_LINK_BUTTON_STYLE;") !== -1,
+    'the hoist is the whole reason the two sides can be compared — a re-typed copy drifts');
+  check('S280', 'the button-with-your-words token is offered in Insert Codes',
+    admin.indexOf("{token:'{{link_button:See your home and approve}}'") !== -1);
+
+  /* The office has to be able to find it without being told it exists. */
+  check('S280', 'the token is offered in Insert Codes',
+    admin.indexOf("{token:'{{link:See your home and approve here}}'") !== -1,
+    'a feature only reachable by typing a syntax nobody documented is not a feature');
+  check('S280', 'and Manage custom codes is no longer hidden one tab deep',
+    /manageWrap\.style\.display = 'block';/.test(admin),
+    'owner, 2026-08-26: "it says customize when I open insert code but nowhere to customize it"');
+}
+
+// =====================================================================
+suite('281. The short quote link');
+/* ⭐ Owner, 2026-08-26: "I don't want a long link." The quote link was
+   https://highlightingutah.com/#/quote-details?token=qt_s5k89n9wnmh_1787775998287
+   — 79 characters. A text is billed in 160-character segments, so that link
+   alone put every quote text into a SECOND segment: double the cost of every
+   quote she sends.
+
+   highlightingutah.com/q/<token> is the same page, reached the same way.
+
+   ⚠ IT IS A REWRITE, NOT A LOOKUP. The bit after /q/ IS the quote token, so
+   there is no short-code table, no extra read, and every quote that already
+   exists works at the short address immediately. Both spellings work for ever
+   — which is what makes this safe to ship while long links sit in inboxes.
+*/
+{
+  const idx = read('index.html');
+  const redirects = read('_redirects');
+
+  /* ---- the plumbing. Miss any one of these three and the link 404s. ---- */
+  check('S281', 'Netlify rewrites /q/* to the app',
+    /^\/q\/\*\s+\/index\.html\s+200\s*$/m.test(redirects),
+    'without the rewrite the short link is a 404 on a static host — the page never loads at all');
+  /* ⚠ AND IT NEEDS THE APP'S OWN CACHE RULE. _headers gives no-cache to
+     /index.html and to /, and a request for /q/<token> matches NEITHER — so this
+     would be the one address the app is reachable at that a browser may serve
+     from cache. A customer following a quote link would be the single person
+     running a stale copy, which is the exact problem _headers was written for. */
+  check('S281', 'and the short address gets the same no-cache rule as the app',
+    /^\/q\/\*\s*$/m.test(read('_headers')) &&
+    /^\/q\/\*\s*\r?\n\s+Cache-Control: no-cache\s*$/m.test(read('_headers')),
+    'a cached index.html served at /q/ is a stale half of the app answering a live link');
+
+  const shortBlock = idx.slice(idx.indexOf('var m = null;'), idx.indexOf('var forceHomepage = false;'));
+  check('S281', 'the app reads the token out of the path',
+    /\/\^\\\/q\\\/\(\[A-Za-z0-9_-\]\+\)/.test(shortBlock) ||
+    /\^\\\/q\\\//.test(shortBlock),
+    'the rewrite serves index.html at /q/<token>; something has to turn that path back into a route');
+  check('S281', 'and turns it into the same route the long link uses',
+    /window\.location\.hash = '\/quote-details\?token=' \+ encodeURIComponent/.test(shortBlock),
+    'a second way of opening a quote is a second thing to keep in step — this reuses the long link\'s own route');
+  check('S281', 'the portal token still rides along when there is one',
+    /'&p=' \+ encodeURIComponent/.test(shortBlock),
+    'dropping it silently costs an existing member a sign-in on every re-quote');
+
+  /* ⭐ THE ORDERING IS THE WHOLE SAFETY ARGUMENT. The saved-login block sends
+     anybody with a remembered sign-in to /payment when the hash is empty — and
+     a bare /q/ URL has an empty hash. Run second and a customer following a
+     quote link lands on their balance instead of the quote. */
+  check('S281', 'it runs BEFORE the saved-login redirect',
+    idx.indexOf('var m = null;') !== -1 &&
+    idx.indexOf('var m = null;') < idx.indexOf("savedPortalToken = localStorage.getItem"),
+    'run second, a remembered sign-in sends the customer to /payment and the quote is never seen');
+
+  /* ---- run the real path matcher, rather than reading it ---- */
+  const reMatch = shortBlock.match(/\/\^[^\n]*?\/\.exec\(window\.location\.pathname/);
+  check('S281', 'the path pattern is findable', !!reMatch);
+  if (reMatch) {
+    const rePart = reMatch[0].slice(0, reMatch[0].indexOf('.exec('));
+    const re = new Function('return ' + rePart)();
+    const tok = (p) => { const m = re.exec(p); return m && m[1]; };
+    check('S281', 'a short link resolves to its token',
+      tok('/q/qt_k7m2x9p4qw3z') === 'qt_k7m2x9p4qw3z');
+    check('S281', 'a trailing slash is the same link',
+      tok('/q/qt_k7m2x9p4qw3z/') === 'qt_k7m2x9p4qw3z',
+      'phones and mail clients add one — a link that dies on a slash dies at random');
+    check('S281', 'an old long-form token still works at the short address',
+      tok('/q/qt_s5k89n9wnmh_1787775998287') === 'qt_s5k89n9wnmh_1787775998287',
+      'every quote already in the book has one of these; the short address must not be new-quotes-only');
+    check('S281', 'the 20-character token the PUBLIC form mints works too',
+      tok('/q/abcdefghij0123456789') === 'abcdefghij0123456789',
+      'index.html generates its own shape for a quote a visitor raises — a third shape, and it must not 404');
+    check('S281', 'the homepage is not swallowed',
+      tok('/') === null && tok('/home') === null && tok('/q') === null && tok('/q/') === null,
+      'a pattern loose enough to match / would hijack every visit to the site');
+    check('S281', 'and a path with another segment is not a quote link',
+      tok('/q/abc/def') === null,
+      'matching loosely here turns a mistyped URL into a lookup for a token nobody has');
+  }
+
+  /* ---- the token generator ---- */
+  const genSrc = extractFn(admin, 'newQuoteToken');
+  const alpha = admin.match(/const QUOTE_TOKEN_ALPHABET = '[^']+';/);
+  check('S281', 'the shared token generator is findable', !!genSrc && !!alpha);
+
+  /* ⚠ COMMENTS STRIPPED. The block above newQuoteToken quotes the old shape in
+     prose to explain why it went — a plain search finds the explanation and
+     calls it a violation. Suites 58, 274 and 275 each learned this separately. */
+  check('S281', 'nothing mints a quote token by hand any more',
+    !/'qt_' \+ Math\.random/.test(stripComments(admin)),
+    'it was written out four times identically; the fifth copy is the one that drifts');
+  check('S281', 'and all four sites go through it',
+    (admin.match(/= newQuoteToken\(\);/g) || []).length === 4,
+    'a site left behind keeps minting the 28-character shape and its links stay long');
+
+  if (genSrc && alpha) {
+    const gen = new Function('crypto', 'console',
+      alpha[0] + '\n' + genSrc + '\nreturn newQuoteToken;');
+    const realCrypto = { getRandomValues: (b) => { for (let i = 0; i < b.length; i++) b[i] = (i * 37 + 11) % 256; return b; } };
+    const quiet = { warn: () => {}, error: () => {} };
+    const make = gen(realCrypto, quiet);
+
+    const t = make();
+    check('S281', 'a token is short enough to matter',
+      t.length === 15,
+      'got ' + t.length + ' — the old shape was 28, of which 13 were a timestamp nothing reads');
+    check('S281', 'it is still a quote token by sight',
+      t.indexOf('qt_') === 0,
+      'the prefix is what makes one recognisable in the database and in a log line');
+    check('S281', 'it uses no characters people misread',
+      !/[lo01]/.test(t.slice(3)),
+      'this string now appears in a text message somebody may read aloud or retype');
+
+    /* ⚠ THE FALLBACK MUST STILL PRODUCE A USABLE TOKEN. A browser with no
+       crypto has to send the quote, not fail at the last step. */
+    const broken = gen({ getRandomValues: () => { throw new Error('nope'); } }, quiet);
+    const f = broken();
+    check('S281', 'a browser without crypto still gets a working token',
+      f.indexOf('qt_') === 0 && f.length === 15 && !/[lo01]/.test(f.slice(3)),
+      'failing here would mean the quote cannot be sent at all — worse than the weaker generator');
+
+    /* Uniqueness, run rather than assumed — with REAL randomness, not the
+       counting stub above, which cannot collide by construction. */
+    const realGen = gen(require('crypto').webcrypto || require('crypto'), quiet);
+    const seen = new Set();
+    for (let i = 0; i < 4000; i++) seen.add(realGen());
+    check('S281', 'four thousand tokens are four thousand different tokens',
+      seen.size === 4000,
+      'two quotes sharing a token means one customer opening the other\'s quote — ' +
+      'the server finds one by equality and takes the first');
+  }
+
+  /* ---- what actually goes in the text ---- */
+  const shortFn = extractFn(admin, 'quoteShortLink');
+  check('S281', 'the short-link builder is findable', !!shortFn);
+  if (shortFn) {
+    const build = new Function('quotePortalParam',
+      shortFn + '\nreturn quoteShortLink;');
+    const plain = build(() => '')({ quoteToken: 'qt_k7m2x9p4qw3z' });
+    const member = build(() => '&p=abcdefghij0123456789')({ quoteToken: 'qt_k7m2x9p4qw3z' });
+
+    check('S281', 'a new lead gets the bare short link',
+      plain === 'highlightingutah.com/q/qt_k7m2x9p4qw3z',
+      'got ' + plain);
+    /* ⚠ The long link joins its params with &, because ?token= comes first.
+       The short one has no query at all until this, so the FIRST one must be a
+       ? — pasting the long form's "&p=" straight on gives a URL whose query is
+       never parsed and a member who is not logged in. */
+    check('S281', 'an existing member gets ?p=, not the long link\'s &p=',
+      member === 'highlightingutah.com/q/qt_k7m2x9p4qw3z?p=abcdefghij0123456789',
+      'got ' + member);
+    check('S281', 'no https:// and no www',
+      plain.indexOf('http') === -1 && plain.indexOf('www.') === -1,
+      'phones linkify a bare domain, and eight characters here is the difference between one billed text and two');
+
+    /* ⭐ THE POINT OF THE WHOLE EXERCISE, measured rather than asserted:
+       the real shipped template, a realistically long name, one segment. */
+    const tmpl = admin.match(/body: 'Hi \{\{name\}\}, your Highlighting Utah Christmas light quote is ready: \{\{price\}\}\.[^']*'/);
+    check('S281', 'the shipped text template is findable', !!tmpl);
+    if (tmpl) {
+      const bodyText = new Function('return ' + tmpl[0].slice(tmpl[0].indexOf("'")))()
+        .split('{{name}}').join('Christopher')
+        .split('{{price}}').join('$1,250.00')
+        .split('{{link}}').join(plain);
+      check('S281', 'a quote text now fits in ONE billed message',
+        bodyText.length <= 160,
+        'got ' + bodyText.length + ' characters — this is the entire reason the short link exists');
+    }
+  }
+
+  /* ---- both text paths use it, and neither leaks a raw token ---- */
+  check('S281', 'both text paths build the short link',
+    (admin.match(/const link = quoteShortLink\(d\);/g) || []).length === 2,
+    'Send the text and Copy the text are two separate builders — one left behind sends the long link');
+  check('S281', 'and both strip the label tokens',
+    (admin.match(/quoteLinkLabelPlain\(htmlEmailToPlainText\(template\.data\.body/g) || []).length === 2,
+    'the copy-the-text path was left behind when {{link:...}} was added, so it put the raw token on the clipboard');
+
+  /* ⚠ THE EMAIL IS DELIBERATELY LEFT LONG. An email has no length problem, its
+     links carry &action=approve, and those URLs are already in inboxes. */
+  /* ⚠ COUNTED, NOT MERELY PRESENT. The first version of this asked only whether
+     the long form appeared ANYWHERE, and it appears at three sites — the quote
+     send, the re-quote send and the add-on send. A red-check switching ONE of
+     them to the short link sailed straight through on the strength of the other
+     two. Three is the number today; a fourth email path is welcome to exist, but
+     it should have to come past this line and say so. */
+  check('S281', 'all three email sends still use the long link',
+    (admin.match(/button_url: 'https:\/\/highlightingutah\.com\/#\/quote-details\?token=' \+ \(d\.quoteToken \|\| ''\) \+ quotePortalParam\(d\),/g) || []).length === 3,
+    'an email has no length problem, its links carry &action=approve, and those URLs are already in inboxes — ' +
+    'the short link is for the text message and nothing else');
+}
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
