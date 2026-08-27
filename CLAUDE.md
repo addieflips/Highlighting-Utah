@@ -156,6 +156,12 @@ Work on the branch for the area you are touching. There is a standing branch per
   tab/automation  Automation and Automation Emails: nightly invoicing, templates, SMS, weather
   tab/employees   Responsibilities and Time Logs: staff, crews, timecards, payroll export
   tab/website     Public site content: Reviews, Gallery, Hero Images, FAQ, Site Settings
+⭐ SEVERAL CHATS AT ONCE: ONE BRANCH EACH, AND NEVER THE SAME FILE REGION (asked by the owner 2026-08-26, "I do have other chats open would it be better to open branches?" — yes, and this is why).
+  ⭐ THE ANSWER IS ALWAYS A BRANCH PER CHAT. Two sessions on one branch overwrite each other with no record; two sessions on two branches produce a MERGE CONFLICT, which is loud, reviewable and fixable. A conflict is not a problem to avoid — it is the good outcome, and the whole reason the tab/* branches above exist.
+  ⚠ THE FAILURE THIS PREVENTS HAS ALREADY HAPPENED HERE, on 2026-08-19: a parallel session pasted admin.html over a read taken before two commits, and the priority and prefKey changes vanished while everything around them survived. Nothing went red, because the same push removed the checks that would have caught it. That is what "merge, never paste" in §5 is about, and a branch is what makes a paste into a conflict instead.
+  ⚠ PICK THE BRANCH BY THE AREA, NOT BY THE CHAT. The tab/* list above is the map: two chats both editing the Inbox belong on tab/messages one after the other, NOT on two branches, because they will conflict inside the same few hundred lines and the second merge will be guesswork. Two chats on genuinely different areas can run at once safely.
+  ⚠ AND RE-PULL IMMEDIATELY BEFORE DELIVERY, not just before editing. main moved four times during one session on 2026-08-26; a branch cut an hour earlier merges clean and still reverts somebody's work if it was pushed from a stale read.
+  ⚠ A CONFLICTED PR GETS NO CI AT ALL — see the deploy section below. GitHub cannot build the merge ref, so the two required checks are never queued, while Netlify's checks still run and go green. On several chats at once this is the likeliest way a PR sits looking healthy and unmergeable.
 Bring the branch up to date from main first (git merge main), work, run the gates, then open a PR against main and merge it — ⚠ main is protected and rejects a direct push, see §1. These branches are long-lived — don't delete them after merging. Anything that doesn't fit one of them, or spans several, goes straight to main or onto a one-off claude/... branch.
 Keep the Project To-Do checklist truthful. Any change that alters what a checklist test (TEST_SEED, in js/test-seed.js since 2026-08-14 — it used to be inline in admin.html) describes — a renamed button, a moved feature, changed behavior — needs that test's wording fixed and its version number bumped in the same change, or it silently goes stale (see §2 and §7). When a change retires a UI term a test used to describe (a renamed button, a removed label), add it to RETIRED_CHECKLIST_TERMS in run-all.js in the same commit — that's what actually fails gate B if this rule gets skipped, not just this sentence.
 
@@ -312,6 +318,24 @@ bash
 #     #142 opened, head 522abce ......... a pull_request run within 2 seconds,
 #                                        both required jobs green in 45 seconds,
 #                                        mergeable_state "clean", merged normally
+#     #158 opened, head 30a2e4b ......... a pull_request run within seconds, green
+#     #160 opened, head e1aedbd ......... NO pull_request run, and mergeable_state
+#                                        was "dirty" — a real conflict with main
+#     merge main, push 0acbda4 .......... a pull_request run ~2 min later, both
+#                                        required jobs green, merged normally
+#   ⭐ #160 IS THE FIRST OBSERVATION HERE WITH A KNOWN CAUSE, and it is worth more
+#   than the others because of it: THE PR WAS IN CONFLICT. GitHub builds the
+#   pull_request checks against refs/pull/N/merge, and that ref cannot exist while
+#   the merge fails — so a conflicted PR gets NO run at all rather than a failing
+#   one. Resolving the conflict and pushing produced a run immediately.
+#   ⚠ SO CHECK `mergeable_state` FIRST when the required checks are missing. It was
+#   mistaken for the flakiness above and cost a wait for a run that was never
+#   coming. Netlify's three checks DO still run on a conflicted PR and DO go green,
+#   so the PR page looks busy and healthy while the two checks that actually gate
+#   it have not been queued — that is what makes it hard to spot.
+#   ⚠ AND IT DOES NOT EXPLAIN THE EARLIER MISSING RUNS, which is why the flakiness
+#   note above stands unchanged. #137's head was not reported conflicted. One
+#   observation with a cause does not retire three without one.
 #   So it is not suppressed, and it is not dependable either. Do NOT conclude from
 #   one missing run that CI is broken or that the code is at fault; do not conclude
 #   from one prompt run that it will be there next time.
