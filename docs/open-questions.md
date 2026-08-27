@@ -1333,9 +1333,7 @@ so leaving it conditional would re-create the very asymmetry that hid the phone 
 That changes what the office reads on every screen and export, and is a separate
 decision.
 
-**Resulting map change:** **MON-25**.
-
-**Resulting map change:** **MON-23**.
+**Resulting map change:** **MON-23** for the original answer, **MON-25** for Q-019a.
 
 ---
 
