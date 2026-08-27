@@ -38291,6 +38291,162 @@ suite('168. Measure Roof - a reset you can find');
     'the house, and the 19.2 ft fit reverted this morning was the same failure again');
 }
 
+
+suite('170. Measure Roof - a peak is two dots and a grade');
+{
+  const LF_ = String.fromCharCode(10);
+  const pick = n => extractFn(admin, n);
+
+  /* Owner: "you should just say between which two dots is it located ... and
+     then it bases it off of the distance between the two points and the grade
+     and calculates it", and when asked what the extra should be: "it can be 15
+     across and 20 in total so its an extra of 5 ft but really i dont know."
+
+     ⭐ SHE DOES NOT HAVE TO KNOW. It is not a number of feet, it is a FRACTION of
+     the span, and the pitch sets it: both rakes together are span / cos(pitch). */
+  const api = new Function(
+    'let rmCorners=[], rmOrigin={lat:40,lng:-111}, rmPeaks=[], rmRoofFacts=null, rmGradeSet=null;' + LF_ +
+    'const RM_M_TO_FT=3.280839895;' + LF_ +
+    ['rmMetresPerDeg','rmToLocal','rmPeakExtraFraction','rmPeakSpanFeet','rmPeakFeet','rmPeaksFeet']
+      .map(pick).join(LF_) + LF_ +
+    'return {frac:rmPeakExtraFraction, span:rmPeakSpanFeet, feet:rmPeakFeet, all:rmPeaksFeet,' +
+    ' set:function(c,p,g,f){ rmCorners=c; rmPeaks=p; rmGradeSet=g; rmRoofFacts=f||null; }};')();
+
+  /* two dots 15 ft apart, east-west */
+  const ftM = 1 / 3.280839895;
+  const m = (function(){ const p=Math.PI/180; const lat=40*p;
+    return {lat: 111132.92-559.82*Math.cos(2*lat)+1.175*Math.cos(4*lat)-0.0023*Math.cos(6*lat),
+            lng: 111412.84*Math.cos(lat)-93.5*Math.cos(3*lat)+0.118*Math.cos(5*lat)}; })();
+  const A15 = {lat: 40, lng: -111};
+  const B15 = {lat: 40, lng: -111 + (15*ftM)/m.lng};
+
+  api.set([A15, B15], [{a:0,b:1}], null, null);
+  check('S170', 'the span is the plan distance between the two dots',
+    Math.abs(api.span({a:0,b:1}) - 15) < 0.05,
+    'got ' + api.span({a:0,b:1}).toFixed(2) + ' ft');
+
+  /* ⚠ NO GRADE MEANS NO NUMBER, not a quiet zero that reads as measured. */
+  check('S170', 'with no grade known a peak adds nothing and says so',
+    api.frac() === null && api.feet({a:0,b:1}) === 0,
+    'a peak costed at zero would read as measured-and-free');
+
+  /* ⭐ HER OWN EXAMPLE. 15 across, 20 in total, is a 10.6/12 roof - and the
+     formula reproduces her 5 ft from the grade alone. */
+  const g106 = Math.tan(Math.acos(15/20)) * 100;
+  api.set([A15, B15], [{a:0,b:1}], g106, null);
+  check('S170', 'her own example comes back: 15 across, 20 in total',
+    Math.abs(api.span({a:0,b:1}) + api.feet({a:0,b:1}) - 20) < 0.1,
+    'got ' + (api.span({a:0,b:1}) + api.feet({a:0,b:1})).toFixed(2) + ' ft total');
+
+  /* An ordinary 6/12 is 11.8%, not 33%. */
+  api.set([A15, B15], [{a:0,b:1}], 50, null);
+  check('S170', 'and an ordinary 6/12 gable adds 11.8%, not a third',
+    Math.abs(api.feet({a:0,b:1}) - 15*0.118) < 0.05,
+    'got ' + api.feet({a:0,b:1}).toFixed(2) + ' ft on a 15 ft span');
+
+  /* ⭐ ONE GRADE COVERS BOTH RAKES. Owner: "you should only need to measure the
+     grade on one side and we will assume both sides of the triangle have the
+     same grade." span/cos IS that symmetric case. */
+  check('S170', 'one grade covers both rakes',
+    /span \/ cos IS the symmetric case/.test(admin),
+    'an unequal gable would need two measurements to save a few inches');
+
+  /* A hand-read grade beats the model average. */
+  api.set([A15, B15], [{a:0,b:1}], 50, {typicalGrade: 100});
+  check('S170', 'a grade read off the picture beats the roof model average',
+    Math.abs(api.feet({a:0,b:1}) - 15*0.118) < 0.05,
+    'somebody looking at the gable beats an average over eleven facets, ' +
+    'several of which are not this gable');
+  api.set([A15, B15], [{a:0,b:1}], null, {typicalGrade: 54});
+  check('S170', 'and with none set it falls back to the measured pitch',
+    Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
+    'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
+
+  /* ⭐ EACH PEAK CARRIES ITS OWN GRADE, and adding one takes you to read it.
+     Owner: "when you inset that there is a peak and say in between which two
+     dots it is then it should automatically take you to the third map", and
+     "after you finish making a peak in the system then it automatically takes
+     you to use the tool to find the grade". */
+  check('S170', 'a peak carries its own grade',
+    /rmPeakExtraFraction\(pk && pk\.grade\)/.test(admin),
+    'two gables on one house are not obliged to match');
+  check('S170', 'adding one opens the grade map on it, armed',
+    (function(){
+      const i = admin.indexOf('rmPeaks.push({a: a, b: b});');
+      const j = admin.indexOf('rmOpenGradeFor(rmPeaks.length - 1);', i);
+      return i !== -1 && j > i && (j - i) < 700;
+    })(),
+    'a peak with no grade costs nothing, so a forgotten second step is footage on the floor');
+  /* ⭐ LETTING GO ASKS; SAYING YES APPLIES. Owner: "once you click down and then
+     let go it asks if that was good if not it lets you do it again but if it was
+     good it closes that page and takes you back to the main roof meausre screen." */
+  check('S170', 'letting go asks instead of applying',
+    /rmGradePending = g;/.test(admin) && /Was that right\?/.test(admin),
+    'a grade read off a photograph is a judgement, and one that applies itself is one nobody can correct');
+  check('S170', 'the grade only reaches the peak through the yes',
+    (function(){
+      const yes = admin.indexOf("getElementById('rmGradeYes')");
+      const write = admin.indexOf('pk.grade = g;');
+      return yes !== -1 && write > yes &&
+             admin.indexOf('pk.grade = g;', write + 1) === -1;
+    })(),
+    'a second write elsewhere would apply a grade nobody confirmed');
+  check('S170', 'yes renders the new total and leaves the screen',
+    (function(){
+      const yes = admin.indexOf("getElementById('rmGradeYes')");
+      const no = admin.indexOf("getElementById('rmGradeNo')");
+      const render = admin.indexOf('rmRenderResults();', yes);
+      const close = admin.indexOf('rmCloseGrade();', yes);
+      return yes !== -1 && no > yes && render > yes && render < no && close > yes && close < no;
+    })(),
+    'owner: if it was good it closes that page and takes you back');
+  check('S170', 'no keeps you on it, armed to drag again',
+    (function(){
+      const no = admin.indexOf("getElementById('rmGradeNo')");
+      const end = admin.indexOf("getElementById('rmGradeLock').addEventListener('mousedown'", no);
+      if(no === -1 || end === -1) return false;
+      const rearm = admin.indexOf('rmGradeArmed = true;', no);
+      const closes = admin.indexOf('rmCloseGrade()', no);
+      return rearm > no && rearm < end && !(closes > no && closes < end);
+    })(),
+    'owner: if not it lets you do it again');
+  check('S170', 'the grade screen is hidden until a peak sends you to it',
+    (function(){
+      const i = admin.indexOf('id="rmGradePaneBox"');
+      if(i === -1) return false;
+      const hid = admin.indexOf('display:none', i);
+      const shut = admin.indexOf('>', i);
+      return hid !== -1 && shut !== -1 && hid < shut;
+    })(),
+    'it is a step in a flow, not a third thing on the page');
+  check('S170', 'and it stands the working panes down while it is open',
+    (function(){
+      const f = admin.indexOf('function rmGradeHidPanes(');
+      const o = admin.indexOf('rmGradeHidPanes(true);');
+      const c = admin.indexOf('rmGradeHidPanes(false);');
+      return f !== -1 && o !== -1 && c !== -1;
+    })(),
+    'owner: it takes you to a screen ... and closes that page');
+
+  /* ⭐ THREE MAPS. Owner: "we need two street view maps, one for finding the
+     grade and one for using as the picture." */
+  check('S170', 'there is a third map, for reading the grade',
+    /id="rmGradePano"/.test(admin) && /id="rmGradePaneBox"/.test(admin) &&
+    /Street View &mdash; the picture/.test(admin));
+  check('S170', 'and it is aimed at the peak, not at the house',
+    (function(){
+      const f = admin.indexOf('function rmOpenGradeFor(i){');
+      const m = admin.indexOf('(a.lat + b.lat) / 2', f);
+      return f !== -1 && m > f && (m - f) < 900;
+    })(),
+    "a rake's angle only reads true looking square at that gable end");
+
+  /* Peaks reach the total. */
+  check('S170', 'peaks are added into the perimeter, beside the sides',
+    /const pk = rmPeaksFeet\(\);/.test(admin) && /out\.perimeter \+= pk; out\.all \+= pk;/.test(admin),
+    'they are extra length on line already traced, not a total of their own');
+}
+
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
 
 suite('165. Measure Roof - loading an address forgets the last house');

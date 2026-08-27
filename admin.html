@@ -4748,6 +4748,22 @@
                   <button type="button" class="btn btn-outline btn-sm" id="rmGradeBtn" style="padding:4px 10px; font-size:11px;">Measure the grade</button>
                   <span id="rmGradeNote" style="font-size:11.5px; color:var(--slate);"></span>
                 </div>
+                <!-- ⭐ PEAKS, NAMED BY THE TWO DOTS THEY SIT BETWEEN. Owner:
+                     "you should just say between which two dots is it located ...
+                     and then it bases it off of the distance between the two
+                     points and the grade and calculates it." -->
+                <div style="margin-top:8px;">
+                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:4px;">Peaks</div>
+                  <div id="rmPeakList"></div>
+                  <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:4px;">
+                    <span style="font-size:11.5px; color:var(--slate);">between</span>
+                    <input id="rmPeakA" maxlength="1" placeholder="A" style="width:34px; text-transform:uppercase; padding:3px 5px; font-size:12px;">
+                    <span style="font-size:11.5px; color:var(--slate);">and</span>
+                    <input id="rmPeakB" maxlength="1" placeholder="B" style="width:34px; text-transform:uppercase; padding:3px 5px; font-size:12px;">
+                    <button type="button" class="btn btn-outline btn-sm" id="rmPeakAddBtn" style="padding:4px 10px; font-size:11px;">Add a peak</button>
+                  </div>
+                  <div id="rmPeakNote" style="font-size:11.5px; color:var(--slate); margin-top:4px;"></div>
+                </div>
                 <div id="rmGradePane" style="display:none; font-size:11.5px; color:var(--slate); margin-top:4px;">
                   Drag along the sloping edge of a gable in the street picture.
                   <span style="opacity:.75;">It reads true looking square at the gable end, and flattens as you go round.</span>
@@ -4908,17 +4924,47 @@
               </div>
 
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
-                <div class="rm-panehead"><span>&#127968; Street View &mdash; heights, peaks, and the photo</span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span></div>
+                <div class="rm-panehead"><span>&#127968; Street View &mdash; the picture</span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span></div>
                 <div id="rmPano" class="rm-canvas"></div>
                 <svg id="rmSvLayer" class="rm-svlayer"></svg>
-                <!-- The line the grade is being read from, drawn while dragging. -->
-                <svg class="rm-svlayer" style="z-index:8;"><line id="rmGradeLine" style="display:none;"
-                  stroke="#F4BE55" stroke-width="3" stroke-linecap="round"/></svg>
                 <div class="rm-busy" id="rmStreetBusy"><span class="rm-spin"></span><span id="rmStreetBusyText">Looking for a street-level photo&hellip;</span></div>
                 <div class="rm-lock" id="rmPanoLock" style="display:none;"></div>
                 <div class="rm-frozen" id="rmPanoFrozen" style="display:none;">Frozen while measuring</div>
               </div>
-              </div><!-- /the two panes, side by side -->
+
+              <!-- ⭐ A THIRD MAP, FOR READING THE GRADE (2026-08-27). Owner: "we
+                   need two street view maps, one for finding the grade and one
+                   for using as the picture", and "when you inset that there is a
+                   peak and say in between which two dots it is then it should
+                   automatically take you to the third map".
+
+                   ⚠ TWO STREET VIEWS RATHER THAN ONE DOING TWO JOBS, and the
+                   reason is that they want to be pointed at different things.
+                   The picture wants the front of the house, square on, framed
+                   for a customer to look at. Reading a grade wants ONE gable,
+                   as square to that gable end as the road allows, because a
+                   rake's angle on screen only reads true looking straight at it.
+                   Making one pane do both meant re-aiming the photograph every
+                   time a peak was costed, and then aiming it back. -->
+              <div class="rm-pane" id="rmGradePaneBox" style="display:none; flex:1 1 520px; min-width:330px;">
+                <div class="rm-panehead"><span>&#128207; Street View &mdash; reading the grade</span><span id="rmGradeHead" style="font-weight:400; opacity:.85;"></span></div>
+                <div id="rmGradePano" class="rm-canvas"></div>
+                <svg class="rm-svlayer" style="z-index:8;"><line id="rmGradeLine" style="display:none;"
+                  stroke="#F4BE55" stroke-width="3" stroke-linecap="round"/></svg>
+                <div class="rm-lock" id="rmGradeLock" style="display:none;"></div>
+                <!-- ⚠ ASKED, NOT ASSUMED. Owner: "once you click down and then let
+                     go it asks if that was good if not it lets you do it again."
+                     A grade read off a photograph is a judgement, and a judgement
+                     that applies itself silently is one nobody gets to correct. -->
+                <div id="rmGradeAsk" style="display:none; position:absolute; left:0; right:0; bottom:0; z-index:9;
+                     background:rgba(20,28,38,.92); color:#fff; padding:9px 12px;
+                     align-items:center; gap:10px; flex-wrap:wrap; font-size:12.5px;">
+                  <span id="rmGradeAskText" style="font-weight:700;"></span>
+                  <button type="button" class="btn btn-gold btn-sm" id="rmGradeYes" style="padding:4px 12px; font-size:11px;">Yes, use it</button>
+                  <button type="button" class="btn btn-outline btn-sm" id="rmGradeNo" style="padding:4px 12px; font-size:11px; background:transparent; color:#fff;">Try again</button>
+                </div>
+              </div>
+              </div><!-- /the panes, side by side -->
 
               <!-- ============ A PHOTO THE CUSTOMER SENT ==================
                    Street View cannot see the back of a house. When somebody
@@ -20535,8 +20581,16 @@ function rmToggleRun(i){
    typed in by hand works exactly the same way. */
 let rmGradeSet = null;      /* grade read off the picture by hand, in percent */
 let rmGradeArmed = false;   /* the grade tool is open and taking a drag */
-function rmPeakExtraFraction(){
+let rmGradeFor = -1;        /* which peak the grade map is currently reading */
+let rmGradePending = null;  /* read, shown, and not applied until it is confirmed */
+let rmGradePano = null;     /* the third map: one gable, as square on as the road allows */
+function rmPeakExtraFraction(gradePct){
   const f = rmRoofFacts || {};
+  /* This peak's own grade, read off the third map, wins over everything. */
+  if(isFinite(gradePct) && gradePct > 0){
+    const c0 = Math.cos(Math.atan(gradePct / 100));
+    return (c0 > 0.05) ? (1 / c0) - 1 : null;
+  }
   /* ⭐ A GRADE READ OFF THE PICTURE BEATS THE MODEL'S. Owner: "build a tool where
      you can figure out the grade and after you let go of using the tool it
      automatically adds the extra." Somebody looking at the gable is better
@@ -20573,9 +20627,21 @@ function rmPeakSpanFeet(pk){
 }
 /* What one peak adds: the two rakes are span / cos(pitch), so the extra over
    the span already traced is span x (1/cos - 1). Zero when no grade is known -
-   never a guess, and never a silent number that reads as measured. */
+   never a guess, and never a silent number that reads as measured.
+
+   ⭐ ONE GRADE COVERS BOTH RAKES, and that is deliberate. Owner: "you should only
+   need to measure the grade on one side and we will assume both sides of the
+   triangle have the same grade." span / cos IS the symmetric case: half the span
+   up each side at the same pitch. An unequal gable would be
+   (span/2)/cos(a) + (span/2)/cos(b), which needs two measurements to save a few
+   inches on the rare house that has one - so it is not asked for. */
 function rmPeakFeet(pk){
-  const frac = rmPeakExtraFraction();
+  /* ⭐ EACH PEAK CARRIES ITS OWN GRADE. Owner: "when you inset that there is a
+     peak and say in between which two dots it is then it should automatically
+     take you to the third map" - the third map being where that peak's grade is
+     read. Two gables on one house are not obliged to match, and the tool now
+     asks about each rather than averaging them into one answer. */
+  const frac = rmPeakExtraFraction(pk && pk.grade);
   if(frac === null) return 0;
   return rmPeakSpanFeet(pk) * frac;
 }
@@ -21446,6 +21512,7 @@ function rmSetDrawing(on){
 }
 /* ---- results and materials --------------------------------------------- */
 function rmRenderResults(){
+  if(typeof rmRenderPeaksHook === 'function') rmRenderPeaksHook();
   const t = rmTotals();
   const live = rmCurrent && rmCurrent.path.length > 1 ? rmRunFeet(rmCurrent) : 0;
   document.getElementById('rmResults').innerHTML =
@@ -23744,20 +23811,172 @@ function openRoofMeasure(quoteId){
     el.textContent = g === null ? 'Drag along the slope of a gable.'
       : Math.round(g) + '% — ' + (Math.round(g * 12 / 100 * 10) / 10) + '/12, read off the picture';
   }
-  document.getElementById('rmGradeBtn').addEventListener('click', function(){
-    rmGradeArmed = !rmGradeArmed;
-    this.textContent = rmGradeArmed ? 'Cancel' : 'Measure the grade';
-    document.getElementById('rmGradePane').style.display = rmGradeArmed ? 'block' : 'none';
-    document.getElementById('rmPanoLock').style.display = rmGradeArmed ? 'block' : 'none';
-    rmGradeSay(isFinite(rmGradeSet) ? rmGradeSet : null);
+  /* ⭐ OPEN THE GRADE MAP ON ONE PEAK. Owner: "it should automatically take you
+     to the third map."
+
+     ⚠ AIMED AT THE PEAK, NOT AT THE HOUSE. A rake's angle on screen only reads
+     true looking square at that gable end, so the camera is pointed at the
+     MIDDLE of the two dots the peak sits between rather than at the front door.
+     That is the whole reason this is a second Street View and not the picture:
+     the picture wants the house, and this wants one gable. */
+  /* The two working panes, out of the way while the grade is being read. */
+  function rmGradeHidPanes(hide){
+    const box = document.getElementById('rmGradePaneBox');
+    if(!box || !box.parentElement) return;
+    Array.prototype.forEach.call(box.parentElement.children, function(el){
+      if(el !== box) el.style.display = hide ? 'none' : '';
+    });
+  }
+  function rmCloseGrade(){
+    rmGradeArmed = false;
+    rmGradeFor = -1;
+    const box = document.getElementById('rmGradePaneBox');
+    const lock = document.getElementById('rmGradeLock');
+    const ask = document.getElementById('rmGradeAsk');
+    if(lock) lock.style.display = 'none';
+    if(ask) ask.style.display = 'none';
+    if(box) box.style.display = 'none';
+    rmGradeHidPanes(false);
+    const btn = document.getElementById('rmGradeBtn');
+    if(btn) btn.textContent = 'Measure the grade again';
+    if(rmMap) google.maps.event.trigger(rmMap, 'resize');
+    if(rmPano) google.maps.event.trigger(rmPano, 'resize');
+  }
+  function rmOpenGradeFor(i){
+    const pk = rmPeaks[i];
+    if(!pk) return;
+    rmGradeFor = i;
+    const box = document.getElementById('rmGradePaneBox');
+    if(box) box.style.display = 'block';
+    const head = document.getElementById('rmGradeHead');
+    if(head) head.textContent = 'peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b);
+    const a = rmCorners[pk.a], b = rmCorners[pk.b];
+    if(a && b && window.google && google.maps){
+      const mid = {lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2};
+      if(!rmGradePano){
+        rmGradePano = new google.maps.StreetViewPanorama(document.getElementById('rmGradePano'), {
+          position: mid, pov: {heading: 0, pitch: 0}, zoom: 1, addressControl: false,
+          fullscreenControl: false, motionTracking: false, motionTrackingControl: false,
+          showRoadLabels: false, zoomControl: true, clickToGo: false
+        });
+      }
+      const svc = new google.maps.StreetViewService();
+      svc.getPanorama({location: mid, radius: RM_STREET_SEARCH_M}, function(data, st){
+        if(st !== 'OK' || !data || !data.location) return;
+        const p = data.location.latLng;
+        google.maps.event.addListenerOnce(rmGradePano, 'pano_changed', function(){
+          rmGradePano.setPov({heading: rmHeadingTo(p.lat(), p.lng(), mid.lat, mid.lng), pitch: 8});
+        });
+        rmGradePano.setPano(data.location.pano);
+      });
+    }
+    /* Armed straight away - the next drag on that pane is the measurement. */
+    rmGradeArmed = true;
+    const lock = document.getElementById('rmGradeLock');
+    if(lock) lock.style.display = 'block';
+    /* ⭐ IT IS A SCREEN, NOT A THIRD PANEL. Owner: "it takes you to a screen ...
+       and if it was good it closes that page and takes you back to the main roof
+       meausre screen." One gable, nothing else to look at, and the sky view and
+       the picture step aside until it is answered. */
+    rmGradeHidPanes(true);
+    const ask = document.getElementById('rmGradeAsk');
+    if(ask) ask.style.display = 'none';
+    if(box && box.scrollIntoView) box.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    rmGradeSay(isFinite(pk.grade) ? pk.grade : null);
+  }
+  /* ⭐ ADDING A PEAK IS NAMING TWO DOTS. */
+  window.rmRenderPeaksHook = rmRenderPeaks;
+  function rmRenderPeaks(){
+    const box = document.getElementById('rmPeakList');
+    if(!box) return;
+    const frac = rmPeakExtraFraction();
+    box.innerHTML = rmPeaks.map(function(pk, i){
+      const span = rmPeakSpanFeet(pk), add = rmPeakFeet(pk);
+      return '<div class="rm-runrow"><span>' +
+        rmCornerLabel(pk.a) + ' &ndash; ' + rmCornerLabel(pk.b) +
+        ' <span style="opacity:.6;">' + rmFmtFeet(span) + ' across</span></span>' +
+        '<span>' + (frac === null
+          ? '<span style="color:var(--ember);">measure the grade</span>'
+          : '+' + rmFmtFeet(add)) +
+        ' <button type="button" data-rmdelpeak="' + i + '" title="Remove this peak">&#10005;</button></span></div>';
+    }).join('');
+    box.querySelectorAll('[data-rmdelpeak]').forEach(function(b){
+      b.addEventListener('click', function(){
+        rmPeaks.splice(Number(b.dataset.rmdelpeak), 1);
+        rmRenderResults();
+      });
+    });
+  }
+  document.getElementById('rmPeakAddBtn').addEventListener('click', function(){
+    const note = document.getElementById('rmPeakNote');
+    const aEl = document.getElementById('rmPeakA'), bEl = document.getElementById('rmPeakB');
+    const a = rmCornerAt(aEl.value), b = rmCornerAt(bEl.value);
+    /* ⚠ REFUSED RATHER THAN ADDED EMPTY. A peak between dots that are not there
+       would sit in the list adding nothing, which reads as a peak worth nothing
+       rather than as one never entered. */
+    if(a < 0 || b < 0){
+      note.textContent = 'Name two dots that are on the map — ' +
+        (rmCorners.length ? 'there are ' + rmCorners.length + ' so far.' : 'there are none yet.');
+      return;
+    }
+    if(a === b){ note.textContent = 'A peak sits between two different dots.'; return; }
+    rmPeaks.push({a: a, b: b});
+    aEl.value = ''; bEl.value = '';
+    rmRenderResults();
+    /* ⭐ AND STRAIGHT TO THE GRADE. Owner: "after you finish making a peak in the
+       system then it automatically takes you to use the tool to find the grade."
+       A peak with no grade is a peak that costs nothing, so leaving the office to
+       remember a second step is leaving footage on the floor. The map opens
+       aimed at THIS peak, armed, with the pointer already meaning "drag along
+       the slope". */
+    rmOpenGradeFor(rmPeaks.length - 1);
+    note.textContent = 'Peak ' + rmCornerLabel(a) + '–' + rmCornerLabel(b) +
+      ' added — now drag along its slope on the grade map.';
   });
-  document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
+  document.getElementById('rmGradeBtn').addEventListener('click', function(){
+    /* Re-measure the grade of the last peak, for when the first drag missed. */
+    if(rmGradeArmed){ rmCloseGrade(); return; }
+    if(!rmPeaks.length){
+      const n = document.getElementById('rmPeakNote');
+      if(n) n.textContent = 'Add a peak first — a grade is the grade OF something.';
+      return;
+    }
+    this.textContent = 'Cancel';
+    document.getElementById('rmGradePane').style.display = 'block';
+    rmOpenGradeFor(rmGradeFor >= 0 && rmPeaks[rmGradeFor] ? rmGradeFor : rmPeaks.length - 1);
+  });
+  /* ⭐ YES CLOSES THE SCREEN. Owner: "if it was good it closes that page and
+     takes you back to the main roof meausre screen". The extra feet land on the
+     peak here and nowhere else, so a grade nobody confirmed costs nothing. */
+  document.getElementById('rmGradeYes').addEventListener('click', function(){
+    const g = rmGradePending;
+    const pk = rmPeaks[rmGradeFor];
+    if(isFinite(g) && g > 0){
+      if(pk) pk.grade = g; else rmGradeSet = g;
+      rmRenderResults();
+      const note = document.getElementById('rmPeakNote');
+      if(note && pk) note.textContent = 'Peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b) +
+        ' at ' + Math.round(g) + '% — ' + rmFmtFeet(rmPeakFeet(pk)) + ' on top of the span.';
+    }
+    rmGradePending = null;
+    rmCloseGrade();
+  });
+  /* And no leaves you on it, to drag again. */
+  document.getElementById('rmGradeNo').addEventListener('click', function(){
+    rmGradePending = null;
+    rmGradeArmed = true;
+    document.getElementById('rmGradeAsk').style.display = 'none';
+    const ln = document.getElementById('rmGradeLine');
+    if(ln) ln.style.display = 'none';
+    rmGradeSay(null);
+  });
+  document.getElementById('rmGradeLock').addEventListener('mousedown', function(e){
     if(!rmGradeArmed) return;
     const r = this.getBoundingClientRect();
     rmGradeDrag = {x: e.clientX - r.left, y: e.clientY - r.top};
     e.preventDefault();
   });
-  document.getElementById('rmPanoLock').addEventListener('mousemove', function(e){
+  document.getElementById('rmGradeLock').addEventListener('mousemove', function(e){
     if(!rmGradeArmed || !rmGradeDrag) return;
     const r = this.getBoundingClientRect();
     const to = {x: e.clientX - r.left, y: e.clientY - r.top};
@@ -23769,19 +23988,26 @@ function openRoofMeasure(quoteId){
     rmGradeSay(rmGradeFrom(rmGradeDrag, to));
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
-    document.getElementById('rmPanoLock').addEventListener(ev, function(e){
+    document.getElementById('rmGradeLock').addEventListener(ev, function(e){
       if(!rmGradeArmed || !rmGradeDrag) return;
       const r = this.getBoundingClientRect();
       const g = rmGradeFrom(rmGradeDrag, {x: e.clientX - r.left, y: e.clientY - r.top});
       rmGradeDrag = null;
       if(rmGradeLine) rmGradeLine.style.display = 'none';
       if(g === null){ rmGradeSay(null); return; }
-      /* ⭐ LETTING GO IS WHAT APPLIES IT. */
-      rmGradeSet = g;
+      /* ⭐ LETTING GO IS WHAT APPLIES IT, to the peak this map was opened for.
+         Owner: "after you let go of using the tool it automatically adds the
+         extra." Nothing to confirm and nothing to type. */
+      /* ⭐ HELD, AND ASKED ABOUT. It is not applied until the answer is yes. */
+      rmGradePending = g;
       rmGradeSay(g);
-      rmRenderResults();
-      const note = document.getElementById('rmGradeNote');
-      if(note) note.textContent += ' — every peak re-costed.';
+      const ask = document.getElementById('rmGradeAsk');
+      const txt = document.getElementById('rmGradeAskText');
+      const pkNow = rmPeaks[rmGradeFor];
+      if(txt) txt.textContent = Math.round(g) + '% — ' + (Math.round(g * 12 / 100 * 10) / 10) +
+        '/12' + (pkNow ? ', adding ' + rmFmtFeet(rmPeakSpanFeet(pkNow) * ((1 / Math.cos(Math.atan(g / 100))) - 1)) : '') +
+        '. Was that right?';
+      if(ask) ask.style.display = 'flex';
     });
   });
   document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
