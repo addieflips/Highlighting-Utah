@@ -16,8 +16,18 @@
 module.exports = [
   {
     field: 'needsLightBuild',
-    title: 'Does this house need a bundle made?',
-    plain: 'Set when a house needs lights built. Cleared by the warehouse pressing Mark Done.',
+    title: 'Needs Building',
+    plain: 'A house waiting for its bundle to be made.',
+    /* ⭐ STATES, NOT PROSE. Addie: "I just want it sort of like this is what connects to
+       this. Than you press on it and it gives you the rules for that thing. Like nightly
+       invoice. Not paid — Not paid invoice. Paid — Paid invoice." Each row is a state on
+       the left and where that state lands on the right. */
+    states: [
+      ['Flagged', 'Shows on the Warehouse Build list'],
+      ['Flagged, no colours yet', 'Shows under Waiting on light colours'],
+      ['Bundle marked made', 'Comes off the list'],
+      ['Sitting the season out', 'Nothing is built']
+    ],
     /* Route and plan documents carry a needsLightBuild of their own in fixtures and
        exports; those are not the customer record. Narrowed so amber stays readable. */
     ignore: ['^hlxRowXml$'],
@@ -25,25 +35,25 @@ module.exports = [
       { file: 'admin', near: 'needsGeocode: pinFailed', where: 'Customers › Add a Customer', when: 'a customer is created',
         rules: ['Every new house is flagged, colours or no colours.'] },
       { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds a house',
-        rules: ['Ungated — questions map WH-20.'] },
+        rules: ['A house with no colours is still on the list.'] },
       { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer adds a house',
-        rules: ['Add branch only. The update branch must never re-queue — WH-21.'] },
+        rules: ['Updating an existing customer never re-queues them.'] },
       { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'the invoice importer adds a house',
-        rules: ['Carries no colours, so these land in the blocked block by design.'] },
+        rules: ['These arrive with no colours, so they show as blocked until somebody adds them.'] },
       { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed',
-        rules: ['Must NOT also set the recycle flag — the two buttons were split on purpose.'] },
+        rules: ['This button never also queues a recycle.'] },
       { file: 'admin', near: 'if(warehouseRebuildFields(item.data, addrUpdates).length)', where: 'Customers › All Customers', when: 'the wire or timer changed',
-        rules: ['Only ever turns the flag ON.'] },
+        rules: ['This can only turn it on, never off.'] },
       { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody rejoins after a recycle',
-        rules: ['Re-queues only when a recycle actually happened.'] }
+        rules: ['Only re-queues a build if a recycle really happened.'] }
     ],
     reads: [
       { file: 'admin', fn: 'whBuildQueueGroups', where: 'Warehouse › Build', when: 'the queue is drawn',
-        rules: ['A flagged house with no colours goes to the blocked block, never dropped — WH-18.'] },
+        rules: ['A house with no colours is shown as blocked, never hidden.'] },
       { file: 'admin', fn: 'printNeedsBuildList', where: 'Schedule › Printing', when: 'the sheet prints',
-        rules: ['Must list the same people as the Warehouse tab.'] },
+        rules: ['The printed sheet lists the same people as the screen.'] },
       { file: 'admin', fn: 'computeColorDemand', where: 'Warehouse › Build', when: 'bulbs are ordered',
-        rules: ['The costly reader. A phantom house here means glass ordered for nobody.'] },
+        rules: ['This is what orders the bulbs, so a wrong house here costs money.'] },
       { file: 'admin', fn: 'computePendingHouseCount', where: 'Warehouse › Build', when: 'the tab header is drawn' },
       { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Tools', when: 'the office searches a name' }
     ]
@@ -51,29 +61,41 @@ module.exports = [
 
   {
     field: 'needsLightRecycle',
-    title: 'Does this house have a bundle to fetch back?',
-    plain: 'Set when lights need collecting. Cleared by Mark Recycled, or by rejoining the season.',
+    title: 'Needs Recycling',
+    plain: 'A house whose lights have to be collected back in.',
+    states: [
+      ['Flagged', 'Shows on the Warehouse Recycle list'],
+      ['Marked recycled', 'Comes off the list'],
+      ['They say yes again', 'Comes off the list, nothing is collected'],
+      ['They moved', 'Stays a customer, and is built again']
+    ],
     sets: [
       { file: 'admin', el: 'editCustRecycleStayBtn', where: 'Customers › All Customers', when: 'Recycle Their Old Set is pressed',
-        rules: ['Must NOT also set the build flag.'] },
+        rules: ['This button never also queues a build.'] },
       { file: 'admin', near: 'addrUpdates.needsLightRecycle', where: 'Customers › All Customers', when: 'the RSVP answer changes' },
       { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers no',
-        rules: ['The status alone is written by the portal — the flag half is why isOutForSeason reads both.'] },
+        rules: ['Answering through the link and the office button must agree.'] },
       { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody says yes',
-        rules: ['Cancels a queued recycle. Must not clobber a re-quote that set it deliberately.'] }
+        rules: ['Saying yes again cancels a queued recycle.'] }
     ],
     reads: [
       { file: 'admin', fn: 'whRecycleGroups', where: 'Warehouse › Recycle', when: 'the queue is drawn' },
       { file: 'admin', fn: 'printRecycleList', where: 'Schedule › Printing', when: 'the sheet prints' },
       { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
-        rules: ['A house queued for recycle is out. A mover (recycleKeepingCustomer) is not.'] }
+        rules: ['A house queued for recycle is out of the season. Somebody who moved is not.'] }
     ]
   },
 
   {
     field: 'completed',
-    title: 'Has the crew hung this house?',
-    plain: 'The customer-record fact the nightly invoice run bills on. Not the plan flag.',
+    title: 'Installed',
+    plain: 'Whether the crew has hung this house.',
+    states: [
+      ['Ticked', 'Billed on the next nightly run'],
+      ['Not ticked', 'Not billed'],
+      ['On a shared bill', 'Nobody is billed until every house on it is ticked'],
+      ['Hung, then said no', 'Still billed — the work was done']
+    ],
     /* ⚠ NARROWED, AND THIS IS THE DIFFERENCE BETWEEN A USEFUL AMBER AND NOISE. Route
        stops, plan days and schedule rows all carry a `completed` of their own — the
        prototype returned 28 undeclared touches for this field, nearly all of them that.
@@ -81,19 +103,19 @@ module.exports = [
     ignore: ['^(stopProblem|renderRouteOrderedList|renderRouteAddressList|runGenerateInstallRoute|findNearbyMissedHouses|nextVisitFor|visitBadgeType|renderTakedownsList|reconcileUpcomingRoutes|renderOverviewMap|isOctoberUrgent|isNewHangUrgent|isBeforeThanksgivingUrgent|derivedDoneFor|houseBillingRow)$'],
     sets: [
       { file: 'admin', fn: 'planTickCustomer', where: 'Schedule › Scheduling', when: 'one house is marked done',
-        rules: ['Ticking ONE stop marks that customer complete. It is what makes the nightly run bill them.'] },
+        rules: ['Ticking one stop marks that one customer, never the whole day.'] },
       { file: 'admin', near: 'const HLX_DONE_KINDS', where: 'Routes › Install', when: 'any of five doors marks a job done',
-        rules: ['Install, takedown and fix are independent. None may nest under another.'] }
+        rules: ['Install, takedown and fix are separate. One never implies another.'] }
     ],
     reads: [
       { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: '7 PM Mountain',
-        rules: ['A multi-house bill waits until every house on it is completed.'] },
+        rules: ['A shared bill waits for every house on it.'] },
       { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'deciding who is on a bill',
-        rules: ['completed is tested FIRST, ahead of every status. Hung is hung — Q-013.'] },
+        rules: ['A house that was hung is charged, whatever they said afterwards.'] },
       { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices › Invoice List', when: 'deciding who is on a bill',
-        rules: ['Must give the same answer as the server copy. money-parity sweeps both.'] },
+        rules: ['The office screen and the nightly run always agree.'] },
       { file: 'admin', fn: 'allCustRouteStatus', where: 'Customers › All Customers', when: 'the Install Complete filter runs',
-        rules: ['This is the reader the original brief could not locate.'] },
+        rules: ['Feeds the Install Complete filter on All Customers.'] },
       { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'an audience is counted' }
     ]
   }

@@ -114,6 +114,7 @@ function build() {
       where: sets.length ? sets[0].where : 'Elsewhere',
       field: spine.field,
       plain: spine.plain,
+      states: spine.states || [],
       on: sets.map(r => [r.where, r.when, r.found ? '' : 'bad']),
       off: [],
       rules: [].concat.apply([], result.rows.map(r => r.rules || [])).slice(0, 6),
@@ -267,13 +268,21 @@ function openRules(id){
       +'<p class="empty">'+(o.subtab?'A sub-tab. Its connections branch to the right.'
         :(o.when?esc(o.when):'A screen at the end of a run.'))+'</p>';
     return;}
-  const s=o.st==='brk'?['bad','Missing']:o.st==='wrn'?['wrn','Undeclared writers']:['ok','Connected'];
+  /* ⚠ AMBER IS A NOTE, NEVER A FAILURE, and the pill has to say so. It read
+     "Undeclared writers" on a thing that is entirely connected, which looks like a
+     warning about the thing itself rather than a list of extra places that touch it. */
+  var extra=(o.undeclared&&o.undeclared.length)?' \u00b7 '+o.undeclared.length+' more touch it':'';
+  const s=o.st==='brk'?['bad','Something is missing']
+    :o.st==='wrn'?['ok','Connected'+extra]:['ok','Connected'];
   d.innerHTML='<p class="dk">'+esc(o.k)+'</p><h3>'+esc(o.t)+'</h3>'
     +'<p class="where">'+esc(o.where||'')+(o.field?' \\u00b7 <code>'+esc(o.field)+'</code>':'')+'</p>'
     +'<span class="state '+s[0]+'">'+s[1]+'</span>'
     +(o.plain?'<p class="where">'+esc(o.plain)+'</p>':'')
     +(o.bad?'<ul class="rules"><li class="no">'+esc(o.bad)+'</li></ul>':'')
-    +'<table><caption>Written by</caption><thead><tr><th>Where</th><th>When</th></tr></thead><tbody>'+rowsOf(o.on)+'</tbody></table>'
+    +((o.states&&o.states.length)?'<table><caption>What it means</caption><tbody>'
+      +o.states.map(function(r){return '<tr><td><span class="chip">'+esc(r[0])+'</span></td>'
+        +'<td class="when">'+esc(r[1])+'</td></tr>';}).join('')+'</tbody></table>':'')
+    +'<table><caption>Set by</caption><thead><tr><th>Where</th><th>When</th></tr></thead><tbody>'+rowsOf(o.on)+'</tbody></table>'
     +((o.rules&&o.rules.length)?'<table><caption>Rules</caption></table><ul class="rules">'
       +o.rules.map(function(r){return '<li>'+esc(r)+'</li>';}).join('')+'</ul>':'')
     +((o.undeclared&&o.undeclared.length)?'<table><caption>Touched here, never declared</caption></table><ul class="rules">'
