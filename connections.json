@@ -1,23 +1,23 @@
 {
- "watched": 11,
+ "watched": 15,
  "red": 0,
- "amber": 598,
+ "amber": 794,
  "unguarded": [
   "needsLightBuild",
   "needsLightRecycle",
   "completed",
   "carryoverCharge",
-  "stops"
+  "stops",
+  "measuredFeet",
+  "customerNumber"
  ],
  "notWatched": [
   "scheduledRoutes",
   "lightColors / lightsDescription",
-  "measuredFeet",
   "difficulty",
   "quotePhotos → housePhotos",
   "gateCode",
   "outletTimer",
-  "rsvpStatus / rsvpRespondedAt",
   "maybeNextYear / isOutForSeason",
   "lightsLockedUntil"
  ],
