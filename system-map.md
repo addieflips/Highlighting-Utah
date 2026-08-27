@@ -197,6 +197,16 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 
 ---
 
+## 10. Health Check — and ruling on what it finds
+
+Since 2026-08-27 every finding carries **Not a problem** and, where the check has a fix, **Fix this one**. That was Addie's own ruling from 21 August and the reason she had stopped opening the panel: *"I can't mark anything as completed or outside of policy."*
+
+A denial is **scoped to that customer and those exact values** — it is keyed on a fingerprint of the check, the name and the detail — so it lapses by itself the moment their data changes and the finding comes back. Nothing expires it and nobody has to remember it. Denied findings leave the badge and the list, and the panel says how many it is holding back, so a clean book never looks the same as a hidden one.
+
+⚠ **`firestore.rules` gained `healthCheckDecisions`**, and that file is *not* deployed by CI. Until `firebase deploy --only firestore:rules` is run, every decision will look saved and none will be — a collection missing from the rules is denied by default and fails silently in a listener.
+
+---
+
 ## 10a. `js/grid.js` — parked, not wired
 
 718 lines that would build a crew-day out of a **patch of map** instead of a town. It is on `main` and **nothing imports it**: the season is still built from towns. It was brought across on 2026-08-27 only to stop it decaying on a branch that no longer shares any history with main — the file itself conflicts with nothing.

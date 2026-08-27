@@ -8125,6 +8125,11 @@ function initData(){
   // minute beat as the checks that report it.
   loadNightlyHealth().catch(function(){ /* quiet on purpose: the ten-minute beat below re-reads it, and the stale-run banner is driven by the LAST successful read \u2014 so a failed read leaves the banner saying the run is stale, which is the safe direction. */ });
   setInterval(function(){ loadNightlyHealth().catch(function(){ /* quiet on purpose: see above \u2014 the next tick re-reads it. */ }); }, 10 * 60 * 1000);
+  /* ⚠ EAGER, WITH THE OTHER BADGE LOADERS. The Health badge counts findings and a
+     denied one must not be in that count, so the answers have to be in hand before the
+     first render — a badge that is only right once you open the panel is not a badge.
+     ⚠ Its own catch is inside loadHcDecisions, which fails towards showing everything. */
+  loadHcDecisions();
   startHealthCheckAuto();
   /* Before the sweep, not after: the sweep builds and re-spreads crew-days, and
      doing that on the default two while the office has saved one would build a
@@ -48510,12 +48515,105 @@ function hcRunChecks(){
   return checks;
 }
 let hcLastChecks = [];
+/* ⭐ APPROVE AND DENY, PER FINDING (added 2026-08-27). Addie's own ruling from
+   2026-08-21, decided and never built: "I want to be able to approve or deny it. But
+   after approve it can auto write", and the deny is PER MEMBER — "I should be able to
+   choose what member I'm denying for and approve for all other members if we run into
+   that situation." Questions map HC-01 and HC-02.
+
+   ⚠ IT IS THE ANSWER TO WHY SHE STOPPED OPENING THE PANEL. 2026-08-26: "I don't check
+   health check very often cause the design is weird and I can't mark anything as
+   completed or outside of policy." Completed is Fix this one; outside of policy is Not a
+   problem. Both were missing, so a standing finding — sharedPhone alone is 14 genuine
+   households — nagged for ever and the badge could never reach nought.
+
+   ⚠ THE DECISION IS KEYED ON A FINGERPRINT OF THE FINDING, NEVER ON A ROW NUMBER OR A
+   POSITION. `hcFindingKey` hashes the check id together with the row's label and detail,
+   which is the member and the values they were denied FOR. So the moment that member's
+   data moves the fingerprint moves, the old decision no longer matches, and the finding
+   comes back on its own — which is exactly what she asked "not until the data changes"
+   to mean. Nothing has to expire it and nobody has to remember it.
+
+   ⚠ AND IT CANNOT LIVE ON A NOTICE. `firestore.rules` caps `messages` at 5,000
+   characters on create, so a check with fifty rows could never carry fifty answers.
+   One document per decision, in its own collection.
+
+   ⚠ THE LIMIT, SAID PLAINLY: two customers with the same name AND identical detail share
+   one fingerprint, so denying one denies both. They are indistinguishable on this panel
+   anyway — the row shows a name and a detail and nothing else — so the alternative is
+   not a better answer, it is a row nobody can act on. If rows ever gain a customer id,
+   key on that instead and this paragraph goes. */
+const HC_DECISIONS = {};
+function hcFindingKey(checkId, row){
+  /* A short stable hash. Not security, just an id that is legal in a Firestore path and
+     changes when any of the three parts do. */
+  const s = String(checkId) + '|' + String((row && row.label) || '') + '|' + String((row && row.detail) || '');
+  let h1 = 0x811c9dc5, h2 = 0x1000193;
+  for(let i = 0; i < s.length; i++){
+    const c = s.charCodeAt(i);
+    h1 = ((h1 ^ c) * 0x01000193) >>> 0;
+    h2 = ((h2 + c) * 0x85ebca6b) >>> 0;
+  }
+  return String(checkId).replace(/[^A-Za-z0-9]/g, '') + '_' +
+    ('0000000' + h1.toString(36)).slice(-7) + ('0000000' + h2.toString(36)).slice(-7);
+}
+/* ⚠ EAGER, like every other loader behind a badge. The badge counts findings and a denied
+   one must not be in that count, so the decisions have to be in hand before the first
+   render — a badge that is right only once you open the panel is not a badge. */
+async function loadHcDecisions(){
+  try{
+    const snap = await getDocs(collection(db,'healthCheckDecisions'));
+    Object.keys(HC_DECISIONS).forEach(function(k){ delete HC_DECISIONS[k]; });
+    snap.forEach(function(docSnap){ HC_DECISIONS[docSnap.id] = docSnap.data() || {}; });
+  }catch(err){
+    /* ⚠ NOT SILENT, AND IT FAILS TOWARDS SHOWING EVERYTHING. An unreadable decision list
+       must never hide a finding: the panel shows all of them and says the answers could
+       not be read, which is annoying and safe. The other direction hides real problems. */
+    console.error('[HU] could not read the health-check decisions', err);
+  }
+}
+function hcDecisionFor(checkId, row){
+  return HC_DECISIONS[hcFindingKey(checkId, row)] || null;
+}
+/* ⭐ APPROVE RUNS THE FIX, WHERE THE CHECK HAS ONE. Her words: "after approve it can auto
+   write." Nineteen of the twenty-five checks have no fix — those are the ones where only
+   a person can decide — and for them approve records that the finding is real and leaves
+   the row standing, because pretending it is dealt with would be worse than nagging.
+   ⚠ THE WRITE HAPPENS FIRST AND THE DECISION IS ONLY RECORDED IF IT SUCCEEDED. Recorded
+   first, a failed write leaves a row marked done that nothing has done. */
+async function hcDecide(checkId, row, verdict){
+  const check = hcLastChecks.find(function(c){ return c.id === checkId; });
+  if(!check) return;
+  if(verdict === 'approved' && check.fix){
+    await hcFixRow(checkId, row);
+  }
+  const key = hcFindingKey(checkId, row);
+  const payload = {
+    check: checkId, verdict: verdict,
+    label: (row && row.label) || '', detail: (row && row.detail) || '',
+    at: serverTimestamp(),
+    by: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : ''
+  };
+  await setDoc(doc(db,'healthCheckDecisions', key), payload);
+  HC_DECISIONS[key] = payload;
+}
 function hcRender(){
   const wrap = document.getElementById('hcResults');
   if(!wrap) return;
   const hideClean = document.getElementById('hcHideClean').checked;
-  const problems = hcLastChecks.filter(function(c){ return c.rows.length; });
-  const totalRows = problems.reduce(function(s,c){ return s + c.rows.length; }, 0);
+  /* ⭐ A DENIED FINDING IS NOT A PROBLEM, AND THE COUNT HAS TO AGREE. Addie: "I can't
+     mark anything as completed or outside of policy" — and the badge counting rows she
+     had already ruled on is why it could never reach nought. `open` is what everything
+     below counts, so denying really does take a thing off the panel. */
+  hcLastChecks.forEach(function(c){
+    c.open = c.rows.filter(function(r){
+      const dec = hcDecisionFor(c.id, r);
+      return !(dec && dec.verdict === 'denied');
+    });
+  });
+  const problems = hcLastChecks.filter(function(c){ return c.open.length; });
+  const totalRows = problems.reduce(function(s,c){ return s + c.open.length; }, 0);
+  const denied = hcLastChecks.reduce(function(s,c){ return s + (c.rows.length - c.open.length); }, 0);
   const badge = document.getElementById('badgeHealth');
   if(badge){
     badge.textContent = totalRows;
@@ -48527,8 +48625,13 @@ function hcRender(){
   } else {
     html += '<div style="padding:14px 16px; border-radius:12px; background:#FEF2F2; border:1px solid #FECACA; margin-bottom:14px;"><strong>' + totalRows + ' thing' + (totalRows===1?'':'s') + ' to look at</strong> across ' + problems.length + ' check' + (problems.length===1?'':'s') + '.</div>';
   }
+  /* ⚠ SAID OUT LOUD, NEVER JUST SUBTRACTED. A panel that quietly holds things back is
+     the same failure as one that nags — she cannot tell a clean book from a hidden one. */
+  if(denied) html += '<p class="muted" style="font-size:12.5px; margin:-8px 0 12px;">' +
+    denied + ' finding' + (denied===1?' is':'s are') + ' marked <b>not a problem</b> and left out of that count. ' +
+    'Each comes back on its own if that customer\u2019s details change.</p>';
   hcLastChecks.forEach(function(c){
-    const clean = !c.rows.length;
+    const clean = !c.open.length;
     if(clean && hideClean) return;
     html += '<details class="quote-section" style="margin-bottom:8px;"' + (clean ? '' : ' open') + '>';
     html += '<summary style="cursor:pointer; padding:10px 12px; font-weight:600;">'
@@ -48538,13 +48641,20 @@ function hcRender(){
     html += '<p class="muted" style="margin:4px 0 10px; font-size:13px;">' + c.why + '</p>';
     if(!clean){
       html += '<ul style="margin:0 0 10px; padding-left:18px;">';
-      c.rows.slice(0, 100).forEach(function(r){
-        html += '<li style="margin-bottom:4px;"><strong>' + esc(r.label) + '</strong> <span class="muted">— ' + esc(r.detail) + '</span></li>';
+      c.open.slice(0, 100).forEach(function(r, ri){
+        /* ⚠ THE INDEX IS INTO c.open, THE LIST BEING DRAWN, and the handler reads it back
+           off the same list. Indexing into c.rows would point at a different finding the
+           moment anything above it was denied — a button that acts on somebody else. */
+        html += '<li style="margin-bottom:6px;"><strong>' + esc(r.label) + '</strong> <span class="muted">— ' + esc(r.detail) + '</span>'
+              + ' <span style="white-space:nowrap;">'
+              + (c.fix ? '<button class="icon-btn" style="width:auto; padding:0 8px; font-size:11px; font-weight:700;" data-hcok="' + c.id + '" data-hcrow="' + ri + '">Fix this one</button> ' : '')
+              + '<button class="icon-btn" style="width:auto; padding:0 8px; font-size:11px; font-weight:700;" data-hcno="' + c.id + '" data-hcrow="' + ri + '">Not a problem</button>'
+              + '</span></li>';
       });
       html += '</ul>';
-      if(c.rows.length > 100) html += '<p class="muted" style="font-size:12px;">Showing the first 100 of ' + c.rows.length + '.</p>';
+      if(c.open.length > 100) html += '<p class="muted" style="font-size:12px;">Showing the first 100 of ' + c.open.length + '.</p>';
       if(c.fix){
-        html += '<button class="btn" data-hcfix="' + c.id + '">' + c.fixLabel + ' (' + c.rows.length + ')</button> ';
+        html += '<button class="btn" data-hcfix="' + c.id + '">' + c.fixLabel + ' (' + c.open.length + ')</button> ';
       }
     }
     html += '<p class="muted" style="font-size:12px; margin:8px 0 0;">' + c.fixNote + '</p>';
@@ -48554,7 +48664,74 @@ function hcRender(){
   wrap.querySelectorAll('[data-hcfix]').forEach(function(btn){
     btn.addEventListener('click', function(){ hcApplyFix(btn.dataset.hcfix, btn); });
   });
+  /* ⚠ THE ROW IS LOOKED UP OUT OF c.open AT CLICK TIME, from the same list the index was
+     written against. And the button is disabled while it works: approving RUNS a write,
+     and a double press is the same write twice. */
+  wrap.querySelectorAll('[data-hcok],[data-hcno]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const id = btn.dataset.hcok || btn.dataset.hcno;
+      const verdict = btn.dataset.hcok ? 'approved' : 'denied';
+      const check = hcLastChecks.find(function(c){ return c.id === id; });
+      const row = check && (check.open || [])[Number(btn.dataset.hcrow)];
+      if(!row) return;
+      if(verdict === 'approved' && check.fix &&
+         !confirm(check.fixLabel + ' for ' + row.label + '?\n\n' + check.fixNote)) return;
+      btn.disabled = true;
+      try{
+        await hcDecide(id, row, verdict);
+        hcRender();
+      }catch(err){
+        /* ⚠ THE ROW IS LEFT EXACTLY WHERE IT WAS. A failed fix that still recorded a
+           decision is a finding marked dealt with that nothing has dealt with. */
+        console.error('[HU] health-check decision failed', err);
+        toast('Could not save that \u2014 the finding is left as it was.');
+        btn.disabled = false;
+      }
+    });
+  });
 }
+/* ⭐ ONE ROW, ONE WRITE (extracted 2026-08-27). This was the body of hcApplyFix's loop
+   and it is unchanged — lifted out so a SINGLE finding can be fixed on its own, which is
+   what Addie's approve is: "I want to be able to approve or deny it. But after approve it
+   can auto write" (questions map HC-02, 2026-08-21, decided and never built until now).
+
+   ⚠ EXTRACTED, NOT REWRITTEN. Every branch here already ran per row — hcApplyFix looped
+   over check.rows and did exactly this each time — so approving one row and pressing the
+   whole-check button do the same thing to that row, because it is the same code. A second
+   copy for the single case is how the button and the row start writing different things.
+
+   ⚠ IT THROWS RATHER THAN SWALLOWING. Both callers catch: the bulk button counts failures
+   and reports them, and the row button leaves the row alone and says so. A fix that fails
+   silently is a row that looks dealt with. */
+async function hcFixRow(id, r){
+
+      if(id === 'poolConflict'){
+        await deleteDoc(doc(db,'availableCustomerNumbers', r.numId));
+      } else if(id === 'missingInvoice' || id === 'totalDrift'){
+        await syncPayerInvoice(r.payer);
+      } else if(id === 'staleStatus'){
+        const inv = allInvoicesCache.find(function(x){ return x.id === r.invId; });
+        if(inv){
+          const d = inv.data || {};
+          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees)});
+        }
+      } else if(id === 'ghostStops'){
+        const route = (function(){
+          const dates = Object.keys(scheduledRoutesCache || {});
+          for(let k = 0; k < dates.length; k++){
+            const found = (scheduledRoutesCache[dates[k]] || []).find(function(x){ return x.id === r.routeId; });
+            if(found) return found;
+          }
+          return null;
+        })();
+        if(route){
+          await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: (route.stops || []).filter(function(st){ return st.id !== r.stopId; })});
+        }
+      } else if(id === 'staleStops'){
+        await resyncSavedRouteStops(r.custId, r.fields);
+      }
+}
+
 async function hcApplyFix(id, btn){
   const check = hcLastChecks.find(function(c){ return c.id === id; });
   if(!check || !check.rows.length) return;
@@ -48566,31 +48743,7 @@ async function hcApplyFix(id, btn){
     const r = check.rows[i];
     btn.textContent = 'Working… ' + (i+1) + '/' + check.rows.length;
     try {
-      if(id === 'poolConflict'){
-        await deleteDoc(doc(db,'availableCustomerNumbers', r.numId));
-      } else if(id === 'missingInvoice' || id === 'totalDrift'){
-        await syncPayerInvoice(r.payer);
-      } else if(id === 'staleStatus'){
-        const inv = allInvoicesCache.find(function(x){ return x.id === r.invId; });
-        if(inv){
-          const d = inv.data || {};
-          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees)});
-        }
-      } else if(id === 'ghostStops'){
-        const route = (function(){
-          const dates = Object.keys(scheduledRoutesCache || {});
-          for(let k = 0; k < dates.length; k++){
-            const found = (scheduledRoutesCache[dates[k]] || []).find(function(x){ return x.id === r.routeId; });
-            if(found) return found;
-          }
-          return null;
-        })();
-        if(route){
-          await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: (route.stops || []).filter(function(st){ return st.id !== r.stopId; })});
-        }
-      } else if(id === 'staleStops'){
-        await resyncSavedRouteStops(r.custId, r.fields);
-      }
+      await hcFixRow(id, r);
       done++;
     } catch(err){
       failed++;
