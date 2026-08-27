@@ -346,7 +346,16 @@ document.querySelectorAll('[data-go]').forEach(function(b){
  * whenever anybody touches the source, and nothing forces a regenerate for that. So the
  * page has to say how old those numbers are, or a reader has no way to weigh them.
  *
- * ⚠ FROM THE COMMIT, NOT FROM THE CLOCK. A wall-clock timestamp changes on every run,
+ * ⚠ THE COMMIT DATE, NOT THE COMMIT ITSELF, AND NOT THE CLOCK. Three tries here:
+ *   - A wall-clock timestamp changes on every run, which breaks the determinism the
+ *     staleness gate depends on.
+ *   - The commit HASH is stable within a commit but names the commit BEFORE the one that
+ *     contains it — so committing the page and rebuilding always produced a diff, and
+ *     the generated file could never be committed clean. Every future commit would leave
+ *     an uncommitted change behind it, which is how people learn to ignore `git status`.
+ *   - The commit DATE answers the only question being asked — how old are these numbers
+ *     — and changes at most once a day.
+ * ⚠ (Original note, kept because the reasoning still holds:) not from the clock,
  * which would make the generated file differ from itself and turn every regenerate into
  * a diff — and the staleness gate depends on the generator being deterministic. The
  * commit it was built from is stable, is what somebody would actually want to know, and
@@ -356,7 +365,7 @@ document.querySelectorAll('[data-go]').forEach(function(b){
 function builtFrom() {
   try {
     const out = require('child_process')
-      .execSync('git log -1 --format="%h %cs"', { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] })
+      .execSync('git log -1 --format="%cs"', { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] })
       .toString().trim();
     return out || null;
   } catch (e) {
