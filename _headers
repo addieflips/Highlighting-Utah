@@ -38,5 +38,15 @@
 /employee.html
   Cache-Control: no-cache
 
+# The connections map and the summary the admin badge reads. Both are GENERATED
+# and change with the code they describe, so a cached copy is a map that quietly
+# disagrees with the app — and a stale map is worse than no map, because it reads
+# as current. Same no-cache reasoning as the three pages above.
+/connections.html
+  Cache-Control: no-cache
+
+/connections.json
+  Cache-Control: no-cache
+
 /
   Cache-Control: no-cache

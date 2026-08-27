@@ -1,0 +1,12 @@
+{
+ "watched": 8,
+ "red": 0,
+ "amber": 222,
+ "unguarded": [
+  "needsLightBuild",
+  "needsLightRecycle",
+  "completed",
+  "carryoverCharge"
+ ],
+ "breaks": []
+}
