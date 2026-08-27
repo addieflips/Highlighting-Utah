@@ -51466,7 +51466,14 @@ function renderWaitingRsvp(){
       const contact = [d.phone ? esc(d.phone) : '', d.email ? esc(d.email) : '']
         .filter(Boolean).join(' \u00b7 ') || '<span style="color:var(--ember);">no phone or email on file</span>';
       return '<div class="newrow" style="padding-left:28px;"><div>' +
-        '<div class="meta"><b>' + esc(personName(d.name, d)) + '</b> \u00b7 ' +
+        /* ⚠ NOT personName(), WHICH TAKES A SCHEDULE ROW AND LOOKS THE CUSTOMER UP
+           FROM IT. This list already holds the customer record, so its name IS the
+           answer — handing a customer record to a function expecting a plan row asks
+           customerForScheduleRow to resolve a customer from a customer, which in the
+           real page does not throw: it quietly returns nothing, or matches a DIFFERENT
+           household on a reused customer number. Found by rendering this into the real
+           markup rather than by reading it. */
+        '<div class="meta"><b>' + esc(d.name || '(no name)') + '</b> \u00b7 ' +
         esc(d.address || 'no address') + '</div>' +
         '<div class="meta">' + contact + '</div></div></div>';
     }).join('');
