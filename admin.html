@@ -8130,6 +8130,10 @@ function initData(){
      first render — a badge that is only right once you open the panel is not a badge.
      ⚠ Its own catch is inside loadHcDecisions, which fails towards showing everything. */
   loadHcDecisions();
+  /* ⚠ EAGER FOR A DIFFERENT REASON: the Connections frame asks for these as it loads, and
+     it can be opened before anything else has run. Loaded later, every rule she has
+     confirmed reads as never-read until the next refresh. */
+  loadRuleDecisions();
   startHealthCheckAuto();
   /* Before the sweep, not after: the sweep builds and re-spreads crew-days, and
      doing that on the default two while the office has saved one would build a
@@ -49114,6 +49118,53 @@ function projConnectionsOpen(){
   const f = document.getElementById('connFrame');
   if(f && !f.getAttribute('src')) f.setAttribute('src', 'connections.html');
 }
+/* ⭐ THE ONE FIRESTORE PATH FOR A RULE SHE HAS REVIEWED (added 2026-08-27). Addie asked
+   for Connections' Rules view to remember what she has confirmed; connections.html is a
+   plain generated file in an iframe with no Firebase of its own, so it asks the page it
+   is sitting in. Two functions, both reached as window.parent.<name> from the frame —
+   same origin, so this is an ordinary call and not a message.
+
+   ⚠ THE FRAME PAINTS NOTHING UNTIL THE WRITE LANDS. hlxRuleDecide RETURNS the record it
+   saved and the frame applies that, so a refused write leaves the pill exactly where it
+   was and says so on the row. Painting first and saving after is precisely the failure
+   this page exists to catch, one level up.
+
+   ⚠ THE DOC ID IS THE RULE'S OWN ID (MON-01), NEVER THE WORDING. She confirms a WORDING,
+   so the fingerprint of the text travels with the decision and a later rewrite LAPSES it
+   — the id keeps the decision attached to the rule it was about instead of orphaning it,
+   which is the difference between "changed since you confirmed this" and a row quietly
+   going back to never-read.
+
+   ⚠ AND IT IS DELIBERATELY NOT A SECOND COPY OF THE RULINGS. Only the decision is stored
+   — id, verdict, fingerprint, who and when, plus the name and area purely so the record
+   is readable by a human opening Firestore. claude/questions-map.md stays the one place
+   a ruling lives. */
+const RULE_DECISIONS = {};
+async function loadRuleDecisions(){
+  try{
+    const snap = await getDocs(collection(db,'ruleDecisions'));
+    Object.keys(RULE_DECISIONS).forEach(function(k){ delete RULE_DECISIONS[k]; });
+    snap.forEach(function(docSnap){ RULE_DECISIONS[docSnap.id] = docSnap.data() || {}; });
+  }catch(err){
+    /* ⚠ FAILS TOWARDS EVERYTHING BEING UNREAD, which is the safe direction: it asks her
+       to look again at something she has already looked at. The other way round would
+       show rules as confirmed on the strength of a read that did not happen. */
+    console.error('[HU] could not read the rule decisions', err);
+  }
+}
+window.hlxRuleDecisions = function(){ return RULE_DECISIONS; };
+window.hlxRuleDecide = async function(id, verdict, fp, name, area){
+  if(!id) throw new Error('that rule has no id, so there is nowhere to record it');
+  const rec = {
+    rule: id, verdict: verdict === 'flag' ? 'flag' : 'ok', fp: fp || '',
+    name: name || '', area: area || '',
+    at: new Date().toISOString().slice(0,10),
+    by: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : ''
+  };
+  await setDoc(doc(db,'ruleDecisions', id), Object.assign({}, rec, { savedAt: serverTimestamp() }));
+  RULE_DECISIONS[id] = rec;
+  return rec;
+};
 /* ⭐ TWO BADGES NOW, ONE WRITER EACH — AND THAT IS THE POINT OF THE SPLIT.
    These were one badge until 2026-08-27, because Connections had no sidebar item of
    its own to hang a badge on: a break had to be shown on the Checklist badge instead,
