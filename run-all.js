@@ -4039,11 +4039,17 @@ console.log('\n=== 7. Health check engine ===');
     check('health', 'nor a brand-new customer',
       !/Brand New/.test(names),
       'we never send them the RSVP, so requiring an answer to it is a test nobody can pass');
-    /* ⚠ IT REPORTS BEFORE IT BITES. With no send marker the rule is not live, and the
-       row must STILL list them — that is the only moment she can still ring them. */
-    check('health', 'it warns while the rule is not live yet, and says so',
-      rows.length === 1 && /would come off/.test(rows[0].detail),
-      'a warning that only appears once the damage is done is a report, not a warning');
+    /* ⭐ ONE STATE, NOT TWO (repointed 2026-08-26, questions map RS-15). This asserted
+       a WARNING state — "would come off from <date>" — covering the fourteen days
+       between the send and the reply window closing. Addie removed the window, so past
+       the no-send guard the rule is always live and there is no "would" left to say.
+       The check is repointed rather than dropped: what still has to be true is that the
+       row NAMES the person and says plainly that they are not being scheduled. */
+    check('health', 'it names them and says plainly they are not being scheduled',
+      rows.length === 1 && /not being scheduled/.test(rows[0].detail) &&
+      !/would come off/.test(rows[0].detail),
+      'a row that says "would" about something already happening describes the wrong ' +
+      'state, and this is the warning half of "hardcode it AND warn me"');
     /* ⭐ AND THE SILENCE ITSELF IS ASSERTED. Same book, no send marker: not one row. */
     hc.setRsvpSent(null);
     check('health', 'and it says NOTHING until the RSVP has actually gone out',
@@ -9475,13 +9481,22 @@ suite('21. Everyone is in unless they said otherwise');
       liveFn(null, 'confirmed-only') === false,
       'requiring an answer to a question nobody sent is a test nobody can pass — it ' +
       'would drop the entire book the day it shipped');
-    check('season', 'and not while people still have time to reply',
-      liveFn(new Date(), 'confirmed-only') === false,
-      'live the second she presses send means the season empties before one customer ' +
-      'has had the chance to answer');
-    check('season', 'it IS live once the reply window has closed',
-      liveFn(new Date(Date.now() - 400 * 86400000), 'confirmed-only') === true,
-      'if it never becomes live the hardcoding does nothing at all');
+    /* ⭐ REPOINTED 2026-08-26, AND IT IS THE OPPOSITE ASSERTION ON PURPOSE — RS-15.
+       This required the rule NOT to be live the moment she pressed send, protecting a
+       14-day reply window. Addie removed it: "a house won't be a yes or no because of
+       how long they haven't responded for. They are just unresponsive and we won't do
+       there house unless we get a yes from them." The guarantee flipped rather than
+       weakened — the SEND is now the only thing that decides, and elapsed time decides
+       nothing in either direction. */
+    check('season', 'it goes live the moment the RSVP goes out',
+      liveFn(new Date(), 'confirmed-only') === true,
+      'holding it off would route and build for somebody who never said yes, which is ' +
+      'exactly what the reply window bought and what RS-15 removed');
+    check('season', 'and waiting neither starts nor stops it',
+      liveFn(new Date(Date.now() - 400 * 86400000), 'confirmed-only') === true &&
+      liveFn(new Date(Date.now() - 86400000), 'confirmed-only') === true,
+      'time was the only thing in here that changed an answer without a customer ' +
+      'doing anything');
     check('season', 'and switching it off still turns it off',
       liveFn(new Date(Date.now() - 400 * 86400000), 'all-but-maybe-next-year') === false,
       'it is a default, not a cage — she can still put everybody back');
