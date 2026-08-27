@@ -1,3 +1,29 @@
+/* ⭐ WHAT THIS DOES NOT WATCH — and it is listed FIRST because it is the thing most
+ * likely to be misread.
+ *
+ * Addie asked whether the map lets her "make sure everything is connected and working
+ * correctly". A green page means the DECLARED things are connected. It does not mean the
+ * app is fine, and a page that says "watches 8 things" without saying 8 out of WHAT
+ * invites exactly that reading. A map that looks complete and is not is worse than no
+ * map — so the page prints this list beside the green.
+ *
+ * ⚠ IT IS HAND-WRITTEN, LIKE THE SPINES, because only a person knows what matters. And
+ * `connections.test.js` fails if anything on it has since been given a spine, so the two
+ * cannot drift: the moment something here is really watched, this row has to go.
+ */
+const NOT_WATCHED = [
+  ['scheduledRoutes', 'which houses a crew is sent to on a given day'],
+  ['lightColors / lightsDescription', 'what colours a house gets'],
+  ['measuredFeet', 'the footage that decides bins, number series and bundle count'],
+  ['difficulty', 'the easy / medium / hard grade'],
+  ['quotePhotos → housePhotos', 'the pictures that reach a crew sheet'],
+  ['gateCode', 'how a crew gets in'],
+  ['outletTimer', 'whether a house asked for a timer'],
+  ['rsvpStatus / rsvpRespondedAt', 'who answered, and what they said'],
+  ['maybeNextYear / isOutForSeason', 'who is in the season at all'],
+  ['lightsLockedUntil', 'the 48-hour route lock and free-change window']
+];
+
 /* WHAT SHOULD CONNECT TO WHAT — the hand-written half.
  * ====================================================
  * Only a person knows this. The code can say what it DOES; it cannot say what it was
@@ -257,3 +283,5 @@ module.exports = [
     ]
   }
 ];
+
+module.exports.NOT_WATCHED = NOT_WATCHED;

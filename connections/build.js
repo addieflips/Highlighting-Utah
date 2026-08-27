@@ -165,11 +165,13 @@ function build() {
     roots[slug(tab)] = { t: tab, kids: subIds };
   });
 
+  const manifest = require('./manifest');
+  const notWatched = manifest.NOT_WATCHED || [];
   const watched = report.length;
   const amber = report.reduce((a, s) => a + s.undeclaredTotal, 0);
   const red = flags.filter(f => f.kind === 'brk').length;
 
-  return { nodes, roots, flags, watched, amber, red, report };
+  return { nodes, roots, flags, watched, amber, red, report, notWatched, builtFrom: builtFrom() };
 }
 
 /* ------------------------------------------------------------------------- */
@@ -213,9 +215,24 @@ function render(m) {
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n' +
     '<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">\n' +
     '<style>\n' + css + '\n</style>\n</head>\n<body>\n' +
-    '<div class="mock">Watches ' + m.watched + ' thing' + (m.watched === 1 ? '' : 's') +
-      ' · nothing appears here until a person declares it · ' +
-      'it can tell whether a connection EXISTS, never whether it is right</div>\n' +
+    '<div class="mock">Watches ' + m.watched + ' of ' + (m.watched + m.notWatched.length) +
+      ' things worth watching · it can tell whether a connection EXISTS, never whether it ' +
+      'is right · green means the declared ones are fine, not that the app is' +
+      (m.builtFrom ? ' · counts last rebuilt at ' + esc(m.builtFrom) : ' · rebuild date unknown') +
+      '</div>\n' +
+    /* ⚠ THE UNWATCHED LIST SITS BESIDE THE GREEN, NOT BURIED. "Watches 8 things" without
+       saying 8 out of what invites somebody to read a green page as "the app is fine". */
+    (m.notWatched.length
+      ? '<div class="flag" style="background:linear-gradient(180deg,rgba(242,169,59,.14),rgba(242,169,59,.05));' +
+        'border-bottom-color:rgba(242,169,59,.4)">' +
+        '<h2 style="color:var(--amber)">' + m.notWatched.length + ' things this does NOT watch yet</h2>' +
+        '<ul>' + m.notWatched.map(function (n) {
+          return '<li><button class="wrn" style="cursor:default"><b>' + esc(n[0]) + '</b>' +
+            '<span class="path">' + esc(n[1]) + '</span></button></li>';
+        }).join('') + '</ul>' +
+        '<p style="font-size:12.5px;color:var(--dim);margin:10px 0 0">Nothing here is being ' +
+        'checked. A break in one of these would not turn anything red.</p></div>\n'
+      : '') +
     '<div class="flag"><h2>' + esc(headline) + '</h2><ul>' + flagList + '</ul></div>\n' +
     '<div class="shell">\n<nav class="rail">\n<h1>Connections</h1>\n' +
     '<p class="sub">Pick a tab. Click a box for its rules.</p>\n' +
@@ -322,6 +339,33 @@ document.querySelectorAll('[data-go]').forEach(function(b){
 })();
 `;
 
+/* ⭐ WHEN WAS THIS LAST REBUILT?
+ *
+ * The gate forces a rebuild whenever the declared STRUCTURE changes, so the boxes and
+ * their red/green cannot be stale. The undeclared-writer counts CAN be: they move
+ * whenever anybody touches the source, and nothing forces a regenerate for that. So the
+ * page has to say how old those numbers are, or a reader has no way to weigh them.
+ *
+ * ⚠ FROM THE COMMIT, NOT FROM THE CLOCK. A wall-clock timestamp changes on every run,
+ * which would make the generated file differ from itself and turn every regenerate into
+ * a diff — and the staleness gate depends on the generator being deterministic. The
+ * commit it was built from is stable, is what somebody would actually want to know, and
+ * does not move unless the code does.
+ * ⚠ AND IT FALLS BACK TO A PLAIN "unknown" RATHER THAN THROWING: a checkout with no git
+ * — a zip, a CI step with no history — must still be able to build the page. */
+function builtFrom() {
+  try {
+    const out = require('child_process')
+      .execSync('git log -1 --format="%h %cs"', { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim();
+    return out || null;
+  } catch (e) {
+    /* No git available here. The page says the date is unknown rather than claiming a
+       freshness it cannot prove. */
+    return null;
+  }
+}
+
 if (require.main === module) {
   const m = build();
   const out = path.join(ROOT, 'connections.html');
@@ -337,6 +381,8 @@ if (require.main === module) {
     red: m.red,
     amber: m.amber,
     unguarded: m.report.filter(r => !r.spine.guard).map(r => r.spine.field),
+    notWatched: m.notWatched.map(n => n[0]),
+    builtFrom: m.builtFrom,
     breaks: m.flags.map(f => ({ where: f.path, what: f.title }))
   }, null, 1) + '\n');
   console.log('connections.html written — ' + m.watched + ' watched, ' +

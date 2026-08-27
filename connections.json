@@ -8,5 +8,18 @@
   "completed",
   "carryoverCharge"
  ],
+ "notWatched": [
+  "scheduledRoutes",
+  "lightColors / lightsDescription",
+  "measuredFeet",
+  "difficulty",
+  "quotePhotos → housePhotos",
+  "gateCode",
+  "outletTimer",
+  "rsvpStatus / rsvpRespondedAt",
+  "maybeNextYear / isOutForSeason",
+  "lightsLockedUntil"
+ ],
+ "builtFrom": "18655e0 2026-08-26",
  "breaks": []
 }

@@ -48852,6 +48852,39 @@ function projConnectionsOpen(){
   const f = document.getElementById('connFrame');
   if(f && !f.getAttribute('src')) f.setAttribute('src', 'connections.html');
 }
+/* ⭐ ONE BADGE, TWO FACTS, AND A BROKEN CONNECTION OUTRANKS AN OPEN TEST.
+   Addie asked for a break to be visible from anywhere in admin rather than only once
+   the Project tab is open. The Checklist badge normally counts outstanding tests; when
+   a connection is broken it shows THAT instead, in red, with a tooltip saying which.
+
+   ⚠ TWO THINGS WRITE THIS BADGE — the checklist render and the connections summary,
+   which land in either order. Both set their own number and call this, so whichever
+   arrives second cannot wipe the other's. Setting the badge directly from either would
+   be a race, and the loser would be invisible.
+
+   ⚠ AND IT WILL ALMOST NEVER FIRE, WHICH IS THE GOOD OUTCOME. A broken connection fails
+   the build, so it cannot be merged and cannot reach this page. What is left is the
+   narrow case of two changes that pass separately and break together — real, rare, and
+   worth surfacing rather than assuming away. */
+let projOpenTestCount = 0;
+let connBrokenCount = 0;
+let connBrokenWhere = '';
+function paintChecklistBadge(){
+  const badge = document.getElementById('badgeProjTodo');
+  if(!badge) return;
+  if(connBrokenCount){
+    badge.textContent = connBrokenCount;
+    badge.style.display = '';
+    badge.style.background = 'var(--ember)';
+    badge.title = connBrokenCount + ' broken connection' + (connBrokenCount === 1 ? '' : 's') +
+      (connBrokenWhere ? ': ' + connBrokenWhere : '') + ' — Project › Connections';
+    return;
+  }
+  badge.style.background = '';
+  badge.title = '';
+  badge.textContent = projOpenTestCount;
+  badge.style.display = projOpenTestCount ? '' : 'none';
+}
 /* ⭐ THE BADGE AND THE SUMMARY, FROM connections.json — a couple of hundred bytes the
    generator writes beside the page, so both are right BEFORE the tab is opened. This
    app's own rule: a badge has to be correct before anybody clicks anything, which is
@@ -48867,6 +48900,11 @@ async function loadConnectionsSummary(){
     const d = await res.json();
     if(badge) badge.textContent = d.red ? String(d.red) : '';
     if(badge) badge.style.color = d.red ? 'var(--ember)' : '';
+    /* And the same fact on the nav item, so a break is visible from anywhere in admin
+       rather than only once Project is open. */
+    connBrokenCount = Number(d.red) || 0;
+    connBrokenWhere = (d.breaks || []).map(function(b){ return b.where; }).join(', ');
+    paintChecklistBadge();
     if(!box) return;
     box.innerHTML = d.red
       ? '<strong style="color:var(--ember);">' + d.red + ' connection' + (d.red === 1 ? '' : 's') +
@@ -48875,7 +48913,14 @@ async function loadConnectionsSummary(){
       : '<strong>Everything declared is still connected.</strong> Watching ' + d.watched +
         ' thing' + (d.watched === 1 ? '' : 's') + '. ' +
         (d.unguarded.length
-          ? d.unguarded.length + ' of them have nothing else guarding them, so this map is all that holds them.'
+          ? d.unguarded.length + ' of them have nothing else guarding them, so this map is all that holds them. '
+          : '') +
+        /* ⚠ THE UNWATCHED COUNT BELONGS BESIDE THE GREEN, not only on the map itself.
+           "Everything declared is still connected" read alone invites somebody to hear
+           "the app is fine", which is a different and much larger claim. */
+        ((d.notWatched && d.notWatched.length)
+          ? '<span style="color:var(--ember);">' + d.notWatched.length + ' more things are NOT watched at all</span>'
+            + ' &mdash; green here means the declared ones are fine, not that the app is.'
           : '');
   }catch(err){
     /* Not silent: the summary is a claim about whether anything is broken, and an empty
@@ -49419,8 +49464,8 @@ function renderTests(){
   const tc = document.getElementById('tabCountTests');
   if(tc) tc.textContent = allFull.length ? '('+allFull.length+')' : '';
   const openCount = allFull.filter(function(t){ return t.assignee && projIsTodo(t); }).length;
-  const badge = document.getElementById('badgeProjTodo');
-  if(badge){ badge.textContent = openCount; badge.style.display = openCount ? '' : 'none'; }
+  projOpenTestCount = openCount;
+  paintChecklistBadge();
   /* Pass, Fail and N/A are all done - scoring any of the three automatically
      clears its assignee (see the result-button handler below) and moves it
      to Tested Results, so this tab only ever needs to deal with what's
