@@ -44,6 +44,19 @@ module.exports = [
         rules: ['This button never also queues a recycle.'] },
       { file: 'admin', near: 'if(warehouseRebuildFields(item.data, addrUpdates).length)', where: 'Customers › All Customers', when: 'the wire or timer changed',
         rules: ['This can only turn it on, never off.'] },
+      /* ⚠ A REAL, LIVE BREAK — and the reason `never` exists. The house-details panel on
+         an All Customers row DOES write this field, so an existence check calls it green
+         for ever. What it writes is `: false` when the colour box is empty, which takes
+         a house that is waiting to be built off the list entirely. Your own ruling
+         (WH-17): blank colours mean the build cannot be DONE yet, not that it is not
+         OWED. The same rule was fixed in the Edit Customer save on 2026-08-21 and this
+         copy was missed. */
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'the house-details panel is saved',
+        never: {
+          pattern: "needsLightBuild:[^,]*:\\s*false",
+          why: 'saving with the colour box empty takes the house OFF the build list — blank colours mean the build cannot be done yet, not that it is not owed'
+        },
+        rules: ['Clearing the colours must never cancel the build.'] },
       { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody rejoins after a recycle',
         rules: ['Only re-queues a build if a recycle really happened.'] }
     ],

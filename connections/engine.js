@@ -100,6 +100,29 @@ function check(files, manifest) {
         const want = side === 'sets' ? 'set' : 'read';
         r.found = hits(I, spine.field).some(h => h.kind === want && inAny(ranges, h.pos));
         if (!r.found) r.why = 'the anchor is still there, but it no longer ' + (want === 'set' ? 'writes' : 'reads') + ' this field';
+
+        /* ⭐ `never` — A CONNECTION CAN BE PRESENT AND STILL WRONG.
+         *
+         * Everything above proves a connection EXISTS. Addie's whole reason for wanting
+         * this page is to see ERRORS, and "the arrow is there" is a weaker claim than
+         * "the arrow is right" — the live hole in attachAddressRowHandlers is exactly
+         * that shape: it writes needsLightBuild perfectly happily, and writes the WRONG
+         * VALUE. Existence-only, that box is green for ever.
+         *
+         * So a declared connection may also carry a pattern that must NEVER appear
+         * inside its anchor. It is matched against the comment-blanked source, like
+         * everything else here, so a comment describing the bug cannot trip it.
+         *
+         * ⚠ THIS IS NARROW ON PURPOSE. It cannot express "is the value correct" in
+         * general — only "this exact broken shape is not present". A rule that needs
+         * real reasoning belongs in a test, not in a dashboard. What it buys is that a
+         * KNOWN hole shows up red on the page instead of sitting green until somebody
+         * remembers it. */
+        if (r.found && c.never) {
+          const rx = new RegExp(c.never.pattern);
+          const bad = ranges.some(range => rx.test(I.blanked.slice(range[0], range[1])));
+          if (bad) { r.found = false; r.why = c.never.why; r.wrongValue = true; }
+        }
         rows.push(r);
       });
     });
