@@ -1523,3 +1523,50 @@ and where somebody wanting a spreadsheet of who owes what would look.
 **Resulting map change:** **MON-20**, recorded as *Decided — not built*. The
 ruling is that the export survives the tab; nothing is written until the tab is
 actually retired, and a row marked built when it is not is worse than no row.
+
+## Q-023 · intent · OPEN · raised 2026-08-27
+Is a crew-day a patch of map, or a town?
+
+**This is a same-tier contradiction between two of your own rulings, so it is
+recorded rather than decided** (CLAUDE.md §2: "Two rules in the same tier that
+contradict: STOP AND ASK. Do not pick one.").
+
+**The two sides.**
+
+*Map.* 2026-08-22: **"city lines arent a concern."** PR #14
+(`claude/grid-blocks-schedule`, head `6621f67`) was built on that ruling. It adds
+`js/grid.js` — 718 lines, a file that does not exist on main — and makes the
+container for a crew-day a block of map rather than a town. Its own header
+argues the case, quoting you again on why it is not simply nearest-twenty:
+"we dont end up with a bunch of dots in the middle of no where so we dont have
+any one man days... if we base it soley on distance were gonna have a lot of
+houses along the outside of the space we cover because they were never in
+closest distance." So it lays the whole book along a space-filling curve instead
+of packing greedily, specifically to stop rim houses being stranded.
+
+*Town.* 2026-08-24 to 2026-08-26, main went the other way and kept going:
+`MAX_TOWNS_PER_CREW`, `townsAreNeighbours`, `DEFAULT_NEARBY_TOWNS`,
+`routeDayTowns`, `cityLooksLikeStreet`. `byCity` is still the container on main
+(40 mentions), and the one-crew-one-town rule rests on it.
+
+**Why it cannot be settled from the code.** The *ruling* for map is newer
+(the 22nd); the *code* for town is newer (the 24th–26th). One of the two was
+left behind and nothing in the repo says which. PR #14 was never merged and
+never closed, and it has no merge base with main any more — main was rewritten
+after it was opened — so it is not decaying quietly in a way anybody would spot.
+
+**What is blocked.** Whether PR #14 is ported forward or closed. Nothing else:
+the town model works today and the season builds. This is not urgent, it is
+just undecided, and an undecided question about how the whole season is grouped
+is worth having written down.
+
+**What each answer costs.** Porting the grid touches the crew split, the
+near-empty-day rescue, One Man Installs and both printed sheets — all of which
+had owner-driven changes *after* #14 was written, so it is a real piece of work
+rather than a merge. Closing it loses the rim-house argument, which no rule on
+main currently answers; the branch would stay intact and revivable.
+
+**Resulting map change:** none yet — deliberately. A ruling that has not been
+given cannot become a row, and `claude/questions-map.md` holds answers, not
+open questions. When this is answered it earns a `MON-` row, and if the answer
+reverses either side the superseded row is kept and marked, per that file's rule.
