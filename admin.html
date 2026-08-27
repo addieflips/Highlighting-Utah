@@ -21297,7 +21297,29 @@ function rmSetDrawing(on){
   /* ⭐ AND WHILE PLACING DOTS. The panorama swallows clicks for its own
      panning, so a transparent sheet over it is the only way to catch one - the
      same sheet the wall picker and the tracer already use. */
-  const stLock = (rmWallPicking || (rmDrawing && rmActiveWall()) || rmCornerMode === 'dot') && rmStreetReady;
+  /* ⭐ THE STREET VIEW IS JUST FOR THE PICTURE (2026-08-27). Owner: "abandon
+     ship this is not working", then "what we want to do is using sky view
+     instead and then we say how many peaks ... and the street view is just for
+     the picture".
+
+     ⚠ SO NOTHING IS MEASURED FROM HERE ANY MORE, and the sheet that caught those
+     clicks goes with it. That sheet covered the panorama whenever dots were being
+     placed, which also froze it - it could not be panned or clicked through,
+     because it was being measured on. With measuring gone there is nothing to
+     freeze it for, so it goes back to an ordinary Street View you can look
+     around, which is all "just for the picture" needs.
+
+     ⚠ WHY THIS WAS THE RIGHT THING TO GIVE UP, recorded because a great deal of
+     work died here. A click in a photograph is a RAY, and turning one into a
+     place needs a distance the photograph cannot supply. Every attempt to supply
+     it - the roof model, the footprint box, a solid cast, two-angle
+     triangulation, eight goes at reading Google's own depth map - either guessed
+     the depth or needed a calibration nothing could pin down. From ABOVE there is
+     no depth to get wrong: the camera looks straight down, so a click is a place.
+     The one thing that view cannot give is HEIGHT, and height only lengthens a
+     line where it CLIMBS - which is what the peaks answer, by being counted
+     rather than measured. */
+  const stLock = false;
   document.getElementById('rmMapLock').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmMapFrozen').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmPanoLock').style.display = stLock ? 'block' : 'none';
@@ -23657,383 +23679,6 @@ function openRoofMeasure(quoteId){
      sitting wherever it was last dragged - which is the confident-wrong state
      this tool keeps having to be rescued from. */
   let rmDragDot = -1, rmDragFrom = null, rmDragRange = 0;
-  document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
-    if(!e.shiftKey || rmCornerMode !== 'dot') return;
-    const cam = rmCamLocal();
-    if(!cam) return;
-    const r = this.getBoundingClientRect();
-    const {W, H} = rmPanoSize();
-    const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
-    if(i < 0) return;
-    rmDragDot = i;
-    /* How far out the dot is when it is picked up. The drag keeps that and
-       re-aims, so the dot tracks the pointer exactly - see the mousemove. */
-    (function(){
-      const c0 = rmCorners[i], p0 = c0 && rmToLocal(c0.lat, c0.lng, c0.h || 0);
-      rmDragRange = p0 ? Math.hypot(p0.e - cam.e, p0.n - cam.n, p0.u - cam.u) : 0;
-    })();
-    rmDragFrom = {x: e.clientX, y: e.clientY};
-    e.preventDefault();
-    const note = document.getElementById('rmCornerNote');
-    if(note) note.textContent = 'Moving dot ' + rmCornerLabel(i) + ' — let go to drop it.';
-    rmRefreshCursors(true);
-  });
-  document.getElementById('rmPanoLock').addEventListener('mousemove', function(e){
-    /* The cursor answers before anything else does - see rmRefreshCursors. */
-    rmLastPointer = {x: e.clientX, y: e.clientY};
-    if(rmDragDot < 0){ rmRefreshCursors(false); return; }
-    /* ⚠ A few pixels of travel is a shaky click, not a drag. Below this the dot
-       is left exactly where it was, so shift-clicking to SWAP two dots is not
-       quietly turned into moving one of them a hair. */
-    if(rmDragFrom && Math.hypot(e.clientX - rmDragFrom.x, e.clientY - rmDragFrom.y) < RM_DRAG_SLOP_PX) return;
-    rmDragMoved = true;
-    const cam = rmCamLocal();
-    const c = rmCorners[rmDragDot];
-    if(!cam || !c){ rmDragDot = -1; return; }
-    const r = this.getBoundingClientRect();
-    const {W, H} = rmPanoSize();
-    const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
-    /* ⭐ THE DOT FOLLOWS THE POINTER (2026-08-26). Owner: "I should be able to
-       move a dot anywhere on street view, the only restriction is not changing
-       height on sky view."
-
-       ⚠ THIS REPLACES A HEIGHT-ONLY DRAG, and the reasoning for that one is kept
-       because it explains what is being traded. From the street the unknown is
-       DEPTH along the ray: a dot can sit perfectly on the gutter here and be ten
-       feet into next door's garden in plan, and nothing in this picture can show
-       it. Holding the plan and moving only the height meant the drag could never
-       make that worse. But it also meant the dot would not go where it was
-       dragged, which is not a drag.
-
-       ⭐ SO IT KEEPS ITS RANGE AND RE-AIMS. The distance out from the camera is
-       taken when the dot is picked up and held for the whole drag; the pointer
-       chooses the direction. The dot therefore sits exactly under the cursor,
-       goes anywhere on screen, and its height and plan both follow - which is
-       what "anywhere" means. Nothing about the depth is invented or destroyed by
-       moving it: it leaves the drag as far out as it arrived.
-
-       ⚠ AND THE DEPTH HAS ITS OWN ANSWER NOW, which is why this is safe to give
-       up. Clicking the same corner from a second angle crosses two rays, and that
-       also measures how far Google's model stands from the house, after which
-       single clicks land right on their own. The drag no longer has to be the
-       thing that protects the plan position. */
-    const range = rmDragRange || (function(){
-      const p = rmToLocal(c.lat, c.lng, c.h || 0);
-      return Math.hypot(p.e - cam.e, p.n - cam.n, p.u - cam.u);
-    })();
-    if(!(range > 0.5)) return;
-    const to = {e: cam.e + dir.e * range, n: cam.n + dir.n * range, u: cam.u + dir.u * range};
-    /* ⚠ NOTHING UNDERGROUND AND NOTHING ABOVE THE ROOF, the same two limits a
-       fresh click answers to - a drag must not reach a place a click could not. */
-    const top = rmRoofTopM();
-    if(!(to.u > 0.3)) return;
-    if(top !== null && to.u > top + RM_EAVE_TOL_M) return;
-    const wpt = rmToWorld(to);
-    c.lat = wpt.lat; c.lng = wpt.lng; c.h = to.u;
-    c.rays = []; c.pinned = 0; c.spread = 0;
-    rmDragPaint();
-  });
-  ['mouseup', 'mouseleave'].forEach(function(ev){
-    document.getElementById('rmPanoLock').addEventListener(ev, function(){
-      if(rmDragDot < 0) return;
-      const moved = rmCornerLabel(rmDragDot);
-      rmDragDot = -1;
-      rmRefreshCursors(false);
-      /* ⭐ THE NUMBERS CATCH UP ON THE DROP. rmDragPaint deliberately leaves
-         the panel and the strip alone while the pointer is down; this is where
-         the footage, the price and the numbering come back into agreement with
-         the picture - at the moment they stop changing. */
-      rmCornersChanged();
-      const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = 'Dot ' + moved + ' moved. It is no longer pinned — ' +
-        'click it again from another angle to fix it exactly.';
-    });
-  });
-  document.getElementById('rmPanoLock').addEventListener('click', function(e){
-    /* A shift-click is the end of a drag, not a placement. */
-    if(e.shiftKey) return;
-    const cam = rmCamLocal();
-    if(!cam) return;
-    const r = this.getBoundingClientRect();
-    const {W, H} = rmPanoSize();
-    const dir = rmRay(e.clientX-r.left, e.clientY-r.top, W, H, rmPanoPov());
-    /* ⚠ AHEAD OF PLACING A DOT OR ADDING A POINT, for the same reason as the
-       map side: while the tool is waiting for the second half of an alignment,
-       a click means that and nothing else. */
-    if(rmAligning){
-      if(rmAligning === 'sky'){
-        rmAlignNote('Start on the SKY VIEW side — click the spot up there first, then come back here.');
-        return;
-      }
-      /* ⚠ THE SAME RESOLVER THE DOTS USE, in the same order. A second way of
-         turning a Street View click into a place would eventually disagree with
-         the one that draws the lines, and then the offset would be measured
-         against a house the drawing does not use. */
-      const wall = rmWallPlane();
-      const hit = rmCastHouse(dir, cam) ||
-                  (wall ? rmWallHit(dir, cam, wall) : null);
-      /* ⚠ THE WHOLE HIT, NOT JUST WHERE IT IS. Its height and whether it landed
-         on a WALL are what let the same click measure the roof — see
-         rmAlignTakeStreet. Passing {e, n} threw both away. */
-      rmAlignTakeStreet(hit);
-      return;
-    }
-    /* ⚠ AND NOT WHILE A RUN IS OPEN — THE SAME RULE THE MAP FOLLOWS. The map
-       branch has always read `rmCornerMode === 'dot' && !rmDrawing`; this one
-       read only the mode, so the two views answered an identical click two
-       different ways the moment anything opened a run. The scale check is the
-       thing that does: it says "click each end of it in either view", and in
-       the street view the click was landing as a CORNER instead — so the check
-       could not be taken from the one view that can see the thing being
-       checked, and the office got a stray dot for trying. */
-    if(rmCornerMode === 'dot' && !rmDrawing){
-      /* ⭐ A CLICK PLACES A CORNER, on the roof it is pointing at. Owner:
-         "also have a way to add a corner... space bar toggles select from make
-         a dot." The dormer corners that meet the main roof are not against the
-         sky and can never be detected; this is how they get put in. */
-      /* ⭐ THE WALL FIRST, the roof only if there is no footprint. A ray from
-         the street meets a vertical wall nearly square on, so the crossing
-         barely moves when the height is a little out; it meets a roof plane at
-         a shallow angle, where the same error slides the point yards along the
-         ray - and every yard of that lands in the plan position, which is the
-         one the map shows and the street view cannot. */
-      /* ⭐ CLICKING A DOT AGAIN FROM A NEW ANGLE PINS IT EXACTLY. Owner: "you
-         need to make there be 0 margin of error." A single click can only ever
-         be a good guess, because the depth along the ray has to come from a
-         model of the house. Two clicks from two places cross at one point,
-         which is geometry rather than a model - so a second sighting of the
-         same corner replaces the guess with the real thing, and a third
-         narrows it further. */
-      /* ⭐ AN OFFERED CORNER IS TAKEN BY CLICKING IT, and that is checked before
-         anything else - somebody aiming at a ring means that ring, not a fresh
-         dot a few inches off it. */
-      const cand = rmCandidateUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
-      if(cand >= 0){
-        rmKeepCandidate(cand);
-        const cn = document.getElementById('rmCornerNote');
-        if(cn) cn.textContent = 'Kept — that is ' + rmCornerLabel(rmCorners.length - 1) + '. ' +
-          rmCandidates.length + ' still offered.';
-        return;
-      }
-      /* ⭐ EACH DOT AT ITS OWN SIZE, so a dot that has drifted can still be
-         re-sighted — see RM_RESIGHT_DEPTH_SLOP_M. */
-      const near = rmDotToResight(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam);
-      if(near >= 0){
-        const res = rmPinCorner(near, {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir});
-        const noteEl = document.getElementById('rmCornerNote');
-        if(noteEl) noteEl.textContent = res && res.ok
-          ? 'Dot ' + rmCornerLabel(near) + ' pinned from ' + res.sightings + ' angles — the two lines of sight meet to within ' +
-            (res.spread * RM_M_TO_FT * 12).toFixed(1) + ' inches.' +
-            /* ⭐ AND SAY IF THAT PIN ALSO MEASURED THE HOUSE, because it changes
-               every click afterwards and silently improving is as confusing as
-               silently drifting. */
-            (rmModelShift ? ' Google’s model of this house sits ' + rmModelShiftFt.toFixed(1) +
-              ' ft from where it really is — measured from those two angles and now allowed for. ' +
-              'Single clicks should land on the house from here on.' : '')
-          : '⚠ ' + ((res && res.why) || 'that sighting could not be used');
-        return;
-      }
-      /* The part of the house the ray is really pointing at comes first; the
-         whole-building outline is the fallback for a house Google has given no
-         roof faces for. */
-      let best = rmCastHouse(dir, cam);
-      const note = document.getElementById('rmCornerNote');
-      if(!best){
-        /* ⚠ REFUSING A CLICK IS WORSE THAN PLACING IT ROUGHLY. Google's roof
-           planes stop at the boxes it drew, so a real corner just past the end
-           of one is refused - and the office is left clicking at a house that
-           will not take a dot. Falling back to the wall the house presents to
-           the camera puts it close and lets it be corrected; saying no puts
-           the work back on them for a modelling gap that is not their fault. */
-        const wall = rmWallPlane();
-        const w2 = wall ? rmWallHit(dir, cam, wall) : null;
-        /* ⚠ AND THE FALLBACK WALL IS AN INFINITE PLANE, which is how a click on
-           the SKY used to become a dot. A ray aimed well above the roof still
-           crosses that plane somewhere up in the air, and the crossing was
-           being accepted and given a height off the roof model - so clicking a
-           cloud produced a confident dot at 31 ft, drawn in both views, with
-           nothing anywhere saying it was invented.
-
-           Owner: "you need to make there be 0 margin of error." A click with no
-           surface under it has no depth, and no depth means no height. The one
-           honest answer is to refuse it.
-
-           So the crossing has to be ON the house: below the roof over that
-           spot, and not underground. Past the end of a roof patch it is still
-           accepted - that was the point of having a fallback at all - but past
-           the TOP of the house it is not. */
-        const wu = w2 ? rmRoofHeightAt(rmToWorld(w2).lat, rmToWorld(w2).lng) : null;
-        const roofTop = (wu !== null && isFinite(wu)) ? wu : rmDatum().m;
-        const onHouse = w2 && w2.u > 0.3 && w2.u < roofTop + RM_EAVE_TOL_M;
-        if(!onHouse){
-          if(note) note.textContent = w2
-            ? '⚠ That is above the roofline — there is nothing there to measure. Click on the house itself.'
-            : '⚠ That is not pointing at the house — click on the building itself.';
-          return;
-        }
-        best = w2;
-        best.u = roofTop;
-      }
-      /* ⭐ NOTHING IS ABOVE THE ROOF. Owner: "you need to make there be 0
-         margin of error." Whichever path found this point - a roof face, a
-         wall, or the fallback - it is only real if it is on the building, and
-         the building stops at its own ridge. A click on the sky that crosses a
-         bounding box carried out past the roof is not a corner; it is nothing,
-         and saying so is the only honest answer. Refusing costs one wasted
-         click. Accepting puts an invented height into a quote. */
-      const top = rmRoofTopM();
-      if(top !== null && best.u > top + RM_EAVE_TOL_M){
-        if(note) note.textContent = '⚠ That is above the roof — there is nothing there to measure. Click on the house itself.';
-        return;
-      }
-      const w = rmToWorld({e: best.e, n: best.n, u: best.u});
-      /* ⭐ THE FIRST DOT PUT ON A WALL MEASURES THE ROOF HEIGHT. Owner: "measure
-         height not just legth and depth", and the panel has been promising this
-         for weeks - "Trace anything in Street View and it is measured instead."
-
-         ⚠ IT WAS ONLY EVER WIRED TO THE OLD TRACING PATH, so once the work moved
-         to dots the datum stopped being measured on every house. Four addresses
-         checked in a row, all four said "assumed".
-
-         ⚠ AND ONLY FROM A WALL HIT, WHICH IS THE PART THAT MATTERS. A wall
-         crossing gets its height from the camera and the ray - geometry that
-         knows nothing about the datum - so it can be used to set one. A ROOF
-         crossing gets its height from the roof plane, which is placed BY the
-         datum, so setting the datum from it would be measuring the assumption
-         and calling it a measurement. That is the circular move that cost a
-         revert earlier today and it is not repeated here. */
-      if(best.kind === 'wall' && rmDatumSource !== 'street' && rmSetDatumFromStreet(w)){
-        rmRefreshHeights();
-        const st = document.getElementById('rmStatus');
-        if(st) st.textContent = 'Roof height measured from Street View — ' +
-          Math.round(rmDatum().m * RM_M_TO_FT) + ' ft to the lowest eave.';
-      }
-      rmAddCorner({lat: w.lat, lng: w.lng, h: best.u,
-                   ray: {cam: {e: cam.e, n: cam.n, u: cam.u}, dir: dir}});
-      if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
-        rmCornerLabel(rmCorners.length - 1) + '. Space goes back to picking.';
-      return;
-    }
-    if(rmWallPicking){
-      const g = rmGroundHit(dir, cam);
-      if(!g){
-        document.getElementById('rmWallStatus').textContent = 'That is at or above the horizon — click lower, where the wall actually meets the ground.';
-        return;
-      }
-      rmWallPts.push(g);
-      if(rmWallPts.length === 2){
-        const a = rmToWorld(rmWallPts[0]), b = rmToWorld(rmWallPts[1]);
-        const span = Math.hypot(rmWallPts[0].e-rmWallPts[1].e, rmWallPts[0].n-rmWallPts[1].n);
-        if(span < 0.5){
-          document.getElementById('rmWallStatus').textContent = 'Those two points are too close to fix a wall — try the far ends of the house.';
-          rmWallPts = [];
-        } else {
-          rmWall = {a: {lat:a.lat, lng:a.lng}, b: {lat:b.lat, lng:b.lng}};
-          rmWallPicking = false;
-          rmWallPts = [];
-          document.getElementById('rmWallBtn').textContent = 'Set the Wall Again';
-          document.getElementById('rmWallStatus').textContent =
-            'Wall set — ' + Math.round(span*RM_M_TO_FT) + ' ft of frontage. Street View can measure now.';
-        }
-      } else {
-        document.getElementById('rmWallStatus').textContent = 'Now the other end of the wall, where it meets the ground.';
-      }
-      rmSetDrawing(false); rmPaintStreet();
-      return;
-    }
-    if(!rmDrawing) return;
-    const plane = rmWallPlane();
-    if(!plane){
-      document.getElementById('rmStatus').textContent = 'Set the wall first — a photo has no depth until you do.';
-      return;
-    }
-    const hit = rmWallHit(dir, cam, plane);
-    if(!hit){
-      document.getElementById('rmStatus').textContent = 'That direction never crosses the wall you set — try a point on the house.';
-      return;
-    }
-    /* ⚠ A CLICK ABOVE THE ROOF IS NOTHING, AND IT WAS BEING COUNTED (2026-08-25).
-       The dot-placing path has refused this for a while, and its own note says
-       why: a ray aimed over the roof still crosses the wall plane somewhere up
-       in the air, so clicking a cloud produced "a confident dot at 31 ft" with
-       nothing saying it was invented. TRACING never got the same guard, so the
-       same click added a point in the sky, at a real-looking height, straight
-       into the footage the customer is billed from.
-       ⚠ AND IT BITES HARDEST ON A GABLE, which is the reason it was found: the
-       peak is the highest thing you aim at, so overshooting it is the easiest
-       mistake in the whole tool to make.
-       Owner: "I need no guessing I need feet to be correct." The one honest
-       answer to a click with nothing under it is to refuse it. RM_EAVE_TOL_M is
-       the same allowance the dot path uses, so a point ON the peak still lands. */
-    const roofTop = rmRoofTopM();
-    if(roofTop !== null && hit.u > roofTop + RM_EAVE_TOL_M){
-      document.getElementById('rmStatus').textContent =
-        '⚠ That is above the roof — there is nothing there to measure, so it would be a guess. ' +
-        'Click the peak itself, or the roofline.';
-      return;
-    }
-    const world = rmToWorld(hit);
-    /* ⚠ THE FIRST THING TRACED IN STREET VIEW PINS THE WHOLE ROOF.
-       Street View is the only place a height is really OBSERVED - the camera's
-       own geometry gives it - so one point on the wall is enough to place
-       Google's roof model vertically, and every guessed line jumps to where it
-       belongs. Only from an ASSUMED datum: a measurement already taken, or a
-       height the office typed, is not overwritten by a later click. */
-    if(rmDatumSource !== 'street' && rmSetDatumFromStreet(world)){
-      rmRefreshHeights();
-      document.getElementById('rmStatus').textContent =
-        'Roof height set from Street View — ' + Math.round(rmDatum().m * RM_M_TO_FT) +
-        ' ft to the lowest eave. Every line moved to match.';
-    }
-    rmAddPoint(world);
-    /* Street View just learned a height. Sky view cannot see height at all, so
-       it inherits this one for its next click - which is exactly how measuring
-       one eave makes every later sky-view trace a true length. */
-    const ft = world.h * RM_M_TO_FT;
-    if(ft > 1){
-      /* The measured eave is announced on rmDatumNote by rmRefreshHeights;
-         there is no typed box left to write it into. */
-    }
-  });
-  /* ⭐ THE RIGHT BUTTON ALWAYS SELECTS. Owner: "make it so right click is
-     always select and left click is place dot if thats what its on but it
-     switches if you click space." Two buttons means never having to change
-     mode just to take one dot out - and the mode only ever governs the LEFT
-     one, which is what space is for. */
-  ['rmPanoLock', 'rmMapLock'].forEach(function(id){
-    document.getElementById(id).addEventListener('contextmenu', function(e){
-      e.preventDefault();
-      if(!rmCorners.length) return;
-      const r = this.getBoundingClientRect();
-      let i = -1;
-      if(id === 'rmPanoLock'){
-        const {W, H} = rmPanoSize();
-        i = rmCornerNearPixel(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), rmCamLocal());
-      } else {
-        /* From above, the nearest dot on the ground is the one meant. */
-        const w = rmMapPixelToWorld(e.clientX, e.clientY, r);
-        if(w){
-          let bd = 4;
-          rmCorners.forEach(function(c, k){
-            const d = Math.hypot((c.lat - w.lat) * 111320, (c.lng - w.lng) * 85000);
-            if(d < bd){ bd = d; i = k; }
-          });
-        }
-      }
-      if(i >= 0) rmToggleCorner(i);
-    });
-  });
-  /* ⭐ THE WHEEL ZOOMS, EVEN WHILE PLACING DOTS. Owner: "also add zoom
-     features so i can scroll with my mouse to zoom."
-     Both panes are covered by a transparent sheet while dots are being placed -
-     it is the only way to catch a click, because the map and the panorama
-     swallow their own - and that sheet was eating the wheel with everything
-     else. Google's own scrollwheel is switched off at the same moment, so
-     there was no way to get closer to a corner without leaving dot mode.
-
-     ⚠ AND IT ZOOMS AT THE POINTER, not at the middle. Zooming to the centre
-     throws whatever you were aiming at off the screen, which on a roof corner
-     means finding it again after every notch. */
   document.getElementById('rmMapLock').addEventListener('wheel', function(e){
     if(!rmMap) return;
     e.preventDefault();
@@ -24072,7 +23717,6 @@ function openRoofMeasure(quoteId){
                    pitch: Math.max(-85, Math.min(85, pov.pitch + (wantP - pov.pitch) * k))});
     rmPaintStreet();
   }, {passive: false});
-  document.getElementById('rmPanoLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
   /* ⚠ DRAGGING USED TO WORK ONLY ON THE SKY VIEW, which is no use at all when
      Street View is where the work happens - a line an inch off the gutter
      could be seen and not fixed. Grabbing a dot here moves the point along the
@@ -48703,35 +48347,63 @@ function hcRender(){
    ⚠ IT THROWS RATHER THAN SWALLOWING. Both callers catch: the bulk button counts failures
    and reports them, and the row button leaves the row alone and says so. A fix that fails
    silently is a row that looks dealt with. */
-async function hcFixRow(id, r){
-
-      if(id === 'poolConflict'){
-        await deleteDoc(doc(db,'availableCustomerNumbers', r.numId));
-      } else if(id === 'missingInvoice' || id === 'totalDrift'){
-        await syncPayerInvoice(r.payer);
-      } else if(id === 'staleStatus'){
-        const inv = allInvoicesCache.find(function(x){ return x.id === r.invId; });
-        if(inv){
-          const d = inv.data || {};
-          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees)});
-        }
-      } else if(id === 'ghostStops'){
-        const route = (function(){
-          const dates = Object.keys(scheduledRoutesCache || {});
-          for(let k = 0; k < dates.length; k++){
-            const found = (scheduledRoutesCache[dates[k]] || []).find(function(x){ return x.id === r.routeId; });
-            if(found) return found;
-          }
-          return null;
-        })();
-        if(route){
-          await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: (route.stops || []).filter(function(st){ return st.id !== r.stopId; })});
-        }
-      } else if(id === 'staleStops'){
-        await resyncSavedRouteStops(r.custId, r.fields);
-      }
+async function hcFixRow(id, r){
+
+
+
+      if(id === 'poolConflict'){
+
+        await deleteDoc(doc(db,'availableCustomerNumbers', r.numId));
+
+      } else if(id === 'missingInvoice' || id === 'totalDrift'){
+
+        await syncPayerInvoice(r.payer);
+
+      } else if(id === 'staleStatus'){
+
+        const inv = allInvoicesCache.find(function(x){ return x.id === r.invId; });
+
+        if(inv){
+
+          const d = inv.data || {};
+
+          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees)});
+
+        }
+
+      } else if(id === 'ghostStops'){
+
+        const route = (function(){
+
+          const dates = Object.keys(scheduledRoutesCache || {});
+
+          for(let k = 0; k < dates.length; k++){
+
+            const found = (scheduledRoutesCache[dates[k]] || []).find(function(x){ return x.id === r.routeId; });
+
+            if(found) return found;
+
+          }
+
+          return null;
+
+        })();
+
+        if(route){
+
+          await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: (route.stops || []).filter(function(st){ return st.id !== r.stopId; })});
+
+        }
+
+      } else if(id === 'staleStops'){
+
+        await resyncSavedRouteStops(r.custId, r.fields);
+
+      }
+
 }
-
+
+
 async function hcApplyFix(id, btn){
   const check = hcLastChecks.find(function(c){ return c.id === id; });
   if(!check || !check.rows.length) return;
