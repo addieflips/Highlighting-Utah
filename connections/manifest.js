@@ -1,3 +1,29 @@
+/* ⭐ WHAT THIS DOES NOT WATCH — and it is listed FIRST because it is the thing most
+ * likely to be misread.
+ *
+ * Addie asked whether the map lets her "make sure everything is connected and working
+ * correctly". A green page means the DECLARED things are connected. It does not mean the
+ * app is fine, and a page that says "watches 8 things" without saying 8 out of WHAT
+ * invites exactly that reading. A map that looks complete and is not is worse than no
+ * map — so the page prints this list beside the green.
+ *
+ * ⚠ IT IS HAND-WRITTEN, LIKE THE SPINES, because only a person knows what matters. And
+ * `connections.test.js` fails if anything on it has since been given a spine, so the two
+ * cannot drift: the moment something here is really watched, this row has to go.
+ */
+const NOT_WATCHED = [
+  ['scheduledRoutes', 'which houses a crew is sent to on a given day'],
+  ['lightColors / lightsDescription', 'what colours a house gets'],
+  ['measuredFeet', 'the footage that decides bins, number series and bundle count'],
+  ['difficulty', 'the easy / medium / hard grade'],
+  ['quotePhotos → housePhotos', 'the pictures that reach a crew sheet'],
+  ['gateCode', 'how a crew gets in'],
+  ['outletTimer', 'whether a house asked for a timer'],
+  ['rsvpStatus / rsvpRespondedAt', 'who answered, and what they said'],
+  ['maybeNextYear / isOutForSeason', 'who is in the season at all'],
+  ['lightsLockedUntil', 'the 48-hour route lock and free-change window']
+];
+
 /* WHAT SHOULD CONNECT TO WHAT — the hand-written half.
  * ====================================================
  * Only a person knows this. The code can say what it DOES; it cannot say what it was
@@ -255,5 +281,99 @@ module.exports = [
       { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'next season\'s first bill is built',
         rules: ['Summed across the whole bill, not just the payer.'] }
     ]
+  },
+
+  /* ═══════════════ BATCH 3 — ranked by how likely they are to disagree ═══════════════
+     Addie, on scope: "what are most important most likely to fail. For example quotes,
+     invoices, costumers, schedule, and routes" — and then "oh and warehouse".
+
+     ⭐ "MOST LIKELY TO FAIL" IS MEASURABLE, NOT A GUESS. Every bug found this week had
+     one shape: ONE RULE WITH SEVERAL WRITERS, and one of them disagreeing. The blank-
+     colours hole was two writers with one fixed. The invoice key was four. So the fields
+     were ranked by how many DISTINCT WRITERS each has inside her six areas — 82 have
+     more than one — and these are taken off the top of that list.
+
+     ⚠ The ranking validated itself before it was used: it put `needsLightBuild` at six
+     writers across two files, which is precisely where the real hole turned out to be. */
+
+  {
+    field: 'deposit',
+    title: 'Money recorded as paid',
+    plain: 'What a customer has actually paid against their bill.',
+    guard: 'money-parity.test.js sweeps the balance maths that reads it, but nothing checks the ten places that WRITE it agree.',
+    ignore: ['^(applyQuoteLinkLabel|esc)$'],
+    states: [
+      ['A payment is captured', 'Added to the deposit on their invoice'],
+      ['Typed in by the office', 'Same field, same effect'],
+      ['Equal to the total', 'The bill reads Paid in Full'],
+      ['They move onto somebody else\'s bill', 'What they paid follows the house across']
+    ],
+    sets: [
+      { file: 'admin', fn: 'syncPayerInvoice', where: 'Invoices › Invoice List', when: 'the invoice is rebuilt',
+        rules: ['A rebuild must never wipe a payment already recorded.'] },
+      { file: 'server', fn: 'recordPaypalPayment', where: 'Member Portal › Pay', when: 'a card payment clears',
+        rules: ['Added to what is there, never overwritten — two payments must both land.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'the balance is worked out' },
+      { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
+    ]
+  },
+
+  {
+    field: 'stops',
+    title: 'The route a crew drives',
+    plain: 'The frozen list of houses on one crew day, in the order they are driven.',
+    guard: null,
+    states: [
+      ['Generated', 'Saved as a snapshot — it does not re-shuffle under the crew'],
+      ['A customer is added', 'Slotted into an upcoming day if there is room'],
+      ['A house is evicted', 'Comes off, and is reported rather than dropped silently'],
+      ['Printed', 'The paper matches the screen, in the same order']
+    ],
+    sets: [
+      { file: 'admin', fn: 'generateAllRoutes', where: 'Schedule › Scheduling', when: 'the season is recalculated',
+        rules: ['Ordered inside a crew, never across the day — one list sends each crew into the other\'s town.'] },
+      { file: 'admin', fn: 'autoScheduleNewCustomer', where: 'Customers › Add a Customer', when: 'a new customer is slotted in' }
+    ],
+    reads: [
+      { file: 'admin', fn: 'evenOutDays', where: 'Schedule › Scheduling', when: 'a day is over the cap' },
+      { file: 'admin', fn: 'fillDays', where: 'Schedule › Scheduling', when: 'a thin day is topped up' },
+      /* ⚠ NOT crewSheetRows. It reads `day.houses` off the season PLAN, which is a
+         different shape from a saved route's `stops` — declaring it here was a false
+         red on correct code. The map view is what really reads the stops. */
+      { file: 'admin', fn: 'dayMapDraw', where: 'Routes › Map View', when: 'the day is drawn on the map' }
+    ]
+  },
+
+  {
+    field: 'status',
+    title: 'Where a quote sits',
+    plain: 'New, priced, sent, approved or closed — which decides the folder it appears in.',
+    guard: 'run-all.js covers the quote card and the folders, but the writers are spread across three files.',
+    ignore: ['^(computeInvoiceStatus|renderInvoicesList|syncPayerInvoice|hcRunChecks|etRenderRecipientList|allCustRouteStatus|buildAddressRowHtml|attachAddressRowHandlers|balanceDueAmount|buildInvoiceDocHtml|getLiveInvoiceStatus|paypalCaptureOrder|runInvoiceBatch|sendPaymentReceipt|houseBillingRow)$'],
+    states: [
+      ['New', 'Waiting to be priced'],
+      ['Approved by the customer', 'Ready to convert'],
+      ['Converted', 'Closed, and the customer exists'],
+      ['A re-quote', 'Its own folder, so it is never built as a new house']
+    ],
+    sets: [
+      /* ⚠ NOT quoteRespond — that writes `approvalStatus`, which is a different field
+         answering a different question (what the customer said, versus where the quote
+         sits). Conflating them was a false red. `status` is written when a quote is
+         converted or archived. */
+      { file: 'admin', near: "status:'closed'", where: 'Quote Requests', when: 'a quote is converted or archived',
+        rules: ['A quote can never be CREATED already priced or already approved — firestore.rules refuses it.'] }
+    ],
+    reads: [
+      { file: 'admin', fn: 'quoteStage', where: 'Quote Requests', when: 'a card is drawn' },
+      /* quoteFolder asks quoteStage rather than reading the field itself, which is
+         right — one rule, one reader — so it is not declared as a reader of `status`. */
+      { file: 'admin', fn: 'closedQuoteFor', where: 'Quote Requests', when: 'a house is checked for a closed quote' }
+    ]
   }
 ];
+
+module.exports.NOT_WATCHED = NOT_WATCHED;

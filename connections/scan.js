@@ -71,7 +71,22 @@ function fnsIn(code, base) {
         if (!b) continue;
         open = b.index + b[0].length - 1;
       } else {
-        open = code.indexOf('{', m.index + m[0].length - 1);
+        /* ⚠ PAST THE PARAMETER LIST, NOT THE FIRST BRACE — and this was a real bug that
+           produced a real false red. `async function recordPaypalPayment(phone, {
+           captureId, tip, serviceAmount })` has its first `{` in the PARAMETERS, so
+           taking it matched the destructure and the "function" came back as a
+           zero-length range. Every declared connection inside such a function then
+           reported as missing on code that was perfectly correct — and it fails silently
+           in the other direction too, since a zero-length range can never contain
+           anything. Walk the parameter parens to their close first. */
+        let p = code.indexOf('(', m.index);
+        if (p < 0) continue;
+        let depth = 0, q = p;
+        for (; q < code.length; q++) {
+          if (code[q] === '(') depth++;
+          else if (code[q] === ')') { depth--; if (!depth) break; }
+        }
+        open = code.indexOf('{', q);
       }
       if (open < 0) continue;
       const end = matchBrace(code, open);

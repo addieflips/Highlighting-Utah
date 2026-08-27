@@ -56,14 +56,14 @@ const m = build();
 const reds = [];
 m.report.forEach(r => {
   r.rows.filter(x => !x.found).forEach(x => {
-    reds.push({ field: r.spine.field, side: x.side, where: x.where, why: x.why, wrong: !!x.wrongValue });
+    reds.push({ field: r.spine.field, side: x.side, where: x.where, anchor: x.anchor, why: x.why, wrong: !!x.wrongValue });
   });
 });
 
 check('every declared connection is still made by the code',
   reds.length === 0,
   reds.map(r =>
-    '\n          ' + r.field + ' · ' + r.where + '\n            ' + r.why +
+    '\n          ' + r.field + ' · ' + r.where + ' · ' + r.anchor + '\n            ' + r.why +
     '\n            (' + (r.wrong
       ? 'the connection is there and does the WRONG THING — a rule this spine declares is being broken'
       : 'declared as a ' + (r.side === 'sets' ? 'writer' : 'reader') + ', and the code no longer does it') + ')'
@@ -83,7 +83,7 @@ check('every declared connection is still made by the code',
 const lostAnchors = reds.filter(r => /anchor itself is gone/.test(r.why));
 check('every anchor still exists in the file it names',
   lostAnchors.length === 0,
-  lostAnchors.map(r => '\n          ' + r.field + ' · ' + r.where).join('') +
+  lostAnchors.map(r => '\n          ' + r.field + ' · ' + r.where + ' · ' + r.anchor).join('') +
   '\n        A renamed or moved function. Repoint the anchor in connections/manifest.js.');
 
 /* ---------------------------------------------------------------------------
@@ -187,6 +187,77 @@ m.report.forEach(r => {
     fs.existsSync(path.join(ROOT, 'connections.json')),
     'the admin badge reads it — without it the summary box reports that it could not tell, ' +
     'which is correct but useless. Run `node connections/build.js`');
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. The coverage list is honest.
+ *
+ * The page says what it does NOT watch, beside the green. Without that, "watches 8
+ * things" invites somebody to read a green page as "the app is fine", which is a
+ * different and much larger claim.
+ *
+ * ⭐ AND THE LIST CANNOT GO STALE IN THE ONE DIRECTION THAT MATTERS: if something on it
+ * has since been given a spine, this fails. A list still claiming something is unwatched
+ * when it is watched understates the coverage, which is the safe direction — but it also
+ * means nobody trusts the list, and a list nobody trusts is the same as no list.
+ * ------------------------------------------------------------------------- */
+{
+  const manifest = require('./connections/manifest');
+  const notWatched = manifest.NOT_WATCHED || [];
+  const watchedFields = m.report.map(r => r.spine.field);
+
+  check('the page says what it does NOT watch',
+    notWatched.length > 0 || watchedFields.length >= 18,
+    'with nothing declared unwatched and fewer than the eighteen things worth watching, ' +
+    'the page is claiming a coverage it does not have');
+
+  const nowWatched = notWatched.filter(n =>
+    n[0].split('/').map(x => x.trim()).some(f => watchedFields.indexOf(f) !== -1));
+  check('nothing is listed as unwatched that now has a spine',
+    nowWatched.length === 0,
+    nowWatched.map(n => '\n          ' + n[0]).join('') +
+    '\n        These are watched now — take them out of NOT_WATCHED in connections/manifest.js.');
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. The nav badge has ONE writer.
+ *
+ * The checklist render and the connections summary both want that badge and land in
+ * either order. Both set their own number and call the painter, so whichever arrives
+ * second cannot wipe the other's — writing the badge directly from either would be a
+ * race, and the loser would be invisible.
+ * ------------------------------------------------------------------------- */
+{
+  const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
+  const direct = (admin.match(/getElementById\('badgeProjTodo'\)/g) || []).length;
+  check('only the painter writes the Checklist nav badge',
+    direct === 1 && /function paintChecklistBadge/.test(admin),
+    'found ' + direct + ' places reading that badge. Two writers racing means the loser ' +
+    'is invisible — and the one that loses would be the broken connection');
+  /* ⚠ ASSERTED BY ORDER, NOT BY A WINDOW. The first version matched a bounded
+     `[\s\S]{0,240}` after the test, which is a fixed-length extraction window — the
+     shape CLAUDE.md §7 bans by name — and it failed on correct code the moment the
+     block grew past it. What must be true is that the painter decides on the BREAK
+     before it reads the test count, so the break wins. */
+  const painter = (function () {
+    const i = admin.indexOf('function paintChecklistBadge');
+    if (i < 0) return '';
+    let d = 0, k = admin.indexOf('{', i);
+    for (; k < admin.length; k++) {
+      if (admin[k] === '{') d++;
+      else if (admin[k] === '}') { d--; if (!d) break; }
+    }
+    return admin.slice(i, k + 1);
+  })();
+  check('a broken connection outranks an open test on that badge',
+    painter.indexOf('connBrokenCount') > -1 &&
+    painter.indexOf('projOpenTestCount') > -1 &&
+    painter.indexOf('connBrokenCount') < painter.indexOf('projOpenTestCount'),
+    'the break has to be decided first, or a page with outstanding tests hides it');
+  check('the map says when its counts were last rebuilt',
+    /counts last rebuilt at|rebuild date unknown/.test(fs.readFileSync(path.join(ROOT, 'connections.html'), 'utf8')),
+    'the undeclared-writer counts drift between rebuilds and nothing forces a regenerate ' +
+    'for them, so the page has to say how old they are');
 }
 
 /* ---------------------------------------------------------------------------

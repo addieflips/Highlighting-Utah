@@ -89,7 +89,12 @@ function check(files, manifest) {
     ['sets', 'reads'].forEach(side => {
       (spine[side] || []).forEach(c => {
         const I = ix[c.file];
-        const r = { side, where: c.where, when: c.when, file: c.file, rules: c.rules || [], found: false, why: '' };
+        /* ⚠ THE ANCHOR TRAVELS WITH THE ROW. Two rows can share a `where` — Quote
+           Requests had a reader in quoteStage and another in quoteFolder — and a red
+           naming only the `where` cannot say which. That sent me debugging the one that
+           was fine. */
+        const anchor = c.fn ? c.fn + '()' : c.el ? '#' + c.el : c.near ? 'near "' + String(c.near).slice(0, 40) + '"' : '?';
+        const r = { side, where: c.where, when: c.when, file: c.file, anchor, rules: c.rules || [], found: false, why: '' };
         if (!I) { r.why = 'that file is not being scanned'; rows.push(r); return; }
         const ranges = anchorRanges(I, c);
         if (!ranges.length) {
