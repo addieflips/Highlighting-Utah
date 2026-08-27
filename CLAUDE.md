@@ -1095,7 +1095,7 @@ The highest-value monitor already exists and predates all of this: the nightly b
 bash
 npm install                    # once per machine
 npx playwright install chromium # once per machine, ONLY for browser tests (~150MB)
-npm test                       # gate A + selectors + money parity + option audit + season state + colours + reason + fix + portal + silent failures + run-all.js. No browser. ⚠ MEASURE the count rather than believing any number written down here.
+npm test                       # gate A + selectors + money parity + option audit + season state + colours + reason + fix + portal + silent failures + import-build + connections + run-all.js + questions map. No browser. ⚠ THIS LINE WAS TWO GATES SHORT for three days — read `package.json`'s `test` script, which is the actual chain. ⚠ MEASURE the count rather than believing any number written down here.
 npm run test:options           # the option registry audit on its own
 npm run test:season            # where each RSVP answer ends up, on its own
 npm run test:silent           # no empty catch is left without a reason, on its own

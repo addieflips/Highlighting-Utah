@@ -26,6 +26,9 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+/* The comment mask, from the scanner rather than a second copy of it: a check that
+   a comment can satisfy is the exact failure this directory exists to catch. */
+const { blankNonCode } = require('./connections/scan');
 
 const ROOT = __dirname;
 let passed = 0, failed = 0, notes = 0;
@@ -148,11 +151,14 @@ m.report.forEach(r => {
 });
 
 /* ---------------------------------------------------------------------------
- * 5. The admin tab that shows it is still wired.
+ * 5. The admin panel that shows it is still wired.
  *
  * Addie: "will I need to open this everytime cause if so maybe it's better if we add it
- * to admin under checklist." It lives under Project › Connections now, so these hold the
- * three things that can quietly unwire it.
+ * to admin under checklist." It began as a sub-tab of the Checklist panel and became its
+ * OWN sidebar item on 2026-08-27, because she went looking for it on main and could not
+ * find it — the sidebar entry reads "Checklist", so the word Connections appeared
+ * nowhere until you were already inside. These hold the things that can quietly unwire
+ * it, and the first of them is the one that would put it back out of reach.
  *
  * ⚠ STRUCTURAL, DELIBERATELY. Driving the real tab needs a browser, and the repo has
  * already decided against a full admin Playwright harness — "Browser tests" is a
@@ -164,24 +170,58 @@ m.report.forEach(r => {
 {
   const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
 
-  check('the Connections pane is in the sub-tab show/hide list',
-    /\['tests','results','add','connections'\]/.test(admin),
-    'a pane left out of that list is never shown or hidden by the switcher — it sits ' +
-    'underneath whichever tab is open. Same trap as syncTabs, which has caught this repo twice');
+  check('Connections is a sidebar item of its own, not a tab inside another panel',
+    /data-panel="connections"/.test(admin) && /id="panel-connections"/.test(admin) &&
+    />Connections</.test(admin) && !/data-projtab="connections"/.test(admin),
+    'this is the whole of what she asked for. Put back as a sub-tab, nothing in the ' +
+    'sidebar says the word Connections and she cannot find it — which is what happened');
 
-  check('opening the tab is what loads the map',
-    /projtab === 'connections'\) projConnectionsOpen\(\)/.test(admin),
-    'without this the frame never gets a src and the tab is permanently blank');
+  /* ⚠ ONE ELEMENT EACH. The move copied a pane into a panel; leaving the old one behind
+     would be two nodes carrying one id, and getElementById returns the FIRST — so the
+     summary would render into a hidden div and the panel would sit permanently empty
+     with nothing anywhere reporting a fault. This repo has lost a whole modal that way. */
+  ['connSummary', 'connFrame'].forEach(function (id) {
+    const n = (admin.match(new RegExp('id="' + id + '"', 'g')) || []).length;
+    check('there is exactly one #' + id,
+      n === 1,
+      'found ' + n + '. Two nodes with one id means getElementById reaches the wrong one ' +
+      'and the visible panel never fills in');
+  });
+
+  check('opening the panel is what loads the map',
+    /connections:\s*\['connectionsmap'\]/.test(admin) &&
+    /case 'connectionsmap': return \[projConnectionsOpen\];/.test(admin),
+    'the frame gets its src from the connectionsmap group in PANEL_DATA. Without both ' +
+    'halves it never gets one and the panel is permanently blank. Routed through ' +
+    'PANEL_DATA rather than hardcoded in switchToAdminPanel so Suite 21 guards it too');
 
   check('the map is fetched once, not on every click',
     /!f\.getAttribute\('src'\)\) f\.setAttribute\('src', 'connections\.html'\)/.test(admin),
     're-assigning src on every click reloads the frame and throws away whichever box ' +
     'she had open');
 
+  /* ⚠ AGAINST THE COMMENT-BLANKED SOURCE, AND INSIDE initData — and BOTH halves of that
+     were found by red-checking, not by reading. This matched the raw file, so commenting
+     the call out left the words in place and the check passed: a comment satisfying the
+     check, which is the exact failure this entire directory exists to catch, reproduced
+     inside its own gate. And a bare match anywhere in the file would pass on a call sitting
+     in some function nobody invokes, so it is pinned to the one that runs at login. */
+  const initData = (function () {
+    const s = blankNonCode(admin);
+    const i = s.indexOf('function initData(');
+    if (i < 0) return '';
+    let d = 0, k = s.indexOf('{', i);
+    for (; k < s.length; k++) {
+      if (s[k] === '{') d++;
+      else if (s[k] === '}') { d--; if (!d) break; }
+    }
+    return s.slice(i, k + 1);
+  })();
   check('the badge is loaded eagerly, the map is not',
-    /loadConnectionsSummary\(\);/.test(admin) && !/connFrame[^]{0,200}src="connections\.html"/.test(admin),
-    'a badge that only becomes right once you open the tab is not a badge; a ~25KB map ' +
-    'fetched on every admin load is the thing panel-data-loads-on-open exists to stop');
+    /loadConnectionsSummary\(\);/.test(initData) && !/connFrame[^]{0,200}src="connections\.html"/.test(admin),
+    'a badge that only becomes right once you open the panel it is warning you about is ' +
+    'not a badge; a ~25KB map fetched on every admin load is the thing ' +
+    'panel-data-loads-on-open exists to stop');
 
   check('connections.json is generated beside the page',
     fs.existsSync(path.join(ROOT, 'connections.json')),
@@ -220,27 +260,34 @@ m.report.forEach(r => {
 }
 
 /* ---------------------------------------------------------------------------
- * 7. The nav badge has ONE writer.
+ * 7. Each nav badge has ONE writer, and a break shows without opening anything.
  *
- * The checklist render and the connections summary both want that badge and land in
- * either order. Both set their own number and call the painter, so whichever arrives
- * second cannot wipe the other's — writing the badge directly from either would be a
- * race, and the loser would be invisible.
+ * These were one badge until 2026-08-27 — Connections had no sidebar item to hang one
+ * on, so a break had to displace the Checklist test count, and that needed a painter
+ * both sides called or whichever landed second would wipe the other. Its own item means
+ * its own badge and no race at all.
+ *
+ * ⭐ THE GUARANTEE THAT SURVIVED THE SPLIT IS THE ONE ASSERTED LAST: the summary is
+ * fetched EAGERLY and paints the badge, so a break is on the sidebar before anybody
+ * clicks anything. A badge that only becomes true once you open the panel it is warning
+ * you about is not a warning.
  * ------------------------------------------------------------------------- */
 {
   const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
-  const direct = (admin.match(/getElementById\('badgeProjTodo'\)/g) || []).length;
-  check('only the painter writes the Checklist nav badge',
-    direct === 1 && /function paintChecklistBadge/.test(admin),
-    'found ' + direct + ' places reading that badge. Two writers racing means the loser ' +
-    'is invisible — and the one that loses would be the broken connection');
-  /* ⚠ ASSERTED BY ORDER, NOT BY A WINDOW. The first version matched a bounded
-     `[\s\S]{0,240}` after the test, which is a fixed-length extraction window — the
-     shape CLAUDE.md §7 bans by name — and it failed on correct code the moment the
-     block grew past it. What must be true is that the painter decides on the BREAK
-     before it reads the test count, so the break wins. */
-  const painter = (function () {
-    const i = admin.indexOf('function paintChecklistBadge');
+  [['badgeProjTodo', 'paintChecklistBadge'], ['badgeConnections', 'paintConnectionsBadge']]
+    .forEach(function (pair) {
+      const direct = (admin.match(new RegExp("getElementById\\('" + pair[0] + "'\\)", 'g')) || []).length;
+      check('only ' + pair[1] + ' writes the ' + pair[0] + ' badge',
+        direct === 1 && admin.indexOf('function ' + pair[1]) > -1,
+        'found ' + direct + ' places reading that badge. Two writers landing in either ' +
+        'order means the loser is invisible');
+    });
+  /* ⚠ SLICED TO THE FUNCTION, NEVER A CHARACTER WINDOW. An earlier version of this
+     check matched a bounded `[\s\S]{0,240}` — the fixed-length extraction window
+     CLAUDE.md §7 bans by name — and it failed on correct code the moment the block grew
+     past it. */
+  const loader = (function () {
+    const i = admin.indexOf('async function loadConnectionsSummary');
     if (i < 0) return '';
     let d = 0, k = admin.indexOf('{', i);
     for (; k < admin.length; k++) {
@@ -249,11 +296,11 @@ m.report.forEach(r => {
     }
     return admin.slice(i, k + 1);
   })();
-  check('a broken connection outranks an open test on that badge',
-    painter.indexOf('connBrokenCount') > -1 &&
-    painter.indexOf('projOpenTestCount') > -1 &&
-    painter.indexOf('connBrokenCount') < painter.indexOf('projOpenTestCount'),
-    'the break has to be decided first, or a page with outstanding tests hides it');
+  check('the break reaches the sidebar badge, both when it is found and when it is not',
+    (loader.match(/paintConnectionsBadge\(\)/g) || []).length >= 2,
+    'the summary has to paint the badge on BOTH paths. Painting only on success leaves ' +
+    'a stale count standing after a failed read, which is a number claiming to know ' +
+    'something it does not');
   check('the map says when its counts were last rebuilt',
     /counts last rebuilt at|rebuild date unknown/.test(fs.readFileSync(path.join(ROOT, 'connections.html'), 'utf8')),
     'the undeclared-writer counts drift between rebuilds and nothing forces a regenerate ' +
@@ -270,6 +317,130 @@ if (amberTotal) {
     'undeclared writer is how needsLightRecycle came to be re-derived on every save. ' +
     'Open connections.html and read them on the box they belong to.');
 }
+/* ---------------------------------------------------------------------------
+ * 8. THE PANEL ACTUALLY OPENS — run, not read.
+ *
+ * Everything above is structural, and structural checks have been green over a dead
+ * screen in this repo more than once: a message present in the source that could never
+ * reach the page, a "bin says" input whose listener patch silently did not apply, a
+ * whole strip whose four wiring calls could be deleted with the suite still green. The
+ * failure here has that exact shape — an iframe with no src is a PANEL THAT OPENS
+ * BLANK, identical to a working one in the markup and reported by nothing.
+ *
+ * So this LIFTS the four real functions out of admin.html, puts the REAL nav button and
+ * REAL panel markup into jsdom, and clicks. Lifted, never stubbed: a stub of
+ * ensurePanelData would keep this green through the one change that matters.
+ *
+ * ⚠ WHAT IT CANNOT SEE IS CSS. jsdom does no layout, so nothing here proves the panel
+ * is not clipped or the iframe is not zero-high. That half is deliberately not automated
+ * — the same decision recorded for the Edit Customer house tabs, for the same reason:
+ * "Browser tests (Playwright)" is a REQUIRED check on main, so a slow or flaky admin
+ * spec blocks every merge, and she opens admin daily so a blank panel is something she
+ * sees within a minute. This holds the half that can produce a wrong answer silently.
+ * ------------------------------------------------------------------------- */
+{
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { JSDOM = null; }
+  if (!JSDOM) {
+    /* Not silent: a skipped behavioural check reads exactly like a passing one. */
+    note('jsdom is not installed, so the panel was never actually opened — run `npm install`. ' +
+      'The structural checks above still ran, and they have been green over a dead screen before.');
+  } else {
+    const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
+
+    /* Slice to the enclosing construct, never a character count (CLAUDE.md §7). */
+    function braceBlock(src, from) {
+      let d = 0, k = src.indexOf('{', from);
+      for (; k < src.length; k++) {
+        if (src[k] === '{') d++;
+        else if (src[k] === '}') { d--; if (!d) break; }
+      }
+      return src.slice(from, k + 1);
+    }
+    function fnFrom(name) {
+      const i = admin.indexOf('function ' + name + '(');
+      return i < 0 ? '' : braceBlock(admin, i);
+    }
+
+    const panelData = (function () {
+      const i = admin.indexOf('const PANEL_DATA = {');
+      return i < 0 ? '' : braceBlock(admin, i) + ';';
+    })();
+    const parts = {
+      PANEL_DATA: panelData,
+      switchToAdminPanel: fnFrom('switchToAdminPanel'),
+      ensurePanelData: fnFrom('ensurePanelData'),
+      panelDataGroup: fnFrom('panelDataGroup'),
+      projConnectionsOpen: fnFrom('projConnectionsOpen')
+    };
+    const missing = Object.keys(parts).filter(k => !parts[k]);
+    check('the four pieces of the wiring can still be found in admin.html',
+      missing.length === 0,
+      'could not lift: ' + missing.join(', ') + '. A harness that cannot find its target ' +
+      'skips instead of failing, which is a green build for the worst possible reason');
+
+    if (!missing.length) {
+      /* The REAL markup, cut out of the real file — a hand-written fixture would pass
+         whether the shipped markup is right or not. */
+      const navBtn = (admin.match(/<button class="nav-item" data-panel="connections"[\s\S]*?<\/button>/) || [''])[0];
+      const panelDiv = (admin.match(/<div class="panel" id="panel-connections">[\s\S]*?<iframe id="connFrame"[\s\S]*?<\/iframe>\s*<\/div>/) || [''])[0];
+      check('the real nav button and the real panel were both found',
+        navBtn.length > 0 && panelDiv.length > 0,
+        'the harness fell back to nothing, so the click below proves nothing');
+
+      const dom = new JSDOM('<body><div id="sidebar"></div><nav>' + navBtn + '</nav>' +
+        '<div class="panel active" id="panel-quotes"></div>' + panelDiv + '</body>');
+      const sandbox = {
+        document: dom.window.document,
+        sessionStorage: { setItem: function () {}, getItem: function () { return null; } },
+        console: console
+      };
+      const code =
+        'let initialized = true;\n' +
+        'const loadedPanelGroups = new Set();\n' +
+        /* Not what is under test, and not what decides this. */
+        'function renderFavoritesSection(){}\n' +
+        'function flushPendingRenders(){}\n' +
+        parts.PANEL_DATA + '\n' + parts.panelDataGroup + '\n' + parts.ensurePanelData + '\n' +
+        parts.projConnectionsOpen + '\n' + parts.switchToAdminPanel + '\n' +
+        'return { go: switchToAdminPanel, groups: loadedPanelGroups };';
+      const api = new Function('document', 'sessionStorage', 'console', code)(
+        sandbox.document, sandbox.sessionStorage, sandbox.console);
+
+      const frame = () => dom.window.document.getElementById('connFrame');
+
+      check('the map is not fetched before the panel is opened',
+        !frame().getAttribute('src'),
+        'a ~25KB page nobody asked for, downloaded on every admin load');
+
+      api.go('quotes');
+      check('opening some OTHER panel does not fetch it either',
+        !frame().getAttribute('src'),
+        'the whole point of the group is that it fires for this panel and no other');
+
+      api.go('connections');
+      check('opening Connections gives the frame its src',
+        frame().getAttribute('src') === 'connections.html',
+        'got ' + JSON.stringify(frame().getAttribute('src')) + '. This is the failure a ' +
+        'structural check cannot see: the panel opens BLANK and nothing anywhere says so');
+      check('opening Connections makes the panel the active one',
+        dom.window.document.getElementById('panel-connections').classList.contains('active') &&
+        !dom.window.document.getElementById('panel-quotes').classList.contains('active'),
+        'the panel never shows, whatever the frame is pointing at');
+
+      /* ⚠ AND IT MUST NOT RE-SET IT. Re-assigning src reloads the frame and throws away
+         whichever box she had open — so leaving and coming back would lose her place. */
+      frame().setAttribute('src', 'connections.html#kept');
+      api.go('quotes');
+      api.go('connections');
+      check('coming back to it does not reload the frame',
+        frame().getAttribute('src') === 'connections.html#kept',
+        'src was re-assigned on the second visit, which reloads the map and loses ' +
+        'whichever box she had open');
+    }
+  }
+}
+
 const unguarded = m.report.filter(r => !r.spine.guard).map(r => r.spine.field);
 if (unguarded.length) {
   note(unguarded.length + ' of ' + m.report.length + ' watched things have nothing else guarding them: ' +
