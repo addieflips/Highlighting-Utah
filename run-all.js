@@ -419,24 +419,33 @@ try { claudeMd = read('CLAUDE.md'); } catch (e) { /* no CLAUDE.md in this checko
    — the same way three broke earlier the same day when the new-hang exemption widened.
    A shared preamble makes the NEXT dependency one edit rather than a scavenger hunt
    through failing suites.
-   ⚠ `rsvpSentAtCache = null` IS THE HONEST DEFAULT: no RSVP has gone out, so the rule
-   is not live and the lenient answer applies — exactly what the page does before the
-   send. A sandbox wanting the STRICT rule has to say so by supplying a sent date
-   (`seasonRuleLiveSrc`), so strictness is always something a test asked for rather
-   than something it inherited by accident. */
-const seasonRuleSrc = (sentAtExpr) =>
+   ⭐ THE LEVER MOVED HERE ON 2026-08-27, AND THAT IS THE WHOLE OF WHY 35 CHECKS DID
+   NOT HAVE TO BE REWRITTEN. The rule used to wait on the RSVP-sent marker, so
+   `rsvpSentAtCache = null` was the lenient default. The rule now applies ALWAYS —
+   Addie: "we cannot schedule people that haven't RSVP" — so an ordinary fixture
+   customer, who has answered nothing, reads as OUT OF THE SEASON. That broke route
+   reconciliation, the timing sweep, the rebuild and the health checks all at once,
+   none of which are about the RSVP at all.
+
+   ⚠ THE DEFAULT IS NOW `seasonRuleOffForMeasurement = true`, the same lever the
+   who-would-drop count uses. A suite about route ordering gets the season rule out of
+   its way and goes on testing route ordering; a suite about the season ASKS for it
+   (`seasonRuleLiveSrc`). That was already this preamble's stated design — "strictness
+   is always something a test asked for rather than something it inherited by accident"
+   — and it is why one edit here was enough.
+
+   ⚠ WHAT IT COSTS, SAID PLAINLY: those seven suites no longer exercise the live rule.
+   They never meant to. The rule itself is proved in season-state.test.js and in the
+   season suite below, both of which run it strict and both of which own that job. */
+const seasonRuleSrc = (sentAtExpr, live) =>
   'let rsvpSentAtCache = ' + (sentAtExpr || 'null') + ';\n' +
+  'let seasonRuleOffForMeasurement = ' + (live ? 'false' : 'true') + ';\n' +
   (admin.match(/const RSVP_REPLY_DAYS = \d+;/) || [''])[0] + '\n' +
   (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + '\n' +
-  /* ⚠ THE MEASUREMENT LEVER, DECLARED HERE FOR THE SAME REASON EVERYTHING ELSE IS:
-     seasonRuleIsLive READS it, and a sandbox missing a name a lifted function reads
-     dies with a bare ReferenceError attributed to whichever suite happened to be
-     running. Always false — nothing in a test is measuring, so the rule is simply on.
-     A sandbox that genuinely wants it suspended assigns it itself. */
-  'let seasonRuleOffForMeasurement = false;\n' +
   extractFn(admin, 'toJsDate') + '\n' + extractFn(admin, 'seasonRuleIsLive') + '\n';
-/* A send far enough back that the reply window has closed — "the rule is live". */
-const seasonRuleLiveSrc = () => seasonRuleSrc('new Date(Date.now() - 400*86400000)');
+/* The rule ON. The date no longer decides anything — it only changes what a screen
+   SAYS about somebody — but it is supplied so a suite reading it gets the sent case. */
+const seasonRuleLiveSrc = () => seasonRuleSrc('new Date(Date.now() - 400*86400000)', true);
 
 /* ⭐ LIFT THE REAL FUNCTION, RATHER THAN WRITING A FAKE OF IT (added 2026-08-25).
  *
@@ -2817,7 +2826,7 @@ check('flow', 'nothing closes a quote except converting it',
          the mark without repainting leaves the routes and the warehouse showing the
          season as it was before the RSVP went out. */
       const fn = new Function('rsvpSentAtCache', 'markRsvpSent', 'safeRender',
-        'renderDashRsvpPanel', 'seasonRuleChanged', 'console',
+        'renderDashRsvpPanel', 'rsvpMarkChanged', 'console',
         'let __c = rsvpSentAtCache;' +
         noteSrc.replace(/rsvpSentAtCache/g, '__c') +
         ';return noteRsvpSendHappened;')(
@@ -3817,7 +3826,11 @@ console.log('\n=== 7. Health check engine ===');
     'noise on the panel is how a real problem gets scrolled past');
 
   hc.set({
-    j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', email: 'smith@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100, lat: 40.3, lng: -111.7 } }],
+    /* ⚠ THE ANSWER IS PART OF BEING CLEAN NOW (2026-08-27). A customer who has replied
+       to nothing is not scheduled, and seasonRuleDrops says so — correctly. So a fixture
+       meaning "an ordinary customer with nothing wrong" has to carry a real reply, or it
+       is asserting that a house nobody is going to is a house with nothing wrong. */
+    j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', email: 'smith@x.com', address: '1 St', housePrice: 400, customerNumber: '101', measuredFeet: 100, lat: 40.3, lng: -111.7, rsvpStatus: 'yes', rsvpRespondedAt: new Date(Date.now() - 86400000) } }],
     i: [{ id: '8011112222', data: { install: 400, removal: 0, deposit: 0, status: 'Unpaid' } }],
     a: [{ id: '999', data: {} }]
   });
@@ -4092,12 +4105,23 @@ console.log('\n=== 7. Health check engine ===');
       !/would come off/.test(rows[0].detail),
       'a row that says "would" about something already happening describes the wrong ' +
       'state, and this is the warning half of "hardcode it AND warn me"');
-    /* ⭐ AND THE SILENCE ITSELF IS ASSERTED. Same book, no send marker: not one row. */
+    /* ⭐ REVERSED 2026-08-27, AND THE OLD REASONING IS QUOTED BECAUSE IT WAS RIGHT UNTIL
+       THE RULE CHANGED. This asserted SILENCE before the send: "before the send every
+       customer is a non-replier — listing all ~956 of them is the panel crying wolf
+       about a rule that is not even live yet." The rule is live now whether or not the
+       RSVP has gone out, so those people really are off every route today, and a row
+       that stays quiet about them is the panel hiding the one thing it exists to name.
+       ⚠ WHAT CHANGES WITH THE MARKER IS THE WORDING, and that is what is asserted: not
+       asked yet, versus asked and did not reply. Same person, same consequence,
+       completely different phone call. */
     hc.setRsvpSent(null);
-    check('health', 'and it says NOTHING until the RSVP has actually gone out',
-      get(hc.run(), 'seasonRuleDrops').rows.length === 0,
-      'before the send every customer is a non-replier — listing all ~956 of them is ' +
-      'the panel crying wolf about a rule that is not even live yet');
+    {
+      const pre = get(hc.run(), 'seasonRuleDrops').rows;
+      check('health', 'it still names them before the RSVP has gone out',
+        pre.length === 1 && /not asked yet/.test(pre[0].detail),
+        'they are off the routes today either way — going quiet about it is how ~956 ' +
+        'customers disappear from every screen at once');
+    }
     hc.setRsvpSent(new Date(Date.now() - 2 * 86400000));
     check('health', 'and it offers no Fix button',
       !get(hc.run(), 'seasonRuleDrops').fix,
@@ -8253,7 +8277,12 @@ suite('17. A new customer lands on the next day in their city');
        seasonRuleSrc and assembles its own preamble, so it has to declare it too —
        omitting a name a lifted function reads is a bare ReferenceError attributed to
        whichever suite is running, which is the failure `sandboxDeps` exists to name. */
-    const helpers = eligLine + '\nlet seasonRuleOffForMeasurement = false;\n' +
+    /* ⚠ THE LEVER IS TRUE HERE — the rule is OFF for this sandbox, on purpose. Suite 18
+       is about route reconciliation, and since 2026-08-27 an ordinary fixture customer
+       who has answered nothing reads as out of the season, which would evict every stop
+       in every fixture and prove nothing about routes. The out-of-season cases this
+       suite really tests are supplied explicitly (recycle flags, RSVP answers). */
+    const helpers = eligLine + '\nlet seasonRuleOffForMeasurement = true;\n' +
       NEEDED.map(n => extractFn(admin, n)).join('\n');
     const src = helpers + '\n' + admin.slice(recStart, recEnd);
 
@@ -9536,10 +9565,17 @@ suite('21. Everyone is in unless they said otherwise');
       (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + '\n' +
       'let seasonRuleOffForMeasurement = false;\n' + extractFn(admin, 'toJsDate') + '\n' +
       extractFn(admin, 'seasonRuleIsLive') + '\nreturn seasonRuleIsLive();');
-    check('season', 'the rule is NOT live until the RSVP has actually gone out',
-      liveFn(null) === false,
-      'requiring an answer to a question nobody sent is a test nobody can pass — it ' +
-      'would drop the entire book the day it shipped');
+    /* ⭐ REVERSED 2026-08-27, AND THE OLD ASSERTION IS QUOTED BECAUSE IT WAS RIGHT UNTIL
+       THE ANSWER CHANGED. This required the rule NOT to be live before the RSVP had gone
+       out — "requiring an answer to a question nobody sent is a test nobody can pass, it
+       would drop the entire book the day it shipped". It does drop the entire book, and
+       Addie chose that: "we cannot schedule people that haven't RSVP." What makes it
+       survivable is that they are LISTED rather than lost — Schedule › Waiting on RSVP —
+       which is the half that had to be built before this line could change. */
+    check('season', 'the rule applies whether or not the RSVP has been marked sent',
+      liveFn(null) === true && liveFn(undefined) === true,
+      'a marker that gates the rule is a switch by another name — and it is one nobody ' +
+      'would remember to press in October');
     /* ⭐ REPOINTED 2026-08-26, AND IT IS THE OPPOSITE ASSERTION ON PURPOSE — RS-15.
        This required the rule NOT to be live the moment she pressed send, protecting a
        14-day reply window. Addie removed it: "a house won't be a yes or no because of
@@ -9562,12 +9598,24 @@ suite('21. Everyone is in unless they said otherwise');
        RSVP-sent mark, which the `liveFn(null) === false` check above already proves by
        running it. Restoring a mode check here would be asserting a switch back into
        existence. The rule still has an undo; it is reached from the marker. */
-    /* ⚠ UNKNOWN MUST MEAN LENIENT. Dropping somebody who wanted lights is the
-       expensive mistake; carrying somebody who did not costs one bundle. */
-    check('season', 'an unreadable or missing marker keeps everybody IN',
-      liveFn(undefined, 'confirmed-only') === false &&
-      liveFn('not a date', 'confirmed-only') === false,
-      'a cache that has not loaded yet must not empty the season for a moment');
+    /* ⭐ REPOINTED 2026-08-27 TO THE THING THAT MUST STILL BE TRUE. This asserted that
+       an unreadable marker left everybody IN — a fail-safe that existed because the
+       marker GATED the rule. It no longer gates anything, so there is nothing on that
+       axis left to fail safely. What replaces it is the guarantee that keeps the marker
+       from creeping back into the rule: the same record must land the same way whether
+       or not the RSVP has been marked sent. The marker changes what a screen SAYS, never
+       who gets a crew. */
+    {
+      const outWith = withRule(true).out, sample = [
+        { rsvpStatus: 'yes', rsvpRespondedAt: 1 }, {}, { rsvpStatus: 'no' },
+        { chargeNewMemberFee: true }, { rsvpStatus: 'backnextyear' }
+      ];
+      check('season', 'the marker changes what a screen says, never who is in the season',
+        sample.every(d => outWith(d) === withRule(true).out(d)) &&
+        liveFn(undefined) === true && liveFn('not a date') === true,
+        'a marker that can change membership is a switch by another name, and it is the ' +
+        'one somebody forgets to press in October');
+    }
   }
 
   // ---- the mode that is live today -------------------------------------

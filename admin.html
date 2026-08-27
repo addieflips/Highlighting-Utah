@@ -25800,10 +25800,25 @@ let seasonRuleOffForMeasurement = false;
    that has not loaded, an unreadable date — answers false, which means "everyone stays
    in the season". Dropping somebody who wanted lights is the expensive mistake;
    carrying somebody who did not costs one bundle. */
+/* ⭐ IT APPLIES ALWAYS (2026-08-27). Addie, told that people who had not replied were
+   still being scheduled until she marked the RSVP sent: "we cannot schedule people that
+   haven't RSVP. could we make another section in schedule were it just has pending
+   people."
+
+   ⚠ THIS REMOVES THE LAST GATE, and the argument that gate was built on is kept above
+   because it was sound and is now ANSWERED rather than wrong. It existed so the season
+   would not empty on the day this shipped — nobody has been asked, so everybody reads
+   as unconfirmed, and every route and build queue drains at once. That is still exactly
+   what happens. What changed is that they no longer VANISH: Schedule › Waiting on RSVP
+   lists every one of them with a phone number, so an empty season is a list of calls to
+   make rather than a screen full of nothing.
+
+   ⚠ SO rsvpSentAt DECIDES NOTHING NOW. It is still worth keeping and still worth
+   setting — it is the difference between "they have not replied" and "we have not asked
+   them", which is the only thing that makes the waiting list actionable. But it is
+   information, not a switch, and nothing about who gets a crew reads it. */
 function seasonRuleIsLive(){
-  if(seasonRuleOffForMeasurement) return false;
-  const sent = (typeof rsvpSentAtCache === 'undefined') ? null : toJsDate(rsvpSentAtCache);
-  return !!sent;
+  return !seasonRuleOffForMeasurement;
 }
 function isOutForSeason(d){
   if(!d) return true;
@@ -36381,11 +36396,12 @@ function rsvpStatusLabel(v){
    unanswered customers are routed. Clearing it puts everybody back in; that is the
    honest undo, and it is why clearing stayed available. */
 let rsvpSentAtCache = null;
-/* ⭐ THE SEASON JUST CHANGED FOR EVERY SCREEN, NOT JUST THIS ONE. Setting or clearing
-   the RSVP-sent mark now moves people in and out of the season wholesale, and the
-   routes, the warehouse queues, the customer table and the schedule all ask
-   isOutForSeason. Leaving them showing the old answer is how the office ends up reading
-   two different seasons on two tabs.
+/* ⭐ RENAMED FROM seasonRuleChanged 2026-08-27, BECAUSE IT NO LONGER IS ONE. Setting or
+   clearing the RSVP-sent mark moved people in and out of the season for about an hour;
+   the rule now applies always, so the mark changes only what the screens SAY about the
+   people already waiting. The redraw is still wanted — the Waiting on RSVP list and the
+   Dashboard row both word themselves from this mark — but calling it "the season
+   changed" would be a stale claim in the one place somebody would trust it.
 
    ⚠ renderJobAddressPanels, NOT renderAll. renderAll belongs to the schedule widget's
    own scope; calling it from here throws "is not defined" and kills the handler
@@ -36396,7 +36412,7 @@ let rsvpSentAtCache = null;
    ⚠ ONE FUNCTION, THREE CALLERS. The mark can be set from a button, cleared from a
    button, or stamped automatically by an RSVP send; three copies of this is how one of
    them quietly stops redrawing. */
-function seasonRuleChanged(){
+function rsvpMarkChanged(){
   if(typeof renderJobAddressPanels === 'function') renderJobAddressPanels();
 }
 function rsvpSentSummary(){
@@ -36428,7 +36444,7 @@ async function noteRsvpSendHappened(count){
        the same change to who is in the season — and it is the one that fires without
        anybody pressing anything on the Dashboard, so the screens most likely to be open
        are the ones it would otherwise leave showing the old season. */
-    seasonRuleChanged();
+    rsvpMarkChanged();
     return true;
   }catch(err){
     console.error('[HU] could not record that the RSVP went out:', err);
@@ -36486,22 +36502,18 @@ function seasonEligibilityWouldDrop(){
      opinion about who is in the season is exactly the drift this predicate exists to
      stop — and it is the number the office is about to act on. */
   const was = seasonRuleOffForMeasurement;
-  /* ⚠ THE SEND MARKER IS FAKED FOR THE MEASUREMENT TOO (2026-08-26). seasonRuleIsLive
-     wants the RSVP to have gone out, so without this the count answers "0" before the
-     send — not a reassuring answer, a WRONG one, and it is the number the office acts
-     on when deciding who still needs a telephone call. Restored in the same finally. */
-  const wasSent = (typeof rsvpSentAtCache === 'undefined') ? null : rsvpSentAtCache;
+  /* ⚠ THE SEND MARKER USED TO BE FAKED HERE TOO, and it no longer has to be: since
+     2026-08-27 the rule is live whether or not the RSVP has gone out, so suspending it
+     is the only lever the count needs. The old dance is gone rather than left in place
+     doing nothing, because a line that looks load-bearing and is not is how the next
+     person mis-reads this function. */
   let dropped = [];
   try{
     seasonRuleOffForMeasurement = true;
     const inNow = book.filter(function(a){ return !isOutForSeason(a.data); });
     seasonRuleOffForMeasurement = false;
-    /* Any past date will do now that the reply window is gone (RS-15) — the rule is
-       live as soon as the RSVP has gone out. */
-    rsvpSentAtCache = new Date(Date.now() - 86400000);
     dropped = inNow.filter(function(a){ return isOutForSeason(a.data); });
   } finally {
-    rsvpSentAtCache = wasSent;
     /* ⚠ RESTORED IN A finally. A throw part-way through would otherwise leave the whole
        page running in confirmed-only without anybody choosing it. */
     seasonRuleOffForMeasurement = was;
@@ -36545,12 +36557,15 @@ function renderSeasonEligibilityRow(){
         (waiting.length
           ? '<b>' + waiting.length + '</b> ' + (sent
               ? 'have not replied, so no crew is sent and no bundle is built for them'
-              : 'have not answered yet \u2014 they stay in the season until the RSVP goes out')+
+              : 'have not been asked yet \u2014 and until they answer, no crew is sent and no '+
+                'bundle is built for them either')+
             ': ' + esc(names) + (waiting.length > 6 ? ' and ' + (waiting.length - 6) + ' more' : '') + '.'
           : 'Everybody still in the season has answered.')+
       '</div>'+
-      (sent ? '' : '<div style="margin-top:4px; color:var(--slate);">The RSVP has not been '+
-        'marked as sent, so nobody is being left out yet.</div>')+
+      /* ⚠ THE OLD LINE HERE SAID "nobody is being left out yet", which stopped being true
+         on 2026-08-27 when the rule became always-on. It points at the list instead. */
+      (waiting.length ? '<div style="margin-top:4px; color:var(--slate);">They are all on '+
+        'Schedule \u203a Waiting on RSVP, with phone numbers.</div>' : '')+
     '</div>';
 }
 function renderRsvpSentBanner(){
@@ -36571,25 +36586,26 @@ function renderRsvpSentBanner(){
   renderSeasonEligibilityRow();
   const markBtn = document.getElementById('rsvpSentMarkBtn');
   if(markBtn) markBtn.addEventListener('click', async function(){
-    /* ⚠ THIS IS NO LONGER A NOTE TO FILE. Since the season rule was hardcoded
-       (2026-08-27) this mark IS the trigger: from the moment it is set, anybody who has
-       not answered comes off the routes, off the schedule and out of the build queue.
-       It used to be a precondition for a switch somebody then pressed deliberately;
-       with the switch gone, pressing THIS is the deliberate act, so it has to say what
-       it does before it does it. */
+    /* ⚠ IT MOVES NOBODY, AND THAT WORDING IS LOAD-BEARING. For about an hour on
+       2026-08-27 this mark WAS the trigger — the season rule waited on it — and this
+       dialog correctly warned that pressing it took ~960 people off the routes. The rule
+       now applies always, so the mark decides nothing about who gets a crew. What it
+       still decides is what the Waiting on RSVP list SAYS about them: "has not replied"
+       rather than "has not been asked". Claiming more than that would be the same
+       overclaim in the opposite direction. */
     const waiting = (typeof seasonEligibilityWouldDrop === 'function')
       ? seasonEligibilityWouldDrop().length : 0;
-    if(!confirm('Record that the RSVP has gone out?\n\nFrom now on only people who have '+
-      'answered are scheduled. ' + waiting + ' customer(s) who have not answered yet will '+
-      'come off the routes, the schedule and the warehouse queue until they reply.\n\n'+
-      'You can undo this by marking it as not sent.')) return;
+    if(!confirm('Record that the RSVP has gone out?\n\nThis does not move anybody \u2014 '+
+      'people who have not answered are already off the routes. It changes what '+
+      'Schedule \u203a Waiting on RSVP says about the ' + waiting + ' still waiting: they '+
+      'become people who have not REPLIED, rather than people nobody has asked yet.')) return;
     markBtn.disabled = true;
     try{
       await markRsvpSent(null, 0);
       rsvpSentAtCache = new Date();
       toast('Recorded \u2014 only people who answer are scheduled from now on.');
       renderRsvpSentBanner();
-      seasonRuleChanged();
+      rsvpMarkChanged();
     }catch(err){
       console.error('[HU] could not mark the RSVP as sent:', err);
       toast('Could not save that \u2014 try again.');
@@ -36598,24 +36614,21 @@ function renderRsvpSentBanner(){
   });
   const clearBtn = document.getElementById('rsvpSentClearBtn');
   if(clearBtn) clearBtn.addEventListener('click', async function(){
-    /* ⚠ THE OLD WORDING HERE WAS "This only changes what this banner says", AND THAT
-       BECAME UNTRUE the moment the season rule was hardcoded to the mark (2026-08-27).
-       Clearing it puts every unanswered customer back into the season — which is the
-       honest undo, and exactly why clearing stayed available, but a dialog promising it
-       changes nothing is the quiet failure this repo keeps writing rules about.
-       ⚠ STILL TRUE, AND STILL WORTH SAYING: no customer record is touched and nobody is
-       emailed. It changes how one predicate reads records that are already there. */
-    const back = (typeof seasonEligibilityWouldDrop === 'function')
-      ? seasonEligibilityWouldDrop().length : 0;
-    if(!confirm('Mark the RSVP as NOT sent?\n\nThat puts ' + back + ' customer(s) who have '+
-      'not answered back into the season \u2014 back onto the routes, the schedule and the '+
-      'warehouse queue.\n\nNobody is emailed and no customer record changes.')) return;
+    /* ⚠ THIS SENTENCE HAS BEEN WRONG IN BOTH DIRECTIONS IN ONE DAY, which is why it is
+       spelled out rather than left short. It began as "this only changes what this
+       banner says" (true), became untrue for an hour when the season rule was tied to
+       the mark, and is true again now that the rule applies always. Clearing it puts
+       nobody back on a route, because nobody was taken off by setting it. */
+    if(!confirm('Mark the RSVP as NOT sent?\n\nThis moves nobody on or off a route. It '+
+      'changes what Schedule \u203a Waiting on RSVP says: the people waiting go back to '+
+      'reading as nobody-has-asked-them.\n\nNobody is emailed and no customer record '+
+      'changes.')) return;
     clearBtn.disabled = true;
     try{
       await setDoc(doc(db,'settings','season'), {rsvpSentAt: null, rsvpSentCount: 0}, {merge: true});
       rsvpSentAtCache = null;
       renderRsvpSentBanner();
-      seasonRuleChanged();
+      rsvpMarkChanged();
     }catch(err){
       console.error('[HU] could not clear the RSVP-sent mark:', err);
       toast('Could not save that \u2014 try again.');
@@ -48205,13 +48218,14 @@ function hcRunChecks(){
     rows: (function(){
       if(typeof seasonEligibilityWouldDrop !== 'function') return [];
       const sent = (typeof rsvpSentAtCache === 'undefined') ? null : toJsDate(rsvpSentAtCache);
-      /* ⚠ NOTHING AT ALL UNTIL THE RSVP HAS GONE OUT, and this is the difference between
-         a warning and noise. Before the send NOBODY has replied, so every customer in
-         the book is a non-replier and this row would list all ~956 of them — the panel
-         crying wolf about a rule that is not even live, which is how the office learns
-         to scroll past it. There is also nothing to act on: you cannot chase somebody
-         for not answering a question you have not asked. */
-      if(!sent) return [];
+      /* ⚠ THE PRE-SEND GUARD IS GONE (2026-08-27), AND ITS REASONING IS KEPT BECAUSE IT
+         WAS RIGHT UNTIL THE RULE CHANGED. It used to return nothing until the RSVP had
+         gone out, on the argument that before the send everybody is a non-replier and
+         this row would cry wolf about a rule that was not even live. The rule is live
+         now, always — so the people it lists really are off the routes today, and a row
+         that stays silent about them is the panel hiding the exact thing it exists to
+         name. The waiting list itself lives on Schedule; this stays as the second way
+         in for anybody who is already here. */
       /* ⭐ ONE STATE NOW, NOT TWO (2026-08-26, RS-15). This row used to have a warning
          state — "would come off from <date>" — for the fourteen days between the send
          and the reply window closing. Addie removed the window: a non-replier is
@@ -48219,7 +48233,8 @@ function hcRunChecks(){
          into a yes. So past the `!sent` guard above the rule is always live, the date
          had nothing left to point at, and a tail saying "would" about something already
          happening is the panel describing the wrong state. */
-      const tail = ' — not being scheduled';
+      const tail = sent ? ' — has not replied, so not being scheduled'
+                        : ' — not asked yet, so not being scheduled';
       return seasonEligibilityWouldDrop().map(function(a){
         const d = a.data || {};
         return {label: hcName(d), detail: (hcAddr(d) || 'no address') + tail};
@@ -49933,7 +49948,7 @@ function attachDeleteHandlers(container){
   const host=document.getElementById("scheduleHost"); if(!host||host.shadowRoot) return;
   const RT=host.attachShadow({mode:"open"});
   const STYLE="\n:host{--green:#0f5132;--green-l:#1a7a4c;--red:#b02a37;--gold:#c99a2e;--bg:#eef1ef;--card:#fff;\n--ink:#1c2621;--muted:#6b776f;--line:#e2e8e4;--done:#dff3e6;--sel:#0f5132;\n--shadow:0 1px 3px rgba(20,40,30,.06),0 6px 20px rgba(20,40,30,.07);}\n*{box-sizing:border-box}\n.rdwrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4;-webkit-font-smoothing:antialiased}\n.wrap{max-width:1400px;margin:0 auto;padding:0 18px 60px}\nheader.top{background:linear-gradient(120deg,#0f5132,#1a7a4c 60%,#14663f);color:#fff;padding:26px 0 24px;border-bottom:4px solid var(--gold)}\n.top .wrap{padding-bottom:0}\n.lights{display:flex;gap:6px;margin-bottom:8px}\n.lights i{width:10px;height:10px;border-radius:50%;box-shadow:0 0 8px currentColor}\n.lights i:nth-child(1){background:#ff5a5a;color:#ff5a5a}.lights i:nth-child(2){background:#ffd35a;color:#ffd35a}.lights i:nth-child(3){background:#5affa0;color:#5affa0}.lights i:nth-child(4){background:#5ab8ff;color:#5ab8ff}.lights i:nth-child(5){background:#e07bff;color:#e07bff}\nh1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.01em}\n.sub{color:#d5e8dd;font-size:13.5px;margin-top:3px}\n.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:-42px 0 16px;position:relative}\n.stat{background:var(--card);border-radius:13px;padding:14px 16px;box-shadow:var(--shadow);border:1px solid var(--line)}\n.stat .n{font-size:23px;font-weight:780;color:var(--green);letter-spacing:-.02em}\n.stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px;font-weight:650}\n.obar{height:9px;border-radius:6px;background:#e0e6e2;overflow:hidden;margin-top:9px}\n.obar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold));transition:width .4s}\n.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 16px}\n.search{flex:1;min-width:200px;position:relative}\n.search input{width:100%;padding:11px 13px 11px 38px;border:1px solid var(--line);border-radius:11px;font-size:15px;background:var(--card);box-shadow:var(--shadow);outline:none}\n.search input:focus{border-color:var(--green-l)}\n.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:.45}\n.btn{padding:11px 15px;border-radius:11px;font-size:14px;font-weight:650;border:1px solid var(--green-l);background:var(--green-l);color:#fff;cursor:pointer;box-shadow:var(--shadow)}\n.btn:hover{background:var(--green)}.btn.ghost{background:var(--card);color:var(--green-l)}\n.layout{display:grid;grid-template-columns:270px 1fr;gap:18px;align-items:start}\n.daylist{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;max-height:78vh;overflow-y:auto;position:sticky;top:14px}\n.daylist h3{margin:0;padding:13px 15px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}\n.day{padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;flex-direction:column;gap:5px;transition:background .12s}\n.day:hover{background:#f4f8f5}\n.day.sel{background:var(--green);color:#fff}\n.day.sel .dmeta,.day.sel .dbar{color:#d5e8dd}\n.day.sel .dbar{background:rgba(255,255,255,.25)}\n.drow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}\n.dname{font-weight:700;font-size:14.5px}\n.dcount{font-size:12px;font-weight:650;opacity:.85}\n.dmeta{font-size:12px;color:var(--muted);display:flex;justify-content:space-between}\n.dbar{height:5px;border-radius:4px;background:#e0e6e2;overflow:hidden}\n.dbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--green-l),var(--gold))}\n.day.sel .dbar>i{background:#ffd98a}\n.check-badge{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--gold);color:#fff;font-size:10px;text-align:center;line-height:15px;margin-left:5px}\n.panel{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden}\n.phead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:12px}\n.phead .t{font-size:19px;font-weight:750}\n.phead .meta{font-size:13px;color:var(--muted);font-weight:600}\n.phead .prog{flex:1;min-width:120px}\n.phead .obar{margin-top:5px}\n.crewtag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#eef2f0;color:#48564e;padding:3px 9px;border-radius:999px}\n.stop{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--line);align-items:flex-start}\n.stop:hover{background:#f7faf8}\n.stop.done{background:var(--done)}\n.stop.done .snm{text-decoration:line-through;color:var(--muted)}\n.seq{flex:none;width:30px;height:30px;border-radius:9px;background:var(--green);color:#fff;font-weight:750;font-size:13px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}\n.stop.done .seq{background:var(--gold)}\n.chk{flex:none;margin-top:4px}\ninput[type=checkbox]{width:20px;height:20px;accent-color:var(--green-l);cursor:pointer;margin:0}\n.sbody{flex:1;min-width:0}\n.snm{font-weight:700;font-size:15px}\n.saddr{font-size:13.5px;margin-top:2px}\n.saddr a{color:var(--green-l);text-decoration:none}.saddr a:hover{text-decoration:underline}\n.sline{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 12px}\n.sline a{color:var(--green-l);text-decoration:none}\n.sdetail{font-size:12.5px;color:#5a6b60;margin-top:4px;background:#f2f6f3;border-radius:7px;padding:5px 9px;display:inline-block}\n.stop.done .sdetail{background:rgba(255,255,255,.5)}\n.sprice{flex:none;text-align:right;font-weight:750;color:var(--green);font-variant-numeric:tabular-nums;white-space:nowrap;font-size:15px}\n.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:650;background:#eef2f0;color:#48564e}\n.tag.oct{background:#fdeede;color:#9a5b16}.tag.nov{background:#e4eefc;color:#25548f}.tag.any{background:#e8f4ec;color:#2b6b45}.tag.thx{background:#f6e6f2;color:#8a3070}.tag.dec{background:#e7f0ff;color:#2a4d8f}\n.searchres .daygrp{border-top:1px solid var(--line)}\n.daygrp-h{padding:8px 16px;background:#f4f8f5;font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\nfooter{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6}\n@media(max-width:820px){.layout{grid-template-columns:1fr}.daylist{position:static;max-height:none;display:flex;overflow-x:auto;flex-wrap:nowrap}.daylist h3{display:none}.day{min-width:150px;border-bottom:none;border-right:1px solid var(--line)}}\n\n\n/* ---- app additions ---- */\n.mockbadge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}\n.stat.remain .n{color:var(--gold)}\n.tabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}\n.tab{padding:11px 18px;border-radius:11px;font-size:14.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--muted);cursor:pointer;box-shadow:var(--shadow)}\n.tab.active{background:var(--green);color:#fff;border-color:var(--green)}\n.tabpane[hidden]{display:none}\n.seasonbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 15px;margin:0 0 14px;display:flex;flex-wrap:wrap;align-items:center;gap:14px}\n.seasonbar .fld{display:flex;flex-direction:column;gap:3px}\n.seasonbar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}\n.seasonbar input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}\n.seasonbar .read{font-size:13px;color:var(--muted);font-weight:600}\n.seasonbar .read b{color:var(--green)}\n.wknote{width:100%;font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:7px 11px}\n.mini{padding:7px 11px;border-radius:9px;font-size:12.5px;font-weight:650;border:1px solid var(--line);background:#fff;color:var(--green);cursor:pointer}\n.mini:hover{background:#f4f8f5}\n.mini.warn{border-color:#e7c9cd;color:var(--red)}.mini.warn:hover{background:#fbeef0}\n.daycontrols{display:flex;gap:8px;flex-wrap:wrap;width:100%;align-items:center}\n.moveday{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:4px 7px;background:#fff;color:#48564e;max-width:250px}\ninput.pin{padding:5px 7px;border:1px solid var(--line);border-radius:7px;font-size:12px;background:#fff}\n.qbtn{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;cursor:pointer;border:1px solid}\n.qbtn.oct{border-color:#f0d5b6;background:#fdeede;color:#9a5b16}\n.qbtn.nov{border-color:#c5d8f4;background:#e4eefc;color:#25548f}\n.qbtn:hover{filter:brightness(.96)}\n.sctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}\n.sctl .lbl{font-size:11px;color:var(--muted);font-weight:650}\n.darea{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.day.sel .darea{color:#cfe6d8}\n.pinbadge{display:inline-block;background:#e4eefc;color:#25548f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px}\n.weekguide{border-top:1px solid var(--line);background:#fbfdfc}\n.wgh{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;padding:9px 16px 2px}\n.wgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px}\n.wchip{flex:none;min-width:118px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}\n.wchip.here{border-color:var(--green-l);background:#eaf4ee}\n.wchip .wd{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}\n.wchip .wc{font-size:13.5px;font-weight:750;color:var(--green);margin-top:1px}\n.wchip .wa{font-size:11.5px;color:#48564e;margin-top:3px;line-height:1.3}\n.wchip .wn{font-size:11px;color:var(--muted);margin-top:4px}\n.tray{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);margin:0 0 14px;overflow:hidden}\n.tray h3{margin:0;padding:12px 15px;font-size:13px;font-weight:750;color:var(--green);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;cursor:pointer}\n.tray h3.fix{color:var(--red)}\n.tray h3 .cnt{background:var(--green-l);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}\n.tray h3.fix .cnt{background:var(--red)}\n.tray h3 .chev{margin-left:auto;color:var(--muted);font-size:12px}\n.traynote{font-size:12px;color:var(--muted);padding:8px 15px 2px}\n.grouph{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 15px 2px}\n.newrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:11px 15px;border-top:1px solid var(--line)}\n.newrow .who{font-weight:700;font-size:14px;min-width:140px}\n.newrow .meta{font-size:12.5px;color:var(--muted)}\n.newrow .auto{font-size:12px;color:#2b6b45;font-weight:650}\n.newrow .acts{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}\n.newbadge{display:inline-block;background:#fbeecd;color:#8a5a12;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.fixbadge{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle}\n.stop.isnew{box-shadow:inset 3px 0 0 var(--gold)}\n.stop.isfix{box-shadow:inset 3px 0 0 var(--red)}\n.stop.istake{box-shadow:inset 3px 0 0 #6b776f}\n.day.fixroute{background:#fdf3f4}\n.day.fixroute.sel{background:#8f2530;color:#fff}\n.day.fixroute.sel .darea,.day.fixroute.sel .dmeta{color:#f3d6d9}\n.day.fixroute.sel .dbar{background:rgba(255,255,255,.25)}\n.frb{display:inline-block;background:#f7dfe1;color:#a12a35;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:5px;margin-left:6px;vertical-align:middle}\n.day.fixroute.sel .frb{background:#fff;color:#8f2530}\n.buildfix{margin:8px 15px}\n.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50;max-width:90vw;text-align:center}\n.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.emptyday{padding:20px 16px;color:var(--muted);font-size:13.5px;text-align:center}\n#gate{position:fixed;inset:0;background:linear-gradient(120deg,#0f5132,#14663f);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}\n#gate .card{background:#fff;border-radius:16px;padding:26px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}\n#gate h2{margin:0 0 4px;color:var(--green);font-size:20px}\n#gate p{margin:0 0 16px;color:var(--muted);font-size:13.5px}\n#gate input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px}\n#gate .err{color:var(--red);font-size:13px;min-height:18px}\n#importBox{max-width:560px;margin:34px auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:var(--shadow);text-align:center}\n#importBox h2{color:var(--green);margin:0 0 6px}\n#importBox p{color:var(--muted);font-size:13.5px;margin:0 0 16px}\n#importBox .err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}\n.topbar{display:flex;align-items:center;gap:12px;margin-top:6px}\n.savenote{font-size:12.5px;color:#d5e8dd;font-weight:600}\n.linkbtn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:6px 12px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer}\n.hide{display:none!important}\n.lmodal{position:fixed;inset:0;background:rgba(18,30,24,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}\n.lmodal .card{background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:86vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:22px}\n.lmodal h2{margin:0 0 4px;color:var(--green);font-size:19px}\n.lmodal .lead{margin:0 0 14px;color:var(--muted);font-size:13.5px}\n.lmodal .lrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}\n.lmodal .lrow .who{font-weight:700;min-width:130px}\n.lmodal .lrow .meta{color:var(--muted);font-size:12.5px}\n.lmodal .lrow .acts{margin-left:auto}\n.lmodal .pickrow{cursor:pointer;gap:8px 10px}\n.lmodal .pickrow:hover{background:#f7faf8}\n.lmodal .pickrow input[type=checkbox]{flex:none}\n.lmodal .choices{display:flex;flex-direction:column;gap:10px;margin:16px 0 6px}\n.lmodal .choice{text-align:left;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:14px;font-weight:650;color:var(--ink)}\n.lmodal .choice:hover{background:#f4f8f5;border-color:var(--green-l)}\n.lmodal .choice small{display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:3px}\n.lmodal .warn{font-size:12.5px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:8px 11px;margin-top:12px}\n.lmodal .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}\n.crewbar{background:var(--card);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:11px 15px;margin:0 0 14px}\n.crewbar .ch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:7px}\n.crewrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}\n.crewrow input.cn{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13.5px;background:#fff;min-width:150px;font-weight:700;color:var(--ink)}\n.crewrow select.cc{padding:7px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;max-width:230px}\n.crewrow .note{font-size:12px;color:var(--muted)}\n.crewbar .warn{font-size:12px;color:#9a5b16;background:#fdf5e7;border:1px solid #f0e0c0;border-radius:9px;padding:6px 10px;margin-top:9px}\n.routehead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:10px 16px;background:#eaf4ee;border-top:2px solid var(--green-l);font-size:12.5px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.04em}\n.routehead span{font-weight:600;color:#48564e;text-transform:none;letter-spacing:0;font-size:12px}\n.routehead.spare{background:#fdf5e7;border-top-color:var(--gold);color:#9a5b16}\n";
-  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
+  const MARKUP="<div class=\"rdwrap\"><div class=\"wrap\"><div style=\"text-align:right;font-size:12px;color:var(--muted);margin:0 2px 6px;font-weight:600\" id=\"saveNote\"></div><div id=\"importBox\" class=\"hide\">\n    <h2>Import your route plan</h2>\n    <p>Choose your route CSV (export from your Excel, or the “Export progress CSV” from the old dashboard). Your data is saved to your private Firebase — it is never stored in this page.</p>\n    <input type=\"file\" id=\"importFile\" accept=\".csv,text/csv\">\n    <div class=\"err\" id=\"importErr\"></div>\n    <button class=\"mini\" id=\"importCancel\" style=\"margin-top:12px;display:none\">Cancel — keep the plan I have</button>\n  </div>\n\n  <div id=\"dashboard\" class=\"hide\">\n    <div class=\"stats\" id=\"stats\"></div>\n    <div class=\"tabs\">\n      <button class=\"tab active\" data-tab=\"schedule\">📅 Scheduling</button>\n      <button class=\"tab\" data-tab=\"fixes\">🔧 Fixes</button>\n      <button class=\"tab\" data-tab=\"oneman\">\ud83e\uddcd One Man Installs</button>\n      <button class=\"tab\" data-tab=\"waiting\">\ud83d\udcde Waiting on RSVP</button>\n      <button class=\"tab\" data-tab=\"printing\">\ud83d\udda8 Printing</button>\n      <button class=\"tab\" data-tab=\"takedowns\">📦 Takedowns</button>\n    </div>\n\n    <div class=\"crewbar\" id=\"crewBar\"></div>\n\n    <div class=\"tabpane\" id=\"pane-schedule\">\n      <div class=\"seasonbar\">\n        <div class=\"fld\"><label for=\"startDate\">Season start</label><input type=\"date\" id=\"startDate\"></div>\n        <div class=\"read\" id=\"shiftRead\"></div>\n        <button class=\"mini\" id=\"recalcBtn\" style=\"margin-left:auto\">⚙ Recalculate everything</button><button class=\"mini\" id=\"undoRebuildBtn\" style=\"display:none\">↶ Undo</button>\n        <div class=\"read\" id=\"importedAtRead\" style=\"font-weight:600\"></div>\n        <div class=\"wknote\" id=\"wkNote\"></div>\n        <div class=\"wknote\" id=\"staleNote\" style=\"display:none\"></div>\n      </div>\n      <div class=\"toolbar\">\n        <div class=\"search\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"M21 21l-4.3-4.3\"></path></svg>\n          <input id=\"q\" placeholder=\"Search name, address, city, phone…\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn ghost\" id=\"clearBtn\" style=\"display:none\">Clear</button>\n        <button class=\"btn\" id=\"csvBtn\">Export CSV</button><button class=\"btn ghost\" id=\"printPlanBtn\">Print Whole Plan</button>\n      </div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Days · left · area</h3><div id=\"days\"></div></div><div class=\"panel\" id=\"panel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-fixes\" hidden>\n      <div class=\"tray\" id=\"fixtray\"></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Fixer routes</h3><div id=\"fixDays\"></div></div><div class=\"panel\" id=\"fixPanel\"></div></div>\n    </div>\n\n    <div class=\"tabpane\" id=\"pane-oneman\" hidden><div class=\"tray\" id=\"oneManPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-waiting\" hidden><div class=\"tray\" id=\"waitingRsvpPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-printing\" hidden><div class=\"tray\" id=\"printPane\"></div></div>\n\n    <div class=\"tabpane\" id=\"pane-takedowns\" hidden>\n      <div class=\"seasonbar\"><div class=\"fld\"><label for=\"takeStart\">Takedown start</label><input type=\"date\" id=\"takeStart\"></div><div class=\"read\" id=\"takeRead\"></div></div>\n      <div class=\"layout\"><div class=\"daylist\"><h3>Takedown days · left · area</h3><div id=\"takeDays\"></div></div><div class=\"panel\" id=\"takePanel\"></div></div>\n    </div>\n\n    <footer>\n      Live — saves to your private Firebase (routeSchedule), synced across your devices. Ticking a house here marks that customer complete, and anyone whose whole job is finished is invoiced automatically that night.<br>\n      Weekends are skipped automatically; use “Force exact date” to place a route on a weekend.\n    </footer>\n  </div></div><div class=\"lmodal hide\" id=\"leftoverModal\"></div><div class=\"toast\" id=\"toast\"></div></div>";
   RT.innerHTML="<style>"+STYLE+"</style>"+MARKUP;
 const PLAN_REF=()=>doc(db,'routeSchedule','plan');
 /* ISO date of the CSV import this plan was built from — see serialize(). */
@@ -51224,6 +51239,7 @@ function renderActive(){
     if(q)renderSearch(q);else{let d=getDay(selSchedule);if(!d||d.isFixRoute||d.isTakedown)d=installDays()[0];selSchedule=d?d.id:null;renderPanelInto('panel',d);}}
   else if(activeTab==='fixes'){renderFixTray();const fr=fixerRoutes();if(!fr.find(d=>d.id===selFix))selFix=fr[0]?fr[0].id:null;renderDayList('fixDays',fr,selFix,'fix');renderPanelInto('fixPanel',getDay(selFix));}
   else if(activeTab==='oneman'){renderOneMan();renderDayMaps(null);}
+  else if(activeTab==='waiting'){renderWaitingRsvp();renderDayMaps(null);}
   else if(activeTab==='printing'){renderPrinting();renderDayMaps(null);}
   else{renderTakedownBar();const td=takedownDays();if(!td.find(d=>d.id===selTake))selTake=td[0]?td[0].id:null;renderDayList('takeDays',td,selTake,'take');renderPanelInto('takePanel',getDay(selTake));}
   renderCrewBar();
@@ -51381,6 +51397,86 @@ function renderLeftovers(){
 
    The reschedule control is deliberately the SAME one the day panel uses, so a day can
    be dealt with from here without hunting for it in the calendar. */
+/* ⭐ WHO IS WAITING ON AN RSVP (added 2026-08-27). Addie, told that people who had not
+   replied were still being scheduled: "we cannot schedule people that haven't RSVP.
+   could we make another section in schedule were it just has pending people."
+
+   ⚠ THE LIST IS THE OTHER HALF OF THE RULE, NOT A NICETY. Applying the rule with
+   nowhere for these people to go means the season quietly shrinks and ~960 customers
+   are simply absent from every screen — which is the failure mode this repo has a rule
+   about. With the list, an empty season is a stack of phone calls instead.
+
+   ⚠ IT ASKS `seasonEligibilityWouldDrop`, WHICH RUNS `isOutForSeason` BOTH WAYS. That
+   is deliberate and it is the whole reason this list can be trusted: it shows exactly
+   the people the season rule is leaving out, because it is the season rule that decided
+   them. A second opinion here — "everybody whose rsvpStatus is blank", say — would drift
+   from the routes within a week, and the drift would be invisible on both screens.
+
+   ⚠ SO IT EXCLUDES PEOPLE WHO ARE OUT FOR ANOTHER REASON. Somebody who said no, or Back
+   Next Year, or whose lights are queued to be collected, is not WAITING on anything and
+   ringing them would be a mistake.
+
+   ⚠ NEVER STORED, like One Man Installs. Worked out every time the tab is drawn, so an
+   answer arriving at four o'clock takes that person off the list at five past without
+   anybody pressing anything. */
+function waitingOnRsvpHouses(){
+  if(typeof seasonEligibilityWouldDrop !== 'function') return [];
+  const rows = seasonEligibilityWouldDrop().map(function(a){ return {id: a.id, d: a.data || {}}; });
+  /* By town then name, because chasing is done a town at a time — and a stable order,
+     so the list does not reshuffle under somebody working down it. */
+  rows.sort(function(x, y){
+    const cx = extractCleanCity(x.d.city) || '', cy = extractCleanCity(y.d.city) || '';
+    return cx.localeCompare(cy) || String(x.d.name || '').localeCompare(String(y.d.name || ''));
+  });
+  return rows;
+}
+function renderWaitingRsvp(){
+  const el = RT.getElementById('waitingRsvpPane');
+  if(!el) return;
+  const rows = waitingOnRsvpHouses();
+  /* ⚠ THE MARK CHANGES THE WORDING AND NOTHING ELSE. Before the RSVP has gone out these
+     people have not been ASKED; afterwards they have not REPLIED. Same people, same
+     consequence, completely different phone call \u2014 and the mark is the only thing
+     that knows which. */
+  const sent = (typeof rsvpSentAtCache !== 'undefined') && !!rsvpSentAtCache;
+  const lead = '<h3>\ud83d\udcde Waiting on RSVP</h3>' +
+    '<div class="traynote">' +
+      (sent ? 'These customers were sent the RSVP and have not replied. '
+            : 'The RSVP has not been marked as sent yet, so nobody here has been asked. ') +
+      '<b>Nobody on this list is being scheduled</b> \u2014 no crew is sent to them, no ' +
+      'bundle is built and they are on no route. They join the season the moment they ' +
+      'answer, by the link, in their portal, or by you marking it on their record. ' +
+      'This list works itself out every time the tab is drawn, so an answer takes ' +
+      'somebody off it without anybody pressing anything.</div>';
+  if(!rows.length){
+    el.innerHTML = lead + '<div class="traynote">Nobody is waiting \u2014 everybody in the ' +
+      'book has answered.</div>';
+    return;
+  }
+  const byTown = {};
+  rows.forEach(function(r){
+    const t = extractCleanCity(r.d.city) || 'No town on record';
+    (byTown[t] = byTown[t] || []).push(r);
+  });
+  /* ⚠ THE PHONE NUMBER IS THE POINT OF THE LIST. A name and an address is a report; a
+     number is something somebody can act on without going and looking it up. */
+  const groups = Object.keys(byTown).sort().map(function(t){
+    const who = byTown[t].map(function(r){
+      const d = r.d;
+      const contact = [d.phone ? esc(d.phone) : '', d.email ? esc(d.email) : '']
+        .filter(Boolean).join(' \u00b7 ') || '<span style="color:var(--ember);">no phone or email on file</span>';
+      return '<div class="newrow" style="padding-left:28px;"><div>' +
+        '<div class="meta"><b>' + esc(personName(d.name, d)) + '</b> \u00b7 ' +
+        esc(d.address || 'no address') + '</div>' +
+        '<div class="meta">' + contact + '</div></div></div>';
+    }).join('');
+    return '<div class="newrow"><div><b>' + esc(t) + '</b> \u00b7 ' + byTown[t].length +
+      ' waiting</div></div>' + who;
+  }).join('');
+  el.innerHTML = lead + '<div class="traynote"><b>' + rows.length + '</b> customer' +
+    (rows.length === 1 ? '' : 's') + ' waiting, across ' + Object.keys(byTown).length +
+    ' town' + (Object.keys(byTown).length === 1 ? '' : 's') + '.</div>' + groups;
+}
 function renderOneMan(){
   const el = RT.getElementById('oneManPane');
   if(!el) return;
@@ -51428,7 +51524,7 @@ function renderOneMan(){
 function renderCrewBar(){
   const bar=RT.getElementById('crewBar'); if(!bar) return;
   /* There is no crew to pick on a day that one person is doing alone. */
-  if(activeTab==='oneman'||activeTab==='printing'){bar.style.display='none';return;}
+  if(activeTab==='oneman'||activeTab==='printing'||activeTab==='waiting'){bar.style.display='none';return;}
   bar.style.display='';
   const day=currentDay();
   const cities=planCities();
@@ -51494,7 +51590,7 @@ function renderImportedAt(){
      changes, so the older it is the further it has drifted from the real list. */
   el.style.color = days > 14 ? 'var(--ember)' : 'var(--muted)';
 }
-function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','printing','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
+function syncTabs(){RT.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));['schedule','fixes','oneman','waiting','printing','takedowns'].forEach(n=>RT.getElementById('pane-'+n).hidden=(n!==activeTab));}
 function switchTab(name){activeTab=name;syncTabs();renderActive();}
 /* ---------- persistence (Firestore) ---------- */
 function serialize(){

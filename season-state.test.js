@@ -148,7 +148,7 @@ const ruleSrc = (sentAt) =>
      READS throws a bare ReferenceError with no suite attached — the failure
      `sandboxDeps` exists to name in run-all.js, which this file does not have. It is
      always false here: nothing in a test is measuring, so the rule is simply on. */
-  'let seasonRuleOffForMeasurement = false;\n' +
+  'let seasonRuleOffForMeasurement = ' + (sentAt === 'null' ? 'true' : 'false') + ';\n' +
   (admin.match(/const RSVP_REPLY_DAYS = \d+;/) || [''])[0] + '\n' +
   fn('toJsDate') + '\n' + fn('seasonRuleIsLive') + '\n';
 const outForSeason = new Function('d',
@@ -1075,9 +1075,16 @@ check('badging Back Next Year clears the build but not the recycle',
       (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0] + '\n' +
       'let seasonRuleOffForMeasurement = false;\n' +
       fn('toJsDate') + '\n' + fn('seasonRuleIsLive') + '\nreturn seasonRuleIsLive();')();
-    check('the built-in default cannot empty the season before anybody is asked',
-      live('null') === false && live('undefined') === false,
-      'a failed settings read, or a cache that has not loaded, must leave everybody in');
+    /* ⭐ REVERSED 2026-08-27, AND THE OLD ASSERTION IS KEPT IN WORDS BECAUSE IT WAS RIGHT
+       UNTIL THE ANSWER CHANGED. It required that the rule could not empty the season
+       before anybody was asked. It can, and Addie chose that: "we cannot schedule people
+       that haven't RSVP." The protection did not disappear, it MOVED — nobody is lost,
+       they are listed on Schedule › Waiting on RSVP with a phone number, which is the
+       half that had to exist before this line could change. */
+    check('the rule applies whether or not the RSVP has been marked sent',
+      live('null') === true && live('undefined') === true,
+      'a marker that gates the rule is a switch by another name, and it is the one ' +
+      'somebody forgets to press in October');
     /* ⭐ REPOINTED 2026-08-26, AND IT IS THE OPPOSITE ASSERTION ON PURPOSE — questions
        map RS-15. This used to require that the rule was NOT live the moment she pressed
        send, protecting a 14-day reply window. Addie removed the window: "a house won't
@@ -1112,13 +1119,13 @@ check('badging Back Next Year clears the build but not the recycle',
      RSVP sent through Automation Emails. Three copies is how one of them quietly stops
      redrawing, so the count is asserted. */
   {
-    const changed = fnBraced('seasonRuleChanged');
-    check('the season-changed redraw exists and does not call renderAll',
+    const changed = fnBraced('rsvpMarkChanged');
+    check('the mark-changed redraw exists and does not call renderAll',
       /renderJobAddressPanels\(\)/.test(changed) && !/[^a-zA-Z]renderAll\(\)/.test(changed),
       'renderAll belongs to the schedule widget\'s scope — calling it from the main app ' +
       'throws "is not defined" and kills the handler silently');
     const bare = admin.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-    const calls = (bare.match(/seasonRuleChanged\(\);/g) || []).length;
+    const calls = (bare.match(/rsvpMarkChanged\(\);/g) || []).length;
     check('and all three routes that move the mark call it',
       calls === 3,
       'found ' + calls + ' (expected 3: mark by hand, clear by hand, and the automatic ' +
@@ -1142,18 +1149,24 @@ check('badging Back Next Year clears the build but not the recycle',
       }
       return '';
     })();
-    check('and setting the mark warns what it does before it does it',
+    /* ⭐ THE CLAIM FLIPPED TWICE IN ONE DAY, so what is asserted is that it does not
+       OVERCLAIM. For about an hour the mark was the trigger and this dialog correctly
+       warned that pressing it took ~960 people off the routes. The rule applies always
+       now, so the mark moves nobody — and a dialog still saying it does would send the
+       office looking for a change that never happened. */
+    check('and setting the mark does not claim to move anybody',
       /if\(!confirm\(/.test(markH) &&
-      /come off the routes, the schedule and the warehouse queue/.test(markH) &&
+      /does not move anybody/.test(markH) &&
+      !/come off the routes, the schedule and the warehouse queue/.test(markH) &&
       markH.indexOf('confirm(') < markH.indexOf('markRsvpSent('),
-      'this press now takes every unanswered customer out of the season — it used to ' +
-      'be a note to file, and it is the deliberate act now that the switch is gone');
+      'people who have not answered are already off the routes — the mark changes what ' +
+      'the waiting list SAYS about them, and nothing else');
     /* ⚠ COMMENT-STRIPPED. The note recording WHY that sentence went quotes the sentence
        itself, three lines above the dialog — so a raw match finds the explanation and
        fails on code that is right. The same trap this file has hit three times. */
-    check('and clearing it no longer claims it changes nothing',
+    check('and clearing it does not claim to put anybody back',
       !/This only changes what this banner says/.test(bare) &&
-      /back into the season/.test(bare),
+      /moves nobody on or off a route/.test(bare),
       'that sentence was true until the rule was hardcoded to this mark, and a dialog ' +
       'promising it changes nothing while it puts ~960 people back is the quiet ' +
       'failure this repo keeps writing rules about');
@@ -1232,6 +1245,87 @@ check('badging Back Next Year clears the build but not the recycle',
     !/rsvpStatusLabel\(r\.d\.rsvpStatus\)/.test(bare),
     'a bare stored yes is not an answer — printing it raw is one screen calling ' +
     'somebody confirmed while every other one calls them Pending');
+}
+
+/* ⭐ WAITING ON RSVP — THE OTHER HALF OF THE RULE (added 2026-08-27).
+   Addie, told that people who had not replied were still being scheduled: "we cannot
+   schedule people that haven't RSVP. could we make another section in schedule were it
+   just has pending people."
+
+   ⚠ THIS LIST IS WHAT MAKES THE RULE SURVIVABLE, not a nicety. Applying it with nowhere
+   for these people to go means ~960 customers are simply absent from every screen. With
+   the list, an empty season is a stack of phone calls.
+
+   ⚠ RUN, NOT READ. Every claim here is about WHO IS ON A LIST. */
+{
+  const waitSrc = fnBraced('waitingOnRsvpHouses');
+  check('the waiting list is there to run', !!waitSrc,
+    'a gate that cannot find its target must FAIL, never skip');
+
+  if (waitSrc) {
+    const book = [
+      { id: 'a', data: { name: 'Replied Yes', city: 'Lehi', rsvpStatus: 'yes', rsvpRespondedAt: 1 } },
+      { id: 'b', data: { name: 'Never Replied', city: 'Lehi', phone: '8015550002' } },
+      { id: 'c', data: { name: 'No Contact', city: 'Draper' } },
+      { id: 'd', data: { name: 'Said No', city: 'Lehi', rsvpStatus: 'no' } },
+      { id: 'e', data: { name: 'Back Next Year', city: 'Draper', rsvpStatus: 'backnextyear' } },
+      { id: 'f', data: { name: 'New This Year', city: 'Draper', chargeNewMemberFee: true } },
+      { id: 'g', data: { name: 'Being Recycled', city: 'Lehi', needsLightRecycle: true } }
+    ];
+    const api = new Function('jobAddresses',
+      ruleSrc('null') + eligLine + audienceIsNewSrc + src.isOutForSeason +
+      fn('extractCleanCity') + fnBraced('seasonEligibilityWouldDrop') + waitSrc +
+      'return {wait: waitingOnRsvpHouses, out: isOutForSeason};')(book);
+    const names = api.wait().map(r => r.d.name);
+
+    check('somebody who never replied is waiting',
+      names.indexOf('Never Replied') !== -1 && names.indexOf('No Contact') !== -1,
+      'this is the list, and they are the people on it');
+    check('somebody who answered yes is not',
+      names.indexOf('Replied Yes') === -1,
+      'they are in the season — a list that includes them is a call nobody needs to make');
+    /* ⚠ OUT OF THE SEASON IS NOT THE SAME AS WAITING, and this is the distinction that
+       makes the list worth ringing down. Somebody who said no, or Back Next Year, or
+       whose lights are queued to be collected, is not waiting on anything. */
+    ['Said No', 'Back Next Year', 'Being Recycled'].forEach(function (n) {
+      check(n + ' is out of the season but NOT waiting',
+        api.out(book.find(b => b.data.name === n).data) === true && names.indexOf(n) === -1,
+        'ringing them to ask for an answer they have already given is worse than not ' +
+        'ringing at all');
+    });
+    check('a new customer this year is not waiting either',
+      names.indexOf('New This Year') === -1,
+      'converting their quote was the approval, and we never send them an RSVP');
+    /* Chasing is done a town at a time, and a list that reshuffles under somebody
+       working down it is a list they lose their place in. */
+    check('and it is ordered by town, then name',
+      JSON.stringify(names) === JSON.stringify(['No Contact', 'Never Replied']),
+      'got ' + JSON.stringify(names));
+
+    check('it asks the season rule rather than re-deciding who is waiting',
+      /seasonEligibilityWouldDrop/.test(waitSrc) && !/rsvpRespondedAt/.test(waitSrc),
+      'a second opinion here — "everybody whose rsvpStatus is blank", say — drifts from ' +
+      'the routes within a week, and the drift is invisible on both screens');
+  }
+
+  /* ⚠ THE PANE LIST IS THE TRAP CLAUDE.md NAMES BY NAME, twice, having been caught by
+     it twice. A pane left out of it never HIDES — it sits underneath whichever tab is
+     showing. */
+  check('the Waiting pane is in the tab switcher list',
+    /\['schedule','fixes','oneman','waiting','printing','takedowns'\]/.test(admin),
+    'a pane left out of that list sits underneath whichever tab is open');
+  check('and the tab, the pane and the renderer all exist',
+    /data-tab=\\"waiting\\"/.test(admin) && /id=\\"pane-waiting\\"/.test(admin) &&
+    /id=\\"waitingRsvpPane\\"/.test(admin) && /function renderWaitingRsvp\(/.test(admin),
+    'a tab with no pane, or a pane with no renderer, is a blank screen and no error');
+  check('and opening the tab is what draws it',
+    /activeTab==='waiting'\)\{renderWaitingRsvp\(\)/.test(admin),
+    'without this the tab is permanently empty');
+  /* The phone number is the point. A name and an address is a report. */
+  check('and the list shows a way to contact them',
+    /no phone or email on file/.test(admin),
+    'somebody with neither has to be visible as such, or they look like a call that ' +
+    'was simply not made');
 }
 
 // ---------------------------------------------------------------------------
