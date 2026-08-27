@@ -40,6 +40,16 @@ function check(name, ok, detail) {
   console.log('  FAIL  ' + name + (detail ? '\n        ' + detail : ''));
 }
 function note(msg) { notes++; console.log('  NOTE  ' + msg); }
+/* ⚠ ANYTHING ASYNC GOES ON THIS LIST AND THE SUMMARY AWAITS IT. Saving a decision is a
+   real await now, so a check written straight after the click scores BEFORE the write
+   resolves — and a check that scores after the summary has printed can never fail the
+   build, which is a green run for the worst possible reason. Same rule as Suite 10 of
+   run-all.js, and it arrived here the same way: three checks failed on correct code the
+   moment the button stopped being synchronous. */
+const pendingAsync = [];
+/* One turn of the microtask queue, which is all a resolved bridge promise needs. The
+   frame's handler awaits exactly once before it repaints. */
+const settle = () => new Promise(r => setTimeout(r, 0));
 
 /* A branch that predates the map must not go red — that is how a gate gets deleted. */
 if (!fs.existsSync(path.join(ROOT, 'connections', 'manifest.js'))) {
@@ -619,13 +629,13 @@ if (amberTotal) {
       emptyBody + ' blocks opened onto nothing. An empty body reads as "no ruling here", ' +
       'which is the opposite of what the row is telling her');
 
-    /* Confirming is the one write this view makes, and it re-renders from a key — the same
-       key that was breaking. */
-    const y = v.querySelector('.rev button.y');
-    check('confirming a rule records who confirmed it',
-      !!y && (y.click(), /Confirmed/.test(v.querySelector('.rev .lab').textContent)),
-      'the confirm button re-draws from the same key the toggle uses; if the key is wrong ' +
-      'this silently records nothing');
+    /* Confirming is proved in section 10, against a page that can actually save. Here it
+       is only asserted that the open row OFFERS the decision — this frame has no admin
+       page behind it, so pressing it can do nothing but say so. */
+    check('an opened rule offers the decision buttons',
+      !!v.querySelector('.block.open .rev button.y') &&
+      !!v.querySelector('.block.open .rev button.n'),
+      'the ruling is readable and there is no way to say anything about it');
 
     /* ⚠ THE JUMP BUTTON CANNOT BE AN INLINE onclick. It was built as
        onclick="jump('<field>','<dest>')" with the field pasted between single quotes, so
@@ -639,22 +649,37 @@ if (amberTotal) {
       'an inline onclick with a field name pasted into it breaks on the first apostrophe');
 
     /* Reading unread[0] blind threw and blanked the whole view, and "everything has been
-       read" is the state she is working towards. Reached by confirming the lot. */
-    for (let i = 0; i < areas; i++) {
-      subtab(1).click();
-      const back = v.querySelector('.back'); if (back) back.click();
-      v.querySelectorAll('.areacard')[i].click();
-      const n = v.querySelectorAll('.blockbtn').length;
-      for (let j = 0; j < n; j++) {
-        v.querySelectorAll('.blockbtn')[j].click();
-        const ok = v.querySelectorAll('.rev button.y');
-        if (ok.length) ok[ok.length - 1].click();
-      }
-    }
-    subtab(1).click();
-    const back2 = v.querySelector('.back'); if (back2) back2.click();
+       read" is the state she is working towards.
+       ⚠ THIS USED TO GET THERE BY CLICKING CONFIRM 181 TIMES, and the moment those buttons
+       started saving through the admin page that stopped working: this frame has no parent,
+       so every click is refused and nothing is ever marked read. The check went on passing
+       — against a page still showing 181 unread, which is not the state it is named after.
+       It is reached the way it really happens now: an admin page that already holds a
+       decision for every rule. */
+    const everything = {};
+    const idsOf = html => (html.match(/"[A-Z]+-\d+"/g) || []).map(x => x.slice(1, -1));
+    idsOf(require('./connections/build').render()).forEach(id => {
+      everything[id] = { rule: id, verdict: 'ok', fp: '', at: '2026-08-27', by: 'addie' };
+    });
+    check('the harness found rule ids to pre-confirm',
+      Object.keys(everything).length > 0,
+      'no ids, so the all-read state below was never actually reached');
+    const readAll = new JSDOM(require('./connections/build').render(),
+      { runScripts: 'dangerously', beforeParse(w) {
+        Object.defineProperty(w, 'parent', { configurable: true, get: () => ({
+          hlxRuleDecisions: () => everything, hlxRuleDecide: () => Promise.resolve(null) }) });
+      } });
+    const rd = readAll.window.document;
+    rd.querySelectorAll('.subtabs button')[1].click();
+    const rv = rd.getElementById('rules');
+    check('every rule really does read as confirmed once the decisions are in hand',
+      /0 never read/.test(rv.querySelector('.headline').textContent),
+      'got ' + JSON.stringify(rv.querySelector('.headline').textContent.slice(0, 90)) +
+      '. Without this the check below cannot be reaching the branch it is named after');
     check('the overview survives every rule having been read',
-      /Where to start/.test(v.innerHTML) && v.querySelectorAll('.areacard').length === areas,
+      /Where to start/.test(rv.innerHTML) &&
+      rv.querySelectorAll('.areacard').length === areas &&
+      /every rule has been read/.test(rv.querySelector('.headline').textContent),
       'the headline names the longest-unread rule; with none left unread it read past the ' +
       'end of an empty list, threw, and left the view blank');
 
@@ -754,11 +779,14 @@ if (amberTotal) {
               'got ' + JSON.stringify(li && li.textContent) + '. An unescaped < in a ' +
               'ruling swallows the rest of the sentence, and the row still looks fine');
             const yes = hv.querySelector('.block.open .rev button.y');
-            check('and confirming it records against that rule, not a truncated one',
-              !!yes && (yes.click(), /Confirmed/.test(
-                hv.querySelector('.block.open .rev .lab').textContent)),
-              'the confirm button carries the key too — truncated, it writes her decision ' +
-              'under a name no row will ever ask for again');
+            pendingAsync.push(async () => {
+              if (yes) { yes.click(); await settle(); }
+              const lk = hv.querySelectorAll('.block.open .rev .locked');
+              check('and confirming it acts on that rule, not a truncated one',
+                !!yes && lk.length > 0 && /admin page/.test(lk[lk.length - 1].textContent),
+                'the confirm button carries the key too — truncated, the handler looks up ' +
+                'a rule that does not exist and falls over instead of answering');
+            });
           }
         }
         check('and the hostile page threw nothing either',
@@ -766,6 +794,191 @@ if (amberTotal) {
       }
     }
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 10. A DECISION SHE MAKES IS KEPT — run, not read.
+ *
+ * Addie could press Looks right / Something's wrong and the row moved, and that was all
+ * it did: gone on reload. A review tool that forgets is one she has to redo from
+ * scratch, so the buttons were doing something worse than nothing — they looked like
+ * progress.
+ *
+ * The page is a generated file in an iframe with no database of its own, so it asks the
+ * admin page (same origin, an ordinary call). That gives three states that all have to
+ * be right, and only one of them is the happy one:
+ *   - inside admin      → saved, and it survives a reload
+ *   - its own tab       → no parent, so it SAYS decisions will not stick
+ *   - write refused     → the pill does NOT move, and the real error is on the row
+ *
+ * ⚠ THE LAST TWO ARE THE POINT. A tick that silently evaporates is exactly the class of
+ * failure this whole page was built to find, and it would have been sitting inside it.
+ * ------------------------------------------------------------------------- */
+{
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { JSDOM = null; }
+  if (!JSDOM) {
+    note('jsdom is not installed, so no decision was actually saved or reloaded.');
+  } else pendingAsync.push(async () => {
+    const page = require('./connections/build').render();
+    /* A stand-in for admin.html's two bridge functions. The REAL ones are asserted
+       separately below — this half is about what the frame does with them. */
+    const makeAdmin = store => ({
+      hlxRuleDecisions: () => store,
+      hlxRuleDecide: (id, verdict, fp, name, area) => {
+        if (!id) return Promise.reject(new Error('no id'));
+        const rec = { rule: id, verdict: verdict === 'flag' ? 'flag' : 'ok', fp: fp || '',
+                      name: name, area: area, at: '2026-08-27', by: 'addie' };
+        store[id] = rec;
+        return Promise.resolve(rec);
+      }
+    });
+    const openFrame = parent => {
+      const dom = new JSDOM(page, { runScripts: 'dangerously', beforeParse(w) {
+        if (parent) Object.defineProperty(w, 'parent', { get: () => parent, configurable: true });
+      } });
+      const d = dom.window.document;
+      d.querySelectorAll('.subtabs button')[1].click();
+      const v = d.getElementById('rules');
+      return { d: d, v: v, openFirst: function () {
+        v.querySelector('.areacard').click();
+        v.querySelector('.blockbtn').click();
+        return v.querySelector('.block.open');
+      } };
+    };
+    const pill = f => {
+      const el = f.v.querySelector('.block.open .rev .lab');
+      return el ? el.textContent : '';
+    };
+    const rowNote = f => {
+      const els = f.v.querySelectorAll('.block.open .rev .locked');
+      return els.length ? els[els.length - 1].textContent : '';
+    };
+
+    /* ⭐ THE COUNTS WERE ABOUT THE WRONG THING, and this is why saving was worth building
+       rather than bolting on. One field carried both the ruling's standing in the
+       questions map AND her review of it, so "N of M confirmed" was counting rulings
+       marked Closed — which she has never looked at. Nothing was going to make that
+       number move, whatever she pressed. */
+    const fresh = openFrame(makeAdmin({}));
+    /* ⚠ ACROSS EVERY CARD, NOT THE FIRST ONE. The first area alphabetically happens to
+       hold no rulings marked Closed, so it reads "0 of 4" whether the bug is there or
+       not — the red-check caught this check passing on the broken code. Eight rulings in
+       the map ARE Closed, so the total is what bites. */
+    const cards = Array.prototype.slice.call(fresh.v.querySelectorAll('.areacard .of'));
+    const totals = cards.map(c => (c.textContent.match(/^(\d+) of (\d+)/) || []).slice(1).map(Number));
+    const confirmed = totals.reduce((a, t) => a + (t[0] || 0), 0);
+    const ruleCount = totals.reduce((a, t) => a + (t[1] || 0), 0);
+    check('no rule counts as confirmed until she has actually confirmed it',
+      cards.length > 0 && ruleCount > 0 && confirmed === 0,
+      confirmed + ' of ' + ruleCount + ' already read as confirmed with no decision saved ' +
+      'anywhere. This counts HER review now, not the ruling’s standing in the map — two ' +
+      'different facts that were one field until 2026-08-27, which made the page claim ' +
+      'work was done that nobody had done');
+    const head = fresh.v.querySelector('.headline').textContent;
+    const unread = Number((head.match(/(\d+) never read/) || [])[1]);
+    check('and the overview counts every one of them as never read',
+      unread === ruleCount,
+      'headline says ' + unread + ' never read out of ' + ruleCount + ' rules. Her ' +
+      'starting point is that number; anything less is the page telling her somebody ' +
+      'has already been through part of the map');
+
+    /* Saved, and still there next time. */
+    const store = {};
+    const f1 = openFrame(makeAdmin(store));
+    f1.openFirst();
+    f1.v.querySelector('.rev button.y').click();
+    await settle();
+    const saved = Object.keys(store)[0];
+    check('confirming a rule writes a decision',
+      !!saved && store[saved].verdict === 'ok',
+      'nothing reached the admin page, so the tick is lost on reload — which is the ' +
+      'state this whole section exists to end');
+    check('and the decision names the rule by its id, not by its wording',
+      !!saved && /^[A-Z]+-\d+$/.test(saved),
+      'got ' + JSON.stringify(saved) + '. Keyed on the wording, editing a ruling orphans ' +
+      'the decision instead of lapsing it');
+    check('and carries a fingerprint of the wording she confirmed',
+      !!saved && !!store[saved].fp,
+      'without it a rewritten ruling keeps her old tick, which is the tick vouching for ' +
+      'text she has never read');
+
+    const f2 = openFrame(makeAdmin(store));
+    f2.openFirst();
+    check('and it is still confirmed when she comes back',
+      /Confirmed/.test(pill(f2)),
+      'got ' + JSON.stringify(pill(f2)) + '. Saved and not read back is the same as not saved');
+
+    /* ⭐ AND IT EXPIRES WHEN THE RULING IS REWRITTEN. */
+    const moved = {};
+    Object.keys(store).forEach(k => { moved[k] = Object.assign({}, store[k], { fp: 'SOMETHINGELSE' }); });
+    const f3 = openFrame(makeAdmin(moved));
+    f3.openFirst();
+    check('a ruling rewritten since she confirmed it reads as changed, not confirmed',
+      /Changed since confirmed/.test(pill(f3)),
+      'got ' + JSON.stringify(pill(f3)) + '. Still-confirmed is her vouching for words ' +
+      'she has never seen; back-to-never-read loses that she ever looked');
+
+    /* ⚠ REFUSED. This is what a missing firestore.rules entry looks like from the page. */
+    const f4 = openFrame({ hlxRuleDecisions: () => ({}),
+      hlxRuleDecide: () => Promise.reject(new Error('Missing or insufficient permissions')) });
+    f4.openFirst();
+    f4.v.querySelector('.rev button.y').click();
+    await settle();
+    check('a refused write leaves the rule exactly as it was',
+      /Not reviewed/.test(pill(f4)),
+      'got ' + JSON.stringify(pill(f4)) + '. A pill that moves on a write the database ' +
+      'refused is the row lying, and she finds it unread again tomorrow');
+    check('and says so on the row, with the real reason',
+      /Could not save/.test(rowNote(f4)) && /permissions/.test(rowNote(f4)),
+      'got ' + JSON.stringify(rowNote(f4)) + '. "Nothing should fail quietly" — and a ' +
+      'refused rule write is exactly the case that reads as the button not working');
+
+    /* ⚠ ITS OWN TAB. There is no parent to ask, and it must not pretend otherwise. */
+    const f5 = openFrame(null);
+    f5.openFirst();
+    f5.v.querySelector('.rev button.y').click();
+    await settle();
+    check('opened in its own tab it says decisions will not stick there',
+      /Not reviewed/.test(pill(f5)) && /admin page/.test(rowNote(f5)),
+      'pill ' + JSON.stringify(pill(f5)) + ', note ' + JSON.stringify(rowNote(f5)) +
+      '. The page is reachable full screen on purpose; taking a decision it cannot keep ' +
+      'is worse than a button that is honest about being off');
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * 11. THE ADMIN HALF OF THAT BRIDGE, AND ITS RULE.
+ *
+ * ⚠ THE FRAME CHECKS ABOVE USE A STAND-IN, so every one of them stays green with the
+ * real functions deleted from admin.html — the same shape as the Edit Customer house
+ * tabs, where the four wiring calls could be removed with the whole suite passing.
+ * ------------------------------------------------------------------------- */
+{
+  const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
+  check('admin.html defines both halves of the bridge the frame calls',
+    /window\.hlxRuleDecide\s*=/.test(admin) && /window\.hlxRuleDecisions\s*=/.test(admin),
+    'the frame asks window.parent for these by name; without them every decision falls ' +
+    'into the "opened in its own tab" branch and nothing is ever saved');
+  check('and reads the saved decisions eagerly, beside the health-check ones',
+    /loadRuleDecisions\(\);/.test(admin.slice(admin.indexOf('loadHcDecisions();'),
+      admin.indexOf('loadHcDecisions();') + 600)),
+    'the frame asks for these while it loads and can be opened before any panel group ' +
+    'has run — loaded later, every rule she confirmed reads as never-read');
+  check('and the write is awaited before the record is handed back',
+    /await setDoc\(doc\(db,'ruleDecisions'/.test(admin),
+    'returning before the write lands is what lets the frame paint a decision that was ' +
+    'refused');
+
+  /* ⚠ NOT DEPLOYED BY CI. A collection missing from firestore.rules is denied by default,
+     so this file being right is necessary and not sufficient — it still needs a hand
+     deploy. The row now says so on screen when it happens, which is the half that is
+     under our control. */
+  const rules = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+  check('firestore.rules knows about the collection those decisions go in',
+    /match \/ruleDecisions\/\{id\}/.test(rules),
+    'a collection with no rule is denied by default and fails SILENTLY in a listener, ' +
+    'so every decision would look saved and none would be');
 }
 
 const unguarded = m.report.filter(r => !r.spine.guard).map(r => r.spine.field);
@@ -776,13 +989,19 @@ if (unguarded.length) {
 note('watches ' + m.report.length + ' things. It cannot tell whether a connection is RIGHT, ' +
   'only whether it is there — and nothing appears here until a person declares it.');
 
-console.log('');
-console.log('=== Is everything still connected? ===');
-console.log('');
-if (failed) {
-  console.log('  ' + failed + ' failure(s):');
-  failures.forEach(f => console.log('   - ' + f.name + (f.detail ? f.detail : '')));
+(async function summary() {
+  for (const job of pendingAsync) {
+    try { await job(); }
+    catch (err) { check('an async section of this suite crashed', false, ': ' + (err && err.stack || err)); }
+  }
   console.log('');
-}
-console.log(passed + ' passed, ' + failed + ' failed, ' + notes + ' notes');
-process.exit(failed ? 1 : 0);
+  console.log('=== Is everything still connected? ===');
+  console.log('');
+  if (failed) {
+    console.log('  ' + failed + ' failure(s):');
+    failures.forEach(f => console.log('   - ' + f.name + (f.detail ? f.detail : '')));
+    console.log('');
+  }
+  console.log(passed + ' passed, ' + failed + ' failed, ' + notes + ' notes');
+  process.exit(failed ? 1 : 0);
+})();

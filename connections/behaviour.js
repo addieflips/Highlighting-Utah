@@ -48,12 +48,46 @@ document.getElementById('picker').addEventListener('click',e=>{const b=e.target.
 
 /* ---------------- rules data ---------------- */
 const LABEL={new:'Not reviewed',ok:'Confirmed',flag:'Flagged as wrong',lapsed:'Changed since confirmed'};
+/* ⚠ TWO DIFFERENT FACTS, AND THEY WERE ONE FIELD UNTIL 2026-08-27. `status` is the
+   ruling's own standing in the questions map — Standing, Superseded, Decided-not-built,
+   Closed — and it decides which SECTION a block sits under. `s` is Addie's REVIEW of it,
+   which is what the pill, the labels and every count on the area cards are about. Sharing
+   one field meant "8 of 22 confirmed" was really counting rulings marked Closed in the
+   map, which she has never looked at. rules.js says so in as many words — "a person
+   confirming a block is a separate, later fact — it is never inferred from the map" —
+   and the page was inferring it. */
 const S={};Object.keys(RULES).forEach(a=>RULES[a].sections.forEach(s=>s[1].forEach(b=>
- S[a+'|'+b[0]]={s:b[2],proof:b[3],by:b[4],d:b[5],hi:b[6]})));
-let rArea=null, rOpen={}, rHit=null;
+ S[a+'|'+b[0]]={s:'new',status:b[2],proof:b[3],by:b[4],d:b[5],hi:b[6],id:b[7],fp:b[8]})));
+
+/* ---------------- saving her decisions ----------------
+   This page is a plain file in an iframe with no database of its own, so the admin page
+   holds the one Firestore path and this asks it. Opened full screen in its own tab there
+   is no parent, and it SAYS so rather than taking a decision it cannot keep — a tick that
+   silently evaporates on reload is worse than a button that is honest about being off. */
+const bridge=(function(){
+ try{ return (window.parent && window.parent!==window && typeof window.parent.hlxRuleDecide==='function')
+  ? window.parent : null; }catch(e){ return null; } /* cross-origin: treat as standalone */
+})();
+function applyDecision(key,dec){
+ const st=S[key]; if(!st||!dec) return;
+ /* ⭐ A CONFIRMATION IS ABOUT A WORDING. Ruling rewritten since she ticked it → lapsed,
+    never still-confirmed and never back to never-read: "changed since confirmed" is the
+    one answer that tells her there is something to re-read. */
+ if(dec.fp && st.fp && dec.fp!==st.fp){ st.s='lapsed'; st.by=dec.by||''; st.d=dec.at||''; return; }
+ st.s=dec.verdict==='flag'?'flag':'ok'; st.by=dec.by||''; st.d=dec.at||'';
+}
+function loadDecisions(){
+ if(!bridge) return;
+ let saved=null;
+ try{ saved=bridge.hlxRuleDecisions(); }catch(e){ saved=null; }
+ if(!saved) return;
+ Object.keys(S).forEach(k=>{ const d=saved[S[k].id]; if(d) applyDecision(k,d); });
+}
+let rArea=null, rOpen={}, rHit=null, rNote={};
 const ks=a=>Object.keys(S).filter(k=>k.indexOf(a+'|')===0);
 const c=(k,s)=>k.filter(x=>S[x].s===s).length;
 
+function note(key,msg){ rNote[key]=msg; drawRules(); }
 function drawRules(){
  const v=document.getElementById('rules');
  if(!rArea){
@@ -94,6 +128,7 @@ function drawRules(){
       +'<button class="y" data-set="ok" data-k="'+esc(key)+'">Looks right</button>'
       +'<button class="n" data-set="flag" data-k="'+esc(key)+'">Something\u2019s wrong</button>'
       +(st.s==='flag'?'<span class="locked">→ sent back to the questions map for a new ruling</span>':'')
+      +(rNote[key]?'<span class="locked">'+fmt(rNote[key])+'</span>':'')
       +'</div></div>';}
     h+='</div>';});});
   v.innerHTML=h;
@@ -101,8 +136,22 @@ function drawRules(){
  v.querySelectorAll('[data-a]').forEach(b=>b.addEventListener('click',()=>{rArea=b.dataset.a;drawRules();}));
  v.querySelectorAll('.back').forEach(b=>b.addEventListener('click',()=>{rArea=null;rHit=null;drawRules();}));
  v.querySelectorAll('.blockbtn').forEach(b=>b.addEventListener('click',()=>{rOpen[b.dataset.k]=!rOpen[b.dataset.k];drawRules();}));
- v.querySelectorAll('.rev button').forEach(b=>b.addEventListener('click',()=>{
-  S[b.dataset.k]={...S[b.dataset.k],s:b.dataset.set,by:'Addie',d:'today'};drawRules();}));
+ /* ⚠ THE WRITE COMES FIRST AND THE PILL ONLY MOVES IF IT LANDED. Painting first and
+    saving afterwards is the failure this whole page exists to catch, one level up: the
+    row would read Confirmed on a decision the database refused, and she would find it
+    unread again tomorrow with nothing having said why. */
+ v.querySelectorAll('.rev button').forEach(b=>b.addEventListener('click',async()=>{
+  const key=b.dataset.k, st=S[key], verdict=b.dataset.set;
+  if(!bridge){ note(key,'Decisions save only from the admin page \u2014 open Connections there '
+   +'rather than in its own tab, and this will stick.'); return; }
+  b.disabled=true;
+  try{
+   const rec=await bridge.hlxRuleDecide(st.id,verdict,st.fp,key.split('|')[1],key.split('|')[0]);
+   applyDecision(key,rec); rNote={}; drawRules();
+  }catch(err){
+   b.disabled=false;
+   note(key,'Could not save that \u2014 it is left as it was. '+(err&&err.message?err.message:''));
+  }}));
 }
 function tab(which,btn){
  document.getElementById('grid').hidden=which!=='grid';
@@ -116,5 +165,6 @@ function jump(field,dest){
  tab('rules',document.querySelectorAll('.subtabs button')[1]);
  window.scrollTo({top:0,behavior:'smooth'});
 }
+loadDecisions();
 drawGrid();
 
