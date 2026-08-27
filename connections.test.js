@@ -537,6 +537,237 @@ if (amberTotal) {
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * 9. THE RULES VIEW ACTUALLY OPENS A BLOCK — run, not read.
+ *
+ * Reported by Addie as "dropdown on rules is not working", and it was not working at
+ * all: NOT ONE of the 181 blocks would open. The cause is the one this repo keeps
+ * meeting from a new direction — a rule NAME is prose she wrote, so one in ten carries
+ * a double quote ("soft", "available", a recorded "no"), and interpolating it raw into
+ * data-k ENDED the attribute early. dataset.k came back truncated, stopped matching the
+ * key drawRules() had built, and the toggle set a flag nothing read. Nothing threw.
+ *
+ * ⚠ SO THE CHECK ABOVE ("the built page carries both views") WAS GREEN THROUGHOUT, and
+ * would be green again tomorrow: both views existed, the buttons existed, the handler
+ * was bound. Every claim here is about a ROW THAT APPEARS ON SCREEN AFTER A CLICK, and
+ * this repo has now been caught five times by a source check standing in for one.
+ *
+ * ⚠ IT CLICKS EVERY BLOCK IN EVERY AREA, not a sample. The bug bit only the names
+ * carrying a quote, and a sample that happened to miss those ten would have passed on
+ * the broken build — which is the vacuous-fixture trap, in the check written to close it.
+ * ------------------------------------------------------------------------- */
+{
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { JSDOM = null; }
+  if (!JSDOM) {
+    note('jsdom is not installed, so no rule block was actually opened — run `npm install`. ' +
+      'The structural checks above stayed green through every block being unopenable.');
+  } else {
+    const dom = new JSDOM(require('./connections/build').render(), { runScripts: 'dangerously' });
+    const doc = dom.window.document;
+    const errs = [];
+    dom.window.addEventListener('error', e => errs.push(e.message));
+
+    const subtab = n => doc.querySelectorAll('.subtabs button')[n];
+    subtab(1).click();
+    const v = doc.getElementById('rules');
+    const areas = v.querySelectorAll('.areacard').length;
+
+    check('the Rules view draws an area card per family of rulings',
+      areas > 0, 'no area cards at all, so nothing below proves anything');
+
+    let tried = 0, opened = 0, emptyBody = 0, quoted = 0, quotedOpened = 0;
+    for (let i = 0; i < areas; i++) {
+      subtab(1).click();
+      const back = v.querySelector('.back'); if (back) back.click();
+      v.querySelectorAll('.areacard')[i].click();
+      const n = v.querySelectorAll('.blockbtn').length;
+      for (let j = 0; j < n; j++) {
+        const btn = v.querySelectorAll('.blockbtn')[j];
+        const isQuoted = /["<>&]/.test(btn.dataset.k || '');
+        const before = v.querySelectorAll('.block.open').length;
+        btn.click();
+        tried++;
+        const now = v.querySelectorAll('.block.open');
+        const grew = now.length === before + 1;
+        if (grew) opened++;
+        if (isQuoted) { quoted++; if (grew) quotedOpened++; }
+        const last = now[now.length - 1];
+        const body = last && last.querySelector('.body .rl li');
+        if (!body) emptyBody++;
+      }
+    }
+
+    check('every rule block opens when it is clicked',
+      tried > 0 && opened === tried,
+      tried ? (tried - opened) + ' of ' + tried + ' blocks did nothing at all when clicked. ' +
+        'Check what is being interpolated into data-k — an unescaped quote in a rule name ' +
+        'truncates the attribute and the key silently stops matching' : 'no blocks were found to click');
+
+    /* ⚠ THE REGRESSION ITSELF, ASSERTED ON ITS OWN. Folded into the count above, ten bad
+       names out of 181 read as a 94% pass, which is the shape of a flaky test rather than
+       a broken feature — and the ten are the whole bug. */
+    check('and the ones whose names carry a quote open too',
+      quoted > 0 && quotedOpened === quoted,
+      quoted ? (quoted - quotedOpened) + ' of the ' + quoted + ' rule names containing a ' +
+        'quote or bracket failed to open' : 'no rule name in the map carries a quote any ' +
+        'more, so this check can no longer see the bug it was written for — point it at ' +
+        'whatever the map actually contains rather than deleting it');
+
+    check('and every opened block shows the ruling underneath it',
+      emptyBody === 0,
+      emptyBody + ' blocks opened onto nothing. An empty body reads as "no ruling here", ' +
+      'which is the opposite of what the row is telling her');
+
+    /* Confirming is the one write this view makes, and it re-renders from a key — the same
+       key that was breaking. */
+    const y = v.querySelector('.rev button.y');
+    check('confirming a rule records who confirmed it',
+      !!y && (y.click(), /Confirmed/.test(v.querySelector('.rev .lab').textContent)),
+      'the confirm button re-draws from the same key the toggle uses; if the key is wrong ' +
+      'this silently records nothing');
+
+    /* ⚠ THE JUMP BUTTON CANNOT BE AN INLINE onclick. It was built as
+       onclick="jump('<field>','<dest>')" with the field pasted between single quotes, so
+       the first field name carrying an apostrophe — "Addie's own note" — is a syntax error
+       in an attribute, and the button dies with no console line anybody would see. There
+       are no faults in the report today, so this path has NO DATA to exercise it: the
+       structural assertion is the honest half, and it says so. */
+    const beh = fs.readFileSync(path.join(ROOT, 'connections', 'behaviour.js'), 'utf8');
+    check('the fault link carries its target in data attributes, not an inline onclick',
+      !/onclick=/.test(beh) && /data-jf=/.test(beh) && /data-jd=/.test(beh),
+      'an inline onclick with a field name pasted into it breaks on the first apostrophe');
+
+    /* Reading unread[0] blind threw and blanked the whole view, and "everything has been
+       read" is the state she is working towards. Reached by confirming the lot. */
+    for (let i = 0; i < areas; i++) {
+      subtab(1).click();
+      const back = v.querySelector('.back'); if (back) back.click();
+      v.querySelectorAll('.areacard')[i].click();
+      const n = v.querySelectorAll('.blockbtn').length;
+      for (let j = 0; j < n; j++) {
+        v.querySelectorAll('.blockbtn')[j].click();
+        const ok = v.querySelectorAll('.rev button.y');
+        if (ok.length) ok[ok.length - 1].click();
+      }
+    }
+    subtab(1).click();
+    const back2 = v.querySelector('.back'); if (back2) back2.click();
+    check('the overview survives every rule having been read',
+      /Where to start/.test(v.innerHTML) && v.querySelectorAll('.areacard').length === areas,
+      'the headline names the longest-unread rule; with none left unread it read past the ' +
+      'end of an empty list, threw, and left the view blank');
+
+    check('and no click anywhere in the Rules view threw',
+      errs.length === 0, 'errors: ' + errs.join(' | '));
+
+    /* -----------------------------------------------------------------------
+     * The same page, driven with a hostile name.
+     *
+     * ⚠ EVERY OTHER CHECK ABOVE RUNS ON TODAY'S DATA, and today only the rule NAMES
+     * carry a quote. So red-checking found five escaping sites — the area card, the
+     * grid's field cell, the block name, the confirm buttons, the rule lines — that
+     * could each be reverted with the whole suite still green, purely because no
+     * value reaching them happens to contain a quote yet. The map is prose Addie
+     * edits; the day one of those gains a quote is the day a screen breaks silently,
+     * which is exactly how this bug arrived in the first place.
+     *
+     * So this renders the REAL page with one name in each position replaced by a
+     * string carrying " < > & and an apostrophe, and asserts it comes back out
+     * BYTE-FOR-BYTE — both through the attribute (dataset round-trip) and on screen
+     * (textContent). Not a hand-written fixture: the only thing invented is the text.
+     * --------------------------------------------------------------------- */
+    {
+      const HOSTILE = 'A "quoted" <b>name</b> & Addie' + String.fromCharCode(39) + 's own';
+      const raw = require('./connections/build').render();
+      const lines = raw.split('\n');
+      const jsonLine = name => lines.findIndex(l => l.indexOf('const ' + name + '=') === 0);
+      const dataOf = name => {
+        const i = jsonLine(name);
+        return i < 0 ? null : JSON.parse(lines[i].slice(('const ' + name + '=').length, -1));
+      };
+      const TABS = dataOf('TABS'), RULES = dataOf('RULES');
+      const firstTab = TABS && Object.keys(TABS)[0];
+      const firstArea = RULES && Object.keys(RULES)[0];
+      const origField = firstTab && TABS[firstTab].rows.length ? TABS[firstTab].rows[0][0] : null;
+      const origArea = firstArea;
+      const origName = firstArea && RULES[firstArea].sections.length &&
+        RULES[firstArea].sections[0][1].length ? RULES[firstArea].sections[0][1][0][0] : null;
+      const origLine = origName && RULES[firstArea].sections[0][1][0][1].length
+        ? RULES[firstArea].sections[0][1][0][1][0] : null;
+
+      check('the harness could find a field, an area, a rule and a ruling to make hostile',
+        !!(origField && origArea && origName && origLine),
+        'the built page did not carry the shape this check drives, so nothing below ran');
+
+      if (origField && origArea && origName && origLine) {
+        /* Scoped to the emitted JSON lines only — a global replace would rewrite the
+           page's own prose and prove something about the shell instead. */
+        const swap = (line, from, to) =>
+          line.split(JSON.stringify(from).slice(1, -1)).join(JSON.stringify(to).slice(1, -1));
+        const hostileHtml = lines.map(l => {
+          if (!/^const (TABS|RULES|CELLRULES|FAULTS)=/.test(l)) return l;
+          let out = l;
+          [[origField, HOSTILE + ' F'], [origArea, HOSTILE + ' A'],
+           [origName, HOSTILE + ' N'], [origLine, HOSTILE + ' L']]
+            .forEach(pair => { out = swap(out, pair[0], pair[1]); });
+          return out;
+        }).join('\n');
+
+        const h = new JSDOM(hostileHtml, { runScripts: 'dangerously' });
+        const hd = h.window.document, herrs = [];
+        h.window.addEventListener('error', e => herrs.push(e.message));
+
+        /* The grid: field name in a cell, and the same name inside data-f. */
+        const fcell = hd.querySelector('#gbody td.f');
+        check('a field name carrying a quote survives into the grid',
+          !!fcell && fcell.textContent === HOSTILE + ' F',
+          'got ' + JSON.stringify(fcell && fcell.textContent));
+        const gcell = hd.querySelector('#gbody .cell[data-f]');
+        check('and out of the square that has to look it back up',
+          !!gcell && gcell.dataset.f === HOSTILE + ' F',
+          'got ' + JSON.stringify(gcell && gcell.dataset.f) + '. A truncated data-f means ' +
+          'clicking the square finds no rule and says "no rule written down for this one"');
+
+        /* The rules view: area, block name, ruling text, and the confirm buttons. */
+        hd.querySelectorAll('.subtabs button')[1].click();
+        const hv = hd.getElementById('rules');
+        const card = Array.prototype.slice.call(hv.querySelectorAll('.areacard'))
+          .filter(c => c.dataset.a === HOSTILE + ' A')[0];
+        check('an area name carrying a quote round-trips through its card',
+          !!card && card.querySelector('h3').textContent === HOSTILE + ' A',
+          'the card is unopenable, or its heading is cut off at the quote');
+
+        if (card) {
+          card.click();
+          const btn = Array.prototype.slice.call(hv.querySelectorAll('.blockbtn'))
+            .filter(b => b.dataset.k === (HOSTILE + ' A') + '|' + (HOSTILE + ' N'))[0];
+          check('a rule name carrying a quote round-trips through its key',
+            !!btn && btn.querySelector('.nm').textContent === HOSTILE + ' N',
+            'this is the shape of the original bug, asserted on a name that is hostile ' +
+            'on purpose rather than on the ten that happen to be today');
+          if (btn) {
+            btn.click();
+            const li = hv.querySelector('.block.open .body .rl li');
+            check('and a ruling carrying a quote is shown exactly as written',
+              !!li && li.textContent === HOSTILE + ' L',
+              'got ' + JSON.stringify(li && li.textContent) + '. An unescaped < in a ' +
+              'ruling swallows the rest of the sentence, and the row still looks fine');
+            const yes = hv.querySelector('.block.open .rev button.y');
+            check('and confirming it records against that rule, not a truncated one',
+              !!yes && (yes.click(), /Confirmed/.test(
+                hv.querySelector('.block.open .rev .lab').textContent)),
+              'the confirm button carries the key too — truncated, it writes her decision ' +
+              'under a name no row will ever ask for again');
+          }
+        }
+        check('and the hostile page threw nothing either',
+          herrs.length === 0, 'errors: ' + herrs.join(' | '));
+      }
+    }
+  }
+}
+
 const unguarded = m.report.filter(r => !r.spine.guard).map(r => r.spine.field);
 if (unguarded.length) {
   note(unguarded.length + ' of ' + m.report.length + ' watched things have nothing else guarding them: ' +
