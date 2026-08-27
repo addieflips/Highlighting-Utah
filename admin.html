@@ -15866,7 +15866,7 @@ function renderInvoicesList(){
       : ' <span class="status-pill" style="background:var(--paper); color:var(--slate);">RSVP: ' + rsvpStatusLabel(rsvp) + '</span>';
     /* ⚠ BESIDE the RSVP pill, not instead of it. They ARE a yes; the badge says how
        they got there, which is the bit the office would otherwise have to remember. */
-    const backPill = cameBackBadge(d);
+    const backPill = cameBackBadge(d) + approvedOnJoinBadge(d);
     const billedHouses = (d.billedHouseIds||[]).map(function(hid){
       const h = jobAddresses.find(a => a.id === hid);
       if(!h) return '';
@@ -36200,6 +36200,39 @@ function cameBackThisSeason(d){
 }
 /* The badge, in one place because three screens draw it and the one that gets
    missed is the one that quietly stops matching the others. */
+/* ⭐ WHY THIS PERSON IS IN THE SEASON WITHOUT AN RSVP REPLY (added 2026-08-27).
+   Addie, settling the one exception to "we need a yes": "once we convert a quote to
+   costumer that is the only exception to they need to approve RSVP. However if new
+   members don't get an RSVP then they won't need to approve RSVP for 2 reasons. One
+   they are already approved through converting to costumer this year and 2 they don't
+   get send an RSVP. If we need to put a badge on new member for converted costumer to
+   make this easier that they are approved than we can do that."
+
+   ⚠ IT EXPLAINS, IT DOES NOT DECIDE. The rule is unchanged and lives in
+   effectiveRsvpStatus / isOutForSeason; this only says out loud what those already
+   answer, on the row where somebody is looking. Without it the office sees a customer
+   reading Yes with no reply date and no way to tell whether that is real, an import
+   artefact, or this rule — three very different things.
+
+   ⚠ IT ASKS `audienceNeverAsked`, THE SAME PREDICATE, and that is the whole design.
+   A badge with its own idea of "new this year" would eventually contradict the season
+   it is describing, which is worse than no badge: it would be a confident label on the
+   one screen somebody checks before ringing a customer.
+
+   ⚠ SAME BLUE FAMILY AS `cameBackBadge`, deliberately. Both answer "how did this
+   person get to yes" — one because they changed their mind, one because they joined —
+   so they read as one kind of thing beside the plain RSVP pill.
+
+   ⚠ AND IT EXPIRES ON ITS OWN. audienceNeverAsked is season-scoped: Start New Season
+   clears chargeNewMemberFee, and the quote-join year is compared against the current
+   year. A returning customer in 2027 carries no badge and must answer like anybody
+   else, which is what makes this an exception for one season rather than for ever. */
+function approvedOnJoinBadge(d){
+  if(!(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d))) return '';
+  return ' <span class="status-pill" style="background:#EAF1FB; color:#2C5AA0; font-size:10.5px;" ' +
+    'title="New this year — approved when their quote was converted, and deliberately not sent an RSVP.">' +
+    'Approved \u2014 new this year</span>';
+}
 function cameBackBadge(d){
   if(!cameBackThisSeason(d)) return '';
   /* ⚠ THE WORDING MATTERS AND THE FIRST ONE WAS WRONG. It read "Came back in", and
@@ -36669,7 +36702,7 @@ function renderDashRsvpPanel(){
     const payBadge = payStatus === 'Unpaid' ? ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">Unpaid</span>' : (payStatus === 'Partial Payment' ? ' <span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-size:10.5px;">Partial</span>' : '');
     return '<div class="row-item">'+
       '<div class="rmain">'+
-        '<h4 style="margin:0;">'+esc(d.name||'(no name)')+' <span class="status-pill" style="background:#FFF8E9; color:'+statusColor+'; font-weight:700;">'+statusLabel+'</span>'+cameBackBadge(d)+gateBadge+payBadge+'</h4>'+
+        '<h4 style="margin:0;">'+esc(d.name||'(no name)')+' <span class="status-pill" style="background:#FFF8E9; color:'+statusColor+'; font-weight:700;">'+statusLabel+'</span>'+cameBackBadge(d)+approvedOnJoinBadge(d)+gateBadge+payBadge+'</h4>'+
         (d.phone ? '<div class="rtext">'+esc(d.phone)+'</div>' : '')+
         (d.address ? '<div class="rtext">'+esc(d.address)+'</div>' : '')+
         respondedLine+
@@ -39113,15 +39146,25 @@ function renderAllCustomersTable(){
     const invCell = r.inv
       ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
       : (r.d.billToPhone ? '<span style="color:var(--slate); font-size:12px;">Billed to '+esc((billedElsewhere && billedElsewhere.data.name) || r.d.billToPhone)+'</span>' : '<span style="color:var(--slate); font-size:12px;">No invoice</span>');
-    const rsvpLabel = 'RSVP: ' + rsvpStatusLabel(r.d.rsvpStatus);
-    const rsvpColor = r.d.rsvpStatus === 'yes' ? '#2E6B3E' : (r.d.rsvpStatus === 'no' ? '#E0574B' : (r.d.rsvpStatus === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
+    /* ⚠ THE EFFECTIVE STATUS, NOT THE STORED FIELD — fixed 2026-08-27 while adding
+       the badge below, because the badge would otherwise have sat on a row already
+       contradicting it. `rsvpStatus` can hold a bare 'yes' with no reply behind it (an
+       import, a hand-edit, or the assumed yes written at conversion), and this row was
+       the only one of the three RSVP pills still printing that raw. So All Customers
+       said "RSVP: Yes" about somebody the Dashboard called Pending and the season rule
+       left off every route — the office reading the row would have had no reason to
+       ring them. effectiveRsvpStatus is the one answer; the other two pills already
+       ask it. */
+    const rsvpEff = effectiveRsvpStatus(r.d);
+    const rsvpLabel = 'RSVP: ' + rsvpStatusLabel(rsvpEff);
+    const rsvpColor = rsvpEff === 'yes' ? '#2E6B3E' : (rsvpEff === 'no' ? '#E0574B' : (rsvpEff === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
     /* The date sits directly under the route status it explains — "Scheduled"
        on its own never said what day. Put in the EXISTING Route cell rather
        than a new column on purpose: the responsive rules for this table are
        written as td:nth-child(2) and td:nth-child(4), so an extra column would
        silently relabel two others on a phone. */
     const visitChip = nextVisitChip(r.d);
-    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>';
+    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>'+approvedOnJoinBadge(r.d);
     /* Shows the normalised MEANING, not the raw shorthand. A row reading "NOV"
        while the scheduler treats it as November is how nobody notices that 190
        customers were being read as having no preference at all. Anything the
