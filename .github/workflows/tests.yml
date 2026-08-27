@@ -102,6 +102,17 @@ jobs:
       - name: Nothing fails quietly (empty catches say why)
         run: npm run test:silent
 
+      # Who tells the warehouse a house needs building. Both bulk importers used to
+      # create a customer and never set needsLightBuild, so a house added from a pasted
+      # sheet appeared in Needs Building nowhere at all and no bundle was ever made for
+      # it. Named separately like the gates above: "an importer stopped queueing a build"
+      # is a one-line fix by whoever changed it, and reads nothing like a line inside the
+      # big suite. The most expensive thing it holds is the other direction — that an
+      # import which MATCHES an existing customer never re-queues them, because these
+      # tools write hundreds of records a press.
+      - name: Who tells the warehouse a house needs building
+        run: npm run test:import-build
+
       # Addie's rulings. Named separately for the same reason as the three above:
       # "a ruling lost its pointer" is a different thing to go and look at than a line
       # inside a 4,600-check run. ⚠ IT RUNS HERE AND LAST IN `npm test`, on purpose and
