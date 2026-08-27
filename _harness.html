@@ -2065,9 +2065,29 @@ function rmPaneBusy(which, msg){
   if(spin) spin.style.display = arguments[2] === false ? 'none' : '';
 }
 
-function rmPaneReady(which){
-  const box = document.getElementById(which === 'street' ? 'rmStreetBusy' : 'rmSkyBusy');
-  if(box) box.classList.add('done');
+function rmTryOtherMapsKey(){
+  if(rmMapsKeyRetried) return false;
+  const tag = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+  if(!tag) return false;
+  let current = null;
+  try{ current = new URL(tag.src).searchParams.get('key'); }catch(err){ return false; }
+  const other = rmMapsKeys().filter(function(k){ return k && k !== current; })[0];
+  if(!other) return false;
+  rmMapsKeyRetried = true;
+  ['sky', 'street'].forEach(function(w){
+    rmPaneBusy(w, 'That map key was refused here — trying the other one…');
+  });
+  try{ delete window.google; }catch(err){ window.google = undefined; }
+  const next = document.createElement('script');
+  next.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(other);
+  next.onload = function(){
+    /* Everything built against the dead library has to be built again. */
+    rmMap = null; rmPano = null; rmGradePano = null; geocoder = null;
+    if(rmOrigin){ rmEnsureMap(rmOrigin); rmEnsurePano(rmOrigin); }
+  };
+  next.onerror = function(){ window.gm_authFailure(); };
+  document.head.appendChild(next);
+  return true;
 }
 
 function rmMapsKeys(){
@@ -2078,6 +2098,77 @@ function rmMapsKeys(){
   }
   if(typeof firebaseConfig === 'object' && firebaseConfig && firebaseConfig.apiKey) out.push(firebaseConfig.apiKey);
   return out.filter(function(k, i){ return k && out.indexOf(k) === i; });
+}
+
+function rmEnsureMap(center){
+  if(rmMap){ rmMap.setCenter(center); return; }
+  rmMap = new google.maps.Map(document.getElementById('rmMap'), {
+    center: center, zoom: 20, mapTypeId: 'satellite', tilt: 0, gestureHandling: 'greedy',
+    streetViewControl: false, fullscreenControl: false, mapTypeControl: false,
+    rotateControl: false, keyboardShortcuts: false
+  });
+  google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmMap.setTilt(0); });
+}
+
+function rmEnsurePano(center){
+  if(rmPano){
+    /* ⚠ LOADING A SECOND ADDRESS LEFT THE STREET VIEW ON THE FIRST HOUSE.
+       Reproduced: load Sandy, then load Lehi. rmPano.getPosition() comes back
+       as the Lehi panorama and every number in rmDebug agrees - distance,
+       heading, origin - but the picture on screen is still the Sandy house.
+       Somebody would place dots on the wrong building with nothing anywhere
+       saying so, which is the worst kind of wrong this tool can be.
+
+       setPosition asks the panorama to find its own way to the nearest imagery
+       and it does not reliably repaint when it is already showing something.
+       Naming the panorama outright does. The arrow keys have always used
+       setPano and have always worked, which is the clue this was the fix. */
+    const svc = new google.maps.StreetViewService();
+    svc.getPanorama({location: center, radius: RM_STREET_SEARCH_M}, function(data, status){
+      if(status === 'OK' && data && data.location && data.location.pano){
+        /* ⚠ LISTEN BEFORE YOU LOOK. setPano fires pano_changed, and attaching
+           afterwards means the event has already gone by - the same mistake
+           that once left a working panorama under a "looking for a photo"
+           cover. The new house has to be framed and repainted from scratch,
+           so both are hung on the event before it can happen. */
+        google.maps.event.addListenerOnce(rmPano, 'pano_changed', function(){
+          rmFramed = false;
+          rmPaintStreet();
+        });
+        rmPano.setPano(data.location.pano);
+      } else {
+        rmPano.setPosition(center);      /* no imagery there; ask it to try */
+      }
+    });
+    return;
+  }
+  rmPano = new google.maps.StreetViewPanorama(document.getElementById('rmPano'), {
+    position: center, pov: {heading:0, pitch:0}, zoom: 1, addressControl: false,
+    fullscreenControl: false, motionTracking: false, motionTrackingControl: false,
+    showRoadLabels: false, zoomControl: true
+  });
+  rmPano.addListener('pov_changed', rmPaintStreet);
+  rmPano.addListener('zoom_changed', rmPaintStreet);
+  /* Moving the camera does NOT invalidate anything: every point is stored
+     against the house, not the camera. The elevation under the new spot is
+     re-checked and the lines simply redraw from the new place. */
+  rmPano.addListener('position_changed', function(){
+    rmMeasureGroundDrop().then(rmPaintStreet);
+    rmMeasureCameraHeight();          /* this panorama's own camera height */
+    /* The first move is the one that matters: it is Google putting the camera
+       on the road, which is the moment front/left/right/back become knowable. */
+    rmResideSuggestions();
+    /* The move onto the road is exactly when the photograph becomes readable,
+       and when the house can first be measured as an angle to frame it by. */
+    rmTryPhotoDatum();
+    rmFrameHouseInStreet();
+    rmPaintStreet();
+  });
+}
+
+function rmPaneReady(which){
+  const box = document.getElementById(which === 'street' ? 'rmStreetBusy' : 'rmSkyBusy');
+  if(box) box.classList.add('done');
 }
 
 async function rmFetchStatic(makeUrl){
@@ -5812,72 +5903,6 @@ function rmRunFacesCamera(r){
      the camera itself is inside the box, which cannot happen from the road and
      is not worth hiding the whole house for. */
   return !(t !== null && t > 0.02 && t < 0.995);
-}
-
-function rmEnsureMap(center){
-  if(rmMap){ rmMap.setCenter(center); return; }
-  rmMap = new google.maps.Map(document.getElementById('rmMap'), {
-    center: center, zoom: 20, mapTypeId: 'satellite', tilt: 0, gestureHandling: 'greedy',
-    streetViewControl: false, fullscreenControl: false, mapTypeControl: false,
-    rotateControl: false, keyboardShortcuts: false
-  });
-  google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmMap.setTilt(0); });
-}
-
-function rmEnsurePano(center){
-  if(rmPano){
-    /* ⚠ LOADING A SECOND ADDRESS LEFT THE STREET VIEW ON THE FIRST HOUSE.
-       Reproduced: load Sandy, then load Lehi. rmPano.getPosition() comes back
-       as the Lehi panorama and every number in rmDebug agrees - distance,
-       heading, origin - but the picture on screen is still the Sandy house.
-       Somebody would place dots on the wrong building with nothing anywhere
-       saying so, which is the worst kind of wrong this tool can be.
-
-       setPosition asks the panorama to find its own way to the nearest imagery
-       and it does not reliably repaint when it is already showing something.
-       Naming the panorama outright does. The arrow keys have always used
-       setPano and have always worked, which is the clue this was the fix. */
-    const svc = new google.maps.StreetViewService();
-    svc.getPanorama({location: center, radius: RM_STREET_SEARCH_M}, function(data, status){
-      if(status === 'OK' && data && data.location && data.location.pano){
-        /* ⚠ LISTEN BEFORE YOU LOOK. setPano fires pano_changed, and attaching
-           afterwards means the event has already gone by - the same mistake
-           that once left a working panorama under a "looking for a photo"
-           cover. The new house has to be framed and repainted from scratch,
-           so both are hung on the event before it can happen. */
-        google.maps.event.addListenerOnce(rmPano, 'pano_changed', function(){
-          rmFramed = false;
-          rmPaintStreet();
-        });
-        rmPano.setPano(data.location.pano);
-      } else {
-        rmPano.setPosition(center);      /* no imagery there; ask it to try */
-      }
-    });
-    return;
-  }
-  rmPano = new google.maps.StreetViewPanorama(document.getElementById('rmPano'), {
-    position: center, pov: {heading:0, pitch:0}, zoom: 1, addressControl: false,
-    fullscreenControl: false, motionTracking: false, motionTrackingControl: false,
-    showRoadLabels: false, zoomControl: true
-  });
-  rmPano.addListener('pov_changed', rmPaintStreet);
-  rmPano.addListener('zoom_changed', rmPaintStreet);
-  /* Moving the camera does NOT invalidate anything: every point is stored
-     against the house, not the camera. The elevation under the new spot is
-     re-checked and the lines simply redraw from the new place. */
-  rmPano.addListener('position_changed', function(){
-    rmMeasureGroundDrop().then(rmPaintStreet);
-    rmMeasureCameraHeight();          /* this panorama's own camera height */
-    /* The first move is the one that matters: it is Google putting the camera
-       on the road, which is the moment front/left/right/back become knowable. */
-    rmResideSuggestions();
-    /* The move onto the road is exactly when the photograph becomes readable,
-       and when the house can first be measured as an angle to frame it by. */
-    rmTryPhotoDatum();
-    rmFrameHouseInStreet();
-    rmPaintStreet();
-  });
 }
 
 function rmMeasureGroundDrop(){
@@ -11340,7 +11365,45 @@ function rmPaneBusy(which, msg){
    gm_authFailure is Google's own hook and it is the only signal there is; the
    library does not throw and does not call back. It names no reason, so the
    two that actually happen are both spelled out. */
+/* ⭐ THE SITE CARRIES TWO KEYS AND THEY COVER DIFFERENT THINGS (2026-08-27).
+   The script-tag key is the one allowed to draw a map; the Firebase key is the
+   one allowed to fetch Street View and Static images. Which of the two a given
+   machine is permitted to use is a setting in a console, not a fact about the
+   code, and the answer has already changed once - so when the first key is
+   refused the page tries the other rather than giving up on a house.
+
+   ⚠ THIS ONLY EVER RUNS ON A PAGE THAT IS ALREADY DEAD. Google does not throw
+   and does not call back on a refusal; gm_authFailure firing means no map will
+   ever appear with the key that is loaded. Reloading the library is not
+   something Google supports, and it is only defensible here because there is
+   nothing left to break. It is attempted ONCE. */
+let rmMapsKeyRetried = false;
+function rmTryOtherMapsKey(){
+  if(rmMapsKeyRetried) return false;
+  const tag = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+  if(!tag) return false;
+  let current = null;
+  try{ current = new URL(tag.src).searchParams.get('key'); }catch(err){ return false; }
+  const other = rmMapsKeys().filter(function(k){ return k && k !== current; })[0];
+  if(!other) return false;
+  rmMapsKeyRetried = true;
+  ['sky', 'street'].forEach(function(w){
+    rmPaneBusy(w, 'That map key was refused here — trying the other one…');
+  });
+  try{ delete window.google; }catch(err){ window.google = undefined; }
+  const next = document.createElement('script');
+  next.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(other);
+  next.onload = function(){
+    /* Everything built against the dead library has to be built again. */
+    rmMap = null; rmPano = null; rmGradePano = null; geocoder = null;
+    if(rmOrigin){ rmEnsureMap(rmOrigin); rmEnsurePano(rmOrigin); }
+  };
+  next.onerror = function(){ window.gm_authFailure(); };
+  document.head.appendChild(next);
+  return true;
+}
 window.gm_authFailure = function(){
+  if(rmTryOtherMapsKey()) return;
   rmMapsRefused = true;
   ['sky', 'street'].forEach(function(w){
     rmPaneBusy(w, 'Google refused the map key for this page — the address it is loaded from is not on the key’s allowed list, or the Maps JavaScript API is switched off for it.', false);

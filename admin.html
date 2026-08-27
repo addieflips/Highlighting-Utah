@@ -16928,7 +16928,45 @@ function rmPaneBusy(which, msg){
    gm_authFailure is Google's own hook and it is the only signal there is; the
    library does not throw and does not call back. It names no reason, so the
    two that actually happen are both spelled out. */
+/* ⭐ THE SITE CARRIES TWO KEYS AND THEY COVER DIFFERENT THINGS (2026-08-27).
+   The script-tag key is the one allowed to draw a map; the Firebase key is the
+   one allowed to fetch Street View and Static images. Which of the two a given
+   machine is permitted to use is a setting in a console, not a fact about the
+   code, and the answer has already changed once - so when the first key is
+   refused the page tries the other rather than giving up on a house.
+
+   ⚠ THIS ONLY EVER RUNS ON A PAGE THAT IS ALREADY DEAD. Google does not throw
+   and does not call back on a refusal; gm_authFailure firing means no map will
+   ever appear with the key that is loaded. Reloading the library is not
+   something Google supports, and it is only defensible here because there is
+   nothing left to break. It is attempted ONCE. */
+let rmMapsKeyRetried = false;
+function rmTryOtherMapsKey(){
+  if(rmMapsKeyRetried) return false;
+  const tag = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
+  if(!tag) return false;
+  let current = null;
+  try{ current = new URL(tag.src).searchParams.get('key'); }catch(err){ return false; }
+  const other = rmMapsKeys().filter(function(k){ return k && k !== current; })[0];
+  if(!other) return false;
+  rmMapsKeyRetried = true;
+  ['sky', 'street'].forEach(function(w){
+    rmPaneBusy(w, 'That map key was refused here — trying the other one…');
+  });
+  try{ delete window.google; }catch(err){ window.google = undefined; }
+  const next = document.createElement('script');
+  next.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(other);
+  next.onload = function(){
+    /* Everything built against the dead library has to be built again. */
+    rmMap = null; rmPano = null; rmGradePano = null; geocoder = null;
+    if(rmOrigin){ rmEnsureMap(rmOrigin); rmEnsurePano(rmOrigin); }
+  };
+  next.onerror = function(){ window.gm_authFailure(); };
+  document.head.appendChild(next);
+  return true;
+}
 window.gm_authFailure = function(){
+  if(rmTryOtherMapsKey()) return;
   rmMapsRefused = true;
   ['sky', 'street'].forEach(function(w){
     rmPaneBusy(w, 'Google refused the map key for this page — the address it is loaded from is not on the key’s allowed list, or the Maps JavaScript API is switched off for it.', false);

@@ -38428,6 +38428,34 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     })(),
     'owner: it takes you to a screen ... and closes that page');
 
+  /* ⭐ AND THE OTHER KEY IS TRIED FIRST. The site carries two, they cover
+     different APIs, and which one a machine may use is a console setting that
+     has already changed once. */
+  check('S170', 'a refused key falls back to the other one before giving up',
+    (function(){
+      const hook = admin.indexOf('window.gm_authFailure = function');
+      const first = admin.indexOf('if(rmTryOtherMapsKey()) return;', hook);
+      const said = admin.indexOf('rmMapsRefused = true;', hook);
+      return hook !== -1 && first > hook && said > first;
+    })(),
+    'giving up on the first refusal strands a house that the second key could have drawn');
+  check('S170', 'the fallback is attempted once, not in a loop',
+    (function(){
+      const f = admin.indexOf('function rmTryOtherMapsKey(){');
+      const guard = admin.indexOf('if(rmMapsKeyRetried) return false;', f);
+      const set = admin.indexOf('rmMapsKeyRetried = true;', f);
+      return f !== -1 && guard > f && set > guard;
+    })(),
+    'the second key can be refused too, and two dead libraries is not better than one');
+  check('S170', 'and it rebuilds what the dead library left behind',
+    (function(){
+      const f = admin.indexOf('function rmTryOtherMapsKey(){');
+      const re = admin.indexOf('rmMap = null; rmPano = null; rmGradePano = null; geocoder = null;', f);
+      const again = admin.indexOf('rmEnsureMap(rmOrigin); rmEnsurePano(rmOrigin);', f);
+      return f !== -1 && re > f && again > re;
+    })(),
+    'a map object made against a refused library never draws, so keeping it means the retry changes nothing');
+
   /* ⭐ A REFUSED KEY SAYS SO. Both panes clear on the map's idle event, which a
      refused map never fires - so the tool spun on "Finding the house…" for ever
      while the real answer sat in the console. */
