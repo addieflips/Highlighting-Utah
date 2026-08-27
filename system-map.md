@@ -1,6 +1,8 @@
 # Highlighting Utah — System Map
 
-Written for Addie (non-coder) by Claude Code after a full read-through of `main` on 2026-08-08. This explains how the app actually works today, not how it used to work — where this disagrees with old notes or your own memory of a feature, trust this document (it was written by reading the real code) and flag it if something seems off.
+Written for Addie (non-coder) by Claude Code from a full read-through of the real code. This explains how the app actually works today, not how it used to work — where this disagrees with old notes or your own memory of a feature, trust this document and flag it if something seems off.
+
+**Kept current with every change, not regenerated occasionally** (Addie, 2026-08-26: "system map should be every time"). First written 2026-08-08; last brought up to date **2026-08-26**. ⚠ It is UPDATED rather than rewritten from scratch — a wholesale regenerate loses the hard-won detail in it and risks introducing errors into the one document written to be trusted. If a section here contradicts the code, the code is right and this is a bug in the map.
 
 ---
 
@@ -15,9 +17,9 @@ Written for Addie (non-coder) by Claude Code after a full read-through of `main`
 
    Both copy the same details (name, phone, colors, wire color, install timing, gate code, outlet timer, specific outlet, notes, wants-mailed-invoice, photo, contact method, the $30 set-up fee decision, and the *approved* price — never a recalculated one) and both create the `jobAddresses` document through the **same** Add Customer submit handler: automatic fills the form and submits it rather than writing its own record, so the customer number, invoice, warehouse build flag and auto-scheduling cannot drift apart from the manual path. The quote is marked `status: 'closed'` with `convertedToCustomerAt` set.
 
-   *The light colours are what put them in the Warehouse* (`needsLightBuild` is set from `lightsDescription`), so conversion falls back to the quote's own wording when no colour boxes were ticked — otherwise a quote whose colours were typed as free text would convert with no description and never reach the build queue.
+   *The light colours decide WHICH build group a house lands in, not whether it is queued at all.* Conversion still falls back to the quote's own wording when no colour boxes were ticked, so a pattern typed as free text is not lost. ⚠ **Corrected 2026-08-26:** this used to say `needsLightBuild` was set FROM `lightsDescription`. It is not, and has not been since 2026-08-21 — every new house is flagged, colours or no colours (questions map WH-17, WH-20). A house with no colours goes to the warehouse's own "Waiting on light colours" block, which is visible and has an Add colours button; leaving it unflagged made those houses invisible instead, which was the bug.
 5. **Measured Feet drives everything** — see §2, it's the single highest-leverage field in the app.
-6. **Warehouse builds it** — if the light pattern is set, `needsLightBuild: true` queues the house into the warehouse build list (grouped by color pattern, bundle count from feet).
+6. **Warehouse builds it** — `needsLightBuild: true` queues the house into the warehouse build list (grouped by colour pattern, bundle count from feet). It is set for **every** newly created house, by all six routes that create one — Add a Customer, quote conversion, the sheet sync, both bulk importers and the test-record builders. A house with no colours yet is queued too, and shown in the blocked "Waiting on light colours" block rather than dropped.
 
    **Light colours are REQUIRED, on both forms.** Owner's rule, 2026-08-15. The customer's own detail form has always refused to submit without one; Add a Customer now refuses too. It is the single field on that form that cannot be waved through with "add them without these" — everything else genuinely can wait (the photo gets taken next week, the price is still being agreed), but a customer with no colours is invisible to the Warehouse, because the build queue is keyed off the light description. They never reach Dad and no screen says so. Knock-on: **Convert automatically is disabled** for a quote with no colours, and says why, rather than letting you click it and get an error back — that quote has to go through **Fill in manually**, which has the colour picker on it.
 
@@ -26,7 +28,11 @@ Written for Addie (non-coder) by Claude Code after a full read-through of `main`
    Records that still contain words are OLD data, from before that was true. Health Check lists them under **"Customer whose light colours are written as words"**, naming the exact part it could not read, so they get re-picked once instead of interpreted forever. That row deliberately has **no Fix button**: guessing what "red with tinsel" meant would change what the crew physically builds. The list should only ever shrink — a recently-added customer appearing on it means something has started writing free text again.
 
    *Grouping is deliberately forgiving about how the colours were written* (`whNormalizeLights` / `whColorsFromWords`, and an identical copy in employee.html). "Red, Green", "Green, Red", "red, green", "Red and Green", "Red & Green", "Red/Green" and "red green" are all ONE group — order, case, and the separator do not matter, and colours typed as words group with colours ticked in the boxes. Two things it will *not* do: it never merges a repeated-colour pattern into the plain set ("Red, Green, Red" stays its own build), and it never guesses at text it cannot fully read — "Red with tinsel" is left exactly as typed and keeps its own group rather than being folded in with plain Red. Wire colour is always part of the key.
-7. **Route** — an install route is generated from unscheduled, geocoded, RSVP-yes customers, clustered geographically, and saved as a **frozen snapshot** (see §5). This flips `scheduled: true` on the customer.
+7. **Route** — an install route is generated from unscheduled, geocoded customers who are IN the season, clustered geographically, and saved as a **frozen snapshot** (see §5). This flips `scheduled: true` on the customer.
+
+   ⭐ **Who is "in the season" changed on 2026-08-26, and it is the single biggest switch in the app.** Addie: *"can we just make RSVP hardcoded to only people that RSVP either through the email, member portal or we put it in on costumer tab are they able to be scheduled for this year and invoiced."* Only somebody who has actually ANSWERED yes is routed, scheduled, built for and invoiced. Two things must both be true before it bites: the rule is on (it is, by default), and **the RSVP has actually gone out**. There used to be a third — a 14-day reply window — and she removed it: *"a house won't be a yes or no because of how long they haven't responded for. They are just unresponsive and we won't do there house unless we get a yes from them"* (questions map RS-15).
+
+   ⚠ **What this looks like on the day you press send.** The season empties, and refills as replies arrive. That is the rule working, not a fault. Nothing changes until the RSVP is sent, and it can be switched off from the Dashboard, which shows how many people it would drop BEFORE you act. It fails towards keeping people IN: anything unknown — no marker, a read that has not landed — leaves everybody in the season, because dropping somebody who wanted lights is the expensive mistake and carrying somebody who did not costs one bundle.
 8. **Crew installs** — the crew works Today's Route in the Crew Portal and marks each stop Done (or Flag Issue / Didn't Get To).
 9. **Nightly invoice** — every night at 7 PM Mountain, any completed-but-not-yet-invoiced house gets billed automatically (§8).
 10. **Payment** — the customer pays via PayPal (in-portal) or Venmo (deep link) from the Member Portal.
@@ -156,6 +162,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 - A light-color change made **after** the customer is already on a saved route auto-drops a "Lights Changed After Assignment" message into the Admin inbox — a human still has to manually deal with the route.
 - Deleting a scheduled route automatically frees the affected houses back to the schedule pool.
 - RSVP "no" auto-flags `needsLightRecycle`; RSVP "back next year" does **not**.
+- **Only people who answered yes are scheduled or invoiced**, from the moment the RSVP goes out (see §1 step 7 and questions map RS-15). Waiting does not turn an unanswered customer into a yes.
 - A legacy customer record without a `portalToken` gets one minted automatically the first time they're looked up.
 - Nightly-run failures/results text the owner via Twilio — a separate channel from email, so it still works if email itself breaks.
 
@@ -184,6 +191,16 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 ## 10. Firestore composite indexes
 
 `firestore.indexes.json` defines 7 composite indexes, all supporting "filter one field, sort by another" queries: per-employee history feeds (`employeeNotes`, `timeLogs`, `timecardChangeRequests` — each `employeeName` + `createdAt`), pending-approval queues (`employeeRequests`, `timecardChangeRequests` — each `status` + `createdAt`), and route-type-by-date lookups (`scheduledRoutes` — `type` + `date`).
+
+---
+
+## 10b. The connections map — what reaches what
+
+`connections.html`, and inside admin at **Project › Connections**. It draws the things worth watching as a tree — the tab, its sub-tabs, what each one sets, and where that lands — and you click any box for its rules. It is generated by `connections/build.js` from a hand-written list in `connections/manifest.js`.
+
+Two lists, and the picture is the difference between them: **declared** (what ought to connect — only a person knows this) against **found** (what the code really does, re-derived on every run). Green is both. **Red is declared and gone, and it fails the build**, so a break cannot be merged and cannot reach the website. Amber is code touching something nobody declared — worth seeing, never a failure.
+
+⚠ It can tell whether a connection EXISTS, never whether it is RIGHT — except where a rule declares an exact broken shape that must not appear. And it only watches what has been declared: the page says how many things that is, and lists what it does NOT watch, so a green page is never read as "the app is fine".
 
 ---
 
