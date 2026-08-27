@@ -25700,25 +25700,41 @@ function thanksgivingDate(year){
    nobody has replied yet, so everybody reads as unconfirmed and every route, build and
    crew day drains. `seasonRuleIsLive` is what makes the hardcoding safe — the rule
    cannot bite until people have actually been ASKED and given time to answer. */
-const RSVP_REPLY_DAYS = 14;
 let SEASON_ELIGIBILITY = 'confirmed-only';   // or 'all-but-maybe-next-year' to turn it off
-/* ⚠ THREE THINGS MUST ALL BE TRUE, and each one is a separate way to empty a season.
+/* ⚠ TWO THINGS MUST BOTH BE TRUE, and each one is a separate way to empty a season.
    1. The rule is on at all (she can still switch it off — it is a default, not a cage).
    2. The RSVP HAS ACTUALLY GONE OUT. Requiring an answer to a question nobody sent is
       a test nobody can pass, and it would drop the whole book on day one.
-   3. The reply window has closed. Without this the season empties the SECOND she
-      presses send, before a single customer has had the chance to reply — and every
-      reply that then arrived would re-add one person and re-shuffle the routes.
-   ⚠ IT FAILS TOWARDS KEEPING PEOPLE IN. Anything unknown — no marker, a cache that has
-   not loaded, an unreadable date — answers false, which means "everyone stays in the
-   season". Dropping somebody who wanted lights is the expensive mistake; carrying
-   somebody who did not costs one bundle. */
-function seasonRuleIsLive(nowMs){
+
+   ⭐ THERE WAS A THIRD, AND ADDIE REMOVED IT ON 2026-08-26. A 14-day reply window
+   (`RSVP_REPLY_DAYS`) used to hold the rule off until non-repliers had "had time to
+   answer". Her ruling, in her own words: "It doesn't matter how long ago house isn't
+   sent RSVP a house won't be a yes or no because of how long they haven't responded
+   for. They are just unresponsive and we won't do there house unless we get a yes from
+   them." Questions map RS-15.
+
+   ⚠ THE OLD ARGUMENT IS KEPT BECAUSE IT WAS SOUND, JUST NOT DECISIVE. The window
+   existed so the season would not empty the second she presses send, and so every
+   reply arriving afterwards would not re-add one person and re-shuffle the routes.
+   That cost is real and it still happens — it is churn, and she accepted it. What it
+   is NOT is a reason to send a crew to a house nobody confirmed, which is what the
+   window bought in exchange: for fourteen days, an unresponsive house was routed,
+   built for and scheduled exactly as if it had said yes.
+
+   ⚠ SO WAITING NO LONGER CONVERTS ANYBODY. Time was the only thing in here that
+   changed an answer without a customer doing anything, and that was the whole of her
+   objection: unresponsive on day 1 and unresponsive on day 40 are the same state, and
+   neither is a yes. Do not reintroduce a grace period as a fix for a thin early route
+   — the thin route IS the season honestly reporting how many people have replied.
+
+   ⚠ IT STILL FAILS TOWARDS KEEPING PEOPLE IN. Anything unknown — no marker, a cache
+   that has not loaded, an unreadable date — answers false, which means "everyone stays
+   in the season". Dropping somebody who wanted lights is the expensive mistake;
+   carrying somebody who did not costs one bundle. */
+function seasonRuleIsLive(){
   if(SEASON_ELIGIBILITY !== 'confirmed-only') return false;
   const sent = (typeof rsvpSentAtCache === 'undefined') ? null : toJsDate(rsvpSentAtCache);
-  if(!sent) return false;
-  const now = Number(nowMs) || Date.now();
-  return (now - sent.getTime()) >= RSVP_REPLY_DAYS * 86400000;
+  return !!sent;
 }
 function isOutForSeason(d){
   if(!d) return true;
@@ -36329,8 +36345,8 @@ function seasonEligibilityWouldDrop(){
   const was = SEASON_ELIGIBILITY;
   /* ⚠ THE SEND MARKER IS FAKED FOR THE MEASUREMENT TOO (2026-08-26). Since the rule
      became a gated default, setting SEASON_ELIGIBILITY alone is no longer enough to
-     make it bite — seasonRuleIsLive also wants the RSVP to have gone out and the
-     reply window to have closed. Without this the preview answers "0 would drop"
+     make it bite — seasonRuleIsLive also wants the RSVP to have gone out.
+     Without this the preview answers "0 would drop"
      before the send, which is not a reassuring answer, it is a WRONG one: it is the
      number the office is about to act on. Restored in the same finally. */
   const wasSent = (typeof rsvpSentAtCache === 'undefined') ? null : rsvpSentAtCache;
@@ -36339,7 +36355,9 @@ function seasonEligibilityWouldDrop(){
     SEASON_ELIGIBILITY = 'all-but-maybe-next-year';
     const inNow = book.filter(function(a){ return !isOutForSeason(a.data); });
     SEASON_ELIGIBILITY = 'confirmed-only';
-    rsvpSentAtCache = new Date(Date.now() - (RSVP_REPLY_DAYS + 1) * 86400000);
+    /* Any past date will do now that the reply window is gone (RS-15) — the rule is
+       live as soon as the RSVP has gone out. */
+    rsvpSentAtCache = new Date(Date.now() - 86400000);
     dropped = inNow.filter(function(a){ return isOutForSeason(a.data); });
   } finally {
     rsvpSentAtCache = wasSent;
@@ -48061,15 +48079,14 @@ function hcRunChecks(){
          to scroll past it. There is also nothing to act on: you cannot chase somebody
          for not answering a question you have not asked. */
       if(!sent) return [];
-      const live = (typeof seasonRuleIsLive === 'function') && seasonRuleIsLive();
-      /* When it is not live yet, say WHEN — "would be dropped" with no date is a
-         warning nobody can act on, because there is nothing to act before. */
-      const when = (!live && sent)
-        ? new Date(sent.getTime() + RSVP_REPLY_DAYS * 86400000)
-        : null;
-      const tail = live
-        ? ' — not being scheduled'
-        : ' — would come off from ' + toDateStr(when);
+      /* ⭐ ONE STATE NOW, NOT TWO (2026-08-26, RS-15). This row used to have a warning
+         state — "would come off from <date>" — for the fourteen days between the send
+         and the reply window closing. Addie removed the window: a non-replier is
+         unresponsive from the moment the RSVP goes out, and waiting does not turn that
+         into a yes. So past the `!sent` guard above the rule is always live, the date
+         had nothing left to point at, and a tail saying "would" about something already
+         happening is the panel describing the wrong state. */
+      const tail = ' — not being scheduled';
       return seasonEligibilityWouldDrop().map(function(a){
         const d = a.data || {};
         return {label: hcName(d), detail: (hcAddr(d) || 'no address') + tail};
