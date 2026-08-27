@@ -407,6 +407,11 @@ function sectionFrom(src, start) {
 }
 
 const admin = read('admin.html');
+/* CLAUDE.md is read as a FILE, not as instructions: one check compares the seed
+   count written in its prose against the real js/test-seed.js (see 'logic').
+   Missing is not fatal — a checkout without it should skip, not go red. */
+let claudeMd = '';
+try { claudeMd = read('CLAUDE.md'); } catch (e) { /* no CLAUDE.md in this checkout; the count checks below skip themselves */ }
 
 /* ⭐ LIFT THE REAL FUNCTION, RATHER THAN WRITING A FAKE OF IT (added 2026-08-25).
  *
@@ -1250,6 +1255,56 @@ const RETIRED_CHECKLIST_TERMS = [
       (extra.length ? 'in the seed but not in MANUAL_ONLY_IDS: #' + extra.join(', #') +
          ' — if these are genuinely un-automatable, add them to the list here; ' +
          'if the suite can reach them, they belong in the suite. ' : '') || undefined);
+
+    /* ⭐ THE COUNT WRITTEN IN CLAUDE.md MUST MATCH THE FILE (added 2026-08-26).
+     *
+     * ⚠ THIS IS A `read` RULE PROMOTED TO `code`, per CLAUDE.md §6, because it has
+     * now been violated THREE times. CLAUDE.md states the seed count in three
+     * places and every one of them has gone stale while rows were added by other
+     * sessions: it said 108 for eight days, then 125 while the seed held 12, then
+     * 12 while the seed held 15. Each time the file's own text told the next
+     * session a number that was wrong, and the warning beside it ("measure it, do
+     * not trust this sentence") did not stop it happening again. §6 is explicit:
+     * a `read` rule violated twice must become code. Text alone is not enforcement.
+     *
+     * ⚠ IT CHECKS THE PROSE, NOT A HIDDEN MARKER. A machine-readable comment
+     * somewhere in the file would be trivially kept correct and would leave the
+     * three sentences a human actually reads exactly as wrong as they were. The
+     * whole failure is that the SENTENCES drift.
+     *
+     * ⚠ AND IT REQUIRES ALL THREE TO BE FOUND. If somebody rewords one, the count
+     * of matches drops and this fails with "expected 3, found N" rather than
+     * quietly checking two and calling it green — a check that silently stops
+     * covering a site is the same shape as the bug it guards.
+     */
+    const claimPatterns = [
+      [/IT IS \*\*(\d+)\*\* AS OF \d{4}-\d{2}-\d{2}/g, '\u00a70 minimize-manual-testing note'],
+      [/TEST_SEED\) \u2014 \*\*(\d+) on \d{4}-\d{2}-\d{2}\*\*/g, 'the js/test-seed.js row of the file table'],
+      [/sign-off list \u2014 (\d+) rows on \d{4}-\d{2}-\d{2}/g, '\u00a79.1 test-systems list']
+    ];
+    /* No CLAUDE.md in this checkout — nothing to compare against. A note, not a
+       failure: going red on a branch that simply does not carry the file is how a
+       gate gets disabled. */
+    const claims = [];
+    if (claudeMd) claimPatterns.forEach(function (pair) {
+      const found = Array.from(claudeMd.matchAll(pair[0]));
+      claims.push({ where: pair[1], hits: found.map(function (m) { return Number(m[1]); }) });
+    });
+    const notFound = claudeMd ? claims.filter(function (c) { return c.hits.length !== 1; }) : [];
+    check('logic', 'CLAUDE.md still states the checklist seed count in all three places',
+      notFound.length === 0,
+      notFound.map(function (c) { return c.where + ' matched ' + c.hits.length + ' times'; }).join('; ') +
+      ' \u2014 if you reworded one, update the pattern here in the same commit; ' +
+      'a count guard that has stopped finding its target is worse than none');
+    if (claudeMd && !notFound.length) {
+      const wrong = claims.filter(function (c) { return c.hits[0] !== SEED_ROWS.length; });
+      check('logic', 'and every one of them matches the real number of rows',
+        wrong.length === 0,
+        'the seed holds ' + SEED_ROWS.length + ' rows, but ' +
+        wrong.map(function (c) { return c.where + ' says ' + c.hits[0]; }).join(' and ') +
+        ' \u2014 measure it and correct the sentence in the same commit as the row change (CLAUDE.md \u00a76: ' +
+        'this rule is code precisely because the written warning failed three times)');
+    }
   }
   /* Moving the list off the page created a failure it could not have had while
      it was inline: the fetch can now fail. The only caller is
