@@ -37397,18 +37397,25 @@ suite('149. Measure Roof - corners are named, picked, added and reordered');
     })(),
     'the street view placed a corner during a scale check while the map added ' +
     'to the check, which is the same split this branch exists to remove');
-  /* ⭐ AND CLEARING CLEARS BOTH. Owner: "when i click clear dots it clears all
-     dots on both perspectives." Two buttons emptied two structures, so whichever
-     was pressed left half the marks on screen. */
-  check('S149', 'clear all dots empties both pictures, not half of each',
+  /* ⭐ AND THERE IS ONE CLEAR NOW (2026-08-26). Owner: "we want clear to clear
+     all dots everywhere so we dont need clear all dots."
+     ⚠ THE SPLIT WAS THE FAULT. Clear emptied the traced runs; Clear all dots
+     emptied the corners. Whichever was pressed, some of the marks stayed - which
+     reads as the button being ignored, and is exactly what was reported. One
+     button, one meaning: nothing left in either picture. */
+  check('S149', 'the one Clear empties both pictures, not half of each',
     (function(){
-      const i = admin.indexOf("getElementById('rmClearDotsBtn').addEventListener");
-      const j = admin.indexOf('window.rmRefreshSideButtons', i);
-      const body = i === -1 ? '' : admin.slice(i, j);
+      const i = admin.indexOf("getElementById('rmClearBtn').addEventListener");
+      if(i === -1) return false;
+      const body = sectionFrom(admin, i);
       return /rmClearDrawing\(\);/.test(body) && /rmCorners = \[\]; rmCurrentBand = 0;/.test(body) &&
              /rmSetDrawing\(false\);/.test(body);
     })(),
     'the corners went and the traced runs stayed, so the button looked ignored');
+  check('S149', 'and the second Clear button is gone rather than left duplicating it',
+    !/id="rmClearDotsBtn"/.test(admin) &&
+    !/getElementById\('rmClearDotsBtn'\)\.addEventListener/.test(admin),
+    'two buttons for one meaning is what made either one look broken');
   check('S149', 'and it says both are empty rather than going quiet',
     /both pictures are empty/.test(admin),
     'a clear that leaves the note blank reads the same as a clear that did nothing');
@@ -38695,8 +38702,12 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
       return i !== -1 && j > i && k > j;
     })(),
     'everything else is measured against it, so it comes first');
-  check('S157', 'and it can be turned off when it is in the way',
-    /id="rmModelBtn"/.test(admin) && /function rmSetShowModel/.test(admin));
+  /* ⛔ The button that turned it off is gone (2026-08-26) and so is the only way
+     to turn it ON, so it is off permanently - which is the state it started in and
+     the state the owner ruled for. rmSetShowModel is left in place, unreachable. */
+  check('S157', 'and the assumed house cannot be switched on from the screen',
+    !/id="rmModelBtn"/.test(admin) && /function rmSetShowModel/.test(admin) &&
+    /let rmShowModel = false;/.test(admin));
   /* Working it out is a grid and two passes, so not on every repaint. */
   check('S157', 'the outline is worked out once per house, not every repaint',
     /rmModelCache && rmModelKey === key/.test(admin),
@@ -38928,29 +38939,25 @@ suite('168. Measure Roof - a reset you can find');
      guess asks for one. Recentre was added next to them and went into the same
      hidden bar, so it existed, was wired, was tested, and could not be found on
      screen. Caught by opening the tool and looking, not by any check. */
-  check('S168', 'recentre is not inside the auto-detect bar',
+  /* ⛔ THE AUTO-DETECT BAR IS GONE ALTOGETHER (2026-08-26), so "is Recentre
+     inside it" no longer has anything to ask about. Owner asked for the tool to
+     be stripped to what is needed and named the guessing controls first; they had
+     already been ruled against twice in writing. The point these checks defended
+     - that Recentre must be findable, and must not be filed under a disclosure
+     about corner detection - is kept, and is now simply that it sits with the
+     buttons that are always on screen. */
+  check('S168', 'recentre is on screen with the buttons that are always there',
     (function(){
-      const i = admin.indexOf('<div id="rmAutoBar"');
-      const j = admin.indexOf('</div>', i);
-      return i !== -1 && admin.slice(i, j).indexOf('rmRecentreBtn') === -1;
-    })(),
-    'that bar is display:none until somebody asks for a guess');
-  check('S168', 'and it sits with the buttons that are always on screen',
-    (function(){
-      const c = admin.indexOf('id="rmClearDotsBtn"');
       const r = admin.indexOf('id="rmRecentreBtn"');
-      return c !== -1 && r > c && (r - c) < 900;
+      const bar = admin.indexOf('id="rmCornerBar"');
+      return r !== -1 && bar !== -1 && r > bar && !/id="rmAutoBar"/.test(admin);
     })(),
-    'next to Clear all dots, which is visible whenever dots are being placed');
-  /* ⭐ AND THE TWO THAT DO GUESS STAY BEHIND THE DISCLOSURE. */
-  check('S168', 'the guessing buttons stay where the measure-tool work put them',
-    (function(){
-      const i = admin.indexOf('<div id="rmAutoBar"');
-      const j = admin.indexOf('</div>', i);
-      const blk = admin.slice(i, j);
-      return blk.indexOf('rmSuggestBtn') !== -1 && blk.indexOf('rmModelBtn') !== -1;
-    })(),
-    'a suggestion and an assumed house are guesses, and that is a deliberate design');
+    'it shipped unreachable once already, inside a bar that was display:none');
+  check('S168', 'and nothing guesses from a button any more',
+    !/id="rmSuggestBtn"/.test(admin) && !/id="rmModelBtn"/.test(admin) &&
+    !/id="rmAutoBtn"/.test(admin),
+    'every automatic attempt at this roofline put plausible-looking wrong lines on ' +
+    'the house, and the 19.2 ft fit reverted this morning was the same failure again');
 }
 
 /* ===== ROOFLINE SUITES - lanil-9d appends BELOW this line ===== */
@@ -39311,9 +39318,11 @@ suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is
   check('S160', 'the assumed house is off until it is built from the street',
     /let rmShowModel = false;/.test(admin),
     'it is drawn from overhead roof segments, which is the source she ruled out');
-  check('S160', 'and the button offers it rather than hiding it',
-    /id="rmModelBtn"[^>]*>Show assumed house</.test(admin),
-    'the label has to match the state it starts in');
+  /* ⛔ And there is no button at all now (2026-08-26) - see suite 258. The claim
+     that mattered was that it starts OFF, which is checked directly above. */
+  check('S160', 'and there is no control to switch it on',
+    !/id="rmModelBtn"/.test(admin),
+    'an assumed house drawn confidently is worse than no model, which is why it is off');
   check('S160', 'why it is off is written down, so it can be turned back on',
     /OFF BY DEFAULT, AND THIS RECORDS WHY/.test(admin) &&
     /axis-aligned\s*\n?\s*BOUNDING boxes/.test(admin),
@@ -40162,29 +40171,26 @@ suite('258. Measure Roof - one less step before you can trace');
     !/getElementById\('rmAddress'\)\.addEventListener\('keydown'/.test(admin),
     'a hidden input cannot be focused, so that listener could never fire again');
 
-  /* ---- the guesses are behind a door -------------------------------- */
-  check('S258', 'the two automatic guesses are hidden until asked for',
-    /id="rmAutoBar" style="display:none/.test(admin) &&
-    /id="rmSuggestBtn"/.test(admin) && /id="rmModelBtn"/.test(admin),
-    'every automatic attempt at this roofline put plausible-looking wrong lines ' +
-    'on the house - offering them beside plain clicking reads as an equal option');
-  check('S258', 'and there is one button that opens them',
-    /id="rmAutoBtn"/.test(admin) &&
-    /getElementById\('rmAutoBtn'\)\.addEventListener/.test(admin),
-    'a panel with no way to open it is a deletion wearing a disclosure');
-  /* Owner's standing request, in her words: "just make sure that if i click a
-     button the function that is supposed to happen actually does." */
-  const autoWire = (admin.split("getElementById('rmAutoBtn').addEventListener")[1] || '').slice(0, 500);
-  check('S258', 'the button really toggles the panel, both ways',
-    /bar\.style\.display = open \? 'none' : 'flex';/.test(autoWire) &&
-    /Hide auto-detect/.test(autoWire),
-    'a disclosure that opens and cannot close, or reads the same either way, is one nobody trusts twice');
-  /* ⚠ THE MANUAL DOT LIST IS DELIBERATELY NOT BEHIND THAT DOOR. Placing dots
-     by hand was asked for in those words and IS the job; the mode line is the
-     only thing on screen saying which mode you are in. */
+  /* ⛔ THERE IS NO DOOR ANY MORE, BECAUSE THERE IS NOTHING BEHIND IT
+     (2026-08-26). These checks defended a disclosure over the two automatic
+     guesses - reasonable while somebody might still want one. Nobody did, and
+     the owner asked for the tool stripped to what is needed. rmSuggestCorners
+     and rmSetShowModel are left in place and unreachable so nothing that reads
+     them breaks. */
+  check('S258', 'nothing on screen offers an automatic guess',
+    !/id="rmAutoBar"/.test(admin) && !/id="rmAutoBtn"/.test(admin) &&
+    !/id="rmSuggestBtn"/.test(admin) && !/id="rmModelBtn"/.test(admin),
+    'offering a guess beside plain clicking reads as an equal option, and it never was');
+  check('S258', 'and nothing is left wired to them',
+    !/getElementById\('rmAutoBtn'\)\.addEventListener/.test(admin) &&
+    !/getElementById\('rmSuggestBtn'\)\.addEventListener/.test(admin) &&
+    !/getElementById\('rmModelBtn'\)\.addEventListener/.test(admin),
+    'a handler on a deleted element throws the moment the panel opens');
+  /* ⚠ THE MANUAL DOT LIST AND THE MODE LINE STAY, and that claim is unchanged.
+     Placing dots by hand was asked for in those words and IS the job; the mode
+     line is the only thing on screen saying which mode you are in. */
   check('S258', 'the hand-placed dot list and the mode line stay in the open',
-    /id="rmCornerList"/.test(admin) && /id="rmCornerMode"/.test(admin) &&
-    (admin.indexOf('id="rmCornerList"') < admin.indexOf('id="rmAutoBar"')),
+    /id="rmCornerList"/.test(admin) && /id="rmCornerMode"/.test(admin),
     'hiding the manual dots hides the workflow the tool was rebuilt around');
 }
 
