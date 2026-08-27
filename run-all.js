@@ -38938,22 +38938,35 @@ suite('167. Measure Roof - shift and drag moves a dot');
      destroyed by moving it. And the depth has its own answer now: two sightings
      cross, and that also measures the model displacement, after which single
      clicks land right on their own. */
-  check('S167', 'a street-view drag puts the dot under the pointer',
+  /* ⭐ REVERSED 2026-08-27. Owner: "it should only get height from street view
+     but get everything else from sky", and the reason in the same breath -
+     "dragging is to fix the incorrect offset".
+
+     ⚠ THE ARGUMENT FOR POINTER-FOLLOWING IS KEPT ABOVE because it is the real
+     trade, and it was not wrong: a drag that will not go where it is dragged
+     does not feel like a drag. But going where it was dragged meant a street
+     drag also rewrote the PLAN position, and the plan is the one thing this
+     picture cannot see. Each view now corrects only what it can actually see. */
+  check('S167', 'a street-view drag changes the height and nothing else',
     (function(){
       const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
       const j = admin.indexOf("['mouseup', 'mouseleave']", i);
       const body = i === -1 ? '' : admin.slice(i, j);
-      return /cam\.e \+ dir\.e \* range/.test(body) && /c\.lat = wpt\.lat/.test(body);
+      return body.indexOf('c.h = h;') !== -1 &&
+             body.indexOf('c.lat =') === -1 && body.indexOf('c.lng =') === -1;
     })(),
-    'a drag that will not go where it is dragged is not a drag');
-  check('S167', 'and it keeps the range it was picked up at, so the depth is untouched',
+    'depth along the ray is invisible from the street - a dot can sit perfectly ' +
+    'on the gutter and be ten feet into the neighbour garden, and nothing here shows it');
+  check('S167', 'and the height is the third side of a triangle, not a model',
     (function(){
-      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousedown'");
-      const j = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'", i);
-      const grab = i === -1 ? '' : admin.slice(i, j);
-      return /rmDragRange = p0/.test(grab) && /const range = rmDragRange/.test(admin);
+      const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
+      const j = admin.indexOf("['mouseup', 'mouseleave']", i);
+      const body = i === -1 ? '' : admin.slice(i, j);
+      return body.indexOf('Math.hypot(p0.e - cam.e, p0.n - cam.n)') !== -1 &&
+             body.indexOf('cam.u + flat * Math.tan(elev)') !== -1;
     })(),
-    'recomputing it every move would let the depth wander as the dot is waved about');
+    'owner: "just doing some pythagrom theorum" - the distance out across the ' +
+    'ground, the angle up from the camera, and the height is what is left');
   /* ⭐ A SKY DRAG MOVES FREELY IN PLAN AND HOLDS THE HEIGHT (2026-08-26).
      Owner: "on sky view I can only drag left and right — I said I dont want
      dragging the dot on sky view to change the height and thats still true, but i
@@ -38998,8 +39011,10 @@ suite('167. Measure Roof - shift and drag moves a dot');
       const i = admin.indexOf("getElementById('rmPanoLock').addEventListener('mousemove'");
       const j = admin.indexOf("['mouseup', 'mouseleave']", i);
       const body = i === -1 ? '' : admin.slice(i, j);
-      return /const top = rmRoofTopM\(\);/.test(body) && /to\.u > top \+ RM_EAVE_TOL_M/.test(body) &&
-             /if\(!\(to\.u > 0\.3\)\) return;/.test(body);
+      /* the drag now yields a height rather than a whole point, so the two
+         limits are asked of h - the claim is unchanged */
+      return /const top = rmRoofTopM\(\);/.test(body) && /h > top \+ RM_EAVE_TOL_M/.test(body) &&
+             /if\(!\(h > 0\.3\)\) return;/.test(body);
     })(),
     'a drag must not reach a place a click could not');
   /* ⚠ AND MOVING IT THROWS AWAY THE SIGHTINGS. */

@@ -23656,7 +23656,7 @@ function openRoofMeasure(quoteId){
      ring comes off. Keeping them would leave a dot claiming to be exact while
      sitting wherever it was last dragged - which is the confident-wrong state
      this tool keeps having to be rescued from. */
-  let rmDragDot = -1, rmDragFrom = null, rmDragRange = 0;
+  let rmDragDot = -1, rmDragFrom = null;
   document.getElementById('rmPanoLock').addEventListener('mousedown', function(e){
     if(!e.shiftKey || rmCornerMode !== 'dot') return;
     const cam = rmCamLocal();
@@ -23666,12 +23666,9 @@ function openRoofMeasure(quoteId){
     const i = rmDotUnderClick(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov(), cam, RM_DRAG_GRAB_PX);
     if(i < 0) return;
     rmDragDot = i;
-    /* How far out the dot is when it is picked up. The drag keeps that and
-       re-aims, so the dot tracks the pointer exactly - see the mousemove. */
-    (function(){
-      const c0 = rmCorners[i], p0 = c0 && rmToLocal(c0.lat, c0.lng, c0.h || 0);
-      rmDragRange = p0 ? Math.hypot(p0.e - cam.e, p0.n - cam.n, p0.u - cam.u) : 0;
-    })();
+    /* ⚠ THE RANGE THIS USED TO TAKE IS GONE WITH THE POINTER-FOLLOWING DRAG. It
+       existed to hold the depth steady while the dot was re-aimed; a
+       height-only drag never touches the depth, so there is nothing to hold. */
     rmDragFrom = {x: e.clientX, y: e.clientY};
     e.preventDefault();
     const note = document.getElementById('rmCornerNote');
@@ -23693,43 +23690,46 @@ function openRoofMeasure(quoteId){
     const r = this.getBoundingClientRect();
     const {W, H} = rmPanoSize();
     const dir = rmRay(e.clientX - r.left, e.clientY - r.top, W, H, rmPanoPov());
-    /* ⭐ THE DOT FOLLOWS THE POINTER (2026-08-26). Owner: "I should be able to
-       move a dot anywhere on street view, the only restriction is not changing
-       height on sky view."
+    /* ⭐ STREET VIEW GIVES THE HEIGHT. NOTHING ELSE. Owner, 2026-08-27: "it
+       should only get height from street view but get everything else from sky",
+       and in the same breath the reason - "dragging is to fix the incorrect
+       offset".
 
-       ⚠ THIS REPLACES A HEIGHT-ONLY DRAG, and the reasoning for that one is kept
-       because it explains what is being traded. From the street the unknown is
-       DEPTH along the ray: a dot can sit perfectly on the gutter here and be ten
-       feet into next door's garden in plan, and nothing in this picture can show
-       it. Holding the plan and moving only the height meant the drag could never
-       make that worse. But it also meant the dot would not go where it was
-       dragged, which is not a drag.
+       ⚠ THIS REVERSES "THE DOT FOLLOWS THE POINTER" (2026-08-26), and the
+       argument for that one is kept because it is the real trade. Holding the
+       plan still meant the dot would not go where it was dragged, which does not
+       feel like a drag. But going where it was dragged meant a street drag also
+       rewrote the PLAN position - and the plan is the one thing this picture
+       cannot see. Depth along the ray is invisible from here: a dot can sit
+       perfectly on the gutter and be ten feet into next door's garden, and
+       nothing on this screen would say so.
 
-       ⭐ SO IT KEEPS ITS RANGE AND RE-AIMS. The distance out from the camera is
-       taken when the dot is picked up and held for the whole drag; the pointer
-       chooses the direction. The dot therefore sits exactly under the cursor,
-       goes anywhere on screen, and its height and plan both follow - which is
-       what "anywhere" means. Nothing about the depth is invented or destroyed by
-       moving it: it leaves the drag as far out as it arrived.
+       ⭐ SO EACH VIEW NOW CORRECTS ONLY WHAT IT CAN ACTUALLY SEE. From above, a
+       click is very nearly straight down, so plan position is exact and height is
+       unknowable. From the street, the camera's own geometry gives height and
+       depth is guesswork. Dragging here moves the dot up and down its own
+       vertical line and leaves its place on the map alone; dragging on the map
+       moves it across the roof and leaves its height alone. Neither drag can
+       damage what the other one is for, which is what "it doesnt move on the
+       other one too" asks for.
 
-       ⚠ AND THE DEPTH HAS ITS OWN ANSWER NOW, which is why this is safe to give
-       up. Clicking the same corner from a second angle crosses two rays, and that
-       also measures how far Google's model stands from the house, after which
-       single clicks land right on their own. The drag no longer has to be the
-       thing that protects the plan position. */
-    const range = rmDragRange || (function(){
-      const p = rmToLocal(c.lat, c.lng, c.h || 0);
-      return Math.hypot(p.e - cam.e, p.n - cam.n, p.u - cam.u);
-    })();
-    if(!(range > 0.5)) return;
-    const to = {e: cam.e + dir.e * range, n: cam.n + dir.n * range, u: cam.u + dir.u * range};
+       ⚠ AND THIS IS PYTHAGORAS, WHICH IS WHY IT IS EXACT. The dot's distance out
+       across the ground is known from its plan position; the pointer gives the
+       angle up from the camera; the height is the third side. Owner asked for
+       exactly that - "just doing some pythagrom theorum". No model, no datum, no
+       roof plane: the camera's own height plus a distance times a tangent. */
+    const p0 = rmToLocal(c.lat, c.lng, 0);
+    const flat = Math.hypot(p0.e - cam.e, p0.n - cam.n);
+    if(!(flat > 0.5)) return;
+    const elev = Math.asin(Math.max(-1, Math.min(1, dir.u)));
+    const h = cam.u + flat * Math.tan(elev);
     /* ⚠ NOTHING UNDERGROUND AND NOTHING ABOVE THE ROOF, the same two limits a
        fresh click answers to - a drag must not reach a place a click could not. */
     const top = rmRoofTopM();
-    if(!(to.u > 0.3)) return;
-    if(top !== null && to.u > top + RM_EAVE_TOL_M) return;
-    const wpt = rmToWorld(to);
-    c.lat = wpt.lat; c.lng = wpt.lng; c.h = to.u;
+    if(!(h > 0.3)) return;
+    if(top !== null && h > top + RM_EAVE_TOL_M) return;
+    /* lat and lng deliberately untouched: the map is what says where it is. */
+    c.h = h;
     c.rays = []; c.pinned = 0; c.spread = 0;
     rmDragPaint();
   });
@@ -48703,35 +48703,63 @@ function hcRender(){
    ⚠ IT THROWS RATHER THAN SWALLOWING. Both callers catch: the bulk button counts failures
    and reports them, and the row button leaves the row alone and says so. A fix that fails
    silently is a row that looks dealt with. */
-async function hcFixRow(id, r){
-
-      if(id === 'poolConflict'){
-        await deleteDoc(doc(db,'availableCustomerNumbers', r.numId));
-      } else if(id === 'missingInvoice' || id === 'totalDrift'){
-        await syncPayerInvoice(r.payer);
-      } else if(id === 'staleStatus'){
-        const inv = allInvoicesCache.find(function(x){ return x.id === r.invId; });
-        if(inv){
-          const d = inv.data || {};
-          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees)});
-        }
-      } else if(id === 'ghostStops'){
-        const route = (function(){
-          const dates = Object.keys(scheduledRoutesCache || {});
-          for(let k = 0; k < dates.length; k++){
-            const found = (scheduledRoutesCache[dates[k]] || []).find(function(x){ return x.id === r.routeId; });
-            if(found) return found;
-          }
-          return null;
-        })();
-        if(route){
-          await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: (route.stops || []).filter(function(st){ return st.id !== r.stopId; })});
-        }
-      } else if(id === 'staleStops'){
-        await resyncSavedRouteStops(r.custId, r.fields);
-      }
+async function hcFixRow(id, r){
+
+
+
+      if(id === 'poolConflict'){
+
+        await deleteDoc(doc(db,'availableCustomerNumbers', r.numId));
+
+      } else if(id === 'missingInvoice' || id === 'totalDrift'){
+
+        await syncPayerInvoice(r.payer);
+
+      } else if(id === 'staleStatus'){
+
+        const inv = allInvoicesCache.find(function(x){ return x.id === r.invId; });
+
+        if(inv){
+
+          const d = inv.data || {};
+
+          await updateDoc(doc(db,'invoices', r.invId), {status: computeInvoiceStatus(d.install, d.removal, d.deposit, d.credits, d.changeFees)});
+
+        }
+
+      } else if(id === 'ghostStops'){
+
+        const route = (function(){
+
+          const dates = Object.keys(scheduledRoutesCache || {});
+
+          for(let k = 0; k < dates.length; k++){
+
+            const found = (scheduledRoutesCache[dates[k]] || []).find(function(x){ return x.id === r.routeId; });
+
+            if(found) return found;
+
+          }
+
+          return null;
+
+        })();
+
+        if(route){
+
+          await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: (route.stops || []).filter(function(st){ return st.id !== r.stopId; })});
+
+        }
+
+      } else if(id === 'staleStops'){
+
+        await resyncSavedRouteStops(r.custId, r.fields);
+
+      }
+
 }
-
+
+
 async function hcApplyFix(id, btn){
   const check = hcLastChecks.find(function(c){ return c.id === id; });
   if(!check || !check.rows.length) return;
