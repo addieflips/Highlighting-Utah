@@ -5853,6 +5853,44 @@ suite('13. Season prep — crew portal (§4)');
       'that house is on another payer\'s bill, so counting it here charges it twice ' +
       '— got $' + ww.install + ' across ' + JSON.stringify(ww.billedHouseIds));
 
+    /* ⭐ Q-019a — A MIXED GROUP, WHICH IS THE WORSE HALF (widened 2026-08-26).
+       The conditional fallback fixed a payer whose ONLY house is stored formatted and
+       silently missed this: SEVERAL houses on one payer where one is typed
+       "(801) 111-2222" and the rest are digits. The query finds the digits ones, so
+       the fallback never ran, and the formatted house was left off the bill — the
+       total AND billedHouseIds both omit it, so the invoice adds up and is wrong.
+       That is UNDERCHARGING, and it lands on the ~17 shared-phone households in the
+       real book, which are grouped by exactly this match. */
+    const mixed = [
+      { id: 'h1', data: { name: 'Dana', phone: '8011112222', housePrice: 400 } },
+      { id: 'h2', data: { name: 'Dana cabin', phone: '(801) 111-2222', housePrice: 350 } }
+    ];
+    const hm = makeHarness(mixed, { install: 750 });
+    await hm.fn('8011112222');
+    const wm = hm.written[0] || {};
+    check('sync', 'a mixed group resolves every house, not just the digits-only ones',
+      wm.install === 750 && (wm.billedHouseIds || []).length === 2,
+      'the formatted house drops off the bill and the invoice still adds up — an ' +
+      'undercharge nothing announces — got $' + wm.install + ' across ' +
+      JSON.stringify(wm.billedHouseIds));
+
+    /* ⚠ AND THE EMAIL BRANCH HAD THE IDENTICAL SHAPE. Fixing one and not the other is
+       the half-fix CLAUDE.md records by name, and this branch was the precedent the
+       phone fix was copied FROM — so leaving it conditional would re-create the very
+       asymmetry that hid the phone bug. Two houses on one payer who has no phone at
+       all, stored in different cases. */
+    const mixedMail = [
+      { id: 'h1', data: { name: 'Dana', email: 'dana@x.com', housePrice: 400 } },
+      { id: 'h2', data: { name: 'Dana cabin', email: 'Dana@X.com', housePrice: 350 } }
+    ];
+    const he = makeHarness(mixedMail, { install: 750 });
+    await he.fn('dana@x.com');
+    const we = he.written[0] || {};
+    check('sync', 'and so does a mixed-case email group',
+      we.install === 750 && (we.billedHouseIds || []).length === 2,
+      'same hole, other branch — got $' + we.install + ' across ' +
+      JSON.stringify(we.billedHouseIds));
+
     // The $30 join fee is not part of any house price, so a rebuild that
     // forgets it silently un-charges the fee.
     const h3 = makeHarness(houses, { install: 730, newMemberFeeApplied: true });
