@@ -139,6 +139,14 @@ jobs:
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
+      # What changed on a customer, in words. Named separately for the same reason as
+      # the gates above: this one fails when a field the Edit Customer form writes has
+      # no label, and the effect of that is SILENCE — edits to it never appear in
+      # anybody's history, which reads exactly like the field never being edited. A
+      # failure called "Change log" says that; one swallowed by npm test does not.
+      - name: What changed on a customer
+        run: npm run test:changes
+
       - name: Run the fast suite
         run: npm test
 

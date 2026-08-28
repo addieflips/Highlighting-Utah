@@ -116,6 +116,13 @@ function census() {
     while ((m = re.exec(clean))) {
       const v = m[1].trim();
       if (/^false\b|!checked/.test(v)) continue;          // a clear, not a queue
+      /* ⚠ A FLAG WRITTEN AS AN OBJECT IS NOT A FLAG. The change log's label map has a
+         row per editable field, so `needsLightBuild: {label: ...}` reads to this census
+         as a fourteenth queueing place at top level. It is a DESCRIPTION of the field,
+         not a write of it — and the flag is a boolean, so an object here can never be
+         one. Narrow on purpose: excluding the map by name instead would mean every
+         future map of these fields has to be remembered. */
+      if (v.charAt(0) === '{') continue;
       if (/^==|wasQueued/.test(v)) continue;              // the helper's own guard
       if (insideComment(raw, m.index)) continue;          // prose about the field, not a write
       const fn = scan.enclosing(ix, m.index) || '(top level)';
@@ -197,6 +204,13 @@ function censusOf(field, stampRe) {
     while ((m = re.exec(clean))) {
       const v = m[1].trim();
       if (/^false\b/.test(v) || /^==|wasQueued/.test(v)) continue;
+      /* ⚠ A FLAG WRITTEN AS AN OBJECT IS NOT A FLAG. The change log's label map has a
+         row per editable field, so `needsLightBuild: {label: ...}` reads to this census
+         as a fourteenth queueing place at top level. It is a DESCRIPTION of the field,
+         not a write of it — and the flag is a boolean, so an object here can never be
+         one. Narrow on purpose: excluding the map by name instead would mean every
+         future map of these fields has to be remembered. */
+      if (v.charAt(0) === '{') continue;
       if (insideComment(raw, m.index)) continue;
       const fn = scan.enclosing(ix, m.index) || '(top level)';
       on.set(file + ' · ' + fn, true);
