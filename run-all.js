@@ -38714,6 +38714,198 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     })(),
     'carried over, the next house opens with its first mark already in strand four');
 
+  /* ⭐ RIGHT-DRAG TO LOOK AROUND AND TO MOVE (MR-17, 2026-08-28). Owner: "if you
+     want to look a different direction ... on street view you hold down right click
+     just like roblox studio and if you want to move in sky view you hold down right
+     click."
+     ⚠ RUN, NOT MATCHED. Every claim here is about where the camera ENDS UP after
+     a gesture, which a text search cannot see - and the SIGN on each axis is the
+     whole of what she asked for. */
+  const navRun = (function(){
+    const LFx = String.fromCharCode(10);
+    const iDown = admin.indexOf("if(e.button !== 2) return;");
+    const iMove = admin.indexOf("if(!rmNavDrag) return;");
+    if(iDown === -1 || iMove === -1) return null;
+    const down = sectionFrom(admin, admin.lastIndexOf("document.addEventListener", iDown));
+    const move = sectionFrom(admin, admin.lastIndexOf("document.addEventListener", iMove));
+    const pi = admin.indexOf('const RM_NAV_PANES = {');
+    const panes = pi === -1 ? '' : admin.slice(pi, admin.indexOf('};', pi) + 2);
+    if(!panes) return null;
+    const up = sectionFrom(admin, admin.indexOf("document.addEventListener('mouseup', function(e){ if(e.button === 2)"));
+    const menu = sectionFrom(admin, admin.lastIndexOf("document.addEventListener", admin.indexOf("addEventListener('contextmenu'")));
+    if(!up || !menu) return null;
+    const src = [extractFn(admin, 'rmNavPaneAt'), extractFn(admin, 'rmNavPanoFor'),
+                 extractFn(admin, 'rmNavEnd')].join(LFx);
+    if(!src || src.indexOf('rmNavPaneAt') === -1) return null;
+    try {
+      return new Function(
+        'let rmPano=null, rmGradePano=null, rmMap=null, rmNavDrag=null;' + LFx +
+        'const calls=[];' + LFx +
+        /* ⚠ THE REAL PANE LIST, LIFTED - NOT A COPY. Written out here it was a
+           fixture carrying its own answer: a red-check that emptied the grade
+           entry in admin.html changed nothing and went straight through. */
+        panes + LFx +
+        'function rmFovDeg(z){ return 180/Math.pow(2,z); }' + LFx +
+        'function rmRefreshCursors(){}' + LFx +
+        'function rmMapPixelToWorld(x,y,r){ return {lat:40-y*0.0001, lng:-111+x*0.0001}; }' + LFx +
+        'const els={};' + LFx +
+        'function mkEl(id){ return els[id] || (els[id]={id:id, clientWidth:600,' + LFx +
+        '  contains:function(t){ return t===this; },' + LFx +
+        '  getBoundingClientRect:function(){ return {left:0,top:0,width:600,height:400}; }}); }' + LFx +
+        'const document={getElementById:mkEl, addEventListener:function(n,f){ calls.push([n,f]); }};' + LFx +
+        'const window={addEventListener:function(){}};' + LFx +
+        'const RM_NAV_CLICK_SLOP = 4;' + LFx +
+        'let rmNavMenuAfterDrag = false;' + LFx +
+        src + LFx + down + LFx + move + LFx + up + LFx + menu + LFx +
+        'function on(n){ const h=calls.filter(function(c){ return c[0]===n; }); return h[h.length-1][1]; }' + LFx +
+        'return {' + LFx +
+        ' street:function(){ let pov={heading:100,pitch:0};' + LFx +
+        '   rmPano={getPov:function(){return pov;},getZoom:function(){return 1;},setPov:function(p){pov=p;}};' + LFx +
+        '   return {el:mkEl("rmPano"), pov:function(){return pov;}}; },' + LFx +
+        ' grade:function(){ let pov={heading:0,pitch:0};' + LFx +
+        '   rmGradePano={getPov:function(){return pov;},getZoom:function(){return 1;},setPov:function(p){pov=p;}};' + LFx +
+        '   return {el:mkEl("rmGradePano"), pov:function(){return pov;}}; },' + LFx +
+        ' sky:function(){ let c={lat:40,lng:-111};' + LFx +
+        '   rmMap={getCenter:function(){ return {lat:function(){return c.lat;},lng:function(){return c.lng;}}; },' + LFx +
+        '     setCenter:function(n){ c=n; }};' + LFx +
+        '   return {el:mkEl("rmMap"), centre:function(){return c;}}; },' + LFx +
+        ' down:function(el,btn,x,y){ let stopped=false;' + LFx +
+        '   on("mousedown")({button:(btn===undefined?2:btn), target:el, clientX:(x===undefined?300:x),' + LFx +
+        '     clientY:(y===undefined?200:y), preventDefault:function(){stopped=true;}});' + LFx +
+        '   return stopped; },' + LFx +
+        ' move:function(x,y){ on("mousemove")({clientX:x, clientY:y}); },' + LFx +
+        ' up:function(){ on("mouseup")({button:2}); },' + LFx +
+        ' menu:function(el){ let stopped=false;' + LFx +
+        '   on("contextmenu")({target:el, preventDefault:function(){stopped=true;}});' + LFx +
+        '   return stopped; },' + LFx +
+        ' dragging:function(){ return !!rmNavDrag; }' + LFx +
+        '};')();
+    } catch(err){ return {err: String(err)}; }
+  })();
+  check('S170', 'the right-drag handlers can be lifted and run',
+    !!navRun && !navRun.err, navRun && navRun.err ? navRun.err : 'renamed or removed');
+
+  if(navRun && !navRun.err){
+    /* ⭐ STREET VIEW FOLLOWS THE MOUSE - her Roblox rule, and the signs ARE the
+       feature. Drag right, look right; drag down, look down. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(400, 200);
+      check('S170', 'dragging right in Street View looks right',
+        p.pov().heading > 100,
+        'got ' + p.pov().heading + ' from 100 - this is the Roblox direction she asked for');
+      const afterRight = p.pov().heading;
+      navRun.move(400, 260);
+      check('S170', 'and dragging down looks down',
+        p.pov().pitch < 0 && p.pov().heading === afterRight,
+        'pitch ' + p.pov().pitch + ' - down tips the view down, and must not disturb the heading');
+    })();
+    /* ⚠ MEASURED FROM WHERE THE BUTTON WENT DOWN. Stepping by deltas drifts, and
+       a pitch clamped at the top would then never come back down. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(400, 200);
+      const once = p.pov().heading;
+      navRun.move(350, 200);
+      navRun.move(400, 200);
+      check('S170', 'the same pointer position always gives the same view',
+        Math.abs(p.pov().heading - once) < 1e-9,
+        'wandering back and forth must land back where it was, or the drag drifts');
+    })();
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(300, -100000);
+      check('S170', 'the view cannot tip past straight up',
+        p.pov().pitch <= 90, 'got ' + p.pov().pitch);
+    })();
+    /* ⭐ THE SKY VIEW GRABS THE WORLD instead - what its own left drag does. */
+    (function(){
+      const m = navRun.sky();
+      const before = m.centre().lng;
+      navRun.down(m.el);
+      navRun.move(400, 200);
+      check('S170', 'dragging right in Sky View moves the map the other way',
+        m.centre().lng < before,
+        'the world under the pointer stays under the pointer, as on every map');
+    })();
+    /* ⭐ THE GRADE SCREEN IS COVERED TOO - the pane with the least left button to
+       spare, because a left drag there READS THE GRADE. */
+    (function(){
+      const p = navRun.grade();
+      navRun.down(p.el);
+      navRun.move(400, 200);
+      check('S170', 'the grade screen can be looked around as well',
+        p.pov().heading > 0, 'a left drag there measures the grade, so it has none to spare');
+    })();
+    /* ⚠ THE LEFT BUTTON IS UNTOUCHED - it still places and drags dots. */
+    (function(){
+      navRun.up();                       /* clear whatever the checks above left live */
+      const p = navRun.street();
+      const stopped = navRun.down(p.el, 0);
+      check('S170', 'a LEFT press starts no navigation and is not swallowed',
+        stopped === false && navRun.dragging() === false,
+        'the left button still places and drags dots - this must not take it over');
+    })();
+    check('S170', 'a right press outside the pictures is left alone',
+      navRun.down({id: 'somewhere-else'}) === false,
+      'the context menu must still work everywhere else in the admin page');
+  }
+  /* ⭐ A CLICK KEEPS ITS MENU, A HELD DRAG DOES NOT (2026-08-28). Owner: "make it
+     so you only get the right click pop up if you click there but if you hold the
+     right click pop up doesnt come up." Suppressing it outright was the first
+     version and took away a menu nobody had asked to lose. */
+  if(navRun && !navRun.err){
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.up();
+      check('S170', 'a plain right CLICK still opens the menu on the picture',
+        navRun.menu(p.el) === false,
+        'pressing and letting go without moving is a click, and a click keeps its menu');
+    })();
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(340, 200);            /* past RM_NAV_CLICK_SLOP */
+      navRun.up();
+      check('S170', 'but the menu does not appear after a held drag',
+        navRun.menu(p.el) === true,
+        'it would open over the picture the moment they let go of a look-around');
+    })();
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(302, 201);            /* inside the slop - still a click */
+      navRun.up();
+      check('S170', 'and a few pixels of hand jitter is still a click',
+        navRun.menu(p.el) === false,
+        'nobody holds a mouse perfectly still; this is the same complaint pointing the other way');
+    })();
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(400, 200);
+      navRun.up();
+      navRun.menu(p.el);                /* the one it was meant to eat */
+      check('S170', 'one menu is suppressed per drag, never a run of them',
+        navRun.menu(p.el) === false,
+        'a flag left standing would eat the NEXT right click too, which is not a drag');
+    })();
+    check('S170', 'and a right press outside the pictures never loses its menu',
+      (function(){
+        const p = navRun.street();
+        navRun.down(p.el); navRun.move(400, 200); navRun.up();
+        return navRun.menu({id: 'somewhere-else'}) === false;
+      })(),
+      'the drag was on a picture; the menu somewhere else has nothing to do with it');
+  }
+  check('S170', 'and losing focus does not leave the view stuck to the mouse',
+    admin.indexOf("window.addEventListener('blur', rmNavEnd)") !== -1,
+    'no mouseup ever arrives, so the drag would still be live on return');
+
   /* ⭐ THE SCORED DIFFICULTY, CHECKED AGAINST REAL HOUSES (MR-12, 2026-08-28).
      Owner: "it should be $2 a foot for a medium house, 1.85 for a easy and 2.2
      for a hard", then "hard [needs] to be fully based on how many strands,
