@@ -174,11 +174,6 @@ const HTML_FILES = ['index.html', 'admin.html', 'employee.html'];
  * Delete entries from this list as those features get built or removed.
  */
 const KNOWN_MISSING_IDS = [
-  /* ⛔ Set the Wall went on 2026-08-28 (MR-01) - nothing measures from a street
-     click, so there is no depth left for a pinned wall to supply. rmWall,
-     rmWallPicking and rmActiveWall are left in place and unreachable so nothing
-     that reads them breaks, and these two reads are what that costs. */
-  'rmWallBtn', 'rmWallStatus',
   'rsvpReasonWrap', 'quoteConfirm', 'quoteConfirmMsg',
   /^quickEmail/, /^bulkAuto/, /^bulkUpdateEmail/, /^bulkText/,
   /^rsvpEmail/, /^rsvpInclude/, /^rsvpPreview/, /^rsvpRecipient/, /^rsvpSelect/,

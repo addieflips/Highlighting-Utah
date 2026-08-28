@@ -22618,7 +22618,6 @@ async function rmLoadAddress(){
           if(st !== 'OK' || !data || !data.location){
             if(st !== 'ZERO_RESULTS' && i < RADII.length - 1){ askStreetView(i + 1); return; }
             document.getElementById('rmStreetNote').textContent = 'No Street View at this address';
-            document.getElementById('rmWallStatus').textContent = 'Street View has not driven this street — trace it on the sky view instead.';
             /* An ANSWER, not a wait: the pane stays covered and the spinner goes,
                because nothing is still loading. */
             rmPaneBusy('street', 'Google has never driven this street.', false);
@@ -23213,8 +23212,6 @@ function rmReset(){
      height typed for the last house is not an answer about this one, and left
      set it reads as typed for ever after the first time anybody touches it. */
   rmHeightTyped = false;
-  document.getElementById('rmWallBtn').textContent = 'Set the Wall';
-  document.getElementById('rmWallStatus').textContent = 'Street View needs the wall pinned once before it can measure.';
   document.getElementById('rmStreetNote').textContent = '';
   document.getElementById('rmSkyNote').textContent = '';
   document.getElementById('rmCaptureSky').disabled = true;
@@ -23942,12 +23939,17 @@ function openRoofMeasure(quoteId){
       layer.style.cursor = '';
     });
   })();
-  document.getElementById('rmWallBtn').addEventListener('click', function(){
-    if(!rmStreetReady){ document.getElementById('rmWallStatus').textContent = 'No Street View at this address.'; return; }
-    rmWallPicking = true; rmWallPts = []; rmWall = null;
-    document.getElementById('rmWallStatus').textContent = 'Click where the wall meets the ground at one end of the house.';
-    rmSetDrawing(false); rmPaintStreet();
-  });
+  /* ⛔ THE SET THE WALL HANDLER IS GONE WITH ITS BUTTON (2026-08-28), and
+     leaving it behind was NOT harmless. getElementById returned null, the
+     addEventListener threw INSIDE wireRoofMeasure, and everything wired after
+     this line - the map, the panorama, every button below it - was never wired
+     at all. The tool opened to two grey rectangles reading "Finding the house…"
+     for ever, and it looked like a Google problem.
+     ⚠ THE MISSING-ID GATE HAD ALREADY CAUGHT THIS AND I SILENCED IT, putting
+     rmWallBtn and rmWallStatus into KNOWN_MISSING_IDS because they read as
+     noise left over from a removal. That list is for markup deliberately absent
+     where the code reading it is GUARDED; an unguarded read belongs in neither
+     the list nor the file. Both names are out of it again. */
   document.getElementById('rmUndoBtn').addEventListener('click', function(){
     if(rmCurrent && rmCurrent.path.length){
       rmCurrent.path.pop();
