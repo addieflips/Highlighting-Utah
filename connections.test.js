@@ -40,6 +40,16 @@ function check(name, ok, detail) {
   console.log('  FAIL  ' + name + (detail ? '\n        ' + detail : ''));
 }
 function note(msg) { notes++; console.log('  NOTE  ' + msg); }
+/* ⚠ ANYTHING ASYNC GOES ON THIS LIST AND THE SUMMARY AWAITS IT. Saving a decision is a
+   real await now, so a check written straight after the click scores BEFORE the write
+   resolves — and a check that scores after the summary has printed can never fail the
+   build, which is a green run for the worst possible reason. Same rule as Suite 10 of
+   run-all.js, and it arrived here the same way: three checks failed on correct code the
+   moment the button stopped being synchronous. */
+const pendingAsync = [];
+/* One turn of the microtask queue, which is all a resolved bridge promise needs. The
+   frame's handler awaits exactly once before it repaints. */
+const settle = () => new Promise(r => setTimeout(r, 0));
 
 /* A branch that predates the map must not go red — that is how a gate gets deleted. */
 if (!fs.existsSync(path.join(ROOT, 'connections', 'manifest.js'))) {
@@ -537,6 +547,440 @@ if (amberTotal) {
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * 9. THE RULES VIEW ACTUALLY OPENS A BLOCK — run, not read.
+ *
+ * Reported by Addie as "dropdown on rules is not working", and it was not working at
+ * all: NOT ONE of the 181 blocks would open. The cause is the one this repo keeps
+ * meeting from a new direction — a rule NAME is prose she wrote, so one in ten carries
+ * a double quote ("soft", "available", a recorded "no"), and interpolating it raw into
+ * data-k ENDED the attribute early. dataset.k came back truncated, stopped matching the
+ * key drawRules() had built, and the toggle set a flag nothing read. Nothing threw.
+ *
+ * ⚠ SO THE CHECK ABOVE ("the built page carries both views") WAS GREEN THROUGHOUT, and
+ * would be green again tomorrow: both views existed, the buttons existed, the handler
+ * was bound. Every claim here is about a ROW THAT APPEARS ON SCREEN AFTER A CLICK, and
+ * this repo has now been caught five times by a source check standing in for one.
+ *
+ * ⚠ IT CLICKS EVERY BLOCK IN EVERY AREA, not a sample. The bug bit only the names
+ * carrying a quote, and a sample that happened to miss those ten would have passed on
+ * the broken build — which is the vacuous-fixture trap, in the check written to close it.
+ * ------------------------------------------------------------------------- */
+{
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { JSDOM = null; }
+  if (!JSDOM) {
+    note('jsdom is not installed, so no rule block was actually opened — run `npm install`. ' +
+      'The structural checks above stayed green through every block being unopenable.');
+  } else {
+    const dom = new JSDOM(require('./connections/build').render(), { runScripts: 'dangerously' });
+    const doc = dom.window.document;
+    const errs = [];
+    dom.window.addEventListener('error', e => errs.push(e.message));
+
+    const subtab = n => doc.querySelectorAll('.subtabs button')[n];
+    subtab(1).click();
+    const v = doc.getElementById('rules');
+    const areas = v.querySelectorAll('.areacard').length;
+
+    check('the Rules view draws an area card per family of rulings',
+      areas > 0, 'no area cards at all, so nothing below proves anything');
+
+    let tried = 0, opened = 0, emptyBody = 0, quoted = 0, quotedOpened = 0;
+    for (let i = 0; i < areas; i++) {
+      subtab(1).click();
+      const back = v.querySelector('.back'); if (back) back.click();
+      v.querySelectorAll('.areacard')[i].click();
+      const n = v.querySelectorAll('.blockbtn').length;
+      for (let j = 0; j < n; j++) {
+        const btn = v.querySelectorAll('.blockbtn')[j];
+        const isQuoted = /["<>&]/.test(btn.dataset.k || '');
+        const before = v.querySelectorAll('.block.open').length;
+        btn.click();
+        tried++;
+        const now = v.querySelectorAll('.block.open');
+        const grew = now.length === before + 1;
+        if (grew) opened++;
+        if (isQuoted) { quoted++; if (grew) quotedOpened++; }
+        const last = now[now.length - 1];
+        const body = last && last.querySelector('.body .rl li');
+        if (!body) emptyBody++;
+      }
+    }
+
+    check('every rule block opens when it is clicked',
+      tried > 0 && opened === tried,
+      tried ? (tried - opened) + ' of ' + tried + ' blocks did nothing at all when clicked. ' +
+        'Check what is being interpolated into data-k — an unescaped quote in a rule name ' +
+        'truncates the attribute and the key silently stops matching' : 'no blocks were found to click');
+
+    /* ⚠ THE REGRESSION ITSELF, ASSERTED ON ITS OWN. Folded into the count above, ten bad
+       names out of 181 read as a 94% pass, which is the shape of a flaky test rather than
+       a broken feature — and the ten are the whole bug. */
+    check('and the ones whose names carry a quote open too',
+      quoted > 0 && quotedOpened === quoted,
+      quoted ? (quoted - quotedOpened) + ' of the ' + quoted + ' rule names containing a ' +
+        'quote or bracket failed to open' : 'no rule name in the map carries a quote any ' +
+        'more, so this check can no longer see the bug it was written for — point it at ' +
+        'whatever the map actually contains rather than deleting it');
+
+    check('and every opened block shows the ruling underneath it',
+      emptyBody === 0,
+      emptyBody + ' blocks opened onto nothing. An empty body reads as "no ruling here", ' +
+      'which is the opposite of what the row is telling her');
+
+    /* Confirming is proved in section 10, against a page that can actually save. Here it
+       is only asserted that the open row OFFERS the decision — this frame has no admin
+       page behind it, so pressing it can do nothing but say so. */
+    check('an opened rule offers the decision buttons',
+      !!v.querySelector('.block.open .rev button.y') &&
+      !!v.querySelector('.block.open .rev button.n'),
+      'the ruling is readable and there is no way to say anything about it');
+
+    /* ⚠ THE JUMP BUTTON CANNOT BE AN INLINE onclick. It was built as
+       onclick="jump('<field>','<dest>')" with the field pasted between single quotes, so
+       the first field name carrying an apostrophe — "Addie's own note" — is a syntax error
+       in an attribute, and the button dies with no console line anybody would see. There
+       are no faults in the report today, so this path has NO DATA to exercise it: the
+       structural assertion is the honest half, and it says so. */
+    const beh = fs.readFileSync(path.join(ROOT, 'connections', 'behaviour.js'), 'utf8');
+    check('the fault link carries its target in data attributes, not an inline onclick',
+      !/onclick=/.test(beh) && /data-jf=/.test(beh) && /data-jd=/.test(beh),
+      'an inline onclick with a field name pasted into it breaks on the first apostrophe');
+
+    /* Reading unread[0] blind threw and blanked the whole view, and "everything has been
+       read" is the state she is working towards.
+       ⚠ THIS USED TO GET THERE BY CLICKING CONFIRM 181 TIMES, and the moment those buttons
+       started saving through the admin page that stopped working: this frame has no parent,
+       so every click is refused and nothing is ever marked read. The check went on passing
+       — against a page still showing 181 unread, which is not the state it is named after.
+       It is reached the way it really happens now: an admin page that already holds a
+       decision for every rule. */
+    const everything = {};
+    const idsOf = html => (html.match(/"[A-Z]+-\d+"/g) || []).map(x => x.slice(1, -1));
+    idsOf(require('./connections/build').render()).forEach(id => {
+      everything[id] = { rule: id, verdict: 'ok', fp: '', at: '2026-08-27', by: 'addie' };
+    });
+    check('the harness found rule ids to pre-confirm',
+      Object.keys(everything).length > 0,
+      'no ids, so the all-read state below was never actually reached');
+    const readAll = new JSDOM(require('./connections/build').render(),
+      { runScripts: 'dangerously', beforeParse(w) {
+        Object.defineProperty(w, 'parent', { configurable: true, get: () => ({
+          hlxRuleDecisions: () => everything, hlxRuleDecide: () => Promise.resolve(null) }) });
+      } });
+    const rd = readAll.window.document;
+    rd.querySelectorAll('.subtabs button')[1].click();
+    const rv = rd.getElementById('rules');
+    check('every rule really does read as confirmed once the decisions are in hand',
+      /0 never read/.test(rv.querySelector('.headline').textContent),
+      'got ' + JSON.stringify(rv.querySelector('.headline').textContent.slice(0, 90)) +
+      '. Without this the check below cannot be reaching the branch it is named after');
+    check('the overview survives every rule having been read',
+      /Where to start/.test(rv.innerHTML) &&
+      rv.querySelectorAll('.areacard').length === areas &&
+      /every rule has been read/.test(rv.querySelector('.headline').textContent),
+      'the headline names the longest-unread rule; with none left unread it read past the ' +
+      'end of an empty list, threw, and left the view blank');
+
+    check('and no click anywhere in the Rules view threw',
+      errs.length === 0, 'errors: ' + errs.join(' | '));
+
+    /* -----------------------------------------------------------------------
+     * The same page, driven with a hostile name.
+     *
+     * ⚠ EVERY OTHER CHECK ABOVE RUNS ON TODAY'S DATA, and today only the rule NAMES
+     * carry a quote. So red-checking found five escaping sites — the area card, the
+     * grid's field cell, the block name, the confirm buttons, the rule lines — that
+     * could each be reverted with the whole suite still green, purely because no
+     * value reaching them happens to contain a quote yet. The map is prose Addie
+     * edits; the day one of those gains a quote is the day a screen breaks silently,
+     * which is exactly how this bug arrived in the first place.
+     *
+     * So this renders the REAL page with one name in each position replaced by a
+     * string carrying " < > & and an apostrophe, and asserts it comes back out
+     * BYTE-FOR-BYTE — both through the attribute (dataset round-trip) and on screen
+     * (textContent). Not a hand-written fixture: the only thing invented is the text.
+     * --------------------------------------------------------------------- */
+    {
+      const HOSTILE = 'A "quoted" <b>name</b> & Addie' + String.fromCharCode(39) + 's own';
+      const raw = require('./connections/build').render();
+      const lines = raw.split('\n');
+      const jsonLine = name => lines.findIndex(l => l.indexOf('const ' + name + '=') === 0);
+      const dataOf = name => {
+        const i = jsonLine(name);
+        return i < 0 ? null : JSON.parse(lines[i].slice(('const ' + name + '=').length, -1));
+      };
+      const TABS = dataOf('TABS'), RULES = dataOf('RULES');
+      const firstTab = TABS && Object.keys(TABS)[0];
+      const firstArea = RULES && Object.keys(RULES)[0];
+      const origField = firstTab && TABS[firstTab].rows.length ? TABS[firstTab].rows[0][0] : null;
+      const origArea = firstArea;
+      const origName = firstArea && RULES[firstArea].sections.length &&
+        RULES[firstArea].sections[0][1].length ? RULES[firstArea].sections[0][1][0][0] : null;
+      const origLine = origName && RULES[firstArea].sections[0][1][0][1].length
+        ? RULES[firstArea].sections[0][1][0][1][0] : null;
+
+      check('the harness could find a field, an area, a rule and a ruling to make hostile',
+        !!(origField && origArea && origName && origLine),
+        'the built page did not carry the shape this check drives, so nothing below ran');
+
+      if (origField && origArea && origName && origLine) {
+        /* Scoped to the emitted JSON lines only — a global replace would rewrite the
+           page's own prose and prove something about the shell instead. */
+        const swap = (line, from, to) =>
+          line.split(JSON.stringify(from).slice(1, -1)).join(JSON.stringify(to).slice(1, -1));
+        const hostileHtml = lines.map(l => {
+          if (!/^const (TABS|RULES|CELLRULES|FAULTS)=/.test(l)) return l;
+          let out = l;
+          [[origField, HOSTILE + ' F'], [origArea, HOSTILE + ' A'],
+           [origName, HOSTILE + ' N'], [origLine, HOSTILE + ' L']]
+            .forEach(pair => { out = swap(out, pair[0], pair[1]); });
+          return out;
+        }).join('\n');
+
+        const h = new JSDOM(hostileHtml, { runScripts: 'dangerously' });
+        const hd = h.window.document, herrs = [];
+        h.window.addEventListener('error', e => herrs.push(e.message));
+
+        /* The grid: field name in a cell, and the same name inside data-f. */
+        const fcell = hd.querySelector('#gbody td.f');
+        check('a field name carrying a quote survives into the grid',
+          !!fcell && fcell.textContent === HOSTILE + ' F',
+          'got ' + JSON.stringify(fcell && fcell.textContent));
+        const gcell = hd.querySelector('#gbody .cell[data-f]');
+        check('and out of the square that has to look it back up',
+          !!gcell && gcell.dataset.f === HOSTILE + ' F',
+          'got ' + JSON.stringify(gcell && gcell.dataset.f) + '. A truncated data-f means ' +
+          'clicking the square finds no rule and says "no rule written down for this one"');
+
+        /* The rules view: area, block name, ruling text, and the confirm buttons. */
+        hd.querySelectorAll('.subtabs button')[1].click();
+        const hv = hd.getElementById('rules');
+        const card = Array.prototype.slice.call(hv.querySelectorAll('.areacard'))
+          .filter(c => c.dataset.a === HOSTILE + ' A')[0];
+        check('an area name carrying a quote round-trips through its card',
+          !!card && card.querySelector('h3').textContent === HOSTILE + ' A',
+          'the card is unopenable, or its heading is cut off at the quote');
+
+        if (card) {
+          card.click();
+          const btn = Array.prototype.slice.call(hv.querySelectorAll('.blockbtn'))
+            .filter(b => b.dataset.k === (HOSTILE + ' A') + '|' + (HOSTILE + ' N'))[0];
+          check('a rule name carrying a quote round-trips through its key',
+            !!btn && btn.querySelector('.nm').textContent === HOSTILE + ' N',
+            'this is the shape of the original bug, asserted on a name that is hostile ' +
+            'on purpose rather than on the ten that happen to be today');
+          if (btn) {
+            btn.click();
+            const li = hv.querySelector('.block.open .body .rl li');
+            check('and a ruling carrying a quote is shown exactly as written',
+              !!li && li.textContent === HOSTILE + ' L',
+              'got ' + JSON.stringify(li && li.textContent) + '. An unescaped < in a ' +
+              'ruling swallows the rest of the sentence, and the row still looks fine');
+            const yes = hv.querySelector('.block.open .rev button.y');
+            pendingAsync.push(async () => {
+              if (yes) { yes.click(); await settle(); }
+              const lk = hv.querySelectorAll('.block.open .rev .locked');
+              check('and confirming it acts on that rule, not a truncated one',
+                !!yes && lk.length > 0 && /admin page/.test(lk[lk.length - 1].textContent),
+                'the confirm button carries the key too — truncated, the handler looks up ' +
+                'a rule that does not exist and falls over instead of answering');
+            });
+          }
+        }
+        check('and the hostile page threw nothing either',
+          herrs.length === 0, 'errors: ' + herrs.join(' | '));
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 10. A DECISION SHE MAKES IS KEPT — run, not read.
+ *
+ * Addie could press Looks right / Something's wrong and the row moved, and that was all
+ * it did: gone on reload. A review tool that forgets is one she has to redo from
+ * scratch, so the buttons were doing something worse than nothing — they looked like
+ * progress.
+ *
+ * The page is a generated file in an iframe with no database of its own, so it asks the
+ * admin page (same origin, an ordinary call). That gives three states that all have to
+ * be right, and only one of them is the happy one:
+ *   - inside admin      → saved, and it survives a reload
+ *   - its own tab       → no parent, so it SAYS decisions will not stick
+ *   - write refused     → the pill does NOT move, and the real error is on the row
+ *
+ * ⚠ THE LAST TWO ARE THE POINT. A tick that silently evaporates is exactly the class of
+ * failure this whole page was built to find, and it would have been sitting inside it.
+ * ------------------------------------------------------------------------- */
+{
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { JSDOM = null; }
+  if (!JSDOM) {
+    note('jsdom is not installed, so no decision was actually saved or reloaded.');
+  } else pendingAsync.push(async () => {
+    const page = require('./connections/build').render();
+    /* A stand-in for admin.html's two bridge functions. The REAL ones are asserted
+       separately below — this half is about what the frame does with them. */
+    const makeAdmin = store => ({
+      hlxRuleDecisions: () => store,
+      hlxRuleDecide: (id, verdict, fp, name, area) => {
+        if (!id) return Promise.reject(new Error('no id'));
+        const rec = { rule: id, verdict: verdict === 'flag' ? 'flag' : 'ok', fp: fp || '',
+                      name: name, area: area, at: '2026-08-27', by: 'addie' };
+        store[id] = rec;
+        return Promise.resolve(rec);
+      }
+    });
+    const openFrame = parent => {
+      const dom = new JSDOM(page, { runScripts: 'dangerously', beforeParse(w) {
+        if (parent) Object.defineProperty(w, 'parent', { get: () => parent, configurable: true });
+      } });
+      const d = dom.window.document;
+      d.querySelectorAll('.subtabs button')[1].click();
+      const v = d.getElementById('rules');
+      return { d: d, v: v, openFirst: function () {
+        v.querySelector('.areacard').click();
+        v.querySelector('.blockbtn').click();
+        return v.querySelector('.block.open');
+      } };
+    };
+    const pill = f => {
+      const el = f.v.querySelector('.block.open .rev .lab');
+      return el ? el.textContent : '';
+    };
+    const rowNote = f => {
+      const els = f.v.querySelectorAll('.block.open .rev .locked');
+      return els.length ? els[els.length - 1].textContent : '';
+    };
+
+    /* ⭐ THE COUNTS WERE ABOUT THE WRONG THING, and this is why saving was worth building
+       rather than bolting on. One field carried both the ruling's standing in the
+       questions map AND her review of it, so "N of M confirmed" was counting rulings
+       marked Closed — which she has never looked at. Nothing was going to make that
+       number move, whatever she pressed. */
+    const fresh = openFrame(makeAdmin({}));
+    /* ⚠ ACROSS EVERY CARD, NOT THE FIRST ONE. The first area alphabetically happens to
+       hold no rulings marked Closed, so it reads "0 of 4" whether the bug is there or
+       not — the red-check caught this check passing on the broken code. Eight rulings in
+       the map ARE Closed, so the total is what bites. */
+    const cards = Array.prototype.slice.call(fresh.v.querySelectorAll('.areacard .of'));
+    const totals = cards.map(c => (c.textContent.match(/^(\d+) of (\d+)/) || []).slice(1).map(Number));
+    const confirmed = totals.reduce((a, t) => a + (t[0] || 0), 0);
+    const ruleCount = totals.reduce((a, t) => a + (t[1] || 0), 0);
+    check('no rule counts as confirmed until she has actually confirmed it',
+      cards.length > 0 && ruleCount > 0 && confirmed === 0,
+      confirmed + ' of ' + ruleCount + ' already read as confirmed with no decision saved ' +
+      'anywhere. This counts HER review now, not the ruling’s standing in the map — two ' +
+      'different facts that were one field until 2026-08-27, which made the page claim ' +
+      'work was done that nobody had done');
+    const head = fresh.v.querySelector('.headline').textContent;
+    const unread = Number((head.match(/(\d+) never read/) || [])[1]);
+    check('and the overview counts every one of them as never read',
+      unread === ruleCount,
+      'headline says ' + unread + ' never read out of ' + ruleCount + ' rules. Her ' +
+      'starting point is that number; anything less is the page telling her somebody ' +
+      'has already been through part of the map');
+
+    /* Saved, and still there next time. */
+    const store = {};
+    const f1 = openFrame(makeAdmin(store));
+    f1.openFirst();
+    f1.v.querySelector('.rev button.y').click();
+    await settle();
+    const saved = Object.keys(store)[0];
+    check('confirming a rule writes a decision',
+      !!saved && store[saved].verdict === 'ok',
+      'nothing reached the admin page, so the tick is lost on reload — which is the ' +
+      'state this whole section exists to end');
+    check('and the decision names the rule by its id, not by its wording',
+      !!saved && /^[A-Z]+-\d+$/.test(saved),
+      'got ' + JSON.stringify(saved) + '. Keyed on the wording, editing a ruling orphans ' +
+      'the decision instead of lapsing it');
+    check('and carries a fingerprint of the wording she confirmed',
+      !!saved && !!store[saved].fp,
+      'without it a rewritten ruling keeps her old tick, which is the tick vouching for ' +
+      'text she has never read');
+
+    const f2 = openFrame(makeAdmin(store));
+    f2.openFirst();
+    check('and it is still confirmed when she comes back',
+      /Confirmed/.test(pill(f2)),
+      'got ' + JSON.stringify(pill(f2)) + '. Saved and not read back is the same as not saved');
+
+    /* ⭐ AND IT EXPIRES WHEN THE RULING IS REWRITTEN. */
+    const moved = {};
+    Object.keys(store).forEach(k => { moved[k] = Object.assign({}, store[k], { fp: 'SOMETHINGELSE' }); });
+    const f3 = openFrame(makeAdmin(moved));
+    f3.openFirst();
+    check('a ruling rewritten since she confirmed it reads as changed, not confirmed',
+      /Changed since confirmed/.test(pill(f3)),
+      'got ' + JSON.stringify(pill(f3)) + '. Still-confirmed is her vouching for words ' +
+      'she has never seen; back-to-never-read loses that she ever looked');
+
+    /* ⚠ REFUSED. This is what a missing firestore.rules entry looks like from the page. */
+    const f4 = openFrame({ hlxRuleDecisions: () => ({}),
+      hlxRuleDecide: () => Promise.reject(new Error('Missing or insufficient permissions')) });
+    f4.openFirst();
+    f4.v.querySelector('.rev button.y').click();
+    await settle();
+    check('a refused write leaves the rule exactly as it was',
+      /Not reviewed/.test(pill(f4)),
+      'got ' + JSON.stringify(pill(f4)) + '. A pill that moves on a write the database ' +
+      'refused is the row lying, and she finds it unread again tomorrow');
+    check('and says so on the row, with the real reason',
+      /Could not save/.test(rowNote(f4)) && /permissions/.test(rowNote(f4)),
+      'got ' + JSON.stringify(rowNote(f4)) + '. "Nothing should fail quietly" — and a ' +
+      'refused rule write is exactly the case that reads as the button not working');
+
+    /* ⚠ ITS OWN TAB. There is no parent to ask, and it must not pretend otherwise. */
+    const f5 = openFrame(null);
+    f5.openFirst();
+    f5.v.querySelector('.rev button.y').click();
+    await settle();
+    check('opened in its own tab it says decisions will not stick there',
+      /Not reviewed/.test(pill(f5)) && /admin page/.test(rowNote(f5)),
+      'pill ' + JSON.stringify(pill(f5)) + ', note ' + JSON.stringify(rowNote(f5)) +
+      '. The page is reachable full screen on purpose; taking a decision it cannot keep ' +
+      'is worse than a button that is honest about being off');
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * 11. THE ADMIN HALF OF THAT BRIDGE, AND ITS RULE.
+ *
+ * ⚠ THE FRAME CHECKS ABOVE USE A STAND-IN, so every one of them stays green with the
+ * real functions deleted from admin.html — the same shape as the Edit Customer house
+ * tabs, where the four wiring calls could be removed with the whole suite passing.
+ * ------------------------------------------------------------------------- */
+{
+  const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
+  check('admin.html defines both halves of the bridge the frame calls',
+    /window\.hlxRuleDecide\s*=/.test(admin) && /window\.hlxRuleDecisions\s*=/.test(admin),
+    'the frame asks window.parent for these by name; without them every decision falls ' +
+    'into the "opened in its own tab" branch and nothing is ever saved');
+  check('and reads the saved decisions eagerly, beside the health-check ones',
+    /loadRuleDecisions\(\);/.test(admin.slice(admin.indexOf('loadHcDecisions();'),
+      admin.indexOf('loadHcDecisions();') + 600)),
+    'the frame asks for these while it loads and can be opened before any panel group ' +
+    'has run — loaded later, every rule she confirmed reads as never-read');
+  check('and the write is awaited before the record is handed back',
+    /await setDoc\(doc\(db,'ruleDecisions'/.test(admin),
+    'returning before the write lands is what lets the frame paint a decision that was ' +
+    'refused');
+
+  /* ⚠ NOT DEPLOYED BY CI. A collection missing from firestore.rules is denied by default,
+     so this file being right is necessary and not sufficient — it still needs a hand
+     deploy. The row now says so on screen when it happens, which is the half that is
+     under our control. */
+  const rules = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
+  check('firestore.rules knows about the collection those decisions go in',
+    /match \/ruleDecisions\/\{id\}/.test(rules),
+    'a collection with no rule is denied by default and fails SILENTLY in a listener, ' +
+    'so every decision would look saved and none would be');
+}
+
 const unguarded = m.report.filter(r => !r.spine.guard).map(r => r.spine.field);
 if (unguarded.length) {
   note(unguarded.length + ' of ' + m.report.length + ' watched things have nothing else guarding them: ' +
@@ -545,13 +989,19 @@ if (unguarded.length) {
 note('watches ' + m.report.length + ' things. It cannot tell whether a connection is RIGHT, ' +
   'only whether it is there — and nothing appears here until a person declares it.');
 
-console.log('');
-console.log('=== Is everything still connected? ===');
-console.log('');
-if (failed) {
-  console.log('  ' + failed + ' failure(s):');
-  failures.forEach(f => console.log('   - ' + f.name + (f.detail ? f.detail : '')));
+(async function summary() {
+  for (const job of pendingAsync) {
+    try { await job(); }
+    catch (err) { check('an async section of this suite crashed', false, ': ' + (err && err.stack || err)); }
+  }
   console.log('');
-}
-console.log(passed + ' passed, ' + failed + ' failed, ' + notes + ' notes');
-process.exit(failed ? 1 : 0);
+  console.log('=== Is everything still connected? ===');
+  console.log('');
+  if (failed) {
+    console.log('  ' + failed + ' failure(s):');
+    failures.forEach(f => console.log('   - ' + f.name + (f.detail ? f.detail : '')));
+    console.log('');
+  }
+  console.log(passed + ' passed, ' + failed + ' failed, ' + notes + ' notes');
+  process.exit(failed ? 1 : 0);
+})();

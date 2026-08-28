@@ -128,6 +128,7 @@ service cloud.firestore {
     // lapses by itself when that member's data moves.
     // Staff only. Nothing public ever reads or writes these.
     match /healthCheckDecisions/{id}   { allow read, write: if request.auth != null; }
+    match /ruleDecisions/{id}          { allow read, write: if request.auth != null; }
     // ---- Per-login preferences -----------------------------------------
     // Favourites, pinned nav items, collapsed sections and sub-tab order.
     // The document id IS the signed-in user's uid (see savePrefs /

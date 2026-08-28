@@ -82,6 +82,25 @@ function build(opts) {
     CELLRULES[r.title] = [r.plain || '', lines];
   }));
 
+  /* ⭐ THE FINGERPRINT IS WHAT MAKES A CONFIRMATION EXPIRE. Addie confirming a rule is
+     confirming THAT WORDING — so when the ruling is later rewritten, her old tick must
+     stop counting rather than silently vouching for text she has never read. Same
+     mechanism as the health-check decisions, and the same reason: a decision matched by
+     name alone outlives the thing it was about.
+     ⚠ IT IS THE TEXT, NOT THE ID. The id (MON-01) is the doc name, so an edit LAPSES the
+     confirmation instead of orphaning it — she sees "changed since confirmed" on the row
+     she confirmed, rather than the row quietly going back to never-read. */
+  function ruleFingerprint(b) {
+    const s = String(b.name) + '\n' + (b.lines || []).join('\n');
+    let h1 = 0x811c9dc5, h2 = 0x1000193;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      h1 = ((h1 ^ c) * 0x01000193) >>> 0;
+      h2 = ((h2 + c) * 0x85ebca6b) >>> 0;
+    }
+    return ('0000000' + h1.toString(36)).slice(-7) + ('0000000' + h2.toString(36)).slice(-7);
+  }
+
   /* ---- her rulings, grouped so the reading order means something -------- */
   const SECTIONS = [['new', 'Still standing'], ['lapsed', 'Changed since'],
                     ['unbuilt', 'Decided, not built yet'], ['ok', 'Closed']];
@@ -91,7 +110,8 @@ function build(opts) {
     SECTIONS.forEach(([st, label]) => {
       const blocks = R.areas[area].blocks.filter(b => b.state === st);
       if (!blocks.length) return;
-      secs.push([label, blocks.map(b => [b.name, b.lines, b.state, b.proof, '', b.when, ''])]);
+      secs.push([label, blocks.map(b =>
+        [b.name, b.lines, b.state, b.proof, '', b.when, '', b.id, ruleFingerprint(b)])]);
     });
     if (secs.length) RULES[area] = { sections: secs };
   });
