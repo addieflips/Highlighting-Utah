@@ -4798,32 +4798,27 @@
                      ids and their handlers — only their parent changed — so
                      everything that reaches for them by id still finds them. -->
 
-                <!-- ⭐ IS THIS HOUSE MEASURING RIGHT? (added 2026-08-25).
-                     Owner: "I need no guessing I need feet to be correct."
-                     Nothing else in the tool answers that. Accuracy is not a
-                     property of the code, it is a property of THIS house —
-                     Google's imagery is not perfectly overhead, the camera may
-                     be far off or half behind a tree — so the only real answer
-                     is to measure something whose size is already known and
-                     read the difference.
-                     ⚠ PERMANENTLY VISIBLE, not a debug tool tucked away. A
-                     check nobody can find is a check nobody runs. -->
-                <!-- ⭐ LINE THE TWO PICTURES UP (added 2026-08-25).
-                     Owner: "This is still wrong. What are other solutions we
-                     can look at to get this right?" Google's satellite is not
-                     shot from straight overhead, so the roof you can SEE up
-                     there is a few feet from where the roof really is — and
-                     everything else in this tool works off Google's model,
-                     which is in true positions. Two clicks on one spot measure
-                     the difference. See rmSetSkyOffset for the full argument.
-                     ⚠ AND IT REMEMBERS, so this is normally a once-a-street
-                     job rather than a once-a-house one. -->
-                <div style="margin-top:10px; border-top:1px dotted var(--line); padding-top:9px;">
-                  <div style="font-size:11.5px; font-weight:700; margin-bottom:5px;">Line up the two pictures</div>
-                  <p class="rm-sub" style="margin:0 0 6px;">Click one spot you can see in both — a corner of the garage is the easiest.</p>
-                  <button type="button" class="btn btn-outline btn-sm" id="rmAlignBtn" style="width:100%; justify-content:center;">Line them up</button>
-                  <p id="rmAlignNote" style="font-size:11.5px; margin:7px 0 0; line-height:1.5; color:var(--slate);">Not checked on this house. Until it is, a line traced from above may draw in the wrong place in Street View.</p>
-                </div>
+                <!-- ⛔ LINING THE TWO PICTURES UP IS GONE (2026-08-27), and so
+                     is the accuracy check above it. Both existed because a dot
+                     had to mean the same place in the sky view AND in Street
+                     View, and Google's satellite is not shot from straight
+                     overhead - so the roof you can SEE up there sits a few feet
+                     from where the roof really is, and two clicks on one spot
+                     measured the difference.
+
+                     ⭐ THE OFFSET STOPPED MATTERING WHEN EVERYTHING MOVED TO ONE
+                     PICTURE. Owner: "you shouldnt see the same dot on both
+                     perspectives anymore." A displacement shared by every dot is
+                     a translation, and a translation does not change the
+                     distance between any two of them - so it cannot change a
+                     single foot this tool reports. It could only ever move a dot
+                     onto the right pixel, which is what the eye placing it is
+                     already doing.
+
+                     Removed with it: the auto-fit against Google's roof model
+                     (rmAutoAlign, rmFitSkyOffset, rmTracedSamples), the saved
+                     per-neighbourhood samples, and rmSkyShift/rmSkyUnshift,
+                     which had become the identity in every path. -->
 
                 <!-- ⛔ THE SCALE CHECK IS GONE (2026-08-25). Owner: "we dont want
                      anything like using garage door to measure height because then we go
@@ -16752,10 +16747,8 @@ let rmCalibrating = false;
 let rmCalibration = null;         /* {knownFt, measuredFt, checkedAt} */
 /* ⭐ HOW FAR THE SATELLITE PICTURE IS FROM THE REAL HOUSE (added 2026-08-25).
    {e, n} metres in the local frame, or null when nobody has lined the two up.
-   See rmSetSkyOffset for the whole argument. */
-let rmSkyOffset = null;
-let rmAligning = '';              /* '' | 'sky' | 'street' */
-let rmAlignSky = null;            /* the sky click, RAW, waiting for its twin */
+   The alignment that argument was about is gone (2026-08-27); see the block
+   headed "LINING THE TWO PICTURES UP IS GONE" for why it stopped mattering. */
 let rmOrigin = null;              /* {lat, lng} - the local frame's origin */
 let rmMap = null, rmPano = null, rmHomeMarker = null;
 let rmCamGroundDrop = 0;          /* house ground minus camera ground, metres */
@@ -18287,7 +18280,8 @@ function rmCornersToRun(){
    off, whether or not it joins anything. This is that same drawing, from above.
 
    ⚠ PICTURE POSITIONS. The stored point is true and the tile is displaced, so
-   every marker goes out through rmSkyUnshift — see the block on it. */
+   every marker used to go out through rmSkyUnshift, which is gone with the
+   alignment (2026-08-27) - positions are now drawn exactly as stored. */
 let rmCornerMarkers = [];
 function rmClearCornerMarkers(){
   rmCornerMarkers.forEach(function(m){ m.setMap(null); });
@@ -18326,7 +18320,7 @@ function rmSyncCornersSky(){
   if(!rmMap){ rmClearCornerMarkers(); return; }
   if(rmCornerMarkers.length !== rmCorners.length) rmClearCornerMarkers();
   rmCorners.forEach(function(c, i){
-    const q = rmSkyUnshift(c.lat, c.lng);
+    const q = {lat: c.lat, lng: c.lng};
     const have = rmCornerMarkers[i];
     if(have){ have.setPosition(q); have.setIcon(rmMarkerIcon(c)); have.setLabel(rmMarkerLabel(c, i)); return; }
     rmCornerMarkers.push(new google.maps.Marker({
@@ -19427,7 +19421,7 @@ function rmSyncModelSky(){
          outline has to be un-shifted or it sits beside the roof it describes -
          and this overlay is the clearest confirmation the office has that
          lining up worked. */
-      path: [rmSkyUnshift(a.lat, a.lng), rmSkyUnshift(b.lat, b.lng)],
+      path: [{lat: a.lat, lng: a.lng}, {lat: b.lat, lng: b.lng}],
       strokeColor: '#5BC8F5', strokeWeight: 2, strokeOpacity: .85
     }));
   });
@@ -21157,7 +21151,6 @@ function rmMeasurementDoc(){
        ⚠ null, not {e:0,n:0}. "Nobody lined this house up" and "somebody did and
        it needed nothing" are different answers, and only one of them is a
        reason to go and check. */
-    skyOffset: rmSkyOffset ? {e: rmSkyOffset.e, n: rmSkyOffset.n, source: rmSkyOffsetSource || 'measured'} : null,
     totals: {
       linearFt: Math.round(t.all),
       /* Bulbs sit a foot apart, so the bulb count IS the footage. Written down
@@ -21190,12 +21183,10 @@ function rmRestoreMeasurement(m){
   rmClearDrawing();
   /* ⚠ SET, NOT APPLIED, AND BEFORE THE RUNS GO BACK. The saved paths are
      already corrected — they were traced through it — so pushing this through
-     rmSetSkyOffset would shift every restored line a second time and put the
+     the alignment (removed 2026-08-27) would shift every restored line twice and put the
      whole drawing twice as far off as the picture ever was. It is set here so
      the panel can say so and the NEXT click is corrected. */
   if(m.skyOffset && isFinite(m.skyOffset.e) && isFinite(m.skyOffset.n)){
-    rmSkyOffset = {e: Number(m.skyOffset.e), n: Number(m.skyOffset.n)};
-    rmSkyOffsetSource = m.skyOffset.source || 'saved';
   }
   let restored = 0;
   m.runs.forEach(function(sr){
@@ -21331,7 +21322,7 @@ function rmDot(run, idx){
        and nothing on screen said why. Nothing to grab means nothing to swallow,
        so two lines can sit almost on top of each other - and a mistake costs one
        backspace instead of a drag to put it back. */
-    position: rmSkyUnshift(w.lat, w.lng), map: rmMap, draggable: false, clickable: false,
+    position: {lat: w.lat, lng: w.lng}, map: rmMap, draggable: false, clickable: false,
     zIndex: 6, crossOnDrag: false,
     icon: {path: google.maps.SymbolPath.CIRCLE, scale: 5.5, fillColor: '#fff',
            fillOpacity: 1, strokeColor: RM_TYPES[run.type].color, strokeWeight: 2.5}
@@ -21344,14 +21335,14 @@ function rmDot(run, idx){
        correction before it is stored. Storing it raw would undo the alignment
        for that one point, and the line would walk a few feet further off every
        time somebody nudged it. */
-    const dragged = rmSkyShift(e.latLng.lat(), e.latLng.lng());
+    const dragged = {lat: e.latLng.lat(), lng: e.latLng.lng()};
     run.path[idx].lat = dragged.lat;
     run.path[idx].lng = dragged.lng;
     /* Moved across the roof, so its height moves with it - otherwise dragging a
        point up a gable keeps the height it had at the eave. */
     const dragH = rmRoofHeightAt(run.path[idx].lat, run.path[idx].lng);
     if(dragH !== null) run.path[idx].h = dragH;
-    if(run.line) run.line.setPath(rmSkyPath(run.path));
+    if(run.line) run.line.setPath(run.path.map(function(p){ return {lat: p.lat, lng: p.lng}; }));
     rmRenderResults(); rmPaintStreet();
   };
   mk.addListener('drag', move);
@@ -21363,7 +21354,7 @@ function rmSyncSky(run){
   /* ⚠ PICTURE POSITIONS, NOT TRUE ONES. The tile is displaced; see
      rmSkyUnshift. Drawing the stored point straight puts the line off the
      roof by exactly what the alignment corrected. */
-  const latlngs = rmSkyPath(run.path);
+  const latlngs = run.path.map(function(p){ return {lat: p.lat, lng: p.lng}; });
   const on = rmRunIsOn(run);
   const style = {
     strokeColor: on ? RM_TYPES[run.type].color : '#9aa4b0',
@@ -21440,7 +21431,6 @@ function rmFinishRun(){
      from the top of this function it would be matching everything EXCEPT the
      line just traced - and on the first run of a house that is nothing at
      all. It is silent unless it has something to say. */
-  rmAutoAlign();
   rmRenderResults(); rmPaintStreet();
 }
 
@@ -21494,7 +21484,6 @@ function rmSetDrawing(on){
   /* ⚠ STARTING A RUN CANCELS AN ALIGNMENT. Both want the next click, and
      the more recent instruction wins - otherwise the draw button lights up,
      the office clicks, and the alignment eats it. */
-  if(on && rmAligning) rmCancelAlign();
   rmDrawing = !!on;
   const btn = document.getElementById('rmDrawBtn');
   const hint = document.getElementById('rmDrawHint');
@@ -22272,8 +22261,6 @@ function rmForgetLastHouse(){
      already corrected by somebody else's roof and the panel calls it lined up —
      a wrong answer wearing a measured answer's words. The remembered
      NEIGHBOURS survive; those are re-consulted on load. */
-  rmSkyOffset = null; rmSkyOffsetSource = '';
-  rmAligning = ''; rmAlignSky = null;
   /* ⚠ AND WHETHER THE HEIGHT WAS ANSWERED BY A PERSON. Carried across, the
      second house of a session reports the first house's eave as typed by hand
      and the guess warning stays silent on it. */
@@ -22344,7 +22331,6 @@ async function rmLoadAddress(){
   /* ⚠ AFTER THE RESTORE, NEVER BEFORE. A quote that was measured carries the
      offset it was traced under, and inheriting a neighbour's over the top of it
      would move every restored line off the house it was drawn on. */
-  rmAlignOnLoad();
   rmRenderResults();
   status.textContent = restoredCount
     ? 'Brought back ' + restoredCount + ' side' + (restoredCount === 1 ? '' : 's') +
@@ -22503,493 +22489,31 @@ function rmHeadingTo(lat1, lng1, lat2, lng2){
 }
 /* Screen pixel on the sky view -> world, through the map's own bounds so it
    stays correct at any zoom or centre. */
-/* ================= LINING THE TWO PICTURES UP =====================
+/* ⛔ LINING THE TWO PICTURES UP IS GONE (2026-08-27), and everything under this
+ * heading went with it: rmSkyShift and rmSkyUnshift, rmSetSkyOffset, the
+ * neighbourhood samples, and rmAutoAlign's fit against Google's roof model.
  *
- * ⭐ WHY THIS EXISTS (added 2026-08-25). Owner, on the third go at the same
- * complaint: "This is still wrong. What are other solutions we can look at to
- * get this right?" The two fixes before it were both about HEIGHT and this is
- * about POSITION, which is why neither of them moved it.
+ * ⭐ WHAT IT WAS FOR. Google's aerial imagery is not taken from straight
+ * overhead, so anything with height is drawn displaced from its own footprint -
+ * about six feet on the house that prompted it. Google's ROOF MODEL is in true
+ * positions, so a gutter traced on the picture you can SEE was several feet
+ * from the gutter the model knew about, and a dot placed from above landed
+ * beside the house when it was drawn into Street View.
  *
- * ⚠ THE SATELLITE PICTURE IS NOT WHERE THE HOUSE IS. Google's aerial imagery is
- * not taken from straight overhead — on the house that prompted this you can
- * see a strip of the west WALL and its shadow down the side of the roof, which
- * is only possible if the camera was off to one side. Anything with height is
- * therefore drawn displaced from its own footprint, and measuring that strip
- * against the width of the house put it at about six feet on this roof.
+ * ⭐ WHY IT STOPPED MATTERING. Owner, 2026-08-27: "you shouldnt see the same dot
+ * on both perspectives anymore." That displacement was the price of one dot
+ * having to mean the same place in two pictures. With the roofline traced on the
+ * sky view alone there is no second picture to disagree with, and the offset is
+ * one translation applied to every dot alike - which cannot change the distance
+ * between any two of them, and so cannot change a single foot this tool reports.
+ * The old block said as much itself: "THE FEET WERE NEVER WRONG because of this."
+ * All it could ever fix was which PIXEL a dot sat on, and the eye placing it is
+ * already doing that.
  *
- * Google's ROOF MODEL, which is where every height and every Street View
- * projection comes from, is in true positions. So a gutter traced on the
- * picture you can SEE is several feet from the gutter the model knows about:
- * it lands outside every roof face, it falls back to the eave, and drawn into
- * Street View it appears beside the house rather than on it.
- *
- * ⚠ NO AMOUNT OF HEIGHT WORK FIXES THAT, and no formula does either — Google
- * does not publish the angle its satellite was at, so working the shift out
- * rather than measuring it would be exactly the guess the owner has ruled out
- * twice. It is measured instead, off two clicks she makes herself: the same
- * physical spot in each view. The difference IS the shift.
- *
- * ⚠ WHAT IT REALLY LINES UP is the satellite picture against Google's MODEL of
- * the house, not against the ground truth — the Street View click gets its
- * depth from that model. That is the right target: the model is what draws the
- * lines in Street View and what supplies every height, so agreeing with it is
- * what makes the two views agree with each other.
- *
- * ⚠ AND THE FEET WERE NEVER WRONG because of this. A level gutter traced from
- * above measures true however far the picture is displaced — both ends move
- * together and it cancels, which is the whole reason eaves are traced up there.
- * What was wrong was the picture, and where a run climbed. */
-const RM_ALIGN_MAX_M = 8;     /* ~26 ft: past this they are two different spots */
-/* A raw sky click, moved onto the model. The identity when nobody has lined
-   this house up, so every caller can ask unconditionally. */
-function rmSkyShift(lat, lng){
-  if(!rmSkyOffset || !rmOrigin) return {lat: lat, lng: lng};
-  const m = rmMetresPerDeg(rmOrigin.lat);
-  return {lat: lat + rmSkyOffset.n / m.lat, lng: lng + rmSkyOffset.e / m.lng};
-}
-/* ⭐ THE OTHER DIRECTION, AND IT IS NOT OPTIONAL (added 2026-08-25).
- *
- * ⚠ THE FAULT THIS CLOSES, reported off the same house with a screenshot: after
- * lining up, the traced line no longer sat on the roof IN THE SKY VIEW. It had
- * not gone wrong — it had gone RIGHT, and that is the problem. The stored point
- * is the TRUE position; the satellite tile is the DISPLACED picture. Drawing a
- * true point straight onto a displaced picture puts it off the roof by exactly
- * the amount the alignment just corrected, so the one view that used to look
- * correct started looking broken.
- *
- * ⚠ SO THE MAP DRAWS PICTURE POSITIONS AND THE MODEL HOLDS TRUE ONES. Every
- * world point painted on rmMap goes through here first, and every position read
- * BACK off the map — a dragged dot — goes through rmSkyShift. Get either
- * direction wrong and the drawing walks a few feet further every time somebody
- * touches it.
- *
- * ⚠ AND THIS MAKES LINING UP A NO-OP ON THE SKY VIEW, which is correct and is
- * the whole point: the lines stay exactly where they were clicked, and what
- * moves is the height and where they land in Street View. */
-function rmSkyUnshift(lat, lng){
-  if(!rmSkyOffset || !rmOrigin) return {lat: lat, lng: lng};
-  const m = rmMetresPerDeg(rmOrigin.lat);
-  return {lat: lat - rmSkyOffset.n / m.lat, lng: lng - rmSkyOffset.e / m.lng};
-}
-/* Every path drawn on the sky view, in one place so no caller can forget. */
-function rmSkyPath(path){
-  return (path || []).map(function(p){
-    const q = rmSkyUnshift(p.lat, p.lng);
-    return {lat: q.lat, lng: q.lng};
-  });
-}
-/* How far off this house's picture is, in feet, or 0 when nobody has checked. */
-function rmSkyOffsetFt(){
-  if(!rmSkyOffset) return 0;
-  return Math.hypot(rmSkyOffset.e, rmSkyOffset.n) * RM_M_TO_FT;
-}
-/* ⚠ EVERY LINE ALREADY TRACED FROM ABOVE MOVES WITH IT, and it has to. Those
-   runs were drawn on the displaced picture, so they carry the displacement;
-   leaving them where they are would line up every FUTURE click and leave the
-   existing ones exactly as wrong as before, which reads as the button not
-   working. A run traced in STREET VIEW never moves — its position came from
-   the camera and the model, which is the thing being lined up TO.
-   ⚠ A TYPED SIDE HAS NO PATH AT ALL and must be skipped rather than shifted.
-   ⚠ AND THE HEIGHTS ARE RE-READ AFTER THE MOVE. Landing inside a roof face is
-   the whole point — that is what stops one end of a level gutter reading as the
-   eave while the other reads as the ridge. A point that still finds no face
-   keeps the height it had rather than falling back to a guess. */
-function rmSetSkyOffset(next){
-  const prev = rmSkyOffset || {e: 0, n: 0};
-  const d = {e: next.e - prev.e, n: next.n - prev.n};
-  rmSkyOffset = {e: next.e, n: next.n};
-  if(!rmOrigin) return;
-  const m = rmMetresPerDeg(rmOrigin.lat);
-  rmRuns.forEach(function(r){
-    if(!r || r.surface === 'manual' || r.surface === 'street') return;
-    (r.path || []).forEach(function(p){
-      p.lat += d.n / m.lat;
-      p.lng += d.e / m.lng;
-      const h = rmRoofHeightAt(p.lat, p.lng);
-      if(h !== null) p.h = h;
-    });
-    rmSyncSky(r);
-  });
-  rmRenderResults();
-  rmPaintStreet();
-}
-function rmAlignNote(msg){
-  const el = document.getElementById('rmAlignNote');
-  if(el) el.textContent = msg;
-  /* ⚠ AND ON THE PANES THEMSELVES. The sidebar is not where somebody is
-     looking while they click a roof, and this mode takes every click on both
-     views - so a message only in the panel is a mode with no visible state,
-     which is exactly how it read as the tool being broken. */
-  const line = rmAligning
-    ? (rmAligning === 'sky'
-        ? 'LINING UP - click one spot on the SKY VIEW. Esc to stop.'
-        : 'LINING UP - now the SAME spot in STREET VIEW. Esc to stop.')
-    : '';
-  ['rmStatus', 'rmCornerNote'].forEach(function(id){
-    const n = document.getElementById(id);
-    if(n && (line || /^LINING UP/.test(n.textContent))) n.textContent = line || msg;
-  });
-}
-/* What the panel says when nothing is being asked of anybody. */
-function rmAlignIdleNote(){
-  if(!rmSkyOffset) return 'Not checked on this house. Until it is, a line traced from above may draw in the wrong place in Street View.';
-  const ft = rmSkyOffsetFt();
-  /* ⚠ IT SAYS WHERE THE ANSWER CAME FROM, every time. Measured off two
-     clicks, worked out from the roof model, or carried over from a neighbour
-     are three different levels of confidence, and a note that reads the same
-     for all three is a fit wearing a measurement's words. */
-  const how = rmSkyOffsetSource === 'fitted'
-    ? ' Worked out from the roof model rather than measured — press Line them up if the lines look wrong in Street View.'
-    : rmSkyOffsetSource === 'inherited'
-    ? ' Carried over from a house nearby, not measured here.'
-    : '';
-  return (ft < 1
-    ? 'Lined up — the satellite picture was already within a foot of the model. Nothing needed moving.'
-    : 'Lined up — the satellite picture sits ' + (Math.round(ft * 10) / 10) +
-      ' ft off, and every line traced from above is corrected by that.') + how;
-}
-function rmCancelAlign(){
-  rmAligning = ''; rmAlignSky = null;
-  rmAlignNote(rmAlignIdleNote());
-  rmSetAlignBtn();
-}
-function rmSetAlignBtn(){
-  const b = document.getElementById('rmAlignBtn');
-  if(!b) return;
-  b.textContent = rmAligning ? 'Cancel' : (rmSkyOffset ? 'Line them up again' : 'Line them up');
-}
-/* The sky half. Taken through the SAME correction as an ordinary click, so a
-   second pass measures what is still left over rather than starting from
-   scratch — which is what makes "line them up again" converge instead of
-   swinging back and forth. */
-function rmAlignTakeSky(world){
-  if(!rmOrigin) return;
-  rmAlignSky = rmToLocal(world.lat, world.lng, 0);
-  rmAligning = 'street';
-  rmAlignNote('Got it. Now click the SAME spot in Street View — the same corner, the same brick.');
-}
-/* The street half, and the answer. */
-function rmAlignTakeStreet(local){
-  if(!rmAlignSky || !local){ rmAlignNote('That click did not land on the house — try the corner itself.'); return; }
-  const res = {e: local.e - rmAlignSky.e, n: local.n - rmAlignSky.n};
-  const gap = Math.hypot(res.e, res.n);
-  /* ⚠ REFUSED RATHER THAN APPLIED. Past this the two clicks are not the same
-     spot on the same house, and accepting it would drag every line traced from
-     above twenty-odd feet sideways off one mis-click — silently, and in a way
-     that looks exactly like the tool working. */
-  if(gap > RM_ALIGN_MAX_M){
-    rmAligning = ''; rmAlignSky = null;
-    rmSetAlignBtn();
-    rmAlignNote('Those two clicks are ' + Math.round(gap * RM_M_TO_FT) +
-      ' ft apart, which is too far to be the same spot. Nothing was changed — try again on a corner you can pick out in both pictures.');
-    return;
-  }
-  /* ⭐ THE SAME CLICK MEASURES THE ROOF HEIGHT (added 2026-08-25).
-   * ⚠ THE FAULT THIS CLOSES, read off a real house's rmDebug: the picture was
-   * lined up correctly and the lines still drew feet below the gutter, because
-   * the ROOF HEIGHT was the assumed one-storey eave on a two-storey house. The
-   * office had traced entirely on the sky view, so nothing in Street View had
-   * ever been clicked and the datum had never been measured. Lining up is the
-   * one moment somebody clicks the house from the street on purpose, so the
-   * height is free — and asking for a second, identical click afterwards would
-   * be asking for work the tool has already been given.
-   * ⚠ FROM A WALL HIT ONLY. A wall crossing gets its height from the camera and
-   * the ray, geometry that knows nothing about the datum, so it can set one. A
-   * ROOF crossing gets its height FROM the datum, so setting the datum off it
-   * would be measuring the assumption and calling it a measurement — the same
-   * circular move the dot path already refuses.
-   * ⚠ AND BEFORE THE OFFSET IS APPLIED, because applying it re-reads every
-   * height. Done the other way round the lines are corrected against the old
-   * datum and have to be corrected again. */
-  let measuredEave = false;
-  if(local.kind === 'wall' && rmDatumSource !== 'street' &&
-     rmSetDatumFromStreet(rmToWorld({e: local.e, n: local.n, u: local.u}))){
-    measuredEave = true;
-  }
-  /* ⚠ THE MODE IS CLEARED BEFORE THE WORK, NOT AFTER. Anything below can
-     throw - Google objects, a repaint - and clearing afterwards would leave
-     the tool silently eating every click on both views with no way out but a
-     reload. The answer is already computed, so nothing is lost by ending the
-     mode first. */
-  rmAligning = ''; rmAlignSky = null;
-  rmSkyOffsetSource = 'measured';
-  rmSetAlignBtn();
-  const prev = rmSkyOffset || {e: 0, n: 0};
-  rmSetSkyOffset({e: prev.e + res.e, n: prev.n + res.n});
-  if(measuredEave) rmRefreshHeights();
-  const moved = Math.hypot(res.e, res.n) * RM_M_TO_FT;
-  const eaveNote = measuredEave
-    ? ' The roof height was measured from that same click — ' +
-      Math.round(rmDatum().m * RM_M_TO_FT) + ' ft to the lowest eave.'
-    : (rmDatum().source === 'assumed'
-        ? ' ⚠ The roof height is still ASSUMED, so the lines will sit at the wrong HEIGHT even now they are in the right place. Trace one line in Street View, or type the eave height, to fix that. Your footage is unaffected — a level gutter measures true either way.'
-        : '');
-  rmAlignNote((moved < 1
-    ? 'Already lined up — those two clicks were within a foot of each other, so nothing needed moving.'
-    : 'Lined up. The satellite picture was ' + (Math.round(moved * 10) / 10) +
-      ' ft out; every line traced from above has been moved to match, and so will every new one.') + eaveNote);
-  /* ⚠ REMEMBERED FOR THE NEIGHBOURS, and only from a real measurement — an
-     inherited offset must never be written back as a fresh sample or one
-     house's answer would copy itself down the street gaining authority at
-     every step, with nothing left saying where it actually came from. */
-  if(rmOrigin) rmAlignSaveSample({lat: rmOrigin.lat, lng: rmOrigin.lng}, rmSkyOffset);
-}
-/* ================= AND IT REMEMBERS =====================
- *
- * ⭐ ONCE A STREET, NOT ONCE A HOUSE (added 2026-08-25). Owner: "is there a way
- * you can make sure everything is lined up perfectly when you bring up the
- * pictures so there isn't a ton of readjusting".
- *
- * ⚠ THE SHIFT BELONGS TO THE PHOTOGRAPH, NOT TO THE HOUSE. It comes from the
- * angle Google's satellite was at when it flew over, so every roof on the same
- * pass leans the same way by roughly the same amount. Measuring it on one house
- * therefore answers it for the neighbours — which is what turns this from a
- * chore on every quote into something done once and then inherited.
- *
- * ⚠ INHERITED IS NOT MEASURED, AND IT SAYS SO. A carried-over offset is applied
- * and then named on screen as carried over, with the button still there to
- * measure it properly. Applying it silently would be a guess wearing the same
- * words as a measurement, which is the one thing this whole tool is not allowed
- * to do — and a saved figure that cannot be told from a fresh one is exactly
- * how a wrong one survives.
- *
- * ⚠ AND IT ONLY REACHES A MILE. Past that it is a different flight line and a
- * different lean, and a confidently wrong correction is worse than none.
- * ⚠ A HOUSE THAT WAS MEASURED KEEPS ITS OWN ANSWER. The saved drawing carries
- * the offset it was traced under, so reopening a quote never inherits over the
- * top of what somebody actually checked. */
-const RM_ALIGN_INHERIT_M = 1600;    /* ~1 mile: one satellite pass, one lean */
-const RM_ALIGN_SAME_SPOT_M = 60;    /* nearer than this and it is the same sample */
-const RM_ALIGN_SAMPLE_MAX = 300;
-let rmAlignSamples = null;          /* null until read; [] means read and empty */
-let rmSkyOffsetSource = '';         /* '' | 'measured' | 'inherited' | 'saved' */
-function rmAlignMetresApart(a, b){
-  const m = rmMetresPerDeg(a.lat);
-  return Math.hypot((b.lng - a.lng) * m.lng, (b.lat - a.lat) * m.lat);
-}
-async function rmAlignLoadSamples(){
-  if(rmAlignSamples) return rmAlignSamples;
-  try{
-    const snap = await getDoc(doc(db, 'settings', 'measureAlign'));
-    const d = snap.exists() ? (snap.data() || {}) : {};
-    rmAlignSamples = Array.isArray(d.samples) ? d.samples.filter(function(s){
-      return s && isFinite(s.lat) && isFinite(s.lng) && isFinite(s.e) && isFinite(s.n);
-    }) : [];
-  } catch(err){
-    /* ⚠ AN EMPTY LIST, NEVER A THROWN LOAD. Not being able to read the memory
-       means this house is lined up by hand like the first one was; it must not
-       stop the measure tool opening. */
-    console.error('Measure: could not read the saved alignments —', err);
-    rmAlignSamples = [];
-  }
-  return rmAlignSamples;
-}
-function rmAlignNearest(here, list){
-  let best = null;
-  (list || []).forEach(function(s){
-    const d = rmAlignMetresApart(here, s);
-    if(!best || d < best.m) best = {s: s, m: d};
-  });
-  return best;
-}
-async function rmAlignSaveSample(here, off){
-  if(!here || !off) return;
-  const list = (await rmAlignLoadSamples()).filter(function(s){
-    /* ⚠ REPLACED, NOT STACKED. Re-doing the same street would otherwise leave
-       the old answer sitting beside the new one, and which of the two a later
-       house inherited would come down to which happened to be nearer. */
-    return rmAlignMetresApart(here, s) > RM_ALIGN_SAME_SPOT_M;
-  });
-  list.push({lat: here.lat, lng: here.lng, e: off.e, n: off.n, at: new Date().toISOString()});
-  /* Newest first, and bounded — an unbounded array in one document eventually
-     stops being writable at all. */
-  const keep = list.slice(-RM_ALIGN_SAMPLE_MAX);
-  rmAlignSamples = keep;
-  try{ await setDoc(doc(db, 'settings', 'measureAlign'), {samples: keep}, {merge: true}); }
-  catch(err){ console.error('Measure: could not save the alignment for next time —', err); }
-}
-/* Called once the house is on screen. Either says what was restored, or goes
-   looking for a neighbour to inherit from. */
-async function rmAlignOnLoad(){
-  rmSetAlignBtn();
-  if(rmSkyOffset){
-    rmSkyOffsetSource = rmSkyOffsetSource || 'saved';
-    rmAlignNote(rmAlignIdleNote());
-    return;
-  }
-  if(!rmOrigin){ rmAlignNote(rmAlignIdleNote()); return; }
-  const near = rmAlignNearest(rmOrigin, await rmAlignLoadSamples());
-  /* ⚠ THE HOUSE MAY HAVE CHANGED UNDERNEATH THIS. The read is asynchronous and
-     the office can load another address while it is in flight, so anything
-     decided since wins — applying a stale neighbour's offset over a fresh
-     measurement is the one way this can make a house worse. */
-  if(!near || near.m > RM_ALIGN_INHERIT_M || rmSkyOffset){
-    rmAlignNote(rmAlignIdleNote());
-    return;
-  }
-  rmSetSkyOffset({e: near.s.e, n: near.s.n});
-  rmSkyOffsetSource = 'inherited';
-  rmSetAlignBtn();
-  rmAlignNote('Lined up from a house ' + rmAlignMilesWord(near.m) + ' away — ' +
-    (Math.round(rmSkyOffsetFt() * 10) / 10) + ' ft. That was measured there, not here, ' +
-    'so check it against a corner if the lines look off.');
-}
-function rmAlignMilesWord(metres){
-  const ft = metres * RM_M_TO_FT;
-  if(ft < 600) return Math.round(ft) + ' ft';
-  return (Math.round(ft / 528) / 10) + ' miles';
-}
-/* ================= LINING UP WITHOUT BEING ASKED =====================
- *
- * ⭐ WHY THIS EXISTS (added 2026-08-25). Owner: "Can we get it to be
- * automatically lined up when I open it instead of having to push line up?"
- *
- * ⚠ THE HONEST LIMIT FIRST. Nothing can line the picture up before anything
- * is drawn. The only things that know where the roof APPEARS in a satellite
- * photograph are a person looking at it and image analysis this tool does not
- * have - Google publishes neither the angle its satellite was at nor where the
- * roof landed on the tile. A second house near one already measured inherits
- * the answer, so the gap was only ever the FIRST house in an area.
- *
- * ⭐ AND THE FIRST LINE TRACED CLOSES IT. Google's roof model gives the
- * gutter of every face in TRUE positions; the office traces the gutter it can
- * SEE. Those are the same gutters, so the shift that makes them coincide IS the
- * displacement - measured, from two things already on screen, with nothing
- * guessed and no extra click.
- *
- * ⚠ IT REFUSES FAR MORE READILY THAN IT ACCEPTS. A fit that is merely the
- * best of a bad set is worse than none, because it would move every line by a
- * few feet and say it had lined the house up. It takes an answer only when the
- * traced line ends up genuinely ON a model gutter and is meaningfully closer
- * than it was, and otherwise says so and leaves the house alone. */
-const RM_FIT_COARSE_M = 1.0;        /* first pass step */
-const RM_FIT_FINE_M = 0.2;          /* second pass step, around the winner */
-const RM_FIT_MAX_RESID_M = 1.2;     /* ~4 ft: past this it did not land on a gutter */
-const RM_FIT_MIN_GAIN = 0.4;        /* and it has to be 40% better than doing nothing */
-const RM_FIT_MAX_SAMPLES = 80;
-/* The model's own gutter lines, in the local frame. ⚠ THE SAME rmFaceEave
-   THE SUGGESTED RUNS COME FROM - a second opinion about which edge of a face is
-   the gutter is how the fit and the suggestions start disagreeing about the
-   same roof. */
-function rmModelEaveSegs(){
-  const out = [];
-  if(!rmOrigin) return out;
-  (rmFaces || []).forEach(function(f){
-    const line = rmFaceEave(f);
-    if(!line || !line.a || !line.b) return;
-    const a = rmToLocal(line.a.lat, line.a.lng, 0);
-    const b = rmToLocal(line.b.lat, line.b.lng, 0);
-    if(Math.hypot(b.e - a.e, b.n - a.n) < 1) return;
-    out.push({a: a, b: b});
-  });
-  return out;
-}
-/* Points along everything traced from above, about a metre apart. ⚠ SAMPLED
-   ALONG THE SEGMENTS, not just at the ends: the ends of a well-traced gutter
-   are its two corners, and a corner sits near the end of TWO model edges, so
-   fitting on ends alone is nearly indifferent to sliding along the roof. */
-function rmTracedSamples(runs){
-  const out = [];
-  (runs || []).forEach(function(r){
-    if(!r || r.surface === 'manual' || r.surface === 'street') return;
-    const path = r.path || [];
-    for(let i = 1; i < path.length; i++){
-      const a = rmToLocal(path[i-1].lat, path[i-1].lng, 0);
-      const b = rmToLocal(path[i].lat, path[i].lng, 0);
-      const len = Math.hypot(b.e - a.e, b.n - a.n);
-      const steps = Math.max(1, Math.min(RM_FIT_MAX_SAMPLES, Math.round(len)));
-      for(let k = 0; k <= steps; k++){
-        const t = k / steps;
-        out.push({e: a.e + (b.e - a.e)*t, n: a.n + (b.n - a.n)*t});
-      }
-    }
-  });
-  return out.slice(0, RM_FIT_MAX_SAMPLES);
-}
-function rmFitResidual(samples, segs, de, dn){
-  let total = 0;
-  for(let i = 0; i < samples.length; i++){
-    const p = {e: samples[i].e + de, n: samples[i].n + dn};
-    let best = Infinity;
-    for(let j = 0; j < segs.length; j++){
-      const d = rmDistToSegment(p, segs[j].a, segs[j].b);
-      if(d < best) best = d;
-    }
-    total += best;
-  }
-  return total / samples.length;
-}
-/* ⚠ COARSE THEN FINE, not one fine sweep. A quarter-metre grid over the
-   whole allowance is four thousand passes over every sample and every edge, on
-   the click that ends a run - slow enough to feel like the tool hanging. */
-function rmFitSkyOffset(runs){
-  /* ⛔ A RUN BUILT FROM CORNERS IS NOT EVIDENCE, and this is the guard rather
-     than the comment. Measured on 209 S 850 W, 2026-08-26: three dots across a
-     front gable fitted an offset of 19.2 ft where the real displacement is about
-     six, and drew every dot off the building. The fit matches traced lines
-     against the model's EAVE segments; a corner run over a gable is two RAKES
-     and a peak, so it is being matched against edges it does not lie along and
-     the minimum goes soft. A soft minimum still reports a confident number.
-     Only a hand-traced side — long, straight, and actually a gutter — carries
-     enough to fit against. */
-  const usable = (runs || []).filter(function(r){ return r && !r.fromCorners; });
-  const segs = rmModelEaveSegs();
-  const samples = rmTracedSamples(usable);
-  if(segs.length < 2 || samples.length < 2) return null;
-  const base = rmFitResidual(samples, segs, 0, 0);
-  let best = {e: 0, n: 0, resid: base};
-  const sweep = function(cx, cn, step, span){
-    for(let de = cx - span; de <= cx + span + 1e-9; de += step){
-      for(let dn = cn - span; dn <= cn + span + 1e-9; dn += step){
-        if(Math.hypot(de, dn) > RM_ALIGN_MAX_M) continue;
-        const r = rmFitResidual(samples, segs, de, dn);
-        if(r < best.resid - 1e-9) best = {e: de, n: dn, resid: r};
-      }
-    }
-  };
-  sweep(0, 0, RM_FIT_COARSE_M, RM_ALIGN_MAX_M);
-  sweep(best.e, best.n, RM_FIT_FINE_M, RM_FIT_COARSE_M);
-  return {e: best.e, n: best.n, resid: best.resid, before: base,
-          edges: segs.length, samples: samples.length};
-}
-/* ⚠ THE ACCEPTANCE TEST IS THE WHOLE SAFETY ARGUMENT, and it is deliberately
-   hard to pass. Two independent conditions, because either alone is satisfied
-   by a bad fit: the line has to END UP on a gutter (residual), and it has to be
-   meaningfully better than leaving it alone (gain). A roof the model describes
-   badly, or a run traced somewhere that is not a gutter, fails both. */
-function rmFitIsGood(fit){
-  if(!fit) return false;
-  if(!(fit.resid < RM_FIT_MAX_RESID_M)) return false;
-  if(!(Math.hypot(fit.e, fit.n) > 0.3)) return false;   /* nothing to correct */
-  return fit.before > 0 && (fit.before - fit.resid) / fit.before >= RM_FIT_MIN_GAIN;
-}
-/* Called when a run is finished. Silent when there is nothing to say. */
-function rmAutoAlign(){
-  /* ⚠ NEVER OVER AN ANSWER SOMEBODY ALREADY GAVE. A measured alignment is a
-     person saying where a spot is; a fit is arithmetic about a model. */
-  if(rmSkyOffset || rmAligning) return;
-  let fit = null;
-  try{ fit = rmFitSkyOffset(rmRuns); }
-  catch(err){ console.error('Measure: could not fit the picture to the roof model -', err); return; }
-  if(!rmFitIsGood(fit)){
-    if(fit && fit.resid >= RM_FIT_MAX_RESID_M){
-      rmAlignNote('Could not line the picture up from that line - it did not land on any gutter Google knows about. ' +
-        'Press Line them up and click one corner in both views.');
-    }
-    return;
-  }
-  rmSetSkyOffset({e: fit.e, n: fit.n});
-  rmSkyOffsetSource = 'fitted';
-  rmSetAlignBtn();
-  rmAlignNote('Lined up on its own - the satellite picture sits ' +
-    (Math.round(Math.hypot(fit.e, fit.n) * RM_M_TO_FT * 10) / 10) +
-    ' ft off, worked out by matching what you traced to Google\u2019s roof model. ' +
-    'That is arithmetic, not a measurement: press Line them up if the lines look wrong in Street View.');
-  /* ⚠ NOT REMEMBERED FOR THE NEIGHBOURS. Only a measured answer is written
-     back as a sample - a fit copying itself down the street would gain the
-     authority of a measurement at every step with nothing left saying where it
-     came from. */
-}
+ * ⚠ IF DOTS EVER HAVE TO APPEAR IN TWO PICTURES AGAIN, this is the problem that
+ * comes back, and it is not solvable by formula - Google does not publish the
+ * angle its satellite was at. It was measured off two clicks on one spot, and
+ * that is still the only honest way. */
 function rmMapPixelToWorld(clientX, clientY, rect){
   const b = rmMap.getBounds();
   if(!b) return null;
@@ -23008,7 +22532,7 @@ function rmMapPixelToWorld(clientX, clientY, rect){
      outside every roof face and falls back to the eave; the corrected one lands
      inside the face it belongs to, which is the difference between a level
      gutter reading level and reading as a rake. */
-  const shifted = rmSkyShift(latRaw, lngRaw);
+  const shifted = {lat: latRaw, lng: lngRaw};
   const lat = shifted.lat, lng = shifted.lng;
   /* ⚠ THE ROOF'S OWN HEIGHT AT THIS SPOT, not one flat number for the whole
      run. This is what makes a traced rake come out as the hypotenuse rather
@@ -23317,7 +22841,7 @@ function rmComposeCapture(){
     } else {
       /* ⚠ The captured sky image IS the displaced tile, so the same un-shift
          the live map uses applies to what is drawn on it. */
-      pts = rmSkyPath(r.path).map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
+      pts = r.path.map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
     }
     drawRun(pts, RM_TYPES[r.type].color);
   });
@@ -23394,10 +22918,6 @@ function rmReset(){
      LAST one's imagery leaned — and the panel would call it lined up. The
      saved list of neighbours is not cleared: that is the memory, and it is
      re-consulted for the new address on load. */
-  rmSkyOffset = null; rmSkyOffsetSource = '';
-  rmAligning = ''; rmAlignSky = null;
-  rmSetAlignBtn();
-  rmAlignNote(rmAlignIdleNote());
   rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
   rmShots = []; rmCrop = null; rmCropDrag = null;
   /* Unticked with the rest — the box is markup, and markup belongs to the
@@ -23663,9 +23183,6 @@ function openRoofMeasure(quoteId){
         ? {ft: +rmModelShiftFt.toFixed(1), e: +rmModelShift.e.toFixed(2),
            n: +rmModelShift.n.toFixed(2), residIn: +rmModelShiftResidIn.toFixed(1)}
         : null,
-      skyOffset: rmSkyOffset
-        ? {ft: +(rmSkyOffsetFt().toFixed(1)), e: +rmSkyOffset.e.toFixed(2),
-           n: +rmSkyOffset.n.toFixed(2), source: rmSkyOffsetSource || 'measured'}
         : null,
       runs: rmRuns.map(function(r, i){
         /* ⚠ THE HEIGHT SPREAD ALONG THE RUN, spelled out. A gutter is level, so
@@ -23714,11 +23231,6 @@ function openRoofMeasure(quoteId){
     /* ⚠ AHEAD OF EVERY OTHER MEANING A CLICK CAN HAVE. Lining the pictures up
        borrows the same two clicks tracing uses, so a stray point must not be
        added to a run while the tool is waiting for one of them. */
-    if(rmAligning === 'sky'){ rmAlignTakeSky(w); return; }
-    if(rmAligning === 'street'){
-      rmAlignNote('That was the sky side again — the tool is waiting for the STREET VIEW click now.');
-      return;
-    }
     if(rmCornerMode === 'dot' && !rmDrawing){
       /* ⭐ A CLICK UP HERE PLACES A CORNER — THE SAME CORNER THE STREET
          VIEW PLACES (2026-08-25). Owner: "I place a dot in sky view and its a
@@ -23741,7 +23253,7 @@ function openRoofMeasure(quoteId){
          camera moves.
 
          ⭐ WHAT CHANGED IS THAT THE HEIGHT IS NO LONGER INVENTED HERE.
-         rmMapPixelToWorld corrects the tile displacement first (rmSkyShift) and
+         rmMapPixelToWorld is the single door in for a sky click, and it
          then reads the ROOF'S OWN height at that spot out of Google's planes,
          falling back to the working height only where there is no plane. Both
          of those postdate the ruling.
@@ -24423,8 +23935,7 @@ function openRoofMeasure(quoteId){
          nothing at all - and pressing the draw button did not help, because
          the click after it was swallowed too. Escape is the way out of
          everything else here and it has to be the way out of this. */
-      if(rmAligning){ rmCancelAlign(); }
-      else if(rmWallPicking){ rmWallPicking = false; rmWallPts = []; rmSetDrawing(false); rmPaintStreet(); }
+      if(rmWallPicking){ rmWallPicking = false; rmWallPts = []; rmSetDrawing(false); rmPaintStreet(); }
       else if(rmDrawing) rmSetDrawing(false);
       else document.getElementById('rmCloseBtn').click();
     } else if(k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown'){
