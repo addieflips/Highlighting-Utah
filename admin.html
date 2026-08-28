@@ -17295,6 +17295,15 @@ function rmBuildWhenReady(){
   return guessed;
 }
 let rmRoofGrade = '';           /* what Google's roof model graded this house */
+/* ⚠ ONCE THE OFFICE HAS PICKED A DIFFICULTY, NOTHING PICKS ANOTHER ONE.
+   The grade re-cuts itself as peaks are measured, and a re-cut that quietly
+   overwrote a grade somebody had chosen by hand would be the tool arguing
+   with them about the price. Set by the dropdown's own change handler. */
+let rmGradeTouched = false;
+/* ⚠ THE EAVE HEIGHT IS MEASURED ONCE, ON LOAD, AND EVERY LATER RE-CUT NEEDS
+   IT. Left out, confirming a peak would re-grade a two-storey house as if it
+   had no eave height at all and quietly drop it a grade. */
+let rmEaveFtForGrade = 0;
 let rmRoofFacts = null;         /* kept so the grade can be re-cut once the eave height lands */
 let rmFaces = [];               /* Google's roof faces, the guessed lines come from these */
 let rmGroundM = null;           /* ground level at the house, so plane heights become heights */
@@ -17530,12 +17539,21 @@ function rmRay(px, py, W, H, pov){
  * pano it was placed in and is drawn only there. Walking away and back brings
  * them back; it does not smear them across the road. */
 let rmStreetDots = [];
+/* ⭐ A STRAND IN THE PICTURE TOO (2026-08-28). Owner: "when I click enter on
+   street view that should also mean end of strand." Enter already ended a
+   strand up in the sky view and did nothing down here, because street marks
+   had no strand to end - every dot joined to the one before it, for ever. So
+   marking the top of the house and then the bottom drew a line between the
+   two, straight across the picture: the same line down the middle of the roof
+   that rmCornersToRun exists to prevent, in the other view. */
+let rmStreetBand = 0;
 let rmLastPane = 'sky';   /* which picture the last dot went into, so backspace knows */
 
 function rmStreetDotFromPixel(px, py, W, H, pov){
   const d = rmRay(px, py, W, H, pov);
   if(!d) return null;
-  return {e: d.e, n: d.n, u: d.u, pano: (rmPano && rmPano.getPano) ? rmPano.getPano() : ''};
+  return {e: d.e, n: d.n, u: d.u, band: rmStreetBand,
+          pano: (rmPano && rmPano.getPano) ? rmPano.getPano() : ''};
 }
 /* Back to a pixel. Null when it is behind the camera or off the edge - the
    same forward-facing test rmSvProject makes, for the same reason. */
@@ -17559,6 +17577,18 @@ function rmAddStreetDot(dot){
   rmStreetDotNote();
   return true;
 }
+/* ⚠ AN EMPTY STRAND IS NOT A STRAND, and it is scoped to THIS panorama for the
+   same reason the dots are: a strand left open at the last camera is not one
+   you can finish from this one. Pressing enter twice does nothing the second
+   time rather than opening a run of nothing. */
+function rmEndStreetStrand(){
+  const here = rmStreetDotsHere();
+  if(!here.some(function(d){ return (d.band || 0) === rmStreetBand; })) return false;
+  rmStreetBand++;
+  rmPaintStreet();
+  rmStreetDotNote();
+  return true;
+}
 function rmDeleteLastStreetDot(){
   const here = rmStreetDotsHere();
   if(!here.length) return false;
@@ -17571,7 +17601,7 @@ function rmStreetDotNote(){
   const el = document.getElementById('rmStreetNote');
   if(!el) return;
   const n = rmStreetDotsHere().length;
-  el.textContent = n ? (n + (n === 1 ? ' mark' : ' marks') + ' — backspace takes one back') : '';
+  el.textContent = n ? (n + (n === 1 ? ' mark' : ' marks') + ' — enter ends the strand, backspace takes one back') : '';
 }
 function rmPanoPov(){
   if(!rmPano) return {heading:0, pitch:0, zoom:1};
@@ -21219,16 +21249,61 @@ function rmRunIsOn(r){ return r && r.on !== false; }
 
    A strand is a run of string, and a run switched OFF is not one - nobody hangs
    it, so it is not work. */
+/* The grades actually read off the photograph - each peak's own, plus a
+   whole-roof one set by hand. Falls back to Google's model when nothing has
+   been measured yet, so the first grade on load is unchanged. */
+/* ⭐ RE-CUT THE GRADE FROM WHAT IS KNOWN NOW (2026-08-28). Owner: "the
+   difficulty can automatically change as you find the grade for peaks."
+   ⚠ ONE FUNCTION, because this happens at three different moments - the eave
+   height arriving, a peak being confirmed, and the first load - and three
+   copies of it would eventually disagree about the same roof. */
+function rmRegrade(extra){
+  if(!rmRoofFacts) return null;
+  const g = gradeRoof(rmGradeInputs(extra || {}));
+  rmRoofGrade = g.level;
+  const why = document.getElementById('rmGradeWhy');
+  if(why) why.textContent = g.why;
+  /* Said either way; only APPLIED while the office has not chosen for itself. */
+  if(!rmGradeTouched){
+    const sel = document.getElementById('rmDifficulty');
+    if(sel && sel.value !== g.level){ sel.value = g.level; rmSaveGrade(); }
+  }
+  return g;
+}
+function rmMeasuredGrades(){
+  const f = rmRoofFacts || {};
+  const got = [];
+  (rmPeaks || []).forEach(function(p){ if(p && isFinite(p.grade) && p.grade > 0) got.push(Number(p.grade)); });
+  if(isFinite(rmGradeSet) && rmGradeSet > 0) got.push(Number(rmGradeSet));
+  if(!got.length) return {max: f.maxGrade, typical: f.typicalGrade, steepShare: f.steepShare, measured: 0};
+  const sorted = got.slice().sort(function(a,b){ return a - b; });
+  /* ⚠ THE MIDDLE ONE, NOT THE AVERAGE. One steep dormer among five ordinary
+     runs should not re-price the whole house; the steep SHARE below is what
+     carries that, exactly as it does for Google's numbers. */
+  const mid = sorted.length % 2
+    ? sorted[(sorted.length - 1) / 2]
+    : (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2;
+  const steep = sorted.filter(function(v){ return v >= RM_HARD_GRADE; }).length;
+  return {max: sorted[sorted.length - 1], typical: mid,
+          steepShare: steep / sorted.length, measured: sorted.length};
+}
 function rmGradeInputs(extra){
   const f = rmRoofFacts || {};
   const on = (rmRuns || []).filter(function(r){ return rmRunIsOn(r); });
   const bands = {};
   (rmCorners || []).forEach(function(c){ if(c && c.on) bands[c.band || 0] = 1; });
   const strands = on.length + Object.keys(bands).length;
-  const t = rmTotals();
+  /* ⭐ A GRADE SHE MEASURED BEATS THE ONE GOOGLE GUESSED (2026-08-28). Owner:
+     "the difficulty can automatically change as you find the grade for peaks".
+     Every peak carries the grade that was read off the street photo, so once
+     any of them is confirmed the roof no longer has to be described by a
+     satellite model. ⚠ MEASURED ONES ONLY - a peak nobody has graded yet
+     contributes nothing rather than a zero, which would drag the average down
+     and quietly make every part-measured house look flat. */
+  const g = rmMeasuredGrades();
   return Object.assign({
-    maxGrade: f.maxGrade, typicalGrade: f.typicalGrade, steepShare: f.steepShare,
-    peakCount: f.peakCount, feet: t.all, strands: strands
+    maxGrade: g.max, typicalGrade: g.typical, steepShare: g.steepShare,
+    peakCount: f.peakCount, strands: strands
   }, extra || {});
 }
 function rmTotals(){
@@ -22507,7 +22582,8 @@ function rmPaintStreet(){
   const pov = rmPanoPov();
   const parts = [];
   const pts = [];
-  rmStreetDotsHere().forEach(function(d){
+  const here = rmStreetDotsHere();
+  here.forEach(function(d){
     const q = rmStreetDotPixel(d, W, H, pov);
     pts.push(q);          /* null keeps the numbering honest when one is off screen */
   });
@@ -22517,6 +22593,8 @@ function rmPaintStreet(){
   for(let i = 1; i < pts.length; i++){
     const a = pts[i-1], b = pts[i];
     if(!a || !b) continue;
+    /* the break between two strands is the whole point of ending one */
+    if((here[i].band || 0) !== (here[i-1].band || 0)) continue;
     parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
       '" stroke="rgba(0,0,0,.45)" stroke-width="4" stroke-linecap="round"/>');
     parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
@@ -22673,7 +22751,7 @@ function rmMeasureGroundDrop(){
    when something new is remembered. */
 function rmForgetLastHouse(){
   /* The marks belong to one house's photograph and mean nothing on the next. */
-  rmStreetDots = []; rmLastPane = 'sky';
+  rmStreetDots = []; rmStreetBand = 0; rmLastPane = 'sky';
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
   rmModelShift = null; rmModelShiftFt = 0; rmModelShiftResidIn = 0;
@@ -22884,13 +22962,8 @@ async function rmLoadAddress(){
             /* NOW the eave height is known, so the grade is re-cut with it -
                a two-storey eave is a harder day than the pitch alone says, and
                fetchRoofDetails had nothing to work that out from. */
-            if(rmRoofFacts){
-              const g = gradeRoof(rmGradeInputs({eaveFt: eave * RM_M_TO_FT}));
-              rmRoofGrade = g.level;
-              const sel2 = document.getElementById('rmDifficulty');
-              if(sel2) sel2.value = g.level;
-              document.getElementById('rmGradeWhy').textContent = g.why;
-            }
+            rmRegrade({eaveFt: eave * RM_M_TO_FT});
+            rmEaveFtForGrade = eave * RM_M_TO_FT;   /* so a later re-cut keeps it */
             rmApplyTypeHeight();
             /* Only if nothing has been switched or dragged yet - re-guessing
                over somebody's picks would throw their work away. */
@@ -23432,6 +23505,7 @@ function openRoofMeasure(quoteId){
      ⚠ AND IT IS A DOTTED-PATH WRITE. Assigning a whole `measurement` object
      here would flatten the saved drawing to one field. */
   document.getElementById('rmDifficulty').addEventListener('change', function(){
+    rmGradeTouched = true;      /* their answer now, not the tool's */
     rmRenderResults();
     rmSaveGrade();
   });
@@ -23964,6 +24038,8 @@ function openRoofMeasure(quoteId){
     const pk = rmPeaks[rmGradeFor];
     if(isFinite(g) && g > 0){
       if(pk) pk.grade = g; else rmGradeSet = g;
+      /* ⭐ HER OWN ASK: the difficulty follows the grades as they are found. */
+      rmRegrade(rmEaveFtForGrade ? {eaveFt: rmEaveFtForGrade} : {});
       rmRenderResults();
       const note = document.getElementById('rmPeakNote');
       if(note && pk) note.textContent = 'Peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b) +
@@ -24482,6 +24558,11 @@ function openRoofMeasure(quoteId){
          top of a house and the bottom are separate runs of string, so a dot has
          to be able to say which run it belongs to. */
       e.preventDefault();
+      /* ⚠ WHICHEVER PICTURE YOU WERE LAST IN, exactly as backspace already
+         decides below. Testing rmCorners first sent every enter to the sky
+         view, so enter in Street View fell through and toggled drawing mode
+         instead - which is what she reported. */
+      if(rmLastPane === 'street' && rmStreetDotsHere().length){ rmEndStreetStrand(); return; }
       if(rmCorners.length){ rmEndStrand(); return; }
       rmSetDrawing(!rmDrawing);                     /* start a run, or finish it */
     } else if(k === 'Backspace' || k === 'Delete'){
@@ -26495,13 +26576,31 @@ const RM_STEEP_SHARE = 0.15;
    average house is about 150 ft, and a house normally has TWO strands, the top
    and the bottom - so these are "well past ordinary", not measured cut-offs.
    Two houses she grades by eye would settle them. */
-const RM_BIG_JOB_FT = 250;       /* an average house is about 150 */
+/* ⛔ RM_BIG_JOB_FT IS GONE (2026-08-28). Owner: "hard [needs] to be fully
+   based on how many strands, steepness, and walkability not based on size at
+   all." She is right and it was charging twice for one thing: the price is
+   feet x rate, so a big house ALREADY costs more for being big. Letting the
+   footage also push the grade up put a second premium on the same fact.
+   What is left is exactly her three: steepness (the pitch thresholds and the
+   steep share), walkability (a two-storey eave, and how many separate roof
+   sections there are), and the strand count. */
 const RM_MANY_STRANDS = 4;       /* an ordinary house is two: top and bottom */
 const RM_TWO_STOREY_FT = 17;
 /* What a difficulty does to the per-foot rate. Medium is 1 on purpose: the
    office's own Per Foot Pricing stays the baseline, so there is still ONE rate
-   to change and this only tilts it. */
-const RM_DIFFICULTY_RATE = {Easy: 0.85, Medium: 1, Hard: 1.25};
+   to change and this only tilts it.
+
+   ⭐ HER OWN THREE RATES (2026-08-28): "it should be $2 a foot for a medium
+   house, 1.85 for a easy and 2.2 for a hard." They were 0.85 / 1 / 1.25, which
+   on her $2.00 baseline meant $1.70 and $2.50 - easy was 15c under what she
+   wants and hard was 30c over.
+
+   ⚠ WRITTEN AS MULTIPLIERS, NOT AS THREE DOLLAR AMOUNTS, so Per Foot Pricing
+   stays the ONE dial. Typed out as $1.85/$2.00/$2.20 they would each have to be
+   changed by hand, and the day she moves the baseline to $2.50 the easy houses
+   would quietly still be on $1.85. On $2.00 these give exactly her numbers:
+   0.925 x 2 = 1.85, 1 x 2 = 2.00, 1.10 x 2 = 2.20. */
+const RM_DIFFICULTY_RATE = {Easy: 0.925, Medium: 1, Hard: 1.10};
 
 /* ⭐ ONE RULE FOR WHAT A QUOTE'S FOOTAGE IS WORTH (2026-08-25).
  *
@@ -26568,54 +26667,113 @@ function quoteDifficultyNote(d){
 
    ⚠ THIS FEEDS quoteDifficultyMult, so it changes prices. It only ever makes
    the rule read the roof better; the multiplier table is untouched. */
+/* ⭐ THE SCORED DIFFICULTY (2026-08-28). Owner: "create a very advanced rating
+   system with what ive already said and what you think would be best now", on
+   top of "hard [needs] to be fully based on how many strands, steepness, and
+   walkability not based on size at all."
+
+   ⚠ WHAT THIS REPLACES AND WHY. The old rule was a LEVEL from the pitch plus a
+   'two soft signals bump it' rider. Two problems: every signal was worth the
+   same as every other, so four separate roof sections counted exactly as much as
+   a roof you have to rope onto; and a house could be only one thing wrong -
+   roped-on steep, and otherwise simple - and still come out Medium.
+
+   ⭐ IT IS POINTS ON HER THREE AXES, and the points are what carry the judgement.
+   Steepness dominates because it is the one that decides whether somebody is
+   standing or hanging. Walkability is next: height is what makes a ladder a
+   two-person job. Strands are last - they cost time, not risk.
+
+   ⚠ CALIBRATED AGAINST REAL HOUSES, not chosen to look tidy. An ordinary
+   two-storey with a moderate pitch scores 4 and lands MEDIUM, which is her $2.00
+   house; a single-storey ranch with a low pitch scores 0 and is EASY; a roof
+   steep enough to rope onto reaches Hard ON ITS OWN, whatever else is true,
+   because that is a different day's work and not a busier version of the same
+   one. The archetypes are in run-all.js and they are the specification - change
+   a weight and they tell you which kind of house you just re-priced.
+
+   ⚠ SIZE IS DELIBERATELY ABSENT. The price is feet x rate, so a big house is
+   already paid for by being big; grading it up as well charges twice. */
+/* ⚠ THE WEIGHTS ARE TUNED TO KEEP TWO OF HER OLDER RULINGS, which she did not
+   ask to change and which the old scale had got right:
+     ONE soft signal is NOTED, NOT CHARGED FOR. A two-storey eave alone, or a
+     busy roof alone, stays Easy - 2 points against a Medium floor of 3. With
+     five signals each promoting on its own, every house drifts up and the
+     grade stops carrying information.
+     A ROOF STEEP OVER A THIRD OF ITS AREA IS HARD, even where the weighted
+     middle is only moderate: 3 + 3 reaches the Hard floor of 6 exactly.
+   Change a weight and Suite 129 names which of those you just broke. */
+const RM_PT_ROPED = 6;   /* enough on its own - see the note above */
+const RM_PT_MODERATE = 3;
+const RM_PT_STEEP_PATCH = 3;   /* part of it is roped work even if the middle is not */
+const RM_PT_TWO_STOREY = 2;
+const RM_PT_THREE_STOREY = 2;   /* on top of the two-storey points */
+const RM_PT_BUSY = 2;
+const RM_PT_FIDDLY = 1;
+const RM_PT_STRANDS = 1;
+const RM_PT_MANY_STRANDS = 2;
+const RM_THREE_STOREY_FT = 26;
+const RM_FIDDLY_SECTIONS = 6;   /* busy is 10; this is the step below it */
+const RM_LOTS_OF_STRANDS = 6;
+const RM_SCORE_MEDIUM = 3;      /* below this is Easy */
+const RM_SCORE_HARD = 6;      /* at or above this is Hard */
 function gradeRoof(o){
-  const maxGrade = Math.round(Number(o && o.maxGrade) || 0);
-  const peakCount = Number(o && o.peakCount) || 0;
-  const eaveFt = Number(o && o.eaveFt) || 0;
-  const typical = Math.round(Number(o && o.typicalGrade) || maxGrade);
+  const maxGrade   = Math.round(Number(o && o.maxGrade) || 0);
+  const peakCount  = Number(o && o.peakCount) || 0;
+  const eaveFt     = Number(o && o.eaveFt) || 0;
+  const typical    = Math.round(Number(o && o.typicalGrade) || maxGrade);
   const steepShare = Number(o && o.steepShare) || 0;
-  const feet = Number(o && o.feet) || 0;
-  const strands = Number(o && o.strands) || 0;
-  let level = typical >= RM_HARD_GRADE ? 2 : (typical >= RM_MEDIUM_GRADE ? 1 : 0);
+  const strands    = Number(o && o.strands) || 0;
+
+  let score = 0;
   const why = [];
-  if(level === 2) why.push('steep roof (' + typical + '% grade)');
-  else if(level === 1) why.push('moderate pitch (' + typical + '% grade)');
-  else why.push('low pitch (' + typical + '% grade)');
-  if(steepShare >= RM_STEEP_SHARE && level < 2){
-    level = Math.min(2, level + 1);
+  const parts = {steepness: 0, walkability: 0, strands: 0};
+
+  /* ---- steepness: can they stand on it ---- */
+  if(typical >= RM_HARD_GRADE){
+    parts.steepness += RM_PT_ROPED;
+    why.push('roped-on pitch (' + typical + '% grade)');
+  } else if(typical >= RM_MEDIUM_GRADE){
+    parts.steepness += RM_PT_MODERATE;
+    why.push('moderate pitch (' + typical + '% grade)');
+  } else {
+    why.push('low pitch (' + typical + '% grade)');
+  }
+  /* ⚠ ONLY WHERE THE MIDDLE IS NOT ALREADY ROPED, or the same fact is paid for
+     twice - the thing this scale exists to stop. */
+  if(steepShare >= RM_STEEP_SHARE && typical < RM_HARD_GRADE){
+    parts.steepness += RM_PT_STEEP_PATCH;
     why.push(Math.round(steepShare * 100) + '% of it steeper than ' + RM_HARD_GRADE + '%');
   }
-  /* ⭐ THE THINGS THAT MAKE A HOUSE HARD FOR REASONS THAT ARE NOT PITCH. Owner:
-     "things like feet, complex roof, and number of strands all effect
-     complexity."
 
-     ⚠ AND ANY ONE OF THEM USED TO BUMP THE GRADE ON ITS OWN, which is how a
-     scale ends up with every house at the top - the same failure the pitch
-     thresholds were re-cut for. The comment above this rule has always SAID
-     "two of those bump it up a grade"; the code bumped on each. It does what it
-     says now.
-
-     ⚠ WHY THAT MATTERS MORE AS THE LIST GROWS: with five soft signals each
-     promoting a house on its own, almost every house reaches Hard and the grade
-     stops carrying information - and it sets prices. Requiring two means a
-     house has to be awkward in more than one way before it costs more. */
-  const also = [];
-  if(peakCount >= RM_BUSY_SECTIONS) also.push(peakCount + ' separate roof sections');
-  if(eaveFt >= RM_TWO_STOREY_FT) also.push('two-storey eave (' + Math.round(eaveFt) + ' ft)');
-  /* Feet and strands are only known once the house has actually been measured,
-     so they are absent on the first grade and present on the re-cut. */
-  if(feet >= RM_BIG_JOB_FT) also.push(Math.round(feet) + ' ft of roofline');
-  if(strands >= RM_MANY_STRANDS) also.push(strands + ' separate strands');
-  if(also.length >= 2){
-    level = Math.min(2, level + 1);
-    why.push(also.join(' and '));
-  } else if(also.length === 1){
-    /* Said, but not charged for - the office can see what the tool noticed and
-       overrule the grade by hand if it disagrees. */
-    why.push(also[0]);
+  /* ---- walkability: can they reach it, and is it one shape or twenty ---- */
+  if(eaveFt >= RM_THREE_STOREY_FT){
+    parts.walkability += RM_PT_TWO_STOREY + RM_PT_THREE_STOREY;
+    why.push('three-storey eave (' + Math.round(eaveFt) + ' ft)');
+  } else if(eaveFt >= RM_TWO_STOREY_FT){
+    parts.walkability += RM_PT_TWO_STOREY;
+    why.push('two-storey eave (' + Math.round(eaveFt) + ' ft)');
   }
-  return {level: ['Easy', 'Medium', 'Hard'][level], why: why.join(', '),
-          rateMultiplier: RM_DIFFICULTY_RATE[['Easy', 'Medium', 'Hard'][level]]};
+  if(peakCount >= RM_BUSY_SECTIONS){
+    parts.walkability += RM_PT_BUSY;
+    why.push(peakCount + ' separate roof sections');
+  } else if(peakCount >= RM_FIDDLY_SECTIONS){
+    parts.walkability += RM_PT_FIDDLY;
+    why.push(peakCount + ' roof sections');
+  }
+
+  /* ---- strands: how many separate runs of string ---- */
+  if(strands >= RM_LOTS_OF_STRANDS){
+    parts.strands += RM_PT_MANY_STRANDS;
+    why.push(strands + ' separate strands');
+  } else if(strands >= RM_MANY_STRANDS){
+    parts.strands += RM_PT_STRANDS;
+    why.push(strands + ' separate strands');
+  }
+
+  score = parts.steepness + parts.walkability + parts.strands;
+  const level = score >= RM_SCORE_HARD ? 'Hard' : (score >= RM_SCORE_MEDIUM ? 'Medium' : 'Easy');
+  return {level: level, why: why.join(', '), score: score, parts: parts,
+          rateMultiplier: RM_DIFFICULTY_RATE[level]};
 }
 async function fetchRoofDetails(lat, lng){
   const url = 'https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude='+lat+'&location.longitude='+lng+'&key=AIzaSyByI2wHguK1JLNdUFJQKiA_gunoVtTkyqM';

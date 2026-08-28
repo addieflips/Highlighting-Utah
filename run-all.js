@@ -35498,9 +35498,38 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
        this suite held 80/55 while admin.html had moved to 75/45, so it was
        testing its own numbers and reported a failure against code that was
        right. A constant asserted from a copy of itself is not asserted. */
-    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE|STEEP_SHARE|BIG_JOB_FT|MANY_STRANDS)\s*=.*$/gm) || []);
-    check('S129', 'the grading constants are findable in the source', constLines.length === 8,
-      'found ' + constLines.length + ' of 8 — this suite would silently fall back to guessing them');
+    /* ⚠ AND THE LIST IS DERIVED, NOT TYPED (2026-08-28). It named eight constants
+       and demanded exactly eight; the scored grader retired RM_BIG_JOB_FT and added
+       eleven weights, so the suite crashed on code that was right - the same
+       going-stale this block's own note is about, one level up. It now lifts every
+       RM_ constant in the file and asserts that everything the grader actually
+       READS came with it, so a new weight needs no edit here and a missing one is
+       named rather than surfacing as an unattributable crash. */
+    /* ⚠ COMPLETE ONE-LINERS ONLY - RM_TYPES opens a multi-line object literal,
+       and half of it lifted into the sandbox is a syntax error blamed on whatever
+       constant happens to follow it. */
+    /* ⚠ NO REGEX HERE, AND THAT IS DELIBERATE. admin.html is CRLF, so an
+       end-of-line anchor never matches — it is looking at a carriage return —
+       and writing the class that would allow one costs an escape that does not
+       survive every route into this file (this exact line arrived once with a
+       literal newline inside the character class, and once with backspaces
+       where a word boundary was meant). Splitting lines needs neither. */
+    const constLines = admin.split(String.fromCharCode(10))
+      .map(function(l){ return l.replace(String.fromCharCode(13), ''); })
+      .filter(function(l){
+        /* complete one-liners only — RM_TYPES opens a multi-line object, and
+           half of it lifted into the sandbox is a syntax error blamed on
+           whatever constant happens to follow it. Most of these carry a
+           trailing comment, so the semicolon is not the last character. */
+        return l.indexOf('const RM_') === 0 && l.indexOf(';') !== -1;
+      })
+      .map(function(l){ return l.slice(0, l.indexOf(';') + 1); });
+    const needed = Array.from(new Set(gradeFn.match(/RM_[A-Z0-9_]+/g) || []));
+    const missing = needed.filter(function(n){
+      return !constLines.some(function(l){ return l.indexOf('const ' + n + ' ') === 0; });
+    });
+    check('S129', 'every constant the grader reads is lifted from the source', missing.length === 0,
+      'missing: ' + missing.join(', ') + ' — this suite would silently fall back to guessing them');
     const g = new Function(constLines.join(LF_) + LF_ + gradeFn + LF_ + 'return gradeRoof;')();
     /* ⚠ THE BUG THIS EXISTS FOR: the old thresholds were 37% for Hard and 25%
        for Medium. Grade is a PERCENT — 37% is a 4.4/12 pitch. An ordinary 6/12
@@ -35525,17 +35554,56 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
     check('S129', 'but busy AND two-storey together do',
       g({maxGrade: 33, peakCount: 11, eaveFt: 19}).level === 'Medium',
       'awkward in more than one way is a harder day');
-    /* ⭐ FEET AND STRANDS COUNT TOO, once the house has actually been measured. */
-    check('S129', 'a long run and many strands together bump it',
-      g({maxGrade: 33, feet: 320, strands: 5}).level === 'Medium',
-      'owner: feet, complex roof and number of strands all affect complexity');
+    /* ⛔ FEET NO LONGER COUNT AT ALL (2026-08-28). Owner: "hard [needs] to be
+       fully based on how many strands, steepness, and walkability not based on
+       size at all." This check used to pair a long run WITH many strands; the
+       long run is gone, so what is left is the strand half — and strands obey
+       the same one-signal rule as everything else. The old wording is kept above
+       in the git history rather than quietly re-pointed at a different claim. */
+    check('S129', 'many strands alone are noted, not charged',
+      g({maxGrade: 33, strands: 5}).level === 'Easy' &&
+      /5 separate strands/.test(g({maxGrade: 33, strands: 5}).why),
+      'one soft signal never promotes on its own — the rule the busy-roof check also holds');
+    check('S129', 'but strands ALONGSIDE a two-storey eave do',
+      g({maxGrade: 33, strands: 5, eaveFt: 19}).level === 'Medium',
+      'awkward in more than one way is a harder day');
+    check('S129', 'and a huge house on a low simple roof is still Easy',
+      g({maxGrade: 33, feet: 900, strands: 2}).level === 'Easy',
+      'the price is feet x rate, so grading a big house up charges twice for one fact');
     /* ⚠ AND BOTH CALLS HAVE TO ASK THE SAME QUESTION. The roof half is known on
        load; feet and strands only exist once somebody has traced the house. Two
        call sites gathering those fields by hand is how they drift apart. */
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-08-28). It matched the eave re-cut's exact
+       call, and that call moved into rmRegrade when the grade was made to re-cut
+       itself as peaks are measured — so it failed on code that is right. The
+       guarantee is unchanged and is what is asserted now: ONE gatherer, and every
+       re-cut goes through it rather than assembling its own set of fields. */
     check('S129', 'one function gathers what the rule asks for',
       /function rmGradeInputs\(extra\)\{/.test(admin) &&
-      /gradeRoof\(rmGradeInputs\(\{eaveFt: eave \* RM_M_TO_FT\}\)\)/.test(admin),
+      /function rmRegrade\(extra\)\{/.test(admin) &&
+      (extractFn(admin, 'rmRegrade') || '').indexOf('gradeRoof(rmGradeInputs(') !== -1,
       'the re-cut must not pass a different set of fields from the first grade');
+    /* ⚠ THERE ARE EXACTLY TWO CALLERS AND BOTH ARE LEGITIMATE — my first version
+       of this check said one and failed on correct code. fetchRoofDetails cuts the
+       FIRST grade from Google's model, before anything has been traced; rmRegrade
+       cuts every later one. What must not appear is a THIRD, assembling its own
+       fields and drifting from the other two. */
+    check('S129', 'only the first grade and the re-cut call the grader',
+      (function(){
+        /* ⚠ THROUGH stripComments, NOT A LINE TEST. The block comment above
+           fetchRoofDetails explains the re-grade in prose and names gradeRoof()
+           mid-sentence, on a line starting with neither * nor // — so a
+           per-line comment test reads the explanation as a third call site.
+           Suite 58 and Suite 274 each learned this separately. */
+        var calls = stripComments(admin).split(String.fromCharCode(10))
+          .filter(function(l){
+            var t = l.replace(String.fromCharCode(13), '').trim();
+            return t.indexOf('gradeRoof(') !== -1 && t.indexOf('function gradeRoof(') === -1;
+          });
+        return calls.length === 2 &&
+          (extractFn(admin, 'rmRegrade') || '').indexOf('gradeRoof(') !== -1;
+      })(),
+      'a third call site is how the first grade and the re-cut start disagreeing');
     check('S129', 'and a strand switched off is not counted as work',
       (function(){
         const f = extractFn(admin, 'rmGradeInputs') || '';
@@ -38582,6 +38650,154 @@ suite('170. Measure Roof - a peak is two dots and a grade');
       return /rmStreetDots = \[\]/.test(fn);
     })(),
     'they belong to one house’s photograph and mean nothing on the next');
+
+  /* ⭐ ENTER ENDS A STRAND IN THE PICTURE TOO (MR-11, 2026-08-28). Owner: "when
+     I click enter on street view that should also mean end of strand."
+
+     ⚠ IT WAS NOT THAT ENTER WAS UNBOUND. Enter already ended a strand - it just
+     tested rmCorners, the SKY dots, so in Street View it fell through to the
+     toggle below and turned drawing mode on and off instead. Street marks had no
+     strand at all: every dot joined to the one before it, so marking the top of
+     the house and then the bottom drew a line straight across the picture. */
+  const stStrand = (function(){
+    const LFx = String.fromCharCode(10);
+    return new Function(
+      'let rmStreetDots = [], rmStreetBand = 0, panoId = "P1";' + LFx +
+      'const rmPano = {getPano:function(){ return panoId; }};' + LFx +
+      'function rmPaintStreet(){}  function rmStreetDotNote(){}' + LFx +
+      [extractFn(admin,'rmStreetDotsHere'), extractFn(admin,'rmEndStreetStrand'),
+       extractFn(admin,'rmAddStreetDot'), extractFn(admin,'rmStreetDotFromPixel')].join(LFx) + LFx +
+      'return {end:rmEndStreetStrand, add:function(){ return rmAddStreetDot({e:1,n:0,u:0,' + LFx +
+      '  band:rmStreetBand, pano:panoId}); }, band:function(){ return rmStreetBand; },' + LFx +
+      ' dots:function(){ return rmStreetDots; }, walk:function(p){ panoId = p; }};')();
+  })();
+  check('S170', 'enter with nothing marked does not open a strand of nothing',
+    stStrand.end() === false && stStrand.band() === 0,
+    'an empty strand is not a strand - the same rule rmEndStrand already keeps');
+  stStrand.add();
+  check('S170', 'and with a mark down it finishes that strand',
+    stStrand.end() === true && stStrand.band() === 1);
+  check('S170', 'pressing it twice does nothing the second time',
+    stStrand.end() === false && stStrand.band() === 1,
+    'the second press would otherwise number a run nobody has started');
+  check('S170', 'the next mark belongs to the new strand',
+    (function(){ stStrand.add(); const d = stStrand.dots(); return d[d.length-1].band === 1; })(),
+    'a mark that keeps the finished strand’s number is joined back to it');
+  /* ⚠ SCOPED TO THIS PANORAMA, like the dots themselves: a strand left open at
+     the last camera is not one you can finish from this one. */
+  check('S170', 'and a strand cannot be ended from a camera it was not marked in',
+    (function(){ stStrand.walk('P2'); const b = stStrand.band(); return stStrand.end() === false && stStrand.band() === b; })(),
+    'the marks here are a different run; ending nothing would still number one');
+
+  check('S170', 'enter acts on whichever picture was last used, exactly as backspace does',
+    (function(){
+      const i = admin.indexOf("if(rmLastPane === 'street' && rmStreetDotsHere().length){ rmEndStreetStrand(); return; }");
+      const j = admin.indexOf('if(rmCorners.length){ rmEndStrand(); return; }', i);
+      return i !== -1 && j > i;
+    })(),
+    'testing rmCorners first is what sent every enter to the sky view and left Street View toggling drawing mode');
+  check('S170', 'and the picture leaves a gap between two strands',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return /\(here\[i\]\.band \|\| 0\) !== \(here\[i-1\]\.band \|\| 0\)\) continue;/.test(fn);
+    })(),
+    'without the break, ending a strand changes a caption and draws the same line it was pressed to prevent');
+  check('S170', 'a new house starts at strand one',
+    (function(){
+      const fn = extractFn(admin, 'rmForgetLastHouse') || '';
+      return /rmStreetBand = 0/.test(fn);
+    })(),
+    'carried over, the next house opens with its first mark already in strand four');
+
+  /* ⭐ THE SCORED DIFFICULTY, CHECKED AGAINST REAL HOUSES (MR-12, 2026-08-28).
+     Owner: "it should be $2 a foot for a medium house, 1.85 for a easy and 2.2
+     for a hard", then "hard [needs] to be fully based on how many strands,
+     steepness, and walkability not based on size at all", then "create a very
+     advanced rating system".
+
+     ⚠ THESE ARCHETYPES ARE THE SPECIFICATION. The weights are a judgement call;
+     what is NOT negotiable is which house comes out at which price. Change a
+     weight and whichever of these fails names the customer you just re-priced. */
+  const grade = (function(){
+    const LFx = String.fromCharCode(10);
+    const consts = ['RM_HARD_GRADE','RM_MEDIUM_GRADE','RM_BUSY_SECTIONS','RM_STEEP_SHARE',
+      'RM_MANY_STRANDS','RM_TWO_STOREY_FT','RM_DIFFICULTY_RATE','RM_PT_ROPED','RM_PT_MODERATE',
+      'RM_PT_STEEP_PATCH','RM_PT_TWO_STOREY','RM_PT_THREE_STOREY','RM_PT_BUSY','RM_PT_FIDDLY',
+      'RM_PT_STRANDS','RM_PT_MANY_STRANDS','RM_THREE_STOREY_FT','RM_FIDDLY_SECTIONS',
+      'RM_LOTS_OF_STRANDS','RM_SCORE_MEDIUM','RM_SCORE_HARD']
+      .map(function(n){
+        const i = admin.indexOf('const ' + n + ' =');
+        if(i === -1) return '';
+        return admin.slice(i, admin.indexOf(';', i) + 1);
+      }).join(LFx);
+    return new Function(consts + LFx + extractFn(admin,'gradeRoof') + LFx + 'return gradeRoof;')();
+  })();
+  /* A single-storey ranch: low pitch, reachable, two runs of string. */
+  check('S170', 'an easy house is easy — low pitch, reachable, simple',
+    grade({typicalGrade: 35, eaveFt: 10, peakCount: 4, strands: 2}).level === 'Easy',
+    'got ' + grade({typicalGrade: 35, eaveFt: 10, peakCount: 4, strands: 2}).level);
+  /* The house her $2.00 rate is named after. */
+  check('S170', 'an ordinary two-storey with a moderate pitch is Medium',
+    grade({typicalGrade: 54, eaveFt: 17, peakCount: 5, strands: 2}).level === 'Medium',
+    'this is the $2.00 house — got ' + grade({typicalGrade: 54, eaveFt: 17, peakCount: 5, strands: 2}).level);
+  /* ⚠ ROPED-ON IS A DIFFERENT DAY'S WORK, not a busier version of the same one. */
+  check('S170', 'a roof steep enough to rope onto is Hard on its own',
+    grade({typicalGrade: 80, eaveFt: 10, peakCount: 3, strands: 2}).level === 'Hard',
+    'small and simple does not make roped-on work ordinary');
+  /* ⚠ AND WALKABILITY CAN REACH IT WITHOUT ANY PITCH AT ALL — her own axis. */
+  check('S170', 'a tall, complex, flat-ish roof is Hard on height and shape alone',
+    grade({typicalGrade: 30, eaveFt: 27, peakCount: 11, strands: 6}).level === 'Hard',
+    'three storeys and eleven sections is not an easy day because the pitch is low');
+  /* ⭐ SIZE IS NOT AN INPUT AT ALL. */
+  check('S170', 'footage cannot change the grade',
+    (function(){
+      const a = grade({typicalGrade: 54, eaveFt: 17, peakCount: 5, strands: 2, feet: 120});
+      const b = grade({typicalGrade: 54, eaveFt: 17, peakCount: 5, strands: 2, feet: 900});
+      return a.level === b.level && a.score === b.score;
+    })(),
+    'the price is feet x rate, so grading a big house up charges twice for one fact');
+  check('S170', 'and the grader reads no footage field',
+    (extractFn(admin,'gradeRoof') || '').indexOf('o.feet') === -1,
+    'a size signal left in the function is a second premium waiting to be switched back on');
+  /* ⚠ THE SAME FACT MUST NOT BE PAID FOR TWICE. */
+  check('S170', 'a steep patch adds nothing once the whole roof is already roped',
+    grade({typicalGrade: 80, eaveFt: 10, peakCount: 3, strands: 2, steepShare: 0.9}).parts.steepness ===
+    grade({typicalGrade: 80, eaveFt: 10, peakCount: 3, strands: 2, steepShare: 0}).parts.steepness);
+  check('S170', 'the three axes are scored separately so the reason can be read back',
+    (function(){
+      const g = grade({typicalGrade: 80, eaveFt: 27, peakCount: 11, strands: 6});
+      return g.parts.steepness > 0 && g.parts.walkability > 0 && g.parts.strands > 0 &&
+             g.score === g.parts.steepness + g.parts.walkability + g.parts.strands;
+    })());
+  /* ⭐ AND THE RATES ARE HERS. */
+  check('S170', 'the three rates are $1.85, $2.00 and $2.20 on a $2 baseline',
+    (function(){
+      const r = admin.match(/RM_DIFFICULTY_RATE = \{Easy: ([\d.]+), Medium: ([\d.]+), Hard: ([\d.]+)\}/);
+      if(!r) return false;
+      const f = n => Math.round(Number(r[n]) * 2 * 100) / 100;
+      return f(1) === 1.85 && f(2) === 2 && f(3) === 2.20;
+    })(),
+    'written as multipliers so Per Foot Pricing stays the one dial she changes');
+  /* ⭐ IT RE-CUTS ITSELF AS SHE MEASURES, AND STOPS ONCE SHE HAS CHOSEN. */
+  check('S170', 'a grade she measured beats the one Google guessed',
+    (function(){
+      const fn = extractFn(admin,'rmMeasuredGrades') || '';
+      return /rmPeaks/.test(fn) && /rmGradeSet/.test(fn) && /if\(!got\.length\)/.test(fn);
+    })(),
+    'a part-measured house must fall back to the model, not to zero');
+  check('S170', 'confirming a peak re-cuts the difficulty',
+    (function(){
+      const i = admin.indexOf('if(pk) pk.grade = g; else rmGradeSet = g;');
+      const j = admin.indexOf('rmRegrade(', i);
+      return i !== -1 && j > i && j - i < 400;
+    })(),
+    'her own ask: the difficulty follows the grades as they are found');
+  check('S170', 'but never over a difficulty the office picked by hand',
+    (function(){
+      const fn = extractFn(admin,'rmRegrade') || '';
+      return /if\(!rmGradeTouched\)/.test(fn) && /rmGradeTouched = true/.test(admin);
+    })(),
+    'a re-cut that overwrote their choice would be the tool arguing with them about the price');
 
   /* ⭐ THE FIRST DOT CAN ACTUALLY BE PLACED (2026-08-27). The sky click used to
      refuse until the datum had been measured, telling you to click a wall in
