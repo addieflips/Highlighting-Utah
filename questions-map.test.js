@@ -198,15 +198,53 @@ rows.forEach(r => {
 //     tell whether the words are really hers — a determined paraphrase in quote marks
 //     passes — so this is a floor under carelessness, not a proof of provenance.
 // ---------------------------------------------------------------------------
-const OWN_WORDS_FROM = '2026-08-28';
-const isNewRow = r => r.cells.length === 6 && r.cells[3].trim().slice(0, 10) >= OWN_WORDS_FROM;
+/* ⭐ THE EXEMPTION IS A LIST OF IDS, NOT A DATE (changed the same day it shipped).
+   The first version exempted rows "decided before 2026-08-28", and red-checking walked
+   straight through it: type an old date in the Decided column and a brand-new row is
+   suddenly old, so neither rule applies. Addie asked what could be done about it.
+
+   ⚠ THE ANSWER IS TO STOP KEYING ON SOMETHING NOBODY CAN VERIFY. A date is a claim
+   typed into a cell; there is no ground truth to check it against, because a row added
+   today CAN legitimately record a ruling from three weeks ago. An id, on the other hand,
+   is either on this list or it is not — and putting one here is a visible, deliberate
+   edit to a test file, which is the opposite of quietly typing 2026-08-01.
+
+   ⚠ AND IT ONLY EVER SHRINKS. A count ceiling is the wrong shape for most things in this
+   repo — silent-failures.test.js says so at length, because empty catch blocks grow for
+   good reasons as often as bad. This is the case where that argument does NOT apply:
+   there is no legitimate reason for this list to gain a row, ever. Every ruling from now
+   on can quote her, because she is in the conversation when it is written down. So the
+   ratchet below is real enforcement rather than a number somebody raises to get past a
+   red build.
+
+   ⚠ THESE ARE NOT WRONG ROWS. They are rows written before the rule, mostly summarising
+   her decision in my words rather than hers. Rewriting them wholesale would mean
+   INVENTING quotations, which is worse than the paraphrase. Fix one when you next touch
+   that area and can check what she actually said — and take its id off this list in the
+   same change. */
+const GRANDFATHERED = [
+  'MON-01', 'MON-02', 'MON-03', 'MON-04', 'MON-05', 'MON-06', 'MON-07', 'MON-09', 'MON-10',
+  'MON-11', 'MON-12', 'MON-14', 'MON-18', 'MON-20', 'MON-26', 'MON-13', 'MON-23', 'MON-25',
+  'WH-02', 'WH-03', 'WH-04', 'WH-07', 'WH-10', 'WH-11', 'WH-12', 'WH-13', 'WH-14', 'WH-15',
+  'WH-18', 'WH-19', 'WH-21', 'WH-22', 'CN-01', 'CN-02', 'CN-03', 'CN-04', 'QT-01', 'QT-02',
+  'QT-03', 'QT-06', 'QT-07', 'QT-08', 'QT-09', 'QT-12', 'QT-13', 'QT-14', 'QT-15', 'QT-17',
+  'QT-18', 'QT-19', 'RS-02', 'RS-03', 'RS-05', 'RS-06', 'RS-07', 'RS-09', 'RS-16', 'RS-10',
+  'SCH-01', 'SCH-02', 'SCH-03', 'SCH-04', 'SCH-05', 'SCH-07', 'SCH-08', 'SCH-09', 'SCH-10',
+  'SCH-11', 'SCH-12', 'SCH-14', 'SCH-15', 'SCH-16', 'SCH-17', 'SCH-18', 'SCH-19', 'SCH-20',
+  'SCH-21', 'SCH-22', 'PR-01', 'PR-04', 'PR-05', 'PR-06', 'SH-03', 'SH-05', 'SH-06', 'SH-07',
+  'SH-08', 'SH-10', 'SH-11', 'SH-13', 'SH-14', 'SH-15', 'SH-16', 'DUP-03', 'DUP-04',
+  'DUP-06', 'DUP-07', 'MSG-03', 'MSG-04', 'MSG-05', 'OPT-01', 'PROC-02', 'PROC-03',
+  'PROC-04', 'PROC-05', 'PROC-06', 'PROC-08', 'PROC-09', 'PROC-10', 'PROC-11', 'PROC-13',
+  'PROC-14', 'PROC-15', 'PROC-17', 'FIX-01', 'FIX-02',
+];
+const GRANDFATHERED_MAX = 116;
 const hasQuote = cell => /"[^"]{15,}"/.test(cell) || /“[^”]{15,}”/.test(cell);
 
 let oldNoQuote = 0, oldNoQuestion = 0;
 rows.forEach(r => {
   if (r.cells.length !== 6) return;
   const q = r.cells[1], a = r.cells[2];
-  if (isNewRow(r)) {
+  if (GRANDFATHERED.indexOf(r.id) === -1) {
     check('row ' + r.id + ' records a question, not a topic', q.indexOf('?') !== -1, {
       line: r.line, id: r.id, subject: subjectOf(r),
       problem: 'the Question cell has no question mark in it: "' + q.slice(0, 70) + '"',
@@ -227,11 +265,39 @@ rows.forEach(r => {
   }
 });
 if (oldNoQuote || oldNoQuestion) {
-  note(oldNoQuote + ' row(s) written before ' + OWN_WORDS_FROM + ' do not quote her, and ' +
+  note(oldNoQuote + ' row(s) written before this rule do not quote her, and ' +
     oldNoQuestion + ' record a topic rather than a question. Not failures — they predate ' +
     'the rule and rewriting them wholesale would be inventing quotations. Fix one when you ' +
     'next touch that area and can check what she actually said.');
 }
+
+/* The ratchet, and the list's own soundness. Both matter: a list that may grow is not a
+   grandfather clause, it is an opt-out; and an id left here after its row was fixed or
+   deleted quietly re-exempts whatever takes that id next. */
+/* ⚠ RAISING GRANDFATHERED_MAX AND ADDING AN ID TOGETHER STILL GETS PAST THIS, and that
+   is reported rather than papered over — but it is a different KIND of hole from the one
+   it replaced, and the difference is the whole point. Typing an old date into a cell of a
+   markdown table looks like ordinary data entry; nothing about it signals intent, and a
+   reader skimming the diff sees a row being added. Editing this file to add an id AND
+   raise the number is two deliberate edits inside a test, directly under a comment saying
+   not to, and it reads in a diff as "I switched the check off". No gate can survive being
+   edited — silent-failures.test.js makes the same admission about its own detector. What
+   a gate can do is make the bypass visible, and that is the trade being taken here. */
+check('the list of rows written before this rule has not grown',
+  GRANDFATHERED.length <= GRANDFATHERED_MAX, {
+    problem: 'it holds ' + GRANDFATHERED.length + ', up from ' + GRANDFATHERED_MAX,
+    fix: 'a new ruling can always quote her — she is in the conversation when it is ' +
+         'written down. If a row genuinely cannot, that is a decision for Addie, not a ' +
+         'line added to this list. Lower GRANDFATHERED_MAX when the list shrinks.'
+  });
+GRANDFATHERED.forEach(id => {
+  check('grandfathered id ' + id + ' is a row that still exists', rows.some(r => r.id === id), {
+    id: id,
+    problem: 'this id is exempted from quoting her, and no row has it any more',
+    fix: 'the row was renamed or deleted. Take the id off GRANDFATHERED — left there it ' +
+         'silently exempts whatever row is given that id next.'
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 3. IDs: well formed and unique.
