@@ -78,6 +78,30 @@ so it needs no depth and sticks to the photograph as you pan and zoom; it belong
 to the one panorama it was placed in, and it reaches no footage and no price.
 Backspace takes back a dot from whichever picture you were last working in.
 
+**Enter ends a strand, in whichever picture you are working in.** Up in the sky
+view that has always split the top of the house from the bottom. Street View
+marks now do the same: without it every mark joined to the one before it, so
+marking the top of a house and then the bottom drew a line straight across the
+photograph. Enter with nothing marked does nothing, and a strand can only be
+finished from the camera it was marked in.
+
+**What Easy, Medium and Hard cost.** $1.85, $2.00 and $2.20 a foot — set as
+multipliers of whatever Per Foot Pricing says, so that box stays the one number
+to change. **The grade is scored on three things and size is not one of them:**
+steepness (the pitch, and whether a real share of the roof is steeper still),
+walkability (a two-storey or three-storey eave, and how many separate roof
+sections there are) and how many strands. A big house already costs more for
+being big — it is feet times a rate — so grading it up as well would charge
+twice for one fact. Steepness counts most: a roof steep enough to rope onto is
+Hard on its own, whatever else is true. One awkward thing on its own is *noted
+and not charged for*; it takes two before the price moves.
+
+**And the grade re-cuts itself as you measure.** Google's roof model gives the
+first answer; every peak grade read off the street photo replaces it, so the
+difficulty can change while you work. ⚠ Once you pick a difficulty yourself,
+nothing overrides it — the tool stops re-cutting and leaves your answer alone.
+
+
 **The whole tool sits on one screen and nothing on it moves.** The card is one
 viewport tall and never scrolls; the two pictures take whatever height the bars
 above and below them do not. That is what makes it fit whatever the window size —
