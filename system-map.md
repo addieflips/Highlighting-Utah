@@ -70,6 +70,13 @@ are shown on the panel as separate lines. The fault it compensated for has since
 been removed, so whether 2.9 should stay is **Q-024, open** — until that is
 answered, a house that traces at 134 ft is priced as 389 ft.
 
+**Street View has its own dots.** Click the picture and it takes a mark of its
+own, numbered 1, 2, 3… and visible only there — the sky view's lettered dots
+never appear on it. A mark is a *direction* from the camera rather than a place,
+so it needs no depth and sticks to the photograph as you pan and zoom; it belongs
+to the one panorama it was placed in, and it reaches no footage and no price.
+Backspace takes back a dot from whichever picture you were last working in.
+
 ⚠ **A dot cannot be edited once placed.** No clicking it, no dragging it;
 backspace takes the last one back. Two dots may sit on top of each other, which
 is what a roofline doubling back on itself needs.
