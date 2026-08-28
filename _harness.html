@@ -5271,13 +5271,10 @@ function rmSavePayload(feet, measurement){
 function rmRestoreMeasurement(m){
   if(!m || !Array.isArray(m.runs)) return 0;
   rmClearDrawing();
-  /* ⚠ SET, NOT APPLIED, AND BEFORE THE RUNS GO BACK. The saved paths are
-     already corrected — they were traced through it — so pushing this through
-     the alignment (removed 2026-08-27) would shift every restored line twice and put the
-     whole drawing twice as far off as the picture ever was. It is set here so
-     the panel can say so and the NEXT click is corrected. */
-  if(m.skyOffset && isFinite(m.skyOffset.e) && isFinite(m.skyOffset.n)){
-  }
+  /* ⚠ A SAVED skyOffset IS READ AND IGNORED. Drawings traced before 2026-08-27
+     carry the alignment they were traced under; the paths in them are already
+     corrected, so restoring them straight is right and re-applying anything
+     would move the whole drawing twice as far off as the picture ever was. */
   let restored = 0;
   m.runs.forEach(function(sr){
     const path = (sr.path || []).map(function(p){
@@ -15249,13 +15246,10 @@ function rmSavePayload(feet, measurement){
 function rmRestoreMeasurement(m){
   if(!m || !Array.isArray(m.runs)) return 0;
   rmClearDrawing();
-  /* ⚠ SET, NOT APPLIED, AND BEFORE THE RUNS GO BACK. The saved paths are
-     already corrected — they were traced through it — so pushing this through
-     the alignment (removed 2026-08-27) would shift every restored line twice and put the
-     whole drawing twice as far off as the picture ever was. It is set here so
-     the panel can say so and the NEXT click is corrected. */
-  if(m.skyOffset && isFinite(m.skyOffset.e) && isFinite(m.skyOffset.n)){
-  }
+  /* ⚠ A SAVED skyOffset IS READ AND IGNORED. Drawings traced before 2026-08-27
+     carry the alignment they were traced under; the paths in them are already
+     corrected, so restoring them straight is right and re-applying anything
+     would move the whole drawing twice as far off as the picture ever was. */
   let restored = 0;
   m.runs.forEach(function(sr){
     const path = (sr.path || []).map(function(p){
@@ -17250,7 +17244,6 @@ function openRoofMeasure(quoteId){
       modelShift: rmModelShift
         ? {ft: +rmModelShiftFt.toFixed(1), e: +rmModelShift.e.toFixed(2),
            n: +rmModelShift.n.toFixed(2), residIn: +rmModelShiftResidIn.toFixed(1)}
-        : null,
         : null,
       runs: rmRuns.map(function(r, i){
         /* ⚠ THE HEIGHT SPREAD ALONG THE RUN, spelled out. A gutter is level, so
