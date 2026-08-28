@@ -38709,8 +38709,9 @@ suite('170. Measure Roof - a peak is two dots and a grade');
          rows of ribbon, and a floor that does not fit pushes the pictures off the
          bottom instead of shrinking them - which is how the map ended up 39px tall
          on the live page. So this asks for a floor that is REAL but not enormous. */
-      const m = admin.match(/\.rm-stagerest > \.rm-panes\{flex:1 1 auto; min-height:(\d+)px;\}/);
-      return !!m && Number(m[1]) >= 150 && Number(m[1]) <= 260;
+      /* the floor is the low end of the clamp now - flex-shrink never applied */
+      const m = admin.match(/clamp\((\d+)px, calc\(100vh - (\d+)px\)/);
+      return !!m && Number(m[1]) >= 140 && Number(m[1]) <= 260;
     })(),
     'min-height:0 lets a flex item shrink to NOTHING, and a picture that is not there is a broken tool');
   check('S170', 'and the card scrolls as a last resort rather than clipping them',
@@ -38734,7 +38735,7 @@ suite('170. Measure Roof - a peak is two dots and a grade');
        is that SOMETHING cannot collapse: the pictures carry a real px floor, and
        every other row up here is a fixed height. */
     /#rmWorkStage\{flex:1 1 auto; min-height:0;\}/.test(admin) &&
-    /\.rm-stagerest > \.rm-panes\{flex:1 1 auto; min-height:\d+px;\}/.test(admin),
+    /\.rm-stagerest > \.rm-panes\{flex:0 0 auto;[\s\S]{0,120}clamp\(150px,/.test(admin),
     'flex:1 1 auto let it overflow and paint the Save bar over the Attach to Quote row');
 
   /* ⭐ THE PICTURE DOES NOT MOVE WHILE YOU CLICK (2026-08-28). Owner: "whenever i

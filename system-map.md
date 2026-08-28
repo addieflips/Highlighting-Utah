@@ -212,6 +212,14 @@ row up there is a fixed height, so the pictures shrink to that floor and no
 further, nothing collapses to nothing, and the card scrolls only if even that
 will not fit. Measured with every row present: no scrolling, both pictures whole.
 
+⚠ **In the end the picture height is worked out from the window, not negotiated.**
+Three deploys were spent trimming rows on the belief that the pictures would
+shrink into whatever was left over — they never did, and the card went on
+scrolling. Everything above the pictures is a known fixed height, so the pictures
+simply take what is left of the window after it. **The cost of that is a number
+that has to be kept in step:** add a row to the ribbon, or change one's height,
+and the subtraction in `.rm-panes` has to change with it.
+
 **The whole tool sits on one screen and nothing on it moves.** The card is one
 viewport tall and never scrolls; the two pictures take whatever height the bars
 above and below them do not. That is what makes it fit whatever the window size —

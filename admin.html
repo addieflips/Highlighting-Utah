@@ -4627,7 +4627,20 @@
                being something you can trace on.
                ⚠ flex:1 1 auto IS THE POINT: the pictures are the one row that GROWS,
                so every pixel the ribbon does not use goes to the house. */
-            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:165px;}
+            /* ⚠ MEASURED FROM THE WINDOW, NOT LEFT TO FLEX-SHRINK. Three deploys were
+               spent trimming rows on the belief that the pictures would shrink into
+               the space left over: they never did. flex:1 1 auto with a real floor,
+               a stage that could shrink, min-height:0 - the panes sat at 252px
+               through all of it and the card went on scrolling 758 into 666.
+               So the height is WORKED OUT rather than negotiated: everything above
+               the pictures is a known fixed height, and this is what is left of the
+               window after it. ⚠ THE 528 IS THE SUM OF THE RIBBON, so a row added or
+               resized up there must be added here too - that is the cost of making
+               it deterministic, and it is cheaper than a tool whose pictures fall
+               off the bottom. The clamp keeps it sane on a small laptop and lets it
+               grow on a real monitor. */
+            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:0 0 auto;
+              height:clamp(150px, calc(100vh - 528px), 560px);}
             #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
             #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
 
