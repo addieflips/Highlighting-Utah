@@ -33752,7 +33752,10 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      about 6.7 ft out on 209 S 850 W - so if the model-displacement work lands
      that error properly this number must be revisited, or every quote inflates
      by nearly three. */
-  check('S126', 'the feet multiplier is the owner-set 2.9', mult && mult[1] === '2.9',
+  /* ⚠ THE NUMBER IS A DIAL SHE TURNS - 2.9 → 1.45 → 1.3 inside one afternoon.
+     Pinning the value keeps it deliberate, which is the point of the check; what
+     must NOT happen is somebody reading a stale comment and resetting it. */
+  check('S126', 'the feet multiplier is the owner-set 1.3', mult && mult[1] === '1.3',
     'this multiplies the price, the bin count and the bulb order together; ' +
     'it is not a display setting');
   /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
@@ -39357,8 +39360,8 @@ suite('255. Measure Roof - the footage saved is the footage measured');
      bulb order along with the price. That is what was asked for - the owner's
      position is that the measurement itself reads short, so the corrected
      footage should drive all three. It is a single constant and reversible. */
-  check('S255', 'the feet multiplier is the owner-set 2.9',
-    /const RM_FEET_MULTIPLIER\s*=\s*2\.9\s*;/.test(admin),
+  check('S255', 'the feet multiplier is the owner-set 1.3',
+    /const RM_FEET_MULTIPLIER\s*=\s*1\.3\s*;/.test(admin),
     'if this ever moves without a ruling behind it, every quote, bin count ' +
     'and bulb order moves with it');
   check('S255', 'and the save message no longer claims the footage was doubled',

@@ -64,11 +64,12 @@ adding anything. Saying yes adds the extra feet — Pythagoras on that grade, bo
 sides of the gable assumed the same. Saying try again changes nothing.
 
 ⚠ **The price is not worked out from the measured feet directly.** It uses
-`feet × RM_FEET_MULTIPLIER`, which is **2.9** — set on the owner's instruction in
-August 2026 to compensate for the tool measuring short at the time. Both numbers
-are shown on the panel as separate lines. The fault it compensated for has since
-been removed, so whether 2.9 should stay is **Q-024, open** — until that is
-answered, a house that traces at 134 ft is priced as 389 ft.
+`feet × RM_FEET_MULTIPLIER`, which is **1.3** as of
+2026-08-28 — read it off that constant, never off prose about it. It began life
+compensating for the tool measuring short; it is now where the MINIMUM JOB COST
+lives ($2/ft is the advertised rate and a 60 ft house cannot be done for $120),
+and its size is the owner's dial — 2.9 → 1.45 → 1.3 inside one afternoon. Both
+numbers are shown on the panel as separate lines. See Q-024.
 
 **Street View has its own dots.** Click the picture and it takes a mark of its
 own, numbered 1, 2, 3… and visible only there — the sky view's lettered dots

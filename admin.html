@@ -4547,7 +4547,12 @@
                They now take the height the window can spare. Floored at 430 so
                a laptop is no worse off than before, and capped at 760 so the
                controls beside them do not fall off the bottom. */
-            #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(430px, 62vh, 760px);}
+            /* ⚠ SIZED AGAINST WHAT IS LEFT, NOT AGAINST THE WINDOW. 62vh took no
+               account of the header, the address line and the toolbar above it, so
+               on a 1080p screen the picture began 450px down and ended 170px below
+               the fold - you scrolled to see the house whatever the controls did.
+               The subtraction is what keeps the whole thing on one screen. */
+            #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(300px, calc(100vh - 330px), 760px);}
             /* ⭐ THE TOOLS ARE NEVER TALLER THAN THE PICTURE BESIDE THEM
                (2026-08-27). Owner: "all the tools are really far apart, mush them
                together so i dont have to scroll."
@@ -4569,7 +4574,70 @@
                ⚠ ONLY WHERE THERE IS ROOM TO BE BESIDE ANYTHING. Under 900px the
                panes wrap to stacked and the column is full width, where a cap
                would be a scrollbar inside a scrollbar for no reason. */
-            #roofMeasureOverlay .rm-tools{flex:0 0 276px; min-width:244px; display:flex; flex-direction:column; gap:8px;}
+            /* ⭐ THE TOOLS ARE A WIDE BAR, NOT A TALL COLUMN (2026-08-28).
+               Owner, twice: "all the tools are really far apart, mush them
+               together so i dont have to scroll", then "its all too seperated and
+               i have to scroll to use a tool."
+
+               ⚠ THE FIRST ANSWER ONLY MOVED THE SCROLLING. Capping the column at
+               the height of the picture and letting it scroll inside itself
+               stopped the PAGE scrolling, and she still had to scroll to reach a
+               tool - which is what she actually asked not to do.
+
+               ⭐ THE COLUMN WAS THE PROBLEM, AND IT WAS ALWAYS GOING TO BE. A
+               276px column beside a 460px picture has about 500-870px of controls
+               to fit into 460, and no amount of padding closes that. Turned on its
+               side the same controls have 1,400px to run along and need two short
+               rows. The window is wide and was being used as though it were tall.
+
+               ⚠ NOTHING MOVED IN THE MARKUP. Every id, every handler and every
+               render is untouched - this is the container changing direction. A
+               rebuild of that panel would have taken the listeners with it. */
+            #roofMeasureOverlay #rmWorkStage{display:flex; flex-direction:column; gap:10px;}
+            /* ⚠ display:contents SO THE ORDER BELOW CAN REACH THEM. The controls,
+               the price and the Save block are three children of .rm-tools, and
+               `order` only sorts siblings - left nested they all had to sit on the
+               same side of the pictures, which is what made the top bar 457px tall
+               and pushed the house off the screen. Dissolving the wrapper makes
+               them siblings of the pictures, so the CONTROLS can go above and the
+               Save block after. */
+            #roofMeasureOverlay .rm-tools{display:contents;}
+            /* ⚠ EVERYTHING GETS AN ORDER OR NOTHING DOES. Dissolving .rm-tools made
+               its children siblings of the pictures - and of the photo, wall and
+               capture blocks, which had no order and so defaulted to 0 and jumped
+               ABOVE the pictures. A default that puts unknown blocks LAST is the
+               safe direction: a new block added later lands after the house rather
+               than pushing it off the screen. */
+            #roofMeasureOverlay #rmWorkStage > *{order:6;}
+            #roofMeasureOverlay .rm-tools > .rm-panel{order:1;}
+            /* ⚠ THE PICTURES SHARE A WRAPPER WITH THE PHOTO AND CAPTURE BLOCKS, so
+               their order is decided INSIDE that wrapper, not against the toolbar.
+               Ordered against the stage they stayed put and those two blocks sat
+               above the house, which is the fault this was meant to fix. -1 puts
+               them first among their own siblings; the wrapper as a whole still
+               sits after the toolbar. */
+            #roofMeasureOverlay .rm-panes{order:-1;}
+            #roofMeasureOverlay #rmPricePanel{order:3;}
+            #roofMeasureOverlay .rm-commit{order:4;}
+            #roofMeasureOverlay #rmRoofFactsPanel{order:5;}
+            #roofMeasureOverlay .rm-tools > .rm-panel{flex:1 1 auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
+            /* Inside the bar a part is a group separated by a rule to its LEFT,
+               because the flow is now sideways. */
+            #roofMeasureOverlay .rm-tools .rm-part{margin:0; padding:0 0 0 9px; border-top:0; border-left:1px solid var(--line); display:flex; flex-wrap:wrap; align-items:center; gap:5px 8px;}
+            #roofMeasureOverlay .rm-tools .rm-part > .rm-lbl{margin:0 2px 0 0;}
+            #roofMeasureOverlay .rm-tools .rm-sub{margin:0; flex:0 0 100%;}
+            #roofMeasureOverlay .rm-tools #rmResults{display:flex; gap:10px; align-items:center;}
+            #roofMeasureOverlay .rm-tools .rm-resultrow{border-bottom:0; padding:0; gap:5px;}
+            /* The Save block keeps its own shape - it is the one thing here that
+               is a decision rather than a control. */
+            /* Below the pictures, where the last step belongs, and no wider than
+               it needs to be - a Save block stretched across 1,400px is a long way
+               for an eye to travel between the feet and the button. */
+            #roofMeasureOverlay .rm-commit{max-width:420px;}
+            #roofMeasureOverlay #rmPricePanel{max-width:420px;}
+            @media (max-width: 899px){
+              #roofMeasureOverlay .rm-tools{flex-direction:column;}
+            }
             @media (min-width: 900px){
               #roofMeasureOverlay .rm-tools{
                 position:sticky; top:0; align-self:flex-start;
@@ -4650,7 +4718,7 @@
             <button type="button" class="btn btn-outline btn-sm" id="rmLoadBtn" title="Load this address again">&#10227; Reload the imagery</button>
           </div>
 
-          <div id="rmWorkStage" style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+          <div id="rmWorkStage">
             <div class="rm-tools">
               <div class="rm-panel">
 
@@ -4951,7 +5019,7 @@
                    one of them. They wrap back to stacked on a narrow screen,
                    which is the right answer there - two 200px panes would be
                    worse than one usable one. -->
-              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
+              <div class="rm-panes" style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
                 <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span></div>
                 <div id="rmMap" class="rm-canvas"></div>
@@ -5047,13 +5115,19 @@
                 </div>
               </div>
 
-              <div id="rmWallBar" style="padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
-                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                  <button type="button" class="btn btn-gold btn-sm" id="rmWallBtn">Set the Wall</button>
-                  <span id="rmWallStatus" style="font-size:12px; color:var(--slate);">Street View needs the wall pinned once before it can measure.</span>
-                </div>
-                <p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Click where the wall meets the ground at each end of the house. That is what gives a flat photograph its depth &mdash; without it, a picture cannot be measured at all.</p>
-              </div>
+              <!-- ⛔ SET THE WALL IS GONE (2026-08-28). It pinned where the wall met
+                   the ground at each end of the house, and that is what gave a flat
+                   photograph its DEPTH - without it a street click could not become a
+                   place at all, which is exactly what its own caption said.
+
+                   ⚠ NOTHING MEASURES FROM A STREET CLICK ANY MORE (MR-01), so there
+                   is no depth left to supply. The button asked for two clicks that
+                   could change nothing, and the caption told the office Street View
+                   "needs the wall pinned once before it can measure" - an instruction
+                   that could not be acted on and a claim that was no longer true.
+
+                   rmWall, rmWallPicking and rmActiveWall are left in place and
+                   unreachable so nothing that reads them breaks. -->
 
               <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                 <button type="button" class="btn btn-gold" id="rmCaptureSky" disabled>Capture Sky View</button>
@@ -16769,6 +16843,16 @@ const RM_TYPES = {
    thousandth of a foot. 2.9 is close to 3.281 and it is worth saying plainly
    that it is NOT a metres-read-as-feet bug - that was the first thing checked.
 
+   ⭐ THE SIZE IS HERS AND IT MOVES. 2.9 → 1.45 → **1.3**, all on 2026-08-28:
+   "also make it 1.45 times smaller not 2.9", then "actually make it 1.3 times
+   smaller". She said when this was settled that she might adjust it and would
+   say so, and she has, twice in a few minutes.
+
+   ⚠ SO DO NOT READ ANY NUMBER IN THE PARAGRAPHS BELOW AS CURRENT. They are the
+   argument for the multiplier EXISTING - that $2 a foot is the advertised rate
+   and a 60 ft house cannot be done for $120 - not for its size. The size is a
+   dial she turns; read it off the line above, never off the prose.
+
    ⭐ ANSWERED 2026-08-28, AND THE ANSWER CHANGES WHAT THIS NUMBER IS. Owner:
    "yes the 2.9 is good because we want to charge $2 a foot but if the house is
    so called 60 feet we cant do that." So it is NO LONGER a measurement
@@ -16794,7 +16878,7 @@ const RM_TYPES = {
    shows Measured and then ×2.9 for pricing as separate lines, so nobody has to
    work out which number is which - that disclosure is the whole reason this is
    a multiplier rather than a change to the maths. */
-const RM_FEET_MULTIPLIER = 2.9;
+const RM_FEET_MULTIPLIER = 1.3;
 const RM_STATIC_MAX = 640;
 const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
 const RM_M_TO_FT = 3.280839895;
