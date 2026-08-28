@@ -23,3 +23,9 @@ results.txt
 
 # Worktrees other sessions create here are not part of the repo.
 .claude/worktrees/
+
+# The Measure Roof harness is GENERATED (node _harness-build.js) and is a
+# 1 MB file that changes on every admin.html edit. Its own header has always
+# said "never committed, never linked"; it had been tracked anyway, and was
+# adding 18,000 lines to a pull request that changed 600 lines of real code.
+_harness.html
