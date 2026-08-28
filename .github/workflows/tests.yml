@@ -58,7 +58,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Get the code
+        # ⚠ FULL HISTORY, NOT THE DEFAULT SHALLOW CLONE. docs-current.test.js asks git
+        # what this change touched, and a depth-1 checkout has no merge base to compare
+        # against — it would report "nothing was judged" on every run, which is a green
+        # build for the worst possible reason.
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Matches the Node used by the functions deploy workflow so both CI jobs
       # agree about the language they are checking.
@@ -141,7 +147,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Get the code
+        # ⚠ FULL HISTORY, NOT THE DEFAULT SHALLOW CLONE. docs-current.test.js asks git
+        # what this change touched, and a depth-1 checkout has no merge base to compare
+        # against — it would report "nothing was judged" on every run, which is a green
+        # build for the worst possible reason.
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
