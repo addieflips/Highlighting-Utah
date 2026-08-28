@@ -277,6 +277,20 @@ check('functions/index.js still has portalRsvp', !!portalRsvp);
    one place that says what a yes does. RUN, not read: a yes that only sets the status
    leaves the warehouse still queued to take their bundle apart, and that is a fact
    about behaviour, not about text. */
+/* ⭐ ONE LIFTER FOR THE SERVER FILE (2026-08-28). Three sandboxes in this repo lift
+   seasonYesUpdates, and adding one helper call inside it broke them one at a time — the
+   "five sandboxes broke, one after another" pattern CLAUDE.md records. Defined once so
+   the next dependency is one edit, not a hunt through failing suites. */
+function liftServerFn(name) {
+  const at = server.indexOf('function ' + name + '(');
+  if (at === -1) return '';
+  let d = 0, k = server.indexOf('{', at);
+  for (; k < server.length; k++) {
+    if (server[k] === '{') d++;
+    else if (server[k] === '}') { d--; if (!d) break; }
+  }
+  return server.slice(at, k + 1) + '\n';
+}
 const yesAt = server.indexOf('function seasonYesUpdates');
 const yesSrc = yesAt === -1 ? '' : server.slice(yesAt, server.indexOf('\n}', yesAt) + 2);
 check('the server has one rule for what a yes does', !!yesSrc,
@@ -287,7 +301,21 @@ if (yesSrc) {
   /* ⚠ THE TIMESTAMP IS A PARAMETER NOW (2026-08-24), so the office copy in admin.html
      and this one can be handed the same sentinel and compared. The fakeAdmin above is
      still supplied because the module reads it elsewhere; only this rule takes ts. */
-  const rawYes = new Function('admin', yesSrc + 'return seasonYesUpdates;')(fakeAdmin);
+  /* ⚠ THE HELPERS seasonYesUpdates CALLS ARE LIFTED, NEVER STUBBED (2026-08-28). A yes
+     can re-queue a build and cancel a recycle, and both now stamp a date — so this
+     sandbox has to supply those two rules or the lift dies with a bare ReferenceError
+     that names neither the suite nor the missing function. It did exactly that in CI:
+     `stampBuildQueuedServer is not defined`, from a change that had touched
+     functions/index.js and never this file.
+     ⚠ LIFTED, because a stub would keep this suite green through a change to whether a
+     rejoining customer's build date is recorded at all — which is the one thing these
+     checks exist to hold. §3's rule, and the reason sandboxDeps exists in run-all.js. */
+  const yesDeps = liftServerFn('stampBuildQueuedServer') + liftServerFn('stampRecycleRequestedServer');
+  check('the stamp rules a yes depends on could be lifted too',
+    /stampBuildQueuedServer/.test(yesDeps) && /stampRecycleRequestedServer/.test(yesDeps),
+    'without them the lift below dies with a ReferenceError naming neither this suite ' +
+    'nor the function it wanted — which is how this failed in CI rather than locally');
+  const rawYes = new Function('admin', yesDeps + yesSrc + 'return seasonYesUpdates;')(fakeAdmin);
   const yes = (d) => rawYes(d, () => 'NOW');
 
   check('a yes sets the status and stamps when they answered',
@@ -748,8 +776,14 @@ check('badging Back Next Year clears the build but not the recycle',
     'a rename that finds only one copy must FAIL, never skip — a gate that cannot ' +
     'find its target reporting green is how a money bug shipped for a day');
   if (bSrc && sSrc) {
-    const office = new Function(bSrc + 'return seasonYesUpdates;')();
-    const srv    = new Function('admin', sSrc + 'return seasonYesUpdates;')({});
+    /* ⚠ EACH SIDE NEEDS THE STAMP RULES IT CALLS, and they are named differently —
+       stampBuildQueued in the browser, stampBuildQueuedServer on the server. Lifted from
+       their own file so the parity below still compares the real rules. */
+    const officeDeps = (fn('stampBuildQueued') || '') + '\n' + (fn('stampRecycleRequested') || '') + '\n';
+    const srvDeps = liftServerFn('stampBuildQueuedServer') + liftServerFn('stampRecycleRequestedServer');
+    const office = new Function('serverTimestamp', officeDeps + bSrc + 'return seasonYesUpdates;')(() => '<<stamp>>');
+    const srv    = new Function('admin', srvDeps + sSrc + 'return seasonYesUpdates;')(
+      { firestore: { FieldValue: { serverTimestamp: () => '<<stamp>>' } } });
     const TS = () => '<<stamp>>';
     /* Every shape a customer can be in when a yes arrives. The out-for-season ones
        matter most: those are the rejoiners, and they are where the two copies have

@@ -344,6 +344,66 @@ It watches the fields most likely to disagree with themselves, ranked by how man
 
 ---
 
+## 10c. When each thing happened to a customer
+
+Seven of the ten steps a customer goes through leave a **date** on their record, which is
+what makes a per-customer history possible: `createdAt` (quote raised),
+`convertedToCustomerAt`, **`lightsQueuedAt` (sent to the warehouse)**,
+`lightsMarkedBuiltAt`, `completedAt` (lights hung), `invoicedAt`, `paidAt`, and
+`rsvpRespondedAt`. **`lightsRecycleRequestedAt`** (their old set asked for back), `removalDoneAt`, and — on the
+invoice — **`newMemberFeeAppliedAt`**, the day the $30 join fee was charged.
+
+Every step of the path a customer takes now carries a date, and `queue-date.test.js`
+lists all nineteen so one cannot quietly lose its stamp: quote raised and sent, marked
+approved, converted, sent to the warehouse, bundle built, needs a day, **put on a crew
+sheet / fix route / takedown route**, **fix raised** and mended, lights up, takedown done,
+old set asked back, RSVP answered, invoiced, paid, join fee charged.
+
+⚠ **`scheduledDate` is the day they are booked FOR; `assignedCrewAt` is when the booking
+was made.** That gap — between waiting for a day and being hung — is where a house sits
+and gets forgotten, and until 2026-08-28 nothing measured it. ⚠ **`fixRaisedAt` survives
+the mend**, beside `fixDoneAt`: the pair says how long the customer waited, and clearing
+it would let the repair erase the wait.
+
+Most of the money was already dated and that was checked before anything was built: the
+$25 referral, manual discounts, carried credits, manual fees, the automatic $30 change fee
+and the carryover charge each carry a `date` on their own note. The join fee was the one
+fee with none, because it is folded straight into `install` rather than listed. What is
+still undated is an EDIT rather than a state —
+an address, a timer or a set of sides changing. Those belong in the activity log, which
+records WHAT changed as well as when; a bare date would say the address moved and not
+what it moved to. And `scheduledDate` remains a different thing: the day they are booked
+FOR, not the day the booking was made.
+
+`lightsQueuedAt` was added 2026-08-28, after Addie asked "what about when bundle got sent
+to warehouse". Until then the record knew when a bundle was MADE and not when it was ASKED
+FOR — so "built on 14 Oct" could not tell you whether it waited two days or five weeks, and
+a house queued and forgotten looked exactly like one queued that morning.
+
+⚠ **It is stamped on the transition, never on every write.** Two places write the build
+flag on EVERY save, keeping whatever it already held — the house-details panel and the Edit
+Customer save. Stamping there each time would reset the clock whenever anybody opened a
+record to fix a phone number, which destroys the only thing the date is for. ⚠ **A
+re-queue is deliberately a new date**: the warehouse is waiting on the newest request. ⚠ And
+it is **not cleared when the build is marked done** — "queued on the 2nd, built on the 9th"
+is the point.
+
+⚠ **In the Edit Customer save the stamp goes LAST, after every branch that can move the
+flag.** Five of them do: the colours ternary, a changed wire or timer, a rejoin after a
+recycle, the re-quote answer, and the Maybe Next Year block, which CLEARS the build. The
+first version sat inside the re-quote branch, so a save that queued a build any other way
+— a changed wire most of all — recorded no date at all. Nothing in the census saw it: a
+census asks whether the function CONTAINS a stamp, never whether every path reaches one.
+It surfaced only because a test sandbox lifts that branch and died on a name it had never
+been given.
+
+⚠ **Fifteen places queue a build**, across the office and the portal, and
+`queue-date.test.js` keeps a census of all of them: a new one that does not stamp fails the
+build. `stampBuildQueued` in admin.html and `stampBuildQueuedServer` in functions/index.js
+are the two copies of the rule — change one, change the other, in the same push.
+
+---
+
 ## 11. If X isn't working, check Y
 
 - **A route/customer list is empty with no error** → check `firestore.rules` first for that collection. A collection missing a rules entry is denied by default and fails *silently* in a listener (no console error a non-coder would notice).
