@@ -19528,8 +19528,10 @@ document.addEventListener('mousedown', function(e){
   const pov = pano && pano.getPov ? (pano.getPov() || {}) : {};
   let z = pano && pano.getZoom ? pano.getZoom() : 1;
   if(typeof z !== 'number' || !isFinite(z)) z = 1;
+  const boxEl = document.getElementById(pane === 'grade' ? 'rmGradePano' : (pane === 'sky' ? 'rmMap' : 'rmPano'));
+  const box = boxEl ? boxEl.getBoundingClientRect() : null;
   rmNavDrag = {pane: pane, x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY,
-               moved: false, heading: pov.heading || 0, pitch: pov.pitch || 0, zoom: z};
+               box: box, moved: false, heading: pov.heading || 0, pitch: pov.pitch || 0, zoom: z};
   rmNavMenuAfterDrag = false;   /* a fresh press starts out entitled to its menu */
   rmRefreshCursors(true);
 });
@@ -19560,16 +19562,38 @@ document.addEventListener('mousemove', function(e){
   }
   const pano = rmNavPanoFor(rmNavDrag.pane);
   if(!pano) return;
-  const box = document.getElementById(rmNavDrag.pane === 'grade' ? 'rmGradePano' : 'rmPano');
-  const W = (box && box.clientWidth) || 1;
-  /* ⚠ DEGREES PER PIXEL COMES FROM THE CURRENT FIELD OF VIEW, so the same hand
-     movement turns the same amount of picture whether zoomed in or out. A fixed
-     rate feels right at one zoom and wrong at every other. */
-  const perPx = rmFovDeg(rmNavDrag.zoom) / W;
+  const el = document.getElementById(rmNavDrag.pane === 'grade' ? 'rmGradePano' : 'rmPano');
+  const W = (el && el.clientWidth) || 1;
+  const H = (el && el.clientHeight) || 1;
+  const r = rmNavDrag.box || (el ? el.getBoundingClientRect() : {left: 0, top: 0});
+  /* ⭐ THE PICTURE KEEPS UP WITH THE HAND (2026-08-28). Owner: "street view doesnt
+     properly move at the same speed as the mouse which bugs me, correct it to
+     mouse speed."
+
+     ⚠ IT WAS DEGREES-PER-PIXEL, WHICH IS THE WRONG SHAPE OF SUM. A panorama is a
+     PERSPECTIVE picture: the angle a pixel covers is not constant across the
+     frame, it is widest at the centre and narrows towards the edges. Spreading
+     the field of view evenly over the width therefore under-turns everywhere -
+     measured at 90 degrees across 600px it is about 21% short at every ordinary
+     drag, which is exactly the lag she could feel.
+
+     ⭐ THE HONEST SUM IS THE CAMERA'S OWN. focal = (W/2) / tan(fov/2), and the
+     bearing of a pixel is atan(offset / focal) - the SAME focal length and the
+     same arctangent rmStreetDotPixel already uses to put a mark back on screen.
+     So the marks and the drag now agree about what a pixel is worth; before this
+     they did not.
+
+     ⚠ OFFSETS ARE FROM THE CENTRE OF THE PICTURE, not from where the press
+     happened - the arctangent is only correct measured off the optical axis. */
+  const focal = (W / 2) / Math.tan(rmRad(rmFovDeg(rmNavDrag.zoom)) / 2);
+  const cx = r.left + W / 2, cy = r.top + H / 2;
+  const bearing = function(px){ return Math.atan(px / focal) * 180 / Math.PI; };
   /* ⚠ MEASURED FROM WHERE THE BUTTON WENT DOWN, never step by step: adding up
      deltas drifts, and a pitch clamped at the top would then never come back. */
-  pano.setPov({heading: rmNavDrag.heading + dx * perPx,
-               pitch: Math.max(-90, Math.min(90, rmNavDrag.pitch - dy * perPx))});
+  const turnX = bearing(e.clientX - cx) - bearing(rmNavDrag.downX - cx);
+  const turnY = bearing(e.clientY - cy) - bearing(rmNavDrag.downY - cy);
+  pano.setPov({heading: rmNavDrag.heading + turnX,
+               pitch: Math.max(-90, Math.min(90, rmNavDrag.pitch - turnY))});
 });
 function rmNavEnd(){
   if(!rmNavDrag) return;

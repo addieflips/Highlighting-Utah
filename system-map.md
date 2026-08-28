@@ -110,6 +110,14 @@ right; drag down, look down — the way Roblox Studio does it, which is the
 opposite of Google's own left drag. The sky view **grabs the world**, so what is
 under the pointer stays under it, exactly as its own left drag behaves.
 
+⚠ **It turns at exactly the speed of your hand.** That is not the obvious sum:
+spreading the field of view evenly across the width of the picture under-turns
+by about a fifth, because a perspective picture gives the middle of the frame
+more angle per pixel than the edges. It uses the camera's own focal length
+instead — the same one that decides where a mark is drawn — so a drag near the
+edge turns slightly less than the same drag through the middle, which is what a
+real camera does. Zoomed in it turns less, because the picture is magnified.
+
 ⚠ **The right-click menu still works — unless you held and dragged.** A plain
 click on a picture opens it as usual; only a drag takes it away, and only that
 one time. A few pixels of hand jitter still counts as a click.
