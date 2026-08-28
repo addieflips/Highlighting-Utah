@@ -4514,16 +4514,26 @@
             #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
             #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
             #roofMeasureOverlay .rm-typebtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
-            #roofMeasureOverlay .rm-sidebtn{border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 11px; font-size:11.5px; font-weight:600; cursor:pointer;}
+            #roofMeasureOverlay .rm-sidebtn{border:1px solid var(--line); background:#fff; border-radius:7px; padding:4px 8px; font-size:11px; font-weight:600; cursor:pointer;}
             #roofMeasureOverlay .rm-sidebtn.on{background:var(--gold-dim); border-color:var(--gold-dim);}
             #roofMeasureOverlay .rm-sidebtn:disabled{opacity:.4; cursor:not-allowed;}
             #roofMeasureOverlay .rm-cornerbtn{border:1px solid var(--line); background:#fff; color:var(--slate); border-radius:7px; min-width:26px; padding:3px 6px; font-size:12px; font-weight:800; cursor:pointer; font-variant-numeric:tabular-nums;}
             #roofMeasureOverlay .rm-cornerbtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
             #roofMeasureOverlay .rm-cornerbtn.rm-swapping{outline:2px solid var(--gold-dim); outline-offset:1px;}
-            #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--paper);}
-            #roofMeasureOverlay .rm-panel h4{margin:0 0 2px; font-size:13.5px; font-weight:700;}
-            #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 10px; font-size:11.5px; color:var(--slate);}
-            #roofMeasureOverlay .rm-resultrow{display:flex; justify-content:space-between; align-items:center; gap:8px; padding:5px 0; font-size:13px; border-bottom:1px dotted var(--line);}
+            /* ⭐ THE CONTROLS FIT ON ONE SCREEN (2026-08-27). Owner: "all the
+               tools are really far apart, mush them together so i dont have to
+               scroll." Each panel was a 12px-padded card with a heading, a
+               sub-heading and a 12px gap to the next one - six cards' worth of
+               frame around about a screenful of actual controls, next to a pane
+               that is deliberately tall so the house can be seen. The frames
+               cost more height than the things inside them. */
+            #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:10px; padding:8px 9px; background:var(--paper);}
+            #roofMeasureOverlay .rm-panel h4{margin:0 0 5px; font-size:12.5px; font-weight:700;}
+            #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 6px; font-size:11px; color:var(--slate);}
+            /* A rule between the jobs inside one panel, instead of a card each. */
+            #roofMeasureOverlay .rm-part{margin-top:6px; padding-top:6px; border-top:1px solid var(--line);}
+            #roofMeasureOverlay .rm-part > .rm-lbl{font-size:11px; font-weight:700; color:var(--dusk); margin-bottom:4px;}
+            #roofMeasureOverlay .rm-resultrow{display:flex; justify-content:space-between; align-items:center; gap:8px; padding:3px 0; font-size:13px; border-bottom:1px dotted var(--line);}
             #roofMeasureOverlay .rm-resultrow:last-child{border-bottom:0;}
             #roofMeasureOverlay .rm-runrow{display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; color:var(--slate);}
             #roofMeasureOverlay .rm-runrow button{border:0; background:none; color:var(--ember); cursor:pointer; font-size:13px; line-height:1; padding:0 2px;}
@@ -4538,6 +4548,44 @@
                a laptop is no worse off than before, and capped at 760 so the
                controls beside them do not fall off the bottom. */
             #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(430px, 62vh, 760px);}
+            /* ⭐ THE TOOLS ARE NEVER TALLER THAN THE PICTURE BESIDE THEM
+               (2026-08-27). Owner: "all the tools are really far apart, mush them
+               together so i dont have to scroll."
+
+               ⚠ TIGHTENING THE PADDING WAS NOT ENOUGH AND COULD NOT BE. The pane
+               is deliberately tall - clamp(430px, 62vh, 760px), so the house can
+               actually be seen - and on a 1080p screen that plus the page header
+               is already most of the window. A column beside it that runs even a
+               little longer pushes the SAVE button off the bottom of the page,
+               and the only way to reach it is to scroll the picture out of sight.
+               Squeezing the panels took it from 1108px to 877px and it still did
+               not fit, because the thing it has to fit inside is 460px.
+
+               So the column is capped at exactly the pane's height and scrolls
+               inside itself. The PAGE stops scrolling: the picture and the
+               controls stay level and on screen together, and a short scroll
+               inside a 276px column never takes the house away from you.
+
+               ⚠ ONLY WHERE THERE IS ROOM TO BE BESIDE ANYTHING. Under 900px the
+               panes wrap to stacked and the column is full width, where a cap
+               would be a scrollbar inside a scrollbar for no reason. */
+            #roofMeasureOverlay .rm-tools{flex:0 0 276px; min-width:244px; display:flex; flex-direction:column; gap:8px;}
+            @media (min-width: 900px){
+              #roofMeasureOverlay .rm-tools{
+                position:sticky; top:0; align-self:flex-start;
+                max-height:clamp(430px, 62vh, 760px); overflow-y:auto; overscroll-behavior:contain;
+                padding-right:4px; scrollbar-width:thin;
+              }
+              /* ⛔ AND SAVE IS NOT PINNED TO THE FOOT OF IT, which was tried and
+                 was worse. The Save card is 300px of a 460px column - stuck to
+                 the bottom it covered two thirds of the tools it was meant to sit
+                 politely beneath, and the measuring controls were the thing you
+                 then had to scroll to find. It is the LAST step and it sits at
+                 the end, where a step that comes last belongs.
+                 ⚠ AND IT IS NOT ON SCREEN AT ALL UNTIL THERE IS SOMETHING TO
+                 SAVE. While measuring the column is the tools panel alone, which
+                 is about the height of the pane, so nothing scrolls at all. */
+            }
             #roofMeasureOverlay .rm-panehead{position:absolute; left:0; right:0; top:0; z-index:9; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(rgba(12,18,26,.72), rgba(12,18,26,0)); color:#fff; font-size:12px; font-weight:600; pointer-events:none;}
             /* Sits over a pane until its imagery is actually on screen. z-index
                is BELOW the lock layer so it can never swallow a measuring click
@@ -4558,29 +4606,29 @@
             #roofMeasureOverlay .rm-mini{display:flex; justify-content:space-between; font-size:12px; padding:3px 0;}
             #roofMeasureOverlay kbd{background:#fff; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:1px 5px; font:inherit; font-size:10px; font-weight:700;}
             /* ---- the one commit block ---- */
-            #roofMeasureOverlay .rm-commit{background:var(--ink); border-radius:12px; padding:13px; color:#EAF1E6;}
+            #roofMeasureOverlay .rm-commit{background:var(--ink); border-radius:10px; padding:9px 10px; color:#EAF1E6;}
             #roofMeasureOverlay .rm-commit h4{color:#fff;}
             #roofMeasureOverlay .rm-commit .rm-sub{color:#A9BDAE;}
-            #roofMeasureOverlay .rm-pair{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0 2px;}
-            #roofMeasureOverlay .rm-cell{background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); border-radius:9px; padding:8px 9px;}
+            #roofMeasureOverlay .rm-pair{display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:6px 0 2px;}
+            #roofMeasureOverlay .rm-cell{background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); border-radius:8px; padding:5px 8px;}
             #roofMeasureOverlay .rm-cell .rm-lab{font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#9FB6A6; display:block; margin-bottom:3px;}
             #roofMeasureOverlay .rm-cell .rm-val{font-family:'Fraunces',serif; font-size:21px; color:#fff; font-variant-numeric:tabular-nums; line-height:1.1;}
-            #roofMeasureOverlay .rm-chain{margin:11px 0 0; padding:9px 0 0; border-top:1px solid rgba(255,255,255,.14);}
-            #roofMeasureOverlay .rm-chain-h{font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#9FB6A6; margin-bottom:6px;}
+            #roofMeasureOverlay .rm-chain{margin:7px 0 0; padding:6px 0 0; border-top:1px solid rgba(255,255,255,.14);}
+            #roofMeasureOverlay .rm-chain-h{font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#9FB6A6; margin-bottom:4px;}
             #roofMeasureOverlay .rm-chain-row{display:flex; gap:6px;}
-            #roofMeasureOverlay .rm-chip{flex:1; text-align:center; background:rgba(244,190,85,.13); border:1px solid rgba(244,190,85,.32); border-radius:8px; padding:6px 4px;}
-            #roofMeasureOverlay .rm-chip b{display:block; font-family:'Fraunces',serif; font-size:15px; color:var(--gold); font-variant-numeric:tabular-nums;}
-            #roofMeasureOverlay .rm-chip span{display:block; font-size:9px; color:#B9C9BC; line-height:1.3; margin-top:1px;}
+            #roofMeasureOverlay .rm-chip{flex:1; text-align:center; background:rgba(244,190,85,.13); border:1px solid rgba(244,190,85,.32); border-radius:7px; padding:3px 4px; white-space:nowrap;}
+            #roofMeasureOverlay .rm-chip b{display:inline; font-family:'Fraunces',serif; font-size:14px; color:var(--gold); font-variant-numeric:tabular-nums;}
+            #roofMeasureOverlay .rm-chip span{display:inline; font-size:9px; color:#B9C9BC; line-height:1.3; margin-left:3px;}
             #roofMeasureOverlay .rm-flag{margin:10px 0 0; border-radius:9px; padding:8px 10px; font-size:11.5px; line-height:1.5; display:none;}
             #roofMeasureOverlay .rm-flag.on{display:block;}
             #roofMeasureOverlay .rm-flag.warn{background:rgba(224,87,75,.16); border:1px solid rgba(224,87,75,.45); color:#FFD9D5;}
             #roofMeasureOverlay .rm-flag.note{background:rgba(244,190,85,.14); border:1px solid rgba(244,190,85,.4); color:#FBE6BC;}
-            #roofMeasureOverlay .rm-commit .btn-gold{width:100%; margin-top:11px; justify-content:center;}
-            #roofMeasureOverlay .rm-second{display:flex; gap:14px; justify-content:center; margin-top:9px; flex-wrap:wrap;}
+            #roofMeasureOverlay .rm-commit .btn-gold{width:100%; margin-top:8px; justify-content:center;}
+            #roofMeasureOverlay .rm-second{display:flex; gap:14px; justify-content:center; margin-top:6px; flex-wrap:wrap;}
             #roofMeasureOverlay .rm-second button{background:none; border:0; color:#A9BDAE; font-size:11.5px; text-decoration:underline; text-underline-offset:2px; padding:2px; cursor:pointer; font-family:inherit;}
             #roofMeasureOverlay .rm-second button:hover{color:#fff;}
             #roofMeasureOverlay .rm-second button:disabled{opacity:.4; cursor:not-allowed; text-decoration:none;}
-            #roofMeasureOverlay .rm-saidit{font-size:11px; color:#B9C9BC; margin:9px 0 0; text-align:center; line-height:1.5;}
+            #roofMeasureOverlay .rm-saidit{font-size:10.5px; color:#B9C9BC; margin:6px 0 0; text-align:center; line-height:1.45;}
           </style>
           <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
           <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">Trace the roofline on the sky view, then say where the peaks are. Street View is for the grade and for the picture.</p>
@@ -4603,9 +4651,9 @@
           </div>
 
           <div id="rmWorkStage" style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
-            <div style="flex:0 0 276px; min-width:244px; display:flex; flex-direction:column; gap:12px;">
+            <div class="rm-tools">
               <div class="rm-panel">
-                <h4>Measurement Tools</h4>
+
                 <!-- ⚠ NO TYPE PICKER. Owner: "we only do perimeter so get rid of
                      the ground and ridge buttons too." Ridge and Ground were
                      three buttons, a keyboard shortcut each and two rows of
@@ -4613,11 +4661,11 @@
                      RM_TYPES still knows all three so a quote measured before
                      today still renders and still prices - nothing new is ever
                      made as either. -->
-                <p class="rm-sub">Click along the roofline on the sky view.</p>
-                <button type="button" class="btn btn-gold btn-sm" id="rmDrawBtn" style="width:100%; justify-content:center;">Start Measuring</button>
-                <div style="display:flex; gap:6px; margin-top:6px;">
-                  <button type="button" class="btn btn-outline btn-sm" id="rmUndoBtn" style="flex:1; justify-content:center;">Undo</button>
-                  <button type="button" class="btn btn-outline btn-sm" id="rmClearBtn" style="flex:1; justify-content:center;">Clear</button>
+                <p class="rm-sub" style="margin-bottom:5px;">Click along the roofline on the sky view.</p>
+                <div style="display:flex; gap:6px;">
+                  <button type="button" class="btn btn-gold btn-sm" id="rmDrawBtn" style="flex:2 1 118px; justify-content:center;">Start Measuring</button>
+                  <button type="button" class="btn btn-outline btn-sm" id="rmUndoBtn" style="flex:1 1 52px; justify-content:center; padding-left:8px; padding-right:8px;">Undo</button>
+                  <button type="button" class="btn btn-outline btn-sm" id="rmClearBtn" style="flex:1 1 52px; justify-content:center; padding-left:8px; padding-right:8px;">Clear</button>
                 </div>
                 <p id="rmDrawHint" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Load an address first.</p>
                 <!-- Front is on by default; the rest are one click each. The
@@ -4628,8 +4676,8 @@
                      between picking and placing. Shift-click two to swap
                      their places in the order. -->
                 <div id="rmCornerBar" style="display:none; margin-top:10px;">
-                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">
-                    Corners &mdash; <span id="rmCornerMode">Picking corners &mdash; space to place a dot</span>
+                  <div style="font-size:11px; color:var(--slate); margin-bottom:4px;">
+                    <span id="rmCornerMode">Picking &mdash; space to place</span>
                   </div>
                   <div id="rmCornerNote" style="font-size:11px; color:var(--dusk); margin-bottom:5px;"></div>
                   <div id="rmCornerList" style="display:flex; gap:4px; flex-wrap:wrap;"></div>
@@ -4665,23 +4713,22 @@
                   </div>
                 </div>
                 <div id="rmSidesBar" style="display:none; margin-top:10px;">
-                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">Sides of the house</div>
+                  <div style="font-size:11px; color:var(--slate); margin-bottom:4px;">Sides of the house</div>
                   <div style="display:flex; gap:5px; flex-wrap:wrap;">
                     <button type="button" class="rm-sidebtn on" data-rmside="front">Front</button>
                     <button type="button" class="rm-sidebtn" data-rmside="left">Left</button>
                     <button type="button" class="rm-sidebtn" data-rmside="right">Right</button>
                     <button type="button" class="rm-sidebtn" data-rmside="back">Back</button>
-                    <button type="button" class="btn btn-outline btn-sm" id="rmAllSides" style="padding:4px 9px; font-size:11px;">All</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmAllSides" style="padding:4px 7px; font-size:11px;">All</button>
                   </div>
                 </div>
                 <!-- Named on screen on purpose: a shortcut nobody can find is a
                      feature for one person. ⚠ BUT SIX OF THEM IS A LIST NOBODY
                      READS, so the two that matter stay out here and the rest
                      move under More options — none of them is unbound. -->
-                <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
+                <p style="font-size:10.5px; color:var(--slate); margin:7px 0 0; line-height:1.6;">
                   <kbd>Enter</kbd> finish a side &middot; <kbd>&#9003;</kbd> undo a point
                 </p>
-              </div>
 
               <!-- The height a sky-view click is assumed to be at. Sky view
                    cannot see height, so it has to be told once - and Street
@@ -4712,7 +4759,7 @@
                    shift-drag on a dot in Street View sets its height by eye,
                    against the photograph, which is a better overrule than a
                    number typed into a box with nothing to check it against. -->
-              <div class="rm-panel" id="rmHeightPanel" style="display:none;">
+              <div class="rm-part" id="rmHeightPanel" style="display:none;">
                 <p id="rmDatumNote" style="font-size:12px; color:var(--dusk); margin:0; font-weight:600;"></p>
                 <button type="button" id="rmMoreBtn" style="border:0; background:none; padding:4px 0 0; font-size:11px; color:var(--slate); cursor:pointer; text-decoration:underline;">More options</button>
                 <div id="rmMoreBox" style="display:none; margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
@@ -4734,9 +4781,8 @@
                    space. rmFilterCss now answers 'none' and the captures go out
                    exactly as Google served them. -->
 
-              <div class="rm-panel">
-                <h4>Distance Results</h4>
-                <p class="rm-sub">Real ground distance, not pixels.</p>
+              <div class="rm-part">
+                <div class="rm-lbl">Measured</div>
                 <div id="rmResults"></div>
                 <div id="rmRuns" style="margin-top:8px;"></div>
                 <!-- ⭐ THE GRADE TOOL (2026-08-27). Owner: "build a tool where you
@@ -4744,7 +4790,7 @@
                      tool it automatically adds the extra."
                      Drag along the slope of a gable in the picture; the angle of
                      the drag is the grade; letting go re-costs every peak. -->
-                <div style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <div style="margin-top:6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                   <button type="button" class="btn btn-outline btn-sm" id="rmGradeBtn" style="padding:4px 10px; font-size:11px;">Measure the grade</button>
                   <span id="rmGradeNote" style="font-size:11.5px; color:var(--slate);"></span>
                 </div>
@@ -4752,8 +4798,8 @@
                      "you should just say between which two dots is it located ...
                      and then it bases it off of the distance between the two
                      points and the grade and calculates it." -->
-                <div style="margin-top:8px;">
-                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:4px;">Peaks</div>
+                <div class="rm-part">
+                  <div class="rm-lbl">Peaks</div>
                   <div id="rmPeakList"></div>
                   <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:4px;">
                     <span style="font-size:11.5px; color:var(--slate);">between</span>
@@ -4776,8 +4822,8 @@
                      ⚠ IT IS MARKED `manual` SO IT NEVER LOOKS MEASURED. A typed
                      number and a traced one are different kinds of claim, and
                      the list says which is which. -->
-                <div style="margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
-                  <button type="button" class="btn btn-outline btn-sm" id="rmAddManualBtn" style="width:100%; justify-content:center;">+ Add a side by hand</button>
+                <div class="rm-part">
+                  <button type="button" class="btn btn-outline btn-sm" id="rmAddManualBtn" style="width:100%; justify-content:center; padding:3px 8px; font-size:11px;">+ Add a side by hand</button>
                   <div id="rmManualBox" style="display:none; margin-top:7px;">
                     <div style="display:flex; gap:5px; flex-wrap:wrap;">
                       <input type="text" id="rmManualName" placeholder="Name, e.g. Back" style="flex:1 1 96px; min-width:80px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
@@ -4836,10 +4882,10 @@
                      that reads rmCalibration breaks; delete them once nothing does. -->
               </div>
 
+              </div><!-- /the one controls panel: measuring, results, peaks, a typed side -->
+
               <div class="rm-panel" id="rmPricePanel" style="display:none;">
-                <h4>Price</h4>
-                <p class="rm-sub">Your per-foot rate, tilted by how hard the house is.</p>
-                <div style="display:flex; gap:8px; align-items:center; margin-bottom:9px;">
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
                   <label style="font-size:11.5px; color:var(--slate);">Difficulty</label>
                   <select id="rmDifficulty" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12.5px;">
                     <option value="Easy">Easy &times;0.85</option>
@@ -4847,7 +4893,7 @@
                     <option value="Hard">Hard &times;1.25</option>
                   </select>
                 </div>
-                <p id="rmGradeWhy" style="font-size:11px; color:var(--slate); margin:0 0 9px;"></p>
+                <p id="rmGradeWhy" style="font-size:11px; color:var(--slate); margin:0 0 5px;"></p>
                 <div id="rmPrice" style="font-size:12.5px;"></div>
               </div>
 
@@ -4867,7 +4913,7 @@
                    on every render. -->
               <div class="rm-panel rm-commit" id="rmCommitPanel" style="display:none;">
                 <h4>Save to this quote</h4>
-                <p class="rm-sub">One press. The feet and the price go together, or neither goes.</p>
+                <p class="rm-sub" style="margin-bottom:0;">One press &mdash; the feet and the price go together, or neither goes.</p>
                 <div class="rm-pair">
                   <div class="rm-cell"><span class="rm-lab">Estimated feet</span><div class="rm-val" id="rmCommitFt">—</div></div>
                   <div class="rm-cell"><span class="rm-lab">Quoted price</span><div class="rm-val" id="rmCommitPr">—</div></div>
@@ -4887,7 +4933,7 @@
                   <button type="button" id="rmUseFeetBtn">Save the feet only</button>
                   <button type="button" id="rmUsePriceBtn">Save the price only</button>
                 </div>
-                <p class="rm-saidit">The drawing saves with it either way, so reopening this quote brings the lines back.</p>
+                <p class="rm-saidit">The drawing saves too, so reopening the quote brings the lines back.</p>
                 <p class="rm-saidit" id="rmGradeSaved" style="margin-top:4px;"></p>
               </div>
 
