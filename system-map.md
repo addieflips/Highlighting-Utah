@@ -198,6 +198,12 @@ jumped 25px to the very top of the tool. That is the same failure the numbering
 exists to prevent, caused by the fix for it. Every child of that wrapper is
 numbered now, not just the pictures.
 
+⚠ **And the row holding it all had to be allowed to shrink.** It could grow but
+not shrink, so it could never settle back down to its own minimum — the pictures
+grew to fill a stage taller than the card and hung off the bottom, 770 of content
+in a 666 card. The floor is what stops rows painting over each other; being able
+to *reach* that floor is what makes everything fit.
+
 **The whole tool sits on one screen and nothing on it moves.** The card is one
 viewport tall and never scrolls; the two pictures take whatever height the bars
 above and below them do not. That is what makes it fit whatever the window size —

@@ -4596,7 +4596,13 @@
                top of each other, 56px overlapping, on the live page.
                min-content is the floor: the stage still GROWS to fill the card, and
                when there is genuinely not enough room the card scrolls instead. */
-            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 0 auto; min-height:min-content;}
+                        /* ⚠ SHRINK 1, NOT 0. min-content is the floor that stops the overflow-
+               and-paint-over-the-next-row bug; flex-shrink:0 meant the stage could
+               never come DOWN to that floor, so the pictures grew to fill a stage
+               taller than the card and hung off the bottom - 770 of content in a 666
+               card, measured live twice. With shrink on, the stage settles at its
+               own min-content and the pictures take exactly what is left. */
+            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:min-content;}
             #roofMeasureOverlay #rmWorkStage > .rm-stagerest{min-height:0;}
             /* ⭐ AND THE PICTURES HAVE A FLOOR. min-height:0 is what lets a flex item
                shrink so the page can fit - and it also lets it shrink to NOTHING. The

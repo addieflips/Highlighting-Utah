@@ -38728,7 +38728,7 @@ suite('170. Measure Roof - a peak is two dots and a grade');
      is what keeps the pictures absorbing the slack), and when there is genuinely
      not enough room the CARD scrolls, which the check above guarantees. */
   check('S170', 'the stage cannot be squeezed smaller than the rows inside it',
-    /#rmWorkStage\{flex:1 0 auto; min-height:min-content;\}/.test(admin),
+    /#rmWorkStage\{flex:1 1 auto; min-height:min-content;\}/.test(admin),
     'flex:1 1 auto let it overflow and paint the Save bar over the Attach to Quote row');
 
   /* ⭐ THE PICTURE DOES NOT MOVE WHILE YOU CLICK (2026-08-28). Owner: "whenever i
