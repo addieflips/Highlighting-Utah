@@ -89,6 +89,13 @@ on screen from the start showing "—" with its button disabled rather than
 appearing once there is footage. The map's top does not move from the moment the
 tool opens.
 
+⚠ The one-screen rule has a floor, and it was learnt the hard way twice on the
+live page. The stage holding the tools and the pictures GROWS to fill the card, but
+it may never be squeezed below the rows inside it: a flex item that is too small
+does not scroll, it OVERFLOWS and paints over whatever comes next — which drew the
+Save bar and the Attach to Quote row on top of each other. If everything genuinely
+will not fit, the CARD scrolls; nothing is ever hidden underneath something else.
+
 **Recentre puts the camera back**, and it is also the way out of a pane that has
 got stuck: it frames what you have already traced (falling back to the house when
 nothing is down), re-aims Street View at the house, and clears the "finding the

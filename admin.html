@@ -4580,7 +4580,14 @@
                and no house at all. A scrollbar in the rare case beats an invisible map
                in any case. */
             #roofMeasureOverlay .rm-card{height:100%; max-height:100%; overflow-y:auto; display:flex; flex-direction:column; padding:12px 16px;}
-            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:260px;}
+            /* ⚠ NEVER SHRINK BELOW ITS OWN CONTENT. flex:1 1 auto let the stage be
+               squeezed to less than the rows inside it, and a flex item that is too
+               small does not scroll - it OVERFLOWS, silently, painting over whatever
+               comes next. The Save bar and the Attach to Quote row ended up drawn on
+               top of each other, 56px overlapping, on the live page.
+               min-content is the floor: the stage still GROWS to fill the card, and
+               when there is genuinely not enough room the card scrolls instead. */
+            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 0 auto; min-height:min-content;}
             #roofMeasureOverlay #rmWorkStage > .rm-stagerest{min-height:0;}
             /* ⭐ AND THE PICTURES HAVE A FLOOR. min-height:0 is what lets a flex item
                shrink so the page can fit - and it also lets it shrink to NOTHING. The
