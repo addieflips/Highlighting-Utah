@@ -38482,6 +38482,20 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     /\.rm-card\{height:100%; max-height:100%; overflow-y:auto;/.test(admin),
     'overflow:hidden is what turned "the house is small" into "there is no house"');
 
+  /* ⭐ AND THE STAGE NEVER SHRINKS BELOW ITS OWN CONTENT (2026-08-28). Found on the
+     LIVE page, again, after the two above were already fixed: the Save bar and the
+     Attach to Quote row were drawn ON TOP OF EACH OTHER, 56px overlapping.
+
+     ⚠ A FLEX ITEM SQUEEZED TOO SMALL DOES NOT SCROLL - IT OVERFLOWS, SILENTLY, and
+     paints over whatever comes next. flex:1 1 auto let the card squeeze the stage
+     below the rows inside it, so the overflow landed on the row beneath. min-content
+     is the floor: the stage still GROWS to fill the card (flex-grow is kept, which
+     is what keeps the pictures absorbing the slack), and when there is genuinely
+     not enough room the CARD scrolls, which the check above guarantees. */
+  check('S170', 'the stage cannot be squeezed smaller than the rows inside it',
+    /#rmWorkStage\{flex:1 0 auto; min-height:min-content;\}/.test(admin),
+    'flex:1 1 auto let it overflow and paint the Save bar over the Attach to Quote row');
+
   /* ⭐ THE PICTURE DOES NOT MOVE WHILE YOU CLICK (2026-08-28). Owner: "whenever i
      click a dot the screen frantically moves making it not user friendly."
 
