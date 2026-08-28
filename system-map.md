@@ -78,6 +78,23 @@ so it needs no depth and sticks to the photograph as you pan and zoom; it belong
 to the one panorama it was placed in, and it reaches no footage and no price.
 Backspace takes back a dot from whichever picture you were last working in.
 
+**The whole tool sits on one screen and nothing on it moves.** The card is one
+viewport tall and never scrolls; the two pictures take whatever height the bars
+above and below them do not. That is what makes it fit whatever the window size —
+but it also means anything that GROWS above the pictures moves them, and measuring
+is exactly when things grow. So the bar holding the tools has a **fixed** height
+rather than a minimum, every line that changes as you work (the dot count, the
+notes) is held to one line with the full text in a tooltip, and the Save block is
+on screen from the start showing "—" with its button disabled rather than
+appearing once there is footage. The map's top does not move from the moment the
+tool opens.
+
+⚠ **The map is told when its pane changes size** (a `ResizeObserver`). A
+flex-sized pane reaches its real height after the map is built, and Google answers
+`getBounds()` with `undefined` until it has idled at that size — without those
+bounds a click cannot become a place and **no dot can be placed at all**, with
+tiles on screen and nothing appearing to be wrong.
+
 ⚠ **A dot cannot be edited once placed.** No clicking it, no dragging it;
 backspace takes the last one back. Two dots may sit on top of each other, which
 is what a roofline doubling back on itself needs.
