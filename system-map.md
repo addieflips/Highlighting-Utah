@@ -192,6 +192,12 @@ off the bottom instead of shrinking them, which is precisely what happened.
 The pictures are the one row that **grows**, so every pixel the ribbon does not use
 goes to the house.
 
+⚠ **And making the wrapper `display:contents` promoted ALL of its children**, one
+of which carries no id or class — so it defaulted to the catch-all order and
+jumped 25px to the very top of the tool. That is the same failure the numbering
+exists to prevent, caused by the fix for it. Every child of that wrapper is
+numbered now, not just the pictures.
+
 **The whole tool sits on one screen and nothing on it moves.** The card is one
 viewport tall and never scrolls; the two pictures take whatever height the bars
 above and below them do not. That is what makes it fit whatever the window size —
