@@ -1524,7 +1524,7 @@ and where somebody wanting a spreadsheet of who owes what would look.
 ruling is that the export survives the tab; nothing is written until the tab is
 actually retired, and a row marked built when it is not is worse than no row.
 
-## Q-023 · intent · OPEN · raised 2026-08-27
+## Q-023 · intent · ANSWERED · raised 2026-08-27, answered 2026-08-28
 Is a crew-day a patch of map, or a town?
 
 **This is a same-tier contradiction between two of your own rulings, so it is
@@ -1575,10 +1575,50 @@ the file, it was the six wiring commits around it. Those still have to be redone
 against today's admin.html whenever this is answered, and that cost is unchanged.
 What this removes is the pressure to answer quickly to avoid losing the work.
 
-**Resulting map change:** none yet — deliberately. A ruling that has not been
-given cannot become a row, and `claude/questions-map.md` holds answers, not
-open questions. When this is answered it earns a `MON-` row, and if the answer
-reverses either side the superseded row is kept and marked, per that file's rule.
+**Resulting map change:** `SCH-25` in `claude/questions-map.md`.
+
+---
+
+### ⭐ ANSWERED 2026-08-28 — a patch of map
+
+Addie, asked directly whether it matters that a crew's houses are all in one
+town: **"what matters is that all the houses are next to each other. So if there
+not all in Lehi that is okay just as long as the houses are next to each other."**
+
+So adjacency between HOUSES is the rule and the town name is not. The 2026-08-22
+ruling stands and the town model is superseded *where it tests a town name in
+place of a distance*.
+
+⚠ **THE TOWN RULINGS ARE NOT WRONG AND ARE NOT BEING THROWN OUT.** Everything she
+asked for between the 24th and the 26th is still what she wants — one crew
+working one area rather than criss-crossing the valley, never a three-town day,
+never a rim house stranded on a one-man day. Those were expressed as town rules
+because a town was the only container the builder had. What changes is the TEST:
+from "is this the same town, or a listed neighbour" to "are these houses near
+each other". A crew doing eleven houses in Lehi and nine in American Fork, all
+within a few streets, satisfies her answer and would be REFUSED today.
+
+⚠ **AND THE ANSWER IS NARROWER THAN "MERGE PR #14".** What she ruled on is the
+container for a crew-day. The six wiring commits on that branch also touched the
+crew split, the near-empty-day rescue, One Man Installs and both printed sheets —
+all of which she changed AFTER that branch was written. Those changes are hers
+and are newer; they are not part of what this answers. Porting has to bring the
+container across and leave the rest alone, which is why this is a piece of work
+rather than a merge.
+
+⚠ **WHAT A SHEET STILL HAS TO SAY.** A crew-day that is no longer one town still
+prints; `crewCityFor` joins a crew's towns into a label and `routeCityOf` reports
+a majority town. Neither can be deleted without deciding what the sheet says
+instead — "Lehi + American Fork" is honest, a bare block number is not. Not
+answered here; it is the first thing to put to her when this is built.
+
+⚠ **AND `stopProblem` EVICTS ON A TOWN MISMATCH.** That sweep runs every five
+minutes and it is what makes a mixed-town day safe today (see CLAUDE.md, "the
+thing that makes it safe"). It must be moved to the same distance test in the
+SAME change, or the builder will place houses the sweep then evicts, for ever —
+the build-evict-rebuild loop this repo has already had twice.
+
+---
 
 ## Q-024 · intent · answered · 2026-08-28
 The ×2.9 pricing multiplier was compensating for a fault that is now gone. Does it stay?

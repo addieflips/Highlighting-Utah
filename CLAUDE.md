@@ -69,6 +69,23 @@ Rules will eventually contradict each other. Resolve in this order, highest firs
 Do not pick the newer one, the more specific one, or the one that's easier.
 A same-tier contradiction means the rulebook is wrong, and only Addie can fix it.
 
+⭐ **THAT IS ABOUT TWO NUMBERED RULES. TWO OF ADDIE'S OWN ANSWERS ARE DIFFERENT, AND THE
+NEWER ONE WINS** (R-024, 2026-08-28). Her words: *"can we make it a rule if I answer the
+same question twice in different ways than the most recent one is the one to trust."*
+So where she has answered the same question twice, follow the later answer and do not
+stop. Q-023 is why: it sat open for six days because two of her rulings disagreed and
+nothing was permitted to choose between them.
+⚠ **SAY SO WHEN YOU APPLY IT, and mark the row `Superseded → #ID` rather than deleting
+it.** A newer answer can be about a narrower case than the one it displaces, given
+without knowing what the older one was protecting — six rows in the map already reverse
+an earlier one, and that file's own note is that the superseded reasoning "was sound when
+it was made and reads convincingly to whoever finds it first". Applying this quietly is
+how the good half of an old ruling disappears.
+⚠ **AND IT ONLY WORKS ON WHAT IS WRITTEN DOWN.** Two answers can only be put in order if
+both carry a date, so a missing or wrong `Decided` column is now a correctness fault — it
+can make the app obey the answer she changed her mind about. This is the strongest reason
+yet for R-023: a ruling that never reached the map cannot win or lose, it just vanishes.
+
 When it happens, say exactly this much:
 
 ```

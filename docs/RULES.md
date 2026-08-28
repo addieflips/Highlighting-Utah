@@ -203,6 +203,25 @@ right.
 
 ---
 
+### R-024 · read
+**Where Addie has answered the same question twice in different ways, follow the most
+recent answer.** Do not stop and ask; do not weigh them.
+*Why:* Addie, 2026-08-28 — "can we make it a rule if I answer the same question twice in
+different ways than the most recent one is the one to trust." Q-023 sat open for six days
+because two of her own rulings disagreed and `CLAUDE.md` §2 forbade picking either.
+*Scope:* her ANSWERS only. Two numbered rules in the same tier colliding is still
+STOP AND ASK — that is a fault in the rulebook and only she can repair it.
+*The honest cost:* a newer answer may be about a narrower case, given without knowing what
+the older one protected. Six rows in `claude/questions-map.md` already reverse an earlier
+one, and its own note is that the superseded reasoning "was sound when it was made and
+reads convincingly to whoever finds it first". So: the older row is KEPT and marked
+`Superseded → #ID`, and applying this rule is stated out loud in the change that applies
+it, never done quietly.
+*What it depends on:* both answers being dated in the map. An undated or wrongly dated row
+can make the app obey the answer she changed her mind about, which makes the `Decided`
+column load-bearing for correctness rather than tidiness. `questions-map.test.js` checks
+it parses; nothing can check it is TRUE, and a back-dated row defeats this rule silently.
+
 ## Proposed
 
 Not active. Do not follow until moved into the numbered set above.
@@ -281,6 +300,7 @@ Every change to this file gets a line. Never silently edit a rule.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-08-28 | Added R-024, and amended CLAUDE.md §2 | Addie: "can we make it a rule if I answer the same question twice in different ways than the most recent one is the one to trust." §2 said the opposite in as many words — "Do not pick the newer one" — so this reverses that half of it FOR HER ANSWERS, and leaves it untouched for two numbered rules colliding. Prompted by Q-023, which sat open six days because two of her rulings disagreed and nothing was allowed to choose. ⚠ The cost is recorded in the rule: a newer answer can be narrower than the one it displaces, so the older row is kept and marked, and applying the rule is said out loud. ⚠ And it makes the map's Decided column load-bearing for correctness — a back-dated row now defeats the rule silently, which nothing can check. |
 | 2026-08-21 | Created R-001 – R-022 | Initial rulebook, seeded from the data-integrity plan |
 | 2026-08-21 | Replaced R-015, and marked it TARGET | The rule asserted a guard that does not exist. It claimed money is computed in exactly two parity-tested places; `money-parity.test.js` compares only the invoice STATUS string and the invoice KEY, never the AMOUNT OWED. The amount is hand-inlined at ~12 sites across `admin.html`, `functions/index.js` and `index.html` — including the PayPal charge and the member portal. Reviewing a change against the old wording would have passed a fourth implementation as safe. See `docs/open-questions.md` Q-001. |
 | 2026-08-21 | Corrected R-015's own Status paragraph | The rule shipped hours earlier carrying the same "zero callers" error as the amendment below it. Left standing it would be a false fact inside a rule people read to decide things — which is what P-001, proposed the same day, exists to stop. The wording is otherwise Addie's, unchanged; only the factual clause moved. |
