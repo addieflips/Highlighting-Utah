@@ -104,22 +104,97 @@ const rawMapsTag = src.match(/<script src="https:\/\/maps\.googleapis\.com\/maps
    So the harness now runs the SHIPPED key by default - the same one the real
    page uses, which is the honest thing to test against anyway - and the swap
    above is kept behind ?key=firebase for when it is wanted back. */
-const wantFb = /[?&]key=firebase/.test('');
+const wantFb = true;   /* the Firebase key is the one the owner is editing (2026-08-28) */
 const mapsTag = (wantFb && fbKey) ? rawMapsTag.replace(/key=[A-Za-z0-9_-]+/, 'key=' + fbKey) : rawMapsTag;
+
+/* ⭐ AND A STAND-IN FOR GOOGLE, FOR WHEN THERE IS NO USABLE KEY. Load the
+   harness with ?stub and _harness-stub.js replaces window.google with a shell
+   whose GEOMETRY IS REAL - the bounds a click is read through, and the distance
+   every foot is measured with. It runs after the real script tag so it wins,
+   and it is what makes the flow testable at all on a machine Google refuses. */
+/* ⚠ NOT ONE LITERAL closing script tag ANYWHERE IN THE OUTPUT. A closing tag
+   inside a string still ends the surrounding script - the browser's tokeniser
+   does not know it is in a string - so the page died with "Invalid or
+   unexpected token". Both are assembled at run time so neither appears whole. */
+const CLOSE = '<' + '/script>';
+const stubTag = '<script>if(/[?&]stub/.test(location.search)){'
+  + 'document.write("<scr"+"ipt src=\\"_harness-stub.js\\"><"+"/scr"+"ipt>");}'
+  + CLOSE;
 console.log('maps key: ' + (mapsTag.match(/key=([A-Za-z0-9_-]+)/)||[])[1]);
+
+/* ⚠ WHAT admin.html IMPORTS AS A MODULE, THIS PAGE HAS TO INLINE. It is a
+   classic script, so importing from ./js/money.js is not available - and
+   without it rmRenderPrice threw on every dot. That did NOT look like a missing
+   formatter: it threw inside rmRenderResults, which runs at the END of adding a
+   peak, so "Add a peak" appeared to do nothing at all and the grade screen it
+   should open never got there.
+
+   ⭐ THE REAL FILE, WITH the export keyword STRIPPED - not a hand-copy. A harness that
+   retypes the money rules tests the retyping; these functions decide what a
+   customer is charged. The same goes for RM_DIFFICULTY_RATE, lifted out of
+   admin.html by pattern rather than pasted, so it cannot drift from the three
+   numbers the real page multiplies by. */
+const moneyJs = fs.readFileSync('js/money.js', 'utf8').replace(/^export /gm, '');
+
+/* ⭐ EVERY TOP-LEVEL CONSTANT THE MEASURE CODE ACTUALLY USES, found rather than
+   listed. The function sweep above pulls helpers by name; constants were left
+   behind, and each missing one threw only when the code RAN - RM_DIFFICULTY_RATE
+   inside rmRenderPrice, then FEET_PER_BUNDLE inside the same render, each one
+   surfacing as "the button does nothing" rather than as a missing constant.
+   Adding them one at a time was whack-a-mole, so this takes the class: scan the
+   bundled code for SCREAMING_CASE names, and lift the declaration of any that is
+   used but not defined, verbatim out of admin.html.
+   ⚠ LIFTED, NEVER RETYPED. These are prices, capacities and thresholds - a
+   harness holding its own copy of RM_DIFFICULTY_RATE would quietly test numbers
+   the real page does not use. */
+/* NOT ONE REGEX BUILT FROM A STRING IN HERE. The first version was, and every
+   escape in it was eaten on the way into this file: the s-class became a plain
+   letter s, the word boundary became a literal backspace, and the newline
+   became a real line break inside the pattern. It silently lifted NOTHING and
+   said nothing, so "the button does nothing" came back a third time for a third
+   reason. indexOf cannot be mis-escaped. */
+function constsFor(code) {
+  const NL = String.fromCharCode(10);
+  const used = new Set(code.match(/[A-Z][A-Z0-9_]{2,}/g) || []);
+  const out = [];
+  used.forEach(function (name) {
+    const already = ['const ', 'let ', 'var '].some(function (kw) {
+      return code.indexOf(NL + kw + name + ' ') !== -1;
+    });
+    if (already) return;
+    const at = src.indexOf(NL + 'const ' + name + ' = ');
+    if (at === -1) return;
+    /* ⚠ THE FIRST SEMICOLON IS NOT ALWAYS THE END OF THE DECLARATION - a
+       template body or a regex can carry one - and a truncated const is a
+       syntax error that takes the WHOLE page down, which is a far worse
+       outcome than the missing constant it was meant to fix. So each candidate
+       is parsed on its own and only kept if it stands up. */
+    let end = src.indexOf(';', at), decl = null;
+    while (end !== -1 && end - at < 20000) {
+      const candidate = src.slice(at + 1, end + 1);
+      try { new Function(candidate); decl = candidate; break; }
+      catch (e) { end = src.indexOf(';', end + 1); }
+    }
+    if (decl) out.push(decl);
+  });
+  console.log('lifted ' + out.length + ' constant(s) used but not declared' +
+    (out.length ? ': ' + out.map(function (c) { return c.split(' ')[1]; }).join(', ') : ''));
+  return out.join(NL);
+}
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Measure Roof harness</title>
 ${styles}
 <style>body{margin:0;font-family:system-ui;background:#f4f1ea}
-#bar{padding:10px;display:flex;gap:8px;align-items:center;background:#123}
+#bar{padding:6px;display:flex;gap:8px;align-items:center;background:#123;position:fixed;bottom:0;left:0;right:0;z-index:200;opacity:.9}
 #bar input{flex:1;padding:8px;font-size:14px}#bar button{padding:8px 14px}
-#roofMeasureOverlay{display:block !important;position:static !important}
-#out{white-space:pre-wrap;font:12px ui-monospace;padding:10px;background:#fff}</style>
+#roofMeasureOverlay{display:flex !important;position:fixed !important;inset:0;z-index:99}
+#out{display:none}</style>
 </head><body>
 <div id="bar"><input id="addr" value="209 S 850 W, Lehi, UT 84043"><button id="go">Load</button></div>
 <div id="out">ready</div>
 ${overlay}
 ${mapsTag}
+${stubTag}
 <script>
 /* A few things the measure code expects the rest of the admin page to provide. */
 ${cfg}
@@ -134,6 +209,15 @@ let perFootRate = 2;   /* the office setting, which lives in Firestore on the re
    declaration looks exactly like a broken Google key from the outside, and cost
    an hour of chasing API restrictions that were never the problem. */
 let geocoder = null;
+
+/* ⚠ THE DEPTH-MAP READER IS AN ES MODULE (js/svdepth.js) and this page is a
+   classic script, so it cannot be imported here. Its ONE caller already treats
+   a failure as "no depth map at this panorama, the constant stands" and catches
+   it - so refusing is the honest stand-in, not a behaviour change. Without it
+   the harness threw ReferenceError inside a Street View event and the load
+   stopped dead. */
+function rmFetchPano(){ return Promise.reject(new Error('no depth map in the harness')); }
+function rmDepthCameraHeight(){ return null; }
 
 /* ⚠ GEOCODING IS BLOCKED FOR BOTH KEYS AS OF 2026-08-27, and the JS API says so
    only in the console: ApiTargetBlockedMapError, then the geocode callback is
@@ -170,6 +254,8 @@ let geocoder = null;
     }};
   };
 })();
+${moneyJs}
+${constsFor(deps + measure)}
 ${deps}
 ${measure}
 /* ---- the harness's own hooks: expose what the loop needs to read ---- */
@@ -191,6 +277,15 @@ window.H = {
     tries: (typeof rmPhotoDatumTries !== 'undefined') ? rmPhotoDatumTries : null
   })
 };
+/* ⚠ THE KEYBOARD HANDLER REFUSES TO RUN UNLESS THE OVERLAY IS OPEN, and it
+   tests the INLINE style (ov.style.display !== 'flex') because that is what
+   openRoofMeasure sets. The harness renders the overlay through a stylesheet
+   override instead, so the inline style was empty and EVERY key - backspace,
+   Enter, Escape, space - silently did nothing here. Backspace looked broken
+   when it was fine. The CSS above still governs the layout; this is only what
+   the guard reads. */
+document.getElementById('roofMeasureOverlay').style.display = 'flex';
+
 document.getElementById('go').onclick = () => {
   document.getElementById('out').textContent = 'loading...';
   window.H.load(document.getElementById('addr').value)

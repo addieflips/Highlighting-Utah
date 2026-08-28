@@ -50,6 +50,107 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
 Changing feet on an existing numbered customer warns before renumbering, rather than silently changing their bin/number out from under them.
 
+**Where Measured Feet comes from — the Measure Roof tool (rewritten 2026-08-27/28).**
+You trace the roofline on the **sky view** and nowhere else. Each dot is lettered
+A, B, C… and the footage is the distance between them on that one overhead
+picture. Street View is for the customer's photograph and for reading a roof's
+grade — it does not place a dot and never draws the sky view's.
+
+Overhead cannot see HEIGHT, and height only lengthens a line where the roof
+*climbs*. That is what **peaks** answer: you say which two lettered dots a peak
+sits between, the tool takes you to a street view aimed at that gable, you drag
+along the sloping edge, and it **asks** whether that reading was right before
+adding anything. Saying yes adds the extra feet — Pythagoras on that grade, both
+sides of the gable assumed the same. Saying try again changes nothing.
+
+⚠ **The price is not worked out from the measured feet directly.** It uses
+`feet × RM_FEET_MULTIPLIER`, which is **1.3** as of
+2026-08-28 — read it off that constant, never off prose about it. It began life
+compensating for the tool measuring short; it is now where the MINIMUM JOB COST
+lives ($2/ft is the advertised rate and a 60 ft house cannot be done for $120),
+and its size is the owner's dial — 2.9 → 1.45 → 1.3 inside one afternoon. Both
+numbers are shown on the panel as separate lines. See Q-024.
+
+**Street View has its own dots.** Click the picture and it takes a mark of its
+own, numbered 1, 2, 3… and visible only there — the sky view's lettered dots
+never appear on it. A mark is a *direction* from the camera rather than a place,
+so it needs no depth and sticks to the photograph as you pan and zoom; it belongs
+to the one panorama it was placed in, and it reaches no footage and no price.
+Backspace takes back a dot from whichever picture you were last working in.
+
+**Enter ends a strand, in whichever picture you are working in.** Up in the sky
+view that has always split the top of the house from the bottom. Street View
+marks now do the same: without it every mark joined to the one before it, so
+marking the top of a house and then the bottom drew a line straight across the
+photograph. Enter with nothing marked does nothing, and a strand can only be
+finished from the camera it was marked in.
+
+**What Easy, Medium and Hard cost.** $1.85, $2.00 and $2.20 a foot — set as
+multipliers of whatever Per Foot Pricing says, so that box stays the one number
+to change. **The grade is scored on three things and size is not one of them:**
+steepness (the pitch, and whether a real share of the roof is steeper still),
+walkability (a two-storey or three-storey eave, and how many separate roof
+sections there are) and how many strands. A big house already costs more for
+being big — it is feet times a rate — so grading it up as well would charge
+twice for one fact. Steepness counts most: a roof steep enough to rope onto is
+Hard on its own, whatever else is true. One awkward thing on its own is *noted
+and not charged for*; it takes two before the price moves.
+
+**And the grade re-cuts itself as you measure.** Google's roof model gives the
+first answer; every peak grade read off the street photo replaces it, so the
+difficulty can change while you work. ⚠ Once you pick a difficulty yourself,
+nothing overrides it — the tool stops re-cutting and leaves your answer alone.
+
+
+**The whole tool sits on one screen and nothing on it moves.** The card is one
+viewport tall and never scrolls; the two pictures take whatever height the bars
+above and below them do not. That is what makes it fit whatever the window size —
+but it also means anything that GROWS above the pictures moves them, and measuring
+is exactly when things grow. So the bar holding the tools has a **fixed** height
+rather than a minimum, every line that changes as you work (the dot count, the
+notes) is held to one line with the full text in a tooltip, and the Save block is
+on screen from the start showing "—" with its button disabled rather than
+appearing once there is footage. The map's top does not move from the moment the
+tool opens.
+
+⚠ The one-screen rule has a floor, and it was learnt the hard way twice on the
+live page. The stage holding the tools and the pictures GROWS to fill the card, but
+it may never be squeezed below the rows inside it: a flex item that is too small
+does not scroll, it OVERFLOWS and paints over whatever comes next — which drew the
+Save bar and the Attach to Quote row on top of each other. If everything genuinely
+will not fit, the CARD scrolls; nothing is ever hidden underneath something else.
+
+**Recentre puts the camera back**, and it is also the way out of a pane that has
+got stuck: it frames what you have already traced (falling back to the house when
+nothing is down), re-aims Street View at the house, and clears the "finding the
+house" cover. **Each picture has its own full-screen button** in its title bar —
+Google draws one inside the map, but the sheet that catches measuring clicks
+covers it, so it is visible and unreachable.
+
+⚠ **The order on that column is load-bearing: tools, house, price, Save.** It is
+set explicitly on each one, because a catch-all sends anything unnumbered to the
+bottom — and when an edit dropped the pictures' number they went last, below the
+Save bar and Roof Facts, off the bottom of the window. The tool looked like it had
+no house.
+
+⚠ **The pictures have a floor, and the card can scroll as a last resort.** Letting
+them shrink is what makes the tool fit any window — and unchecked it let them
+shrink to NOTHING: on the live site, where the Roof Facts panel renders (Google's
+Solar API answers there and refuses on localhost), the last of the height went to
+that panel and the tool opened with a toolbar, a Save bar and **no house at all**.
+A picture that is smaller than you would like is a compromise; a picture that is
+not there is a broken tool.
+
+⚠ **The map is told when its pane changes size** (a `ResizeObserver`). A
+flex-sized pane reaches its real height after the map is built, and Google answers
+`getBounds()` with `undefined` until it has idled at that size — without those
+bounds a click cannot become a place and **no dot can be placed at all**, with
+tiles on screen and nothing appearing to be wrong.
+
+⚠ **A dot cannot be edited once placed.** No clicking it, no dragging it;
+backspace takes the last one back. Two dots may sit on top of each other, which
+is what a roofline doubling back on itself needs.
+
 **Light colors / pattern** (`lightsDescription`, `lightColors`) drives: the warehouse build queue membership and grouping, the $30 late-change fee (if changed outside the first 48 hours or after route assignment), and a "Lights Changed After Assignment" System inbox message if they were already on a saved route.
 
 ---

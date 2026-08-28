@@ -33812,7 +33812,10 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      about 6.7 ft out on 209 S 850 W - so if the model-displacement work lands
      that error properly this number must be revisited, or every quote inflates
      by nearly three. */
-  check('S126', 'the feet multiplier is the owner-set 2.9', mult && mult[1] === '2.9',
+  /* ⚠ THE NUMBER IS A DIAL SHE TURNS - 2.9 → 1.45 → 1.3 inside one afternoon.
+     Pinning the value keeps it deliberate, which is the point of the check; what
+     must NOT happen is somebody reading a stale comment and resetting it. */
+  check('S126', 'the feet multiplier is the owner-set 1.3', mult && mult[1] === '1.3',
     'this multiplies the price, the bin count and the bulb order together; ' +
     'it is not a display setting');
   /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
@@ -35506,7 +35509,21 @@ suite('128. Measure Roof — depth, the derived wall, and the height that follow
   {
     const bases = (admin.match(/class="rm-pane" style="flex:1 1 (\d+)px/g) || [])
       .map(m => Number((m.match(/(\d+)px/) || [])[1]));
-    const popup = Number((admin.match(/editcust-popup" style="max-width:min\((\d+)px/) || [])[1]);
+    /* ⚠ THE CARD GAINED A SECOND CLASS (rm-card, 2026-08-28), so an anchor tying
+       this to `editcust-popup" style=` stopped matching and the width came back
+       NaN - which reads as "the panes do not fit" on a layout that is fine. Match
+       the max-width wherever it sits on that element. */
+    /* ⚠ AND NOT THE OVERLAY. `editcust-popup` is a prefix of
+       `editcust-popup-overlay`, so a loose match finds the backdrop - which has no
+       max-width - and the width comes back NaN again, one layer out. rm-card is
+       the roof tool's own card and nothing else carries it. */
+    /* The roof tool's card is the only element carrying rm-card. Written with no
+       backslash escapes at all: an earlier version used a word boundary and the
+       backslash-b arrived in this file as a literal BACKSPACE, so the pattern
+       could never match and the width came back NaN - which reads as "the panes
+       do not fit" on a layout that is fine. CLAUDE.md warns about exactly this. */
+    const cardTag = (admin.match(/<div class="[^"]*rm-card[^"]*"[^>]*>/) || [''])[0];
+    const popup = Number((cardTag.match(/max-width:min\((\d+)px/) || [])[1]);
     check('S128', 'the two views sit side by side rather than stacked',
       bases.length === 2 && popup > 0 && (bases[0] + bases[1] + 40) <= popup,
       'panes ' + bases.join(' + ') + ' must fit across a ' + popup + 'px window, or the street ' +
@@ -35541,9 +35558,38 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
        this suite held 80/55 while admin.html had moved to 75/45, so it was
        testing its own numbers and reported a failure against code that was
        right. A constant asserted from a copy of itself is not asserted. */
-    const constLines = (admin.match(/^const RM_(?:HARD_GRADE|MEDIUM_GRADE|BUSY_SECTIONS|TWO_STOREY_FT|DIFFICULTY_RATE|STEEP_SHARE|BIG_JOB_FT|MANY_STRANDS)\s*=.*$/gm) || []);
-    check('S129', 'the grading constants are findable in the source', constLines.length === 8,
-      'found ' + constLines.length + ' of 8 — this suite would silently fall back to guessing them');
+    /* ⚠ AND THE LIST IS DERIVED, NOT TYPED (2026-08-28). It named eight constants
+       and demanded exactly eight; the scored grader retired RM_BIG_JOB_FT and added
+       eleven weights, so the suite crashed on code that was right - the same
+       going-stale this block's own note is about, one level up. It now lifts every
+       RM_ constant in the file and asserts that everything the grader actually
+       READS came with it, so a new weight needs no edit here and a missing one is
+       named rather than surfacing as an unattributable crash. */
+    /* ⚠ COMPLETE ONE-LINERS ONLY - RM_TYPES opens a multi-line object literal,
+       and half of it lifted into the sandbox is a syntax error blamed on whatever
+       constant happens to follow it. */
+    /* ⚠ NO REGEX HERE, AND THAT IS DELIBERATE. admin.html is CRLF, so an
+       end-of-line anchor never matches — it is looking at a carriage return —
+       and writing the class that would allow one costs an escape that does not
+       survive every route into this file (this exact line arrived once with a
+       literal newline inside the character class, and once with backspaces
+       where a word boundary was meant). Splitting lines needs neither. */
+    const constLines = admin.split(String.fromCharCode(10))
+      .map(function(l){ return l.replace(String.fromCharCode(13), ''); })
+      .filter(function(l){
+        /* complete one-liners only — RM_TYPES opens a multi-line object, and
+           half of it lifted into the sandbox is a syntax error blamed on
+           whatever constant happens to follow it. Most of these carry a
+           trailing comment, so the semicolon is not the last character. */
+        return l.indexOf('const RM_') === 0 && l.indexOf(';') !== -1;
+      })
+      .map(function(l){ return l.slice(0, l.indexOf(';') + 1); });
+    const needed = Array.from(new Set(gradeFn.match(/RM_[A-Z0-9_]+/g) || []));
+    const missing = needed.filter(function(n){
+      return !constLines.some(function(l){ return l.indexOf('const ' + n + ' ') === 0; });
+    });
+    check('S129', 'every constant the grader reads is lifted from the source', missing.length === 0,
+      'missing: ' + missing.join(', ') + ' — this suite would silently fall back to guessing them');
     const g = new Function(constLines.join(LF_) + LF_ + gradeFn + LF_ + 'return gradeRoof;')();
     /* ⚠ THE BUG THIS EXISTS FOR: the old thresholds were 37% for Hard and 25%
        for Medium. Grade is a PERCENT — 37% is a 4.4/12 pitch. An ordinary 6/12
@@ -35568,17 +35614,56 @@ suite('129. Measure Roof — the guessed roofline, the grade, and the price');
     check('S129', 'but busy AND two-storey together do',
       g({maxGrade: 33, peakCount: 11, eaveFt: 19}).level === 'Medium',
       'awkward in more than one way is a harder day');
-    /* ⭐ FEET AND STRANDS COUNT TOO, once the house has actually been measured. */
-    check('S129', 'a long run and many strands together bump it',
-      g({maxGrade: 33, feet: 320, strands: 5}).level === 'Medium',
-      'owner: feet, complex roof and number of strands all affect complexity');
+    /* ⛔ FEET NO LONGER COUNT AT ALL (2026-08-28). Owner: "hard [needs] to be
+       fully based on how many strands, steepness, and walkability not based on
+       size at all." This check used to pair a long run WITH many strands; the
+       long run is gone, so what is left is the strand half — and strands obey
+       the same one-signal rule as everything else. The old wording is kept above
+       in the git history rather than quietly re-pointed at a different claim. */
+    check('S129', 'many strands alone are noted, not charged',
+      g({maxGrade: 33, strands: 5}).level === 'Easy' &&
+      /5 separate strands/.test(g({maxGrade: 33, strands: 5}).why),
+      'one soft signal never promotes on its own — the rule the busy-roof check also holds');
+    check('S129', 'but strands ALONGSIDE a two-storey eave do',
+      g({maxGrade: 33, strands: 5, eaveFt: 19}).level === 'Medium',
+      'awkward in more than one way is a harder day');
+    check('S129', 'and a huge house on a low simple roof is still Easy',
+      g({maxGrade: 33, feet: 900, strands: 2}).level === 'Easy',
+      'the price is feet x rate, so grading a big house up charges twice for one fact');
     /* ⚠ AND BOTH CALLS HAVE TO ASK THE SAME QUESTION. The roof half is known on
        load; feet and strands only exist once somebody has traced the house. Two
        call sites gathering those fields by hand is how they drift apart. */
+    /* ⚠ REPOINTED, NOT WEAKENED (2026-08-28). It matched the eave re-cut's exact
+       call, and that call moved into rmRegrade when the grade was made to re-cut
+       itself as peaks are measured — so it failed on code that is right. The
+       guarantee is unchanged and is what is asserted now: ONE gatherer, and every
+       re-cut goes through it rather than assembling its own set of fields. */
     check('S129', 'one function gathers what the rule asks for',
       /function rmGradeInputs\(extra\)\{/.test(admin) &&
-      /gradeRoof\(rmGradeInputs\(\{eaveFt: eave \* RM_M_TO_FT\}\)\)/.test(admin),
+      /function rmRegrade\(extra\)\{/.test(admin) &&
+      (extractFn(admin, 'rmRegrade') || '').indexOf('gradeRoof(rmGradeInputs(') !== -1,
       'the re-cut must not pass a different set of fields from the first grade');
+    /* ⚠ THERE ARE EXACTLY TWO CALLERS AND BOTH ARE LEGITIMATE — my first version
+       of this check said one and failed on correct code. fetchRoofDetails cuts the
+       FIRST grade from Google's model, before anything has been traced; rmRegrade
+       cuts every later one. What must not appear is a THIRD, assembling its own
+       fields and drifting from the other two. */
+    check('S129', 'only the first grade and the re-cut call the grader',
+      (function(){
+        /* ⚠ THROUGH stripComments, NOT A LINE TEST. The block comment above
+           fetchRoofDetails explains the re-grade in prose and names gradeRoof()
+           mid-sentence, on a line starting with neither * nor // — so a
+           per-line comment test reads the explanation as a third call site.
+           Suite 58 and Suite 274 each learned this separately. */
+        var calls = stripComments(admin).split(String.fromCharCode(10))
+          .filter(function(l){
+            var t = l.replace(String.fromCharCode(13), '').trim();
+            return t.indexOf('gradeRoof(') !== -1 && t.indexOf('function gradeRoof(') === -1;
+          });
+        return calls.length === 2 &&
+          (extractFn(admin, 'rmRegrade') || '').indexOf('gradeRoof(') !== -1;
+      })(),
+      'a third call site is how the first grade and the re-cut start disagreeing');
     check('S129', 'and a strand switched off is not counted as work',
       (function(){
         const f = extractFn(admin, 'rmGradeInputs') || '';
@@ -36073,9 +36158,14 @@ suite('131. Measure Roof — the roof is never on the ground');
     !/id="rmHeightFt"/.test(admin) && !/data-rmheight=/.test(admin) &&
     !/1 storey<\/button>/.test(admin),
     'a preset is a guess wearing a button');
+  /* ⚠ WHAT REPLACED IT CHANGED AGAIN ON 2026-08-27. The answer used to be
+     "Street View measures it - put a dot on a wall", and Street View stopped
+     taking clicks, so that sentence became an instruction nobody could follow.
+     The check keeps its point - a control cannot be removed silently - and
+     now asks for the answer that is actually true. */
   check('S131', 'and the panel says where a height does come from instead',
-    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
-    'removing the control without saying what replaced it reads as a feature going missing');
+    /roofline is traced from above/.test(admin) && /Height only matters where the roof climbs/.test(admin),
+    'removing a control without saying what replaced it reads as a feature going missing');
 }
 
 
@@ -38287,8 +38377,16 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
   }
 
   /* It is drawn, in both windows, and it can be turned off. */
-  check('S157', 'the assumed house is drawn in the street view',
-    /if\(rmShowModel\)\{[\s\S]{0,600}rmHouseWireframe\(\)\.forEach/.test(admin));
+  /* ⛔ RETIRED 2026-08-28 (MR-06). The wireframe of Google's roof model was
+     drawn into Street View so a traced line could be checked against it there.
+     Street View draws only its OWN marks now, so there is nothing for a model
+     overlay to be checked against and nothing to draw it beside. rmHouseWireframe
+     is still built and still used from above; what went is painting it into the
+     photograph. */
+  check('S157', 'the assumed house is still built, even though the picture no longer draws it',
+    typeof extractFn(admin, 'rmHouseWireframe') === 'string' &&
+    (extractFn(admin, 'rmHouseWireframe') || '').length > 0,
+    'the model still answers where the roof is; only the second view of it went');
   /* ⚠ NOT the cached rmModel() here. Which walls show depends on where the
      camera is standing, and the cache is keyed on the house, not the camera. */
   check('S157', 'and it is rebuilt per camera, not served from the house cache',
@@ -38438,6 +38536,367 @@ suite('170. Measure Roof - a peak is two dots and a grade');
   check('S170', 'and with none set it falls back to the measured pitch',
     Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
     'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
+
+  /* ⭐ RECENTRE ACTUALLY DOES SOMETHING (2026-08-28). Owner: "the recentre button
+     doesnt fix sky view." It did nothing at all - the button had been in the markup
+     since it was asked for and NOTHING was ever wired to it. */
+  check('S170', 'Recentre has a handler',
+    /getElementById\('rmRecentreBtn'\)\.addEventListener/.test(admin),
+    'the button existed and did nothing; a control that cannot fail is not the same as one that works');
+  check('S170', 'and it frames what has been traced, not just the address',
+    (function(){
+      const i = admin.indexOf("getElementById('rmRecentreBtn').addEventListener");
+      if(i === -1) return false;
+      const body = admin.slice(i, admin.indexOf('rmPaneReady(', i));
+      return /fitBounds\(/.test(body) && /setZoom\(RM_SKY_ZOOM\)/.test(body);
+    })(),
+    're-centring on the house throws away the zoom somebody set to see their own gutters');
+  check('S170', 'and it is the way out of a stuck pane',
+    (function(){
+      const i = admin.indexOf("getElementById('rmRecentreBtn').addEventListener");
+      const j = admin.indexOf("rmPaneReady('sky'); rmPaneReady('street');", i);
+      return i !== -1 && j > i;
+    })());
+
+  /* ⭐ THE COVER COMES OFF EVERY TIME THE TOOL IS OPENED, not only the first. */
+  check('S170', 'reopening the tool clears the "finding the house" cover',
+    (function(){
+      const fn = extractFn(admin, 'rmEnsureMap') || '';
+      const reuse = fn.slice(0, fn.indexOf('rmMap = new google.maps.Map'));
+      return /addListenerOnce\(rmMap, 'idle'[\s\S]{0,80}rmPaneReady\('sky'\)/.test(reuse);
+    })(),
+    'the cover is set on every load and was only ever taken off where the map is BUILT, which happens once');
+
+  /* ⭐ FULL SCREEN IS REACHABLE. Owner: "you cant click full screen." Google draws
+     one inside the map and the sheet that catches measuring clicks covers it. */
+  check('S170', 'each picture has a full-screen button of our own',
+    /class="rm-fs" data-rmfull="sky"/.test(admin) && /class="rm-fs" data-rmfull="street"/.test(admin));
+  check('S170', 'and it can be clicked through the head that ignores clicks',
+    /\.rm-fs\{pointer-events:auto;/.test(admin),
+    'the pane head is pointer-events:none so it never swallows a click meant for the roof');
+  check('S170', 'and the map is told when full screen changes its box',
+    /fullscreenchange[\s\S]{0,160}google\.maps\.event\.trigger\(rmMap, 'resize'\)/.test(admin),
+    'without it the pane fills the screen and the map draws in the corner of it');
+
+  /* ⭐ THE HOUSE COMES SECOND, AFTER THE TOOLS AND BEFORE THE MONEY (2026-08-28).
+     Found live, twice, because the stage changed from a wrapping ROW to a COLUMN
+     and three things that were right in a row are wrong in a column. */
+  check('S170', 'the pictures are ordered between the tools and the Save block',
+    (function(){
+      const bar  = /\.rm-tools > \.rm-toolbar\{order:1;/.test(admin);
+      const pics = /> \.rm-stagerest\{order:2;/.test(admin);
+      const pr   = /#rmPricePanel\{order:3;/.test(admin);
+      const save = /\.rm-commit\{order:4;/.test(admin);
+      return bar && pics && pr && save;
+    })(),
+    'the order was lost in an edit and the pictures fell to the catch-all - last, below the Save bar and Roof Facts, at y=1261 in a 720px window');
+  check('S170', 'and nothing in that column is allowed to take the whole height',
+    !/\.rm-tools > \.rm-toolbar\{order:1; flex:1 0 100%/.test(admin) &&
+    /\.rm-tools > \.rm-toolbar\{order:1; flex:0 0 auto;/.test(admin),
+    'flex-basis means HEIGHT in a column: flex:1 0 100% made the toolbar 547px tall and pushed the house off the screen');
+  check('S170', 'the height cap belongs to the toolbar alone, by its own class',
+    /\.rm-tools > \.rm-toolbar\{height:190px/.test(admin) &&
+    /class="rm-panel rm-toolbar"/.test(admin),
+    'written against .rm-panel it also pinned the price panel and Roof Facts to 190px, inflating a 48px row and a 37px one');
+
+  /* ⭐ THE PICTURES CAN NEVER BE SHRUNK AWAY (2026-08-28). Found on the live site,
+     not here: the tool opened with a toolbar, a Save bar and NO HOUSE. Letting the
+     panes shrink is what makes the tool fit any window; min-height:0 let them
+     shrink to zero, and they were clipped out of a card set to overflow:hidden. */
+  check('S170', 'the pictures have a floor they cannot collapse below',
+    /\.rm-stagerest > \.rm-panes\{flex:1 1 auto; min-height:2[0-9][0-9]px;\}/.test(admin),
+    'min-height:0 lets a flex item shrink to NOTHING, and a picture that is not there is a broken tool');
+  check('S170', 'and the card scrolls as a last resort rather than clipping them',
+    /\.rm-card\{height:100%; max-height:100%; overflow-y:auto;/.test(admin),
+    'overflow:hidden is what turned "the house is small" into "there is no house"');
+
+  /* ⭐ AND THE STAGE NEVER SHRINKS BELOW ITS OWN CONTENT (2026-08-28). Found on the
+     LIVE page, again, after the two above were already fixed: the Save bar and the
+     Attach to Quote row were drawn ON TOP OF EACH OTHER, 56px overlapping.
+
+     ⚠ A FLEX ITEM SQUEEZED TOO SMALL DOES NOT SCROLL - IT OVERFLOWS, SILENTLY, and
+     paints over whatever comes next. flex:1 1 auto let the card squeeze the stage
+     below the rows inside it, so the overflow landed on the row beneath. min-content
+     is the floor: the stage still GROWS to fill the card (flex-grow is kept, which
+     is what keeps the pictures absorbing the slack), and when there is genuinely
+     not enough room the CARD scrolls, which the check above guarantees. */
+  check('S170', 'the stage cannot be squeezed smaller than the rows inside it',
+    /#rmWorkStage\{flex:1 0 auto; min-height:min-content;\}/.test(admin),
+    'flex:1 1 auto let it overflow and paint the Save bar over the Attach to Quote row');
+
+  /* ⭐ THE PICTURE DOES NOT MOVE WHILE YOU CLICK (2026-08-28). Owner: "whenever i
+     click a dot the screen frantically moves making it not user friendly."
+
+     ⚠ THIS IS THE COST OF THE PICTURES ABSORBING THE LEFTOVER HEIGHT, which is
+     what made everything fit on one screen. Anything that grows or appears above
+     them moves them - and measuring is exactly when things appear: a note gets
+     longer on every dot, the footage line arrives on the first, the Save block on
+     the second. Measured before the fix: the map's top moving 109px, then 94px,
+     then 59px, on separate clicks. */
+  check('S170', 'the bar above the pictures cannot change height',
+    /\.rm-toolbar\{height:\d+px;[^}]*overflow-y:auto/.test(admin),
+    'a min-height does not hold - the bar grows past it the moment the footage line appears');
+  check('S170', 'and every line that changes as you work is held to one line',
+    (function(){
+      const i = admin.indexOf('#rmDrawHint,');
+      if(i === -1) return false;
+      const block = admin.slice(i, admin.indexOf('}', i));
+      return /rmCornerNote/.test(block) && /rmPeakNote/.test(block) &&
+             /white-space:nowrap/.test(admin.slice(i, admin.indexOf('}', admin.indexOf('white-space', i)) + 1));
+    })(),
+    'a note that wraps changes the height of the bar, and the house moves with it');
+  check('S170', 'the Save block is reserved from the start, not revealed on the second dot',
+    (function(){
+      const fn = extractFn(admin, 'rmRenderCommit') || '';
+      return /panel\.style\.display = 'flex';/.test(fn) && !/feet > 0 \? 'flex' : 'none'/.test(fn);
+    })(),
+    'it appeared the moment the footage stopped being zero and shoved the map 59px down mid-trace');
+  check('S170', 'and it cannot be pressed until there is something to save',
+    (function(){
+      const fn = extractFn(admin, 'rmRenderCommit') || '';
+      return /saveBtn\.disabled = !\(feet > 0\);/.test(fn);
+    })(),
+    'reserved is not the same as claiming there is something to save');
+  check('S170', 'the map is told when its box changes size',
+    /new ResizeObserver\(/.test(admin) && /google\.maps\.event\.trigger\(rmMap, 'resize'\)/.test(admin),
+    'a flex-sized pane reaches its real height after the map is built, and Google answers getBounds() with undefined until it has idled at that size - so every click returns null and no dot is placed');
+
+  /* ⭐ STREET VIEW HAS ITS OWN DOTS AND SHOWS NOBODY ELSE'S (MR-06, 2026-08-28).
+     Owner: "it should not show the dots from sky view and should also let you
+     draw your own dots seperate from sky view so you can only see it on street
+     view." */
+  check('S170', 'the picture no longer draws the sky view’s dots',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return fn.length > 0 && !/rmRuns|rmCorners|rmCandidates|rmHouseWireframe/.test(fn);
+    })(),
+    'they were unreachable there, uneditable there, and drawn from a model this pane no longer measures against');
+  check('S170', 'and it draws its own marks instead',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return /rmStreetDotsHere\(\)/.test(fn) && /rmStreetDotPixel\(/.test(fn);
+    })());
+  check('S170', 'a street mark is a DIRECTION, so it never needs a depth',
+    (function(){
+      const fn = extractFn(admin, 'rmStreetDotFromPixel') || '';
+      return /rmRay\(/.test(fn) && !/rmRoofRelativeAt|rmDatum\(|dist/.test(fn);
+    })(),
+    'turning a street click into a PLACE is what could not be done; a bearing needs nothing');
+  check('S170', 'and it belongs to the one panorama it was placed in',
+    (function(){
+      const mk = extractFn(admin, 'rmStreetDotFromPixel') || '';
+      const here = extractFn(admin, 'rmStreetDotsHere') || '';
+      return /getPano\(\)/.test(mk) && /d\.pano === id/.test(here);
+    })(),
+    'a bearing from where the van stood is meaningless from the next camera down the street');
+  check('S170', 'the marks reach no footage and no price',
+    (function(){
+      const t = extractFn(admin, 'rmTotals') || '';
+      return t.length > 0 && !/rmStreetDot/.test(t);
+    })(),
+    'two directions with no depth have no distance between them; this pane measures nothing');
+  check('S170', 'backspace acts on whichever picture was last used',
+    (function(){
+      const i = admin.indexOf("rmLastPane === 'street' && rmStreetDotsHere().length");
+      const j = admin.indexOf('rmDeleteLastCorner();', i);
+      return i !== -1 && j > i;
+    })(),
+    'one key cannot mean both sets, and undoing measured footage while marking a photograph is the wrong half');
+  check('S170', 'and the picture takes clicks again while measuring',
+    /const stLock = rmDrawing \|\| rmCornerMode === 'dot';/.test(admin));
+  check('S170', 'the marks are cleared when another house is loaded',
+    (function(){
+      const fn = extractFn(admin, 'rmForgetLastHouse') || '';
+      return /rmStreetDots = \[\]/.test(fn);
+    })(),
+    'they belong to one house’s photograph and mean nothing on the next');
+
+  /* ⭐ ENTER ENDS A STRAND IN THE PICTURE TOO (MR-11, 2026-08-28). Owner: "when
+     I click enter on street view that should also mean end of strand."
+
+     ⚠ IT WAS NOT THAT ENTER WAS UNBOUND. Enter already ended a strand - it just
+     tested rmCorners, the SKY dots, so in Street View it fell through to the
+     toggle below and turned drawing mode on and off instead. Street marks had no
+     strand at all: every dot joined to the one before it, so marking the top of
+     the house and then the bottom drew a line straight across the picture. */
+  const stStrand = (function(){
+    const LFx = String.fromCharCode(10);
+    return new Function(
+      'let rmStreetDots = [], rmStreetBand = 0, panoId = "P1";' + LFx +
+      'const rmPano = {getPano:function(){ return panoId; }};' + LFx +
+      'function rmPaintStreet(){}  function rmStreetDotNote(){}' + LFx +
+      [extractFn(admin,'rmStreetDotsHere'), extractFn(admin,'rmEndStreetStrand'),
+       extractFn(admin,'rmAddStreetDot'), extractFn(admin,'rmStreetDotFromPixel')].join(LFx) + LFx +
+      'return {end:rmEndStreetStrand, add:function(){ return rmAddStreetDot({e:1,n:0,u:0,' + LFx +
+      '  band:rmStreetBand, pano:panoId}); }, band:function(){ return rmStreetBand; },' + LFx +
+      ' dots:function(){ return rmStreetDots; }, walk:function(p){ panoId = p; }};')();
+  })();
+  check('S170', 'enter with nothing marked does not open a strand of nothing',
+    stStrand.end() === false && stStrand.band() === 0,
+    'an empty strand is not a strand - the same rule rmEndStrand already keeps');
+  stStrand.add();
+  check('S170', 'and with a mark down it finishes that strand',
+    stStrand.end() === true && stStrand.band() === 1);
+  check('S170', 'pressing it twice does nothing the second time',
+    stStrand.end() === false && stStrand.band() === 1,
+    'the second press would otherwise number a run nobody has started');
+  check('S170', 'the next mark belongs to the new strand',
+    (function(){ stStrand.add(); const d = stStrand.dots(); return d[d.length-1].band === 1; })(),
+    'a mark that keeps the finished strand’s number is joined back to it');
+  /* ⚠ SCOPED TO THIS PANORAMA, like the dots themselves: a strand left open at
+     the last camera is not one you can finish from this one. */
+  check('S170', 'and a strand cannot be ended from a camera it was not marked in',
+    (function(){ stStrand.walk('P2'); const b = stStrand.band(); return stStrand.end() === false && stStrand.band() === b; })(),
+    'the marks here are a different run; ending nothing would still number one');
+
+  check('S170', 'enter acts on whichever picture was last used, exactly as backspace does',
+    (function(){
+      const i = admin.indexOf("if(rmLastPane === 'street' && rmStreetDotsHere().length){ rmEndStreetStrand(); return; }");
+      const j = admin.indexOf('if(rmCorners.length){ rmEndStrand(); return; }', i);
+      return i !== -1 && j > i;
+    })(),
+    'testing rmCorners first is what sent every enter to the sky view and left Street View toggling drawing mode');
+  check('S170', 'and the picture leaves a gap between two strands',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return /\(here\[i\]\.band \|\| 0\) !== \(here\[i-1\]\.band \|\| 0\)\) continue;/.test(fn);
+    })(),
+    'without the break, ending a strand changes a caption and draws the same line it was pressed to prevent');
+  check('S170', 'a new house starts at strand one',
+    (function(){
+      const fn = extractFn(admin, 'rmForgetLastHouse') || '';
+      return /rmStreetBand = 0/.test(fn);
+    })(),
+    'carried over, the next house opens with its first mark already in strand four');
+
+  /* ⭐ THE SCORED DIFFICULTY, CHECKED AGAINST REAL HOUSES (MR-12, 2026-08-28).
+     Owner: "it should be $2 a foot for a medium house, 1.85 for a easy and 2.2
+     for a hard", then "hard [needs] to be fully based on how many strands,
+     steepness, and walkability not based on size at all", then "create a very
+     advanced rating system".
+
+     ⚠ THESE ARCHETYPES ARE THE SPECIFICATION. The weights are a judgement call;
+     what is NOT negotiable is which house comes out at which price. Change a
+     weight and whichever of these fails names the customer you just re-priced. */
+  const grade = (function(){
+    const LFx = String.fromCharCode(10);
+    const consts = ['RM_HARD_GRADE','RM_MEDIUM_GRADE','RM_BUSY_SECTIONS','RM_STEEP_SHARE',
+      'RM_MANY_STRANDS','RM_TWO_STOREY_FT','RM_DIFFICULTY_RATE','RM_PT_ROPED','RM_PT_MODERATE',
+      'RM_PT_STEEP_PATCH','RM_PT_TWO_STOREY','RM_PT_THREE_STOREY','RM_PT_BUSY','RM_PT_FIDDLY',
+      'RM_PT_STRANDS','RM_PT_MANY_STRANDS','RM_THREE_STOREY_FT','RM_FIDDLY_SECTIONS',
+      'RM_LOTS_OF_STRANDS','RM_SCORE_MEDIUM','RM_SCORE_HARD']
+      .map(function(n){
+        const i = admin.indexOf('const ' + n + ' =');
+        if(i === -1) return '';
+        return admin.slice(i, admin.indexOf(';', i) + 1);
+      }).join(LFx);
+    return new Function(consts + LFx + extractFn(admin,'gradeRoof') + LFx + 'return gradeRoof;')();
+  })();
+  /* A single-storey ranch: low pitch, reachable, two runs of string. */
+  check('S170', 'an easy house is easy — low pitch, reachable, simple',
+    grade({typicalGrade: 35, eaveFt: 10, peakCount: 4, strands: 2}).level === 'Easy',
+    'got ' + grade({typicalGrade: 35, eaveFt: 10, peakCount: 4, strands: 2}).level);
+  /* The house her $2.00 rate is named after. */
+  check('S170', 'an ordinary two-storey with a moderate pitch is Medium',
+    grade({typicalGrade: 54, eaveFt: 17, peakCount: 5, strands: 2}).level === 'Medium',
+    'this is the $2.00 house — got ' + grade({typicalGrade: 54, eaveFt: 17, peakCount: 5, strands: 2}).level);
+  /* ⚠ ROPED-ON IS A DIFFERENT DAY'S WORK, not a busier version of the same one. */
+  check('S170', 'a roof steep enough to rope onto is Hard on its own',
+    grade({typicalGrade: 80, eaveFt: 10, peakCount: 3, strands: 2}).level === 'Hard',
+    'small and simple does not make roped-on work ordinary');
+  /* ⚠ AND WALKABILITY CAN REACH IT WITHOUT ANY PITCH AT ALL — her own axis. */
+  check('S170', 'a tall, complex, flat-ish roof is Hard on height and shape alone',
+    grade({typicalGrade: 30, eaveFt: 27, peakCount: 11, strands: 6}).level === 'Hard',
+    'three storeys and eleven sections is not an easy day because the pitch is low');
+  /* ⭐ SIZE IS NOT AN INPUT AT ALL. */
+  check('S170', 'footage cannot change the grade',
+    (function(){
+      const a = grade({typicalGrade: 54, eaveFt: 17, peakCount: 5, strands: 2, feet: 120});
+      const b = grade({typicalGrade: 54, eaveFt: 17, peakCount: 5, strands: 2, feet: 900});
+      return a.level === b.level && a.score === b.score;
+    })(),
+    'the price is feet x rate, so grading a big house up charges twice for one fact');
+  check('S170', 'and the grader reads no footage field',
+    (extractFn(admin,'gradeRoof') || '').indexOf('o.feet') === -1,
+    'a size signal left in the function is a second premium waiting to be switched back on');
+  /* ⚠ THE SAME FACT MUST NOT BE PAID FOR TWICE. */
+  check('S170', 'a steep patch adds nothing once the whole roof is already roped',
+    grade({typicalGrade: 80, eaveFt: 10, peakCount: 3, strands: 2, steepShare: 0.9}).parts.steepness ===
+    grade({typicalGrade: 80, eaveFt: 10, peakCount: 3, strands: 2, steepShare: 0}).parts.steepness);
+  check('S170', 'the three axes are scored separately so the reason can be read back',
+    (function(){
+      const g = grade({typicalGrade: 80, eaveFt: 27, peakCount: 11, strands: 6});
+      return g.parts.steepness > 0 && g.parts.walkability > 0 && g.parts.strands > 0 &&
+             g.score === g.parts.steepness + g.parts.walkability + g.parts.strands;
+    })());
+  /* ⭐ AND THE RATES ARE HERS. */
+  check('S170', 'the three rates are $1.85, $2.00 and $2.20 on a $2 baseline',
+    (function(){
+      const r = admin.match(/RM_DIFFICULTY_RATE = \{Easy: ([\d.]+), Medium: ([\d.]+), Hard: ([\d.]+)\}/);
+      if(!r) return false;
+      const f = n => Math.round(Number(r[n]) * 2 * 100) / 100;
+      return f(1) === 1.85 && f(2) === 2 && f(3) === 2.20;
+    })(),
+    'written as multipliers so Per Foot Pricing stays the one dial she changes');
+  /* ⭐ IT RE-CUTS ITSELF AS SHE MEASURES, AND STOPS ONCE SHE HAS CHOSEN. */
+  check('S170', 'a grade she measured beats the one Google guessed',
+    (function(){
+      const fn = extractFn(admin,'rmMeasuredGrades') || '';
+      return /rmPeaks/.test(fn) && /rmGradeSet/.test(fn) && /if\(!got\.length\)/.test(fn);
+    })(),
+    'a part-measured house must fall back to the model, not to zero');
+  check('S170', 'confirming a peak re-cuts the difficulty',
+    (function(){
+      const i = admin.indexOf('if(pk) pk.grade = g; else rmGradeSet = g;');
+      const j = admin.indexOf('rmRegrade(', i);
+      return i !== -1 && j > i && j - i < 400;
+    })(),
+    'her own ask: the difficulty follows the grades as they are found');
+  check('S170', 'but never over a difficulty the office picked by hand',
+    (function(){
+      const fn = extractFn(admin,'rmRegrade') || '';
+      return /if\(!rmGradeTouched\)/.test(fn) && /rmGradeTouched = true/.test(admin);
+    })(),
+    'a re-cut that overwrote their choice would be the tool arguing with them about the price');
+
+  /* ⭐ THE FIRST DOT CAN ACTUALLY BE PLACED (2026-08-27). The sky click used to
+     refuse until the datum had been measured, telling you to click a wall in
+     Street View first - which stopped being possible when Street View stopped
+     taking clicks. There was no first dot to place from either picture, so the
+     tool could not be started at all, and every other check here passed while
+     that was true. */
+  check('S170', 'a sky click is not refused for want of a measured height',
+    !/rmDatum\(\)\.source === 'assumed'\)\{[\s\S]{0,400}?return;/.test(admin),
+    'the only view that could measure the datum no longer takes clicks, so this refuses for ever');
+  check('S170', 'and nothing on screen still tells the office to click a wall',
+    (function(){
+      /* The phrase in a COMMENT is the record of why it went; the phrase in a
+         string is an instruction nobody can follow. Only the second is a fault. */
+      return !admin.split(String.fromCharCode(10)).some(function(l){
+        return /put a dot on a wall|click (once )?on a wall/i.test(l) &&
+               /textContent|innerHTML|<p |<div |<span /.test(l);
+      });
+    })(),
+    'an instruction that cannot be followed is worse than none');
+
+  /* ⭐ TWO DOTS MAY SIT ON TOP OF EACH OTHER. Owner: "make sure dots can be on
+     top of each other". A roofline doubles back on itself - the two sides of a
+     dormer, a porch return - and the second dot of such a pair lands within a
+     few pixels of the first. */
+  check('S170', 'placing a corner never rejects one for being too close',
+    (function(){
+      const fn = extractFn(admin, 'rmAddCorner') || '';
+      return fn.length > 0 && !/RM_PIN_GRAB_PX|too close|Math\.hypot[\s\S]{0,80}?return false/.test(fn);
+    })(),
+    'a roofline that doubles back needs two dots almost on one spot');
+  check('S170', 'and the dots themselves cannot swallow the next click',
+    (function(){
+      const i = admin.indexOf('position: {lat: w.lat, lng: w.lng}, map: rmMap');
+      if(i === -1) return false;
+      const line = admin.slice(i, admin.indexOf(String.fromCharCode(10), i));
+      return /clickable:\s*false/.test(line) && /draggable:\s*false/.test(line);
+    })(),
+    'a clickable marker on top of the click sheet eats the second dot of a pair');
 
   /* ⭐ EACH PEAK CARRIES ITS OWN GRADE, and adding one takes you to read it.
      Owner: "when you inset that there is a peak and say in between which two
@@ -38750,10 +39209,20 @@ suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is
      needed from above, because looking straight down there is no sky to click
      on. That is the whole reason the sky view is now the only measuring
      surface. */
+  /* ⚠ REPOINTED 2026-08-28 (MR-06), NOT WEAKENED. This proved the point by
+     proving the click handler did not EXIST, and one exists again — Street View
+     takes clicks for its own marks. The guarantee is unchanged and is what is
+     asserted now: a street click still measures nothing. It cannot, and that is
+     the whole reason marks are bearings rather than places. */
   check('S160', 'nothing measures from a street click any more',
-    admin.indexOf("rmPanoLock').addEventListener('click'") === -1 &&
-    admin.indexOf('const stLock = false;') !== -1,
-    'the sheet that caught those clicks is gone, and so is the click handler');
+    (function(){
+      const i = admin.indexOf("rmPanoLock').addEventListener('click'");
+      if(i === -1) return false;
+      const body = admin.slice(i, admin.indexOf('});', i));
+      return /rmAddStreetDot\(/.test(body) &&
+             !/rmAddCorner|rmAddPoint|rmPinCorner|rmTotals/.test(body);
+    })(),
+    'a click here becomes a MARK and nothing else; footage comes off the sky view alone');
 
   /* ⭐ AND THE SCAFFOLDING NO LONGER SHOUTS OVER THE WORK. Opening the tool
      showed a cyan outline and a yellow ground line and no red anywhere, so the
@@ -38772,9 +39241,17 @@ suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is
     /OFF BY DEFAULT, AND THIS RECORDS WHY/.test(admin) &&
     /axis-aligned\s*\n?\s*BOUNDING boxes/.test(admin),
     'she asked for it drawn; it comes back when it is worth looking at');
-  check('S160', 'the yellow ground guide belongs to the wall picker only',
-    /const shownWall = \(rmWallPicking \|\| rmCornerMode !== 'dot'\) \? rmActiveWall\(\) : null;/.test(admin),
-    'across the lawn it reads as a proposed run of lights along the grass');
+  /* ⛔ RETIRED 2026-08-28 (MR-06). The guide was drawn into Street View by
+     rmPaintStreet, which now paints only that pane's own marks — so the thing
+     it was scoped to no longer exists to be scoped. The reasoning is kept
+     because it is a good rule about this pane: anything drawn across the lawn
+     reads as a proposed run of lights along the grass. */
+  check('S160', 'the picture draws nothing but its own marks',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return fn.length > 0 && !/rmActiveWall|shownWall/.test(fn);
+    })(),
+    'anything else drawn here reads as a proposed run of lights');
 }
 
 
@@ -39273,8 +39750,13 @@ suite('254. Measure Roof - no height is ever typed, and none is ever the lawn');
   check('S254', 'and the typed reader is a stub rather than a live control',
     /function rmTypedHeightM\(\)\{ return null; \}/.test(admin),
     'leaving it reading a deleted element would throw the moment anything called it');
-  check('S254', 'the panel says where a height comes from instead of offering a box',
-    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
+  /* ⚠ WHAT REPLACED IT CHANGED AGAIN ON 2026-08-27. The answer used to be
+     "Street View measures it - put a dot on a wall", and Street View stopped
+     taking clicks, so that sentence became an instruction nobody could follow.
+     The check keeps its point - a control cannot be removed silently - and
+     now asks for the answer that is actually true. */
+  check('S254', 'and the panel says where a height does come from instead',
+    /roofline is traced from above/.test(admin) && /Height only matters where the roof climbs/.test(admin),
     'removing a control without saying what replaced it reads as a feature going missing');
 }
 
@@ -39292,8 +39774,8 @@ suite('255. Measure Roof - the footage saved is the footage measured');
      bulb order along with the price. That is what was asked for - the owner's
      position is that the measurement itself reads short, so the corrected
      footage should drive all three. It is a single constant and reversible. */
-  check('S255', 'the feet multiplier is the owner-set 2.9',
-    /const RM_FEET_MULTIPLIER\s*=\s*2\.9\s*;/.test(admin),
+  check('S255', 'the feet multiplier is the owner-set 1.3',
+    /const RM_FEET_MULTIPLIER\s*=\s*1\.3\s*;/.test(admin),
     'if this ever moves without a ruling behind it, every quote, bin count ' +
     'and bulb order moves with it');
   check('S255', 'and the save message no longer claims the footage was doubled',
@@ -39596,7 +40078,7 @@ suite('258. Measure Roof - one less step before you can trace');
      carry the instruction the button stopped giving - and lost only the half
      that named the wrong place. */
   check('S258', 'with no run open the hint is what tells you to click the roofline',
-    /Click along the roofline<\/strong> on the sky view to start a side/.test(setDraw),
+    /Click along the roofline<\/strong> on the sky view/.test(setDraw),
     'the instruction went out with the button and nothing replaced it');
 
   /* ---- the address is not asked for twice --------------------------- */
