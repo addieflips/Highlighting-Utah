@@ -4602,7 +4602,17 @@
                taller than the card and hung off the bottom - 770 of content in a 666
                card, measured live twice. With shrink on, the stage settles at its
                own min-content and the pictures take exactly what is left. */
-            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:min-content;}
+            /* ⚠ min-height:0, AND THE FLOOR LIVES ON THE PICTURES INSTEAD. min-content
+               was put here to stop the stage overflowing and painting over the row
+               below it, and it did - but it also computes LARGER than the parts it is
+               made of, so the stage would not come down and the pictures hung off the
+               bottom: 774 of content in a 670 card, measured live three times while I
+               tried smaller numbers that could never work.
+               The guard is not lost, it has MOVED: .rm-panes carries a real 165px
+               floor, and every other row up here is a fixed height. So the pictures
+               shrink to that floor and no further, nothing can collapse to nothing,
+               and the card scrolls only if even that will not fit. */
+            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:0;}
             #roofMeasureOverlay #rmWorkStage > .rm-stagerest{min-height:0;}
             /* ⭐ AND THE PICTURES HAVE A FLOOR. min-height:0 is what lets a flex item
                shrink so the page can fit - and it also lets it shrink to NOTHING. The

@@ -204,6 +204,14 @@ grew to fill a stage taller than the card and hung off the bottom, 770 of conten
 in a 666 card. The floor is what stops rows painting over each other; being able
 to *reach* that floor is what makes everything fit.
 
+⚠ **And the floor itself had to move onto the pictures.** Putting it on the whole
+stage (`min-content`) stopped the overflow, but that value computes *larger* than
+the rows it is made of — so the stage could never come down and the pictures hung
+off the bottom anyway. The pictures carry a real pixel floor now and every other
+row up there is a fixed height, so the pictures shrink to that floor and no
+further, nothing collapses to nothing, and the card scrolls only if even that
+will not fit. Measured with every row present: no scrolling, both pictures whole.
+
 **The whole tool sits on one screen and nothing on it moves.** The card is one
 viewport tall and never scrolls; the two pictures take whatever height the bars
 above and below them do not. That is what makes it fit whatever the window size —
