@@ -4611,7 +4611,7 @@
                being something you can trace on.
                ⚠ flex:1 1 auto IS THE POINT: the pictures are the one row that GROWS,
                so every pixel the ribbon does not use goes to the house. */
-            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:190px;}
+            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:165px;}
             #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
             #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
 
@@ -4698,7 +4698,7 @@
                jumping while dots go down, and it still scrolls inside itself when
                the notes get long. It is simply no longer sized as though it were
                the only thing above the house. */
-            #roofMeasureOverlay .rm-tools > .rm-toolbar{height:118px; align-content:flex-start; overflow-y:auto; overscroll-behavior:contain;}
+            #roofMeasureOverlay .rm-tools > .rm-toolbar{height:104px; align-content:flex-start; overflow-y:auto; overscroll-behavior:contain;}
             #roofMeasureOverlay #rmDrawHint,
             #roofMeasureOverlay #rmCornerNote,
             #roofMeasureOverlay #rmCornerMode,
@@ -4909,7 +4909,15 @@
                above the pictures rather than under them, so the gap 6-8 is left free
                for exactly that. The pictures ended up under the Save bar twice
                already by falling through to a catch-all. */
+            /* ⚠ AND EVERY OTHER CHILD OF THAT WRAPPER IS NUMBERED TOO. Making it
+               display:contents promoted ALL its children to stage rows, and one of
+               them carries no id or class - so it defaulted to order 0 and jumped
+               ahead of the toolbar, 25px at the very top of the tool. That is the
+               catch-all failure this block's own note warns about, caused by the fix
+               for it. Numbered 8: immediately above the pictures, where it was. */
+            #roofMeasureOverlay .rm-stagerest > *{order:8;}
             #roofMeasureOverlay .rm-stagerest > .rm-panes{order:9;}
+            #roofMeasureOverlay #rmPhotoBar{order:5;}
             #roofMeasureOverlay .rm-tools > .rm-toolbar{display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
             /* Inside the bar a part is a group separated by a rule to its LEFT,
                because the flow is now sideways. */
