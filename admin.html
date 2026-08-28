@@ -5097,6 +5097,15 @@
                 <button type="button" id="rmMoreBtn" style="border:0; background:none; padding:4px 0 0; font-size:11px; color:var(--slate); cursor:pointer; text-decoration:underline;">More options</button>
                 <div id="rmMoreBox" style="display:none; margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
                   <p class="rm-sub" style="margin-bottom:6px;">The roofline is traced from above, where lengths measure true. Height only matters where the roof climbs, and that is what a peak is &mdash; add one and read its grade off the picture.</p>
+                  <!-- ⭐ HER OWN LOOK SPEED. It lives in More options because the
+                       toolbar is height-capped on purpose and she has asked three
+                       times not to scroll to reach a tool - a control nobody
+                       touches twice a season must not cost the picture any room. -->
+                  <div style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+                    <label for="rmLookSpeed" style="font-size:11px; color:var(--slate); white-space:nowrap;">Look speed</label>
+                    <input type="range" id="rmLookSpeed" min="0.5" max="6" step="0.1" style="flex:1 1 auto; max-width:170px;">
+                    <span id="rmLookSpeedNote" style="font-size:11px; color:var(--slate); min-width:70px;"></span>
+                  </div>
                   <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
                     <kbd>Esc</kbd> cancel &middot; <kbd>A</kbd> all suggested on/off &middot;
                     <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
@@ -19531,7 +19540,57 @@ const RM_NAV_CLICK_SLOP = 4;
    ⚠ AND IT IS A FALLBACK, NEVER A REQUIREMENT. If the lock is refused - an older
    browser, a policy, a window that is not focused - the drag carries on off the
    cursor exactly as before. Worse on a slow drag, but it still works. */
-const RM_LOOK_SENSITIVITY = 1;   /* turn this if the hand-to-picture rate feels off */
+/* ⭐ HOW FAST THE PICTURE TURNS, AND IT IS HERS TO SET (2026-08-28). Owner, after
+   the raw-input fix: "still uncomfortably slow, it just slows my mouse down".
+
+   ⚠ TWO THINGS WERE WRONG AND ONLY ONE OF THEM WAS TASTE.
+   FIRST, A REAL BUG: raw movements under a pointer lock are already PHYSICAL
+   mouse units, and they were being divided by devicePixelRatio as though they
+   were device pixels needing turning into CSS ones. On her 125% Chrome that made
+   every drag a further fifth slower - so the change meant to speed the picture up
+   shipped with a brake on it.
+   SECOND, 1:1 IS SIMPLY SLOWER THAN A GAME. Tracking the cursor exactly is the
+   correct BASELINE, not a comfortable look speed; Roblox and every other game
+   turn several times faster than the hand travels. That is a preference, and
+   after three goes at guessing it, it is a control rather than a constant.
+
+   ⚠ IT MULTIPLIES THE ANGLE, NOT THE PIXELS. Scaling the offset first sends it
+   through the arctangent, which compresses - so the dial would do less and less
+   the higher it went. On the angle it means exactly what it says: 2 is twice as
+   fast as the hand, everywhere in the frame and at every zoom.
+
+   ⚠ AND IT IS PER-MACHINE, IN localStorage, NOT IN settings/. A comfortable look
+   speed belongs to a person and a mouse, not to the business - syncing it would
+   push whatever felt right on one desk onto every other. */
+const RM_LOOK_SPEED_DEFAULT = 2.5;
+const RM_LOOK_SPEED_KEY = 'hu.rm.lookSpeed';
+let rmLookSpeed = RM_LOOK_SPEED_DEFAULT;
+try {
+  const savedSpeed = Number(localStorage.getItem(RM_LOOK_SPEED_KEY));
+  if(isFinite(savedSpeed) && savedSpeed > 0) rmLookSpeed = savedSpeed;
+} catch(err){ /* private browsing, or storage refused - the default is fine and
+    there is nothing here worth interrupting anybody about */ }
+function rmLookSpeedNote(){
+  const out = document.getElementById('rmLookSpeedNote');
+  if(out) out.textContent = rmLookSpeed.toFixed(1) + '\u00d7 your hand';
+}
+function rmWireLookSpeed(){
+  const el = document.getElementById('rmLookSpeed');
+  if(!el || el.dataset.wired) return;
+  el.dataset.wired = '1';
+  el.value = String(rmLookSpeed);
+  rmLookSpeedNote();
+  /* input, not change: it is a feel, so it has to answer while the slider moves */
+  el.addEventListener('input', function(){
+    const v = Number(el.value);
+    if(!isFinite(v) || v <= 0) return;
+    rmLookSpeed = v;
+    rmLookSpeedNote();
+    try { localStorage.setItem(RM_LOOK_SPEED_KEY, String(v)); }
+    catch(err){ /* it still applies for this session; a slider position that does
+      not survive a reload is not worth a message on screen */ }
+  });
+}
 let rmNavLocked = false;
 function rmNavRequestLock(el){
   if(!el || !el.requestPointerLock) return;
@@ -19596,9 +19655,11 @@ document.addEventListener('mousemove', function(e){
      FIRST movement of every drag - so a quick look-around registered as a click
      and handed the context menu straight back. */
   if(rmNavLocked){
-    const dpr = window.devicePixelRatio || 1;
-    rmNavDrag.rawX += (e.movementX || 0) / dpr * RM_LOOK_SENSITIVITY;
-    rmNavDrag.rawY += (e.movementY || 0) / dpr * RM_LOOK_SENSITIVITY;
+    /* ⚠ NOT DIVIDED BY devicePixelRatio. Under unadjustedMovement these are the
+       mouse's own units, not screen pixels needing converting - dividing put a
+       silent fifth-slower brake on every drag at her 125% zoom. */
+    rmNavDrag.rawX += (e.movementX || 0);
+    rmNavDrag.rawY += (e.movementY || 0);
   }
   /* ⚠ WHILE LOCKED THE CURSOR NEVER MOVES, so measuring the click slop off
      clientX would report every look-around as a click and hand back the context
@@ -19668,8 +19729,8 @@ document.addEventListener('mousemove', function(e){
     atX = e.clientX;
     atY = e.clientY;
   }
-  const turnX = bearing(atX - cx) - bearing(rmNavDrag.downX - cx);
-  const turnY = bearing(atY - cy) - bearing(rmNavDrag.downY - cy);
+  const turnX = (bearing(atX - cx) - bearing(rmNavDrag.downX - cx)) * rmLookSpeed;
+  const turnY = (bearing(atY - cy) - bearing(rmNavDrag.downY - cy)) * rmLookSpeed;
   pano.setPov({heading: rmNavDrag.heading + turnX,
                pitch: Math.max(-90, Math.min(90, rmNavDrag.pitch - turnY))});
 });
@@ -24063,6 +24124,7 @@ function openRoofMeasure(quoteId){
      rmSetShowModel are left in place and unreachable so nothing that reads them
      breaks; delete them once nothing does. */
   document.getElementById('rmEndStrandBtn').addEventListener('click', function(){ rmEndStrand(); });
+  rmWireLookSpeed();
   /* ⭐ CLEAR MEANS CLEAR, IN BOTH PICTURES (2026-08-25). Owner: "when i click
      clear dots it clears all dots on both perspectives."
 

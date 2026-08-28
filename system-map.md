@@ -134,6 +134,13 @@ screen. `RM_LOOK_SENSITIVITY` is the dial if the rate ever needs adjusting to
 taste. If a browser refuses the lock, the drag still works off the cursor as
 before — worse on a slow movement, but never broken.
 
+⭐ **How fast it turns is yours to set — Look speed, under More options.** It
+starts at 2.5× your hand and is saved on that computer only, never synced: a
+comfortable look speed belongs to a person and a mouse, not to the business, and
+pushing one desk's setting onto every other would be worse than no setting at
+all. Tracking the hand exactly (1.0) is the honest baseline, but it is slower
+than any game feels — which is why the default is well above it.
+
 ⚠ **The sky view is deliberately not locked.** There you are grabbing a real
 point on a map and want the real cursor; hiding the pointer to pan would be both
 disorienting and wrong about what is being dragged.

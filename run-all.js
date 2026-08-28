@@ -38872,7 +38872,9 @@ suite('170. Measure Roof - a peak is two dots and a grade');
         'let rmNavMenuAfterDrag = false;' + LFx +
         'let rmNavLocked = false;' + LFx +
         /* the dial and the lock helper, lifted - not written out here */
-        (admin.match(/const RM_LOOK_SENSITIVITY = [^;]+;/) || [''])[0] + LFx +
+        /* the dial itself, at 1 so the baseline arithmetic can be checked - the
+           checks that care about the SPEED set it themselves */
+        'let rmLookSpeed = 1;' + LFx +
         (extractFn(admin, 'rmNavRequestLock') || '') + LFx +
         src + LFx + down + LFx + move + LFx + up + LFx + menu + LFx +
         'function on(n){ const h=calls.filter(function(c){ return c[0]===n; }); return h[h.length-1][1]; }' + LFx +
@@ -38897,6 +38899,7 @@ suite('170. Measure Roof - a peak is two dots and a grade');
         '   on("contextmenu")({target:el, preventDefault:function(){stopped=true;}});' + LFx +
         '   return stopped; },' + LFx +
         ' lock:function(on,dpr){ rmNavLocked=!!on; window.devicePixelRatio=(dpr||1); },' + LFx +
+        ' speed:function(v){ rmLookSpeed = v; },' + LFx +
         /* ⚠ THE CURSOR IS FROZEN WHERE IT WAS PRESSED, which is what a pointer
            lock really does. Parked off-screen instead, the click-slop sum came out
            enormous whatever the code did, and a sabotage measuring slop off the
@@ -39025,9 +39028,17 @@ suite('170. Measure Roof - a peak is two dots and a grade');
         'the cursor never moves under a pointer lock, so reading clientX gives nothing at all');
       navRun.lock(false, 1);
     })();
-    /* ⚠ RAW DELTAS ARE DEVICE PIXELS. At 125% zoom - which is where her Chrome
-       actually is - they are a quarter bigger than the CSS pixels the rest of this
-       arithmetic uses, so the same hand movement would over-turn by 25%. */
+    /* ⛔ REVERSED 2026-08-28, AND THIS CHECK NOW ASSERTS THE OPPOSITE. It used to
+       demand that raw movement be divided by devicePixelRatio, on the reasoning
+       that raw deltas were DEVICE pixels needing turning into the CSS pixels the
+       rest of the arithmetic uses. That reasoning is wrong: under a pointer lock
+       with unadjustedMovement the deltas are the MOUSE'S OWN units, which have
+       nothing to do with how the page is zoomed. Dividing put a silent fifth-
+       slower brake on every drag on her 125% Chrome — half of why she reported it
+       as still too slow after the raw-input change.
+       The old wording is kept here because it is the argument for the check that
+       replaced it: page zoom must make NO difference to how far a hand movement
+       turns the picture. */
     (function(){
       const a = navRun.street();
       navRun.down(a.el, undefined, 300, 200);
@@ -39039,12 +39050,49 @@ suite('170. Measure Roof - a peak is two dots and a grade');
       navRun.lock(true, 1.25);
       navRun.raw(125, 0);
       const at125 = b.pov().heading - 100;
-      check('S170', 'raw movement is converted from device pixels to CSS pixels',
-        at125 > 0 && at125 < at1,
+      check('S170', 'page zoom does not change how far a hand movement turns it',
+        at1 > 0 && Math.abs(at125 - at1) < 1e-9,
         'dpr 1 turned ' + at1.toFixed(2) + ', dpr 1.25 turned ' + at125.toFixed(2) +
-        ' - equal means devicePixelRatio is not being divided out');
+        ' - raw movement is in mouse units, not screen pixels');
       navRun.lock(false, 1);
     })();
+    /* ⭐ AND THE SPEED IS A DIAL SHE TURNS (2026-08-28). Owner, after the raw-input
+       change: "still uncomfortably slow, it just slows my mouse down". Tracking
+       the hand exactly is the correct BASELINE, not a comfortable look speed —
+       games turn several times faster than the hand travels. After three goes at
+       guessing the number it is a control rather than a constant.
+       ⚠ IT MULTIPLIES THE ANGLE, NOT THE OFFSET: scaled before the arctangent the
+       dial would do less and less the higher it went, which is the opposite of
+       what a speed control should feel like. */
+    (function(){
+      const a = navRun.street();
+      navRun.speed(1);
+      navRun.down(a.el, undefined, 300, 200);
+      navRun.lock(true, 1);
+      navRun.raw(100, 0);
+      const one = a.pov().heading - 100;
+      const b = navRun.street();
+      navRun.speed(2);
+      navRun.down(b.el, undefined, 300, 200);
+      navRun.raw(100, 0);
+      const two = b.pov().heading - 100;
+      check('S170', 'doubling the look speed exactly doubles the turn',
+        one > 0 && Math.abs(two - one * 2) < 1e-9,
+        'speed 1 turned ' + one.toFixed(3) + ', speed 2 turned ' + two.toFixed(3) +
+        ' - scaled before the arctangent it would fall short, and worsen as it rises');
+      navRun.speed(1);
+      navRun.lock(false, 1);
+    })();
+    check('S170', 'and the speed she picks is remembered on her own machine',
+      (function(){
+        const fn = extractFn(admin, 'rmWireLookSpeed') || '';
+        return fn.indexOf('localStorage.setItem(RM_LOOK_SPEED_KEY') !== -1 &&
+               admin.indexOf('localStorage.getItem(RM_LOOK_SPEED_KEY)') !== -1;
+      })(),
+      'a look speed belongs to a person and a mouse, so it must survive a reload and NOT sync');
+    check('S170', 'the slider is wired when the tool is wired, not left inert',
+      admin.indexOf('rmWireLookSpeed();') !== -1,
+      'this repo has shipped a control with no handler before - it looked identical and saved nothing');
     /* ⚠ AND THE CLICK SLOP MUST WATCH THE HAND TOO. Measured off a cursor that is
        frozen by the lock, every look-around would count as a click and hand the
        context menu back at the end of it. */
