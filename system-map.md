@@ -236,6 +236,18 @@ what makes a per-customer history possible: `createdAt` (quote raised),
 `rsvpRespondedAt`. **`lightsRecycleRequestedAt`** (their old set asked for back), `removalDoneAt`, and — on the
 invoice — **`newMemberFeeAppliedAt`**, the day the $30 join fee was charged.
 
+Every step of the path a customer takes now carries a date, and `queue-date.test.js`
+lists all nineteen so one cannot quietly lose its stamp: quote raised and sent, marked
+approved, converted, sent to the warehouse, bundle built, needs a day, **put on a crew
+sheet / fix route / takedown route**, **fix raised** and mended, lights up, takedown done,
+old set asked back, RSVP answered, invoiced, paid, join fee charged.
+
+⚠ **`scheduledDate` is the day they are booked FOR; `assignedCrewAt` is when the booking
+was made.** That gap — between waiting for a day and being hung — is where a house sits
+and gets forgotten, and until 2026-08-28 nothing measured it. ⚠ **`fixRaisedAt` survives
+the mend**, beside `fixDoneAt`: the pair says how long the customer waited, and clearing
+it would let the repair erase the wait.
+
 Most of the money was already dated and that was checked before anything was built: the
 $25 referral, manual discounts, carried credits, manual fees, the automatic $30 change fee
 and the carryover charge each carry a `date` on their own note. The join fee was the one

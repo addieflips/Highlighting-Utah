@@ -237,6 +237,77 @@ check('the $30 join fee records when it was charged',
   'is nothing to answer a customer querying their bill.');
 
 /* ---------------------------------------------------------------------------
+ * 1c. EVERY STEP OF THE PATH CARRIES A DATE.
+ *
+ * Addie, twice: "Are you sure you have everything that can be changed or moved within the
+ * system can be dated?" and then "Okay so all paths are dated?" Both times the honest
+ * answer was no, and both times the gap was found by enumerating rather than by asking
+ * myself whether I thought it was complete.
+ *
+ * ⚠ THIS IS A LIST, NOT A COUNT, for the reason MANUAL_ONLY_IDS exists: a number cannot
+ * tell a step that was deliberately retired from one that quietly lost its stamp.
+ *
+ * ⚠ AND IT ASSERTS THE FIELD IS *WRITTEN WITH A TIME*, not merely mentioned. A step whose
+ * date is only ever read — because the write was deleted — is exactly the failure the rest
+ * of this file exists to catch, and a name-only check would report it green.
+ * ------------------------------------------------------------------------- */
+const PATH_STEPS = [
+  ['a quote is raised',            'createdAt',                'admin.html'],
+  ['a quote is sent',              'quoteSentAt',              'admin.html'],
+  ['the office marks it approved', 'approvedByOfficeAt',       'admin.html'],
+  ['they become a customer',       'convertedToCustomerAt',    'admin.html'],
+  ['sent to the warehouse',        'lightsQueuedAt',           'admin.html'],
+  ['the bundle is marked built',   'lightsMarkedBuiltAt',      'admin.html'],
+  ['they need a day',              'needsDayAssignedAt',       'admin.html'],
+  ['put on a crew sheet',          'assignedCrewAt',           'admin.html'],
+  ['put on a fix route',           'fixAssignedAt',            'admin.html'],
+  ['put on a takedown route',      'removalAssignedAt',        'admin.html'],
+  ['a fix is raised',              'fixRaisedAt',              'admin.html'],
+  ['the fix is mended',            'fixDoneAt',                'admin.html'],
+  ['the lights go up',             'completedAt',              'admin.html'],
+  ['the takedown is done',         'removalDoneAt',            'admin.html'],
+  ['their old set is asked back',  'lightsRecycleRequestedAt', 'admin.html'],
+  ['they answer the RSVP',         'rsvpRespondedAt',          'admin.html'],
+  ['the invoice goes out',         'invoicedAt',               'functions/index.js'],
+  ['they pay',                     'paidAt',                   'functions/index.js'],
+  ['the $30 join fee is charged',  'newMemberFeeAppliedAt',    'functions/index.js']
+];
+/* A write with a real time in it: a server sentinel, a Timestamp, a new Date, or the
+   `ts` a shared done-rule is handed. Not simply the name appearing somewhere.
+   ⚠ BOTH FORMS — `field: value` inside a literal AND `x.field = value`. The first draft
+   matched only the literal, and reported three real writes as missing: the office
+   approval, the invoice date and the join fee are all assignments. A check that fails on
+   correct code is not the safe direction; it is the one that gets switched off. */
+const WRITES_A_TIME = new RegExp(
+  '\\b%F%\\s*[:=]\\s*(serverTimestamp\\(\\)|ts\\b|new Date|Timestamp\\.|admin\\.firestore)');
+/* ⚠ A FLOOR ON THE LIST ITSELF. Red-checking emptied PATH_STEPS and the suite passed —
+   every check above simply stopped existing, which is the same shape as a suite that
+   cannot find its target and skips. A step legitimately retired should lower this by
+   hand, deliberately. */
+check('the path still has every step in it',
+  PATH_STEPS.length >= 19,
+  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 19. Removing a step deletes its ' +
+  'check silently — lower this number in the same change, and say which step went.');
+
+PATH_STEPS.forEach(([label, field, file]) => {
+  const src = SOURCES[file];
+  const re = new RegExp(WRITES_A_TIME.source.replace('%F%', field));
+  check('the path records when ' + label + ' (' + field + ')', re.test(src),
+    field + ' is not written with a time anywhere in ' + file + '. A step with no date ' +
+    'is a hole in the customer history — you can see it happened and never when, which ' +
+    'is the difference between "waiting three weeks" and "raised this morning".');
+});
+
+/* ⚠ AND THE RAISE MUST BE HANDED A TIME. `fixRaisedAt: ts` reads perfectly whatever the
+   caller passes — red-checking took the argument away and the field then wrote `undefined`
+   with every source check still green. The one caller that raises a fix is asserted here,
+   because the shape of the rule and the way it is called are two different facts. */
+check('the shared done-rule is handed a time for a raise as well as a completion',
+  /spec\.off\(serverTimestamp\(\)\)/.test(SOURCES['admin.html']),
+  'hlxMarkJobDone calls spec.off() bare, so raising a fix records undefined rather than ' +
+  'a date — and nothing about the rule itself would look wrong.');
+
+/* ---------------------------------------------------------------------------
  * 2. RUN the rule — both copies.
  *
  * ⚠ THE CENSUS ABOVE PROVES THE CALL IS THERE. It cannot prove it is right, and the one

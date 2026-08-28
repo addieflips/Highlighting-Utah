@@ -39670,7 +39670,17 @@ const HLX_DONE_KINDS = {
        much as a tidy-up. */
     on:  function (ts) { return {needsFix: false, fixScheduled: false, fixNote: '',
                                  fixDoneAt: ts}; },
-    off: function ()   { return {needsFix: true}; }
+    /* ⭐ WHEN THE FIX WAS RAISED (added 2026-08-28). Addie, asked whether every path is
+       dated: `fixDoneAt` recorded when a fault was MENDED and nothing recorded when it
+       was REPORTED, so nobody could tell a fault outstanding three weeks from one raised
+       this morning — and clearing the flag is what takes a house off the fix list, so
+       once mended there was no trace it had ever happened.
+       ⚠ `off` IS THE RAISE HERE, not the clear. This kind is inverted against the other
+       two: for install and takedown `on` means done, and for a fix `on` means MENDED —
+       so the date of the problem starting belongs in `off`.
+       ⚠ AND `fixRaisedAt` SURVIVES THE MEND. Kept beside `fixDoneAt`, the pair says how
+       long the customer waited; cleared, the mend erases the wait. */
+    off: function (ts) { return {needsFix: true, fixRaisedAt: ts}; }
   }
 };
 /* ⭐ RETIRING A FIX PHOTO MEANS DESTROYING IT (Job 4, 2026-08-21).
@@ -39707,7 +39717,10 @@ async function hlxMarkJobDone(target, kind, done, opts) {
      first (hlxResolvePlanHouse) and hand the answer in. */
   const id = (target && target.id) ? target.id : String(target || '');
   if (!id) return {ok: false, why: 'No customer to mark.'};
-  const fields = done ? spec.on(serverTimestamp()) : spec.off();
+  /* ⚠ THE TIMESTAMP GOES TO BOTH HALVES. `off` used to be called bare, which was fine
+     while it only ever CLEARED things — but raising a fix goes through `off`, and it now
+     has a date to record. install and takedown ignore the argument. */
+  const fields = done ? spec.on(serverTimestamp()) : spec.off(serverTimestamp());
   try {
     await updateDoc(doc(db, 'jobAddresses', id), fields);
   } catch (err) {
@@ -43953,18 +43966,31 @@ function startReconcileAuto(){
   setTimeout(runReconcileAuto, 20000);
   reconcileTimer = setInterval(runReconcileAuto, RECONCILE_INTERVAL_MS);
 }
+/* ⭐ AND WHEN THEY WERE PUT ON A CREW'S SHEET (added 2026-08-28). `scheduledDate` is the
+   day they are booked FOR; nothing said when the booking was MADE. That is the gap
+   between "waiting for a day" and "hung", which is exactly where a house sits and gets
+   forgotten — and re-assignment overwrites it on purpose, because what matters is the
+   sheet they are on NOW, not the first one they were ever put on.
+   ⚠ EVERY CALLER IS A REAL ASSIGNMENT — route generation, a move, a bump — so this is
+   stamped unconditionally rather than on a transition. That is the opposite of the build
+   and recycle flags, which are written on saves that change nothing. */
 function scheduledFieldForType(type, dateVal, crew){
-  if(type === 'fix') return {fixScheduled: true, fixScheduledDate: dateVal, fixCrew: crew};
-  if(type === 'removal') return {removalScheduled: true, removalScheduledDate: dateVal, removalCrew: crew};
+  if(type === 'fix') return {fixScheduled: true, fixScheduledDate: dateVal, fixCrew: crew,
+                             fixAssignedAt: serverTimestamp()};
+  if(type === 'removal') return {removalScheduled: true, removalScheduledDate: dateVal, removalCrew: crew,
+                                 removalAssignedAt: serverTimestamp()};
   // Assigning to an install route clears any "changed after assignment" flag —
   // this IS the re-add step the flag was asking for.
-  return {scheduled: true, scheduledDate: dateVal, assignedCrew: crew, lightsChangedAfterAssign: false};
+  return {scheduled: true, scheduledDate: dateVal, assignedCrew: crew,
+          assignedCrewAt: serverTimestamp(), lightsChangedAfterAssign: false};
 }
 function freeUpFieldForType(type){
-  if(type === 'fix') return {fixScheduled:false, fixScheduledDate:null};
-  if(type === 'removal') return {removalScheduled:false, removalScheduledDate:null};
+  /* ⚠ THE DATE GOES WITH THE ASSIGNMENT. Left standing it says a house is on a sheet
+     that no longer has them, which is worse than no date at all. */
+  if(type === 'fix') return {fixScheduled:false, fixScheduledDate:null, fixAssignedAt:null};
+  if(type === 'removal') return {removalScheduled:false, removalScheduledDate:null, removalAssignedAt:null};
   // Pulling them off an install route clears the flag too (they've been removed).
-  return {scheduled:false, scheduledDate:null, lightsChangedAfterAssign: false};
+  return {scheduled:false, scheduledDate:null, assignedCrewAt:null, lightsChangedAfterAssign: false};
 }
 function routeTypeLabel(type){
   if(type === 'fix') return 'Fix Route';
