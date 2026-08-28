@@ -38409,6 +38409,43 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
     'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
 
+  /* ⭐ THE PICTURE DOES NOT MOVE WHILE YOU CLICK (2026-08-28). Owner: "whenever i
+     click a dot the screen frantically moves making it not user friendly."
+
+     ⚠ THIS IS THE COST OF THE PICTURES ABSORBING THE LEFTOVER HEIGHT, which is
+     what made everything fit on one screen. Anything that grows or appears above
+     them moves them - and measuring is exactly when things appear: a note gets
+     longer on every dot, the footage line arrives on the first, the Save block on
+     the second. Measured before the fix: the map's top moving 109px, then 94px,
+     then 59px, on separate clicks. */
+  check('S170', 'the bar above the pictures cannot change height',
+    /\.rm-panel:not\(\.rm-commit\)\{height:\d+px;[^}]*overflow-y:auto/.test(admin),
+    'a min-height does not hold - the bar grows past it the moment the footage line appears');
+  check('S170', 'and every line that changes as you work is held to one line',
+    (function(){
+      const i = admin.indexOf('#rmDrawHint,');
+      if(i === -1) return false;
+      const block = admin.slice(i, admin.indexOf('}', i));
+      return /rmCornerNote/.test(block) && /rmPeakNote/.test(block) &&
+             /white-space:nowrap/.test(admin.slice(i, admin.indexOf('}', admin.indexOf('white-space', i)) + 1));
+    })(),
+    'a note that wraps changes the height of the bar, and the house moves with it');
+  check('S170', 'the Save block is reserved from the start, not revealed on the second dot',
+    (function(){
+      const fn = extractFn(admin, 'rmRenderCommit') || '';
+      return /panel\.style\.display = 'flex';/.test(fn) && !/feet > 0 \? 'flex' : 'none'/.test(fn);
+    })(),
+    'it appeared the moment the footage stopped being zero and shoved the map 59px down mid-trace');
+  check('S170', 'and it cannot be pressed until there is something to save',
+    (function(){
+      const fn = extractFn(admin, 'rmRenderCommit') || '';
+      return /saveBtn\.disabled = !\(feet > 0\);/.test(fn);
+    })(),
+    'reserved is not the same as claiming there is something to save');
+  check('S170', 'the map is told when its box changes size',
+    /new ResizeObserver\(/.test(admin) && /google\.maps\.event\.trigger\(rmMap, 'resize'\)/.test(admin),
+    'a flex-sized pane reaches its real height after the map is built, and Google answers getBounds() with undefined until it has idled at that size - so every click returns null and no dot is placed');
+
   /* ⭐ STREET VIEW HAS ITS OWN DOTS AND SHOWS NOBODY ELSE'S (MR-06, 2026-08-28).
      Owner: "it should not show the dots from sky view and should also let you
      draw your own dots seperate from sky view so you can only see it on street
