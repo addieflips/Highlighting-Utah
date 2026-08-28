@@ -38634,25 +38634,63 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     /fullscreenchange[\s\S]{0,160}google\.maps\.event\.trigger\(rmMap, 'resize'\)/.test(admin),
     'without it the pane fills the screen and the map draws in the corner of it');
 
-  /* ⭐ THE HOUSE COMES SECOND, AFTER THE TOOLS AND BEFORE THE MONEY (2026-08-28).
-     Found live, twice, because the stage changed from a wrapping ROW to a COLUMN
-     and three things that were right in a row are wrong in a column. */
-  check('S170', 'the pictures are ordered between the tools and the Save block',
+  /* ⛔ SUPERSEDED 2026-08-28 - THE PICTURES COME LAST NOW, AND THE OLD RULE IS
+     KEPT HERE BECAUSE IT IS STILL THE ARGUMENT THE NEW ONE HAS TO ANSWER.
+
+     It used to read: the house comes SECOND, after the tools and before the money,
+     because the stage changed from a wrapping row to a column and the pictures
+     twice fell through to the catch-all - last, below the Save bar and Roof Facts,
+     at y=1261 in a 720px window. That failure is real and this check exists for it.
+
+     ⭐ SHE HAS NOW ASKED FOR THE OPPOSITE, DELIBERATELY: "all the buttons at the
+     bottom of the page should not be there i want it to be like excel with all the
+     tools at the top and its in its own bar thing." So the pictures ARE last - on
+     purpose, with every control above them.
+
+     ⚠ WHICH MEANS THE OLD FAILURE IS NO LONGER DISTINGUISHABLE BY POSITION, and
+     the check has to hold the thing that actually went wrong instead: the pictures
+     must have a real order of their own rather than falling to the catch-all, and
+     must still be ON SCREEN. Every row is numbered explicitly, and the pictures'
+     number is the highest - so an unnumbered row can no longer land after them. */
+  check('S170', 'the pictures come last, and every row before them is numbered',
     (function(){
-      const bar  = /\.rm-tools > \.rm-toolbar\{order:1;/.test(admin);
-      const pics = /> \.rm-stagerest\{order:2;/.test(admin);
-      const pr   = /#rmPricePanel\{order:3;/.test(admin);
-      const save = /\.rm-commit\{order:4;/.test(admin);
-      return bar && pics && pr && save;
+      const bar   = /\.rm-tools > \.rm-toolbar\{order:1;/.test(admin);
+      const pr    = /#rmPricePanel\{order:2;/.test(admin);
+      const save  = /\.rm-commit\{order:3;/.test(admin);
+      const facts = /#rmRoofFactsPanel\{order:4;/.test(admin);
+      const photo = /#rmPhotoBar\{order:5;/.test(admin);
+      /* the Attach row is NOT a stage row - it is a card child on a negative
+         order, and the check below is the one that holds it */
+      /* ⚠ THE WRAPPER IS display:contents NOW, so it is not a flex item and carries
+         no order at all - the PICTURES do. Written against the wrapper this check
+         failed on a layout that is right. */
+      const hoist = /> \.rm-stagerest\{display:contents;\}/.test(admin);
+      const pics  = /\.rm-stagerest > \.rm-panes\{order:9;\}/.test(admin) && hoist;
+      return bar && pr && save && facts && photo && pics;
     })(),
-    'the order was lost in an edit and the pictures fell to the catch-all - last, below the Save bar and Roof Facts, at y=1261 in a 720px window');
+    'an unnumbered row falls to the catch-all and lands AFTER the pictures, which is how they ended up at y=1261 once already');
+  /* ⭐ AND NOTHING THAT IS A CONTROL IS LEFT UNDER THE PICTURES. That is the whole
+     of what she asked for, and it is the half a set of order numbers cannot prove. */
+  check('S170', 'the capture bar and the Attach row are tools, not a footer',
+    (function(){
+      /* ⚠ NEITHER ROW WAS MOVED IN THE MARKUP - both are hoisted by CSS, so this
+         asks what the LAYOUT does, not where the tags sit. The capture bar is
+         numbered above the pictures; the Attach row is a CARD child and rides a
+         negative order above the stage entirely. */
+      const photoUp  = /#rmPhotoBar\{order:5;/.test(admin);
+      const attachUp = /\.rm-attachbar\{order:-1;/.test(admin) &&
+                       /class="rm-attachbar"/.test(admin);
+      const headFirst = /\.rm-card > \.rm-head\{order:-2;\}/.test(admin);
+      return photoUp && attachUp && headFirst;
+    })(),
+    'the capture buttons were the last row of the PICTURE area and Attach sat below the crop panel - both are bottom-of-page buttons she asked to have moved up');
   check('S170', 'and nothing in that column is allowed to take the whole height',
     !/\.rm-tools > \.rm-toolbar\{order:1; flex:1 0 100%/.test(admin) &&
     /\.rm-tools > \.rm-toolbar\{order:1; flex:0 0 auto;/.test(admin),
     'flex-basis means HEIGHT in a column: flex:1 0 100% made the toolbar 547px tall and pushed the house off the screen');
   check('S170', 'the height cap belongs to the toolbar alone, by its own class',
     /\.rm-tools > \.rm-toolbar\{height:190px/.test(admin) &&
-    /class="rm-panel rm-toolbar"/.test(admin),
+    /class="rm-panel rm-toolbar\b/.test(admin),   /* it carries rm-ribbon too now */
     'written against .rm-panel it also pinned the price panel and Roof Facts to 190px, inflating a 48px row and a 37px one');
 
   /* ⭐ THE PICTURES CAN NEVER BE SHRUNK AWAY (2026-08-28). Found on the live site,
