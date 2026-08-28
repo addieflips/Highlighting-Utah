@@ -357,6 +357,97 @@ It watches the fields most likely to disagree with themselves, ranked by how man
 
 ---
 
+## 10c. When each thing happened to a customer
+
+Seven of the ten steps a customer goes through leave a **date** on their record, which is
+what makes a per-customer history possible: `createdAt` (quote raised),
+`convertedToCustomerAt`, **`lightsQueuedAt` (sent to the warehouse)**,
+`lightsMarkedBuiltAt`, `completedAt` (lights hung), `invoicedAt`, `paidAt`, and
+`rsvpRespondedAt`. **`lightsRecycleRequestedAt`** (their old set asked for back), `removalDoneAt`, and — on the
+invoice — **`newMemberFeeAppliedAt`**, the day the $30 join fee was charged.
+
+Every step of the path a customer takes now carries a date, and `queue-date.test.js`
+lists all nineteen so one cannot quietly lose its stamp: quote raised and sent, marked
+approved, converted, sent to the warehouse, bundle built, needs a day, **put on a crew
+sheet / fix route / takedown route**, **fix raised** and mended, lights up, takedown done,
+old set asked back, RSVP answered, invoiced, paid, join fee charged.
+
+⚠ **`scheduledDate` is the day they are booked FOR; `assignedCrewAt` is when the booking
+was made.** That gap — between waiting for a day and being hung — is where a house sits
+and gets forgotten, and until 2026-08-28 nothing measured it. ⚠ **`fixRaisedAt` survives
+the mend**, beside `fixDoneAt`: the pair says how long the customer waited, and clearing
+it would let the repair erase the wait.
+
+Most of the money was already dated and that was checked before anything was built: the
+$25 referral, manual discounts, carried credits, manual fees, the automatic $30 change fee
+and the carryover charge each carry a `date` on their own note. The join fee was the one
+fee with none, because it is folded straight into `install` rather than listed. What is
+is an EDIT rather than a state — an address, a timer or a set of sides changing — and
+those are now in the activity log rather than dated, because a date would say the address
+moved on 3 October and never what it moved FROM, which is always the question. And
+`scheduledDate` remains a different thing: the day they are booked FOR, not the day the
+booking was made.
+
+### The change log
+
+Saving Edit Customer diffs what it is about to write against what the record held and
+writes ONE activity entry naming every field that moved — *"Edited Ashley Wray — Timer:
+off → on; House price: $400.00 → $450.00"*. One entry per save, because a save is one
+event; a row per field turns an afternoon of tidying into a wall nobody scrolls. Past
+twelve fields it says how many are not shown rather than quietly ending.
+
+⚠ **Every editable field is either labelled or deliberately quiet, and
+`change-log.test.js` holds the census.** A field with no label does not throw and does not
+warn — it simply never appears in anybody's history, which reads exactly like the field
+never being edited. So a new field that is neither fails the build, and a quiet one must
+carry the reason it is quiet: *quiet* and *forgotten* look identical in a list of names,
+and the census cannot tell them apart either. Quiet covers the stamps (the build line is
+the event; `lightsQueuedAt` is its date) and `lat`/`lng`, which move only because the
+address did.
+
+⚠ **The vague entry that used to sit there is gone, not left beside the new one.** It read
+"Edited customer Ashley Wray" and nothing else, on every save including ones that changed
+nothing — filling the log with rows that could not answer the only question anybody asks
+it.
+
+⚠ **Two faults in it were found by RUNNING the diff, not reading it**, and both would have
+made the log unreadable rather than wrong. An unticked box reaches the save as `''` while
+the record stores `false` — the same answer spelt two ways — so every save of every
+customer reported a row of tick boxes changing. And a record predating a field does not
+carry it, so the first save after one was added reported the form's own defaults
+(*"Referrals: (blank) → 0"*) as though somebody had typed them: six such lines out of nine
+on a save that changed one thing. A field the record never held, arriving empty, is not an
+edit; a stored value being cleared still is.
+
+`lightsQueuedAt` was added 2026-08-28, after Addie asked "what about when bundle got sent
+to warehouse". Until then the record knew when a bundle was MADE and not when it was ASKED
+FOR — so "built on 14 Oct" could not tell you whether it waited two days or five weeks, and
+a house queued and forgotten looked exactly like one queued that morning.
+
+⚠ **It is stamped on the transition, never on every write.** Two places write the build
+flag on EVERY save, keeping whatever it already held — the house-details panel and the Edit
+Customer save. Stamping there each time would reset the clock whenever anybody opened a
+record to fix a phone number, which destroys the only thing the date is for. ⚠ **A
+re-queue is deliberately a new date**: the warehouse is waiting on the newest request. ⚠ And
+it is **not cleared when the build is marked done** — "queued on the 2nd, built on the 9th"
+is the point.
+
+⚠ **In the Edit Customer save the stamp goes LAST, after every branch that can move the
+flag.** Five of them do: the colours ternary, a changed wire or timer, a rejoin after a
+recycle, the re-quote answer, and the Maybe Next Year block, which CLEARS the build. The
+first version sat inside the re-quote branch, so a save that queued a build any other way
+— a changed wire most of all — recorded no date at all. Nothing in the census saw it: a
+census asks whether the function CONTAINS a stamp, never whether every path reaches one.
+It surfaced only because a test sandbox lifts that branch and died on a name it had never
+been given.
+
+⚠ **Fifteen places queue a build**, across the office and the portal, and
+`queue-date.test.js` keeps a census of all of them: a new one that does not stamp fails the
+build. `stampBuildQueued` in admin.html and `stampBuildQueuedServer` in functions/index.js
+are the two copies of the rule — change one, change the other, in the same push.
+
+---
+
 ## 11. If X isn't working, check Y
 
 - **A route/customer list is empty with no error** → check `firestore.rules` first for that collection. A collection missing a rules entry is denied by default and fails *silently* in a listener (no console error a non-coder would notice).

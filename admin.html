@@ -6582,6 +6582,205 @@ async function logActivity(what, area, refId){
     return null;
   }
 }
+/* ---- WHAT ACTUALLY CHANGED ON A RECORD -----------------------------------
+ *
+ * Addie, 2026-08-28, having asked for a customer's whole history to be dated:
+ * "Okay how can we get it so everything has stamps". Every STATE a customer can
+ * be in now carries a date — queued, built, hung, invoiced, paid, recycled. What
+ * a date cannot carry is an EDIT: their address moving, a timer going on, the
+ * price being corrected. "Address changed on 3 Oct" is a worse answer than no
+ * answer, because the question is always what it changed FROM.
+ *
+ * So an edit is logged, not stamped. `describeCustomerChanges` diffs what the
+ * save is about to write against what the record held, and returns one plain
+ * sentence per field — "Timer: off -> on", "House price: $400.00 -> $450.00".
+ * The Edit Customer save writes them as ONE activity row, because a save is one
+ * event and a row per field turns an afternoon of tidying into a wall nobody
+ * reads.
+ *
+ * ⚠ IT IS ITS OWN PURE FUNCTION so a test can RUN it — the same reason
+ * rmCommitPayload and carriedPaymentOnBillToChange are. Written inline in the
+ * handler the only thing a suite could do is match its text, and what matters
+ * here is what the SENTENCE says, which a regex cannot see.
+ *
+ * ⚠ EVERY FIELD IS EITHER LABELLED OR DELIBERATELY QUIET, and change-log.test.js
+ * holds a census: a field the save handler writes that appears in neither list
+ * fails the build. That is the whole guard. A missing label does not throw and
+ * does not show up — it just silently never appears in anybody's history, which
+ * is indistinguishable from the field never having been edited.
+ *
+ * ⚠ QUIET IS NOT UNIMPORTANT. The stamps this same change added are quiet
+ * BECAUSE they are the record of an event that already has its own line: a build
+ * being queued says so, and "lightsQueuedAt: (blank) -> 28 Aug" underneath it is
+ * the same fact twice in a worse language. Same for lat/lng, which move only
+ * because the address did.
+ *
+ * ⚠ AND IT NEVER BREAKS THE SAVE. It runs after the write, wrapped, exactly as
+ * logActivity itself is: a note about a change must never stop the change.
+ */
+const CUSTOMER_FIELD_LABELS = {
+  name: 'Name', propertyLabel: 'Property', phone: 'Phone', phone2: 'Second phone',
+  email: 'Email', email2: 'Second email', address: 'Address', city: 'Town',
+  customerNumber: 'Customer number', numberOfBins: 'Bins',
+  housePrice: {label: 'House price', kind: 'money'},
+  measuredFeet: {label: 'Measured feet', kind: 'number'},
+  houseSides: {label: 'Sides of the house', kind: 'number'},
+  lightsDescription: 'Light colours', lightColors: {label: 'Light colours picked', kind: 'list'},
+  wireColor: 'Wire colour', outletTimer: 'Timer', useEaves: 'Outlet in the eaves',
+  specificOutlet: {label: 'Specific outlet', kind: 'yesno'},
+  specificOutletNotes: 'Which outlet', gateCode: 'Gate code',
+  layoutMapUrl: {label: 'Layout drawing', kind: 'present'},
+  installPreference: 'When they want it hung',
+  earliestInstallDate: {label: 'Earliest install date', kind: 'date'},
+  rsvpStatus: 'RSVP answer',
+  maybeNextYear: {label: 'Back next year', kind: 'yesno'},
+  billToPhone: 'Billed to',
+  paidBeforeBillTo: {label: 'Payment carried onto the new bill', kind: 'money'},
+  carryoverCharge: {label: 'Charge carried to next season', kind: 'money'},
+  referralCount: {label: 'Referrals', kind: 'number'},
+  chargeNewMemberFee: {label: 'New member fee', kind: 'yesno'},
+  wantsMailedInvoice: {label: 'Wants a posted invoice', kind: 'yesno'},
+  wantsTextedInvoice: {label: 'Wants the invoice texted', kind: 'yesno'},
+  smsOptedOut: {label: 'Opted out of texts', kind: 'yesno'},
+  noAutomationEmails: {label: 'Opted out of automatic emails', kind: 'yesno'},
+  notes: {label: 'Notes', kind: 'text'}, oneTimeNote: {label: 'One-time note', kind: 'text'},
+  needsLightBuild: {label: 'Waiting to be built', kind: 'yesno'},
+  needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
+  recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
+  buildTopUpFromFeet: {label: 'Feet already in their bin', kind: 'number'},
+  binLabelNumber: 'Number painted on their bin',
+  requoteKind: 'Why they were re-quoted',
+  scheduled: {label: 'On a day', kind: 'yesno'},
+  scheduledDate: {label: 'Day they are booked for', kind: 'date'},
+  assignedCrew: 'Crew'
+};
+/* ⚠ EACH ONE CARRIES ITS REASON, because "quiet" and "forgotten" look identical in a
+   list of field names, and the census cannot tell them apart either. */
+const CUSTOMER_FIELD_QUIET = {
+  updatedAt: 'the entry carries its own time',
+  createdAt: 'set once, when the record is made',
+  lastEditedBy: 'the entry already records who',
+  lat: 'moves only because the address did, which has its own line',
+  lng: 'moves only because the address did, which has its own line',
+  lightsChangedAt: 'the colour line above it is the event',
+  lightsChangedVia: 'the colour line above it is the event',
+  lightsLockedUntil: 'a consequence of the colour change, not a separate edit',
+  lightsQueuedAt: 'the build line is the event; this is its date',
+  lightsRecycleRequestedAt: 'the recycle line is the event; this is its date',
+  needsDayAssignedAt: 'the booking line is the event; this is its date',
+  requoteAppliedAt: 'the re-quote line is the event; this is its date',
+  maybeNextYearAt: 'the Back Next Year line is the event; this is its date',
+  rsvpRespondedAt: 'the RSVP line is the event; this is its date',
+  cameBackThisSeasonAt: 'the RSVP line is the event; this is its date',
+  paidBeforeBillToAt: 'the carried-payment line is the event; this is its date',
+  carryoverChargeNotes: 'the amount line says it, in money rather than prose'
+};
+/* ⚠ A BLANK IS PRINTED AS A WORD, never as nothing. "Gate code: -> 4412" reads as a
+   rendering fault; "(blank) -> 4412" reads as somebody filling it in. */
+function changeValueText(v, kind){
+  if(kind === 'present') return v ? 'saved' : 'none';
+  /* ⚠ A TICK BOX HAS TWO STATES AND BLANK IS NOT A THIRD ONE, and this line has to come
+     BEFORE the blank test or it never runs. An unticked box reaches the save as '' while
+     the record stores false — the same answer, spelt two ways — so read as "(blank) → no"
+     every save of every customer reported a row of tick boxes changing. Found by running
+     the diff, not by reading it. */
+  if(kind === 'yesno' || typeof v === 'boolean') return v ? 'yes' : 'no';
+  if(v === null || v === undefined || v === '') return '(blank)';
+  if(kind === 'money') return fmtMoney(Number(v) || 0);
+  if(kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
+  if(kind === 'date'){
+    const dt = toJsDate(v);
+    return dt ? dt.toLocaleDateString() : String(v);
+  }
+  const s = String(v).replace(/\s+/g, ' ').trim();
+  if(!s) return '(blank)';
+  /* ⚠ Notes run to paragraphs. An entry that carries one whole is unreadable in a list
+     and pushes every other change off the screen, so it is cut and SAID to be cut. */
+  return s.length > 60 ? s.slice(0, 60) + '…' : s;
+}
+/* ⚠ COMPARED THROUGH THE SAME RENDERER BOTH SIDES. Comparing raw values instead would
+   report "Timer: off -> off" for an unticked box saved as '' over a stored false, and a
+   log that reports changes nobody made is one nobody reads. */
+/* ⚠ A FIELD THE RECORD NEVER HELD, BEING WRITTEN EMPTY, IS NOT AN EDIT. Records
+   predating a field simply do not carry it, so the first save after it was added would
+   otherwise report "Referrals: (blank) → 0" and "Sides of the house: (blank) → 1" for
+   every customer in the book — the form filling in its own defaults, reported as though
+   somebody had typed them. Measured, not guessed: a thin fixture produced six such lines
+   out of nine on a save that changed one thing.
+   ⚠ IT NEEDS THE FIELD TO HAVE BEEN ABSENT, not merely empty. A gate code being
+   deliberately cleared is a stored value going to blank, and that is exactly the edit
+   somebody will later want explained. */
+const CHANGE_EMPTY_TEXTS = ['(blank)', 'no', 'none', '0', '$0.00'];
+function describeCustomerChanges(before, updates){
+  const out = [];
+  if(!updates) return out;
+  const was = before || {};
+  Object.keys(CUSTOMER_FIELD_LABELS).forEach(function(f){
+    if(!Object.prototype.hasOwnProperty.call(updates, f)) return;
+    const spec = CUSTOMER_FIELD_LABELS[f];
+    const label = typeof spec === 'string' ? spec : spec.label;
+    const kind = typeof spec === 'string' ? '' : spec.kind;
+    const a = changeValueText(was[f], kind);
+    const b = changeValueText(updates[f], kind);
+    if(a === b) return;
+    if(!Object.prototype.hasOwnProperty.call(was, f) &&
+       CHANGE_EMPTY_TEXTS.indexOf(b) !== -1) return;
+    out.push(label + ': ' + a + ' → ' + b);
+  });
+  return out;
+}
+/* ⚠ ONE ROW PER SAVE, NOT PER FIELD. A save is one event — somebody sat down and
+   changed four things at once — and a row each turns an afternoon of tidying into a
+   wall nobody scrolls. ⚠ AND IT IS CAPPED: a bulk-shaped save writing thirty fields
+   would otherwise put a paragraph in a list meant to be skimmed, and the count is
+   SAID rather than the list quietly ending. */
+const CHANGE_LOG_MAX_FIELDS = 12;
+function customerChangeSentence(name, changes){
+  if(!changes || !changes.length) return '';
+  const shown = changes.slice(0, CHANGE_LOG_MAX_FIELDS);
+  const rest = changes.length - shown.length;
+  return 'Edited ' + (name || 'a customer') + ' — ' + shown.join('; ') +
+    (rest > 0 ? ' (and ' + rest + ' more)' : '');
+}
+/* ⭐ WHEN A BUNDLE WAS SENT TO THE WAREHOUSE (added 2026-08-28). Addie, listing what a
+   customer's history has to show: "And will it get updated with correct info ... Or asked
+   for different lights on this date". `lightsMarkedBuiltAt` records when a bundle was
+   MADE; nothing recorded when one was ASKED FOR, so "built on 14 Oct" could not tell you
+   whether it waited two days or five weeks — and a house sitting queued and forgotten,
+   which is what happened to Ashley Wray, looked identical to one queued yesterday.
+
+   ⚠ ON THE TRANSITION ONLY, NEVER ON EVERY WRITE. Two callers set this flag on EVERY
+   save, preserving whatever it already held (the bulk importer and the Edit Customer
+   save, both carrying the hard-won rule that blank colours mean the build is not DONE
+   rather than not owed). Stamping there unconditionally would reset the clock every time
+   somebody opened the record to fix a phone number, which destroys the one thing the
+   date is for. So it needs the value the record held BEFORE this write.
+
+   ⚠ AND A RE-QUEUE IS A NEW JOB, so a house genuinely going false → true again is
+   re-stamped on purpose: the warehouse is waiting on the newest request, not the first.
+
+   ⚠ IT IS NOT CLEARED WHEN THE BUILD IS MARKED DONE. "Queued on the 2nd, built on the
+   9th" is the whole point; clearing it would leave the finished half of the journey with
+   nothing to measure against. Start New Season leaves `needsLightBuild` alone too, so
+   this follows the flag rather than the season. */
+function stampBuildQueued(updates, wasQueued){
+  if(updates && updates.needsLightBuild === true && !wasQueued){
+    updates.lightsQueuedAt = serverTimestamp();
+  }
+  return updates;
+}
+/* ⭐ AND WHEN THEIR OLD SET WAS ASKED FOR BACK (added 2026-08-28). Addie: "Everything
+   that can be changed for members or added to members account ... should be dated."
+   Two of the six places that queue a recycle already stamped this; four did not, so a
+   house on the recycle list carried a date only if it got there through one particular
+   button. Same shape, same fix, and the same transition rule as the build queue: an
+   ordinary save of a house already waiting to be collected must not reset its date. */
+function stampRecycleRequested(updates, wasQueued){
+  if(updates && updates.needsLightRecycle === true && !wasQueued){
+    updates.lightsRecycleRequestedAt = serverTimestamp();
+  }
+  return updates;
+}
 function paymentLedgerUser(){
   try{
     const el = document.getElementById('userChipMail');
@@ -9683,7 +9882,8 @@ document.getElementById('qBuildTestBtn').addEventListener('click', async functio
       /* Built first, because the quote has to point at it. */
       const cust = await addDoc(collection(db,'jobAddresses'), Object.assign({},
         TEST_QUOTE_BASE, {housePrice: 250, measuredFeet: 125, rsvpStatus: 'yes',
-          needsLightBuild: true, scheduled: false, createdAt: serverTimestamp()}));
+          needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
+          scheduled: false, createdAt: serverTimestamp()}));
       fields.existingCustomerId = cust.id;
       fields.existingCustomerNumber = '';
     }
@@ -10494,7 +10694,7 @@ async function buildTestPerson(){
     street: '209 S 850 W', city: 'Lehi',
     housePrice: 250, measuredFeet: 125,
     lightColors: ['Warm White'], lightsDescription: 'Warm White', wireColor: 'White',
-    rsvpStatus: 'yes', numberOfBins: 1, needsLightBuild: true,
+    rsvpStatus: 'yes', numberOfBins: 1, needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
     customerNumber: '', scheduled: false, isTestRecord: true,
     createdAt: serverTimestamp()
   };
@@ -27869,6 +28069,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          sits in the waiting block until somebody in the office spends thirty seconds on
          it. The warehouse clears the flag when the bundle is made. */
       lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: true,
+      lightsQueuedAt: serverTimestamp(),
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
@@ -31896,7 +32097,7 @@ async function rbApplyTickedAdds(statusEl){
            them in its own "Waiting on light colours" block at the top of the
            tab, which is visible and actionable; leaving the flag off instead
            makes them invisible, which is the bug this is fixing. */
-        needsLightBuild: true,
+        needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
         createdAt: dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : serverTimestamp()
       };
       if(r.cu){
@@ -33720,7 +33921,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
              build group and computeColorDemand ORDERS GLASS for a house that does not
              exist. The blank-street guard above is what stands between a missed match and
              that, and it is asserted in run-all.js. Do not weaken it. */
-          needsLightBuild: true,
+          needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
           portalToken: generatePortalToken(),
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
@@ -34015,7 +34216,7 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
              to write an address-less customer, and now flags one for the warehouse as
              well. If that block ever fills with invoice side-effects, the answer is to
              stop creating customers here — not to hide them again. */
-          needsLightBuild: true,
+          needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
           scheduled: false, createdAt: serverTimestamp()
         });
         customersCreated++;
@@ -34870,6 +35071,11 @@ function attachAddressRowHandlers(container){
           houseHighlights: currentHighlights
         }, customerPhotoUpdates(photosNow));
         if(diffSelect) updates.difficulty = diffSelect.value;
+        /* ⚠ AFTER the ternary above, and reading what the RECORD held. That expression
+           writes the flag on EVERY row and preserves it when the colours have not moved,
+           so a plain re-import of nine hundred houses would otherwise re-stamp every one
+           of them and the warehouse's oldest job would look like today's. */
+        stampBuildQueued(updates, !!existingCust.needsLightBuild);
         await updateDoc(doc(db,'jobAddresses',id), updates);
         if(currentPhotoUrl){
         }
@@ -36656,6 +36862,7 @@ function seasonYesUpdates(oldData, ts){
      bundle really is coming apart and a build has to be re-queued by the warehouse,
      not guessed at here. */
   if(was === 'no' && !d.needsLightRecycle) updates.needsLightBuild = true;
+  stampBuildQueued(updates, !!d.needsLightBuild);
   if(wasOut){
     updates.needsDayAssignedAt = ts();
     updates.cameBackThisSeasonAt = ts();
@@ -38821,7 +39028,8 @@ document.getElementById('whFindNotQueuedBtn').addEventListener('click', function
        houses get built. Tier 2 — somebody pressed this and is standing there. */
     let sent = 0; const missed = [];
     for(const i of notFlagged){
-      try{ await updateDoc(doc(db,'jobAddresses', i.id), {needsLightBuild: true}); sent++; }
+      try{ await updateDoc(doc(db,'jobAddresses', i.id),
+        {needsLightBuild: true, lightsQueuedAt: serverTimestamp()}); sent++; }
       catch(err){
         missed.push((i.data && i.data.name) || i.id);
         console.error('[HU] could not send ' + i.id + ' to the build queue', err);
@@ -40437,7 +40645,17 @@ const HLX_DONE_KINDS = {
        much as a tidy-up. */
     on:  function (ts) { return {needsFix: false, fixScheduled: false, fixNote: '',
                                  fixDoneAt: ts}; },
-    off: function ()   { return {needsFix: true}; }
+    /* ⭐ WHEN THE FIX WAS RAISED (added 2026-08-28). Addie, asked whether every path is
+       dated: `fixDoneAt` recorded when a fault was MENDED and nothing recorded when it
+       was REPORTED, so nobody could tell a fault outstanding three weeks from one raised
+       this morning — and clearing the flag is what takes a house off the fix list, so
+       once mended there was no trace it had ever happened.
+       ⚠ `off` IS THE RAISE HERE, not the clear. This kind is inverted against the other
+       two: for install and takedown `on` means done, and for a fix `on` means MENDED —
+       so the date of the problem starting belongs in `off`.
+       ⚠ AND `fixRaisedAt` SURVIVES THE MEND. Kept beside `fixDoneAt`, the pair says how
+       long the customer waited; cleared, the mend erases the wait. */
+    off: function (ts) { return {needsFix: true, fixRaisedAt: ts}; }
   }
 };
 /* ⭐ RETIRING A FIX PHOTO MEANS DESTROYING IT (Job 4, 2026-08-21).
@@ -40474,7 +40692,10 @@ async function hlxMarkJobDone(target, kind, done, opts) {
      first (hlxResolvePlanHouse) and hand the answer in. */
   const id = (target && target.id) ? target.id : String(target || '');
   if (!id) return {ok: false, why: 'No customer to mark.'};
-  const fields = done ? spec.on(serverTimestamp()) : spec.off();
+  /* ⚠ THE TIMESTAMP GOES TO BOTH HALVES. `off` used to be called bare, which was fine
+     while it only ever CLEARED things — but raising a fix goes through `off`, and it now
+     has a date to record. install and takedown ignore the argument. */
+  const fields = done ? spec.on(serverTimestamp()) : spec.off(serverTimestamp());
   try {
     await updateDoc(doc(db, 'jobAddresses', id), fields);
   } catch (err) {
@@ -40637,7 +40858,8 @@ document.getElementById('editCustRecycleStayBtn').addEventListener('click', asyn
       recycleKeepingCustomer: true,
       lightsRecycleRequestedAt: serverTimestamp()
     });
-    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true});
+    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true,
+      lightsRecycleRequestedAt: new Date()});
     if(statusEl) statusEl.textContent = 'Done \u2014 their old set is on the recycle list. ' +
       'They are still a customer. If they have moved, press Build Them A New Set too.';
     toast((d.name || 'They') + ' \u2014 old set recycling, customer kept');
@@ -40677,13 +40899,18 @@ document.getElementById('editCustBuildStayBtn').addEventListener('click', async 
   if(btn) btn.disabled = true;
   if(statusEl) statusEl.textContent = 'Adding them to the build list\u2026';
   try{
-    await updateDoc(doc(db,'jobAddresses', editCustomerId), {
+    const buildWrite = {
       needsLightBuild: true,
       /* ⚠ A WHOLE SET, so anything left from an earlier "build only the add-on" is
          wrong now — left set, the sheet would ask for the difference instead. */
       buildTopUpFromFeet: null
-    });
-    Object.assign(item.data, {needsLightBuild: true, buildTopUpFromFeet: null});
+    };
+    stampBuildQueued(buildWrite, !!d.needsLightBuild);
+    await updateDoc(doc(db,'jobAddresses', editCustomerId), buildWrite);
+    /* The panel repaints from this cache, not from Firestore — and a serverTimestamp()
+       sentinel is not a date until it comes back, so the mirror carries a real one. */
+    Object.assign(item.data, {needsLightBuild: true, buildTopUpFromFeet: null},
+      buildWrite.lightsQueuedAt ? {lightsQueuedAt: new Date()} : {});
     if(statusEl) statusEl.textContent = hasColours
       ? 'Done \u2014 they are on the needs-to-be-built list.'
       : 'Done \u2014 on the build list, under Waiting on light colours until somebody ' +
@@ -41274,9 +41501,25 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         addrUpdates.recycleKeepingCustomer = true;
         addrUpdates.needsLightBuild = true;
         addrUpdates.buildTopUpFromFeet = null;
-        addrUpdates.lightsRecycleRequestedAt = serverTimestamp();
+        /* ⚠ NO DIRECT STAMP HERE. The one call at the end of this handler covers every
+           branch that can queue a recycle, and a second mechanism beside one of them
+           made the other branches untestable: deleting the shared call still left this
+           line behind, so the gate saw a stamp in the function and passed while the
+           RSVP-no branch silently stopped recording a date. Red-checking found it. */
       }
     }
+    /* ⚠ ONE CALL EACH, AFTER EVERY BRANCH THAT CAN SET EITHER FLAG — the colours
+       ternary, the wire/timer re-queue, the rejoin-after-recycle, and both re-quote
+       answers. Beside any one of them it would miss the others; before them it would
+       read a decision not yet made. They take the value from `item.data`, which is what
+       the record held BEFORE this save, so an ordinary save of an already-queued house
+       does not move the date.
+       ⚠ AND OUTSIDE THE `if(requoteBuildChoice)` BLOCK, which is where the first version
+       put them — so a save that queued a build any OTHER way, a changed wire or timer
+       most of all, recorded no date at all. Nothing in the census saw it: that check asks
+       whether the handler contains a call, not whether every path reaches one. It
+       surfaced only because a test sandbox lifts that block and died on a name it had
+       never been given. */
     /* Applied last so it beats the RSVP dropdown and the build flag above:
        the toggle is the explicit statement about this season, and letting the
        two disagree is how someone ends up badged Maybe Next Year while still
@@ -41325,6 +41568,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
          pending unless the office picked something else themselves. */
       if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }
     }
+    /* ⚠ LAST OF ALL, AFTER EVERYTHING THAT CAN MOVE EITHER FLAG — the colours ternary,
+       the wire/timer re-queue, the rejoin-after-recycle, both re-quote answers, and the
+       Maybe Next Year block directly above, which CLEARS the build. Anywhere earlier and
+       a customer marked Maybe Next Year is handed a queue date for a build that is then
+       cancelled two lines later.
+       ⚠ THE FIRST VERSION SAT INSIDE `if(requoteBuildChoice)`, so a save that queued a
+       build any other way — a changed wire or timer most of all — recorded no date at
+       all. Nothing in the census saw it: that check asks whether the handler CONTAINS a
+       call, never whether every path reaches one. It surfaced only because a test
+       sandbox lifts that block and died on a name it had never been given.
+       ⚠ THEY READ `item.data`, which is what the record held BEFORE this save, so an
+       ordinary save of an already-queued house does not move the date. */
+    stampBuildQueued(addrUpdates, !!item.data.needsLightBuild);
+    stampRecycleRequested(addrUpdates, !!item.data.needsLightRecycle);
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
       statusEl.textContent = 'Address changed — relocating on map…';
@@ -41505,7 +41762,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       });
       Object.assign(addrUpdates, seasonYes);
     }
+    /* ⭐ WHAT CHANGED, IN WORDS (added 2026-08-28). Addie: "Okay how can we get it so
+       everything has stamps". A date can say WHEN the address moved and never what it
+       moved from, which is always the question — so an edit is logged rather than
+       stamped, and this is the form the office actually edits a customer through.
+       ⚠ TAKEN BEFORE THE WRITE, WRITTEN AFTER IT. Before, because the diff needs what
+       the record held and item.data is mirrored from the cache the moment the save
+       lands; after, because an entry for a save that then failed is a history of
+       something that did not happen. */
+    const custChanges = describeCustomerChanges(item.data, addrUpdates);
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    /* ⚠ NOT AWAITED, like every other logActivity call: a note about a change must
+       never be able to break the change. It carries its own catch. */
+    if(custChanges.length){
+      logActivity(customerChangeSentence(newName || item.data.name, custChanges),
+        'customers', editCustomerId);
+    }
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
        already worked, and the pool is recoverable by hand where a lost edit is
@@ -41536,7 +41808,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         }
       }
     }
-    logActivity('Edited customer ' + (newName || editCustomerId), 'customers', editCustomerId);
+    /* ⚠ THE VAGUE ENTRY THAT USED TO SIT HERE IS GONE, not left beside the new one.
+       It said "Edited customer Ashley Wray" and nothing else, on EVERY save including
+       ones that changed nothing — so the log filled with rows that could not answer
+       the only question anybody asks it. What replaced it is written up by the record
+       write above, names every field that moved, and is written only when one did. */
     /* The office has to be told, because nothing else on screen would show it:
        they are back in the build queue but their customer number is gone, and
        a house with no number cannot be binned or routed. Only raised when the
@@ -44700,18 +44976,31 @@ function startReconcileAuto(){
   setTimeout(runReconcileAuto, 20000);
   reconcileTimer = setInterval(runReconcileAuto, RECONCILE_INTERVAL_MS);
 }
+/* ⭐ AND WHEN THEY WERE PUT ON A CREW'S SHEET (added 2026-08-28). `scheduledDate` is the
+   day they are booked FOR; nothing said when the booking was MADE. That is the gap
+   between "waiting for a day" and "hung", which is exactly where a house sits and gets
+   forgotten — and re-assignment overwrites it on purpose, because what matters is the
+   sheet they are on NOW, not the first one they were ever put on.
+   ⚠ EVERY CALLER IS A REAL ASSIGNMENT — route generation, a move, a bump — so this is
+   stamped unconditionally rather than on a transition. That is the opposite of the build
+   and recycle flags, which are written on saves that change nothing. */
 function scheduledFieldForType(type, dateVal, crew){
-  if(type === 'fix') return {fixScheduled: true, fixScheduledDate: dateVal, fixCrew: crew};
-  if(type === 'removal') return {removalScheduled: true, removalScheduledDate: dateVal, removalCrew: crew};
+  if(type === 'fix') return {fixScheduled: true, fixScheduledDate: dateVal, fixCrew: crew,
+                             fixAssignedAt: serverTimestamp()};
+  if(type === 'removal') return {removalScheduled: true, removalScheduledDate: dateVal, removalCrew: crew,
+                                 removalAssignedAt: serverTimestamp()};
   // Assigning to an install route clears any "changed after assignment" flag —
   // this IS the re-add step the flag was asking for.
-  return {scheduled: true, scheduledDate: dateVal, assignedCrew: crew, lightsChangedAfterAssign: false};
+  return {scheduled: true, scheduledDate: dateVal, assignedCrew: crew,
+          assignedCrewAt: serverTimestamp(), lightsChangedAfterAssign: false};
 }
 function freeUpFieldForType(type){
-  if(type === 'fix') return {fixScheduled:false, fixScheduledDate:null};
-  if(type === 'removal') return {removalScheduled:false, removalScheduledDate:null};
+  /* ⚠ THE DATE GOES WITH THE ASSIGNMENT. Left standing it says a house is on a sheet
+     that no longer has them, which is worse than no date at all. */
+  if(type === 'fix') return {fixScheduled:false, fixScheduledDate:null, fixAssignedAt:null};
+  if(type === 'removal') return {removalScheduled:false, removalScheduledDate:null, removalAssignedAt:null};
   // Pulling them off an install route clears the flag too (they've been removed).
-  return {scheduled:false, scheduledDate:null, lightsChangedAfterAssign: false};
+  return {scheduled:false, scheduledDate:null, assignedCrewAt:null, lightsChangedAfterAssign: false};
 }
 function routeTypeLabel(type){
   if(type === 'fix') return 'Fix Route';

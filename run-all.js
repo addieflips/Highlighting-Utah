@@ -3296,7 +3296,12 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   check('flow', 'removeCustomerFromUpcomingRoutes, todayStrInDenver and seasonYesUpdates found in functions/index.js',
     !!removeFromRoutesSrc && !!todayStrSrc && !!seasonYesSrc,
     'renamed or removed — update this test rather than deleting it, or portalRsvp\'s no/back-next-year path cannot run here');
-  const fullSrc = [todayStrSrc, seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
+  /* ⚠ AND THE STAMP RULES seasonYesUpdates CALLS. Left out, the lift dies with a bare
+     ReferenceError naming neither this suite nor the missing function — which is
+     exactly how it failed in CI on 2026-08-28. */
+  const stampSrcs = [extractFn(fnSrc, 'stampBuildQueuedServer'), extractFn(fnSrc, 'stampRecycleRequestedServer')]
+    .filter(Boolean).join('\n');
+  const fullSrc = [todayStrSrc, stampSrcs, seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
      harness died today with a bare "seasonYesUpdates is not defined" and no suite
@@ -24147,8 +24152,17 @@ suite('Suite 107. Pricing a re-quote from the popup');
       check('S107', 'and clears any leftover top-up',
         up.buildTopUpFromFeet === null,
         'a full set is being made from scratch, so an earlier difference is wrong now');
-      check('S107', 'and stamps when it was asked for',
-        up.lightsRecycleRequestedAt === 'NOW');
+      /* ⚠ REPOINTED 2026-08-28, NOT WEAKENED. This asserted that THIS block stamped
+         the recycle date, which pinned the rule to where it happened to sit — and it
+         sat in the wrong place: inside `if(requoteBuildChoice)`, so a save that
+         queued a recycle any other way recorded no date at all. The stamp moved to
+         the end of the handler, after everything that can move either flag, so the
+         block correctly no longer carries it. That the handler stamps AT ALL is
+         queue-date.test.js's census; that it stamps LAST is asserted directly
+         below, because last is what makes it right for all five branches. */
+      check('S107', 'and the block itself no longer stamps, because the handler does',
+        up.lightsRecycleRequestedAt === undefined,
+        'a stamp here fires only for a re-quote and misses every other way in');
 
       up = {};
       const untouched = apply(null, up, stamp);
@@ -24156,6 +24170,37 @@ suite('Suite 107. Pricing a re-quote from the popup');
         Object.keys(up).length === 0 && untouched === null,
         'opening somebody’s record to fix a phone number must not touch the warehouse');
     }
+
+    /* ⚠ AND THE STAMPS COME AFTER EVERY BRANCH THAT CAN MOVE EITHER FLAG. Five of
+       them set needsLightBuild — the colours ternary, the wire/timer re-queue, the
+       rejoin-after-recycle, this re-quote block, and the Maybe Next Year block, which
+       CLEARS it. A stamp anywhere earlier hands a queue date to a build the line below
+       cancels, or misses four of the five paths outright, which is what it did. */
+    const q = admin.indexOf(
+      "document.getElementById('editCustSaveBtn').addEventListener('click', async function(){");
+    let hs = '';
+    if (q > -1) {
+      let b = admin.indexOf('{', admin.indexOf('async function()', q)), dp = 0, k2 = b;
+      for (;;) { if (admin[k2] === '{') dp++; else if (admin[k2] === '}') { dp--; if (!dp) break; } k2++; }
+      hs = admin.slice(b + 1, k2);
+    }
+    check('S107', 'the Edit Customer save handler was found', !!hs,
+      'the three placement checks below prove nothing against an empty string');
+    const iStamp = hs.indexOf('stampBuildQueued(addrUpdates');
+    const iRecycle = hs.indexOf('stampRecycleRequested(addrUpdates');
+    const iMaybe = hs.indexOf('addrUpdates.maybeNextYearAt = null');
+    const iChoice = hs.indexOf('if(requoteBuildChoice){');
+    check('S107', 'the save handler stamps both dates',
+      iStamp > -1 && iRecycle > -1,
+      'without these a queued build carries no date and the journey cannot show a wait');
+    check('S107', 'and does it after the Maybe Next Year block, which cancels a build',
+      iMaybe > -1 && iStamp > iMaybe && iRecycle > iMaybe,
+      'stamped earlier, a customer sitting the season out is dated for a build that ' +
+      'is cancelled two lines later');
+    check('S107', 'and after the re-quote answer, not inside it',
+      iChoice > -1 && iStamp > iChoice && iRecycle > iChoice,
+      'inside it, a save that queued a build any other way recorded no date at all — ' +
+      'which is exactly what shipped first');
   }
 
   /* ⚠ AND A FINISHED BUILD IS NOT A TOP-UP ANY MORE. The extra bundle is in the bin,
@@ -26055,6 +26100,9 @@ suite('Suite 108. The Edit Customer save, actually run');
     const errs = [];
     /* What the office was asked before anything was charged. */
     const asked = [];
+    /* And what went into the customer's history — one entry per save, so the checks
+       below can read the sentence rather than trusting the call was there. */
+    const logged = [];
     const ctx = {
       /* ⚠ SELECTOR-AWARE NOW, so the colour tick boxes can be driven. Everything
          else still answers with an empty list exactly as before. */
@@ -26142,8 +26190,43 @@ suite('Suite 108. The Edit Customer save, actually run');
          caught a third time by this suite failing loudly rather than skipping. A stub
          here would agree with itself about exactly the thing under test, and its twin
          in functions/index.js is what season-state.test.js proves it matches. */
-      seasonYesUpdates: new Function('return ' + extractFn(admin, 'seasonYesUpdates') +
-        ';seasonYesUpdates')(),
+      /* ⚠ WITH THE STAMP RULES IT CALLS — a yes can re-queue a build and cancel a
+         recycle, and both record a date now. Lifted, never stubbed. */
+      seasonYesUpdates: new Function('serverTimestamp',
+        (extractFn(admin, 'stampBuildQueued') || '') + '\n' +
+        (extractFn(admin, 'stampRecycleRequested') || '') + '\n' +
+        'return ' + extractFn(admin, 'seasonYesUpdates') + ';seasonYesUpdates')(() => 'NOW'),
+      /* ⭐ AND THE HANDLER'S OWN TWO STAMP RULES, LIFTED (2026-08-28). They sit at
+         the very end of the save, after everything that can move either flag, so
+         EVERY run of this sandbox reaches them — a missing name here is not one
+         failing check, it is the whole handler dying on its last line and 30 checks
+         reporting the write that never happened. Lifted rather than stubbed: what
+         they decide is whether an ordinary save of an already-queued house moves the
+         date, which a stub would answer with itself. */
+      stampBuildQueued: new Function('serverTimestamp',
+        'return ' + extractFn(admin, 'stampBuildQueued') + ';stampBuildQueued')(() => 'NOW'),
+      stampRecycleRequested: new Function('serverTimestamp',
+        'return ' + extractFn(admin, 'stampRecycleRequested') + ';stampRecycleRequested')(() => 'NOW'),
+      /* ⭐ AND THE CHANGE LOG THE SAVE NOW WRITES (2026-08-28). The diff and the
+         sentence are LIFTED, because what they say is the point; logActivity is
+         stubbed, because it is a Firestore write and the checks below only need to
+         know it was called. ⚠ The label map, the quiet list and the value renderer
+         come with them — describeCustomerChanges closes over all three, and a
+         sandbox missing one of them does not skip a check, it kills the handler on
+         its last lines and reports the write that never happened. */
+      describeCustomerChanges: (function(){
+        const src = ['CUSTOMER_FIELD_LABELS', 'CUSTOMER_FIELD_QUIET']
+          .map(n => sectionFrom(admin, admin.indexOf('const ' + n + ' = {'))).join('\n') +
+          (/const CHANGE_EMPTY_TEXTS\s*=\s*\[[^\]]*\];/.exec(admin) || [''])[0] +
+          extractFn(admin, 'changeValueText') + extractFn(admin, 'describeCustomerChanges');
+        return new Function('fmtMoney', 'toJsDate',
+          src + 'return describeCustomerChanges;')(
+            (n) => '$' + (Number(n) || 0).toFixed(2), (v) => (v instanceof Date ? v : null));
+      })(),
+      customerChangeSentence: new Function(
+        (/const CHANGE_LOG_MAX_FIELDS\s*=\s*\d+;/.exec(admin) || [''])[0] +
+        extractFn(admin, 'customerChangeSentence') + 'return customerChangeSentence;')(),
+      logActivity: (what, area, refId) => { logged.push({what: what, area: area, refId: refId}); },
       LIGHT_CHANGE_FEE: 30, LIGHT_WINDOW_MS: 48 * 3600000,
       fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2),
       /* The popup CANNOT be real — it waits for a click. Stubbed, but it records
@@ -26181,6 +26264,7 @@ suite('Suite 108. The Edit Customer save, actually run');
       const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
       const quote = writes.find(w => w.col === 'quotes');
       return {writes: writes, errs: errs, cust: cust, quote: quote, asked: asked,
+              logged: logged,
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
@@ -26392,6 +26476,33 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and re-saving the same colours does not',
       !!same.cust && same.cust.payload.needsLightBuild !== true,
       'opening a record to fix a phone number must not re-queue their lights');
+
+    /* ⭐ AND THE SAVE PUTS WHAT CHANGED INTO THE CUSTOMER'S HISTORY (2026-08-28).
+       Addie: "Okay how can we get it so everything has stamps". The dates cover every
+       STATE; an EDIT needs words, because "the colours changed on 3 Oct" without
+       saying from what is the question restated rather than answered.
+
+       ⚠ RUN, NOT READ. change-log.test.js proves the sentence is right and asserts the
+       call is in the handler; only driving the whole save proves the call is REACHED —
+       past the re-quote branch, the fee popup and the pool writes that sit above it. */
+    check('S108', 'a save writes what changed into the customer history',
+      changed.logged.length === 1 && /Light colours: Warm White → Red, Green/
+        .test(changed.logged[0].what || ''),
+      'an edit that leaves no trace is why "who changed this?" had no answer');
+    check('S108', 'and files it against that customer',
+      (changed.logged[0] || {}).area === 'customers' && !!(changed.logged[0] || {}).refId,
+      'an entry nobody can attach to a record cannot be found from their history');
+    /* ⚠ THIS FIXTURE'S SAVE REALLY DOES CHANGE THINGS — it is a re-quote record whose
+       town, footage and number all move — so "no entry at all" would be the wrong
+       claim, and asserting it was my own mistake caught by running this. What must be
+       true is narrower and is the thing under test: a save that re-writes the SAME
+       colours must not report a colour change. The empty-entry case is covered by
+       change-log.test.js, which can hand the diff two identical records. */
+    check('S108', 'and re-saving the same colours claims no colour change in the history',
+      same.logged.length === 1 &&
+      (same.logged[0].what || '').indexOf('Light colours') === -1,
+      'the history saying the colours moved is what sends somebody looking for a $30 ' +
+      'fee that was never charged');
 
     /* ⭐ THE OFFICE COLOUR CHANGE NOW CHARGES, LOCKS AND TELLS THE CREW
        (added 2026-08-21). Until today this handler wrote lightsChangedAt and
