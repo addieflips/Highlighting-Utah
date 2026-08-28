@@ -227,6 +227,36 @@ It watches the fields most likely to disagree with themselves, ranked by how man
 
 ---
 
+## 10c. When each thing happened to a customer
+
+Seven of the ten steps a customer goes through leave a **date** on their record, which is
+what makes a per-customer history possible: `createdAt` (quote raised),
+`convertedToCustomerAt`, **`lightsQueuedAt` (sent to the warehouse)**,
+`lightsMarkedBuiltAt`, `completedAt` (lights hung), `invoicedAt`, `paidAt`, and
+`rsvpRespondedAt`. Two are still a yes/no with no date — takedown done, and recycled —
+and `scheduledDate` is a different thing: the day they are booked FOR, not the day the
+booking was made.
+
+`lightsQueuedAt` was added 2026-08-28, after Addie asked "what about when bundle got sent
+to warehouse". Until then the record knew when a bundle was MADE and not when it was ASKED
+FOR — so "built on 14 Oct" could not tell you whether it waited two days or five weeks, and
+a house queued and forgotten looked exactly like one queued that morning.
+
+⚠ **It is stamped on the transition, never on every write.** Two places write the build
+flag on EVERY save, keeping whatever it already held — the house-details panel and the Edit
+Customer save. Stamping there each time would reset the clock whenever anybody opened a
+record to fix a phone number, which destroys the only thing the date is for. ⚠ **A
+re-queue is deliberately a new date**: the warehouse is waiting on the newest request. ⚠ And
+it is **not cleared when the build is marked done** — "queued on the 2nd, built on the 9th"
+is the point.
+
+⚠ **Fifteen places queue a build**, across the office and the portal, and
+`queue-date.test.js` keeps a census of all of them: a new one that does not stamp fails the
+build. `stampBuildQueued` in admin.html and `stampBuildQueuedServer` in functions/index.js
+are the two copies of the rule — change one, change the other, in the same push.
+
+---
+
 ## 11. If X isn't working, check Y
 
 - **A route/customer list is empty with no error** → check `firestore.rules` first for that collection. A collection missing a rules entry is denied by default and fails *silently* in a listener (no console error a non-coder would notice).

@@ -128,13 +128,38 @@ function index(pathOrSrc, isSource) {
 function blankNonCode(src) {
   const out = src.split('');
   let i = 0, inStr = null;
+  /* ⚠ QUOTES ONLY COUNT INSIDE A <script> (fixed 2026-08-28). This scanner ran over the
+     WHOLE file, and admin.html is HTML: ordinary page prose is full of apostrophes —
+     "don't", "Addie's", "won't" — each of which opened a string that stayed open until
+     the next one. While it thought it was inside a string it stopped recognising `/*`,
+     so every comment after an odd apostrophe went UNMASKED.
+     ⚠ THAT IS EXACTLY THE FAILURE THIS FUNCTION EXISTS TO PREVENT, in the function
+     itself. Its own header calls the comment mask "the single most important thing in
+     this directory", because a map that goes green on the strength of a COMMENT reports
+     a connection as present while the code that made it is gone. Found when a census of
+     the places that queue a warehouse build matched a sentence inside a comment quoting
+     Addie — the comment was describing the very field being counted.
+     ⚠ OFFSETS ARE UNTOUCHED: this only decides WHERE quote characters are meaningful,
+     and the function still returns a string of exactly the same length. */
+  const inScript = (function () {
+    const ranges = [];
+    const re = /<script\b[^>]*>/gi;
+    let m;
+    while ((m = re.exec(src))) {
+      const end = src.toLowerCase().indexOf('</script', m.index + m[0].length);
+      ranges.push([m.index + m[0].length, end < 0 ? src.length : end]);
+    }
+    /* A plain .js file has no script tags and is code from end to end. */
+    if (!ranges.length) return () => true;
+    return pos => ranges.some(r => pos >= r[0] && pos < r[1]);
+  })();
   const blank = (from, to) => {
     for (let k = from; k < to && k < out.length; k++) if (out[k] !== '\n' && out[k] !== '\r') out[k] = ' ';
   };
   while (i < src.length) {
     const c = src[i], n = src[i + 1];
     if (inStr) { if (c === inStr && src[i - 1] !== '\\') inStr = null; i++; continue; }
-    if (c === '"' || c === "'" || c === '`') { inStr = c; i++; continue; }
+    if ((c === '"' || c === "'" || c === '`') && inScript(i)) { inStr = c; i++; continue; }
     if (c === '/' && n === '/') {
       const e = src.indexOf('\n', i); const end = e < 0 ? src.length : e;
       blank(i, end); i = end; continue;

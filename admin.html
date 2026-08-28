@@ -6191,6 +6191,33 @@ async function logActivity(what, area, refId){
     return null;
   }
 }
+/* ⭐ WHEN A BUNDLE WAS SENT TO THE WAREHOUSE (added 2026-08-28). Addie, listing what a
+   customer's history has to show: "And will it get updated with correct info ... Or asked
+   for different lights on this date". `lightsMarkedBuiltAt` records when a bundle was
+   MADE; nothing recorded when one was ASKED FOR, so "built on 14 Oct" could not tell you
+   whether it waited two days or five weeks — and a house sitting queued and forgotten,
+   which is what happened to Ashley Wray, looked identical to one queued yesterday.
+
+   ⚠ ON THE TRANSITION ONLY, NEVER ON EVERY WRITE. Two callers set this flag on EVERY
+   save, preserving whatever it already held (the bulk importer and the Edit Customer
+   save, both carrying the hard-won rule that blank colours mean the build is not DONE
+   rather than not owed). Stamping there unconditionally would reset the clock every time
+   somebody opened the record to fix a phone number, which destroys the one thing the
+   date is for. So it needs the value the record held BEFORE this write.
+
+   ⚠ AND A RE-QUEUE IS A NEW JOB, so a house genuinely going false → true again is
+   re-stamped on purpose: the warehouse is waiting on the newest request, not the first.
+
+   ⚠ IT IS NOT CLEARED WHEN THE BUILD IS MARKED DONE. "Queued on the 2nd, built on the
+   9th" is the whole point; clearing it would leave the finished half of the journey with
+   nothing to measure against. Start New Season leaves `needsLightBuild` alone too, so
+   this follows the flag rather than the season. */
+function stampBuildQueued(updates, wasQueued){
+  if(updates && updates.needsLightBuild === true && !wasQueued){
+    updates.lightsQueuedAt = serverTimestamp();
+  }
+  return updates;
+}
 function paymentLedgerUser(){
   try{
     const el = document.getElementById('userChipMail');
@@ -9292,7 +9319,8 @@ document.getElementById('qBuildTestBtn').addEventListener('click', async functio
       /* Built first, because the quote has to point at it. */
       const cust = await addDoc(collection(db,'jobAddresses'), Object.assign({},
         TEST_QUOTE_BASE, {housePrice: 250, measuredFeet: 125, rsvpStatus: 'yes',
-          needsLightBuild: true, scheduled: false, createdAt: serverTimestamp()}));
+          needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
+          scheduled: false, createdAt: serverTimestamp()}));
       fields.existingCustomerId = cust.id;
       fields.existingCustomerNumber = '';
     }
@@ -10103,7 +10131,7 @@ async function buildTestPerson(){
     street: '209 S 850 W', city: 'Lehi',
     housePrice: 250, measuredFeet: 125,
     lightColors: ['Warm White'], lightsDescription: 'Warm White', wireColor: 'White',
-    rsvpStatus: 'yes', numberOfBins: 1, needsLightBuild: true,
+    rsvpStatus: 'yes', numberOfBins: 1, needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
     customerNumber: '', scheduled: false, isTestRecord: true,
     createdAt: serverTimestamp()
   };
@@ -27054,6 +27082,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
          sits in the waiting block until somebody in the office spends thirty seconds on
          it. The warehouse clears the flag when the bundle is made. */
       lat: coords.lat, lng: coords.lng, needsGeocode: pinFailed, needsLightBuild: true,
+      lightsQueuedAt: serverTimestamp(),
       scheduled: false, createdAt: serverTimestamp(), housePrice: price, measuredFeet: measuredFeet, gateCode: gateCode, outletTimer: outletTimer, useEaves: useEaves, specificOutlet: specificOutlet, specificOutletNotes: specificOutletNotes, notes: custNotes, wantsMailedInvoice: wantsMailedInvoice, numberOfBins: numberOfBins, houseSides: selectedSides, customerNumber: customerNumber
     }, billingElsewhere ? {billToPhone: billToPhone} : {}));
     // If this number was sitting in the available pool, it isn't available anymore.
@@ -31081,7 +31110,7 @@ async function rbApplyTickedAdds(statusEl){
            them in its own "Waiting on light colours" block at the top of the
            tab, which is visible and actionable; leaving the flag off instead
            makes them invisible, which is the bug this is fixing. */
-        needsLightBuild: true,
+        needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
         createdAt: dateTypedIn ? Timestamp.fromDate(new Date(dateTypedIn)) : serverTimestamp()
       };
       if(r.cu){
@@ -32905,7 +32934,7 @@ document.getElementById('rbImportBtn').addEventListener('click', onceAtATime(asy
              build group and computeColorDemand ORDERS GLASS for a house that does not
              exist. The blank-street guard above is what stands between a missed match and
              that, and it is asserted in run-all.js. Do not weaken it. */
-          needsLightBuild: true,
+          needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
           portalToken: generatePortalToken(),
           lat: coords.lat, lng: coords.lng,
           needsGeocode: coords.lat === null,
@@ -33200,7 +33229,7 @@ document.getElementById('ibImportBtn').addEventListener('click', onceAtATime(asy
              to write an address-less customer, and now flags one for the warehouse as
              well. If that block ever fills with invoice side-effects, the answer is to
              stop creating customers here — not to hide them again. */
-          needsLightBuild: true,
+          needsLightBuild: true, lightsQueuedAt: serverTimestamp(),
           scheduled: false, createdAt: serverTimestamp()
         });
         customersCreated++;
@@ -34055,6 +34084,11 @@ function attachAddressRowHandlers(container){
           houseHighlights: currentHighlights
         }, customerPhotoUpdates(photosNow));
         if(diffSelect) updates.difficulty = diffSelect.value;
+        /* ⚠ AFTER the ternary above, and reading what the RECORD held. That expression
+           writes the flag on EVERY row and preserves it when the colours have not moved,
+           so a plain re-import of nine hundred houses would otherwise re-stamp every one
+           of them and the warehouse's oldest job would look like today's. */
+        stampBuildQueued(updates, !!existingCust.needsLightBuild);
         await updateDoc(doc(db,'jobAddresses',id), updates);
         if(currentPhotoUrl){
         }
@@ -35841,6 +35875,7 @@ function seasonYesUpdates(oldData, ts){
      bundle really is coming apart and a build has to be re-queued by the warehouse,
      not guessed at here. */
   if(was === 'no' && !d.needsLightRecycle) updates.needsLightBuild = true;
+  stampBuildQueued(updates, !!d.needsLightBuild);
   if(wasOut){
     updates.needsDayAssignedAt = ts();
     updates.cameBackThisSeasonAt = ts();
@@ -38006,7 +38041,8 @@ document.getElementById('whFindNotQueuedBtn').addEventListener('click', function
        houses get built. Tier 2 — somebody pressed this and is standing there. */
     let sent = 0; const missed = [];
     for(const i of notFlagged){
-      try{ await updateDoc(doc(db,'jobAddresses', i.id), {needsLightBuild: true}); sent++; }
+      try{ await updateDoc(doc(db,'jobAddresses', i.id),
+        {needsLightBuild: true, lightsQueuedAt: serverTimestamp()}); sent++; }
       catch(err){
         missed.push((i.data && i.data.name) || i.id);
         console.error('[HU] could not send ' + i.id + ' to the build queue', err);
@@ -39862,13 +39898,18 @@ document.getElementById('editCustBuildStayBtn').addEventListener('click', async 
   if(btn) btn.disabled = true;
   if(statusEl) statusEl.textContent = 'Adding them to the build list\u2026';
   try{
-    await updateDoc(doc(db,'jobAddresses', editCustomerId), {
+    const buildWrite = {
       needsLightBuild: true,
       /* ⚠ A WHOLE SET, so anything left from an earlier "build only the add-on" is
          wrong now — left set, the sheet would ask for the difference instead. */
       buildTopUpFromFeet: null
-    });
-    Object.assign(item.data, {needsLightBuild: true, buildTopUpFromFeet: null});
+    };
+    stampBuildQueued(buildWrite, !!d.needsLightBuild);
+    await updateDoc(doc(db,'jobAddresses', editCustomerId), buildWrite);
+    /* The panel repaints from this cache, not from Firestore — and a serverTimestamp()
+       sentinel is not a date until it comes back, so the mirror carries a real one. */
+    Object.assign(item.data, {needsLightBuild: true, buildTopUpFromFeet: null},
+      buildWrite.lightsQueuedAt ? {lightsQueuedAt: new Date()} : {});
     if(statusEl) statusEl.textContent = hasColours
       ? 'Done \u2014 they are on the needs-to-be-built list.'
       : 'Done \u2014 on the build list, under Waiting on light colours until somebody ' +
@@ -40461,6 +40502,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         addrUpdates.buildTopUpFromFeet = null;
         addrUpdates.lightsRecycleRequestedAt = serverTimestamp();
       }
+    /* ⚠ ONE CALL, AFTER EVERY BRANCH ABOVE THAT CAN SET THE FLAG — the colours ternary,
+       the wire/timer re-queue, the rejoin-after-recycle, and both re-quote answers. Put
+       beside any one of them it would miss the others; put before them it would read a
+       decision not yet made. And it takes the value from `item.data`, which is what the
+       record held before this save, so an ordinary save of an already-queued house does
+       not move the date. */
+    stampBuildQueued(addrUpdates, !!item.data.needsLightBuild);
     }
     /* Applied last so it beats the RSVP dropdown and the build flag above:
        the toggle is the explicit statement about this season, and letting the

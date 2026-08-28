@@ -1118,6 +1118,21 @@ exports.portalLookup = onCall({ cors: true }, async (request) => {
  * server's. run-all.js runs both over the same table of cases and fails if they
  * ever disagree, the money-parity pattern. */
 const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer'];
+/* ⭐ THE SERVER HALF OF "WHEN WAS THIS SENT TO THE WAREHOUSE" (added 2026-08-28).
+   Change this and change `stampBuildQueued` in admin.html, in the same push — the
+   portal is where a CUSTOMER re-queues their own house by changing colours or coming
+   back after a recycle, so a stamp that existed only in the office would leave exactly
+   those houses with a queue date of nothing while the office's had one.
+   ⚠ ON THE TRANSITION ONLY, for the same reason as the browser copy: portalSave writes
+   this flag on saves that change nothing about the build, and re-stamping there would
+   reset the wait on a house nobody has touched. */
+function stampBuildQueuedServer(updates, wasQueued) {
+  if (updates && updates.needsLightBuild === true && !wasQueued) {
+    updates.lightsQueuedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+  return updates;
+}
+
 function warehouseRebuildFields(oldData, newData) {
   const o = oldData || {}, n = newData || {};
   const norm = function (field, d) {
@@ -1273,6 +1288,10 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
     // Unchanged? Leave the flag alone. Opening the Lights tab and pressing Save
     // must not re-queue a house Dad has already built.
   }
+  /* ⚠ ONE CALL, AFTER BOTH BRANCHES ABOVE — the wire/timer re-queue and the colour
+     change. The lights block can also set the flag FALSE (colours cleared), and this
+     only ever stamps a true, so it is safe below both. */
+  stampBuildQueuedServer(updates, !!oldData.needsLightBuild);
 
   // Keep the normalised sign-in fields in step with whatever just changed —
   // see contactIndexFields. Without this a customer who edits their own phone
@@ -1597,6 +1616,7 @@ function seasonYesUpdates(oldData, ts) {
     maybeNextYearAt: null
   };
   if (was === 'no' && !d.needsLightRecycle) updates.needsLightBuild = true;
+  stampBuildQueuedServer(updates, !!d.needsLightBuild);
   if (wasOut) {
     /* Two fields, two jobs. The first is an instruction the planner consumes — put
        this person on the next day going — and the second is the record the office
@@ -1664,6 +1684,10 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
     if (response === 'no') updates.needsLightRecycle = true;
   }
   if (rejoinedAfterRecycle) updates.needsLightBuild = true;
+  /* ⚠ `oldData` HERE, NOT `d` — this is portalRsvp, not seasonYesUpdates, and the two
+     name the same record differently. Written as `d` it parses perfectly and throws a
+     ReferenceError on the first customer who answers their RSVP. */
+  stampBuildQueuedServer(updates, !!oldData.needsLightBuild);
 
   // Keep the normalised sign-in fields in step with whatever just changed —
   // see contactIndexFields. Without this a customer who edits their own phone
