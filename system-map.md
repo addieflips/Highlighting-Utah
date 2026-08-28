@@ -166,6 +166,20 @@ difficulty can change while you work. ⚠ Once you pick a difficulty yourself,
 nothing overrides it — the tool stops re-cutting and leaves your answer alone.
 
 
+**Every control is at the top, in its own bar; the pictures are last.** Attach
+to Quote and Close ride above the heading row, then the capture buttons, the
+tools, the Save block and Roof Facts — and nothing below the pictures is a
+button any more. ⚠ This reverses the earlier arrangement that put the pictures in
+the MIDDLE, and the reason that one existed still matters: the pictures twice
+fell through to an unnumbered catch-all and ended up below everything, off the
+screen. Every row is now numbered by hand and the pictures carry the highest
+number, so a row somebody adds later lands above them rather than under them.
+
+⚠ Two of those rows are hoisted by CSS rather than moved in the page: the capture
+bar sits inside the picture area in the markup, and the Attach row is a child of
+the card. `display:contents` and a negative order lift them without cutting any
+markup — which is why this was safe to do without disturbing the measuring code.
+
 **The whole tool sits on one screen and nothing on it moves.** The card is one
 viewport tall and never scrolls; the two pictures take whatever height the bars
 above and below them do not. That is what makes it fit whatever the window size —
