@@ -1579,3 +1579,54 @@ What this removes is the pressure to answer quickly to avoid losing the work.
 given cannot become a row, and `claude/questions-map.md` holds answers, not
 open questions. When this is answered it earns a `MON-` row, and if the answer
 reverses either side the superseded row is kept and marked, per that file's rule.
+
+## Q-024 · intent · OPEN · raised 2026-08-28
+The ×2.9 pricing multiplier was compensating for a fault that is now gone. Does it stay?
+
+**This is money on every quote, so it is recorded rather than decided.**
+
+**What it is.** `RM_FEET_MULTIPLIER = 2.9` in admin.html, set on your own
+instruction on 2026-08-26: *"make it so a foot is 2.9 times smaller than it
+currently is, so 50 feet would be a little under 150 ft instead."* Measured feet
+are shown as measured; the PRICE is worked out from `feet × 2.9`, and both
+numbers are on screen as separate lines.
+
+**Why it is being raised now.** The comment above that constant already said
+this would have to be revisited, in as many words:
+
+> ⚠ SO WHAT IT IS COMPENSATING FOR IS WHERE THE DOTS LAND, not how they are
+> measured, and that has a real cause being worked on: dots were landing about
+> 6.7 ft from the truth on 209 S 850 W … If the model displacement work lands
+> that error properly, **THIS NUMBER MUST BE REVISITED — leaving 2.9 on top of a
+> fixed measurement would inflate every quote by nearly three times.**
+
+That is what happened. The displacement it compensated for came from projecting a
+sky dot into Street View, and Street View no longer places or receives dots at
+all (MR-01). A distance between two sky dots is plan distance on one picture,
+which is the one measurement that was never in doubt — the same argument that
+retired the alignment: a displacement shared by every dot cannot change the
+distance between two of them.
+
+**What it does today.** Measured on the real Lehi house on 2026-08-28: a traced
+outline came to **134 ft**, and the price was worked out from **389 ft**. At
+$2/ft that is $778 rather than $268.
+
+**The three answers.**
+
+1. **Set it back to 1.** Correct if the sky-view measurement is now true. Every
+   quote falls to roughly a third of what it reads today.
+2. **Leave it at 2.9.** Correct if real rooflines still measure short — the
+   overhead trace follows the gutter you can SEE, and a house with a deep porch
+   or heavy tree cover may genuinely need more string than the outline suggests.
+3. **Re-measure a house you know the real footage of, and set it from that.**
+   The honest version of (2): the multiplier stops being a guess and becomes a
+   number with a house behind it.
+
+**What is NOT in doubt:** the arithmetic. `rmFeetBetween` was driven directly —
+two points 10 m apart report 32.808 ft against a true 32.808. This is not a
+metres-read-as-feet bug and never was.
+
+**Recommendation: (3), on two or three houses.** (1) is only right if the trace
+is true, and nobody has checked a traced outline against a tape. Until it is
+answered the multiplier is left exactly as it is — changing it silently in either
+direction moves every price you quote.

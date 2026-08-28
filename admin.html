@@ -21560,7 +21560,7 @@ function rmSetDrawing(on){
        instruction the button used to. */
     hint.innerHTML = rmRuns.length
       ? 'Click the roofline again for another side — each one is listed below with its own footage, and the &times; removes it.'
-      : '<strong>Click along the roofline</strong> on the sky view to start a side. Backspace takes a point back.';
+      : '<strong>Click along the roofline</strong> on the sky view. Each dot is lettered A, B, C&hellip; and a peak is named by the two it sits between. Backspace takes one back.';
   }
   const lock = rmDrawing || rmWallPicking;
   /* Sky takes clicks whenever we are drawing; Street only once the wall is
@@ -21693,7 +21693,6 @@ function rmRenderResults(){
     const hs = (r.path || []).map(function(p){ return (p.h||0)*RM_M_TO_FT; });
     const top = hs.length ? Math.round(Math.max.apply(null, hs)) : 0;
     const on = rmRunIsOn(r);
-    const extraFt = rmPeakExtraFeet(r);
     return '<div class="rm-runrow"'+(on ? '' : ' style="opacity:.55;"')+'>'+
       '<span><label style="cursor:pointer;"><input type="checkbox" data-rmonrun="'+i+'"'+(on ? ' checked' : '')+
       ' style="margin-right:5px; vertical-align:-1px;">'+
@@ -21701,32 +21700,21 @@ function rmRenderResults(){
       (r.surface === 'manual' ? ' <span style="opacity:.6;">typed</span>' : '')+
       (r.suggested ? ' <span style="opacity:.6;">'+esc(r.facing || 'suggested')+'</span>' : '')+
       (top > 1 ? ' <span style="opacity:.6;">('+top+' ft up)</span>' : '')+'</label></span>'+
-      /* ⭐ HOW MANY PEAKS ARE ON THIS SIDE. Owner: "we say how many peaks, so we
-         just insert it there are and add on how many extra feet based on the
-         type of peak."
-         A peak is not extra FEET, it is extra length on feet already traced -
-         the span across a gable is what you draw from above, and the lights go
-         up the two rakes. So it belongs on the side it sits on rather than in a
-         list of its own, and the row shows what it added. */
-      '<span style="opacity:.75; font-size:11px;">peaks '+
-        '<input type="number" min="0" max="9" step="1" value="'+(Number(r.peaks)||0)+'" '+
-        'data-rmpeaks="'+i+'" style="width:38px; padding:1px 3px; font-size:11px;">'+
-        (extraFt > 0.05 ? ' <span style="color:var(--gold-dim);">+'+rmFmtFeet(extraFt)+'</span>' : '')+
-      '</span>'+
+      /* ⛔ THE PER-SIDE "HOW MANY PEAKS" BOX IS GONE (2026-08-28), AND IT WAS
+         THROWING ON EVERY RENDER. It called rmPeakExtraFeet(), which was never
+         written - so rmRenderResults died part-way through on every single dot,
+         and the corner note froze reading "1 corners" however many you placed.
+         It survived because no check ever RAN the render.
+
+         ⚠ IT WAS ALSO THE SUPERSEDED DESIGN. Owner replaced counting peaks per
+         side with naming one: "you should just say between which two dots is it
+         located ... and then it bases it off of the distance between the two
+         points and the grade". A count cannot do that - it has no span to apply
+         a grade to, which is why it needed a function nobody could write. */
       '<span>'+rmFmtFeet(rmRunFeet(r))+' <button type="button" data-rmdelrun="'+i+'" title="Delete this line">&#10005;</button></span></div>';
   }).join('');
   runsBox.querySelectorAll('[data-rmonrun]').forEach(function(cb){
     cb.addEventListener('change', function(){ rmToggleRun(Number(cb.dataset.rmonrun)); });
-  });
-  runsBox.querySelectorAll('[data-rmpeaks]').forEach(function(inp){
-    inp.addEventListener('change', function(){
-      const r = rmRuns[Number(inp.dataset.rmpeaks)];
-      if(!r) return;
-      const n = Math.max(0, Math.min(9, Math.round(Number(inp.value) || 0)));
-      r.peaks = n;
-      r.touched = true;
-      rmRenderResults();
-    });
   });
   runsBox.querySelectorAll('[data-rmdelrun]').forEach(function(b){
     b.addEventListener('click', function(){
@@ -23274,10 +23262,19 @@ function openRoofMeasure(quoteId){
     if(e.shiftKey) return;
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
-    /* ⚠ AHEAD OF EVERY OTHER MEANING A CLICK CAN HAVE. Lining the pictures up
-       borrows the same two clicks tracing uses, so a stray point must not be
-       added to a run while the tool is waiting for one of them. */
-    if(rmCornerMode === 'dot' && !rmDrawing){
+    /* ⭐ THERE IS ONE KIND OF POINT NOW, AND IT IS A LETTERED CORNER
+       (2026-08-28). This used to read `&& !rmDrawing`, so pressing the button
+       marked START MEASURING took you OUT of placing corners and into a
+       free-hand run - and a run has no letters, so a peak could never be named
+       on anything drawn with the one button that invites you to draw.
+
+       ⚠ FOUND BY RUNNING IT, NOT BY READING IT. Five clicks after pressing the
+       obvious button produced no lettered dots at all, and every structural
+       check passed while that was true - the same shape as the refusal that had
+       blocked the first dot the day before. A second kind of point is exactly
+       what the owner ruled against in the first place: "they should be the same
+       and in sync so that when I click end strand the dots connect". */
+    if(rmCornerMode === 'dot'){
       /* ⭐ A CLICK UP HERE PLACES A CORNER — THE SAME CORNER THE STREET
          VIEW PLACES (2026-08-25). Owner: "I place a dot in sky view and its a
          different type of dot then the one on street view they should be the
@@ -23346,12 +23343,16 @@ function openRoofMeasure(quoteId){
          ⚠ SO A WRONG DATUM COSTS NOTHING HERE, and refusing cost everything. */
       rmAddCorner(w);
       const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
-        rmCornerLabel(rmCorners.length - 1) + ', at the roof height above that spot. ' +
-        'Click it again in the street view to pin the height exactly. Corners go in from either view now.';
+      /* ⚠ IT SAID "Click it again in the street view to pin the height", which
+         has been impossible since Street View stopped taking clicks, and it
+         named a second view that no longer places anything. */
+      if(note) note.textContent = rmCorners.length + (rmCorners.length === 1 ? ' dot' : ' dots') +
+        ' — the last is ' + rmCornerLabel(rmCorners.length - 1) + '. ' +
+        'Backspace takes one back; a peak is named by the two letters it sits between.';
       return;
     }
-    if(rmDrawing) rmAddPoint(w);
+    /* Nothing else places anything from up here. Free-hand runs remain for the
+       photograph a customer sent, which has no corners to letter. */
   });
   document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
   /* ⭐ SHIFT AND DRAG MOVES A DOT FROM ABOVE TOO (2026-08-25). The panorama

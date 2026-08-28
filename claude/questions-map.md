@@ -328,4 +328,22 @@ Kept out on purpose, so nobody adds them back thinking they were missed:
 If one of those turns into a judgement call — she picks between two technically valid
 answers — *that* becomes a row here.
 
-Last updated: 2026-08-27
+## Measure Roof — the sky-view rebuild (2026-08-27 / 28)
+
+⚠ THIS WHOLE SECTION REPLACED A DESIGN, not a detail. The tool measured on TWO
+pictures — one set of points seen from above and from the street — and the owner
+ended it: *"abandon ship this is not working."* The superseded rows are kept
+because their reasoning is exactly why the new answers are right.
+
+| # | Question | Her answer | Standing | Where it's proved | Status |
+|---|---|---|---|---|---|
+| MR-01 | Which picture is the roofline measured on? | Sky view, and only sky view. Street View is for the photograph and for reading a grade. *"using sky view instead ... and the street view is just for the picture"* | 2026-08-27 | Suite 170; the sky click is the only thing that places a corner | Standing |
+| MR-02 | Sky view cannot see height. How is the climb counted? | By PEAKS. A peak is named as the two lettered dots it sits between; the extra feet are Pythagoras on a measured grade | 2026-08-27 | `rmPeakExtraFraction`, `rmPeakSpanFeet`; suite 170 | Standing |
+| MR-03 | Does a grade apply itself the moment you let go? | No. It ASKS. *"once you click down and then let go it asks if that was good if not it lets you do it again but if it was good it closes that page"* | 2026-08-27 | `rmGradeYes` / `rmGradeNo`; the grade reaches a peak through the yes and no other route | Standing |
+| MR-04 | Must both sides of a gable be measured? | No — measure one rake and assume both match | 2026-08-27 | `rmPeakExtraFraction` doubles one side | Standing |
+| MR-05 | Can a dot be moved, clicked or dragged after it is placed? | No. Backspace is the only way back — and two dots may sit on top of each other | 2026-08-27 | Suite 170; markers are `clickable:false`, nothing rejects a close dot | Standing |
+| MR-06 | What does Street View show? | Its OWN dots, placed there and visible only there. Sky-view dots never appear on it. *"it should not show the dots from sky view and should also let you draw your own dots seperate from sky view"* | 2026-08-28 | not yet built | Decided — not built |
+| MR-06a | *(superseded)* Should Street View show anything at all? | Nothing — picture only | 2026-08-28 | — | Superseded → MR-06 |
+| MR-07 | The controls were spread over several cards and needed scrolling past the picture. | One panel, capped at the height of the picture beside it, scrolling inside itself. *"mush them together so i dont have to scroll"* | 2026-08-27 | `.rm-tools` cap; Save is deliberately NOT pinned — it covered the tools | Standing |
+
+Last updated: 2026-08-27 — Measure Roof rows added 2026-08-28

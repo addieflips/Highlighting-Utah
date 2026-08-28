@@ -50,6 +50,30 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
 Changing feet on an existing numbered customer warns before renumbering, rather than silently changing their bin/number out from under them.
 
+**Where Measured Feet comes from — the Measure Roof tool (rewritten 2026-08-27/28).**
+You trace the roofline on the **sky view** and nowhere else. Each dot is lettered
+A, B, C… and the footage is the distance between them on that one overhead
+picture. Street View is for the customer's photograph and for reading a roof's
+grade — it does not place a dot and never draws the sky view's.
+
+Overhead cannot see HEIGHT, and height only lengthens a line where the roof
+*climbs*. That is what **peaks** answer: you say which two lettered dots a peak
+sits between, the tool takes you to a street view aimed at that gable, you drag
+along the sloping edge, and it **asks** whether that reading was right before
+adding anything. Saying yes adds the extra feet — Pythagoras on that grade, both
+sides of the gable assumed the same. Saying try again changes nothing.
+
+⚠ **The price is not worked out from the measured feet directly.** It uses
+`feet × RM_FEET_MULTIPLIER`, which is **2.9** — set on the owner's instruction in
+August 2026 to compensate for the tool measuring short at the time. Both numbers
+are shown on the panel as separate lines. The fault it compensated for has since
+been removed, so whether 2.9 should stay is **Q-024, open** — until that is
+answered, a house that traces at 134 ft is priced as 389 ft.
+
+⚠ **A dot cannot be edited once placed.** No clicking it, no dragging it;
+backspace takes the last one back. Two dots may sit on top of each other, which
+is what a roofline doubling back on itself needs.
+
 **Light colors / pattern** (`lightsDescription`, `lightColors`) drives: the warehouse build queue membership and grouping, the $30 late-change fee (if changed outside the first 48 hours or after route assignment), and a "Lights Changed After Assignment" System inbox message if they were already on a saved route.
 
 ---

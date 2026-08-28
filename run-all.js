@@ -39585,7 +39585,7 @@ suite('258. Measure Roof - one less step before you can trace');
      carry the instruction the button stopped giving - and lost only the half
      that named the wrong place. */
   check('S258', 'with no run open the hint is what tells you to click the roofline',
-    /Click along the roofline<\/strong> on the sky view to start a side/.test(setDraw),
+    /Click along the roofline<\/strong> on the sky view/.test(setDraw),
     'the instruction went out with the button and nothing replaced it');
 
   /* ---- the address is not asked for twice --------------------------- */
