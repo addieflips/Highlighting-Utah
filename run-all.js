@@ -38728,7 +38728,13 @@ suite('170. Measure Roof - a peak is two dots and a grade');
      is what keeps the pictures absorbing the slack), and when there is genuinely
      not enough room the CARD scrolls, which the check above guarantees. */
   check('S170', 'the stage cannot be squeezed smaller than the rows inside it',
-    /#rmWorkStage\{flex:1 1 auto; min-height:min-content;\}/.test(admin),
+    /* ⚠ THE FLOOR MOVED TO THE PICTURES (2026-08-28). min-content stopped the
+       overflow but computes larger than the rows it is made of, so the stage could
+       not come down and the pictures hung off the bottom. What must still be true
+       is that SOMETHING cannot collapse: the pictures carry a real px floor, and
+       every other row up here is a fixed height. */
+    /#rmWorkStage\{flex:1 1 auto; min-height:0;\}/.test(admin) &&
+    /\.rm-stagerest > \.rm-panes\{flex:1 1 auto; min-height:\d+px;\}/.test(admin),
     'flex:1 1 auto let it overflow and paint the Save bar over the Attach to Quote row');
 
   /* ⭐ THE PICTURE DOES NOT MOVE WHILE YOU CLICK (2026-08-28). Owner: "whenever i
