@@ -4509,7 +4509,7 @@
            afterwards. A map that slides under a half-finished line is the
            single most annoying thing about doing this by hand. -->
       <div class="editcust-popup-overlay" id="roofMeasureOverlay" style="display:none;">
-        <div class="editcust-popup" style="max-width:min(1800px, 97vw);">
+        <div class="editcust-popup rm-card" style="max-width:min(1800px, 97vw);">
           <style>
             #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
             #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
@@ -4552,7 +4552,77 @@
                on a 1080p screen the picture began 450px down and ended 170px below
                the fold - you scrolled to see the house whatever the controls did.
                The subtraction is what keeps the whole thing on one screen. */
-            #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(230px, calc(100vh - 505px), 620px);}
+            /* ⭐ IT FITS BY CONSTRUCTION, NOT BY ARITHMETIC (2026-08-28, fourth go).
+               Owner: "i still need to scroll, it should be really small definitely
+               no scrolling to see everything."
+
+               ⚠ EVERY EARLIER ATTEMPT SUBTRACTED A GUESS. calc(100vh - 505px) is a
+               number somebody measured once, on one window, with one set of panels
+               open - and it is wrong the moment a bar wraps to two lines, a longer
+               address appears, or the browser chrome differs by ten pixels. It was
+               measured at 737px against a 742px window and still scrolled.
+
+               ⭐ SO THE PICTURE TAKES WHAT IS LEFT. The card is one viewport tall
+               and never scrolls; the stage is a flex column inside it; the row
+               holding the pictures is the only thing allowed to GROW, and the
+               canvas fills it. Every bar takes the height it needs and the house
+               gets the remainder - which cannot overflow, because there is no
+               remainder to overflow with.
+
+               ⚠ min-height:0 ON EVERY LINK IN THE CHAIN. A flex item's default
+               min-height is auto, so it refuses to shrink below its content and the
+               overflow reappears one level down, where it is very hard to see. */
+            #roofMeasureOverlay.editcust-popup-overlay{padding:10px; align-items:stretch;}
+            #roofMeasureOverlay .rm-card{height:100%; max-height:100%; overflow:hidden; display:flex; flex-direction:column; padding:12px 16px;}
+            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:0;}
+            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{min-height:0;}
+            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:0;}
+            #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
+            #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
+
+            /* ⭐ AND THE CHROME IS CUT TO THE BONE, because whatever it takes comes
+               straight off the house. Owner: "it should be really small definitely
+               no scrolling to see everything." Measured before: 400px of heading,
+               toolbar and Save block around a 120px picture. */
+            /* The heading, the sentence under it and Reload on ONE line. */
+            #roofMeasureOverlay .rm-card > h3, #roofMeasureOverlay #rmTitle{font-size:15px; margin:0; flex:0 0 auto;}
+            #roofMeasureOverlay #rmSubtitle{font-size:11px; margin:0; flex:1 1 auto; color:var(--slate);}
+            #roofMeasureOverlay .rm-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;}
+            /* The toolbar loses the two lines that only repeat the hint. */
+            #roofMeasureOverlay .rm-tools .rm-sub{display:none;}
+            #roofMeasureOverlay .rm-tools kbd{font-size:9.5px;}
+            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){padding:5px 8px; gap:4px 8px;}
+            /* The Save block on one line: the two figures, what the feet decide,
+               and the button. */
+            #roofMeasureOverlay .rm-commit{padding:5px 8px;}
+            #roofMeasureOverlay .rm-commit .rm-cell{padding:2px 7px;}
+            #roofMeasureOverlay .rm-commit .rm-cell .rm-val{font-size:16px;}
+            #roofMeasureOverlay .rm-commit .rm-cell .rm-lab{font-size:8.5px;}
+            #roofMeasureOverlay .rm-commit .rm-chain-h{display:none;}
+            #roofMeasureOverlay .rm-commit .btn-gold{padding:6px 14px;}
+            #roofMeasureOverlay #rmPricePanel{padding:5px 8px;}
+            #roofMeasureOverlay .rm-panehead{padding:3px 8px; font-size:11px;}
+            /* ⭐ AND EVERY REMAINING LINE IS SQUEEZED, because each one is a strip
+               of house. The keyboard hints move into a tooltip, the heading loses
+               its own row, and the bars run at 11px. */
+            #roofMeasureOverlay .rm-head{margin-bottom:3px;}
+            #roofMeasureOverlay #rmTitle{font-size:14px;}
+            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){font-size:11px; padding:4px 7px; gap:3px 7px;}
+            #roofMeasureOverlay .rm-tools .btn{padding:4px 9px; font-size:11px;}
+            #roofMeasureOverlay .rm-tools .rm-part{padding-left:7px; gap:3px 6px;}
+            #roofMeasureOverlay .rm-tools .rm-resultrow{font-size:11.5px;}
+            #roofMeasureOverlay #rmDrawHint{font-size:10.5px; margin:0;}
+            #roofMeasureOverlay .rm-tools p:has(kbd){display:none;}
+            #roofMeasureOverlay .rm-commit{padding:4px 7px; gap:4px 8px;}
+            #roofMeasureOverlay .rm-commit .rm-cell{padding:1px 6px;}
+            #roofMeasureOverlay .rm-commit .rm-cell .rm-val{font-size:14px;}
+            #roofMeasureOverlay .rm-commit .rm-pair{gap:4px;}
+            #roofMeasureOverlay .rm-commit .btn-gold{padding:5px 12px; font-size:12px;}
+            #roofMeasureOverlay .rm-commit .rm-second{gap:9px;}
+            #roofMeasureOverlay .rm-commit .rm-second button{font-size:10.5px;}
+            #roofMeasureOverlay #rmPricePanel{padding:4px 7px; font-size:11px;}
+            #roofMeasureOverlay .rm-stagerest > *:not(.rm-panes){font-size:11px;}
+            #roofMeasureOverlay .rm-stagerest .btn{padding:5px 10px; font-size:11.5px;}
             /* ⭐ THE TOOLS ARE NEVER TALLER THAN THE PICTURE BESIDE THEM
                (2026-08-27). Owner: "all the tools are really far apart, mush them
                together so i dont have to scroll."
@@ -4612,7 +4682,20 @@
                house, not 460. That is the trade and it is the right way round -
                a slightly smaller house you can measure without scrolling beats a
                bigger one with the controls off screen. */
-            #roofMeasureOverlay #rmWorkStage{display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px;}
+            /* ⚠ align-content MUST STRETCH, or the slack never reaches the house.
+               A wrapping flex container packs its LINES to the start by default and
+               leaves the leftover at the bottom - so the picture's line kept its
+               content height (120px) while empty space sat underneath it. stretch is
+               what hands that space to the line that can grow. */
+            /* ⭐ A COLUMN OF TWO THINGS, WHICH IS WHAT IT ALWAYS WAS. The wrapping
+               row was only ever needed so `order` could put the pictures BETWEEN the
+               tools and Save; now that Save sits on the tools' own line there is
+               nothing to interleave. And a wrap container RESERVES a share of the
+               spare height for every line, so ~150px sat empty under the bars while
+               the house stayed at 195px however thin the bars got. A column hands
+               the whole remainder to the one item allowed to grow. */
+            #roofMeasureOverlay #rmWorkStage{display:flex; flex-direction:column; gap:6px; min-height:0;}
+            #roofMeasureOverlay .rm-tools{display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; flex:0 0 auto;}
             /* ⚠ display:contents SO THE ORDER BELOW CAN REACH THEM. The controls,
                the price and the Save block are three children of .rm-tools, and
                `order` only sorts siblings - left nested they all had to sit on the
@@ -4620,7 +4703,7 @@
                and pushed the house off the screen. Dissolving the wrapper makes
                them siblings of the pictures, so the CONTROLS can go above and the
                Save block after. */
-            #roofMeasureOverlay .rm-tools{display:contents;}
+
             /* ⚠ EVERYTHING GETS AN ORDER OR NOTHING DOES. Dissolving .rm-tools made
                its children siblings of the pictures - and of the photo, wall and
                capture blocks, which had no order and so defaulted to 0 and jumped
@@ -4639,7 +4722,23 @@
                across the whole window, and the order rule written for it lower down
                lost the specificity fight. Two classes on one element is easy to
                miss; the symptom looked like an ordering bug and was a selector. */
-            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){order:1; flex:1 0 100%;}
+            /* ⭐ THE TOOLS, THE PRICE AND SAVE SHARE ONE LINE. They were three
+               stacked rows costing about 250px, and every pixel of that is a strip
+               of house - the window is 1,400 wide and they fit side by side with
+               room to spare. The pictures are the only thing left that takes a full
+               line, which is why they get whatever is over. */
+            /* ⚠ min-width:0 OR IT WILL NOT SHARE THE LINE. A flex item refuses to
+               shrink below its min-content width by default, and a bar full of
+               buttons has a wide one - so it claimed the whole line and pushed Save
+               onto another, which is 127px of house. Allowing it to shrink lets both
+               sit on one line and wrap internally instead. */
+            /* ⚠ align-self:start ON EVERY BAR, or align-content:stretch fattens
+               THEM instead of the house. Stretch hands the spare height to every
+               line, so a one-line toolbar became a 120px box with its buttons
+               floating in the middle of it and the pictures stayed small - the
+               opposite of the point. The bars keep their content height; only the
+               pictures' line is left able to grow. */
+            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){order:1; flex:1 1 560px; min-width:0; align-self:start;}
             /* ⚠ THE PICTURES SHARE A WRAPPER WITH THE PHOTO AND CAPTURE BLOCKS, so
                their order is decided INSIDE that wrapper, not against the toolbar.
                Ordered against the stage they stayed put and those two blocks sat
@@ -4654,7 +4753,9 @@
                (#roofMeasureOverlay #rmWorkStage > *) and beats an id-plus-class, so
                a plain .rm-stagerest rule lost and the Save block sat above the
                house. Matched through the same two ids to win. */
-            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{order:2; flex:1 0 100%; display:flex; flex-wrap:wrap; align-items:center; gap:8px;}
+            /* A column, so the pictures can take the height and the two short rows
+               under them keep only what they need. */
+            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:6px;}
             #roofMeasureOverlay .rm-panes{order:-1; flex:1 0 100%;}
             #roofMeasureOverlay #rmPricePanel{order:3;}
             #roofMeasureOverlay .rm-commit{order:4;}
@@ -4675,7 +4776,7 @@
             /* The last line: price, Save and the captures side by side. The Save
                block lays out sideways too - the figures, what the feet decide and
                the button in a row rather than a stack. */
-            #roofMeasureOverlay .rm-commit{flex:1 1 420px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;}
+            #roofMeasureOverlay .rm-commit{order:1; flex:1 1 380px; min-width:0; align-self:start; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;}
             /* ⚠ THE HEADING AND THE SENTENCE COST TWO FULL LINES OF THE BAR. The
                gold button says "Save to this quote" itself, so a heading above it
                saying the same words is the one thing here that can go without
@@ -4689,7 +4790,7 @@
             #roofMeasureOverlay .rm-commit .btn-gold{width:auto; margin:0; flex:0 0 auto;}
             #roofMeasureOverlay .rm-commit .rm-second{margin:0; flex:0 0 auto;}
             #roofMeasureOverlay .rm-commit .rm-saidit{flex:1 1 100%; margin:0; text-align:left;}
-            #roofMeasureOverlay #rmPricePanel{flex:0 1 auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
+            #roofMeasureOverlay #rmPricePanel{order:1; flex:0 1 auto; align-self:start; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
             #roofMeasureOverlay #rmPricePanel > *{margin:0;}
             @media (max-width: 899px){
               #roofMeasureOverlay .rm-tools{flex-direction:column;}
@@ -4739,15 +4840,27 @@
             #roofMeasureOverlay .rm-flag.on{display:block;}
             #roofMeasureOverlay .rm-flag.warn{background:rgba(224,87,75,.16); border:1px solid rgba(224,87,75,.45); color:#FFD9D5;}
             #roofMeasureOverlay .rm-flag.note{background:rgba(244,190,85,.14); border:1px solid rgba(244,190,85,.4); color:#FBE6BC;}
-            #roofMeasureOverlay .rm-commit .btn-gold{width:100%; margin-top:8px; justify-content:center;}
+            /* ⚠ NOT width:100% ANY MORE. This is the same specificity as the rule
+               above and sits LATER in the file, so it won - the button took a full
+               line of its own and pushed the two links onto another, costing ~50px
+               of the house. Same-specificity rules are decided by source order, and
+               a duplicate selector further down is invisible from the one above. */
+            #roofMeasureOverlay .rm-commit .btn-gold{width:auto; margin:0; justify-content:center;}
             #roofMeasureOverlay .rm-second{display:flex; gap:14px; justify-content:center; margin-top:6px; flex-wrap:wrap;}
             #roofMeasureOverlay .rm-second button{background:none; border:0; color:#A9BDAE; font-size:11.5px; text-decoration:underline; text-underline-offset:2px; padding:2px; cursor:pointer; font-family:inherit;}
             #roofMeasureOverlay .rm-second button:hover{color:#fff;}
             #roofMeasureOverlay .rm-second button:disabled{opacity:.4; cursor:not-allowed; text-decoration:none;}
             #roofMeasureOverlay .rm-saidit{font-size:10.5px; color:#B9C9BC; margin:6px 0 0; text-align:center; line-height:1.45;}
           </style>
+              <div class="rm-head">
           <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
           <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">Trace the roofline on the sky view, then say where the peaks are. Street View is for the grade and for the picture.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+            <input type="hidden" id="rmAddress">
+            <p id="rmAddressShown" style="flex:1 1 320px; min-width:220px; margin:0; font-size:13px; color:var(--slate);"></p>
+            <button type="button" class="btn btn-outline btn-sm" id="rmLoadBtn" title="Load this address again">&#10227; Reload the imagery</button>
+          </div>
+              </div>
 
           <!-- ⭐ NO ADDRESS BAR (2026-08-25). The tool only ever opens from a
                quote, and a quote already knows its own address — so typing one
@@ -4760,11 +4873,6 @@
                instead, so it can still be checked and no longer be edited.
                Reload is the ⟳ beside it, for the rare case where Google's
                imagery has not answered. -->
-          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
-            <input type="hidden" id="rmAddress">
-            <p id="rmAddressShown" style="flex:1 1 320px; min-width:220px; margin:0; font-size:13px; color:var(--slate);"></p>
-            <button type="button" class="btn btn-outline btn-sm" id="rmLoadBtn" title="Load this address again">&#10227; Reload the imagery</button>
-          </div>
 
           <div id="rmWorkStage">
             <div class="rm-tools">
@@ -22021,7 +22129,11 @@ function rmRenderCommit(){
   if(!panel) return;
   const feet  = Math.round(rmTotals().all * RM_FEET_MULTIPLIER);
   const price = rmSuggestedPrice;
-  panel.style.display = feet > 0 ? 'block' : 'none';
+  /* ⚠ 'flex', NOT 'block'. An inline style beats the stylesheet, so revealing
+     this panel as a block quietly cancelled the row layout the bar depends on -
+     every figure, the chips and the button took a full line each and the Save
+     block was 176px tall, which comes straight off the height of the house. */
+  panel.style.display = feet > 0 ? 'flex' : 'none';
   if(feet <= 0) return;
 
   document.getElementById('rmCommitFt').textContent = feet + ' ft';
@@ -22564,7 +22676,7 @@ async function rmLoadAddress(){
     const sel = document.getElementById('rmDifficulty');
     if(sel) sel.value = rmRoofGrade;
     document.getElementById('rmGradeWhy').textContent = d.difficultyWhy || '';
-    document.getElementById('rmPricePanel').style.display = 'block';
+    document.getElementById('rmPricePanel').style.display = 'flex';   /* see rmRenderCommit: block cancels the row */
     rmRenderResults();
     if(d.bounds) rmBuilding = d.bounds;
     rmFaces = d.faces || [];

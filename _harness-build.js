@@ -185,10 +185,10 @@ function constsFor(code) {
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Measure Roof harness</title>
 ${styles}
 <style>body{margin:0;font-family:system-ui;background:#f4f1ea}
-#bar{padding:10px;display:flex;gap:8px;align-items:center;background:#123}
+#bar{padding:6px;display:flex;gap:8px;align-items:center;background:#123;position:fixed;bottom:0;left:0;right:0;z-index:200;opacity:.9}
 #bar input{flex:1;padding:8px;font-size:14px}#bar button{padding:8px 14px}
-#roofMeasureOverlay{display:block !important;position:static !important}
-#out{white-space:pre-wrap;font:12px ui-monospace;padding:10px;background:#fff}</style>
+#roofMeasureOverlay{display:flex !important;position:fixed !important;inset:0;z-index:99}
+#out{display:none}</style>
 </head><body>
 <div id="bar"><input id="addr" value="209 S 850 W, Lehi, UT 84043"><button id="go">Load</button></div>
 <div id="out">ready</div>
