@@ -26100,6 +26100,9 @@ suite('Suite 108. The Edit Customer save, actually run');
     const errs = [];
     /* What the office was asked before anything was charged. */
     const asked = [];
+    /* And what went into the customer's history — one entry per save, so the checks
+       below can read the sentence rather than trusting the call was there. */
+    const logged = [];
     const ctx = {
       /* ⚠ SELECTOR-AWARE NOW, so the colour tick boxes can be driven. Everything
          else still answers with an empty list exactly as before. */
@@ -26204,6 +26207,26 @@ suite('Suite 108. The Edit Customer save, actually run');
         'return ' + extractFn(admin, 'stampBuildQueued') + ';stampBuildQueued')(() => 'NOW'),
       stampRecycleRequested: new Function('serverTimestamp',
         'return ' + extractFn(admin, 'stampRecycleRequested') + ';stampRecycleRequested')(() => 'NOW'),
+      /* ⭐ AND THE CHANGE LOG THE SAVE NOW WRITES (2026-08-28). The diff and the
+         sentence are LIFTED, because what they say is the point; logActivity is
+         stubbed, because it is a Firestore write and the checks below only need to
+         know it was called. ⚠ The label map, the quiet list and the value renderer
+         come with them — describeCustomerChanges closes over all three, and a
+         sandbox missing one of them does not skip a check, it kills the handler on
+         its last lines and reports the write that never happened. */
+      describeCustomerChanges: (function(){
+        const src = ['CUSTOMER_FIELD_LABELS', 'CUSTOMER_FIELD_QUIET']
+          .map(n => sectionFrom(admin, admin.indexOf('const ' + n + ' = {'))).join('\n') +
+          (/const CHANGE_EMPTY_TEXTS\s*=\s*\[[^\]]*\];/.exec(admin) || [''])[0] +
+          extractFn(admin, 'changeValueText') + extractFn(admin, 'describeCustomerChanges');
+        return new Function('fmtMoney', 'toJsDate',
+          src + 'return describeCustomerChanges;')(
+            (n) => '$' + (Number(n) || 0).toFixed(2), (v) => (v instanceof Date ? v : null));
+      })(),
+      customerChangeSentence: new Function(
+        (/const CHANGE_LOG_MAX_FIELDS\s*=\s*\d+;/.exec(admin) || [''])[0] +
+        extractFn(admin, 'customerChangeSentence') + 'return customerChangeSentence;')(),
+      logActivity: (what, area, refId) => { logged.push({what: what, area: area, refId: refId}); },
       LIGHT_CHANGE_FEE: 30, LIGHT_WINDOW_MS: 48 * 3600000,
       fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2),
       /* The popup CANNOT be real — it waits for a click. Stubbed, but it records
@@ -26241,6 +26264,7 @@ suite('Suite 108. The Edit Customer save, actually run');
       const cust = writes.find(w => w.col === 'jobAddresses' && w.op === 'update');
       const quote = writes.find(w => w.col === 'quotes');
       return {writes: writes, errs: errs, cust: cust, quote: quote, asked: asked,
+              logged: logged,
               status: (els.editCustStatus || {}).textContent || ''};
     });
   }
@@ -26452,6 +26476,33 @@ suite('Suite 108. The Edit Customer save, actually run');
     check('S108', 'and re-saving the same colours does not',
       !!same.cust && same.cust.payload.needsLightBuild !== true,
       'opening a record to fix a phone number must not re-queue their lights');
+
+    /* ⭐ AND THE SAVE PUTS WHAT CHANGED INTO THE CUSTOMER'S HISTORY (2026-08-28).
+       Addie: "Okay how can we get it so everything has stamps". The dates cover every
+       STATE; an EDIT needs words, because "the colours changed on 3 Oct" without
+       saying from what is the question restated rather than answered.
+
+       ⚠ RUN, NOT READ. change-log.test.js proves the sentence is right and asserts the
+       call is in the handler; only driving the whole save proves the call is REACHED —
+       past the re-quote branch, the fee popup and the pool writes that sit above it. */
+    check('S108', 'a save writes what changed into the customer history',
+      changed.logged.length === 1 && /Light colours: Warm White → Red, Green/
+        .test(changed.logged[0].what || ''),
+      'an edit that leaves no trace is why "who changed this?" had no answer');
+    check('S108', 'and files it against that customer',
+      (changed.logged[0] || {}).area === 'customers' && !!(changed.logged[0] || {}).refId,
+      'an entry nobody can attach to a record cannot be found from their history');
+    /* ⚠ THIS FIXTURE'S SAVE REALLY DOES CHANGE THINGS — it is a re-quote record whose
+       town, footage and number all move — so "no entry at all" would be the wrong
+       claim, and asserting it was my own mistake caught by running this. What must be
+       true is narrower and is the thing under test: a save that re-writes the SAME
+       colours must not report a colour change. The empty-entry case is covered by
+       change-log.test.js, which can hand the diff two identical records. */
+    check('S108', 'and re-saving the same colours claims no colour change in the history',
+      same.logged.length === 1 &&
+      (same.logged[0].what || '').indexOf('Light colours') === -1,
+      'the history saying the colours moved is what sends somebody looking for a $30 ' +
+      'fee that was never charged');
 
     /* ⭐ THE OFFICE COLOUR CHANGE NOW CHARGES, LOCKS AND TELLS THE CREW
        (added 2026-08-21). Until today this handler wrote lightsChangedAt and

@@ -6582,6 +6582,166 @@ async function logActivity(what, area, refId){
     return null;
   }
 }
+/* ---- WHAT ACTUALLY CHANGED ON A RECORD -----------------------------------
+ *
+ * Addie, 2026-08-28, having asked for a customer's whole history to be dated:
+ * "Okay how can we get it so everything has stamps". Every STATE a customer can
+ * be in now carries a date — queued, built, hung, invoiced, paid, recycled. What
+ * a date cannot carry is an EDIT: their address moving, a timer going on, the
+ * price being corrected. "Address changed on 3 Oct" is a worse answer than no
+ * answer, because the question is always what it changed FROM.
+ *
+ * So an edit is logged, not stamped. `describeCustomerChanges` diffs what the
+ * save is about to write against what the record held, and returns one plain
+ * sentence per field — "Timer: off -> on", "House price: $400.00 -> $450.00".
+ * The Edit Customer save writes them as ONE activity row, because a save is one
+ * event and a row per field turns an afternoon of tidying into a wall nobody
+ * reads.
+ *
+ * ⚠ IT IS ITS OWN PURE FUNCTION so a test can RUN it — the same reason
+ * rmCommitPayload and carriedPaymentOnBillToChange are. Written inline in the
+ * handler the only thing a suite could do is match its text, and what matters
+ * here is what the SENTENCE says, which a regex cannot see.
+ *
+ * ⚠ EVERY FIELD IS EITHER LABELLED OR DELIBERATELY QUIET, and change-log.test.js
+ * holds a census: a field the save handler writes that appears in neither list
+ * fails the build. That is the whole guard. A missing label does not throw and
+ * does not show up — it just silently never appears in anybody's history, which
+ * is indistinguishable from the field never having been edited.
+ *
+ * ⚠ QUIET IS NOT UNIMPORTANT. The stamps this same change added are quiet
+ * BECAUSE they are the record of an event that already has its own line: a build
+ * being queued says so, and "lightsQueuedAt: (blank) -> 28 Aug" underneath it is
+ * the same fact twice in a worse language. Same for lat/lng, which move only
+ * because the address did.
+ *
+ * ⚠ AND IT NEVER BREAKS THE SAVE. It runs after the write, wrapped, exactly as
+ * logActivity itself is: a note about a change must never stop the change.
+ */
+const CUSTOMER_FIELD_LABELS = {
+  name: 'Name', propertyLabel: 'Property', phone: 'Phone', phone2: 'Second phone',
+  email: 'Email', email2: 'Second email', address: 'Address', city: 'Town',
+  customerNumber: 'Customer number', numberOfBins: 'Bins',
+  housePrice: {label: 'House price', kind: 'money'},
+  measuredFeet: {label: 'Measured feet', kind: 'number'},
+  houseSides: {label: 'Sides of the house', kind: 'number'},
+  lightsDescription: 'Light colours', lightColors: {label: 'Light colours picked', kind: 'list'},
+  wireColor: 'Wire colour', outletTimer: 'Timer', useEaves: 'Outlet in the eaves',
+  specificOutlet: {label: 'Specific outlet', kind: 'yesno'},
+  specificOutletNotes: 'Which outlet', gateCode: 'Gate code',
+  layoutMapUrl: {label: 'Layout drawing', kind: 'present'},
+  installPreference: 'When they want it hung',
+  earliestInstallDate: {label: 'Earliest install date', kind: 'date'},
+  rsvpStatus: 'RSVP answer',
+  maybeNextYear: {label: 'Back next year', kind: 'yesno'},
+  billToPhone: 'Billed to',
+  paidBeforeBillTo: {label: 'Payment carried onto the new bill', kind: 'money'},
+  carryoverCharge: {label: 'Charge carried to next season', kind: 'money'},
+  referralCount: {label: 'Referrals', kind: 'number'},
+  chargeNewMemberFee: {label: 'New member fee', kind: 'yesno'},
+  wantsMailedInvoice: {label: 'Wants a posted invoice', kind: 'yesno'},
+  wantsTextedInvoice: {label: 'Wants the invoice texted', kind: 'yesno'},
+  smsOptedOut: {label: 'Opted out of texts', kind: 'yesno'},
+  noAutomationEmails: {label: 'Opted out of automatic emails', kind: 'yesno'},
+  notes: {label: 'Notes', kind: 'text'}, oneTimeNote: {label: 'One-time note', kind: 'text'},
+  needsLightBuild: {label: 'Waiting to be built', kind: 'yesno'},
+  needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
+  recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
+  buildTopUpFromFeet: {label: 'Feet already in their bin', kind: 'number'},
+  binLabelNumber: 'Number painted on their bin',
+  requoteKind: 'Why they were re-quoted',
+  scheduled: {label: 'On a day', kind: 'yesno'},
+  scheduledDate: {label: 'Day they are booked for', kind: 'date'},
+  assignedCrew: 'Crew'
+};
+/* ⚠ EACH ONE CARRIES ITS REASON, because "quiet" and "forgotten" look identical in a
+   list of field names, and the census cannot tell them apart either. */
+const CUSTOMER_FIELD_QUIET = {
+  updatedAt: 'the entry carries its own time',
+  createdAt: 'set once, when the record is made',
+  lastEditedBy: 'the entry already records who',
+  lat: 'moves only because the address did, which has its own line',
+  lng: 'moves only because the address did, which has its own line',
+  lightsChangedAt: 'the colour line above it is the event',
+  lightsChangedVia: 'the colour line above it is the event',
+  lightsLockedUntil: 'a consequence of the colour change, not a separate edit',
+  lightsQueuedAt: 'the build line is the event; this is its date',
+  lightsRecycleRequestedAt: 'the recycle line is the event; this is its date',
+  needsDayAssignedAt: 'the booking line is the event; this is its date',
+  requoteAppliedAt: 'the re-quote line is the event; this is its date',
+  maybeNextYearAt: 'the Back Next Year line is the event; this is its date',
+  rsvpRespondedAt: 'the RSVP line is the event; this is its date',
+  cameBackThisSeasonAt: 'the RSVP line is the event; this is its date',
+  paidBeforeBillToAt: 'the carried-payment line is the event; this is its date',
+  carryoverChargeNotes: 'the amount line says it, in money rather than prose'
+};
+/* ⚠ A BLANK IS PRINTED AS A WORD, never as nothing. "Gate code: -> 4412" reads as a
+   rendering fault; "(blank) -> 4412" reads as somebody filling it in. */
+function changeValueText(v, kind){
+  if(kind === 'present') return v ? 'saved' : 'none';
+  /* ⚠ A TICK BOX HAS TWO STATES AND BLANK IS NOT A THIRD ONE, and this line has to come
+     BEFORE the blank test or it never runs. An unticked box reaches the save as '' while
+     the record stores false — the same answer, spelt two ways — so read as "(blank) → no"
+     every save of every customer reported a row of tick boxes changing. Found by running
+     the diff, not by reading it. */
+  if(kind === 'yesno' || typeof v === 'boolean') return v ? 'yes' : 'no';
+  if(v === null || v === undefined || v === '') return '(blank)';
+  if(kind === 'money') return fmtMoney(Number(v) || 0);
+  if(kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
+  if(kind === 'date'){
+    const dt = toJsDate(v);
+    return dt ? dt.toLocaleDateString() : String(v);
+  }
+  const s = String(v).replace(/\s+/g, ' ').trim();
+  if(!s) return '(blank)';
+  /* ⚠ Notes run to paragraphs. An entry that carries one whole is unreadable in a list
+     and pushes every other change off the screen, so it is cut and SAID to be cut. */
+  return s.length > 60 ? s.slice(0, 60) + '…' : s;
+}
+/* ⚠ COMPARED THROUGH THE SAME RENDERER BOTH SIDES. Comparing raw values instead would
+   report "Timer: off -> off" for an unticked box saved as '' over a stored false, and a
+   log that reports changes nobody made is one nobody reads. */
+/* ⚠ A FIELD THE RECORD NEVER HELD, BEING WRITTEN EMPTY, IS NOT AN EDIT. Records
+   predating a field simply do not carry it, so the first save after it was added would
+   otherwise report "Referrals: (blank) → 0" and "Sides of the house: (blank) → 1" for
+   every customer in the book — the form filling in its own defaults, reported as though
+   somebody had typed them. Measured, not guessed: a thin fixture produced six such lines
+   out of nine on a save that changed one thing.
+   ⚠ IT NEEDS THE FIELD TO HAVE BEEN ABSENT, not merely empty. A gate code being
+   deliberately cleared is a stored value going to blank, and that is exactly the edit
+   somebody will later want explained. */
+const CHANGE_EMPTY_TEXTS = ['(blank)', 'no', 'none', '0', '$0.00'];
+function describeCustomerChanges(before, updates){
+  const out = [];
+  if(!updates) return out;
+  const was = before || {};
+  Object.keys(CUSTOMER_FIELD_LABELS).forEach(function(f){
+    if(!Object.prototype.hasOwnProperty.call(updates, f)) return;
+    const spec = CUSTOMER_FIELD_LABELS[f];
+    const label = typeof spec === 'string' ? spec : spec.label;
+    const kind = typeof spec === 'string' ? '' : spec.kind;
+    const a = changeValueText(was[f], kind);
+    const b = changeValueText(updates[f], kind);
+    if(a === b) return;
+    if(!Object.prototype.hasOwnProperty.call(was, f) &&
+       CHANGE_EMPTY_TEXTS.indexOf(b) !== -1) return;
+    out.push(label + ': ' + a + ' → ' + b);
+  });
+  return out;
+}
+/* ⚠ ONE ROW PER SAVE, NOT PER FIELD. A save is one event — somebody sat down and
+   changed four things at once — and a row each turns an afternoon of tidying into a
+   wall nobody scrolls. ⚠ AND IT IS CAPPED: a bulk-shaped save writing thirty fields
+   would otherwise put a paragraph in a list meant to be skimmed, and the count is
+   SAID rather than the list quietly ending. */
+const CHANGE_LOG_MAX_FIELDS = 12;
+function customerChangeSentence(name, changes){
+  if(!changes || !changes.length) return '';
+  const shown = changes.slice(0, CHANGE_LOG_MAX_FIELDS);
+  const rest = changes.length - shown.length;
+  return 'Edited ' + (name || 'a customer') + ' — ' + shown.join('; ') +
+    (rest > 0 ? ' (and ' + rest + ' more)' : '');
+}
 /* ⭐ WHEN A BUNDLE WAS SENT TO THE WAREHOUSE (added 2026-08-28). Addie, listing what a
    customer's history has to show: "And will it get updated with correct info ... Or asked
    for different lights on this date". `lightsMarkedBuiltAt` records when a bundle was
@@ -41476,7 +41636,22 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       });
       Object.assign(addrUpdates, seasonYes);
     }
+    /* ⭐ WHAT CHANGED, IN WORDS (added 2026-08-28). Addie: "Okay how can we get it so
+       everything has stamps". A date can say WHEN the address moved and never what it
+       moved from, which is always the question — so an edit is logged rather than
+       stamped, and this is the form the office actually edits a customer through.
+       ⚠ TAKEN BEFORE THE WRITE, WRITTEN AFTER IT. Before, because the diff needs what
+       the record held and item.data is mirrored from the cache the moment the save
+       lands; after, because an entry for a save that then failed is a history of
+       something that did not happen. */
+    const custChanges = describeCustomerChanges(item.data, addrUpdates);
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
+    /* ⚠ NOT AWAITED, like every other logActivity call: a note about a change must
+       never be able to break the change. It carries its own catch. */
+    if(custChanges.length){
+      logActivity(customerChangeSentence(newName || item.data.name, custChanges),
+        'customers', editCustomerId);
+    }
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
        already worked, and the pool is recoverable by hand where a lost edit is
@@ -41507,7 +41682,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         }
       }
     }
-    logActivity('Edited customer ' + (newName || editCustomerId), 'customers', editCustomerId);
+    /* ⚠ THE VAGUE ENTRY THAT USED TO SIT HERE IS GONE, not left beside the new one.
+       It said "Edited customer Ashley Wray" and nothing else, on EVERY save including
+       ones that changed nothing — so the log filled with rows that could not answer
+       the only question anybody asks it. What replaced it is written up by the record
+       write above, names every field that moved, and is written only when one did. */
     /* The office has to be told, because nothing else on screen would show it:
        they are back in the build queue but their customer number is gone, and
        a house with no number cannot be binned or routed. Only raised when the

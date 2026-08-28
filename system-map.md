@@ -369,11 +369,42 @@ Most of the money was already dated and that was checked before anything was bui
 $25 referral, manual discounts, carried credits, manual fees, the automatic $30 change fee
 and the carryover charge each carry a `date` on their own note. The join fee was the one
 fee with none, because it is folded straight into `install` rather than listed. What is
-still undated is an EDIT rather than a state —
-an address, a timer or a set of sides changing. Those belong in the activity log, which
-records WHAT changed as well as when; a bare date would say the address moved and not
-what it moved to. And `scheduledDate` remains a different thing: the day they are booked
-FOR, not the day the booking was made.
+is an EDIT rather than a state — an address, a timer or a set of sides changing — and
+those are now in the activity log rather than dated, because a date would say the address
+moved on 3 October and never what it moved FROM, which is always the question. And
+`scheduledDate` remains a different thing: the day they are booked FOR, not the day the
+booking was made.
+
+### The change log
+
+Saving Edit Customer diffs what it is about to write against what the record held and
+writes ONE activity entry naming every field that moved — *"Edited Ashley Wray — Timer:
+off → on; House price: $400.00 → $450.00"*. One entry per save, because a save is one
+event; a row per field turns an afternoon of tidying into a wall nobody scrolls. Past
+twelve fields it says how many are not shown rather than quietly ending.
+
+⚠ **Every editable field is either labelled or deliberately quiet, and
+`change-log.test.js` holds the census.** A field with no label does not throw and does not
+warn — it simply never appears in anybody's history, which reads exactly like the field
+never being edited. So a new field that is neither fails the build, and a quiet one must
+carry the reason it is quiet: *quiet* and *forgotten* look identical in a list of names,
+and the census cannot tell them apart either. Quiet covers the stamps (the build line is
+the event; `lightsQueuedAt` is its date) and `lat`/`lng`, which move only because the
+address did.
+
+⚠ **The vague entry that used to sit there is gone, not left beside the new one.** It read
+"Edited customer Ashley Wray" and nothing else, on every save including ones that changed
+nothing — filling the log with rows that could not answer the only question anybody asks
+it.
+
+⚠ **Two faults in it were found by RUNNING the diff, not reading it**, and both would have
+made the log unreadable rather than wrong. An unticked box reaches the save as `''` while
+the record stores `false` — the same answer spelt two ways — so every save of every
+customer reported a row of tick boxes changing. And a record predating a field does not
+carry it, so the first save after one was added reported the form's own defaults
+(*"Referrals: (blank) → 0"*) as though somebody had typed them: six such lines out of nine
+on a save that changed one thing. A field the record never held, arriving empty, is not an
+edit; a stored value being cleared still is.
 
 `lightsQueuedAt` was added 2026-08-28, after Addie asked "what about when bundle got sent
 to warehouse". Until then the record knew when a bundle was MADE and not when it was ASKED
