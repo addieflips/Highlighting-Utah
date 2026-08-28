@@ -36013,9 +36013,14 @@ suite('131. Measure Roof — the roof is never on the ground');
     !/id="rmHeightFt"/.test(admin) && !/data-rmheight=/.test(admin) &&
     !/1 storey<\/button>/.test(admin),
     'a preset is a guess wearing a button');
+  /* ⚠ WHAT REPLACED IT CHANGED AGAIN ON 2026-08-27. The answer used to be
+     "Street View measures it - put a dot on a wall", and Street View stopped
+     taking clicks, so that sentence became an instruction nobody could follow.
+     The check keeps its point - a control cannot be removed silently - and
+     now asks for the answer that is actually true. */
   check('S131', 'and the panel says where a height does come from instead',
-    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
-    'removing the control without saying what replaced it reads as a feature going missing');
+    /roofline is traced from above/.test(admin) && /Height only matters where the roof climbs/.test(admin),
+    'removing a control without saying what replaced it reads as a feature going missing');
 }
 
 
@@ -38379,6 +38384,45 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
     'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
 
+  /* ⭐ THE FIRST DOT CAN ACTUALLY BE PLACED (2026-08-27). The sky click used to
+     refuse until the datum had been measured, telling you to click a wall in
+     Street View first - which stopped being possible when Street View stopped
+     taking clicks. There was no first dot to place from either picture, so the
+     tool could not be started at all, and every other check here passed while
+     that was true. */
+  check('S170', 'a sky click is not refused for want of a measured height',
+    !/rmDatum\(\)\.source === 'assumed'\)\{[\s\S]{0,400}?return;/.test(admin),
+    'the only view that could measure the datum no longer takes clicks, so this refuses for ever');
+  check('S170', 'and nothing on screen still tells the office to click a wall',
+    (function(){
+      /* The phrase in a COMMENT is the record of why it went; the phrase in a
+         string is an instruction nobody can follow. Only the second is a fault. */
+      return !admin.split(String.fromCharCode(10)).some(function(l){
+        return /put a dot on a wall|click (once )?on a wall/i.test(l) &&
+               /textContent|innerHTML|<p |<div |<span /.test(l);
+      });
+    })(),
+    'an instruction that cannot be followed is worse than none');
+
+  /* ⭐ TWO DOTS MAY SIT ON TOP OF EACH OTHER. Owner: "make sure dots can be on
+     top of each other". A roofline doubles back on itself - the two sides of a
+     dormer, a porch return - and the second dot of such a pair lands within a
+     few pixels of the first. */
+  check('S170', 'placing a corner never rejects one for being too close',
+    (function(){
+      const fn = extractFn(admin, 'rmAddCorner') || '';
+      return fn.length > 0 && !/RM_PIN_GRAB_PX|too close|Math\.hypot[\s\S]{0,80}?return false/.test(fn);
+    })(),
+    'a roofline that doubles back needs two dots almost on one spot');
+  check('S170', 'and the dots themselves cannot swallow the next click',
+    (function(){
+      const i = admin.indexOf('position: {lat: w.lat, lng: w.lng}, map: rmMap');
+      if(i === -1) return false;
+      const line = admin.slice(i, admin.indexOf(String.fromCharCode(10), i));
+      return /clickable:\s*false/.test(line) && /draggable:\s*false/.test(line);
+    })(),
+    'a clickable marker on top of the click sheet eats the second dot of a pair');
+
   /* ⭐ EACH PEAK CARRIES ITS OWN GRADE, and adding one takes you to read it.
      Owner: "when you inset that there is a peak and say in between which two
      dots it is then it should automatically take you to the third map", and
@@ -39213,8 +39257,13 @@ suite('254. Measure Roof - no height is ever typed, and none is ever the lawn');
   check('S254', 'and the typed reader is a stub rather than a live control',
     /function rmTypedHeightM\(\)\{ return null; \}/.test(admin),
     'leaving it reading a deleted element would throw the moment anything called it');
-  check('S254', 'the panel says where a height comes from instead of offering a box',
-    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
+  /* ⚠ WHAT REPLACED IT CHANGED AGAIN ON 2026-08-27. The answer used to be
+     "Street View measures it - put a dot on a wall", and Street View stopped
+     taking clicks, so that sentence became an instruction nobody could follow.
+     The check keeps its point - a control cannot be removed silently - and
+     now asks for the answer that is actually true. */
+  check('S254', 'and the panel says where a height does come from instead',
+    /roofline is traced from above/.test(admin) && /Height only matters where the roof climbs/.test(admin),
     'removing a control without saying what replaced it reads as a feature going missing');
 }
 

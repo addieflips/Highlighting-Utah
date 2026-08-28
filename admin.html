@@ -4763,7 +4763,7 @@
                 <p id="rmDatumNote" style="font-size:12px; color:var(--dusk); margin:0; font-weight:600;"></p>
                 <button type="button" id="rmMoreBtn" style="border:0; background:none; padding:4px 0 0; font-size:11px; color:var(--slate); cursor:pointer; text-decoration:underline;">More options</button>
                 <div id="rmMoreBox" style="display:none; margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
-                  <p class="rm-sub" style="margin-bottom:6px;">Heights are measured in Street View. Put a dot on a wall, or shift-drag one up or down, and the roof height follows from where the ray meets the house.</p>
+                  <p class="rm-sub" style="margin-bottom:6px;">The roofline is traced from above, where lengths measure true. Height only matters where the roof climbs, and that is what a peak is &mdash; add one and read its grade off the picture.</p>
                   <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
                     <kbd>Esc</kbd> cancel &middot; <kbd>A</kbd> all suggested on/off &middot;
                     <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
@@ -23327,25 +23327,23 @@ function openRoofMeasure(quoteId){
          it is the only view where a gutter can be told from a chimney, a
          satellite dish or a tree. If dots from above start drifting again,
          that is the argument to read first. */
-      /* ⛔ NOT AGAINST AN ASSUMED HEIGHT (2026-08-25). Owner: "find the height
-         through proper geometry, not through a rough estimate", and of the panel
-         that used to supply one: "we dont need this".
+      /* ⛔ THE ASSUMED-HEIGHT REFUSAL IS GONE (2026-08-27), AND IT WAS
+         BLOCKING THE WHOLE TOOL. It refused a sky dot until the datum had been
+         measured, and told you to "click once on a WALL in the street view
+         first" — which stopped being possible the moment Street View stopped
+         taking clicks. There was no first dot to place from either picture: the
+         tool could not be started at all.
 
-         ⚠ A SKY CLICK'S HEIGHT IS THE ROOF MODEL'S PLANE AT THAT SPOT, and that
-         plane is EXACT relative to the lowest eave and floats on the datum. So
-         the whole question is whether the datum was measured. Once one dot has
-         met a wall in Street View it is, and every sky click after that is real
-         geometry. Before that it is ten feet because most houses are, and a dot
-         placed on it is wrong in plan as well as in height — the error goes
-         straight into the footage, which is the price.
+         ⚠ AND THE ARGUMENT IT RESTED ON NO LONGER HOLDS. It was written when a
+         sky dot had to be drawn into Street View, where a wrong height
+         parallaxes the dot across the house and "the error goes straight into
+         the footage". Nothing is drawn into Street View now. Footage is the
+         distance between dots on ONE overhead picture, which is plan distance:
+         a height shared by every dot cancels out of it exactly, the same way the
+         satellite offset does. Height re-enters only where the roof CLIMBS, and
+         that is measured per peak with the grade tool rather than assumed.
 
-         ⚠ REFUSING COSTS ONE CLICK AND SAYS WHICH ONE. Accepting costs a quote
-         nobody can tell is wrong. */
-      if(rmDatum().source === 'assumed'){
-        const dn = document.getElementById('rmCornerNote');
-        if(dn) dn.textContent = '⚠ The roof height has not been measured yet, so a dot from up here would be placed at a guess. Click once on a WALL in the street view first — that measures the eave, and then dots go in from either picture.';
-        return;
-      }
+         ⚠ SO A WRONG DATUM COSTS NOTHING HERE, and refusing cost everything. */
       rmAddCorner(w);
       const note = document.getElementById('rmCornerNote');
       if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
