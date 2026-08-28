@@ -271,6 +271,15 @@ re-queue is deliberately a new date**: the warehouse is waiting on the newest re
 it is **not cleared when the build is marked done** — "queued on the 2nd, built on the 9th"
 is the point.
 
+⚠ **In the Edit Customer save the stamp goes LAST, after every branch that can move the
+flag.** Five of them do: the colours ternary, a changed wire or timer, a rejoin after a
+recycle, the re-quote answer, and the Maybe Next Year block, which CLEARS the build. The
+first version sat inside the re-quote branch, so a save that queued a build any other way
+— a changed wire most of all — recorded no date at all. Nothing in the census saw it: a
+census asks whether the function CONTAINS a stamp, never whether every path reaches one.
+It surfaced only because a test sandbox lifts that branch and died on a name it had never
+been given.
+
 ⚠ **Fifteen places queue a build**, across the office and the portal, and
 `queue-date.test.js` keeps a census of all of them: a new one that does not stamp fails the
 build. `stampBuildQueued` in admin.html and `stampBuildQueuedServer` in functions/index.js

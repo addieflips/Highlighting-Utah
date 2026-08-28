@@ -40532,17 +40532,19 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
            line behind, so the gate saw a stamp in the function and passed while the
            RSVP-no branch silently stopped recording a date. Red-checking found it. */
       }
-    /* ⚠ ONE CALL, AFTER EVERY BRANCH ABOVE THAT CAN SET THE FLAG — the colours ternary,
-       the wire/timer re-queue, the rejoin-after-recycle, and both re-quote answers. Put
-       beside any one of them it would miss the others; put before them it would read a
-       decision not yet made. And it takes the value from `item.data`, which is what the
-       record held before this save, so an ordinary save of an already-queued house does
-       not move the date. */
-    stampBuildQueued(addrUpdates, !!item.data.needsLightBuild);
-    /* ⚠ SAME PLACE, SAME REASON as the build stamp above: after the RSVP-derived branch
-       AND both re-quote answers, any of which can queue a recycle. */
-    stampRecycleRequested(addrUpdates, !!item.data.needsLightRecycle);
     }
+    /* ⚠ ONE CALL EACH, AFTER EVERY BRANCH THAT CAN SET EITHER FLAG — the colours
+       ternary, the wire/timer re-queue, the rejoin-after-recycle, and both re-quote
+       answers. Beside any one of them it would miss the others; before them it would
+       read a decision not yet made. They take the value from `item.data`, which is what
+       the record held BEFORE this save, so an ordinary save of an already-queued house
+       does not move the date.
+       ⚠ AND OUTSIDE THE `if(requoteBuildChoice)` BLOCK, which is where the first version
+       put them — so a save that queued a build any OTHER way, a changed wire or timer
+       most of all, recorded no date at all. Nothing in the census saw it: that check asks
+       whether the handler contains a call, not whether every path reaches one. It
+       surfaced only because a test sandbox lifts that block and died on a name it had
+       never been given. */
     /* Applied last so it beats the RSVP dropdown and the build flag above:
        the toggle is the explicit statement about this season, and letting the
        two disagree is how someone ends up badged Maybe Next Year while still
@@ -40591,6 +40593,20 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
          pending unless the office picked something else themselves. */
       if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }
     }
+    /* ⚠ LAST OF ALL, AFTER EVERYTHING THAT CAN MOVE EITHER FLAG — the colours ternary,
+       the wire/timer re-queue, the rejoin-after-recycle, both re-quote answers, and the
+       Maybe Next Year block directly above, which CLEARS the build. Anywhere earlier and
+       a customer marked Maybe Next Year is handed a queue date for a build that is then
+       cancelled two lines later.
+       ⚠ THE FIRST VERSION SAT INSIDE `if(requoteBuildChoice)`, so a save that queued a
+       build any other way — a changed wire or timer most of all — recorded no date at
+       all. Nothing in the census saw it: that check asks whether the handler CONTAINS a
+       call, never whether every path reaches one. It surfaced only because a test
+       sandbox lifts that block and died on a name it had never been given.
+       ⚠ THEY READ `item.data`, which is what the record held BEFORE this save, so an
+       ordinary save of an already-queued house does not move the date. */
+    stampBuildQueued(addrUpdates, !!item.data.needsLightBuild);
+    stampRecycleRequested(addrUpdates, !!item.data.needsLightRecycle);
     let geocodeFailed = false;
     if(newAddress && newAddress !== oldAddress){
       statusEl.textContent = 'Address changed — relocating on map…';
