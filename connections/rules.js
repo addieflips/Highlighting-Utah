@@ -23,7 +23,8 @@ const AREAS = {
   MON: 'Money', QT: 'Quotes', WH: 'Warehouse', SCH: 'Schedule',
   RS: 'RSVP and the season', SH: 'The master sheet', PROC: 'How we work',
   CN: 'Customer numbers', DUP: 'Duplicates', MSG: 'Messages',
-  PR: 'Printing', HC: 'Health Check', FIX: 'Fixes', OPT: 'Options'
+  PR: 'Printing', HC: 'Health Check', FIX: 'Fixes', OPT: 'Options',
+  MR: 'Measure Roof'
 };
 
 /* The map's own Status column is the honest starting state. A person confirming a block

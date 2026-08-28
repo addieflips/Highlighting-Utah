@@ -109,7 +109,22 @@ window.eval(REAL.map(grab).join('\n\n'));
 /* the real hashchange listener, sliced verbatim, so the nav-button test drives
    the same code the browser does */
 const listenerStart = src.indexOf("window.addEventListener('hashchange'");
-const listenerEnd = src.indexOf('});\nnavigate();', listenerStart) + 3;
+/* index.html IS CRLF, so a literal newline in this anchor matched NOTHING.
+   indexOf returned -1, listenerEnd came out as 2, and the slice was the EMPTY
+   STRING - so the real hashchange listener was never registered and SCENARIO 2
+   failed for want of code that was never loaded. The harness then blamed the
+   page - "the page is what changed, not this harness" - which sends whoever
+   reads it into index.html after a bug that is not there.
+   AND IT FAILS SILENTLY IN THE OTHER SENSE TOO: this gate prints no line
+   containing the word FAIL, so grepping for FAIL reads clean while npm test
+   exits 1. Both traps are in CLAUDE.md; this is the two of them together. */
+const NL = String.fromCharCode(10), CR = String.fromCharCode(13);
+const tailCRLF = '});' + CR + NL + 'navigate();';
+const tailLF   = '});' + NL + 'navigate();';
+let tailAt = src.indexOf(tailCRLF, listenerStart);
+if(tailAt === -1) tailAt = src.indexOf(tailLF, listenerStart);
+if(tailAt === -1) throw new Error('portal-repro: cannot find the end of the hashchange listener in index.html');
+const listenerEnd = tailAt + 3;
 window.eval(src.slice(listenerStart, listenerEnd));
 
 /* ---- observation helpers (inline display only — that is what the code sets) ---- */

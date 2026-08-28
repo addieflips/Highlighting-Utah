@@ -4509,21 +4509,31 @@
            afterwards. A map that slides under a half-finished line is the
            single most annoying thing about doing this by hand. -->
       <div class="editcust-popup-overlay" id="roofMeasureOverlay" style="display:none;">
-        <div class="editcust-popup" style="max-width:min(1800px, 97vw);">
+        <div class="editcust-popup rm-card" style="max-width:min(1800px, 97vw);">
           <style>
             #roofMeasureOverlay .rm-typebtn{border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;}
             #roofMeasureOverlay .rm-typebtn .rm-dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
             #roofMeasureOverlay .rm-typebtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
-            #roofMeasureOverlay .rm-sidebtn{border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 11px; font-size:11.5px; font-weight:600; cursor:pointer;}
+            #roofMeasureOverlay .rm-sidebtn{border:1px solid var(--line); background:#fff; border-radius:7px; padding:4px 8px; font-size:11px; font-weight:600; cursor:pointer;}
             #roofMeasureOverlay .rm-sidebtn.on{background:var(--gold-dim); border-color:var(--gold-dim);}
             #roofMeasureOverlay .rm-sidebtn:disabled{opacity:.4; cursor:not-allowed;}
             #roofMeasureOverlay .rm-cornerbtn{border:1px solid var(--line); background:#fff; color:var(--slate); border-radius:7px; min-width:26px; padding:3px 6px; font-size:12px; font-weight:800; cursor:pointer; font-variant-numeric:tabular-nums;}
             #roofMeasureOverlay .rm-cornerbtn.on{background:var(--ink); color:#fff; border-color:var(--ink);}
             #roofMeasureOverlay .rm-cornerbtn.rm-swapping{outline:2px solid var(--gold-dim); outline-offset:1px;}
-            #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--paper);}
-            #roofMeasureOverlay .rm-panel h4{margin:0 0 2px; font-size:13.5px; font-weight:700;}
-            #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 10px; font-size:11.5px; color:var(--slate);}
-            #roofMeasureOverlay .rm-resultrow{display:flex; justify-content:space-between; align-items:center; gap:8px; padding:5px 0; font-size:13px; border-bottom:1px dotted var(--line);}
+            /* ⭐ THE CONTROLS FIT ON ONE SCREEN (2026-08-27). Owner: "all the
+               tools are really far apart, mush them together so i dont have to
+               scroll." Each panel was a 12px-padded card with a heading, a
+               sub-heading and a 12px gap to the next one - six cards' worth of
+               frame around about a screenful of actual controls, next to a pane
+               that is deliberately tall so the house can be seen. The frames
+               cost more height than the things inside them. */
+            #roofMeasureOverlay .rm-panel{border:1px solid var(--line); border-radius:10px; padding:8px 9px; background:var(--paper);}
+            #roofMeasureOverlay .rm-panel h4{margin:0 0 5px; font-size:12.5px; font-weight:700;}
+            #roofMeasureOverlay .rm-panel .rm-sub{margin:0 0 6px; font-size:11px; color:var(--slate);}
+            /* A rule between the jobs inside one panel, instead of a card each. */
+            #roofMeasureOverlay .rm-part{margin-top:6px; padding-top:6px; border-top:1px solid var(--line);}
+            #roofMeasureOverlay .rm-part > .rm-lbl{font-size:11px; font-weight:700; color:var(--dusk); margin-bottom:4px;}
+            #roofMeasureOverlay .rm-resultrow{display:flex; justify-content:space-between; align-items:center; gap:8px; padding:3px 0; font-size:13px; border-bottom:1px dotted var(--line);}
             #roofMeasureOverlay .rm-resultrow:last-child{border-bottom:0;}
             #roofMeasureOverlay .rm-runrow{display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; color:var(--slate);}
             #roofMeasureOverlay .rm-runrow button{border:0; background:none; color:var(--ember); cursor:pointer; font-size:13px; line-height:1; padding:0 2px;}
@@ -4537,7 +4547,262 @@
                They now take the height the window can spare. Floored at 430 so
                a laptop is no worse off than before, and capped at 760 so the
                controls beside them do not fall off the bottom. */
-            #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(430px, 62vh, 760px);}
+            /* ⚠ SIZED AGAINST WHAT IS LEFT, NOT AGAINST THE WINDOW. 62vh took no
+               account of the header, the address line and the toolbar above it, so
+               on a 1080p screen the picture began 450px down and ended 170px below
+               the fold - you scrolled to see the house whatever the controls did.
+               The subtraction is what keeps the whole thing on one screen. */
+            /* ⭐ IT FITS BY CONSTRUCTION, NOT BY ARITHMETIC (2026-08-28, fourth go).
+               Owner: "i still need to scroll, it should be really small definitely
+               no scrolling to see everything."
+
+               ⚠ EVERY EARLIER ATTEMPT SUBTRACTED A GUESS. calc(100vh - 505px) is a
+               number somebody measured once, on one window, with one set of panels
+               open - and it is wrong the moment a bar wraps to two lines, a longer
+               address appears, or the browser chrome differs by ten pixels. It was
+               measured at 737px against a 742px window and still scrolled.
+
+               ⭐ SO THE PICTURE TAKES WHAT IS LEFT. The card is one viewport tall
+               and never scrolls; the stage is a flex column inside it; the row
+               holding the pictures is the only thing allowed to GROW, and the
+               canvas fills it. Every bar takes the height it needs and the house
+               gets the remainder - which cannot overflow, because there is no
+               remainder to overflow with.
+
+               ⚠ min-height:0 ON EVERY LINK IN THE CHAIN. A flex item's default
+               min-height is auto, so it refuses to shrink below its content and the
+               overflow reappears one level down, where it is very hard to see. */
+            #roofMeasureOverlay.editcust-popup-overlay{padding:10px; align-items:stretch;}
+            #roofMeasureOverlay .rm-card{height:100%; max-height:100%; overflow:hidden; display:flex; flex-direction:column; padding:12px 16px;}
+            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:0;}
+            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{min-height:0;}
+            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:0;}
+            #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
+            #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
+
+            /* ⭐ AND THE CHROME IS CUT TO THE BONE, because whatever it takes comes
+               straight off the house. Owner: "it should be really small definitely
+               no scrolling to see everything." Measured before: 400px of heading,
+               toolbar and Save block around a 120px picture. */
+            /* The heading, the sentence under it and Reload on ONE line. */
+            #roofMeasureOverlay .rm-card > h3, #roofMeasureOverlay #rmTitle{font-size:15px; margin:0; flex:0 0 auto;}
+            #roofMeasureOverlay #rmSubtitle{font-size:11px; margin:0; flex:1 1 auto; color:var(--slate);}
+            #roofMeasureOverlay .rm-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;}
+            /* The toolbar loses the two lines that only repeat the hint. */
+            #roofMeasureOverlay .rm-tools .rm-sub{display:none;}
+            #roofMeasureOverlay .rm-tools kbd{font-size:9.5px;}
+            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){padding:5px 8px; gap:4px 8px;}
+            /* The Save block on one line: the two figures, what the feet decide,
+               and the button. */
+            #roofMeasureOverlay .rm-commit{padding:5px 8px;}
+            #roofMeasureOverlay .rm-commit .rm-cell{padding:2px 7px;}
+            #roofMeasureOverlay .rm-commit .rm-cell .rm-val{font-size:16px;}
+            #roofMeasureOverlay .rm-commit .rm-cell .rm-lab{font-size:8.5px;}
+            #roofMeasureOverlay .rm-commit .rm-chain-h{display:none;}
+            #roofMeasureOverlay .rm-commit .btn-gold{padding:6px 14px;}
+            #roofMeasureOverlay #rmPricePanel{padding:5px 8px;}
+            #roofMeasureOverlay .rm-panehead{padding:3px 8px; font-size:11px;}
+            /* ⭐ AND EVERY REMAINING LINE IS SQUEEZED, because each one is a strip
+               of house. The keyboard hints move into a tooltip, the heading loses
+               its own row, and the bars run at 11px. */
+            #roofMeasureOverlay .rm-head{margin-bottom:3px;}
+            #roofMeasureOverlay #rmTitle{font-size:14px;}
+            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){font-size:11px; padding:4px 7px; gap:3px 7px;}
+            #roofMeasureOverlay .rm-tools .btn{padding:4px 9px; font-size:11px;}
+            #roofMeasureOverlay .rm-tools .rm-part{padding-left:7px; gap:3px 6px;}
+            #roofMeasureOverlay .rm-tools .rm-resultrow{font-size:11.5px;}
+            #roofMeasureOverlay #rmDrawHint{font-size:10.5px; margin:0;}
+            #roofMeasureOverlay .rm-tools p:has(kbd){display:none;}
+            #roofMeasureOverlay .rm-commit{padding:4px 7px; gap:4px 8px;}
+            #roofMeasureOverlay .rm-commit .rm-cell{padding:1px 6px;}
+            #roofMeasureOverlay .rm-commit .rm-cell .rm-val{font-size:14px;}
+            #roofMeasureOverlay .rm-commit .rm-pair{gap:4px;}
+            #roofMeasureOverlay .rm-commit .btn-gold{padding:5px 12px; font-size:12px;}
+            #roofMeasureOverlay .rm-commit .rm-second{gap:9px;}
+            #roofMeasureOverlay .rm-commit .rm-second button{font-size:10.5px;}
+            #roofMeasureOverlay #rmPricePanel{padding:4px 7px; font-size:11px;}
+            #roofMeasureOverlay .rm-stagerest > *:not(.rm-panes){font-size:11px;}
+            #roofMeasureOverlay .rm-stagerest .btn{padding:5px 10px; font-size:11.5px;}
+            /* ⭐ THE TOOLS ARE NEVER TALLER THAN THE PICTURE BESIDE THEM
+               (2026-08-27). Owner: "all the tools are really far apart, mush them
+               together so i dont have to scroll."
+
+               ⚠ TIGHTENING THE PADDING WAS NOT ENOUGH AND COULD NOT BE. The pane
+               is deliberately tall - clamp(430px, 62vh, 760px), so the house can
+               actually be seen - and on a 1080p screen that plus the page header
+               is already most of the window. A column beside it that runs even a
+               little longer pushes the SAVE button off the bottom of the page,
+               and the only way to reach it is to scroll the picture out of sight.
+               Squeezing the panels took it from 1108px to 877px and it still did
+               not fit, because the thing it has to fit inside is 460px.
+
+               So the column is capped at exactly the pane's height and scrolls
+               inside itself. The PAGE stops scrolling: the picture and the
+               controls stay level and on screen together, and a short scroll
+               inside a 276px column never takes the house away from you.
+
+               ⚠ ONLY WHERE THERE IS ROOM TO BE BESIDE ANYTHING. Under 900px the
+               panes wrap to stacked and the column is full width, where a cap
+               would be a scrollbar inside a scrollbar for no reason. */
+            /* ⭐ THE TOOLS ARE A WIDE BAR, NOT A TALL COLUMN (2026-08-28).
+               Owner, twice: "all the tools are really far apart, mush them
+               together so i dont have to scroll", then "its all too seperated and
+               i have to scroll to use a tool."
+
+               ⚠ THE FIRST ANSWER ONLY MOVED THE SCROLLING. Capping the column at
+               the height of the picture and letting it scroll inside itself
+               stopped the PAGE scrolling, and she still had to scroll to reach a
+               tool - which is what she actually asked not to do.
+
+               ⭐ THE COLUMN WAS THE PROBLEM, AND IT WAS ALWAYS GOING TO BE. A
+               276px column beside a 460px picture has about 500-870px of controls
+               to fit into 460, and no amount of padding closes that. Turned on its
+               side the same controls have 1,400px to run along and need two short
+               rows. The window is wide and was being used as though it were tall.
+
+               ⚠ NOTHING MOVED IN THE MARKUP. Every id, every handler and every
+               render is untouched - this is the container changing direction. A
+               rebuild of that panel would have taken the listeners with it. */
+            /* ⭐ EVERYTHING ON ONE SCREEN (2026-08-28, third go). Owner: "i still
+               need to scroll to use 90 % of the tools, just mush them so i can see
+               them all at the same time."
+
+               ⚠ THE BAR ONLY HELD THE MEASURING TOOLS. Price, Save, the captures
+               and the photo panel were still stacked BELOW the pictures, so most of
+               the tool count was exactly where it had always been. Fixing the
+               column and calling it done was fixing a third of it.
+
+               ⭐ TWO BARS AND THE HOUSE BETWEEN THEM. The stage is a wrapping ROW:
+               the tools take a full line, the pictures take a full line, and
+               everything left - price, Save, the capture buttons - shares the line
+               underneath. Nothing is in a column any more.
+
+               ⚠ AND THE PICTURE HAS TO GIVE SOME HEIGHT BACK. Two bars plus a
+               header is about 300px; on a 1080p window that leaves ~330 for the
+               house, not 460. That is the trade and it is the right way round -
+               a slightly smaller house you can measure without scrolling beats a
+               bigger one with the controls off screen. */
+            /* ⚠ align-content MUST STRETCH, or the slack never reaches the house.
+               A wrapping flex container packs its LINES to the start by default and
+               leaves the leftover at the bottom - so the picture's line kept its
+               content height (120px) while empty space sat underneath it. stretch is
+               what hands that space to the line that can grow. */
+            /* ⭐ A COLUMN OF TWO THINGS, WHICH IS WHAT IT ALWAYS WAS. The wrapping
+               row was only ever needed so `order` could put the pictures BETWEEN the
+               tools and Save; now that Save sits on the tools' own line there is
+               nothing to interleave. And a wrap container RESERVES a share of the
+               spare height for every line, so ~150px sat empty under the bars while
+               the house stayed at 195px however thin the bars got. A column hands
+               the whole remainder to the one item allowed to grow. */
+            #roofMeasureOverlay #rmWorkStage{display:flex; flex-direction:column; gap:6px; min-height:0;}
+            #roofMeasureOverlay .rm-tools{display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; flex:0 0 auto;}
+            /* ⚠ display:contents SO THE ORDER BELOW CAN REACH THEM. The controls,
+               the price and the Save block are three children of .rm-tools, and
+               `order` only sorts siblings - left nested they all had to sit on the
+               same side of the pictures, which is what made the top bar 457px tall
+               and pushed the house off the screen. Dissolving the wrapper makes
+               them siblings of the pictures, so the CONTROLS can go above and the
+               Save block after. */
+
+            /* ⚠ EVERYTHING GETS AN ORDER OR NOTHING DOES. Dissolving .rm-tools made
+               its children siblings of the pictures - and of the photo, wall and
+               capture blocks, which had no order and so defaulted to 0 and jumped
+               ABOVE the pictures. A default that puts unknown blocks LAST is the
+               safe direction: a new block added later lands after the house rather
+               than pushing it off the screen. */
+            #roofMeasureOverlay #rmWorkStage > *{order:6;}
+            /* ⚠ flex:1 1 100% DOES NOT FORCE A LINE BREAK. A 100% basis that is
+               allowed to SHRINK will happily share a line with everything else, and
+               the toolbar, the pictures and the Save block all ended up side by
+               side in three narrow columns - which is the tall-column problem again
+               wearing a different hat. flex-shrink 0 is what makes it a row. */
+            /* ⚠ :not(.rm-commit) BECAUSE THE SAVE BLOCK IS ALSO A .rm-panel. It
+               carries both classes, so this rule was giving it order 1 and a full
+               width - it took the toolbar's slot, sat above the house and stretched
+               across the whole window, and the order rule written for it lower down
+               lost the specificity fight. Two classes on one element is easy to
+               miss; the symptom looked like an ordering bug and was a selector. */
+            /* ⭐ THE TOOLS, THE PRICE AND SAVE SHARE ONE LINE. They were three
+               stacked rows costing about 250px, and every pixel of that is a strip
+               of house - the window is 1,400 wide and they fit side by side with
+               room to spare. The pictures are the only thing left that takes a full
+               line, which is why they get whatever is over. */
+            /* ⚠ min-width:0 OR IT WILL NOT SHARE THE LINE. A flex item refuses to
+               shrink below its min-content width by default, and a bar full of
+               buttons has a wide one - so it claimed the whole line and pushed Save
+               onto another, which is 127px of house. Allowing it to shrink lets both
+               sit on one line and wrap internally instead. */
+            /* ⚠ align-self:start ON EVERY BAR, or align-content:stretch fattens
+               THEM instead of the house. Stretch hands the spare height to every
+               line, so a one-line toolbar became a 120px box with its buttons
+               floating in the middle of it and the pictures stayed small - the
+               opposite of the point. The bars keep their content height; only the
+               pictures' line is left able to grow. */
+            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){order:1; flex:1 1 560px; min-width:0; align-self:start;}
+            /* ⚠ THE PICTURES SHARE A WRAPPER WITH THE PHOTO AND CAPTURE BLOCKS, so
+               their order is decided INSIDE that wrapper, not against the toolbar.
+               Ordered against the stage they stayed put and those two blocks sat
+               above the house, which is the fault this was meant to fix. -1 puts
+               them first among their own siblings; the wrapper as a whole still
+               sits after the toolbar. */
+            /* The pictures' WRAPPER is what sorts against the toolbar - the panes
+               row itself only sorts against the photo and capture blocks it shares
+               that wrapper with. Ordering the inner one moved nothing, and Save
+               ended up above the house. */
+            /* ⚠ SPECIFICITY, NOT ORDER OF WRITING. The catch-all above is two ids
+               (#roofMeasureOverlay #rmWorkStage > *) and beats an id-plus-class, so
+               a plain .rm-stagerest rule lost and the Save block sat above the
+               house. Matched through the same two ids to win. */
+            /* A column, so the pictures can take the height and the two short rows
+               under them keep only what they need. */
+            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:6px;}
+            #roofMeasureOverlay .rm-panes{order:-1; flex:1 0 100%;}
+            #roofMeasureOverlay #rmPricePanel{order:3;}
+            #roofMeasureOverlay .rm-commit{order:4;}
+            #roofMeasureOverlay #rmRoofFactsPanel{order:5;}
+            #roofMeasureOverlay .rm-tools > .rm-panel{flex:1 1 auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
+            /* Inside the bar a part is a group separated by a rule to its LEFT,
+               because the flow is now sideways. */
+            #roofMeasureOverlay .rm-tools .rm-part{margin:0; padding:0 0 0 9px; border-top:0; border-left:1px solid var(--line); display:flex; flex-wrap:wrap; align-items:center; gap:5px 8px;}
+            #roofMeasureOverlay .rm-tools .rm-part > .rm-lbl{margin:0 2px 0 0;}
+            #roofMeasureOverlay .rm-tools .rm-sub{margin:0; flex:0 0 100%;}
+            #roofMeasureOverlay .rm-tools #rmResults{display:flex; gap:10px; align-items:center;}
+            #roofMeasureOverlay .rm-tools .rm-resultrow{border-bottom:0; padding:0; gap:5px;}
+            /* The Save block keeps its own shape - it is the one thing here that
+               is a decision rather than a control. */
+            /* Below the pictures, where the last step belongs, and no wider than
+               it needs to be - a Save block stretched across 1,400px is a long way
+               for an eye to travel between the feet and the button. */
+            /* The last line: price, Save and the captures side by side. The Save
+               block lays out sideways too - the figures, what the feet decide and
+               the button in a row rather than a stack. */
+            #roofMeasureOverlay .rm-commit{order:1; flex:1 1 380px; min-width:0; align-self:start; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;}
+            /* ⚠ THE HEADING AND THE SENTENCE COST TWO FULL LINES OF THE BAR. The
+               gold button says "Save to this quote" itself, so a heading above it
+               saying the same words is the one thing here that can go without
+               losing anything. The sentence moves into the button's tooltip. */
+            #roofMeasureOverlay .rm-commit h4{display:none;}
+            #roofMeasureOverlay .rm-commit .rm-sub{display:none;}
+            #roofMeasureOverlay .rm-commit .rm-saidit{display:none;}
+            #roofMeasureOverlay .rm-commit .rm-pair{margin:0; flex:0 0 auto; grid-template-columns:auto auto;}
+            #roofMeasureOverlay .rm-commit .rm-chain{margin:0; padding:0 0 0 10px; border-top:0; border-left:1px solid rgba(255,255,255,.14); flex:0 0 auto; display:flex; align-items:center; gap:8px;}
+            #roofMeasureOverlay .rm-commit .rm-chain-h{margin:0; flex:0 0 auto;}
+            #roofMeasureOverlay .rm-commit .btn-gold{width:auto; margin:0; flex:0 0 auto;}
+            #roofMeasureOverlay .rm-commit .rm-second{margin:0; flex:0 0 auto;}
+            #roofMeasureOverlay .rm-commit .rm-saidit{flex:1 1 100%; margin:0; text-align:left;}
+            #roofMeasureOverlay #rmPricePanel{order:1; flex:0 1 auto; align-self:start; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
+            #roofMeasureOverlay #rmPricePanel > *{margin:0;}
+            @media (max-width: 899px){
+              #roofMeasureOverlay .rm-tools{flex-direction:column;}
+            }
+            /* ⛔ THE CAPPED, STICKY, SCROLLING COLUMN IS GONE (2026-08-28). It was
+               the previous answer to the same complaint - cap the column at the
+               height of the picture and let it scroll inside itself - and the owner
+               said plainly that it had not worked: "i still need to scroll to use
+               90 % of the tools." Left in place it also FOUGHT the bar, holding a
+               max-height and an overflow on a container that is now display:contents.
+               The reasoning is in the commit; nothing here should re-cap a column,
+               because there is no column. */
             #roofMeasureOverlay .rm-panehead{position:absolute; left:0; right:0; top:0; z-index:9; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(rgba(12,18,26,.72), rgba(12,18,26,0)); color:#fff; font-size:12px; font-weight:600; pointer-events:none;}
             /* Sits over a pane until its imagery is actually on screen. z-index
                is BELOW the lock layer so it can never swallow a measuring click
@@ -4558,32 +4823,44 @@
             #roofMeasureOverlay .rm-mini{display:flex; justify-content:space-between; font-size:12px; padding:3px 0;}
             #roofMeasureOverlay kbd{background:#fff; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:1px 5px; font:inherit; font-size:10px; font-weight:700;}
             /* ---- the one commit block ---- */
-            #roofMeasureOverlay .rm-commit{background:var(--ink); border-radius:12px; padding:13px; color:#EAF1E6;}
+            #roofMeasureOverlay .rm-commit{background:var(--ink); border-radius:10px; padding:9px 10px; color:#EAF1E6;}
             #roofMeasureOverlay .rm-commit h4{color:#fff;}
             #roofMeasureOverlay .rm-commit .rm-sub{color:#A9BDAE;}
-            #roofMeasureOverlay .rm-pair{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0 2px;}
-            #roofMeasureOverlay .rm-cell{background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); border-radius:9px; padding:8px 9px;}
+            #roofMeasureOverlay .rm-pair{display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:6px 0 2px;}
+            #roofMeasureOverlay .rm-cell{background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); border-radius:8px; padding:5px 8px;}
             #roofMeasureOverlay .rm-cell .rm-lab{font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#9FB6A6; display:block; margin-bottom:3px;}
             #roofMeasureOverlay .rm-cell .rm-val{font-family:'Fraunces',serif; font-size:21px; color:#fff; font-variant-numeric:tabular-nums; line-height:1.1;}
-            #roofMeasureOverlay .rm-chain{margin:11px 0 0; padding:9px 0 0; border-top:1px solid rgba(255,255,255,.14);}
-            #roofMeasureOverlay .rm-chain-h{font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#9FB6A6; margin-bottom:6px;}
+            #roofMeasureOverlay .rm-chain{margin:7px 0 0; padding:6px 0 0; border-top:1px solid rgba(255,255,255,.14);}
+            #roofMeasureOverlay .rm-chain-h{font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#9FB6A6; margin-bottom:4px;}
             #roofMeasureOverlay .rm-chain-row{display:flex; gap:6px;}
-            #roofMeasureOverlay .rm-chip{flex:1; text-align:center; background:rgba(244,190,85,.13); border:1px solid rgba(244,190,85,.32); border-radius:8px; padding:6px 4px;}
-            #roofMeasureOverlay .rm-chip b{display:block; font-family:'Fraunces',serif; font-size:15px; color:var(--gold); font-variant-numeric:tabular-nums;}
-            #roofMeasureOverlay .rm-chip span{display:block; font-size:9px; color:#B9C9BC; line-height:1.3; margin-top:1px;}
+            #roofMeasureOverlay .rm-chip{flex:1; text-align:center; background:rgba(244,190,85,.13); border:1px solid rgba(244,190,85,.32); border-radius:7px; padding:3px 4px; white-space:nowrap;}
+            #roofMeasureOverlay .rm-chip b{display:inline; font-family:'Fraunces',serif; font-size:14px; color:var(--gold); font-variant-numeric:tabular-nums;}
+            #roofMeasureOverlay .rm-chip span{display:inline; font-size:9px; color:#B9C9BC; line-height:1.3; margin-left:3px;}
             #roofMeasureOverlay .rm-flag{margin:10px 0 0; border-radius:9px; padding:8px 10px; font-size:11.5px; line-height:1.5; display:none;}
             #roofMeasureOverlay .rm-flag.on{display:block;}
             #roofMeasureOverlay .rm-flag.warn{background:rgba(224,87,75,.16); border:1px solid rgba(224,87,75,.45); color:#FFD9D5;}
             #roofMeasureOverlay .rm-flag.note{background:rgba(244,190,85,.14); border:1px solid rgba(244,190,85,.4); color:#FBE6BC;}
-            #roofMeasureOverlay .rm-commit .btn-gold{width:100%; margin-top:11px; justify-content:center;}
-            #roofMeasureOverlay .rm-second{display:flex; gap:14px; justify-content:center; margin-top:9px; flex-wrap:wrap;}
+            /* ⚠ NOT width:100% ANY MORE. This is the same specificity as the rule
+               above and sits LATER in the file, so it won - the button took a full
+               line of its own and pushed the two links onto another, costing ~50px
+               of the house. Same-specificity rules are decided by source order, and
+               a duplicate selector further down is invisible from the one above. */
+            #roofMeasureOverlay .rm-commit .btn-gold{width:auto; margin:0; justify-content:center;}
+            #roofMeasureOverlay .rm-second{display:flex; gap:14px; justify-content:center; margin-top:6px; flex-wrap:wrap;}
             #roofMeasureOverlay .rm-second button{background:none; border:0; color:#A9BDAE; font-size:11.5px; text-decoration:underline; text-underline-offset:2px; padding:2px; cursor:pointer; font-family:inherit;}
             #roofMeasureOverlay .rm-second button:hover{color:#fff;}
             #roofMeasureOverlay .rm-second button:disabled{opacity:.4; cursor:not-allowed; text-decoration:none;}
-            #roofMeasureOverlay .rm-saidit{font-size:11px; color:#B9C9BC; margin:9px 0 0; text-align:center; line-height:1.5;}
+            #roofMeasureOverlay .rm-saidit{font-size:10.5px; color:#B9C9BC; margin:6px 0 0; text-align:center; line-height:1.45;}
           </style>
+              <div class="rm-head">
           <h3 id="rmTitle" style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:19px;">Measure Roof</h3>
           <p id="rmSubtitle" style="font-size:12.5px; color:var(--slate); margin:0 0 12px;">Trace the roofline on the sky view, then say where the peaks are. Street View is for the grade and for the picture.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
+            <input type="hidden" id="rmAddress">
+            <p id="rmAddressShown" style="flex:1 1 320px; min-width:220px; margin:0; font-size:13px; color:var(--slate);"></p>
+            <button type="button" class="btn btn-outline btn-sm" id="rmLoadBtn" title="Load this address again">&#10227; Reload the imagery</button>
+          </div>
+              </div>
 
           <!-- ⭐ NO ADDRESS BAR (2026-08-25). The tool only ever opens from a
                quote, and a quote already knows its own address — so typing one
@@ -4596,16 +4873,11 @@
                instead, so it can still be checked and no longer be edited.
                Reload is the ⟳ beside it, for the rare case where Google's
                imagery has not answered. -->
-          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;">
-            <input type="hidden" id="rmAddress">
-            <p id="rmAddressShown" style="flex:1 1 320px; min-width:220px; margin:0; font-size:13px; color:var(--slate);"></p>
-            <button type="button" class="btn btn-outline btn-sm" id="rmLoadBtn" title="Load this address again">&#10227; Reload the imagery</button>
-          </div>
 
-          <div id="rmWorkStage" style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
-            <div style="flex:0 0 276px; min-width:244px; display:flex; flex-direction:column; gap:12px;">
+          <div id="rmWorkStage">
+            <div class="rm-tools">
               <div class="rm-panel">
-                <h4>Measurement Tools</h4>
+
                 <!-- ⚠ NO TYPE PICKER. Owner: "we only do perimeter so get rid of
                      the ground and ridge buttons too." Ridge and Ground were
                      three buttons, a keyboard shortcut each and two rows of
@@ -4613,11 +4885,11 @@
                      RM_TYPES still knows all three so a quote measured before
                      today still renders and still prices - nothing new is ever
                      made as either. -->
-                <p class="rm-sub">Click along the roofline on the sky view.</p>
-                <button type="button" class="btn btn-gold btn-sm" id="rmDrawBtn" style="width:100%; justify-content:center;">Start Measuring</button>
-                <div style="display:flex; gap:6px; margin-top:6px;">
-                  <button type="button" class="btn btn-outline btn-sm" id="rmUndoBtn" style="flex:1; justify-content:center;">Undo</button>
-                  <button type="button" class="btn btn-outline btn-sm" id="rmClearBtn" style="flex:1; justify-content:center;">Clear</button>
+                <p class="rm-sub" style="margin-bottom:5px;">Click along the roofline on the sky view.</p>
+                <div style="display:flex; gap:6px;">
+                  <button type="button" class="btn btn-gold btn-sm" id="rmDrawBtn" style="flex:2 1 118px; justify-content:center;">Start Measuring</button>
+                  <button type="button" class="btn btn-outline btn-sm" id="rmUndoBtn" style="flex:1 1 52px; justify-content:center; padding-left:8px; padding-right:8px;">Undo</button>
+                  <button type="button" class="btn btn-outline btn-sm" id="rmClearBtn" style="flex:1 1 52px; justify-content:center; padding-left:8px; padding-right:8px;">Clear</button>
                 </div>
                 <p id="rmDrawHint" style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Load an address first.</p>
                 <!-- Front is on by default; the rest are one click each. The
@@ -4628,8 +4900,8 @@
                      between picking and placing. Shift-click two to swap
                      their places in the order. -->
                 <div id="rmCornerBar" style="display:none; margin-top:10px;">
-                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">
-                    Corners &mdash; <span id="rmCornerMode">Picking corners &mdash; space to place a dot</span>
+                  <div style="font-size:11px; color:var(--slate); margin-bottom:4px;">
+                    <span id="rmCornerMode">Picking &mdash; space to place</span>
                   </div>
                   <div id="rmCornerNote" style="font-size:11px; color:var(--dusk); margin-bottom:5px;"></div>
                   <div id="rmCornerList" style="display:flex; gap:4px; flex-wrap:wrap;"></div>
@@ -4665,23 +4937,22 @@
                   </div>
                 </div>
                 <div id="rmSidesBar" style="display:none; margin-top:10px;">
-                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:5px;">Sides of the house</div>
+                  <div style="font-size:11px; color:var(--slate); margin-bottom:4px;">Sides of the house</div>
                   <div style="display:flex; gap:5px; flex-wrap:wrap;">
                     <button type="button" class="rm-sidebtn on" data-rmside="front">Front</button>
                     <button type="button" class="rm-sidebtn" data-rmside="left">Left</button>
                     <button type="button" class="rm-sidebtn" data-rmside="right">Right</button>
                     <button type="button" class="rm-sidebtn" data-rmside="back">Back</button>
-                    <button type="button" class="btn btn-outline btn-sm" id="rmAllSides" style="padding:4px 9px; font-size:11px;">All</button>
+                    <button type="button" class="btn btn-outline btn-sm" id="rmAllSides" style="padding:4px 7px; font-size:11px;">All</button>
                   </div>
                 </div>
                 <!-- Named on screen on purpose: a shortcut nobody can find is a
                      feature for one person. ⚠ BUT SIX OF THEM IS A LIST NOBODY
                      READS, so the two that matter stay out here and the rest
                      move under More options — none of them is unbound. -->
-                <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
+                <p style="font-size:10.5px; color:var(--slate); margin:7px 0 0; line-height:1.6;">
                   <kbd>Enter</kbd> finish a side &middot; <kbd>&#9003;</kbd> undo a point
                 </p>
-              </div>
 
               <!-- The height a sky-view click is assumed to be at. Sky view
                    cannot see height, so it has to be told once - and Street
@@ -4712,11 +4983,11 @@
                    shift-drag on a dot in Street View sets its height by eye,
                    against the photograph, which is a better overrule than a
                    number typed into a box with nothing to check it against. -->
-              <div class="rm-panel" id="rmHeightPanel" style="display:none;">
+              <div class="rm-part" id="rmHeightPanel" style="display:none;">
                 <p id="rmDatumNote" style="font-size:12px; color:var(--dusk); margin:0; font-weight:600;"></p>
                 <button type="button" id="rmMoreBtn" style="border:0; background:none; padding:4px 0 0; font-size:11px; color:var(--slate); cursor:pointer; text-decoration:underline;">More options</button>
                 <div id="rmMoreBox" style="display:none; margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
-                  <p class="rm-sub" style="margin-bottom:6px;">Heights are measured in Street View. Put a dot on a wall, or shift-drag one up or down, and the roof height follows from where the ray meets the house.</p>
+                  <p class="rm-sub" style="margin-bottom:6px;">The roofline is traced from above, where lengths measure true. Height only matters where the roof climbs, and that is what a peak is &mdash; add one and read its grade off the picture.</p>
                   <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
                     <kbd>Esc</kbd> cancel &middot; <kbd>A</kbd> all suggested on/off &middot;
                     <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
@@ -4734,9 +5005,8 @@
                    space. rmFilterCss now answers 'none' and the captures go out
                    exactly as Google served them. -->
 
-              <div class="rm-panel">
-                <h4>Distance Results</h4>
-                <p class="rm-sub">Real ground distance, not pixels.</p>
+              <div class="rm-part">
+                <div class="rm-lbl">Measured</div>
                 <div id="rmResults"></div>
                 <div id="rmRuns" style="margin-top:8px;"></div>
                 <!-- ⭐ THE GRADE TOOL (2026-08-27). Owner: "build a tool where you
@@ -4744,7 +5014,7 @@
                      tool it automatically adds the extra."
                      Drag along the slope of a gable in the picture; the angle of
                      the drag is the grade; letting go re-costs every peak. -->
-                <div style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <div style="margin-top:6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                   <button type="button" class="btn btn-outline btn-sm" id="rmGradeBtn" style="padding:4px 10px; font-size:11px;">Measure the grade</button>
                   <span id="rmGradeNote" style="font-size:11.5px; color:var(--slate);"></span>
                 </div>
@@ -4752,8 +5022,8 @@
                      "you should just say between which two dots is it located ...
                      and then it bases it off of the distance between the two
                      points and the grade and calculates it." -->
-                <div style="margin-top:8px;">
-                  <div style="font-size:11.5px; color:var(--slate); margin-bottom:4px;">Peaks</div>
+                <div class="rm-part">
+                  <div class="rm-lbl">Peaks</div>
                   <div id="rmPeakList"></div>
                   <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:4px;">
                     <span style="font-size:11.5px; color:var(--slate);">between</span>
@@ -4776,8 +5046,8 @@
                      ⚠ IT IS MARKED `manual` SO IT NEVER LOOKS MEASURED. A typed
                      number and a traced one are different kinds of claim, and
                      the list says which is which. -->
-                <div style="margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
-                  <button type="button" class="btn btn-outline btn-sm" id="rmAddManualBtn" style="width:100%; justify-content:center;">+ Add a side by hand</button>
+                <div class="rm-part">
+                  <button type="button" class="btn btn-outline btn-sm" id="rmAddManualBtn" style="width:100%; justify-content:center; padding:3px 8px; font-size:11px;">+ Add a side by hand</button>
                   <div id="rmManualBox" style="display:none; margin-top:7px;">
                     <div style="display:flex; gap:5px; flex-wrap:wrap;">
                       <input type="text" id="rmManualName" placeholder="Name, e.g. Back" style="flex:1 1 96px; min-width:80px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12px;">
@@ -4836,10 +5106,10 @@
                      that reads rmCalibration breaks; delete them once nothing does. -->
               </div>
 
+              </div><!-- /the one controls panel: measuring, results, peaks, a typed side -->
+
               <div class="rm-panel" id="rmPricePanel" style="display:none;">
-                <h4>Price</h4>
-                <p class="rm-sub">Your per-foot rate, tilted by how hard the house is.</p>
-                <div style="display:flex; gap:8px; align-items:center; margin-bottom:9px;">
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
                   <label style="font-size:11.5px; color:var(--slate);">Difficulty</label>
                   <select id="rmDifficulty" style="padding:6px 8px; border-radius:8px; border:1px solid var(--line); font-size:12.5px;">
                     <option value="Easy">Easy &times;0.85</option>
@@ -4847,7 +5117,7 @@
                     <option value="Hard">Hard &times;1.25</option>
                   </select>
                 </div>
-                <p id="rmGradeWhy" style="font-size:11px; color:var(--slate); margin:0 0 9px;"></p>
+                <p id="rmGradeWhy" style="font-size:11px; color:var(--slate); margin:0 0 5px;"></p>
                 <div id="rmPrice" style="font-size:12.5px;"></div>
               </div>
 
@@ -4867,7 +5137,7 @@
                    on every render. -->
               <div class="rm-panel rm-commit" id="rmCommitPanel" style="display:none;">
                 <h4>Save to this quote</h4>
-                <p class="rm-sub">One press. The feet and the price go together, or neither goes.</p>
+                <p class="rm-sub" style="margin-bottom:0;">One press &mdash; the feet and the price go together, or neither goes.</p>
                 <div class="rm-pair">
                   <div class="rm-cell"><span class="rm-lab">Estimated feet</span><div class="rm-val" id="rmCommitFt">—</div></div>
                   <div class="rm-cell"><span class="rm-lab">Quoted price</span><div class="rm-val" id="rmCommitPr">—</div></div>
@@ -4882,12 +5152,12 @@
                 </div>
                 <div class="rm-flag warn" id="rmFlagHand"></div>
                 <div class="rm-flag note" id="rmFlagStale"></div>
-                <button type="button" class="btn btn-gold" id="rmCommitBtn">Save to this quote</button>
+                <button type="button" class="btn btn-gold" id="rmCommitBtn" title="One press — the feet and the price go together, or neither goes. The drawing saves too, so reopening the quote brings the lines back.">Save to this quote</button>
                 <div class="rm-second">
                   <button type="button" id="rmUseFeetBtn">Save the feet only</button>
                   <button type="button" id="rmUsePriceBtn">Save the price only</button>
                 </div>
-                <p class="rm-saidit">The drawing saves with it either way, so reopening this quote brings the lines back.</p>
+                <p class="rm-saidit">The drawing saves too, so reopening the quote brings the lines back.</p>
                 <p class="rm-saidit" id="rmGradeSaved" style="margin-top:4px;"></p>
               </div>
 
@@ -4898,14 +5168,20 @@
               </div>
             </div>
 
-            <div style="flex:1 1 900px; min-width:360px; display:flex; flex-direction:column; gap:10px;">
+            <!-- ⚠ NO INLINE flex HERE. It carried "flex:1 1 900px" from the old
+                 layout, where this was the RIGHT-HAND column beside a tool column -
+                 and an inline style beats the stylesheet, so the new full-width rule
+                 was silently ignored, the pictures were squeezed into 961px of a
+                 1410px stage, and they wrapped onto two rows with the Save block
+                 tucked in beside them. Layout for this lives in the stylesheet. -->
+            <div class="rm-stagerest">
               <!-- ⚠ SIDE BY SIDE WHEREVER THERE IS ROOM. Stacked, the street
                    pane sat below the fold, so a window whose whole point is
                    "mark it in one and see it in the other" opened showing only
                    one of them. They wrap back to stacked on a narrow screen,
                    which is the right answer there - two 200px panes would be
                    worse than one usable one. -->
-              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
+              <div class="rm-panes" style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
                 <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span></div>
                 <div id="rmMap" class="rm-canvas"></div>
@@ -5001,13 +5277,19 @@
                 </div>
               </div>
 
-              <div id="rmWallBar" style="padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
-                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                  <button type="button" class="btn btn-gold btn-sm" id="rmWallBtn">Set the Wall</button>
-                  <span id="rmWallStatus" style="font-size:12px; color:var(--slate);">Street View needs the wall pinned once before it can measure.</span>
-                </div>
-                <p style="font-size:11.5px; color:var(--slate); margin:8px 0 0;">Click where the wall meets the ground at each end of the house. That is what gives a flat photograph its depth &mdash; without it, a picture cannot be measured at all.</p>
-              </div>
+              <!-- ⛔ SET THE WALL IS GONE (2026-08-28). It pinned where the wall met
+                   the ground at each end of the house, and that is what gave a flat
+                   photograph its DEPTH - without it a street click could not become a
+                   place at all, which is exactly what its own caption said.
+
+                   ⚠ NOTHING MEASURES FROM A STREET CLICK ANY MORE (MR-01), so there
+                   is no depth left to supply. The button asked for two clicks that
+                   could change nothing, and the caption told the office Street View
+                   "needs the wall pinned once before it can measure" - an instruction
+                   that could not be acted on and a claim that was no longer true.
+
+                   rmWall, rmWallPicking and rmActiveWall are left in place and
+                   unreachable so nothing that reads them breaks. -->
 
               <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                 <button type="button" class="btn btn-gold" id="rmCaptureSky" disabled>Capture Sky View</button>
@@ -16723,6 +17005,30 @@ const RM_TYPES = {
    thousandth of a foot. 2.9 is close to 3.281 and it is worth saying plainly
    that it is NOT a metres-read-as-feet bug - that was the first thing checked.
 
+   ⭐ THE SIZE IS HERS AND IT MOVES. 2.9 → 1.45 → **1.3**, all on 2026-08-28:
+   "also make it 1.45 times smaller not 2.9", then "actually make it 1.3 times
+   smaller". She said when this was settled that she might adjust it and would
+   say so, and she has, twice in a few minutes.
+
+   ⚠ SO DO NOT READ ANY NUMBER IN THE PARAGRAPHS BELOW AS CURRENT. They are the
+   argument for the multiplier EXISTING - that $2 a foot is the advertised rate
+   and a 60 ft house cannot be done for $120 - not for its size. The size is a
+   dial she turns; read it off the line above, never off the prose.
+
+   ⭐ ANSWERED 2026-08-28, AND THE ANSWER CHANGES WHAT THIS NUMBER IS. Owner:
+   "yes the 2.9 is good because we want to charge $2 a foot but if the house is
+   so called 60 feet we cant do that." So it is NO LONGER a measurement
+   correction - it is where the MINIMUM JOB COST lives. $2 a foot is the
+   advertised rate and a 60 ft house cannot be done for $120 whatever the tape
+   says.
+
+   ⚠ SO DO NOT SET IT BACK TO 1 WHEN THE MEASUREMENT IS PROVED TRUE. Everything
+   below this line is the ORIGINAL reasoning, kept because it is exactly the
+   trap: a session that finds an accurate trace and a 2.9 on top of it will read
+   the paragraphs that follow, conclude the compensation is stale, and cut every
+   quote to a third of what she charges. It survives the measurement being right.
+   She has said she may adjust it and will say so. Nobody else moves it.
+
    ⚠ SO WHAT IT IS COMPENSATING FOR IS WHERE THE DOTS LAND, not how they are
    measured, and that has a real cause being worked on: dots were landing about
    6.7 ft from the truth on 209 S 850 W, on a surface standing in front of the
@@ -16734,7 +17040,7 @@ const RM_TYPES = {
    shows Measured and then ×2.9 for pricing as separate lines, so nobody has to
    work out which number is which - that disclosure is the whole reason this is
    a multiplier rather than a change to the maths. */
-const RM_FEET_MULTIPLIER = 2.9;
+const RM_FEET_MULTIPLIER = 1.3;
 const RM_STATIC_MAX = 640;
 const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
 const RM_M_TO_FT = 3.280839895;
@@ -17086,6 +17392,77 @@ function rmRay(px, py, W, H, pov){
   };
   const len = Math.hypot(v.e, v.n, v.u);
   return {e: v.e/len, n: v.n/len, u: v.u/len};
+}
+/* ================= STREET VIEW'S OWN DOTS =========================
+ *
+ * ⭐ WHY THESE EXIST (2026-08-28). Owner: "it should not show the dots from sky
+ * view and should also let you draw your own dots seperate from sky view so you
+ * can only see it on street view."
+ *
+ * ⚠ WHAT SHE WAS LOOKING AT. Street View was drawing the SKY VIEW's traced runs
+ * projected into the photograph - dots she had placed from above, appearing in a
+ * picture she could not draw on. The worst of both: cluttered AND inert.
+ *
+ * ⭐ A STREET DOT IS A DIRECTION, NOT A PLACE, and that is what makes it
+ * possible at all. Turning a street click into a POSITION needs a depth the
+ * photograph cannot supply - the whole reason measuring moved to the sky view.
+ * A direction needs nothing: rmRay already turns a pixel into a unit vector out
+ * of the camera, and projecting it back is the same basis maths rmSvProject
+ * uses. So the mark sticks to the picture exactly as the camera pans and zooms,
+ * and it never has to answer how far away it is.
+ *
+ * ⚠ THEREFORE IT MEASURES NOTHING, deliberately. Two directions with no depth
+ * have no distance between them. These are marks on a photograph - this is the
+ * pane that takes the picture - and nothing here reaches the footage or the
+ * price.
+ *
+ * ⚠ AND A DIRECTION BELONGS TO ONE PANORAMA. Bearings from where the van stood
+ * are meaningless from the next camera down the street, so each dot records the
+ * pano it was placed in and is drawn only there. Walking away and back brings
+ * them back; it does not smear them across the road. */
+let rmStreetDots = [];
+let rmLastPane = 'sky';   /* which picture the last dot went into, so backspace knows */
+
+function rmStreetDotFromPixel(px, py, W, H, pov){
+  const d = rmRay(px, py, W, H, pov);
+  if(!d) return null;
+  return {e: d.e, n: d.n, u: d.u, pano: (rmPano && rmPano.getPano) ? rmPano.getPano() : ''};
+}
+/* Back to a pixel. Null when it is behind the camera or off the edge - the
+   same forward-facing test rmSvProject makes, for the same reason. */
+function rmStreetDotPixel(dir, W, H, pov){
+  const b = rmBasis(pov.heading, pov.pitch);
+  const f = b.forward.e*dir.e + b.forward.n*dir.n + b.forward.u*dir.u;
+  if(f <= 0.15) return null;
+  const r = b.right.e*dir.e + b.right.n*dir.n + b.right.u*dir.u;
+  const u = b.up.e*dir.e + b.up.n*dir.n + b.up.u*dir.u;
+  const focal = (W/2)/Math.tan(rmRad(rmFovDeg(pov.zoom))/2);
+  return {x: W/2 + focal*r/f, y: H/2 - focal*u/f};
+}
+function rmStreetDotsHere(){
+  const id = (rmPano && rmPano.getPano) ? rmPano.getPano() : '';
+  return rmStreetDots.filter(function(d){ return d.pano === id; });
+}
+function rmAddStreetDot(dot){
+  if(!dot) return false;
+  rmStreetDots.push(dot);
+  rmPaintStreet();
+  rmStreetDotNote();
+  return true;
+}
+function rmDeleteLastStreetDot(){
+  const here = rmStreetDotsHere();
+  if(!here.length) return false;
+  rmStreetDots.splice(rmStreetDots.lastIndexOf(here[here.length - 1]), 1);
+  rmPaintStreet();
+  rmStreetDotNote();
+  return true;
+}
+function rmStreetDotNote(){
+  const el = document.getElementById('rmStreetNote');
+  if(!el) return;
+  const n = rmStreetDotsHere().length;
+  el.textContent = n ? (n + (n === 1 ? ' mark' : ' marks') + ' — backspace takes one back') : '';
 }
 function rmPanoPov(){
   if(!rmPano) return {heading:0, pitch:0, zoom:1};
@@ -21514,7 +21891,7 @@ function rmSetDrawing(on){
        instruction the button used to. */
     hint.innerHTML = rmRuns.length
       ? 'Click the roofline again for another side — each one is listed below with its own footage, and the &times; removes it.'
-      : '<strong>Click along the roofline</strong> on the sky view to start a side. Backspace takes a point back.';
+      : '<strong>Click along the roofline</strong> on the sky view. Each dot is lettered A, B, C&hellip; and a peak is named by the two it sits between. Backspace takes one back.';
   }
   const lock = rmDrawing || rmWallPicking;
   /* Sky takes clicks whenever we are drawing; Street only once the wall is
@@ -21549,7 +21926,13 @@ function rmSetDrawing(on){
      The one thing that view cannot give is HEIGHT, and height only lengthens a
      line where it CLIMBS - which is what the peaks answer, by being counted
      rather than measured. */
-  const stLock = false;
+  /* ⭐ THE PICTURE TAKES CLICKS AGAIN (2026-08-28), FOR ITS OWN MARKS ONLY.
+     This was false from the day Street View stopped measuring, and it had to
+     be: a click here could not become a place without a depth the photograph
+     cannot give. A MARK needs no depth (see the block on rmStreetDots), so the
+     sheet goes back over the picture while measuring - and nothing it takes
+     reaches the footage. */
+  const stLock = rmDrawing || rmCornerMode === 'dot';
   document.getElementById('rmMapLock').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmMapFrozen').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmPanoLock').style.display = stLock ? 'block' : 'none';
@@ -21647,7 +22030,6 @@ function rmRenderResults(){
     const hs = (r.path || []).map(function(p){ return (p.h||0)*RM_M_TO_FT; });
     const top = hs.length ? Math.round(Math.max.apply(null, hs)) : 0;
     const on = rmRunIsOn(r);
-    const extraFt = rmPeakExtraFeet(r);
     return '<div class="rm-runrow"'+(on ? '' : ' style="opacity:.55;"')+'>'+
       '<span><label style="cursor:pointer;"><input type="checkbox" data-rmonrun="'+i+'"'+(on ? ' checked' : '')+
       ' style="margin-right:5px; vertical-align:-1px;">'+
@@ -21655,32 +22037,21 @@ function rmRenderResults(){
       (r.surface === 'manual' ? ' <span style="opacity:.6;">typed</span>' : '')+
       (r.suggested ? ' <span style="opacity:.6;">'+esc(r.facing || 'suggested')+'</span>' : '')+
       (top > 1 ? ' <span style="opacity:.6;">('+top+' ft up)</span>' : '')+'</label></span>'+
-      /* ⭐ HOW MANY PEAKS ARE ON THIS SIDE. Owner: "we say how many peaks, so we
-         just insert it there are and add on how many extra feet based on the
-         type of peak."
-         A peak is not extra FEET, it is extra length on feet already traced -
-         the span across a gable is what you draw from above, and the lights go
-         up the two rakes. So it belongs on the side it sits on rather than in a
-         list of its own, and the row shows what it added. */
-      '<span style="opacity:.75; font-size:11px;">peaks '+
-        '<input type="number" min="0" max="9" step="1" value="'+(Number(r.peaks)||0)+'" '+
-        'data-rmpeaks="'+i+'" style="width:38px; padding:1px 3px; font-size:11px;">'+
-        (extraFt > 0.05 ? ' <span style="color:var(--gold-dim);">+'+rmFmtFeet(extraFt)+'</span>' : '')+
-      '</span>'+
+      /* ⛔ THE PER-SIDE "HOW MANY PEAKS" BOX IS GONE (2026-08-28), AND IT WAS
+         THROWING ON EVERY RENDER. It called rmPeakExtraFeet(), which was never
+         written - so rmRenderResults died part-way through on every single dot,
+         and the corner note froze reading "1 corners" however many you placed.
+         It survived because no check ever RAN the render.
+
+         ⚠ IT WAS ALSO THE SUPERSEDED DESIGN. Owner replaced counting peaks per
+         side with naming one: "you should just say between which two dots is it
+         located ... and then it bases it off of the distance between the two
+         points and the grade". A count cannot do that - it has no span to apply
+         a grade to, which is why it needed a function nobody could write. */
       '<span>'+rmFmtFeet(rmRunFeet(r))+' <button type="button" data-rmdelrun="'+i+'" title="Delete this line">&#10005;</button></span></div>';
   }).join('');
   runsBox.querySelectorAll('[data-rmonrun]').forEach(function(cb){
     cb.addEventListener('change', function(){ rmToggleRun(Number(cb.dataset.rmonrun)); });
-  });
-  runsBox.querySelectorAll('[data-rmpeaks]').forEach(function(inp){
-    inp.addEventListener('change', function(){
-      const r = rmRuns[Number(inp.dataset.rmpeaks)];
-      if(!r) return;
-      const n = Math.max(0, Math.min(9, Math.round(Number(inp.value) || 0)));
-      r.peaks = n;
-      r.touched = true;
-      rmRenderResults();
-    });
   });
   runsBox.querySelectorAll('[data-rmdelrun]').forEach(function(b){
     b.addEventListener('click', function(){
@@ -21758,7 +22129,11 @@ function rmRenderCommit(){
   if(!panel) return;
   const feet  = Math.round(rmTotals().all * RM_FEET_MULTIPLIER);
   const price = rmSuggestedPrice;
-  panel.style.display = feet > 0 ? 'block' : 'none';
+  /* ⚠ 'flex', NOT 'block'. An inline style beats the stylesheet, so revealing
+     this panel as a block quietly cancelled the row layout the bar depends on -
+     every figure, the chips and the button took a full line each and the Save
+     block was 176px tall, which comes straight off the height of the house. */
+  panel.style.display = feet > 0 ? 'flex' : 'none';
   if(feet <= 0) return;
 
   document.getElementById('rmCommitFt').textContent = feet + ' ft';
@@ -21976,165 +22351,52 @@ function rmRunFacesCamera(r){
   return !(t !== null && t > 0.02 && t < 0.995);
 }
 function rmPaintStreet(){
+  /* ⭐ THE PICTURE CARRIES ITS OWN MARKS AND NOTHING ELSE (2026-08-28). Owner:
+     "it should not show the dots from sky view."
+
+     ⛔ WHAT THIS USED TO DRAW, all of it projected out of the sky view: every
+     traced run, the offered corners, the wall line and a wireframe of Google's
+     roof model. That made sense while one dot meant one place seen through two
+     windows. It stopped meaning anything when the roofline moved overhead for
+     good - the marks were unreachable here, could not be edited here, and were
+     drawn from a model this pane no longer measures against.
+
+     ⚠ THE PROJECTION MATHS IS UNCHANGED AND IS rmSvProject's OWN. What went is
+     WHAT is projected, not HOW. If dots ever have to appear in both pictures
+     again, the wireframe and run-drawing are in git, and the reason they were
+     removed is above. */
   const svg = document.getElementById('rmSvLayer');
   if(!svg) return;
-  const cam = rmCamLocal();
-  if(!rmPano || !cam || !rmOrigin){ svg.innerHTML = ''; return; }
-  const {W, H} = rmPanoSize();
-  const pov = rmPanoPov();
+  if(!rmPano){ svg.innerHTML = ''; return; }
+  const box = document.getElementById('rmPano').getBoundingClientRect();
+  const W = box.width, H = box.height;
+  if(!(W > 0 && H > 0)){ svg.innerHTML = ''; return; }
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  const pov = rmPanoPov();
   const parts = [];
-  /* ⭐ THE HOUSE THE SYSTEM THINKS IS THERE, drawn first so it sits under the
-     lines and the dots. Owner: "the first thing the system should do is draw
-     the house as if there were no obstacles using things like walls, not like
-     a literal drawing that I see but where the system will assume the house
-     is." Seeing the assumption is what makes a wrong one - a tree read as a
-     notch in the front wall - obvious in a second rather than three dots
-     later. Thin and dashed, because it is scaffolding and not the job. */
-  if(rmShowModel){
-    /* ⚠ NOT rmModel() - which walls are visible depends on where the camera is
-       standing, and the cache is keyed on the house. The outline itself is the
-       expensive part and that is still cached inside. */
-    rmHouseWireframe().forEach(function(sg){
-      const a = rmSvProject(rmToWorld(sg.a), W, H, pov, cam);
-      const b = rmSvProject(rmToWorld(sg.b), W, H, pov, cam);
-      if(!a || !b) return;
-      parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
-        '" stroke="rgba(0,0,0,.35)" stroke-width="2.5"/>');
-      parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
-        '" stroke="#5BC8F5" stroke-width="1.1" stroke-dasharray="5 4" opacity=".95"/>');
-    });
-  }
-  /* ⚠ THE YELLOW GROUND LINE IS FOR PICKING A WALL, NOT FOR LOOKING AT. It is
-     the footprint drawn at ground level, and with dots being placed it sits
-     across the lawn and the driveway looking like a proposed run of lights
-     along the grass. It belongs to the wall picker, so it shows when that is
-     what somebody is doing and not otherwise. */
-  const shownWall = (rmWallPicking || rmCornerMode !== 'dot') ? rmActiveWall() : null;
-  if(shownWall){
-    const a = rmSvProject({lat:shownWall.a.lat, lng:shownWall.a.lng, h:0}, W, H, pov, cam);
-    const b = rmSvProject({lat:shownWall.b.lat, lng:shownWall.b.lng, h:0}, W, H, pov, cam);
-    if(a && b) parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#F4BE55" stroke-width="3" stroke-dasharray="7 5" opacity=".9"/>');
-  }
-  rmWallPts.forEach(function(p){
-    const w = rmToWorld(p);
-    const q = rmSvProject(w, W, H, pov, cam);
-    if(q) parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="#F4BE55" stroke="#fff" stroke-width="2"/>');
+  const pts = [];
+  rmStreetDotsHere().forEach(function(d){
+    const q = rmStreetDotPixel(d, W, H, pov);
+    pts.push(q);          /* null keeps the numbering honest when one is off screen */
   });
-  /* ⚠ THIN, AND ONLY WHAT IS IN FRONT. Owner: "theres to much going on you
-     cant see the house clearly... it should look clean and crisp though. not
-     messy." An 8-pixel black halo under a 4-pixel line, with a fat white dot at
-     every end, covered more of the roof than it described. The line still needs
-     a dark edge to read against a bright sky, but one pixel of it is enough. */
-  rmRuns.concat(rmCurrent ? [rmCurrent] : []).forEach(function(r, idx){
-    const isCurrent = idx >= rmRuns.length;
-    if(!isCurrent && !rmRunFacesCamera(r)) return;      /* the house is in the way */
-    const pts = r.path.map(function(p){ return rmSvProject(p, W, H, pov, cam); });
-    const vis = pts.filter(Boolean);
-    const on = rmRunIsOn(r);
-    const colour = on ? RM_TYPES[r.type].color : '#9aa4b0';
-    const known = idx < rmRuns.length ? idx : -1;
-    if(pts.length > 1 && vis.length === pts.length){
-      const d = pts.map(function(p, i){ return (i?'L':'M')+p.x+' '+p.y; }).join(' ');
-      parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="'+(on?4:3)+'" stroke-linejoin="round" stroke-linecap="round"/>');
-      parts.push('<path d="'+d+'" fill="none" stroke="'+colour+'" stroke-width="'+(on?2:1.4)+'"'+
-        (on ? '' : ' stroke-dasharray="6 5" opacity=".65"')+' stroke-linejoin="round" stroke-linecap="round"/>');
-      /* ⚠ A FAT INVISIBLE STROKE ON TOP is what makes a 4px line clickable by
-         hand. Without it the pick target is the drawn width and nobody hits it.
-         Only when NOT drawing, so placing a point never toggles a line instead. */
-      if(known >= 0 && !rmDrawing && !rmWallPicking){
-        parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,0)" stroke-width="20" '+
-          'style="pointer-events:stroke; cursor:pointer;" data-rmtoggle="'+known+'"></path>');
-      }
-    }
-    /* Handles only where there is something to take hold of: a switched-on run
-       you might drag. A dot on every end of every greyed-out suggestion is the
-       clutter, not the lines. ⚠ A run built from corners draws none at all -
-       its corners are drawn once, below, with their numbers on. */
-    vis.forEach(function(p){
-      if(!on || r.fromCorners) return;
-      parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="3" fill="#fff" stroke="'+colour+'" stroke-width="1.5"/>');
-    });
-  });
-  /* ⭐ THE CORNERS BEING OFFERED, drawn under the kept ones and much quieter.
-     Owner: "also start getting the generated corners and you can click the ones
-     you want to keep", and separately "the dots should look clean and small so
-     theyre not hindering the view of the house."
-     A suggestion has to be visible enough to aim at and quiet enough that it
-     never reads as a decision, so it is a small hollow ring with no number. The
-     click target is invisible and generous, which costs nothing on screen. */
-  rmCandidates.forEach(function(c, i){
-    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+  /* Joined in the order they were placed, and only between two marks that are
+     both on screen - a line to a point behind the camera is a line across the
+     picture to nowhere. */
+  for(let i = 1; i < pts.length; i++){
+    const a = pts[i-1], b = pts[i];
+    if(!a || !b) continue;
+    parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
+      '" stroke="rgba(0,0,0,.45)" stroke-width="4" stroke-linecap="round"/>');
+    parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
+      '" stroke="#E0574B" stroke-width="2" stroke-linecap="round"/>');
+  }
+  pts.forEach(function(q, i){
     if(!q) return;
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="4" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="2.5"/>');
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="4" fill="none" stroke="#F4BE55" stroke-width="1.4"/>');
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="11" fill="rgba(0,0,0,0)" style="pointer-events:none;"/>');
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="#E0574B" stroke="#fff" stroke-width="2"/>');
+    parts.push('<text x="'+q.x+'" y="'+(q.y - 10)+'" text-anchor="middle" font-size="11" font-weight="700" ' +
+      'fill="#fff" stroke="rgba(0,0,0,.55)" stroke-width="3" paint-order="stroke">'+(i+1)+'</text>');
   });
-    /* ⛔ THE SKY DOTS ARE NOT DRAWN HERE ANY MORE (2026-08-27). Owner: "you
-     shouldnt see the same dot on both perspectives anymore", and before it "we
-     dont need sky view dots and street view dots to be in sync anymore".
-
-     ⚠ THEY WERE THE SAME DOT IN TWO PICTURES, and that was the whole point when
-     one set of points had to serve both views - place it in one, see it in the
-     other. It stopped being the point when the street view stopped measuring:
-     a dot placed from above has no height, so drawing it here meant inventing
-     one, and an invented height put it somewhere on the photograph that is not
-     where the corner is. Showing it anyway is the tool asserting something it
-     does not know. */
   svg.innerHTML = parts.join('');
-  /* The layer ignores the mouse as a whole; only the fat pick strokes take it,
-     so panning the panorama still works everywhere else. */
-  svg.style.pointerEvents = (rmDrawing || rmWallPicking) ? 'none' : 'none';
-  svg.querySelectorAll('[data-rmcornerdot]').forEach(function(el){
-    /* ⭐ WHILE PLACING, A DOT DOES NOT SWALLOW ITS OWN CLICK (2026-08-26).
-       Owner: "i cant place two dots on top of each other", asked while trying to
-       click the SAME corner from a second angle.
-
-       ⚠ AND THAT IS THE ONE GESTURE THAT FIXES DRIFT. Two sightings of a corner
-       cross at a point, which is geometry rather than a model - it is the whole
-       answer to a dot moving when the camera does. But this invisible r=7 target
-       sits on the SVG layer ABOVE the sheet that catches clicks, and it calls
-       stopPropagation, so a click within seven pixels of a drawn dot never reached
-       the placing code at all: it TOGGLED the dot instead. Nothing about that looks
-       like a refusal - no message, no new dot, no pin - which is exactly how it was
-       reported. The re-sighting path underneath was unreachable precisely when the
-       dot was drawn where you were aiming, which is most of the time.
-
-       ⚠ THIS IS THE SECOND TIME THIS TARGET HAS EATEN A GESTURE. The note above
-       records it swallowing dot PLACEMENT and being narrowed from 12 to 7 in
-       response. Narrowing cannot fix it, because the whole point of re-sighting is
-       to click where the dot already is. So the mode decides instead: while PLACING
-       the click falls through to the sheet, where rmDotToResight chooses between
-       re-sighting this dot and putting down a new one; while PICKING it toggles as
-       before. Nothing is lost - the right button toggles in either mode, on both
-       views, and that is what it is for. */
-    el.style.pointerEvents = (rmCornerMode === 'dot') ? 'none' : 'all';
-    el.addEventListener('click', function(ev){
-      ev.stopPropagation();
-      const i = Number(el.dataset.rmcornerdot);
-      /* ⚠ SHIFT MEANS TWO THINGS NOW, AND THE MOUSE DECIDES WHICH. Shift-click on
-         a dot has always swapped two dots' order - asked for in those words -
-         and shift-DRAG was then asked for to move one. Same modifier, same
-         target, so the only thing that separates them is whether the pointer
-         actually travelled. If it did, the drag has already moved the dot and
-         this click is just the end of it; swapping as well would be a second,
-         unasked-for change from one gesture. */
-      if(rmDragMoved){ rmDragMoved = false; return; }
-      if(ev.shiftKey){
-        if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); rmPaintStreet(); }
-        else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
-      } else {
-        rmToggleCorner(i);
-      }
-    });
-  });
-  svg.querySelectorAll('[data-rmtoggle]').forEach(function(el){
-    el.style.pointerEvents = 'stroke';
-    el.addEventListener('click', function(ev){
-      ev.stopPropagation();
-      rmToggleRun(Number(el.dataset.rmtoggle));
-    });
-  });
 }
 /* ---- loading ----------------------------------------------------------- */
 function rmEnsureMap(center){
@@ -22245,6 +22507,8 @@ function rmMeasureGroundDrop(){
    Only this function knows what is per-house, so it is the one place to add to
    when something new is remembered. */
 function rmForgetLastHouse(){
+  /* The marks belong to one house's photograph and mean nothing on the next. */
+  rmStreetDots = []; rmLastPane = 'sky';
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
   rmModelShift = null; rmModelShiftFt = 0; rmModelShiftResidIn = 0;
@@ -22412,7 +22676,7 @@ async function rmLoadAddress(){
     const sel = document.getElementById('rmDifficulty');
     if(sel) sel.value = rmRoofGrade;
     document.getElementById('rmGradeWhy').textContent = d.difficultyWhy || '';
-    document.getElementById('rmPricePanel').style.display = 'block';
+    document.getElementById('rmPricePanel').style.display = 'flex';   /* see rmRenderCommit: block cancels the row */
     rmRenderResults();
     if(d.bounds) rmBuilding = d.bounds;
     rmFaces = d.faces || [];
@@ -23228,10 +23492,19 @@ function openRoofMeasure(quoteId){
     if(e.shiftKey) return;
     const w = rmMapPixelToWorld(e.clientX, e.clientY, this.getBoundingClientRect());
     if(!w) return;
-    /* ⚠ AHEAD OF EVERY OTHER MEANING A CLICK CAN HAVE. Lining the pictures up
-       borrows the same two clicks tracing uses, so a stray point must not be
-       added to a run while the tool is waiting for one of them. */
-    if(rmCornerMode === 'dot' && !rmDrawing){
+    /* ⭐ THERE IS ONE KIND OF POINT NOW, AND IT IS A LETTERED CORNER
+       (2026-08-28). This used to read `&& !rmDrawing`, so pressing the button
+       marked START MEASURING took you OUT of placing corners and into a
+       free-hand run - and a run has no letters, so a peak could never be named
+       on anything drawn with the one button that invites you to draw.
+
+       ⚠ FOUND BY RUNNING IT, NOT BY READING IT. Five clicks after pressing the
+       obvious button produced no lettered dots at all, and every structural
+       check passed while that was true - the same shape as the refusal that had
+       blocked the first dot the day before. A second kind of point is exactly
+       what the owner ruled against in the first place: "they should be the same
+       and in sync so that when I click end strand the dots connect". */
+    if(rmCornerMode === 'dot'){
       /* ⭐ A CLICK UP HERE PLACES A CORNER — THE SAME CORNER THE STREET
          VIEW PLACES (2026-08-25). Owner: "I place a dot in sky view and its a
          different type of dot then the one on street view they should be the
@@ -23281,33 +23554,35 @@ function openRoofMeasure(quoteId){
          it is the only view where a gutter can be told from a chimney, a
          satellite dish or a tree. If dots from above start drifting again,
          that is the argument to read first. */
-      /* ⛔ NOT AGAINST AN ASSUMED HEIGHT (2026-08-25). Owner: "find the height
-         through proper geometry, not through a rough estimate", and of the panel
-         that used to supply one: "we dont need this".
+      /* ⛔ THE ASSUMED-HEIGHT REFUSAL IS GONE (2026-08-27), AND IT WAS
+         BLOCKING THE WHOLE TOOL. It refused a sky dot until the datum had been
+         measured, and told you to "click once on a WALL in the street view
+         first" — which stopped being possible the moment Street View stopped
+         taking clicks. There was no first dot to place from either picture: the
+         tool could not be started at all.
 
-         ⚠ A SKY CLICK'S HEIGHT IS THE ROOF MODEL'S PLANE AT THAT SPOT, and that
-         plane is EXACT relative to the lowest eave and floats on the datum. So
-         the whole question is whether the datum was measured. Once one dot has
-         met a wall in Street View it is, and every sky click after that is real
-         geometry. Before that it is ten feet because most houses are, and a dot
-         placed on it is wrong in plan as well as in height — the error goes
-         straight into the footage, which is the price.
+         ⚠ AND THE ARGUMENT IT RESTED ON NO LONGER HOLDS. It was written when a
+         sky dot had to be drawn into Street View, where a wrong height
+         parallaxes the dot across the house and "the error goes straight into
+         the footage". Nothing is drawn into Street View now. Footage is the
+         distance between dots on ONE overhead picture, which is plan distance:
+         a height shared by every dot cancels out of it exactly, the same way the
+         satellite offset does. Height re-enters only where the roof CLIMBS, and
+         that is measured per peak with the grade tool rather than assumed.
 
-         ⚠ REFUSING COSTS ONE CLICK AND SAYS WHICH ONE. Accepting costs a quote
-         nobody can tell is wrong. */
-      if(rmDatum().source === 'assumed'){
-        const dn = document.getElementById('rmCornerNote');
-        if(dn) dn.textContent = '⚠ The roof height has not been measured yet, so a dot from up here would be placed at a guess. Click once on a WALL in the street view first — that measures the eave, and then dots go in from either picture.';
-        return;
-      }
+         ⚠ SO A WRONG DATUM COSTS NOTHING HERE, and refusing cost everything. */
       rmAddCorner(w);
       const note = document.getElementById('rmCornerNote');
-      if(note) note.textContent = rmCorners.length + ' corners — the new one is ' +
-        rmCornerLabel(rmCorners.length - 1) + ', at the roof height above that spot. ' +
-        'Click it again in the street view to pin the height exactly. Corners go in from either view now.';
+      /* ⚠ IT SAID "Click it again in the street view to pin the height", which
+         has been impossible since Street View stopped taking clicks, and it
+         named a second view that no longer places anything. */
+      if(note) note.textContent = rmCorners.length + (rmCorners.length === 1 ? ' dot' : ' dots') +
+        ' — the last is ' + rmCornerLabel(rmCorners.length - 1) + '. ' +
+        'Backspace takes one back; a peak is named by the two letters it sits between.';
       return;
     }
-    if(rmDrawing) rmAddPoint(w);
+    /* Nothing else places anything from up here. Free-hand runs remain for the
+       photograph a customer sent, which has no corners to letter. */
   });
   document.getElementById('rmMapLock').addEventListener('dblclick', function(){ if(rmDrawing) rmFinishRun(); });
   /* ⭐ SHIFT AND DRAG MOVES A DOT FROM ABOVE TOO (2026-08-25). The panorama
@@ -23579,6 +23854,14 @@ function openRoofMeasure(quoteId){
       if(ask) ask.style.display = 'flex';
     });
   });
+  document.getElementById('rmPanoLock').addEventListener('click', function(e){
+    if(e.shiftKey || !rmPano) return;   /* shift is the drag gesture on both views */
+    rmLastPane = 'street';
+    const box = document.getElementById('rmPano').getBoundingClientRect();
+    rmAddStreetDot(rmStreetDotFromPixel(e.clientX - box.left, e.clientY - box.top,
+                                        box.width, box.height, rmPanoPov()));
+  });
+  document.getElementById('rmMapLock').addEventListener('mousedown', function(){ rmLastPane = 'sky'; });
   document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
     if(!rmPano) return;
     e.preventDefault();
@@ -23988,12 +24271,21 @@ function openRoofMeasure(quoteId){
       e.preventDefault();
       /* A dot goes back the way it came. Only while there are dots - otherwise
          this is still the undo button for a traced run. */
+      /* ⚠ WHICHEVER PICTURE YOU WERE LAST IN. The two sets of dots are
+         separate now, so one backspace cannot mean both - and taking a sky dot
+         back while somebody is marking up a photograph would undo measured
+         footage they never touched. */
+      if(rmLastPane === 'street' && rmStreetDotsHere().length){
+        rmDeleteLastStreetDot();
+        return;
+      }
       if(rmCorners.length){
         rmDeleteLastCorner();
         const note = document.getElementById('rmCornerNote');
         if(note) note.textContent = rmCorners.length + ' dots left.';
         return;
       }
+      if(rmDeleteLastStreetDot()) return;   /* nothing left above; try the picture */
       document.getElementById('rmUndoBtn').click(); /* take back one point, then one run */
     } else if(k === ' ' || k === 'Spacebar'){
       /* ⭐ SPACE SWAPS PICKING FOR PLACING. Owner: "have it be easy to create a

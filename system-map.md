@@ -50,6 +50,38 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
 Changing feet on an existing numbered customer warns before renumbering, rather than silently changing their bin/number out from under them.
 
+**Where Measured Feet comes from — the Measure Roof tool (rewritten 2026-08-27/28).**
+You trace the roofline on the **sky view** and nowhere else. Each dot is lettered
+A, B, C… and the footage is the distance between them on that one overhead
+picture. Street View is for the customer's photograph and for reading a roof's
+grade — it does not place a dot and never draws the sky view's.
+
+Overhead cannot see HEIGHT, and height only lengthens a line where the roof
+*climbs*. That is what **peaks** answer: you say which two lettered dots a peak
+sits between, the tool takes you to a street view aimed at that gable, you drag
+along the sloping edge, and it **asks** whether that reading was right before
+adding anything. Saying yes adds the extra feet — Pythagoras on that grade, both
+sides of the gable assumed the same. Saying try again changes nothing.
+
+⚠ **The price is not worked out from the measured feet directly.** It uses
+`feet × RM_FEET_MULTIPLIER`, which is **1.3** as of
+2026-08-28 — read it off that constant, never off prose about it. It began life
+compensating for the tool measuring short; it is now where the MINIMUM JOB COST
+lives ($2/ft is the advertised rate and a 60 ft house cannot be done for $120),
+and its size is the owner's dial — 2.9 → 1.45 → 1.3 inside one afternoon. Both
+numbers are shown on the panel as separate lines. See Q-024.
+
+**Street View has its own dots.** Click the picture and it takes a mark of its
+own, numbered 1, 2, 3… and visible only there — the sky view's lettered dots
+never appear on it. A mark is a *direction* from the camera rather than a place,
+so it needs no depth and sticks to the photograph as you pan and zoom; it belongs
+to the one panorama it was placed in, and it reaches no footage and no price.
+Backspace takes back a dot from whichever picture you were last working in.
+
+⚠ **A dot cannot be edited once placed.** No clicking it, no dragging it;
+backspace takes the last one back. Two dots may sit on top of each other, which
+is what a roofline doubling back on itself needs.
+
 **Light colors / pattern** (`lightsDescription`, `lightColors`) drives: the warehouse build queue membership and grouping, the $30 late-change fee (if changed outside the first 48 hours or after route assignment), and a "Lights Changed After Assignment" System inbox message if they were already on a saved route.
 
 ---

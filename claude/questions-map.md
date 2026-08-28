@@ -332,4 +332,23 @@ Kept out on purpose, so nobody adds them back thinking they were missed:
 If one of those turns into a judgement call — she picks between two technically valid
 answers — *that* becomes a row here.
 
-Last updated: 2026-08-27
+## Measure Roof — the sky-view rebuild (2026-08-27 / 28)
+
+⚠ THIS WHOLE SECTION REPLACED A DESIGN, not a detail. The tool measured on TWO
+pictures — one set of points seen from above and from the street — and the owner
+ended it: *"abandon ship this is not working."* The superseded rows are kept
+because their reasoning is exactly why the new answers are right.
+
+| # | Question | Her answer | Standing | Where it's proved | Status |
+|---|---|---|---|---|---|
+| MR-01 | Which picture is the roofline measured on? | Sky view, and only sky view. Street View is for the photograph and for reading a grade. *"using sky view instead ... and the street view is just for the picture"* | 2026-08-27 | Suite 170; the sky click is the only thing that places a corner | Standing |
+| MR-02 | Sky view cannot see height. How is the climb counted? | By PEAKS. *"we say how many peaks, so we just insert it there are and add on how many extra feet based on the type of peak"*, and which peak is *"between which two dots is it located ... and then it bases it off of the distance between the two points and the grade"*. The extra feet are Pythagoras on that grade | 2026-08-27 | `rmPeakExtraFraction`, `rmPeakSpanFeet`; suite 170 | Standing |
+| MR-03 | Does a grade apply itself the moment you let go? | No. It ASKS. *"once you click down and then let go it asks if that was good if not it lets you do it again but if it was good it closes that page"* | 2026-08-27 | `rmGradeYes` / `rmGradeNo`; the grade reaches a peak through the yes and no other route | Standing |
+| MR-04 | Must both sides of a gable be measured? | No. *"you should only need to measure the grade on one side and we will assume both sides of the triangle have the same grade"* | 2026-08-27 | `rmPeakExtraFraction` doubles one side | Standing |
+| MR-05 | Can a dot be moved, clicked or dragged after it is placed? | No. *"dragging and clicking old dots or editing them in any way on either perspective is no longer an option other than backspace"*, and *"make sure dots can be on top of each other"* | 2026-08-27 | Suite 170; markers are `clickable:false`, nothing rejects a close dot | Standing |
+| MR-06 | What does Street View show? | Its OWN dots, placed there and visible only there. Sky-view dots never appear on it. *"it should not show the dots from sky view and should also let you draw your own dots seperate from sky view"* | 2026-08-28 | `rmStreetDots`; suite 170, six sabotages red-checked | Standing |
+| MR-06a | *(superseded)* Should Street View show anything at all? | Nothing — picture only. *"the only reason we have the street view is so we can make the picture"* | 2026-08-28 | — | Superseded → MR-06 |
+| MR-07 | The controls were spread over several cards and needed scrolling past the picture — how should they sit? | One panel, capped at the height of the picture beside it, scrolling inside itself. *"mush them together so i dont have to scroll"* | 2026-08-27 | `.rm-tools` cap; Save is deliberately NOT pinned — it covered the tools | Standing |
+| MR-08 | The ×2.9 pricing multiplier was compensating for a measurement fault that is now gone. Does it stay? | It stays, and its SIZE is a dial she turns — 2.9 → 1.45 → 1.3 on 2026-08-28. It is not a correction any more, it is the RATE — $2 a foot is what is advertised and a 60 ft house cannot be done for $120. *"we might want to adjust the 2.9 and if we do ill let you know but for now lets keep it"* | 2026-08-28 | `RM_FEET_MULTIPLIER`; Q-024 carries the argument | Standing |
+
+Last updated: 2026-08-27 — Measure Roof rows added 2026-08-28

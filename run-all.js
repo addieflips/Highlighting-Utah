@@ -174,6 +174,11 @@ const HTML_FILES = ['index.html', 'admin.html', 'employee.html'];
  * Delete entries from this list as those features get built or removed.
  */
 const KNOWN_MISSING_IDS = [
+  /* ⛔ Set the Wall went on 2026-08-28 (MR-01) - nothing measures from a street
+     click, so there is no depth left for a pinned wall to supply. rmWall,
+     rmWallPicking and rmActiveWall are left in place and unreachable so nothing
+     that reads them breaks, and these two reads are what that costs. */
+  'rmWallBtn', 'rmWallStatus',
   'rsvpReasonWrap', 'quoteConfirm', 'quoteConfirmMsg',
   /^quickEmail/, /^bulkAuto/, /^bulkUpdateEmail/, /^bulkText/,
   /^rsvpEmail/, /^rsvpInclude/, /^rsvpPreview/, /^rsvpRecipient/, /^rsvpSelect/,
@@ -33752,7 +33757,10 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      about 6.7 ft out on 209 S 850 W - so if the model-displacement work lands
      that error properly this number must be revisited, or every quote inflates
      by nearly three. */
-  check('S126', 'the feet multiplier is the owner-set 2.9', mult && mult[1] === '2.9',
+  /* ⚠ THE NUMBER IS A DIAL SHE TURNS - 2.9 → 1.45 → 1.3 inside one afternoon.
+     Pinning the value keeps it deliberate, which is the point of the check; what
+     must NOT happen is somebody reading a stale comment and resetting it. */
+  check('S126', 'the feet multiplier is the owner-set 1.3', mult && mult[1] === '1.3',
     'this multiplies the price, the bin count and the bulb order together; ' +
     'it is not a display setting');
   /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
@@ -35446,7 +35454,21 @@ suite('128. Measure Roof — depth, the derived wall, and the height that follow
   {
     const bases = (admin.match(/class="rm-pane" style="flex:1 1 (\d+)px/g) || [])
       .map(m => Number((m.match(/(\d+)px/) || [])[1]));
-    const popup = Number((admin.match(/editcust-popup" style="max-width:min\((\d+)px/) || [])[1]);
+    /* ⚠ THE CARD GAINED A SECOND CLASS (rm-card, 2026-08-28), so an anchor tying
+       this to `editcust-popup" style=` stopped matching and the width came back
+       NaN - which reads as "the panes do not fit" on a layout that is fine. Match
+       the max-width wherever it sits on that element. */
+    /* ⚠ AND NOT THE OVERLAY. `editcust-popup` is a prefix of
+       `editcust-popup-overlay`, so a loose match finds the backdrop - which has no
+       max-width - and the width comes back NaN again, one layer out. rm-card is
+       the roof tool's own card and nothing else carries it. */
+    /* The roof tool's card is the only element carrying rm-card. Written with no
+       backslash escapes at all: an earlier version used a word boundary and the
+       backslash-b arrived in this file as a literal BACKSPACE, so the pattern
+       could never match and the width came back NaN - which reads as "the panes
+       do not fit" on a layout that is fine. CLAUDE.md warns about exactly this. */
+    const cardTag = (admin.match(/<div class="[^"]*rm-card[^"]*"[^>]*>/) || [''])[0];
+    const popup = Number((cardTag.match(/max-width:min\((\d+)px/) || [])[1]);
     check('S128', 'the two views sit side by side rather than stacked',
       bases.length === 2 && popup > 0 && (bases[0] + bases[1] + 40) <= popup,
       'panes ' + bases.join(' + ') + ' must fit across a ' + popup + 'px window, or the street ' +
@@ -36013,9 +36035,14 @@ suite('131. Measure Roof — the roof is never on the ground');
     !/id="rmHeightFt"/.test(admin) && !/data-rmheight=/.test(admin) &&
     !/1 storey<\/button>/.test(admin),
     'a preset is a guess wearing a button');
+  /* ⚠ WHAT REPLACED IT CHANGED AGAIN ON 2026-08-27. The answer used to be
+     "Street View measures it - put a dot on a wall", and Street View stopped
+     taking clicks, so that sentence became an instruction nobody could follow.
+     The check keeps its point - a control cannot be removed silently - and
+     now asks for the answer that is actually true. */
   check('S131', 'and the panel says where a height does come from instead',
-    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
-    'removing the control without saying what replaced it reads as a feature going missing');
+    /roofline is traced from above/.test(admin) && /Height only matters where the roof climbs/.test(admin),
+    'removing a control without saying what replaced it reads as a feature going missing');
 }
 
 
@@ -38227,8 +38254,16 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
   }
 
   /* It is drawn, in both windows, and it can be turned off. */
-  check('S157', 'the assumed house is drawn in the street view',
-    /if\(rmShowModel\)\{[\s\S]{0,600}rmHouseWireframe\(\)\.forEach/.test(admin));
+  /* ⛔ RETIRED 2026-08-28 (MR-06). The wireframe of Google's roof model was
+     drawn into Street View so a traced line could be checked against it there.
+     Street View draws only its OWN marks now, so there is nothing for a model
+     overlay to be checked against and nothing to draw it beside. rmHouseWireframe
+     is still built and still used from above; what went is painting it into the
+     photograph. */
+  check('S157', 'the assumed house is still built, even though the picture no longer draws it',
+    typeof extractFn(admin, 'rmHouseWireframe') === 'string' &&
+    (extractFn(admin, 'rmHouseWireframe') || '').length > 0,
+    'the model still answers where the roof is; only the second view of it went');
   /* ⚠ NOT the cached rmModel() here. Which walls show depends on where the
      camera is standing, and the cache is keyed on the house, not the camera. */
   check('S157', 'and it is rebuilt per camera, not served from the house cache',
@@ -38378,6 +38413,95 @@ suite('170. Measure Roof - a peak is two dots and a grade');
   check('S170', 'and with none set it falls back to the measured pitch',
     Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
     'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
+
+  /* ⭐ STREET VIEW HAS ITS OWN DOTS AND SHOWS NOBODY ELSE'S (MR-06, 2026-08-28).
+     Owner: "it should not show the dots from sky view and should also let you
+     draw your own dots seperate from sky view so you can only see it on street
+     view." */
+  check('S170', 'the picture no longer draws the sky view’s dots',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return fn.length > 0 && !/rmRuns|rmCorners|rmCandidates|rmHouseWireframe/.test(fn);
+    })(),
+    'they were unreachable there, uneditable there, and drawn from a model this pane no longer measures against');
+  check('S170', 'and it draws its own marks instead',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return /rmStreetDotsHere\(\)/.test(fn) && /rmStreetDotPixel\(/.test(fn);
+    })());
+  check('S170', 'a street mark is a DIRECTION, so it never needs a depth',
+    (function(){
+      const fn = extractFn(admin, 'rmStreetDotFromPixel') || '';
+      return /rmRay\(/.test(fn) && !/rmRoofRelativeAt|rmDatum\(|dist/.test(fn);
+    })(),
+    'turning a street click into a PLACE is what could not be done; a bearing needs nothing');
+  check('S170', 'and it belongs to the one panorama it was placed in',
+    (function(){
+      const mk = extractFn(admin, 'rmStreetDotFromPixel') || '';
+      const here = extractFn(admin, 'rmStreetDotsHere') || '';
+      return /getPano\(\)/.test(mk) && /d\.pano === id/.test(here);
+    })(),
+    'a bearing from where the van stood is meaningless from the next camera down the street');
+  check('S170', 'the marks reach no footage and no price',
+    (function(){
+      const t = extractFn(admin, 'rmTotals') || '';
+      return t.length > 0 && !/rmStreetDot/.test(t);
+    })(),
+    'two directions with no depth have no distance between them; this pane measures nothing');
+  check('S170', 'backspace acts on whichever picture was last used',
+    (function(){
+      const i = admin.indexOf("rmLastPane === 'street' && rmStreetDotsHere().length");
+      const j = admin.indexOf('rmDeleteLastCorner();', i);
+      return i !== -1 && j > i;
+    })(),
+    'one key cannot mean both sets, and undoing measured footage while marking a photograph is the wrong half');
+  check('S170', 'and the picture takes clicks again while measuring',
+    /const stLock = rmDrawing \|\| rmCornerMode === 'dot';/.test(admin));
+  check('S170', 'the marks are cleared when another house is loaded',
+    (function(){
+      const fn = extractFn(admin, 'rmForgetLastHouse') || '';
+      return /rmStreetDots = \[\]/.test(fn);
+    })(),
+    'they belong to one house’s photograph and mean nothing on the next');
+
+  /* ⭐ THE FIRST DOT CAN ACTUALLY BE PLACED (2026-08-27). The sky click used to
+     refuse until the datum had been measured, telling you to click a wall in
+     Street View first - which stopped being possible when Street View stopped
+     taking clicks. There was no first dot to place from either picture, so the
+     tool could not be started at all, and every other check here passed while
+     that was true. */
+  check('S170', 'a sky click is not refused for want of a measured height',
+    !/rmDatum\(\)\.source === 'assumed'\)\{[\s\S]{0,400}?return;/.test(admin),
+    'the only view that could measure the datum no longer takes clicks, so this refuses for ever');
+  check('S170', 'and nothing on screen still tells the office to click a wall',
+    (function(){
+      /* The phrase in a COMMENT is the record of why it went; the phrase in a
+         string is an instruction nobody can follow. Only the second is a fault. */
+      return !admin.split(String.fromCharCode(10)).some(function(l){
+        return /put a dot on a wall|click (once )?on a wall/i.test(l) &&
+               /textContent|innerHTML|<p |<div |<span /.test(l);
+      });
+    })(),
+    'an instruction that cannot be followed is worse than none');
+
+  /* ⭐ TWO DOTS MAY SIT ON TOP OF EACH OTHER. Owner: "make sure dots can be on
+     top of each other". A roofline doubles back on itself - the two sides of a
+     dormer, a porch return - and the second dot of such a pair lands within a
+     few pixels of the first. */
+  check('S170', 'placing a corner never rejects one for being too close',
+    (function(){
+      const fn = extractFn(admin, 'rmAddCorner') || '';
+      return fn.length > 0 && !/RM_PIN_GRAB_PX|too close|Math\.hypot[\s\S]{0,80}?return false/.test(fn);
+    })(),
+    'a roofline that doubles back needs two dots almost on one spot');
+  check('S170', 'and the dots themselves cannot swallow the next click',
+    (function(){
+      const i = admin.indexOf('position: {lat: w.lat, lng: w.lng}, map: rmMap');
+      if(i === -1) return false;
+      const line = admin.slice(i, admin.indexOf(String.fromCharCode(10), i));
+      return /clickable:\s*false/.test(line) && /draggable:\s*false/.test(line);
+    })(),
+    'a clickable marker on top of the click sheet eats the second dot of a pair');
 
   /* ⭐ EACH PEAK CARRIES ITS OWN GRADE, and adding one takes you to read it.
      Owner: "when you inset that there is a peak and say in between which two
@@ -38690,10 +38814,20 @@ suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is
      needed from above, because looking straight down there is no sky to click
      on. That is the whole reason the sky view is now the only measuring
      surface. */
+  /* ⚠ REPOINTED 2026-08-28 (MR-06), NOT WEAKENED. This proved the point by
+     proving the click handler did not EXIST, and one exists again — Street View
+     takes clicks for its own marks. The guarantee is unchanged and is what is
+     asserted now: a street click still measures nothing. It cannot, and that is
+     the whole reason marks are bearings rather than places. */
   check('S160', 'nothing measures from a street click any more',
-    admin.indexOf("rmPanoLock').addEventListener('click'") === -1 &&
-    admin.indexOf('const stLock = false;') !== -1,
-    'the sheet that caught those clicks is gone, and so is the click handler');
+    (function(){
+      const i = admin.indexOf("rmPanoLock').addEventListener('click'");
+      if(i === -1) return false;
+      const body = admin.slice(i, admin.indexOf('});', i));
+      return /rmAddStreetDot\(/.test(body) &&
+             !/rmAddCorner|rmAddPoint|rmPinCorner|rmTotals/.test(body);
+    })(),
+    'a click here becomes a MARK and nothing else; footage comes off the sky view alone');
 
   /* ⭐ AND THE SCAFFOLDING NO LONGER SHOUTS OVER THE WORK. Opening the tool
      showed a cyan outline and a yellow ground line and no red anywhere, so the
@@ -38712,9 +38846,17 @@ suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is
     /OFF BY DEFAULT, AND THIS RECORDS WHY/.test(admin) &&
     /axis-aligned\s*\n?\s*BOUNDING boxes/.test(admin),
     'she asked for it drawn; it comes back when it is worth looking at');
-  check('S160', 'the yellow ground guide belongs to the wall picker only',
-    /const shownWall = \(rmWallPicking \|\| rmCornerMode !== 'dot'\) \? rmActiveWall\(\) : null;/.test(admin),
-    'across the lawn it reads as a proposed run of lights along the grass');
+  /* ⛔ RETIRED 2026-08-28 (MR-06). The guide was drawn into Street View by
+     rmPaintStreet, which now paints only that pane's own marks — so the thing
+     it was scoped to no longer exists to be scoped. The reasoning is kept
+     because it is a good rule about this pane: anything drawn across the lawn
+     reads as a proposed run of lights along the grass. */
+  check('S160', 'the picture draws nothing but its own marks',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return fn.length > 0 && !/rmActiveWall|shownWall/.test(fn);
+    })(),
+    'anything else drawn here reads as a proposed run of lights');
 }
 
 
@@ -39213,8 +39355,13 @@ suite('254. Measure Roof - no height is ever typed, and none is ever the lawn');
   check('S254', 'and the typed reader is a stub rather than a live control',
     /function rmTypedHeightM\(\)\{ return null; \}/.test(admin),
     'leaving it reading a deleted element would throw the moment anything called it');
-  check('S254', 'the panel says where a height comes from instead of offering a box',
-    /Heights are measured in Street View/.test(admin) && /shift-drag/.test(admin),
+  /* ⚠ WHAT REPLACED IT CHANGED AGAIN ON 2026-08-27. The answer used to be
+     "Street View measures it - put a dot on a wall", and Street View stopped
+     taking clicks, so that sentence became an instruction nobody could follow.
+     The check keeps its point - a control cannot be removed silently - and
+     now asks for the answer that is actually true. */
+  check('S254', 'and the panel says where a height does come from instead',
+    /roofline is traced from above/.test(admin) && /Height only matters where the roof climbs/.test(admin),
     'removing a control without saying what replaced it reads as a feature going missing');
 }
 
@@ -39232,8 +39379,8 @@ suite('255. Measure Roof - the footage saved is the footage measured');
      bulb order along with the price. That is what was asked for - the owner's
      position is that the measurement itself reads short, so the corrected
      footage should drive all three. It is a single constant and reversible. */
-  check('S255', 'the feet multiplier is the owner-set 2.9',
-    /const RM_FEET_MULTIPLIER\s*=\s*2\.9\s*;/.test(admin),
+  check('S255', 'the feet multiplier is the owner-set 1.3',
+    /const RM_FEET_MULTIPLIER\s*=\s*1\.3\s*;/.test(admin),
     'if this ever moves without a ruling behind it, every quote, bin count ' +
     'and bulb order moves with it');
   check('S255', 'and the save message no longer claims the footage was doubled',
@@ -39536,7 +39683,7 @@ suite('258. Measure Roof - one less step before you can trace');
      carry the instruction the button stopped giving - and lost only the half
      that named the wrong place. */
   check('S258', 'with no run open the hint is what tells you to click the roofline',
-    /Click along the roofline<\/strong> on the sky view to start a side/.test(setDraw),
+    /Click along the roofline<\/strong> on the sky view/.test(setDraw),
     'the instruction went out with the button and nothing replaced it');
 
   /* ---- the address is not asked for twice --------------------------- */

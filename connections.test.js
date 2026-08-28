@@ -657,7 +657,13 @@ if (amberTotal) {
        It is reached the way it really happens now: an admin page that already holds a
        decision for every rule. */
     const everything = {};
-    const idsOf = html => (html.match(/"[A-Z]+-\d+"/g) || []).map(x => x.slice(1, -1));
+    /* The suffix is not optional decoration: connections/rules.js parses ids as
+       [A-Z]+-\d+[a-z]? on purpose, because a ruling superseded the same day gets
+       a letter (MR-06a). This matcher did not allow one, so such a rule could
+       never be pre-confirmed, "everything has been read" was unreachable, and the
+       two checks below failed on a view that was working. Kept in step with the
+       parser rather than guessed at. */
+    const idsOf = html => (html.match(/"[A-Z]+-\d+[a-z]?"/g) || []).map(x => x.slice(1, -1));
     idsOf(require('./connections/build').render()).forEach(id => {
       everything[id] = { rule: id, verdict: 'ok', fp: '', at: '2026-08-27', by: 'addie' };
     });
