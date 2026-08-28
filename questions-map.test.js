@@ -173,6 +173,12 @@ rows.forEach(r => {
 //       - a QUESTION, not a topic. "The three RSVP answers, and what each does" is a
 //         heading; you cannot tell from it what was actually asked, so you cannot tell
 //         whether her answer covers your case.
+//       - HER OWN WORDS, quoted — or, where she answered by clicking one of the options
+//         I offered, the OPTION quoted and marked `Chose:`, plus what it was chosen over.
+//         Her ruling, 2026-08-28: "quesition map can be answered in your words with
+//         optional choice it just which ever choice we clicked on." The options are my
+//         words by construction, so demanding a quotation of her there would mean
+//         inventing one — the exact harm this rule exists to prevent.
 //       - HER OWN WORDS, quoted. A paraphrase is my reading of what she meant, and the
 //         whole purpose of this map — her words — is "so you can refer back to that
 //         instead of us reanswering the same questions and answering inconsistently".
@@ -223,21 +229,21 @@ rows.forEach(r => {
    that area and can check what she actually said — and take its id off this list in the
    same change. */
 const GRANDFATHERED = [
-  'MON-01', 'MON-02', 'MON-03', 'MON-04', 'MON-05', 'MON-06', 'MON-07', 'MON-09', 'MON-10',
+  'MON-03', 'MON-04', 'MON-05', 'MON-06', 'MON-07', 'MON-09', 'MON-10',
   'MON-11', 'MON-12', 'MON-14', 'MON-18', 'MON-20', 'MON-26', 'MON-13', 'MON-23', 'MON-25',
-  'WH-02', 'WH-03', 'WH-04', 'WH-07', 'WH-10', 'WH-11', 'WH-12', 'WH-13', 'WH-14', 'WH-15',
+  'WH-02', 'WH-03', 'WH-07', 'WH-11', 'WH-12', 'WH-13', 'WH-14', 'WH-15',
   'WH-18', 'WH-19', 'WH-21', 'WH-22', 'CN-01', 'CN-02', 'CN-03', 'CN-04', 'QT-01', 'QT-02',
-  'QT-03', 'QT-06', 'QT-07', 'QT-08', 'QT-09', 'QT-12', 'QT-13', 'QT-14', 'QT-15', 'QT-17',
+  'QT-03', 'QT-06', 'QT-07', 'QT-08', 'QT-09', 'QT-12', 'QT-13', 'QT-15', 'QT-17',
   'QT-18', 'QT-19', 'RS-02', 'RS-03', 'RS-05', 'RS-06', 'RS-07', 'RS-09', 'RS-16', 'RS-10',
   'SCH-01', 'SCH-02', 'SCH-03', 'SCH-04', 'SCH-05', 'SCH-07', 'SCH-08', 'SCH-09', 'SCH-10',
-  'SCH-11', 'SCH-12', 'SCH-14', 'SCH-15', 'SCH-16', 'SCH-17', 'SCH-18', 'SCH-19', 'SCH-20',
-  'SCH-21', 'SCH-22', 'PR-01', 'PR-04', 'PR-05', 'PR-06', 'SH-03', 'SH-05', 'SH-06', 'SH-07',
-  'SH-08', 'SH-10', 'SH-11', 'SH-13', 'SH-14', 'SH-15', 'SH-16', 'DUP-03', 'DUP-04',
-  'DUP-06', 'DUP-07', 'MSG-03', 'MSG-04', 'MSG-05', 'OPT-01', 'PROC-02', 'PROC-03',
+  'SCH-11', 'SCH-12', 'SCH-14', 'SCH-16', 'SCH-17', 'SCH-18', 'SCH-19', 'SCH-20',
+  'SCH-21', 'SCH-22', 'PR-04', 'PR-05', 'PR-06', 'SH-03', 'SH-05', 'SH-06', 'SH-07',
+  'SH-08', 'SH-10', 'SH-13', 'SH-14', 'SH-15', 'SH-16', 'DUP-03', 'DUP-04',
+  'DUP-06', 'MSG-03', 'MSG-04', 'MSG-05', 'OPT-01', 'PROC-02', 'PROC-03',
   'PROC-04', 'PROC-05', 'PROC-06', 'PROC-08', 'PROC-09', 'PROC-10', 'PROC-11', 'PROC-13',
   'PROC-14', 'PROC-15', 'PROC-17', 'FIX-01', 'FIX-02',
 ];
-const GRANDFATHERED_MAX = 116;
+const GRANDFATHERED_MAX = 107;
 const hasQuote = cell => /"[^"]{15,}"/.test(cell) || /“[^”]{15,}”/.test(cell);
 
 let oldNoQuote = 0, oldNoQuestion = 0;
@@ -252,13 +258,35 @@ rows.forEach(r => {
            'what the row is ABOUT; only the question tells them whether her answer ' +
            'covers the case in front of them.'
     });
-    check('row ' + r.id + ' answers in her own words', hasQuote(a), {
+    check('row ' + r.id + ' answers in her own words, or names the choice she made', hasQuote(a), {
       line: r.line, id: r.id, subject: subjectOf(r),
-      problem: 'the answer carries no quotation of what she actually said',
-      fix: 'quote her, verbatim, inside double quotes — typos and all. This map exists ' +
-           '"so you can refer back to that instead of us reanswering the same questions ' +
-           'and answering inconsistently", and a paraphrase is the thing that drifts.'
+      problem: 'the answer carries neither a quotation of what she said nor a marked choice',
+      fix: 'quote her verbatim inside double quotes — typos and all — OR, if she answered ' +
+           'by picking an option, write Chose: "the option text" and the option it beat. ' +
+           'This map exists "so you can refer back to that instead of us reanswering the ' +
+           'same questions and answering inconsistently", and a paraphrase is what drifts.'
     });
+    /* ⭐ A CHOICE HAS TO NAME WHAT IT BEAT. Addie, 2026-08-28: "quesition map can be
+       answered in your words with optional choice it just which ever choice we clicked
+       on." She is right that a multiple-choice answer cannot be in her words — the
+       options are mine, and forcing a quotation there would mean INVENTING one, which is
+       the exact harm the quote rule exists to prevent.
+       ⚠ BUT "Chose: keep it simple" ON ITS OWN IS NOT AN ANSWER. Six weeks later nobody
+       can tell what she was choosing BETWEEN, so nobody can tell whether her answer
+       covers the case in front of them — and a choice read without its alternative is
+       how a narrow answer gets applied broadly. Two quoted spans: the option taken, and
+       at least one it was taken over. */
+    if (a.indexOf('Chose:') !== -1) {
+      const spans = (a.match(/"[^"]{4,}"/g) || []).length + (a.match(/“[^”]{4,}”/g) || []).length;
+      check('row ' + r.id + ' says what the choice was made over', spans >= 2, {
+        line: r.line, id: r.id, subject: subjectOf(r),
+        problem: 'it records a choice but names ' + spans + ' option(s), so there is ' +
+                 'nothing to tell a later reader what she was choosing between',
+        fix: 'quote the option she took AND at least one she did not. A choice with no ' +
+             'alternative reads as a general ruling, and gets applied to cases she was ' +
+             'never asked about.'
+      });
+    }
   } else {
     if (!hasQuote(a)) oldNoQuote++;
     if (q.indexOf('?') === -1) oldNoQuestion++;
