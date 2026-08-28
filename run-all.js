@@ -38409,6 +38409,17 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
     'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
 
+  /* ⭐ THE PICTURES CAN NEVER BE SHRUNK AWAY (2026-08-28). Found on the live site,
+     not here: the tool opened with a toolbar, a Save bar and NO HOUSE. Letting the
+     panes shrink is what makes the tool fit any window; min-height:0 let them
+     shrink to zero, and they were clipped out of a card set to overflow:hidden. */
+  check('S170', 'the pictures have a floor they cannot collapse below',
+    /\.rm-stagerest > \.rm-panes\{flex:1 1 auto; min-height:2[0-9][0-9]px;\}/.test(admin),
+    'min-height:0 lets a flex item shrink to NOTHING, and a picture that is not there is a broken tool');
+  check('S170', 'and the card scrolls as a last resort rather than clipping them',
+    /\.rm-card\{height:100%; max-height:100%; overflow-y:auto;/.test(admin),
+    'overflow:hidden is what turned "the house is small" into "there is no house"');
+
   /* ⭐ THE PICTURE DOES NOT MOVE WHILE YOU CLICK (2026-08-28). Owner: "whenever i
      click a dot the screen frantically moves making it not user friendly."
 

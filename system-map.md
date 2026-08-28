@@ -89,6 +89,14 @@ on screen from the start showing "—" with its button disabled rather than
 appearing once there is footage. The map's top does not move from the moment the
 tool opens.
 
+⚠ **The pictures have a floor, and the card can scroll as a last resort.** Letting
+them shrink is what makes the tool fit any window — and unchecked it let them
+shrink to NOTHING: on the live site, where the Roof Facts panel renders (Google's
+Solar API answers there and refuses on localhost), the last of the height went to
+that panel and the tool opened with a toolbar, a Save bar and **no house at all**.
+A picture that is smaller than you would like is a compromise; a picture that is
+not there is a broken tool.
+
 ⚠ **The map is told when its pane changes size** (a `ResizeObserver`). A
 flex-sized pane reaches its real height after the map is built, and Google answers
 `getBounds()` with `undefined` until it has idled at that size — without those
