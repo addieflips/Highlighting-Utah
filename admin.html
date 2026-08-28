@@ -4552,7 +4552,7 @@
                on a 1080p screen the picture began 450px down and ended 170px below
                the fold - you scrolled to see the house whatever the controls did.
                The subtraction is what keeps the whole thing on one screen. */
-            #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(300px, calc(100vh - 330px), 760px);}
+            #roofMeasureOverlay .rm-canvas{width:100%; height:clamp(230px, calc(100vh - 505px), 620px);}
             /* ⭐ THE TOOLS ARE NEVER TALLER THAN THE PICTURE BESIDE THEM
                (2026-08-27). Owner: "all the tools are really far apart, mush them
                together so i dont have to scroll."
@@ -4593,7 +4593,26 @@
                ⚠ NOTHING MOVED IN THE MARKUP. Every id, every handler and every
                render is untouched - this is the container changing direction. A
                rebuild of that panel would have taken the listeners with it. */
-            #roofMeasureOverlay #rmWorkStage{display:flex; flex-direction:column; gap:10px;}
+            /* ⭐ EVERYTHING ON ONE SCREEN (2026-08-28, third go). Owner: "i still
+               need to scroll to use 90 % of the tools, just mush them so i can see
+               them all at the same time."
+
+               ⚠ THE BAR ONLY HELD THE MEASURING TOOLS. Price, Save, the captures
+               and the photo panel were still stacked BELOW the pictures, so most of
+               the tool count was exactly where it had always been. Fixing the
+               column and calling it done was fixing a third of it.
+
+               ⭐ TWO BARS AND THE HOUSE BETWEEN THEM. The stage is a wrapping ROW:
+               the tools take a full line, the pictures take a full line, and
+               everything left - price, Save, the capture buttons - shares the line
+               underneath. Nothing is in a column any more.
+
+               ⚠ AND THE PICTURE HAS TO GIVE SOME HEIGHT BACK. Two bars plus a
+               header is about 300px; on a 1080p window that leaves ~330 for the
+               house, not 460. That is the trade and it is the right way round -
+               a slightly smaller house you can measure without scrolling beats a
+               bigger one with the controls off screen. */
+            #roofMeasureOverlay #rmWorkStage{display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px;}
             /* ⚠ display:contents SO THE ORDER BELOW CAN REACH THEM. The controls,
                the price and the Save block are three children of .rm-tools, and
                `order` only sorts siblings - left nested they all had to sit on the
@@ -4609,14 +4628,34 @@
                safe direction: a new block added later lands after the house rather
                than pushing it off the screen. */
             #roofMeasureOverlay #rmWorkStage > *{order:6;}
-            #roofMeasureOverlay .rm-tools > .rm-panel{order:1;}
+            /* ⚠ flex:1 1 100% DOES NOT FORCE A LINE BREAK. A 100% basis that is
+               allowed to SHRINK will happily share a line with everything else, and
+               the toolbar, the pictures and the Save block all ended up side by
+               side in three narrow columns - which is the tall-column problem again
+               wearing a different hat. flex-shrink 0 is what makes it a row. */
+            /* ⚠ :not(.rm-commit) BECAUSE THE SAVE BLOCK IS ALSO A .rm-panel. It
+               carries both classes, so this rule was giving it order 1 and a full
+               width - it took the toolbar's slot, sat above the house and stretched
+               across the whole window, and the order rule written for it lower down
+               lost the specificity fight. Two classes on one element is easy to
+               miss; the symptom looked like an ordering bug and was a selector. */
+            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){order:1; flex:1 0 100%;}
             /* ⚠ THE PICTURES SHARE A WRAPPER WITH THE PHOTO AND CAPTURE BLOCKS, so
                their order is decided INSIDE that wrapper, not against the toolbar.
                Ordered against the stage they stayed put and those two blocks sat
                above the house, which is the fault this was meant to fix. -1 puts
                them first among their own siblings; the wrapper as a whole still
                sits after the toolbar. */
-            #roofMeasureOverlay .rm-panes{order:-1;}
+            /* The pictures' WRAPPER is what sorts against the toolbar - the panes
+               row itself only sorts against the photo and capture blocks it shares
+               that wrapper with. Ordering the inner one moved nothing, and Save
+               ended up above the house. */
+            /* ⚠ SPECIFICITY, NOT ORDER OF WRITING. The catch-all above is two ids
+               (#roofMeasureOverlay #rmWorkStage > *) and beats an id-plus-class, so
+               a plain .rm-stagerest rule lost and the Save block sat above the
+               house. Matched through the same two ids to win. */
+            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{order:2; flex:1 0 100%; display:flex; flex-wrap:wrap; align-items:center; gap:8px;}
+            #roofMeasureOverlay .rm-panes{order:-1; flex:1 0 100%;}
             #roofMeasureOverlay #rmPricePanel{order:3;}
             #roofMeasureOverlay .rm-commit{order:4;}
             #roofMeasureOverlay #rmRoofFactsPanel{order:5;}
@@ -4633,27 +4672,36 @@
             /* Below the pictures, where the last step belongs, and no wider than
                it needs to be - a Save block stretched across 1,400px is a long way
                for an eye to travel between the feet and the button. */
-            #roofMeasureOverlay .rm-commit{max-width:420px;}
-            #roofMeasureOverlay #rmPricePanel{max-width:420px;}
+            /* The last line: price, Save and the captures side by side. The Save
+               block lays out sideways too - the figures, what the feet decide and
+               the button in a row rather than a stack. */
+            #roofMeasureOverlay .rm-commit{flex:1 1 420px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;}
+            /* ⚠ THE HEADING AND THE SENTENCE COST TWO FULL LINES OF THE BAR. The
+               gold button says "Save to this quote" itself, so a heading above it
+               saying the same words is the one thing here that can go without
+               losing anything. The sentence moves into the button's tooltip. */
+            #roofMeasureOverlay .rm-commit h4{display:none;}
+            #roofMeasureOverlay .rm-commit .rm-sub{display:none;}
+            #roofMeasureOverlay .rm-commit .rm-saidit{display:none;}
+            #roofMeasureOverlay .rm-commit .rm-pair{margin:0; flex:0 0 auto; grid-template-columns:auto auto;}
+            #roofMeasureOverlay .rm-commit .rm-chain{margin:0; padding:0 0 0 10px; border-top:0; border-left:1px solid rgba(255,255,255,.14); flex:0 0 auto; display:flex; align-items:center; gap:8px;}
+            #roofMeasureOverlay .rm-commit .rm-chain-h{margin:0; flex:0 0 auto;}
+            #roofMeasureOverlay .rm-commit .btn-gold{width:auto; margin:0; flex:0 0 auto;}
+            #roofMeasureOverlay .rm-commit .rm-second{margin:0; flex:0 0 auto;}
+            #roofMeasureOverlay .rm-commit .rm-saidit{flex:1 1 100%; margin:0; text-align:left;}
+            #roofMeasureOverlay #rmPricePanel{flex:0 1 auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
+            #roofMeasureOverlay #rmPricePanel > *{margin:0;}
             @media (max-width: 899px){
               #roofMeasureOverlay .rm-tools{flex-direction:column;}
             }
-            @media (min-width: 900px){
-              #roofMeasureOverlay .rm-tools{
-                position:sticky; top:0; align-self:flex-start;
-                max-height:clamp(430px, 62vh, 760px); overflow-y:auto; overscroll-behavior:contain;
-                padding-right:4px; scrollbar-width:thin;
-              }
-              /* ⛔ AND SAVE IS NOT PINNED TO THE FOOT OF IT, which was tried and
-                 was worse. The Save card is 300px of a 460px column - stuck to
-                 the bottom it covered two thirds of the tools it was meant to sit
-                 politely beneath, and the measuring controls were the thing you
-                 then had to scroll to find. It is the LAST step and it sits at
-                 the end, where a step that comes last belongs.
-                 ⚠ AND IT IS NOT ON SCREEN AT ALL UNTIL THERE IS SOMETHING TO
-                 SAVE. While measuring the column is the tools panel alone, which
-                 is about the height of the pane, so nothing scrolls at all. */
-            }
+            /* ⛔ THE CAPPED, STICKY, SCROLLING COLUMN IS GONE (2026-08-28). It was
+               the previous answer to the same complaint - cap the column at the
+               height of the picture and let it scroll inside itself - and the owner
+               said plainly that it had not worked: "i still need to scroll to use
+               90 % of the tools." Left in place it also FOUGHT the bar, holding a
+               max-height and an overflow on a container that is now display:contents.
+               The reasoning is in the commit; nothing here should re-cap a column,
+               because there is no column. */
             #roofMeasureOverlay .rm-panehead{position:absolute; left:0; right:0; top:0; z-index:9; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 10px; background:linear-gradient(rgba(12,18,26,.72), rgba(12,18,26,0)); color:#fff; font-size:12px; font-weight:600; pointer-events:none;}
             /* Sits over a pane until its imagery is actually on screen. z-index
                is BELOW the lock layer so it can never swallow a measuring click
@@ -4996,7 +5044,7 @@
                 </div>
                 <div class="rm-flag warn" id="rmFlagHand"></div>
                 <div class="rm-flag note" id="rmFlagStale"></div>
-                <button type="button" class="btn btn-gold" id="rmCommitBtn">Save to this quote</button>
+                <button type="button" class="btn btn-gold" id="rmCommitBtn" title="One press — the feet and the price go together, or neither goes. The drawing saves too, so reopening the quote brings the lines back.">Save to this quote</button>
                 <div class="rm-second">
                   <button type="button" id="rmUseFeetBtn">Save the feet only</button>
                   <button type="button" id="rmUsePriceBtn">Save the price only</button>
@@ -5012,7 +5060,13 @@
               </div>
             </div>
 
-            <div style="flex:1 1 900px; min-width:360px; display:flex; flex-direction:column; gap:10px;">
+            <!-- ⚠ NO INLINE flex HERE. It carried "flex:1 1 900px" from the old
+                 layout, where this was the RIGHT-HAND column beside a tool column -
+                 and an inline style beats the stylesheet, so the new full-width rule
+                 was silently ignored, the pictures were squeezed into 961px of a
+                 1410px stage, and they wrapped onto two rows with the Save block
+                 tucked in beside them. Layout for this lives in the stylesheet. -->
+            <div class="rm-stagerest">
               <!-- ⚠ SIDE BY SIDE WHEREVER THERE IS ROOM. Stacked, the street
                    pane sat below the fold, so a window whose whole point is
                    "mark it in one and see it in the other" opened showing only
