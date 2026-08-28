@@ -173,6 +173,12 @@ rows.forEach(r => {
 //       - a QUESTION, not a topic. "The three RSVP answers, and what each does" is a
 //         heading; you cannot tell from it what was actually asked, so you cannot tell
 //         whether her answer covers your case.
+//       - HER OWN WORDS, quoted — or, where she answered by clicking one of the options
+//         I offered, the OPTION quoted and marked `Chose:`, plus what it was chosen over.
+//         Her ruling, 2026-08-28: "quesition map can be answered in your words with
+//         optional choice it just which ever choice we clicked on." The options are my
+//         words by construction, so demanding a quotation of her there would mean
+//         inventing one — the exact harm this rule exists to prevent.
 //       - HER OWN WORDS, quoted. A paraphrase is my reading of what she meant, and the
 //         whole purpose of this map — her words — is "so you can refer back to that
 //         instead of us reanswering the same questions and answering inconsistently".
@@ -252,13 +258,35 @@ rows.forEach(r => {
            'what the row is ABOUT; only the question tells them whether her answer ' +
            'covers the case in front of them.'
     });
-    check('row ' + r.id + ' answers in her own words', hasQuote(a), {
+    check('row ' + r.id + ' answers in her own words, or names the choice she made', hasQuote(a), {
       line: r.line, id: r.id, subject: subjectOf(r),
-      problem: 'the answer carries no quotation of what she actually said',
-      fix: 'quote her, verbatim, inside double quotes — typos and all. This map exists ' +
-           '"so you can refer back to that instead of us reanswering the same questions ' +
-           'and answering inconsistently", and a paraphrase is the thing that drifts.'
+      problem: 'the answer carries neither a quotation of what she said nor a marked choice',
+      fix: 'quote her verbatim inside double quotes — typos and all — OR, if she answered ' +
+           'by picking an option, write Chose: "the option text" and the option it beat. ' +
+           'This map exists "so you can refer back to that instead of us reanswering the ' +
+           'same questions and answering inconsistently", and a paraphrase is what drifts.'
     });
+    /* ⭐ A CHOICE HAS TO NAME WHAT IT BEAT. Addie, 2026-08-28: "quesition map can be
+       answered in your words with optional choice it just which ever choice we clicked
+       on." She is right that a multiple-choice answer cannot be in her words — the
+       options are mine, and forcing a quotation there would mean INVENTING one, which is
+       the exact harm the quote rule exists to prevent.
+       ⚠ BUT "Chose: keep it simple" ON ITS OWN IS NOT AN ANSWER. Six weeks later nobody
+       can tell what she was choosing BETWEEN, so nobody can tell whether her answer
+       covers the case in front of them — and a choice read without its alternative is
+       how a narrow answer gets applied broadly. Two quoted spans: the option taken, and
+       at least one it was taken over. */
+    if (a.indexOf('Chose:') !== -1) {
+      const spans = (a.match(/"[^"]{4,}"/g) || []).length + (a.match(/“[^”]{4,}”/g) || []).length;
+      check('row ' + r.id + ' says what the choice was made over', spans >= 2, {
+        line: r.line, id: r.id, subject: subjectOf(r),
+        problem: 'it records a choice but names ' + spans + ' option(s), so there is ' +
+                 'nothing to tell a later reader what she was choosing between',
+        fix: 'quote the option she took AND at least one she did not. A choice with no ' +
+             'alternative reads as a general ruling, and gets applied to cases she was ' +
+             'never asked about.'
+      });
+    }
   } else {
     if (!hasQuote(a)) oldNoQuote++;
     if (q.indexOf('?') === -1) oldNoQuestion++;
