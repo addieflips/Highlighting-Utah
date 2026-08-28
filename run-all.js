@@ -38232,8 +38232,16 @@ suite('157. Measure Roof - the house the system assumes, drawn before anything e
   }
 
   /* It is drawn, in both windows, and it can be turned off. */
-  check('S157', 'the assumed house is drawn in the street view',
-    /if\(rmShowModel\)\{[\s\S]{0,600}rmHouseWireframe\(\)\.forEach/.test(admin));
+  /* ⛔ RETIRED 2026-08-28 (MR-06). The wireframe of Google's roof model was
+     drawn into Street View so a traced line could be checked against it there.
+     Street View draws only its OWN marks now, so there is nothing for a model
+     overlay to be checked against and nothing to draw it beside. rmHouseWireframe
+     is still built and still used from above; what went is painting it into the
+     photograph. */
+  check('S157', 'the assumed house is still built, even though the picture no longer draws it',
+    typeof extractFn(admin, 'rmHouseWireframe') === 'string' &&
+    (extractFn(admin, 'rmHouseWireframe') || '').length > 0,
+    'the model still answers where the roof is; only the second view of it went');
   /* ⚠ NOT the cached rmModel() here. Which walls show depends on where the
      camera is standing, and the cache is keyed on the house, not the camera. */
   check('S157', 'and it is rebuilt per camera, not served from the house cache',
@@ -38383,6 +38391,56 @@ suite('170. Measure Roof - a peak is two dots and a grade');
   check('S170', 'and with none set it falls back to the measured pitch',
     Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
     'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
+
+  /* ⭐ STREET VIEW HAS ITS OWN DOTS AND SHOWS NOBODY ELSE'S (MR-06, 2026-08-28).
+     Owner: "it should not show the dots from sky view and should also let you
+     draw your own dots seperate from sky view so you can only see it on street
+     view." */
+  check('S170', 'the picture no longer draws the sky view’s dots',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return fn.length > 0 && !/rmRuns|rmCorners|rmCandidates|rmHouseWireframe/.test(fn);
+    })(),
+    'they were unreachable there, uneditable there, and drawn from a model this pane no longer measures against');
+  check('S170', 'and it draws its own marks instead',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return /rmStreetDotsHere\(\)/.test(fn) && /rmStreetDotPixel\(/.test(fn);
+    })());
+  check('S170', 'a street mark is a DIRECTION, so it never needs a depth',
+    (function(){
+      const fn = extractFn(admin, 'rmStreetDotFromPixel') || '';
+      return /rmRay\(/.test(fn) && !/rmRoofRelativeAt|rmDatum\(|dist/.test(fn);
+    })(),
+    'turning a street click into a PLACE is what could not be done; a bearing needs nothing');
+  check('S170', 'and it belongs to the one panorama it was placed in',
+    (function(){
+      const mk = extractFn(admin, 'rmStreetDotFromPixel') || '';
+      const here = extractFn(admin, 'rmStreetDotsHere') || '';
+      return /getPano\(\)/.test(mk) && /d\.pano === id/.test(here);
+    })(),
+    'a bearing from where the van stood is meaningless from the next camera down the street');
+  check('S170', 'the marks reach no footage and no price',
+    (function(){
+      const t = extractFn(admin, 'rmTotals') || '';
+      return t.length > 0 && !/rmStreetDot/.test(t);
+    })(),
+    'two directions with no depth have no distance between them; this pane measures nothing');
+  check('S170', 'backspace acts on whichever picture was last used',
+    (function(){
+      const i = admin.indexOf("rmLastPane === 'street' && rmStreetDotsHere().length");
+      const j = admin.indexOf('rmDeleteLastCorner();', i);
+      return i !== -1 && j > i;
+    })(),
+    'one key cannot mean both sets, and undoing measured footage while marking a photograph is the wrong half');
+  check('S170', 'and the picture takes clicks again while measuring',
+    /const stLock = rmDrawing \|\| rmCornerMode === 'dot';/.test(admin));
+  check('S170', 'the marks are cleared when another house is loaded',
+    (function(){
+      const fn = extractFn(admin, 'rmForgetLastHouse') || '';
+      return /rmStreetDots = \[\]/.test(fn);
+    })(),
+    'they belong to one house’s photograph and mean nothing on the next');
 
   /* ⭐ THE FIRST DOT CAN ACTUALLY BE PLACED (2026-08-27). The sky click used to
      refuse until the datum had been measured, telling you to click a wall in
@@ -38734,10 +38792,20 @@ suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is
      needed from above, because looking straight down there is no sky to click
      on. That is the whole reason the sky view is now the only measuring
      surface. */
+  /* ⚠ REPOINTED 2026-08-28 (MR-06), NOT WEAKENED. This proved the point by
+     proving the click handler did not EXIST, and one exists again — Street View
+     takes clicks for its own marks. The guarantee is unchanged and is what is
+     asserted now: a street click still measures nothing. It cannot, and that is
+     the whole reason marks are bearings rather than places. */
   check('S160', 'nothing measures from a street click any more',
-    admin.indexOf("rmPanoLock').addEventListener('click'") === -1 &&
-    admin.indexOf('const stLock = false;') !== -1,
-    'the sheet that caught those clicks is gone, and so is the click handler');
+    (function(){
+      const i = admin.indexOf("rmPanoLock').addEventListener('click'");
+      if(i === -1) return false;
+      const body = admin.slice(i, admin.indexOf('});', i));
+      return /rmAddStreetDot\(/.test(body) &&
+             !/rmAddCorner|rmAddPoint|rmPinCorner|rmTotals/.test(body);
+    })(),
+    'a click here becomes a MARK and nothing else; footage comes off the sky view alone');
 
   /* ⭐ AND THE SCAFFOLDING NO LONGER SHOUTS OVER THE WORK. Opening the tool
      showed a cyan outline and a yellow ground line and no red anywhere, so the
@@ -38756,9 +38824,17 @@ suite('160. Measure Roof - a click on nothing is refused, and the scaffolding is
     /OFF BY DEFAULT, AND THIS RECORDS WHY/.test(admin) &&
     /axis-aligned\s*\n?\s*BOUNDING boxes/.test(admin),
     'she asked for it drawn; it comes back when it is worth looking at');
-  check('S160', 'the yellow ground guide belongs to the wall picker only',
-    /const shownWall = \(rmWallPicking \|\| rmCornerMode !== 'dot'\) \? rmActiveWall\(\) : null;/.test(admin),
-    'across the lawn it reads as a proposed run of lights along the grass');
+  /* ⛔ RETIRED 2026-08-28 (MR-06). The guide was drawn into Street View by
+     rmPaintStreet, which now paints only that pane's own marks — so the thing
+     it was scoped to no longer exists to be scoped. The reasoning is kept
+     because it is a good rule about this pane: anything drawn across the lawn
+     reads as a proposed run of lights along the grass. */
+  check('S160', 'the picture draws nothing but its own marks',
+    (function(){
+      const fn = extractFn(admin, 'rmPaintStreet') || '';
+      return fn.length > 0 && !/rmActiveWall|shownWall/.test(fn);
+    })(),
+    'anything else drawn here reads as a proposed run of lights');
 }
 
 

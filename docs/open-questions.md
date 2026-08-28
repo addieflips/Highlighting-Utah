@@ -1580,7 +1580,7 @@ given cannot become a row, and `claude/questions-map.md` holds answers, not
 open questions. When this is answered it earns a `MON-` row, and if the answer
 reverses either side the superseded row is kept and marked, per that file's rule.
 
-## Q-024 · intent · OPEN · raised 2026-08-28
+## Q-024 · intent · answered · 2026-08-28
 The ×2.9 pricing multiplier was compensating for a fault that is now gone. Does it stay?
 
 **This is money on every quote, so it is recorded rather than decided.**
@@ -1630,3 +1630,26 @@ metres-read-as-feet bug and never was.
 is true, and nobody has checked a traced outline against a tape. Until it is
 answered the multiplier is left exactly as it is — changing it silently in either
 direction moves every price you quote.
+
+**ANSWERED 2026-08-28 — it stays.** Owner: *"yes the 2.9 is good because we want
+to charge $2 a foot but if the house is so called 60 feet we cant do that so we
+might want to adjust the 2.9 and if we do ill let you know but for now lets keep
+it."*
+
+⭐ **SO IT IS NOT A MEASUREMENT CORRECTION ANY MORE — IT IS THE RATE.** That is
+the part worth writing down, because the constant's own comment still describes
+it as compensating for where dots land, and that reason is gone. What it actually
+carries now is a business fact: $2 a foot is the advertised rate, and a 60 ft
+house cannot be done for $120 whatever the tape says. The multiplier is where the
+minimum-job cost lives.
+
+⚠ **DO NOT "FIX" IT BACK TO 1 WHEN THE MEASUREMENT IS PROVED TRUE.** That is the
+trap this answer closes: a future session finding an accurate trace and a 2.9
+sitting on top of it will read it as the stale compensation the old comment warns
+about, set it to 1, and cut every quote to a third. It survives the measurement
+being right.
+
+⚠ **AND IT IS HERS TO MOVE.** She has said she may adjust it and will say so.
+Nobody changes this number without her.
+
+**Resulting map change:** MR-08 in `claude/questions-map.md`.

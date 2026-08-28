@@ -16769,6 +16769,20 @@ const RM_TYPES = {
    thousandth of a foot. 2.9 is close to 3.281 and it is worth saying plainly
    that it is NOT a metres-read-as-feet bug - that was the first thing checked.
 
+   ⭐ ANSWERED 2026-08-28, AND THE ANSWER CHANGES WHAT THIS NUMBER IS. Owner:
+   "yes the 2.9 is good because we want to charge $2 a foot but if the house is
+   so called 60 feet we cant do that." So it is NO LONGER a measurement
+   correction - it is where the MINIMUM JOB COST lives. $2 a foot is the
+   advertised rate and a 60 ft house cannot be done for $120 whatever the tape
+   says.
+
+   ⚠ SO DO NOT SET IT BACK TO 1 WHEN THE MEASUREMENT IS PROVED TRUE. Everything
+   below this line is the ORIGINAL reasoning, kept because it is exactly the
+   trap: a session that finds an accurate trace and a 2.9 on top of it will read
+   the paragraphs that follow, conclude the compensation is stale, and cut every
+   quote to a third of what she charges. It survives the measurement being right.
+   She has said she may adjust it and will say so. Nobody else moves it.
+
    ⚠ SO WHAT IT IS COMPENSATING FOR IS WHERE THE DOTS LAND, not how they are
    measured, and that has a real cause being worked on: dots were landing about
    6.7 ft from the truth on 209 S 850 W, on a surface standing in front of the
@@ -17132,6 +17146,77 @@ function rmRay(px, py, W, H, pov){
   };
   const len = Math.hypot(v.e, v.n, v.u);
   return {e: v.e/len, n: v.n/len, u: v.u/len};
+}
+/* ================= STREET VIEW'S OWN DOTS =========================
+ *
+ * ⭐ WHY THESE EXIST (2026-08-28). Owner: "it should not show the dots from sky
+ * view and should also let you draw your own dots seperate from sky view so you
+ * can only see it on street view."
+ *
+ * ⚠ WHAT SHE WAS LOOKING AT. Street View was drawing the SKY VIEW's traced runs
+ * projected into the photograph - dots she had placed from above, appearing in a
+ * picture she could not draw on. The worst of both: cluttered AND inert.
+ *
+ * ⭐ A STREET DOT IS A DIRECTION, NOT A PLACE, and that is what makes it
+ * possible at all. Turning a street click into a POSITION needs a depth the
+ * photograph cannot supply - the whole reason measuring moved to the sky view.
+ * A direction needs nothing: rmRay already turns a pixel into a unit vector out
+ * of the camera, and projecting it back is the same basis maths rmSvProject
+ * uses. So the mark sticks to the picture exactly as the camera pans and zooms,
+ * and it never has to answer how far away it is.
+ *
+ * ⚠ THEREFORE IT MEASURES NOTHING, deliberately. Two directions with no depth
+ * have no distance between them. These are marks on a photograph - this is the
+ * pane that takes the picture - and nothing here reaches the footage or the
+ * price.
+ *
+ * ⚠ AND A DIRECTION BELONGS TO ONE PANORAMA. Bearings from where the van stood
+ * are meaningless from the next camera down the street, so each dot records the
+ * pano it was placed in and is drawn only there. Walking away and back brings
+ * them back; it does not smear them across the road. */
+let rmStreetDots = [];
+let rmLastPane = 'sky';   /* which picture the last dot went into, so backspace knows */
+
+function rmStreetDotFromPixel(px, py, W, H, pov){
+  const d = rmRay(px, py, W, H, pov);
+  if(!d) return null;
+  return {e: d.e, n: d.n, u: d.u, pano: (rmPano && rmPano.getPano) ? rmPano.getPano() : ''};
+}
+/* Back to a pixel. Null when it is behind the camera or off the edge - the
+   same forward-facing test rmSvProject makes, for the same reason. */
+function rmStreetDotPixel(dir, W, H, pov){
+  const b = rmBasis(pov.heading, pov.pitch);
+  const f = b.forward.e*dir.e + b.forward.n*dir.n + b.forward.u*dir.u;
+  if(f <= 0.15) return null;
+  const r = b.right.e*dir.e + b.right.n*dir.n + b.right.u*dir.u;
+  const u = b.up.e*dir.e + b.up.n*dir.n + b.up.u*dir.u;
+  const focal = (W/2)/Math.tan(rmRad(rmFovDeg(pov.zoom))/2);
+  return {x: W/2 + focal*r/f, y: H/2 - focal*u/f};
+}
+function rmStreetDotsHere(){
+  const id = (rmPano && rmPano.getPano) ? rmPano.getPano() : '';
+  return rmStreetDots.filter(function(d){ return d.pano === id; });
+}
+function rmAddStreetDot(dot){
+  if(!dot) return false;
+  rmStreetDots.push(dot);
+  rmPaintStreet();
+  rmStreetDotNote();
+  return true;
+}
+function rmDeleteLastStreetDot(){
+  const here = rmStreetDotsHere();
+  if(!here.length) return false;
+  rmStreetDots.splice(rmStreetDots.lastIndexOf(here[here.length - 1]), 1);
+  rmPaintStreet();
+  rmStreetDotNote();
+  return true;
+}
+function rmStreetDotNote(){
+  const el = document.getElementById('rmStreetNote');
+  if(!el) return;
+  const n = rmStreetDotsHere().length;
+  el.textContent = n ? (n + (n === 1 ? ' mark' : ' marks') + ' — backspace takes one back') : '';
 }
 function rmPanoPov(){
   if(!rmPano) return {heading:0, pitch:0, zoom:1};
@@ -21595,7 +21680,13 @@ function rmSetDrawing(on){
      The one thing that view cannot give is HEIGHT, and height only lengthens a
      line where it CLIMBS - which is what the peaks answer, by being counted
      rather than measured. */
-  const stLock = false;
+  /* ⭐ THE PICTURE TAKES CLICKS AGAIN (2026-08-28), FOR ITS OWN MARKS ONLY.
+     This was false from the day Street View stopped measuring, and it had to
+     be: a click here could not become a place without a depth the photograph
+     cannot give. A MARK needs no depth (see the block on rmStreetDots), so the
+     sheet goes back over the picture while measuring - and nothing it takes
+     reaches the footage. */
+  const stLock = rmDrawing || rmCornerMode === 'dot';
   document.getElementById('rmMapLock').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmMapFrozen').style.display = skyLock ? 'block' : 'none';
   document.getElementById('rmPanoLock').style.display = stLock ? 'block' : 'none';
@@ -22010,165 +22101,52 @@ function rmRunFacesCamera(r){
   return !(t !== null && t > 0.02 && t < 0.995);
 }
 function rmPaintStreet(){
+  /* ⭐ THE PICTURE CARRIES ITS OWN MARKS AND NOTHING ELSE (2026-08-28). Owner:
+     "it should not show the dots from sky view."
+
+     ⛔ WHAT THIS USED TO DRAW, all of it projected out of the sky view: every
+     traced run, the offered corners, the wall line and a wireframe of Google's
+     roof model. That made sense while one dot meant one place seen through two
+     windows. It stopped meaning anything when the roofline moved overhead for
+     good - the marks were unreachable here, could not be edited here, and were
+     drawn from a model this pane no longer measures against.
+
+     ⚠ THE PROJECTION MATHS IS UNCHANGED AND IS rmSvProject's OWN. What went is
+     WHAT is projected, not HOW. If dots ever have to appear in both pictures
+     again, the wireframe and run-drawing are in git, and the reason they were
+     removed is above. */
   const svg = document.getElementById('rmSvLayer');
   if(!svg) return;
-  const cam = rmCamLocal();
-  if(!rmPano || !cam || !rmOrigin){ svg.innerHTML = ''; return; }
-  const {W, H} = rmPanoSize();
-  const pov = rmPanoPov();
+  if(!rmPano){ svg.innerHTML = ''; return; }
+  const box = document.getElementById('rmPano').getBoundingClientRect();
+  const W = box.width, H = box.height;
+  if(!(W > 0 && H > 0)){ svg.innerHTML = ''; return; }
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  const pov = rmPanoPov();
   const parts = [];
-  /* ⭐ THE HOUSE THE SYSTEM THINKS IS THERE, drawn first so it sits under the
-     lines and the dots. Owner: "the first thing the system should do is draw
-     the house as if there were no obstacles using things like walls, not like
-     a literal drawing that I see but where the system will assume the house
-     is." Seeing the assumption is what makes a wrong one - a tree read as a
-     notch in the front wall - obvious in a second rather than three dots
-     later. Thin and dashed, because it is scaffolding and not the job. */
-  if(rmShowModel){
-    /* ⚠ NOT rmModel() - which walls are visible depends on where the camera is
-       standing, and the cache is keyed on the house. The outline itself is the
-       expensive part and that is still cached inside. */
-    rmHouseWireframe().forEach(function(sg){
-      const a = rmSvProject(rmToWorld(sg.a), W, H, pov, cam);
-      const b = rmSvProject(rmToWorld(sg.b), W, H, pov, cam);
-      if(!a || !b) return;
-      parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
-        '" stroke="rgba(0,0,0,.35)" stroke-width="2.5"/>');
-      parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
-        '" stroke="#5BC8F5" stroke-width="1.1" stroke-dasharray="5 4" opacity=".95"/>');
-    });
-  }
-  /* ⚠ THE YELLOW GROUND LINE IS FOR PICKING A WALL, NOT FOR LOOKING AT. It is
-     the footprint drawn at ground level, and with dots being placed it sits
-     across the lawn and the driveway looking like a proposed run of lights
-     along the grass. It belongs to the wall picker, so it shows when that is
-     what somebody is doing and not otherwise. */
-  const shownWall = (rmWallPicking || rmCornerMode !== 'dot') ? rmActiveWall() : null;
-  if(shownWall){
-    const a = rmSvProject({lat:shownWall.a.lat, lng:shownWall.a.lng, h:0}, W, H, pov, cam);
-    const b = rmSvProject({lat:shownWall.b.lat, lng:shownWall.b.lng, h:0}, W, H, pov, cam);
-    if(a && b) parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="#F4BE55" stroke-width="3" stroke-dasharray="7 5" opacity=".9"/>');
-  }
-  rmWallPts.forEach(function(p){
-    const w = rmToWorld(p);
-    const q = rmSvProject(w, W, H, pov, cam);
-    if(q) parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="#F4BE55" stroke="#fff" stroke-width="2"/>');
+  const pts = [];
+  rmStreetDotsHere().forEach(function(d){
+    const q = rmStreetDotPixel(d, W, H, pov);
+    pts.push(q);          /* null keeps the numbering honest when one is off screen */
   });
-  /* ⚠ THIN, AND ONLY WHAT IS IN FRONT. Owner: "theres to much going on you
-     cant see the house clearly... it should look clean and crisp though. not
-     messy." An 8-pixel black halo under a 4-pixel line, with a fat white dot at
-     every end, covered more of the roof than it described. The line still needs
-     a dark edge to read against a bright sky, but one pixel of it is enough. */
-  rmRuns.concat(rmCurrent ? [rmCurrent] : []).forEach(function(r, idx){
-    const isCurrent = idx >= rmRuns.length;
-    if(!isCurrent && !rmRunFacesCamera(r)) return;      /* the house is in the way */
-    const pts = r.path.map(function(p){ return rmSvProject(p, W, H, pov, cam); });
-    const vis = pts.filter(Boolean);
-    const on = rmRunIsOn(r);
-    const colour = on ? RM_TYPES[r.type].color : '#9aa4b0';
-    const known = idx < rmRuns.length ? idx : -1;
-    if(pts.length > 1 && vis.length === pts.length){
-      const d = pts.map(function(p, i){ return (i?'L':'M')+p.x+' '+p.y; }).join(' ');
-      parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="'+(on?4:3)+'" stroke-linejoin="round" stroke-linecap="round"/>');
-      parts.push('<path d="'+d+'" fill="none" stroke="'+colour+'" stroke-width="'+(on?2:1.4)+'"'+
-        (on ? '' : ' stroke-dasharray="6 5" opacity=".65"')+' stroke-linejoin="round" stroke-linecap="round"/>');
-      /* ⚠ A FAT INVISIBLE STROKE ON TOP is what makes a 4px line clickable by
-         hand. Without it the pick target is the drawn width and nobody hits it.
-         Only when NOT drawing, so placing a point never toggles a line instead. */
-      if(known >= 0 && !rmDrawing && !rmWallPicking){
-        parts.push('<path d="'+d+'" fill="none" stroke="rgba(0,0,0,0)" stroke-width="20" '+
-          'style="pointer-events:stroke; cursor:pointer;" data-rmtoggle="'+known+'"></path>');
-      }
-    }
-    /* Handles only where there is something to take hold of: a switched-on run
-       you might drag. A dot on every end of every greyed-out suggestion is the
-       clutter, not the lines. ⚠ A run built from corners draws none at all -
-       its corners are drawn once, below, with their numbers on. */
-    vis.forEach(function(p){
-      if(!on || r.fromCorners) return;
-      parts.push('<circle cx="'+p.x+'" cy="'+p.y+'" r="3" fill="#fff" stroke="'+colour+'" stroke-width="1.5"/>');
-    });
-  });
-  /* ⭐ THE CORNERS BEING OFFERED, drawn under the kept ones and much quieter.
-     Owner: "also start getting the generated corners and you can click the ones
-     you want to keep", and separately "the dots should look clean and small so
-     theyre not hindering the view of the house."
-     A suggestion has to be visible enough to aim at and quiet enough that it
-     never reads as a decision, so it is a small hollow ring with no number. The
-     click target is invisible and generous, which costs nothing on screen. */
-  rmCandidates.forEach(function(c, i){
-    const q = rmSvProject({lat: c.lat, lng: c.lng, h: c.h}, W, H, pov, cam);
+  /* Joined in the order they were placed, and only between two marks that are
+     both on screen - a line to a point behind the camera is a line across the
+     picture to nowhere. */
+  for(let i = 1; i < pts.length; i++){
+    const a = pts[i-1], b = pts[i];
+    if(!a || !b) continue;
+    parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
+      '" stroke="rgba(0,0,0,.45)" stroke-width="4" stroke-linecap="round"/>');
+    parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
+      '" stroke="#E0574B" stroke-width="2" stroke-linecap="round"/>');
+  }
+  pts.forEach(function(q, i){
     if(!q) return;
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="4" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="2.5"/>');
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="4" fill="none" stroke="#F4BE55" stroke-width="1.4"/>');
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="11" fill="rgba(0,0,0,0)" style="pointer-events:none;"/>');
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="#E0574B" stroke="#fff" stroke-width="2"/>');
+    parts.push('<text x="'+q.x+'" y="'+(q.y - 10)+'" text-anchor="middle" font-size="11" font-weight="700" ' +
+      'fill="#fff" stroke="rgba(0,0,0,.55)" stroke-width="3" paint-order="stroke">'+(i+1)+'</text>');
   });
-    /* ⛔ THE SKY DOTS ARE NOT DRAWN HERE ANY MORE (2026-08-27). Owner: "you
-     shouldnt see the same dot on both perspectives anymore", and before it "we
-     dont need sky view dots and street view dots to be in sync anymore".
-
-     ⚠ THEY WERE THE SAME DOT IN TWO PICTURES, and that was the whole point when
-     one set of points had to serve both views - place it in one, see it in the
-     other. It stopped being the point when the street view stopped measuring:
-     a dot placed from above has no height, so drawing it here meant inventing
-     one, and an invented height put it somewhere on the photograph that is not
-     where the corner is. Showing it anyway is the tool asserting something it
-     does not know. */
   svg.innerHTML = parts.join('');
-  /* The layer ignores the mouse as a whole; only the fat pick strokes take it,
-     so panning the panorama still works everywhere else. */
-  svg.style.pointerEvents = (rmDrawing || rmWallPicking) ? 'none' : 'none';
-  svg.querySelectorAll('[data-rmcornerdot]').forEach(function(el){
-    /* ⭐ WHILE PLACING, A DOT DOES NOT SWALLOW ITS OWN CLICK (2026-08-26).
-       Owner: "i cant place two dots on top of each other", asked while trying to
-       click the SAME corner from a second angle.
-
-       ⚠ AND THAT IS THE ONE GESTURE THAT FIXES DRIFT. Two sightings of a corner
-       cross at a point, which is geometry rather than a model - it is the whole
-       answer to a dot moving when the camera does. But this invisible r=7 target
-       sits on the SVG layer ABOVE the sheet that catches clicks, and it calls
-       stopPropagation, so a click within seven pixels of a drawn dot never reached
-       the placing code at all: it TOGGLED the dot instead. Nothing about that looks
-       like a refusal - no message, no new dot, no pin - which is exactly how it was
-       reported. The re-sighting path underneath was unreachable precisely when the
-       dot was drawn where you were aiming, which is most of the time.
-
-       ⚠ THIS IS THE SECOND TIME THIS TARGET HAS EATEN A GESTURE. The note above
-       records it swallowing dot PLACEMENT and being narrowed from 12 to 7 in
-       response. Narrowing cannot fix it, because the whole point of re-sighting is
-       to click where the dot already is. So the mode decides instead: while PLACING
-       the click falls through to the sheet, where rmDotToResight chooses between
-       re-sighting this dot and putting down a new one; while PICKING it toggles as
-       before. Nothing is lost - the right button toggles in either mode, on both
-       views, and that is what it is for. */
-    el.style.pointerEvents = (rmCornerMode === 'dot') ? 'none' : 'all';
-    el.addEventListener('click', function(ev){
-      ev.stopPropagation();
-      const i = Number(el.dataset.rmcornerdot);
-      /* ⚠ SHIFT MEANS TWO THINGS NOW, AND THE MOUSE DECIDES WHICH. Shift-click on
-         a dot has always swapped two dots' order - asked for in those words -
-         and shift-DRAG was then asked for to move one. Same modifier, same
-         target, so the only thing that separates them is whether the pointer
-         actually travelled. If it did, the drag has already moved the dot and
-         this click is just the end of it; swapping as well would be a second,
-         unasked-for change from one gesture. */
-      if(rmDragMoved){ rmDragMoved = false; return; }
-      if(ev.shiftKey){
-        if(rmSwapFrom === null){ rmSwapFrom = i; rmRenderCornerBar(); rmPaintStreet(); }
-        else { rmSwapCorners(rmSwapFrom, i); rmSwapFrom = null; }
-      } else {
-        rmToggleCorner(i);
-      }
-    });
-  });
-  svg.querySelectorAll('[data-rmtoggle]').forEach(function(el){
-    el.style.pointerEvents = 'stroke';
-    el.addEventListener('click', function(ev){
-      ev.stopPropagation();
-      rmToggleRun(Number(el.dataset.rmtoggle));
-    });
-  });
 }
 /* ---- loading ----------------------------------------------------------- */
 function rmEnsureMap(center){
@@ -22279,6 +22257,8 @@ function rmMeasureGroundDrop(){
    Only this function knows what is per-house, so it is the one place to add to
    when something new is remembered. */
 function rmForgetLastHouse(){
+  /* The marks belong to one house's photograph and mean nothing on the next. */
+  rmStreetDots = []; rmLastPane = 'sky';
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
   rmModelShift = null; rmModelShiftFt = 0; rmModelShiftResidIn = 0;
@@ -23624,6 +23604,14 @@ function openRoofMeasure(quoteId){
       if(ask) ask.style.display = 'flex';
     });
   });
+  document.getElementById('rmPanoLock').addEventListener('click', function(e){
+    if(e.shiftKey || !rmPano) return;   /* shift is the drag gesture on both views */
+    rmLastPane = 'street';
+    const box = document.getElementById('rmPano').getBoundingClientRect();
+    rmAddStreetDot(rmStreetDotFromPixel(e.clientX - box.left, e.clientY - box.top,
+                                        box.width, box.height, rmPanoPov()));
+  });
+  document.getElementById('rmMapLock').addEventListener('mousedown', function(){ rmLastPane = 'sky'; });
   document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
     if(!rmPano) return;
     e.preventDefault();
@@ -24033,12 +24021,21 @@ function openRoofMeasure(quoteId){
       e.preventDefault();
       /* A dot goes back the way it came. Only while there are dots - otherwise
          this is still the undo button for a traced run. */
+      /* ⚠ WHICHEVER PICTURE YOU WERE LAST IN. The two sets of dots are
+         separate now, so one backspace cannot mean both - and taking a sky dot
+         back while somebody is marking up a photograph would undo measured
+         footage they never touched. */
+      if(rmLastPane === 'street' && rmStreetDotsHere().length){
+        rmDeleteLastStreetDot();
+        return;
+      }
       if(rmCorners.length){
         rmDeleteLastCorner();
         const note = document.getElementById('rmCornerNote');
         if(note) note.textContent = rmCorners.length + ' dots left.';
         return;
       }
+      if(rmDeleteLastStreetDot()) return;   /* nothing left above; try the picture */
       document.getElementById('rmUndoBtn').click(); /* take back one point, then one run */
     } else if(k === ' ' || k === 'Spacebar'){
       /* ⭐ SPACE SWAPS PICKING FOR PLACING. Owner: "have it be easy to create a

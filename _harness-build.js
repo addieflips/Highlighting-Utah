@@ -277,6 +277,15 @@ window.H = {
     tries: (typeof rmPhotoDatumTries !== 'undefined') ? rmPhotoDatumTries : null
   })
 };
+/* ⚠ THE KEYBOARD HANDLER REFUSES TO RUN UNLESS THE OVERLAY IS OPEN, and it
+   tests the INLINE style (ov.style.display !== 'flex') because that is what
+   openRoofMeasure sets. The harness renders the overlay through a stylesheet
+   override instead, so the inline style was empty and EVERY key - backspace,
+   Enter, Escape, space - silently did nothing here. Backspace looked broken
+   when it was fine. The CSS above still governs the layout; this is only what
+   the guard reads. */
+document.getElementById('roofMeasureOverlay').style.display = 'flex';
+
 document.getElementById('go').onclick = () => {
   document.getElementById('out').textContent = 'loading...';
   window.H.load(document.getElementById('addr').value)
