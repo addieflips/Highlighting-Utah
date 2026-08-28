@@ -187,5 +187,45 @@ check('no file mixes CRLF and LF line endings',
       '\n        A mixed file makes an unreviewable diff and makes text anchors fail silently.'
     : '');
 
+/* ⭐ A CARRIAGE RETURN THAT IS NOT A LINE ENDING (added 2026-08-28, because the check
+   above did not catch it and I am the one who shipped it). c5eb93d extracted hcFixRow
+   with a python edit and left 28 lines carrying \r\r\n — a stray CR sitting in front of
+   the real ending. That commit's own notes record catching a line-ending slip in exactly
+   that function and fixing it; the fix swapped one flavour of damage for another.
+
+   ⚠ AND EVERY GATE PASSED, INCLUDING THE ONE ABOVE. Mixed-endings counts CRLF against
+   LF, and \r\r\n is neither: the \n is preceded by an \r, so it counts as CRLF, and the
+   extra \r is invisible to it. Zero LF, no mixing, green. It survived four merges.
+
+   ⚠ IT IS HARMLESS TO A BROWSER, which is precisely why it needs a gate rather than a
+   reader. A CR is whitespace to a parser, so nothing renders wrong and nothing throws —
+   the damage is to every diff and every text anchor from then on, which is the same
+   damage the mixed-endings check exists to stop, arriving by a door it does not watch.
+
+   ⚠ SCOPED TO A CR THAT IS NOT FOLLOWED BY \n, so it says nothing about which ending a
+   file uses — the check above already refuses to have that argument, for a reason it
+   states, and this one must not start it. A lone CR mid-line is caught by the same rule
+   and is the same kind of accident. */
+const strayCR = [];
+TEXT_FILES.forEach(file => {
+  const full = path.join(ROOT, file);
+  if (!fs.existsSync(full)) return;
+  const raw = fs.readFileSync(full, 'latin1');
+  const hits = (raw.match(/\r(?!\n)/g) || []).length;
+  if (hits) {
+    /* Name the first one: "28 somewhere in a 54,000-line file" is a report, not a lead. */
+    const at = raw.search(/\r(?!\n)/);
+    const line = raw.slice(0, at).split('\n').length;
+    strayCR.push(file + '  ' + hits + ' stray carriage return(s), first at line ' + line);
+  }
+});
+check('no file carries a carriage return that is not a line ending',
+  strayCR.length === 0,
+  strayCR.length
+    ? strayCR.join('\n        ') +
+      '\n        A \\r\\r\\n reads as CRLF to every other check here, so nothing else will' +
+      '\n        ever tell you. Strip the extra \\r — do not normalise the whole file.'
+    : '');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
