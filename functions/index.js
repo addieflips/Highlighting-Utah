@@ -1126,6 +1126,17 @@ const WAREHOUSE_BUILD_FIELDS = ['lightsDescription', 'wireColor', 'outletTimer']
    ⚠ ON THE TRANSITION ONLY, for the same reason as the browser copy: portalSave writes
    this flag on saves that change nothing about the build, and re-stamping there would
    reset the wait on a house nobody has touched. */
+/* The server half of "when was their old set asked for back". Change this and change
+   `stampRecycleRequested` in admin.html in the same push — the portal is where a
+   customer cancels or clears their own colours, which is two of the six ways a recycle
+   is queued. */
+function stampRecycleRequestedServer(updates, wasQueued) {
+  if (updates && updates.needsLightRecycle === true && !wasQueued) {
+    updates.lightsRecycleRequestedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+  return updates;
+}
+
 function stampBuildQueuedServer(updates, wasQueued) {
   if (updates && updates.needsLightBuild === true && !wasQueued) {
     updates.lightsQueuedAt = admin.firestore.FieldValue.serverTimestamp();
@@ -1292,6 +1303,8 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
      change. The lights block can also set the flag FALSE (colours cleared), and this
      only ever stamps a true, so it is safe below both. */
   stampBuildQueuedServer(updates, !!oldData.needsLightBuild);
+  /* Clearing your own colours in the portal queues a recycle — one of the six ways. */
+  stampRecycleRequestedServer(updates, !!oldData.needsLightRecycle);
 
   // Keep the normalised sign-in fields in step with whatever just changed —
   // see contactIndexFields. Without this a customer who edits their own phone
@@ -1688,6 +1701,7 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      name the same record differently. Written as `d` it parses perfectly and throws a
      ReferenceError on the first customer who answers their RSVP. */
   stampBuildQueuedServer(updates, !!oldData.needsLightBuild);
+  stampRecycleRequestedServer(updates, !!oldData.needsLightRecycle);
 
   // Keep the normalised sign-in fields in step with whatever just changed —
   // see contactIndexFields. Without this a customer who edits their own phone
@@ -3290,6 +3304,15 @@ async function runInvoiceBatch(triggeredBy) {
         if (isNewMember && !inv.newMemberFeeApplied) {
           inv.install = (Number(inv.install) || 0) + 30;
           inv.newMemberFeeApplied = true;
+          /* ⭐ WHEN THE $30 JOIN FEE WAS CHARGED (added 2026-08-28). Addie: "Everything
+             that can be changed for members or added to members account including 30
+             dollars fees ... should be dated." The flag said IF, never WHEN — and this
+             is the one fee with no note of its own to carry a date, because it is folded
+             straight into `install` rather than listed like the change fee.
+             ⚠ Start New Season sets the flag back to false, so this is stamped afresh
+             each season and answers "when were they charged it THIS year", which is the
+             question asked when a customer queries their bill. */
+          inv.newMemberFeeAppliedAt = admin.firestore.Timestamp.fromMillis(nowMs);
         }
         if (inv.install == null) inv.install = groupSum;
 

@@ -233,9 +233,18 @@ Seven of the ten steps a customer goes through leave a **date** on their record,
 what makes a per-customer history possible: `createdAt` (quote raised),
 `convertedToCustomerAt`, **`lightsQueuedAt` (sent to the warehouse)**,
 `lightsMarkedBuiltAt`, `completedAt` (lights hung), `invoicedAt`, `paidAt`, and
-`rsvpRespondedAt`. Two are still a yes/no with no date — takedown done, and recycled —
-and `scheduledDate` is a different thing: the day they are booked FOR, not the day the
-booking was made.
+`rsvpRespondedAt`. **`lightsRecycleRequestedAt`** (their old set asked for back), `removalDoneAt`, and — on the
+invoice — **`newMemberFeeAppliedAt`**, the day the $30 join fee was charged.
+
+Most of the money was already dated and that was checked before anything was built: the
+$25 referral, manual discounts, carried credits, manual fees, the automatic $30 change fee
+and the carryover charge each carry a `date` on their own note. The join fee was the one
+fee with none, because it is folded straight into `install` rather than listed. What is
+still undated is an EDIT rather than a state —
+an address, a timer or a set of sides changing. Those belong in the activity log, which
+records WHAT changed as well as when; a bare date would say the address moved and not
+what it moved to. And `scheduledDate` remains a different thing: the day they are booked
+FOR, not the day the booking was made.
 
 `lightsQueuedAt` was added 2026-08-28, after Addie asked "what about when bundle got sent
 to warehouse". Until then the record knew when a bundle was MADE and not when it was ASKED

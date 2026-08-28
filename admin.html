@@ -6218,6 +6218,18 @@ function stampBuildQueued(updates, wasQueued){
   }
   return updates;
 }
+/* ⭐ AND WHEN THEIR OLD SET WAS ASKED FOR BACK (added 2026-08-28). Addie: "Everything
+   that can be changed for members or added to members account ... should be dated."
+   Two of the six places that queue a recycle already stamped this; four did not, so a
+   house on the recycle list carried a date only if it got there through one particular
+   button. Same shape, same fix, and the same transition rule as the build queue: an
+   ordinary save of a house already waiting to be collected must not reset its date. */
+function stampRecycleRequested(updates, wasQueued){
+  if(updates && updates.needsLightRecycle === true && !wasQueued){
+    updates.lightsRecycleRequestedAt = serverTimestamp();
+  }
+  return updates;
+}
 function paymentLedgerUser(){
   try{
     const el = document.getElementById('userChipMail');
@@ -39858,7 +39870,8 @@ document.getElementById('editCustRecycleStayBtn').addEventListener('click', asyn
       recycleKeepingCustomer: true,
       lightsRecycleRequestedAt: serverTimestamp()
     });
-    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true});
+    Object.assign(item.data, {needsLightRecycle: true, recycleKeepingCustomer: true,
+      lightsRecycleRequestedAt: new Date()});
     if(statusEl) statusEl.textContent = 'Done \u2014 their old set is on the recycle list. ' +
       'They are still a customer. If they have moved, press Build Them A New Set too.';
     toast((d.name || 'They') + ' \u2014 old set recycling, customer kept');
@@ -40500,7 +40513,11 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         addrUpdates.recycleKeepingCustomer = true;
         addrUpdates.needsLightBuild = true;
         addrUpdates.buildTopUpFromFeet = null;
-        addrUpdates.lightsRecycleRequestedAt = serverTimestamp();
+        /* ⚠ NO DIRECT STAMP HERE. The one call at the end of this handler covers every
+           branch that can queue a recycle, and a second mechanism beside one of them
+           made the other branches untestable: deleting the shared call still left this
+           line behind, so the gate saw a stamp in the function and passed while the
+           RSVP-no branch silently stopped recording a date. Red-checking found it. */
       }
     /* ⚠ ONE CALL, AFTER EVERY BRANCH ABOVE THAT CAN SET THE FLAG — the colours ternary,
        the wire/timer re-queue, the rejoin-after-recycle, and both re-quote answers. Put
@@ -40509,6 +40526,9 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        record held before this save, so an ordinary save of an already-queued house does
        not move the date. */
     stampBuildQueued(addrUpdates, !!item.data.needsLightBuild);
+    /* ⚠ SAME PLACE, SAME REASON as the build stamp above: after the RSVP-derived branch
+       AND both re-quote answers, any of which can queue a recycle. */
+    stampRecycleRequested(addrUpdates, !!item.data.needsLightRecycle);
     }
     /* Applied last so it beats the RSVP dropdown and the build flag above:
        the toggle is the explicit statement about this season, and letting the

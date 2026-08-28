@@ -167,6 +167,76 @@ check('the one place that sets the flag without queuing is still excluded',
   ' (' + skipped.join(', ') + ')');
 
 /* ---------------------------------------------------------------------------
+ * 1b. The same census for the RECYCLE queue, and the $30 join fee.
+ *
+ * Addie, 2026-08-28: "Everything that can be changed for members or added to members
+ * account including 30 dollars fees or 25 dollar referall discount, anything member
+ * portal should be dated."
+ *
+ * ⚠ MOST OF WHAT SHE NAMED WAS ALREADY DATED, and that was worth checking before
+ * building anything: the $25 referral, manual discounts, carried credits, manual fees,
+ * the automatic $30 change fee and the carryover charge each carry a `date` on their own
+ * note. Two things did not — the recycle queue, which stamped at two of its six places,
+ * and the $30 JOIN fee, which is the one fee with no note of its own because it is folded
+ * straight into `install`.
+ * ------------------------------------------------------------------------- */
+const RECYCLE_SITES = [
+  { file: 'admin.html', fn: 'editCustRecycleStayBtn handler' },
+  { file: 'admin.html', fn: 'editCustSaveBtn handler' },
+  { file: 'functions/index.js', fn: 'portalSave' },
+  { file: 'functions/index.js', fn: 'portalRsvp' }
+];
+
+function censusOf(field, stampRe) {
+  const on = new Map(), stamps = new Set();
+  for (const [file, raw] of Object.entries(SOURCES)) {
+    const clean = scan.blankNonCode(raw);
+    const ix = scan.index(raw, true);
+    const re = new RegExp(field + '\\s*[:=]\\s*([^,;\\r\\n}]*)', 'g');
+    let m;
+    while ((m = re.exec(clean))) {
+      const v = m[1].trim();
+      if (/^false\b/.test(v) || /^==|wasQueued/.test(v)) continue;
+      if (insideComment(raw, m.index)) continue;
+      const fn = scan.enclosing(ix, m.index) || '(top level)';
+      on.set(file + ' · ' + fn, true);
+    }
+    let t;
+    const sre = new RegExp(stampRe, 'g');
+    while ((t = sre.exec(clean))) {
+      if (insideComment(raw, t.index)) continue;
+      const fn = scan.enclosing(ix, t.index) || '(top level)';
+      if (/^function stampRecycle/.test(clean.slice(Math.max(0, t.index - 9), t.index + 30))) continue;
+      stamps.add(file + ' · ' + fn);
+    }
+  }
+  return { on, stamps };
+}
+
+{
+  const { on, stamps } = censusOf('needsLightRecycle', '(lightsRecycleRequestedAt|stampRecycleRequested\\w*\\s*\\()');
+  const wantedR = RECYCLE_SITES.map(x => x.file + ' · ' + x.fn);
+  const strangersR = [...on.keys()].filter(k => wantedR.indexOf(k) === -1);
+  check('no place queues a recycle that nobody has decided about',
+    strangersR.length === 0,
+    'new place(s): ' + strangersR.join(', ') + '. Either stamp lightsRecycleRequestedAt ' +
+    'or add it here with a reason — otherwise that house joins the recycle list with no ' +
+    'record of when it was asked for.');
+  RECYCLE_SITES.forEach(site => {
+    const key = site.file + ' · ' + site.fn;
+    if (!on.has(key)) { note('recycle site no longer found: ' + key); return; }
+    check(key + ' stamps the recycle date', stamps.has(key),
+      'it queues a recycle and records no date');
+  });
+}
+
+check('the $30 join fee records when it was charged',
+  /newMemberFeeAppliedAt/.test(SOURCES['functions/index.js']),
+  'newMemberFeeApplied says IF the join fee was charged and never WHEN. It is the one ' +
+  'fee with no note of its own — it goes straight into `install` — so without this there ' +
+  'is nothing to answer a customer querying their bill.');
+
+/* ---------------------------------------------------------------------------
  * 2. RUN the rule — both copies.
  *
  * ⚠ THE CENSUS ABOVE PROVES THE CALL IS THERE. It cannot prove it is right, and the one
@@ -185,6 +255,8 @@ function lift(src, name) {
 }
 const browser = lift(SOURCES['admin.html'], 'stampBuildQueued');
 const server = lift(SOURCES['functions/index.js'], 'stampBuildQueuedServer');
+const browserR = lift(SOURCES['admin.html'], 'stampRecycleRequested');
+const serverR = lift(SOURCES['functions/index.js'], 'stampRecycleRequestedServer');
 check('both copies of the rule can still be found',
   !!browser && !!server,
   'a rename would make every check below skip rather than fail');
@@ -215,6 +287,30 @@ if (browser && server) {
     check('server agrees about ' + label,
       (s.lightsQueuedAt !== undefined) === (b.lightsQueuedAt !== undefined),
       'the office and the portal would disagree about when a house was queued');
+  });
+}
+
+/* ⚠ AND THE RECYCLE RULE IS RUN TOO. Red-checking caught this missing: the cases above
+   exercised only the build helper, so making the recycle one stamp on every write instead
+   of on the transition passed cleanly — the same bug, in the copy nobody was running. */
+check('both copies of the recycle rule can still be found', !!browserR && !!serverR,
+  'a rename would make the checks below skip rather than fail');
+if (browserR && serverR) {
+  const fR = new Function('serverTimestamp', browserR + '; return stampRecycleRequested;')(() => 'TS');
+  const sR = new Function('admin', serverR + '; return stampRecycleRequestedServer;')(
+    { firestore: { FieldValue: { serverTimestamp: () => 'TS' } } });
+  [['queued for the first time', { needsLightRecycle: true }, false, true],
+   ['already waiting, saved again', { needsLightRecycle: true }, true, false],
+   ['the flag is not in this write', { housePrice: 400 }, false, false]
+  ].forEach(([label, u, was, want]) => {
+    const b = Object.assign({}, u), sv = Object.assign({}, u);
+    fR(b, was); sR(sv, was);
+    check('recycle, browser: ' + label + (want ? ' → stamped' : ' → left alone'),
+      (b.lightsRecycleRequestedAt !== undefined) === want,
+      want ? 'no date recorded' : 'an ordinary save would reset when the set was asked for');
+    check('recycle, server agrees about ' + label,
+      (sv.lightsRecycleRequestedAt !== undefined) === (b.lightsRecycleRequestedAt !== undefined),
+      'the office and the portal would disagree');
   });
 }
 
