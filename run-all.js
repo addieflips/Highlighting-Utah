@@ -35454,7 +35454,21 @@ suite('128. Measure Roof — depth, the derived wall, and the height that follow
   {
     const bases = (admin.match(/class="rm-pane" style="flex:1 1 (\d+)px/g) || [])
       .map(m => Number((m.match(/(\d+)px/) || [])[1]));
-    const popup = Number((admin.match(/editcust-popup" style="max-width:min\((\d+)px/) || [])[1]);
+    /* ⚠ THE CARD GAINED A SECOND CLASS (rm-card, 2026-08-28), so an anchor tying
+       this to `editcust-popup" style=` stopped matching and the width came back
+       NaN - which reads as "the panes do not fit" on a layout that is fine. Match
+       the max-width wherever it sits on that element. */
+    /* ⚠ AND NOT THE OVERLAY. `editcust-popup` is a prefix of
+       `editcust-popup-overlay`, so a loose match finds the backdrop - which has no
+       max-width - and the width comes back NaN again, one layer out. rm-card is
+       the roof tool's own card and nothing else carries it. */
+    /* The roof tool's card is the only element carrying rm-card. Written with no
+       backslash escapes at all: an earlier version used a word boundary and the
+       backslash-b arrived in this file as a literal BACKSPACE, so the pattern
+       could never match and the width came back NaN - which reads as "the panes
+       do not fit" on a layout that is fine. CLAUDE.md warns about exactly this. */
+    const cardTag = (admin.match(/<div class="[^"]*rm-card[^"]*"[^>]*>/) || [''])[0];
+    const popup = Number((cardTag.match(/max-width:min\((\d+)px/) || [])[1]);
     check('S128', 'the two views sit side by side rather than stacked',
       bases.length === 2 && popup > 0 && (bases[0] + bases[1] + 40) <= popup,
       'panes ' + bases.join(' + ') + ' must fit across a ' + popup + 'px window, or the street ' +
