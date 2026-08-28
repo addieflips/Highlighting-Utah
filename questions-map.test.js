@@ -271,6 +271,27 @@ if (oldNoQuote || oldNoQuestion) {
     'next touch that area and can check what she actually said.');
 }
 
+/* ⭐ SAY THE NUMBER OUT LOUD, EVERY RUN. Addie, told that the one remaining way past the
+   quote rule is to add an id to GRANDFATHERED and raise its ceiling in the same edit:
+   "sure" — print it.
+
+   ⚠ THIS IS NOT A CHECK AND IS NOT PRETENDING TO BE. Nothing here can fail. Its whole job
+   is that the number appears in the terminal on every single run, so a change to the
+   exemption list is visible even when the build is honestly green — which it would be,
+   because raising the ceiling makes the ratchet pass. A silent green is exactly how that
+   bypass would go unnoticed.
+
+   ⚠ AND IT PRINTS WHEN THE LIST IS EMPTY TOO. "0 exempt" is the finish line — every
+   ruling in her own words — and a line that vanishes at nought is a line nobody can tell
+   from a line somebody deleted. */
+note('exemptions: ' + GRANDFATHERED.length + ' of ' + rows.length + ' rows are let off ' +
+  'quoting her, ceiling ' + GRANDFATHERED_MAX + '. This number may only go DOWN. ' +
+  (GRANDFATHERED.length === GRANDFATHERED_MAX
+    ? 'If it has moved since you last looked, or the ceiling has, something took the ' +
+      'exemption rather than quoting her — that is the one edit in this file worth stopping on.'
+    : 'The list is ' + (GRANDFATHERED_MAX - GRANDFATHERED.length) + ' below the ceiling; ' +
+      'lower GRANDFATHERED_MAX to ' + GRANDFATHERED.length + ' so the ground gained is kept.'));
+
 /* The ratchet, and the list's own soundness. Both matter: a list that may grow is not a
    grandfather clause, it is an opt-out; and an id left here after its row was fixed or
    deleted quietly re-exempts whatever takes that id next. */
