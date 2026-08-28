@@ -4573,10 +4573,22 @@
                min-height is auto, so it refuses to shrink below its content and the
                overflow reappears one level down, where it is very hard to see. */
             #roofMeasureOverlay.editcust-popup-overlay{padding:10px; align-items:stretch;}
-            #roofMeasureOverlay .rm-card{height:100%; max-height:100%; overflow:hidden; display:flex; flex-direction:column; padding:12px 16px;}
-            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:0;}
+            /* ⚠ overflow:auto, NOT hidden. Hidden was the fitting rule and it made a
+               far worse failure possible: when the bars needed more room than the card
+               had, the pictures - the only thing allowed to shrink - went to ZERO and
+               were clipped away entirely. The tool opened with a toolbar, a Save bar
+               and no house at all. A scrollbar in the rare case beats an invisible map
+               in any case. */
+            #roofMeasureOverlay .rm-card{height:100%; max-height:100%; overflow-y:auto; display:flex; flex-direction:column; padding:12px 16px;}
+            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:260px;}
             #roofMeasureOverlay #rmWorkStage > .rm-stagerest{min-height:0;}
-            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:0;}
+            /* ⭐ AND THE PICTURES HAVE A FLOOR. min-height:0 is what lets a flex item
+               shrink so the page can fit - and it also lets it shrink to NOTHING. The
+               floor is the difference between "the house is smaller than I would like"
+               and "there is no house". Found on the live site, where the Roof Facts
+               panel renders (Solar answers there and is refused on localhost) and took
+               the last of the height with it. */
+            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:260px;}
             #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
             #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
 
@@ -4807,7 +4819,7 @@
                house. Matched through the same two ids to win. */
             /* A column, so the pictures can take the height and the two short rows
                under them keep only what they need. */
-            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:6px;}
+            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{flex:1 1 auto; min-height:260px; display:flex; flex-direction:column; gap:6px;}
             #roofMeasureOverlay .rm-panes{order:-1; flex:1 0 100%;}
             #roofMeasureOverlay #rmPricePanel{order:3;}
             #roofMeasureOverlay .rm-commit{order:4;}
