@@ -8130,6 +8130,10 @@ function initData(){
      first render — a badge that is only right once you open the panel is not a badge.
      ⚠ Its own catch is inside loadHcDecisions, which fails towards showing everything. */
   loadHcDecisions();
+  /* ⚠ EAGER FOR A DIFFERENT REASON: the Connections frame asks for these as it loads, and
+     it can be opened before anything else has run. Loaded later, every rule she has
+     confirmed reads as never-read until the next refresh. */
+  loadRuleDecisions();
   startHealthCheckAuto();
   /* Before the sweep, not after: the sweep builds and re-spreads crew-days, and
      doing that on the default two while the office has saved one would build a
@@ -37459,8 +37463,32 @@ function renderWarehouseQueue(){
          future build for this house read as "they already have 180 ft" for ever. */
       /* A new bin has been made up under the number they hold now, so the old label
          is gone with the old set. See whBinNumberFor. */
+      /* ⭐ AND WHEN SOMEBODY SAID IT WAS BUILT (added 2026-08-27). Owner, on telling an
+         already-built house apart from one that was never queued: "if someone is old and
+         they add new lights to there house they should be sent to warehouse to be built
+         if they didn't change anything than they shouldn't be sent to the warehouse."
+
+         ⚠ UNTIL NOW THE FLAG WAS A BARE BOOLEAN AND NOTHING RECORDED THE BUILD. A false
+         needsLightBuild on a house built in October and a false one on a house that was
+         never queued at all read identically — so Check The Build Queue could not tell
+         those two apart, and its own wording had to say "usually already built, or
+         cleared by mistake" because nothing on the record knew which.
+
+         ⚠ IT IS A MARK, NOT A PROOF. It records this button being pressed, not a bundle
+         being made, which is why the name says marked. Anything showing it says "marked
+         built", never "built".
+
+         ⚠ AND ONLY WHERE A BUNDLE WAS MADE. Five other places clear this same flag —
+         colours cleared in the portal and Back Next Year (functions/index.js), and the
+         out-for-season paths in this file — and none of them may stamp this, or the
+         report repeats a build that never happened. build-stamp.test.js holds that line.
+
+         ⚠ THE CREW PORTAL DOES NOT STAMP IT. whToggleLightsNew in employee.html clears
+         the same flag and is deliberately left alone — owner, 2026-08-27: not using the
+         crew portal this year. A house ticked there reads "no build recorded". */
       updateDoc(doc(db,'jobAddresses', btn.dataset.whdonehouse),
-        {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null})
+        {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null,
+         lightsMarkedBuiltAt: serverTimestamp()})
         /* ⚠ THE ROW STAYING PUT IS NOT A MESSAGE. Somebody who has just built a
            bundle presses this and watches the house stay on the list, which reads
            as the button doing nothing — so they press it again, and then work
@@ -37525,11 +37553,26 @@ function renderWarehouseQueue(){
       )){
         return;
       }
+      /* ⚠ A HOUSE THAT WILL NOT SAVE USED TO STOP THE WHOLE LOOP SILENTLY. The confirm
+         named twelve houses, the fourth threw, and the remaining eight were never
+         cleared — with nothing on screen saying so and the group still on the list.
+         Same failure the Send These To The Build Queue button was fixed for: count what
+         landed, name what did not. Tier 2 — somebody pressed this and is standing there.
+         ⚠ remaining-- RUNS EITHER WAY, on purpose. The confirm listed exactly these
+         houses; consuming the slot on a failure keeps the loop inside that list rather
+         than reaching a house nobody was shown. */
+      const missedHouses = [];
       for(const h of g.houses){
         if(remaining <= 0) break;
         // Same clear as the single Mark Done above - see the note there.
-        await updateDoc(doc(db,'jobAddresses', h.id),
-          {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null});
+        try{
+          await updateDoc(doc(db,'jobAddresses', h.id),
+            {needsLightBuild:false, buildTopUpFromFeet:null, binLabelNumber:null,
+             lightsMarkedBuiltAt: serverTimestamp()});
+        } catch(err){
+          missedHouses.push((h.data && h.data.name) || h.id);
+          console.error('[HU] could not mark that build done', h.id, err);
+        }
         remaining--;
       }
       for(const ex of g.extras){
@@ -37542,6 +37585,15 @@ function renderWarehouseQueue(){
           await updateDoc(doc(db,'warehouseExtras', ex.id), {quantity: q - remaining});
           remaining = 0;
         }
+      }
+      /* Said out loud, because the row staying on the list is not a message — see the
+         note on the single Mark Done button. */
+      if(missedHouses.length){
+        alert(missedHouses.length + ' house' + (missedHouses.length === 1 ? '' : 's') +
+          ' did not save and ' + (missedHouses.length === 1 ? 'is' : 'are') +
+          ' still on the build list: ' + missedHouses.slice(0, 8).join(', ') +
+          (missedHouses.length > 8 ? ' and ' + (missedHouses.length - 8) + ' more' : '') +
+          '. Try those again.');
       }
     });
   });
@@ -38380,18 +38432,46 @@ document.getElementById('whAddExtraBtn').addEventListener('click', async functio
    build flag. This finds the ones that fell through either gap. */
 document.getElementById('whFindNotQueuedBtn').addEventListener('click', function(){
   const box = document.getElementById('whNotQueuedReport');
-  const noLights = jobAddresses.filter(function(i){ return !i.data.lightsDescription; });
-  const notFlagged = jobAddresses.filter(function(i){ return i.data.lightsDescription && !i.data.needsLightBuild; });
+  /* ⚠ BOTH COLOUR FIELDS, THROUGH houseLightsText. This read lightsDescription ALONE,
+     and system-map.md §2 states the opposite rule in bold: a repeated pattern lives in
+     lightsDescription, but an ORDINARY house has its colours in lightColors with the
+     description empty. So every ordinary house landed in the "no colours" half — the
+     half with no button — and the tool built to find people who fell through the gap had
+     the documented version of that gap inside it. Same fix, same reason, as the four
+     warehouse readers corrected on 2026-08-21. See houseLightsText. */
+  /* ⚠ AND NOT PEOPLE WHO ARE OUT. whBuildQueueGroups already skips isOutForSeason, so a
+     flag written for somebody sitting the season out is a flag nothing will ever act on
+     — it inflates the count and offers work that does not exist. Owner, 2026-08-27:
+     leave them out. */
+  const inSeason = jobAddresses.filter(function(i){
+    return !(typeof isOutForSeason === 'function' && isOutForSeason(i.data));
+  });
+  const noLights = inSeason.filter(function(i){ return !houseLightsText(i.data); });
+  const notFlagged = inSeason.filter(function(i){ return houseLightsText(i.data) && !i.data.needsLightBuild; });
   if(!noLights.length && !notFlagged.length){
     box.innerHTML = '<div style="background:var(--mist); border-radius:8px; padding:10px 12px; font-size:13px;">Every customer with light colours is in the build queue.</div>';
     return;
   }
-  function names(list){
-    return esc(list.slice(0,12).map(function(i){ return i.data.name || '(no name)'; }).join(', ')) + (list.length>12 ? ' \u2026and ' + (list.length-12) + ' more' : '');
+  /* ⭐ AND WHAT THE RECORD ACTUALLY KNOWS, BESIDE EACH NAME. Owner's rule, 2026-08-27:
+     somebody who changed their lights should be built, somebody who changed nothing
+     should not — and this list is mostly the second kind, because changing colours sets
+     the flag by itself. Whoever presses the button below has to tell those apart, and
+     until lightsMarkedBuiltAt existed there was nothing on the record to tell them with.
+     ⚠ "MARKED BUILT", NEVER "BUILT" — the field records the warehouse button being
+     pressed, not a bundle being made. And a missing date says "no build recorded", not
+     "never built": every customer on file before this shipped has none, so an absent
+     date means the record does not know, which is a different thing from a no. */
+  function names(list, withWhen){
+    return esc(list.slice(0,12).map(function(i){
+      const d = i.data || {};
+      if(!withWhen) return d.name || '(no name)';
+      const when = fmtDate(d.lightsMarkedBuiltAt);
+      return (d.name || '(no name)') + (when ? ' \u2014 marked built ' + when : ' \u2014 no build recorded');
+    }).join(', ')) + (list.length>12 ? ' \u2026and ' + (list.length-12) + ' more' : '');
   }
   box.innerHTML = '<div style="background:#FFF6E5; border:1px solid #f0d9a8; border-radius:8px; padding:10px 12px; font-size:13px;">'+
     (noLights.length ? '<strong>' + noLights.length + ' customer(s) have no light colours set</strong> \u2014 nothing can be built for them until colours are picked:<div style="font-size:12.5px; margin:4px 0 10px;">'+names(noLights)+'</div>' : '')+
-    (notFlagged.length ? '<strong>' + notFlagged.length + ' customer(s) have colours but are not in the queue</strong> \u2014 usually already built, or cleared by mistake:<div style="font-size:12.5px; margin:4px 0 8px;">'+names(notFlagged)+'</div>'+
+    (notFlagged.length ? '<strong>' + notFlagged.length + ' customer(s) have colours but are not in the queue</strong> \u2014 usually already built, or cleared by mistake:<div style="font-size:12.5px; margin:4px 0 8px;">'+names(notFlagged, true)+'</div>'+
       '<button type="button" class="btn btn-outline btn-sm" id="whQueueTheseBtn">Send These ' + notFlagged.length + ' To The Build Queue</button>' : '')+
     '</div>';
   const btn = document.getElementById('whQueueTheseBtn');
@@ -49142,6 +49222,53 @@ function projConnectionsOpen(){
   const f = document.getElementById('connFrame');
   if(f && !f.getAttribute('src')) f.setAttribute('src', 'connections.html');
 }
+/* ⭐ THE ONE FIRESTORE PATH FOR A RULE SHE HAS REVIEWED (added 2026-08-27). Addie asked
+   for Connections' Rules view to remember what she has confirmed; connections.html is a
+   plain generated file in an iframe with no Firebase of its own, so it asks the page it
+   is sitting in. Two functions, both reached as window.parent.<name> from the frame —
+   same origin, so this is an ordinary call and not a message.
+
+   ⚠ THE FRAME PAINTS NOTHING UNTIL THE WRITE LANDS. hlxRuleDecide RETURNS the record it
+   saved and the frame applies that, so a refused write leaves the pill exactly where it
+   was and says so on the row. Painting first and saving after is precisely the failure
+   this page exists to catch, one level up.
+
+   ⚠ THE DOC ID IS THE RULE'S OWN ID (MON-01), NEVER THE WORDING. She confirms a WORDING,
+   so the fingerprint of the text travels with the decision and a later rewrite LAPSES it
+   — the id keeps the decision attached to the rule it was about instead of orphaning it,
+   which is the difference between "changed since you confirmed this" and a row quietly
+   going back to never-read.
+
+   ⚠ AND IT IS DELIBERATELY NOT A SECOND COPY OF THE RULINGS. Only the decision is stored
+   — id, verdict, fingerprint, who and when, plus the name and area purely so the record
+   is readable by a human opening Firestore. claude/questions-map.md stays the one place
+   a ruling lives. */
+const RULE_DECISIONS = {};
+async function loadRuleDecisions(){
+  try{
+    const snap = await getDocs(collection(db,'ruleDecisions'));
+    Object.keys(RULE_DECISIONS).forEach(function(k){ delete RULE_DECISIONS[k]; });
+    snap.forEach(function(docSnap){ RULE_DECISIONS[docSnap.id] = docSnap.data() || {}; });
+  }catch(err){
+    /* ⚠ FAILS TOWARDS EVERYTHING BEING UNREAD, which is the safe direction: it asks her
+       to look again at something she has already looked at. The other way round would
+       show rules as confirmed on the strength of a read that did not happen. */
+    console.error('[HU] could not read the rule decisions', err);
+  }
+}
+window.hlxRuleDecisions = function(){ return RULE_DECISIONS; };
+window.hlxRuleDecide = async function(id, verdict, fp, name, area){
+  if(!id) throw new Error('that rule has no id, so there is nowhere to record it');
+  const rec = {
+    rule: id, verdict: verdict === 'flag' ? 'flag' : 'ok', fp: fp || '',
+    name: name || '', area: area || '',
+    at: new Date().toISOString().slice(0,10),
+    by: (typeof paymentLedgerUser === 'function') ? paymentLedgerUser() : ''
+  };
+  await setDoc(doc(db,'ruleDecisions', id), Object.assign({}, rec, { savedAt: serverTimestamp() }));
+  RULE_DECISIONS[id] = rec;
+  return rec;
+};
 /* ⭐ TWO BADGES NOW, ONE WRITER EACH — AND THAT IS THE POINT OF THE SPLIT.
    These were one badge until 2026-08-27, because Connections had no sidebar item of
    its own to hang a badge on: a break had to be shown on the Checklist badge instead,
