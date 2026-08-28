@@ -89,6 +89,12 @@ on screen from the start showing "—" with its button disabled rather than
 appearing once there is footage. The map's top does not move from the moment the
 tool opens.
 
+⚠ **The order on that column is load-bearing: tools, house, price, Save.** It is
+set explicitly on each one, because a catch-all sends anything unnumbered to the
+bottom — and when an edit dropped the pictures' number they went last, below the
+Save bar and Roof Facts, off the bottom of the window. The tool looked like it had
+no house.
+
 ⚠ **The pictures have a floor, and the card can scroll as a last resort.** Letting
 them shrink is what makes the tool fit any window — and unchecked it let them
 shrink to NOTHING: on the live site, where the Roof Facts panel renders (Google's

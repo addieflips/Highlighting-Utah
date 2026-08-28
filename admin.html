@@ -4603,7 +4603,7 @@
             /* The toolbar loses the two lines that only repeat the hint. */
             #roofMeasureOverlay .rm-tools .rm-sub{display:none;}
             #roofMeasureOverlay .rm-tools kbd{font-size:9.5px;}
-            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){padding:5px 8px; gap:4px 8px;}
+            #roofMeasureOverlay .rm-tools > .rm-toolbar{padding:5px 8px; gap:4px 8px;}
             /* The Save block on one line: the two figures, what the feet decide,
                and the button. */
             #roofMeasureOverlay .rm-commit{padding:5px 8px;}
@@ -4619,7 +4619,7 @@
                its own row, and the bars run at 11px. */
             #roofMeasureOverlay .rm-head{margin-bottom:3px;}
             #roofMeasureOverlay #rmTitle{font-size:14px;}
-            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){font-size:11px; padding:4px 7px; gap:3px 7px;}
+            #roofMeasureOverlay .rm-tools > .rm-toolbar{font-size:11px; padding:4px 7px; gap:3px 7px;}
             #roofMeasureOverlay .rm-tools .btn{padding:4px 9px; font-size:11px;}
             #roofMeasureOverlay .rm-tools .rm-part{padding-left:7px; gap:3px 6px;}
             #roofMeasureOverlay .rm-tools .rm-resultrow{font-size:11.5px;}
@@ -4657,7 +4657,7 @@
                more than fits, it scrolls a 190px strip - which is a small thing to
                reach past, and nothing like the picture jumping 94px under the cursor
                mid-trace, which is what was reported. Measured full: 183px. */
-            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){height:190px; align-content:flex-start; overflow-y:auto; overscroll-behavior:contain;}
+            #roofMeasureOverlay .rm-tools > .rm-toolbar{height:190px; align-content:flex-start; overflow-y:auto; overscroll-behavior:contain;}
             #roofMeasureOverlay #rmDrawHint,
             #roofMeasureOverlay #rmCornerNote,
             #roofMeasureOverlay #rmCornerMode,
@@ -4752,7 +4752,14 @@
                the house stayed at 195px however thin the bars got. A column hands
                the whole remainder to the one item allowed to grow. */
             #roofMeasureOverlay #rmWorkStage{display:flex; flex-direction:column; gap:6px; min-height:0;}
-            #roofMeasureOverlay .rm-tools{display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; flex:0 0 auto;}
+            /* ⚠ display:contents, SO THE ORDER BELOW CAN REACH ACROSS. The toolbar, the
+               price and the Save bar are three children of .rm-tools; as a real box it
+               holds them together and `order` on them only sorts them AMONG THEMSELVES -
+               so the whole block sat above the pictures however the numbers were set, and
+               the house landed at y=687 in a 686px window. Full size, correct, and one
+               pixel below the fold. Dissolved, they are siblings of the pictures and the
+               order means what it says: tools, house, price, Save. */
+            #roofMeasureOverlay .rm-tools{display:contents;}
             /* ⚠ display:contents SO THE ORDER BELOW CAN REACH THEM. The controls,
                the price and the Save block are three children of .rm-tools, and
                `order` only sorts siblings - left nested they all had to sit on the
@@ -4802,7 +4809,13 @@
                148px to 301px in one click. That is 153px of house moving under the
                pointer at the exact moment somebody is aiming at a gutter. Across the
                full width the same controls extend the rows already there. */
-            #roofMeasureOverlay .rm-tools > .rm-panel:not(.rm-commit){order:1; flex:1 0 100%; min-width:0; align-self:start;}
+            /* ⚠ flex-basis MEANS HEIGHT IN A COLUMN. This read `flex:1 0 100%` from when
+               the stage was a wrapping ROW, where it meant "take the full width and do
+               not shrink". The stage is a column now, so it meant TAKE THE FULL HEIGHT
+               AND DO NOT SHRINK - the toolbar became 547px, the pictures were pushed to
+               633px in a 720px window, and the tool looked like it had no house. In a
+               column the bars take their natural height and the pictures take the rest. */
+            #roofMeasureOverlay .rm-tools > .rm-toolbar{order:1; flex:0 0 auto; align-self:stretch;}
             /* ⚠ THE PICTURES SHARE A WRAPPER WITH THE PHOTO AND CAPTURE BLOCKS, so
                their order is decided INSIDE that wrapper, not against the toolbar.
                Ordered against the stage they stayed put and those two blocks sat
@@ -4819,12 +4832,17 @@
                house. Matched through the same two ids to win. */
             /* A column, so the pictures can take the height and the two short rows
                under them keep only what they need. */
-            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{flex:1 1 auto; min-height:260px; display:flex; flex-direction:column; gap:6px;}
+            /* ⚠ order:2 IS LOAD-BEARING AND WAS LOST IN AN EDIT. Turning this into a
+               column rewrote the whole declaration and dropped it, so it fell through to
+               the catch-all above (order 6) and the pictures went LAST - below the price,
+               the Save bar and Roof Facts, at y=1261 in a 720px window. The tool looked
+               like it had no house. Anything that rewrites this line must keep the order. */
+            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{order:2; flex:1 1 auto; min-height:260px; display:flex; flex-direction:column; gap:6px;}
             #roofMeasureOverlay .rm-panes{order:-1; flex:1 0 100%;}
             #roofMeasureOverlay #rmPricePanel{order:3;}
             #roofMeasureOverlay .rm-commit{order:4;}
-            #roofMeasureOverlay #rmRoofFactsPanel{order:5;}
-            #roofMeasureOverlay .rm-tools > .rm-panel{flex:1 1 auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
+            #roofMeasureOverlay #rmRoofFactsPanel{order:5; flex:0 0 auto;}
+            #roofMeasureOverlay .rm-tools > .rm-toolbar{display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
             /* Inside the bar a part is a group separated by a rule to its LEFT,
                because the flow is now sideways. */
             #roofMeasureOverlay .rm-tools .rm-part{margin:0; padding:0 0 0 9px; border-top:0; border-left:1px solid var(--line); display:flex; flex-wrap:wrap; align-items:center; gap:5px 8px;}
@@ -4840,7 +4858,7 @@
             /* The last line: price, Save and the captures side by side. The Save
                block lays out sideways too - the figures, what the feet decide and
                the button in a row rather than a stack. */
-            #roofMeasureOverlay .rm-commit{order:2; flex:1 1 auto; min-width:0; align-self:start; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;}
+            #roofMeasureOverlay .rm-commit{order:4; flex:0 0 auto; min-width:0; align-self:stretch; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;}
             /* ⚠ THE HEADING AND THE SENTENCE COST TWO FULL LINES OF THE BAR. The
                gold button says "Save to this quote" itself, so a heading above it
                saying the same words is the one thing here that can go without
@@ -4854,10 +4872,16 @@
             #roofMeasureOverlay .rm-commit .btn-gold{width:auto; margin:0; flex:0 0 auto;}
             #roofMeasureOverlay .rm-commit .rm-second{margin:0; flex:0 0 auto;}
             #roofMeasureOverlay .rm-commit .rm-saidit{flex:1 1 100%; margin:0; text-align:left;}
-            #roofMeasureOverlay #rmPricePanel{order:2; flex:0 1 auto; align-self:start; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
+            /* ⚠ ORDER 3, BELOW THE HOUSE. These were put on order 2 to SHARE A LINE with
+               the toolbar, back when the stage was a wrapping row. It is a COLUMN now,
+               so nothing shares a line - order 2 simply stacked the price and the Save
+               bar on top of the pictures and pushed them to y=687 in a 686px window.
+               Full size, correct, and one pixel below the fold: the tool opened looking
+               like it had no house at all, for the second time and a different reason. */
+            #roofMeasureOverlay #rmPricePanel{order:3; flex:0 0 auto; align-self:stretch; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
             #roofMeasureOverlay #rmPricePanel > *{margin:0;}
             @media (max-width: 899px){
-              #roofMeasureOverlay .rm-tools{flex-direction:column;}
+              /* (nothing to stack: .rm-tools is display:contents) */
             }
             /* ⛔ THE CAPPED, STICKY, SCROLLING COLUMN IS GONE (2026-08-28). It was
                the previous answer to the same complaint - cap the column at the
@@ -4940,7 +4964,12 @@
 
           <div id="rmWorkStage">
             <div class="rm-tools">
-              <div class="rm-panel">
+              <!-- ⚠ rm-toolbar, NOT just rm-panel. The height cap that stops this bar
+                   changing size was written against ".rm-tools > .rm-panel", and the
+                   price panel and Roof Facts are .rm-panel too - so both were pinned to
+                   190px, inflating a 10px row and a 60px one. A shared class is not a
+                   name; this one is. -->
+              <div class="rm-panel rm-toolbar">
 
                 <!-- ⚠ NO TYPE PICKER. Owner: "we only do perimeter so get rid of
                      the ground and ridge buttons too." Ridge and Ground were
