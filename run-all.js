@@ -33752,10 +33752,15 @@ suite('126. Measure Roof — sky view and Street View are one set of points');
      about 6.7 ft out on 209 S 850 W - so if the model-displacement work lands
      that error properly this number must be revisited, or every quote inflates
      by nearly three. */
-  /* ⚠ THE NUMBER IS A DIAL SHE TURNS - 2.9 → 1.45 → 1.3 inside one afternoon.
-     Pinning the value keeps it deliberate, which is the point of the check; what
-     must NOT happen is somebody reading a stale comment and resetting it. */
-  check('S126', 'the feet multiplier is the owner-set 1.3', mult && mult[1] === '1.3',
+  /* ⚠ THE NUMBER IS A DIAL SHE TURNS - 2.9 → 1.45 → 1.3 → 1.15, the last three
+     inside one afternoon. Pinning the value keeps it deliberate, which is the
+     point of the check; what must NOT happen is somebody reading a stale comment
+     and resetting it.
+     ⭐ AND SHE NOW SETS IT BY NAMING THE RATE (2026-08-28): "change it to $2.30 a
+     real foot on medium", with the label held at $2 a foot. So 1.15 is not a
+     chosen number, it is 2.30 / 2.00 — S255 pins that arithmetic; this one only
+     keeps the constant from moving by accident. */
+  check('S126', 'the feet multiplier is the owner-set 1.15', mult && mult[1] === '1.15',
     'this multiplies the price, the bin count and the bulb order together; ' +
     'it is not a display setting');
   /* ⚠ sectionFrom takes an INDEX, not a string. Handed a string it coerces to
@@ -39714,10 +39719,24 @@ suite('255. Measure Roof - the footage saved is the footage measured');
      bulb order along with the price. That is what was asked for - the owner's
      position is that the measurement itself reads short, so the corrected
      footage should drive all three. It is a single constant and reversible. */
-  check('S255', 'the feet multiplier is the owner-set 1.3',
-    /const RM_FEET_MULTIPLIER\s*=\s*1\.3\s*;/.test(admin),
+  /* ⭐ NOW 1.15, AND SHE SET IT BY NAMING THE RATE (2026-08-28): "change it to
+     $2.30 a real foot on medium", with "the length of a foot is the only variable
+     so still label it as $2 a foot". So the invoice keeps saying $2.00/ft and THIS
+     is what moves. The history is 2.9 -> 1.45 -> 1.3 -> 1.15.
+     ⚠ PINNED AS AN EFFECTIVE RATE, NOT AS A BARE NUMBER, because the number on its
+     own says nothing about what anybody is charged — it only means something
+     multiplied by the rate box and her difficulty table. Written this way the check
+     fails if ANY of the three drifts, and the failure names the real-foot price. */
+  check('S255', 'a medium house is charged $2.30 for every real foot',
+    (function(){
+      var m = admin.match(/const RM_FEET_MULTIPLIER = ([0-9.]+);/);
+      var d = admin.match(/RM_DIFFICULTY_RATE = \{Easy: ([0-9.]+), Medium: ([0-9.]+), Hard: ([0-9.]+)\}/);
+      if(!m || !d) return false;
+      var per = function(mult){ return Math.round(Number(m[1]) * 2.00 * Number(mult) * 100) / 100; };
+      return per(d[2]) === 2.30 && per(d[1]) === 2.13 && per(d[3]) === 2.53;
+    })(),
     'if this ever moves without a ruling behind it, every quote, bin count ' +
-    'and bulb order moves with it');
+    'and bulb order moves with it — and the invoice still says $2.00/ft');
   check('S255', 'and the save message no longer claims the footage was doubled',
     !/measured, doubled/.test(admin),
     'the message described a x2 that no longer happens, about the number the whole quote rests on');
