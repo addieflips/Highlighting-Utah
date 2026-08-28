@@ -180,6 +180,18 @@ bar sits inside the picture area in the markup, and the Attach row is a child of
 the card. `display:contents` and a negative order lift them without cutting any
 markup — which is why this was safe to do without disturbing the measuring code.
 
+⚠ **The height budget had to be re-cut when they moved.** Six fixed rows above the
+pictures came to 488px of a 666px card, and the map was left **39 pixels tall** on
+the live page. Three things had been sized for the old arrangement, where the
+toolbar was the only thing above the house: the toolbar's fixed height (now 118),
+Roof Facts (capped and scrolled — it is reference rather than a control, but it is
+where Google's own footage appears, so it is not hidden), and the pictures' floor
+(now 190). **A floor that does not fit is its own bug** — it pushes the pictures
+off the bottom instead of shrinking them, which is precisely what happened.
+
+The pictures are the one row that **grows**, so every pixel the ribbon does not use
+goes to the house.
+
 **The whole tool sits on one screen and nothing on it moves.** The card is one
 viewport tall and never scrolls; the two pictures take whatever height the bars
 above and below them do not. That is what makes it fit whatever the window size —
