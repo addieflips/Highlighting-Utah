@@ -4614,6 +4614,15 @@
             #roofMeasureOverlay .rm-commit .btn-gold{padding:6px 14px;}
             #roofMeasureOverlay #rmPricePanel{padding:5px 8px;}
             #roofMeasureOverlay .rm-panehead{padding:3px 8px; font-size:11px;}
+            /* ⭐ OUR OWN FULL-SCREEN BUTTON (2026-08-28). Owner: "you cant click full
+               screen." Google draws one INSIDE the map, and the sheet that catches
+               measuring clicks covers the whole pane and sits above it - so the control
+               is visible and unreachable, which is worse than not being there.
+               ⚠ pointer-events:auto, because the head it lives in is deliberately
+               pointer-events:none so it never swallows a click meant for the roof. */
+            #roofMeasureOverlay .rm-fs{pointer-events:auto; border:0; background:rgba(255,255,255,.9); color:#20321f;
+              border-radius:6px; cursor:pointer; font-size:12px; line-height:1; padding:3px 7px; margin-left:6px;}
+            #roofMeasureOverlay .rm-fs:hover{background:#fff;}
             /* ⭐ AND EVERY REMAINING LINE IS SQUEEZED, because each one is a strip
                of house. The keyboard hints move into a tooltip, the heading loses
                its own row, and the bars run at 11px. */
@@ -5276,7 +5285,7 @@
                    worse than one usable one. -->
               <div class="rm-panes" style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
-                <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span></div>
+                <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
                 <div id="rmMap" class="rm-canvas"></div>
                 <!-- ⚠ Tiles take a few seconds. Without this the pane is a
                      blank grey rectangle on open, which reads as broken - it
@@ -5288,7 +5297,7 @@
               </div>
 
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
-                <div class="rm-panehead"><span>&#127968; Street View &mdash; the picture</span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span></div>
+                <div class="rm-panehead"><span>&#127968; Street View &mdash; the picture</span><span><span id="rmStreetNote" style="font-weight:400; opacity:.85;"></span> <button type="button" class="rm-fs" data-rmfull="street" title="Full screen">&#9974;</button></span></div>
                 <div id="rmPano" class="rm-canvas"></div>
                 <svg id="rmSvLayer" class="rm-svlayer"></svg>
                 <div class="rm-busy" id="rmStreetBusy"><span class="rm-spin"></span><span id="rmStreetBusyText">Looking for a street-level photo&hellip;</span></div>
@@ -22517,7 +22526,18 @@ function rmPaintStreet(){
 /* ---- loading ----------------------------------------------------------- */
 let rmMapSizeWatch = null;   /* watches the pane's box, see rmEnsureMap */
 function rmEnsureMap(center){
-  if(rmMap){ rmMap.setCenter(center); return; }
+  if(rmMap){
+    rmMap.setCenter(center);
+    /* ⚠ THE COVER IS SET ON EVERY LOAD AND WAS ONLY CLEARED ON THE FIRST. The
+       "Finding the house…" cover comes off the map's own idle event, and that
+       listener was attached where the map is BUILT - which happens once. Open the
+       tool a second time and rmLoadAddress puts the cover back over a map that is
+       already idle, so nothing ever takes it off: satellite tiles underneath, a
+       grey cover on top, for ever. Re-armed on every load instead. */
+    google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmPaneReady('sky'); });
+    google.maps.event.trigger(rmMap, 'resize');
+    return;
+  }
   rmMap = new google.maps.Map(document.getElementById('rmMap'), {
     center: center, zoom: 20, mapTypeId: 'satellite', tilt: 0, gestureHandling: 'greedy',
     streetViewControl: false, fullscreenControl: false, mapTypeControl: false,
@@ -24002,6 +24022,51 @@ function openRoofMeasure(quoteId){
                                         box.width, box.height, rmPanoPov()));
   });
   document.getElementById('rmMapLock').addEventListener('mousedown', function(){ rmLastPane = 'sky'; });
+  /* Full screen on the pane itself, so whatever is drawn over it goes too. */
+  document.querySelectorAll('#roofMeasureOverlay .rm-fs').forEach(function(b){
+    b.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      const pane = b.closest('.rm-pane');
+      if(!pane) return;
+      if(document.fullscreenElement){ document.exitFullscreen(); return; }
+      if(pane.requestFullscreen) pane.requestFullscreen();
+    });
+  });
+  /* ⚠ AND THE MAP HAS TO BE TOLD, both going in and coming out. Google sizes its
+     tiles to the box it thinks it has; without this the pane fills the screen and
+     the map draws in the top-left corner of it. */
+  document.addEventListener('fullscreenchange', function(){
+    if(rmMap) google.maps.event.trigger(rmMap, 'resize');
+    if(rmPano) google.maps.event.trigger(rmPano, 'resize');
+  });
+  /* ⭐ RECENTRE HAD NO HANDLER AT ALL. The button has been in the markup since it
+     was asked for - "a reset button so if you zoom out on sky view it will readjust
+     the camera" - and nothing was ever wired to it, so it did nothing at all.
+
+     ⚠ IT FRAMES WHAT HAS BEEN TRACED, not just the address. Once there are dots
+     down, "put the camera back" means put it back over the WORK; re-centring on the
+     house would throw away the zoom somebody had set to see their own gutters. With
+     nothing traced it falls back to the house at the working zoom. */
+  document.getElementById('rmRecentreBtn').addEventListener('click', function(){
+    if(!rmMap || !rmOrigin) return;
+    const pts = rmCorners.slice();
+    rmRuns.forEach(function(r){ (r.path || []).forEach(function(p){ pts.push(p); }); });
+    if(pts.length >= 2){
+      const b = new google.maps.LatLngBounds();
+      pts.forEach(function(p){ b.extend(new google.maps.LatLng(p.lat, p.lng)); });
+      rmMap.fitBounds(b, 40);
+    } else {
+      rmMap.setCenter(rmOrigin);
+      rmMap.setZoom(RM_SKY_ZOOM);
+    }
+    /* Street View goes back to looking at the house too, and the cover comes off
+       whatever state it was left in - this button is the way out of a stuck pane. */
+    if(rmPano && rmPano.setPov) rmPano.setPov({heading: rmHeadingTo(
+      rmPano.getPosition().lat(), rmPano.getPosition().lng(), rmOrigin.lat, rmOrigin.lng), pitch: 0});
+    google.maps.event.trigger(rmMap, 'resize');
+    if(rmPano) google.maps.event.trigger(rmPano, 'resize');
+    rmPaneReady('sky'); rmPaneReady('street');
+  });
   document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
     if(!rmPano) return;
     e.preventDefault();
