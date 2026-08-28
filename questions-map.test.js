@@ -157,6 +157,83 @@ rows.forEach(r => {
 });
 
 // ---------------------------------------------------------------------------
+// 2b. A row recorded from now on must be a QUESTION, answered in HER OWN WORDS.
+//
+//     Addie, 2026-08-28, having checked a row and found her answer in it but not the
+//     question she had actually been asked: "lets fix it so the questions and answer is
+//     in the map and it has to add that everytime we make a decision".
+//
+//     ⚠ THE "EVERY TIME" HALF CANNOT BE CHECKED BY ANYTHING, and pretending otherwise
+//     would be the worst outcome here. No program can see a conversation, so nothing can
+//     tell that a ruling was given and never written down — that is stated at the top of
+//     CLAUDE.md and it is still true. What CAN be enforced is that every row which DOES
+//     exist is trustworthy, and these two checks are the difference between a row that
+//     settles an argument in six weeks and one that starts a new one:
+//
+//       - a QUESTION, not a topic. "The three RSVP answers, and what each does" is a
+//         heading; you cannot tell from it what was actually asked, so you cannot tell
+//         whether her answer covers your case.
+//       - HER OWN WORDS, quoted. A paraphrase is my reading of what she meant, and the
+//         whole purpose of this map — her words — is "so you can refer back to that
+//         instead of us reanswering the same questions and answering inconsistently".
+//         A paraphrase drifts; a quotation cannot.
+//
+//     ⚠ FROM A CUTOFF, AND OLDER ROWS ARE A NOTE — NEVER A FAILURE. 115 of the 182 rows
+//     that predate this carry no quotation, and 2 are topics rather than questions. A
+//     gate that goes red on 117 rows nobody is going to rewrite tonight is a gate that
+//     gets deleted by the weekend. Same decision, for the same reason, as the eleven
+//     older open-questions entries this file already reports as notes.
+//
+//     ⚠ A BACK-DATED ROW DODGES BOTH CHECKS AND NOTHING HERE CAN STOP IT. Red-checking
+//     found this and it is reported rather than papered over: put yesterday's date in the
+//     Decided column and the row is "old", so neither rule applies. There is no ground
+//     truth to test against — a row added today legitimately CAN record a ruling from
+//     three weeks ago, which is the whole reason the column is hand-written.
+//     ⚠ AND SINCE R-024 THAT COLUMN DECIDES WHICH OF TWO ANSWERS IS FOLLOWED, so a wrong
+//     date is now a correctness bug rather than untidiness: it can make the app obey the
+//     answer she changed her mind about. Get the date right.
+//
+//     ⚠ AND THE QUOTE TEST ASKS FOR A QUOTATION, NOT A LENGTH. Something between double
+//     quotes, long enough not to be an incidental phrase like "soft" or "no". It cannot
+//     tell whether the words are really hers — a determined paraphrase in quote marks
+//     passes — so this is a floor under carelessness, not a proof of provenance.
+// ---------------------------------------------------------------------------
+const OWN_WORDS_FROM = '2026-08-28';
+const isNewRow = r => r.cells.length === 6 && r.cells[3].trim().slice(0, 10) >= OWN_WORDS_FROM;
+const hasQuote = cell => /"[^"]{15,}"/.test(cell) || /“[^”]{15,}”/.test(cell);
+
+let oldNoQuote = 0, oldNoQuestion = 0;
+rows.forEach(r => {
+  if (r.cells.length !== 6) return;
+  const q = r.cells[1], a = r.cells[2];
+  if (isNewRow(r)) {
+    check('row ' + r.id + ' records a question, not a topic', q.indexOf('?') !== -1, {
+      line: r.line, id: r.id, subject: subjectOf(r),
+      problem: 'the Question cell has no question mark in it: "' + q.slice(0, 70) + '"',
+      fix: 'write the question she was actually asked. A heading tells a later reader ' +
+           'what the row is ABOUT; only the question tells them whether her answer ' +
+           'covers the case in front of them.'
+    });
+    check('row ' + r.id + ' answers in her own words', hasQuote(a), {
+      line: r.line, id: r.id, subject: subjectOf(r),
+      problem: 'the answer carries no quotation of what she actually said',
+      fix: 'quote her, verbatim, inside double quotes — typos and all. This map exists ' +
+           '"so you can refer back to that instead of us reanswering the same questions ' +
+           'and answering inconsistently", and a paraphrase is the thing that drifts.'
+    });
+  } else {
+    if (!hasQuote(a)) oldNoQuote++;
+    if (q.indexOf('?') === -1) oldNoQuestion++;
+  }
+});
+if (oldNoQuote || oldNoQuestion) {
+  note(oldNoQuote + ' row(s) written before ' + OWN_WORDS_FROM + ' do not quote her, and ' +
+    oldNoQuestion + ' record a topic rather than a question. Not failures — they predate ' +
+    'the rule and rewriting them wholesale would be inventing quotations. Fix one when you ' +
+    'next touch that area and can check what she actually said.');
+}
+
+// ---------------------------------------------------------------------------
 // 3. IDs: well formed and unique.
 //    ⚠ A duplicate ID is worse than a missing one — a Superseded pointer then
 //    resolves to two different answers and the reader picks whichever they read first.
