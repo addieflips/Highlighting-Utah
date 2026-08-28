@@ -38409,6 +38409,47 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
     'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
 
+  /* ⭐ RECENTRE ACTUALLY DOES SOMETHING (2026-08-28). Owner: "the recentre button
+     doesnt fix sky view." It did nothing at all - the button had been in the markup
+     since it was asked for and NOTHING was ever wired to it. */
+  check('S170', 'Recentre has a handler',
+    /getElementById\('rmRecentreBtn'\)\.addEventListener/.test(admin),
+    'the button existed and did nothing; a control that cannot fail is not the same as one that works');
+  check('S170', 'and it frames what has been traced, not just the address',
+    (function(){
+      const i = admin.indexOf("getElementById('rmRecentreBtn').addEventListener");
+      if(i === -1) return false;
+      const body = admin.slice(i, admin.indexOf('rmPaneReady(', i));
+      return /fitBounds\(/.test(body) && /setZoom\(RM_SKY_ZOOM\)/.test(body);
+    })(),
+    're-centring on the house throws away the zoom somebody set to see their own gutters');
+  check('S170', 'and it is the way out of a stuck pane',
+    (function(){
+      const i = admin.indexOf("getElementById('rmRecentreBtn').addEventListener");
+      const j = admin.indexOf("rmPaneReady('sky'); rmPaneReady('street');", i);
+      return i !== -1 && j > i;
+    })());
+
+  /* ⭐ THE COVER COMES OFF EVERY TIME THE TOOL IS OPENED, not only the first. */
+  check('S170', 'reopening the tool clears the "finding the house" cover',
+    (function(){
+      const fn = extractFn(admin, 'rmEnsureMap') || '';
+      const reuse = fn.slice(0, fn.indexOf('rmMap = new google.maps.Map'));
+      return /addListenerOnce\(rmMap, 'idle'[\s\S]{0,80}rmPaneReady\('sky'\)/.test(reuse);
+    })(),
+    'the cover is set on every load and was only ever taken off where the map is BUILT, which happens once');
+
+  /* ⭐ FULL SCREEN IS REACHABLE. Owner: "you cant click full screen." Google draws
+     one inside the map and the sheet that catches measuring clicks covers it. */
+  check('S170', 'each picture has a full-screen button of our own',
+    /class="rm-fs" data-rmfull="sky"/.test(admin) && /class="rm-fs" data-rmfull="street"/.test(admin));
+  check('S170', 'and it can be clicked through the head that ignores clicks',
+    /\.rm-fs\{pointer-events:auto;/.test(admin),
+    'the pane head is pointer-events:none so it never swallows a click meant for the roof');
+  check('S170', 'and the map is told when full screen changes its box',
+    /fullscreenchange[\s\S]{0,160}google\.maps\.event\.trigger\(rmMap, 'resize'\)/.test(admin),
+    'without it the pane fills the screen and the map draws in the corner of it');
+
   /* ⭐ THE HOUSE COMES SECOND, AFTER THE TOOLS AND BEFORE THE MONEY (2026-08-28).
      Found live, twice, because the stage changed from a wrapping ROW to a COLUMN
      and three things that were right in a row are wrong in a column. */

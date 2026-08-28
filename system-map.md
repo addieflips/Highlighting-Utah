@@ -89,6 +89,13 @@ on screen from the start showing "—" with its button disabled rather than
 appearing once there is footage. The map's top does not move from the moment the
 tool opens.
 
+**Recentre puts the camera back**, and it is also the way out of a pane that has
+got stuck: it frames what you have already traced (falling back to the house when
+nothing is down), re-aims Street View at the house, and clears the "finding the
+house" cover. **Each picture has its own full-screen button** in its title bar —
+Google draws one inside the map, but the sheet that catches measuring clicks
+covers it, so it is visible and unreachable.
+
 ⚠ **The order on that column is load-bearing: tools, house, price, Save.** It is
 set explicitly on each one, because a catch-all sends anything unnumbered to the
 bottom — and when an edit dropped the pictures' number they went last, below the
