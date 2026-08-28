@@ -19504,6 +19504,54 @@ let rmNavMenuAfterDrag = false;
    still, and taking the menu away from somebody who only clicked would be the
    very complaint this answers, pointing the other way. */
 const RM_NAV_CLICK_SLOP = 4;
+/* ⭐ THE PICTURE FOLLOWS THE HAND, NOT THE CURSOR (2026-08-28). Owner: "the
+   screen still lags behind my mouse so its still not right", then "go into my
+   settings and see how fast my mouse moves and adjust it to that".
+
+   ⚠ HER WINDOWS SETTINGS ARE THE ANSWER AND THEY WERE READ, NOT GUESSED:
+   HKCU\Control Panel\Mouse says MouseSensitivity 10 (the plain 1.0x speed, so
+   nothing to scale) and MouseSpeed 1 - ENHANCE POINTER PRECISION IS ON. That is
+   Windows mouse ACCELERATION: the cursor is not a fixed multiple of the hand, it
+   moves proportionally LESS on a slow drag and more on a fast one.
+
+   ⚠ SO DRIVING THE CAMERA FROM clientX INHERITS THAT CURVE. Measuring a roof is
+   exactly the slow, careful kind of drag where the cursor under-runs the hand, so
+   the picture kept falling behind her - and no fixed multiplier can correct it,
+   because the error depends on how fast she happens to be moving.
+
+   ⭐ GAMES DO NOT HAVE THIS PROBLEM BECAUSE THEY DO NOT READ THE CURSOR. Roblox
+   reads RAW mouse input. Pointer Lock with unadjustedMovement:true is the same
+   thing in a browser: Windows sensitivity and acceleration are both bypassed and
+   movementX/movementY are the hand itself.
+
+   ⚠ RAW DELTAS ARE DEVICE PIXELS, so they are divided by devicePixelRatio to
+   become the CSS pixels the rest of this arithmetic is in - her Chrome is at 125%
+   zoom, where the two differ by a quarter.
+
+   ⚠ AND IT IS A FALLBACK, NEVER A REQUIREMENT. If the lock is refused - an older
+   browser, a policy, a window that is not focused - the drag carries on off the
+   cursor exactly as before. Worse on a slow drag, but it still works. */
+const RM_LOOK_SENSITIVITY = 1;   /* turn this if the hand-to-picture rate feels off */
+let rmNavLocked = false;
+function rmNavRequestLock(el){
+  if(!el || !el.requestPointerLock) return;
+  let p = null;
+  try { p = el.requestPointerLock({unadjustedMovement: true}); }
+  catch(err){ p = null; }   /* older signature: options are not accepted at all */
+  if(p && p.catch){
+    p.catch(function(){
+      /* ⚠ RAW INPUT REFUSED, SO TAKE THE ACCELERATED LOCK RATHER THAN NOTHING:
+         it still frees the drag from the edge of the screen. */
+      try { el.requestPointerLock(); } catch(err2){ /* no lock at all - the
+        cursor path below still works, so there is nothing to report */ }
+    });
+  } else if(p === null){
+    try { el.requestPointerLock(); } catch(err3){ /* as above */ }
+  }
+}
+document.addEventListener('pointerlockchange', function(){
+  rmNavLocked = !!document.pointerLockElement;
+});
 /* Which picture the pointer is over. Walks the ids rather than reading a class,
    because the target is usually deep inside Google's own markup. */
 function rmNavPaneAt(target){
@@ -19531,15 +19579,33 @@ document.addEventListener('mousedown', function(e){
   const boxEl = document.getElementById(pane === 'grade' ? 'rmGradePano' : (pane === 'sky' ? 'rmMap' : 'rmPano'));
   const box = boxEl ? boxEl.getBoundingClientRect() : null;
   rmNavDrag = {pane: pane, x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY,
-               box: box, moved: false, heading: pov.heading || 0, pitch: pov.pitch || 0, zoom: z};
+               box: box, moved: false, rawX: 0, rawY: 0,
+               heading: pov.heading || 0, pitch: pov.pitch || 0, zoom: z};
+  /* ⚠ THE PICTURES ONLY. The sky view is GRABBING A POINT on the map, so it wants
+     the real cursor where the hand left it; hiding the pointer to pan a map is
+     both disorienting and wrong about what is being dragged. */
+  if(pane !== 'sky') rmNavRequestLock(boxEl);
   rmNavMenuAfterDrag = false;   /* a fresh press starts out entitled to its menu */
   rmRefreshCursors(true);
 });
 document.addEventListener('mousemove', function(e){
   if(!rmNavDrag) return;
   const dx = e.clientX - rmNavDrag.x, dy = e.clientY - rmNavDrag.y;
-  if(!rmNavDrag.moved &&
-     Math.hypot(e.clientX - rmNavDrag.downX, e.clientY - rmNavDrag.downY) > RM_NAV_CLICK_SLOP){
+  /* ⚠ THE HAND IS TALLIED BEFORE ANYTHING READS IT. Written lower down, beside
+     the turn it feeds, the slop test below saw a tally that was still zero on the
+     FIRST movement of every drag - so a quick look-around registered as a click
+     and handed the context menu straight back. */
+  if(rmNavLocked){
+    const dpr = window.devicePixelRatio || 1;
+    rmNavDrag.rawX += (e.movementX || 0) / dpr * RM_LOOK_SENSITIVITY;
+    rmNavDrag.rawY += (e.movementY || 0) / dpr * RM_LOOK_SENSITIVITY;
+  }
+  /* ⚠ WHILE LOCKED THE CURSOR NEVER MOVES, so measuring the click slop off
+     clientX would report every look-around as a click and hand back the context
+     menu at the end of it. The raw tally is what moved. */
+  const slopX = rmNavLocked ? rmNavDrag.rawX : (e.clientX - rmNavDrag.downX);
+  const slopY = rmNavLocked ? rmNavDrag.rawY : (e.clientY - rmNavDrag.downY);
+  if(!rmNavDrag.moved && Math.hypot(slopX, slopY) > RM_NAV_CLICK_SLOP){
     rmNavDrag.moved = true;
   }
   if(rmNavDrag.pane === 'sky'){
@@ -19590,13 +19656,28 @@ document.addEventListener('mousemove', function(e){
   const bearing = function(px){ return Math.atan(px / focal) * 180 / Math.PI; };
   /* ⚠ MEASURED FROM WHERE THE BUTTON WENT DOWN, never step by step: adding up
      deltas drifts, and a pitch clamped at the top would then never come back. */
-  const turnX = bearing(e.clientX - cx) - bearing(rmNavDrag.downX - cx);
-  const turnY = bearing(e.clientY - cy) - bearing(rmNavDrag.downY - cy);
+  /* ⭐ WHERE THE HAND HAS GOT TO. While the pointer is locked there IS no cursor
+     to read, so the raw movements are added up into a position of our own - which
+     is what makes this immune to the acceleration curve. Unlocked, it is the
+     cursor as before. */
+  let atX, atY;
+  if(rmNavLocked){
+    atX = rmNavDrag.downX + rmNavDrag.rawX;   /* tallied at the top of this handler */
+    atY = rmNavDrag.downY + rmNavDrag.rawY;
+  } else {
+    atX = e.clientX;
+    atY = e.clientY;
+  }
+  const turnX = bearing(atX - cx) - bearing(rmNavDrag.downX - cx);
+  const turnY = bearing(atY - cy) - bearing(rmNavDrag.downY - cy);
   pano.setPov({heading: rmNavDrag.heading + turnX,
                pitch: Math.max(-90, Math.min(90, rmNavDrag.pitch - turnY))});
 });
 function rmNavEnd(){
   if(!rmNavDrag) return;
+  /* ⚠ ALWAYS, and before anything else can throw: a lock left on is a page with
+     no pointer, and the only way out is the Escape key nobody knows to press. */
+  if(document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
   /* carried across the gap to the contextmenu event, which has not fired yet */
   rmNavMenuAfterDrag = !!rmNavDrag.moved;
   rmNavDrag = null;
