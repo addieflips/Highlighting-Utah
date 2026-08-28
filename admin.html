@@ -17149,7 +17149,29 @@ const RM_TYPES = {
    shows Measured and then ×2.9 for pricing as separate lines, so nobody has to
    work out which number is which - that disclosure is the whole reason this is
    a multiplier rather than a change to the maths. */
-const RM_FEET_MULTIPLIER = 1.3;
+/* ⭐ SET BY NAMING THE REAL-FOOT RATE (2026-08-28). Owner: "change it to
+   $2.30 a real foot on medium and adjust accordingly for hard and easy", and
+   "the length of a foot is the only variable so still label it as $2 a foot".
+
+   ⚠ SO THE LABEL IS FIXED AND THIS IS THE DIAL. Per Foot Pricing stays $2.00 and
+   the difficulty multipliers stay hers; what moves is the definition of a foot.
+   1.15 x $2.00 = $2.30 per REAL foot on a medium house, which is what she asked
+   for to the cent. It was 1.3, which was charging $2.60.
+
+   The other two follow from her own ratio and need no separate number:
+     Easy    1.15 x 2.00 x 0.925 = $2.13 per real foot
+     Medium  1.15 x 2.00 x 1.000 = $2.30
+     Hard    1.15 x 2.00 x 1.100 = $2.53
+
+   ⚠ TO CHANGE THE REAL RATE AGAIN, MOVE THIS, NOT perFootRate. Raising the rate
+   box instead would change the number PRINTED on the invoice, which is the one
+   thing she has fixed. The history of this dial is 2.9 -> 1.45 -> 1.3 -> 1.15.
+
+   ⚠ AND IT IS NOT ONLY A PRICE. This figure is SAVED as the customer's footage,
+   so it also sizes the bins at 260 ft, picks the number series and counts the
+   bundles at 40 ft - see the note in system-map.md. Lowering it to 1.15 narrows
+   that distortion; it does not remove it. */
+const RM_FEET_MULTIPLIER = 1.15;
 const RM_STATIC_MAX = 640;
 const RM_CAM_HEIGHT_M = 2.5;      /* Google's street camera sits about here */
 const RM_M_TO_FT = 3.280839895;

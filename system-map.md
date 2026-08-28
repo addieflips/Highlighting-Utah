@@ -64,12 +64,28 @@ adding anything. Saying yes adds the extra feet — Pythagoras on that grade, bo
 sides of the gable assumed the same. Saying try again changes nothing.
 
 ⚠ **The price is not worked out from the measured feet directly.** It uses
-`feet × RM_FEET_MULTIPLIER`, which is **1.3** as of
+`feet × RM_FEET_MULTIPLIER`, which is **1.15** as of
 2026-08-28 — read it off that constant, never off prose about it. It began life
 compensating for the tool measuring short; it is now where the MINIMUM JOB COST
 lives ($2/ft is the advertised rate and a 60 ft house cannot be done for $120),
-and its size is the owner's dial — 2.9 → 1.45 → 1.3 inside one afternoon. Both
-numbers are shown on the panel as separate lines. See Q-024.
+and its size is the owner's dial — 2.9 → 1.45 → 1.3 → 1.15. Both numbers are
+shown on the panel as separate lines. See Q-024.
+
+⭐ **She sets it by naming the rate, not the dial** (2026-08-28): *"change it to
+$2.30 a real foot on medium and adjust accordingly for hard and easy"*, with
+*"the length of a foot is the only variable so still label it as $2 a foot"*. So
+the rate box stays $2.00, the invoice keeps saying $2.00/ft, and this constant is
+what moves. **What a house is actually charged, per REAL foot: easy $2.13,
+medium $2.30, hard $2.53.** To change that again, move this constant — raising
+the rate box instead would change the figure printed on the customer's invoice,
+which is the one thing she has fixed.
+
+⚠ **And it is not only a price — it is saved as the customer's footage.** That
+same inflated figure sizes the bins at 260 ft, picks the number series and counts
+the bundles at 40 ft, so a 230 ft house is filed as 265 and can be given a second
+bin and a 5000-series number it does not need. Dropping the dial from 1.3 to 1.15
+narrowed that; it did not remove it. The clean fix is to store the true footage
+and apply the multiplier to the MONEY only — offered, not yet decided.
 
 **Street View has its own dots.** Click the picture and it takes a mark of its
 own, numbered 1, 2, 3… and visible only there — the sky view's lettered dots
