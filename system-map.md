@@ -101,6 +101,19 @@ marking the top of a house and then the bottom drew a line straight across the
 photograph. Enter with nothing marked does nothing, and a strand can only be
 finished from the camera it was marked in.
 
+**Hold the right button to look around, and to move the sky view.** While you
+are measuring, a left drag places and drags dots and the sheet covers the whole
+picture — so there was no way to look anywhere else without coming out of
+measuring first. The right button does it instead, on all three pictures
+including the grade screen. Street View **follows your mouse**: drag right, look
+right; drag down, look down — the way Roblox Studio does it, which is the
+opposite of Google's own left drag. The sky view **grabs the world**, so what is
+under the pointer stays under it, exactly as its own left drag behaves.
+
+⚠ **The right-click menu still works — unless you held and dragged.** A plain
+click on a picture opens it as usual; only a drag takes it away, and only that
+one time. A few pixels of hand jitter still counts as a click.
+
 **What Easy, Medium and Hard cost.** $1.85, $2.00 and $2.20 a foot — set as
 multipliers of whatever Per Foot Pricing says, so that box stays the one number
 to change. **The grade is scored on three things and size is not one of them:**

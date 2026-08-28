@@ -19466,6 +19466,132 @@ document.addEventListener('keyup', function(e){
    promising a grab that is no longer armed. */
 window.addEventListener('blur', function(){ rmShiftDown = false; rmRefreshCursors(false); });
 
+/* ⭐ HOLD THE RIGHT BUTTON TO LOOK AROUND, AND TO MOVE THE SKY VIEW (2026-08-28).
+   Owner: "if you want to look a different direction and change where you are
+   looking on street view you hold down right click just like roblox studio and if
+   you want to move in sky view you hold down right click."
+
+   ⚠ WHY IT IS NEEDED AT ALL. While measuring, a LEFT drag places and drags dots,
+   and the lock sheet covers the whole pane to catch exactly that - so there was no
+   way to look around or pan without coming out of measuring first. The right
+   button is the one gesture those sheets were not already using.
+
+   ⚠ STREET VIEW FOLLOWS THE MOUSE, which is the OPPOSITE of Google's own left
+   drag (that one grabs the world and turns the other way). Roblox is what she
+   asked for by name. One sign per axis flips it if it ever reads wrong.
+
+   ⚠ THE SKY VIEW GRABS THE WORLD INSTEAD, deliberately not Roblox: that is what
+   its own left drag does whenever nothing is locked, and one pane answering the
+   same gesture two different ways would be worse than either rule alone.
+
+   ⚠ AND ALL THREE PANES ARE COVERED, including the grade screen's own picture -
+   that one is where a left drag READS THE GRADE, so it is the pane with the least
+   left button left to spare. */
+const RM_NAV_PANES = {
+  street: ['rmPano', 'rmSvLayer', 'rmPanoLock', 'rmPanoFrozen', 'rmStreetBusy'],
+  sky:    ['rmMap', 'rmMapLock', 'rmMapFrozen', 'rmSkyBusy'],
+  grade:  ['rmGradePano', 'rmGradeLock']
+};
+let rmNavDrag = null;
+/* ⭐ A RIGHT CLICK STILL OPENS THE MENU; A HELD RIGHT DRAG DOES NOT (2026-08-28).
+   Owner: "make it so you only get the right click pop up if you click there but
+   if you hold the right click pop up doesnt come up."
+   ⚠ THE MENU FIRES ON MOUSE-UP on Windows, by which time the drag has already
+   been cleared - so whether it moved has to be REMEMBERED across that gap
+   rather than read off a drag that no longer exists. */
+let rmNavMenuAfterDrag = false;
+/* ⚠ A FEW PIXELS OF JITTER IS STILL A CLICK. Nobody holds a mouse perfectly
+   still, and taking the menu away from somebody who only clicked would be the
+   very complaint this answers, pointing the other way. */
+const RM_NAV_CLICK_SLOP = 4;
+/* Which picture the pointer is over. Walks the ids rather than reading a class,
+   because the target is usually deep inside Google's own markup. */
+function rmNavPaneAt(target){
+  if(!target) return null;
+  for(const pane in RM_NAV_PANES){
+    for(const id of RM_NAV_PANES[pane]){
+      const el = document.getElementById(id);
+      if(el && (el === target || el.contains(target))) return pane;
+    }
+  }
+  return null;
+}
+function rmNavPanoFor(pane){ return pane === 'grade' ? rmGradePano : rmPano; }
+document.addEventListener('mousedown', function(e){
+  if(e.button !== 2) return;                     /* right button only */
+  const pane = rmNavPaneAt(e.target);
+  if(!pane) return;
+  if(pane === 'sky'){ if(!rmMap) return; }
+  else if(!rmNavPanoFor(pane)) return;
+  e.preventDefault();
+  const pano = pane === 'sky' ? null : rmNavPanoFor(pane);
+  const pov = pano && pano.getPov ? (pano.getPov() || {}) : {};
+  let z = pano && pano.getZoom ? pano.getZoom() : 1;
+  if(typeof z !== 'number' || !isFinite(z)) z = 1;
+  rmNavDrag = {pane: pane, x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY,
+               moved: false, heading: pov.heading || 0, pitch: pov.pitch || 0, zoom: z};
+  rmNavMenuAfterDrag = false;   /* a fresh press starts out entitled to its menu */
+  rmRefreshCursors(true);
+});
+document.addEventListener('mousemove', function(e){
+  if(!rmNavDrag) return;
+  const dx = e.clientX - rmNavDrag.x, dy = e.clientY - rmNavDrag.y;
+  if(!rmNavDrag.moved &&
+     Math.hypot(e.clientX - rmNavDrag.downX, e.clientY - rmNavDrag.downY) > RM_NAV_CLICK_SLOP){
+    rmNavDrag.moved = true;
+  }
+  if(rmNavDrag.pane === 'sky'){
+    /* ⚠ THE WORLD UNDER THE POINTER STAYS UNDER THE POINTER, worked out through
+       rmMapPixelToWorld rather than panBy - panBy ANIMATES, so a drag made of
+       many small pans lags behind the mouse. Taking the difference of two points
+       also cancels rmSkyShift, which both of them carry. */
+    const el = document.getElementById('rmMap');
+    if(el && rmMap){
+      const r = el.getBoundingClientRect();
+      const a = rmMapPixelToWorld(rmNavDrag.x, rmNavDrag.y, r);
+      const b = rmMapPixelToWorld(e.clientX, e.clientY, r);
+      if(a && b){
+        const c = rmMap.getCenter();
+        if(c) rmMap.setCenter({lat: c.lat() + (a.lat - b.lat), lng: c.lng() + (a.lng - b.lng)});
+      }
+    }
+    rmNavDrag.x = e.clientX; rmNavDrag.y = e.clientY;   /* the sky move is RELATIVE */
+    return;
+  }
+  const pano = rmNavPanoFor(rmNavDrag.pane);
+  if(!pano) return;
+  const box = document.getElementById(rmNavDrag.pane === 'grade' ? 'rmGradePano' : 'rmPano');
+  const W = (box && box.clientWidth) || 1;
+  /* ⚠ DEGREES PER PIXEL COMES FROM THE CURRENT FIELD OF VIEW, so the same hand
+     movement turns the same amount of picture whether zoomed in or out. A fixed
+     rate feels right at one zoom and wrong at every other. */
+  const perPx = rmFovDeg(rmNavDrag.zoom) / W;
+  /* ⚠ MEASURED FROM WHERE THE BUTTON WENT DOWN, never step by step: adding up
+     deltas drifts, and a pitch clamped at the top would then never come back. */
+  pano.setPov({heading: rmNavDrag.heading + dx * perPx,
+               pitch: Math.max(-90, Math.min(90, rmNavDrag.pitch - dy * perPx))});
+});
+function rmNavEnd(){
+  if(!rmNavDrag) return;
+  /* carried across the gap to the contextmenu event, which has not fired yet */
+  rmNavMenuAfterDrag = !!rmNavDrag.moved;
+  rmNavDrag = null;
+  rmRefreshCursors(false);
+}
+document.addEventListener('mouseup', function(e){ if(e.button === 2) rmNavEnd(); });
+/* ⚠ REFUSED ONLY AFTER A DRAG, AND ONLY ON THESE PANES. A plain right click
+   keeps its menu everywhere, including on the pictures - she asked for exactly
+   that line to be drawn. Suppressing it outright was the first version, and it
+   took away a menu nobody had asked to lose. */
+document.addEventListener('contextmenu', function(e){
+  const dragging = rmNavDrag && rmNavDrag.moved;   /* platforms that fire on DOWN */
+  if((dragging || rmNavMenuAfterDrag) && rmNavPaneAt(e.target)) e.preventDefault();
+  rmNavMenuAfterDrag = false;   /* one menu suppressed per drag, never a run of them */
+});
+/* A window that loses focus never sends the mouseup - the same trap the shift
+   key above is guarded against, and it would leave the view stuck to the mouse. */
+window.addEventListener('blur', rmNavEnd);
+
 let rmDragMoved = false;         /* a drag happened, so the click that ends it is not a swap */
 
 /* The point that best satisfies every ray it has been seen along. */
