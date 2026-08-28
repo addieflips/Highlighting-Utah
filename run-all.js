@@ -38865,10 +38865,15 @@ suite('170. Measure Roof - a peak is two dots and a grade');
         'function mkEl(id){ return els[id] || (els[id]={id:id, clientWidth:600,' + LFx +
         '  contains:function(t){ return t===this; },' + LFx +
         '  getBoundingClientRect:function(){ return {left:0,top:0,width:600,height:400}; }}); }' + LFx +
-        'const document={getElementById:mkEl, addEventListener:function(n,f){ calls.push([n,f]); }};' + LFx +
-        'const window={addEventListener:function(){}};' + LFx +
+        'const document={getElementById:mkEl, addEventListener:function(n,f){ calls.push([n,f]); },' + LFx +
+        '  pointerLockElement:null, exitPointerLock:function(){ this.pointerLockElement = null; }};' + LFx +
+        'const window={addEventListener:function(){}, devicePixelRatio:1};' + LFx +
         'const RM_NAV_CLICK_SLOP = 4;' + LFx +
         'let rmNavMenuAfterDrag = false;' + LFx +
+        'let rmNavLocked = false;' + LFx +
+        /* the dial and the lock helper, lifted - not written out here */
+        (admin.match(/const RM_LOOK_SENSITIVITY = [^;]+;/) || [''])[0] + LFx +
+        (extractFn(admin, 'rmNavRequestLock') || '') + LFx +
         src + LFx + down + LFx + move + LFx + up + LFx + menu + LFx +
         'function on(n){ const h=calls.filter(function(c){ return c[0]===n; }); return h[h.length-1][1]; }' + LFx +
         'return {' + LFx +
@@ -38891,6 +38896,13 @@ suite('170. Measure Roof - a peak is two dots and a grade');
         ' menu:function(el){ let stopped=false;' + LFx +
         '   on("contextmenu")({target:el, preventDefault:function(){stopped=true;}});' + LFx +
         '   return stopped; },' + LFx +
+        ' lock:function(on,dpr){ rmNavLocked=!!on; window.devicePixelRatio=(dpr||1); },' + LFx +
+        /* ⚠ THE CURSOR IS FROZEN WHERE IT WAS PRESSED, which is what a pointer
+           lock really does. Parked off-screen instead, the click-slop sum came out
+           enormous whatever the code did, and a sabotage measuring slop off the
+           cursor passed by accident. */
+        ' raw:function(mx,my){ on("mousemove")({clientX:rmNavDrag.downX, clientY:rmNavDrag.downY,' + LFx +
+        '   movementX:mx, movementY:my}); },' + LFx +
         ' dragging:function(){ return !!rmNavDrag; }' + LFx +
         '};')();
     } catch(err){ return {err: String(err)}; }
@@ -38994,6 +39006,88 @@ suite('170. Measure Roof - a peak is two dots and a grade');
       check('S170', 'the view cannot tip past straight up',
         p.pov().pitch <= 90, 'got ' + p.pov().pitch);
     })();
+    /* ⭐ AND IT FOLLOWS THE HAND, NOT THE CURSOR (2026-08-28). Owner: "the screen
+       still lags behind my mouse so its still not right", then "go into my settings
+       and see how fast my mouse moves".
+       ⚠ HER SETTINGS WERE READ: MouseSpeed 1, so Enhance pointer precision is ON.
+       Windows acceleration means the cursor is NOT a fixed multiple of the hand -
+       it under-runs on a slow drag, which is the drag you make measuring a roof.
+       Pointer Lock with unadjustedMovement gives the hand itself, the way a game
+       reads a mouse; the cursor is then frozen and must not be read at all. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el, undefined, 300, 200);
+      navRun.lock(true, 1);
+      navRun.raw(100, 0);                       /* 100px of HAND, cursor stationary */
+      const turned = p.pov().heading - 100;
+      check('S170', 'while locked the view follows the raw hand movement',
+        turned > 0,
+        'the cursor never moves under a pointer lock, so reading clientX gives nothing at all');
+      navRun.lock(false, 1);
+    })();
+    /* ⚠ RAW DELTAS ARE DEVICE PIXELS. At 125% zoom - which is where her Chrome
+       actually is - they are a quarter bigger than the CSS pixels the rest of this
+       arithmetic uses, so the same hand movement would over-turn by 25%. */
+    (function(){
+      const a = navRun.street();
+      navRun.down(a.el, undefined, 300, 200);
+      navRun.lock(true, 1);
+      navRun.raw(125, 0);
+      const at1 = a.pov().heading - 100;
+      const b = navRun.street();
+      navRun.down(b.el, undefined, 300, 200);
+      navRun.lock(true, 1.25);
+      navRun.raw(125, 0);
+      const at125 = b.pov().heading - 100;
+      check('S170', 'raw movement is converted from device pixels to CSS pixels',
+        at125 > 0 && at125 < at1,
+        'dpr 1 turned ' + at1.toFixed(2) + ', dpr 1.25 turned ' + at125.toFixed(2) +
+        ' - equal means devicePixelRatio is not being divided out');
+      navRun.lock(false, 1);
+    })();
+    /* ⚠ AND THE CLICK SLOP MUST WATCH THE HAND TOO. Measured off a cursor that is
+       frozen by the lock, every look-around would count as a click and hand the
+       context menu back at the end of it. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el, undefined, 300, 200);
+      navRun.lock(true, 1);
+      navRun.raw(100, 0);
+      navRun.up();
+      check('S170', 'a locked look-around still counts as a drag, not a click',
+        navRun.menu(p.el) === true,
+        'the cursor did not move, but the hand did - the menu must not come back');
+      navRun.lock(false, 1);
+    })();
+    check('S170', 'the pointer is always given back when the drag ends',
+      (function(){
+        const fn = extractFn(admin, 'rmNavEnd') || '';
+        return fn.indexOf('exitPointerLock') !== -1;
+      })(),
+      'a lock left on is a page with no pointer, and the only way out is an Escape nobody knows to press');
+    /* ⭐ AND THE RAW OPTION IS THE WHOLE POINT. A plain pointer lock still hands
+       back movementX with Windows acceleration ALREADY APPLIED - it would free the
+       drag from the edge of the screen and fix nothing she complained about.
+       unadjustedMovement is what bypasses her Enhance pointer precision setting. */
+    check('S170', 'the lock asks for UNADJUSTED movement, not just any lock',
+      (function(){
+        const fn = extractFn(admin, 'rmNavRequestLock') || '';
+        return fn.indexOf('unadjustedMovement: true') !== -1;
+      })(),
+      'a plain lock still carries her acceleration curve, which is the thing being corrected');
+    check('S170', 'and it falls back rather than refusing to work',
+      (function(){
+        const fn = extractFn(admin, 'rmNavRequestLock') || '';
+        /* a browser that rejects the option must still get a drag */
+        return fn.indexOf('catch') !== -1 && (fn.match(/requestPointerLock/g) || []).length >= 2;
+      })(),
+      'an older browser or a policy must leave the cursor path working, not break the drag');
+    check('S170', 'and the sky view is never locked - it is grabbing a real point',
+      (function(){
+        const i = admin.indexOf("if(pane !== 'sky') rmNavRequestLock(");
+        return i !== -1;
+      })(),
+      'hiding the pointer to pan a map is disorienting and wrong about what is being dragged');
     /* ⭐ THE SKY VIEW GRABS THE WORLD instead - what its own left drag does. */
     (function(){
       const m = navRun.sky();

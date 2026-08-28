@@ -118,6 +118,26 @@ instead — the same one that decides where a mark is drawn — so a drag near t
 edge turns slightly less than the same drag through the middle, which is what a
 real camera does. Zoomed in it turns less, because the picture is magnified.
 
+⭐ **And it follows your hand, not the cursor.** Windows has *Enhance pointer
+precision* switched on for this machine, which is mouse acceleration: the cursor
+is not a fixed multiple of your hand, it travels proportionally **less** on a
+slow drag and more on a fast one. Driving the camera from the cursor inherited
+that, and measuring a roof is exactly the slow careful drag where it under-runs —
+so the picture kept falling behind. No multiplier fixes it, because the error
+depends on how fast you happen to be moving.
+
+While you hold the right button on a picture the pointer is **locked** and the
+raw mouse movement is read instead, the way a game does it — Windows sensitivity
+and acceleration are both bypassed. The cursor disappears for the duration and
+comes back exactly where it was, and the drag no longer stops at the edge of the
+screen. `RM_LOOK_SENSITIVITY` is the dial if the rate ever needs adjusting to
+taste. If a browser refuses the lock, the drag still works off the cursor as
+before — worse on a slow movement, but never broken.
+
+⚠ **The sky view is deliberately not locked.** There you are grabbing a real
+point on a map and want the real cursor; hiding the pointer to pan would be both
+disorienting and wrong about what is being dragged.
+
 ⚠ **The right-click menu still works — unless you held and dragged.** A plain
 click on a picture opens it as usual; only a drag takes it away, and only that
 one time. A few pixels of hand jitter still counts as a click.
