@@ -38689,7 +38689,13 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     /\.rm-tools > \.rm-toolbar\{order:1; flex:0 0 auto;/.test(admin),
     'flex-basis means HEIGHT in a column: flex:1 0 100% made the toolbar 547px tall and pushed the house off the screen');
   check('S170', 'the height cap belongs to the toolbar alone, by its own class',
-    /\.rm-tools > \.rm-toolbar\{height:190px/.test(admin) &&
+    /* ⚠ THE PROPERTY, NOT THE NUMBER. It was pinned at 190px, which was right when
+       this was the only tool row; every control moved above the pictures on
+       2026-08-28 and it had to come down to 118 or the map was left with 39px. A
+       check on the exact figure fails on a correct rebalance and teaches nothing -
+       what must hold is that it is a FIXED height on its OWN class, which is what
+       stops the picture jumping while dots go down. */
+    /\.rm-tools > \.rm-toolbar\{height:\d+px/.test(admin) &&
     /class="rm-panel rm-toolbar\b/.test(admin),   /* it carries rm-ribbon too now */
     'written against .rm-panel it also pinned the price panel and Roof Facts to 190px, inflating a 48px row and a 37px one');
 
@@ -38698,7 +38704,14 @@ suite('170. Measure Roof - a peak is two dots and a grade');
      panes shrink is what makes the tool fit any window; min-height:0 let them
      shrink to zero, and they were clipped out of a card set to overflow:hidden. */
   check('S170', 'the pictures have a floor they cannot collapse below',
-    /\.rm-stagerest > \.rm-panes\{flex:1 1 auto; min-height:2[0-9][0-9]px;\}/.test(admin),
+    (function(){
+      /* ⚠ A FLOOR THAT IS TOO BIG IS ITS OWN BUG. 260 stopped fitting under six
+         rows of ribbon, and a floor that does not fit pushes the pictures off the
+         bottom instead of shrinking them - which is how the map ended up 39px tall
+         on the live page. So this asks for a floor that is REAL but not enormous. */
+      const m = admin.match(/\.rm-stagerest > \.rm-panes\{flex:1 1 auto; min-height:(\d+)px;\}/);
+      return !!m && Number(m[1]) >= 150 && Number(m[1]) <= 260;
+    })(),
     'min-height:0 lets a flex item shrink to NOTHING, and a picture that is not there is a broken tool');
   check('S170', 'and the card scrolls as a last resort rather than clipping them',
     /\.rm-card\{height:100%; max-height:100%; overflow-y:auto;/.test(admin),

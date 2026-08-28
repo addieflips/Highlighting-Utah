@@ -4604,7 +4604,14 @@
                and "there is no house". Found on the live site, where the Roof Facts
                panel renders (Solar answers there and is refused on localhost) and took
                the last of the height with it. */
-            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:260px;}
+                        /* ⚠ THE FLOOR CAME DOWN WITH THE REST OF THE BUDGET. 260 no longer fits
+               under six rows of ribbon on an 864px screen at 125% zoom, and a floor
+               that does not fit is what pushes the pictures off the bottom instead of
+               shrinking them. 190 still shows a whole house; below about 150 it stops
+               being something you can trace on.
+               ⚠ flex:1 1 auto IS THE POINT: the pictures are the one row that GROWS,
+               so every pixel the ribbon does not use goes to the house. */
+            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:190px;}
             #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
             #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
 
@@ -4682,7 +4689,16 @@
                more than fits, it scrolls a 190px strip - which is a small thing to
                reach past, and nothing like the picture jumping 94px under the cursor
                mid-trace, which is what was reported. Measured full: 183px. */
-            #roofMeasureOverlay .rm-tools > .rm-toolbar{height:190px; align-content:flex-start; overflow-y:auto; overscroll-behavior:contain;}
+                        /* ⚠ 190px WAS RIGHT WHEN THIS WAS THE ONLY TOOL ROW AND THE PICTURES SAT
+               BELOW IT WITH EVERYTHING ELSE UNDERNEATH THEM. Moving every control
+               above the pictures (2026-08-28) put five more fixed rows in front of
+               them, and the sum came to 488px of a 666px card - the map was left
+               with THIRTY-NINE PIXELS on the live page. Measured, not guessed.
+               It is still a FIXED height, because that is what stops the picture
+               jumping while dots go down, and it still scrolls inside itself when
+               the notes get long. It is simply no longer sized as though it were
+               the only thing above the house. */
+            #roofMeasureOverlay .rm-tools > .rm-toolbar{height:118px; align-content:flex-start; overflow-y:auto; overscroll-behavior:contain;}
             #roofMeasureOverlay #rmDrawHint,
             #roofMeasureOverlay #rmCornerNote,
             #roofMeasureOverlay #rmCornerMode,
@@ -4881,7 +4897,12 @@
             #roofMeasureOverlay .rm-panes{order:-1; flex:1 0 100%;}
             #roofMeasureOverlay #rmPricePanel{order:2;}
             #roofMeasureOverlay .rm-commit{order:3;}
-            #roofMeasureOverlay #rmRoofFactsPanel{order:4; flex:0 0 auto;}
+                        /* ⚠ ROOF FACTS IS THE ONE ROW UP HERE THAT IS READING RATHER THAN DOING,
+               and it was 92px of the budget. Capped and scrolled rather than hidden:
+               it is where Google's own footage shows up, which is the number used to
+               sanity-check a trace, so taking it off the screen is not mine to do. */
+            #roofMeasureOverlay #rmRoofFactsPanel{order:4; flex:0 0 auto; max-height:46px;
+              overflow-y:auto; overscroll-behavior:contain;}
             #roofMeasureOverlay #rmPhotoBar{order:5; flex:0 0 auto; align-self:stretch;}
             /* ⚠ THE HIGHEST NUMBER ON PURPOSE. An unnumbered row defaults to 0 and
                would land BEFORE everything; a row numbered by hand later should land
