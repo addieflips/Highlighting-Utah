@@ -38409,6 +38409,27 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     Math.abs(api.feet({a:0,b:1}) - 15*0.136) < 0.06,
     'got ' + api.feet({a:0,b:1}).toFixed(2) + ' — 209 S 850 W measures 54% grade');
 
+  /* ⭐ THE HOUSE COMES SECOND, AFTER THE TOOLS AND BEFORE THE MONEY (2026-08-28).
+     Found live, twice, because the stage changed from a wrapping ROW to a COLUMN
+     and three things that were right in a row are wrong in a column. */
+  check('S170', 'the pictures are ordered between the tools and the Save block',
+    (function(){
+      const bar  = /\.rm-tools > \.rm-toolbar\{order:1;/.test(admin);
+      const pics = /> \.rm-stagerest\{order:2;/.test(admin);
+      const pr   = /#rmPricePanel\{order:3;/.test(admin);
+      const save = /\.rm-commit\{order:4;/.test(admin);
+      return bar && pics && pr && save;
+    })(),
+    'the order was lost in an edit and the pictures fell to the catch-all - last, below the Save bar and Roof Facts, at y=1261 in a 720px window');
+  check('S170', 'and nothing in that column is allowed to take the whole height',
+    !/\.rm-tools > \.rm-toolbar\{order:1; flex:1 0 100%/.test(admin) &&
+    /\.rm-tools > \.rm-toolbar\{order:1; flex:0 0 auto;/.test(admin),
+    'flex-basis means HEIGHT in a column: flex:1 0 100% made the toolbar 547px tall and pushed the house off the screen');
+  check('S170', 'the height cap belongs to the toolbar alone, by its own class',
+    /\.rm-tools > \.rm-toolbar\{height:190px/.test(admin) &&
+    /class="rm-panel rm-toolbar"/.test(admin),
+    'written against .rm-panel it also pinned the price panel and Roof Facts to 190px, inflating a 48px row and a 37px one');
+
   /* ⭐ THE PICTURES CAN NEVER BE SHRUNK AWAY (2026-08-28). Found on the live site,
      not here: the tool opened with a toolbar, a Save bar and NO HOUSE. Letting the
      panes shrink is what makes the tool fit any window; min-height:0 let them
@@ -38430,7 +38451,7 @@ suite('170. Measure Roof - a peak is two dots and a grade');
      the second. Measured before the fix: the map's top moving 109px, then 94px,
      then 59px, on separate clicks. */
   check('S170', 'the bar above the pictures cannot change height',
-    /\.rm-panel:not\(\.rm-commit\)\{height:\d+px;[^}]*overflow-y:auto/.test(admin),
+    /\.rm-toolbar\{height:\d+px;[^}]*overflow-y:auto/.test(admin),
     'a min-height does not hold - the bar grows past it the moment the footage line appears');
   check('S170', 'and every line that changes as you work is held to one line',
     (function(){
