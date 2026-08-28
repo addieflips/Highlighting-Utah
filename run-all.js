@@ -38857,6 +38857,8 @@ suite('170. Measure Roof - a peak is two dots and a grade');
            entry in admin.html changed nothing and went straight through. */
         panes + LFx +
         'function rmFovDeg(z){ return 180/Math.pow(2,z); }' + LFx +
+        /* the real one, lifted — the drag's arithmetic is built on it */
+        (admin.match(/const rmRad = [^;]+;/) || [''])[0] + LFx +
         'function rmRefreshCursors(){}' + LFx +
         'function rmMapPixelToWorld(x,y,r){ return {lat:40-y*0.0001, lng:-111+x*0.0001}; }' + LFx +
         'const els={};' + LFx +
@@ -38870,8 +38872,8 @@ suite('170. Measure Roof - a peak is two dots and a grade');
         src + LFx + down + LFx + move + LFx + up + LFx + menu + LFx +
         'function on(n){ const h=calls.filter(function(c){ return c[0]===n; }); return h[h.length-1][1]; }' + LFx +
         'return {' + LFx +
-        ' street:function(){ let pov={heading:100,pitch:0};' + LFx +
-        '   rmPano={getPov:function(){return pov;},getZoom:function(){return 1;},setPov:function(p){pov=p;}};' + LFx +
+        ' street:function(zm){ let pov={heading:100,pitch:0}; const z=(zm===undefined?1:zm);' + LFx +
+        '   rmPano={getPov:function(){return pov;},getZoom:function(){return z;},setPov:function(p){pov=p;}};' + LFx +
         '   return {el:mkEl("rmPano"), pov:function(){return pov;}}; },' + LFx +
         ' grade:function(){ let pov={heading:0,pitch:0};' + LFx +
         '   rmGradePano={getPov:function(){return pov;},getZoom:function(){return 1;},setPov:function(p){pov=p;}};' + LFx +
@@ -38911,6 +38913,66 @@ suite('170. Measure Roof - a peak is two dots and a grade');
       check('S170', 'and dragging down looks down',
         p.pov().pitch < 0 && p.pov().heading === afterRight,
         'pitch ' + p.pov().pitch + ' - down tips the view down, and must not disturb the heading');
+    })();
+    /* ⭐ AND IT KEEPS UP WITH THE HAND (2026-08-28). Owner: "street view doesnt
+       properly move at the same speed as the mouse which bugs me, correct it to
+       mouse speed." It was degrees-per-pixel — the field of view spread evenly
+       across the width — which under-turns by about 21% at any ordinary drag,
+       because a perspective picture does not give every pixel the same angle.
+       ⚠ THE EXPECTED FIGURE IS WORKED OUT HERE FROM THE CAMERA, not copied from
+       the code under test: focal = (W/2)/tan(fov/2), bearing = atan(offset/focal).
+       A check that re-used the page's own expression would agree with it whatever
+       it said. */
+    (function(){
+      const p = navRun.street();
+      const W = 600, fov = 180 / Math.pow(2, 1);        /* the stand-in pane, zoom 1 */
+      const focal = (W / 2) / Math.tan(fov * Math.PI / 360);
+      const deg = function(px){ return Math.atan(px / focal) * 180 / Math.PI; };
+      navRun.down(p.el, undefined, 300, 200);            /* the centre of the pane */
+      navRun.move(400, 200);                             /* 100px right of centre */
+      const want = 100 + (deg(100) - deg(0));
+      check('S170', 'a drag turns the view by exactly what the camera says',
+        Math.abs(p.pov().heading - want) < 1e-6,
+        'wanted ' + want.toFixed(4) + ', got ' + p.pov().heading.toFixed(4) +
+        ' — degrees-per-pixel is about 21% short, which is the lag she could feel');
+    })();
+    /* ⚠ AND THE ZOOM HAS TO BE READ, or it keeps up with the hand at exactly one
+       zoom and lags or races at every other. Zoomed IN the picture is magnified,
+       so the same 100px drag covers a SMALLER angle. This sabotage went straight
+       through at first because every fixture here was built at zoom 1, where the
+       field of view happens to be the 90 degrees a hardcoded value would use — a
+       fixture that cannot fail, which is the trap this repo keeps re-learning. */
+    (function(){
+      const wide = navRun.street(1);                 /* 90 degrees across */
+      navRun.down(wide.el, undefined, 300, 200);
+      navRun.move(400, 200);
+      const turnWide = wide.pov().heading - 100;
+      const tight = navRun.street(2);                /* 45 degrees across */
+      navRun.down(tight.el, undefined, 300, 200);
+      navRun.move(400, 200);
+      const turnTight = tight.pov().heading - 100;
+      check('S170', 'zoomed in, the same drag turns the view less',
+        turnTight > 0 && turnTight < turnWide / 1.5,
+        'wide ' + turnWide.toFixed(2) + ' vs zoomed ' + turnTight.toFixed(2) +
+        ' — equal means the zoom is not being read and it only tracks at one zoom');
+    })();
+    /* ⚠ AND THE ANGLE IS MEASURED OFF THE CENTRE OF THE PICTURE, not off wherever
+       the press happened — the arctangent is only correct about the optical axis,
+       so the same 100px drag turns LESS out at the edge than it does in the
+       middle. That is what a perspective picture actually does. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el, undefined, 300, 200);
+      navRun.move(400, 200);
+      const middle = p.pov().heading - 100;
+      const q = navRun.street();
+      navRun.down(q.el, undefined, 500, 200);            /* 200px right of centre */
+      navRun.move(600, 200);
+      const edge = q.pov().heading - 100;
+      check('S170', 'the same drag turns less at the edge than in the middle',
+        edge > 0 && edge < middle,
+        'middle ' + middle.toFixed(2) + ' vs edge ' + edge.toFixed(2) +
+        ' — equal everywhere means the flat degrees-per-pixel sum is back');
     })();
     /* ⚠ MEASURED FROM WHERE THE BUTTON WENT DOWN. Stepping by deltas drifts, and
        a pitch clamped at the top would then never come back down. */
