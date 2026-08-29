@@ -656,10 +656,16 @@ in a place with no way in and no way out.
 nothing out. Drawing a route onward would describe a repair nobody has built, and the value
 of that page is that it is true.
 
-⚠ **The fix needs two decisions and a manual deploy.** Where these should show (Health Check
-is not the answer — HC-03), and a `firestore.rules` change so the office can clear one.
-`firestore.rules` is **not** deployed by CI; it needs `firebase deploy --only firestore:rules`
-by hand.
+⚠ **The fix needs two decisions and a manual deploy**, so it is **Q-025** in
+`docs/open-questions.md` rather than a guess: where these should show (Health Check is the
+obvious place and the wrong one — HC-03), and who may clear one, since applying it to the
+right invoice, refunding it and marking it seen are three different answers about somebody's
+money. Letting the office write to that collection also needs a `firestore.rules` change,
+which **CI does not deploy** — it needs `firebase deploy --only firestore:rules` by hand.
+
+⚠ **And it is a hole, not a ruling**, so it is deliberately not in the questions map. That
+file holds judgement calls she made; a finding of mine put there would be the map describing
+itself rather than her.
 
 ### Asking to cancel is dated, and on the path
 
