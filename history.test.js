@@ -345,6 +345,123 @@ check('every step of the path reaches the history',
     'a quote nobody re-quoted was drawn as a re-quote');
 }
 
+/* ---------------------------------------------------------------------------
+ * 1a. EVERY STEP READS THE DOCUMENT THAT ACTUALLY CARRIES ITS FIELD.
+ *
+ * ⭐ THIS IS A THIRD SHAPE OF THE SAME HOLE, and it was found by committing one. A step
+ * names the document its field comes from — `cust`, `quote` or `inv` — and if that is
+ * wrong the step is silently dead: `customerHistory` looks the field up on a record that
+ * never carries it, finds nothing, and skips. No throw, no warning, no row, for everybody.
+ *
+ * ⚠ THE OTHER TWO CENSUSES ARE BLIND TO IT BY CONSTRUCTION. queue-date proves the field is
+ * WRITTEN with a real time somewhere; this file proves the field is ON the step list. Both
+ * are perfectly satisfied by a step pointed at the wrong document — the field really is
+ * written, and it really is listed. Only the `from` is wrong, and nothing looked at it.
+ *
+ * ⚠ IT HAPPENED TWICE IN ONE DAY. `createdAt` was read off the quote alone, so most of the
+ * book had no joining row; and `formCompletedAt` was added reading off the customer when
+ * both of its writers put it on the QUOTE, so it could never have fired for anybody. Every
+ * check in the repo passed through both.
+ *
+ * ⚠ SO IT IS CHECKED BY RUNNING, NOT BY READING. Working out which collection a field
+ * belongs to from the source was tried first and abandoned: the writes take five different
+ * shapes across two files, and the best attribution still produced six false mismatches and
+ * four unknowns. A gate that cries wolf on correct code is one somebody switches off. This
+ * populates ONE document at a time and asserts every step that names it produces a row —
+ * which is exactly the guarantee that matters, and cannot be got wrong.
+ * ------------------------------------------------------------------------- */
+{
+  const D = v => new Date(v + 'T12:00:00Z');
+  const byFrom = { cust: [], quote: [], inv: [] };
+  STEPS.forEach(s => { if (byFrom[s.from]) byFrom[s.from].push(s.field); });
+
+  check('every step names one of the three documents',
+    STEPS.every(s => s.from in byFrom),
+    'unknown source(s): ' + [...new Set(STEPS.map(s => s.from))].filter(f => !(f in byFrom)).join(', ') +
+    '. A step whose document is not one of these is read from nothing and never appears.');
+
+  Object.keys(byFrom).forEach(from => {
+    const fields = byFrom[from];
+    if (!fields.length) return;
+    /* One record carrying every field this document is supposed to supply, and nothing
+       else populated at all. Anything that does not come back is being looked for on a
+       record that will never have it. */
+    const rec = {};
+    fields.forEach((f, i) => { rec[f] = D('2026-0' + (1 + (i % 9)) + '-0' + (1 + (i % 9))); });
+    const src = {};
+    src[from === 'inv' ? 'invoice' : from] = rec;
+    const got = history(src).rows.length + history(src).undated.length;
+    check('every "' + from + '" step produces a row from a ' + from + ' record',
+      got === fields.length,
+      'expected ' + fields.length + ' row(s) from ' + fields.length + ' field(s), got ' + got +
+      '.\n        A step pointed at the wrong document is silently dead — the lookup finds ' +
+      'nothing and skips, with no throw and no warning, for every customer.');
+  });
+
+  /* ⚠ AND THE LOOP ABOVE CANNOT SEE A FIELD MOVED BETWEEN TWO DOCUMENTS, which the
+     red-check proved: swapping `quoteSentAt` from the quote to the customer went straight
+     through it. The reason is worth stating because it is the trap this repo keeps meeting
+     — the fixture is built FROM the declaration under test, so any assignment is
+     self-consistent and the counts always match. The loop still earns its place: it catches
+     a document name that does not exist at all, and it RUNS the lookup rather than reading
+     it. It just cannot be the only thing here.
+
+     ⭐ SO THE TEST STATES IT INDEPENDENTLY. Exactly the argument options-audit.test.js
+     already makes for its frozen AGREED map: when the declaration IS the thing under test,
+     a check derived from it proves only that it agrees with itself. This is a second copy
+     and is meant to be — its whole value is being written from the WRITE SITES rather than
+     from the step list, so the two can disagree.
+
+     ⚠ EACH ONE WAS CHECKED AT ITS WRITE SITE, not inferred from its name. `formCompletedAt`
+     reads like a customer field and is written to `quotes` by both of its writers, which is
+     precisely how it shipped wrong. If you add a step, open the writer. */
+  const FIELD_HOME = {
+    createdAt: 'both',                     /* every document has one; the history reads the
+                                              quote's for "quote raised" and the customer's
+                                              for "added to the customer list" */
+    quoteSentAt: 'quote', quoteLastNudgedAt: 'quote',
+    approvalRespondedAt: 'quote',          /* quoteRespond, on the quote */
+    quoteRespondedAt: 'quote',             /* admin's own dropdown, on the quote */
+    approvedByOfficeAt: 'quote', convertedToCustomerAt: 'quote',
+    formCompletedAt: 'quote',              /* BOTH writers put it on quotes — the portal's
+                                              own form and quoteSaveDetails */
+    requotedAt: 'quote',
+    lightsQueuedAt: 'cust', lightsMarkedBuiltAt: 'cust', needsDayAssignedAt: 'cust',
+    assignedCrewAt: 'cust', fixAssignedAt: 'cust', removalAssignedAt: 'cust',
+    fixRaisedAt: 'cust', fixDoneAt: 'cust', completedAt: 'cust', removalDoneAt: 'cust',
+    lightsRecycleRequestedAt: 'cust', lightsRecycledAt: 'cust', rsvpRespondedAt: 'cust',
+    seasonStatusAt: 'cust', seasonResetAt: 'cust', mergedAt: 'cust',
+    maybeNextYearAt: 'cust', requoteAppliedAt: 'cust', lightsChangedAt: 'cust',
+    lightsChangedAfterAssignAt: 'cust', askSameAsLastYearAt: 'cust',
+    cannotBillNoEmailAt: 'cust', invoiceEmailSentAt: 'cust',
+    invoicedAt: 'inv', newMemberFeeAppliedAt: 'inv'
+  };
+  const unstated = STEPS.map(s => s.field).filter(f => !(f in FIELD_HOME));
+  check('every step\'s field has a stated home',
+    unstated.length === 0,
+    'not stated: ' + unstated.join(', ') +
+    '.\n        Open the write site and say which document it lands on. Inferred from the ' +
+    'name, formCompletedAt reads like a customer field and is written to quotes.');
+
+  const wrongDoc = STEPS.filter(s => FIELD_HOME[s.field] &&
+    FIELD_HOME[s.field] !== 'both' && FIELD_HOME[s.field] !== s.from);
+  check('every step reads the document that actually carries its field',
+    wrongDoc.length === 0,
+    wrongDoc.map(s => s.field + ' is on the ' + FIELD_HOME[s.field] + ' and is read from ' +
+      s.from).join('; ') +
+    '.\n        A step pointed at the wrong document is silently dead: the lookup finds ' +
+    'nothing and skips, with no throw and no warning, for every customer.');
+
+  /* ⚠ AND THE ONE THAT ACTUALLY SHIPPED WRONG IS NAMED. Both writers of formCompletedAt put
+     it on the QUOTE — the portal's own form writes it there, and quoteSaveDetails writes it
+     there for somebody following an emailed link — and it was added here reading off the
+     customer. Named rather than left to the loop above, because a loop can be satisfied by
+     the field being moved to the wrong side of a correct-looking pair. */
+  check('the details form is read off the quote, where both writers put it',
+    (STEPS.find(s => s.field === 'formCompletedAt') || {}).from === 'quote',
+    'read off the customer it finds nothing for anybody, and nothing anywhere says so');
+}
+
 const strangers = stepFields.filter(f => pathFields.indexOf(f) === -1);
 if (strangers.length) note('history lists ' + strangers.length + ' field(s) the path does ' +
   'not: ' + strangers.join(', ') + '. Not a failure — but if the path has dropped one, ' +

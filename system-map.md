@@ -709,6 +709,42 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### A step that reads the wrong document is silently dead
+
+Each history step names the document its field comes from — `cust`, `quote` or `inv`. If
+that is wrong the step is **silently dead**: `customerHistory` looks the field up on a
+record that never carries it, finds nothing, and skips. No throw, no warning, no row, for
+everybody.
+
+⚠ **The other two censuses are blind to it by construction.** `queue-date.test.js` proves
+the field is *written* with a real time somewhere; `history.test.js` proves the field is *on*
+the step list. Both are perfectly satisfied by a step pointed at the wrong document — the
+field really is written, and it really is listed. Only the `from` is wrong, and nothing
+looked at it.
+
+⚠ **It happened twice in one day, and the second one was mine.** `createdAt` was read off
+the quote alone, so most of the book had no joining row. Then `formCompletedAt` was added
+reading off the **customer** when both of its writers put it on the **quote** — the portal's
+own form writes it there, and `quoteSaveDetails` writes it there for somebody following an
+emailed link. It could never have fired for anybody, and every check in the repo passed.
+
+⚠ **Working out the home from the source was tried and abandoned.** The writes take five
+different shapes across two files, and the best attribution still produced six false
+mismatches and four unknowns. A gate that cries wolf on correct code is one somebody
+switches off.
+
+⚠ **And a behavioural check alone could not do it either** — proved by red-check, not
+assumed. Populating one document at a time and counting rows misses a field *moved between*
+two documents, because the fixture is built **from the declaration under test**, so any
+assignment is self-consistent. That is the trap this repo keeps meeting.
+
+⚠ **So the test states it independently** — a frozen `FIELD_HOME`, exactly the argument
+`options-audit.test.js` already makes for its `AGREED` map. It is a second copy and is meant
+to be: its whole value is being written from the **write sites** rather than from the step
+list, so the two can disagree. Each entry was checked at its writer, not inferred from its
+name — `formCompletedAt` reads like a customer field, which is precisely how it shipped
+wrong. **If you add a step, open the writer.**
+
 ### The day they joined, for everybody who never had a quote
 
 `HISTORY_STEPS` read `createdAt` off the **quote**, so it answered nothing for a customer
