@@ -253,6 +253,26 @@ check('every dated step of the path appears on the page', undrawn.length === 0,
   '.\n        Give it a step in connections/journey.js, or a NOT_A_STAGE entry with the ' +
   'reason. Left out, that stage is missing from the picture and the page still looks whole.');
 
+/* ⚠ THE STEPS THAT LOOK DATELESS AND ARE NOT. Three of them carried no `records` at all
+   and each was hiding a real date, which the census above cannot see: it only asks that
+   every field ON the dated path is drawn SOMEWHERE, so a field drawn on one step is not
+   missed when a second step that also carries it names nothing.
+   ⚠ THE TWO STARTS ARE THE POINT. Somebody typed in by the office or brought in by the
+   master sheet has no quote-raised day and no approval day — `createdAt` is the only date
+   they have, and until 2026-08-29 the history read it off the QUOTE alone, so that moment
+   was invisible for most of the book.
+   ⚠ AND A DECLINE IS DATED LIKE AN APPROVAL. `quoteRespond` stamps `approvalRespondedAt`
+   alongside the status BEFORE it branches on the action, so a no carries it exactly as a
+   yes does; drawn bare, the page reads as though only a yes is ever recorded. */
+[['addedbyhand', 'createdAt'], ['imported', 'createdAt'],
+ ['declined', 'approvalRespondedAt']].forEach(([id, field]) => {
+  check('"' + id + '" records the date it really has',
+    ((byId[id] || {}).records || []).indexOf(field) !== -1,
+    'records: ' + JSON.stringify((byId[id] || {}).records || []) +
+    '.\n        A step drawn with no date reads as a stage nothing records, and this one ' +
+    'has ' + field + '.');
+});
+
 const noReason = Object.keys(NOT_A_STAGE).filter(f => String(NOT_A_STAGE[f]).length < 20);
 check('every deliberately-undrawn field says why', noReason.length === 0,
   'no reason: ' + noReason.join(', '));

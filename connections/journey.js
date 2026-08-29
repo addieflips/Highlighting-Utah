@@ -48,11 +48,18 @@ const STEPS = [
   { id: 'addedbyhand', title: 'Typed in by the office', start: true,
     plain: 'Added straight into Add a Customer — somebody who rang up, or a job taken in ' +
       'person. There is no quote, so nothing was emailed and nothing was approved.',
+    /* ⚠ `createdAt` IS THE ONLY DATE THESE PEOPLE HAVE AT THE START, which is why it is
+     * named here as well as on the quote. Somebody who arrived without a quote has no
+     * quote-raised day and no approval day — their record simply exists from a moment, and
+     * until 2026-08-29 the history read this field off the QUOTE alone, so that moment was
+     * invisible for most of the book. */
+    records: ['createdAt'],
     next: [{ to: 'converted', label: 'they are a customer from the moment they are saved' }] },
 
   { id: 'imported', title: 'Arrived from the master sheet', start: true,
     plain: 'Brought in by Bulk Updates or the sheet sync. Hundreds at a time, and the same ' +
       'as above from here on — no quote, no email, no approval.',
+    records: ['createdAt'],
     next: [{ to: 'converted', label: 'the import creates their record' }] },
 
   { id: 'emailed', title: 'Quote emailed to them',
@@ -88,6 +95,13 @@ const STEPS = [
   { id: 'declined', title: 'Not right now',
     plain: 'They have said no to THIS QUOTE. It is not a no to the season — an existing ' +
       'customer who declines keeps their route, their build and their place.',
+    /* ⚠ A DECLINE IS DATED BY THE SAME TWO FIELDS AS AN APPROVAL, and it is worth naming
+     * here rather than leaving the page looking as though only a yes gets recorded:
+     * `quoteRespond` stamps `approvalRespondedAt` alongside the status BEFORE it branches
+     * on the action, so approve, decline and maybe all carry it. `quoteRespondedAt` is the
+     * office recording an answer it was told — which of the two happened is the question
+     * behind every argument about a quote, and it applies to a no as much as a yes. */
+    records: ['approvalRespondedAt', 'quoteRespondedAt'],
     next: [
       { to: 'asklastyear', label: 'they are already a customer, so we ask about last year' },
       { to: 'addondeclined', label: 'it was only an add-on they turned down' },
