@@ -253,6 +253,92 @@ check('the one place that sets the flag without queuing is still excluded',
 }
 
 /* ---------------------------------------------------------------------------
+ * 1c. THE SEASON STATUS CARRIES A DATE.
+ *
+ * ⚠ FOUR VALUES, AND NOT ONE OF THEM WAS DATED. `seasonStatus` records a cancellation
+ * asked for, an address changed, changes needed, and changes settled — and a search for a
+ * date on it across every source returned nothing at all.
+ *
+ * ⚠ THE ONE THAT COSTS IS THE CANCELLATION. A customer asking through their own portal to
+ * be let out of the season sits there with a crew still notionally coming, and the office
+ * had no way to sort the queue by how long anybody had been waiting: a request made in
+ * October read exactly like one made this morning.
+ *
+ * ⚠ AND THE PREVIOUS VALUE TRAVELS WITH THE DATE, because "changed on the 4th" cannot say
+ * whether they were cancelling or correcting an address, and those need opposite actions.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['functions/index.js'];
+  const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+  const writers = new Map();
+  /* ⚠ `=[^=]`, NOT `=`. The stamp's own guard reads `typeof updates.seasonStatus ===
+     'string'`, and a bare `=` matched the first character of that `===` — so the rule
+     counted itself as a place that changes the status. */
+  const re = /\bupdates\.seasonStatus\s*=[^=]/g;
+  let m;
+  while ((m = re.exec(clean))) {
+    if (insideComment(src, m.index)) continue;
+    const fn = scan.enclosing(ix, m.index) || '(top level)';
+    writers.set(fn, (writers.get(fn) || 0) + 1);
+  }
+  check('the season-status census is finding the places that set it', writers.size >= 1,
+    'found none. A matcher that has stopped matching reports no violations at all.');
+
+  /* ⚠ GROUPED BY FUNCTION, and the stamp sits AFTER every branch inside it — portalSave
+     alone writes the status three ways (the info save, the sides change, the cancel tab),
+     so a stamp beside any one of them misses the other two. That is the placement lesson
+     the build stamp already cost, which shipped inside one branch. */
+  const stamped = new Set();
+  const sre = /stampSeasonStatusServer\s*\(/g;
+  let s2;
+  while ((s2 = sre.exec(clean))) {
+    if (insideComment(src, s2.index)) continue;
+    const fn = scan.enclosing(ix, s2.index) || '(top level)';
+    if (/^function stampSeasonStatusServer/.test(clean.slice(Math.max(0, s2.index - 9), s2.index + 40))) continue;
+    stamped.add(fn);
+  }
+  const unstamped = [...writers.keys()].filter(f => !stamped.has(f));
+  check('every place that changes the season status records when', unstamped.length === 0,
+    'does not stamp: ' + unstamped.join(', ') +
+    '.\n        Call stampSeasonStatusServer(updates, oldData.seasonStatus) after every ' +
+    'branch in that function that can set it. Undated, a cancellation asked for in ' +
+    'October is indistinguishable from one asked for this morning, and a crew is still ' +
+    'notionally coming to the house.');
+
+  /* ⚠ RUN, NOT READ — the rule is "only when it actually changed", and only running it
+     proves an ordinary save does not reset the clock. */
+  const rule = new Function('admin',
+    (function () {
+      const at = src.indexOf('function stampSeasonStatusServer(');
+      let b = src.indexOf('{', at), dep = 0, k = b;
+      for (; k < src.length; k++) {
+        if (src[k] === '{') dep++;
+        else if (src[k] === '}') { dep--; if (!dep) break; }
+      }
+      return src.slice(at, k + 1);
+    })() + '\nreturn stampSeasonStatusServer;')(
+      { firestore: { FieldValue: { serverTimestamp: () => 'NOW' } } });
+
+  let u = rule({ seasonStatus: 'cancellation_requested' }, '');
+  check('server: asking to cancel is dated', u.seasonStatusAt === 'NOW');
+  check('and it records what it changed from',
+    Object.prototype.hasOwnProperty.call(u, 'seasonStatusWas'),
+    'cancelling and correcting an address are the same field and opposite jobs');
+  u = rule({ seasonStatus: 'needs_changes' }, 'needs_changes');
+  check('server: a save that did not change the status leaves the date alone',
+    u.seasonStatusAt === undefined,
+    'the portal writes this on saves that change nothing, so re-stamping resets the ' +
+    'clock every time a customer opens their portal and presses save');
+  u = rule({ seasonStatus: 'confirmed' }, 'needs_changes');
+  check('server: settling a change is dated too, and remembers what it settled',
+    u.seasonStatusAt === 'NOW' && u.seasonStatusWas === 'needs_changes');
+  u = rule({ needsLightBuild: true }, 'confirmed');
+  check('server: a write that does not touch the status is untouched',
+    u.seasonStatusAt === undefined);
+}
+
+/* ---------------------------------------------------------------------------
  * 1b. The same census for the RECYCLE queue, and the $30 join fee.
  *
  * Addie, 2026-08-28: "Everything that can be changed for members or added to members
@@ -361,6 +447,11 @@ const PATH_STEPS = [
   ['the takedown is done',         'removalDoneAt',            'admin.html'],
   ['their old set is asked back',  'lightsRecycleRequestedAt', 'admin.html'],
   ['they answer the RSVP',         'rsvpRespondedAt',          'admin.html'],
+  /* ⚠ ADDED 2026-08-29. Four values ride on `seasonStatus` — a cancellation asked for, an
+     address changed, changes needed, changes settled — and not one of them was dated. The
+     cancellation is the one that costs: a customer waiting to be let out of the season,
+     with a crew still notionally coming, and nothing to sort the queue by. */
+  ['their season status changes',  'seasonStatusAt',           'functions/index.js'],
   ['the invoice goes out',         'invoicedAt',               'functions/index.js'],
   ['they pay',                     'paidAt',                   'functions/index.js'],
   ['the $30 join fee is charged',  'newMemberFeeAppliedAt',    'functions/index.js']
@@ -378,8 +469,8 @@ const WRITES_A_TIME = new RegExp(
    cannot find its target and skips. A step legitimately retired should lower this by
    hand, deliberately. */
 check('the path still has every step in it',
-  PATH_STEPS.length >= 19,
-  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 19. Removing a step deletes its ' +
+  PATH_STEPS.length >= 20,
+  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 20. Removing a step deletes its ' +
   'check silently — lower this number in the same change, and say which step went.');
 
 PATH_STEPS.forEach(([label, field, file]) => {

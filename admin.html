@@ -6742,11 +6742,29 @@ const HISTORY_STEPS = [
   { field: 'removalDoneAt',            from: 'cust',  what: 'Lights taken down' },
   { field: 'lightsRecycleRequestedAt', from: 'cust',  what: 'Old set asked back' },
   { field: 'rsvpRespondedAt',          from: 'cust',  what: 'Answered the RSVP' },
+  /* ⚠ THE ONE THAT COSTS A CUSTOMER TIME. A cancellation asked for through their own
+     portal had no date at all, so nobody could tell a request made in October from one
+     made this morning — with a crew still notionally coming to the house either way.
+     ⚠ THE WORDS COME FROM THE VALUE, because "season status changed" answers nothing:
+     cancelling and correcting an address are the same field and opposite jobs. */
+  { field: 'seasonStatusAt',           from: 'cust',  what: 'Season status changed' },
   { field: 'invoicedAt',               from: 'inv',   what: 'Invoice sent' },
   { field: 'newMemberFeeAppliedAt',    from: 'inv',   what: 'New member fee charged ($30)' }
 ];
 /* ⚠ THE RSVP LINE SAYS WHAT THEY ANSWERED, not merely that they answered — "answered
    the RSVP" beside a date leaves the one question anybody is asking unanswered. */
+/* ⚠ NAMED FROM THE VALUE, and it keeps what it changed FROM, because a cancellation and
+   an address correction are the same field and opposite jobs for the office. */
+function historySeasonWords(cust){
+  const s = String((cust && cust.seasonStatus) || '').trim().toLowerCase();
+  const was = String((cust && cust.seasonStatusWas) || '').trim();
+  const said = s === 'cancellation_requested' ? 'They asked to cancel'
+    : s === 'address_changed' ? 'They told us their address changed'
+    : s === 'needs_changes' ? 'They asked for changes, so a re-quote is owed'
+    : s === 'confirmed' ? 'Their changes were settled'
+    : 'Season status changed' + (s ? ' to ' + s : '');
+  return said + (was ? ' (was ' + was + ')' : '');
+}
 function historyRsvpWords(cust){
   const s = String((cust && cust.rsvpStatus) || '').trim().toLowerCase();
   if(s === 'yes') return 'Answered the RSVP — yes, they want lights';
@@ -6786,7 +6804,9 @@ function customerHistory(src){
     if(!Object.prototype.hasOwnProperty.call(rec, step.field)) return;
     const raw = rec[step.field];
     if(raw === null || raw === undefined || raw === '') return;
-    const what = step.field === 'rsvpRespondedAt' ? historyRsvpWords(s.cust) : step.what;
+    const what = step.field === 'rsvpRespondedAt' ? historyRsvpWords(s.cust)
+      : step.field === 'seasonStatusAt' ? historySeasonWords(s.cust)
+      : step.what;
     const at = toJsDate(raw);
     if(at) rows.push({ at: at, what: what, kind: 'step' });
     else undated.push({ what: what, kind: 'step' });

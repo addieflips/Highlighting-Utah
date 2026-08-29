@@ -101,6 +101,24 @@ const STEPS = [
       'Only a customer we have not converted yet sees this.',
     next: [{ to: 'converted', label: 'it comes back to us and we convert them' }] },
 
+  /* ⭐ THE BIGGEST SINGLE OMISSION, added 2026-08-29. A customer can ask to be let out of
+   * the season from their own portal — a Cancel tab of its own, which sets
+   * `seasonStatus: 'cancellation_requested'`, queues a recycle, and pulls them off every
+   * upcoming route. It is a different door out from declining a quote and from answering
+   * the RSVP no, and the graph had no node for it at all.
+   * ⚠ AND UNTIL THIS WEEK IT HAD NO DATE, so the office queue could not be sorted by how
+   * long anybody had been waiting — a request made in October read exactly like one made
+   * this morning, with a crew still notionally coming to the house either way. */
+  { id: 'cancelrequest', title: 'They ask to cancel',
+    plain: 'Asked through the Cancel tab of their own portal. Their old set is queued to ' +
+      'come back and they come off every upcoming route straight away — but they are still ' +
+      'a customer until somebody in the office acts on it.',
+    records: ['seasonStatusAt'],
+    next: [
+      { to: 'recycled', label: 'the office lets them out and their set comes back' },
+      { to: 'scheduled', label: 'they change their mind before anybody acts on it' }
+    ] },
+
   { id: 'memberchange', title: 'Asked what is changing',
     plain: 'An existing customer is asked "do you want anything changed with your lights this ' +
       'year?" rather than the form — we already hold their colours and wire.',
@@ -147,7 +165,10 @@ const STEPS = [
     plain: 'They are in the season and waiting for a day. Nobody reaches here until their ' +
       'bundle is built.',
     records: ['needsDayAssignedAt'],
-    next: [{ to: 'assigned', label: 'a day is picked and a crew takes them' }] },
+    next: [
+      { to: 'assigned', label: 'a day is picked and a crew takes them' },
+      { to: 'cancelrequest', label: 'they ask to cancel through their portal' }
+    ] },
 
   { id: 'assigned', title: 'On a crew sheet',
     plain: 'A named crew, on a named day. This is when the booking was made, not the day ' +

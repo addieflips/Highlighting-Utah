@@ -68,6 +68,10 @@ function liftBlock(name, open, close) {
 const PARTS = {
   HISTORY_STEPS: liftBlock('HISTORY_STEPS', '[', ']'),
   historyRsvpWords: liftBlock('historyRsvpWords', '{', '}'),
+  /* ⚠ LIFTED THE MOMENT THE RULE GAINED IT. customerHistory calls this for the season
+     status line, so without it every check here dies on one name — which is what
+     happened, loudly, rather than the line silently reading wrong. */
+  historySeasonWords: liftBlock('historySeasonWords', '{', '}'),
   historyNoteRows: liftBlock('historyNoteRows', '{', '}'),
   customerHistory: liftBlock('customerHistory', '{', '}')
 };
@@ -201,6 +205,26 @@ if (history) {
     history({ cust: { convertedToCustomerAt: D('2026-08-01') } }).rows.length === 0,
     'it is written onto the quote, not the customer — read off the wrong record it is ' +
     'missing from every history and nothing says so');
+
+  /* ⚠ THE CANCELLATION LINE SAYS WHICH STATUS IT WAS, and keeps what it changed from.
+     "Season status changed on the 4th" cannot say whether they were cancelling or
+     correcting their address, and those two need opposite actions from the office. Both
+     of these were MISSED by the first red-check of this feature — the census demanded the
+     field reach the page, and nothing demanded the words be useful. */
+  const season = (s, was) => history({ cust: { seasonStatusAt: D('2026-10-04'),
+    seasonStatus: s, seasonStatusWas: was } }).rows[0].what;
+  check('asking to cancel says so in words',
+    /asked to cancel/i.test(season('cancellation_requested', 'confirmed')),
+    'a bare "season status changed" beside a date is the question restated');
+  check('and an address change is not confused with a cancellation',
+    /address changed/i.test(season('address_changed', '')),
+    'they are the same field and opposite jobs — one lets somebody out of the season');
+  check('and it keeps what the status changed from',
+    /was confirmed/.test(season('cancellation_requested', 'confirmed')),
+    'without it the line cannot say whether this undid something');
+  check('a status nobody recognises is reported, not invented',
+    /something else/.test(season('something else', '')),
+    'guessing at an unknown status puts a decision in the customer\'s mouth');
 
   /* ⚠ THE RSVP LINE SAYS WHAT THEY ANSWERED. "Answered the RSVP" beside a date leaves
      the one question anybody is asking of it unanswered. */

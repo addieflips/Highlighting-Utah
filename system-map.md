@@ -637,6 +637,33 @@ It shows what happened to Jane Smith. The SHAPE of the journey — quote, email,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
 
+### Asking to cancel is dated, and on the path
+
+`seasonStatus` carries four answers — a cancellation asked for, an address changed, changes
+needed, changes settled — and until 2026-08-29 **not one of them was dated**. A search for a
+date on it across every source returned nothing at all.
+
+⚠ **The cancellation is the one that costs.** A customer asks through the Cancel tab of their
+own portal; their old set is queued to come back and they come off every upcoming route
+immediately, but they stay a customer until somebody in the office acts. With no date the
+queue could not be sorted by how long anybody had waited — a request made in October read
+exactly like one made this morning, with a crew still notionally coming either way.
+
+⚠ **The previous value travels with the date.** "Changed on the 4th" cannot say whether they
+were cancelling or correcting an address, and those need opposite actions, so
+`seasonStatusWas` rides alongside `seasonStatusAt` and the history line says which it was.
+
+⚠ **On the transition only**, like every other stamp: `portalSave` writes the status on saves
+that did not change it, so re-stamping would reset the clock every time a customer opened
+their portal and pressed save.
+
+⚠ **Three writers, and the third was missed until a census went looking** — `declineAsksAboutLastYear`
+settles a customer's changes, which is as much a status change as asking for them.
+
+⚠ **And it was the biggest hole in the path.** Asking to cancel is a door out of the season
+distinct from declining a quote and from answering the RSVP no, and the graph had no step for
+it at all.
+
 ### Every door to a fix carries a date
 
 There are four ways to raise or clear a fault, and until 2026-08-29 **two of them wrote the
