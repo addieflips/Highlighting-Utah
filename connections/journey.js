@@ -79,8 +79,40 @@ const STEPS = [
       { to: 'backnextyear', label: 'they say back next year' }
     ] },
 
-  { id: 'declined', title: 'Not right now', end: true,
-    plain: 'They have said no to this quote. It is not a no to the season.' },
+  /* ⚠ IT WAS DRAWN AS AN ENDING AND IT IS NOT ONE. Declining a re-quote asks the customer
+   * about last year rather than closing anything: `declineAsksAboutLastYear` sets
+   * `askSameAsLastYear`, marks their changes settled, and they keep their route, their
+   * build and their place in the season. A page that stopped here would say a no to a
+   * price is a no to the season, which is the opposite of what the code does. */
+  { id: 'declined', title: 'Not right now',
+    plain: 'They have said no to THIS QUOTE. It is not a no to the season — an existing ' +
+      'customer who declines keeps their route, their build and their place.',
+    next: [
+      { to: 'asklastyear', label: 'they are already a customer, so we ask about last year' },
+      { to: 'addondeclined', label: 'it was only an add-on they turned down' },
+      { to: 'nolead', label: 'they were never a customer, so that is the end of it' }
+    ] },
+
+  { id: 'asklastyear', title: 'Asked if they want the same as last year',
+    plain: 'A no to a new price is not a no to lights. Their changes are marked settled ' +
+      'and the office is asked to check whether they want what they had.',
+    records: ['askSameAsLastYearAt'],
+    next: [
+      { to: 'scheduled', label: 'yes, the same again' },
+      { to: 'rsvpasked', label: 'we leave it to the RSVP' }
+    ] },
+
+  /* ⚠ A NO THAT IS NOT A NO. Turning down an add-on leaves everything else exactly as it
+   * was — and the code's own comment records that it leaves no other trace anywhere,
+   * which is why it is worth a step of its own rather than being folded into declined. */
+  { id: 'addondeclined', title: 'They turned down the add-on only',
+    plain: 'They said no to the extra, not to their lights. Nothing else changes and their ' +
+      'season carries on exactly as it was.',
+    next: [{ to: 'scheduled', label: 'and their own house carries on as normal' }] },
+
+  { id: 'nolead', title: 'That is the end of it', end: true,
+    plain: 'Somebody who was never a customer said no to a price. Nothing else was in ' +
+      'flight, so nothing else changes.' },
 
   { id: 'backnextyear', title: 'Back next year',
     plain: 'Out for this season and on the Contact 2027 list. No routes, no build, no bill — ' +
@@ -174,15 +206,43 @@ const STEPS = [
     plain: 'A named crew, on a named day. This is when the booking was made, not the day ' +
       'they are booked for.',
     records: ['assignedCrewAt'],
-    next: [{ to: 'hung', label: 'the crew hangs them' }] },
+    next: [
+      { to: 'hung', label: 'the crew hangs them' },
+      { to: 'changedafter', label: 'they change their colours after the crew has the card' }
+    ] },
+
+  /* ⚠ THE CREW IS HOLDING A CARD THAT NO LONGER MATCHES THE HOUSE. Changing colours after
+   * the booking sets `lightsChangedAfterAssign` and raises a message flagged for
+   * reassignment — a genuinely different state from an ordinary colour change, because
+   * somebody is already on their way. */
+  { id: 'changedafter', title: 'Colours changed after they were booked',
+    plain: 'Their sheet is already printed and the crew has the old pattern. The office is ' +
+      'told, and the house has to be re-done or re-assigned before anybody drives out.',
+    records: ['lightsChangedAfterAssignAt'],
+    next: [
+      { to: 'queued', label: 'a new bundle is made for the new colours' },
+      { to: 'hung', label: 'the crew is caught in time and hangs the new pattern' }
+    ] },
 
   { id: 'hung', title: 'Lights up',
     plain: 'Marked complete. This is what makes them billable.',
     records: ['completedAt'],
     next: [
       { to: 'invoiced', label: 'the 7pm run bills them that night' },
-      { to: 'fixraised', label: 'something is wrong with them' }
+      { to: 'fixraised', label: 'something is wrong with them' },
+      { to: 'noemail', label: 'there is no email anywhere on the bill' }
     ] },
+
+  /* ⚠ WORK DONE, MATERIALS OUT, AND NO BILL CAN BE SENT. The nightly run flags a house it
+   * cannot email and moves on. It is dated, and it clears itself the moment an address is
+   * added — but nothing chases it, so it is drawn as the dead end it is until somebody
+   * notices. */
+  { id: 'noemail', title: 'Finished, but there is nobody to send the bill to',
+    plain: 'Their lights are up and the nightly run has no email address anywhere on the ' +
+      'bill. It is flagged and skipped. Adding an address anywhere on that bill clears it ' +
+      'and they are billed on the next run.',
+    records: ['cannotBillNoEmailAt'],
+    next: [{ to: 'invoiced', label: 'somebody adds an address and the next run bills them' }] },
 
   { id: 'fixraised', title: 'Fault reported',
     plain: 'A strand out, a fallen run. They go on a fixer route.',

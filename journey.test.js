@@ -140,6 +140,32 @@ check('her second route walks: quote, send email, approve, convert to customer',
 /* ⚠ AND THE TWO ROUTES REALLY DO FORK. If approve led to only one place the page would
    answer her question with a straight line, which is the thing she said it should stop
    doing. */
+/* ⚠ THE ROUTES ADDED 2026-08-29 AFTER A SURVEY OF WHAT THE CODE REALLY DOES, each one a
+   state the app can genuinely be in that the graph did not draw. Named here so a merge
+   cannot quietly drop one — the same argument as the census lists. */
+const routeG = ['declined', 'asklastyear', 'scheduled'];
+const routeH = ['assigned', 'changedafter', 'queued'];
+const routeI = ['hung', 'noemail', 'invoiced'];
+const routeJ = ['invoiced', 'unmatched'];
+const routeK = ['scheduled', 'cancelrequest', 'recycled'];
+check('declining a re-quote asks about last year and keeps them in the season',
+  walk(routeG) === '', walk(routeG));
+check('changing colours after the booking reaches a new bundle',
+  walk(routeH) === '', walk(routeH));
+check('a house nobody can email is finished and unbilled until an address is added',
+  walk(routeI) === '', walk(routeI));
+check('a payment that finds no bill is reachable from the invoice',
+  walk(routeJ) === '', walk(routeJ));
+check('asking to cancel reaches the recycle queue',
+  walk(routeK) === '', walk(routeK));
+
+/* ⚠ A NO TO A PRICE IS NOT A NO TO THE SEASON, and the graph said otherwise until now —
+   `declined` was drawn as an ending. An existing customer who declines keeps their route,
+   their build and their place, which is the opposite of an end. */
+check('declining is not drawn as the end of them',
+  (byId.declined.next || []).length >= 2 && !byId.declined.end,
+  'drawn as an ending, the page says a no to a price is a no to the season');
+
 check('somebody typed in by hand reaches the warehouse without a quote',
   walk(routeC) === '', walk(routeC));
 check('a part payment is its own route to the chases and to paid',

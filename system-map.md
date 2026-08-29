@@ -505,6 +505,18 @@ step of the path appears** (read out of `queue-date.test.js`, so the two lists c
 because a correct graph behind a page that does not render is the failure this repo has
 shipped before.
 
+⚠ **A NO TO A PRICE IS NOT A NO TO THE SEASON**, and the graph said otherwise until
+2026-08-29 — `declined` was drawn as an ending. It is not one: `declineAsksAboutLastYear`
+marks the customer's changes settled and asks whether they want the same as last year, and
+they keep their route, their build and their place. Turning down an **add-on** is a third
+thing again, and the code's own comment records that it leaves no other trace anywhere.
+
+⚠ **Three more states the app can really be in, drawn the same day**: colours changed AFTER
+the crew already has the card (`lightsChangedAfterAssign` — their sheet is printed and the
+pattern is wrong); a house finished with **no email anywhere on the bill**, flagged and
+skipped by the nightly run until somebody adds an address; and a captured payment that finds
+no bill at all. All three were already dated in the code and simply not on the page.
+
 ⚠ **AND THE LIST OF ROUTES CANNOT BE FINISHED BY A MACHINE.** A route nobody has drawn cannot
 fail a check — invisible by construction, the same as an option we sell and never wrote down.
 Addie caught the first gap by asking (*"you are currently adding all routes... Right?"*), and
