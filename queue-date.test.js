@@ -93,7 +93,16 @@ const QUEUE_SITES = [
    writes `toMaybe ? false : local.data.needsLightBuild` — it either cancels a build or
    carries forward whatever the record already held. Stamping there would put a fresh
    queue date on a house nobody has asked to have built. */
-const NOT_A_QUEUE = [{ file: 'admin.html', fn: 'setCustomerSeason' }];
+const NOT_A_QUEUE = [
+  { file: 'admin.html', fn: 'setCustomerSeason' },
+  /* ⚠ UN-TICKING "BUILT" IS A CORRECTION, NOT A REQUEST. Dating the build in the crew
+     portal on 2026-08-29 turned its write into an explicit `needsLightBuild: true` on the
+     untick, which this census correctly noticed as a new queueing place. It is not one:
+     the house was queued weeks ago and somebody is undoing a mis-tick, so stamping here
+     would date a request nobody made and lose the real one. The office path has the same
+     shape and the same reason. */
+  { file: 'employee.html', fn: 'whToggleLightsNew' }
+];
 
 /* ⚠ THE CENSUS DOES NOT TRUST THE COMMENT MASK, and that is not caution — it was proved
    unreliable while this gate was being written. `connections/scan.js`'s blankNonCode
@@ -431,15 +440,28 @@ const RECYCLE_SITES = [
  * swallowed the pool write, leaving the number on nobody's record and in no pool.
  */
 const DORMANT_CREW_PORTAL = [
-  { fn: 'whToggleRecycle',
-    why: 'ticks a bundle as recycled and blanks the customer number; the office path ' +
-         'writes lightsRecycledAt and this one writes nothing' },
-  { fn: 'whToggleLightsNew',
-    why: 'clears the build flag when a bundle is made; the office path stamps ' +
-         'lightsMarkedBuiltAt and this one does not' },
+  /* ⚠ THESE TWO WERE REPAIRED ON 2026-08-29 rather than left dormant — each was one line,
+     and a screen that comes back carrying a known hole is worse than one that comes back
+     clean. They stay listed because they still WRITE the flags this census watches; what
+     changed is that they now stamp the same dates the office does. */
+  /* ⚠ `stamps` MEANS REPAIRED AND HELD REPAIRED. Red-checking proved the difference
+     mattered: with these merely listed, removing the recycle date again went completely
+     unnoticed — the exception excused the very thing it had just stopped excusing. */
+  { fn: 'whToggleRecycle', stamps: 'lightsRecycledAt',
+    why: 'ticks a bundle as recycled and blanks the customer number — now stamps ' +
+         'lightsRecycledAt on the tick, matching the office path' },
+  { fn: 'whToggleLightsNew', stamps: 'lightsMarkedBuiltAt',
+    why: 'clears the build flag when a bundle is made — now stamps lightsMarkedBuiltAt ' +
+         'on the tick, matching the office path' },
+  /* ⚠ LEFT ALONE DELIBERATELY, and it is the one that is not a one-liner. HLX_DONE_KINDS
+     lives in admin.html and this is a different file, so dating these three means porting
+     the shared rule across — a real job with no reader while the portal is out of use, and
+     one that would put a SECOND copy of "what done means" in the codebase unless it is
+     done properly. That is the trade, stated rather than hidden. */
   { fn: 'loadRoutesForDate',
     why: 'the crew ticking a stop done — writes completed, removalDone and needsFix ' +
-         'straight, never through HLX_DONE_KINDS, so none of the three is dated' }
+         'straight, never through HLX_DONE_KINDS, so none of the three is dated. Fixing ' +
+         'it means porting the shared rule into this file, not adding a stamp' }
 ];
 const dormantKey = fn => 'employee.html · ' + fn;
 
@@ -499,6 +521,51 @@ function censusOf(field, stampRe) {
   check('and every one says why it is left alone',
     DORMANT_CREW_PORTAL.every(x => x.why && x.why.length > 30),
     'without the reason, "known" and "forgotten" look identical in a list of names');
+
+  /* ⚠ THE ONES THAT WERE REPAIRED STAY REPAIRED. An exception list is the natural place
+     for a fix to be quietly undone: the name is still listed, so the census says nothing,
+     and the date goes away again. Each repaired entry names the field it must write. */
+  /* ⚠ COMMENT-BLANKED, because both of these repairs are EXPLAINED in a comment that names
+     the very field being counted — so the untick check below saw two mentions and called a
+     correct file wrong. That is the comment-mask lesson this repo records in four places,
+     hit again inside a check written to enforce it. */
+  const crew = scan.blankNonCode(SOURCES['employee.html'] || '');
+  const lostStamp = DORMANT_CREW_PORTAL.filter(x => x.stamps).filter(x => {
+    const at = crew.indexOf('function ' + x.fn + '(');
+    if (at < 0) return true;
+    let b = crew.indexOf('{', at), dep = 0, k = b;
+    for (; k < crew.length; k++) {
+      if (crew[k] === '{') dep++;
+      else if (crew[k] === '}') { dep--; if (!dep) break; }
+    }
+    return crew.slice(b, k + 1).indexOf(x.stamps) === -1;
+  }).map(x => x.fn + ' → ' + x.stamps);
+  check('the crew-portal writes that were repaired still record when', lostStamp.length === 0,
+    'no longer stamps: ' + lostStamp.join(', ') +
+    '.\n        These were one-line repairs so the portal cannot come back carrying a ' +
+    'known hole. Listed but unstamped, the exception excuses the very thing it stopped ' +
+    'excusing.');
+
+  /* ⚠ AND NEITHER STAMPS ON THE UNTICK. Un-ticking is somebody undoing a mis-tick, not a
+     bundle being unmade or a set being rebuilt — dated, it records work that did not
+     happen, which is worse than recording nothing. */
+  const untickStamps = DORMANT_CREW_PORTAL.filter(x => x.stamps).filter(x => {
+    const at = crew.indexOf('function ' + x.fn + '(');
+    if (at < 0) return false;
+    let b = crew.indexOf('{', at), dep = 0, k = b;
+    for (; k < crew.length; k++) {
+      if (crew[k] === '{') dep++;
+      else if (crew[k] === '}') { dep--; if (!dep) break; }
+    }
+    const body = crew.slice(b, k + 1);
+    /* The untick is the branch after the ternary's colon; one stamp in the whole body is
+       the tick's, two means the untick got one as well. */
+    return (body.split(x.stamps).length - 1) > 1;
+  }).map(x => x.fn);
+  check('and neither of them dates the untick', untickStamps.length === 0,
+    'stamps on both branches: ' + untickStamps.join(', ') +
+    '. Un-ticking is a correction, not the work being undone — dated, it records a build ' +
+    'or a recycle that never happened and overwrites the one that did.');
   RECYCLE_SITES.forEach(site => {
     const key = site.file + ' · ' + site.fn;
     if (!on.has(key)) { note('recycle site no longer found: ' + key); return; }

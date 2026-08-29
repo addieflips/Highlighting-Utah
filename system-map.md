@@ -683,6 +683,19 @@ that absence was the structural reason several holes could sit unseen. The crew 
 `removalDone` and the customer number — and two of the three census gates could not see any
 of them.
 
+⚠ **Two of the three were repaired the same day**, once they were visible. The warehouse
+toggles now stamp `lightsMarkedBuiltAt` and `lightsRecycledAt` on the tick, the same fields
+the office writes — each was one line, and a screen that comes back carrying a known hole is
+worse than one that comes back clean. **Neither dates the untick**: un-ticking is somebody
+undoing a mis-tick, not a bundle being unmade, and dating it would record work that never
+happened over the record of work that did.
+
+⚠ **The third is left, and it is the one that is not a one-liner.** The crew ticking a stop
+done writes `completed`, `removalDone` and `needsFix` straight rather than through
+`HLX_DONE_KINDS` — which lives in `admin.html`. Dating those three means porting the shared
+rule into another file, which is a real job with no reader today and would put a **second
+copy of "what done means"** in the codebase unless done properly.
+
 ⚠ **They are named, not skipped.** The portal is out of use this season (owner, 2026-08-21:
 *"were not using the employee portal this year"*), so `DORMANT_CREW_PORTAL` lists each write
 with the reason it is left alone rather than repaired — repairing a screen nobody opens is

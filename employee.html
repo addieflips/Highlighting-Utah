@@ -1323,8 +1323,19 @@ function whGoalCard(g, i){
     )+
   '</div>';
 }
+/* ⚠ THE SAME FACT THE OFFICE RECORDS, and it was recorded here without a date until
+   2026-08-29. Ticking a bundle built in the office writes `lightsMarkedBuiltAt`; ticking
+   the same bundle here wrote the flag and nothing else, so a house built through this
+   screen reads "no build recorded" for ever — which is not the same as never built.
+   ⚠ ON THE TICK ONLY. Un-ticking is somebody correcting a mistake, not a bundle being
+   unmade, and stamping there would date a build that did not happen.
+   ⚠ THIS PORTAL IS OUT OF USE THIS SEASON, so this is a one-line repair rather than a
+   job: dormant is not harmless, and a screen that comes back carrying a known hole is
+   worse than one that comes back clean. */
 async function whToggleLightsNew(key, checked){
-  await updateDoc(doc(db,'jobAddresses', key), {needsLightBuild: !checked});
+  await updateDoc(doc(db,'jobAddresses', key), checked
+    ? {needsLightBuild: false, lightsMarkedBuiltAt: serverTimestamp()}
+    : {needsLightBuild: true});
 }
 async function whToggleLightsOld(key, checked){
   if(!checked) return;
@@ -1341,7 +1352,17 @@ async function whToggleRecycle(key, checked){
   const num = checked && item ? item.bin : null;
   // Clearing the number off the customer as it goes into the pool keeps exactly
   // one owner — otherwise the same label ends up on two bins.
-  await updateDoc(doc(db,'jobAddresses', key), num ? {needsLightRecycle: !checked, customerNumber: ''} : {needsLightRecycle: !checked});
+  /* ⚠ AND IT RECORDS WHEN THE SET ACTUALLY CAME APART (added 2026-08-29). The office
+     path writes `lightsRecycledAt`; this one wrote the flag and the blanked number and no
+     date, so a bundle taken apart through this screen left no trace of when — which is
+     the difference between a bin on the shelf and a bin back in stock.
+     ⚠ ON THE TICK ONLY, for the same reason as the build above: un-ticking is a
+     correction, not a set being rebuilt. */
+  const recycleWrite = checked
+    ? {needsLightRecycle: false, lightsRecycledAt: serverTimestamp()}
+    : {needsLightRecycle: true};
+  if(num) recycleWrite.customerNumber = '';
+  await updateDoc(doc(db,'jobAddresses', key), recycleWrite);
   if(num){
     const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
     try{ await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()}); }
