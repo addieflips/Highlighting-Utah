@@ -24535,14 +24535,23 @@ function rmRenderStaged(){
      reason to TAKE the picture, not a reason to refuse: see rmAttachShots.
      ⚠ BOTH DOORS OPEN TOGETHER. Leaving one enabled and the other not is a
      button that looks broken beside a button that works. */
+  /* ⭐ AND IT IS NEVER DISABLED AT ALL (2026-08-29, second report: "when i click
+     attach to quote nothing happens"). Enabling it only once a view was ready
+     still left one dead state — before the address has loaded, or after it failed
+     to load — and a dead button is the thing being reported, whatever the reason
+     for it. A press that cannot work now SAYS why on the line beside it.
+     ⚠ Owner's standing rule, 2026-08-25: "nothing should fail quietly." A
+     disabled button is the quietest failure there is - it does not even log. */
   const canCapture = rmSkyReady || rmStreetReady;
-  attach.disabled = !(rmShots.length || canCapture);
+  attach.disabled = false;
   const attachMark = document.getElementById('rmAttachMarkBtn');
-  if(attachMark) attachMark.disabled = !(rmShots.length || canCapture);
+  if(attachMark) attachMark.disabled = false;
   attach.textContent = rmShots.length ? 'Attach ' + rmShots.length + ' to Quote' : 'Attach to Quote';
   attach.title = rmShots.length
     ? 'Put the captured picture' + (rmShots.length === 1 ? '' : 's') + ' on this quote, with the feet and the price.'
-    : 'Takes a picture of what is on screen, marks and all, and puts it on this quote with the feet and the price.';
+    : (canCapture
+      ? 'Takes a picture of what is on screen, marks and all, and puts it on this quote with the feet and the price.'
+      : 'Load the address first — then this puts a picture of it on the quote, with the feet and the price.');
 }
 function rmBackToHouse(){
   document.getElementById('rmCropStage').style.display = 'none';
@@ -25589,8 +25598,11 @@ function openRoofMeasure(quoteId){
      a successful upload differs. A second copy of the upload loop is a second
      place for the photo list to be written back stale. */
   async function rmAttachShots(btn, thenMarkUp){
-    if(!rmQuoteId) return;
     const status = document.getElementById('rmStatus');
+    /* ⚠ EVERY WAY OUT OF THIS SAYS SOMETHING. The button is always pressable now,
+       so a silent return IS the bug being reported - it is indistinguishable from
+       a click that never registered. */
+    if(!rmQuoteId){ if(status) status.textContent = 'This tool is not open on a quote — close it and press Measure Roof on the quote card.'; return; }
     const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
     if(!item){ status.textContent = 'That quote is no longer on screen — close this and try again.'; return; }
     btn.disabled = true;
@@ -25603,7 +25615,7 @@ function openRoofMeasure(quoteId){
     if(!rmShots.length){
       const which = (rmLastPane === 'street' && rmStreetReady) ? 'street'
                   : (rmSkyReady ? 'sky' : (rmStreetReady ? 'street' : ''));
-      if(!which){ status.textContent = 'Load the address first — there is no picture to attach yet.'; btn.disabled = false; return; }
+      if(!which){ status.textContent = 'No picture yet — the house has not loaded. Check the address above and press Load Property, then Attach.'; btn.disabled = false; return; }
       status.textContent = 'Capturing this view…';
       const staged = await rmCapture(which, true);
       if(!staged || !rmShots.length){

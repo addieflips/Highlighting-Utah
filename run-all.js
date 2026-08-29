@@ -41539,7 +41539,7 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     /if\(failed\.length\)\{[\s\S]{0,160}return; \}/.test(attach),
     'opening markup after a partial failure marks up whichever picture did land');
   check('S265', 'and the second button is enabled and disabled with the first',
-    /attachMark\.disabled = !\(rmShots\.length \|\| canCapture\)/.test(extractFn(admin, 'rmRenderStaged') || ''),
+    /attachMark\.disabled = false;/.test(extractFn(admin, 'rmRenderStaged') || ''),
     'one door open and the other shut is a button that looks broken beside a button that works');
 }
 
@@ -44236,10 +44236,17 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
   const push   = extractFn(admin, 'rmPushToCustomer') || '';
 
   /* ---- 1. the button is never dead ---- */
-  check('S282', 'Attach is offered as soon as there is a view to capture',
+  /* ⭐ REPORTED A SECOND TIME — "when i click attach to quote nothing happens" —
+     so the button is not conditionally enabled any more, it is NEVER disabled.
+     Enabling it once a view was ready still left a dead state before the address
+     had loaded, and a dead button is the complaint whatever the reason for it. */
+  check('S282', 'Attach is never disabled, whatever state the tool is in',
+    /attach\.disabled = false;/.test(staged) && !/attach\.disabled = !/.test(staged),
+    'a disabled button is the quietest failure there is — it does not even log');
+  check('S282', 'and it still says which state it is in, rather than pretending',
     /const canCapture = rmSkyReady \|\| rmStreetReady;/.test(staged) &&
-    /attach\.disabled = !\(rmShots\.length \|\| canCapture\)/.test(staged),
-    'disabled under a measured house, it reads as broken — which is exactly how it was reported');
+    /Load the address first/.test(staged),
+    'always-pressable is only safe if a press that cannot work explains itself');
   check('S282', 'and the two flags that decide that repaint the bar',
     /rmSkyReady = true;[\s\S]{0,300}rmRenderStaged\(\);/.test(admin) &&
     /rmStreetReady = true;[\s\S]{0,200}rmRenderStaged\(\);/.test(admin),
@@ -44248,8 +44255,16 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
     /if\(!rmShots\.length\)\{/.test(attach) && /await rmCapture\(which, true\)/.test(attach),
     'this IS the bug — a press that does nothing at all');
   check('S282', 'and it says which pictures it could not make',
-    /Load the address first/.test(attach) && /Could not make a picture of this view/.test(attach),
+    /the house has not loaded/.test(attach) && /Could not make a picture of this view/.test(attach),
     'silence after a press is the failure being reported again in a new place');
+  /* ⚠ A SILENT `return` IS THE BUG, in the one function that is always pressable.
+     It is indistinguishable from a click that never registered — which is the
+     sentence this was reported in, twice. */
+  check('S282', 'no way out of the press is silent',
+    (attach.match(/\n    if\([^)]*\)\{[^}]*return; \}/g) || [])
+      .every(function(line){ return /status(El)?\.textContent/.test(line); }) &&
+    /This tool is not open on a quote/.test(attach),
+    'every early return has to leave a sentence on screen, or the press looks like nothing happened');
   check('S282', 'rmCapture answers whether it produced anything',
     /async function rmCapture\(which, auto\)/.test(admin) &&
     (extractFn(admin, 'rmCapture') || '').indexOf('return false;') !== -1 &&
