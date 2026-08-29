@@ -1,5 +1,5 @@
 {
- "watched": 16,
+ "watched": 21,
  "red": 0,
  "breaks": [],
  "unguarded": [
@@ -10,6 +10,11 @@
   "carryoverCharge",
   "stops",
   "measuredFeet",
+  "lightsQueuedAt",
+  "lightsRecycleRequestedAt",
+  "assignedCrewAt",
+  "fixRaisedAt",
+  "newMemberFeeAppliedAt",
   "customerNumber"
  ],
  "notWatched": [
@@ -22,6 +27,6 @@
   "maybeNextYear / isOutForSeason",
   "lightsLockedUntil"
  ],
- "rulings": 206,
- "builtFrom": "2026-08-28"
+ "rulings": 222,
+ "builtFrom": "2026-08-29"
 }

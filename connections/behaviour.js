@@ -29,7 +29,7 @@ function drawGrid(){
  document.querySelectorAll('.picker button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t===gtab));
  const tag={cust:['cust','Customer'],inv:['inv','Invoice']};
  document.getElementById('gbody').innerHTML=T.rows.map(r=>{
-  let h='<tr><td class="f">'+fmt(r[0])+'</td><td class="rec"><span class="rt '+tag[r[1]][0]+'">'+tag[r[1]][1]+'</span></td>';
+  let h='<tr data-fieldrow="'+esc(r[0])+'"><td class="f">'+fmt(r[0])+'</td><td class="rec"><span class="rt '+tag[r[1]][0]+'">'+tag[r[1]][1]+'</span></td>';
   for(let i=0;i<DEST.length;i++){const v=r[i+2]||'';
    const c=v==='s'?'set':v==='r'?'read':v==='x'?'bad':v==='w'?'wrn':'';
    h+='<td>'+(c?'<i class="cell '+c+'" data-f="'+esc(r[0])+'" data-d="'+esc(DEST[i])+'"></i>':'')+'</td>';}
@@ -153,18 +153,154 @@ function drawRules(){
    note(key,'Could not save that \u2014 it is left as it was. '+(err&&err.message?err.message:''));
   }}));
 }
+/* ⚠ FOUND BY ITS LABEL, NOT ITS POSITION (2026-08-29). Adding "The path" as the first tab
+   moved every index by one and silently sent two jumps to the wrong view — the §7 slow-fuse
+   shape, pinned to where a thing happens to sit rather than to what it is. */
+function subtabBtn(name){
+ return Array.prototype.find.call(document.querySelectorAll('.subtabs button'),
+  function(b){ return b.textContent.trim().toLowerCase().indexOf(name) === 0; });
+}
 function tab(which,btn){
+ document.getElementById('path').hidden=which!=='path';
  document.getElementById('grid').hidden=which!=='grid';
  document.getElementById('rules').hidden=which!=='rules';
  document.querySelectorAll('.subtabs button').forEach(b=>b.setAttribute('aria-selected',b===btn));
  if(which==='rules') drawRules();
+ if(which==='path'){ bindPath(); drawPath(); }
+}
+
+/* ---- THE PATH — walked by clicking, not read as a list --------------------
+ * Addie: "I was thinking we push on quotes than approve and it will show the different
+ * routes in can go from there. So we can figure out the different navigations by clicking
+ * on how things can go."
+ *
+ * So the state is a TRAIL, not a selected step: every click pushes, and the whole route
+ * you have walked stays on screen above you. That is what makes two routes out of one
+ * step comparable — you can see how you got here, back up one, and take the other.
+ *
+ * ⚠ BACKING UP TRUNCATES rather than popping one. Clicking a step you have already walked
+ * through means "take me back to there", and leaving the tail behind it would show a trail
+ * that is no longer the route you are on.
+ */
+/* ⚠ THE TRAIL STARTS EMPTY, AND THE FIRST SCREEN ASKS HOW THEY ARRIVED. There are three
+   ways into the business — a quote, typed in by hand, or the master sheet — and opening on
+   one of them would quietly claim everybody came that way, which is the gap Addie found by
+   asking whether every route was drawn. */
+let trail=[];
+/* ⚠ DELEGATED, NOT INLINE. A step id or a field name pasted between quotes inside an
+   onclick attribute is a syntax error the moment one of them carries an apostrophe, and
+   the button then dies with nothing on screen and nothing in the console anybody looks
+   at — the same fault the fault-link jump was rebuilt for. One listener on the host,
+   bound once, reading data attributes.
+   ⚠ BOUND ON THE HOST, WHICH IS NEVER REPLACED — drawPath rewrites its innerHTML on
+   every click, so a listener on any button inside it would be destroyed and re-bound
+   each time, and re-binding on the host is how listeners accumulate. */
+function bindPath(){
+ const host=document.getElementById('path');
+ if(!host||host._jbound) return;
+ host._jbound=true;
+ host.addEventListener('click',function(ev){
+  const go=ev.target.closest('[data-jgo]');
+  if(go){ pathGo(go.getAttribute('data-jgo')); return; }
+  const fld=ev.target.closest('[data-jfield]');
+  if(fld){ pathField(fld.getAttribute('data-jfield')); return; }
+  if(ev.target.closest('[data-jreset]')) pathReset();
+ });
+}
+function pathGo(id){
+ const at=trail.indexOf(id);
+ if(at!==-1) trail=trail.slice(0,at+1); else trail.push(id);
+ drawPath();
+}
+function pathReset(){ trail=[]; drawPath(); }
+function drawPath(){
+ const host=document.getElementById('path'); if(!host) return;
+ if(!trail.length){
+  host.innerHTML=
+   '<div class="headline"><b>Follow a customer through.</b> Start with how they reached '+
+    'us, then press whatever happens next — where a customer has a choice, so does this '+
+    'page.</div>'+
+   '<p class="jnexthead">How did this customer arrive?</p><div class="jnexts">'+
+   JSTARTS.map(function(id){
+    const s=JSTEPS[id]||{title:id,plain:''};
+    return '<button type="button" class="jnext" data-jgo="'+esc(id)+'">'+
+     '<span class="jlabel">'+esc(s.plain||'')+'</span>'+
+     '<span class="jto">'+esc(s.title)+' ›</span></button>';
+   }).join('')+'</div>';
+  return;
+ }
+ const here=JSTEPS[trail[trail.length-1]];
+ if(!here){ host.innerHTML='<p class="note">That step is not on the map.</p>'; return; }
+ /* The route so far. Every step on it is clickable, which is how you back up. */
+ const crumbs=trail.map(function(id,i){
+  const s=JSTEPS[id]||{title:id};
+  return '<button type="button" class="jcrumb'+(i===trail.length-1?' now':'')+
+   '" data-jgo="'+esc(id)+'">'+esc(s.title)+'</button>';
+ }).join('<span class="jarrow">›</span>');
+ /* ⚠ THE FIELDS THAT RECORD THIS STEP ARE THE LINK BACK TO THE GRID. The one-level view
+    is not thrown away — it is what you get when you click into a step. */
+ const recs=(here.records||[]).map(function(f){
+  return '<button type="button" class="jfield" data-jfield="'+esc(f)+'">'+esc(f)+'</button>';
+ }).join(' ');
+ const outs=(here.next||[]).map(function(e){
+  const t=JSTEPS[e.to]||{title:e.to};
+  return '<button type="button" class="jnext" data-jgo="'+esc(e.to)+'">'+
+   '<span class="jlabel">'+esc(e.label)+'</span>'+
+   '<span class="jto">'+esc(t.title)+' ›</span></button>';
+ }).join('');
+ host.innerHTML=
+  '<div class="headline"><b>Follow a customer through.</b> Start at the top and press '+
+   'whatever happens next — where a customer has a choice, so does this page.</div>'+
+  '<div class="jtrail">'+crumbs+(trail.length>1?
+   ' <button type="button" class="jreset" data-jreset="1">start again</button>':'')+'</div>'+
+  '<div class="jcard'+(here.built===false?' unbuilt':'')+'">'+
+   '<h2>'+esc(here.title)+'</h2>'+
+   (here.built===false?'<p class="jwarn">Not built yet — this is how it should work, '+
+     'not how it works today.</p>'+
+     (here.notBuilt?'<p class="jwarn jwhat">'+esc(here.notBuilt)+'</p>':''):'')+
+   '<p class="jplain">'+esc(here.plain||'')+'</p>'+
+   (recs?'<p class="jrec">Recorded as '+recs+'</p>':
+     '<p class="jrec dim">Nothing on the record marks this step.</p>')+
+  '</div>'+
+  (outs?'<p class="jnexthead">'+(here.next.length===1?'Then:':'From here it can go '+
+    here.next.length+' ways:')+'</p><div class="jnexts">'+outs+'</div>'
+   :'<p class="jnexthead">This is where the journey ends.</p>');
+}
+/* Clicking a field on a step takes you to that field's row on the grid — the same one
+   level in it has always been, arrived at through the journey instead of down a list. */
+function pathField(field){
+ /* ⚠ THE GRID IS SPLIT INTO TABS, so the row may not be in the one currently showing —
+    jumping without switching lands on nothing and reads as a dead button. The tab holding
+    the field is found first, and a field on no tab says so rather than failing silently:
+    that means it is dated on the journey and not watched on the grid, which is worth
+    seeing rather than hiding. */
+ let found='';
+ Object.keys(TABS).forEach(function(t){
+  if(!found && (TABS[t].rows||[]).some(function(r){ return r[0]===field; })) found=t;
+ });
+ tab('grid',subtabBtn('where things go'));
+ if(!found){
+  document.getElementById('gdetail').textContent=
+   field+' is dated on the path but is not watched here yet.';
+  return;
+ }
+ gtab=found; drawGrid();
+ const row=document.querySelector('[data-fieldrow="'+field+'"]');
+ if(row){ row.scrollIntoView({block:'center',behavior:'smooth'}); row.classList.add('flash');
+  setTimeout(function(){ row.classList.remove('flash'); },1600); }
 }
 function jump(field,dest){
  const f=FAULTS[field+'|'+dest]; if(!f) return;
  rArea=f[3]; rHit=f[3]+'|'+f[4]; rOpen[rHit]=true;
- tab('rules',document.querySelectorAll('.subtabs button')[1]);
+ tab('rules',subtabBtn('rules'));
  window.scrollTo({top:0,behavior:'smooth'});
 }
 loadDecisions();
+/* ⚠ THE PATH IS THE TAB THAT OPENS, so it has to be drawn on load — reached only through
+   tab() it would render an empty panel until somebody clicked away and back, which reads
+   as the page being broken. The grid is still drawn here too: it is hidden, not absent,
+   and drawing it now means a jump from a step lands on a table that already has rows. */
+bindPath();
+drawPath();
 drawGrid();
 

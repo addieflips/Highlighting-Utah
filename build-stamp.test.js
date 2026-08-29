@@ -176,11 +176,17 @@ const CLEAR_SITES = [
     why: 'the same flip, server-side of the table. Not a build.' },
   { file: 'admin.html', fn: 'setCustomerSeason', stamps: false,
     why: 'and the local copy kept in step with it. Not a build.' },
-  { file: 'employee.html', fn: 'whToggleLightsNew', stamps: false,
-    why: 'the crew portal tick. It IS a build, and it deliberately does not stamp — owner, ' +
-         '2026-08-27, is not using the crew portal this year, so that file was left alone. ' +
-         'A house ticked there reads "no build recorded". If the crew portal comes back, ' +
-         'this is the first thing to fix.' },
+  /* ⭐ FIXED 2026-08-29, AND THIS ENTRY'S OWN NOTE ASKED FOR IT. It read: "if the crew
+     portal comes back, this is the first thing to fix." The portal has not come back, and
+     it was fixed anyway — it was one line, and a screen that returns carrying a known hole
+     is worse than one that returns clean. Dormant is not harmless, which this repo already
+     learned when whToggleRecycle was found losing a customer number outright.
+     ⚠ THE UNTICK STILL DOES NOT STAMP, and that is not the same omission: un-ticking is
+     somebody undoing a mis-tick, not a bundle being unmade, so dating it would record a
+     build that did not happen. */
+  { file: 'employee.html', fn: 'whToggleLightsNew', stamps: true,
+    why: 'the crew portal tick. It IS a build and it now records one, the same field the ' +
+         'office writes — so a house built through either screen reads the same.' },
   { file: 'functions/index.js', fn: 'portalSave', stamps: false,
     why: 'the customer cleared their own colours. Nothing to build, so nothing was built.' },
   { file: 'functions/index.js', fn: 'pullCustomerFromSeason', stamps: false,

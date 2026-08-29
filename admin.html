@@ -2177,6 +2177,21 @@
             <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
           </div>
           <div id="editCustStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+          <!-- ⭐ THEIR WHOLE HISTORY, IN ONE PLACE (added 2026-08-29). Addie: "dating when
+               everything is done for each costumer through the system we have set", and then
+               the list — "a cancelled button or a be back next year date... Or asked for
+               different lights on this date or changed timer settings this date. Changed
+               address this date." The dates were built first and read by nothing; this is
+               the reader.
+               ⚠ COLLAPSED BY DEFAULT. This form is already long and is opened dozens of
+               times a day to change one field; a history nobody asked for, open at the
+               bottom of it every time, pushes the buttons off the screen. It also means the
+               two queries behind it only run when somebody actually wants the answer. -->
+          <details id="editCustHistoryWrap" style="border-top:1px solid var(--line); margin-top:18px; padding-top:14px;">
+            <summary style="font-size:13px; font-weight:600; cursor:pointer;">Their history</summary>
+            <p style="font-size:12px; color:var(--slate); margin:8px 0 10px;">Everything we have recorded about this house, newest first.</p>
+            <div id="editCustHistory"></div>
+          </details>
           <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line); text-align:center;">
             <!-- ⭐ TWO BUTTONS, NOT ONE (2026-08-21). Owner: "for this actually dont make
                  it one button have one button for build and another for recycle."
@@ -6680,6 +6695,235 @@ async function logActivity(what, area, refId){
     return null;
   }
 }
+/* ---- THE CUSTOMER'S OWN HISTORY -----------------------------------------
+ *
+ * Addie, asked what she wanted from a journey view: "dating when everything is done
+ * for each costumer through the system we have set", and then the whole list — "a
+ * cancelled button or a be back next year date. or maybe next year date or requoted
+ * on. Or asked for different lights on this date or changed timer settings this date.
+ * Changed address this date."
+ *
+ * Every one of those is now recorded somewhere. This is the thing that READS them.
+ *
+ * ⚠ UNTIL THIS EXISTED, FIVE DATES WERE WRITTEN AND READ BY NOTHING — which the
+ * Connections map refused to declare, correctly, because a field written everywhere
+ * and read nowhere is a dead end (R-010). This closes that: `lightsQueuedAt`,
+ * `lightsRecycleRequestedAt`, `assignedCrewAt`, `fixRaisedAt` and
+ * `newMemberFeeAppliedAt` all have a reader now.
+ *
+ * ⚠ IT DECIDES NOTHING. Nothing in the app reads this back — it is a page for a person,
+ * which is exactly what makes it safe to point at every record at once. The same rule
+ * the activity log carries.
+ *
+ * ⚠ FIVE SOURCES, AND THE HISTORY IS ONLY AS GOOD AS THE THINNEST. The dated steps on
+ * the customer, the invoice's own dates, the quote that started them, the payments
+ * ledger, and the activity log. A step whose date was never recorded is SHOWN AS
+ * UNDATED rather than dropped or guessed at — "we know this happened and not when" is
+ * a true and useful answer; putting it at the epoch or leaving it out are both lies.
+ */
+const HISTORY_STEPS = [
+  { field: 'createdAt',                from: 'quote', what: 'Quote raised' },
+  { field: 'quoteSentAt',              from: 'quote', what: 'Quote emailed to them' },
+  { field: 'approvedByOfficeAt',       from: 'quote', what: 'Marked approved by the office' },
+  /* ⚠ ON THE QUOTE, NOT THE CUSTOMER. The conversion is written as `{status:'closed',
+     convertedToCustomerAt}` onto the QUOTE — the customer record has no such field, so
+     reading it off `cust` returns nothing for everybody and the history silently loses
+     the day they joined. Checked at the write site rather than assumed from the name. */
+  { field: 'convertedToCustomerAt',    from: 'quote', what: 'Became a customer' },
+  { field: 'lightsQueuedAt',           from: 'cust',  what: 'Sent to the warehouse to be built' },
+  { field: 'lightsMarkedBuiltAt',      from: 'cust',  what: 'Bundle marked built' },
+  { field: 'needsDayAssignedAt',       from: 'cust',  what: 'Needed a day on the calendar' },
+  { field: 'assignedCrewAt',           from: 'cust',  what: 'Put on a crew sheet' },
+  { field: 'fixAssignedAt',            from: 'cust',  what: 'Put on a fix route' },
+  { field: 'removalAssignedAt',        from: 'cust',  what: 'Put on a takedown route' },
+  { field: 'fixRaisedAt',              from: 'cust',  what: 'Fault reported' },
+  { field: 'fixDoneAt',                from: 'cust',  what: 'Fault mended' },
+  { field: 'completedAt',              from: 'cust',  what: 'Lights went up' },
+  { field: 'removalDoneAt',            from: 'cust',  what: 'Lights taken down' },
+  { field: 'lightsRecycleRequestedAt', from: 'cust',  what: 'Old set asked back' },
+  { field: 'rsvpRespondedAt',          from: 'cust',  what: 'Answered the RSVP' },
+  /* ⚠ THE ONE THAT COSTS A CUSTOMER TIME. A cancellation asked for through their own
+     portal had no date at all, so nobody could tell a request made in October from one
+     made this morning — with a crew still notionally coming to the house either way.
+     ⚠ THE WORDS COME FROM THE VALUE, because "season status changed" answers nothing:
+     cancelling and correcting an address are the same field and opposite jobs. */
+  { field: 'seasonStatusAt',           from: 'cust',  what: 'Season status changed' },
+  /* ⚠ THE LINE BETWEEN SEASONS. Start New Season clears the flags and keeps the dates, so
+     without this the history runs the two years together and last season's install reads
+     as this one's. Newest-first, this row is the divider everything below it belongs to. */
+  { field: 'seasonResetAt',            from: 'cust',
+    what: '— New season started. Everything below here is last season —' },
+  /* ⚠ THE ONE EVENT ON A RECORD THAT WAS PREVIOUSLY UNRECOVERABLE. A merge writes another
+     record's values onto this one and deletes that record, so without this line the
+     history cannot answer "where did this address come from" and nothing else can either. */
+  { field: 'mergedAt',                 from: 'cust',  what: 'Merged with a duplicate record' },
+  { field: 'invoicedAt',               from: 'inv',   what: 'Invoice sent' },
+  { field: 'newMemberFeeAppliedAt',    from: 'inv',   what: 'New member fee charged ($30)' }
+];
+/* ⚠ THE RSVP LINE SAYS WHAT THEY ANSWERED, not merely that they answered — "answered
+   the RSVP" beside a date leaves the one question anybody is asking unanswered. */
+/* ⚠ NAMED FROM THE VALUE, and it keeps what it changed FROM, because a cancellation and
+   an address correction are the same field and opposite jobs for the office. */
+/* ⚠ IT NAMES WHAT WAS TAKEN, not merely that a merge happened. "Merged with a duplicate"
+   beside a date leaves the actual question — which of these fields is not theirs — exactly
+   where it was. */
+function historyMergeWords(cust){
+  const got = (cust && Array.isArray(cust.mergedFields)) ? cust.mergedFields : [];
+  return 'Merged with a duplicate record' +
+    (got.length ? ' — took ' + got.slice(0, 6).join(', ') +
+      (got.length > 6 ? ' and ' + (got.length - 6) + ' more' : '') : '');
+}
+function historySeasonWords(cust){
+  const s = String((cust && cust.seasonStatus) || '').trim().toLowerCase();
+  const was = String((cust && cust.seasonStatusWas) || '').trim();
+  const said = s === 'cancellation_requested' ? 'They asked to cancel'
+    : s === 'address_changed' ? 'They told us their address changed'
+    : s === 'needs_changes' ? 'They asked for changes, so a re-quote is owed'
+    : s === 'confirmed' ? 'Their changes were settled'
+    : 'Season status changed' + (s ? ' to ' + s : '');
+  return said + (was ? ' (was ' + was + ')' : '');
+}
+function historyRsvpWords(cust){
+  const s = String((cust && cust.rsvpStatus) || '').trim().toLowerCase();
+  if(s === 'yes') return 'Answered the RSVP — yes, they want lights';
+  if(s === 'no') return 'Answered the RSVP — no';
+  if(s === 'backnextyear') return 'Answered the RSVP — back next year';
+  if(s === 'unanswered') return 'Marked as not having answered the RSVP';
+  return 'Answered the RSVP';
+}
+/* ⚠ A NOTE CARRIES ITS OWN DATE and several of them can sit on one invoice — the
+   change fees, the credits and the carryover charge each keep a `date` on their own
+   entry, which is why they are read here rather than being given stamps of their own. */
+function historyNoteRows(invoice, cust){
+  const out = [];
+  const money = (n) => fmtMoney(Number(n) || 0);
+  const list = (o, f) => (o && Array.isArray(o[f])) ? o[f] : [];
+  const add = (n, lead) => out.push({ at: n && n.date,
+    what: lead + ' ' + money(n && n.amount) + (n && n.reason ? ' — ' + n.reason : ''),
+    kind: 'money' });
+  list(invoice, 'changeFeeNotes').forEach(n => add(n, 'Light-change fee'));
+  list(invoice, 'creditNotes').forEach(n => add(n, 'Credit'));
+  /* ⚠ THE CARRYOVER NOTES ARE ON THE CUSTOMER, NOT THE INVOICE, and that is deliberate
+     rather than untidy: Start New Season zeroes changeFees and creditNotes on every
+     invoice, so a charge parked there would be DELETED rather than carried. Reading them
+     off the invoice here would show nothing and look like nothing had happened. */
+  list(cust, 'carryoverChargeNotes').forEach(n => add(n, 'Charge carried to next season'));
+  return out;
+}
+/* ⚠ NEWEST FIRST, and an undated row is NOT sorted to either end — it comes back in its
+   own list, because a row with no date has no place in a sequence and putting it at one
+   end invents an order somebody will read as real. */
+function customerHistory(src){
+  const s = src || {};
+  const rows = [], undated = [];
+  HISTORY_STEPS.forEach(function(step){
+    const rec = step.from === 'cust' ? s.cust : step.from === 'inv' ? s.invoice : s.quote;
+    if(!rec) return;
+    if(!Object.prototype.hasOwnProperty.call(rec, step.field)) return;
+    const raw = rec[step.field];
+    if(raw === null || raw === undefined || raw === '') return;
+    const what = step.field === 'rsvpRespondedAt' ? historyRsvpWords(s.cust)
+      : step.field === 'seasonStatusAt' ? historySeasonWords(s.cust)
+      : step.field === 'mergedAt' ? historyMergeWords(s.cust)
+      : step.what;
+    const at = toJsDate(raw);
+    if(at) rows.push({ at: at, what: what, kind: 'step' });
+    else undated.push({ what: what, kind: 'step' });
+  });
+  historyNoteRows(s.invoice, s.cust).forEach(function(r){
+    const at = toJsDate(r.at);
+    if(at) rows.push({ at: at, what: r.what, kind: r.kind });
+    else undated.push({ what: r.what, kind: r.kind });
+  });
+  (s.payments || []).forEach(function(p){
+    const at = toJsDate(p && p.paidAt);
+    const what = 'Paid ' + fmtMoney(Number(p && p.amount) || 0) +
+      (p && p.method ? ' — ' + (PAYMENT_METHOD_LABEL[p.method] || p.method) : '');
+    if(at) rows.push({ at: at, what: what, kind: 'money' });
+    else undated.push({ what: what, kind: 'money' });
+  });
+  /* ⚠ THE ACTIVITY LOG IS WHERE THE EDITS LIVE — "changed timer settings this date",
+     "changed address this date". The dated steps say a stage was reached; only these
+     say what somebody actually altered, and who. */
+  (s.activity || []).forEach(function(a){
+    const at = toJsDate(a && a.at);
+    const what = String((a && a.what) || '') + (a && a.who ? ' (' + a.who + ')' : '');
+    if(!String((a && a.what) || '').trim()) return;
+    if(at) rows.push({ at: at, what: what, kind: 'edit' });
+    else undated.push({ what: what, kind: 'edit' });
+  });
+  rows.sort(function(a, b){ return b.at - a.at; });
+  return { rows: rows, undated: undated };
+}
+/* ⚠ ONE LINE PER THING, NEWEST AT THE TOP, and the date is the first thing on the row —
+   a history is read down the left-hand edge looking for a when, not read as prose. */
+function historyRowsHtml(hist){
+  const h = hist || {rows: [], undated: []};
+  const day = (d) => d.toLocaleDateString(undefined, {day: 'numeric', month: 'short', year: 'numeric'});
+  const tint = {step: 'var(--ink)', money: '#2E6B3E', edit: 'var(--slate)'};
+  let out = h.rows.map(function(r){
+    return '<div style="display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--line);">' +
+      '<span style="flex:0 0 92px; font-size:12px; color:var(--slate);">' + esc(day(r.at)) + '</span>' +
+      '<span style="font-size:13px; color:' + tint[r.kind] + ';">' + esc(r.what) + '</span></div>';
+  }).join('');
+  /* ⚠ UNDATED ROWS ARE SHOWN, UNDER THEIR OWN HEADING. Every one is something that
+     demonstrably happened — the flag is set — whose date was never recorded, which is
+     true of every customer on file before the stamps shipped. Dropped, the history
+     quietly claims it never happened; sorted to one end, it invents an order. */
+  if(h.undated.length){
+    out += '<p style="font-size:12px; color:var(--slate); margin:12px 0 4px;">' +
+      'Happened, but no date was recorded — these are from before we started dating them:</p>' +
+      h.undated.map(function(r){
+        return '<div style="display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--line);">' +
+          '<span style="flex:0 0 92px; font-size:12px; color:var(--slate);">—</span>' +
+          '<span style="font-size:13px; color:var(--slate);">' + esc(r.what) + '</span></div>';
+      }).join('');
+  }
+  if(!out) out = '<p style="font-size:13px; color:var(--slate); margin:0;">Nothing recorded for this customer yet.</p>';
+  return out;
+}
+/* ⚠ LOADED WHEN THE FORM OPENS, not held in a cache. The activity log and the payments
+   ledger are both queried per customer for the same reason renderPaymentHistory does it:
+   the office opens one record at a time, and pulling every activity row ever written on
+   login is a lot of reads to answer a question nobody has asked yet.
+   ⚠ AND A FAILURE SAYS SO. An empty history and a history that would not load look
+   identical, and only one of them means "nothing has happened to this customer". */
+async function renderCustomerHistory(custId){
+  const box = document.getElementById('editCustHistory');
+  if(!box) return;
+  const item = jobAddresses.find(a => a.id === custId);
+  if(!item){ box.innerHTML = '<p style="font-size:13px; color:var(--slate); margin:0;">No record open.</p>'; return; }
+  box.innerHTML = '<p style="font-size:13px; color:var(--slate); margin:0;">Loading…</p>';
+  const cust = item.data;
+  let payments = [], activity = [], quote = null;
+  try{
+    const key = custInvoiceKey(cust);
+    if(key){
+      const snap = await getDocs(query(collection(db,'payments'), where('invoiceKey','==', String(key))));
+      snap.forEach(function(s){ payments.push(s.data()); });
+    }
+  } catch(err){ console.error('[HU] history: payments', err); }
+  try{
+    const snap = await getDocs(query(collection(db,'activity'), where('refId','==', String(custId))));
+    snap.forEach(function(s){ activity.push(s.data()); });
+  } catch(err){ console.error('[HU] history: activity', err); }
+  /* ⚠ THE QUOTE IS TAKEN FROM THE CACHE, never re-queried by address. The quote that
+     created this customer is the one that names them (`existingCustomerId`), and matching
+     on address instead would pick up a NEIGHBOUR's quote on a shared phone — the same
+     trap the member-portal link was closed for. */
+  try{
+    /* ⚠ THE ONE THAT CONVERTED THEM WINS. A customer can have several quotes against
+       them — every re-quote points at the same record — and the quote dates here are
+       about the one that MADE them a customer, so a plain find() would show a re-quote
+       raised last week as the day they joined. */
+    const mine = (quotesCache || []).filter(q => q.data && q.data.existingCustomerId === custId);
+    quote = mine.find(q => q.data.convertedToCustomerAt) || null;
+  } catch(err){ console.error('[HU] history: quote', err); }
+  const inv = allCustInvoiceFor(cust);
+  const hist = customerHistory({cust: cust, invoice: inv && inv.data, quote: quote && quote.data,
+    payments: payments, activity: activity});
+  box.innerHTML = historyRowsHtml(hist);
+}
 /* ---- WHAT ACTUALLY CHANGED ON A RECORD -----------------------------------
  *
  * Addie, 2026-08-28, having asked for a customer's whole history to be dated:
@@ -8236,7 +8480,21 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
           rejoinedForSeasonAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
-          cameBackThisSeasonAt: null
+          cameBackThisSeasonAt: null,
+          /* ⭐ WHERE ONE SEASON ENDS AND THE NEXT BEGINS (added 2026-08-29). This reset
+             clears the FLAGS and leaves every DATE standing — completedAt, lightsQueuedAt,
+             lightsMarkedBuiltAt, assignedCrewAt, removalDoneAt, the fix pair — so a record
+             carries last season's dates beside this season's flags with nothing separating
+             the two. Their history then reads as one continuous run of events, and the day
+             their lights went up last year sits in it looking like this year's.
+             ⚠ IT IS A MARKER, NOT A CLEAR. Wiping those dates would throw away the only
+             record that any of it happened; the history needs them, and "queued on the 2nd,
+             built on the 9th" is the whole point of having them. What was missing was a
+             line between the seasons, and this is that line.
+             ⚠ AND IT IS THE ONLY THING ADDED TO THIS WRITE. Nothing existing reads it, so
+             it changes no behaviour — deciding whether removalDone should also be cleared
+             here is a real change to Start New Season and belongs to Addie. */
+          seasonResetAt: serverTimestamp()
         });
       }));
       hdone += chunk.length;
@@ -33045,8 +33303,26 @@ document.getElementById('dupExactBtn')?.addEventListener('click', onceAtATime(as
              tool exists to rescue: delete the copy carrying the price, fail to
              write it onto the keeper, and it is gone for good. */
           const fields = Object.keys(g.gains);
+          /* ⭐ WHERE THIS RECORD'S FIELDS CAME FROM (added 2026-08-29). A merge writes
+             another record's values onto this one and then DELETES that record, and
+             nothing said which record, or when, or what was taken — so "why does this
+             customer have an address they never gave us" had no answer anywhere. The
+             activity log records a COUNT with an empty id, so even that cannot name them.
+             ⚠ THE ONE FIELD THAT CANNOT BE RECOVERED IS THE LOST ID. Everything else on
+             the keeper is still readable; the spare is gone the moment the next line runs,
+             so if its id is not written down here it is unrecoverable by anybody.
+             ⚠ IT RIDES IN THE SAME WRITE AS THE GAINS, deliberately. A second write can
+             fail on its own and leave a record carrying another's values with nothing
+             saying so — which is worse than the state this fixes.
+             ⚠ AND ONLY WHEN SOMETHING WAS ACTUALLY TAKEN. A merge that gained nothing is
+             a spare empty copy being tidied away; stamping it would claim this record was
+             built out of another when it was not. */
           if(fields.length){
-            await updateDoc(doc(db,'jobAddresses', g.keeper.id), g.gains);
+            await updateDoc(doc(db,'jobAddresses', g.keeper.id), Object.assign({}, g.gains, {
+              mergedAt: serverTimestamp(),
+              mergedFromIds: g.losers.map(function(l){ return l.id; }),
+              mergedFields: fields
+            }));
             filled += fields.length;
           }
           for(const l of g.losers){
@@ -34933,6 +35209,10 @@ function attachAddressRowHandlers(container){
       const item = jobAddresses.find(a => a.id === id);
       const wasCompleted = item ? !!item.data.completed : false;
       const wasRemoved = item ? !!item.data.removalDone : false;
+      /* ⚠ THE THIRD ONE, WHICH WAS MISSING. Without it there is nothing to compare, so
+         every save would re-stamp the fix date whether or not the flag moved — the same
+         transition-not-every-write rule the build and recycle stamps already follow. */
+      const wasNeedsFix = item ? !!item.data.needsFix : false;
       /* ⭐ INSTALL AND TAKEDOWN ARE INDEPENDENT (fixed 2026-08-21, Job 2). This line
          used to read `removalDone: completed ? removalDone : false`, so unticking
          Install Complete here silently cleared the removal as well — one screen
@@ -34950,7 +35230,17 @@ function attachAddressRowHandlers(container){
         (removalDone !== wasRemoved)
           ? HLX_DONE_KINDS.takedown[removalDone ? 'on' : 'off'](serverTimestamp())
           : {removalDone: removalDone},
-        {needsFix: needsFix});
+        /* ⚠ THIS WAS `{needsFix: needsFix}` — the one of the three that did NOT go through
+           the shared rule, five lines under a comment saying all three do. So raising a
+           fault here recorded no `fixRaisedAt` and mending one recorded no `fixDoneAt`,
+           while install and takedown either side of it were dated correctly.
+           ⚠ AND IT IS MONEY. A fix raised on a completed house stops that payer's WHOLE
+           group being invoiced (`skippedNeedsFix` in the nightly run), so a bill held for
+           six weeks looked exactly like one held since this morning — the hold is
+           recomputed from the flag every night and nothing said when it started. */
+        (needsFix !== wasNeedsFix)
+          ? HLX_DONE_KINDS.fix[needsFix ? 'off' : 'on'](serverTimestamp())
+          : {needsFix: needsFix});
       /* ⚠ THE PHOTO IS DESTROYED, NOT JUST FORGOTTEN (Job 4). This used to blank
          fixPhotoUrl, which left the image on Cloudinary for ever with nothing
          pointing at it. The field is cleared below only if the destroy worked. */
@@ -40668,6 +40958,26 @@ function openEditCustomerModal(id){
   editCustRenderHouseTabs();
   editCustDirtySnapshot = editCustSnapshot();
   editCustRefreshDirtyDot();
+  /* ⭐ THE HISTORY IS RESET ON EVERY OPEN, AND LOADED ONLY WHEN OPENED (2026-08-29).
+     ⚠ CLOSING IT IS NOT COSMETIC. This same function repoints the form at a SIBLING house
+     when a bill covers several, so a panel left open would keep the previous customer's
+     history on screen under the new customer's name until the query came back — the
+     worst kind of wrong, because it reads as an answer. Emptied and closed here, filled
+     on toggle.
+     ⚠ AND THE LISTENER IS BOUND ONCE, not on every open: openEditCustomerModal runs on
+     every tab click, and re-binding would fire the two queries once per click ever made.
+     The same accumulating-listener bug that put 2815 writes behind one drag in the
+     Inbox. */
+  const histWrap = document.getElementById('editCustHistoryWrap');
+  const histBox = document.getElementById('editCustHistory');
+  if(histWrap){ histWrap.open = false; }
+  if(histBox){ histBox.innerHTML = ''; }
+  if(histWrap && !histWrap._histBound){
+    histWrap._histBound = true;
+    histWrap.addEventListener('toggle', function(){
+      if(histWrap.open) renderCustomerHistory(editCustomerId);
+    });
+  }
   document.getElementById('editCustOverlay').style.display = 'flex';
 }
 // lightsDescription is stored as "Red, Green (extra notes)". Split it back into
@@ -45730,7 +46040,11 @@ function renderRouteOrderedList(ordered){
        and the field may only be blanked once that has actually happened. */
     btn.addEventListener('click', async function(){
       const current = btn.dataset.current === '1';
-      const updates = {needsFix: !current};
+      /* ⚠ THROUGH THE SHARED RULE, like the customer row and the Schedule tick. Written
+         bare as `{needsFix: !current}` this was the second of four doors to a fix that
+         recorded no date — and clearing it is a money-releasing write, because the
+         nightly run holds that payer's whole group while the flag is up. */
+      const updates = HLX_DONE_KINDS.fix[current ? 'on' : 'off'](serverTimestamp());
       if(current){
         updates.fixScheduled = false;
         updates.fixNote = '';
@@ -53078,6 +53392,21 @@ function rebuildSeasonDays(){
   /* \u26a0 AND IF THEY WERE THE ONLY THING LEFT, SAY SO. "Every house is done" is a lie
      when the truth is that the last few sat the season out, and it is the kind of lie
      that gets somebody hunting a broken button. */
+  /* ⭐ HOW MANY ARE WAITING ON THE WAREHOUSE (added 2026-08-29). The build gate holds
+     houses back, and a house held back looks exactly like a house nobody entered — so
+     the number is carried out of here and said on screen. Taken AFTER the join above,
+     so it counts who is still waiting once everybody ready has been added. */
+  let waitingOnBuild = 0;
+  try{ if(typeof customersWaitingOnBuild === 'function') waitingOnBuild = customersWaitingOnBuild().length; }
+  catch(err){ console.error('Could not count who is waiting on the warehouse:', err); }
+  /* ⚠ AND IT IS THE FIRST THING SAID WHEN THERE IS NOTHING ELSE TO DO. "Every house is
+     done" with twelve houses sitting in the warehouse queue is the same lie the line
+     below was written to stop, one step further along. */
+  if(!movable.length && waitingOnBuild) return {left: left.length, stillSet: stillSet,
+    waitingOnBuild: waitingOnBuild,
+    error: 'Nothing to rebuild yet — ' + waitingOnBuild + ' house(s) are waiting for the ' +
+      'warehouse to build their lights. They join the schedule on the next rebuild after ' +
+      'their bundle is marked made.'};
   if(!movable.length) return {left: left.length, stillSet: stillSet, error: left.length
     ? ('Nothing left to rebuild \u2014 the ' + left.length + ' house(s) still waiting have all left the season.')
     : locked.length
@@ -53177,7 +53506,7 @@ function rebuildSeasonDays(){
   SEASON=newDays.concat(keep);
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;
-  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length,
+  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, waitingOnBuild:waitingOnBuild,
           left:left.length, stillSet:stillSet,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
           first:dates[0], last:dates[dates.length-1]};
@@ -53980,7 +54309,46 @@ function customersMissingFromSeason(){
        ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, and the
        window expires on its own, so they are added by the next run after it closes. */
     if(typeof isLightsLocked === 'function' && isLightsLocked(d)) return;
+    /* ⭐ AND NOT UNTIL THE WAREHOUSE HAS BUILT THEIR BUNDLE (added 2026-08-29). Addie,
+       shown that the code did not do this: "I do want it to wait for the build before
+       sending it to schedule." Until now a customer joined the season the moment they
+       were in it, and the warehouse worked in parallel — so a crew could be sent to a
+       house whose lights had not been made.
+
+       ⚠ THE TEST IS "STILL WAITING", NOT "HAS A BUILT DATE", and the difference is the
+       whole season. `lightsMarkedBuiltAt` only exists from 2026-08-27, so gating on it
+       would hold back EVERY customer on file before that — the entire book, silently,
+       which is the shape of the SEASON_ELIGIBILITY mistake this file already records.
+       Reading the flag holds back only houses actually queued and leaves everybody else
+       exactly as they were.
+
+       ⚠ HELD BACK, NOT DROPPED — the same as the 48-hour window above. This runs on
+       every Recalculate everything and on the five-minute sync, so they join on the next
+       run after the warehouse marks the bundle made. Nothing is written to the customer.
+
+       ⚠ AND THEY ARE COUNTED, because a house that is silently absent from the schedule
+       is indistinguishable from one nobody noticed. `customersWaitingOnBuild` is what the
+       rebuild reports; a house blocked with no colours sits in this count until somebody
+       gives it colours, which is the Waiting on light colours block's own job. */
+    if(d.needsLightBuild === true) return;
     if(have.has(item.id)) return;
+    out.push(item);
+  });
+  return out;
+}
+/* ⚠ THE SAME RULE, ASKED THE OTHER WAY ROUND, so the office can be told how many are
+   held and why rather than wondering where they went. It deliberately re-uses the two
+   tests above rather than restating them: a second opinion about who is waiting is how
+   the count and the list start disagreeing. */
+function customersWaitingOnBuild(){
+  const out = [];
+  if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return out;
+  const have = seasonCustomerIds();
+  jobAddresses.forEach(function(item){
+    const d = (item && item.data) || {};
+    if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
+    if(have.has(item.id)) return;
+    if(d.needsLightBuild !== true) return;
     out.push(item);
   });
   return out;
@@ -54269,6 +54637,12 @@ RT.addEventListener('click',e=>{const t=e.target;
        people who were not on the plan" are different pieces of news, and the second
        one is the answer to "why is Rachel not in the schedule". */
     if(r.joined) parts.push(r.joined+' new customer'+(r.joined===1?'':'s')+' added to the plan');
+    /* ⭐ AND THE ONES THE WAREHOUSE IS STILL HOLDING (added 2026-08-29). Addie: "I do
+       want it to wait for the build before sending it to schedule." A house held back
+       by that rule is absent from the plan for a good reason, and absent for a good
+       reason still looks exactly like absent for a bad one — this is the sentence that
+       tells the two apart, and it names the warehouse so somebody knows where to go. */
+    if(r.waitingOnBuild) parts.push(r.waitingOnBuild+' waiting on the warehouse — not scheduled until their bundle is built');
     /* ⭐ AND THE ONES WHO LEFT ARE NAMED TOO. Owner: "back next year should be on
        2027 and not split for this year on schedule." A house quietly disappearing off
        the plan reads as a bug; the same house with a sentence beside it reads as the

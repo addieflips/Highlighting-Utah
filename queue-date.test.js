@@ -47,7 +47,20 @@ function check(name, ok, detail) {
 function note(m) { notes++; console.log('  NOTE  ' + m); }
 
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = { 'admin.html': read('admin.html'), 'functions/index.js': read('functions/index.js') };
+/* ⚠ employee.html JOINED THIS LIST ON 2026-08-29, and its absence was the structural
+   reason several holes could exist at all. The crew portal writes SIX customer states —
+   the build flag, the recycle flag, the fix flag, completed, removalDone and the customer
+   number — and two of the three census gates in this repo could not see any of them.
+   ⚠ THE PORTAL IS OUT OF USE THIS SEASON (owner, 2026-08-21: "were not using the employee
+   portal this year"), so every write in it is listed below as a known exception with that
+   reason rather than fixed today. What this buys is that nothing NEW can appear there
+   undated — and if the portal comes back, that list is the to-do.
+   ⚠ DORMANT IS NOT HARMLESS, which this repo already learned once: silent-failures.test.js
+   sweeps this same file for exactly that reason, after whToggleRecycle was found clearing
+   a customer number and then swallowing the pool write. */
+const SOURCES = { 'admin.html': read('admin.html'),
+                  'employee.html': read('employee.html'),
+                  'functions/index.js': read('functions/index.js') };
 
 console.log('');
 console.log('=== When was it sent to the warehouse? ===');
@@ -61,6 +74,11 @@ console.log('');
    MANUAL_ONLY_IDS against the checklist count, which was wrong three times while the
    list was right every time. */
 const QUEUE_SITES = [
+  /* ⭐ THE CREW PORTAL'S OWN Add a Customer (added 2026-08-29). It created a record with
+     no build flag at all, so a customer entered there got a record and never a bundle —
+     nothing was made for them and a crew would arrive at a house with no lights for it.
+     Fixed and declared in the same change; it is a real queueing place, not an exception. */
+  { file: 'employee.html', fn: 'ecSaveBtn handler' },
   { file: 'admin.html', fn: 'qBuildTestBtn handler' },
   { file: 'admin.html', fn: 'buildTestPerson' },
   { file: 'admin.html', fn: 'routeAddressForm handler' },
@@ -80,7 +98,16 @@ const QUEUE_SITES = [
    writes `toMaybe ? false : local.data.needsLightBuild` — it either cancels a build or
    carries forward whatever the record already held. Stamping there would put a fresh
    queue date on a house nobody has asked to have built. */
-const NOT_A_QUEUE = [{ file: 'admin.html', fn: 'setCustomerSeason' }];
+const NOT_A_QUEUE = [
+  { file: 'admin.html', fn: 'setCustomerSeason' },
+  /* ⚠ UN-TICKING "BUILT" IS A CORRECTION, NOT A REQUEST. Dating the build in the crew
+     portal on 2026-08-29 turned its write into an explicit `needsLightBuild: true` on the
+     untick, which this census correctly noticed as a new queueing place. It is not one:
+     the house was queued weeks ago and somebody is undoing a mis-tick, so stamping here
+     would date a request nobody made and lose the real one. The office path has the same
+     shape and the same reason. */
+  { file: 'employee.html', fn: 'whToggleLightsNew' }
+];
 
 /* ⚠ THE CENSUS DOES NOT TRUST THE COMMENT MASK, and that is not caution — it was proved
    unreliable while this gate was being written. `connections/scan.js`'s blankNonCode
@@ -174,6 +201,316 @@ check('the one place that sets the flag without queuing is still excluded',
   ' (' + skipped.join(', ') + ')');
 
 /* ---------------------------------------------------------------------------
+ * 1a. EVERY DOOR TO A FIX GOES THROUGH THE SHARED RULE.
+ *
+ * ⚠ TWO OF THE FOUR DID NOT, and one of them sat five lines under a comment claiming all
+ * three fields on that handler came from the shared rule — `completed` and `removalDone`
+ * did, `needsFix` was written bare. So raising a fault from the customer row or from the
+ * Routes tab recorded no `fixRaisedAt`, and mending one recorded no `fixDoneAt`.
+ *
+ * ⚠ IT IS MONEY, NOT TIDINESS. A fix raised on a completed house stops that payer's WHOLE
+ * group being invoiced — `skippedNeedsFix` in the nightly run — and the hold is recomputed
+ * from the flag every night. Undated, a bill held six weeks looks exactly like one held
+ * since this morning, and nothing anywhere can sort the queue by how long.
+ *
+ * ⚠ THE EXISTING CHECK COULD NOT SEE IT: it asserted the shared rule is CALLED somewhere,
+ * which was true, while two of the four callers went round it. Presence is not coverage.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+  /* Every place the flag is written at all, by the enclosing function. */
+  const doors = new Map();
+  const re = /needsFix\s*[:=]\s*([^,;\r\n}]*)/g;
+  let m;
+  while ((m = re.exec(clean))) {
+    const v = m[1].trim();
+    if (/^==|wasNeedsFix/.test(v)) continue;          // a comparison, not a write
+    if (v.charAt(0) === '{') continue;                // a label table, not a write
+    if (insideComment(src, m.index)) continue;
+    const fn = scan.enclosing(ix, m.index) || '(top level)';
+    doors.set(fn, (doors.get(fn) || 0) + 1);
+  }
+  check('the fix census is finding the places that raise and clear a fault',
+    doors.size >= 3,
+    'found ' + doors.size + '. A matcher that has stopped matching reports no violations ' +
+    'at all, which is the worst kind of green.');
+
+  /* ⚠ NAMED, NOT COUNTED — the same argument as the queue census above. A bare number
+     cannot tell a door legitimately removed from one lost in a merge. */
+  const FIX_DOORS = {
+    '(top level)': 'the shared rule itself — HLX_DONE_KINDS.fix is where both dates live',
+    hlxMarkJobDone: 'the one door that always went through the rule',
+    attachAddressRowHandlers: 'the customer-row dropdown',
+    renderRouteOrderedList: 'the Routes tab toggle',
+    /* ⚠ THESE TWO ARE NOT DOORS, and saying why is the point — a list of names cannot
+       tell a place that FLIPS the flag from one that merely mentions it, and treating a
+       render as a door would send somebody to add a date to some markup. */
+    buildAddressRowHtml: 'draws the tick box — it READS the flag into markup, never writes it',
+    planTickCustomer: 'mirrors the flag into the local cache before the write is awaited, ' +
+      'because the tick is derived and would otherwise spring back; the real dated write ' +
+      'is the hlxMarkJobDone call on the next line'
+  };
+  const strangers = [...doors.keys()].filter(f => !(f in FIX_DOORS));
+  check('no new place writes the fix flag without a decision about it',
+    strangers.length === 0,
+    'new place(s): ' + strangers.join(', ') +
+    '.\n        If it raises or clears a fault it must go through HLX_DONE_KINDS.fix so ' +
+    'the date is recorded; if it only reads or mirrors the flag, add it to FIX_DOORS with ' +
+    'the reason. Left undecided, a fault raised there is invisible on the history AND ' +
+    'holds that payer\'s whole group off the bill with nothing saying since when.');
+
+  /* ⚠ THE REAL CHECK IS THAT NOBODY WRITES IT BARE. A door may legitimately pass the flag
+     through (a form re-saving what it already held); what it may not do is flip it
+     without a date. Both halves of the shared rule carry one, so going through it is the
+     whole requirement. */
+  const bare = [];
+  ['attachAddressRowHandlers', 'renderRouteOrderedList'].forEach(fn => {
+    const f = ix.fns.filter(x => x.name === fn)[0];
+    if (!f) { bare.push(fn + ' (function not found)'); return; }
+    const body = clean.slice(f.start, f.end);
+    if (!/HLX_DONE_KINDS\.fix/.test(body)) bare.push(fn);
+  });
+  check('every door that flips a fault goes through the shared rule', bare.length === 0,
+    'writes it bare: ' + bare.join(', ') +
+    '.\n        Use HLX_DONE_KINDS.fix[raising ? \'off\' : \'on\'](serverTimestamp()). ' +
+    'Written bare, raising a fault records no fixRaisedAt and mending one records no ' +
+    'fixDoneAt — and the nightly run holds that payer\'s whole group while the flag is up.');
+}
+
+/* ---------------------------------------------------------------------------
+ * 1c. THE SEASON STATUS CARRIES A DATE.
+ *
+ * ⚠ FOUR VALUES, AND NOT ONE OF THEM WAS DATED. `seasonStatus` records a cancellation
+ * asked for, an address changed, changes needed, and changes settled — and a search for a
+ * date on it across every source returned nothing at all.
+ *
+ * ⚠ THE ONE THAT COSTS IS THE CANCELLATION. A customer asking through their own portal to
+ * be let out of the season sits there with a crew still notionally coming, and the office
+ * had no way to sort the queue by how long anybody had been waiting: a request made in
+ * October read exactly like one made this morning.
+ *
+ * ⚠ AND THE PREVIOUS VALUE TRAVELS WITH THE DATE, because "changed on the 4th" cannot say
+ * whether they were cancelling or correcting an address, and those need opposite actions.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['functions/index.js'];
+  const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+  const writers = new Map();
+  /* ⚠ `=[^=]`, NOT `=`. The stamp's own guard reads `typeof updates.seasonStatus ===
+     'string'`, and a bare `=` matched the first character of that `===` — so the rule
+     counted itself as a place that changes the status. */
+  const re = /\bupdates\.seasonStatus\s*=[^=]/g;
+  let m;
+  while ((m = re.exec(clean))) {
+    if (insideComment(src, m.index)) continue;
+    const fn = scan.enclosing(ix, m.index) || '(top level)';
+    writers.set(fn, (writers.get(fn) || 0) + 1);
+  }
+  check('the season-status census is finding the places that set it', writers.size >= 1,
+    'found none. A matcher that has stopped matching reports no violations at all.');
+
+  /* ⚠ GROUPED BY FUNCTION, and the stamp sits AFTER every branch inside it — portalSave
+     alone writes the status three ways (the info save, the sides change, the cancel tab),
+     so a stamp beside any one of them misses the other two. That is the placement lesson
+     the build stamp already cost, which shipped inside one branch. */
+  const stamped = new Set();
+  const sre = /stampSeasonStatusServer\s*\(/g;
+  let s2;
+  while ((s2 = sre.exec(clean))) {
+    if (insideComment(src, s2.index)) continue;
+    const fn = scan.enclosing(ix, s2.index) || '(top level)';
+    if (/^function stampSeasonStatusServer/.test(clean.slice(Math.max(0, s2.index - 9), s2.index + 40))) continue;
+    stamped.add(fn);
+  }
+  const unstamped = [...writers.keys()].filter(f => !stamped.has(f));
+  check('every place that changes the season status records when', unstamped.length === 0,
+    'does not stamp: ' + unstamped.join(', ') +
+    '.\n        Call stampSeasonStatusServer(updates, oldData.seasonStatus) after every ' +
+    'branch in that function that can set it. Undated, a cancellation asked for in ' +
+    'October is indistinguishable from one asked for this morning, and a crew is still ' +
+    'notionally coming to the house.');
+
+  /* ⚠ RUN, NOT READ — the rule is "only when it actually changed", and only running it
+     proves an ordinary save does not reset the clock. */
+  const rule = new Function('admin',
+    (function () {
+      const at = src.indexOf('function stampSeasonStatusServer(');
+      let b = src.indexOf('{', at), dep = 0, k = b;
+      for (; k < src.length; k++) {
+        if (src[k] === '{') dep++;
+        else if (src[k] === '}') { dep--; if (!dep) break; }
+      }
+      return src.slice(at, k + 1);
+    })() + '\nreturn stampSeasonStatusServer;')(
+      { firestore: { FieldValue: { serverTimestamp: () => 'NOW' } } });
+
+  let u = rule({ seasonStatus: 'cancellation_requested' }, '');
+  check('server: asking to cancel is dated', u.seasonStatusAt === 'NOW');
+  check('and it records what it changed from',
+    Object.prototype.hasOwnProperty.call(u, 'seasonStatusWas'),
+    'cancelling and correcting an address are the same field and opposite jobs');
+  u = rule({ seasonStatus: 'needs_changes' }, 'needs_changes');
+  check('server: a save that did not change the status leaves the date alone',
+    u.seasonStatusAt === undefined,
+    'the portal writes this on saves that change nothing, so re-stamping resets the ' +
+    'clock every time a customer opens their portal and presses save');
+  u = rule({ seasonStatus: 'confirmed' }, 'needs_changes');
+  check('server: settling a change is dated too, and remembers what it settled',
+    u.seasonStatusAt === 'NOW' && u.seasonStatusWas === 'needs_changes');
+  u = rule({ needsLightBuild: true }, 'confirmed');
+  check('server: a write that does not touch the status is untouched',
+    u.seasonStatusAt === undefined);
+}
+
+/* ---------------------------------------------------------------------------
+ * 1d. START NEW SEASON MARKS WHERE THE SEASON ENDED.
+ *
+ * ⚠ THE RULE AND THE WIRING ARE DIFFERENT CLAIMS, and red-checking proved it: the history
+ * gate happily proves a `seasonResetAt` renders as a divider, and deleting the field from
+ * the reset write left that gate green while no customer would ever carry one.
+ *
+ * ⚠ WHY IT MATTERS. The reset clears the FLAGS and keeps every DATE — rightly, since
+ * wiping them throws away the only record any of it happened. So without a marker a record
+ * carries last season's dates beside this season's flags, and the history runs the two
+ * years together: last October's install reads exactly like this October's.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const at = clean.indexOf('completed: false, invoiceEmailSent: false');
+  check('the Start New Season customer reset was found', at > -1,
+    'the checks below prove nothing against a string that is not there');
+  if (at > -1) {
+    /* The single updateDoc that reopens each customer — from the flags to its closing brace. */
+    let dep = 0, k = clean.lastIndexOf('{', at), end = k;
+    for (; end < clean.length; end++) {
+      if (clean[end] === '{') dep++;
+      else if (clean[end] === '}') { dep--; if (!dep) break; }
+    }
+    const write = clean.slice(k, end + 1);
+    check('and it stamps where the season ended',
+      /seasonResetAt\s*:\s*serverTimestamp\(\)/.test(write),
+      'without it every record carries last season\'s dates beside this season\'s flags, ' +
+      'and the customer history runs the two years together with nothing between them');
+
+    /* ⚠ AND IT MUST NOT START WIPING THE DATES. That is the tempting "tidy" fix and it
+       destroys the only record the work happened — the history needs them, and "queued on
+       the 2nd, built on the 9th" is the whole point of keeping them. */
+    const wiped = ['completedAt', 'lightsQueuedAt', 'lightsMarkedBuiltAt', 'assignedCrewAt',
+      'removalDoneAt', 'fixRaisedAt', 'fixDoneAt']
+      .filter(f => new RegExp(f + '\\s*:\\s*null').test(write));
+    check('and it does not wipe the dates themselves', wiped.length === 0,
+      'cleared by the reset: ' + wiped.join(', ') +
+      '.\n        The marker is the fix, not a clear — those dates are the only record ' +
+      'that any of it happened, and the history is built on them.');
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1e. A MERGE SAYS WHAT IT TOOK, AND FROM WHERE.
+ *
+ * ⚠ THIS IS THE ONE EVENT ON A RECORD THAT WAS PREVIOUSLY UNRECOVERABLE. Merging writes
+ * another record's values onto the keeper and then DELETES that record. Everything else on
+ * the keeper can still be read; the spare is gone the moment the delete runs, so if its id
+ * is not written down at the merge it cannot be recovered by anybody. "Why does this
+ * customer have an address they never gave us" had no answer anywhere — the activity log
+ * records a count with an empty id, so even that cannot name them.
+ *
+ * ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE RULE, because that split has caught this
+ * work twice already today: the history gate proves a `mergedAt` renders, and would stay
+ * green while nothing ever wrote one.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const at = clean.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id)");
+  check('the duplicate-merge write was found', at > -1,
+    'the checks below prove nothing against a string that is not there');
+  if (at > -1) {
+    const around = clean.slice(at, at + 400);
+    check('a merge records when it happened',
+      /mergedAt\s*:\s*serverTimestamp\(\)/.test(around),
+      'without it the keeper carries another record\'s values with nothing saying so');
+    check('and which record it absorbed', /mergedFromIds\s*:/.test(around),
+      'the spare is deleted on the next line — unrecorded here, its id is gone for good');
+    check('and what it took', /mergedFields\s*:/.test(around),
+      '"merged with a duplicate" cannot answer which of these fields is not theirs');
+
+    /* ⚠ IN THE SAME WRITE AS THE GAINS. A second write can fail on its own and leave a
+       record carrying another's values with nothing saying so — worse than the state this
+       fixes, because it looks clean. */
+    check('and it rides in the same write as the fields it gained',
+      /Object\.assign\(\{\},\s*g\.gains,/.test(around),
+      'a separate write can fail on its own and leave the record carrying another\'s ' +
+      'values with nothing saying where they came from');
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1f. ARCHIVING A QUOTE IS ONE FACT IN THREE FIELDS.
+ *
+ * ⚠ TWO OF THE THREE WERE CLEARED, WHICH IS WHY IT WAS EASY TO MISS. Un-archiving set
+ * `quoteArchived` false and blanked the reason, and left `quoteArchivedAt` standing — so a
+ * restored quote read as archived on a date AND not archived, two fields describing one
+ * state and disagreeing. Anything reading the date to decide how long a quote has been
+ * closed got an answer about an archiving that was undone.
+ *
+ * ⚠ NOTHING WOULD HAVE CAUGHT IT: no gate looked at these three together, and each on its
+ * own is written correctly. The bug is only visible in the relationship.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['functions/index.js'];
+  const clean = scan.blankNonCode(src);
+  const trio = ['quoteArchived', 'quoteArchivedReason', 'quoteArchivedAt'];
+  const wherePut = f => {
+    const out = new Set();
+    const re = new RegExp('\\bquoteUpdates\\.' + f + '\\s*=', 'g');
+    let m;
+    while ((m = re.exec(clean))) {
+      if (insideComment(src, m.index)) continue;
+      out.add(scan.enclosing(scan.index(src, true), m.index) || '(top level)');
+    }
+    return out;
+  };
+  const sets = trio.map(wherePut);
+  check('the three quote-archive fields were found', sets.every(s => s.size > 0),
+    'not written anywhere: ' + trio.filter((f, i) => !sets[i].size).join(', ') +
+    '. A matcher that has stopped matching demands nothing.');
+
+  /* ⚠ BY BRANCH, NOT BY FUNCTION — and the first version of this check grouped by function
+     and PROVED NOTHING. Both branches live in one function, so deleting the date from the
+     un-archive still left it written in the archive branch, the function still "touched all
+     three", and two red-check sabotages went straight through. A check that looks right and
+     cannot fail is worse than no check; this is that trap caught in the act. */
+  const setAt = clean.indexOf('quoteUpdates.quoteArchived = true');
+  check('the archive branch was found', setAt > -1,
+    'the branch checks below prove nothing against a string that is not there');
+  if (setAt > -1) {
+    const elseAt = clean.indexOf('} else {', setAt);
+    let dep = 0, k = clean.indexOf('{', elseAt), end = k;
+    for (; end < clean.length; end++) {
+      if (clean[end] === '{') dep++;
+      else if (clean[end] === '}') { dep--; if (!dep) break; }
+    }
+    const onBranch = clean.slice(setAt, elseAt);
+    const offBranch = clean.slice(k, end + 1);
+    const missingOn = trio.filter(f => onBranch.indexOf(f) === -1);
+    const missingOff = trio.filter(f => offBranch.indexOf(f) === -1);
+    check('archiving a quote writes all three', missingOn.length === 0,
+      'missing from the archive branch: ' + missingOn.join(', '));
+    check('and restoring one clears all three', missingOff.length === 0,
+      'missing from the restore branch: ' + missingOff.join(', ') +
+      '.\n        Archived, the reason and the date are one fact. Clearing two and ' +
+      'leaving the third makes a restored quote read as archived on a date AND not ' +
+      'archived at the same time — and two of three looks complete, which is exactly ' +
+      'why this went unnoticed.');
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * 1b. The same census for the RECYCLE queue, and the $30 join fee.
  *
  * Addie, 2026-08-28: "Everything that can be changed for members or added to members
@@ -193,6 +530,46 @@ const RECYCLE_SITES = [
   { file: 'functions/index.js', fn: 'portalSave' },
   { file: 'functions/index.js', fn: 'portalRsvp' }
 ];
+
+/* ⭐ THE CREW PORTAL, KNOWN AND DORMANT (added 2026-08-29 with employee.html itself).
+ * Owner, 2026-08-21: "were not using the employee portal this year." So these write the
+ * same flags the office does and record no date, and that is left alone rather than
+ * repaired today — repairing a screen nobody opens is work with no reader.
+ *
+ * ⚠ NAMED, NOT SKIPPED WHOLESALE. Excluding the file would mean a NEW undated write could
+ * appear there and nothing would say so, which is exactly the state that let these sit
+ * unseen. Listed, they are a to-do rather than a blind spot: if the portal comes back,
+ * this list is what has to be worked through first.
+ *
+ * ⚠ AND DORMANT IS NOT HARMLESS — this repo learned that once already. silent-failures
+ * sweeps this same file because `whToggleRecycle` cleared a customer number and then
+ * swallowed the pool write, leaving the number on nobody's record and in no pool.
+ */
+const DORMANT_CREW_PORTAL = [
+  /* ⚠ THESE TWO WERE REPAIRED ON 2026-08-29 rather than left dormant — each was one line,
+     and a screen that comes back carrying a known hole is worse than one that comes back
+     clean. They stay listed because they still WRITE the flags this census watches; what
+     changed is that they now stamp the same dates the office does. */
+  /* ⚠ `stamps` MEANS REPAIRED AND HELD REPAIRED. Red-checking proved the difference
+     mattered: with these merely listed, removing the recycle date again went completely
+     unnoticed — the exception excused the very thing it had just stopped excusing. */
+  { fn: 'whToggleRecycle', stamps: 'lightsRecycledAt',
+    why: 'ticks a bundle as recycled and blanks the customer number — now stamps ' +
+         'lightsRecycledAt on the tick, matching the office path' },
+  { fn: 'whToggleLightsNew', stamps: 'lightsMarkedBuiltAt',
+    why: 'clears the build flag when a bundle is made — now stamps lightsMarkedBuiltAt ' +
+         'on the tick, matching the office path' },
+  /* ⚠ LEFT ALONE DELIBERATELY, and it is the one that is not a one-liner. HLX_DONE_KINDS
+     lives in admin.html and this is a different file, so dating these three means porting
+     the shared rule across — a real job with no reader while the portal is out of use, and
+     one that would put a SECOND copy of "what done means" in the codebase unless it is
+     done properly. That is the trade, stated rather than hidden. */
+  { fn: 'loadRoutesForDate',
+    why: 'the crew ticking a stop done — writes completed, removalDone and needsFix ' +
+         'straight, never through HLX_DONE_KINDS, so none of the three is dated. Fixing ' +
+         'it means porting the shared rule into this file, not adding a stamp' }
+];
+const dormantKey = fn => 'employee.html · ' + fn;
 
 function censusOf(field, stampRe) {
   const on = new Map(), stamps = new Set();
@@ -230,12 +607,71 @@ function censusOf(field, stampRe) {
 {
   const { on, stamps } = censusOf('needsLightRecycle', '(lightsRecycleRequestedAt|stampRecycleRequested\\w*\\s*\\()');
   const wantedR = RECYCLE_SITES.map(x => x.file + ' · ' + x.fn);
-  const strangersR = [...on.keys()].filter(k => wantedR.indexOf(k) === -1);
+  const dormant = DORMANT_CREW_PORTAL.map(x => dormantKey(x.fn));
+  const strangersR = [...on.keys()].filter(k => wantedR.indexOf(k) === -1 && dormant.indexOf(k) === -1);
   check('no place queues a recycle that nobody has decided about',
     strangersR.length === 0,
     'new place(s): ' + strangersR.join(', ') + '. Either stamp lightsRecycleRequestedAt ' +
     'or add it here with a reason — otherwise that house joins the recycle list with no ' +
     'record of when it was asked for.');
+  /* ⚠ THE DORMANT LIST HAS TO STILL DESCRIBE SOMETHING. A name that no longer matches
+     anything is an exception protecting nothing, and it would go on quietly excusing a
+     function that had been renamed around it. */
+  const goneDormant = DORMANT_CREW_PORTAL
+    .filter(x => !SOURCES['employee.html'] || SOURCES['employee.html'].indexOf(x.fn) === -1)
+    .map(x => x.fn);
+  check('every crew-portal exception still names something in that file',
+    goneDormant.length === 0,
+    'no longer there: ' + goneDormant.join(', ') +
+    '. An exception that matches nothing excuses nothing, and hides the rename.');
+  check('and every one says why it is left alone',
+    DORMANT_CREW_PORTAL.every(x => x.why && x.why.length > 30),
+    'without the reason, "known" and "forgotten" look identical in a list of names');
+
+  /* ⚠ THE ONES THAT WERE REPAIRED STAY REPAIRED. An exception list is the natural place
+     for a fix to be quietly undone: the name is still listed, so the census says nothing,
+     and the date goes away again. Each repaired entry names the field it must write. */
+  /* ⚠ COMMENT-BLANKED, because both of these repairs are EXPLAINED in a comment that names
+     the very field being counted — so the untick check below saw two mentions and called a
+     correct file wrong. That is the comment-mask lesson this repo records in four places,
+     hit again inside a check written to enforce it. */
+  const crew = scan.blankNonCode(SOURCES['employee.html'] || '');
+  const lostStamp = DORMANT_CREW_PORTAL.filter(x => x.stamps).filter(x => {
+    const at = crew.indexOf('function ' + x.fn + '(');
+    if (at < 0) return true;
+    let b = crew.indexOf('{', at), dep = 0, k = b;
+    for (; k < crew.length; k++) {
+      if (crew[k] === '{') dep++;
+      else if (crew[k] === '}') { dep--; if (!dep) break; }
+    }
+    return crew.slice(b, k + 1).indexOf(x.stamps) === -1;
+  }).map(x => x.fn + ' → ' + x.stamps);
+  check('the crew-portal writes that were repaired still record when', lostStamp.length === 0,
+    'no longer stamps: ' + lostStamp.join(', ') +
+    '.\n        These were one-line repairs so the portal cannot come back carrying a ' +
+    'known hole. Listed but unstamped, the exception excuses the very thing it stopped ' +
+    'excusing.');
+
+  /* ⚠ AND NEITHER STAMPS ON THE UNTICK. Un-ticking is somebody undoing a mis-tick, not a
+     bundle being unmade or a set being rebuilt — dated, it records work that did not
+     happen, which is worse than recording nothing. */
+  const untickStamps = DORMANT_CREW_PORTAL.filter(x => x.stamps).filter(x => {
+    const at = crew.indexOf('function ' + x.fn + '(');
+    if (at < 0) return false;
+    let b = crew.indexOf('{', at), dep = 0, k = b;
+    for (; k < crew.length; k++) {
+      if (crew[k] === '{') dep++;
+      else if (crew[k] === '}') { dep--; if (!dep) break; }
+    }
+    const body = crew.slice(b, k + 1);
+    /* The untick is the branch after the ternary's colon; one stamp in the whole body is
+       the tick's, two means the untick got one as well. */
+    return (body.split(x.stamps).length - 1) > 1;
+  }).map(x => x.fn);
+  check('and neither of them dates the untick', untickStamps.length === 0,
+    'stamps on both branches: ' + untickStamps.join(', ') +
+    '. Un-ticking is a correction, not the work being undone — dated, it records a build ' +
+    'or a recycle that never happened and overwrites the one that did.');
   RECYCLE_SITES.forEach(site => {
     const key = site.file + ' · ' + site.fn;
     if (!on.has(key)) { note('recycle site no longer found: ' + key); return; }
@@ -282,6 +718,11 @@ const PATH_STEPS = [
   ['the takedown is done',         'removalDoneAt',            'admin.html'],
   ['their old set is asked back',  'lightsRecycleRequestedAt', 'admin.html'],
   ['they answer the RSVP',         'rsvpRespondedAt',          'admin.html'],
+  /* ⚠ ADDED 2026-08-29. Four values ride on `seasonStatus` — a cancellation asked for, an
+     address changed, changes needed, changes settled — and not one of them was dated. The
+     cancellation is the one that costs: a customer waiting to be let out of the season,
+     with a crew still notionally coming, and nothing to sort the queue by. */
+  ['their season status changes',  'seasonStatusAt',           'functions/index.js'],
   ['the invoice goes out',         'invoicedAt',               'functions/index.js'],
   ['they pay',                     'paidAt',                   'functions/index.js'],
   ['the $30 join fee is charged',  'newMemberFeeAppliedAt',    'functions/index.js']
@@ -299,8 +740,8 @@ const WRITES_A_TIME = new RegExp(
    cannot find its target and skips. A step legitimately retired should lower this by
    hand, deliberately. */
 check('the path still has every step in it',
-  PATH_STEPS.length >= 19,
-  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 19. Removing a step deletes its ' +
+  PATH_STEPS.length >= 20,
+  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 20. Removing a step deletes its ' +
   'check silently — lower this number in the same change, and say which step went.');
 
 PATH_STEPS.forEach(([label, field, file]) => {
