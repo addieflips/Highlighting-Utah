@@ -521,6 +521,93 @@ check('the one place that sets the flag without queuing is still excluded',
 }
 
 /* ---------------------------------------------------------------------------
+ * 1e1. EVERY CUSTOMER RECORD KNOWS THE DAY IT WAS MADE.
+ *
+ * ⚠ THE HISTORY READ `createdAt` OFF THE QUOTE ONLY, which answers nothing for a customer
+ * who arrived any other way — typed in by the office, or imported from the master sheet,
+ * which is most of the book. Their history simply began at whatever happened to them first,
+ * with no row anywhere saying when they became a customer. That is fixed in HISTORY_STEPS;
+ * this is the other half — the field it now reads must actually be there.
+ *
+ * ⚠ AND A SCAN THAT LOOKED INSIDE THE addDoc CALL ANSWERED THIS WRONGLY, which is why the
+ * check is written the way it is. Four of the six creators build their object in a variable
+ * above the call and pass it by name, so a scan of the call's own parentheses reported them
+ * as missing the field when every one of them sets it. A confidently wrong answer sent a
+ * whole line of work in the wrong direction before one at a time by hand corrected it.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+  const re = /addDoc\(collection\(db,'jobAddresses'\)/g;
+  const sites = [];
+  let m;
+  while ((m = re.exec(clean))) {
+    sites.push({ at: m.index, fn: scan.enclosing(ix, m.index) || '(top level)' });
+  }
+  check('the customer-creator census found the places that make a record',
+    sites.length >= 5,
+    'found ' + sites.length + ' — a matcher that has stopped matching demands nothing');
+
+  /* ⚠ THE OBJECT THAT IS ACTUALLY WRITTEN, NOT THE FUNCTION AROUND IT — and the first
+     version searched the whole enclosing function, which the red-check proved was too
+     loose to fail: these handlers write several collections, so a `createdAt:` belonging
+     to something else satisfied the search while the customer object had lost its own.
+     A check that cannot fail is worse than no check.
+     ⚠ SO THE ARGUMENT IS RESOLVED. Two of the six pass an inline literal; the other four
+     build the object above and pass it by name, which is exactly what made a scan of the
+     call's own parentheses answer this wrongly in the first place. Both shapes are read. */
+  function objectWrittenAt(at) {
+    /* addDoc's own parentheses, then its SECOND top-level argument — the first is the
+       collection(...) call. Depth-counted rather than matched by shape, because the object
+       itself is full of braces and commas. */
+    const open = clean.indexOf('(', at);
+    let i = open, d = 0, split = -1;
+    for (; i < clean.length; i++) {
+      const c = clean[i];
+      if (c === '(' || c === '{' || c === '[') d++;
+      else if (c === ')' || c === '}' || c === ']') { d--; if (!d) break; }
+      else if (c === ',' && d === 1 && split < 0) split = i;
+    }
+    if (split < 0 || i >= clean.length) return '';
+    const arg = clean.slice(split + 1, i).trim();
+    /* Inline literal, or Object.assign built from one — read it where it stands. */
+    if (arg[0] === '{' || /^Object\.assign/.test(arg)) return arg;
+    /* Passed by name: find its declaration, take the literal, and everything between that
+       and the write — `newDoc.customerNumber = cn` is part of what gets written too. */
+    const nm = /^([A-Za-z_$][\w$]*)$/.exec(arg);
+    if (!nm) return '';
+    const decl = new RegExp('(?:const|let|var)\\s+' + nm[1] + '\\s*=\\s*(?:Object\\.assign\\()?\\{');
+    const dm = decl.exec(clean.slice(0, at));
+    if (!dm) return '';
+    return clean.slice(dm.index, at);
+  }
+  const noDate = [];
+  sites.forEach(site => {
+    const obj = objectWrittenAt(site.at);
+    /* ⚠ "COULD NOT READ THE OBJECT" IS SAID AS ITSELF, never reported as a missing field.
+       The two need different fixes and only one of them is about the page. */
+    if (!obj) { noDate.push(site.fn + ' (could not read the object it writes)'); return; }
+    if (!/createdAt\s*:/.test(obj)) noDate.push(site.fn);
+  });
+  check('every place that creates a customer records the day it did',
+    noDate.length === 0,
+    'no createdAt in: ' + noDate.join(', ') +
+    '.\n        The history now reads this field to say when somebody joined; a record ' +
+    'created without it has no joining row at all, and the Enrolled box in Edit Customer ' +
+    'opens blank.');
+
+  /* ⚠ AND THE HISTORY READS IT OFF THE CUSTOMER, not only off the quote. Asserted here
+     rather than only in history.test.js because the two halves are one guarantee: the
+     field being written is worth nothing if nothing reads it for the people who have no
+     quote, and a reader is worth nothing if a creator stops writing it. */
+  check('and the history reads it off the customer as well as the quote',
+    /field:\s*'createdAt',\s*from:\s*'cust'/.test(clean),
+    'read off the quote alone it answers nothing for the imported book, which is most ' +
+    'of the customers on file');
+}
+
+/* ---------------------------------------------------------------------------
  * 1e2. A CUSTOMER RECORD THAT IS DELETED LEAVES SOMETHING BEHIND, OR IS SAID NOT TO.
  *
  * ⭐ THE CENSUS ABOVE COULD NOT SEE THE HOLE THIS ONE FOUND, and that is the whole reason

@@ -174,6 +174,28 @@ check('every step of the path reaches the history',
  * ------------------------------------------------------------------------- */
 {
   const D = v => new Date(v + 'T12:00:00Z');
+  /* ⚠ THE DAY THEY JOINED, FOR EVERYBODY WHO NEVER HAD A QUOTE. The step list read
+     `createdAt` off the QUOTE only, so a customer typed in by the office or imported from
+     the master sheet — most of the book — had no row anywhere saying when they became a
+     customer; their history simply began at whatever happened to them first.
+     ⚠ THE PATH CENSUS COULD NOT HAVE CAUGHT IT: `createdAt` was already on PATH_STEPS, so
+     every list was satisfied while the row was missing for almost everybody. It takes
+     RUNNING the history against a customer who has no quote at all. */
+  check('a customer who never had a quote still has the day they joined',
+    history({ cust: { createdAt: D('2026-03-04') } }).rows.length === 1,
+    'got: ' + JSON.stringify(history({ cust: { createdAt: D('2026-03-04') } }).rows));
+
+  /* ⚠ AND A QUOTE CUSTOMER GETS BOTH, which is right rather than duplication: the day
+     somebody asked for a price and the day they became a customer are different days,
+     often weeks apart, and the gap between them is a real thing to look at. */
+  const both2 = history({ quote: { createdAt: D('2026-02-01') },
+    cust: { createdAt: D('2026-03-04') } });
+  check('and a quote customer gets the quote day and the joining day, separately',
+    both2.rows.length === 2 &&
+    both2.rows.some(r => /Quote raised/i.test(r.what)) &&
+    both2.rows.some(r => /customer list/i.test(r.what)),
+    'got: ' + both2.rows.map(r => r.what).join(' | '));
+
   check('a colour change appears on the history at all',
     stepFields.indexOf('lightsChangedAt') !== -1,
     'the first thing Addie asked to be dated, absent from the page built to answer her');

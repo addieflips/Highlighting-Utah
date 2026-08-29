@@ -709,6 +709,63 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### The day they joined, for everybody who never had a quote
+
+`HISTORY_STEPS` read `createdAt` off the **quote**, so it answered nothing for a customer
+who arrived any other way — typed in by the office, or imported from the master sheet, which
+is most of the book. Their history simply began at whatever happened to them first, with no
+row anywhere saying when they became a customer.
+
+⚠ **The path census could not have caught this one either**, and the reason is worth
+noticing because it is a *third* shape: `createdAt` was already on `PATH_STEPS`, so every
+list was satisfied — the field is written, the field reaches the history — while the row was
+missing for almost everybody, because it is read from the wrong **document**. It takes
+running the history against a customer who has no quote at all.
+
+⚠ **A quote customer gets both rows**, which is right rather than duplication: the day
+somebody asked for a price and the day they became a customer are different days, often
+weeks apart, and the gap between them is a real thing to look at.
+
+⚠ **All six creators do set the field** — checked one at a time. The field was never the
+problem; nothing read it. A census now freezes that, and it is written against **the object
+that is actually written**, not the function around it: a first version searched the whole
+enclosing handler and the red-check proved it could not fail, because those handlers write
+several collections and a `createdAt:` belonging to something else satisfied the search.
+
+⚠ **And a scan that looked inside the `addDoc` call answered the original question
+wrongly.** Four of the six build their object in a variable above the call and pass it by
+name, so a scan of the call's own parentheses reported them as missing the field when every
+one of them sets it — *"three of six never set it"* was a confidently wrong answer that sent
+a whole line of work in the wrong direction until it was checked one at a time by hand. The
+census reads both shapes now, and says *"could not read the object"* as itself rather than
+reporting it as a missing field: the two need different fixes and only one is about the app.
+
+### A waived $30 fee left no trace at all
+
+`lightFeeWaived` is a **local variable** in the Edit Customer save. It decides whether the
+$30 light-change fee is charged and then goes out of scope: nothing is written, no field
+moves, and the only thing that ever said it happened was a toast — which is gone the moment
+somebody looks away.
+
+⚠ **The asymmetry is the fault**, and it is the same shape as everything else found today.
+A fee that **is** charged lands on the invoice as a `changeFeeNotes` entry with its own
+amount, reason and date, and `historyNoteRows` reads it straight onto the customer's
+history. A fee that is **waived** produced nothing anywhere — so *"why was this customer not
+charged for changing their colours"* had no answer, and the record was indistinguishable
+from one where nobody was ever asked.
+
+⚠ **The log, not a field.** This is an act somebody performed, not a state the customer is
+in. A `feeWaived: true` on the record would be read back by something eventually and would
+then have to be cleared, and there is no correct moment to clear it.
+
+⚠ **Its own row, not folded into the edit sentence.** That sentence lists what *changed* and
+is capped at twelve fields; a waiver is precisely a thing that did **not** change, so folded
+in it would be the first line dropped by the cap and the last one anybody would look for.
+
+⚠ **Guarded on both the flag and the amount.** `lightFeeWaived` starts false and stays false
+when there was no fee to waive at all, so the flag alone would eventually log a waiver on an
+ordinary save — and a log with invented rows in it is one nobody trusts.
+
 ### What a customer changed in their own portal
 
 Addie's list ended *"or changed timer settings this date. Changed address this date."* Both

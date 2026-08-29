@@ -6723,6 +6723,18 @@ async function logActivity(what, area, refId){
  */
 const HISTORY_STEPS = [
   { field: 'createdAt',                from: 'quote', what: 'Quote raised' },
+  /* \u2b50 THE DAY THEY JOINED, FOR EVERYBODY WHO NEVER HAD A QUOTE (added 2026-08-29).
+     The line above reads `createdAt` off the QUOTE, so it answers nothing at all for a
+     customer who arrived any other way \u2014 typed in by the office, or imported from the
+     master sheet, which is most of the book. Their history simply began at whatever
+     happened to them first, with no row anywhere saying when they became a customer.
+     \u26a0 ALL SIX CREATORS DO SET IT, checked one at a time rather than assumed: Add
+     Customer, the conversion, Bulk Updates, the sheet sync's fold-in, the invoice importer
+     and the test-person builder. The field was never the problem \u2014 nothing read it.
+     \u26a0 A QUOTE CUSTOMER GETS BOTH ROWS, and that is right rather than duplication: the
+     day somebody asked for a price and the day they became a customer are different days,
+     often weeks apart, and the gap between them is a real thing to look at. */
+  { field: 'createdAt',                from: 'cust',  what: 'Added to the customer list' },
   { field: 'quoteSentAt',              from: 'quote', what: 'Quote emailed to them' },
   { field: 'quoteLastNudgedAt',        from: 'quote', what: 'Nudged about it' },
   /* \u26a0 TWO FIELDS, TWO ACTORS, TWO ROWS \u2014 NOT ONE EVENT WRITTEN TWICE. `quoteRespond`
@@ -42508,6 +42520,37 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        never be able to break the change. It carries its own catch. */
     if(custChanges.length){
       logActivity(customerChangeSentence(newName || item.data.name, custChanges),
+        'customers', editCustomerId);
+    }
+    /* \u2b50 A WAIVED FEE IS A DECISION, AND IT LEFT NO TRACE AT ALL (added 2026-08-29).
+       `lightFeeWaived` is a LOCAL VARIABLE. It decides whether the $30 is charged and then
+       goes out of scope: nothing is written, no field moves, and the only thing that ever
+       said it happened was a toast that is gone the moment somebody looks away.
+
+       \u26a0 THE ASYMMETRY IS THE FAULT, and it is the same shape as everything else found
+       today. A fee that IS charged lands on the invoice as a `changeFeeNotes` entry with
+       its own amount, reason and date, and `historyNoteRows` reads it straight onto the
+       customer's history. A fee that is WAIVED produces nothing anywhere — so "why was
+       this customer not charged for changing their colours" has no answer, and the record
+       is indistinguishable from one where nobody was ever asked.
+
+       \u26a0 IT IS THE LOG, NOT A FIELD, for the same reason the office's edits are: this is
+       an act somebody performed, not a state the customer is in. A `feeWaived: true` on the
+       record would be read back by something eventually and would then have to be cleared,
+       and there is no correct moment to clear it.
+
+       \u26a0 IT NAMES WHO AND WHAT, because the amount is the whole question. `logActivity`
+       stamps the signed-in user by itself — four people share this dashboard — and the
+       reason the office typed goes in beside it.
+
+       \u26a0 AND IT IS ITS OWN ROW, not folded into the edit sentence above. That sentence is
+       capped at twelve fields and lists what CHANGED; a waiver is precisely a thing that
+       did NOT change, so it would be the first line dropped by the cap and the last one
+       anybody would think to look for. */
+    if(lightChange.feeAmount > 0 && lightFeeWaived){
+      logActivity('Waived the ' + fmtMoney(lightChange.feeAmount) + ' light-change fee for ' +
+        (newName || item.data.name || 'a customer') +
+        (lightChange.feeReason ? ' \u2014 ' + lightChange.feeReason : ''),
         'customers', editCustomerId);
     }
     /* Pool bookkeeping, after the record is safely written. Each half is
