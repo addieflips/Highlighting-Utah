@@ -709,6 +709,62 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### Every date the code writes is on a path, or is said not to be
+
+The colour change above was found **by hand**, one field at a time, and only because
+somebody happened to re-read Addie's list. So the obvious next question was how many more
+there were. Sweeping every field in the four source files that is written with a **real
+timestamp** — a server sentinel, a `Timestamp`, a `new Date`, or the `ts` a shared rule is
+handed — turned up **thirty-five more on no path at all**, and **twelve of them were plain
+stages of a customer's journey whose field was already being written**. Two were Addie's own
+words a second and third time: *"or maybe next year date"*, *"or requoted on"*.
+
+⚠ **Neither existing census could have found them, and that is the finding.**
+`queue-date.test.js` proves every field **on** `PATH_STEPS` is written and dated;
+`history.test.js` proves every field **on** `PATH_STEPS` reaches the history. Both are
+perfectly satisfied by a field that was never put on the list — it is *absent from the
+question*, not answered wrongly. So the sweep has to start from the **code** and work back
+to the list, which is the opposite direction from everything else in that file.
+
+⚠ **The pairs are what was really missing**, and each one is a question somebody actually
+asks:
+
+| the easy half | the half that was missing | the question it answers |
+|---|---|---|
+| `approvalRespondedAt` | `quoteRespondedAt` | did they reply, or did we take somebody's word for it |
+| `invoicedAt` | `invoiceEmailSentAt` | was a bill raised, or did it actually go out |
+| `lightsRecycleRequestedAt` | `lightsRecycledAt` | asked back, or actually back on the shelf |
+| `requotedAt` | `requoteAppliedAt` | when the price changed, or when they agreed to it |
+
+Flattened into one row each, the history answers the easy half **and looks complete doing
+it** — which is worse than showing nothing, because somebody acts on it.
+
+⚠ **`requotedAt` could not be a step at all**, and that is why it needed its own mechanism.
+It lives on the **quote**, and a re-quote is a separate quote document — the history reads
+only the quote that *converted* them, deliberately, so a re-quote raised last week does not
+read as the day they joined. A step keyed on it would have looked right in the list and
+found nothing for almost everybody. `historyRequoteRows` gives **a row per re-quote**,
+because three re-quotes in a season is a house nobody has measured properly and a single
+"last re-quoted on" hides exactly that — each naming its kind, since an addition, a move and
+a corrected price are three very different amounts of work.
+
+⚠ **"Not a journey date" is a legitimate answer and most of them are** — a clock-in, an
+export, the nightly run's own last-run marker. What is not legitimate is *silence*. All
+twenty-seven now carry their reason in `NOT_A_JOURNEY_DATE`, and a new dated field fails the
+build until somebody decides which it is. **That is the whole difference between this and
+the sweep that found them**: the sweep was a thing somebody thought to run once.
+
+⚠ **And the excuse list cannot go stale either.** A field that stops being written must
+leave it, or it silently excuses a name that no longer exists — and the next real field with
+a similar name inherits the excuse.
+
+⚠ **All three lists agree now, with no standing notes.** Both censuses used to end in a
+"the page names N fields the path does not" note, and those notes had been true and ignored
+for weeks. **A note is not a gate.** The seven strangers are on the path; the two that
+genuinely are not stages carry reasons; and the strangers check now only considers fields
+that are dates, so a step naming `requoteKind` no longer fires a note for ever — which costs
+the real notes their audience.
+
 ### A merge says what it took, and from where
 
 Merging duplicates writes another record's values onto the keeper and then **deletes that

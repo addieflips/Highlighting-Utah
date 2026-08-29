@@ -79,6 +79,12 @@ const PARTS = {
      answers the warehouse badge already tells apart, and the history must not be
      the one screen that flattens them. */
   historyLightsWords: liftBlock('historyLightsWords', '{', '}'),
+  /* ⚠ THE RE-QUOTE ROWS AND THEIR VOCABULARY, BOTH LIFTED. The words are the claim —
+     'they moved house' and 'the price was corrected' are three very different amounts
+     of work — so a stubbed table would keep this file green through a change to what
+     a re-quote row tells somebody. */
+  REQUOTE_KIND_WORDS: liftBlock('REQUOTE_KIND_WORDS', '{', '}'),
+  historyRequoteRows: liftBlock('historyRequoteRows', '{', '}'),
   historyNoteRows: liftBlock('historyNoteRows', '{', '}'),
   customerHistory: liftBlock('customerHistory', '{', '}')
 };
@@ -129,7 +135,20 @@ check('the path steps were read out of queue-date.test.js',
    names cannot tell a step deliberately left off from one somebody forgot. */
 const NOT_IN_HISTORY = {
   paidAt: 'payments are their own ledger with several rows per invoice, so they come ' +
-    'from the payments collection rather than a single date on the record'
+    'from the payments collection rather than a single date on the record',
+  /* ⚠ IT IS ON THE HISTORY — through `historyRequoteRows`, not through HISTORY_STEPS, and
+     the difference is the whole reason it needs an entry here. `requotedAt` lives on the
+     QUOTE, and a re-quote is a SEPARATE quote document: the history reads only the quote
+     that CONVERTED them, deliberately, so a re-quote raised last week does not read as the
+     day they joined. A step keyed on this field would look right in the list and find
+     nothing for almost everybody. Section 1d runs the rows it really produces. */
+  requotedAt: 'it lives on a separate quote document, so it comes from the re-quote rows ' +
+    'rather than from a step — a step could only ever read the converting quote',
+  /* ⚠ ON THE PAYMENT DOCUMENT, not on the customer. Every payment is already a row of its
+     own from the payments ledger — with its amount and its method, which one date could
+     not carry — so a step here would draw the same money twice. Same reason as paidAt. */
+  capturedAt: 'a card payment being taken, on the payment document — payments are already ' +
+    'a row each from the ledger, so a step would draw the same money twice'
 };
 const stepFields = STEPS.map(s => s.field);
 const missing = pathFields.filter(f => stepFields.indexOf(f) === -1 && !(f in NOT_IN_HISTORY));
@@ -198,6 +217,110 @@ check('every step of the path reaches the history',
     both.rows.filter(r => /different lights/i.test(r.what)).length === 1 &&
     both.rows.filter(r => /warehouse/i.test(r.what)).length === 1,
     'got: ' + both.rows.map(r => r.what).join(' | '));
+}
+
+/* ---------------------------------------------------------------------------
+ * 1c. THE REST OF WHAT WAS WRITTEN AND SHOWN TO NOBODY.
+ *
+ * The colour change was found by hand. Sweeping every field in the four source files that
+ * is written with a real timestamp turned up **thirty-five** more on no path at all, and
+ * seven of them were plain stages of a customer's journey with the field already there.
+ * Two were Addie's own words a second and third time — "or maybe next year date", "or
+ * requoted on".
+ *
+ * ⚠ THE PAIRS ARE THE POINT, and each pair is one question somebody actually asks:
+ *   approvalRespondedAt / quoteRespondedAt — did they reply, or did we take somebody's word
+ *   invoicedAt / invoiceEmailSentAt        — was a bill raised, or did it actually go out
+ *   lightsRecycleRequestedAt / lightsRecycledAt — asked back, or actually back on the shelf
+ * Flattened into one row each, the history answers the easy half and looks complete doing
+ * it. That is worse than showing nothing, because somebody acts on it.
+ * ------------------------------------------------------------------------- */
+{
+  const D = v => new Date(v + 'T12:00:00Z');
+  const has = f => stepFields.indexOf(f) !== -1;
+  const WANTED = {
+    quoteLastNudgedAt: 'the nudge is a step on the picture and recorded nothing',
+    approvalRespondedAt: 'the customer pressing the button in their own email',
+    quoteRespondedAt: 'the office recording an answer given on the phone',
+    formCompletedAt: 'the one step of the journey that is their work, not ours',
+    maybeNextYearAt: 'Addie named it: "or maybe next year date"',
+    lightsRecycledAt: 'the set actually back on the shelf, not merely asked for',
+    invoiceEmailSentAt: 'the bill actually leaving — "I never got my invoice"'
+  };
+  const absent = Object.keys(WANTED).filter(f => !has(f));
+  check('every dated event the sweep found as a real stage is on the history',
+    absent.length === 0,
+    'missing: ' + absent.map(f => f + ' (' + WANTED[f] + ')').join('; '));
+
+  /* ⚠ EACH PAIR STAYS TWO ROWS. Asserted by RUNNING both dates onto one record and counting
+     the lines, not by checking two entries exist — a step list can hold both names while
+     the words collapse them, and the words are what a person reads. */
+  const pairs = [
+    ['approvalRespondedAt', 'quoteRespondedAt', 'quote', /themselves/i, /office/i],
+    ['lightsRecycleRequestedAt', 'lightsRecycledAt', 'cust', /asked back/i, /came back/i]
+  ];
+  pairs.forEach(([a, b, from, ra, rb]) => {
+    const rec = {}; rec[a] = D('2026-06-01'); rec[b] = D('2026-06-02');
+    const h = history(from === 'quote' ? { quote: rec } : { cust: rec });
+    check('"' + a + '" and "' + b + '" stay two lines',
+      h.rows.length === 2 && h.rows.some(r => ra.test(r.what)) && h.rows.some(r => rb.test(r.what)),
+      'got: ' + h.rows.map(r => r.what).join(' | '));
+  });
+
+  /* ⚠ AND THE INVOICE PAIR SPANS TWO DOCUMENTS, which is why it is checked separately: the
+     bill being raised is on the invoice and the email leaving is on the customer, so a
+     harness feeding one record could never tell them apart. */
+  const invPair = history({ inv: {}, invoice: { invoicedAt: D('2026-06-01') },
+    cust: { invoiceEmailSentAt: D('2026-06-02') } });
+  check('a bill raised and a bill emailed are two lines from two documents',
+    invPair.rows.length === 2 &&
+    invPair.rows.some(r => /raised/i.test(r.what)) &&
+    invPair.rows.some(r => /emailed/i.test(r.what)),
+    'got: ' + invPair.rows.map(r => r.what).join(' | '));
+}
+
+/* ---------------------------------------------------------------------------
+ * 1d. "OR REQUOTED ON" — THE ONE THAT COULD NOT BE A STEP.
+ *
+ * `requotedAt` lives on the QUOTE, and a re-quote is a separate quote document. The history
+ * reads only the quote that CONVERTED them — deliberately, so a re-quote raised last week
+ * does not read as the day they joined — so a step keyed on this field would have looked
+ * right in the list and found nothing for almost everybody.
+ * ------------------------------------------------------------------------- */
+{
+  const D = v => new Date(v + 'T12:00:00Z');
+  const three = history({ requotes: [
+    { requotedAt: D('2026-05-01'), requoteKind: 'addition' },
+    { requotedAt: D('2026-06-01'), requoteKind: 'address' },
+    { requotedAt: D('2026-07-01'), requoteKind: 'price', requoteReason: 'rounding' }
+  ] });
+  /* ⚠ A ROW EACH, NOT ONE "last re-quoted on". Three re-quotes in a season is a house
+     nobody has measured properly, and a single latest-date row hides exactly that. */
+  check('every re-quote gets its own line', three.rows.length === 3,
+    'got ' + three.rows.length + ': ' + three.rows.map(r => r.what).join(' | '));
+
+  /* ⚠ AND EACH SAYS WHY. An addition, a move and a corrected price are three different
+     amounts of work; "Re-quoted" beside a date leaves the only useful question open. */
+  const words = three.rows.map(r => r.what).join(' | ');
+  check('a re-quote says which kind it was',
+    /more of the house/i.test(words) && /moved house/i.test(words) && /price was corrected/i.test(words),
+    'got: ' + words);
+  check('and carries the reason somebody typed', /rounding/.test(words),
+    'got: ' + words);
+
+  /* ⚠ AN UNKNOWN KIND SAYS NOTHING RATHER THAN GUESSING — re-quotes raised before
+     requoteKind existed carry none, and picking one prints a confident claim about work
+     that may never have happened. Same rule as the colour change's origin. */
+  const bare = history({ requotes: [{ requotedAt: D('2026-05-01') }] });
+  check('a re-quote with no kind recorded claims none',
+    bare.rows.length === 1 && !/moved|more of the house|price was corrected/i.test(bare.rows[0].what),
+    'got: ' + bare.rows[0].what);
+
+  /* ⚠ AND A QUOTE THAT WAS NEVER RE-QUOTED IS NOT ONE. The renderer filters on the date, so
+     an ordinary second quote against the same customer must not appear as a re-quote here. */
+  check('a quote with no re-quote date is not listed',
+    history({ requotes: [{ requoteKind: 'address' }] }).rows.length === 0,
+    'a quote nobody re-quoted was drawn as a re-quote');
 }
 
 const strangers = stepFields.filter(f => pathFields.indexOf(f) === -1);

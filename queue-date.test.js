@@ -952,6 +952,31 @@ const PATH_STEPS = [
      customer's own history did not show it. A field written everywhere and named on no
      path is the exact shape of hole these two lists exist to catch. */
   ['they ask for different lights', 'lightsChangedAt',         'admin.html'],
+  /* ⚠ ADDED 2026-08-29 BY THE SWEEP BELOW, not one at a time. Once the colour change was
+     found by hand, scanning every field in the four source files written with a real
+     timestamp turned up thirty-five more on no path at all — and seven of them were plain
+     stages with the field already written. Two were Addie's own words a second and third
+     time: "or maybe next year date", "or requoted on". */
+  ['we nudge them about it',       'quoteLastNudgedAt',        'admin.html'],
+  ['they answer the quote',        'approvalRespondedAt',      'functions/index.js'],
+  ['the office records an answer', 'quoteRespondedAt',         'admin.html'],
+  ['they fill in the form',        'formCompletedAt',          'functions/index.js'],
+  ['they are marked maybe next year', 'maybeNextYearAt',       'admin.html'],
+  ['their old set comes back',     'lightsRecycledAt',         'admin.html'],
+  ['the invoice email goes out',   'invoiceEmailSentAt',       'functions/index.js'],
+  ['they are re-quoted',           'requotedAt',               'admin.html'],
+  /* ⚠ THESE SEVEN WERE ALREADY ON THE HISTORY OR ON THE PICTURE AND ON NO PATH, which is
+     how they came to be reported as "strangers" by both of the other censuses for weeks
+     without anybody acting on it. A note is not a gate. Listed here, all three lists agree
+     about what the journey is made of, and the two stranger notes go quiet because there
+     are no strangers left. */
+  ['the re-quote is applied',      'requoteAppliedAt',         'admin.html'],
+  ['colours change after booking', 'lightsChangedAfterAssignAt','admin.html'],
+  ['a duplicate is folded in',     'mergedAt',                 'admin.html'],
+  ['a new season starts',          'seasonResetAt',            'admin.html'],
+  ['we ask about last year',       'askSameAsLastYearAt',      'functions/index.js'],
+  ['there is nobody to bill',      'cannotBillNoEmailAt',      'functions/index.js'],
+  ['a card payment is taken',      'capturedAt',               'functions/index.js'],
   ['they answer the RSVP',         'rsvpRespondedAt',          'admin.html'],
   /* ⚠ ADDED 2026-08-29. Four values ride on `seasonStatus` — a cancellation asked for, an
      address changed, changes needed, changes settled — and not one of them was dated. The
@@ -975,9 +1000,135 @@ const WRITES_A_TIME = new RegExp(
    cannot find its target and skips. A step legitimately retired should lower this by
    hand, deliberately. */
 check('the path still has every step in it',
-  PATH_STEPS.length >= 21,
-  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 21. Removing a step deletes its ' +
+  PATH_STEPS.length >= 36,
+  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 36. Removing a step deletes its ' +
   'check silently — lower this number in the same change, and say which step went.');
+
+/* ---------------------------------------------------------------------------
+ * 1a2. EVERY DATE THE CODE WRITES IS ON A PATH, OR IS SAID NOT TO BE.
+ *
+ * ⭐ THIS IS THE CHECK THAT WOULD HAVE FOUND THEM ALL AT ONCE. The colour change was found
+ * by hand, one field at a time, and only because somebody happened to re-read Addie's list.
+ * Sweeping every field in the four source files that is written with a REAL timestamp then
+ * turned up thirty-five more on no path at all — and seven of them were plain stages of a
+ * customer's journey whose field was already being written. Two of those were her own words
+ * a second and third time: "or maybe next year date", "or requoted on".
+ *
+ * ⚠ THE OTHER TWO CENSUSES COULD NOT HAVE FOUND THEM, and that is the finding. `PATH_STEPS`
+ * proves every field ON the list is written and dated; `history.test.js` proves every field
+ * ON the list reaches the history. Both are satisfied by a field that was never put on the
+ * list — it is absent from the question, not answered wrongly. So the sweep has to start
+ * from the CODE and work back to the list, which is the opposite direction from everything
+ * else here.
+ *
+ * ⚠ "NOT A JOURNEY DATE" IS A LEGITIMATE ANSWER, and most of them are: a clock-in, an
+ * export, the nightly run's own last-run marker. What is not legitimate is silence. Each
+ * absence carries its reason, and a new dated field fails the build until somebody decides
+ * which it is — which is the whole difference between this and the sweep that found them.
+ * ------------------------------------------------------------------------- */
+{
+  /* ⚠ A REAL TIME, NOT MERELY A NAME ENDING IN "At". A variable called `sentAt` read out of
+     a document is not a write; the shapes below are the four ways this codebase actually
+     stamps one. Same rule WRITES_A_TIME already uses for the other direction. */
+  const STAMP = /\b([a-z][A-Za-z0-9]*(?:At|Until))\s*[:=]\s*(?:serverTimestamp\(\)|admin\.firestore\.FieldValue\.serverTimestamp\(\)|new Date|Timestamp\.|ts\b)/g;
+  const dated = new Map();
+  ['admin.html', 'functions/index.js', 'employee.html', 'index.html'].forEach(f => {
+    const src = SOURCES[f];
+    if (!src) return;
+    const clean = scan.blankNonCode(src);
+    let m;
+    STAMP.lastIndex = 0;
+    while ((m = STAMP.exec(clean))) {
+      if (!dated.has(m[1])) dated.set(m[1], new Set());
+      dated.get(m[1]).add(f);
+    }
+  });
+  check('the dated-field sweep found the dates the code writes',
+    dated.size >= 55,
+    'found ' + dated.size + ' — a sweep that has stopped matching demands nothing at all, ' +
+    'which is exactly the green this section exists to stop being possible');
+
+  /* ⚠ EACH ABSENCE CARRIES ITS REASON, AND THE REASON IS THE WORK. A bare list of names
+     cannot tell a date deliberately left off the journey from one nobody has looked at —
+     which is the state all thirty-five of these were in until 2026-08-29. */
+  const NOT_A_JOURNEY_DATE = {
+    /* --- not about a customer at all --- */
+    clockInAt: 'a crew member starting a shift — the timecards are their own thing',
+    clockOutAt: 'the other end of the same shift',
+    runAt: 'when a scheduled job ran, on the job\'s own record',
+    lastRunAt: 'the nightly run\'s own marker, used to raise the stale-run banner',
+    exportedAt: 'when a spreadsheet was downloaded',
+    savedAt: 'a settings document or a yearly snapshot writing its own save time',
+    connectedAt: 'when the master sheet was connected on this computer',
+    checkedAt: 'when a health check last ran',
+    releasedAt: 'a customer number going back into the pool — the pool\'s record, not the ' +
+      'customer\'s, and the customer side of it is the recycle step',
+    updatedAt: 'every write touches it; it is a modification marker, not an event',
+    addedToWarehouseAt: 'a MESSAGE being marked as dealt with, not the house being queued — ' +
+      'lightsQueuedAt is the house',
+
+    /* --- a real customer event, deliberately logged rather than stamped --- */
+    lastLightChangeFeeAt: 'the fee is a note on the invoice with its own date, and the ' +
+      'history reads those notes; a step would draw the same event twice',
+    lastPaymentAt: 'payments are their own ledger with a row each — the same reason paidAt ' +
+      'is not a step',
+    receiptSentAt: 'a receipt follows a payment, and the payment is already a row',
+    receiptErrorAt: 'a receipt that failed to send is an office problem, not a stage of ' +
+      'the customer\'s journey — it belongs in the error log',
+    smsOptedOutAt: 'a contact preference, not a stage — it changes how we reach them, ' +
+      'not where they are',
+    followUpAt: 'a flag on a QUOTE that the office needs to look at it, cleared by ' +
+      'followUpClearedAt; it is a to-do, not something that happened to the customer',
+    followUpClearedAt: 'the other end of that to-do',
+    quoteManuallySentAt: 'the office sending a quote by hand — quoteSentAt is the step, and ' +
+      'two rows for one email would read as two emails',
+    quoteSmsSentAt: 'the same quote going out as a text as well; still one quote sent',
+    quoteArchivedAt: 'a quote being filed away is housekeeping on the quote, not a stage — ' +
+      'and the customer-facing halves (declined, back next year) are stages of their own',
+    lightsLockedUntil: 'a window that is still OPEN, not something that happened — the ' +
+      'events at its two ends are joining and the colour change',
+    cameBackThisSeasonAt: 'coming back is already the RSVP answer; this marks the record ' +
+      'for the rejoin sweep rather than describing a separate event',
+    archivedAt: 'on the archivedCustomers document, written as the customer is removed — ' +
+      'the customer-side event is the recycle, and a step here could never be read because ' +
+      'the jobAddresses record no longer exists',
+    recycledAt: 'the same: closing off an ARCHIVED entry once the lights are back in stock',
+
+    /* --- the crew portal, dormant this season --- */
+    fixFlaggedAt: 'the crew portal raising a fault; fixRaisedAt is the step, and the portal ' +
+      'is not in use this season',
+    notCompletedAt: 'the crew portal unticking a house — the step is completedAt going away, ' +
+      'and dating an un-doing would put a row on the history saying nothing happened'
+  };
+
+  /* ⚠ READ OFF PATH_STEPS ITSELF, never a second list typed here — that is where a new
+     stage gets added, and a copy would be the thing that falls behind. */
+  const onPath = new Set(PATH_STEPS.map(([, f]) => f));
+  const undated = [...dated.keys()]
+    .filter(f => !onPath.has(f) && !(f in NOT_A_JOURNEY_DATE));
+  check('every date the code writes is on the path or is said not to be',
+    undated.length === 0,
+    'no decision about: ' + undated.join(', ') +
+    '.\n        Either it is a stage of a customer\'s journey — add it to PATH_STEPS, which ' +
+    'pulls it into the history and onto the picture — or say here why it is not. Silence is ' +
+    'how seven real stages sat written-and-shown-to-nobody until 2026-08-29.');
+
+  const noWhy = Object.keys(NOT_A_JOURNEY_DATE).filter(f => String(NOT_A_JOURNEY_DATE[f]).length < 25);
+  check('every date deliberately off the path says why', noWhy.length === 0,
+    'no reason: ' + noWhy.join(', ') +
+    '. A name with no reason cannot be told from one nobody looked at.');
+
+  /* ⚠ AND THE EXCUSE LIST CANNOT GROW STALE EITHER. A field that stops being written should
+     leave this list, or it silently excuses a name that no longer exists — and the next
+     real field with a similar name inherits the excuse. */
+  const goneFromCode = Object.keys(NOT_A_JOURNEY_DATE).filter(f => !dated.has(f));
+  check('nothing is excused that the code no longer writes',
+    goneFromCode.length === 0,
+    'not written anywhere any more: ' + goneFromCode.join(', ') +
+    '. Take it off the list — a standing excuse for a field that is gone will quietly cover ' +
+    'the next one that looks like it.');
+}
+
 
 PATH_STEPS.forEach(([label, field, file]) => {
   const src = SOURCES[file];

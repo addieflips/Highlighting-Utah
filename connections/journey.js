@@ -72,6 +72,7 @@ const STEPS = [
 
   { id: 'nudged', title: 'Nudge sent',
     plain: 'The automatic reminder to anyone who has not answered. Runs nightly, stops on 1 November.',
+    records: ['quoteLastNudgedAt'],
     next: [
       { to: 'pending',      label: 'still nothing' },
       { to: 'approved',     label: 'they approve' },
@@ -117,18 +118,31 @@ const STEPS = [
   { id: 'backnextyear', title: 'Back next year',
     plain: 'Out for this season and on the Contact 2027 list. No routes, no build, no bill — ' +
       'and their bin stays made up.',
-    records: ['rsvpRespondedAt'],
+    /* ⚠ TWO WAYS OF BEING OUT, AND THEY DISAGREE OFTEN. `rsvpRespondedAt` is what the
+     * customer answered through the link; `maybeNextYearAt` is the badge the office raised,
+     * usually from a conversation. Which of the two happened is exactly what somebody is
+     * asking when they open the record. */
+    records: ['rsvpRespondedAt', 'maybeNextYearAt'],
     next: [{ to: 'quote', label: 'and next season we ask them again' }] },
 
   { id: 'approved', title: 'They approve',
-    plain: 'The price is agreed. What happens next depends on whether they are already a customer.',
-    records: ['approvedByOfficeAt'],
+    plain: 'The price is agreed. What happens next depends on whether they are already a customer. ' +
+      'Three different things can record it: the office marking it approved, the customer ' +
+      'pressing the button in their own email, and the office typing in an answer given on ' +
+      'the phone — and which of the three happened is the question behind every argument ' +
+      'about a quote.',
+    /* ⚠ THREE FIELDS, THREE ACTORS. `approvedByOfficeAt` is the office deciding,
+     * `approvalRespondedAt` is the customer pressing the button in their email, and
+     * `quoteRespondedAt` is the office recording an answer it was told. Collapsing them
+     * would leave the page unable to say whether they actually replied. */
+    records: ['approvedByOfficeAt', 'approvalRespondedAt', 'quoteRespondedAt'],
     next: [
       { to: 'form',         label: 'they are new, so they fill in the details form' },
       { to: 'memberchange', label: 'they are already a customer' }
     ] },
 
   { id: 'form', title: 'They fill in the details form',
+    records: ['formCompletedAt'],
     plain: 'Colours, wire, timer, gate code, sides of the house — everything we need to build it. ' +
       'Only a customer we have not converted yet sees this.',
     next: [{ to: 'converted', label: 'it comes back to us and we convert them' }] },
@@ -202,7 +216,11 @@ const STEPS = [
   { id: 'requote', title: 'Re-quote raised',
     plain: 'More feet, a new address, or just a corrected price. It is a quote of its own, ' +
       'filed under Re-quotes, and it goes back round the same loop.',
-    records: ['requoteAppliedAt'],
+    /* ⚠ RAISED AND APPLIED ARE DIFFERENT DAYS. `requotedAt` is the day the office decided
+     * the price had to change; `requoteAppliedAt` is the day the customer agreed and it
+     * landed on their record. A re-quote sitting between the two for three weeks is exactly
+     * what somebody is looking for. */
+    records: ['requotedAt', 'requoteAppliedAt'],
     next: [{ to: 'emailed', label: 'we price the change and send it' }] },
 
   { id: 'converted', title: 'Converted to a customer',
@@ -287,8 +305,14 @@ const STEPS = [
     next: [{ to: 'invoiced', label: 'billing carries on as normal' }] },
 
   { id: 'invoiced', title: 'Invoice sent',
-    plain: 'The nightly run at 7pm bills every house marked done that has not been billed yet.',
-    records: ['invoicedAt'],
+    plain: 'The nightly run at 7pm bills every house marked done that has not been billed yet. ' +
+      'The bill being worked out and the email actually leaving are two different moments, ' +
+      'on two different documents.',
+    /* ⚠ "I never got my bill" is answered by `invoiceEmailSentAt` and by nothing else.
+     * `invoicedAt` is stamped on the INVOICE when the amount is worked out; the email
+     * leaving is stamped on the CUSTOMER. Drawing only the first reads as proof of
+     * something it does not prove. */
+    records: ['invoicedAt', 'invoiceEmailSentAt'],
     next: [
       { to: 'paid',      label: 'they pay it all' },
       { to: 'partpaid',  label: 'they pay some of it' },
@@ -370,10 +394,19 @@ const STEPS = [
 
   { id: 'recycled', title: 'Old set asked back', end: true,
     plain: 'Their bundle is pulled apart and the number goes back in the pool when they leave.',
-    records: ['lightsRecycleRequestedAt'] },
+    /* ⚠ ASKED BACK AND ACTUALLY BACK ARE DIFFERENT DAYS, and the gap between them is the
+     * whole question: a set asked back in October and still not on the shelf in November is
+     * somebody's bundle that cannot be rebuilt. */
+    records: ['lightsRecycleRequestedAt', 'lightsRecycledAt'] },
 
   { id: 'done', title: 'Season over',
-    plain: 'Their bin stays made up.',
+    plain: 'Their bin stays made up. When Start New Season runs it clears the flags and ' +
+      'keeps every date, so their history keeps last year rather than losing it.',
+    /* ⚠ THE LINE BETWEEN SEASONS, and it is why the history does not run two years
+     * together. Start New Season clears `completed`, `invoiceEmailSent`, `scheduled` and
+     * the rest while leaving every date standing, so without this marker last season's
+     * install reads as this season's. */
+    records: ['seasonResetAt'],
     next: [{ to: 'rsvpasked', label: 'and next season we ask if they want lights again' }] },
 
   /* ⚠ THE RSVP IS A DIFFERENT NO FROM A DECLINED QUOTE, and this is where it lives.

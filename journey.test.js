@@ -234,7 +234,16 @@ const NOT_A_STAGE = {
     'and one date could not carry a part payment followed by the rest',
   fixAssignedAt: 'being put on a fix route is the booking, not a stage — the stages are the ' +
     'fault being reported and it being mended',
-  removalAssignedAt: 'same: the booking for a takedown, not a stage of the journey'
+  removalAssignedAt: 'same: the booking for a takedown, not a stage of the journey',
+  /* ⚠ A MERGE IS SOMETHING DONE TO THE RECORD, NOT SOMEWHERE THE CUSTOMER GOES. This page
+     answers "where can things go from here", and folding a duplicate in is office
+     housekeeping that leaves them exactly where they were — drawn as a box it would sit on
+     the path with no route out that is not the route they were already on. It IS on their
+     history, which is the right place for it: the history says what happened to this
+     record, the picture says where a customer can travel. */
+  mergedAt: 'a duplicate record being folded in is housekeeping on the record, not a place ' +
+    'the customer goes — it is on their history, which is where what-happened-to-this-record ' +
+    'belongs'
 };
 const drawn = new Set();
 STEPS.forEach(s => (s.records || []).forEach(f => drawn.add(f)));
@@ -248,7 +257,14 @@ const noReason = Object.keys(NOT_A_STAGE).filter(f => String(NOT_A_STAGE[f]).len
 check('every deliberately-undrawn field says why', noReason.length === 0,
   'no reason: ' + noReason.join(', '));
 
-const strangers = [...drawn].filter(f => pathFields.indexOf(f) === -1);
+/* ⚠ ONLY DATES ARE STRANGERS. A step may legitimately name a field that is not a date at
+   all — `moved` records `requoteKind`, which is what KIND of re-quote it was — and a note
+   that fires on it every single run for ever is a note somebody learns to scroll past,
+   which costs the real ones their audience. The dated path is a list of dates; comparing a
+   non-date against it asks a question that has no right answer. */
+const strangers = [...drawn]
+  .filter(f => /(?:At|Until)$/.test(f))
+  .filter(f => pathFields.indexOf(f) === -1);
 if (strangers.length) note('the page names ' + strangers.length + ' field(s) the dated path ' +
   'does not: ' + strangers.join(', ') + '. Not a failure — but if one has been retired, ' +
   'take it off the step too.');
