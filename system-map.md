@@ -637,6 +637,39 @@ It shows what happened to Jane Smith. The SHAPE of the journey — quote, email,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
 
+### Are the rules still accurate?
+
+Every ruling in the questions map names the code that proves it, and until 2026-08-29
+**nothing had ever checked those names were real**. `questions-map.test.js` now does, and it
+found two on its first run: **MR-20** pointed at `RM_LOOK_SENSITIVITY`, a constant that has
+never existed in this repo; **QT-13** still read *Standing* while naming a Firestore document
+removed on 2026-08-27 along with the whole feature it belonged to.
+
+⚠ **A rename is the common case and it is silent.** Functions are renamed constantly, the map
+is prose and never moves with them, so it drifts one rename at a time — and the day somebody
+needs a ruling is the day they discover its pointer leads nowhere.
+
+⚠ **Standing rows fail; superseded and closed rows only note.** Naming code that has since
+gone is what *superseded* means. A standing ruling claims to describe how the app works today,
+so its own pointer has to lead somewhere.
+
+⚠ **Backticks mean "look here".** A dead name being *quoted* rather than pointed at must not
+wear them — caught within a minute, because the fix to MR-20 named the dead constant in
+backticks while explaining that it was dead, and the check flagged its own correction.
+
+⚠ **It reads source, not tests.** Red-checking removed a function from `admin.html` entirely
+and the gate stayed green, because the suite that lifts that function still named it — the
+anchor "existed" in a file whose only job is to talk about the code.
+
+⚠ **And the first version cried wolf on all three of its findings** — an element id
+(`#rmDifficulty`), a Firestore path (`settings/measureAlign`) and a value on a record
+(`kind:'carried'`), each of which leads exactly where it says. On a gate whose whole job is to
+be believed, three false alarms out of three is worse than finding nothing, so an anchor is
+broken into the names inside it and every one must exist. ⚠ **Its own limit, stated rather than
+overclaimed:** it proves a name appears *somewhere in source*, so a definition renamed while
+its callers still use the old name reads as present. The suites that *lift* those functions
+are what catch that.
+
 ### The change log
 
 Saving Edit Customer diffs what it is about to write against what the record held and
