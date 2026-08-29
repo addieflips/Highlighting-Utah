@@ -6724,12 +6724,27 @@ async function logActivity(what, area, refId){
 const HISTORY_STEPS = [
   { field: 'createdAt',                from: 'quote', what: 'Quote raised' },
   { field: 'quoteSentAt',              from: 'quote', what: 'Quote emailed to them' },
+  { field: 'quoteLastNudgedAt',        from: 'quote', what: 'Nudged about it' },
+  /* \u26a0 TWO FIELDS, TWO ACTORS, TWO ROWS \u2014 NOT ONE EVENT WRITTEN TWICE. `quoteRespond`
+     stamps `approvalRespondedAt` when the CUSTOMER presses the button in their email;
+     admin's own dropdown stamps `quoteRespondedAt` when the office records an answer it
+     was given on the phone. Merged into one line the history could not answer "did they
+     actually reply, or did we take somebody's word for it" \u2014 which is the question
+     behind every argument about a quote. Same shape as the colour change's portal/office
+     split, and for the same reason. */
+  { field: 'approvalRespondedAt',      from: 'quote', what: 'They answered the quote themselves' },
+  { field: 'quoteRespondedAt',         from: 'quote', what: 'The office recorded their answer' },
   { field: 'approvedByOfficeAt',       from: 'quote', what: 'Marked approved by the office' },
   /* ⚠ ON THE QUOTE, NOT THE CUSTOMER. The conversion is written as `{status:'closed',
      convertedToCustomerAt}` onto the QUOTE — the customer record has no such field, so
      reading it off `cust` returns nothing for everybody and the history silently loses
      the day they joined. Checked at the write site rather than assumed from the name. */
   { field: 'convertedToCustomerAt',    from: 'quote', what: 'Became a customer' },
+  /* \u26a0 ON THE CUSTOMER, and it is the one step of the whole journey that is THEIR work
+     rather than ours \u2014 the colours, the wire, the timer and the gate code all arrive here.
+     A house sitting unbuilt because nobody ever filled this in looks identical to one
+     waiting its turn, and this row is the only thing that tells them apart. */
+  { field: 'formCompletedAt',          from: 'cust',  what: 'Filled in their details form' },
   { field: 'lightsQueuedAt',           from: 'cust',  what: 'Sent to the warehouse to be built' },
   { field: 'lightsMarkedBuiltAt',      from: 'cust',  what: 'Bundle marked built' },
   { field: 'needsDayAssignedAt',       from: 'cust',  what: 'Needed a day on the calendar' },
@@ -6741,6 +6756,48 @@ const HISTORY_STEPS = [
   { field: 'completedAt',              from: 'cust',  what: 'Lights went up' },
   { field: 'removalDoneAt',            from: 'cust',  what: 'Lights taken down' },
   { field: 'lightsRecycleRequestedAt', from: 'cust',  what: 'Old set asked back' },
+  /* \u26a0 ASKED BACK AND ACTUALLY BACK ARE DIFFERENT DAYS, and the gap between them is the
+     whole question: a set asked back in October and still not on the shelf in November is
+     somebody's bundle that cannot be rebuilt. One date could not carry both. */
+  { field: 'lightsRecycledAt',         from: 'cust',  what: 'Old set came back in' },
+  /* \u2b50 HER WORDS, AND THE FIELD ALREADY EXISTED. Addie's list: "or maybe next year date".
+     `maybeNextYearAt` is written in three places and was read by nothing that shows a
+     customer anything \u2014 the same hole as the colour change, found by the same sweep.
+     \u26a0 IT IS NOT `rsvpRespondedAt`. The badge is what the OFFICE recorded, usually from a
+     conversation; the RSVP is what the customer answered through the link. They disagree
+     often, and which of the two happened is exactly what somebody is asking. */
+  { field: 'maybeNextYearAt',          from: 'cust',  what: 'Marked as maybe next year' },
+  /* \u26a0 RAISED AND APPLIED ARE DIFFERENT DAYS, and this is the second half of the pair.
+     `requotedAt` (on the quote) is the day the office decided the price had to change;
+     this is the day the customer agreed and it landed on their record. A re-quote sitting
+     three weeks between the two is exactly what somebody is looking for. */
+  { field: 'requoteAppliedAt',         from: 'cust',  what: 'Their re-quote was applied' },
+  /* \u26a0 NOT THE SAME AS AN ORDINARY COLOUR CHANGE, and the difference is that a crew is
+     already holding a printed card for the old pattern. Somebody is on their way. */
+  { field: 'lightsChangedAfterAssignAt', from: 'cust',
+    what: 'Changed their colours after the crew had been booked' },
+  { field: 'askSameAsLastYearAt',      from: 'cust',
+    what: 'Needed asking whether last year\u2019s job would do' },
+  /* \u26a0 THIS ONE IS MONEY SITTING STILL. The house is finished and there is no address to
+     send the bill to, so the nightly run passes over it every night and nobody is charged.
+     It is a note in the Inbox once, and then nothing until somebody notices. */
+  { field: 'cannotBillNoEmailAt',      from: 'cust',
+    what: 'Finished, but there was nobody to send the bill to' },
+  /* \u2b50 THE ONE SHE NAMED FIRST, AND THE HISTORY DID NOT SHOW IT (added 2026-08-29).
+     Addie's list opened with "asked for different lights on this date". `lightsChangedAt`
+     has existed for a while, is written by the portal, by Edit Customer and by the sheet
+     sync, and is read by the Color Changes tab and the warehouse badge \u2014 it was simply
+     never added here, so the one event she asked for by name was the one missing from the
+     page built to answer her.
+     \u26a0 IT IS NOT THE SAME LINE AS "Sent to the warehouse to be built". A colour change
+     queues a build, so the two sit together and it is tempting to read one as the other \u2014
+     but a build is also queued by joining, by a re-quote, by a wire change and by coming
+     back after a recycle, and only one of those is somebody picking different colours.
+     \u26a0 AND THE WORDS SAY WHO DID IT. `lightsChangedVia` is the whole reason that field
+     exists: the customer changing their own colours and the office typing them in after a
+     call are the same event from opposite ends, and the warehouse badge already tells them
+     apart. The history must not be the one screen that flattens them. */
+  { field: 'lightsChangedAt',          from: 'cust',  what: 'Asked for different lights' },
   { field: 'rsvpRespondedAt',          from: 'cust',  what: 'Answered the RSVP' },
   /* ⚠ THE ONE THAT COSTS A CUSTOMER TIME. A cancellation asked for through their own
      portal had no date at all, so nobody could tell a request made in October from one
@@ -6757,7 +6814,13 @@ const HISTORY_STEPS = [
      record's values onto this one and deletes that record, so without this line the
      history cannot answer "where did this address come from" and nothing else can either. */
   { field: 'mergedAt',                 from: 'cust',  what: 'Merged with a duplicate record' },
-  { field: 'invoicedAt',               from: 'inv',   what: 'Invoice sent' },
+  /* \u26a0 THE BILL BEING RAISED AND THE EMAIL GOING OUT ARE TWO FACTS ON TWO DOCUMENTS.
+     `invoicedAt` is stamped on the INVOICE when the bill is worked out; `invoiceEmailSentAt`
+     is stamped on the CUSTOMER when the mail actually leaves. "I never got my bill" is
+     answered by the second one and by nothing else \u2014 and until now the history showed only
+     the first, which reads as proof of something it does not prove. */
+  { field: 'invoicedAt',               from: 'inv',   what: 'Invoice raised' },
+  { field: 'invoiceEmailSentAt',       from: 'cust',  what: 'Invoice emailed to them' },
   { field: 'newMemberFeeAppliedAt',    from: 'inv',   what: 'New member fee charged ($30)' }
 ];
 /* ⚠ THE RSVP LINE SAYS WHAT THEY ANSWERED, not merely that they answered — "answered
@@ -6772,6 +6835,21 @@ function historyMergeWords(cust){
   return 'Merged with a duplicate record' +
     (got.length ? ' — took ' + got.slice(0, 6).join(', ') +
       (got.length > 6 ? ' and ' + (got.length - 6) + ' more' : '') : '');
+}
+/* \u26a0 THE SAME THREE ANSWERS THE WAREHOUSE BADGE GIVES, from the same field, so the
+   history and the build queue cannot start disagreeing about where a colour change came
+   from. `whBuildReasonKey` is deliberately NOT called: it answers a different question
+   (why a bundle is being built, where a re-quote outranks a colour change), so a house
+   that moved AND changed colours would come back "rebuild" and this line would print
+   nothing about the colours at all.
+   \u26a0 AND AN UNRECORDED ORIGIN SAYS NOTHING RATHER THAN GUESSING. Every colour change
+   made before 2026-08-24 carries no `lightsChangedVia`, and assigning one of the two on a
+   coin toss is worse than an honest silence \u2014 the same rule the badge already keeps. */
+function historyLightsWords(cust){
+  const via = String((cust && cust.lightsChangedVia) || '').trim().toLowerCase();
+  if(via === 'portal') return 'Asked for different lights \u2014 they changed them in their own portal';
+  if(via === 'office') return 'Asked for different lights \u2014 the office put the change in for them';
+  return 'Asked for different lights';
 }
 function historySeasonWords(cust){
   const s = String((cust && cust.seasonStatus) || '').trim().toLowerCase();
@@ -6794,6 +6872,33 @@ function historyRsvpWords(cust){
 /* ⚠ A NOTE CARRIES ITS OWN DATE and several of them can sit on one invoice — the
    change fees, the credits and the carryover charge each keep a `date` on their own
    entry, which is why they are read here rather than being given stamps of their own. */
+/* \u2b50 "OR REQUOTED ON" \u2014 HER WORDS, AND THE ONE THAT COULD NOT BE A STEP (added 2026-08-29).
+   `requotedAt` lives on the QUOTE, and a re-quote is a SEPARATE quote document: the history
+   deliberately reads only the quote that CONVERTED them, so that a re-quote raised last week
+   does not read as the day they joined. So the field is written, is shown on the quote card,
+   and could never reach a customer's history \u2014 a step keyed on it would have looked right and
+   found nothing for almost everybody.
+   \u26a0 A ROW PER RE-QUOTE, because there can be several and they are the story: three
+   re-quotes in a season is a house nobody has measured properly, and one line saying "last
+   re-quoted on" hides exactly that.
+   \u26a0 AND IT NAMES WHY. `requoteKind` is already stored and already decides what the
+   warehouse is offered \u2014 an addition, a move, or just the price \u2014 and those are three
+   different amounts of work. "Re-quoted" beside a date leaves the only useful question open.
+   \u26a0 'price' IS NOT DRAWN AS WORK. A price-only re-quote changes no glass and queues no
+   build; wording it like the other two would describe work nobody did. */
+const REQUOTE_KIND_WORDS = {
+  addition: 'they wanted more of the house lit',
+  address:  'they moved house',
+  price:    'the price was corrected'
+};
+function historyRequoteRows(requotes){
+  return (requotes || []).filter(function(q){ return q && q.requotedAt; }).map(function(q){
+    const why = REQUOTE_KIND_WORDS[String(q.requoteKind || '').trim().toLowerCase()] || '';
+    const note = String(q.requoteReason || '').trim();
+    return { at: q.requotedAt, kind: 'step',
+      what: 'Re-quoted' + (why ? ' \u2014 ' + why : '') + (note ? ' (' + note + ')' : '') };
+  });
+}
 function historyNoteRows(invoice, cust){
   const out = [];
   const money = (n) => fmtMoney(Number(n) || 0);
@@ -6825,10 +6930,16 @@ function customerHistory(src){
     const what = step.field === 'rsvpRespondedAt' ? historyRsvpWords(s.cust)
       : step.field === 'seasonStatusAt' ? historySeasonWords(s.cust)
       : step.field === 'mergedAt' ? historyMergeWords(s.cust)
+      : step.field === 'lightsChangedAt' ? historyLightsWords(s.cust)
       : step.what;
     const at = toJsDate(raw);
     if(at) rows.push({ at: at, what: what, kind: 'step' });
     else undated.push({ what: what, kind: 'step' });
+  });
+  historyRequoteRows(s.requotes).forEach(function(r){
+    const at = toJsDate(r.at);
+    if(at) rows.push({ at: at, what: r.what, kind: r.kind });
+    else undated.push({ what: r.what, kind: r.kind });
   });
   historyNoteRows(s.invoice, s.cust).forEach(function(r){
     const at = toJsDate(r.at);
@@ -6895,7 +7006,7 @@ async function renderCustomerHistory(custId){
   if(!item){ box.innerHTML = '<p style="font-size:13px; color:var(--slate); margin:0;">No record open.</p>'; return; }
   box.innerHTML = '<p style="font-size:13px; color:var(--slate); margin:0;">Loading…</p>';
   const cust = item.data;
-  let payments = [], activity = [], quote = null;
+  let payments = [], activity = [], quote = null, requotes = [];
   try{
     const key = custInvoiceKey(cust);
     if(key){
@@ -6918,10 +7029,15 @@ async function renderCustomerHistory(custId){
        raised last week as the day they joined. */
     const mine = (quotesCache || []).filter(q => q.data && q.data.existingCustomerId === custId);
     quote = mine.find(q => q.data.convertedToCustomerAt) || null;
+    /* \u26a0 EVERY QUOTE AGAINST THEM, NOT JUST THE CONVERTING ONE. The line above picks the
+       quote that MADE them a customer, on purpose; a re-quote is a document of its own and
+       is invisible to it. Filtering on `requotedAt` rather than on "not the converting one"
+       is what keeps an ordinary second quote that was never re-quoted off the list. */
+    requotes = mine.map(q => q.data).filter(d => d && d.requotedAt);
   } catch(err){ console.error('[HU] history: quote', err); }
   const inv = allCustInvoiceFor(cust);
   const hist = customerHistory({cust: cust, invoice: inv && inv.data, quote: quote && quote.data,
-    payments: payments, activity: activity});
+    requotes: requotes, payments: payments, activity: activity});
   box.innerHTML = historyRowsHtml(hist);
 }
 /* ---- WHAT ACTUALLY CHANGED ON A RECORD -----------------------------------
@@ -6986,6 +7102,13 @@ const CUSTOMER_FIELD_LABELS = {
   smsOptedOut: {label: 'Opted out of texts', kind: 'yesno'},
   noAutomationEmails: {label: 'Opted out of automatic emails', kind: 'yesno'},
   notes: {label: 'Notes', kind: 'text'}, oneTimeNote: {label: 'One-time note', kind: 'text'},
+  /* ⚠ THE PORTAL IS THE ONLY THING THAT WRITES IT, and it is here so the two copies of
+     this table AGREE. `describePortalChangesServer`'s scope is exactly PORTAL_WRITE_FIELDS,
+     and change-log.test.js runs both over every one of them — a field one table knows and
+     the other does not is a sentence the two would spell differently, which is the whole
+     thing the parity check exists to stop. Costs nothing here: the office diff only ever
+     reports fields the save actually carries. */
+  cancellationReason: {label: 'Why they are cancelling', kind: 'text'},
   needsLightBuild: {label: 'Waiting to be built', kind: 'yesno'},
   needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
   recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},
@@ -33214,6 +33337,7 @@ document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(asy
       const groups = dupPending || [];
       let gone = 0, failed = 0, i = 0;
       for(const g of groups){
+        const absorbed = [];
         for(const l of g.losers){
           statusEl.textContent = 'Deleting ' + (i+1) + ' of ' + toDelete + '\u2026';
           await bulkBreathe(i++);
@@ -33224,8 +33348,37 @@ document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(asy
               await removeCustomerFromUpcomingRoutes(l.cust.id);
             }
             await deleteDoc(doc(db,'jobAddresses', l.cust.id));
+            absorbed.push(l.cust.id);
             gone++;
           } catch(err){ failed++; }
+        }
+        /* \u2b50 THE KEEPER RECORDS THAT A COPY WAS HERE (added 2026-08-29). This tool
+           takes NOTHING off the losers \u2014 the superset rule is the whole reason it is
+           safe to delete them \u2014 so there is no list of fields to write, and an empty
+           one is the honest answer rather than an omission. What was missing is the
+           fact ITSELF: those records existed, they are gone for good, and without this
+           nothing anywhere can answer "was this customer ever duplicated".
+           \u26a0 `mergedFields: []` IS DELIBERATE AND IS READ. `historyMergeWords` prints
+           the bare "Merged with a duplicate record" when the list is empty and appends
+           "\u2014 took \u2026" when it is not, so the two tools read differently on the history
+           without either of them lying. Leaving the key out entirely would be the same
+           sentence by accident rather than on purpose.
+           \u26a0 AFTER THE DELETES, AND ONLY OVER IDS THAT ACTUALLY WENT \u2014 a refused delete
+           leaves that record sitting there, and naming it here would say it had been
+           absorbed when it is still a live duplicate.
+           \u26a0 AND IT MUST NOT UNDO THEM. The deletes have happened and cannot be taken
+           back, so a throw here would abandon the rest of the run over a note. */
+        if(absorbed.length){
+          try{
+            await updateDoc(doc(db,'jobAddresses', g.keeper.cust.id), {
+              mergedAt: serverTimestamp(),
+              mergedFromIds: absorbed,
+              mergedFields: []
+            });
+          } catch(err){
+            /* The deletes are the point and they are done; losing this note costs the
+               history one line and costs the customer record nothing at all. */
+          }
         }
       }
       dupPending = null;

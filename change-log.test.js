@@ -323,6 +323,196 @@ if (H) {
     'own catch and every other logActivity call in the page is fire-and-forget');
 }
 
+/* ---------------------------------------------------------------------------
+ * 4. THE CUSTOMER'S OWN HALF — and the two copies agree about every word.
+ *
+ * ⭐ THE OFFICE HALF LOOKED COMPLETE, WHICH IS WHY NOBODY NOTICED (2026-08-29). The
+ * activity log is written only from admin.html, so a timer switched on in Edit Customer
+ * produced "Timer: no → yes" and the same switch flicked by the CUSTOMER in their own
+ * portal produced nothing at all — not a stamp, not a line. Addie's list ended "or changed
+ * timer settings this date. Changed address this date", and half of both was missing.
+ *
+ * ⚠ TWO COPIES, SO A PARITY TEST — the same answer this repo gives the invoice maths, and
+ * for the same reason: a browser ES module and a Node function cannot share code. What
+ * keeps it small is the SCOPE: the portal can only ever write PORTAL_WRITE_FIELDS, so the
+ * server table is exactly that set, and this runs both copies over every one of them.
+ *
+ * ⚠ IT ASSERTS THEY AGREE, AND SEPARATELY THAT THEY ARE RIGHT. Two copies wrong in the
+ * same way agree perfectly — the lesson money-parity already carries in its own comment.
+ * ------------------------------------------------------------------------- */
+{
+  const fns = fs.readFileSync(path.join(ROOT, 'functions', 'index.js'), 'utf8');
+  function liftServer(name, kind) {
+    const re = new RegExp('(?:^|\\n)(?:const|function|async function)\\s+' + name + '\\b');
+    const m = re.exec(fns);
+    if (!m) return '';
+    const start = m.index + (fns[m.index] === '\n' ? 1 : 0);
+    const open = kind === 'arr' ? '[' : '{';
+    const close = kind === 'arr' ? ']' : '}';
+    let i = fns.indexOf(open, start), d = 0, k = i;
+    if (i < 0) return '';
+    for (; k < fns.length; k++) {
+      if (fns[k] === open) d++;
+      else if (fns[k] === close) { d--; if (!d) break; }
+    }
+    return fns.slice(start, k + 1) + (kind === 'fn' ? '' : ';');
+  }
+  const sParts = [
+    liftServer('PORTAL_CHANGE_LABELS', 'obj'),
+    liftServer('PORTAL_CHANGE_EMPTY_TEXTS', 'arr'),
+    liftServer('portalChangeValueText', 'fn'),
+    liftServer('describePortalChanges', 'fn'),
+    liftServer('portalChangeSentence', 'fn'),
+    /* ⚠ MATCHED AS A NUMBER, NOT LIFTED. lift walks to the next brace, and the next brace
+       after a plain number is the body of whatever function follows — which is how a lift
+       of a one-line constant swallows a hundred lines of prose. The office copy learned
+       this the same way, and its comment says so. */
+    (/const PORTAL_CHANGE_MAX_FIELDS\s*=\s*\d+;/.exec(fns) || [''])[0]
+  ];
+  check('every piece of the portal change log was found in functions/index.js',
+    sParts.every(Boolean),
+    'a gate that cannot find its target must never report green. Missing: ' +
+    ['PORTAL_CHANGE_LABELS', 'PORTAL_CHANGE_EMPTY_TEXTS', 'portalChangeValueText',
+     'describePortalChanges', 'portalChangeSentence', 'PORTAL_CHANGE_MAX_FIELDS']
+      .filter((n, i) => !sParts[i]).join(', '));
+
+  let sLabels = {}, sDescribe = null, sSentence = null;
+  if (sParts.every(Boolean)) {
+    const r = new Function(sParts.join('\n') +
+      '\nreturn {L: PORTAL_CHANGE_LABELS, d: describePortalChanges, s: portalChangeSentence};')();
+    sLabels = r.L; sDescribe = r.d; sSentence = r.s;
+  }
+
+  /* ⚠ THE SCOPE IS READ OUT OF PORTAL_WRITE_FIELDS, never typed here. That list is what
+     the portal can actually write and is where a new portal field gets added; a copy in
+     this file is a second place to keep true, and the copy that falls behind is the one
+     that stops demanding anything. */
+  const wf = [];
+  {
+    const at = fns.indexOf('const PORTAL_WRITE_FIELDS = {');
+    const block = at > -1 ? fns.slice(at, fns.indexOf('\n};', at)) : '';
+    let m;
+    const re = /'([A-Za-z0-9_]+)'/g;
+    while ((m = re.exec(block))) if (['info', 'preferences', 'lights', 'sides', 'cancel']
+      .indexOf(m[1]) === -1) wf.push(m[1]);
+  }
+  check('the portal-writable fields were read out of PORTAL_WRITE_FIELDS',
+    wf.length >= 14,
+    'found ' + wf.length + ' — a scope that has stopped matching demands nothing');
+
+  /* ⚠ EVERY FIELD THE PORTAL CAN WRITE IS IN BOTH TABLES. A field one side knows and the
+     other does not is silence on that side: the office would report it and the customer's
+     own change of it would vanish, or the other way round — and neither throws. */
+  const missingServer = wf.filter(f => !(f in sLabels));
+  const missingBrowser = wf.filter(f => !(f in LABELS));
+  check('every field the portal can write has a label on the server',
+    missingServer.length === 0,
+    'no label: ' + missingServer.join(', ') +
+    '.\n        An unlabelled field is silence — the customer changes it and nothing ever ' +
+    'appears on their history, which looks exactly like them never having changed it.');
+  check('and the same fields have one in the office copy',
+    missingBrowser.length === 0,
+    'no label: ' + missingBrowser.join(', ') +
+    '. The two tables must cover the same fields or they spell the same save differently.');
+
+  /* ⚠ RUN SIDE BY SIDE OVER EVERY FIELD, in the four shapes that actually go wrong: a
+     blank filling in, a value changing, a value being cleared, and — the one that bit the
+     office copy — an unticked box arriving as '' over a stored false. */
+  if (sDescribe && describe) {
+    const CASES = [
+      ['a blank being filled in', undefined, 'something'],
+      ['a value changing', 'before', 'after'],
+      ['a value being cleared', 'before', ''],
+      ['an unticked box over a stored false', false, ''],
+      ['a ticked box', false, true],
+      ['a number arriving', 0, 3]
+    ];
+    const disagree = [];
+    wf.forEach(f => {
+      CASES.forEach(([label, a, b]) => {
+        const was = {}; was[f] = a;
+        const now = {}; now[f] = b;
+        const x = describe(was, now).join(' | ');
+        const y = sDescribe(was, now).join(' | ');
+        if (x !== y) disagree.push(f + ' / ' + label + ': office "' + x + '" vs portal "' + y + '"');
+      });
+    });
+    check('both copies say exactly the same thing about every portal field',
+      disagree.length === 0,
+      disagree.slice(0, 6).join('\n        ') +
+      (disagree.length > 6 ? '\n        ...and ' + (disagree.length - 6) + ' more' : '') +
+      '\n        Change one and change the other in the same push — the office and the ' +
+      'customer must not describe one save two ways.');
+
+    /* ⚠ AND THEY ARE RIGHT, NOT MERELY EQUAL. Two copies wrong in the same way agree
+       perfectly, which is exactly what money-parity warns about in its own comment. The
+       tick-box case is the one that was actually wrong once. */
+    check('an unticked box saved over a stored false reports nothing, both sides',
+      sDescribe({ specificOutlet: false }, { specificOutlet: '' }).length === 0 &&
+      describe({ specificOutlet: false }, { specificOutlet: '' }).length === 0,
+      'the same bug the office copy shipped once: read blank-first, every save of every ' +
+      'customer reports a row of tick boxes changing');
+    /* ⚠ THIS CHECK WAS VACUOUS ON THE FIRST PASS AND THE RED-CHECK CAUGHT IT, which is
+       worth writing down because the reason is not obvious: `hasOwnProperty` is TRUE for a
+       key explicitly set to undefined, so every fixture written as `{f: undefined}` sails
+       past the guard without reaching it — and for a yes/no field the two sides render
+       'no' either way, so the earlier `a === b` return fires first and the guard is never
+       consulted at all. Dropping it entirely left the whole section green.
+       ⚠ IT TAKES A FIELD GENUINELY ABSENT AND A NEW VALUE THAT RENDERS AS AN EMPTY TEXT
+       BUT NOT AS '(blank)' — a zero. Then a = '(blank)', b = '0', the values differ, and
+       the guard is the only thing standing between that and a row of noise on the history
+       of every record written before the field existed. */
+    check('a field the record never held, arriving at its own default, is not an edit',
+      sDescribe({}, { houseSides: 0 }).length === 0 &&
+      describe({}, { houseSides: 0 }).length === 0,
+      'server: ' + JSON.stringify(sDescribe({}, { houseSides: 0 })) +
+      ', office: ' + JSON.stringify(describe({}, { houseSides: 0 })) +
+      '. Every record written before a field existed would report it on the first save ' +
+      'that touched it — a row of noise on the history of the whole book.');
+    /* ⚠ AND A RECORD THAT REALLY DID HOLD IT STILL REPORTS THE CHANGE. The guard must skip
+       the never-held case and nothing else; a version that skipped every zero would hide
+       somebody dropping from three sides to none. */
+    check('but a field that really was there and went to zero still reports',
+      sDescribe({ houseSides: 3 }, { houseSides: 0 }).length === 1 &&
+      describe({ houseSides: 3 }, { houseSides: 0 }).length === 1,
+      'server: ' + JSON.stringify(sDescribe({ houseSides: 3 }, { houseSides: 0 })));
+    check('a real change really is reported',
+      /Timer: \(blank\) → yes/.test(sDescribe({}, { outletTimer: 'yes' }).join('')),
+      'got: ' + sDescribe({}, { outletTimer: 'yes' }).join(' | '));
+
+    /* ⚠ THE SENTENCE SAYS IT WAS THEM. Every other row in the activity log is one of the
+       four people who share the dashboard, so a portal edit worded like an office one is
+       the log actively answering "who changed this" wrongly. */
+    check('the portal sentence says the customer did it themselves',
+      /themselves|their portal/i.test(sSentence(['Timer: no → yes'])),
+      'got: ' + sSentence(['Timer: no → yes']));
+    check('and it is capped, and says that it is capped',
+      /and 3 more/.test(sSentence(Array.from({ length: 15 }, (_, i) => 'F' + i + ': a → b'))),
+      'got: ' + sSentence(Array.from({ length: 15 }, (_, i) => 'F' + i + ': a → b')));
+    check('nothing changed produces no sentence at all',
+      sSentence([]) === '' && sSentence(null) === '',
+      'an entry saying nothing changed is a row nobody can act on');
+  }
+
+  /* ⚠ AND IT IS ACTUALLY CALLED, ON THE REAL SAVE PATH, IN THE RIGHT ORDER. The rule can
+     be perfect while nothing invokes it — the split this repo has been caught by twice
+     today. The diff must be taken BEFORE the write (afterwards it compares the record with
+     itself) and posted AFTER it (a line about a save that then failed is a history of
+     something that did not happen). */
+  const at = fns.indexOf('exports.portalSave');
+  const body = at > -1 ? fns.slice(at, fns.indexOf('\nexports.', at + 10)) : '';
+  const iDiff = body.indexOf('describePortalChanges(oldData, updates)');
+  const iWrite = body.indexOf("jobAddresses').doc(match.id).update(updates)");
+  const iLog = body.indexOf('logPortalChange(match.id');
+  check('portalSave takes the diff before it writes',
+    iDiff > -1 && iWrite > -1 && iDiff < iWrite,
+    'diff at ' + iDiff + ', write at ' + iWrite +
+    '. Taken afterwards it compares the new record with itself and reports nothing.');
+  check('and posts the entry after the write has landed',
+    iLog > -1 && iWrite > -1 && iLog > iWrite,
+    'an entry for a save that then failed is a history of something that did not happen');
+}
+
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed, ' + notes + ' notes');
 if (failed) {

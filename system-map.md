@@ -668,6 +668,146 @@ written in the archive branch, the function still "touched all three", and two r
 sabotages went straight through. It is scoped to the branch now. A check that looks right and
 cannot fail is worse than no check, and this is that trap caught in the act.
 
+### The colour change she asked for first, and the history that did not show it
+
+Addie's list of what she wanted dated opened with *"asked for different lights on this
+date"*. `lightsChangedAt` had existed for a while — written by the portal, by Edit
+Customer and by the sheet sync, read by the Color Changes tab and the warehouse badge —
+and it was **on no path and in no history**. So the event she named first was the one
+missing from the page built to answer her, and nothing anywhere was red about it.
+
+⚠ **A field written everywhere and named on no route is the shape of hole the two censuses
+exist to catch**, and neither could see it: `queue-date.test.js` checks that every field on
+`PATH_STEPS` is written and dated, `history.test.js` checks that every field on `PATH_STEPS`
+reaches the history, and a field that was never on the list satisfies both by being absent.
+It is on the list now, so both hold it.
+
+⚠ **The history says WHO changed it.** `lightsChangedVia` exists precisely because the
+customer changing their own colours and the office typing it in after a call are the same
+event from opposite ends — the warehouse badge already tells them apart, and the history
+must not be the one screen that flattens them. `historyLightsWords` gives the same three
+answers from the same field, and deliberately does **not** call `whBuildReasonKey`: that
+answers a different question (why a bundle is being built, where a re-quote outranks a
+colour change), so a house that moved *and* changed colours would come back "rebuild" and
+the line would say nothing about the colours at all.
+
+⚠ **An unrecorded origin claims neither.** Every colour change made before 2026-08-24
+carries no `lightsChangedVia`, and assigning one of the two on a coin toss prints a
+confidently wrong claim beside a real date — worse than an honest silence, and the rule the
+badge already keeps.
+
+⚠ **It is its own line, not the build-queue line.** A colour change queues a build, so the
+two sit together on a real record and it is tempting to read one as the other — but a build
+is also queued by joining, by a re-quote, by a wire change and by coming back after a
+recycle, and only one of those is somebody picking different colours.
+
+⚠ **And two boxes on the path, not one.** The page had only `changedafter` — a change made
+*after* a crew is holding a printed card, which is a genuine emergency. Drawing only that
+one makes every ordinary change look like an emergency and hides the fee question entirely:
+inside their 48-hour window a change is free, outside it is $30. `colourchange` now reaches
+both the warehouse **and** the bill, from two places — being asked what is changing, and
+changing your mind while waiting for a day. Both routes are walked by name in
+`journey.test.js`, because a reachability check alone stays green with either one deleted.
+
+### What a customer changed in their own portal
+
+Addie's list ended *"or changed timer settings this date. Changed address this date."* Both
+are **edits** rather than stages, and the answer to an edit is a log line rather than a
+stamp — *"Address changed on 3 Oct"* is a worse answer than none, because the question is
+always what it changed **from**. `describeCustomerChanges` does exactly that for the office.
+
+⚠ **And it did nothing at all for the customer.** The activity log is written only from
+`admin.html`, so a timer switched on in Edit Customer produced *"Timer: no → yes"* and the
+same switch flicked by the customer in their own portal produced **nothing** — not a stamp,
+not a line. The office half looked complete, which is why nobody noticed the other half was
+missing. Exactly the asymmetry `lightsChangedVia` exists to close one level up, in a new
+place.
+
+⚠ **Two copies, so a parity test** — the same answer this repo gives the invoice maths, and
+for the same reason: a browser ES module and a Node function cannot share code. What keeps
+it small is the **scope**: the portal can only ever write `PORTAL_WRITE_FIELDS`, so
+`PORTAL_CHANGE_LABELS` is deliberately that set and no more, and `change-log.test.js` runs
+both copies over every one of them in six shapes and fails the moment they disagree about a
+sentence. It asserts they are **right** as well as equal — two copies wrong in the same way
+agree perfectly.
+
+⚠ **The diff is taken before the write and posted after it.** Taken afterwards it compares
+the new record with itself and reports nothing ever changing; posted before, a line about a
+save that then failed is the log claiming something happened that did not.
+
+⚠ **It says it was them.** Every other row in that log is one of the four people who share
+the dashboard, so a portal edit worded like an office one would be the log actively
+answering *"who changed this"* wrongly.
+
+⚠ **It cannot break the save.** `logPortalChange` swallows its own failure — this runs on a
+path that also queues builds and charges a $30 fee, and a note about a change is worth less
+than the change. `firestore.rules` needs no edit: the function writes with the Admin SDK,
+and the history reads the log from a signed-in dashboard.
+
+⚠ **One of this section's own checks was vacuous and the red-check caught it**, for a
+reason worth writing down: `hasOwnProperty` is **true** for a key explicitly set to
+`undefined`, so every fixture written as `{f: undefined}` sails past the never-held guard
+without reaching it — and for a yes/no field both sides render `no` either way, so the
+earlier equality return fires first and the guard is never consulted at all. Deleting it
+entirely left the whole section green. It takes a field genuinely absent and a value that
+renders as an empty text but not as `(blank)` — a zero — to reach it.
+
+### Every date the code writes is on a path, or is said not to be
+
+The colour change above was found **by hand**, one field at a time, and only because
+somebody happened to re-read Addie's list. So the obvious next question was how many more
+there were. Sweeping every field in the four source files that is written with a **real
+timestamp** — a server sentinel, a `Timestamp`, a `new Date`, or the `ts` a shared rule is
+handed — turned up **thirty-five more on no path at all**, and **twelve of them were plain
+stages of a customer's journey whose field was already being written**. Two were Addie's own
+words a second and third time: *"or maybe next year date"*, *"or requoted on"*.
+
+⚠ **Neither existing census could have found them, and that is the finding.**
+`queue-date.test.js` proves every field **on** `PATH_STEPS` is written and dated;
+`history.test.js` proves every field **on** `PATH_STEPS` reaches the history. Both are
+perfectly satisfied by a field that was never put on the list — it is *absent from the
+question*, not answered wrongly. So the sweep has to start from the **code** and work back
+to the list, which is the opposite direction from everything else in that file.
+
+⚠ **The pairs are what was really missing**, and each one is a question somebody actually
+asks:
+
+| the easy half | the half that was missing | the question it answers |
+|---|---|---|
+| `approvalRespondedAt` | `quoteRespondedAt` | did they reply, or did we take somebody's word for it |
+| `invoicedAt` | `invoiceEmailSentAt` | was a bill raised, or did it actually go out |
+| `lightsRecycleRequestedAt` | `lightsRecycledAt` | asked back, or actually back on the shelf |
+| `requotedAt` | `requoteAppliedAt` | when the price changed, or when they agreed to it |
+
+Flattened into one row each, the history answers the easy half **and looks complete doing
+it** — which is worse than showing nothing, because somebody acts on it.
+
+⚠ **`requotedAt` could not be a step at all**, and that is why it needed its own mechanism.
+It lives on the **quote**, and a re-quote is a separate quote document — the history reads
+only the quote that *converted* them, deliberately, so a re-quote raised last week does not
+read as the day they joined. A step keyed on it would have looked right in the list and
+found nothing for almost everybody. `historyRequoteRows` gives **a row per re-quote**,
+because three re-quotes in a season is a house nobody has measured properly and a single
+"last re-quoted on" hides exactly that — each naming its kind, since an addition, a move and
+a corrected price are three very different amounts of work.
+
+⚠ **"Not a journey date" is a legitimate answer and most of them are** — a clock-in, an
+export, the nightly run's own last-run marker. What is not legitimate is *silence*. All
+twenty-seven now carry their reason in `NOT_A_JOURNEY_DATE`, and a new dated field fails the
+build until somebody decides which it is. **That is the whole difference between this and
+the sweep that found them**: the sweep was a thing somebody thought to run once.
+
+⚠ **And the excuse list cannot go stale either.** A field that stops being written must
+leave it, or it silently excuses a name that no longer exists — and the next real field with
+a similar name inherits the excuse.
+
+⚠ **All three lists agree now, with no standing notes.** Both censuses used to end in a
+"the page names N fields the path does not" note, and those notes had been true and ignored
+for weeks. **A note is not a gate.** The seven strangers are on the path; the two that
+genuinely are not stages carry reasons; and the strangers check now only considers fields
+that are dates, so a step naming `requoteKind` no longer fires a note for ever — which costs
+the real notes their audience.
+
 ### A merge says what it took, and from where
 
 Merging duplicates writes another record's values onto the keeper and then **deletes that
@@ -695,6 +835,31 @@ write of any kind.
 ⚠ **Only when something was actually taken.** A merge that gained nothing is a spare empty
 copy being tidied away; stamping it would claim this record was built out of another when it
 was not.
+
+⚠ **AND A FOURTH TOOL DELETES WITHOUT TAKING ANYTHING AT ALL, which the census above could
+not see.** Danger Zone → **Duplicate customers** refuses any group where a copy holds
+something the keeper does not — that superset rule is the whole reason it is safe to delete
+rather than merge — so it never calls `mergeFieldsFrom`, and a census over that function was
+blind to it by construction. It left no trace anywhere. It now writes `mergedFromIds` with
+the ids that **actually went** and `mergedFields: []`, which is the honest answer rather than
+a missing key: `historyMergeWords` prints the bare *"Merged with a duplicate record"* for an
+empty list and appends *"— took …"* for a full one, so the two tools read differently on the
+history without either of them lying.
+
+⚠ **So the census is over the DELETE now, not over the merge.** Deleting a `jobAddresses`
+document is the irreversible act; whether values moved first is a detail of how. All five
+sites are named in `queue-date.test.js` with what happens to the memory of that record, and a
+sixth fails the build until somebody decides. **"Nothing to trace" is a legitimate answer said
+out loud** — Delete All Customers empties the book, so there is no keeper left to write onto,
+and `hlxRemoveCustomerToRecycle` copies the whole record into `archivedCustomers` first, so
+nothing is lost to trace.
+
+⚠ **AND THE FIRST RED-CHECK PASS MISSED THE ONE THAT MATTERED.** Wrapping the whole trace
+write in `if(false)` left every string exactly where it was and all three checks stayed green
+over a write that could never run — this repo's oldest recurring fault, *"a message that is in
+the source is not a message on the screen"*. The guard is now asserted as **the collected list
+of ids**, which is both the reachability proof and the only-write-when-something-went rule in
+one line.
 
 ⚠ **The history names the fields**, not just the event — *"took address, housePrice,
 gateCode"*. "Merged with a duplicate" beside a date leaves the actual question, which of these

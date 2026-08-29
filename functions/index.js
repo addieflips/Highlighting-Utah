@@ -1185,6 +1185,114 @@ function warehouseRebuildFields(oldData, newData) {
   });
 }
 
+/* ---- WHAT A CUSTOMER CHANGED IN THEIR OWN PORTAL -------------------------
+ *
+ * ⭐ THE LAST OF ADDIE'S SIX, AND THE OFFICE HALF WAS ALREADY DONE (added 2026-08-29).
+ * Her list ended "or changed timer settings this date. Changed address this date." Both
+ * are EDITS rather than stages, and the answer to an edit is a log line rather than a
+ * stamp — "Address changed on 3 Oct" is a worse answer than none, because the question is
+ * always what it changed FROM. `describeCustomerChanges` in admin.html does exactly that
+ * for the office.
+ *
+ * ⚠ AND IT DID NOTHING AT ALL FOR THE CUSTOMER. The activity log is written only from
+ * admin.html, so a timer switched on in Edit Customer produced "Timer: no → yes" and the
+ * same switch flicked by the customer in their own portal produced NOTHING — not a stamp,
+ * not a line, nothing. The office half looked complete, which is why nobody noticed the
+ * other half was missing. Exactly the asymmetry `lightsChangedVia` exists to close one
+ * level up, in a new place.
+ *
+ * ⚠ TWO COPIES, AND THE SCOPE IS WHAT MAKES THEM SAFE. This is the same two-copies
+ * problem as the invoice maths, and it gets the same answer: a parity test. What keeps it
+ * small is that the portal can only ever write PORTAL_WRITE_FIELDS — sixteen fields — so
+ * this table is deliberately that set and no more, and `change-log.test.js` runs both
+ * copies over every one of them and fails the moment they disagree about a sentence.
+ *
+ * ⚠ IT DECIDES NOTHING, like the log it writes into. Nothing anywhere reads these rows
+ * back into business logic; they are a record for a person, which is what makes it safe
+ * to write from a path that also moves money.
+ */
+const PORTAL_CHANGE_LABELS = {
+  name: 'Name', phone: 'Phone', phone2: 'Second phone',
+  email: 'Email', email2: 'Second email', address: 'Address',
+  gateCode: 'Gate code', installPreference: 'When they want it hung',
+  wireColor: 'Wire colour', outletTimer: 'Timer',
+  specificOutlet: { label: 'Specific outlet', kind: 'yesno' },
+  specificOutletNotes: 'Which outlet', notes: { label: 'Notes', kind: 'text' },
+  lightsDescription: 'Light colours',
+  houseSides: { label: 'Sides of the house', kind: 'number' },
+  cancellationReason: { label: 'Why they are cancelling', kind: 'text' }
+};
+/* ⚠ THE ORDER OF THESE FIRST TWO LINES IS THE RULE, and it is written out in the browser
+   copy too because it was found by running the diff rather than reading it: an unticked
+   box reaches a save as '' while the record stores false — the same answer spelt two ways
+   — so with the blank test first, every save of every customer reported a row of tick
+   boxes changing. */
+function portalChangeValueText(v, kind) {
+  if (kind === 'present') return v ? 'saved' : 'none';
+  if (kind === 'yesno' || typeof v === 'boolean') return v ? 'yes' : 'no';
+  if (v === null || v === undefined || v === '') return '(blank)';
+  if (kind === 'money') return '$' + (Number(v) || 0).toFixed(2);
+  if (kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
+  const s = String(v).replace(/\s+/g, ' ').trim();
+  if (!s) return '(blank)';
+  return s.length > 60 ? s.slice(0, 60) + '\u2026' : s;
+}
+const PORTAL_CHANGE_EMPTY_TEXTS = ['(blank)', 'no', 'none', '0', '$0.00'];
+function describePortalChanges(before, updates) {
+  const out = [];
+  if (!updates) return out;
+  const was = before || {};
+  Object.keys(PORTAL_CHANGE_LABELS).forEach(function (f) {
+    if (!Object.prototype.hasOwnProperty.call(updates, f)) return;
+    const spec = PORTAL_CHANGE_LABELS[f];
+    const label = typeof spec === 'string' ? spec : spec.label;
+    const kind = typeof spec === 'string' ? '' : spec.kind;
+    const a = portalChangeValueText(was[f], kind);
+    const b = portalChangeValueText(updates[f], kind);
+    if (a === b) return;
+    /* ⚠ A FIELD THE RECORD NEVER HELD, arriving at its own default, is not an edit. Every
+       record written before a field existed reports "(blank) → no" on the first save that
+       touches it, which would put a row of noise on the history of the whole book. */
+    if (!Object.prototype.hasOwnProperty.call(was, f) &&
+        PORTAL_CHANGE_EMPTY_TEXTS.indexOf(b) !== -1) return;
+    out.push(label + ': ' + a + ' \u2192 ' + b);
+  });
+  return out;
+}
+/* ⚠ ONE ROW PER SAVE, capped, and SAYING it is capped — the same rule and the same number
+   as the office copy, for the same reason: a save is one event, and a row per field turns
+   one visit to the portal into a wall nobody scrolls. */
+const PORTAL_CHANGE_MAX_FIELDS = 12;
+function portalChangeSentence(changes) {
+  if (!changes || !changes.length) return '';
+  const shown = changes.slice(0, PORTAL_CHANGE_MAX_FIELDS);
+  const rest = changes.length - shown.length;
+  return 'They changed it themselves in their portal \u2014 ' + shown.join('; ') +
+    (rest > 0 ? ' (and ' + rest + ' more)' : '');
+}
+/* ⚠ IT MUST NEVER BREAK THE SAVE. A note about a change is worth less than the change,
+   and this runs on a path that also queues builds and charges a $30 fee. The office copy
+   carries the identical guarantee in the identical words. */
+async function logPortalChange(custId, changes) {
+  const what = portalChangeSentence(changes);
+  if (!custId || !what) return null;
+  try {
+    return await db.collection('activity').add({
+      what: what,
+      area: 'customers',
+      refId: String(custId),
+      /* ⚠ NAMED AS THEM, NOT AS A USER. Four people share the dashboard and every other
+         row in this log is one of them; a portal edit signed with a staff name would be
+         the log actively answering "who changed this" wrongly. */
+      who: 'member portal',
+      at: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (err) {
+    console.error('[HU] portal activity log write failed', what, err);
+    return null;
+  }
+}
+
 /* --- portalSave -----------------------------------------------------------
  * Input: { token, section, data }
  *   section = 'info' | 'preferences' | 'lights' | 'cancel'
@@ -1341,8 +1449,17 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   // Keep the normalised sign-in fields in step with whatever just changed —
   // see contactIndexFields. Without this a customer who edits their own phone
   // or email through the portal drops back to the full-collection scan.
+  /* ⚠ TAKEN BEFORE THE WRITE, LOGGED AFTER IT. The diff needs the record as it was, and
+     `oldData` is exactly that — but a line saying what changed, written before a save
+     that then fails, is the log claiming something happened that did not. So the
+     sentence is built here and posted below, once the write has actually landed. */
+  const portalChanges = describePortalChanges(oldData, updates);
   Object.assign(updates, contactIndexFields(updates));
   await db.collection('jobAddresses').doc(match.id).update(updates);
+  /* ⚠ IT CANNOT BREAK THE SAVE — logPortalChange swallows its own failure, because a
+     note about a change is worth less than the change, and this path also queues
+     builds and charges a $30 fee. */
+  await logPortalChange(match.id, portalChanges);
 
   /* A cancellation request means this customer is sitting out, same as an
      RSVP "no" or "back next year" — so it has to pull them off any route a
