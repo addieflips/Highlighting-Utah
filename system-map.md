@@ -166,6 +166,39 @@ difficulty can change while you work. ⚠ Once you pick a difficulty yourself,
 nothing overrides it — the tool stops re-cutting and leaves your answer alone.
 
 
+**One press of Attach to Quote finishes the job** (2026-08-29). It takes the
+picture, puts it on the quote, writes the footage and the price onto that quote
+and onto the customer behind it where there is one, and closes the tool.
+
+⚠ **It used to be able to do nothing at all.** Attach could only upload what
+*Add to Quote List* had already staged, so it sat DISABLED under a house that
+had just been measured — and a greyed-out button reading "Attach to Quote" is
+indistinguishable from a broken one. Nothing staged is now a reason to TAKE the
+picture: it captures whichever view you were last working in and attaches that.
+
+**Your dots go on the picture.** The marks are drawn onto a capture — the street
+view's numbered marks and the sky view's lettered corners, joined per strand,
+with any run you switched off left out because nobody is going to hang it.
+⚠ The photograph underneath is still kept CLEAN. Two copies are attached: the
+marked one is what shows, the untouched one is the photo's `original`, and the
+marks also ride along as ordinary markup shapes. So Mark Up This Photo → Clear
+→ Save gives the clean house back, which is what keeps the 2026-08-25 rule
+(*"I don't want red lines showing here after I'm done measuring"*) true at the
+same time as the dots travelling with the picture.
+
+**And the numbers reach the customer.** The same press writes `estimatedFeet`
+and `quotedPrice` onto the quote — the *Save to this quote* block still exists
+and still does only that — and then, when the quote carries a
+`convertedToCustomerId` or `existingCustomerId`, it writes `measuredFeet`,
+`housePrice` and `numberOfBins` onto that customer and re-sums their bill
+through `syncPayerInvoice` (the payer's bill, if the house bills to somebody
+else). ⚠ A quote that is not yet a customer writes to no customer at all: its
+feet and price already carry across on conversion, and guessing a customer by
+name or phone is how a book gets duplicates in it. ⚠ And the customer NUMBER is
+never rewritten — a number already given out is on a bin in the warehouse, so
+the tool says the series no longer matches the footage and leaves it to a
+person. Suite 282.
+
 **Every control is at the top, in its own bar; the pictures are last.** Attach
 to Quote and Close ride above the heading row, then the capture buttons, the
 tools, the Save block and Roof Facts — and nothing below the pictures is a

@@ -41441,6 +41441,14 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
      get a clean picture of the house back. */
   const capture = extractFn(admin, 'rmCapture') || '';
   const compose = extractFn(admin, 'rmComposeCapture') || '';
+  /* ⚠ THE DRAWING MOVED, THE GUARANTEE DID NOT (2026-08-29). Attach needs BOTH
+     versions of one capture — a clean original to keep and a marked copy to
+     show — so the painting is its own function that takes the canvas to paint
+     into. These checks follow it there rather than going green on its absence. */
+  const paint = extractFn(admin, 'rmPaintCapture') || '';
+  check('S265', 'the painting takes the canvas it is painting into',
+    /function rmPaintCapture\(canvas, withMarks\)/.test(paint),
+    'a painter that can only work on one canvas has to destroy one version to make the other');
   check('S265', 'composing the capture is its own function, so it can be redone',
     !!compose,
     'drawn once inline, the only way to remove a line is to re-fetch the picture');
@@ -41448,14 +41456,15 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     /lines: false/.test(capture),
     'measuring lines are working notes; the photo is what the customer and the crew look at');
   check('S265', 'and the lines are only drawn when they are asked for',
-    /if\(rmCrop\.lines\) rmRuns\.forEach/.test(compose),
+    /if\(!withMarks\) return;/.test(paint) &&
+    /rmPaintCapture\(rmCrop\.canvas, !!rmCrop\.lines\);/.test(compose),
     'an unconditional draw is the burnt-in version again');
   /* ⚠ THE SOURCE IMAGE IS KEPT, or the toggle can only ever go one way. */
   check('S265', 'the photograph itself is kept so either version can be composed',
-    /img: img,/.test(capture) && /const canvas = rmCrop\.canvas, img = rmCrop\.img;/.test(compose),
+    /img: img,/.test(capture) && /const img = rmCrop\.img;/.test(paint),
     'without the original in hand, ticking the box is a one-way door');
   check('S265', 'and each compose starts from a cleared canvas',
-    /ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\);/.test(compose),
+    /ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\);/.test(paint),
     'drawing over the last version leaves the old lines under the new picture');
 
   const lineWire = (admin.split("getElementById('rmCropLines').addEventListener")[1] || '').slice(0, 800);
@@ -41504,8 +41513,8 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
     /if\(failed\.length\)\{[\s\S]{0,160}return; \}/.test(attach),
     'opening markup after a partial failure marks up whichever picture did land');
   check('S265', 'and the second button is enabled and disabled with the first',
-    /attachMark\.disabled = !rmShots\.length/.test(extractFn(admin, 'rmRenderStaged') || ''),
-    'offering markup with nothing staged marks up a picture that does not exist');
+    /attachMark\.disabled = !\(rmShots\.length \|\| canCapture\)/.test(extractFn(admin, 'rmRenderStaged') || ''),
+    'one door open and the other shut is a button that looks broken beside a button that works');
 }
 
 
@@ -44172,6 +44181,260 @@ suite('281. The short quote link');
     (admin.match(/button_url: 'https:\/\/highlightingutah\.com\/#\/quote-details\?token=' \+ \(d\.quoteToken \|\| ''\) \+ quotePortalParam\(d\),/g) || []).length === 3,
     'an email has no length problem, its links carry &action=approve, and those URLs are already in inboxes — ' +
     'the short link is for the text message and nothing else');
+}
+
+// =====================================================================
+suite('282. Measure Roof — Attach to Quote actually attaches');
+/* ⭐ Owner, 2026-08-29: "in measure roof we have a button that says attach to
+   quote, where it should attach the picture to the quote — that doesn't happen.
+   Fix that, and make sure the placed dots moves with it. Also make it so the
+   feet and price attaches to the customer as well so that automatically goes in
+   the system", and "after everything happens it should close it automatically
+   after everything attaches."
+
+   ⚠ WHY IT DID NOTHING, AND WHY NOTHING SAID SO. Attach could only upload what
+   "Add to Quote List" had already staged, so it was DISABLED until somebody had
+   been through the crop screen — and a disabled button reading "Attach to Quote"
+   under a house you have just measured is indistinguishable from a broken one.
+   Three separate things follow from her sentence and each is checked here:
+   the button takes the picture itself, the marks are on that picture, and the
+   footage and price land on the quote AND on the customer behind it.
+*/
+{
+  const NLS = String.fromCharCode(10);
+  const attach = extractFn(admin, 'rmAttachShots') || '';
+  const staged = extractFn(admin, 'rmRenderStaged') || '';
+  const marks  = extractFn(admin, 'rmCaptureMarks') || '';
+  const stage  = extractFn(admin, 'rmStageCapture') || '';
+  const nums   = extractFn(admin, 'rmSaveNumbersOnAttach') || '';
+  const push   = extractFn(admin, 'rmPushToCustomer') || '';
+
+  /* ---- 1. the button is never dead ---- */
+  check('S282', 'Attach is offered as soon as there is a view to capture',
+    /const canCapture = rmSkyReady \|\| rmStreetReady;/.test(staged) &&
+    /attach\.disabled = !\(rmShots\.length \|\| canCapture\)/.test(staged),
+    'disabled under a measured house, it reads as broken — which is exactly how it was reported');
+  check('S282', 'and the two flags that decide that repaint the bar',
+    /rmSkyReady = true;[\s\S]{0,300}rmRenderStaged\(\);/.test(admin) &&
+    /rmStreetReady = true;[\s\S]{0,200}rmRenderStaged\(\);/.test(admin),
+    'nothing else repaints it, so the button would stay grey until something else happened to');
+  check('S282', 'with nothing staged it captures rather than refusing',
+    /if\(!rmShots\.length\)\{/.test(attach) && /await rmCapture\(which, true\)/.test(attach),
+    'this IS the bug — a press that does nothing at all');
+  check('S282', 'and it says which pictures it could not make',
+    /Load the address first/.test(attach) && /Could not make a picture of this view/.test(attach),
+    'silence after a press is the failure being reported again in a new place');
+  check('S282', 'rmCapture answers whether it produced anything',
+    /async function rmCapture\(which, auto\)/.test(admin) &&
+    (extractFn(admin, 'rmCapture') || '').indexOf('return false;') !== -1 &&
+    /if\(auto\) return await rmStageCapture\(\);/.test(extractFn(admin, 'rmCapture') || ''),
+    'a caller that cannot tell a picture from a failure uploads nothing and says nothing');
+
+  /* ---- 2. the placed dots travel with the picture ---- */
+  check('S282', 'the street marks are drawn on a street capture',
+    /rmStreetDotsHere\(\)/.test(marks) && /rmStreetDotPixel\(d, w, h, pov\)/.test(marks),
+    'street dots stopped being runs on 2026-08-28, so only rmRuns was ever drawn — ' +
+    'the office could dot a whole elevation and attach a photograph with nothing on it');
+  check('S282', 'and they keep the numbers the screen gave them',
+    /text: String\(i\+1\)/.test(marks),
+    'a picture that numbers the dots differently from the pane is no use for talking about the house');
+  check('S282', 'a sky capture names its corners the way the tool does',
+    /rmCornerLabel\(i\)/.test(marks),
+    'a peak is written down as the two letters it sits between — unlabelled dots cannot be referred to');
+  check('S282', 'a run that is switched off is not drawn on the photograph',
+    /if\(!rmRunIsOn\(r\)\) return;/.test(marks),
+    'a rejected suggestion is drawn in grey on screen so it can be found again; ' +
+    'on a photo going to a customer it is a line nobody will hang');
+  check('S282', 'the toggle says what the capture in front of you actually is',
+    /if\(linesBox\) linesBox\.checked = !!rmCrop\.lines;/.test(extractFn(admin, 'rmCapture') || ''),
+    'every capture starts clean, so a box left ticked from the last one promises marks that are not there');
+  check('S282', 'an automatic capture has the marks on it',
+    /if\(auto\) rmCrop\.lines = true;/.test(extractFn(admin, 'rmCapture') || ''),
+    'nobody saw the crop screen on that path, so nobody could have ticked the box — ' +
+    'and the press was about the roofline that was just traced');
+  /* ⚠ AND THE PHOTOGRAPH UNDERNEATH IS STILL CLEAN. Owner, 2026-08-25: "I don't
+     want red lines showing here after I'm done measuring." Both instructions are
+     kept by attaching two copies and the shapes that turn one into the other. */
+  check('S282', 'the clean photograph is what is kept as the original',
+    /const original = await uploadOneToCloudinary\(ready\);/.test(attach) &&
+    /original: original,/.test(attach),
+    'burning the lines into `original` means even the Mark Up tool can never get the house back clean');
+  check('S282', 'and the marks ride along as shapes that can be edited or cleared',
+    /markup: rmShots\[i\]\.markup \|\| \[\]/.test(attach) &&
+    /type: 'poly', width: 'medium', points: pts/.test(extractFn(admin, 'rmCaptureShapes') || ''),
+    'without them the dots are burnt in for ever, which is the thing that was removed on 2026-08-25');
+  check('S282', 'the shapes are measured against the CROPPED picture',
+    /const ox = b \? b\.x\*W : 0/.test(extractFn(admin, 'rmCaptureShapes') || ''),
+    'fractions of the uncropped capture put every line in the wrong place once a box is dragged');
+  check('S282', 'a failed marked upload still leaves the picture attached',
+    /catch\(err\)\{ url = original; \}/.test(attach),
+    'losing the photograph because the second upload failed is the worse half of that trade');
+  check('S282', 'one stager, shared by the crop screen and by Attach',
+    !!stage && /const staged = await rmStageCapture\(\);/.test(admin) &&
+    (admin.match(/rmShots\.push\(\{[\s\S]{0,40}blob: clean/g) || []).length === 1,
+    'two stagers is two answers to what a staged picture is');
+
+  /* ---- 3. the feet and the price reach the customer ---- */
+  check('S282', 'the same press writes the footage and the price',
+    /const saidNumbers = await rmSaveNumbersOnAttach\(\);/.test(attach) && !!nums,
+    'attaching and closing with estimatedFeet empty leaves quoteFeetOrEstimate to ' +
+    'guess the feet back out of the price — owner: "I need no guessing I need feet to be correct"');
+  check('S282', 'and it still asks before saving a guessed footage',
+    /rmGuessedFeet\(\)/.test(nums) && /confirm\(/.test(nums),
+    'this is the last place a guessed foot can be told from a measured one');
+  check('S282', 'saying no leaves the numbers alone and keeps the picture',
+    /the feet and price were left alone/.test(nums),
+    'refusing the numbers must not throw away the upload that already landed');
+  check('S282', 'the customer is found by the link the rest of the file uses',
+    /d\.convertedToCustomerId \|\| d\.existingCustomerId/.test(push),
+    'guessing at a customer by name or phone is how a book gets 944 duplicates in it');
+  check('S282', 'an unconverted quote writes to no customer at all',
+    /if\(!custId\) return '';/.test(push),
+    'its feet and price carry across on conversion — inventing a record here is a second copy of somebody');
+  check('S282', 'the feet and the price land on the customer record',
+    /if\(feet > 0\)\{ updates\.measuredFeet = feet; updates\.numberOfBins = cnBinsForFeet\(feet\); \}/.test(push) &&
+    /if\(price\) updates\.housePrice = price;/.test(push),
+    'owner: "so that automatically goes in the system"');
+  /* ⚠ HALF A MEASUREMENT IS STILL HALF. "Save the price only" has no footage
+     behind it and "Save the feet only" has no price — writing the missing half as
+     0 would bill a house at nothing, or drop a measured house back to one bin. */
+  check('S282', 'a missing half is left alone, never written as nought',
+    /if\(!Object\.keys\(updates\)\.length\) return '';/.test(push) &&
+    !/measuredFeet: feet,/.test(push),
+    'a zero written over a real price or a real footage is the worst kind of wrong here');
+  /* ⭐ AND THE THREE SAVE BUTTONS GO THE SAME WAY. This is where the office
+     actually saves a measurement; leaving it on the quote alone means somebody
+     re-types it onto the record, which is the copying step the tool exists to
+     remove. Counted, so a fourth writer has to come past this line and say so. */
+  check('S282', 'every Save button carries the measurement to the customer',
+    (admin.match(/await rmPushToCustomer\(/g) || []).length === 4,
+    'Save to this quote, Save the feet only, Save the price only and Attach — ' +
+    'one of them left behind is a customer record that quietly disagrees with the quote');
+  check('S282', 'and each passes only the half it owns',
+    /await rmPushToCustomer\(feet, price\)/.test(admin) &&
+    /await rmPushToCustomer\(feet, 0\)/.test(admin) &&
+    /await rmPushToCustomer\(0, price\)/.test(admin),
+    'the feet button owns the geometry and the price button owns the money — ' +
+    'passing the other half means writing a number nobody pressed a button about');
+  check('S282', 'and the bill is re-summed from the houses, never written directly',
+    /await syncPayerInvoice\(payerKey\)/.test(push) &&
+    /cust\.data\.billToPhone/.test(push),
+    'a housePrice changed underneath the invoice leaves the office and the nightly run ' +
+    'disagreeing about what is owed — and a house that bills elsewhere is on somebody else\'s bill');
+  check('S282', 'and the customer write is stamped like any other save',
+    /updates\.updatedAt = serverTimestamp\(\);/.test(push) && /updates\.lastEditedBy = paymentLedgerUser\(\);/.test(push),
+    'without them, "has anyone touched this since I opened it?" is unanswerable on a record ' +
+    'this just changed, and a price that arrived from nowhere nobody can name is the worst kind on a bill');
+  check('S282', 'and it says on the activity log what it moved',
+    /const changed = describeCustomerChanges\(cust\.data, updates\);/.test(push) &&
+    /logActivity\('Measured '/.test(push),
+    'the office reads that list to find out what happened today');
+  check('S282', 'the diff is taken BEFORE the record is written',
+    push.indexOf('describeCustomerChanges') < push.indexOf("updateDoc(doc(db, 'jobAddresses'"),
+    'afterwards there is nothing left to compare it against');
+  check('S282', 'the customer number is reported, not rewritten',
+    !/customerNumber:/.test(push) && /is the wrong series for/.test(push),
+    'a number already given out is on a bin in the warehouse; the re-quote flow exists for that conversation');
+
+
+  /* ---- 5. run them, rather than reading them ----
+     ⚠ A TEXT MATCH STAYS GREEN WITH AN `if(false)` IN FRONT OF A LINE — the
+     file says so itself about rmCommitPayload, and the maths that puts a dot in
+     the right place on a cropped picture is exactly the kind that goes wrong
+     quietly. So both are lifted and run against known numbers. */
+  {
+    const build = new Function('rmRuns', 'rmRunIsOn', 'rmSvProject', 'rmPointOnStatic',
+      'RM_TYPES', 'rmStreetDotsHere', 'rmStreetDotPixel', 'rmCorners', 'rmCornerLabel', 'rmCrop',
+      marks + NLS + extractFn(admin, 'rmCaptureShapes') +
+      NLS + 'return {marks: rmCaptureMarks, shapes: rmCaptureShapes};');
+    const noRuns = [];
+    const on = function(r){ return r && r.on !== false; };
+    const TYPES = {perimeter: {color: '#E0574B'}};
+
+    /* Two street marks in one panorama, at 10,20 and 30,40 of a 100x50 frame
+       captured at scale 2. */
+    const dots = [{e:1, n:0, u:0, band:0}, {e:0, n:1, u:0, band:0}];
+    const pixels = [{x:10, y:20}, {x:30, y:40}];
+    const street = build(noRuns, on, null, null, TYPES,
+      function(){ return dots; },
+      function(d){ return pixels[dots.indexOf(d)]; },
+      [], null, null).marks('street', 100, 50, 2, {heading:0, pitch:0, zoom:1}, {e:0,n:0,u:0}, null, 0);
+    check('S282', 'two street marks come back as one numbered strand',
+      street.length === 1 && street[0].dots.length === 2 &&
+      street[0].dots[0].text === '1' && street[0].dots[1].text === '2',
+      'got ' + JSON.stringify(street));
+    check('S282', 'and the capture scale is applied to where they sit',
+      street.length === 1 && street[0].dots[0].x === 20 && street[0].dots[0].y === 40 &&
+      street[0].dots[1].x === 60 && street[0].dots[1].y === 80,
+      'the static picture is fetched at scale 2, so a screen pixel is two of its pixels');
+
+    /* A dot behind the camera comes back null and must not renumber the rest. */
+    const gone = build(noRuns, on, null, null, TYPES,
+      function(){ return dots; },
+      function(d){ return dots.indexOf(d) === 0 ? null : pixels[1]; },
+      [], null, null).marks('street', 100, 50, 2, {heading:0, pitch:0, zoom:1}, {e:0,n:0,u:0}, null, 0);
+    check('S282', 'a mark behind the camera is dropped and the numbering stays honest',
+      gone.length === 1 && gone[0].dots.length === 1 && gone[0].dots[0].text === '2',
+      'renumbering the survivors makes the picture disagree with the pane it was taken from');
+
+    /* Two strands must not be joined to each other. */
+    const banded = [{e:1,n:0,u:0,band:0}, {e:0,n:1,u:0,band:1}];
+    const twoBands = build(noRuns, on, null, null, TYPES,
+      function(){ return banded; },
+      function(d){ return pixels[banded.indexOf(d)]; },
+      [], null, null).marks('street', 100, 50, 2, {heading:0, pitch:0, zoom:1}, {e:0,n:0,u:0}, null, 0);
+    check('S282', 'two strands are two marks, never one line between them',
+      twoBands.length === 2 && twoBands.every(function(m){ return m.path.length === 0; }),
+      'the top of a house and the bottom joined up draws a line down the middle of the roof');
+
+    /* Sky: every corner, under its own letter. */
+    const corners = [{lat:1, lng:1, h:0}, {lat:2, lng:2, h:0}];
+    const sky = build(noRuns, on, null,
+      function(pt){ return {x: pt.lat*10, y: pt.lng*10}; }, TYPES,
+      function(){ return []; }, null, corners,
+      function(i){ return 'ABCDEFG'[i]; }, null)
+      .marks('sky', 100, 50, 2, null, null, {lat:0, lng:0}, 20);
+    check('S282', 'every sky corner is on the picture under its own letter',
+      sky.length === 1 && sky[0].dots.length === 2 &&
+      sky[0].dots[0].text === 'A' && sky[0].dots[1].text === 'B',
+      'got ' + JSON.stringify(sky));
+
+    /* The shapes, against a crop: the right-hand half of a 200x100 capture. */
+    const crop = {canvas: {width: 200, height: 100}, box: {x:.5, y:0, w:.5, h:1},
+                  which: 'street', w: 100, h: 50, scale: 2,
+                  pov: {heading:0, pitch:0, zoom:1}, cam: {e:0,n:0,u:0}, center: null, zoom: 0};
+    const half = build(noRuns, on, null, null, TYPES,
+      function(){ return dots; },
+      function(d){ return dots.indexOf(d) === 0 ? {x:50, y:0} : {x:100, y:50}; },
+      [], null, crop).shapes();
+    check('S282', 'a line is stored as fractions of the CROPPED picture',
+      half.length === 1 && half[0].points.length === 2 &&
+      half[0].points[0].x === 0 && half[0].points[0].y === 0 &&
+      half[0].points[1].x === 1 && half[0].points[1].y === 1,
+      'got ' + JSON.stringify(half) + ' — the Mark Up tool reads these as 0-1 of the image it is given');
+    check('S282', 'and it is a shape the Mark Up tool understands',
+      half.length === 1 && half[0].type === 'poly' && half[0].width === 'medium',
+      'qmFlattenToBlob draws sh.points against the image and colours by sh.type');
+
+    /* A line entirely outside the crop is not on the cropped picture. */
+    const outside = build(noRuns, on, null, null, TYPES,
+      function(){ return dots; },
+      function(d){ return dots.indexOf(d) === 0 ? {x:0, y:0} : {x:10, y:5}; },
+      [], null, crop).shapes();
+    check('S282', 'a line nowhere near the crop is left off it',
+      outside.length === 0,
+      'markup pinned outside the picture reappears squashed against its edge');
+  }
+  /* ---- 4. and then it closes ---- */
+  check('S282', 'the tool closes itself once everything has landed',
+    /roofMeasureOverlay'\)\.style\.display = 'none';/.test(attach),
+    'owner: "after everything happens it should close it automatically after everything attaches"');
+  check('S282', 'and it closes AFTER the numbers, not before them',
+    attach.indexOf('rmSaveNumbersOnAttach') < attach.indexOf("roofMeasureOverlay')"),
+    'closing on a half-done press is what hides the half that did not happen');
+  check('S282', 'a partly failed upload reports instead of closing',
+    attach.indexOf('Could not upload') < attach.indexOf('rmSaveNumbersOnAttach'),
+    'closing over a failure is the failure being hidden');
 }
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
