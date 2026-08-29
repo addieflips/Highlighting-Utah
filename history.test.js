@@ -72,6 +72,7 @@ const PARTS = {
      status line, so without it every check here dies on one name — which is what
      happened, loudly, rather than the line silently reading wrong. */
   historySeasonWords: liftBlock('historySeasonWords', '{', '}'),
+  historyMergeWords: liftBlock('historyMergeWords', '{', '}'),
   historyNoteRows: liftBlock('historyNoteRows', '{', '}'),
   customerHistory: liftBlock('customerHistory', '{', '}')
 };
@@ -205,6 +206,21 @@ if (history) {
     history({ cust: { convertedToCustomerAt: D('2026-08-01') } }).rows.length === 0,
     'it is written onto the quote, not the customer — read off the wrong record it is ' +
     'missing from every history and nothing says so');
+
+  /* ⚠ THE MERGE LINE IS THE ONLY RECORD OF SOMETHING OTHERWISE UNRECOVERABLE. A merge
+     writes another record's values onto this one and then deletes that record — so if this
+     does not say what was taken, nothing anywhere can, and "where did this address come
+     from" has no answer at all. */
+  const merged = history({ cust: { mergedAt: D('2026-07-01'),
+    mergedFields: ['address', 'housePrice', 'gateCode'] } });
+  check('a merge appears on the history', merged.rows.length === 1);
+  check('and it names the fields it took',
+    /took address, housePrice, gateCode/.test(merged.rows[0].what),
+    '"merged with a duplicate" beside a date leaves the actual question — which of these ' +
+    'fields is not theirs — exactly where it was');
+  check('and a merge that recorded no fields still reads sensibly',
+    /Merged with a duplicate/.test(history({ cust: { mergedAt: D('2026-07-01') } }).rows[0].what),
+    'every record merged before this shipped carries the date and no field list');
 
   /* ⚠ THE LINE BETWEEN SEASONS, and it is the reason the history is readable at all after
      a reset. Start New Season clears the flags and KEEPS every date, so without a divider

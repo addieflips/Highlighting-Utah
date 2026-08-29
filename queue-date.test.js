@@ -405,6 +405,46 @@ check('the one place that sets the flag without queuing is still excluded',
 }
 
 /* ---------------------------------------------------------------------------
+ * 1e. A MERGE SAYS WHAT IT TOOK, AND FROM WHERE.
+ *
+ * ⚠ THIS IS THE ONE EVENT ON A RECORD THAT WAS PREVIOUSLY UNRECOVERABLE. Merging writes
+ * another record's values onto the keeper and then DELETES that record. Everything else on
+ * the keeper can still be read; the spare is gone the moment the delete runs, so if its id
+ * is not written down at the merge it cannot be recovered by anybody. "Why does this
+ * customer have an address they never gave us" had no answer anywhere — the activity log
+ * records a count with an empty id, so even that cannot name them.
+ *
+ * ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE RULE, because that split has caught this
+ * work twice already today: the history gate proves a `mergedAt` renders, and would stay
+ * green while nothing ever wrote one.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const at = clean.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id)");
+  check('the duplicate-merge write was found', at > -1,
+    'the checks below prove nothing against a string that is not there');
+  if (at > -1) {
+    const around = clean.slice(at, at + 400);
+    check('a merge records when it happened',
+      /mergedAt\s*:\s*serverTimestamp\(\)/.test(around),
+      'without it the keeper carries another record\'s values with nothing saying so');
+    check('and which record it absorbed', /mergedFromIds\s*:/.test(around),
+      'the spare is deleted on the next line — unrecorded here, its id is gone for good');
+    check('and what it took', /mergedFields\s*:/.test(around),
+      '"merged with a duplicate" cannot answer which of these fields is not theirs');
+
+    /* ⚠ IN THE SAME WRITE AS THE GAINS. A second write can fail on its own and leave a
+       record carrying another's values with nothing saying so — worse than the state this
+       fixes, because it looks clean. */
+    check('and it rides in the same write as the fields it gained',
+      /Object\.assign\(\{\},\s*g\.gains,/.test(around),
+      'a separate write can fail on its own and leave the record carrying another\'s ' +
+      'values with nothing saying where they came from');
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * 1b. The same census for the RECYCLE queue, and the $30 join fee.
  *
  * Addie, 2026-08-28: "Everything that can be changed for members or added to members

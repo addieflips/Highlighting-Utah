@@ -16849,10 +16849,14 @@ suite('Suite 54. Merging a customer who is in the book twice');
       'same shape of lock as every other bulk change in Danger Zone');
 
     /* ⭐ THE ORDER THAT CANNOT LOSE ANYTHING. */
+    /* ⚠ ANCHORED ON THE CALL, NOT ITS ARGUMENTS (repointed 2026-08-29). This matched the
+       whole expression `..., g.gains)` — so the moment that write also recorded WHERE the
+       gained fields came from, it failed on code that is right and still keeps the order.
+       The invariant is which write happens first; the argument list is not the invariant.
+       Same slow-fuse shape as S82, S129 and the folder-names suite. */
+    const keeperWrite = body.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id)");
     check('S54', 'the keeper is filled in BEFORE the spare is deleted',
-      body.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id), g.gains)") > 0 &&
-      body.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id), g.gains)") <
-      body.indexOf("deleteDoc(doc(db,'jobAddresses', l.id))"),
+      keeperWrite > 0 && keeperWrite < body.indexOf("deleteDoc(doc(db,'jobAddresses', l.id))"),
       'the other order can lose the very field this exists to rescue — delete the copy holding the ' +
       'price, fail to write it onto the keeper, and it is gone for good');
     check('S54', 'it takes the copy off any route before deleting it',

@@ -649,6 +649,28 @@ It shows what happened to Jane Smith. The SHAPE of the journey — quote, email,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
 
+### A merge says what it took, and from where
+
+Merging duplicates writes another record's values onto the keeper and then **deletes that
+record**. Until 2026-08-29 nothing said which record, or when, or what was taken — so *"why
+does this customer have an address they never gave us"* had no answer anywhere. The activity
+log records a count with an empty id, so even that cannot name them.
+
+⚠ **This is the one event on a record that was previously unrecoverable.** Everything else on
+the keeper can still be read; the spare is gone the moment the delete runs, so if its id is
+not written down at the merge it cannot be recovered by anybody. `mergedAt`, `mergedFromIds`
+and `mergedFields` now ride **in the same write as the gains** — a second write can fail on
+its own and leave a record carrying another's values with nothing saying so, which is worse
+than the state being fixed because it looks clean.
+
+⚠ **Only when something was actually taken.** A merge that gained nothing is a spare empty
+copy being tidied away; stamping it would claim this record was built out of another when it
+was not.
+
+⚠ **The history names the fields**, not just the event — *"took address, housePrice,
+gateCode"*. "Merged with a duplicate" beside a date leaves the actual question, which of these
+fields is not theirs, exactly where it was.
+
 ### Where one season ends and the next begins
 
 Start New Season clears the **flags** and keeps every **date** — `completedAt`,
