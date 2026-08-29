@@ -1776,3 +1776,54 @@ reading as this season's. That was the visible symptom; this question is the
 underlying one.
 
 **Resulting map change.** None yet — it gets a row when it is answered.
+
+## Q-027 · intent · OPEN · raised 2026-08-29
+Should an existing member who approves a re-quote fill in the install-details
+form, the way a brand-new customer does?
+
+**Two of your own answers point opposite ways, and I have not applied either
+because the newer one may be an observation rather than a decision.**
+
+**2026-08-19, a ruling:** *"I need the members that already exist not to go to
+the form once they are created. It should just show a message similar to Do you
+want anything changed with your lights this year? If they say yes they will go
+straight to there member portal if they say No than a cute message will come
+up."* That is what the code does, and the reasoning is written into it: a member
+already has their colours, wire, timer and gate code on file, so the form asks
+them to re-type what we hold.
+
+**2026-08-29:** *"You mean that only requotes see the quote form cause everyone
+should be filling out the form, but when I checked last everyone that gets an
+email and pushes approve does fill out the form with all info."*
+
+**The factual half is resolved, and both of you are right.** Who sees the form
+is decided by `alreadyMember`, which is true only when the quote carries
+`convertedToCustomerAt` (staff-only) or an `existingCustomerId` pointing at a
+record that still exists. So:
+
+- a **brand-new lead** approving → gets the form. Always has.
+- an **existing member** approving a re-quote → is asked what is changing.
+
+A test quote is a new lead, so *"when I checked last, everyone fills the form"*
+is exactly what you would see. Nothing is broken and nothing contradicts the
+code; the two answers are about two different people.
+
+**The intent half is yours.** Should the second group get the form as well?
+
+- **Keep it as it is** — a member re-typing colours we already hold is how a
+  record gets *worse*, and the "do you want anything changed" question is
+  shorter and answers the same thing.
+- **Give everyone the form** — one path instead of two, and a member whose
+  details are stale gets a chance to correct them. The cost is that a member who
+  changes nothing can still overwrite good data with a hurried re-entry.
+
+**Why it is not decided here.** R-024 says your newer answer wins where you have
+answered the same question twice — but the newer line reads as *"I thought it
+worked this way, and when I tested it, it did"*, which is a report rather than a
+ruling, and applying it would undo a decision whose reasoning is still sound.
+Saying so and asking is the rule for a same-tier collision, not picking one.
+
+**Nothing was changed either way.** The journey page draws both routes, so the
+two paths are at least visible now.
+
+**Resulting map change.** None yet — it gets a row when it is answered.
