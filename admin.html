@@ -32829,7 +32829,20 @@ function rbWireDiffButtons(report, statusEl){
         const keepRec = jobAddresses.find(function(c){ return c.id === sp.keeper; });
         if(!spareRec || !keepRec){ foldFailed++; continue; }
         const gains = mergeFieldsFrom(keepRec.data || {}, spareRec.data || {});
-        if(Object.keys(gains).length) await updateDoc(doc(db,'jobAddresses', sp.keeper), gains);
+        /* ⭐ THE SAME TRACE THE DANGER ZONE MERGE WRITES, and this is the path that runs
+           OFTEN — the Danger Zone tool is used rarely and deliberately, whereas folding in
+           a spare copy happens on an ordinary sheet sync. The spare is deleted two lines
+           down, so unless its id is written here it cannot be recovered by anybody, and
+           "why does this customer have an address they never gave us" has no answer.
+           ⚠ IN THE SAME WRITE AS THE GAINS, and only when something was actually taken —
+           both for the reasons written out at the Danger Zone copy of this. */
+        if(Object.keys(gains).length){
+          await updateDoc(doc(db,'jobAddresses', sp.keeper), Object.assign({}, gains, {
+            mergedAt: serverTimestamp(),
+            mergedFromIds: [sp.id],
+            mergedFields: Object.keys(gains)
+          }));
+        }
         await removeCustomerFromUpcomingRoutes(sp.id);
         await deleteDoc(doc(db,'jobAddresses', sp.id));
         folded++;

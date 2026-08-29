@@ -682,6 +682,16 @@ and `mergedFields` now ride **in the same write as the gains** — a second writ
 its own and leave a record carrying another's values with nothing saying so, which is worse
 than the state being fixed because it looks clean.
 
+⚠ **THREE PLACES ABSORB A RECORD, AND THE COMMON ONE WAS MISSED FIRST.** `mergeFieldsFrom`
+is the shared rule for taking another record's values, and the Danger Zone merge is the one
+that got the trace on the first pass — while the **sheet sync's fold-in does the same thing
+on the path that actually runs often**. The Danger Zone tools are used rarely and
+deliberately; folding in a spare copy happens on an ordinary sync. `queue-date.test.js` now
+censuses every caller, so the rare path cannot be fixed while the common one is missed —
+which is exactly what happened. Two callers only *scan* (building the preview of what a merge
+would gain) and are named as such, verified rather than assumed: neither body contains a
+write of any kind.
+
 ⚠ **Only when something was actually taken.** A merge that gained nothing is a spare empty
 copy being tidied away; stamping it would claim this record was built out of another when it
 was not.

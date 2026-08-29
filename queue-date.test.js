@@ -423,9 +423,74 @@ check('the one place that sets the flag without queuing is still excluded',
  * work twice already today: the history gate proves a `mergedAt` renders, and would stay
  * green while nothing ever wrote one.
  * ------------------------------------------------------------------------- */
+/* ⚠ AND EVERY PLACE THAT ABSORBS A RECORD LEAVES THE TRACE, not just the one that was
+   found first. `mergeFieldsFrom` is the shared rule for taking another record's values, and
+   it is called from THREE places — the Danger Zone merge, the Danger Zone duplicate scan,
+   and the sheet sync's fold-in. The last of those is the one that runs OFTEN: the Danger
+   Zone tools are used rarely and deliberately, folding in a spare copy happens on an
+   ordinary sync. A census here is what stops the rare path being fixed and the common one
+   being missed, which is precisely what happened on the first pass. */
 {
   const src = SOURCES['admin.html'];
   const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+  const absorbers = new Map();
+  const mre = /mergeFieldsFrom\s*\(/g;
+  let mm;
+  while ((mm = mre.exec(clean))) {
+    if (insideComment(src, mm.index)) continue;
+    const fn = scan.enclosing(ix, mm.index) || '(top level)';
+    if (/^function mergeFieldsFrom/.test(clean.slice(Math.max(0, mm.index - 9), mm.index + 30))) continue;
+    absorbers.set(fn, (absorbers.get(fn) || 0) + 1);
+  }
+  check('the record-absorbing census finds the places that take another record\'s values',
+    absorbers.size >= 2,
+    'found ' + absorbers.size + '. A matcher that has stopped matching demands nothing.');
+
+  /* ⚠ NAMED, WITH WHAT EACH ONE IS. A caller that only SCANS (building a preview of what a
+     merge would gain) is not absorbing anything and must not be asked for a trace. */
+  const ABSORBERS = {
+    dupExactBtn: 'the Danger Zone merge — writes the gains onto the keeper and deletes the spare',
+    rbWireDiffButtons: 'the sheet sync folding in a spare copy — the same thing, on the path ' +
+      'that actually runs often',
+    dupFindBtn: 'the duplicate scan — builds the preview of what would be gained, and ' +
+      'writes nothing',
+    findMergeableCustomers: 'works out what a merge WOULD take, for the report; writes nothing',
+    /* ⚠ A LOCAL HELPER INSIDE findMergeableCustomers, which the scanner names on its own
+       because it is a named `const consider = function(...)`. Verified rather than assumed:
+       its body contains no updateDoc, setDoc, addDoc or deleteDoc at all. It builds the
+       preview of what a merge would gain, which is why it calls the shared rule. */
+    consider: 'builds the preview of what a merge would gain; writes nothing at all'
+  };
+  const unknownAbsorber = [...absorbers.keys()]
+    .filter(f => !Object.keys(ABSORBERS).some(k => f.indexOf(k) !== -1));
+  check('no new place absorbs a record without a decision about it',
+    unknownAbsorber.length === 0,
+    'new place(s): ' + unknownAbsorber.join(', ') +
+    '.\n        If it writes the gains onto a keeper it must also write mergedAt, ' +
+    'mergedFromIds and mergedFields in the same write — the record it takes from is ' +
+    'deleted, so an id not recorded there is gone for good. If it only scans, say so here.');
+
+  /* ⚠ EVERY WRITER OF THE GAINS CARRIES THE TRACE. Checked per write, not per function:
+     one function could legitimately hold both a traced and an untraced write, and the
+     untraced one is the bug. */
+  const gainWrites = [];
+  const gre = /updateDoc\(doc\(db,'jobAddresses',\s*(?:g\.keeper\.id|sp\.keeper)\)/g;
+  let gm;
+  while ((gm = gre.exec(clean))) {
+    if (insideComment(src, gm.index)) continue;
+    const after = clean.slice(gm.index, gm.index + 420);
+    if (!/mergedAt\s*:/.test(after) || !/mergedFromIds\s*:/.test(after) ||
+        !/mergedFields\s*:/.test(after)) {
+      gainWrites.push(scan.enclosing(ix, gm.index) || '(top level)');
+    }
+  }
+  check('every write that absorbs another record records what it took',
+    gainWrites.length === 0,
+    'no trace: ' + gainWrites.join(', ') +
+    '.\n        The spare is deleted moments later, so its id is unrecoverable unless it ' +
+    'is written here — and the activity log records only a count with an empty id.');
+
   const at = clean.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id)");
   check('the duplicate-merge write was found', at > -1,
     'the checks below prove nothing against a string that is not there');
