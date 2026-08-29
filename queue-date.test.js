@@ -453,8 +453,14 @@ check('the one place that sets the flag without queuing is still excluded',
     dupExactBtn: 'the Danger Zone merge — writes the gains onto the keeper and deletes the spare',
     rbWireDiffButtons: 'the sheet sync folding in a spare copy — the same thing, on the path ' +
       'that actually runs often',
-    dupFindBtn: 'the duplicate scan — builds the preview of what would be gained, and ' +
-      'writes nothing',
+    /* ⚠ ITS CALL of the shared rule only SCANS — it builds the preview of what a merge
+       would gain and nothing is written from it. That is not the same as the handler
+       writing nothing: since 2026-08-29 it also deletes the losers and records that on
+       the keeper. The delete census below is what holds that half; this entry is only
+       about what it does with `mergeFieldsFrom`, and saying "writes nothing" flat would
+       now contradict the census twenty lines down. */
+    dupFindBtn: 'the duplicate scan — its mergeFieldsFrom call builds the preview of ' +
+      'what would be gained and writes none of it',
     findMergeableCustomers: 'works out what a merge WOULD take, for the report; writes nothing',
     /* ⚠ A LOCAL HELPER INSIDE findMergeableCustomers, which the scanner names on its own
        because it is a named `const consider = function(...)`. Verified rather than assumed:
@@ -512,6 +518,163 @@ check('the one place that sets the flag without queuing is still excluded',
       'a separate write can fail on its own and leave the record carrying another\'s ' +
       'values with nothing saying where they came from');
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1e2. A CUSTOMER RECORD THAT IS DELETED LEAVES SOMETHING BEHIND, OR IS SAID NOT TO.
+ *
+ * ⭐ THE CENSUS ABOVE COULD NOT SEE THE HOLE THIS ONE FOUND, and that is the whole reason
+ * it exists. It scans callers of `mergeFieldsFrom` — the shared rule for TAKING another
+ * record's values — so a tool that deletes a duplicate WITHOUT taking anything is invisible
+ * to it by construction. Danger Zone → Duplicate customers is exactly that tool: the
+ * superset rule guarantees the keeper already holds everything, so it moves nothing and
+ * simply deletes. It left no trace anywhere, and nothing could have said so.
+ *
+ * ⚠ SO THE CENSUS IS OVER THE DELETE, NOT OVER THE MERGE. Deleting a `jobAddresses`
+ * document is the irreversible act; whether values moved first is a detail of how. Every
+ * site is named here with what happens to the memory of that record, and a new one fails
+ * the build until somebody decides.
+ *
+ * ⚠ AND "NOTHING TO TRACE" IS A LEGITIMATE ANSWER, said out loud rather than by omission.
+ * Delete All Customers empties the book — there is no keeper left to write a note onto, and
+ * inventing one would be a lie about where the data went.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+
+  /* ⚠ NAMED, WITH WHAT EACH DOES ABOUT THE MEMORY OF THE RECORD IT REMOVES. */
+  const DELETERS = {
+    /* ⚠ THE DELETE LIVES IN dupFindBtn, NOT IN A dupDeleteBtn OF ITS OWN. The Delete
+       button is MINTED by the find handler's render, so its listener is nested inside it
+       and that is the function the scanner names. Naming the button here instead would be
+       a key that matches nothing, and a census whose entries match nothing demands
+       nothing — the exact vacuous shape this file has been caught by before. */
+    dupFindBtn: {
+      trace: true,
+      why: 'Danger Zone → Duplicate customers. Takes nothing (the superset rule is what ' +
+        'makes deleting safe at all), so it writes mergedFields: [] — the fact, with an ' +
+        'honest empty list rather than a missing key'
+    },
+    dupExactBtn: {
+      trace: true,
+      why: 'Danger Zone → Merge duplicates. Writes the gains and the trace in one write'
+    },
+    rbWireDiffButtons: {
+      trace: true,
+      why: 'the sheet sync folding in a spare copy — the path that actually runs often'
+    },
+    hlxRemoveCustomerToRecycle: {
+      trace: false,
+      why: 'the whole record is copied into archivedCustomers with archivedAt first, so ' +
+        'it is not lost at all — a trace on a keeper would be describing a merge that ' +
+        'did not happen'
+    },
+    deleteAllAddressesBtn: {
+      trace: false,
+      why: 'Delete All Customers. The book is emptied, so there is no keeper left to ' +
+        'write a note onto and nowhere for one to be read'
+    }
+  };
+
+  const dre = /deleteDoc\(doc\(db,'jobAddresses'/g;
+  const seen = new Map();
+  let dm;
+  while ((dm = dre.exec(clean))) {
+    if (insideComment(src, dm.index)) continue;
+    const fn = scan.enclosing(ix, dm.index) || '(top level)';
+    if (!seen.has(fn)) seen.set(fn, []);
+    seen.get(fn).push(dm.index);
+  }
+  check('the customer-delete census finds the places that remove a record',
+    seen.size >= 4,
+    'found ' + seen.size + ' — a matcher that has stopped matching demands nothing');
+
+  const unknownDeleter = [...seen.keys()]
+    .filter(f => !Object.keys(DELETERS).some(k => f.indexOf(k) !== -1));
+  check('no new place deletes a customer without a decision about the trace',
+    unknownDeleter.length === 0,
+    'new place(s): ' + unknownDeleter.join(', ') +
+    '.\n        Deleting a jobAddresses document is irreversible. Either the record ' +
+    'survives somewhere (archived, or its id written onto a keeper) or say here why ' +
+    'there is nothing to write it onto.');
+
+  /* ⚠ AND THE ONES THAT PROMISED A TRACE ACTUALLY WRITE ONE. Named per site rather than
+     asserted once, because the whole finding here was one of several delete sites having
+     been fixed while another was not. */
+  const missing = [];
+  Object.keys(DELETERS).forEach(name => {
+    if (!DELETERS[name].trace) return;
+    const fn = [...seen.keys()].find(f => f.indexOf(name) !== -1);
+    if (!fn) { missing.push(name + ' (no delete found in it at all)'); return; }
+    /* ⚠ THE BODY IS FOUND TWO WAYS BECAUSE THESE ARE TWO KINDS OF THING, and the first
+       version of this check only knew one — so it reported both button handlers as
+       untraced while the trace was sitting in them. A declared function is in `ix.fns`
+       with a real range. A button handler has no function name at all: `enclosing` names
+       it after the element it is wired to, and the range has to be recovered the same way
+       `enclosing` recovers the name, with sectionFrom from the wiring line.
+       ⚠ NO CHARACTER WINDOW EITHER WAY — §7 bans them by name, and one here would go
+       stale the moment a handler grows. */
+    const rec = ix.fns.find(x => x.name === fn);
+    let body = '';
+    if (rec) {
+      body = clean.slice(rec.start, rec.end);
+    } else {
+      const wire = clean.search(new RegExp("getElementById\\('" + name + "'\\)"));
+      if (wire > -1) body = clean.slice(wire, scan.sectionFrom(clean, wire));
+    }
+    if (!body) { missing.push(name + ' (could not find its body to look in)'); return; }
+    if (!/mergedAt\s*:\s*serverTimestamp\(\)/.test(body)) missing.push(name);
+  });
+  check('every deleter that should record what it removed does',
+    missing.length === 0,
+    'no mergedAt written in: ' + missing.join(', ') +
+    '.\n        The deleted record is gone the moment the delete runs; unless its id is ' +
+    'on the keeper, nothing anywhere can say it existed.');
+
+  /* ⚠ THE EMPTY LIST IS DELIBERATE AND MUST STAY WRITTEN OUT. `historyMergeWords` prints
+     the bare sentence for an empty list and appends "— took …" for a full one, so the two
+     tools read differently on the history without either lying. Dropping the key would
+     produce the same sentence by accident, and the next person would "tidy" it in. */
+  const dAt = clean.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.cust.id)");
+  check('the duplicate-delete trace write was found', dAt > -1,
+    'the checks below prove nothing against a string that is not there');
+  if (dAt > -1) {
+    const around = clean.slice(dAt, dAt + 320);
+    check('the duplicate-delete trace says when', /mergedAt\s*:\s*serverTimestamp\(\)/.test(around),
+      'a keeper that absorbed a copy with no date cannot be placed in the history at all');
+    check('and which records went', /mergedFromIds\s*:\s*absorbed/.test(around),
+      'the ids are the only thing left of them, and only the ones that ACTUALLY went ' +
+      'belong here — a refused delete leaves a live duplicate that must not read as absorbed');
+    check('and says out loud that it took nothing', /mergedFields\s*:\s*\[\]/.test(around),
+      'historyMergeWords prints a different sentence for an empty list than for a full one');
+  }
+
+  /* ⚠ AND THE WRITE IS REACHABLE. This one was MISSED by the first red-check pass and is
+     the reason the paragraph exists: wrapping the whole block in `if(false)` leaves every
+     string above exactly where it is, so all three checks stayed green over a trace that
+     could never run. That is this repo's oldest recurring fault — "a message that is in
+     the source is not a message on the screen" — and a text check cannot see it.
+     ⚠ SO THE GUARD IS ASSERTED AS THE COLLECTED LIST, not merely as some condition. It has
+     to be the ids that were actually absorbed, which makes it both the reachability proof
+     and the "only write when something really went" rule, in one line. */
+  const guardAt = clean.indexOf('if(absorbed.length){');
+  check('the trace write is reached by the ids that were really absorbed',
+    guardAt > -1 && dAt > -1 && guardAt < dAt,
+    'guard at ' + guardAt + ', write at ' + dAt +
+    '.\n        Wrapped in anything that is never true, every check above stays green ' +
+    'over a trace that can never run.');
+
+  /* ⚠ AND ONLY IDS THAT REALLY WENT ARE RECORDED. Asserted on the push rather than on the
+     write, because the ordering is the rule: pushed before the delete, a refused delete
+     would be reported as absorbed while the duplicate is still sitting in the book. */
+  const pushAt = clean.indexOf('absorbed.push(l.cust.id)');
+  const delAt = clean.indexOf("deleteDoc(doc(db,'jobAddresses', l.cust.id))");
+  check('an id is recorded as absorbed only after its record actually went',
+    pushAt > -1 && delAt > -1 && delAt < pushAt,
+    'push at ' + pushAt + ', delete at ' + delAt +
+    '. Recorded first, a refused delete reads as absorbed while the duplicate is still there.');
 }
 
 /* ---------------------------------------------------------------------------

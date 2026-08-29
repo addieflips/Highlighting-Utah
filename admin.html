@@ -33214,6 +33214,7 @@ document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(asy
       const groups = dupPending || [];
       let gone = 0, failed = 0, i = 0;
       for(const g of groups){
+        const absorbed = [];
         for(const l of g.losers){
           statusEl.textContent = 'Deleting ' + (i+1) + ' of ' + toDelete + '\u2026';
           await bulkBreathe(i++);
@@ -33224,8 +33225,37 @@ document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(asy
               await removeCustomerFromUpcomingRoutes(l.cust.id);
             }
             await deleteDoc(doc(db,'jobAddresses', l.cust.id));
+            absorbed.push(l.cust.id);
             gone++;
           } catch(err){ failed++; }
+        }
+        /* \u2b50 THE KEEPER RECORDS THAT A COPY WAS HERE (added 2026-08-29). This tool
+           takes NOTHING off the losers \u2014 the superset rule is the whole reason it is
+           safe to delete them \u2014 so there is no list of fields to write, and an empty
+           one is the honest answer rather than an omission. What was missing is the
+           fact ITSELF: those records existed, they are gone for good, and without this
+           nothing anywhere can answer "was this customer ever duplicated".
+           \u26a0 `mergedFields: []` IS DELIBERATE AND IS READ. `historyMergeWords` prints
+           the bare "Merged with a duplicate record" when the list is empty and appends
+           "\u2014 took \u2026" when it is not, so the two tools read differently on the history
+           without either of them lying. Leaving the key out entirely would be the same
+           sentence by accident rather than on purpose.
+           \u26a0 AFTER THE DELETES, AND ONLY OVER IDS THAT ACTUALLY WENT \u2014 a refused delete
+           leaves that record sitting there, and naming it here would say it had been
+           absorbed when it is still a live duplicate.
+           \u26a0 AND IT MUST NOT UNDO THEM. The deletes have happened and cannot be taken
+           back, so a throw here would abandon the rest of the run over a note. */
+        if(absorbed.length){
+          try{
+            await updateDoc(doc(db,'jobAddresses', g.keeper.cust.id), {
+              mergedAt: serverTimestamp(),
+              mergedFromIds: absorbed,
+              mergedFields: []
+            });
+          } catch(err){
+            /* The deletes are the point and they are done; losing this note costs the
+               history one line and costs the customer record nothing at all. */
+          }
         }
       }
       dupPending = null;

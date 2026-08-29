@@ -696,6 +696,31 @@ write of any kind.
 copy being tidied away; stamping it would claim this record was built out of another when it
 was not.
 
+⚠ **AND A FOURTH TOOL DELETES WITHOUT TAKING ANYTHING AT ALL, which the census above could
+not see.** Danger Zone → **Duplicate customers** refuses any group where a copy holds
+something the keeper does not — that superset rule is the whole reason it is safe to delete
+rather than merge — so it never calls `mergeFieldsFrom`, and a census over that function was
+blind to it by construction. It left no trace anywhere. It now writes `mergedFromIds` with
+the ids that **actually went** and `mergedFields: []`, which is the honest answer rather than
+a missing key: `historyMergeWords` prints the bare *"Merged with a duplicate record"* for an
+empty list and appends *"— took …"* for a full one, so the two tools read differently on the
+history without either of them lying.
+
+⚠ **So the census is over the DELETE now, not over the merge.** Deleting a `jobAddresses`
+document is the irreversible act; whether values moved first is a detail of how. All five
+sites are named in `queue-date.test.js` with what happens to the memory of that record, and a
+sixth fails the build until somebody decides. **"Nothing to trace" is a legitimate answer said
+out loud** — Delete All Customers empties the book, so there is no keeper left to write onto,
+and `hlxRemoveCustomerToRecycle` copies the whole record into `archivedCustomers` first, so
+nothing is lost to trace.
+
+⚠ **AND THE FIRST RED-CHECK PASS MISSED THE ONE THAT MATTERED.** Wrapping the whole trace
+write in `if(false)` left every string exactly where it was and all three checks stayed green
+over a write that could never run — this repo's oldest recurring fault, *"a message that is in
+the source is not a message on the screen"*. The guard is now asserted as **the collected list
+of ids**, which is both the reachability proof and the only-write-when-something-went rule in
+one line.
+
 ⚠ **The history names the fields**, not just the event — *"took address, housePrice,
 gateCode"*. "Merged with a duplicate" beside a date leaves the actual question, which of these
 fields is not theirs, exactly where it was.
