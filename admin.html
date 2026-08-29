@@ -52921,6 +52921,21 @@ function rebuildSeasonDays(){
   /* \u26a0 AND IF THEY WERE THE ONLY THING LEFT, SAY SO. "Every house is done" is a lie
      when the truth is that the last few sat the season out, and it is the kind of lie
      that gets somebody hunting a broken button. */
+  /* ⭐ HOW MANY ARE WAITING ON THE WAREHOUSE (added 2026-08-29). The build gate holds
+     houses back, and a house held back looks exactly like a house nobody entered — so
+     the number is carried out of here and said on screen. Taken AFTER the join above,
+     so it counts who is still waiting once everybody ready has been added. */
+  let waitingOnBuild = 0;
+  try{ if(typeof customersWaitingOnBuild === 'function') waitingOnBuild = customersWaitingOnBuild().length; }
+  catch(err){ console.error('Could not count who is waiting on the warehouse:', err); }
+  /* ⚠ AND IT IS THE FIRST THING SAID WHEN THERE IS NOTHING ELSE TO DO. "Every house is
+     done" with twelve houses sitting in the warehouse queue is the same lie the line
+     below was written to stop, one step further along. */
+  if(!movable.length && waitingOnBuild) return {left: left.length, stillSet: stillSet,
+    waitingOnBuild: waitingOnBuild,
+    error: 'Nothing to rebuild yet — ' + waitingOnBuild + ' house(s) are waiting for the ' +
+      'warehouse to build their lights. They join the schedule on the next rebuild after ' +
+      'their bundle is marked made.'};
   if(!movable.length) return {left: left.length, stillSet: stillSet, error: left.length
     ? ('Nothing left to rebuild \u2014 the ' + left.length + ' house(s) still waiting have all left the season.')
     : locked.length
@@ -53020,7 +53035,7 @@ function rebuildSeasonDays(){
   SEASON=newDays.concat(keep);
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;
-  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length,
+  return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, waitingOnBuild:waitingOnBuild,
           left:left.length, stillSet:stillSet,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
           first:dates[0], last:dates[dates.length-1]};
@@ -53823,7 +53838,46 @@ function customersMissingFromSeason(){
        ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, and the
        window expires on its own, so they are added by the next run after it closes. */
     if(typeof isLightsLocked === 'function' && isLightsLocked(d)) return;
+    /* ⭐ AND NOT UNTIL THE WAREHOUSE HAS BUILT THEIR BUNDLE (added 2026-08-29). Addie,
+       shown that the code did not do this: "I do want it to wait for the build before
+       sending it to schedule." Until now a customer joined the season the moment they
+       were in it, and the warehouse worked in parallel — so a crew could be sent to a
+       house whose lights had not been made.
+
+       ⚠ THE TEST IS "STILL WAITING", NOT "HAS A BUILT DATE", and the difference is the
+       whole season. `lightsMarkedBuiltAt` only exists from 2026-08-27, so gating on it
+       would hold back EVERY customer on file before that — the entire book, silently,
+       which is the shape of the SEASON_ELIGIBILITY mistake this file already records.
+       Reading the flag holds back only houses actually queued and leaves everybody else
+       exactly as they were.
+
+       ⚠ HELD BACK, NOT DROPPED — the same as the 48-hour window above. This runs on
+       every Recalculate everything and on the five-minute sync, so they join on the next
+       run after the warehouse marks the bundle made. Nothing is written to the customer.
+
+       ⚠ AND THEY ARE COUNTED, because a house that is silently absent from the schedule
+       is indistinguishable from one nobody noticed. `customersWaitingOnBuild` is what the
+       rebuild reports; a house blocked with no colours sits in this count until somebody
+       gives it colours, which is the Waiting on light colours block's own job. */
+    if(d.needsLightBuild === true) return;
     if(have.has(item.id)) return;
+    out.push(item);
+  });
+  return out;
+}
+/* ⚠ THE SAME RULE, ASKED THE OTHER WAY ROUND, so the office can be told how many are
+   held and why rather than wondering where they went. It deliberately re-uses the two
+   tests above rather than restating them: a second opinion about who is waiting is how
+   the count and the list start disagreeing. */
+function customersWaitingOnBuild(){
+  const out = [];
+  if(typeof jobAddresses === 'undefined' || !jobAddresses.length) return out;
+  const have = seasonCustomerIds();
+  jobAddresses.forEach(function(item){
+    const d = (item && item.data) || {};
+    if(typeof isOutForSeason === 'function' && isOutForSeason(d)) return;
+    if(have.has(item.id)) return;
+    if(d.needsLightBuild !== true) return;
     out.push(item);
   });
   return out;
@@ -54112,6 +54166,12 @@ RT.addEventListener('click',e=>{const t=e.target;
        people who were not on the plan" are different pieces of news, and the second
        one is the answer to "why is Rachel not in the schedule". */
     if(r.joined) parts.push(r.joined+' new customer'+(r.joined===1?'':'s')+' added to the plan');
+    /* ⭐ AND THE ONES THE WAREHOUSE IS STILL HOLDING (added 2026-08-29). Addie: "I do
+       want it to wait for the build before sending it to schedule." A house held back
+       by that rule is absent from the plan for a good reason, and absent for a good
+       reason still looks exactly like absent for a bad one — this is the sentence that
+       tells the two apart, and it names the warehouse so somebody knows where to go. */
+    if(r.waitingOnBuild) parts.push(r.waitingOnBuild+' waiting on the warehouse — not scheduled until their bundle is built');
     /* ⭐ AND THE ONES WHO LEFT ARE NAMED TOO. Owner: "back next year should be on
        2027 and not split for this year on schedule." A house quietly disappearing off
        the plan reads as a bug; the same house with a sentence beside it reads as the

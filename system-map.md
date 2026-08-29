@@ -393,13 +393,17 @@ is a bug; all three are worth knowing before anybody builds on the paragraph.**
    asked *"do you want anything changed with your lights this year?"* and never sees the
    install-details form — they already have colours, wire and timer on file. `alreadyMember`
    in `quoteRespond` decides it, and it is deliberately wider than a phone match.
-2. **The build does not gate the schedule.** She has it as build → mark complete → schedule.
-   `customersMissingFromSeason` asks `isOutForSeason` and `isLightsLocked` and nothing about
-   the build, so a customer joins the schedule as soon as they are in the season and the
-   warehouse builds in parallel. That may well be right — Print Today already prints the
-   crew's day and the warehouse's day one apart for exactly that reason — but **her model
-   says the build comes first and the code says the two run alongside, and nothing enforces
-   either.** Unasked as of 2026-08-29.
+2. **The build now gates the schedule — it did not, and she asked for it.** *"I do want it
+   to wait for the build before sending it to schedule."* `customersMissingFromSeason` asked
+   `isOutForSeason` and the 48-hour lock and nothing about the build, so a crew could be sent
+   to a house whose lights had not been made. ⚠ **The test is "still waiting"
+   (`needsLightBuild === true`), never "has a built date"** — `lightsMarkedBuiltAt` only
+   exists from 2026-08-27, so gating on it would hold back every customer on file before
+   that, silently, which is the `SEASON_ELIGIBILITY` shape this file already records. ⚠ **Held
+   back, not dropped**, like the 48-hour window beside it: they join on the next rebuild after
+   the bundle is marked made, and nothing is written to the customer. ⚠ **And counted on
+   screen** (`customersWaitingOnBuild`), because a house absent for a good reason looks exactly
+   like one absent for a bad one.
 3. **There is no automatic payment chasing.** Two things run on a schedule:
    `sendNightlyInvoices` (7 PM) and `sendQuoteNudges`, which chases an unanswered QUOTE, not
    an unpaid invoice. Chasing a bill is a manual send from Automation Emails with the Unpaid
