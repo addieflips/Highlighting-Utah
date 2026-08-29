@@ -1,5 +1,5 @@
 {
- "watched": 16,
+ "watched": 21,
  "red": 0,
  "breaks": [],
  "unguarded": [
@@ -10,6 +10,11 @@
   "carryoverCharge",
   "stops",
   "measuredFeet",
+  "lightsQueuedAt",
+  "lightsRecycleRequestedAt",
+  "assignedCrewAt",
+  "fixRaisedAt",
+  "newMemberFeeAppliedAt",
   "customerNumber"
  ],
  "notWatched": [
@@ -20,13 +25,8 @@
   "gateCode",
   "outletTimer",
   "maybeNextYear / isOutForSeason",
-  "lightsLockedUntil",
-  "lightsQueuedAt",
-  "lightsRecycleRequestedAt",
-  "assignedCrewAt",
-  "fixRaisedAt",
-  "newMemberFeeAppliedAt"
+  "lightsLockedUntil"
  ],
  "rulings": 207,
- "builtFrom": "2026-08-28"
+ "builtFrom": "2026-08-29"
 }

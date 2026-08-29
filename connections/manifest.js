@@ -37,11 +37,6 @@ const NOT_WATCHED = [
    * rather than leaving silent: its own note says adding a companion field and not
    * watching it is exactly the shape of hole this map catches. lightsQueuedAt IS that
    * companion — asked for, then made — so the pair is currently half on the page. */
-  ['lightsQueuedAt', 'the day a bundle was asked for — waiting on the customer history to read it'],
-  ['lightsRecycleRequestedAt', 'the day an old set was asked back — same, waiting on a reader'],
-  ['assignedCrewAt', 'the day a house was put on a crew sheet, as opposed to the day it is booked for'],
-  ['fixRaisedAt', 'the day a fault was reported, as opposed to the day it was mended'],
-  ['newMemberFeeAppliedAt', 'the day the $30 join fee went onto a bill']
 ];
 
 /* WHAT SHOULD CONNECT TO WHAT — the hand-written half.
@@ -560,6 +555,178 @@ module.exports = [
       { file: 'server', fn: 'feetLineFor', where: 'Invoices › Nightly Automation', when: 'the nightly email is built' }
     ]
   },
+  /* ⭐ THE FIVE DATES, DECLARED THE DAY AFTER THEY SHIPPED (2026-08-29). Addie, looking
+   * at this page: "you added on connections members and dates that things were changed
+   * right?" Half of it was true — the Rules tab is built from her own questions map, so
+   * both new rulings were already on it — and this half was not. Five date fields had
+   * gone in the day before and none of them was watched.
+   *
+   * ⚠ THE ASYMMETRY IS WHAT MADE IT WORTH DOING NOW. lightsMarkedBuiltAt was already
+   * watched, and its own note says why: "adding a companion field that decides what a
+   * screen tells you about a build, and then not watching it, is the exact shape of hole
+   * this map exists to catch." lightsQueuedAt IS that companion — asked for, then made —
+   * and it went in unwatched. The rule was already written down; it just was not applied.
+   *
+   * ⚠ AND EVERY ONE OF THEM IS WRITTEN AND READ BY NOTHING. That is not an accident and
+   * it is not a bug: they are the raw material for the customer history Addie asked for
+   * ("dating when everything is done for each costumer through the system we have set"),
+   * and that view is not built. So each carries its sets and NO reads — which is the
+   * honest picture, and is what makes the gap visible on the page rather than only in
+   * somebody's memory. When the history is built, its reader goes in the reads list and
+   * this note comes out.
+   *
+   * ⚠ THE WRITERS ARE DECLARED IN FULL, not sampled. Anything touching a watched field
+   * outside a declared anchor lands in amber, so a partial list would report the honest
+   * remainder as unagreed — and amber carrying rows that are actually fine is amber
+   * nobody reads. queue-date.test.js holds the census that keeps the list complete. */
+  {
+    field: 'lightsQueuedAt',
+    areas: ['Warehouse'], record: 'cust',
+    title: 'Sent To The Warehouse On',
+    plain: 'The day somebody asked for this bundle to be made.',
+    states: [
+      ['A date on file', 'How long the warehouse has been sitting on this job'],
+      ['No date', 'Queued before this shipped — not the same as never queued'],
+      ['Queued again', 'A new date, because the warehouse waits on the newest request'],
+      ['Bundle marked built', 'The date STAYS — "queued on the 2nd, built on the 9th" is the point']
+    ],
+    sets: [
+      { file: 'admin', fn: 'stampBuildQueued', where: 'Warehouse › Build', when: 'the flag goes from off to on',
+        rules: ['On the transition only. Two callers write the flag on EVERY save keeping whatever it held, so stamping there would reset the clock whenever anybody opened a record to fix a phone number.',
+          'Every caller places the call LAST, after every branch that can move the flag — including Maybe Next Year, which cancels a build. The first version sat inside the re-quote branch and missed every other way in. queue-date.test.js holds that census; a map of writers cannot see WHERE inside a handler a call sits.'] },
+      { file: 'server', fn: 'stampBuildQueuedServer', where: 'Member Portal › My Lights', when: 'the flag goes from off to on',
+        rules: ['The same rule, second copy. Change one and change the other in the same push.'] },
+      { file: 'admin', el: 'qBuildTestBtn', where: 'Quote Requests', when: 'a test quote is built' },
+      { file: 'admin', fn: 'buildTestPerson', where: 'Customers › All Customers', when: 'a test person is created' },
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is created' },
+      { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the master sheet adds somebody' },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the importer adds somebody' },
+      { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'the invoice importer adds somebody' },
+      { file: 'admin', el: 'whFindNotQueuedBtn', where: 'Warehouse › Tools', when: 'a missed house is queued by hand' },
+      { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed' }
+    ],
+    reads: [
+      /* ⚠ ANCHORED ON THE STEP TABLE, NOT ON customerHistory. That function reads every
+         date through `rec[step.field]` — one dynamic lookup for all eighteen — so the
+         field name appears nowhere inside it and a scanner correctly finds no read
+         there. The row in HISTORY_STEPS is what actually puts this field on the page,
+         and it is the only place the name is written down. */
+      { file: 'admin', near: "field: 'lightsQueuedAt'", where: 'Customers › All Customers', when: 'their history is opened',
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+    ]
+  },
+
+  {
+    field: 'lightsRecycleRequestedAt',
+    areas: ['Warehouse'], record: 'cust',
+    title: 'Asked Back On',
+    plain: 'The day somebody asked for this house’s old set to be collected.',
+    states: [
+      ['A date on file', 'How long the bin has been waiting to be fetched'],
+      ['No date', 'Asked for before this shipped'],
+      ['Asked again', 'A new date, same rule as a re-queued build']
+    ],
+    sets: [
+      { file: 'admin', fn: 'stampRecycleRequested', where: 'Warehouse › Recycle', when: 'the flag goes from off to on' },
+      { file: 'server', fn: 'stampRecycleRequestedServer', where: 'Member Portal › My Lights', when: 'the flag goes from off to on' },
+      { file: 'admin', el: 'editCustRecycleStayBtn', where: 'Customers › All Customers', when: 'Recycle Their Old Set is pressed' }
+    ],
+    reads: [
+      /* ⚠ ANCHORED ON THE STEP TABLE, NOT ON customerHistory. That function reads every
+         date through `rec[step.field]` — one dynamic lookup for all eighteen — so the
+         field name appears nowhere inside it and a scanner correctly finds no read
+         there. The row in HISTORY_STEPS is what actually puts this field on the page,
+         and it is the only place the name is written down. */
+      { file: 'admin', near: "field: 'lightsRecycleRequestedAt'", where: 'Customers › All Customers', when: 'their history is opened',
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+    ]
+  },
+
+  {
+    field: 'assignedCrewAt',
+    areas: ['Schedule'], record: 'cust',
+    title: 'Put On A Crew Sheet On',
+    plain: 'The day the booking was made — which is not the day they are booked for.',
+    states: [
+      ['A date on file', 'The gap between this and the install is how long they waited'],
+      ['No date', 'Booked before this shipped, or not booked at all'],
+      ['Taken off the sheet', 'Cleared with the crew, because the booking no longer exists']
+    ],
+    /* ⚠ scheduledDate IS A DIFFERENT THING and the pair is the whole point: one is the
+       day they are booked FOR, this is the day somebody booked them. The gap between the
+       two is where a house sits and gets forgotten, and until this shipped nothing
+       measured it. */
+    sets: [
+      { file: 'admin', fn: 'scheduledFieldForType', where: 'Schedule › Scheduling', when: 'a house is put on a crew’s day' },
+      { file: 'admin', fn: 'freeUpFieldForType', where: 'Schedule › Scheduling', when: 'a house comes off a crew’s day',
+        rules: ['Cleared with the booking. A date left behind would claim a crew is going.'] }
+    ],
+    reads: [
+      /* ⚠ ANCHORED ON THE STEP TABLE, NOT ON customerHistory. That function reads every
+         date through `rec[step.field]` — one dynamic lookup for all eighteen — so the
+         field name appears nowhere inside it and a scanner correctly finds no read
+         there. The row in HISTORY_STEPS is what actually puts this field on the page,
+         and it is the only place the name is written down. */
+      { file: 'admin', near: "field: 'assignedCrewAt'", where: 'Customers › All Customers', when: 'their history is opened',
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+    ]
+  },
+
+  {
+    field: 'fixRaisedAt',
+    areas: ['Fixes'], record: 'cust',
+    title: 'Fault Reported On',
+    plain: 'The day somebody said this house needed fixing.',
+    states: [
+      ['A date on file', 'How long the fault has been outstanding'],
+      ['No date', 'Reported before this shipped'],
+      ['Mended', 'The date SURVIVES beside fixDoneAt — the pair is how long they waited']
+    ],
+    /* ⚠ IT MUST NOT BE CLEARED BY THE MEND. fixDoneAt already recorded the repair, so
+       nobody could tell a fault outstanding three weeks from one reported that morning;
+       clearing this on the mend would put that back exactly as it was. */
+    sets: [
+      { file: 'admin', near: 'off: function (ts) { return {needsFix: true, fixRaisedAt: ts}; }',
+        where: 'Routes › Install', when: 'a house is flagged for a fix' }
+    ],
+    reads: [
+      /* ⚠ ANCHORED ON THE STEP TABLE, NOT ON customerHistory. That function reads every
+         date through `rec[step.field]` — one dynamic lookup for all eighteen — so the
+         field name appears nowhere inside it and a scanner correctly finds no read
+         there. The row in HISTORY_STEPS is what actually puts this field on the page,
+         and it is the only place the name is written down. */
+      { file: 'admin', near: "field: 'fixRaisedAt'", where: 'Customers › All Customers', when: 'their history is opened',
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+    ]
+  },
+
+  {
+    field: 'newMemberFeeAppliedAt',
+    areas: ['Money'], record: 'inv',
+    title: 'Join Fee Charged On',
+    plain: 'The day the $30 new member fee went onto their bill.',
+    states: [
+      ['A date on file', 'Answers "when was I charged this?" from the record'],
+      ['No date', 'Charged before this shipped, or never charged'],
+      ['New season', 'The fee guard resets, so a new charge carries a new date']
+    ],
+    /* ⚠ THE JOIN FEE IS FOLDED STRAIGHT INTO `install` rather than listed as its own
+       line, which is why it was the one fee with no date of its own while the referral
+       credit, the change fee and the carryover charge all carried one on their note. */
+    sets: [
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the join fee is added' }
+    ],
+    reads: [
+      /* ⚠ ANCHORED ON THE STEP TABLE, NOT ON customerHistory. That function reads every
+         date through `rec[step.field]` — one dynamic lookup for all eighteen — so the
+         field name appears nowhere inside it and a scanner correctly finds no read
+         there. The row in HISTORY_STEPS is what actually puts this field on the page,
+         and it is the only place the name is written down. */
+      { file: 'admin', near: "field: 'newMemberFeeAppliedAt'", where: 'Customers › All Customers', when: 'their history is opened',
+        rules: ['One line on the customer’s own history. Until this existed the field was written everywhere and read nowhere, which R-010 rightly refuses to declare.'] }
+    ]
+  },
+
   {
     field: 'customerNumber',
     areas: ['Customers', 'Warehouse'], record: 'cust',

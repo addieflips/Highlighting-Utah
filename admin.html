@@ -2177,6 +2177,21 @@
             <button type="button" class="btn btn-gold" id="editCustSaveBtn" style="flex:1;">Save Changes</button>
           </div>
           <div id="editCustStatus" style="font-size:13px; color:var(--slate); margin-top:8px; text-align:center;"></div>
+          <!-- ⭐ THEIR WHOLE HISTORY, IN ONE PLACE (added 2026-08-29). Addie: "dating when
+               everything is done for each costumer through the system we have set", and then
+               the list — "a cancelled button or a be back next year date... Or asked for
+               different lights on this date or changed timer settings this date. Changed
+               address this date." The dates were built first and read by nothing; this is
+               the reader.
+               ⚠ COLLAPSED BY DEFAULT. This form is already long and is opened dozens of
+               times a day to change one field; a history nobody asked for, open at the
+               bottom of it every time, pushes the buttons off the screen. It also means the
+               two queries behind it only run when somebody actually wants the answer. -->
+          <details id="editCustHistoryWrap" style="border-top:1px solid var(--line); margin-top:18px; padding-top:14px;">
+            <summary style="font-size:13px; font-weight:600; cursor:pointer;">Their history</summary>
+            <p style="font-size:12px; color:var(--slate); margin:8px 0 10px;">Everything we have recorded about this house, newest first.</p>
+            <div id="editCustHistory"></div>
+          </details>
           <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line); text-align:center;">
             <!-- ⭐ TWO BUTTONS, NOT ONE (2026-08-21). Owner: "for this actually dont make
                  it one button have one button for build and another for recycle."
@@ -6581,6 +6596,196 @@ async function logActivity(what, area, refId){
     console.error('[HU] activity log write failed', what, err);
     return null;
   }
+}
+/* ---- THE CUSTOMER'S OWN HISTORY -----------------------------------------
+ *
+ * Addie, asked what she wanted from a journey view: "dating when everything is done
+ * for each costumer through the system we have set", and then the whole list — "a
+ * cancelled button or a be back next year date. or maybe next year date or requoted
+ * on. Or asked for different lights on this date or changed timer settings this date.
+ * Changed address this date."
+ *
+ * Every one of those is now recorded somewhere. This is the thing that READS them.
+ *
+ * ⚠ UNTIL THIS EXISTED, FIVE DATES WERE WRITTEN AND READ BY NOTHING — which the
+ * Connections map refused to declare, correctly, because a field written everywhere
+ * and read nowhere is a dead end (R-010). This closes that: `lightsQueuedAt`,
+ * `lightsRecycleRequestedAt`, `assignedCrewAt`, `fixRaisedAt` and
+ * `newMemberFeeAppliedAt` all have a reader now.
+ *
+ * ⚠ IT DECIDES NOTHING. Nothing in the app reads this back — it is a page for a person,
+ * which is exactly what makes it safe to point at every record at once. The same rule
+ * the activity log carries.
+ *
+ * ⚠ FIVE SOURCES, AND THE HISTORY IS ONLY AS GOOD AS THE THINNEST. The dated steps on
+ * the customer, the invoice's own dates, the quote that started them, the payments
+ * ledger, and the activity log. A step whose date was never recorded is SHOWN AS
+ * UNDATED rather than dropped or guessed at — "we know this happened and not when" is
+ * a true and useful answer; putting it at the epoch or leaving it out are both lies.
+ */
+const HISTORY_STEPS = [
+  { field: 'createdAt',                from: 'quote', what: 'Quote raised' },
+  { field: 'quoteSentAt',              from: 'quote', what: 'Quote emailed to them' },
+  { field: 'approvedByOfficeAt',       from: 'quote', what: 'Marked approved by the office' },
+  /* ⚠ ON THE QUOTE, NOT THE CUSTOMER. The conversion is written as `{status:'closed',
+     convertedToCustomerAt}` onto the QUOTE — the customer record has no such field, so
+     reading it off `cust` returns nothing for everybody and the history silently loses
+     the day they joined. Checked at the write site rather than assumed from the name. */
+  { field: 'convertedToCustomerAt',    from: 'quote', what: 'Became a customer' },
+  { field: 'lightsQueuedAt',           from: 'cust',  what: 'Sent to the warehouse to be built' },
+  { field: 'lightsMarkedBuiltAt',      from: 'cust',  what: 'Bundle marked built' },
+  { field: 'needsDayAssignedAt',       from: 'cust',  what: 'Needed a day on the calendar' },
+  { field: 'assignedCrewAt',           from: 'cust',  what: 'Put on a crew sheet' },
+  { field: 'fixAssignedAt',            from: 'cust',  what: 'Put on a fix route' },
+  { field: 'removalAssignedAt',        from: 'cust',  what: 'Put on a takedown route' },
+  { field: 'fixRaisedAt',              from: 'cust',  what: 'Fault reported' },
+  { field: 'fixDoneAt',                from: 'cust',  what: 'Fault mended' },
+  { field: 'completedAt',              from: 'cust',  what: 'Lights went up' },
+  { field: 'removalDoneAt',            from: 'cust',  what: 'Lights taken down' },
+  { field: 'lightsRecycleRequestedAt', from: 'cust',  what: 'Old set asked back' },
+  { field: 'rsvpRespondedAt',          from: 'cust',  what: 'Answered the RSVP' },
+  { field: 'invoicedAt',               from: 'inv',   what: 'Invoice sent' },
+  { field: 'newMemberFeeAppliedAt',    from: 'inv',   what: 'New member fee charged ($30)' }
+];
+/* ⚠ THE RSVP LINE SAYS WHAT THEY ANSWERED, not merely that they answered — "answered
+   the RSVP" beside a date leaves the one question anybody is asking unanswered. */
+function historyRsvpWords(cust){
+  const s = String((cust && cust.rsvpStatus) || '').trim().toLowerCase();
+  if(s === 'yes') return 'Answered the RSVP — yes, they want lights';
+  if(s === 'no') return 'Answered the RSVP — no';
+  if(s === 'backnextyear') return 'Answered the RSVP — back next year';
+  if(s === 'unanswered') return 'Marked as not having answered the RSVP';
+  return 'Answered the RSVP';
+}
+/* ⚠ A NOTE CARRIES ITS OWN DATE and several of them can sit on one invoice — the
+   change fees, the credits and the carryover charge each keep a `date` on their own
+   entry, which is why they are read here rather than being given stamps of their own. */
+function historyNoteRows(invoice, cust){
+  const out = [];
+  const money = (n) => fmtMoney(Number(n) || 0);
+  const list = (o, f) => (o && Array.isArray(o[f])) ? o[f] : [];
+  const add = (n, lead) => out.push({ at: n && n.date,
+    what: lead + ' ' + money(n && n.amount) + (n && n.reason ? ' — ' + n.reason : ''),
+    kind: 'money' });
+  list(invoice, 'changeFeeNotes').forEach(n => add(n, 'Light-change fee'));
+  list(invoice, 'creditNotes').forEach(n => add(n, 'Credit'));
+  /* ⚠ THE CARRYOVER NOTES ARE ON THE CUSTOMER, NOT THE INVOICE, and that is deliberate
+     rather than untidy: Start New Season zeroes changeFees and creditNotes on every
+     invoice, so a charge parked there would be DELETED rather than carried. Reading them
+     off the invoice here would show nothing and look like nothing had happened. */
+  list(cust, 'carryoverChargeNotes').forEach(n => add(n, 'Charge carried to next season'));
+  return out;
+}
+/* ⚠ NEWEST FIRST, and an undated row is NOT sorted to either end — it comes back in its
+   own list, because a row with no date has no place in a sequence and putting it at one
+   end invents an order somebody will read as real. */
+function customerHistory(src){
+  const s = src || {};
+  const rows = [], undated = [];
+  HISTORY_STEPS.forEach(function(step){
+    const rec = step.from === 'cust' ? s.cust : step.from === 'inv' ? s.invoice : s.quote;
+    if(!rec) return;
+    if(!Object.prototype.hasOwnProperty.call(rec, step.field)) return;
+    const raw = rec[step.field];
+    if(raw === null || raw === undefined || raw === '') return;
+    const what = step.field === 'rsvpRespondedAt' ? historyRsvpWords(s.cust) : step.what;
+    const at = toJsDate(raw);
+    if(at) rows.push({ at: at, what: what, kind: 'step' });
+    else undated.push({ what: what, kind: 'step' });
+  });
+  historyNoteRows(s.invoice, s.cust).forEach(function(r){
+    const at = toJsDate(r.at);
+    if(at) rows.push({ at: at, what: r.what, kind: r.kind });
+    else undated.push({ what: r.what, kind: r.kind });
+  });
+  (s.payments || []).forEach(function(p){
+    const at = toJsDate(p && p.paidAt);
+    const what = 'Paid ' + fmtMoney(Number(p && p.amount) || 0) +
+      (p && p.method ? ' — ' + (PAYMENT_METHOD_LABEL[p.method] || p.method) : '');
+    if(at) rows.push({ at: at, what: what, kind: 'money' });
+    else undated.push({ what: what, kind: 'money' });
+  });
+  /* ⚠ THE ACTIVITY LOG IS WHERE THE EDITS LIVE — "changed timer settings this date",
+     "changed address this date". The dated steps say a stage was reached; only these
+     say what somebody actually altered, and who. */
+  (s.activity || []).forEach(function(a){
+    const at = toJsDate(a && a.at);
+    const what = String((a && a.what) || '') + (a && a.who ? ' (' + a.who + ')' : '');
+    if(!String((a && a.what) || '').trim()) return;
+    if(at) rows.push({ at: at, what: what, kind: 'edit' });
+    else undated.push({ what: what, kind: 'edit' });
+  });
+  rows.sort(function(a, b){ return b.at - a.at; });
+  return { rows: rows, undated: undated };
+}
+/* ⚠ ONE LINE PER THING, NEWEST AT THE TOP, and the date is the first thing on the row —
+   a history is read down the left-hand edge looking for a when, not read as prose. */
+function historyRowsHtml(hist){
+  const h = hist || {rows: [], undated: []};
+  const day = (d) => d.toLocaleDateString(undefined, {day: 'numeric', month: 'short', year: 'numeric'});
+  const tint = {step: 'var(--ink)', money: '#2E6B3E', edit: 'var(--slate)'};
+  let out = h.rows.map(function(r){
+    return '<div style="display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--line);">' +
+      '<span style="flex:0 0 92px; font-size:12px; color:var(--slate);">' + esc(day(r.at)) + '</span>' +
+      '<span style="font-size:13px; color:' + tint[r.kind] + ';">' + esc(r.what) + '</span></div>';
+  }).join('');
+  /* ⚠ UNDATED ROWS ARE SHOWN, UNDER THEIR OWN HEADING. Every one is something that
+     demonstrably happened — the flag is set — whose date was never recorded, which is
+     true of every customer on file before the stamps shipped. Dropped, the history
+     quietly claims it never happened; sorted to one end, it invents an order. */
+  if(h.undated.length){
+    out += '<p style="font-size:12px; color:var(--slate); margin:12px 0 4px;">' +
+      'Happened, but no date was recorded — these are from before we started dating them:</p>' +
+      h.undated.map(function(r){
+        return '<div style="display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--line);">' +
+          '<span style="flex:0 0 92px; font-size:12px; color:var(--slate);">—</span>' +
+          '<span style="font-size:13px; color:var(--slate);">' + esc(r.what) + '</span></div>';
+      }).join('');
+  }
+  if(!out) out = '<p style="font-size:13px; color:var(--slate); margin:0;">Nothing recorded for this customer yet.</p>';
+  return out;
+}
+/* ⚠ LOADED WHEN THE FORM OPENS, not held in a cache. The activity log and the payments
+   ledger are both queried per customer for the same reason renderPaymentHistory does it:
+   the office opens one record at a time, and pulling every activity row ever written on
+   login is a lot of reads to answer a question nobody has asked yet.
+   ⚠ AND A FAILURE SAYS SO. An empty history and a history that would not load look
+   identical, and only one of them means "nothing has happened to this customer". */
+async function renderCustomerHistory(custId){
+  const box = document.getElementById('editCustHistory');
+  if(!box) return;
+  const item = jobAddresses.find(a => a.id === custId);
+  if(!item){ box.innerHTML = '<p style="font-size:13px; color:var(--slate); margin:0;">No record open.</p>'; return; }
+  box.innerHTML = '<p style="font-size:13px; color:var(--slate); margin:0;">Loading…</p>';
+  const cust = item.data;
+  let payments = [], activity = [], quote = null;
+  try{
+    const key = custInvoiceKey(cust);
+    if(key){
+      const snap = await getDocs(query(collection(db,'payments'), where('invoiceKey','==', String(key))));
+      snap.forEach(function(s){ payments.push(s.data()); });
+    }
+  } catch(err){ console.error('[HU] history: payments', err); }
+  try{
+    const snap = await getDocs(query(collection(db,'activity'), where('refId','==', String(custId))));
+    snap.forEach(function(s){ activity.push(s.data()); });
+  } catch(err){ console.error('[HU] history: activity', err); }
+  /* ⚠ THE QUOTE IS TAKEN FROM THE CACHE, never re-queried by address. The quote that
+     created this customer is the one that names them (`existingCustomerId`), and matching
+     on address instead would pick up a NEIGHBOUR's quote on a shared phone — the same
+     trap the member-portal link was closed for. */
+  try{
+    /* ⚠ THE ONE THAT CONVERTED THEM WINS. A customer can have several quotes against
+       them — every re-quote points at the same record — and the quote dates here are
+       about the one that MADE them a customer, so a plain find() would show a re-quote
+       raised last week as the day they joined. */
+    const mine = (quotesCache || []).filter(q => q.data && q.data.existingCustomerId === custId);
+    quote = mine.find(q => q.data.convertedToCustomerAt) || null;
+  } catch(err){ console.error('[HU] history: quote', err); }
+  const inv = allCustInvoiceFor(cust);
+  const hist = customerHistory({cust: cust, invoice: inv && inv.data, quote: quote && quote.data,
+    payments: payments, activity: activity});
+  box.innerHTML = historyRowsHtml(hist);
 }
 /* ---- WHAT ACTUALLY CHANGED ON A RECORD -----------------------------------
  *
@@ -40286,6 +40491,26 @@ function openEditCustomerModal(id){
   editCustRenderHouseTabs();
   editCustDirtySnapshot = editCustSnapshot();
   editCustRefreshDirtyDot();
+  /* ⭐ THE HISTORY IS RESET ON EVERY OPEN, AND LOADED ONLY WHEN OPENED (2026-08-29).
+     ⚠ CLOSING IT IS NOT COSMETIC. This same function repoints the form at a SIBLING house
+     when a bill covers several, so a panel left open would keep the previous customer's
+     history on screen under the new customer's name until the query came back — the
+     worst kind of wrong, because it reads as an answer. Emptied and closed here, filled
+     on toggle.
+     ⚠ AND THE LISTENER IS BOUND ONCE, not on every open: openEditCustomerModal runs on
+     every tab click, and re-binding would fire the two queries once per click ever made.
+     The same accumulating-listener bug that put 2815 writes behind one drag in the
+     Inbox. */
+  const histWrap = document.getElementById('editCustHistoryWrap');
+  const histBox = document.getElementById('editCustHistory');
+  if(histWrap){ histWrap.open = false; }
+  if(histBox){ histBox.innerHTML = ''; }
+  if(histWrap && !histWrap._histBound){
+    histWrap._histBound = true;
+    histWrap.addEventListener('toggle', function(){
+      if(histWrap.open) renderCustomerHistory(editCustomerId);
+    });
+  }
   document.getElementById('editCustOverlay').style.display = 'flex';
 }
 // lightsDescription is stored as "Red, Green (extra notes)". Split it back into
