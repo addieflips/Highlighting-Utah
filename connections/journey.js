@@ -198,14 +198,37 @@ const STEPS = [
     plain: 'The nightly run at 7pm bills every house marked done that has not been billed yet.',
     records: ['invoicedAt'],
     next: [
-      { to: 'paid',     label: 'they pay it all' },
-      { to: 'partpaid', label: 'they pay some of it' },
-      { to: 'chase1',   label: '30 days pass and nothing has come in' }
+      { to: 'paid',      label: 'they pay it all' },
+      { to: 'partpaid',  label: 'they pay some of it' },
+      { to: 'unmatched', label: 'their card is charged but the bill cannot be found' },
+      { to: 'chase1',    label: '30 days pass and nothing has come in' }
     ] },
 
   /* ⚠ PART PAID IS NOT PAID AND NOT UNPAID, and the difference reaches the money: the
      late fee is $25 for somebody who has paid something and $40 for somebody who has
      paid nothing. Folded into "paid" the page would lose the distinction the fee turns on. */
+  /* ⚠ A REAL PAYMENT THAT LANDS NOWHERE, and every part of it checked rather than assumed
+   * (2026-08-29). When a card is captured and the invoice document cannot be found — the
+   * usual cause is the customer changing the phone or email their bill is keyed on — the
+   * money is filed in `unmatchedPayments` and an SMS goes to the office, if an alert
+   * number is set.
+   * ⚠ THREE THINGS ARE TRUE AT ONCE AND EACH WAS VERIFIED: nothing anywhere writes
+   * `resolved: true`; no screen in the admin reads that collection at all; and
+   * firestore.rules says `allow write: if false`, so even a screen that existed could not
+   * mark one resolved. The customer's own portal reads Paid in Full throughout.
+   * ⚠ IT IS DRAWN AS AN ENDING BECAUSE THAT IS WHAT IT IS TODAY — money in, nothing out.
+   * Drawing a route onward would describe a repair nobody has built. */
+  { id: 'unmatched', title: 'Paid, but the money found no bill', built: false,
+    notBuilt: 'There is no way out of this state. Nothing writes resolved:true, no screen ' +
+      'reads the collection, and firestore.rules forbids writing to it — so even a screen ' +
+      'that existed could not clear one. All three were checked, not assumed.',
+    plain: 'The card was charged and no invoice could be found to apply it to — usually ' +
+      'because the phone or email the bill is keyed on has changed. It is filed under ' +
+      'unmatched payments and the office is texted, if an alert number is set. Nothing ' +
+      'can mark it dealt with: no screen shows these, and the rules forbid writing to them.',
+    records: ['capturedAt'],
+    end: true },
+
   { id: 'partpaid', title: 'Paid part of it',
     plain: 'Money has come in and a balance is left. They still show as owing.',
     next: [
@@ -222,6 +245,9 @@ const STEPS = [
      nudge, which chases an unanswered QUOTE, not an unpaid bill. Chasing a bill is a
      manual send from Automation Emails today. Drawn as built, this page would be a wish. */
   { id: 'chase1', title: 'Text them — 30 days', built: false,
+    notBuilt: 'Nothing chases an unpaid bill on a timer today. Two things run on a ' +
+      'schedule — the 7pm invoice, and the nudge, which chases an unanswered QUOTE. ' +
+      'Chasing a bill is a manual send from Automation Emails.',
     plain: 'A text asking them to pay. The system tells the office when one is due; ' +
       'a person sends it.',
     next: [
@@ -230,6 +256,9 @@ const STEPS = [
     ] },
 
   { id: 'chase2', title: 'Email them with a fee — 60 days', built: false,
+    notBuilt: 'Nothing sends this. The fee rule exists in the page as a preview marked ' +
+      '"not built" — $25 if they have paid something, $40 if they have paid nothing — ' +
+      'and no code charges it.',
     plain: 'Sends by itself, with a new invoice carrying the late fee. The rule is already ' +
       'written down: $25 if they have paid something, $40 if they have paid nothing.',
     next: [{ to: 'paid', label: 'they pay' }] },

@@ -637,6 +637,30 @@ It shows what happened to Jane Smith. The SHAPE of the journey — quote, email,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
 
+### A payment that finds no bill — an open hole
+
+When a card is captured and the invoice document cannot be found — usually because the phone
+or email the bill is keyed on has changed — `recordUnmatchedPayment` files it in
+`unmatchedPayments` and texts the office, if an alert number is set. **Three things are then
+true at once, and each was checked rather than assumed:**
+
+- nothing anywhere writes `resolved: true`
+- **no screen in `admin.html` reads that collection at all**
+- `firestore.rules` says `allow write: if false`, so even a screen that existed could not
+  mark one dealt with
+
+Meanwhile the customer's own portal reads **Paid in Full**. Real money, correctly captured,
+in a place with no way in and no way out.
+
+⚠ **It is drawn on the path as an ending**, because that is what it is today — money in,
+nothing out. Drawing a route onward would describe a repair nobody has built, and the value
+of that page is that it is true.
+
+⚠ **The fix needs two decisions and a manual deploy.** Where these should show (Health Check
+is not the answer — HC-03), and a `firestore.rules` change so the office can clear one.
+`firestore.rules` is **not** deployed by CI; it needs `firebase deploy --only firestore:rules`
+by hand.
+
 ### Asking to cancel is dated, and on the path
 
 `seasonStatus` carries four answers — a cancellation asked for, an address changed, changes

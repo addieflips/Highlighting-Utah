@@ -206,10 +206,15 @@ const unbuilt = STEPS.filter(s => s.built === false);
 check('the steps that are not built are marked as not built', unbuilt.length >= 2,
   'the two payment chases are a spec, not code — nothing chases an unpaid bill on a ' +
   'timer today, and a page that draws them as running is a wish rather than a map');
-check('and they say so in their own words',
-  unbuilt.every(s => /notify|tells the office|by itself|sends by itself|a person sends/i.test(s.plain) ||
-    /rule is already written down/i.test(s.plain)),
-  'the marker colours the box; the words are what somebody actually reads');
+/* ⚠ THIS MATCHED A LIST OF PHRASES, which is the trap this repo records again and again:
+   a check pinned to where a string happens to sit rather than to what must be true. It
+   failed on a correct new step whose words were fine and simply different. What must be
+   true is that an unbuilt step SAYS WHAT IS MISSING, so it is a field of its own. */
+check('and each one says what is missing, in a field of its own',
+  unbuilt.every(s => s.notBuilt && s.notBuilt.length > 40),
+  'without: ' + unbuilt.filter(s => !s.notBuilt).map(s => s.id).join(', ') +
+  '. The marker colours the box; this is what somebody actually reads, and "not built" ' +
+  'without saying what is absent sends them looking for a switch that does not exist.');
 
 /* ---------------------------------------------------------------------------
  * 5. The page, driven the way she drives it.

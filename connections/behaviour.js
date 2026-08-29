@@ -256,7 +256,8 @@ function drawPath(){
   '<div class="jcard'+(here.built===false?' unbuilt':'')+'">'+
    '<h2>'+esc(here.title)+'</h2>'+
    (here.built===false?'<p class="jwarn">Not built yet — this is how it should work, '+
-     'not how it works today.</p>':'')+
+     'not how it works today.</p>'+
+     (here.notBuilt?'<p class="jwarn jwhat">'+esc(here.notBuilt)+'</p>':''):'')+
    '<p class="jplain">'+esc(here.plain||'')+'</p>'+
    (recs?'<p class="jrec">Recorded as '+recs+'</p>':
      '<p class="jrec dim">Nothing on the record marks this step.</p>')+

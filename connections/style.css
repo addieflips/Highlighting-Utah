@@ -159,3 +159,7 @@ tr.flash td{ background:rgba(184,134,11,.16); transition:background .5s; }
 @media (max-width:640px){
   .jnext{ flex-direction:column; align-items:flex-start; gap:4px; }
 }
+/* What is actually missing on a step that is not built. Sits under the warning in the
+   same colour, indented, so the eye reads "not built" then "and here is why". */
+.jwarn.jwhat{ font-weight:400; margin:-4px 0 8px; padding-left:12px;
+  border-left:2px solid var(--gold, #B8860B); }
