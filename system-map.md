@@ -637,6 +637,28 @@ It shows what happened to Jane Smith. The SHAPE of the journey — quote, email,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
 
+### The crew portal is watched now, even though nobody opens it
+
+Until 2026-08-29 `queue-date.test.js` read **only** `admin.html` and `functions/index.js`, and
+that absence was the structural reason several holes could sit unseen. The crew portal writes
+**six customer states** — the build flag, the recycle flag, the fix flag, `completed`,
+`removalDone` and the customer number — and two of the three census gates could not see any
+of them.
+
+⚠ **They are named, not skipped.** The portal is out of use this season (owner, 2026-08-21:
+*"were not using the employee portal this year"*), so `DORMANT_CREW_PORTAL` lists each write
+with the reason it is left alone rather than repaired — repairing a screen nobody opens is
+work with no reader. Excluding the file instead would mean a **new** undated write could
+appear there and nothing would say so, which is exactly the state being closed. Listed, they
+are a to-do: if the portal comes back, that list is what to work through first.
+
+⚠ **An exception must still describe something.** A name that no longer matches anything in
+the file excuses nothing and hides the rename, so that is checked too.
+
+⚠ **Dormant is not harmless**, which this repo learned once already: `silent-failures.test.js`
+sweeps the same file because `whToggleRecycle` cleared a customer number and then swallowed
+the pool write, leaving the number on nobody's record and in no pool.
+
 ### A payment that finds no bill — an open hole
 
 When a card is captured and the invoice document cannot be found — usually because the phone

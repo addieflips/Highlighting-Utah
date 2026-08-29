@@ -47,7 +47,20 @@ function check(name, ok, detail) {
 function note(m) { notes++; console.log('  NOTE  ' + m); }
 
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = { 'admin.html': read('admin.html'), 'functions/index.js': read('functions/index.js') };
+/* ⚠ employee.html JOINED THIS LIST ON 2026-08-29, and its absence was the structural
+   reason several holes could exist at all. The crew portal writes SIX customer states —
+   the build flag, the recycle flag, the fix flag, completed, removalDone and the customer
+   number — and two of the three census gates in this repo could not see any of them.
+   ⚠ THE PORTAL IS OUT OF USE THIS SEASON (owner, 2026-08-21: "were not using the employee
+   portal this year"), so every write in it is listed below as a known exception with that
+   reason rather than fixed today. What this buys is that nothing NEW can appear there
+   undated — and if the portal comes back, that list is the to-do.
+   ⚠ DORMANT IS NOT HARMLESS, which this repo already learned once: silent-failures.test.js
+   sweeps this same file for exactly that reason, after whToggleRecycle was found clearing
+   a customer number and then swallowing the pool write. */
+const SOURCES = { 'admin.html': read('admin.html'),
+                  'employee.html': read('employee.html'),
+                  'functions/index.js': read('functions/index.js') };
 
 console.log('');
 console.log('=== When was it sent to the warehouse? ===');
@@ -359,6 +372,33 @@ const RECYCLE_SITES = [
   { file: 'functions/index.js', fn: 'portalRsvp' }
 ];
 
+/* ⭐ THE CREW PORTAL, KNOWN AND DORMANT (added 2026-08-29 with employee.html itself).
+ * Owner, 2026-08-21: "were not using the employee portal this year." So these write the
+ * same flags the office does and record no date, and that is left alone rather than
+ * repaired today — repairing a screen nobody opens is work with no reader.
+ *
+ * ⚠ NAMED, NOT SKIPPED WHOLESALE. Excluding the file would mean a NEW undated write could
+ * appear there and nothing would say so, which is exactly the state that let these sit
+ * unseen. Listed, they are a to-do rather than a blind spot: if the portal comes back,
+ * this list is what has to be worked through first.
+ *
+ * ⚠ AND DORMANT IS NOT HARMLESS — this repo learned that once already. silent-failures
+ * sweeps this same file because `whToggleRecycle` cleared a customer number and then
+ * swallowed the pool write, leaving the number on nobody's record and in no pool.
+ */
+const DORMANT_CREW_PORTAL = [
+  { fn: 'whToggleRecycle',
+    why: 'ticks a bundle as recycled and blanks the customer number; the office path ' +
+         'writes lightsRecycledAt and this one writes nothing' },
+  { fn: 'whToggleLightsNew',
+    why: 'clears the build flag when a bundle is made; the office path stamps ' +
+         'lightsMarkedBuiltAt and this one does not' },
+  { fn: 'loadRoutesForDate',
+    why: 'the crew ticking a stop done — writes completed, removalDone and needsFix ' +
+         'straight, never through HLX_DONE_KINDS, so none of the three is dated' }
+];
+const dormantKey = fn => 'employee.html · ' + fn;
+
 function censusOf(field, stampRe) {
   const on = new Map(), stamps = new Set();
   for (const [file, raw] of Object.entries(SOURCES)) {
@@ -395,12 +435,26 @@ function censusOf(field, stampRe) {
 {
   const { on, stamps } = censusOf('needsLightRecycle', '(lightsRecycleRequestedAt|stampRecycleRequested\\w*\\s*\\()');
   const wantedR = RECYCLE_SITES.map(x => x.file + ' · ' + x.fn);
-  const strangersR = [...on.keys()].filter(k => wantedR.indexOf(k) === -1);
+  const dormant = DORMANT_CREW_PORTAL.map(x => dormantKey(x.fn));
+  const strangersR = [...on.keys()].filter(k => wantedR.indexOf(k) === -1 && dormant.indexOf(k) === -1);
   check('no place queues a recycle that nobody has decided about',
     strangersR.length === 0,
     'new place(s): ' + strangersR.join(', ') + '. Either stamp lightsRecycleRequestedAt ' +
     'or add it here with a reason — otherwise that house joins the recycle list with no ' +
     'record of when it was asked for.');
+  /* ⚠ THE DORMANT LIST HAS TO STILL DESCRIBE SOMETHING. A name that no longer matches
+     anything is an exception protecting nothing, and it would go on quietly excusing a
+     function that had been renamed around it. */
+  const goneDormant = DORMANT_CREW_PORTAL
+    .filter(x => !SOURCES['employee.html'] || SOURCES['employee.html'].indexOf(x.fn) === -1)
+    .map(x => x.fn);
+  check('every crew-portal exception still names something in that file',
+    goneDormant.length === 0,
+    'no longer there: ' + goneDormant.join(', ') +
+    '. An exception that matches nothing excuses nothing, and hides the rename.');
+  check('and every one says why it is left alone',
+    DORMANT_CREW_PORTAL.every(x => x.why && x.why.length > 30),
+    'without the reason, "known" and "forgotten" look identical in a list of names');
   RECYCLE_SITES.forEach(site => {
     const key = site.file + ' · ' + site.fn;
     if (!on.has(key)) { note('recycle site no longer found: ' + key); return; }
