@@ -697,6 +697,36 @@ oversight. It is **Q-026** rather than a fix: Start New Season rewrites every cu
 press and cannot be undone, and if `removalDone` is meant to persist then clearing it would
 tell the warehouse a set is out that is not.
 
+### A regex with a quote in it was hiding two false greens
+
+`escHtmlPrint` in `employee.html` is `/[&<>"']/g` — an apostrophe and a double quote inside
+a character class. `matchBrace` has its own quote handling, separate from the comment mask,
+and read that apostrophe as opening a string. The string never closed, the brace depth never
+returned to zero at the real closing brace, and **that function claimed a range of 35,656
+characters** — so every `enclosing()` lookup in that span answered `escHtmlPrint`, including
+a write inside a handler twenty thousand characters later. After the fix its range is **177**.
+
+⚠ **It surfaced the day `employee.html` joined the census**, not before: a wrong answer about
+a file nothing asked about costs nothing.
+
+⚠ **AND FIXING IT EXPOSED TWO CONNECTIONS THAT HAD BEEN GREEN FOR THE WRONG REASON** — which
+is the false green this whole page exists to prevent, occurring in the page itself:
+
+- the `status` row anchored on `status:'closed'` **with no space**, which appears only inside
+  comments; the real writes have a space. The anchor landed on prose, and an over-long range
+  around it happened to contain a real write.
+- the `rsvpRespondedAt` row named `hlxReadSheet`, but the Yes sheet's rule lives in that tab's
+  own anonymous `holds` predicate. Same cause: a range longer than the function.
+
+Both are repointed at the code that really does the work. **Neither was ever a broken
+connection — they were correct arrows pointing at the wrong place**, and only a scanner
+telling the truth could tell the difference.
+
+⚠ **A `/` is divide or regex depending on what precedes it**, so it is decided by the
+standard heuristic — after a value it is division, after an operator, comma, bracket or
+keyword it opens a literal. Unrecognised, it behaves exactly as it did before, so the safe
+direction costs nothing.
+
 ### The crew portal is watched now, even though nobody opens it
 
 Until 2026-08-29 `queue-date.test.js` read **only** `admin.html` and `functions/index.js`, and
@@ -711,6 +741,14 @@ the office writes — each was one line, and a screen that comes back carrying a
 worse than one that comes back clean. **Neither dates the untick**: un-ticking is somebody
 undoing a mis-tick, not a bundle being unmade, and dating it would record work that never
 happened over the record of work that did.
+
+⚠ **And its Add a Customer never told the warehouse at all.** A customer entered through the
+crew portal got a record with no build flag — so nothing was ever made for them, and a crew
+would arrive at a house with no lights for it. Fixed and declared as a real queueing place,
+**ungated** on Addie's own ruling (WH-20, *"we want to build everyone"*): that door collects
+no colours, so every customer it makes lands in the build queue's *Waiting on light colours*
+block, which is visible and has an Add colours button. Gating the flag would make those
+houses invisible instead, which is the bug that ruling closed.
 
 ⚠ **The third is left, and it is the one that is not a one-liner.** The crew ticking a stop
 done writes `completed`, `removalDone` and `needsFix` straight rather than through

@@ -74,6 +74,11 @@ console.log('');
    MANUAL_ONLY_IDS against the checklist count, which was wrong three times while the
    list was right every time. */
 const QUEUE_SITES = [
+  /* ⭐ THE CREW PORTAL'S OWN Add a Customer (added 2026-08-29). It created a record with
+     no build flag at all, so a customer entered there got a record and never a bundle —
+     nothing was made for them and a crew would arrive at a house with no lights for it.
+     Fixed and declared in the same change; it is a real queueing place, not an exception. */
+  { file: 'employee.html', fn: 'ecSaveBtn handler' },
   { file: 'admin.html', fn: 'qBuildTestBtn handler' },
   { file: 'admin.html', fn: 'buildTestPerson' },
   { file: 'admin.html', fn: 'routeAddressForm handler' },

@@ -2113,10 +2113,23 @@ document.getElementById('ecSaveBtn').addEventListener('click', async function(){
         return;
       }
       const loc = results[0].geometry.location;
+      /* ⚠ THE WAREHOUSE HAS TO BE TOLD, and this door was not telling it (fixed
+         2026-08-29). A customer created here got a record and never a bundle: no
+         needsLightBuild, so they never reached Needs Building, nothing was ever made for
+         them, and a crew would arrive at the house with no lights for it. The office's
+         own Add a Customer has always set both.
+         ⚠ UNGATED, on Addie's own ruling (WH-20): "we want to build everyone." A house
+         with no colours belongs in the build queue's Waiting on light colours block,
+         which is visible and has an Add colours button — gating the flag makes those
+         houses invisible instead, which is the bug the rule closed. This door collects no
+         colours at all, so every customer it makes lands there, which is correct.
+         ⚠ AND IT CARRIES THE DATE, so the wait is measurable from the moment they were
+         entered rather than from whenever somebody in the office next touched them. */
       await addDoc(collection(db,'jobAddresses'), {
         street: street, city: city, state: 'UT', zip: zip,
         address: fullAddress, name: name, phone: phone, email: email, difficulty: 'Unrated',
-        lat: loc.lat(), lng: loc.lng(), scheduled: false, createdAt: serverTimestamp()
+        lat: loc.lat(), lng: loc.lng(), scheduled: false, createdAt: serverTimestamp(),
+        needsLightBuild: true, lightsQueuedAt: serverTimestamp()
       });
       statusEl.textContent = 'Added!';
       ['ecName','ecPhone','ecEmail','ecStreet','ecCity','ecZip'].forEach(function(id){ document.getElementById(id).value = ''; });

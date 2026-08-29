@@ -433,7 +433,14 @@ module.exports = [
          answering a different question (what the customer said, versus where the quote
          sits). Conflating them was a false red. `status` is written when a quote is
          converted or archived. */
-      { file: 'admin', near: "status:'closed'", where: 'Quote Requests', when: 'a quote is converted or archived',
+      /* ⚠ REPOINTED 2026-08-29 — IT WAS MATCHING A COMMENT. The real writes are
+         `status: 'closed'` WITH a space; the three unspaced occurrences in this file are
+         all prose describing them. The anchor landed on one of those, and the range around
+         it happened to contain a real write, so the row read green while pointing at
+         nothing. It only surfaced when a scanner fix shortened the ranges — a green built
+         on a mistake in the scanner, which is exactly the false green this page exists to
+         prevent, in the page itself. */
+      { file: 'admin', near: "status: 'closed', convertedToCustomerAt", where: 'Quote Requests', when: 'a quote is converted or archived',
         rules: ['A quote can never be CREATED already priced or already approved — firestore.rules refuses it.'] }
     ],
     reads: [
@@ -513,7 +520,14 @@ module.exports = [
         rules: ['A yes with no date behind it is emptied before anything else is decided.'] },
       { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season' },
       { file: 'admin', fn: 'renderDashRsvpPanel', where: 'Customers › All Customers', when: 'the RSVP list is drawn' },
-      { file: 'admin', fn: 'hlxReadSheet', where: 'Customers › Bulk Updates', when: 'the Yes tab of the workbook is filled',
+      /* ⚠ REPOINTED 2026-08-29 — IT NAMED THE WRONG FUNCTION. The Yes sheet's rule lives
+         in that tab's own `holds` predicate, which is an anonymous function inside a table
+         at top level, not in `hlxReadSheet`. The row read green because a scanner bug gave
+         `hlxReadSheet` a range far longer than the function, and the real read happened to
+         fall inside it. Fixing the scanner is what exposed it — a declaration pointing at
+         the wrong place, reporting a connection as present for the wrong reason. */
+      { file: 'admin', near: "if(said === 'yes' && d.rsvpRespondedAt) return true;",
+        where: 'Customers › Bulk Updates', when: 'the Yes tab of the workbook is filled',
         rules: ['The Yes sheet holds people who ANSWERED, never people we assumed.'] }
     ]
   },
