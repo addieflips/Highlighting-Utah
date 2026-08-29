@@ -6752,11 +6752,16 @@ const HISTORY_STEPS = [
      reading it off `cust` returns nothing for everybody and the history silently loses
      the day they joined. Checked at the write site rather than assumed from the name. */
   { field: 'convertedToCustomerAt',    from: 'quote', what: 'Became a customer' },
-  /* \u26a0 ON THE CUSTOMER, and it is the one step of the whole journey that is THEIR work
-     rather than ours \u2014 the colours, the wire, the timer and the gate code all arrive here.
-     A house sitting unbuilt because nobody ever filled this in looks identical to one
-     waiting its turn, and this row is the only thing that tells them apart. */
-  { field: 'formCompletedAt',          from: 'cust',  what: 'Filled in their details form' },
+  /* \u26a0 IT IS THE ONE STEP OF THE WHOLE JOURNEY THAT IS THEIR WORK rather than ours \u2014 the
+     colours, the wire, the timer and the gate code all arrive here. A house sitting unbuilt
+     because nobody ever filled this in looks identical to one waiting its turn, and this row
+     is the only thing that tells them apart.
+     \u26a0 ON THE QUOTE, NOT THE CUSTOMER, and it shipped the wrong way round for an hour on
+     2026-08-29 \u2014 which is the whole argument for the by-document check in history.test.js.
+     Both writers put it on `quotes`: the portal's own form writes it there directly, and
+     `quoteSaveDetails` writes it there for somebody following an emailed link. Read off the
+     customer it found nothing for anybody, and every check in the repo passed. */
+  { field: 'formCompletedAt',          from: 'quote', what: 'Filled in their details form' },
   { field: 'lightsQueuedAt',           from: 'cust',  what: 'Sent to the warehouse to be built' },
   { field: 'lightsMarkedBuiltAt',      from: 'cust',  what: 'Bundle marked built' },
   { field: 'needsDayAssignedAt',       from: 'cust',  what: 'Needed a day on the calendar' },
