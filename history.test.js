@@ -206,6 +206,19 @@ if (history) {
     'it is written onto the quote, not the customer — read off the wrong record it is ' +
     'missing from every history and nothing says so');
 
+  /* ⚠ THE LINE BETWEEN SEASONS, and it is the reason the history is readable at all after
+     a reset. Start New Season clears the flags and KEEPS every date, so without a divider
+     last season's install sits in the list looking exactly like this season's. */
+  const twoSeasons = history({ cust: {
+    completedAt: D('2025-10-14'), seasonResetAt: D('2026-08-01'),
+    lightsQueuedAt: D('2026-09-02') } });
+  check('a season reset appears as a line in the history',
+    twoSeasons.rows.some(r => /new season started/i.test(r.what)),
+    'without it the two years run together and last October reads as this October');
+  check('and it sits between the two seasons, not at either end',
+    twoSeasons.rows.map(r => /new season/i.test(r.what)).indexOf(true) === 1,
+    'newest-first, the divider belongs above everything that happened before it');
+
   /* ⚠ THE CANCELLATION LINE SAYS WHICH STATUS IT WAS, and keeps what it changed from.
      "Season status changed on the 4th" cannot say whether they were cancelling or
      correcting their address, and those two need opposite actions from the office. Both

@@ -637,6 +637,32 @@ It shows what happened to Jane Smith. The SHAPE of the journey — quote, email,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
 
+### Where one season ends and the next begins
+
+Start New Season clears the **flags** and keeps every **date** — `completedAt`,
+`lightsQueuedAt`, `lightsMarkedBuiltAt`, `assignedCrewAt`, `removalDoneAt`, the fix pair.
+That is right: wiping them would throw away the only record any of it happened, and *"queued
+on the 2nd, built on the 9th"* is the whole point of having them. What was missing was a
+**line between the seasons**, so a record carried last year's dates beside this year's flags
+and the customer history ran the two together — last October's install reading exactly like
+this October's.
+
+The reset now also stamps **`seasonResetAt`**, and the history draws it as a divider:
+*"— New season started. Everything below here is last season —"*. Newest-first, everything
+under that row belongs to the year before.
+
+⚠ **It is a marker, not a clear**, and it is the only thing added to that write. Nothing
+existing reads it, so it changes no behaviour.
+
+⚠ **`removalDone` is NOT cleared by the reset, and nothing else clears it either** — the only
+writer of `removalDone: false` is the Mark Done toggle being un-ticked by hand. So a customer
+whose lights came down last December reads *Removed* all through the new season. `completed`
+and `removalDone` are the same shape of fact and the comment on that write explains why each
+of the other eight fields is cleared; this one is not mentioned, which makes it look like an
+oversight. It is **Q-026** rather than a fix: Start New Season rewrites every customer in one
+press and cannot be undone, and if `removalDone` is meant to persist then clearing it would
+tell the warehouse a set is out that is not.
+
 ### The crew portal is watched now, even though nobody opens it
 
 Until 2026-08-29 `queue-date.test.js` read **only** `admin.html` and `functions/index.js`, and

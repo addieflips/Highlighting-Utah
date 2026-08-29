@@ -352,6 +352,50 @@ check('the one place that sets the flag without queuing is still excluded',
 }
 
 /* ---------------------------------------------------------------------------
+ * 1d. START NEW SEASON MARKS WHERE THE SEASON ENDED.
+ *
+ * ⚠ THE RULE AND THE WIRING ARE DIFFERENT CLAIMS, and red-checking proved it: the history
+ * gate happily proves a `seasonResetAt` renders as a divider, and deleting the field from
+ * the reset write left that gate green while no customer would ever carry one.
+ *
+ * ⚠ WHY IT MATTERS. The reset clears the FLAGS and keeps every DATE — rightly, since
+ * wiping them throws away the only record any of it happened. So without a marker a record
+ * carries last season's dates beside this season's flags, and the history runs the two
+ * years together: last October's install reads exactly like this October's.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const at = clean.indexOf('completed: false, invoiceEmailSent: false');
+  check('the Start New Season customer reset was found', at > -1,
+    'the checks below prove nothing against a string that is not there');
+  if (at > -1) {
+    /* The single updateDoc that reopens each customer — from the flags to its closing brace. */
+    let dep = 0, k = clean.lastIndexOf('{', at), end = k;
+    for (; end < clean.length; end++) {
+      if (clean[end] === '{') dep++;
+      else if (clean[end] === '}') { dep--; if (!dep) break; }
+    }
+    const write = clean.slice(k, end + 1);
+    check('and it stamps where the season ended',
+      /seasonResetAt\s*:\s*serverTimestamp\(\)/.test(write),
+      'without it every record carries last season\'s dates beside this season\'s flags, ' +
+      'and the customer history runs the two years together with nothing between them');
+
+    /* ⚠ AND IT MUST NOT START WIPING THE DATES. That is the tempting "tidy" fix and it
+       destroys the only record the work happened — the history needs them, and "queued on
+       the 2nd, built on the 9th" is the whole point of keeping them. */
+    const wiped = ['completedAt', 'lightsQueuedAt', 'lightsMarkedBuiltAt', 'assignedCrewAt',
+      'removalDoneAt', 'fixRaisedAt', 'fixDoneAt']
+      .filter(f => new RegExp(f + '\\s*:\\s*null').test(write));
+    check('and it does not wipe the dates themselves', wiped.length === 0,
+      'cleared by the reset: ' + wiped.join(', ') +
+      '.\n        The marker is the fix, not a clear — those dates are the only record ' +
+      'that any of it happened, and the history is built on them.');
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * 1b. The same census for the RECYCLE queue, and the $30 join fee.
  *
  * Addie, 2026-08-28: "Everything that can be changed for members or added to members

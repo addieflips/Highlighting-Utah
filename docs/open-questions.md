@@ -1738,3 +1738,41 @@ That makes it visible without pretending a repair exists.
 
 **Resulting map change.** None yet — this is a hole, not a ruling, and the
 questions map holds rulings only. It gets a row there when it is answered.
+
+---
+
+## Q-026 · intent · OPEN · raised 2026-08-29
+Should Start New Season clear `removalDone`, the way it clears `completed`?
+
+**This is a change to Start New Season, which is on the short list of things
+that need you rather than a judgement call, so it is recorded rather than made.**
+
+**What happens today.** The reset clears `completed`, `invoiceEmailSent`,
+`scheduled`, `scheduledDate`, `assignedCrew`, `chargeNewMemberFee`,
+`needsDayAssignedAt`, `rejoinedForSeasonAt` and `cameBackThisSeasonAt`. It does
+**not** clear `removalDone` or `removalDoneAt`, and nothing else ever does —
+`grep` finds exactly one writer of `removalDone: false`, the Mark Done toggle
+being un-ticked by hand.
+
+**So a customer whose lights were taken down last December reads "Removed" all
+the way through the new season**, until somebody visits the record and unticks it.
+
+**Why it looks like an oversight rather than a decision.** `completed` and
+`removalDone` are the same shape of fact — a job done this season — and the
+comment on that write explains why each of the other eight is cleared. This one
+is not mentioned.
+
+**Why it is not simply fixed.** Start New Season rewrites every customer in the
+book in one press and cannot be undone. If `removalDone` is season-scoped it
+should be cleared with the rest; if it is meant to persist — because a bin that
+came back stays back until the crew take it out again — then clearing it would
+tell the warehouse a set is out that is not. **I do not know which, and guessing
+wrong is a real crew journey.**
+
+**What was done meanwhile.** Nothing to the reset's behaviour. It now also
+stamps `seasonResetAt` on each customer — purely additive, read only by the
+customer history, which draws a line at that date so last season's dates stop
+reading as this season's. That was the visible symptom; this question is the
+underlying one.
+
+**Resulting map change.** None yet — it gets a row when it is answered.

@@ -6748,6 +6748,11 @@ const HISTORY_STEPS = [
      ⚠ THE WORDS COME FROM THE VALUE, because "season status changed" answers nothing:
      cancelling and correcting an address are the same field and opposite jobs. */
   { field: 'seasonStatusAt',           from: 'cust',  what: 'Season status changed' },
+  /* ⚠ THE LINE BETWEEN SEASONS. Start New Season clears the flags and keeps the dates, so
+     without this the history runs the two years together and last season's install reads
+     as this one's. Newest-first, this row is the divider everything below it belongs to. */
+  { field: 'seasonResetAt',            from: 'cust',
+    what: '— New season started. Everything below here is last season —' },
   { field: 'invoicedAt',               from: 'inv',   what: 'Invoice sent' },
   { field: 'newMemberFeeAppliedAt',    from: 'inv',   what: 'New member fee charged ($30)' }
 ];
@@ -8461,7 +8466,21 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
           rejoinedForSeasonAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
-          cameBackThisSeasonAt: null
+          cameBackThisSeasonAt: null,
+          /* ⭐ WHERE ONE SEASON ENDS AND THE NEXT BEGINS (added 2026-08-29). This reset
+             clears the FLAGS and leaves every DATE standing — completedAt, lightsQueuedAt,
+             lightsMarkedBuiltAt, assignedCrewAt, removalDoneAt, the fix pair — so a record
+             carries last season's dates beside this season's flags with nothing separating
+             the two. Their history then reads as one continuous run of events, and the day
+             their lights went up last year sits in it looking like this year's.
+             ⚠ IT IS A MARKER, NOT A CLEAR. Wiping those dates would throw away the only
+             record that any of it happened; the history needs them, and "queued on the 2nd,
+             built on the 9th" is the whole point of having them. What was missing was a
+             line between the seasons, and this is that line.
+             ⚠ AND IT IS THE ONLY THING ADDED TO THIS WRITE. Nothing existing reads it, so
+             it changes no behaviour — deciding whether removalDone should also be cleared
+             here is a real change to Start New Season and belongs to Addie. */
+          seasonResetAt: serverTimestamp()
         });
       }));
       hdone += chunk.length;
