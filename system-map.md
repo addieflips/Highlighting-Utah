@@ -369,6 +369,44 @@ It watches the fields most likely to disagree with themselves, ranked by how man
 
 ---
 
+## 10d. The path itself — and the three places the code differs from it
+
+Addie described the whole journey in one paragraph on 2026-08-29, checking her
+understanding: *"it goes to quotes than we send an email they can choose to approve, deny,
+back next year. If they push approve than they fill out the form after they fill out form
+that goes back to us to convert to costumer than we convert to costumer, this then sends it
+to costumer and there info to warehouse. Than onces there stuff is built we mark it complete
+it goes to schedule, then it gets assigned out. After it gets assigned out and we hung the
+lights there nighly invoice gets sent out. Than they either pay it or we sent out 2 other
+messages asking them to pay. After they pay its over."*
+
+**That is the shape of the business, and nothing in the app draws it.** Every step is in the
+code and every step is now dated (§10c), but the ORDER lives only in that paragraph. The
+Connections grid is one level deep by design — a field, and where it goes — and the customer
+history (§10 above) is one customer's actual chain, not the chain. Her own words for the
+limit: *"this can only show connection one level in."*
+
+Checked against the code, her description is right except in three places. **None of these
+is a bug; all three are worth knowing before anybody builds on the paragraph.**
+
+1. **The form is for new customers only.** An existing member who approves a re-quote is
+   asked *"do you want anything changed with your lights this year?"* and never sees the
+   install-details form — they already have colours, wire and timer on file. `alreadyMember`
+   in `quoteRespond` decides it, and it is deliberately wider than a phone match.
+2. **The build does not gate the schedule.** She has it as build → mark complete → schedule.
+   `customersMissingFromSeason` asks `isOutForSeason` and `isLightsLocked` and nothing about
+   the build, so a customer joins the schedule as soon as they are in the season and the
+   warehouse builds in parallel. That may well be right — Print Today already prints the
+   crew's day and the warehouse's day one apart for exactly that reason — but **her model
+   says the build comes first and the code says the two run alongside, and nothing enforces
+   either.** Unasked as of 2026-08-29.
+3. **There is no automatic payment chasing.** Two things run on a schedule:
+   `sendNightlyInvoices` (7 PM) and `sendQuoteNudges`, which chases an unanswered QUOTE, not
+   an unpaid invoice. Chasing a bill is a manual send from Automation Emails with the Unpaid
+   filter. So her *"we sent out 2 other messages"* happens because somebody sends them.
+
+---
+
 ## 10c. When each thing happened to a customer
 
 Seven of the ten steps a customer goes through leave a **date** on their record, which is
@@ -399,6 +437,56 @@ those are now in the activity log rather than dated, because a date would say th
 moved on 3 October and never what it moved FROM, which is always the question. And
 `scheduledDate` remains a different thing: the day they are booked FOR, not the day the
 booking was made.
+
+### Their history
+
+**Edit Customer › Their history**, collapsed until you open it. One line per thing that has
+happened to that house, newest first, from **five sources interleaved by date rather than
+grouped by source** — grouped, the day something happened stops being the thing you read
+down the page. The dated steps on the customer, the invoice's own dates, the quote that
+started them, the payments ledger, and the activity log, which is the half that answers
+*"changed the timer this date, changed the address this date"*.
+
+⚠ **This is the reader the dates were waiting for.** Five of them — `lightsQueuedAt`,
+`lightsRecycleRequestedAt`, `assignedCrewAt`, `fixRaisedAt`, `newMemberFeeAppliedAt` — were
+written by real code and read by nothing, which the Connections map refused to declare
+(R-010: written everywhere and read nowhere is a dead end). Their entries went on the grid
+in the same change that gave them a reader.
+
+⚠ **Something that happened with no date recorded is SHOWN as undated, under its own
+heading** — never dropped, never sorted to one end. Dropped, the history quietly claims it
+never happened; sorted, it invents an order somebody will act on. That is every customer on
+file before the stamps shipped, so it is the common case rather than an edge one.
+
+⚠ **Two fields are read off a record their name does not suggest**, both checked at the
+write site: `convertedToCustomerAt` is on the **quote**, so reading it off the customer
+loses the day they joined for everybody; and `carryoverChargeNotes` is on the **customer**,
+because Start New Season zeroes the invoice and a charge parked there would be deleted
+rather than carried.
+
+⚠ **Collapsed, loaded on open, and reset on every open.** The panel runs two queries
+(payments and activity), so it loads only when somebody actually wants the answer — and
+`openEditCustomerModal` repoints this same form at a sibling house when a bill covers
+several, so a panel left open would show the previous customer's history under the new
+customer's name. The listener is bound **once**: that function runs on every house-tab
+click, and re-binding is the accumulating-listener bug that put 2815 writes behind one drag
+in the Inbox.
+
+⚠ **The quote it reads is the one that CONVERTED them**, not any quote pointing at them —
+every re-quote points at the same record, so a plain lookup would show a re-quote raised
+last week as the day they joined.
+
+⚠ **`history.test.js` censuses its step list against `queue-date.test.js`'s own**, each read
+out of the other rather than both typed. A new dated step cannot be added without reaching
+this page, or being named as deliberately absent with the reason. `paidAt` is the one named
+absence: payments are their own ledger with several rows per invoice, so they come from the
+payments collection rather than a single date.
+
+⚠ **AND IT IS PER CUSTOMER, NOT THE PATH ITSELF.** Addie, 2026-08-29, on the Connections
+grid: *"this can only show connection one level in"* — and she is right about this page too.
+It shows what happened to Jane Smith. The SHAPE of the journey — quote, email, they approve,
+they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
+code and in her own description of it, and is drawn nowhere. See §10d.
 
 ### The change log
 
