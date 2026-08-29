@@ -272,6 +272,49 @@ m.report.forEach(r => {
     nowWatched.length === 0,
     nowWatched.map(n => '\n          ' + n[0]).join('') +
     '\n        These are watched now — take them out of NOT_WATCHED in connections/manifest.js.');
+
+  /* ⭐ AND THE FIVE DATES STAY ACCOUNTED FOR, ONE WAY OR THE OTHER (added 2026-08-29).
+   * They are written by real code and read by nothing, because the customer history that
+   * will read them is not built. R-010 rightly refuses a spine in that state, so they sit
+   * on NOT_WATCHED instead — and a hand-written list has nothing stopping a row being
+   * dropped from it. Dropped, the field is not watched AND not declared unwatched, which
+   * is exactly the invisible state both halves of this page exist to prevent.
+   * ⚠ NAMED, NOT COUNTED. A count cannot tell a row legitimately promoted to a spine from
+   * one lost in a merge; each name must be on ONE of the two lists, and the check says
+   * which is missing. When the history view reads one, it moves from the list to a spine
+   * and the check above is what keeps it from being on both. */
+  const DATED_STEPS = ['lightsQueuedAt', 'lightsRecycleRequestedAt', 'assignedCrewAt',
+    'fixRaisedAt', 'newMemberFeeAppliedAt'];
+  const accounted = f =>
+    watchedFields.indexOf(f) !== -1 || notWatched.some(n => n[0].split('/').map(x => x.trim()).indexOf(f) !== -1);
+  const lost = DATED_STEPS.filter(f => !accounted(f));
+  check('every date the customer history will need is watched or declared unwatched',
+    lost.length === 0,
+    'not on either list: ' + lost.join(', ') +
+    '.\n        A field nobody watches and nobody has declared unwatched is invisible — ' +
+    'give it a spine once something reads it, or a NOT_WATCHED row with the reason.');
+
+  /* ⭐ A LOOKUP TABLE IS NOT A WRITER (added 2026-08-29). The change log names every
+   * editable field in a label map — `housePrice: {label: ...}` — and a scanner that reads
+   * `name:` as a write counted ten of those as ten new writers of ten WATCHED fields.
+   * Nothing went red, because an undeclared touch lands in amber and nothing gates amber:
+   * the page simply grew ten rows that were never writes, and amber carrying rows that are
+   * fine is amber nobody reads. scan.js blanks those tables; this is what stops the
+   * blanking being removed silently, since the symptom is invisible to every other check.
+   * ⚠ IT ASSERTS THE OUTCOME, not that the blanking code exists — a check for the constant
+   * passes with the loop underneath it broken. */
+  {
+    const fs2 = require('fs');
+    const scan2 = require('./connections/scan');
+    const blanked = scan2.blankNonCode(fs2.readFileSync(path.join(ROOT, 'admin.html'), 'utf8'));
+    const leaked = ['housePrice', 'customerNumber', 'rsvpStatus', 'measuredFeet']
+      .filter(f => new RegExp("\\b" + f + "\\s*:\\s*(?:\\{\\s*label|'[A-Z])").test(blanked));
+    check('the change log’s label table is not read as writing the fields it names',
+      leaked.length === 0,
+      'still visible to the scanner: ' + leaked.join(', ') +
+      '.\n        Those are labels for a person, not writes — every one of them would ' +
+      'appear on the page as a new place that sets a watched field.');
+  }
 }
 
 /* ---------------------------------------------------------------------------

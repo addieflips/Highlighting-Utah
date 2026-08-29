@@ -19,7 +19,29 @@ const NOT_WATCHED = [
   ['gateCode', 'how a crew gets in'],
   ['outletTimer', 'whether a house asked for a timer'],
   ['maybeNextYear / isOutForSeason', 'who is in the season at all'],
-  ['lightsLockedUntil', 'the 48-hour route lock and free-change window']
+  ['lightsLockedUntil', 'the 48-hour route lock and free-change window'],
+  /* ⭐ THE FIVE DATES ADDED 2026-08-28, AND WHY THEY ARE HERE RATHER THAN ON THE GRID.
+   * Addie asked whether this page had picked them up. It had not, and writing the spines
+   * is how the real reason surfaced: R-010 refuses a spine with a writer and no reader,
+   * and every one of these five is written and read by NOTHING. That is not an oversight
+   * in the wiring — it is the customer history she asked for ("dating when everything is
+   * done for each costumer through the system we have set") not being built yet. The
+   * dates are the raw material; the view that reads them is the missing half.
+   * ⚠ SO THE GATE WAS RIGHT AND THE SPINES WERE WRONG. The spines are written and kept
+   * out of the tree deliberately rather than forced through with an invented reader — a
+   * declared reader that does not exist is the false green this whole page exists to
+   * prevent, in the page itself. They go in the moment the history view reads them, and
+   * these five rows come out in the same change; connections.test.js fails if both are
+   * ever true at once, so the two cannot drift.
+   * ⚠ AND lightsMarkedBuiltAt IS ALREADY WATCHED, which is what makes this worth listing
+   * rather than leaving silent: its own note says adding a companion field and not
+   * watching it is exactly the shape of hole this map catches. lightsQueuedAt IS that
+   * companion — asked for, then made — so the pair is currently half on the page. */
+  ['lightsQueuedAt', 'the day a bundle was asked for — waiting on the customer history to read it'],
+  ['lightsRecycleRequestedAt', 'the day an old set was asked back — same, waiting on a reader'],
+  ['assignedCrewAt', 'the day a house was put on a crew sheet, as opposed to the day it is booked for'],
+  ['fixRaisedAt', 'the day a fault was reported, as opposed to the day it was mended'],
+  ['newMemberFeeAppliedAt', 'the day the $30 join fee went onto a bill']
 ];
 
 /* WHAT SHOULD CONNECT TO WHAT — the hand-written half.

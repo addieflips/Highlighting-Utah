@@ -20,8 +20,13 @@
   "gateCode",
   "outletTimer",
   "maybeNextYear / isOutForSeason",
-  "lightsLockedUntil"
+  "lightsLockedUntil",
+  "lightsQueuedAt",
+  "lightsRecycleRequestedAt",
+  "assignedCrewAt",
+  "fixRaisedAt",
+  "newMemberFeeAppliedAt"
  ],
- "rulings": 206,
+ "rulings": 207,
  "builtFrom": "2026-08-28"
 }

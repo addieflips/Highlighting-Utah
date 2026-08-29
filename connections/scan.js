@@ -125,6 +125,10 @@ function index(pathOrSrc, isSource) {
  * PORTAL_READ_FIELDS registers as a touch; that is amber noise, which is visible and
  * survivable, where a missed read would be a silent false green.
  * ------------------------------------------------------------------------- */
+/* The lookup tables that map a field name to words for a person. They contain no writes
+   of anything — see the note at the end of blankNonCode. */
+const DECLARATION_TABLES = ['CUSTOMER_FIELD_LABELS', 'CUSTOMER_FIELD_QUIET'];
+
 function blankNonCode(src) {
   const out = src.split('');
   let i = 0, inStr = null;
@@ -170,6 +174,30 @@ function blankNonCode(src) {
     }
     i++;
   }
+  /* ⭐ A LOOKUP TABLE IS DATA, NOT A WRITE (added 2026-08-29). The change log declares a
+     human label for every editable field — `housePrice: {label: 'House price', ...}`,
+     `customerNumber: 'Customer number'` — and to a scanner that reads `name:` as a write
+     those ten rows are ten new places that set ten WATCHED fields. Nothing went red; the
+     page simply grew ten amber rows that were never writes at all, which is amber that
+     teaches you to stop reading amber.
+     ⚠ NAMED, NOT INFERRED. A rule like "a value that opens a brace is not a write" would
+     catch the object form and miss `customerNumber: 'Customer number'` entirely, and any
+     rule loose enough to catch both would start hiding real writes. Naming the two tables
+     says what is true — these hold labels, not values — and a table added later has to be
+     named here deliberately.
+     ⚠ BLANKED, NOT DELETED, exactly like a comment: every offset still lines up with the
+     real file, so a position taken from the blanked source still points at the right
+     place in admin.html. */
+  DECLARATION_TABLES.forEach(function (name) {
+    const at = src.indexOf('const ' + name + ' = {');
+    if (at < 0) return;
+    let k = src.indexOf('{', at), depth = 0, end = k;
+    for (; end < src.length; end++) {
+      if (src[end] === '{') depth++;
+      else if (src[end] === '}') { depth--; if (!depth) break; }
+    }
+    blank(at, end + 1);
+  });
   return out.join('');
 }
 
