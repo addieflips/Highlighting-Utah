@@ -709,6 +709,25 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### Three steps that looked dateless and were not
+
+Three boxes on the journey page carried no dates at all, and each was hiding a real one.
+**The census could not see it**: it only asks that every field on the dated path is drawn
+*somewhere*, so a field already drawn on one step is not missed when a second step that
+also carries it names nothing.
+
+⚠ **The two starts are the point.** Somebody typed in by the office, or brought in by the
+master sheet, has no quote-raised day and no approval day — `createdAt` is the only date
+they have. Until the joining row was added, the history read that field off the **quote**
+alone, so the moment those customers came into existence was invisible for most of the
+book.
+
+⚠ **And a decline is dated exactly like an approval.** `quoteRespond` stamps
+`approvalRespondedAt` alongside the status **before** it branches on the action, so a no
+carries it as surely as a yes does. Drawn bare, the page read as though only a yes is ever
+recorded — and *"did they actually reply, or did we take somebody's word for it"* is the
+question behind every argument about a quote, on a no more than on a yes.
+
 ### Two rows for one colour change, on purpose
 
 Editing colours produces **two** lines on a customer's history, and it is worth saying why
