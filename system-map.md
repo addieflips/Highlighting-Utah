@@ -709,6 +709,37 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### The day they joined, for everybody who never had a quote
+
+`HISTORY_STEPS` read `createdAt` off the **quote**, so it answered nothing for a customer
+who arrived any other way — typed in by the office, or imported from the master sheet, which
+is most of the book. Their history simply began at whatever happened to them first, with no
+row anywhere saying when they became a customer.
+
+⚠ **The path census could not have caught this one either**, and the reason is worth
+noticing because it is a *third* shape: `createdAt` was already on `PATH_STEPS`, so every
+list was satisfied — the field is written, the field reaches the history — while the row was
+missing for almost everybody, because it is read from the wrong **document**. It takes
+running the history against a customer who has no quote at all.
+
+⚠ **A quote customer gets both rows**, which is right rather than duplication: the day
+somebody asked for a price and the day they became a customer are different days, often
+weeks apart, and the gap between them is a real thing to look at.
+
+⚠ **All six creators do set the field** — checked one at a time. The field was never the
+problem; nothing read it. A census now freezes that, and it is written against **the object
+that is actually written**, not the function around it: a first version searched the whole
+enclosing handler and the red-check proved it could not fail, because those handlers write
+several collections and a `createdAt:` belonging to something else satisfied the search.
+
+⚠ **And a scan that looked inside the `addDoc` call answered the original question
+wrongly.** Four of the six build their object in a variable above the call and pass it by
+name, so a scan of the call's own parentheses reported them as missing the field when every
+one of them sets it — *"three of six never set it"* was a confidently wrong answer that sent
+a whole line of work in the wrong direction until it was checked one at a time by hand. The
+census reads both shapes now, and says *"could not read the object"* as itself rather than
+reporting it as a missing field: the two need different fixes and only one is about the app.
+
 ### A waived $30 fee left no trace at all
 
 `lightFeeWaived` is a **local variable** in the Edit Customer save. It decides whether the
