@@ -709,6 +709,45 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### Two rows for one colour change, on purpose
+
+Editing colours produces **two** lines on a customer's history, and it is worth saying why
+rather than leaving somebody to find it and tidy one away:
+
+- the **step** — *"Asked for different lights — they changed them in their own portal"* —
+  answers **when**, as a stage of the journey, and **who**;
+- the **log row** — *"Light colours: Warm White → Red, Green"* — answers **what it changed
+  from**, which a date cannot carry.
+
+That split is the whole design of the change log, in its own words: *"a date can say the
+address moved on 3 October and never what it moved FROM"*. They are two mechanisms
+answering two questions about one event, and dropping either loses the half the other
+cannot say. `CUSTOMER_FIELD_QUIET` already suppresses `lightsChangedAt` **as a field edit**
+so the date itself is not logged twice.
+
+⚠ **If it reads as noise on a real record, take the log row, not the step** — the step is
+what the journey page and the path both draw, and the office's from→to survives in the
+activity log either way.
+
+### Checked and closed: the portal read whitelist
+
+CLAUDE.md names a silent-blank class — *"a field the client reads must be in that
+function's read whitelist or the customer never sees it"* — so every field `index.html`
+reads off a portal record was swept against `PORTAL_READ_FIELDS`. **Nothing is missing.**
+
+⚠ **Eleven looked missing and all eleven are fine**, which is why this is recorded rather
+than left for somebody to run again. Nine are read off a variable called `record` that is
+reused for the **invoice** document, which has its own whitelist (`INVOICE_READ_FIELDS`).
+`lightChangeFreeUntil` is set by `portalInvoice`, not `portalLookup`, and
+`currentLookupRecord` — despite the name — is filled from the invoice call.
+`addrDoc.portalToken` is assigned by the browser from the response's `token`, not read off
+the record at all.
+
+⚠ **And it is deliberately not a gate.** Disambiguating which document a variable named
+`record` holds is exactly the leaky attribution that was abandoned for the by-document
+check above, and for the same reason: a gate that cries wolf on correct code is one
+somebody switches off.
+
 ### A step that reads the wrong document is silently dead
 
 Each history step names the document its field comes from — `cust`, `quote` or `inv`. If
