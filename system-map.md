@@ -369,7 +369,50 @@ It watches the fields most likely to disagree with themselves, ranked by how man
 
 ---
 
-## 10d. The path itself — and the three places the code differs from it
+## 10d. The path — Connections' front page
+
+**Connections › The path.** Addie chose this over the grid as the front door: *"The path
+becomes the page"*. It is a **graph you walk**, not a list you read — her own shape for it:
+*"we push on quotes than approve and it will show the different routes in can go from there.
+So we can figure out the different navigations by clicking on how things can go."*
+
+It opens by asking **how the customer arrived** — a quote, typed in by hand, or the master
+sheet — because opening on one door quietly claims everybody came through it. From there
+every step offers what can happen next, and **the route you have walked stays on screen
+behind you**, which is what makes two routes out of one step comparable: you can see how you
+got here, back up one, and take the other. Clicking a step you have already passed truncates
+the trail rather than adding to it.
+
+⚠ **The grid is not replaced, it is put underneath.** Every step names the fields that record
+it, and clicking one lands on that field's row on *Where things go* — the same one level in
+it always was. What changed is that you arrive there through the journey.
+
+⚠ **A step that is not built says so, and looks different.** The two payment chases are
+Addie's own spec and neither runs today: a text at 30 days that the system tells the office
+to send, and an automatic email at 60 days carrying a fee and a new invoice. The fee rule was
+already written down in the page — **$25 if they have paid something, $40 if they have paid
+nothing** — marked *preview only, not built*. Drawn as working, this page would be a wish
+rather than a map, and its whole value is that it is true.
+
+⚠ **`connections/journey.js` is hand-written, like the manifest, and for the same reason** —
+the code can say what it does, never what order it was meant to happen in. What is checked
+mechanically: every route points at a step that exists, every step is reachable by clicking
+from some start, every step either leads somewhere or is marked an ending, and **every dated
+step of the path appears** (read out of `queue-date.test.js`, so the two lists cannot drift).
+`journey.test.js` also walks her two named routes and then clicks them through a real DOM,
+because a correct graph behind a page that does not render is the failure this repo has
+shipped before.
+
+⚠ **AND THE LIST OF ROUTES CANNOT BE FINISHED BY A MACHINE.** A route nobody has drawn cannot
+fail a check — invisible by construction, the same as an option we sell and never wrote down.
+Addie caught the first gap by asking (*"you are currently adding all routes... Right?"*), and
+the honest answer was no. Worse, **the gate was enforcing it**: it demanded exactly one start,
+so a check written to protect the page was keeping it wrong. Reading the page and saying what
+is missing is a permanent human job.
+
+---
+
+## 10e. Three places the code differed from her description of the path
 
 Addie described the whole journey in one paragraph on 2026-08-29, checking her
 understanding: *"it goes to quotes than we send an email they can choose to approve, deny,

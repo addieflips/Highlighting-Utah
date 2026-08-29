@@ -31,6 +31,14 @@ const path = require('path');
 const { blankNonCode } = require('./connections/scan');
 
 const ROOT = __dirname;
+
+/* ⚠ TAB BUTTONS ARE FOUND BY LABEL, NOT BY INDEX (2026-08-29). Adding "The path" as the
+   first tab moved every index by one and this harness silently began driving the wrong
+   view — on a page whose entire job is telling you when something has stopped connecting.
+   Module scope because three separate blocks drive the page. */
+const btnNamed = (root, name) => Array.prototype.find.call(
+  root.querySelectorAll('.subtabs button'),
+  b => b.textContent.trim().toLowerCase().indexOf(name) === 0);
 let passed = 0, failed = 0, notes = 0;
 const failures = [];
 
@@ -621,8 +629,11 @@ if (amberTotal) {
     const errs = [];
     dom.window.addEventListener('error', e => errs.push(e.message));
 
-    const subtab = n => doc.querySelectorAll('.subtabs button')[n];
-    subtab(1).click();
+    /* ⚠ NAMED, NOT NUMBERED. This read `subtab(1)` and meant Rules; adding a tab in front
+       made 1 mean the grid, and the checks below went looking for rule blocks in a view
+       that has none. Naming it means the next tab added changes nothing here. */
+    const subtab = name => btnNamed(doc, name);
+    subtab('rules').click();
     const v = doc.getElementById('rules');
     const areas = v.querySelectorAll('.areacard').length;
 
@@ -631,7 +642,7 @@ if (amberTotal) {
 
     let tried = 0, opened = 0, emptyBody = 0, quoted = 0, quotedOpened = 0;
     for (let i = 0; i < areas; i++) {
-      subtab(1).click();
+      subtab('rules').click();
       const back = v.querySelector('.back'); if (back) back.click();
       v.querySelectorAll('.areacard')[i].click();
       const n = v.querySelectorAll('.blockbtn').length;
@@ -719,7 +730,7 @@ if (amberTotal) {
           hlxRuleDecisions: () => everything, hlxRuleDecide: () => Promise.resolve(null) }) });
       } });
     const rd = readAll.window.document;
-    rd.querySelectorAll('.subtabs button')[1].click();
+    btnNamed(rd, 'rules').click();
     const rv = rd.getElementById('rules');
     check('every rule really does read as confirmed once the decisions are in hand',
       /0 never read/.test(rv.querySelector('.headline').textContent),
@@ -804,7 +815,7 @@ if (amberTotal) {
           'clicking the square finds no rule and says "no rule written down for this one"');
 
         /* The rules view: area, block name, ruling text, and the confirm buttons. */
-        hd.querySelectorAll('.subtabs button')[1].click();
+        btnNamed(hd, 'rules').click();
         const hv = hd.getElementById('rules');
         const card = Array.prototype.slice.call(hv.querySelectorAll('.areacard'))
           .filter(c => c.dataset.a === HOSTILE + ' A')[0];
@@ -887,7 +898,7 @@ if (amberTotal) {
         if (parent) Object.defineProperty(w, 'parent', { get: () => parent, configurable: true });
       } });
       const d = dom.window.document;
-      d.querySelectorAll('.subtabs button')[1].click();
+      btnNamed(d, 'rules').click();
       const v = d.getElementById('rules');
       return { d: d, v: v, openFirst: function () {
         v.querySelector('.areacard').click();

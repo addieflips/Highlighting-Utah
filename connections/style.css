@@ -109,3 +109,53 @@ ul.rl li::before{content:'';position:absolute;left:0;top:16px;width:6px;height:6
 .rev button.y:hover{border-color:var(--green);color:var(--green)}
 .rev button.n:hover{border-color:var(--red);color:var(--red)}
 .locked{font-size:12px;color:var(--dim);font-style:italic}
+
+/* ---- THE PATH ------------------------------------------------------------
+   Addie chose this over the grid as the front door, so it has to read as the main
+   thing rather than a diagram bolted on. One card for where you are, the route you
+   walked above it, and the ways on below — big enough to press on a tablet, which is
+   what the office actually uses. */
+.jtrail{ display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin:0 0 18px; }
+.jcrumb{
+  background:none; border:none; padding:4px 6px; border-radius:6px; cursor:pointer;
+  font:inherit; font-size:13px; color:var(--dim);
+}
+.jcrumb:hover{ background:var(--wire); color:var(--ink); }
+.jcrumb.now{ color:var(--ink); font-weight:600; }
+.jarrow{ color:var(--dim); font-size:12px; }
+.jreset{
+  background:none; border:1px solid var(--wire); border-radius:999px; cursor:pointer;
+  font:inherit; font-size:12px; color:var(--dim); padding:3px 10px; margin-left:6px;
+}
+.jcard{
+  border:1px solid var(--wire); border-left:4px solid var(--ink); border-radius:10px;
+  padding:16px 18px; margin:0 0 20px;
+}
+/* ⚠ A STEP THAT IS NOT BUILT LOOKS DIFFERENT, not just says so. This page is read at a
+   glance, and a warning in a paragraph is a warning somebody skims past. */
+.jcard.unbuilt{ border-left-color:var(--gold, #B8860B); background:rgba(184,134,11,.05); }
+.jcard h2{ margin:0 0 6px; font-size:19px; }
+.jwarn{ margin:0 0 8px; font-size:12.5px; font-weight:600; color:var(--gold, #B8860B); }
+.jplain{ margin:0 0 10px; font-size:14px; line-height:1.55; }
+.jrec{ margin:0; font-size:12.5px; color:var(--dim); }
+.jrec.dim{ font-style:italic; }
+.jfield{
+  background:var(--wire); border:none; border-radius:5px; cursor:pointer;
+  font:inherit; font-size:12px; padding:2px 7px; color:var(--ink);
+}
+.jfield:hover{ text-decoration:underline; }
+.jnexthead{ font-size:13px; font-weight:600; margin:0 0 8px; }
+.jnexts{ display:flex; flex-direction:column; gap:8px; }
+.jnext{
+  display:flex; justify-content:space-between; align-items:center; gap:14px; width:100%;
+  background:none; border:1px solid var(--wire); border-radius:9px; cursor:pointer;
+  font:inherit; padding:12px 14px; text-align:left;
+}
+.jnext:hover{ border-color:var(--ink); background:var(--wire); }
+.jlabel{ font-size:13.5px; }
+.jto{ font-size:12.5px; color:var(--dim); white-space:nowrap; font-weight:600; }
+/* The row you were sent to, so the jump from a step lands somewhere visible. */
+tr.flash td{ background:rgba(184,134,11,.16); transition:background .5s; }
+@media (max-width:640px){
+  .jnext{ flex-direction:column; align-items:flex-start; gap:4px; }
+}

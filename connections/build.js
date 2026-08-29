@@ -119,6 +119,14 @@ function build(opts) {
   const redTotal = Object.values(FAULTS).filter(f => f[0] === 'bad').length;
   const unread = R.total;
 
+  /* ⭐ THE PATH IS THE PAGE NOW (2026-08-29). Addie chose it over keeping the grid as the
+     front door: "The path becomes the page". The grid is not gone — every step names the
+     fields that record it, and clicking one lands on that field's row, which is the same
+     one level in it has always been. What changed is how you get there. */
+  const journey = require('./journey.js');
+  const JSTEPS = {};
+  journey.STEPS.forEach(s => { JSTEPS[s.id] = s; });
+  const JSTARTS = journey.STEPS.filter(s => s.start).map(s => s.id);
   const behaviour = fs.readFileSync(path.join(__dirname, 'behaviour.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
 
@@ -127,12 +135,14 @@ function build(opts) {
     '<title>Connections · Highlighting Utah</title><style>' + css + '</style></head><body>' +
     '<div class="wrap"><header><p class="eyebrow">Highlighting Utah · admin</p><h1>Connections</h1>' +
     '<div class="subtabs" role="tablist">' +
-    '<button role="tab" aria-selected="true" onclick="tab(\'grid\',this)">Where things go' +
+    '<button role="tab" aria-selected="true" onclick="tab(\'path\',this)">The path</button>' +
+    '<button role="tab" aria-selected="false" onclick="tab(\'grid\',this)">Where things go' +
       (redTotal ? '<span class="b red">' + redTotal + '</span>' : '') + '</button>' +
     '<button role="tab" aria-selected="false" onclick="tab(\'rules\',this)">Rules' +
       '<span class="b dim">' + unread + ' to read</span></button>' +
     '</div></header>' +
-    '<div id="grid">' +
+    '<div id="path"></div>' +
+    '<div id="grid" hidden>' +
     '<div class="headline">' + (redTotal
       ? '<b>' + redTotal + ' connection' + (redTotal === 1 ? ' is' : 's are') + ' broken</b> — the red squares below.'
       : '<b>Everything written down is still connected.</b> ' + report.length +
@@ -148,6 +158,8 @@ function build(opts) {
       (builtFrom() || 'rebuild date unknown') + '.</p>' +
     '</div><div id="rules" hidden></div></div>' +
     '<script>\nconst DEST=' + JSON.stringify(grid.DEST) + ';\n' +
+    'const JSTEPS=' + JSON.stringify(JSTEPS) + ';\n' +
+    'const JSTARTS=' + JSON.stringify(JSTARTS) + ';\n' +
     'const TABS=' + JSON.stringify(TABS) + ';\n' +
     'const FAULTS=' + JSON.stringify(FAULTS) + ';\n' +
     'const CELLRULES=' + JSON.stringify(CELLRULES) + ';\n' +
