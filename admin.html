@@ -7102,6 +7102,13 @@ const CUSTOMER_FIELD_LABELS = {
   smsOptedOut: {label: 'Opted out of texts', kind: 'yesno'},
   noAutomationEmails: {label: 'Opted out of automatic emails', kind: 'yesno'},
   notes: {label: 'Notes', kind: 'text'}, oneTimeNote: {label: 'One-time note', kind: 'text'},
+  /* ⚠ THE PORTAL IS THE ONLY THING THAT WRITES IT, and it is here so the two copies of
+     this table AGREE. `describePortalChangesServer`'s scope is exactly PORTAL_WRITE_FIELDS,
+     and change-log.test.js runs both over every one of them — a field one table knows and
+     the other does not is a sentence the two would spell differently, which is the whole
+     thing the parity check exists to stop. Costs nothing here: the office diff only ever
+     reports fields the save actually carries. */
+  cancellationReason: {label: 'Why they are cancelling', kind: 'text'},
   needsLightBuild: {label: 'Waiting to be built', kind: 'yesno'},
   needsLightRecycle: {label: 'Old set to come back', kind: 'yesno'},
   recycleKeepingCustomer: {label: 'Keeping them as a customer', kind: 'yesno'},

@@ -709,6 +709,49 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### What a customer changed in their own portal
+
+Addie's list ended *"or changed timer settings this date. Changed address this date."* Both
+are **edits** rather than stages, and the answer to an edit is a log line rather than a
+stamp — *"Address changed on 3 Oct"* is a worse answer than none, because the question is
+always what it changed **from**. `describeCustomerChanges` does exactly that for the office.
+
+⚠ **And it did nothing at all for the customer.** The activity log is written only from
+`admin.html`, so a timer switched on in Edit Customer produced *"Timer: no → yes"* and the
+same switch flicked by the customer in their own portal produced **nothing** — not a stamp,
+not a line. The office half looked complete, which is why nobody noticed the other half was
+missing. Exactly the asymmetry `lightsChangedVia` exists to close one level up, in a new
+place.
+
+⚠ **Two copies, so a parity test** — the same answer this repo gives the invoice maths, and
+for the same reason: a browser ES module and a Node function cannot share code. What keeps
+it small is the **scope**: the portal can only ever write `PORTAL_WRITE_FIELDS`, so
+`PORTAL_CHANGE_LABELS` is deliberately that set and no more, and `change-log.test.js` runs
+both copies over every one of them in six shapes and fails the moment they disagree about a
+sentence. It asserts they are **right** as well as equal — two copies wrong in the same way
+agree perfectly.
+
+⚠ **The diff is taken before the write and posted after it.** Taken afterwards it compares
+the new record with itself and reports nothing ever changing; posted before, a line about a
+save that then failed is the log claiming something happened that did not.
+
+⚠ **It says it was them.** Every other row in that log is one of the four people who share
+the dashboard, so a portal edit worded like an office one would be the log actively
+answering *"who changed this"* wrongly.
+
+⚠ **It cannot break the save.** `logPortalChange` swallows its own failure — this runs on a
+path that also queues builds and charges a $30 fee, and a note about a change is worth less
+than the change. `firestore.rules` needs no edit: the function writes with the Admin SDK,
+and the history reads the log from a signed-in dashboard.
+
+⚠ **One of this section's own checks was vacuous and the red-check caught it**, for a
+reason worth writing down: `hasOwnProperty` is **true** for a key explicitly set to
+`undefined`, so every fixture written as `{f: undefined}` sails past the never-held guard
+without reaching it — and for a yes/no field both sides render `no` either way, so the
+earlier equality return fires first and the guard is never consulted at all. Deleting it
+entirely left the whole section green. It takes a field genuinely absent and a value that
+renders as an empty text but not as `(blank)` — a zero — to reach it.
+
 ### Every date the code writes is on a path, or is said not to be
 
 The colour change above was found **by hand**, one field at a time, and only because
