@@ -450,6 +450,67 @@ check('the one place that sets the flag without queuing is still excluded',
 }
 
 /* ---------------------------------------------------------------------------
+ * 1f. ARCHIVING A QUOTE IS ONE FACT IN THREE FIELDS.
+ *
+ * ⚠ TWO OF THE THREE WERE CLEARED, WHICH IS WHY IT WAS EASY TO MISS. Un-archiving set
+ * `quoteArchived` false and blanked the reason, and left `quoteArchivedAt` standing — so a
+ * restored quote read as archived on a date AND not archived, two fields describing one
+ * state and disagreeing. Anything reading the date to decide how long a quote has been
+ * closed got an answer about an archiving that was undone.
+ *
+ * ⚠ NOTHING WOULD HAVE CAUGHT IT: no gate looked at these three together, and each on its
+ * own is written correctly. The bug is only visible in the relationship.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['functions/index.js'];
+  const clean = scan.blankNonCode(src);
+  const trio = ['quoteArchived', 'quoteArchivedReason', 'quoteArchivedAt'];
+  const wherePut = f => {
+    const out = new Set();
+    const re = new RegExp('\\bquoteUpdates\\.' + f + '\\s*=', 'g');
+    let m;
+    while ((m = re.exec(clean))) {
+      if (insideComment(src, m.index)) continue;
+      out.add(scan.enclosing(scan.index(src, true), m.index) || '(top level)');
+    }
+    return out;
+  };
+  const sets = trio.map(wherePut);
+  check('the three quote-archive fields were found', sets.every(s => s.size > 0),
+    'not written anywhere: ' + trio.filter((f, i) => !sets[i].size).join(', ') +
+    '. A matcher that has stopped matching demands nothing.');
+
+  /* ⚠ BY BRANCH, NOT BY FUNCTION — and the first version of this check grouped by function
+     and PROVED NOTHING. Both branches live in one function, so deleting the date from the
+     un-archive still left it written in the archive branch, the function still "touched all
+     three", and two red-check sabotages went straight through. A check that looks right and
+     cannot fail is worse than no check; this is that trap caught in the act. */
+  const setAt = clean.indexOf('quoteUpdates.quoteArchived = true');
+  check('the archive branch was found', setAt > -1,
+    'the branch checks below prove nothing against a string that is not there');
+  if (setAt > -1) {
+    const elseAt = clean.indexOf('} else {', setAt);
+    let dep = 0, k = clean.indexOf('{', elseAt), end = k;
+    for (; end < clean.length; end++) {
+      if (clean[end] === '{') dep++;
+      else if (clean[end] === '}') { dep--; if (!dep) break; }
+    }
+    const onBranch = clean.slice(setAt, elseAt);
+    const offBranch = clean.slice(k, end + 1);
+    const missingOn = trio.filter(f => onBranch.indexOf(f) === -1);
+    const missingOff = trio.filter(f => offBranch.indexOf(f) === -1);
+    check('archiving a quote writes all three', missingOn.length === 0,
+      'missing from the archive branch: ' + missingOn.join(', '));
+    check('and restoring one clears all three', missingOff.length === 0,
+      'missing from the restore branch: ' + missingOff.join(', ') +
+      '.\n        Archived, the reason and the date are one fact. Clearing two and ' +
+      'leaving the third makes a restored quote read as archived on a date AND not ' +
+      'archived at the same time — and two of three looks complete, which is exactly ' +
+      'why this went unnoticed.');
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * 1b. The same census for the RECYCLE queue, and the $30 join fee.
  *
  * Addie, 2026-08-28: "Everything that can be changed for members or added to members

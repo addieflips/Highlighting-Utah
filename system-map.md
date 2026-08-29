@@ -649,6 +649,25 @@ It shows what happened to Jane Smith. The SHAPE of the journey — quote, email,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
 
+### Archiving a quote is one fact in three fields
+
+Declining from the quote email sets `quoteArchived`, `quoteArchivedReason` and
+`quoteArchivedAt`. Approving or choosing *maybe next year* un-archives — and until
+2026-08-29 it cleared the flag and the reason and **left the date standing**. A restored
+quote read as archived on a date AND not archived at the same time: two fields describing one
+state and disagreeing, so anything reading the date to decide how long a quote had been
+closed got an answer about an archiving that was undone.
+
+⚠ **Two of the three were cleared, which is why it went unnoticed** — two out of three looks
+complete. Nothing anywhere looked at them together, and each on its own is written correctly.
+The bug is only visible in the relationship.
+
+⚠ **AND THE FIRST CHECK WRITTEN FOR IT PROVED NOTHING.** It grouped by enclosing function,
+and both branches live in one function — so deleting the date from the restore branch left it
+written in the archive branch, the function still "touched all three", and two red-check
+sabotages went straight through. It is scoped to the branch now. A check that looks right and
+cannot fail is worse than no check, and this is that trap caught in the act.
+
 ### A merge says what it took, and from where
 
 Merging duplicates writes another record's values onto the keeper and then **deletes that

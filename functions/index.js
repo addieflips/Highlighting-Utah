@@ -2287,6 +2287,14 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
        Closed -> Archived instead of Ready to Convert. */
     quoteUpdates.quoteArchived = false;
     quoteUpdates.quoteArchivedReason = '';
+    /* ⚠ AND THE DATE GOES WITH THEM (added 2026-08-29). Clearing the flag and the reason
+       while leaving `quoteArchivedAt` standing left a restored quote reading as archived
+       on a date AND not archived at the same time — two fields describing one state and
+       disagreeing. Anything reading the date to decide how long a quote has been closed
+       gets an answer about an archiving that was undone.
+       ⚠ THE THREE ARE ONE FACT, so they are written together. That is the whole reason
+       this was easy to miss: two of the three were cleared, which looks complete. */
+    quoteUpdates.quoteArchivedAt = null;
   }
   await db.collection('quotes').doc(quoteId).update(quoteUpdates);
 
