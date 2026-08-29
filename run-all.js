@@ -38634,25 +38634,69 @@ suite('170. Measure Roof - a peak is two dots and a grade');
     /fullscreenchange[\s\S]{0,160}google\.maps\.event\.trigger\(rmMap, 'resize'\)/.test(admin),
     'without it the pane fills the screen and the map draws in the corner of it');
 
-  /* ⭐ THE HOUSE COMES SECOND, AFTER THE TOOLS AND BEFORE THE MONEY (2026-08-28).
-     Found live, twice, because the stage changed from a wrapping ROW to a COLUMN
-     and three things that were right in a row are wrong in a column. */
-  check('S170', 'the pictures are ordered between the tools and the Save block',
+  /* ⛔ SUPERSEDED 2026-08-28 - THE PICTURES COME LAST NOW, AND THE OLD RULE IS
+     KEPT HERE BECAUSE IT IS STILL THE ARGUMENT THE NEW ONE HAS TO ANSWER.
+
+     It used to read: the house comes SECOND, after the tools and before the money,
+     because the stage changed from a wrapping row to a column and the pictures
+     twice fell through to the catch-all - last, below the Save bar and Roof Facts,
+     at y=1261 in a 720px window. That failure is real and this check exists for it.
+
+     ⭐ SHE HAS NOW ASKED FOR THE OPPOSITE, DELIBERATELY: "all the buttons at the
+     bottom of the page should not be there i want it to be like excel with all the
+     tools at the top and its in its own bar thing." So the pictures ARE last - on
+     purpose, with every control above them.
+
+     ⚠ WHICH MEANS THE OLD FAILURE IS NO LONGER DISTINGUISHABLE BY POSITION, and
+     the check has to hold the thing that actually went wrong instead: the pictures
+     must have a real order of their own rather than falling to the catch-all, and
+     must still be ON SCREEN. Every row is numbered explicitly, and the pictures'
+     number is the highest - so an unnumbered row can no longer land after them. */
+  check('S170', 'the pictures come last, and every row before them is numbered',
     (function(){
-      const bar  = /\.rm-tools > \.rm-toolbar\{order:1;/.test(admin);
-      const pics = /> \.rm-stagerest\{order:2;/.test(admin);
-      const pr   = /#rmPricePanel\{order:3;/.test(admin);
-      const save = /\.rm-commit\{order:4;/.test(admin);
-      return bar && pics && pr && save;
+      const bar   = /\.rm-tools > \.rm-toolbar\{order:1;/.test(admin);
+      const pr    = /#rmPricePanel\{order:2;/.test(admin);
+      const save  = /\.rm-commit\{order:3;/.test(admin);
+      const facts = /#rmRoofFactsPanel\{order:4;/.test(admin);
+      const photo = /#rmPhotoBar\{order:5;/.test(admin);
+      /* the Attach row is NOT a stage row - it is a card child on a negative
+         order, and the check below is the one that holds it */
+      /* ⚠ THE WRAPPER IS display:contents NOW, so it is not a flex item and carries
+         no order at all - the PICTURES do. Written against the wrapper this check
+         failed on a layout that is right. */
+      const hoist = /> \.rm-stagerest\{display:contents;\}/.test(admin);
+      const pics  = /\.rm-stagerest > \.rm-panes\{order:9;\}/.test(admin) && hoist;
+      return bar && pr && save && facts && photo && pics;
     })(),
-    'the order was lost in an edit and the pictures fell to the catch-all - last, below the Save bar and Roof Facts, at y=1261 in a 720px window');
+    'an unnumbered row falls to the catch-all and lands AFTER the pictures, which is how they ended up at y=1261 once already');
+  /* ⭐ AND NOTHING THAT IS A CONTROL IS LEFT UNDER THE PICTURES. That is the whole
+     of what she asked for, and it is the half a set of order numbers cannot prove. */
+  check('S170', 'the capture bar and the Attach row are tools, not a footer',
+    (function(){
+      /* ⚠ NEITHER ROW WAS MOVED IN THE MARKUP - both are hoisted by CSS, so this
+         asks what the LAYOUT does, not where the tags sit. The capture bar is
+         numbered above the pictures; the Attach row is a CARD child and rides a
+         negative order above the stage entirely. */
+      const photoUp  = /#rmPhotoBar\{order:5;/.test(admin);
+      const attachUp = /\.rm-attachbar\{order:-1;/.test(admin) &&
+                       /class="rm-attachbar"/.test(admin);
+      const headFirst = /\.rm-card > \.rm-head\{order:-2;\}/.test(admin);
+      return photoUp && attachUp && headFirst;
+    })(),
+    'the capture buttons were the last row of the PICTURE area and Attach sat below the crop panel - both are bottom-of-page buttons she asked to have moved up');
   check('S170', 'and nothing in that column is allowed to take the whole height',
     !/\.rm-tools > \.rm-toolbar\{order:1; flex:1 0 100%/.test(admin) &&
     /\.rm-tools > \.rm-toolbar\{order:1; flex:0 0 auto;/.test(admin),
     'flex-basis means HEIGHT in a column: flex:1 0 100% made the toolbar 547px tall and pushed the house off the screen');
   check('S170', 'the height cap belongs to the toolbar alone, by its own class',
-    /\.rm-tools > \.rm-toolbar\{height:190px/.test(admin) &&
-    /class="rm-panel rm-toolbar"/.test(admin),
+    /* ⚠ THE PROPERTY, NOT THE NUMBER. It was pinned at 190px, which was right when
+       this was the only tool row; every control moved above the pictures on
+       2026-08-28 and it had to come down to 118 or the map was left with 39px. A
+       check on the exact figure fails on a correct rebalance and teaches nothing -
+       what must hold is that it is a FIXED height on its OWN class, which is what
+       stops the picture jumping while dots go down. */
+    /\.rm-tools > \.rm-toolbar\{height:\d+px/.test(admin) &&
+    /class="rm-panel rm-toolbar\b/.test(admin),   /* it carries rm-ribbon too now */
     'written against .rm-panel it also pinned the price panel and Roof Facts to 190px, inflating a 48px row and a 37px one');
 
   /* ⭐ THE PICTURES CAN NEVER BE SHRUNK AWAY (2026-08-28). Found on the live site,
@@ -38660,7 +38704,15 @@ suite('170. Measure Roof - a peak is two dots and a grade');
      panes shrink is what makes the tool fit any window; min-height:0 let them
      shrink to zero, and they were clipped out of a card set to overflow:hidden. */
   check('S170', 'the pictures have a floor they cannot collapse below',
-    /\.rm-stagerest > \.rm-panes\{flex:1 1 auto; min-height:2[0-9][0-9]px;\}/.test(admin),
+    (function(){
+      /* ⚠ A FLOOR THAT IS TOO BIG IS ITS OWN BUG. 260 stopped fitting under six
+         rows of ribbon, and a floor that does not fit pushes the pictures off the
+         bottom instead of shrinking them - which is how the map ended up 39px tall
+         on the live page. So this asks for a floor that is REAL but not enormous. */
+      /* the floor is the low end of the clamp now - flex-shrink never applied */
+      const m = admin.match(/clamp\((\d+)px, calc\(100vh - (\d+)px\)/);
+      return !!m && Number(m[1]) >= 140 && Number(m[1]) <= 260;
+    })(),
     'min-height:0 lets a flex item shrink to NOTHING, and a picture that is not there is a broken tool');
   check('S170', 'and the card scrolls as a last resort rather than clipping them',
     /\.rm-card\{height:100%; max-height:100%; overflow-y:auto;/.test(admin),
@@ -38677,7 +38729,13 @@ suite('170. Measure Roof - a peak is two dots and a grade');
      is what keeps the pictures absorbing the slack), and when there is genuinely
      not enough room the CARD scrolls, which the check above guarantees. */
   check('S170', 'the stage cannot be squeezed smaller than the rows inside it',
-    /#rmWorkStage\{flex:1 0 auto; min-height:min-content;\}/.test(admin),
+    /* ⚠ THE FLOOR MOVED TO THE PICTURES (2026-08-28). min-content stopped the
+       overflow but computes larger than the rows it is made of, so the stage could
+       not come down and the pictures hung off the bottom. What must still be true
+       is that SOMETHING cannot collapse: the pictures carry a real px floor, and
+       every other row up here is a fixed height. */
+    /#rmWorkStage\{flex:1 1 auto; min-height:0;\}/.test(admin) &&
+    /\.rm-stagerest > \.rm-panes\{flex:0 0 auto;[\s\S]{0,120}clamp\(150px,/.test(admin),
     'flex:1 1 auto let it overflow and paint the Save bar over the Attach to Quote row');
 
   /* ⭐ THE PICTURE DOES NOT MOVE WHILE YOU CLICK (2026-08-28). Owner: "whenever i
@@ -38824,6 +38882,402 @@ suite('170. Measure Roof - a peak is two dots and a grade');
       return /rmStreetBand = 0/.test(fn);
     })(),
     'carried over, the next house opens with its first mark already in strand four');
+
+  /* ⭐ RIGHT-DRAG TO LOOK AROUND AND TO MOVE (MR-17, 2026-08-28). Owner: "if you
+     want to look a different direction ... on street view you hold down right click
+     just like roblox studio and if you want to move in sky view you hold down right
+     click."
+     ⚠ RUN, NOT MATCHED. Every claim here is about where the camera ENDS UP after
+     a gesture, which a text search cannot see - and the SIGN on each axis is the
+     whole of what she asked for. */
+  const navRun = (function(){
+    const LFx = String.fromCharCode(10);
+    const iDown = admin.indexOf("if(e.button !== 2) return;");
+    const iMove = admin.indexOf("if(!rmNavDrag) return;");
+    if(iDown === -1 || iMove === -1) return null;
+    const down = sectionFrom(admin, admin.lastIndexOf("document.addEventListener", iDown));
+    const move = sectionFrom(admin, admin.lastIndexOf("document.addEventListener", iMove));
+    const pi = admin.indexOf('const RM_NAV_PANES = {');
+    const panes = pi === -1 ? '' : admin.slice(pi, admin.indexOf('};', pi) + 2);
+    if(!panes) return null;
+    const up = sectionFrom(admin, admin.indexOf("document.addEventListener('mouseup', function(e){ if(e.button === 2)"));
+    const menu = sectionFrom(admin, admin.lastIndexOf("document.addEventListener", admin.indexOf("addEventListener('contextmenu'")));
+    if(!up || !menu) return null;
+    const src = [extractFn(admin, 'rmNavPaneAt'), extractFn(admin, 'rmNavPanoFor'),
+                 extractFn(admin, 'rmNavEnd')].join(LFx);
+    if(!src || src.indexOf('rmNavPaneAt') === -1) return null;
+    try {
+      return new Function(
+        'let rmPano=null, rmGradePano=null, rmMap=null, rmNavDrag=null;' + LFx +
+        'const calls=[];' + LFx +
+        /* ⚠ THE REAL PANE LIST, LIFTED - NOT A COPY. Written out here it was a
+           fixture carrying its own answer: a red-check that emptied the grade
+           entry in admin.html changed nothing and went straight through. */
+        panes + LFx +
+        'function rmFovDeg(z){ return 180/Math.pow(2,z); }' + LFx +
+        /* the real one, lifted — the drag's arithmetic is built on it */
+        (admin.match(/const rmRad = [^;]+;/) || [''])[0] + LFx +
+        'function rmRefreshCursors(){}' + LFx +
+        'function rmMapPixelToWorld(x,y,r){ return {lat:40-y*0.0001, lng:-111+x*0.0001}; }' + LFx +
+        'const els={};' + LFx +
+        'function mkEl(id){ return els[id] || (els[id]={id:id, clientWidth:600,' + LFx +
+        '  contains:function(t){ return t===this; },' + LFx +
+        '  getBoundingClientRect:function(){ return {left:0,top:0,width:600,height:400}; }}); }' + LFx +
+        'const document={getElementById:mkEl, addEventListener:function(n,f){ calls.push([n,f]); },' + LFx +
+        '  pointerLockElement:null, exitPointerLock:function(){ this.pointerLockElement = null; }};' + LFx +
+        'const window={addEventListener:function(){}, devicePixelRatio:1};' + LFx +
+        'const RM_NAV_CLICK_SLOP = 4;' + LFx +
+        'let rmNavMenuAfterDrag = false;' + LFx +
+        'let rmNavLocked = false;' + LFx +
+        /* the dial and the lock helper, lifted - not written out here */
+        /* the dial itself, at 1 so the baseline arithmetic can be checked - the
+           checks that care about the SPEED set it themselves */
+        'let rmLookSpeed = 1;' + LFx +
+        (extractFn(admin, 'rmNavRequestLock') || '') + LFx +
+        src + LFx + down + LFx + move + LFx + up + LFx + menu + LFx +
+        'function on(n){ const h=calls.filter(function(c){ return c[0]===n; }); return h[h.length-1][1]; }' + LFx +
+        'return {' + LFx +
+        ' street:function(zm){ let pov={heading:100,pitch:0}; const z=(zm===undefined?1:zm);' + LFx +
+        '   rmPano={getPov:function(){return pov;},getZoom:function(){return z;},setPov:function(p){pov=p;}};' + LFx +
+        '   return {el:mkEl("rmPano"), pov:function(){return pov;}}; },' + LFx +
+        ' grade:function(){ let pov={heading:0,pitch:0};' + LFx +
+        '   rmGradePano={getPov:function(){return pov;},getZoom:function(){return 1;},setPov:function(p){pov=p;}};' + LFx +
+        '   return {el:mkEl("rmGradePano"), pov:function(){return pov;}}; },' + LFx +
+        ' sky:function(){ let c={lat:40,lng:-111};' + LFx +
+        '   rmMap={getCenter:function(){ return {lat:function(){return c.lat;},lng:function(){return c.lng;}}; },' + LFx +
+        '     setCenter:function(n){ c=n; }};' + LFx +
+        '   return {el:mkEl("rmMap"), centre:function(){return c;}}; },' + LFx +
+        ' down:function(el,btn,x,y){ let stopped=false;' + LFx +
+        '   on("mousedown")({button:(btn===undefined?2:btn), target:el, clientX:(x===undefined?300:x),' + LFx +
+        '     clientY:(y===undefined?200:y), preventDefault:function(){stopped=true;}});' + LFx +
+        '   return stopped; },' + LFx +
+        ' move:function(x,y){ on("mousemove")({clientX:x, clientY:y}); },' + LFx +
+        ' up:function(){ on("mouseup")({button:2}); },' + LFx +
+        ' menu:function(el){ let stopped=false;' + LFx +
+        '   on("contextmenu")({target:el, preventDefault:function(){stopped=true;}});' + LFx +
+        '   return stopped; },' + LFx +
+        ' lock:function(on,dpr){ rmNavLocked=!!on; window.devicePixelRatio=(dpr||1); },' + LFx +
+        ' speed:function(v){ rmLookSpeed = v; },' + LFx +
+        /* ⚠ THE CURSOR IS FROZEN WHERE IT WAS PRESSED, which is what a pointer
+           lock really does. Parked off-screen instead, the click-slop sum came out
+           enormous whatever the code did, and a sabotage measuring slop off the
+           cursor passed by accident. */
+        ' raw:function(mx,my){ on("mousemove")({clientX:rmNavDrag.downX, clientY:rmNavDrag.downY,' + LFx +
+        '   movementX:mx, movementY:my}); },' + LFx +
+        ' dragging:function(){ return !!rmNavDrag; }' + LFx +
+        '};')();
+    } catch(err){ return {err: String(err)}; }
+  })();
+  check('S170', 'the right-drag handlers can be lifted and run',
+    !!navRun && !navRun.err, navRun && navRun.err ? navRun.err : 'renamed or removed');
+
+  if(navRun && !navRun.err){
+    /* ⭐ STREET VIEW FOLLOWS THE MOUSE - her Roblox rule, and the signs ARE the
+       feature. Drag right, look right; drag down, look down. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(400, 200);
+      check('S170', 'dragging right in Street View looks right',
+        p.pov().heading > 100,
+        'got ' + p.pov().heading + ' from 100 - this is the Roblox direction she asked for');
+      const afterRight = p.pov().heading;
+      navRun.move(400, 260);
+      check('S170', 'and dragging down looks down',
+        p.pov().pitch < 0 && p.pov().heading === afterRight,
+        'pitch ' + p.pov().pitch + ' - down tips the view down, and must not disturb the heading');
+    })();
+    /* ⭐ AND IT KEEPS UP WITH THE HAND (2026-08-28). Owner: "street view doesnt
+       properly move at the same speed as the mouse which bugs me, correct it to
+       mouse speed." It was degrees-per-pixel — the field of view spread evenly
+       across the width — which under-turns by about 21% at any ordinary drag,
+       because a perspective picture does not give every pixel the same angle.
+       ⚠ THE EXPECTED FIGURE IS WORKED OUT HERE FROM THE CAMERA, not copied from
+       the code under test: focal = (W/2)/tan(fov/2), bearing = atan(offset/focal).
+       A check that re-used the page's own expression would agree with it whatever
+       it said. */
+    (function(){
+      const p = navRun.street();
+      const W = 600, fov = 180 / Math.pow(2, 1);        /* the stand-in pane, zoom 1 */
+      const focal = (W / 2) / Math.tan(fov * Math.PI / 360);
+      const deg = function(px){ return Math.atan(px / focal) * 180 / Math.PI; };
+      navRun.down(p.el, undefined, 300, 200);            /* the centre of the pane */
+      navRun.move(400, 200);                             /* 100px right of centre */
+      const want = 100 + (deg(100) - deg(0));
+      check('S170', 'a drag turns the view by exactly what the camera says',
+        Math.abs(p.pov().heading - want) < 1e-6,
+        'wanted ' + want.toFixed(4) + ', got ' + p.pov().heading.toFixed(4) +
+        ' — degrees-per-pixel is about 21% short, which is the lag she could feel');
+    })();
+    /* ⚠ AND THE ZOOM HAS TO BE READ, or it keeps up with the hand at exactly one
+       zoom and lags or races at every other. Zoomed IN the picture is magnified,
+       so the same 100px drag covers a SMALLER angle. This sabotage went straight
+       through at first because every fixture here was built at zoom 1, where the
+       field of view happens to be the 90 degrees a hardcoded value would use — a
+       fixture that cannot fail, which is the trap this repo keeps re-learning. */
+    (function(){
+      const wide = navRun.street(1);                 /* 90 degrees across */
+      navRun.down(wide.el, undefined, 300, 200);
+      navRun.move(400, 200);
+      const turnWide = wide.pov().heading - 100;
+      const tight = navRun.street(2);                /* 45 degrees across */
+      navRun.down(tight.el, undefined, 300, 200);
+      navRun.move(400, 200);
+      const turnTight = tight.pov().heading - 100;
+      check('S170', 'zoomed in, the same drag turns the view less',
+        turnTight > 0 && turnTight < turnWide / 1.5,
+        'wide ' + turnWide.toFixed(2) + ' vs zoomed ' + turnTight.toFixed(2) +
+        ' — equal means the zoom is not being read and it only tracks at one zoom');
+    })();
+    /* ⚠ AND THE ANGLE IS MEASURED OFF THE CENTRE OF THE PICTURE, not off wherever
+       the press happened — the arctangent is only correct about the optical axis,
+       so the same 100px drag turns LESS out at the edge than it does in the
+       middle. That is what a perspective picture actually does. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el, undefined, 300, 200);
+      navRun.move(400, 200);
+      const middle = p.pov().heading - 100;
+      const q = navRun.street();
+      navRun.down(q.el, undefined, 500, 200);            /* 200px right of centre */
+      navRun.move(600, 200);
+      const edge = q.pov().heading - 100;
+      check('S170', 'the same drag turns less at the edge than in the middle',
+        edge > 0 && edge < middle,
+        'middle ' + middle.toFixed(2) + ' vs edge ' + edge.toFixed(2) +
+        ' — equal everywhere means the flat degrees-per-pixel sum is back');
+    })();
+    /* ⚠ MEASURED FROM WHERE THE BUTTON WENT DOWN. Stepping by deltas drifts, and
+       a pitch clamped at the top would then never come back down. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(400, 200);
+      const once = p.pov().heading;
+      navRun.move(350, 200);
+      navRun.move(400, 200);
+      check('S170', 'the same pointer position always gives the same view',
+        Math.abs(p.pov().heading - once) < 1e-9,
+        'wandering back and forth must land back where it was, or the drag drifts');
+    })();
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(300, -100000);
+      check('S170', 'the view cannot tip past straight up',
+        p.pov().pitch <= 90, 'got ' + p.pov().pitch);
+    })();
+    /* ⭐ AND IT FOLLOWS THE HAND, NOT THE CURSOR (2026-08-28). Owner: "the screen
+       still lags behind my mouse so its still not right", then "go into my settings
+       and see how fast my mouse moves".
+       ⚠ HER SETTINGS WERE READ: MouseSpeed 1, so Enhance pointer precision is ON.
+       Windows acceleration means the cursor is NOT a fixed multiple of the hand -
+       it under-runs on a slow drag, which is the drag you make measuring a roof.
+       Pointer Lock with unadjustedMovement gives the hand itself, the way a game
+       reads a mouse; the cursor is then frozen and must not be read at all. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el, undefined, 300, 200);
+      navRun.lock(true, 1);
+      navRun.raw(100, 0);                       /* 100px of HAND, cursor stationary */
+      const turned = p.pov().heading - 100;
+      check('S170', 'while locked the view follows the raw hand movement',
+        turned > 0,
+        'the cursor never moves under a pointer lock, so reading clientX gives nothing at all');
+      navRun.lock(false, 1);
+    })();
+    /* ⛔ REVERSED 2026-08-28, AND THIS CHECK NOW ASSERTS THE OPPOSITE. It used to
+       demand that raw movement be divided by devicePixelRatio, on the reasoning
+       that raw deltas were DEVICE pixels needing turning into the CSS pixels the
+       rest of the arithmetic uses. That reasoning is wrong: under a pointer lock
+       with unadjustedMovement the deltas are the MOUSE'S OWN units, which have
+       nothing to do with how the page is zoomed. Dividing put a silent fifth-
+       slower brake on every drag on her 125% Chrome — half of why she reported it
+       as still too slow after the raw-input change.
+       The old wording is kept here because it is the argument for the check that
+       replaced it: page zoom must make NO difference to how far a hand movement
+       turns the picture. */
+    (function(){
+      const a = navRun.street();
+      navRun.down(a.el, undefined, 300, 200);
+      navRun.lock(true, 1);
+      navRun.raw(125, 0);
+      const at1 = a.pov().heading - 100;
+      const b = navRun.street();
+      navRun.down(b.el, undefined, 300, 200);
+      navRun.lock(true, 1.25);
+      navRun.raw(125, 0);
+      const at125 = b.pov().heading - 100;
+      check('S170', 'page zoom does not change how far a hand movement turns it',
+        at1 > 0 && Math.abs(at125 - at1) < 1e-9,
+        'dpr 1 turned ' + at1.toFixed(2) + ', dpr 1.25 turned ' + at125.toFixed(2) +
+        ' - raw movement is in mouse units, not screen pixels');
+      navRun.lock(false, 1);
+    })();
+    /* ⭐ AND THE SPEED IS A DIAL SHE TURNS (2026-08-28). Owner, after the raw-input
+       change: "still uncomfortably slow, it just slows my mouse down". Tracking
+       the hand exactly is the correct BASELINE, not a comfortable look speed —
+       games turn several times faster than the hand travels. After three goes at
+       guessing the number it is a control rather than a constant.
+       ⚠ IT MULTIPLIES THE ANGLE, NOT THE OFFSET: scaled before the arctangent the
+       dial would do less and less the higher it went, which is the opposite of
+       what a speed control should feel like. */
+    (function(){
+      const a = navRun.street();
+      navRun.speed(1);
+      navRun.down(a.el, undefined, 300, 200);
+      navRun.lock(true, 1);
+      navRun.raw(100, 0);
+      const one = a.pov().heading - 100;
+      const b = navRun.street();
+      navRun.speed(2);
+      navRun.down(b.el, undefined, 300, 200);
+      navRun.raw(100, 0);
+      const two = b.pov().heading - 100;
+      check('S170', 'doubling the look speed exactly doubles the turn',
+        one > 0 && Math.abs(two - one * 2) < 1e-9,
+        'speed 1 turned ' + one.toFixed(3) + ', speed 2 turned ' + two.toFixed(3) +
+        ' - scaled before the arctangent it would fall short, and worsen as it rises');
+      navRun.speed(1);
+      navRun.lock(false, 1);
+    })();
+    check('S170', 'and the speed she picks is remembered on her own machine',
+      (function(){
+        const fn = extractFn(admin, 'rmWireLookSpeed') || '';
+        return fn.indexOf('localStorage.setItem(RM_LOOK_SPEED_KEY') !== -1 &&
+               admin.indexOf('localStorage.getItem(RM_LOOK_SPEED_KEY)') !== -1;
+      })(),
+      'a look speed belongs to a person and a mouse, so it must survive a reload and NOT sync');
+    check('S170', 'the slider is wired when the tool is wired, not left inert',
+      admin.indexOf('rmWireLookSpeed();') !== -1,
+      'this repo has shipped a control with no handler before - it looked identical and saved nothing');
+    /* ⚠ AND THE CLICK SLOP MUST WATCH THE HAND TOO. Measured off a cursor that is
+       frozen by the lock, every look-around would count as a click and hand the
+       context menu back at the end of it. */
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el, undefined, 300, 200);
+      navRun.lock(true, 1);
+      navRun.raw(100, 0);
+      navRun.up();
+      check('S170', 'a locked look-around still counts as a drag, not a click',
+        navRun.menu(p.el) === true,
+        'the cursor did not move, but the hand did - the menu must not come back');
+      navRun.lock(false, 1);
+    })();
+    check('S170', 'the pointer is always given back when the drag ends',
+      (function(){
+        const fn = extractFn(admin, 'rmNavEnd') || '';
+        return fn.indexOf('exitPointerLock') !== -1;
+      })(),
+      'a lock left on is a page with no pointer, and the only way out is an Escape nobody knows to press');
+    /* ⭐ AND THE RAW OPTION IS THE WHOLE POINT. A plain pointer lock still hands
+       back movementX with Windows acceleration ALREADY APPLIED - it would free the
+       drag from the edge of the screen and fix nothing she complained about.
+       unadjustedMovement is what bypasses her Enhance pointer precision setting. */
+    check('S170', 'the lock asks for UNADJUSTED movement, not just any lock',
+      (function(){
+        const fn = extractFn(admin, 'rmNavRequestLock') || '';
+        return fn.indexOf('unadjustedMovement: true') !== -1;
+      })(),
+      'a plain lock still carries her acceleration curve, which is the thing being corrected');
+    check('S170', 'and it falls back rather than refusing to work',
+      (function(){
+        const fn = extractFn(admin, 'rmNavRequestLock') || '';
+        /* a browser that rejects the option must still get a drag */
+        return fn.indexOf('catch') !== -1 && (fn.match(/requestPointerLock/g) || []).length >= 2;
+      })(),
+      'an older browser or a policy must leave the cursor path working, not break the drag');
+    check('S170', 'and the sky view is never locked - it is grabbing a real point',
+      (function(){
+        const i = admin.indexOf("if(pane !== 'sky') rmNavRequestLock(");
+        return i !== -1;
+      })(),
+      'hiding the pointer to pan a map is disorienting and wrong about what is being dragged');
+    /* ⭐ THE SKY VIEW GRABS THE WORLD instead - what its own left drag does. */
+    (function(){
+      const m = navRun.sky();
+      const before = m.centre().lng;
+      navRun.down(m.el);
+      navRun.move(400, 200);
+      check('S170', 'dragging right in Sky View moves the map the other way',
+        m.centre().lng < before,
+        'the world under the pointer stays under the pointer, as on every map');
+    })();
+    /* ⭐ THE GRADE SCREEN IS COVERED TOO - the pane with the least left button to
+       spare, because a left drag there READS THE GRADE. */
+    (function(){
+      const p = navRun.grade();
+      navRun.down(p.el);
+      navRun.move(400, 200);
+      check('S170', 'the grade screen can be looked around as well',
+        p.pov().heading > 0, 'a left drag there measures the grade, so it has none to spare');
+    })();
+    /* ⚠ THE LEFT BUTTON IS UNTOUCHED - it still places and drags dots. */
+    (function(){
+      navRun.up();                       /* clear whatever the checks above left live */
+      const p = navRun.street();
+      const stopped = navRun.down(p.el, 0);
+      check('S170', 'a LEFT press starts no navigation and is not swallowed',
+        stopped === false && navRun.dragging() === false,
+        'the left button still places and drags dots - this must not take it over');
+    })();
+    check('S170', 'a right press outside the pictures is left alone',
+      navRun.down({id: 'somewhere-else'}) === false,
+      'the context menu must still work everywhere else in the admin page');
+  }
+  /* ⭐ A CLICK KEEPS ITS MENU, A HELD DRAG DOES NOT (2026-08-28). Owner: "make it
+     so you only get the right click pop up if you click there but if you hold the
+     right click pop up doesnt come up." Suppressing it outright was the first
+     version and took away a menu nobody had asked to lose. */
+  if(navRun && !navRun.err){
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.up();
+      check('S170', 'a plain right CLICK still opens the menu on the picture',
+        navRun.menu(p.el) === false,
+        'pressing and letting go without moving is a click, and a click keeps its menu');
+    })();
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(340, 200);            /* past RM_NAV_CLICK_SLOP */
+      navRun.up();
+      check('S170', 'but the menu does not appear after a held drag',
+        navRun.menu(p.el) === true,
+        'it would open over the picture the moment they let go of a look-around');
+    })();
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(302, 201);            /* inside the slop - still a click */
+      navRun.up();
+      check('S170', 'and a few pixels of hand jitter is still a click',
+        navRun.menu(p.el) === false,
+        'nobody holds a mouse perfectly still; this is the same complaint pointing the other way');
+    })();
+    (function(){
+      const p = navRun.street();
+      navRun.down(p.el);
+      navRun.move(400, 200);
+      navRun.up();
+      navRun.menu(p.el);                /* the one it was meant to eat */
+      check('S170', 'one menu is suppressed per drag, never a run of them',
+        navRun.menu(p.el) === false,
+        'a flag left standing would eat the NEXT right click too, which is not a drag');
+    })();
+    check('S170', 'and a right press outside the pictures never loses its menu',
+      (function(){
+        const p = navRun.street();
+        navRun.down(p.el); navRun.move(400, 200); navRun.up();
+        return navRun.menu({id: 'somewhere-else'}) === false;
+      })(),
+      'the drag was on a picture; the menu somewhere else has nothing to do with it');
+  }
+  check('S170', 'and losing focus does not leave the view stuck to the mouse',
+    admin.indexOf("window.addEventListener('blur', rmNavEnd)") !== -1,
+    'no mouseup ever arrives, so the drag would still be live on return');
 
   /* ⭐ THE SCORED DIFFICULTY, CHECKED AGAINST REAL HOUSES (MR-12, 2026-08-28).
      Owner: "it should be $2 a foot for a medium house, 1.85 for a easy and 2.2

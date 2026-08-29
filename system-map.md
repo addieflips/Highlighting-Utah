@@ -101,6 +101,54 @@ marking the top of a house and then the bottom drew a line straight across the
 photograph. Enter with nothing marked does nothing, and a strand can only be
 finished from the camera it was marked in.
 
+**Hold the right button to look around, and to move the sky view.** While you
+are measuring, a left drag places and drags dots and the sheet covers the whole
+picture — so there was no way to look anywhere else without coming out of
+measuring first. The right button does it instead, on all three pictures
+including the grade screen. Street View **follows your mouse**: drag right, look
+right; drag down, look down — the way Roblox Studio does it, which is the
+opposite of Google's own left drag. The sky view **grabs the world**, so what is
+under the pointer stays under it, exactly as its own left drag behaves.
+
+⚠ **It turns at exactly the speed of your hand.** That is not the obvious sum:
+spreading the field of view evenly across the width of the picture under-turns
+by about a fifth, because a perspective picture gives the middle of the frame
+more angle per pixel than the edges. It uses the camera's own focal length
+instead — the same one that decides where a mark is drawn — so a drag near the
+edge turns slightly less than the same drag through the middle, which is what a
+real camera does. Zoomed in it turns less, because the picture is magnified.
+
+⭐ **And it follows your hand, not the cursor.** Windows has *Enhance pointer
+precision* switched on for this machine, which is mouse acceleration: the cursor
+is not a fixed multiple of your hand, it travels proportionally **less** on a
+slow drag and more on a fast one. Driving the camera from the cursor inherited
+that, and measuring a roof is exactly the slow careful drag where it under-runs —
+so the picture kept falling behind. No multiplier fixes it, because the error
+depends on how fast you happen to be moving.
+
+While you hold the right button on a picture the pointer is **locked** and the
+raw mouse movement is read instead, the way a game does it — Windows sensitivity
+and acceleration are both bypassed. The cursor disappears for the duration and
+comes back exactly where it was, and the drag no longer stops at the edge of the
+screen. `RM_LOOK_SENSITIVITY` is the dial if the rate ever needs adjusting to
+taste. If a browser refuses the lock, the drag still works off the cursor as
+before — worse on a slow movement, but never broken.
+
+⭐ **How fast it turns is yours to set — Look speed, under More options.** It
+starts at 2.5× your hand and is saved on that computer only, never synced: a
+comfortable look speed belongs to a person and a mouse, not to the business, and
+pushing one desk's setting onto every other would be worse than no setting at
+all. Tracking the hand exactly (1.0) is the honest baseline, but it is slower
+than any game feels — which is why the default is well above it.
+
+⚠ **The sky view is deliberately not locked.** There you are grabbing a real
+point on a map and want the real cursor; hiding the pointer to pan would be both
+disorienting and wrong about what is being dragged.
+
+⚠ **The right-click menu still works — unless you held and dragged.** A plain
+click on a picture opens it as usual; only a drag takes it away, and only that
+one time. A few pixels of hand jitter still counts as a click.
+
 **What Easy, Medium and Hard cost.** $1.85, $2.00 and $2.20 a foot — set as
 multipliers of whatever Per Foot Pricing says, so that box stays the one number
 to change. **The grade is scored on three things and size is not one of them:**
@@ -117,6 +165,60 @@ first answer; every peak grade read off the street photo replaces it, so the
 difficulty can change while you work. ⚠ Once you pick a difficulty yourself,
 nothing overrides it — the tool stops re-cutting and leaves your answer alone.
 
+
+**Every control is at the top, in its own bar; the pictures are last.** Attach
+to Quote and Close ride above the heading row, then the capture buttons, the
+tools, the Save block and Roof Facts — and nothing below the pictures is a
+button any more. ⚠ This reverses the earlier arrangement that put the pictures in
+the MIDDLE, and the reason that one existed still matters: the pictures twice
+fell through to an unnumbered catch-all and ended up below everything, off the
+screen. Every row is now numbered by hand and the pictures carry the highest
+number, so a row somebody adds later lands above them rather than under them.
+
+⚠ Two of those rows are hoisted by CSS rather than moved in the page: the capture
+bar sits inside the picture area in the markup, and the Attach row is a child of
+the card. `display:contents` and a negative order lift them without cutting any
+markup — which is why this was safe to do without disturbing the measuring code.
+
+⚠ **The height budget had to be re-cut when they moved.** Six fixed rows above the
+pictures came to 488px of a 666px card, and the map was left **39 pixels tall** on
+the live page. Three things had been sized for the old arrangement, where the
+toolbar was the only thing above the house: the toolbar's fixed height (now 118),
+Roof Facts (capped and scrolled — it is reference rather than a control, but it is
+where Google's own footage appears, so it is not hidden), and the pictures' floor
+(now 190). **A floor that does not fit is its own bug** — it pushes the pictures
+off the bottom instead of shrinking them, which is precisely what happened.
+
+The pictures are the one row that **grows**, so every pixel the ribbon does not use
+goes to the house.
+
+⚠ **And making the wrapper `display:contents` promoted ALL of its children**, one
+of which carries no id or class — so it defaulted to the catch-all order and
+jumped 25px to the very top of the tool. That is the same failure the numbering
+exists to prevent, caused by the fix for it. Every child of that wrapper is
+numbered now, not just the pictures.
+
+⚠ **And the row holding it all had to be allowed to shrink.** It could grow but
+not shrink, so it could never settle back down to its own minimum — the pictures
+grew to fill a stage taller than the card and hung off the bottom, 770 of content
+in a 666 card. The floor is what stops rows painting over each other; being able
+to *reach* that floor is what makes everything fit.
+
+⚠ **And the floor itself had to move onto the pictures.** Putting it on the whole
+stage (`min-content`) stopped the overflow, but that value computes *larger* than
+the rows it is made of — so the stage could never come down and the pictures hung
+off the bottom anyway. The pictures carry a real pixel floor now and every other
+row up there is a fixed height, so the pictures shrink to that floor and no
+further, nothing collapses to nothing, and the card scrolls only if even that
+will not fit. Measured with every row present: no scrolling, both pictures whole.
+
+⚠ **In the end the picture height is worked out from the window, not negotiated.**
+Three deploys were spent trimming rows on the belief that the pictures would
+shrink into whatever was left over — they never did, and the card went on
+scrolling. Everything above the pictures is a known fixed height, so the pictures
+simply take what is left of the window after it. **The cost of that is a number
+that has to be kept in step:** add a row to the ribbon, or change one's height,
+and the subtraction in `.rm-panes` has to change with it.
 
 **The whole tool sits on one screen and nothing on it moves.** The card is one
 viewport tall and never scrolls; the two pictures take whatever height the bars

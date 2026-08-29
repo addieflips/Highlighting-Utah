@@ -4594,6 +4594,15 @@
                were clipped away entirely. The tool opened with a toolbar, a Save bar
                and no house at all. A scrollbar in the rare case beats an invisible map
                in any case. */
+                        /* ⭐ AND THE ATTACH ROW IS LIFTED THE SAME WAY. It is a child of the
+               CARD, not of the stage, so it cannot join the ribbon - but the card is
+               a flex column too, and a NEGATIVE order carries it above the stage
+               without touching any other row. ⚠ Negative rather than numbering every
+               card child: an unnumbered child defaults to 0, so numbering some and
+               not others would put the unnumbered ones FIRST, above the heading. */
+            #roofMeasureOverlay .rm-card > .rm-head{order:-2;}
+            #roofMeasureOverlay .rm-attachbar{order:-1; margin:0 0 6px !important;
+              border-top:0 !important; border-bottom:1px solid var(--line); padding:0 0 10px !important;}
             #roofMeasureOverlay .rm-card{height:100%; max-height:100%; overflow-y:auto; display:flex; flex-direction:column; padding:12px 16px;}
             /* ⚠ NEVER SHRINK BELOW ITS OWN CONTENT. flex:1 1 auto let the stage be
                squeezed to less than the rows inside it, and a flex item that is too
@@ -4602,7 +4611,23 @@
                top of each other, 56px overlapping, on the live page.
                min-content is the floor: the stage still GROWS to fill the card, and
                when there is genuinely not enough room the card scrolls instead. */
-            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 0 auto; min-height:min-content;}
+                        /* ⚠ SHRINK 1, NOT 0. min-content is the floor that stops the overflow-
+               and-paint-over-the-next-row bug; flex-shrink:0 meant the stage could
+               never come DOWN to that floor, so the pictures grew to fill a stage
+               taller than the card and hung off the bottom - 770 of content in a 666
+               card, measured live twice. With shrink on, the stage settles at its
+               own min-content and the pictures take exactly what is left. */
+            /* ⚠ min-height:0, AND THE FLOOR LIVES ON THE PICTURES INSTEAD. min-content
+               was put here to stop the stage overflowing and painting over the row
+               below it, and it did - but it also computes LARGER than the parts it is
+               made of, so the stage would not come down and the pictures hung off the
+               bottom: 774 of content in a 670 card, measured live three times while I
+               tried smaller numbers that could never work.
+               The guard is not lost, it has MOVED: .rm-panes carries a real 165px
+               floor, and every other row up here is a fixed height. So the pictures
+               shrink to that floor and no further, nothing can collapse to nothing,
+               and the card scrolls only if even that will not fit. */
+            #roofMeasureOverlay .rm-card > #rmWorkStage{flex:1 1 auto; min-height:0;}
             #roofMeasureOverlay #rmWorkStage > .rm-stagerest{min-height:0;}
             /* ⭐ AND THE PICTURES HAVE A FLOOR. min-height:0 is what lets a flex item
                shrink so the page can fit - and it also lets it shrink to NOTHING. The
@@ -4610,7 +4635,27 @@
                and "there is no house". Found on the live site, where the Roof Facts
                panel renders (Solar answers there and is refused on localhost) and took
                the last of the height with it. */
-            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:1 1 auto; min-height:260px;}
+                        /* ⚠ THE FLOOR CAME DOWN WITH THE REST OF THE BUDGET. 260 no longer fits
+               under six rows of ribbon on an 864px screen at 125% zoom, and a floor
+               that does not fit is what pushes the pictures off the bottom instead of
+               shrinking them. 190 still shows a whole house; below about 150 it stops
+               being something you can trace on.
+               ⚠ flex:1 1 auto IS THE POINT: the pictures are the one row that GROWS,
+               so every pixel the ribbon does not use goes to the house. */
+            /* ⚠ MEASURED FROM THE WINDOW, NOT LEFT TO FLEX-SHRINK. Three deploys were
+               spent trimming rows on the belief that the pictures would shrink into
+               the space left over: they never did. flex:1 1 auto with a real floor,
+               a stage that could shrink, min-height:0 - the panes sat at 252px
+               through all of it and the card went on scrolling 758 into 666.
+               So the height is WORKED OUT rather than negotiated: everything above
+               the pictures is a known fixed height, and this is what is left of the
+               window after it. ⚠ THE 528 IS THE SUM OF THE RIBBON, so a row added or
+               resized up there must be added here too - that is the cost of making
+               it deterministic, and it is cheaper than a tool whose pictures fall
+               off the bottom. The clamp keeps it sane on a small laptop and lets it
+               grow on a real monitor. */
+            #roofMeasureOverlay .rm-stagerest > .rm-panes{flex:0 0 auto;
+              height:clamp(150px, calc(100vh - 528px), 560px);}
             #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
             #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
 
@@ -4688,7 +4733,16 @@
                more than fits, it scrolls a 190px strip - which is a small thing to
                reach past, and nothing like the picture jumping 94px under the cursor
                mid-trace, which is what was reported. Measured full: 183px. */
-            #roofMeasureOverlay .rm-tools > .rm-toolbar{height:190px; align-content:flex-start; overflow-y:auto; overscroll-behavior:contain;}
+                        /* ⚠ 190px WAS RIGHT WHEN THIS WAS THE ONLY TOOL ROW AND THE PICTURES SAT
+               BELOW IT WITH EVERYTHING ELSE UNDERNEATH THEM. Moving every control
+               above the pictures (2026-08-28) put five more fixed rows in front of
+               them, and the sum came to 488px of a 666px card - the map was left
+               with THIRTY-NINE PIXELS on the live page. Measured, not guessed.
+               It is still a FIXED height, because that is what stops the picture
+               jumping while dots go down, and it still scrolls inside itself when
+               the notes get long. It is simply no longer sized as though it were
+               the only thing above the house. */
+            #roofMeasureOverlay .rm-tools > .rm-toolbar{height:104px; align-content:flex-start; overflow-y:auto; overscroll-behavior:contain;}
             #roofMeasureOverlay #rmDrawHint,
             #roofMeasureOverlay #rmCornerNote,
             #roofMeasureOverlay #rmCornerMode,
@@ -4868,11 +4922,46 @@
                the catch-all above (order 6) and the pictures went LAST - below the price,
                the Save bar and Roof Facts, at y=1261 in a 720px window. The tool looked
                like it had no house. Anything that rewrites this line must keep the order. */
-            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{order:2; flex:1 1 auto; min-height:260px; display:flex; flex-direction:column; gap:6px;}
+                        /* ⭐ EVERY CONTROL AT THE TOP, THE PICTURES LAST (2026-08-28). Owner:
+               "all the buttons at the bottom of the page should not be there i want
+               it to be like excel with all the tools at the top and its in its own
+               bar thing."
+
+               ⚠ THE CAPTURE BAR WAS THE LAST ROW OF THE PICTURE AREA, so it could
+               not be re-ordered on its own - order only sorts SIBLINGS. Rather than
+               cut and paste the markup, .rm-stagerest becomes display:contents and
+               its two children become stage rows in their own right, exactly the
+               trick .rm-tools already uses one level up. Nothing moved in the HTML,
+               which is what makes this safe to do late in a long day.
+
+               ⚠ THE SIZING GOES WITH THE PICTURES, not with the wrapper that no
+               longer boxes anything: .rm-panes already carries flex:1 1 auto and its
+               own floor, so it absorbs the leftover height the wrapper used to. */
+            #roofMeasureOverlay #rmWorkStage > .rm-stagerest{display:contents;}
             #roofMeasureOverlay .rm-panes{order:-1; flex:1 0 100%;}
-            #roofMeasureOverlay #rmPricePanel{order:3;}
-            #roofMeasureOverlay .rm-commit{order:4;}
-            #roofMeasureOverlay #rmRoofFactsPanel{order:5; flex:0 0 auto;}
+            #roofMeasureOverlay #rmPricePanel{order:2;}
+            #roofMeasureOverlay .rm-commit{order:3;}
+                        /* ⚠ ROOF FACTS IS THE ONE ROW UP HERE THAT IS READING RATHER THAN DOING,
+               and it was 92px of the budget. Capped and scrolled rather than hidden:
+               it is where Google's own footage shows up, which is the number used to
+               sanity-check a trace, so taking it off the screen is not mine to do. */
+            #roofMeasureOverlay #rmRoofFactsPanel{order:4; flex:0 0 auto; max-height:46px;
+              overflow-y:auto; overscroll-behavior:contain;}
+            #roofMeasureOverlay #rmPhotoBar{order:5; flex:0 0 auto; align-self:stretch;}
+            /* ⚠ THE HIGHEST NUMBER ON PURPOSE. An unnumbered row defaults to 0 and
+               would land BEFORE everything; a row numbered by hand later should land
+               above the pictures rather than under them, so the gap 6-8 is left free
+               for exactly that. The pictures ended up under the Save bar twice
+               already by falling through to a catch-all. */
+            /* ⚠ AND EVERY OTHER CHILD OF THAT WRAPPER IS NUMBERED TOO. Making it
+               display:contents promoted ALL its children to stage rows, and one of
+               them carries no id or class - so it defaulted to order 0 and jumped
+               ahead of the toolbar, 25px at the very top of the tool. That is the
+               catch-all failure this block's own note warns about, caused by the fix
+               for it. Numbered 8: immediately above the pictures, where it was. */
+            #roofMeasureOverlay .rm-stagerest > *{order:8;}
+            #roofMeasureOverlay .rm-stagerest > .rm-panes{order:9;}
+            #roofMeasureOverlay #rmPhotoBar{order:5;}
             #roofMeasureOverlay .rm-tools > .rm-toolbar{display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
             /* Inside the bar a part is a group separated by a rule to its LEFT,
                because the flow is now sideways. */
@@ -4889,7 +4978,7 @@
             /* The last line: price, Save and the captures side by side. The Save
                block lays out sideways too - the figures, what the feet decide and
                the button in a row rather than a stack. */
-            #roofMeasureOverlay .rm-commit{order:4; flex:0 0 auto; min-width:0; align-self:stretch; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;}
+            #roofMeasureOverlay .rm-commit{order:3; flex:0 0 auto; min-width:0; align-self:stretch; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;}
             /* ⚠ THE HEADING AND THE SENTENCE COST TWO FULL LINES OF THE BAR. The
                gold button says "Save to this quote" itself, so a heading above it
                saying the same words is the one thing here that can go without
@@ -4909,7 +4998,7 @@
                bar on top of the pictures and pushed them to y=687 in a 686px window.
                Full size, correct, and one pixel below the fold: the tool opened looking
                like it had no house at all, for the second time and a different reason. */
-            #roofMeasureOverlay #rmPricePanel{order:3; flex:0 0 auto; align-self:stretch; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
+            #roofMeasureOverlay #rmPricePanel{order:2; flex:0 0 auto; align-self:stretch; display:flex; flex-wrap:wrap; align-items:center; gap:6px 9px;}
             #roofMeasureOverlay #rmPricePanel > *{margin:0;}
             @media (max-width: 899px){
               /* (nothing to stack: .rm-tools is display:contents) */
@@ -5112,6 +5201,15 @@
                 <button type="button" id="rmMoreBtn" style="border:0; background:none; padding:4px 0 0; font-size:11px; color:var(--slate); cursor:pointer; text-decoration:underline;">More options</button>
                 <div id="rmMoreBox" style="display:none; margin-top:8px; border-top:1px dotted var(--line); padding-top:8px;">
                   <p class="rm-sub" style="margin-bottom:6px;">The roofline is traced from above, where lengths measure true. Height only matters where the roof climbs, and that is what a peak is &mdash; add one and read its grade off the picture.</p>
+                  <!-- ⭐ HER OWN LOOK SPEED. It lives in More options because the
+                       toolbar is height-capped on purpose and she has asked three
+                       times not to scroll to reach a tool - a control nobody
+                       touches twice a season must not cost the picture any room. -->
+                  <div style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+                    <label for="rmLookSpeed" style="font-size:11px; color:var(--slate); white-space:nowrap;">Look speed</label>
+                    <input type="range" id="rmLookSpeed" min="0.5" max="6" step="0.1" style="flex:1 1 auto; max-width:170px;">
+                    <span id="rmLookSpeedNote" style="font-size:11px; color:var(--slate); min-width:70px;"></span>
+                  </div>
                   <p style="font-size:10.5px; color:var(--slate); margin:8px 0 0; line-height:1.7;">
                     <kbd>Esc</kbd> cancel &middot; <kbd>A</kbd> all suggested on/off &middot;
                     <kbd>C</kbd> capture sky &middot; <kbd>V</kbd> capture street
@@ -5454,7 +5552,7 @@
             <div id="rmStaged" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
           </div>
 
-          <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:12px;">
+          <div class="rm-attachbar" style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:12px;">
             <button type="button" class="btn btn-gold" id="rmAttachBtn" disabled>Attach to Quote</button>
             <!-- ⭐ STRAIGHT INTO MARKING IT UP (2026-08-25). Owner: "I can't
                  mark it up after measuring it." The Mark Up tool existed and
@@ -19671,6 +19769,289 @@ document.addEventListener('keyup', function(e){
    promising a grab that is no longer armed. */
 window.addEventListener('blur', function(){ rmShiftDown = false; rmRefreshCursors(false); });
 
+/* ⭐ HOLD THE RIGHT BUTTON TO LOOK AROUND, AND TO MOVE THE SKY VIEW (2026-08-28).
+   Owner: "if you want to look a different direction and change where you are
+   looking on street view you hold down right click just like roblox studio and if
+   you want to move in sky view you hold down right click."
+
+   ⚠ WHY IT IS NEEDED AT ALL. While measuring, a LEFT drag places and drags dots,
+   and the lock sheet covers the whole pane to catch exactly that - so there was no
+   way to look around or pan without coming out of measuring first. The right
+   button is the one gesture those sheets were not already using.
+
+   ⚠ STREET VIEW FOLLOWS THE MOUSE, which is the OPPOSITE of Google's own left
+   drag (that one grabs the world and turns the other way). Roblox is what she
+   asked for by name. One sign per axis flips it if it ever reads wrong.
+
+   ⚠ THE SKY VIEW GRABS THE WORLD INSTEAD, deliberately not Roblox: that is what
+   its own left drag does whenever nothing is locked, and one pane answering the
+   same gesture two different ways would be worse than either rule alone.
+
+   ⚠ AND ALL THREE PANES ARE COVERED, including the grade screen's own picture -
+   that one is where a left drag READS THE GRADE, so it is the pane with the least
+   left button left to spare. */
+const RM_NAV_PANES = {
+  street: ['rmPano', 'rmSvLayer', 'rmPanoLock', 'rmPanoFrozen', 'rmStreetBusy'],
+  sky:    ['rmMap', 'rmMapLock', 'rmMapFrozen', 'rmSkyBusy'],
+  grade:  ['rmGradePano', 'rmGradeLock']
+};
+let rmNavDrag = null;
+/* ⭐ A RIGHT CLICK STILL OPENS THE MENU; A HELD RIGHT DRAG DOES NOT (2026-08-28).
+   Owner: "make it so you only get the right click pop up if you click there but
+   if you hold the right click pop up doesnt come up."
+   ⚠ THE MENU FIRES ON MOUSE-UP on Windows, by which time the drag has already
+   been cleared - so whether it moved has to be REMEMBERED across that gap
+   rather than read off a drag that no longer exists. */
+let rmNavMenuAfterDrag = false;
+/* ⚠ A FEW PIXELS OF JITTER IS STILL A CLICK. Nobody holds a mouse perfectly
+   still, and taking the menu away from somebody who only clicked would be the
+   very complaint this answers, pointing the other way. */
+const RM_NAV_CLICK_SLOP = 4;
+/* ⭐ THE PICTURE FOLLOWS THE HAND, NOT THE CURSOR (2026-08-28). Owner: "the
+   screen still lags behind my mouse so its still not right", then "go into my
+   settings and see how fast my mouse moves and adjust it to that".
+
+   ⚠ HER WINDOWS SETTINGS ARE THE ANSWER AND THEY WERE READ, NOT GUESSED:
+   HKCU\Control Panel\Mouse says MouseSensitivity 10 (the plain 1.0x speed, so
+   nothing to scale) and MouseSpeed 1 - ENHANCE POINTER PRECISION IS ON. That is
+   Windows mouse ACCELERATION: the cursor is not a fixed multiple of the hand, it
+   moves proportionally LESS on a slow drag and more on a fast one.
+
+   ⚠ SO DRIVING THE CAMERA FROM clientX INHERITS THAT CURVE. Measuring a roof is
+   exactly the slow, careful kind of drag where the cursor under-runs the hand, so
+   the picture kept falling behind her - and no fixed multiplier can correct it,
+   because the error depends on how fast she happens to be moving.
+
+   ⭐ GAMES DO NOT HAVE THIS PROBLEM BECAUSE THEY DO NOT READ THE CURSOR. Roblox
+   reads RAW mouse input. Pointer Lock with unadjustedMovement:true is the same
+   thing in a browser: Windows sensitivity and acceleration are both bypassed and
+   movementX/movementY are the hand itself.
+
+   ⚠ RAW DELTAS ARE DEVICE PIXELS, so they are divided by devicePixelRatio to
+   become the CSS pixels the rest of this arithmetic is in - her Chrome is at 125%
+   zoom, where the two differ by a quarter.
+
+   ⚠ AND IT IS A FALLBACK, NEVER A REQUIREMENT. If the lock is refused - an older
+   browser, a policy, a window that is not focused - the drag carries on off the
+   cursor exactly as before. Worse on a slow drag, but it still works. */
+/* ⭐ HOW FAST THE PICTURE TURNS, AND IT IS HERS TO SET (2026-08-28). Owner, after
+   the raw-input fix: "still uncomfortably slow, it just slows my mouse down".
+
+   ⚠ TWO THINGS WERE WRONG AND ONLY ONE OF THEM WAS TASTE.
+   FIRST, A REAL BUG: raw movements under a pointer lock are already PHYSICAL
+   mouse units, and they were being divided by devicePixelRatio as though they
+   were device pixels needing turning into CSS ones. On her 125% Chrome that made
+   every drag a further fifth slower - so the change meant to speed the picture up
+   shipped with a brake on it.
+   SECOND, 1:1 IS SIMPLY SLOWER THAN A GAME. Tracking the cursor exactly is the
+   correct BASELINE, not a comfortable look speed; Roblox and every other game
+   turn several times faster than the hand travels. That is a preference, and
+   after three goes at guessing it, it is a control rather than a constant.
+
+   ⚠ IT MULTIPLIES THE ANGLE, NOT THE PIXELS. Scaling the offset first sends it
+   through the arctangent, which compresses - so the dial would do less and less
+   the higher it went. On the angle it means exactly what it says: 2 is twice as
+   fast as the hand, everywhere in the frame and at every zoom.
+
+   ⚠ AND IT IS PER-MACHINE, IN localStorage, NOT IN settings/. A comfortable look
+   speed belongs to a person and a mouse, not to the business - syncing it would
+   push whatever felt right on one desk onto every other. */
+const RM_LOOK_SPEED_DEFAULT = 2.5;
+const RM_LOOK_SPEED_KEY = 'hu.rm.lookSpeed';
+let rmLookSpeed = RM_LOOK_SPEED_DEFAULT;
+try {
+  const savedSpeed = Number(localStorage.getItem(RM_LOOK_SPEED_KEY));
+  if(isFinite(savedSpeed) && savedSpeed > 0) rmLookSpeed = savedSpeed;
+} catch(err){ /* private browsing, or storage refused - the default is fine and
+    there is nothing here worth interrupting anybody about */ }
+function rmLookSpeedNote(){
+  const out = document.getElementById('rmLookSpeedNote');
+  if(out) out.textContent = rmLookSpeed.toFixed(1) + '\u00d7 your hand';
+}
+function rmWireLookSpeed(){
+  const el = document.getElementById('rmLookSpeed');
+  if(!el || el.dataset.wired) return;
+  el.dataset.wired = '1';
+  el.value = String(rmLookSpeed);
+  rmLookSpeedNote();
+  /* input, not change: it is a feel, so it has to answer while the slider moves */
+  el.addEventListener('input', function(){
+    const v = Number(el.value);
+    if(!isFinite(v) || v <= 0) return;
+    rmLookSpeed = v;
+    rmLookSpeedNote();
+    try { localStorage.setItem(RM_LOOK_SPEED_KEY, String(v)); }
+    catch(err){ /* it still applies for this session; a slider position that does
+      not survive a reload is not worth a message on screen */ }
+  });
+}
+let rmNavLocked = false;
+function rmNavRequestLock(el){
+  if(!el || !el.requestPointerLock) return;
+  let p = null;
+  try { p = el.requestPointerLock({unadjustedMovement: true}); }
+  catch(err){ p = null; }   /* older signature: options are not accepted at all */
+  if(p && p.catch){
+    p.catch(function(){
+      /* ⚠ RAW INPUT REFUSED, SO TAKE THE ACCELERATED LOCK RATHER THAN NOTHING:
+         it still frees the drag from the edge of the screen. */
+      try { el.requestPointerLock(); } catch(err2){ /* no lock at all - the
+        cursor path below still works, so there is nothing to report */ }
+    });
+  } else if(p === null){
+    try { el.requestPointerLock(); } catch(err3){ /* as above */ }
+  }
+}
+document.addEventListener('pointerlockchange', function(){
+  rmNavLocked = !!document.pointerLockElement;
+});
+/* Which picture the pointer is over. Walks the ids rather than reading a class,
+   because the target is usually deep inside Google's own markup. */
+function rmNavPaneAt(target){
+  if(!target) return null;
+  for(const pane in RM_NAV_PANES){
+    for(const id of RM_NAV_PANES[pane]){
+      const el = document.getElementById(id);
+      if(el && (el === target || el.contains(target))) return pane;
+    }
+  }
+  return null;
+}
+function rmNavPanoFor(pane){ return pane === 'grade' ? rmGradePano : rmPano; }
+document.addEventListener('mousedown', function(e){
+  if(e.button !== 2) return;                     /* right button only */
+  const pane = rmNavPaneAt(e.target);
+  if(!pane) return;
+  if(pane === 'sky'){ if(!rmMap) return; }
+  else if(!rmNavPanoFor(pane)) return;
+  e.preventDefault();
+  const pano = pane === 'sky' ? null : rmNavPanoFor(pane);
+  const pov = pano && pano.getPov ? (pano.getPov() || {}) : {};
+  let z = pano && pano.getZoom ? pano.getZoom() : 1;
+  if(typeof z !== 'number' || !isFinite(z)) z = 1;
+  const boxEl = document.getElementById(pane === 'grade' ? 'rmGradePano' : (pane === 'sky' ? 'rmMap' : 'rmPano'));
+  const box = boxEl ? boxEl.getBoundingClientRect() : null;
+  rmNavDrag = {pane: pane, x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY,
+               box: box, moved: false, rawX: 0, rawY: 0,
+               heading: pov.heading || 0, pitch: pov.pitch || 0, zoom: z};
+  /* ⚠ THE PICTURES ONLY. The sky view is GRABBING A POINT on the map, so it wants
+     the real cursor where the hand left it; hiding the pointer to pan a map is
+     both disorienting and wrong about what is being dragged. */
+  if(pane !== 'sky') rmNavRequestLock(boxEl);
+  rmNavMenuAfterDrag = false;   /* a fresh press starts out entitled to its menu */
+  rmRefreshCursors(true);
+});
+document.addEventListener('mousemove', function(e){
+  if(!rmNavDrag) return;
+  const dx = e.clientX - rmNavDrag.x, dy = e.clientY - rmNavDrag.y;
+  /* ⚠ THE HAND IS TALLIED BEFORE ANYTHING READS IT. Written lower down, beside
+     the turn it feeds, the slop test below saw a tally that was still zero on the
+     FIRST movement of every drag - so a quick look-around registered as a click
+     and handed the context menu straight back. */
+  if(rmNavLocked){
+    /* ⚠ NOT DIVIDED BY devicePixelRatio. Under unadjustedMovement these are the
+       mouse's own units, not screen pixels needing converting - dividing put a
+       silent fifth-slower brake on every drag at her 125% zoom. */
+    rmNavDrag.rawX += (e.movementX || 0);
+    rmNavDrag.rawY += (e.movementY || 0);
+  }
+  /* ⚠ WHILE LOCKED THE CURSOR NEVER MOVES, so measuring the click slop off
+     clientX would report every look-around as a click and hand back the context
+     menu at the end of it. The raw tally is what moved. */
+  const slopX = rmNavLocked ? rmNavDrag.rawX : (e.clientX - rmNavDrag.downX);
+  const slopY = rmNavLocked ? rmNavDrag.rawY : (e.clientY - rmNavDrag.downY);
+  if(!rmNavDrag.moved && Math.hypot(slopX, slopY) > RM_NAV_CLICK_SLOP){
+    rmNavDrag.moved = true;
+  }
+  if(rmNavDrag.pane === 'sky'){
+    /* ⚠ THE WORLD UNDER THE POINTER STAYS UNDER THE POINTER, worked out through
+       rmMapPixelToWorld rather than panBy - panBy ANIMATES, so a drag made of
+       many small pans lags behind the mouse. Taking the difference of two points
+       also cancels rmSkyShift, which both of them carry. */
+    const el = document.getElementById('rmMap');
+    if(el && rmMap){
+      const r = el.getBoundingClientRect();
+      const a = rmMapPixelToWorld(rmNavDrag.x, rmNavDrag.y, r);
+      const b = rmMapPixelToWorld(e.clientX, e.clientY, r);
+      if(a && b){
+        const c = rmMap.getCenter();
+        if(c) rmMap.setCenter({lat: c.lat() + (a.lat - b.lat), lng: c.lng() + (a.lng - b.lng)});
+      }
+    }
+    rmNavDrag.x = e.clientX; rmNavDrag.y = e.clientY;   /* the sky move is RELATIVE */
+    return;
+  }
+  const pano = rmNavPanoFor(rmNavDrag.pane);
+  if(!pano) return;
+  const el = document.getElementById(rmNavDrag.pane === 'grade' ? 'rmGradePano' : 'rmPano');
+  const W = (el && el.clientWidth) || 1;
+  const H = (el && el.clientHeight) || 1;
+  const r = rmNavDrag.box || (el ? el.getBoundingClientRect() : {left: 0, top: 0});
+  /* ⭐ THE PICTURE KEEPS UP WITH THE HAND (2026-08-28). Owner: "street view doesnt
+     properly move at the same speed as the mouse which bugs me, correct it to
+     mouse speed."
+
+     ⚠ IT WAS DEGREES-PER-PIXEL, WHICH IS THE WRONG SHAPE OF SUM. A panorama is a
+     PERSPECTIVE picture: the angle a pixel covers is not constant across the
+     frame, it is widest at the centre and narrows towards the edges. Spreading
+     the field of view evenly over the width therefore under-turns everywhere -
+     measured at 90 degrees across 600px it is about 21% short at every ordinary
+     drag, which is exactly the lag she could feel.
+
+     ⭐ THE HONEST SUM IS THE CAMERA'S OWN. focal = (W/2) / tan(fov/2), and the
+     bearing of a pixel is atan(offset / focal) - the SAME focal length and the
+     same arctangent rmStreetDotPixel already uses to put a mark back on screen.
+     So the marks and the drag now agree about what a pixel is worth; before this
+     they did not.
+
+     ⚠ OFFSETS ARE FROM THE CENTRE OF THE PICTURE, not from where the press
+     happened - the arctangent is only correct measured off the optical axis. */
+  const focal = (W / 2) / Math.tan(rmRad(rmFovDeg(rmNavDrag.zoom)) / 2);
+  const cx = r.left + W / 2, cy = r.top + H / 2;
+  const bearing = function(px){ return Math.atan(px / focal) * 180 / Math.PI; };
+  /* ⚠ MEASURED FROM WHERE THE BUTTON WENT DOWN, never step by step: adding up
+     deltas drifts, and a pitch clamped at the top would then never come back. */
+  /* ⭐ WHERE THE HAND HAS GOT TO. While the pointer is locked there IS no cursor
+     to read, so the raw movements are added up into a position of our own - which
+     is what makes this immune to the acceleration curve. Unlocked, it is the
+     cursor as before. */
+  let atX, atY;
+  if(rmNavLocked){
+    atX = rmNavDrag.downX + rmNavDrag.rawX;   /* tallied at the top of this handler */
+    atY = rmNavDrag.downY + rmNavDrag.rawY;
+  } else {
+    atX = e.clientX;
+    atY = e.clientY;
+  }
+  const turnX = (bearing(atX - cx) - bearing(rmNavDrag.downX - cx)) * rmLookSpeed;
+  const turnY = (bearing(atY - cy) - bearing(rmNavDrag.downY - cy)) * rmLookSpeed;
+  pano.setPov({heading: rmNavDrag.heading + turnX,
+               pitch: Math.max(-90, Math.min(90, rmNavDrag.pitch - turnY))});
+});
+function rmNavEnd(){
+  if(!rmNavDrag) return;
+  /* ⚠ ALWAYS, and before anything else can throw: a lock left on is a page with
+     no pointer, and the only way out is the Escape key nobody knows to press. */
+  if(document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+  /* carried across the gap to the contextmenu event, which has not fired yet */
+  rmNavMenuAfterDrag = !!rmNavDrag.moved;
+  rmNavDrag = null;
+  rmRefreshCursors(false);
+}
+document.addEventListener('mouseup', function(e){ if(e.button === 2) rmNavEnd(); });
+/* ⚠ REFUSED ONLY AFTER A DRAG, AND ONLY ON THESE PANES. A plain right click
+   keeps its menu everywhere, including on the pictures - she asked for exactly
+   that line to be drawn. Suppressing it outright was the first version, and it
+   took away a menu nobody had asked to lose. */
+document.addEventListener('contextmenu', function(e){
+  const dragging = rmNavDrag && rmNavDrag.moved;   /* platforms that fire on DOWN */
+  if((dragging || rmNavMenuAfterDrag) && rmNavPaneAt(e.target)) e.preventDefault();
+  rmNavMenuAfterDrag = false;   /* one menu suppressed per drag, never a run of them */
+});
+/* A window that loses focus never sends the mouseup - the same trap the shift
+   key above is guarded against, and it would leave the view stuck to the mouse. */
+window.addEventListener('blur', rmNavEnd);
+
 let rmDragMoved = false;         /* a drag happened, so the click that ends it is not a swap */
 
 /* The point that best satisfies every ray it has been seen along. */
@@ -24037,6 +24418,7 @@ function openRoofMeasure(quoteId){
      rmSetShowModel are left in place and unreachable so nothing that reads them
      breaks; delete them once nothing does. */
   document.getElementById('rmEndStrandBtn').addEventListener('click', function(){ rmEndStrand(); });
+  rmWireLookSpeed();
   /* ⭐ CLEAR MEANS CLEAR, IN BOTH PICTURES (2026-08-25). Owner: "when i click
      clear dots it clears all dots on both perspectives."
 
