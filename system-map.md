@@ -637,6 +637,26 @@ It shows what happened to Jane Smith. The SHAPE of the journey — quote, email,
 they fill the form, we convert, warehouse, schedule, crew, invoice, paid — exists in the
 code and in her own description of it, and is drawn nowhere. See §10d.
 
+### Every door to a fix carries a date
+
+There are four ways to raise or clear a fault, and until 2026-08-29 **two of them wrote the
+flag bare**. The customer-row dropdown did it five lines under a comment stating that all
+three of its fields come from the shared rule — `completed` and `removalDone` did, `needsFix`
+did not — and the Routes tab toggle did the same. So a fault raised from either recorded no
+`fixRaisedAt`, and mending one recorded no `fixDoneAt`.
+
+⚠ **It is money, not tidiness.** A fault on a completed house stops that payer's **whole
+group** being invoiced (`skippedNeedsFix` in the nightly run), and the hold is recomputed from
+the flag every night. Undated, a bill held six weeks looked exactly like one held since this
+morning, and nothing anywhere could sort the queue by how long.
+
+⚠ **The existing check could not see it.** It asserted the shared rule is *called* somewhere —
+true, while two of the four callers went round it. Presence is not coverage. `queue-date.test.js`
+now censuses every place that writes the flag: each is either a door that must go through
+`HLX_DONE_KINDS.fix`, or is named with the reason it is not one. Two are deliberately not doors
+— `buildAddressRowHtml` reads the flag into markup, and `planTickCustomer` mirrors it into the
+local cache before the write is awaited so the derived tick does not spring back.
+
 ### Are the rules still accurate?
 
 Every ruling in the questions map names the code that proves it, and until 2026-08-29

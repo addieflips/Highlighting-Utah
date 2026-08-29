@@ -174,6 +174,85 @@ check('the one place that sets the flag without queuing is still excluded',
   ' (' + skipped.join(', ') + ')');
 
 /* ---------------------------------------------------------------------------
+ * 1a. EVERY DOOR TO A FIX GOES THROUGH THE SHARED RULE.
+ *
+ * ⚠ TWO OF THE FOUR DID NOT, and one of them sat five lines under a comment claiming all
+ * three fields on that handler came from the shared rule — `completed` and `removalDone`
+ * did, `needsFix` was written bare. So raising a fault from the customer row or from the
+ * Routes tab recorded no `fixRaisedAt`, and mending one recorded no `fixDoneAt`.
+ *
+ * ⚠ IT IS MONEY, NOT TIDINESS. A fix raised on a completed house stops that payer's WHOLE
+ * group being invoiced — `skippedNeedsFix` in the nightly run — and the hold is recomputed
+ * from the flag every night. Undated, a bill held six weeks looks exactly like one held
+ * since this morning, and nothing anywhere can sort the queue by how long.
+ *
+ * ⚠ THE EXISTING CHECK COULD NOT SEE IT: it asserted the shared rule is CALLED somewhere,
+ * which was true, while two of the four callers went round it. Presence is not coverage.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+  /* Every place the flag is written at all, by the enclosing function. */
+  const doors = new Map();
+  const re = /needsFix\s*[:=]\s*([^,;\r\n}]*)/g;
+  let m;
+  while ((m = re.exec(clean))) {
+    const v = m[1].trim();
+    if (/^==|wasNeedsFix/.test(v)) continue;          // a comparison, not a write
+    if (v.charAt(0) === '{') continue;                // a label table, not a write
+    if (insideComment(src, m.index)) continue;
+    const fn = scan.enclosing(ix, m.index) || '(top level)';
+    doors.set(fn, (doors.get(fn) || 0) + 1);
+  }
+  check('the fix census is finding the places that raise and clear a fault',
+    doors.size >= 3,
+    'found ' + doors.size + '. A matcher that has stopped matching reports no violations ' +
+    'at all, which is the worst kind of green.');
+
+  /* ⚠ NAMED, NOT COUNTED — the same argument as the queue census above. A bare number
+     cannot tell a door legitimately removed from one lost in a merge. */
+  const FIX_DOORS = {
+    '(top level)': 'the shared rule itself — HLX_DONE_KINDS.fix is where both dates live',
+    hlxMarkJobDone: 'the one door that always went through the rule',
+    attachAddressRowHandlers: 'the customer-row dropdown',
+    renderRouteOrderedList: 'the Routes tab toggle',
+    /* ⚠ THESE TWO ARE NOT DOORS, and saying why is the point — a list of names cannot
+       tell a place that FLIPS the flag from one that merely mentions it, and treating a
+       render as a door would send somebody to add a date to some markup. */
+    buildAddressRowHtml: 'draws the tick box — it READS the flag into markup, never writes it',
+    planTickCustomer: 'mirrors the flag into the local cache before the write is awaited, ' +
+      'because the tick is derived and would otherwise spring back; the real dated write ' +
+      'is the hlxMarkJobDone call on the next line'
+  };
+  const strangers = [...doors.keys()].filter(f => !(f in FIX_DOORS));
+  check('no new place writes the fix flag without a decision about it',
+    strangers.length === 0,
+    'new place(s): ' + strangers.join(', ') +
+    '.\n        If it raises or clears a fault it must go through HLX_DONE_KINDS.fix so ' +
+    'the date is recorded; if it only reads or mirrors the flag, add it to FIX_DOORS with ' +
+    'the reason. Left undecided, a fault raised there is invisible on the history AND ' +
+    'holds that payer\'s whole group off the bill with nothing saying since when.');
+
+  /* ⚠ THE REAL CHECK IS THAT NOBODY WRITES IT BARE. A door may legitimately pass the flag
+     through (a form re-saving what it already held); what it may not do is flip it
+     without a date. Both halves of the shared rule carry one, so going through it is the
+     whole requirement. */
+  const bare = [];
+  ['attachAddressRowHandlers', 'renderRouteOrderedList'].forEach(fn => {
+    const f = ix.fns.filter(x => x.name === fn)[0];
+    if (!f) { bare.push(fn + ' (function not found)'); return; }
+    const body = clean.slice(f.start, f.end);
+    if (!/HLX_DONE_KINDS\.fix/.test(body)) bare.push(fn);
+  });
+  check('every door that flips a fault goes through the shared rule', bare.length === 0,
+    'writes it bare: ' + bare.join(', ') +
+    '.\n        Use HLX_DONE_KINDS.fix[raising ? \'off\' : \'on\'](serverTimestamp()). ' +
+    'Written bare, raising a fault records no fixRaisedAt and mending one records no ' +
+    'fixDoneAt — and the nightly run holds that payer\'s whole group while the flag is up.');
+}
+
+/* ---------------------------------------------------------------------------
  * 1b. The same census for the RECYCLE queue, and the $30 join fee.
  *
  * Addie, 2026-08-28: "Everything that can be changed for members or added to members

@@ -35138,6 +35138,10 @@ function attachAddressRowHandlers(container){
       const item = jobAddresses.find(a => a.id === id);
       const wasCompleted = item ? !!item.data.completed : false;
       const wasRemoved = item ? !!item.data.removalDone : false;
+      /* ⚠ THE THIRD ONE, WHICH WAS MISSING. Without it there is nothing to compare, so
+         every save would re-stamp the fix date whether or not the flag moved — the same
+         transition-not-every-write rule the build and recycle stamps already follow. */
+      const wasNeedsFix = item ? !!item.data.needsFix : false;
       /* ⭐ INSTALL AND TAKEDOWN ARE INDEPENDENT (fixed 2026-08-21, Job 2). This line
          used to read `removalDone: completed ? removalDone : false`, so unticking
          Install Complete here silently cleared the removal as well — one screen
@@ -35155,7 +35159,17 @@ function attachAddressRowHandlers(container){
         (removalDone !== wasRemoved)
           ? HLX_DONE_KINDS.takedown[removalDone ? 'on' : 'off'](serverTimestamp())
           : {removalDone: removalDone},
-        {needsFix: needsFix});
+        /* ⚠ THIS WAS `{needsFix: needsFix}` — the one of the three that did NOT go through
+           the shared rule, five lines under a comment saying all three do. So raising a
+           fault here recorded no `fixRaisedAt` and mending one recorded no `fixDoneAt`,
+           while install and takedown either side of it were dated correctly.
+           ⚠ AND IT IS MONEY. A fix raised on a completed house stops that payer's WHOLE
+           group being invoiced (`skippedNeedsFix` in the nightly run), so a bill held for
+           six weeks looked exactly like one held since this morning — the hold is
+           recomputed from the flag every night and nothing said when it started. */
+        (needsFix !== wasNeedsFix)
+          ? HLX_DONE_KINDS.fix[needsFix ? 'off' : 'on'](serverTimestamp())
+          : {needsFix: needsFix});
       /* ⚠ THE PHOTO IS DESTROYED, NOT JUST FORGOTTEN (Job 4). This used to blank
          fixPhotoUrl, which left the image on Cloudinary for ever with nothing
          pointing at it. The field is cleared below only if the destroy worked. */
@@ -45955,7 +45969,11 @@ function renderRouteOrderedList(ordered){
        and the field may only be blanked once that has actually happened. */
     btn.addEventListener('click', async function(){
       const current = btn.dataset.current === '1';
-      const updates = {needsFix: !current};
+      /* ⚠ THROUGH THE SHARED RULE, like the customer row and the Schedule tick. Written
+         bare as `{needsFix: !current}` this was the second of four doors to a fix that
+         recorded no date — and clearing it is a money-releasing write, because the
+         nightly run holds that payer's whole group while the flag is up. */
+      const updates = HLX_DONE_KINDS.fix[current ? 'on' : 'off'](serverTimestamp());
       if(current){
         updates.fixScheduled = false;
         updates.fixNote = '';
