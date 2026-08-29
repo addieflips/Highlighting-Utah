@@ -668,6 +668,47 @@ written in the archive branch, the function still "touched all three", and two r
 sabotages went straight through. It is scoped to the branch now. A check that looks right and
 cannot fail is worse than no check, and this is that trap caught in the act.
 
+### The colour change she asked for first, and the history that did not show it
+
+Addie's list of what she wanted dated opened with *"asked for different lights on this
+date"*. `lightsChangedAt` had existed for a while — written by the portal, by Edit
+Customer and by the sheet sync, read by the Color Changes tab and the warehouse badge —
+and it was **on no path and in no history**. So the event she named first was the one
+missing from the page built to answer her, and nothing anywhere was red about it.
+
+⚠ **A field written everywhere and named on no route is the shape of hole the two censuses
+exist to catch**, and neither could see it: `queue-date.test.js` checks that every field on
+`PATH_STEPS` is written and dated, `history.test.js` checks that every field on `PATH_STEPS`
+reaches the history, and a field that was never on the list satisfies both by being absent.
+It is on the list now, so both hold it.
+
+⚠ **The history says WHO changed it.** `lightsChangedVia` exists precisely because the
+customer changing their own colours and the office typing it in after a call are the same
+event from opposite ends — the warehouse badge already tells them apart, and the history
+must not be the one screen that flattens them. `historyLightsWords` gives the same three
+answers from the same field, and deliberately does **not** call `whBuildReasonKey`: that
+answers a different question (why a bundle is being built, where a re-quote outranks a
+colour change), so a house that moved *and* changed colours would come back "rebuild" and
+the line would say nothing about the colours at all.
+
+⚠ **An unrecorded origin claims neither.** Every colour change made before 2026-08-24
+carries no `lightsChangedVia`, and assigning one of the two on a coin toss prints a
+confidently wrong claim beside a real date — worse than an honest silence, and the rule the
+badge already keeps.
+
+⚠ **It is its own line, not the build-queue line.** A colour change queues a build, so the
+two sit together on a real record and it is tempting to read one as the other — but a build
+is also queued by joining, by a re-quote, by a wire change and by coming back after a
+recycle, and only one of those is somebody picking different colours.
+
+⚠ **And two boxes on the path, not one.** The page had only `changedafter` — a change made
+*after* a crew is holding a printed card, which is a genuine emergency. Drawing only that
+one makes every ordinary change look like an emergency and hides the fee question entirely:
+inside their 48-hour window a change is free, outside it is $30. `colourchange` now reaches
+both the warehouse **and** the bill, from two places — being asked what is changing, and
+changing your mind while waiting for a day. Both routes are walked by name in
+`journey.test.js`, because a reachability check alone stays green with either one deleted.
+
 ### A merge says what it took, and from where
 
 Merging duplicates writes another record's values onto the keeper and then **deletes that

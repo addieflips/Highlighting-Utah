@@ -945,6 +945,13 @@ const PATH_STEPS = [
   ['the lights go up',             'completedAt',              'admin.html'],
   ['the takedown is done',         'removalDoneAt',            'admin.html'],
   ['their old set is asked back',  'lightsRecycleRequestedAt', 'admin.html'],
+  /* ⚠ ADDED 2026-08-29, AND IT WAS THE FIRST THING SHE ASKED FOR. "Asked for different
+     lights on this date" opened Addie's list. The field has existed for a while and is
+     written in three places, so nothing here was ever red — it was simply never listed as
+     a step, which is why neither this census nor the history one could see that the
+     customer's own history did not show it. A field written everywhere and named on no
+     path is the exact shape of hole these two lists exist to catch. */
+  ['they ask for different lights', 'lightsChangedAt',         'admin.html'],
   ['they answer the RSVP',         'rsvpRespondedAt',          'admin.html'],
   /* ⚠ ADDED 2026-08-29. Four values ride on `seasonStatus` — a cancellation asked for, an
      address changed, changes needed, changes settled — and not one of them was dated. The
@@ -968,8 +975,8 @@ const WRITES_A_TIME = new RegExp(
    cannot find its target and skips. A step legitimately retired should lower this by
    hand, deliberately. */
 check('the path still has every step in it',
-  PATH_STEPS.length >= 20,
-  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 20. Removing a step deletes its ' +
+  PATH_STEPS.length >= 21,
+  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 21. Removing a step deletes its ' +
   'check silently — lower this number in the same change, and say which step went.');
 
 PATH_STEPS.forEach(([label, field, file]) => {

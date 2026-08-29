@@ -73,6 +73,12 @@ const PARTS = {
      happened, loudly, rather than the line silently reading wrong. */
   historySeasonWords: liftBlock('historySeasonWords', '{', '}'),
   historyMergeWords: liftBlock('historyMergeWords', '{', '}'),
+  /* ⚠ LIFTED, NEVER STUBBED. A stub keeps this file green through a change to what
+     the colour-change line SAYS — and what it says is the whole point of the row:
+     "they changed it themselves" and "the office put it in for them" are the two
+     answers the warehouse badge already tells apart, and the history must not be
+     the one screen that flattens them. */
+  historyLightsWords: liftBlock('historyLightsWords', '{', '}'),
   historyNoteRows: liftBlock('historyNoteRows', '{', '}'),
   customerHistory: liftBlock('customerHistory', '{', '}')
 };
@@ -133,6 +139,66 @@ check('every step of the path reaches the history',
   '.\n        Add it to HISTORY_STEPS so it shows on the customer\'s history, or to ' +
   'NOT_IN_HISTORY with the reason. Left out, that step is silently missing from every ' +
   'customer\'s history and the page looks complete while doing it.');
+
+/* ---------------------------------------------------------------------------
+ * 1b. THE ONE SHE ASKED FOR BY NAME.
+ *
+ * Addie's list of what she wanted dated opened with "asked for different lights on this
+ * date". `lightsChangedAt` has existed for a while — written by the portal, by Edit
+ * Customer and by the sheet sync, read by the Color Changes tab and the warehouse badge —
+ * and was simply never listed here. So the one event she named first was the one missing
+ * from the page built to answer her, and nothing anywhere said so.
+ *
+ * ⚠ THESE RUN THE RULE, they do not read it. Every claim is about a SENTENCE a person
+ * reads, and this repo has been caught four times by a check that matched the source of a
+ * message which could never reach the screen.
+ * ------------------------------------------------------------------------- */
+{
+  const D = v => new Date(v + 'T12:00:00Z');
+  check('a colour change appears on the history at all',
+    stepFields.indexOf('lightsChangedAt') !== -1,
+    'the first thing Addie asked to be dated, absent from the page built to answer her');
+
+  const portal = history({ cust: { lightsChangedAt: D('2026-08-10'), lightsChangedVia: 'portal' } });
+  const office = history({ cust: { lightsChangedAt: D('2026-08-10'), lightsChangedVia: 'office' } });
+  const older  = history({ cust: { lightsChangedAt: D('2026-08-10') } });
+
+  check('a change the customer made themselves says so',
+    /portal/i.test(portal.rows[0].what),
+    'got: ' + portal.rows[0].what);
+  check('a change the office put in says so instead',
+    /office/i.test(office.rows[0].what) && !/portal/i.test(office.rows[0].what),
+    'got: ' + office.rows[0].what);
+
+  /* ⚠ THE TWO MUST NOT COLLAPSE INTO ONE SENTENCE. They are the same event from opposite
+     ends and the warehouse badge already tells them apart; a history that prints one word
+     for both is the screen that flattens them. Asserted as a DIFFERENCE rather than as two
+     separate matches, because a rule returning one fixed string containing both words
+     would pass both checks above. */
+  check('and the two are not the same sentence',
+    portal.rows[0].what !== office.rows[0].what,
+    'both read: ' + portal.rows[0].what);
+
+  /* ⚠ AN UNRECORDED ORIGIN GUESSES NOTHING. Every colour change made before 2026-08-24
+     carries no `lightsChangedVia`, and picking one of the two on a coin toss prints a
+     confidently wrong claim beside a real date — worse than an honest silence, and the
+     rule the badge already keeps. */
+  check('a change from before we recorded who made it claims neither',
+    !/portal/i.test(older.rows[0].what) && !/office/i.test(older.rows[0].what),
+    'got: ' + older.rows[0].what);
+
+  /* ⚠ AND IT IS ITS OWN LINE, NOT THE BUILD-QUEUE LINE. A colour change queues a build, so
+     the two sit together on a real record and it is tempting to read one as the other —
+     but a build is also queued by joining, by a re-quote, by a wire change and by coming
+     back after a recycle, and only one of those is somebody picking different colours. */
+  const both = history({ cust: { lightsChangedAt: D('2026-08-10'),
+    lightsQueuedAt: D('2026-08-10'), lightsChangedVia: 'portal' } });
+  check('a colour change and the build it queued are two lines, not one',
+    both.rows.length === 2 &&
+    both.rows.filter(r => /different lights/i.test(r.what)).length === 1 &&
+    both.rows.filter(r => /warehouse/i.test(r.what)).length === 1,
+    'got: ' + both.rows.map(r => r.what).join(' | '));
+}
 
 const strangers = stepFields.filter(f => pathFields.indexOf(f) === -1);
 if (strangers.length) note('history lists ' + strangers.length + ' field(s) the path does ' +

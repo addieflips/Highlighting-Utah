@@ -6741,6 +6741,21 @@ const HISTORY_STEPS = [
   { field: 'completedAt',              from: 'cust',  what: 'Lights went up' },
   { field: 'removalDoneAt',            from: 'cust',  what: 'Lights taken down' },
   { field: 'lightsRecycleRequestedAt', from: 'cust',  what: 'Old set asked back' },
+  /* \u2b50 THE ONE SHE NAMED FIRST, AND THE HISTORY DID NOT SHOW IT (added 2026-08-29).
+     Addie's list opened with "asked for different lights on this date". `lightsChangedAt`
+     has existed for a while, is written by the portal, by Edit Customer and by the sheet
+     sync, and is read by the Color Changes tab and the warehouse badge \u2014 it was simply
+     never added here, so the one event she asked for by name was the one missing from the
+     page built to answer her.
+     \u26a0 IT IS NOT THE SAME LINE AS "Sent to the warehouse to be built". A colour change
+     queues a build, so the two sit together and it is tempting to read one as the other \u2014
+     but a build is also queued by joining, by a re-quote, by a wire change and by coming
+     back after a recycle, and only one of those is somebody picking different colours.
+     \u26a0 AND THE WORDS SAY WHO DID IT. `lightsChangedVia` is the whole reason that field
+     exists: the customer changing their own colours and the office typing them in after a
+     call are the same event from opposite ends, and the warehouse badge already tells them
+     apart. The history must not be the one screen that flattens them. */
+  { field: 'lightsChangedAt',          from: 'cust',  what: 'Asked for different lights' },
   { field: 'rsvpRespondedAt',          from: 'cust',  what: 'Answered the RSVP' },
   /* ⚠ THE ONE THAT COSTS A CUSTOMER TIME. A cancellation asked for through their own
      portal had no date at all, so nobody could tell a request made in October from one
@@ -6772,6 +6787,21 @@ function historyMergeWords(cust){
   return 'Merged with a duplicate record' +
     (got.length ? ' — took ' + got.slice(0, 6).join(', ') +
       (got.length > 6 ? ' and ' + (got.length - 6) + ' more' : '') : '');
+}
+/* \u26a0 THE SAME THREE ANSWERS THE WAREHOUSE BADGE GIVES, from the same field, so the
+   history and the build queue cannot start disagreeing about where a colour change came
+   from. `whBuildReasonKey` is deliberately NOT called: it answers a different question
+   (why a bundle is being built, where a re-quote outranks a colour change), so a house
+   that moved AND changed colours would come back "rebuild" and this line would print
+   nothing about the colours at all.
+   \u26a0 AND AN UNRECORDED ORIGIN SAYS NOTHING RATHER THAN GUESSING. Every colour change
+   made before 2026-08-24 carries no `lightsChangedVia`, and assigning one of the two on a
+   coin toss is worse than an honest silence \u2014 the same rule the badge already keeps. */
+function historyLightsWords(cust){
+  const via = String((cust && cust.lightsChangedVia) || '').trim().toLowerCase();
+  if(via === 'portal') return 'Asked for different lights \u2014 they changed them in their own portal';
+  if(via === 'office') return 'Asked for different lights \u2014 the office put the change in for them';
+  return 'Asked for different lights';
 }
 function historySeasonWords(cust){
   const s = String((cust && cust.seasonStatus) || '').trim().toLowerCase();
@@ -6825,6 +6855,7 @@ function customerHistory(src){
     const what = step.field === 'rsvpRespondedAt' ? historyRsvpWords(s.cust)
       : step.field === 'seasonStatusAt' ? historySeasonWords(s.cust)
       : step.field === 'mergedAt' ? historyMergeWords(s.cust)
+      : step.field === 'lightsChangedAt' ? historyLightsWords(s.cust)
       : step.what;
     const at = toJsDate(raw);
     if(at) rows.push({ at: at, what: what, kind: 'step' });

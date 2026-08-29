@@ -148,6 +148,13 @@ const routeH = ['assigned', 'changedafter', 'queued'];
 const routeI = ['hung', 'noemail', 'invoiced'];
 const routeJ = ['invoiced', 'unmatched'];
 const routeK = ['scheduled', 'cancelrequest', 'recycled'];
+/* ⚠ TWO ROUTES IN, DELIBERATELY, AND BOTH ARE WALKED. A customer can ask for different
+   colours when they are asked what is changing, and again while they are sitting on the
+   schedule waiting for a day — the second is far commoner and was the one missing. A
+   reachability check alone would stay green with either of them deleted, because the
+   other still reaches the step; only naming both catches one being lost. */
+const routeL = ['memberchange', 'colourchange', 'queued'];
+const routeM = ['scheduled', 'colourchange', 'queued'];
 check('declining a re-quote asks about last year and keeps them in the season',
   walk(routeG) === '', walk(routeG));
 check('changing colours after the booking reaches a new bundle',
@@ -158,6 +165,30 @@ check('a payment that finds no bill is reachable from the invoice',
   walk(routeJ) === '', walk(routeJ));
 check('asking to cancel reaches the recycle queue',
   walk(routeK) === '', walk(routeK));
+check('asking what is changing reaches a colour change and a new bundle',
+  walk(routeL) === '', walk(routeL));
+check('and so does changing your mind while waiting for a day',
+  walk(routeM) === '', walk(routeM));
+
+/* ⚠ THE ORDINARY CHANGE AND THE LATE ONE ARE TWO BOXES, NOT ONE. Both are somebody
+   picking different colours; the only difference is whether a crew is already holding a
+   printed card for the old pattern, which is exactly what makes one routine and the other
+   an emergency. Merged, the page would either call every change an emergency or lose the
+   reassignment entirely — and the page only ever had the late one. */
+check('an ordinary colour change is not drawn as the late one',
+  byId.colourchange && byId.changedafter && byId.colourchange.id !== byId.changedafter.id &&
+  (byId.colourchange.records || []).indexOf('lightsChangedAt') !== -1 &&
+  (byId.changedafter.records || []).indexOf('lightsChangedAfterAssignAt') !== -1,
+  'the two states are recorded in different fields and must not share a box');
+
+/* ⚠ AND THE FEE IS ON THE PICTURE. Outside the 48-hour window a colour change is $30 —
+   its own field, its own note, its own parity test, and the one thing a customer asks
+   about afterwards. A route drawn straight from "they want changes" to "sent to the
+   warehouse" says nothing about it at all. */
+check('a colour change reaches the bill as well as the warehouse',
+  (byId.colourchange.next || []).some(n => n.to === 'queued') &&
+  (byId.colourchange.next || []).some(n => n.to === 'invoiced'),
+  'goes to: ' + (byId.colourchange.next || []).map(n => n.to).join(', '));
 
 /* ⚠ A NO TO A PRICE IS NOT A NO TO THE SEASON, and the graph said otherwise until now —
    `declined` was drawn as an ending. An existing customer who declines keeps their route,

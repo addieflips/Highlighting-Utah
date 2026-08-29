@@ -155,9 +155,36 @@ const STEPS = [
     plain: 'An existing customer is asked "do you want anything changed with your lights this ' +
       'year?" rather than the form — we already hold their colours and wire.',
     next: [
+      { to: 'colourchange', label: 'they want different colours or a different wire' },
       { to: 'requote',   label: 'they want more of the house lit' },
       { to: 'moved',     label: 'they have moved house' },
       { to: 'converted', label: 'nothing changes, they carry on' }
+    ] },
+
+  /* ⭐ THE COMMONEST CHANGE OF ALL, AND THE PAGE DID NOT HAVE IT (added 2026-08-29).
+   * Addie's list of what she wanted dated opened with "asked for different lights on this
+   * date" — and `lightsChangedAt` was written in three places, read by the Color Changes
+   * tab and the warehouse badge, and drawn on no path anywhere. A field written everywhere
+   * and named on no route is the exact shape of hole these censuses exist to catch, and it
+   * stayed invisible because nothing was ever red about it.
+   *
+   * ⚠ IT IS NOT `changedafter`, WHICH IS THE LATE ONE. Both are somebody picking different
+   * colours; the difference is whether a crew is already holding a printed card for the old
+   * pattern. Drawing only the late one, as the page did, makes the ordinary case look like
+   * an emergency and hides the fee question entirely.
+   *
+   * ⚠ AND THE MONEY IS THE REASON IT NEEDS ITS OWN BOX. Inside the 48-hour window a change
+   * is free; outside it, it is $30 — the fee has its own field, its own note and its own
+   * parity test, and it is the one thing a customer asks about afterwards. A route drawn
+   * straight from "they want changes" to "sent to the warehouse" says nothing about it. */
+  { id: 'colourchange', title: 'They ask for different lights',
+    plain: 'New colours, or a new wire. A new bundle has to be made, and outside their ' +
+      '48-hour window there is a $30 change fee. The record keeps whether they did it ' +
+      'themselves in their portal or the office typed it in after a call.',
+    records: ['lightsChangedAt'],
+    next: [
+      { to: 'queued', label: 'a new bundle is made for the new colours' },
+      { to: 'invoiced', label: 'and outside the 48-hour window a $30 fee goes on the bill' }
     ] },
 
   /* ⚠ MOVING IS NOT AN ORDINARY RE-QUOTE. The old set comes back AND a new one is built,
@@ -199,6 +226,11 @@ const STEPS = [
     records: ['needsDayAssignedAt'],
     next: [
       { to: 'assigned', label: 'a day is picked and a crew takes them' },
+      /* ⚠ A CHANGE MADE HERE IS STILL THE ORDINARY ONE. Nobody is holding a card for this
+         house yet, so it is `colourchange` and not `changedafter` — the crew-sheet step
+         below is where that stops being true, and drawing both from one place would lose
+         the only difference between them. */
+      { to: 'colourchange', label: 'they change their mind about the colours' },
       { to: 'cancelrequest', label: 'they ask to cancel through their portal' }
     ] },
 
