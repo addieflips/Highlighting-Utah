@@ -42510,6 +42510,37 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       logActivity(customerChangeSentence(newName || item.data.name, custChanges),
         'customers', editCustomerId);
     }
+    /* \u2b50 A WAIVED FEE IS A DECISION, AND IT LEFT NO TRACE AT ALL (added 2026-08-29).
+       `lightFeeWaived` is a LOCAL VARIABLE. It decides whether the $30 is charged and then
+       goes out of scope: nothing is written, no field moves, and the only thing that ever
+       said it happened was a toast that is gone the moment somebody looks away.
+
+       \u26a0 THE ASYMMETRY IS THE FAULT, and it is the same shape as everything else found
+       today. A fee that IS charged lands on the invoice as a `changeFeeNotes` entry with
+       its own amount, reason and date, and `historyNoteRows` reads it straight onto the
+       customer's history. A fee that is WAIVED produces nothing anywhere — so "why was
+       this customer not charged for changing their colours" has no answer, and the record
+       is indistinguishable from one where nobody was ever asked.
+
+       \u26a0 IT IS THE LOG, NOT A FIELD, for the same reason the office's edits are: this is
+       an act somebody performed, not a state the customer is in. A `feeWaived: true` on the
+       record would be read back by something eventually and would then have to be cleared,
+       and there is no correct moment to clear it.
+
+       \u26a0 IT NAMES WHO AND WHAT, because the amount is the whole question. `logActivity`
+       stamps the signed-in user by itself — four people share this dashboard — and the
+       reason the office typed goes in beside it.
+
+       \u26a0 AND IT IS ITS OWN ROW, not folded into the edit sentence above. That sentence is
+       capped at twelve fields and lists what CHANGED; a waiver is precisely a thing that
+       did NOT change, so it would be the first line dropped by the cap and the last one
+       anybody would think to look for. */
+    if(lightChange.feeAmount > 0 && lightFeeWaived){
+      logActivity('Waived the ' + fmtMoney(lightChange.feeAmount) + ' light-change fee for ' +
+        (newName || item.data.name || 'a customer') +
+        (lightChange.feeReason ? ' \u2014 ' + lightChange.feeReason : ''),
+        'customers', editCustomerId);
+    }
     /* Pool bookkeeping, after the record is safely written. Each half is
        guarded on its own: a pool write that fails must not undo a save that
        already worked, and the pool is recoverable by hand where a lost edit is

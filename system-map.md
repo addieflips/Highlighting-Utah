@@ -709,6 +709,32 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### A waived $30 fee left no trace at all
+
+`lightFeeWaived` is a **local variable** in the Edit Customer save. It decides whether the
+$30 light-change fee is charged and then goes out of scope: nothing is written, no field
+moves, and the only thing that ever said it happened was a toast — which is gone the moment
+somebody looks away.
+
+⚠ **The asymmetry is the fault**, and it is the same shape as everything else found today.
+A fee that **is** charged lands on the invoice as a `changeFeeNotes` entry with its own
+amount, reason and date, and `historyNoteRows` reads it straight onto the customer's
+history. A fee that is **waived** produced nothing anywhere — so *"why was this customer not
+charged for changing their colours"* had no answer, and the record was indistinguishable
+from one where nobody was ever asked.
+
+⚠ **The log, not a field.** This is an act somebody performed, not a state the customer is
+in. A `feeWaived: true` on the record would be read back by something eventually and would
+then have to be cleared, and there is no correct moment to clear it.
+
+⚠ **Its own row, not folded into the edit sentence.** That sentence lists what *changed* and
+is capped at twelve fields; a waiver is precisely a thing that did **not** change, so folded
+in it would be the first line dropped by the cap and the last one anybody would look for.
+
+⚠ **Guarded on both the flag and the amount.** `lightFeeWaived` starts false and stays false
+when there was no fee to waive at all, so the flag alone would eventually log a waiver on an
+ordinary save — and a log with invented rows in it is one nobody trusts.
+
 ### What a customer changed in their own portal
 
 Addie's list ended *"or changed timer settings this date. Changed address this date."* Both

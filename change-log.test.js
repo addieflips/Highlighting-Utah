@@ -324,6 +324,74 @@ if (H) {
 }
 
 /* ---------------------------------------------------------------------------
+ * 3b. A WAIVED FEE IS A DECISION, AND IT LEFT NO TRACE AT ALL.
+ *
+ * `lightFeeWaived` is a LOCAL VARIABLE in the Edit Customer save. It decides whether the
+ * $30 light-change fee is charged and then goes out of scope: nothing is written, no field
+ * moves, and the only thing that ever said it happened was a toast, which is gone the
+ * moment somebody looks away.
+ *
+ * ⚠ THE ASYMMETRY IS THE FAULT. A fee that IS charged lands on the invoice as a
+ * `changeFeeNotes` entry with its own amount, reason and date, and `historyNoteRows` reads
+ * it straight onto the customer's history. A fee that is WAIVED produced nothing anywhere,
+ * so "why was this customer not charged for changing their colours" had no answer and the
+ * record was indistinguishable from one where nobody was ever asked.
+ *
+ * ⚠ AND THE EDIT LOG COULD NEVER HAVE COVERED IT: that sentence lists what CHANGED, and a
+ * waiver is precisely a thing that did not.
+ * ------------------------------------------------------------------------- */
+{
+  const at = admin.indexOf("logActivity(customerChangeSentence");
+  const region = at > -1 ? admin.slice(at, admin.indexOf('Pool bookkeeping', at)) : '';
+  check('the waiver region was found', region.length > 0,
+    'the checks below prove nothing against a string that is not there');
+
+  check('waiving the light-change fee is recorded',
+    /logActivity\('Waived the '/.test(region),
+    'the only thing that said it happened was a toast, and a toast is gone the moment ' +
+    'somebody looks away — "why was this customer not charged" had no answer anywhere');
+
+  /* ⚠ THE AMOUNT IS THE WHOLE QUESTION. "A fee was waived" beside a name leaves the one
+     thing anybody is asking — how much — exactly where it was. */
+  check('and it says how much',
+    /fmtMoney\(lightChange\.feeAmount\)/.test(region),
+    'a waiver with no amount answers nothing');
+
+  /* ⚠ GUARDED ON BOTH, NOT ON THE FLAG ALONE. `lightFeeWaived` starts false and stays
+     false when there was no fee to waive in the first place — but a future edit that
+     defaults it the other way would log a waiver on every ordinary save, which is how a
+     log stops being read. */
+  check('and only when there really was a fee to waive',
+    /lightChange\.feeAmount > 0 && lightFeeWaived/.test(region),
+    'guarded on the flag alone, an ordinary save would eventually log a waiver that ' +
+    'never happened — and a log with invented rows in it is one nobody trusts');
+
+  /* ⚠ ITS OWN ROW, NOT FOLDED INTO THE EDIT SENTENCE. That sentence is capped at twelve
+     fields, so a waiver folded in would be the first line dropped by the cap and the last
+     one anybody would think to look for. */
+  const iEdit = region.indexOf('customerChangeSentence');
+  const iWaive = region.indexOf("logActivity('Waived the '");
+  check('it is a row of its own, after the edit row',
+    iEdit > -1 && iWaive > -1 && iWaive > iEdit,
+    'edit at ' + iEdit + ', waiver at ' + iWaive);
+
+  /* ⚠ AND IT IS AFTER THE WRITE, like every other row here: an entry for a save that then
+     failed is a history of something that did not happen. */
+  const iWrite = region.indexOf("updateDoc(doc(db,'jobAddresses', editCustomerId)");
+  const whole = at > -1 ? admin.slice(admin.lastIndexOf('const custChanges', at), admin.indexOf('Pool bookkeeping', at)) : '';
+  check('and it is written after the record is',
+    whole.indexOf("updateDoc(doc(db,'jobAddresses'") > -1 &&
+    whole.indexOf("logActivity('Waived the '") > whole.indexOf("updateDoc(doc(db,'jobAddresses'"),
+    'an entry for a save that then failed is a history of something that did not happen');
+
+  /* ⚠ NOT AWAITED — a note about a decision must never be able to break the decision, the
+     same guarantee every other logActivity call in this handler carries. */
+  check('and it cannot break the save',
+    !/await\s+logActivity\('Waived the '/.test(region),
+    'every other logActivity call in this page is fire-and-forget and carries its own catch');
+}
+
+/* ---------------------------------------------------------------------------
  * 4. THE CUSTOMER'S OWN HALF — and the two copies agree about every word.
  *
  * ⭐ THE OFFICE HALF LOOKED COMPLETE, WHICH IS WHY NOBODY NOTICED (2026-08-29). The
