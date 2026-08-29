@@ -1323,8 +1323,19 @@ function whGoalCard(g, i){
     )+
   '</div>';
 }
+/* ⚠ THE SAME FACT THE OFFICE RECORDS, and it was recorded here without a date until
+   2026-08-29. Ticking a bundle built in the office writes `lightsMarkedBuiltAt`; ticking
+   the same bundle here wrote the flag and nothing else, so a house built through this
+   screen reads "no build recorded" for ever — which is not the same as never built.
+   ⚠ ON THE TICK ONLY. Un-ticking is somebody correcting a mistake, not a bundle being
+   unmade, and stamping there would date a build that did not happen.
+   ⚠ THIS PORTAL IS OUT OF USE THIS SEASON, so this is a one-line repair rather than a
+   job: dormant is not harmless, and a screen that comes back carrying a known hole is
+   worse than one that comes back clean. */
 async function whToggleLightsNew(key, checked){
-  await updateDoc(doc(db,'jobAddresses', key), {needsLightBuild: !checked});
+  await updateDoc(doc(db,'jobAddresses', key), checked
+    ? {needsLightBuild: false, lightsMarkedBuiltAt: serverTimestamp()}
+    : {needsLightBuild: true});
 }
 async function whToggleLightsOld(key, checked){
   if(!checked) return;
@@ -1341,7 +1352,17 @@ async function whToggleRecycle(key, checked){
   const num = checked && item ? item.bin : null;
   // Clearing the number off the customer as it goes into the pool keeps exactly
   // one owner — otherwise the same label ends up on two bins.
-  await updateDoc(doc(db,'jobAddresses', key), num ? {needsLightRecycle: !checked, customerNumber: ''} : {needsLightRecycle: !checked});
+  /* ⚠ AND IT RECORDS WHEN THE SET ACTUALLY CAME APART (added 2026-08-29). The office
+     path writes `lightsRecycledAt`; this one wrote the flag and the blanked number and no
+     date, so a bundle taken apart through this screen left no trace of when — which is
+     the difference between a bin on the shelf and a bin back in stock.
+     ⚠ ON THE TICK ONLY, for the same reason as the build above: un-ticking is a
+     correction, not a set being rebuilt. */
+  const recycleWrite = checked
+    ? {needsLightRecycle: false, lightsRecycledAt: serverTimestamp()}
+    : {needsLightRecycle: true};
+  if(num) recycleWrite.customerNumber = '';
+  await updateDoc(doc(db,'jobAddresses', key), recycleWrite);
   if(num){
     const type = parseInt(num,10) >= 5000 ? 'double' : 'regular';
     try{ await setDoc(doc(db,'availableCustomerNumbers', String(num)), {type: type, releasedAt: serverTimestamp()}); }
@@ -2092,10 +2113,23 @@ document.getElementById('ecSaveBtn').addEventListener('click', async function(){
         return;
       }
       const loc = results[0].geometry.location;
+      /* ⚠ THE WAREHOUSE HAS TO BE TOLD, and this door was not telling it (fixed
+         2026-08-29). A customer created here got a record and never a bundle: no
+         needsLightBuild, so they never reached Needs Building, nothing was ever made for
+         them, and a crew would arrive at the house with no lights for it. The office's
+         own Add a Customer has always set both.
+         ⚠ UNGATED, on Addie's own ruling (WH-20): "we want to build everyone." A house
+         with no colours belongs in the build queue's Waiting on light colours block,
+         which is visible and has an Add colours button — gating the flag makes those
+         houses invisible instead, which is the bug the rule closed. This door collects no
+         colours at all, so every customer it makes lands there, which is correct.
+         ⚠ AND IT CARRIES THE DATE, so the wait is measurable from the moment they were
+         entered rather than from whenever somebody in the office next touched them. */
       await addDoc(collection(db,'jobAddresses'), {
         street: street, city: city, state: 'UT', zip: zip,
         address: fullAddress, name: name, phone: phone, email: email, difficulty: 'Unrated',
-        lat: loc.lat(), lng: loc.lng(), scheduled: false, createdAt: serverTimestamp()
+        lat: loc.lat(), lng: loc.lng(), scheduled: false, createdAt: serverTimestamp(),
+        needsLightBuild: true, lightsQueuedAt: serverTimestamp()
       });
       statusEl.textContent = 'Added!';
       ['ecName','ecPhone','ecEmail','ecStreet','ecCity','ecZip'].forEach(function(id){ document.getElementById(id).value = ''; });

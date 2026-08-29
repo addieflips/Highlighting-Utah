@@ -1693,3 +1693,86 @@ being right.
 Nobody changes this number without her.
 
 **Resulting map change:** MR-08 in `claude/questions-map.md`.
+
+---
+
+## Q-025 · intent · OPEN · raised 2026-08-29
+A card is charged and no invoice can be found to apply it to. Where should that show, and who may clear it?
+
+**This is real money that is currently invisible, so it is recorded rather than
+guessed at.** Found while working the instruction to *"make sure there all
+accurate, and there all there along with marking were the errors or holes are
+at"*.
+
+**What happens today.** `recordUnmatchedPayment` in functions/index.js files the
+capture in `unmatchedPayments` and texts the office, if an alert number is set.
+The usual cause is the phone or email the bill is keyed on having changed since
+the invoice was written.
+
+**Three things are then true at once, and each was checked rather than assumed:**
+
+1. Nothing anywhere writes `resolved: true` — the field is written `false` once
+   and never moves.
+2. **No screen in admin.html reads `unmatchedPayments` at all.** The collection
+   is invisible in the app.
+3. `firestore.rules` line 169 says `allow write: if false`, so even a screen that
+   existed could not mark one dealt with.
+
+Meanwhile the customer's own portal reads **Paid in Full**. The money is real,
+correctly captured, and in a place with no way in and no way out.
+
+**Why it is not simply built.** Two answers are needed and neither is mine:
+
+- **Where should these show?** Health Check is the obvious place and is the wrong
+  one — HC-03 records that it is not read, and that adding a row there is how a
+  finding gets buried rather than reported. The Invoices tab is where money lives.
+- **Who may clear one, and what does clearing mean?** Applying it to the right
+  invoice, refunding it, or simply marking it seen are three different answers
+  about somebody's money. And letting the office write to that collection needs a
+  `firestore.rules` change — which **CI does not deploy**; it needs
+  `firebase deploy --only firestore:rules` by hand.
+
+**What was done meanwhile.** It is drawn on Connections › The path as an ending,
+marked not built, saying in as many words that there is no way out of the state.
+That makes it visible without pretending a repair exists.
+
+**Resulting map change.** None yet — this is a hole, not a ruling, and the
+questions map holds rulings only. It gets a row there when it is answered.
+
+---
+
+## Q-026 · intent · OPEN · raised 2026-08-29
+Should Start New Season clear `removalDone`, the way it clears `completed`?
+
+**This is a change to Start New Season, which is on the short list of things
+that need you rather than a judgement call, so it is recorded rather than made.**
+
+**What happens today.** The reset clears `completed`, `invoiceEmailSent`,
+`scheduled`, `scheduledDate`, `assignedCrew`, `chargeNewMemberFee`,
+`needsDayAssignedAt`, `rejoinedForSeasonAt` and `cameBackThisSeasonAt`. It does
+**not** clear `removalDone` or `removalDoneAt`, and nothing else ever does —
+`grep` finds exactly one writer of `removalDone: false`, the Mark Done toggle
+being un-ticked by hand.
+
+**So a customer whose lights were taken down last December reads "Removed" all
+the way through the new season**, until somebody visits the record and unticks it.
+
+**Why it looks like an oversight rather than a decision.** `completed` and
+`removalDone` are the same shape of fact — a job done this season — and the
+comment on that write explains why each of the other eight is cleared. This one
+is not mentioned.
+
+**Why it is not simply fixed.** Start New Season rewrites every customer in the
+book in one press and cannot be undone. If `removalDone` is season-scoped it
+should be cleared with the rest; if it is meant to persist — because a bin that
+came back stays back until the crew take it out again — then clearing it would
+tell the warehouse a set is out that is not. **I do not know which, and guessing
+wrong is a real crew journey.**
+
+**What was done meanwhile.** Nothing to the reset's behaviour. It now also
+stamps `seasonResetAt` on each customer — purely additive, read only by the
+customer history, which draws a line at that date so last season's dates stop
+reading as this season's. That was the visible symptom; this question is the
+underlying one.
+
+**Resulting map change.** None yet — it gets a row when it is answered.

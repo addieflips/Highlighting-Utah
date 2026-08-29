@@ -16849,10 +16849,14 @@ suite('Suite 54. Merging a customer who is in the book twice');
       'same shape of lock as every other bulk change in Danger Zone');
 
     /* ⭐ THE ORDER THAT CANNOT LOSE ANYTHING. */
+    /* ⚠ ANCHORED ON THE CALL, NOT ITS ARGUMENTS (repointed 2026-08-29). This matched the
+       whole expression `..., g.gains)` — so the moment that write also recorded WHERE the
+       gained fields came from, it failed on code that is right and still keeps the order.
+       The invariant is which write happens first; the argument list is not the invariant.
+       Same slow-fuse shape as S82, S129 and the folder-names suite. */
+    const keeperWrite = body.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id)");
     check('S54', 'the keeper is filled in BEFORE the spare is deleted',
-      body.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id), g.gains)") > 0 &&
-      body.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.id), g.gains)") <
-      body.indexOf("deleteDoc(doc(db,'jobAddresses', l.id))"),
+      keeperWrite > 0 && keeperWrite < body.indexOf("deleteDoc(doc(db,'jobAddresses', l.id))"),
       'the other order can lose the very field this exists to rescue — delete the copy holding the ' +
       'price, fail to write it onto the keeper, and it is gone for good');
     check('S54', 'it takes the copy off any route before deleting it',
@@ -32566,7 +32570,13 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
 
   const NEEDED = ['declineAsksAboutLastYear', 'quoteCustomerRef',
     'quoteMatchesExistingCustomer', 'quoteMatchAddressServer', 'digitsOnly',
-    'tryFirestore', 'flagQuoteFollowUp'];
+    'tryFirestore', 'flagQuoteFollowUp',
+    /* ⚠ LIFTED, NOT STUBBED (2026-08-29). Settling a customer's changes writes
+       seasonStatus, and that is now dated — a stub would answer the question this suite
+       exists to ask (what a decline does to their season) with itself. Added the moment
+       the real function gained the call: sandboxDeps named it in the failure, which is
+       exactly what that guard is for. */
+    'stampSeasonStatusServer'];
   const src = {};
   NEEDED.forEach(n => { src[n] = extractFn(fns, n); });
   const missing = NEEDED.filter(n => !src[n]);
@@ -32717,11 +32727,27 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
            to assert. */
         const after = JSON.parse(JSON.stringify(w.customers.c1));
         const start = JSON.parse(before);
-        ['askSameAsLastYear', 'askSameAsLastYearAt', 'seasonStatus']
+        /* ⚠ THE TWO STAMP FIELDS ARE THE DATE OF A CHANGE THIS LIST ALREADY ALLOWS, not
+           two more changes (added 2026-08-29). seasonStatus was undated everywhere, which
+           left a customer's cancellation request unsortable by how long they had waited;
+           dating it means `seasonStatusAt` and `seasonStatusWas` ride with the field they
+           describe. Widened deliberately rather than the check being weakened — it still
+           catches a decline touching a route, a build or an RSVP, which is its whole job. */
+        ['askSameAsLastYear', 'askSameAsLastYearAt', 'seasonStatus',
+         'seasonStatusAt', 'seasonStatusWas']
           .forEach(k => { delete after[k]; delete start[k]; });
         check('S137', 'and NOTHING else on the record moved at all',
           JSON.stringify(after) === JSON.stringify(start),
           'a decline may set the question flag and close the re-quote, nothing more');
+        /* ⚠ AND THE DATE ONLY RIDES ALONG WHEN THE STATUS REALLY MOVED. Allowing the two
+           fields above must not become permission for them to appear on a decline that
+           changed nothing — that would reset the clock on somebody's pending request. */
+        check('S137', 'and the status date only appears when the status actually changed',
+          (after2 => after2.seasonStatus === undefined
+            ? after2.seasonStatusAt === undefined : true)(
+            JSON.parse(JSON.stringify(w.customers.c1))),
+          'stamped on a save that changed nothing, a cancellation asked for in October ' +
+          'starts reading as asked for today');
 
         /* ---- the inbox notification the owner asked for ---------------- */
         check('S137', 'exactly one System note is raised',

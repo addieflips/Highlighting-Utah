@@ -29,6 +29,39 @@ function scripts(src) {
    comments. Regex literals are NOT handled — a `/` followed by a brace inside a regex
    could in principle throw the count off; in practice every case in these three files
    is balanced, and the caller's landmark assertions would catch it if that changed. */
+/* ⚠ THIS HAS ITS OWN QUOTE HANDLING, SEPARATE FROM blankNonCode, and it had the same blind
+   spot: a regex literal containing a quote. employee.html's `escHtmlPrint` is
+   /[&<>"']/g — an apostrophe inside a character class. Read as a string opener it stayed
+   open, the brace depth never came back to zero at the real closing brace, and that
+   function claimed a range of THIRTY-FIVE THOUSAND characters. Every `enclosing()` lookup
+   in that span then answered `escHtmlPrint`, including a write inside a handler twenty
+   thousand characters later — and this file's own rule is that a confidently wrong name is
+   worse than no name, because it sends somebody to the wrong place.
+   ⚠ IT SURFACED THE DAY employee.html JOINED THE CENSUS, not before: a wrong answer about
+   a file nothing asked about costs nothing. */
+function skipRegex(code, i) {
+  /* A `/` is divide or regex, decided by what comes before it. After a value — a name, a
+     number, a closing bracket — it is division; after an operator, comma, opening bracket
+     or keyword it opens a literal. Unrecognised, it behaves exactly as it did before. */
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(code[j])) j--;
+  const prev = j >= 0 ? code[j] : '';
+  if (/[A-Za-z0-9_$)\]]/.test(prev)) {
+    const word = code.slice(Math.max(0, j - 9), j + 1);
+    if (!/\b(return|typeof|case|in|of|delete|void|instanceof)$/.test(word)) return -1;
+  }
+  let k = i + 1, cls = false;
+  for (; k < code.length; k++) {
+    const ch = code[k];
+    if (ch === '\\') { k++; continue; }
+    if (ch === '\n') return -1;          /* a regex cannot span lines — not one after all */
+    if (cls) { if (ch === ']') cls = false; continue; }
+    if (ch === '[') { cls = true; continue; }
+    if (ch === '/') return k;
+  }
+  return -1;
+}
+
 function matchBrace(code, open) {
   let depth = 0, inStr = null;
   for (let i = open; i < code.length; i++) {
@@ -37,6 +70,7 @@ function matchBrace(code, open) {
     if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
     if (c === '/' && code[i + 1] === '/') { i = code.indexOf('\n', i); if (i < 0) return -1; continue; }
     if (c === '/' && code[i + 1] === '*') { i = code.indexOf('*/', i); if (i < 0) return -1; i++; continue; }
+    if (c === '/') { const e = skipRegex(code, i); if (e > 0) { i = e; continue; } }
     if (c === '{') depth++;
     else if (c === '}') { depth--; if (!depth) return i; }
   }
@@ -125,6 +159,10 @@ function index(pathOrSrc, isSource) {
  * PORTAL_READ_FIELDS registers as a touch; that is amber noise, which is visible and
  * survivable, where a missed read would be a silent false green.
  * ------------------------------------------------------------------------- */
+/* The lookup tables that map a field name to words for a person. They contain no writes
+   of anything — see the note at the end of blankNonCode. */
+const DECLARATION_TABLES = ['CUSTOMER_FIELD_LABELS', 'CUSTOMER_FIELD_QUIET'];
+
 function blankNonCode(src) {
   const out = src.split('');
   let i = 0, inStr = null;
@@ -168,8 +206,71 @@ function blankNonCode(src) {
       const e = src.indexOf('*/', i); const end = e < 0 ? src.length : e + 2;
       blank(i, end); i = end; continue;
     }
+    /* ⭐ A REGEX LITERAL IS NOT CODE FULL OF QUOTES (added 2026-08-29, and it is the
+       in-script half of the cascade this function's own header describes).
+       employee.html's `escHtmlPrint` contains /[&<>"']/g — an apostrophe and a double
+       quote inside a character class. Read as string delimiters, the apostrophe opened a
+       string that stayed open, brace counting went wrong, and that function claimed a
+       range of THIRTY-FIVE THOUSAND characters: every `enclosing()` lookup in that span
+       came back `escHtmlPrint`, including a write inside a handler 20k characters later.
+       ⚠ AND THE SCANNER'S OWN RULE IS THAT A CONFIDENTLY WRONG NAME IS WORSE THAN NONE —
+       "(a handler)" sends somebody looking; a wrong function name sends them to the wrong
+       place and wastes the trip. It surfaced the moment employee.html joined the census.
+       ⚠ THE `/` IS AMBIGUOUS — divide or regex — so it is decided by what comes BEFORE it,
+       the standard heuristic: after a value (a name, a number, a closing bracket) it is
+       division; after an operator, a comma, an opening bracket or a keyword it starts a
+       regex. Getting this wrong in the safe direction costs nothing: an unrecognised regex
+       behaves exactly as it did before this change.
+       ⚠ OFFSETS UNTOUCHED, like everything else here — the literal is skipped over, not
+       removed, so every position still lines up with the real file. */
+    if (c === '/' && inScript(i)) {
+      let j = i - 1;
+      while (j >= 0 && /\s/.test(src[j])) j--;
+      const prev = j >= 0 ? src[j] : '';
+      const word = /[A-Za-z0-9_$)\]]/.test(prev) ? src.slice(Math.max(0, j - 9), j + 1) : '';
+      const afterValue = /[A-Za-z0-9_$)\]]/.test(prev) &&
+        !/\b(return|typeof|case|in|of|delete|void|instanceof)$/.test(word);
+      if (!afterValue) {
+        /* Walk to the closing slash, honouring escapes and character classes — a `/`
+           inside [...] does not end the literal. */
+        let k = i + 1, cls = false, ok = false;
+        for (; k < src.length; k++) {
+          const ch = src[k];
+          if (ch === '\\') { k++; continue; }
+          if (ch === '\n') break;             // a regex cannot span lines: not one after all
+          if (cls) { if (ch === ']') cls = false; continue; }
+          if (ch === '[') { cls = true; continue; }
+          if (ch === '/') { ok = true; break; }
+        }
+        if (ok) { i = k + 1; continue; }
+      }
+    }
     i++;
   }
+  /* ⭐ A LOOKUP TABLE IS DATA, NOT A WRITE (added 2026-08-29). The change log declares a
+     human label for every editable field — `housePrice: {label: 'House price', ...}`,
+     `customerNumber: 'Customer number'` — and to a scanner that reads `name:` as a write
+     those ten rows are ten new places that set ten WATCHED fields. Nothing went red; the
+     page simply grew ten amber rows that were never writes at all, which is amber that
+     teaches you to stop reading amber.
+     ⚠ NAMED, NOT INFERRED. A rule like "a value that opens a brace is not a write" would
+     catch the object form and miss `customerNumber: 'Customer number'` entirely, and any
+     rule loose enough to catch both would start hiding real writes. Naming the two tables
+     says what is true — these hold labels, not values — and a table added later has to be
+     named here deliberately.
+     ⚠ BLANKED, NOT DELETED, exactly like a comment: every offset still lines up with the
+     real file, so a position taken from the blanked source still points at the right
+     place in admin.html. */
+  DECLARATION_TABLES.forEach(function (name) {
+    const at = src.indexOf('const ' + name + ' = {');
+    if (at < 0) return;
+    let k = src.indexOf('{', at), depth = 0, end = k;
+    for (; end < src.length; end++) {
+      if (src[end] === '{') depth++;
+      else if (src[end] === '}') { depth--; if (!depth) break; }
+    }
+    blank(at, end + 1);
+  });
   return out.join('');
 }
 

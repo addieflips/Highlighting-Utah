@@ -581,6 +581,110 @@ note('⭐ IF THIS SESSION GOT A RULING FROM ADDIE, ADD A ROW BEFORE YOU FINISH. 
 // ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
 
+/* ---------------------------------------------------------------------------
+ * EVERY STANDING RULING POINTS AT CODE THAT EXISTS.
+ *
+ * Addie, 2026-08-29: "all connections and rules should be worked on to make sure there
+ * all accurate, and there all there along with marking were the errors or holes are at".
+ *
+ * ⚠ THE HOLE THIS FINDS IS A RULING NOBODY CAN CHECK. Every row names the code that
+ * carries its decision, and nothing ever confirmed those names were real. Run for the
+ * first time it found MR-20 pointing at RM_LOOK_SENSITIVITY — a constant that has never
+ * existed in this repo. A STANDING ruling whose own pointer led nowhere, unnoticed because
+ * following it is something a person only does when they are already lost.
+ *
+ * ⚠ A RENAME IS THE COMMON CASE, AND IT IS SILENT. Functions are renamed constantly; the
+ * map is prose and never moves with them, so it drifts one rename at a time and the day
+ * somebody needs a ruling is the day they find out.
+ *
+ * ⚠ STANDING ROWS FAIL, HISTORICAL ROWS ONLY NOTE. A superseded or closed ruling may
+ * legitimately name code that has since gone — that is what superseded means. A standing
+ * one may not: it claims to describe how the app works today.
+ *
+ * ⚠ AND BACKTICKS MEAN "LOOK HERE". A dead name being QUOTED rather than pointed at must
+ * not wear them — found within a minute, because the fix to MR-20 named the dead constant
+ * in backticks while explaining it was dead, and this check flagged its own correction.
+ * ------------------------------------------------------------------------- */
+{
+  const SRC = [];
+  (function walk(dir) {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(__dirname, dir || ''), { withFileTypes: true }); }
+    catch (err) { return; }   /* an unreadable folder is not a ruling problem */
+    entries.forEach(e => {
+      if (e.name === 'node_modules' || e.name === '.git') return;
+      const rp = (dir ? dir + '/' : '') + e.name;
+      if (e.isDirectory()) return walk(rp);
+      if (!/\.(js|html|rules|json)$/.test(e.name)) return;
+      /* ⚠ TESTS ARE NOT SOURCE. Red-checking removed a function from admin.html entirely
+         and this stayed green, because the suite that LIFTS that function still named it —
+         so the anchor "existed" in a file whose only job is to talk about the code. A
+         ruling points at the thing that DOES the work. */
+      if (/\.test\.js$/.test(e.name)) return;
+      try { SRC.push(fs.readFileSync(path.join(__dirname, rp), 'utf8')); } catch (err) { /* same */ }
+    });
+  })('');
+  const haystack = SRC.join('\n');
+  check('the source was read, so a missing anchor means something', haystack.length > 500000, {
+    problem: 'only ' + haystack.length + ' characters of source were read',
+    fix: 'a search over almost nothing reports every anchor as missing, or none — ' +
+         'either way it is not measuring the map'
+  });
+
+  const dead = [], deadHistoric = [];
+  let anchors = 0;
+  rows.forEach(r => {
+    if (r.cells.length !== 6) return;
+    const proof = r.cells[4], status = r.cells[5] || '';
+    (proof.match(/`([^`]+)`/g) || []).forEach(raw => {
+      const n = raw.slice(1, -1).trim();
+      /* A file path, a ruling id, or a phrase — none of those is a code anchor. */
+      if (/[\s(),]/.test(n)) return;
+      if (/\.(js|md|html|json|rules|xlsx)$/.test(n)) return;
+      if (/^[A-Z]+-\d+$/.test(n)) return;
+      if (n.length < 4) return;
+      /* ⚠ AN ANCHOR IS NOT ALWAYS A BARE NAME, and the first version treated it as one —
+         it flagged `#rmDifficulty` (an element id), `settings/measureAlign` (a Firestore
+         path) and `kind:'carried'` (a value on a record), all three of which lead exactly
+         where they say. Three false alarms out of three findings, on a check whose whole
+         job is to be believed: a gate that cries wolf is one nobody reads, including on
+         the day it is right. So the anchor is broken into the names inside it and EVERY
+         one has to exist — which still catches a rename, and stops punishing the map for
+         writing a pointer the way a person would. */
+      const parts = (n.match(/[A-Za-z_][A-Za-z0-9_]{3,}/g) || []);
+      if (!parts.length) return;
+      anchors++;
+      /* ⚠ WORD-BOUNDED, NOT A SUBSTRING. Red-checking renamed a function by adding one
+         letter and this went straight through, because the old name is still inside the
+         new one — the same trap the connections engine already records, where
+         `completedAt` counted as `completed`.
+         ⚠ AND THE LIMIT IS WORTH STATING RATHER THAN OVERCLAIMING: this proves the name
+         appears SOMEWHERE, so a definition renamed while its callers still use the old
+         name reads as present here. That is another gate's job — the suites that LIFT
+         these functions die on the missing name. What this catches is the common case: a
+         name that has left the codebase entirely and a ruling still pointing at it. */
+      const here = part => new RegExp('\\b' + part + '\\b').test(haystack);
+      if (parts.every(here)) return;
+      const gone = parts.filter(part => !here(part));
+      (/Standing|Decided/.test(status) ? dead : deadHistoric).push(r.id + ' → ' + gone.join(', '));
+    });
+  });
+  check('the anchor scan is finding anchors to check', anchors > 100, {
+    problem: 'found ' + anchors + ' anchors',
+    fix: 'a matcher that has stopped matching demands nothing at all — the same shape ' +
+         'as a suite that cannot find its target and skips'
+  });
+  check('every standing ruling points at code that exists', dead.length === 0, {
+    problem: dead.length + ' standing ruling(s) point at nothing: ' + dead.join(', '),
+    fix: 'a standing ruling describes how the app works today, so its own pointer has to ' +
+         'lead somewhere. Rename it to what the code is called now — and if you are ' +
+         'QUOTING a dead name rather than pointing at it, take the backticks off.'
+  });
+  if (deadHistoric.length) note(deadHistoric.length + ' superseded or closed ruling(s) name ' +
+    'code that has since gone: ' + deadHistoric.join(', ') + '. Not a failure — that is ' +
+    'what being superseded means — but if one is really still standing, fix its anchor.');
+}
+
 console.log('\n=== The questions map ===\n');
 console.log('  ' + w('status', 24) + 'rows');
 Object.keys(byStatus).sort().forEach(k => console.log('  ' + w(k, 24) + byStatus[k]));

@@ -570,7 +570,7 @@ const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
   'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
-  'seasonStatus', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
+  'seasonStatus', 'seasonStatusAt', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
   /* Set when they decline a re-quote: somebody has to ask whether last year's
      job will do. In the read list so the portal cannot contradict the office
      about a question that is still open. */
@@ -1137,6 +1137,33 @@ function stampRecycleRequestedServer(updates, wasQueued) {
   return updates;
 }
 
+/* ⭐ WHEN THEIR SEASON STATUS CHANGED (added 2026-08-29). Four values are written to
+ * `seasonStatus` — a cancellation asked for, an address changed, changes needed, and
+ * confirmed — and NOTHING recorded when any of them happened. A search for a date on it
+ * across admin.html, functions/index.js and index.html returned nothing at all.
+ *
+ * ⚠ THE ONE THAT COSTS IS THE CANCELLATION. A customer asking through their own portal to
+ * be let out of the season sits in `cancellation_requested` with a crew still notionally
+ * coming, and the office queue had no way to sort by how long anybody had waited — a
+ * request made in October looked exactly like one made this morning.
+ *
+ * ⚠ ON THE TRANSITION ONLY, like every other stamp here. portalSave writes this status on
+ * saves that did not change it, so re-stamping would reset the clock every time a customer
+ * opened their portal and pressed save.
+ *
+ * ⚠ AND IT KEEPS WHAT IT CHANGED FROM. "Changed on the 4th" cannot say whether they were
+ * cancelling or correcting their address, and those two need opposite actions from the
+ * office — so the previous value travels with the date.
+ */
+function stampSeasonStatusServer(updates, wasStatus) {
+  if (updates && typeof updates.seasonStatus === 'string' &&
+      updates.seasonStatus !== String(wasStatus || '')) {
+    updates.seasonStatusAt = admin.firestore.FieldValue.serverTimestamp();
+    updates.seasonStatusWas = String(wasStatus || '');
+  }
+  return updates;
+}
+
 function stampBuildQueuedServer(updates, wasQueued) {
   if (updates && updates.needsLightBuild === true && !wasQueued) {
     updates.lightsQueuedAt = admin.firestore.FieldValue.serverTimestamp();
@@ -1305,6 +1332,11 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   stampBuildQueuedServer(updates, !!oldData.needsLightBuild);
   /* Clearing your own colours in the portal queues a recycle — one of the six ways. */
   stampRecycleRequestedServer(updates, !!oldData.needsLightRecycle);
+  /* ⚠ AFTER every branch that can set the status — the info save, the sides change and
+     the cancel section all write it, so a stamp beside any one of them would miss the
+     other two. That is the placement lesson the build stamp already cost: it shipped
+     inside one branch and recorded nothing for every other way in. */
+  stampSeasonStatusServer(updates, oldData.seasonStatus);
 
   // Keep the normalised sign-in fields in step with whatever just changed —
   // see contactIndexFields. Without this a customer who edits their own phone
@@ -2040,6 +2072,11 @@ async function declineAsksAboutLastYear(quoteData, quoteId) {
      that is not this quote, and clearing it would un-cancel somebody. */
   const was = String((cust.data || {}).seasonStatus || '');
   if (QUOTE_RAISED_STATUSES_SERVER.indexOf(was) !== -1) updates.seasonStatus = 'confirmed';
+  /* ⚠ THE THIRD WRITER, and it was missed until a census went looking. Settling a
+     customer's changes is as much a status change as asking for them, and undated the
+     history can say a re-quote was owed and never that it was answered. `was` is the
+     value read from the record above, which is exactly what the stamp needs. */
+  stampSeasonStatusServer(updates, was);
 
   const wrote = await tryFirestore('decline customer update', () =>
     db.collection('jobAddresses').doc(cust.id).update(updates));
@@ -2250,6 +2287,14 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
        Closed -> Archived instead of Ready to Convert. */
     quoteUpdates.quoteArchived = false;
     quoteUpdates.quoteArchivedReason = '';
+    /* ⚠ AND THE DATE GOES WITH THEM (added 2026-08-29). Clearing the flag and the reason
+       while leaving `quoteArchivedAt` standing left a restored quote reading as archived
+       on a date AND not archived at the same time — two fields describing one state and
+       disagreeing. Anything reading the date to decide how long a quote has been closed
+       gets an answer about an archiving that was undone.
+       ⚠ THE THREE ARE ONE FACT, so they are written together. That is the whole reason
+       this was easy to miss: two of the three were cleared, which looks complete. */
+    quoteUpdates.quoteArchivedAt = null;
   }
   await db.collection('quotes').doc(quoteId).update(quoteUpdates);
 
