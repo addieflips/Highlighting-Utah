@@ -23399,6 +23399,135 @@ function rmCommitPayload(feet, price, grade, measurement){
   return payload;
 }
 
+/* ⭐ THE MEASUREMENT REACHES THE CUSTOMER, NOT JUST THE QUOTE (2026-08-29).
+   Owner: "also make it so the feet and price attaches to the customer as well
+   so that automatically goes in the system."
+
+   ⚠ ONLY WHERE THERE IS A CUSTOMER TO WRITE TO. A quote that has not been
+   converted has no record of its own, and its feet and price already carry
+   across on conversion (fillAddCustFromQuote). Guessing at a customer by name or
+   phone from here is how a book gets ~944 duplicates in it, and how somebody
+   else's price gets rewritten - so this follows the SAME link the rest of the
+   file follows, convertedToCustomerId or existingCustomerId, and does nothing
+   at all when there is none.
+
+   ⚠ AND THE INVOICE IS RE-SUMMED FROM THE HOUSES, never written directly.
+   syncPayerInvoice is the one writer of a bill; a housePrice changed underneath
+   it leaves the office and the nightly run disagreeing about what is owed, which
+   is tier 1 in CLAUDE.md. A house that bills to somebody else re-sums THEIR
+   invoice, because that is the bill this price is now part of.
+
+   ⚠ THE CUSTOMER NUMBER IS NOT TOUCHED. Feet decide 1 bin or 2 and therefore
+   which series a number comes from, but a number already given out is on a bin
+   in the warehouse. So this SAYS the series no longer fits and leaves the number
+   for a person - the re-quote flow exists for exactly that conversation. */
+async function rmPushToCustomer(feet, price){
+  const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+  const d = item ? item.data : null;
+  if(!d) return '';
+  const custId = String(d.convertedToCustomerId || d.existingCustomerId || '').trim();
+  if(!custId) return '';
+  const cust = (jobAddresses || []).find(function(a){ return a.id === custId; });
+  /* Linked to a customer who has since been deleted. Saying so beats writing
+     into a document that is not there. */
+  if(!cust) return 'their customer record could not be found, so only the quote was updated';
+  /* ⚠ ONLY WHAT WAS ACTUALLY MEASURED. "Save the price only" has no footage
+     behind it and "Save the feet only" has no price, and writing a missing half
+     as 0 would zero a real one - a house billed at nothing, or a measured house
+     dropped back to one bin. */
+  const updates = {};
+  if(feet > 0){ updates.measuredFeet = feet; updates.numberOfBins = cnBinsForFeet(feet); }
+  if(price) updates.housePrice = price;
+  if(!Object.keys(updates).length) return '';
+  /* ⚠ STAMPED LIKE ANY OTHER CUSTOMER SAVE. Without these two, "has anyone
+     touched this since I opened it?" is unanswerable on a record this just
+     changed, and "who put that price on?" has no answer at all - and a price
+     that arrived from somewhere nobody can name is the worst kind on a bill. */
+  updates.updatedAt = serverTimestamp();
+  updates.lastEditedBy = paymentLedgerUser();
+  /* Taken BEFORE the write, off the record as it stands, exactly as the Edit
+     Customer save does it - afterwards there is nothing left to compare. */
+  const changed = describeCustomerChanges(cust.data, updates);
+  try{
+    await updateDoc(doc(db, 'jobAddresses', custId), updates);
+    Object.assign(cust.data, updates);
+    /* ⚠ NOT AWAITED, like every other logActivity call: a note about a change
+       must never be able to break the change. It carries its own catch. */
+    if(changed.length) logActivity('Measured ' + (cust.data.name || 'a customer') + ' — ' + changed.join('; '), 'customers', custId);
+  } catch(err){
+    return 'their customer record did NOT update — put ' + feet + ' ft' + (price ? ' and ' + fmtMoney(price) : '') + ' on it by hand';
+  }
+  /* The bill this house is part of, which is the payer's when it bills to one. */
+  const payerKey = String(cust.data.billToPhone || '').replace(/\D/g, '') || custInvoiceKey(cust.data);
+  let billNote = '';
+  try{ await syncPayerInvoice(payerKey); }
+  catch(err){ billNote = ' (their invoice did not re-sum — open it and save it once)'; }
+  const num = String(cust.data.customerNumber || '').trim();
+  const bins = feet > 0 ? cnBinsForFeet(feet) : 0;
+  /* Nothing to say about the number when the footage did not move. */
+  const fits = !bins || !num || (bins >= 2) === (parseInt(num, 10) >= 5000);
+  return 'and onto ' + (cust.data.name || 'their customer record') + billNote +
+    (fits ? '' : ' — #' + num + ' is the wrong series for ' + bins + ' bin' + (bins === 1 ? '' : 's') + ', so check their number');
+}
+/* ⭐ AND THE NUMBERS GO ON WITH THE PICTURE (2026-08-29). Owner: "after
+   everything happens it should close it automatically after everything
+   attaches" - so one press has to BE everything, or closing on it loses the
+   half nobody pressed.
+
+   ⚠ THE PICTURE WAS THE ONLY HALF THAT TRAVELLED. The footage and the price had
+   their own button in another panel, so a house could be measured, captured,
+   attached and closed with estimatedFeet still empty - and quoteFeetOrEstimate
+   then turns the PRICE back into feet with a 5% margin to size the bins, pick
+   the number series and count the bundles. Owner, on exactly that: "I need no
+   guessing I need feet to be correct."
+
+   ⚠ IT NEVER TAKES THE PICTURE DOWN WITH IT. The photograph has already landed
+   by the time this runs; a failure here reports itself and leaves it there
+   rather than throwing away the half that worked. */
+async function rmSaveNumbersOnAttach(){
+  if(!rmQuoteId) return '';
+  const measured = rmTotals().all;
+  const feet = Math.round(measured * RM_FEET_MULTIPLIER);
+  if(!(feet > 0)) return '';
+  const price = rmSuggestedPrice;
+  /* ⚠ THE SAME QUESTION THE SAVE BUTTONS ASK, and for the same reason: once
+     this is saved it drives the price, the bin count and the bundle count, and
+     nothing downstream can tell a measured foot from a guessed one. Answering no
+     leaves the numbers alone; the picture is already attached either way. */
+  const guessed = rmGuessedFeet();
+  if(guessed && !confirm(
+      rmFmtFeet(guessed) + ' of this ' + rmGuessedWhy() + ', so that much is a guess.\n\n' +
+      rmGuessedFix() + '\n\n' +
+      'Save ' + feet + ' ft' + (price ? ' and ' + fmtMoney(price) : '') + ' onto the quote as well?')){
+    return 'the feet and price were left alone — ' + rmGuessedFix();
+  }
+  const grade = rmCurrentGrade();
+  /* Built before the write and its failure survivable, exactly as the Save
+     buttons do it: a serializer fault must cost the drawing, never the numbers. */
+  let measurement = null;
+  try{ measurement = rmMeasurementDoc(); }
+  catch(err){ console.error('Measure: could not package the drawing —', err); }
+  try{
+    await updateDoc(doc(db, 'quotes', rmQuoteId), price
+      ? rmCommitPayload(feet, price, grade, measurement)
+      : rmSavePayload(feet, measurement));
+    const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
+    if(item){
+      item.data.estimatedFeet = feet;
+      if(price) item.data.quotedPrice = price;
+      item.data.measurement = measurement
+        ? Object.assign({}, measurement, {difficulty: grade})
+        : Object.assign({}, item.data.measurement || {}, {difficulty: grade});
+    }
+    renderQuotesList();
+    rmRenderCommit();
+  } catch(err){
+    return 'the feet and price did NOT save — use Save to this quote';
+  }
+  const onCust = await rmPushToCustomer(feet, price);
+  return feet + ' ft' + (price ? ' and ' + fmtMoney(price) : '') + ' saved on the quote' + (onCust ? ', ' + onCust : '');
+}
+
 /* Is the price already on the quote still the price this grade produces?
  * ⚠ null MEANS "NOTHING TO COMPARE", not "they agree". A quote that has never
  * been priced must not read as out of date. */
@@ -23588,6 +23717,10 @@ async function rmUsePrice(price){
     renderQuotesList();
     rmRenderCommit();
     status.textContent = 'Quoted price set to ' + fmtMoney(price) + '.';
+    /* The money only — this button owns the price and not the geometry, so no
+       footage is passed and none is written. See the Save block. */
+    const onCust = await rmPushToCustomer(0, price);
+    if(onCust) status.textContent += ' Saved ' + onCust + '.';
   } catch(err){ status.textContent = 'Could not save the price onto the quote \u2014 try again.'; }
 }
 /* ---- street view overlay ------------------------------------------------ */
@@ -23939,6 +24072,10 @@ async function rmLoadAddress(){
   rmEnsureMap(rmOrigin);
   rmEnsurePano(rmOrigin);
   rmSkyReady = true;
+  /* ⚠ THE ATTACH BAR READS THESE. Attach captures for itself when nothing is
+     staged, so the moment a view can be captured is the moment it stops being
+     disabled - and nothing else repaints it. */
+  rmRenderStaged();
   /* Cleared by the map itself once tiles are really painted. */
   google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmPaneReady('sky'); });
   if(rmHomeMarker) rmHomeMarker.setMap(null);
@@ -23993,6 +24130,7 @@ async function rmLoadAddress(){
             return;
           }
           rmStreetReady = true;
+          rmRenderStaged();      /* see rmSkyReady above - the attach bar reads this */
           document.getElementById('rmCaptureStreet').disabled = false;
           /* ⚠ LISTEN BEFORE YOU LOOK. setPano fires pano_changed, and this used
              to attach the listener on the line AFTER the call - so the event
@@ -24333,7 +24471,11 @@ function rmStaticFailMessage(which, res, why){
   }
   return 'Google refused the picture (' + res.status + '). Measuring still works; only the capture is blocked.';
 }
-async function rmCapture(which){
+/* ⚠ IT ANSWERS NOW. Attach can be the thing that asks for a capture, and a
+   caller that cannot tell a picture from a failure would upload nothing and
+   say nothing. `auto` also means "do not stop at the crop screen": the press
+   that started this said attach, not crop. */
+async function rmCapture(which, auto){
   const status = document.getElementById('rmStatus');
   rmFinishRun();
   status.textContent = 'Capturing…';
@@ -24345,7 +24487,7 @@ async function rmCapture(which){
   const scale = 2;
   let makeUrl, center, zoom, pov, cam;
   if(which === 'street'){
-    if(!rmPano || !rmStreetReady){ status.textContent = 'Street View is not available at this address.'; return; }
+    if(!rmPano || !rmStreetReady){ status.textContent = 'Street View is not available at this address.'; return false; }
     pov = rmPanoPov();
     cam = rmCamLocal();
     const pos = rmPano.getPosition();
@@ -24356,7 +24498,7 @@ async function rmCapture(which){
         '&fov='+rmFovDeg(pov.zoom).toFixed(2)+'&return_error_code=true&key='+key;
     };
   } else {
-    if(!rmMap){ status.textContent = 'Load an address first.'; return; }
+    if(!rmMap){ status.textContent = 'Load an address first.'; return false; }
     center = {lat: rmMap.getCenter().lat(), lng: rmMap.getCenter().lng()};
     zoom = Math.round(rmMap.getZoom());
     makeUrl = function(key){
@@ -24367,13 +24509,13 @@ async function rmCapture(which){
   const got = await rmFetchStatic(makeUrl);
   if(got.error === 'nokey'){
     status.textContent = 'Could not find a Google key on this page, so the picture cannot be fetched. Measuring still works.';
-    return;
+    return false;
   }
   if(got.error === 'network'){
     status.textContent = 'Could not reach Google for the picture — check the connection and try again.';
-    return;
+    return false;
   }
-  if(got.error){ status.textContent = rmStaticFailMessage(which, {status: got.status}, got.why); return; }
+  if(got.error){ status.textContent = rmStaticFailMessage(which, {status: got.status}, got.why); return false; }
   const blob = got.blob;
   const img = new Image();
   const objUrl = URL.createObjectURL(blob);
@@ -24382,7 +24524,7 @@ async function rmCapture(which){
     img.onerror = function(){ resolve(false); };
     img.src = objUrl;
   });
-  if(!loaded){ URL.revokeObjectURL(objUrl); status.textContent = 'The picture came back unreadable — try again.'; return; }
+  if(!loaded){ URL.revokeObjectURL(objUrl); status.textContent = 'The picture came back unreadable — try again.'; return false; }
   const canvas = document.createElement('canvas');
   canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
   /* ⭐ THE PICTURE IS KEPT CLEAN, AND THE LINES ARE A CHOICE (2026-08-25).
@@ -24402,16 +24544,27 @@ async function rmCapture(which){
   rmCrop = {canvas: canvas, box: null, which: which, img: img,
             w: w, h: h, scale: scale, pov: pov, cam: cam,
             center: center, zoom: zoom, lines: false};
-  const ctx = canvas.getContext('2d');
-  /* Same brightness and contrast the screen is showing, so what you attach is
-     what you were looking at when you decided it looked right. */
   URL.revokeObjectURL(objUrl);
+  /* ⭐ A PICTURE ATTACH ASKED FOR CARRIES THE MARKS (2026-08-29). Owner: "make
+     sure the placed dots moves with it." Nobody pressed the toggle on this
+     path because nobody saw the crop screen, and the press that started it was
+     about the roofline that had just been traced. The photograph underneath is
+     still kept clean - see rmCaptureShapes for how both survive. */
+  if(auto) rmCrop.lines = true;
+  /* ⚠ THE BOX SAYS WHAT THIS CAPTURE IS, not what the last one was. Every
+     capture starts clean, so a box left ticked from the previous one promised
+     marks that were not on the picture - which is the same complaint in a
+     smaller place. */
+  const linesBox = document.getElementById('rmCropLines');
+  if(linesBox) linesBox.checked = !!rmCrop.lines;
   rmComposeCapture();
+  if(auto) return await rmStageCapture();
   document.getElementById('rmCropBox').style.display = 'none';
   document.getElementById('rmCropStatus').textContent = '';
   document.getElementById('rmWorkStage').style.display = 'none';
   document.getElementById('rmCropStage').style.display = 'block';
   status.textContent = '';
+  return true;
 }
 /* ---- crop -------------------------------------------------------------- */
 function rmCropPoint(e){
@@ -24428,38 +24581,26 @@ function rmPaintCropBox(){
   box.style.left = (b.x*100)+'%'; box.style.top = (b.y*100)+'%';
   box.style.width = (b.w*100)+'%'; box.style.height = (b.h*100)+'%';
 }
-/* Draw the capture: the photograph, and the measuring lines only if they are
-   asked for. Re-runnable, because the toggle composes either version from the
-   same source rather than destroying one to show the other. */
-function rmComposeCapture(){
-  if(!rmCrop || !rmCrop.img) return;
-  const canvas = rmCrop.canvas, img = rmCrop.img;
-  const which = rmCrop.which, w = rmCrop.w, h = rmCrop.h, scale = rmCrop.scale;
-  const pov = rmCrop.pov, cam = rmCrop.cam, center = rmCrop.center, zoom = rmCrop.zoom;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.filter = rmFilterCss();
-  ctx.drawImage(img, 0, 0);
-  ctx.filter = 'none';
-  const drawRun = function(pts, color){
-    if(pts.length < 2) return;
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    /* dark halo under the colour, so a red line stays readable over a
-       red-brown roof */
-    [{c:'rgba(0,0,0,.55)', lw:9}, {c:color, lw:5}].forEach(function(pass){
-      ctx.beginPath();
-      pts.forEach(function(p, i){ if(i===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-      ctx.strokeStyle = pass.c; ctx.lineWidth = pass.lw; ctx.stroke();
-    });
-    pts.forEach(function(p){
-      ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2);
-      ctx.fillStyle = '#fff'; ctx.fill();
-      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.stroke();
-    });
-  };
-  if(rmCrop.lines) rmRuns.forEach(function(r){
+/* ⭐ EVERY MARK THE OFFICE PLACED, IN THE CAPTURED PICTURE'S OWN PIXELS
+   (2026-08-29). Owner: "make sure the placed dots moves with it."
+
+   ⚠ THE STREET DOTS WERE THE HALF THAT NEVER TRAVELLED. Only rmRuns was ever
+   drawn onto a capture, and a street mark stopped being a run on 2026-08-28 -
+   they are directions from one panorama now, kept in rmStreetDots and drawn by
+   rmPaintStreet alone. So the office could dot a whole front elevation, tick the
+   box that promises the marks are on the picture, and attach a photograph with
+   nothing whatsoever on it.
+
+   ⚠ AND ONLY WHAT IS SWITCHED ON. A suggested line that was rejected is drawn
+   in grey on screen so it can be found again; on a photograph the crew and the
+   customer look at it is just a line nobody is going to hang. */
+function rmCaptureMarks(which, w, h, scale, pov, cam, center, zoom){
+  const marks = [];
+  rmRuns.forEach(function(r){
+    if(!rmRunIsOn(r)) return;
     let pts;
     if(which === 'street'){
+      if(!cam) return;
       pts = r.path.map(function(p){ return rmSvProject(p, w, h, pov, cam); });
       if(pts.some(function(p){ return !p; })) return;      /* partly behind the camera */
       pts = pts.map(function(p){ return {x: p.x*scale, y: p.y*scale}; });
@@ -24468,14 +24609,146 @@ function rmComposeCapture(){
          the live map uses applies to what is drawn on it. */
       pts = r.path.map(function(p){ return rmPointOnStatic(p, center, zoom, w, h, scale); });
     }
-    drawRun(pts, RM_TYPES[r.type].color);
+    if(pts.length > 1) marks.push({path: pts, dots: [], color: (RM_TYPES[r.type] || RM_TYPES.perimeter).color});
   });
-  document.getElementById('rmCropImg').src = canvas.toDataURL('image/jpeg', .92);
+  if(which === 'street'){
+    /* One strand per band, joined in the order they were placed and numbered the
+       way the pane numbers them - the picture and the screen agree, or the
+       picture is no use for talking about the house afterwards. */
+    const here = rmStreetDotsHere();
+    const bands = {};
+    here.forEach(function(d, i){
+      const q = rmStreetDotPixel(d, w, h, pov);
+      if(!q) return;                     /* behind the camera; the numbering stays honest */
+      const b = d.band || 0;
+      (bands[b] = bands[b] || []).push({x: q.x*scale, y: q.y*scale, text: String(i+1)});
+    });
+    Object.keys(bands).forEach(function(b){
+      const pts = bands[b];
+      marks.push({path: pts.length > 1 ? pts : [], dots: pts, color: '#E0574B'});
+    });
+  } else {
+    /* Every corner, under the letter it answers to. rmCornersToRun already joins
+       the ones switched on; a dot placed and not yet used is still a decision
+       somebody made, so it goes on the picture too. */
+    const dots = [];
+    rmCorners.forEach(function(c, i){
+      const q = rmPointOnStatic({lat: c.lat, lng: c.lng, h: c.h}, center, zoom, w, h, scale);
+      if(!q) return;
+      dots.push({x: q.x, y: q.y, text: rmCornerLabel(i)});
+    });
+    if(dots.length) marks.push({path: [], dots: dots, color: '#E0574B'});
+  }
+  return marks;
 }
-function rmCroppedBlob(){
+/* Draw the capture: the photograph, and the marks only if they are asked for.
+   ⚠ INTO WHATEVER CANVAS IT IS HANDED, because Attach needs BOTH versions of
+   the same capture - a clean original to keep and a marked copy to show - and a
+   painter that can only work on one canvas would have to destroy one to make the
+   other. */
+function rmPaintCapture(canvas, withMarks){
+  if(!rmCrop || !rmCrop.img) return;
+  const img = rmCrop.img;
+  const which = rmCrop.which, w = rmCrop.w, h = rmCrop.h, scale = rmCrop.scale;
+  const pov = rmCrop.pov, cam = rmCrop.cam, center = rmCrop.center, zoom = rmCrop.zoom;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  /* Same brightness and contrast the screen is showing, so what you attach is
+     what you were looking at when you decided it looked right. */
+  ctx.filter = rmFilterCss();
+  ctx.drawImage(img, 0, 0);
+  ctx.filter = 'none';
+  if(!withMarks) return;
+  rmCaptureMarks(which, w, h, scale, pov, cam, center, zoom).forEach(function(m){
+    const pts = m.path;
+    if(pts.length > 1){
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      /* dark halo under the colour, so a red line stays readable over a
+         red-brown roof */
+      [{c:'rgba(0,0,0,.55)', lw:9}, {c:m.color, lw:5}].forEach(function(pass){
+        ctx.beginPath();
+        pts.forEach(function(p, i){ if(i===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+        ctx.strokeStyle = pass.c; ctx.lineWidth = pass.lw; ctx.stroke();
+      });
+    }
+    (m.dots.length ? m.dots : pts).forEach(function(p){
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.strokeStyle = m.color; ctx.lineWidth = 2.5; ctx.stroke();
+      if(!p.text) return;
+      ctx.font = '700 15px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.6)';
+      ctx.strokeText(p.text, p.x, p.y - 10);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(p.text, p.x, p.y - 10);
+    });
+  });
+}
+/* ⭐ THE PICTURE IS KEPT CLEAN, AND THE LINES ARE A CHOICE (2026-08-25).
+ * Owner: "I don't want red lines showing here after I'm done measuring."
+ * The toggle composes either version on demand and neither is destroyed. */
+function rmComposeCapture(){
+  if(!rmCrop || !rmCrop.img) return;
+  rmPaintCapture(rmCrop.canvas, !!rmCrop.lines);
+  document.getElementById('rmCropImg').src = rmCrop.canvas.toDataURL('image/jpeg', .92);
+}
+/* The marks again, as shapes the Mark Up tool understands - fractions of the
+   picture as it will be attached, so a crop moves them with it.
+   ⚠ AND THIS IS WHY THE PHOTOGRAPH UNDERNEATH CAN STAY CLEAN. A quote photo is
+   {url, original, markup} precisely so markup can be redone or removed. The
+   marked copy is what gets shown, the clean one is what is kept as `original`,
+   and these shapes are what makes the difference undoable - so the dots travel
+   with the picture without being burnt into it for ever. */
+function rmCaptureShapes(){
+  if(!rmCrop || !rmCrop.canvas) return [];
+  const W = rmCrop.canvas.width, H = rmCrop.canvas.height;
+  const b = (rmCrop.box && rmCrop.box.w >= .02 && rmCrop.box.h >= .02) ? rmCrop.box : null;
+  const ox = b ? b.x*W : 0, oy = b ? b.y*H : 0;
+  const cw = b ? b.w*W : W, ch = b ? b.h*H : H;
+  const out = [];
+  rmCaptureMarks(rmCrop.which, rmCrop.w, rmCrop.h, rmCrop.scale, rmCrop.pov,
+                 rmCrop.cam, rmCrop.center, rmCrop.zoom).forEach(function(m){
+    if(m.path.length < 2) return;
+    const pts = m.path.map(function(p){ return {x: (p.x-ox)/cw, y: (p.y-oy)/ch}; });
+    /* A line with no point anywhere near the cropped picture is not on it. */
+    if(!pts.some(function(p){ return p.x > -.05 && p.x < 1.05 && p.y > -.05 && p.y < 1.05; })) return;
+    out.push({type: 'poly', width: 'medium', points: pts});
+  });
+  return out;
+}
+/* Put the capture on the "ready to attach" strip. Shared by the crop screen's
+   own button and by Attach when it had to take the picture itself, so there is
+   ONE place that decides what a staged picture is. */
+async function rmStageCapture(){
+  if(!rmCrop || !rmCrop.img) return false;
+  const clean = await rmCroppedBlob(false);
+  if(!clean) return false;
+  const shapes = rmCaptureShapes();
+  const marks = rmCaptureMarks(rmCrop.which, rmCrop.w, rmCrop.h, rmCrop.scale,
+                               rmCrop.pov, rmCrop.cam, rmCrop.center, rmCrop.zoom);
+  const marked = (rmCrop.lines && marks.length) ? await rmCroppedBlob(true) : null;
+  const t = rmTotals();
+  const from = rmCrop.which === 'street' ? 'Front of house' : 'Roofline from above';
+  rmShots.push({
+    blob: clean, marked: marked, markup: shapes,
+    preview: URL.createObjectURL(marked || clean),
+    label: rmRuns.length ? (from + ' — ' + rmFmtFeet(Math.round(t.all))) : from
+  });
+  rmRenderStaged();
+  return true;
+}
+
+/* The picture as it will be attached: cropped if a box was dragged, with or
+   without the marks. Painted into a scratch canvas so asking for one version
+   never destroys the other - Attach asks for both. */
+function rmCroppedBlob(withMarks){
   return new Promise(function(resolve){
-    if(!rmCrop){ resolve(null); return; }
-    const src = rmCrop.canvas, b = rmCrop.box;
+    if(!rmCrop || !rmCrop.img){ resolve(null); return; }
+    const src = document.createElement('canvas');
+    src.width = rmCrop.canvas.width; src.height = rmCrop.canvas.height;
+    rmPaintCapture(src, !!withMarks);
+    const b = rmCrop.box;
     if(!b || b.w < .02 || b.h < .02){ src.toBlob(function(bl){ resolve(bl); }, 'image/jpeg', .92); return; }
     const sx = Math.round(b.x*src.width), sy = Math.round(b.y*src.height);
     const sw = Math.max(1, Math.round(b.w*src.width)), sh = Math.max(1, Math.round(b.h*src.height));
@@ -24485,6 +24758,7 @@ function rmCroppedBlob(){
     out.toBlob(function(bl){ resolve(bl); }, 'image/jpeg', .92);
   });
 }
+
 function rmRenderStaged(){
   const strip = document.getElementById('rmStaged');
   const attach = document.getElementById('rmAttachBtn');
@@ -24513,13 +24787,33 @@ function rmRenderStaged(){
       document.body.appendChild(a); a.click(); a.remove();
     });
   });
-  attach.disabled = !rmShots.length;
-  /* ⚠ BOTH DOORS OPEN TOGETHER. Leaving the second one enabled with nothing
-     staged offers a markup of a picture that does not exist; leaving it
-     disabled when there IS something staged is a button that looks broken. */
+  /* ⭐ NEVER A DEAD BUTTON (2026-08-29). Owner: "we have a button that says
+     attach to quote, where it should attach the picture to the quote - that
+     doesn't happen."
+     ⚠ WHAT SHE WAS PRESSING. Attach could only upload what "Add to Quote List"
+     had already staged, so measuring a house and then pressing the gold button
+     underneath did nothing at all - and a DISABLED button reading "Attach to
+     Quote" is indistinguishable from a broken one. Nothing staged is now a
+     reason to TAKE the picture, not a reason to refuse: see rmAttachShots.
+     ⚠ BOTH DOORS OPEN TOGETHER. Leaving one enabled and the other not is a
+     button that looks broken beside a button that works. */
+  /* ⭐ AND IT IS NEVER DISABLED AT ALL (2026-08-29, second report: "when i click
+     attach to quote nothing happens"). Enabling it only once a view was ready
+     still left one dead state — before the address has loaded, or after it failed
+     to load — and a dead button is the thing being reported, whatever the reason
+     for it. A press that cannot work now SAYS why on the line beside it.
+     ⚠ Owner's standing rule, 2026-08-25: "nothing should fail quietly." A
+     disabled button is the quietest failure there is - it does not even log. */
+  const canCapture = rmSkyReady || rmStreetReady;
+  attach.disabled = false;
   const attachMark = document.getElementById('rmAttachMarkBtn');
-  if(attachMark) attachMark.disabled = !rmShots.length;
+  if(attachMark) attachMark.disabled = false;
   attach.textContent = rmShots.length ? 'Attach ' + rmShots.length + ' to Quote' : 'Attach to Quote';
+  attach.title = rmShots.length
+    ? 'Put the captured picture' + (rmShots.length === 1 ? '' : 's') + ' on this quote, with the feet and the price.'
+    : (canCapture
+      ? 'Takes a picture of what is on screen, marks and all, and puts it on this quote with the feet and the price.'
+      : 'Load the address first — then this puts a picture of it on the quote, with the feet and the price.');
 }
 function rmBackToHouse(){
   document.getElementById('rmCropStage').style.display = 'none';
@@ -25446,15 +25740,11 @@ function openRoofMeasure(quoteId){
       : 'Clean picture — the lines are only on screen while you measure.';
   });
   document.getElementById('rmCropUseBtn').addEventListener('click', async function(){
-    const blob = await rmCroppedBlob();
-    if(!blob){ document.getElementById('rmCropStatus').textContent = 'Could not read that capture back — try capturing again.'; return; }
-    const t = rmTotals();
-    const from = rmCrop && rmCrop.which === 'street' ? 'Front of house' : 'Roofline from above';
-    rmShots.push({
-      blob: blob, preview: URL.createObjectURL(blob),
-      label: rmRuns.length ? (from + ' — ' + rmFmtFeet(Math.round(t.all))) : from
-    });
-    rmRenderStaged(); rmBackToHouse();
+    /* One stager, so the crop screen and Attach cannot drift about what a
+       staged picture is - clean photograph, marked copy, editable shapes. */
+    const staged = await rmStageCapture();
+    if(!staged){ document.getElementById('rmCropStatus').textContent = 'Could not read that capture back — try capturing again.'; return; }
+    rmBackToHouse();
     document.getElementById('rmStatus').textContent = 'Added. Capture another view, or attach what you have.';
   });
   /* ⭐ THE ONE PRESS. Everything it does already existed — the footage write,
@@ -25504,6 +25794,14 @@ function openRoofMeasure(quoteId){
       status.textContent = 'Saved — ' + feet + ' ft and ' + fmtMoney(price) +
         ' (' + rmFmtFeet(measured) + ' measured, graded ' + grade + ')' +
         (measurement ? ', and the drawing is saved, so reopening this quote brings it back.' : '.');
+      /* ⭐ AND ONTO THE CUSTOMER (2026-08-29). Owner: "make it so the feet and
+         price attaches to the customer as well so that automatically goes in the
+         system." This is where the office saves a measurement, so leaving it on
+         the quote alone means somebody has to re-type it onto the record - which
+         is the copying step the whole tool exists to remove. Does nothing at all
+         for a quote that is not yet a customer; see rmPushToCustomer. */
+      const onCust = await rmPushToCustomer(feet, price);
+      if(onCust) status.textContent += ' Saved ' + onCust + '.';
     } catch(err){
       status.textContent = 'Could not save onto the quote — nothing was written. Try again.';
     }
@@ -25552,17 +25850,42 @@ function openRoofMeasure(quoteId){
          footage had been changed on the way in when it had not. */
       status.textContent = 'Estimated Feet set to ' + feet + ' (' + rmFmtFeet(measured) + ' measured)' +
         (measurement ? ' — and the drawing is saved, so reopening this quote brings it back.' : '.');
+      /* The footage only — this button owns the geometry and not the money, so
+         no price is passed and none is written. See the Save block above. */
+      const onCust = await rmPushToCustomer(feet, 0);
+      if(onCust) status.textContent += ' Saved ' + onCust + '.';
     } catch(err){ status.textContent = 'Could not save the footage onto the quote — try again.'; }
   });
   /* ⚠ ONE ATTACH, TWO DOORS. Both buttons run this; only what happens after
      a successful upload differs. A second copy of the upload loop is a second
      place for the photo list to be written back stale. */
   async function rmAttachShots(btn, thenMarkUp){
-    if(!rmQuoteId || !rmShots.length) return;
     const status = document.getElementById('rmStatus');
+    /* ⚠ EVERY WAY OUT OF THIS SAYS SOMETHING. The button is always pressable now,
+       so a silent return IS the bug being reported - it is indistinguishable from
+       a click that never registered. */
+    if(!rmQuoteId){ if(status) status.textContent = 'This tool is not open on a quote — close it and press Measure Roof on the quote card.'; return; }
     const item = quotesCache.find(function(q){ return q.id === rmQuoteId; });
     if(!item){ status.textContent = 'That quote is no longer on screen — close this and try again.'; return; }
     btn.disabled = true;
+    /* ⭐ NOTHING STAGED MEANS TAKE THE PICTURE (2026-08-29). Owner: "we have a
+       button that says attach to quote, where it should attach the picture to
+       the quote - that doesn't happen." It could only ever upload what "Add to
+       Quote List" had already staged, so the obvious gesture - measure the house,
+       press the gold button underneath - did nothing at all. The marks go on it:
+       see rmCapture, which is handed `auto`. */
+    if(!rmShots.length){
+      const which = (rmLastPane === 'street' && rmStreetReady) ? 'street'
+                  : (rmSkyReady ? 'sky' : (rmStreetReady ? 'street' : ''));
+      if(!which){ status.textContent = 'No picture yet — the house has not loaded. Check the address above and press Load Property, then Attach.'; btn.disabled = false; return; }
+      status.textContent = 'Capturing this view…';
+      const staged = await rmCapture(which, true);
+      if(!staged || !rmShots.length){
+        /* rmCapture says WHY when it can; only speak over it when it did not. */
+        if(status.textContent === 'Capturing this view…') status.textContent = 'Could not make a picture of this view — try Capture, then Attach.';
+        btn.disabled = false; return;
+      }
+    }
     /* Re-read the list rather than holding the one from when this opened: a
        photo could have been added on the card behind, and writing a stale list
        back would drop it. */
@@ -25574,8 +25897,21 @@ function openRoofMeasure(quoteId){
       try{
         const file = new File([rmShots[i].blob], 'roof-measurement.jpg', {type:'image/jpeg'});
         const ready = await shrinkImageFileIfTooLarge(file, 9*1024*1024, 2000, .85);
-        const url = await uploadOneToCloudinary(ready);
-        photos.push({url: url, original: url, markup: [], label: rmShots[i].label});
+        const original = await uploadOneToCloudinary(ready);
+        /* ⚠ THE CLEAN PHOTOGRAPH GOES UP FIRST AND IS THE `original`. The marked
+           copy is what gets shown; if IT fails the picture still lands, still
+           carries its marks as shapes, and the Mark Up tool can put them back.
+           Losing the photograph because a second upload failed is the worse half
+           of that trade. */
+        let url = original;
+        if(rmShots[i].marked){
+          try{
+            const mf = new File([rmShots[i].marked], 'roof-measurement-marked.jpg', {type:'image/jpeg'});
+            const readyMarked = await shrinkImageFileIfTooLarge(mf, 9*1024*1024, 2000, .85);
+            url = await uploadOneToCloudinary(readyMarked);
+          } catch(err){ url = original; }
+        }
+        photos.push({url: url, original: original, markup: rmShots[i].markup || [], label: rmShots[i].label});
         added++;
       } catch(err){ failed.push(i+1); }
     }
@@ -25591,9 +25927,18 @@ function openRoofMeasure(quoteId){
       rmShots.forEach(function(s){ URL.revokeObjectURL(s.preview); });
       rmShots = []; rmRenderStaged();
       status.textContent = '';
-      toast(added === 1 ? 'Picture added to the quote' : (added + ' pictures added to the quote'));
-      if(failed.length){ status.textContent = 'Could not upload ' + failed.length + ' of them.'; return; }
+      if(failed.length){ status.textContent = 'Could not upload ' + failed.length + ' of them.'; btn.disabled = false; return; }
+      /* ⭐ THE FEET AND THE PRICE GO ON IN THE SAME PRESS, and onto the customer
+         behind the quote when there is one - see rmSaveNumbersOnAttach. */
+      const saidNumbers = await rmSaveNumbersOnAttach();
+      toast((added === 1 ? 'Picture added to the quote' : (added + ' pictures added to the quote')) +
+            (saidNumbers ? ' — ' + saidNumbers : ''));
+      /* ⭐ AND IT CLOSES ITSELF (owner, 2026-08-29: "after everything happens it
+         should close it automatically after everything attaches") — after the
+         numbers, never before, or closing on a half-done press is what hides the
+         half that did not happen. */
       document.getElementById('roofMeasureOverlay').style.display = 'none';
+      rmSetDrawing(false);
       /* ⚠ ONLY AFTER THE WRITE LANDED. openQuoteMarkup reads the photo list off
          quotesCache, so opening it before the update would mark up a slot that
          does not exist yet and silently fall back to photo #1 — somebody else's
