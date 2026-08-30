@@ -219,6 +219,19 @@ a morning of quotes — and Chrome's own **Stop sharing** button is the way out 
 it: pressing it means the next capture simply asks again. Nothing is ever shared
 until a capture is actually pressed.
 
+⭐ **There is now a way to skip the question entirely, and it is a separate
+browser** (2026-08-30, at her request after the trade was spelled out). **Highlighting
+Utah Admin.bat** on the Desktop opens Chrome with its own profile
+(`C:\Users\lanil\HLU-Admin-Chrome`) and the `--auto-accept-this-tab-capture`
+flag, so captures happen with no prompt at all. ⚠ **That browser can photograph
+its own tab without asking, whatever site is open in it** — the flag belongs to
+the whole browser and cannot be limited to one address, which is exactly why it
+lives in a profile that only ever opens the admin. Her everyday Chrome is
+untouched and still asks. ⚠ It also HAD to be its own profile to work at all:
+one Chrome process serves every profile on this machine, so flags on a shortcut
+are ignored whenever Chrome is already running. Nothing in the page changed —
+the admin works the same in either browser, one just stops asking.
+
 ⚠ **This is why three earlier fixes did not land the dots on the house.** Every
 version before it FETCHED A FRESH PHOTOGRAPH from Google and re-drew the marks
 onto it from the directions they are stored as, so the dots were only ever as
