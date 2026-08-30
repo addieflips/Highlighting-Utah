@@ -5539,7 +5539,18 @@
                      somebody where their lights will go is a real thing to
                      want — it just is not what every capture should be. -->
                 <label style="font-size:12.5px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
-                  <input type="checkbox" id="rmCropLines" style="vertical-align:-2px;">
+                  <!-- ⭐ TICKED BY DEFAULT (2026-08-30). Owner: "when the picture
+                       uploads the dots dont go with it which is the whole point."
+                       ⚠ THIS SUPERSEDES THE 2026-08-25 DEFAULT and the old reasoning is
+                       kept below, because it is still why the CLEAN copy is preserved:
+                       "I don't want red lines showing here after I'm done measuring."
+                       That was about a photograph nobody could get back — burning the
+                       lines into a JPEG poisons the original too. Nothing is burnt in
+                       now: the clean photograph is attached as the picture's `original`
+                       and the marks ride along as markup, so unticking this — or Mark Up
+                       → Clear → Save afterwards — gives the clean house back. With that
+                       true, off-by-default only meant her dots were silently dropped. -->
+                  <input type="checkbox" id="rmCropLines" checked style="vertical-align:-2px;">
                   Show the measured lines on it
                 </label>
                 <span id="rmCropStatus" style="font-size:12.5px; color:var(--slate);"></span>
@@ -18397,6 +18408,17 @@ function rmPointOnStatic(pt, center, zoom, w, h, scale){
 /* ---- street view: pixel <-> ray <-> world ------------------------------ */
 const rmRad = d => d*Math.PI/180;
 function rmFovDeg(zoom){ return 180 / Math.pow(2, zoom); }
+/* ⚠ THE STATIC STREET VIEW SERVICE CAPS fov AT 120 AND DOES NOT SAY SO — ask
+   for 180 and you get a 120-degree photograph with a 200 OK. Everything drawn
+   on that picture has to be drawn for the fov it REALLY used, or the marks are
+   laid out for a view that does not exist. */
+const RM_STATIC_FOV_MAX = 120;
+function rmCaptureFov(zoom){ return Math.min(RM_STATIC_FOV_MAX, rmFovDeg(zoom)); }
+/* The zoom that MEANS this fov, so a captured pov can be handed to the same
+   projection the live pane uses without giving it a second way to be told. */
+function rmZoomForFov(fov){ return Math.log2(180 / fov); }
+/* Set by rmCapture when the picture was asked for by panorama id. */
+let rmCaptureFallbackUrl = null;
 function rmBasis(headingDeg, pitchDeg){
   const h = rmRad(headingDeg), p = rmRad(pitchDeg);
   return {
@@ -24558,14 +24580,46 @@ async function rmCapture(which, auto){
     pov = rmPanoPov();
     cam = rmCamLocal();
     const pos = rmPano.getPosition();
-    makeUrl = function(key){
-      return 'https://maps.googleapis.com/maps/api/streetview?size='+w+'x'+h+'&scale='+scale+
-        '&location='+pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+
+    /* ⭐ THE SAME PANORAMA, NAMED (2026-08-30). Owner: "when you go to capture
+       street view its a different google map entirely just in the same spot and
+       so the dots dont follow."
+       ⚠ SHE IS DESCRIBING A REAL RISK. `location=` asks the static service to go
+       and find the NEAREST panorama to a point, which is not necessarily the one
+       on screen — the arrow keys walk between panoramas with setPano, and a mark
+       is a DIRECTION FROM ONE CAMERA, meaningless from the next one down the
+       street. Naming the panorama makes them the same photograph by construction.
+       Same fix, and the same reason, as rmEnsurePano's own setPano note. */
+    const panoId = (rmPano.getPano && rmPano.getPano()) || '';
+    /* ⚠ AND THE FIELD OF VIEW IS WHAT THE PICTURE WILL ACTUALLY USE. The static
+       service CAPS fov at 120 and silently gives you 120 when asked for more —
+       so a zoomed-out pane asked for 180, got 120, and every mark was then drawn
+       as though the picture held 180 degrees of street: spread out across a photo
+       that never matched them. rmCaptureFov is clamped and the crop's pov carries
+       the zoom that MEANS that fov, so the drawing cannot disagree with the
+       photograph whatever the office does to the zoom control. */
+    const fov = rmCaptureFov(pov.zoom);
+    pov = {heading: pov.heading, pitch: pov.pitch, zoom: rmZoomForFov(fov)};
+    const tail = '&size='+w+'x'+h+'&scale='+scale+
         '&heading='+pov.heading.toFixed(2)+'&pitch='+pov.pitch.toFixed(2)+
-        '&fov='+rmFovDeg(pov.zoom).toFixed(2)+'&return_error_code=true&key='+key;
+        '&fov='+fov.toFixed(2)+'&return_error_code=true&key=';
+    makeUrl = function(key){
+      return 'https://maps.googleapis.com/maps/api/streetview?pano='+encodeURIComponent(panoId)+tail+key;
     };
+    /* ⚠ A PANORAMA ID IS NOT ALWAYS SERVEABLE — a user-contributed photo sphere
+       can be on screen and refused by the static service. Falling back to the
+       point keeps the capture working; it is only ever reached when naming the
+       panorama failed outright, so it cannot quietly become the normal path. */
+    if(!panoId) makeUrl = function(key){
+      return 'https://maps.googleapis.com/maps/api/streetview?location='+
+        pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+tail+key;
+    };
+    rmCaptureFallbackUrl = panoId ? function(key){
+      return 'https://maps.googleapis.com/maps/api/streetview?location='+
+        pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+tail+key;
+    } : null;
   } else {
     if(!rmMap){ status.textContent = 'Load an address first.'; return false; }
+    rmCaptureFallbackUrl = null;
     center = {lat: rmMap.getCenter().lat(), lng: rmMap.getCenter().lng()};
     zoom = Math.round(rmMap.getZoom());
     makeUrl = function(key){
@@ -24573,7 +24627,13 @@ async function rmCapture(which, auto){
         '&zoom='+zoom+'&size='+w+'x'+h+'&scale='+scale+'&maptype=satellite&format=jpg&key='+key;
     };
   }
-  const got = await rmFetchStatic(makeUrl);
+  let got = await rmFetchStatic(makeUrl);
+  /* The named panorama was refused; ask for the point instead rather than
+     leaving the office with no picture at all. */
+  if(got.error === 'refused' && rmCaptureFallbackUrl){
+    console.warn('Measure: that panorama could not be fetched by name — falling back to the position.');
+    got = await rmFetchStatic(rmCaptureFallbackUrl);
+  }
   if(got.error === 'nokey'){
     status.textContent = 'Could not find a Google key on this page, so the picture cannot be fetched. Measuring still works.';
     return false;
@@ -24610,7 +24670,7 @@ async function rmCapture(which, auto){
    * either version on demand and neither is destroyed. */
   rmCrop = {canvas: canvas, box: null, which: which, img: img,
             w: w, h: h, scale: scale, pov: pov, cam: cam,
-            center: center, zoom: zoom, lines: false};
+            center: center, zoom: zoom, lines: true};
   URL.revokeObjectURL(objUrl);
   /* ⭐ A PICTURE ATTACH ASKED FOR CARRIES THE MARKS (2026-08-29). Owner: "make
      sure the placed dots moves with it." Nobody pressed the toggle on this
@@ -24627,7 +24687,8 @@ async function rmCapture(which, auto){
   rmComposeCapture();
   if(auto) return await rmStageCapture();
   document.getElementById('rmCropBox').style.display = 'none';
-  document.getElementById('rmCropStatus').textContent = '';
+  /* Said the moment the picture is on screen, not after it has been attached. */
+  document.getElementById('rmCropStatus').textContent = rmMarkTallyText();
   document.getElementById('rmWorkStage').style.display = 'none';
   document.getElementById('rmCropStage').style.display = 'block';
   status.textContent = '';
@@ -24784,6 +24845,46 @@ function rmCaptureShapes(){
   });
   return out;
 }
+/* ⭐ HOW MANY OF HER MARKS ARE ACTUALLY ON THIS PICTURE (2026-08-30). Owner:
+   "when the picture uploads the dots dont go with it which is the whole point."
+   ⚠ THE FAILURE WAS SILENT, WHICH IS WHY IT SURVIVED A FIX. A capture with the
+   marks switched off and a capture whose marks all fell outside the frame look
+   exactly alike — a clean photograph — and neither says a word. Counting them
+   makes the difference readable at the moment it happens, on the screen where
+   something can still be done about it.
+   ⚠ COUNTED AGAINST THE PICTURE, NOT AGAINST THE SCREEN: a mark behind the
+   camera or off the edge is legitimately not on this photograph, and saying so
+   is the whole point. */
+function rmCaptureMarkTally(){
+  const out = {placed: 0, on: 0, lines: 0};
+  if(!rmCrop || !rmCrop.canvas) return out;
+  const W = rmCrop.canvas.width, H = rmCrop.canvas.height;
+  out.placed = rmCrop.which === 'street' ? rmStreetDotsHere().length : rmCorners.length;
+  rmCaptureMarks(rmCrop.which, rmCrop.w, rmCrop.h, rmCrop.scale, rmCrop.pov,
+                 rmCrop.cam, rmCrop.center, rmCrop.zoom).forEach(function(m){
+    if(m.path.length > 1) out.lines++;
+    m.dots.forEach(function(p){
+      if(p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H) out.on++;
+    });
+  });
+  return out;
+}
+/* The same tally as a sentence, or '' when there is nothing to say. */
+function rmMarkTallyText(){
+  const t = rmCaptureMarkTally();
+  if(!t.placed && !t.lines) return '';
+  if(t.placed && !t.on){
+    /* ⚠ THE ONE CASE WORTH SHOUTING ABOUT. Attaching this picture attaches a
+       photograph of a house with none of the measuring on it, which is exactly
+       what was reported — so it names the two things that cause it. */
+    return 'None of your ' + t.placed + ' dots landed on this picture — it is aimed somewhere else. ' +
+      'Point the view back at the marks and capture again.';
+  }
+  const bits = [];
+  if(t.placed) bits.push(t.on + ' of ' + t.placed + ' dot' + (t.placed === 1 ? '' : 's') + ' on this picture');
+  if(t.lines) bits.push(t.lines + ' line' + (t.lines === 1 ? '' : 's'));
+  return bits.join(', ') + '.';
+}
 /* Put the capture on the "ready to attach" strip. Shared by the crop screen's
    own button and by Attach when it had to take the picture itself, so there is
    ONE place that decides what a staged picture is. */
@@ -24909,7 +25010,10 @@ function rmReset(){
   /* Unticked with the rest — the box is markup, and markup belongs to the
      capture it was ticked for, not to the next house. */
   const cropLines = document.getElementById('rmCropLines');
-  if(cropLines) cropLines.checked = false;
+  /* ⚠ BACK TO TICKED, not to blank — see the box's own note. The marks are the
+     point of the picture; what belongs to one capture and must not carry over is
+     the CROP, which is cleared with rmCrop itself. */
+  if(cropLines) cropLines.checked = true;
   rmWall = null; rmWallPts = []; rmWallPicking = false;
   rmSkyReady = false; rmStreetReady = false; rmCamGroundDrop = 0;
   rmSetType('perimeter');
@@ -25803,8 +25907,8 @@ function openRoofMeasure(quoteId){
        afterwards. Clearing it would be a small betrayal of work already done. */
     rmComposeCapture();
     document.getElementById('rmCropStatus').textContent = this.checked
-      ? 'Lines drawn on. They become part of the picture when you add it.'
-      : 'Clean picture — the lines are only on screen while you measure.';
+      ? ('Marks drawn on. ' + rmMarkTallyText())
+      : 'Clean picture — your marks will NOT be on the one you attach.';
   });
   document.getElementById('rmCropUseBtn').addEventListener('click', async function(){
     /* One stager, so the crop screen and Attach cannot drift about what a
@@ -25942,7 +26046,16 @@ function openRoofMeasure(quoteId){
        press the gold button underneath - did nothing at all. The marks go on it:
        see rmCapture, which is handed `auto`. */
     if(!rmShots.length){
-      const which = (rmLastPane === 'street' && rmStreetReady) ? 'street'
+      /* ⚠ THE PANE THE MARKS ARE IN, not merely the one last touched. rmLastPane
+         moves on a plain mousedown on the sky map, so nudging the satellite after
+         dotting a front elevation was enough to attach a picture of the roof from
+         above and none of her dots. Where the marks are is the better answer to
+         "which picture did she mean"; rmLastPane only breaks the tie. */
+      const hasStreet = rmStreetReady && rmStreetDotsHere().length > 0;
+      const hasSky = rmSkyReady && rmCorners.length > 0;
+      const which = hasStreet && (rmLastPane === 'street' || !hasSky) ? 'street'
+                  : hasSky ? 'sky'
+                  : (rmLastPane === 'street' && rmStreetReady) ? 'street'
                   : (rmSkyReady ? 'sky' : (rmStreetReady ? 'street' : ''));
       if(!which){ status.textContent = 'No picture yet — the house has not loaded. Check the address above and press Load Property, then Attach.'; btn.disabled = false; return; }
       status.textContent = 'Capturing this view…';
@@ -25953,6 +26066,10 @@ function openRoofMeasure(quoteId){
         btn.disabled = false; return;
       }
     }
+    /* ⚠ TAKEN BEFORE THE UPLOAD, because rmStageCapture clears rmCrop's place in
+       the flow and the toast is written after everything. The office asked for
+       the dots; the press that attaches them should say whether they went. */
+    const marksSaid = rmMarkTallyText();
     /* Re-read the list rather than holding the one from when this opened: a
        photo could have been added on the card behind, and writing a stale list
        back would drop it. */
@@ -25999,6 +26116,7 @@ function openRoofMeasure(quoteId){
          behind the quote when there is one - see rmSaveNumbersOnAttach. */
       const saidNumbers = await rmSaveNumbersOnAttach();
       toast((added === 1 ? 'Picture added to the quote' : (added + ' pictures added to the quote')) +
+            (marksSaid ? ' (' + marksSaid + ')' : '') +
             (saidNumbers ? ' — ' + saidNumbers : ''));
       /* ⭐ AND IT CLOSES ITSELF (owner, 2026-08-29: "after everything happens it
          should close it automatically after everything attaches") — after the

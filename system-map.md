@@ -179,7 +179,9 @@ had just been measured — and a greyed-out button reading "Attach to Quote" is
 indistinguishable from a broken one. Nothing staged is now a reason to TAKE the
 picture: it captures whichever view you were last working in and attaches that.
 
-**Your dots go on the picture.** The marks are drawn onto a capture — the street
+**Your dots go on the picture, and the box is TICKED to start with** (2026-08-30 —
+the first version drew them and left the box unticked, so the clean copy is what
+got attached and the dots were still missing). The marks are drawn onto a capture — the street
 view's numbered marks and the sky view's lettered corners, joined per strand,
 with any run you switched off left out because nobody is going to hang it.
 ⚠ The photograph underneath is still kept CLEAN. Two copies are attached: the
@@ -201,6 +203,28 @@ name or phone is how a book gets duplicates in it. ⚠ And the customer NUMBER i
 never rewritten — a number already given out is on a bin in the warehouse, so
 the tool says the series no longer matches the footage and leaves it to a
 person. Suite 282.
+
+**And the picture is the same photograph the dots were placed on.** The street
+capture is asked for by **panorama id**, not by position: `location=` makes the
+static service go and find the nearest panorama, and the arrow keys walk between
+panoramas — a mark is a *direction from one camera* and means nothing from the
+next one down the street. It also asks for a field of view the service can
+actually give (it caps at 120° and does not say so, so a zoomed-out pane used to
+get a 120° photograph with every mark laid out for 180°), and the crop carries the
+zoom that MEANS that fov, so the drawing and the photograph cannot be told two
+different things.
+
+⚠ **And a picture with none of your marks on it says so.** The crop screen counts
+them the moment the picture appears — *"2 of 3 dots on this picture"*, or *"None of
+your 3 dots landed on this picture — it is aimed somewhere else"*. A capture with
+the marks switched off and a capture whose marks all fell outside the frame look
+identical, and neither said a word; that silence is what let the missing dots
+survive a fix. Attach names it in its toast too.
+
+⚠ **Attach captures the view the marks are IN**, not merely the one last touched —
+`rmLastPane` moves on a plain mousedown on the satellite map, so nudging it after
+dotting a front elevation was enough to attach a picture of the roof from above
+and none of the dots.
 
 **Every control is at the top, in its own bar; the pictures are last.** Attach
 to Quote and Close ride above the heading row, then the capture buttons, the
