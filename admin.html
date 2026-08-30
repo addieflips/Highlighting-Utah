@@ -4659,6 +4659,45 @@
             #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
             #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
 
+            /* ⭐ BOTH PICTURES, HALF AND HALF (2026-08-30). Owner: "give a third
+               button in the top right of sky view where you can instead of full
+               screen do half and half sky view and street view so you can see where
+               you need to place."
+
+               ⚠ FULL SCREEN WAS ALL OR NOTHING AND BOTH ENDS WERE WRONG FOR THIS.
+               Full-screening ONE pane gives a big sky view and takes the photograph
+               away — and the photograph is how you know WHICH corner you are looking
+               at. Leaving full screen gives both pictures back at the height the
+               ribbon leaves them, which on a laptop is a couple of hundred pixels
+               each. Placing a dot needs both, big.
+
+               ⚠ SO IT IS THE CONTAINER THAT GOES FULL SCREEN, not a pane. The two
+               panes are already side by side inside it; all this does is give that
+               row the whole screen.
+
+               ⚠ !important ON THE THREE THAT FIGHT. The ribbon-height rule above
+               and two media queries lower down all set height, flex and order on
+               this same element at the same specificity, so which one wins depends
+               on where it sits in a 3.5MB stylesheet — a fragile thing to rest a
+               layout on. Full screen is an explicit, temporary mode; it is allowed
+               to say so outright.
+
+               ⚠ AND flex:1 1 0, NOT 1 1 50%. When the grade map is open the other
+               two panes are stood aside, and a 50% basis would leave that one
+               picture in half a screen with nothing beside it. */
+            #roofMeasureOverlay .rm-panes:fullscreen{
+              height:100% !important; width:100%; flex:1 1 auto !important;
+              flex-wrap:nowrap !important; align-items:stretch;
+              padding:8px; gap:8px; background:#0c121a; box-sizing:border-box;}
+            #roofMeasureOverlay .rm-panes:fullscreen > .rm-pane{
+              flex:1 1 0 !important; min-width:0; height:100%;}
+            /* Stacked rather than squeezed on a tall narrow screen — two 200px
+               columns are worse than two half-height rows. */
+            @media (max-aspect-ratio: 1/1){
+              #roofMeasureOverlay .rm-panes:fullscreen{flex-direction:column;}
+              #roofMeasureOverlay .rm-panes:fullscreen > .rm-pane{width:100%;}
+            }
+
             /* ⭐ AND THE CHROME IS CUT TO THE BONE, because whatever it takes comes
                straight off the house. Owner: "it should be really small definitely
                no scrolling to see everything." Measured before: 400px of heading,
@@ -5418,7 +5457,7 @@
                 <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span><!-- ⚠ INSIDE .rm-pane ON PURPOSE. Full screen is requested on the PANE, so only
                        this pane's own children are on the glass — a control in the toolbar
                        above simply is not there. The head is pointer-events:none and the
-                       button turns it back on, exactly as the full-screen button does. --> <button type="button" class="rm-panebtn rm-recentre" title="Recentre — put the camera back over the house, or over what you have traced">&#9678;</button> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
+                       button turns it back on, exactly as the full-screen button does. --> <button type="button" class="rm-panebtn rm-recentre" title="Recentre — put the camera back over the house, or over what you have traced">&#9678;</button> <button type="button" class="rm-panebtn rm-both" title="Both pictures, half and half — the whole screen split between the sky view and the street view">&#9707;</button> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
                 <div id="rmMap" class="rm-canvas"></div>
                 <!-- ⚠ Tiles take a few seconds. Without this the pane is a
                      blank grey rectangle on open, which reads as broken - it
@@ -25901,11 +25940,18 @@ function openRoofMeasure(quoteId){
     const flat = rmGradeFrom(from, to);
     return flat === null ? null : {pct: flat, measured: false};
   }
+  /* ⚠ THE ANGLE FIRST, AND THE PERCENT SAID TO BE A GRADE (2026-08-30). Owner,
+     on a peak the tool had read at 49%: "i think it did the math as if its a 4
+     degree angle not 49 or something". The arithmetic was right — 49% grade IS
+     26°, and 26° across 24.7 ft really does add 2.9 ft — but a bare "49" beside
+     a peak reads as forty-nine DEGREES, which would have added 12.9 ft. Every
+     figure that could be mistaken for an angle now leads with the actual angle. */
   function rmGradeSay(g){
     const el = document.getElementById('rmGradeNote');
     if(!el) return;
     el.textContent = g === null ? 'Drag along the slope of a gable.'
-      : Math.round(g) + '% — ' + (Math.round(g * 12 / 100 * 10) / 10) + '/12, read off the picture';
+      : Math.round(rmGradeToDeg(g)) + '° (' + Math.round(g) + '% grade, ' +
+        (Math.round(g * 12 / 100 * 10) / 10) + '/12), read off the picture';
   }
   /* ⭐ OPEN THE GRADE MAP ON ONE PEAK. Owner: "it should automatically take you
      to the third map."
@@ -26084,8 +26130,20 @@ function openRoofMeasure(quoteId){
       rmRegrade(rmEaveFtForGrade ? {eaveFt: rmEaveFtForGrade} : {});
       rmRenderResults();
       const note = document.getElementById('rmPeakNote');
-      if(note && pk) note.textContent = 'Peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b) +
-        ' at ' + Math.round(g) + '% — ' + rmFmtFeet(rmPeakFeet(pk)) + ' on top of the span.';
+      /* ⭐ IT SHOWS ITS WORKING. Owner: "does this math add up to you because it
+         doesnt to me". The answer was right and she still could not check it,
+         which for a number that sets a price is the same as wrong. The rake
+         length is the whole of the sum: a 24.7 ft span at 26° is 27.6 ft of
+         slope, and the difference IS the extra footage. ⚠ And it says how to
+         overrule it, because a grade read off a photograph tends to come out
+         shallow and she knows her own gables. */
+      if(note && pk){
+        const spanFt = rmPeakSpanFeet(pk);
+        note.textContent = 'Peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b) +
+          ' at ' + Math.round(rmGradeToDeg(g)) + '° (' + Math.round(g) + '% grade) — the slope runs ' +
+          rmFmtFeet(spanFt / Math.cos(Math.atan(g / 100))) + ' across a ' + rmFmtFeet(spanFt) +
+          ' span, so +' + rmFmtFeet(rmPeakFeet(pk)) + '. Not the pitch you know it to be? Type the angle on its row.';
+      }
     }
     rmGradePending = null;
     rmCloseGrade();
@@ -26154,6 +26212,22 @@ function openRoofMeasure(quoteId){
                                         box.width, box.height, rmPanoPov()));
   });
   document.getElementById('rmMapLock').addEventListener('mousedown', function(){ rmLastPane = 'sky'; });
+  /* ⭐ BOTH PICTURES AT ONCE, filling the screen (2026-08-30) — see the
+     .rm-panes:fullscreen rules for why this is the CONTAINER rather than a pane.
+     ⚠ IT SWAPS RATHER THAN REFUSING. Pressed while one pane is already full
+     screen it goes straight to half and half, because that comparison is the whole
+     point of it; pressed while ALREADY half and half it comes back out. A button
+     that did nothing until you had left full screen would just look broken. */
+  document.querySelectorAll('#roofMeasureOverlay .rm-both').forEach(function(b){
+    b.addEventListener('click', function(e){
+      /* ⚠ STOPPED, like the other two: the head lies over the map, and a click
+         that carries on down places a corner where the button was. */
+      e.preventDefault(); e.stopPropagation();
+      const panes = b.closest('.rm-panes');
+      if(document.fullscreenElement === panes){ document.exitFullscreen(); return; }
+      if(panes && panes.requestFullscreen) panes.requestFullscreen();
+    });
+  });
   /* Full screen on the pane itself, so whatever is drawn over it goes too. */
   document.querySelectorAll('#roofMeasureOverlay .rm-fs').forEach(function(b){
     b.addEventListener('click', function(e){
