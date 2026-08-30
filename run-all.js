@@ -44099,8 +44099,11 @@ suite('281. The short quote link');
   check('S281', 'nothing mints a quote token by hand any more',
     !/'qt_' \+ Math\.random/.test(stripComments(admin)),
     'it was written out four times identically; the fifth copy is the one that drifts');
-  check('S281', 'and all four sites go through it',
-    (admin.match(/= newQuoteToken\(\);/g) || []).length === 4,
+  /* ⚠ FIVE SINCE 2026-08-30 — ensureQuoteToken is the fifth, and the count is
+     deliberately exact rather than a floor: a new site is welcome to exist, but
+     it has to come past this line and say so. */
+  check('S281', 'and all five sites go through it',
+    (admin.match(/= newQuoteToken\(\);/g) || []).length === 5,
     'a site left behind keeps minting the 28-character shape and its links stay long');
 
   if (genSrc && alpha) {
@@ -44185,6 +44188,144 @@ suite('281. The short quote link');
   check('S281', 'and both strip the label tokens',
     (admin.match(/quoteLinkLabelPlain\(htmlEmailToPlainText\(template\.data\.body/g) || []).length === 2,
     'the copy-the-text path was left behind when {{link:...}} was added, so it put the raw token on the clipboard');
+
+  /* ---- ⭐ A SHORT LINK WITH NO TOKEN (owner, 2026-08-30: "the link isn't
+     right and doesn't send to the form")
+
+     ⚠ EVERY CHECK ABOVE PASSED THROUGHOUT, and this is the reason to read this
+     block rather than skim it: they all hand quoteShortLink a fixture that
+     ALREADY HAS a token, so none of them could ever see the case where there
+     is none. The builder was right; what reached it was not. Same vacuous-
+     fixture shape this file warns about in four other places.
+
+     ⚠ THE SYMPTOM IS NOT AN ERROR. `highlightingutah.com/q/` is a perfectly
+     well-formed link that the router refuses, so the customer lands on the
+     homepage — or on their own balance, if they have signed in before — and
+     the office is told the text sent, because it did. */
+  const noTokenLink = shortFn
+    ? new Function('quotePortalParam', shortFn + '\nreturn quoteShortLink;')(() => '')({ phone: '8015550123' })
+    : null;
+  check('S281', 'a quote with no token would build a dead link',
+    noTokenLink === 'highlightingutah.com/q/',
+    'got ' + noTokenLink + ' — this is what the office actually texted');
+  if (reMatch) {
+    const reDead = new Function('return ' + reMatch[0].slice(0, reMatch[0].indexOf('.exec(')))();
+    check('S281', 'and the router refuses it, so the form is never reached',
+      reDead.exec('/q/') === null,
+      'the whole failure in one line: a link that sends nobody anywhere, sent and billed');
+  }
+
+  /* ⭐ SO THE TOKEN IS MINTED BEFORE THE LINK IS BUILT. RUN, not read: the
+     claim is about what the record HOLDS afterwards, and a source match cannot
+     see a write that never lands. */
+  /* ⚠ LIFTED WITH `async function` TRIED FIRST. extractFn anchors on
+     `function NAME(` and so DROPS the keyword, handing back a plain function
+     full of bare await — a parse error that kills the whole suite as one
+     unattributable crash. Written down in CLAUDE.md, and it cost this suite a
+     run anyway. Same brace-counting lifter Suites 74-76 and 269 use. */
+  const ensureSrc = (function (name) {
+    let at = admin.indexOf('async function ' + name + '(');
+    if (at < 0) at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  })('ensureQuoteToken');
+  check('S281', 'the text paths have a token guarantee', !!ensureSrc,
+    'a gate that cannot find its target must FAIL, never skip');
+  if (ensureSrc) {
+    const writes = [];
+    const mkEnsure = () => new Function('newQuoteToken', 'updateDoc', 'doc', 'db',
+      ensureSrc + '\nreturn ensureQuoteToken;')(
+      () => 'qt_mintedbyus',
+      (ref, patch) => { writes.push({ ref: ref, patch: patch }); },
+      (_db, coll, id) => coll + '/' + id,
+      {});
+
+    pendingAsync.push((async () => {
+      const fresh = { id: 'Q1', data: { phone: '8015550123' } };
+      const got = await mkEnsure()(fresh);
+      check('S281', 'a quote with no token gets one',
+        got === 'qt_mintedbyus' && fresh.data.quoteToken === 'qt_mintedbyus',
+        'got ' + got + ' — the local cache must be updated too, because the link is built from it');
+      check('S281', 'and it is persisted, not just held in memory',
+        writes.length === 1 && writes[0].ref === 'quotes/Q1' &&
+        writes[0].patch.quoteToken === 'qt_mintedbyus',
+        'a token the customer follows must be the one the server can look up; in-memory only is a link that dies on reload');
+
+      /* ⚠ AND IT MUST BE A NO-OP WHEN THERE IS ONE. Re-minting would break
+         every link already sitting in somebody's messages app — the quote they
+         were sent on Tuesday stops opening on Wednesday. */
+      writes.length = 0;
+      const had = { id: 'Q2', data: { quoteToken: 'qt_k7m2x9p4qw3z' } };
+      const kept = await mkEnsure()(had);
+      check('S281', 'an existing token is kept, never reminted',
+        kept === 'qt_k7m2x9p4qw3z' && writes.length === 0,
+        'reminting silently kills every quote link already sent');
+
+      /* ⚠ AND WHAT IT MINTS HAS TO SATISFY THE ROUTER. A token the pattern
+         refuses is the same dead end wearing a longer string.
+
+         ⚠ THE REAL GENERATOR, NOT THE STUB. The first version of this asserted
+         the router accepts 'qt_mintedbyus' — my own fixture — which proves the
+         fixture is well chosen and nothing whatever about the code. It runs the
+         shipped newQuoteToken through the shipped ensureQuoteToken and past the
+         shipped pattern, so all three have to agree for it to pass. */
+      if (reMatch && genSrc && alpha) {
+        const reOk = new Function('return ' + reMatch[0].slice(0, reMatch[0].indexOf('.exec(')))();
+        const realGen = new Function('crypto', 'console',
+          alpha[0] + '\n' + genSrc + '\nreturn newQuoteToken;')(
+          { getRandomValues: (b) => { for (let i = 0; i < b.length; i++) b[i] = (i * 37 + 11) % 256; return b; } },
+          { warn: () => {}, error: () => {} });
+        const realWrites = [];
+        const realEnsure = new Function('newQuoteToken', 'updateDoc', 'doc', 'db',
+          ensureSrc + '\nreturn ensureQuoteToken;')(
+          realGen, (ref, patch) => { realWrites.push(patch); }, () => 'quotes/Q3', {});
+        const item3 = { id: 'Q3', data: {} };
+        await realEnsure(item3);
+        const minted = item3.data.quoteToken;
+        const m = reOk.exec('/q/' + minted);
+        check('S281', 'the token it really mints resolves at the short address',
+          !!m && m[1] === minted && realWrites.length === 1 &&
+          realWrites[0].quoteToken === minted,
+          'got ' + minted + ' — a token the router refuses is the same dead end wearing a longer string');
+      }
+
+      /* ⚠ BOTH CALLERS, AND BEFORE THE LINK. Wired into one of the two, the
+         other goes on sending the dead link — and the copy path is the worse
+         half, because it is pasted by hand and reads as the office's mistake.
+         Ordering matters as much as presence: called after quoteShortLink, the
+         token is written and the message still carries the blank one. */
+      /* ⚠ COMMENTS STRIPPED, AND THE RED-CHECK IS WHY. Both blocks NAME
+         ensureQuoteToken in the prose explaining them, and that prose sits
+         above the link — so the ordering check was satisfied by the comment and
+         passed with the call moved below the line it is supposed to precede.
+         Suites 58, 274 and 275 each learned this separately; so did this one. */
+      ['showQuoteTextBox', 'photocopy'].forEach(function (which) {
+        const raw = which === 'showQuoteTextBox'
+          ? extractFn(admin, 'showQuoteTextBox')
+          : (function () {
+              const i = admin.indexOf("b.dataset.photocopy");
+              return i === -1 ? null : admin.slice(i, admin.indexOf('const link = quoteShortLink(d);', i) + 200);
+            })();
+        const body = raw ? stripComments(raw) : raw;
+        check('S281', which + ' mints the token before it builds the link',
+          !!body && body.indexOf('ensureQuoteToken') !== -1 &&
+          body.indexOf('ensureQuoteToken') < body.indexOf('quoteShortLink(d)'),
+          'a text with a dead link is worse than no text: it is sent, it is billed, and the customer reads it as us sending them nowhere');
+        /* ⚠ A FAILED WRITE MUST STOP THE SEND. Swallowed, the guard reports
+           success and the blank link goes out exactly as before — the fix
+           looking like it works being the worst outcome available here. */
+        check('S281', which + ' refuses to send when the token cannot be saved',
+          !!body && /catch\s*\(err\)\s*\{[^}]*return;/.test(
+            body.slice(body.indexOf('ensureQuoteToken'), body.indexOf('quoteShortLink(d)'))),
+          'nothing should fail quietly, least of all onto a customer\'s phone');
+      });
+    })());
+  }
 
   /* ⚠ THE EMAIL IS DELIBERATELY LEFT LONG. An email has no length problem, its
      links carry &action=approve, and those URLs are already in inboxes. */
