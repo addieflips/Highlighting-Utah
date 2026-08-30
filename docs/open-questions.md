@@ -1784,7 +1784,7 @@ the season starting now.
 
 **Resulting map change.** SCH-35.
 
-## Q-027 · intent · OPEN · raised 2026-08-29
+## Q-027 · intent · ANSWERED · raised and answered 2026-08-29
 Should an existing member who approves a re-quote fill in the install-details
 form, the way a brand-new customer does?
 
@@ -1833,4 +1833,29 @@ Saying so and asking is the rule for a same-tier collision, not picking one.
 **Nothing was changed either way.** The journey page draws both routes, so the
 two paths are at least visible now.
 
-**Resulting map change.** None yet — it gets a row when it is answered.
+**ANSWERED, 2026-08-29** — *"Requotes work different we should just have a fill out
+form or keep info already in system kind of thing... So give them an option if that makes
+sense."*
+
+**Give them the option — and it already exists**, which neither of us knew when the
+question was written. `offerMemberChangeChoice` renders **three** buttons to a member
+approving a re-quote:
+
+1. *"Yes, I'd like to make a change"* → their own portal
+2. *"Fill everything in again from scratch"* → **the form**, pre-filled from what we hold,
+   greeting them with *"Here's what we have on file — change anything that's different this
+   year."* It is the same form and the same submit a brand-new customer uses.
+3. *"No, keep everything the same"* → done
+
+**So nothing was built for this, and nothing needed to be.**
+
+⚠ **My own framing of this question was incomplete and that is what made it look like a
+fork.** It described the member branch as *"asked what is changing"* and did not mention
+the middle button — so the choice read as form-versus-question when the form was already
+one of the three answers.
+
+⚠ **And the questions map said `Decided — not built` for QT-17, which was stale.** A status
+column that has gone stale is worse than a missing one: it sent this session towards
+designing something that already shipped. Corrected at the code, not from the row.
+
+**Resulting map change.** QT-17, re-confirmed and its status corrected.
