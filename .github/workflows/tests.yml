@@ -162,6 +162,15 @@ jobs:
       - name: What the portal can see (the read whitelist)
         run: npm run test:portal-fields
 
+      # Every Firestore collection is written down. Named separately because the two
+      # things it catches are both silent: a collection missing from system-map.md leaves
+      # a heading reading "Every Firestore collection" telling a half-truth to the one
+      # person who reads it instead of the code, and a collection missing from
+      # firestore.rules is denied by default and renders an empty panel rather than an
+      # error.
+      - name: Every collection is written down
+        run: npm run test:collections
+
       - name: Run the fast suite
         run: npm test
 
