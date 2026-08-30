@@ -69,7 +69,20 @@ if (!fs.existsSync(path.join(ROOT, 'connections', 'manifest.js'))) {
 const { build } = require('./connections/build');
 const { render } = require('./connections/build');
 
-const m = build();
+/* ⚠ `write: false`, AND IT WAS MISSING — which is the very failure build()'s own comment
+   warns about, in the file that comment is about: "letting it call build() would have it
+   overwrite the very file it is checking, and the comparison would pass for ever."
+
+   Two things followed from the missing argument. Every `npm test` REWROTE
+   connections.html and connections.json, stamping them with whatever commit was at HEAD —
+   so the tree went dirty after every merge and the stop hook fired, for ever. And worse,
+   the checks below that read the committed connections.html were reading a file this line
+   had just written a moment earlier, so they could not fail.
+
+   The return value does not depend on `write` (it is built either way), so the gate loses
+   nothing by not writing. Regenerating the committed page is `node connections/build.js`,
+   run deliberately, which is what it was always meant to be. */
+const m = build({ write: false });
 
 /* ---------------------------------------------------------------------------
  * 1. The declared connections still exist.

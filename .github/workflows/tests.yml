@@ -147,6 +147,14 @@ jobs:
       - name: What changed on a customer
         run: npm run test:changes
 
+      # One route note a day. Named separately because its failure is the quiet kind:
+      # the route sweep runs every fifteen minutes and has already rewritten real routes
+      # by the time it reports, so a broken digest is not an error on screen, it is days
+      # moving with nobody told. A failure called "Route notices" says which; one
+      # swallowed by npm test does not.
+      - name: Route notices (one digest a day)
+        run: npm run test:digest
+
       - name: Run the fast suite
         run: npm test
 
