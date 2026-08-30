@@ -1696,7 +1696,7 @@ Nobody changes this number without her.
 
 ---
 
-## Q-025 · intent · OPEN · raised 2026-08-29
+## Q-025 · intent · PART-ANSWERED · raised and part-answered 2026-08-29
 A card is charged and no invoice can be found to apply it to. Where should that show, and who may clear it?
 
 **This is real money that is currently invisible, so it is recorded rather than
@@ -1736,12 +1736,50 @@ correctly captured, and in a place with no way in and no way out.
 marked not built, saying in as many words that there is no way out of the state.
 That makes it visible without pretending a repair exists.
 
-**Resulting map change.** None yet — this is a hole, not a ruling, and the
-questions map holds rulings only. It gets a row there when it is answered.
+**PART-ANSWERED, 2026-08-30** — *"Put that in health check."*
+
+**Where they show is settled and built.** A Health Check row, `unmatchedPayment`, naming
+the amount, the number it was paid on, and who on file has that number now. It reads the
+collection (staff may read it; only writing is forbidden) and reports nothing at all if
+that read has not landed.
+
+⚠ **The Invoices tab was argued for and she chose Health Check.** The objection was HC-03,
+and it is largely spent — approve/deny shipped on 2026-08-27, so a row can be cleared.
+
+**What clearing means is still not fully answered, and did not need to be to ship this.**
+There is no Fix button: applying it to the right invoice, refunding it, or marking it seen
+are three different answers about somebody's money. **"Not a problem" gives her the third
+one today**, and it writes to `healthCheckDecisions` rather than to `unmatchedPayments` —
+so the collection stays write-forbidden and **no `firebase deploy --only firestore:rules`
+is needed**, which was the other cost this question was carrying.
+
+**FURTHER ANSWERED, 2026-08-30** — *"we need unmatched invoice to come up in system inbox
+before we send it out."*
+
+**Timing was the half Health Check could not cover.** A capture that lands at eleven at
+night and an invoice that goes out at seven the next evening pass each other with nothing
+said, because Health Check is a panel somebody has to open. Offered the choice between
+**holding the invoice back** and **noting it and warning on the invoice screen**, she chose
+the second.
+
+- `recordUnmatchedPayment` posts a **System inbox note** when the capture is filed, deduped
+  on the capture id, wrapped so it can never unwind a successful capture.
+- `renderUnmatchedPaymentBanner` warns at the top of the **Invoices tab**, naming the
+  customers the payment might belong to.
+
+⚠ **The bill is deliberately NOT held.** A payment we cannot match is our bookkeeping
+problem; stopping somebody's invoice over it means a customer who has done nothing wrong is
+not billed at all.
+
+**Still open:** whether one of these should ever be *applied* to an invoice from here, and
+by whom. That is a real money decision and is not urgent while three surfaces make them
+visible.
+
+**Resulting map change.** MON-29, and MON-30 for the inbox note and the invoice banner.
 
 ---
 
-## Q-026 · intent · OPEN · raised 2026-08-29
+## Q-026 · intent · ANSWERED · raised and answered 2026-08-29
 Should Start New Season clear `removalDone`, the way it clears `completed`?
 
 **This is a change to Start New Season, which is on the short list of things
@@ -1775,4 +1813,87 @@ customer history, which draws a line at that date so last season's dates stop
 reading as this season's. That was the visible symptom; this question is the
 underlying one.
 
-**Resulting map change.** None yet — it gets a row when it is answered.
+**ANSWERED, 2026-08-29.** *"Oh so if we removed lights from someone's house that should
+reset for new season."* Yes — it is season-scoped, so it now clears alongside `completed`
+and the other eight, **in the same write** (a separate one can fail on its own and leave
+half the book reset). The **date** is deliberately kept: `removalDoneAt` says when last
+season's takedown happened and the history needs it, while the flag says what is true of
+the season starting now.
+
+**Resulting map change.** SCH-35.
+
+## Q-027 · intent · ANSWERED · raised and answered 2026-08-29
+Should an existing member who approves a re-quote fill in the install-details
+form, the way a brand-new customer does?
+
+**Two of your own answers point opposite ways, and I have not applied either
+because the newer one may be an observation rather than a decision.**
+
+**2026-08-19, a ruling:** *"I need the members that already exist not to go to
+the form once they are created. It should just show a message similar to Do you
+want anything changed with your lights this year? If they say yes they will go
+straight to there member portal if they say No than a cute message will come
+up."* That is what the code does, and the reasoning is written into it: a member
+already has their colours, wire, timer and gate code on file, so the form asks
+them to re-type what we hold.
+
+**2026-08-29:** *"You mean that only requotes see the quote form cause everyone
+should be filling out the form, but when I checked last everyone that gets an
+email and pushes approve does fill out the form with all info."*
+
+**The factual half is resolved, and both of you are right.** Who sees the form
+is decided by `alreadyMember`, which is true only when the quote carries
+`convertedToCustomerAt` (staff-only) or an `existingCustomerId` pointing at a
+record that still exists. So:
+
+- a **brand-new lead** approving → gets the form. Always has.
+- an **existing member** approving a re-quote → is asked what is changing.
+
+A test quote is a new lead, so *"when I checked last, everyone fills the form"*
+is exactly what you would see. Nothing is broken and nothing contradicts the
+code; the two answers are about two different people.
+
+**The intent half is yours.** Should the second group get the form as well?
+
+- **Keep it as it is** — a member re-typing colours we already hold is how a
+  record gets *worse*, and the "do you want anything changed" question is
+  shorter and answers the same thing.
+- **Give everyone the form** — one path instead of two, and a member whose
+  details are stale gets a chance to correct them. The cost is that a member who
+  changes nothing can still overwrite good data with a hurried re-entry.
+
+**Why it is not decided here.** R-024 says your newer answer wins where you have
+answered the same question twice — but the newer line reads as *"I thought it
+worked this way, and when I tested it, it did"*, which is a report rather than a
+ruling, and applying it would undo a decision whose reasoning is still sound.
+Saying so and asking is the rule for a same-tier collision, not picking one.
+
+**Nothing was changed either way.** The journey page draws both routes, so the
+two paths are at least visible now.
+
+**ANSWERED, 2026-08-29** — *"Requotes work different we should just have a fill out
+form or keep info already in system kind of thing... So give them an option if that makes
+sense."*
+
+**Give them the option — and it already exists**, which neither of us knew when the
+question was written. `offerMemberChangeChoice` renders **three** buttons to a member
+approving a re-quote:
+
+1. *"Yes, I'd like to make a change"* → their own portal
+2. *"Fill everything in again from scratch"* → **the form**, pre-filled from what we hold,
+   greeting them with *"Here's what we have on file — change anything that's different this
+   year."* It is the same form and the same submit a brand-new customer uses.
+3. *"No, keep everything the same"* → done
+
+**So nothing was built for this, and nothing needed to be.**
+
+⚠ **My own framing of this question was incomplete and that is what made it look like a
+fork.** It described the member branch as *"asked what is changing"* and did not mention
+the middle button — so the choice read as form-versus-question when the form was already
+one of the three answers.
+
+⚠ **And the questions map said `Decided — not built` for QT-17, which was stale.** A status
+column that has gone stale is worse than a missing one: it sent this session towards
+designing something that already shipped. Corrected at the code, not from the row.
+
+**Resulting map change.** QT-17, re-confirmed and its status corrected.

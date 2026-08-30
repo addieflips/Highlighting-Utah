@@ -73,6 +73,18 @@ const PARTS = {
      happened, loudly, rather than the line silently reading wrong. */
   historySeasonWords: liftBlock('historySeasonWords', '{', '}'),
   historyMergeWords: liftBlock('historyMergeWords', '{', '}'),
+  /* ⚠ LIFTED, NEVER STUBBED. A stub keeps this file green through a change to what
+     the colour-change line SAYS — and what it says is the whole point of the row:
+     "they changed it themselves" and "the office put it in for them" are the two
+     answers the warehouse badge already tells apart, and the history must not be
+     the one screen that flattens them. */
+  historyLightsWords: liftBlock('historyLightsWords', '{', '}'),
+  /* ⚠ THE RE-QUOTE ROWS AND THEIR VOCABULARY, BOTH LIFTED. The words are the claim —
+     'they moved house' and 'the price was corrected' are three very different amounts
+     of work — so a stubbed table would keep this file green through a change to what
+     a re-quote row tells somebody. */
+  REQUOTE_KIND_WORDS: liftBlock('REQUOTE_KIND_WORDS', '{', '}'),
+  historyRequoteRows: liftBlock('historyRequoteRows', '{', '}'),
   historyNoteRows: liftBlock('historyNoteRows', '{', '}'),
   customerHistory: liftBlock('customerHistory', '{', '}')
 };
@@ -123,7 +135,20 @@ check('the path steps were read out of queue-date.test.js',
    names cannot tell a step deliberately left off from one somebody forgot. */
 const NOT_IN_HISTORY = {
   paidAt: 'payments are their own ledger with several rows per invoice, so they come ' +
-    'from the payments collection rather than a single date on the record'
+    'from the payments collection rather than a single date on the record',
+  /* ⚠ IT IS ON THE HISTORY — through `historyRequoteRows`, not through HISTORY_STEPS, and
+     the difference is the whole reason it needs an entry here. `requotedAt` lives on the
+     QUOTE, and a re-quote is a SEPARATE quote document: the history reads only the quote
+     that CONVERTED them, deliberately, so a re-quote raised last week does not read as the
+     day they joined. A step keyed on this field would look right in the list and find
+     nothing for almost everybody. Section 1d runs the rows it really produces. */
+  requotedAt: 'it lives on a separate quote document, so it comes from the re-quote rows ' +
+    'rather than from a step — a step could only ever read the converting quote',
+  /* ⚠ ON THE PAYMENT DOCUMENT, not on the customer. Every payment is already a row of its
+     own from the payments ledger — with its amount and its method, which one date could
+     not carry — so a step here would draw the same money twice. Same reason as paidAt. */
+  capturedAt: 'a card payment being taken, on the payment document — payments are already ' +
+    'a row each from the ledger, so a step would draw the same money twice'
 };
 const stepFields = STEPS.map(s => s.field);
 const missing = pathFields.filter(f => stepFields.indexOf(f) === -1 && !(f in NOT_IN_HISTORY));
@@ -133,6 +158,309 @@ check('every step of the path reaches the history',
   '.\n        Add it to HISTORY_STEPS so it shows on the customer\'s history, or to ' +
   'NOT_IN_HISTORY with the reason. Left out, that step is silently missing from every ' +
   'customer\'s history and the page looks complete while doing it.');
+
+/* ---------------------------------------------------------------------------
+ * 1b. THE ONE SHE ASKED FOR BY NAME.
+ *
+ * Addie's list of what she wanted dated opened with "asked for different lights on this
+ * date". `lightsChangedAt` has existed for a while — written by the portal, by Edit
+ * Customer and by the sheet sync, read by the Color Changes tab and the warehouse badge —
+ * and was simply never listed here. So the one event she named first was the one missing
+ * from the page built to answer her, and nothing anywhere said so.
+ *
+ * ⚠ THESE RUN THE RULE, they do not read it. Every claim is about a SENTENCE a person
+ * reads, and this repo has been caught four times by a check that matched the source of a
+ * message which could never reach the screen.
+ * ------------------------------------------------------------------------- */
+{
+  const D = v => new Date(v + 'T12:00:00Z');
+  /* ⚠ THE DAY THEY JOINED, FOR EVERYBODY WHO NEVER HAD A QUOTE. The step list read
+     `createdAt` off the QUOTE only, so a customer typed in by the office or imported from
+     the master sheet — most of the book — had no row anywhere saying when they became a
+     customer; their history simply began at whatever happened to them first.
+     ⚠ THE PATH CENSUS COULD NOT HAVE CAUGHT IT: `createdAt` was already on PATH_STEPS, so
+     every list was satisfied while the row was missing for almost everybody. It takes
+     RUNNING the history against a customer who has no quote at all. */
+  check('a customer who never had a quote still has the day they joined',
+    history({ cust: { createdAt: D('2026-03-04') } }).rows.length === 1,
+    'got: ' + JSON.stringify(history({ cust: { createdAt: D('2026-03-04') } }).rows));
+
+  /* ⚠ AND A QUOTE CUSTOMER GETS BOTH, which is right rather than duplication: the day
+     somebody asked for a price and the day they became a customer are different days,
+     often weeks apart, and the gap between them is a real thing to look at. */
+  const both2 = history({ quote: { createdAt: D('2026-02-01') },
+    cust: { createdAt: D('2026-03-04') } });
+  check('and a quote customer gets the quote day and the joining day, separately',
+    both2.rows.length === 2 &&
+    both2.rows.some(r => /Quote raised/i.test(r.what)) &&
+    both2.rows.some(r => /customer list/i.test(r.what)),
+    'got: ' + both2.rows.map(r => r.what).join(' | '));
+
+  check('a colour change appears on the history at all',
+    stepFields.indexOf('lightsChangedAt') !== -1,
+    'the first thing Addie asked to be dated, absent from the page built to answer her');
+
+  const portal = history({ cust: { lightsChangedAt: D('2026-08-10'), lightsChangedVia: 'portal' } });
+  const office = history({ cust: { lightsChangedAt: D('2026-08-10'), lightsChangedVia: 'office' } });
+  const older  = history({ cust: { lightsChangedAt: D('2026-08-10') } });
+
+  check('a change the customer made themselves says so',
+    /portal/i.test(portal.rows[0].what),
+    'got: ' + portal.rows[0].what);
+  check('a change the office put in says so instead',
+    /office/i.test(office.rows[0].what) && !/portal/i.test(office.rows[0].what),
+    'got: ' + office.rows[0].what);
+
+  /* ⚠ THE TWO MUST NOT COLLAPSE INTO ONE SENTENCE. They are the same event from opposite
+     ends and the warehouse badge already tells them apart; a history that prints one word
+     for both is the screen that flattens them. Asserted as a DIFFERENCE rather than as two
+     separate matches, because a rule returning one fixed string containing both words
+     would pass both checks above. */
+  check('and the two are not the same sentence',
+    portal.rows[0].what !== office.rows[0].what,
+    'both read: ' + portal.rows[0].what);
+
+  /* ⚠ AN UNRECORDED ORIGIN GUESSES NOTHING. Every colour change made before 2026-08-24
+     carries no `lightsChangedVia`, and picking one of the two on a coin toss prints a
+     confidently wrong claim beside a real date — worse than an honest silence, and the
+     rule the badge already keeps. */
+  check('a change from before we recorded who made it claims neither',
+    !/portal/i.test(older.rows[0].what) && !/office/i.test(older.rows[0].what),
+    'got: ' + older.rows[0].what);
+
+  /* ⚠ AND IT IS ITS OWN LINE, NOT THE BUILD-QUEUE LINE. A colour change queues a build, so
+     the two sit together on a real record and it is tempting to read one as the other —
+     but a build is also queued by joining, by a re-quote, by a wire change and by coming
+     back after a recycle, and only one of those is somebody picking different colours. */
+  const both = history({ cust: { lightsChangedAt: D('2026-08-10'),
+    lightsQueuedAt: D('2026-08-10'), lightsChangedVia: 'portal' } });
+  check('a colour change and the build it queued are two lines, not one',
+    both.rows.length === 2 &&
+    both.rows.filter(r => /different lights/i.test(r.what)).length === 1 &&
+    both.rows.filter(r => /warehouse/i.test(r.what)).length === 1,
+    'got: ' + both.rows.map(r => r.what).join(' | '));
+}
+
+/* ---------------------------------------------------------------------------
+ * 1c. THE REST OF WHAT WAS WRITTEN AND SHOWN TO NOBODY.
+ *
+ * The colour change was found by hand. Sweeping every field in the four source files that
+ * is written with a real timestamp turned up **thirty-five** more on no path at all, and
+ * seven of them were plain stages of a customer's journey with the field already there.
+ * Two were Addie's own words a second and third time — "or maybe next year date", "or
+ * requoted on".
+ *
+ * ⚠ THE PAIRS ARE THE POINT, and each pair is one question somebody actually asks:
+ *   approvalRespondedAt / quoteRespondedAt — did they reply, or did we take somebody's word
+ *   invoicedAt / invoiceEmailSentAt        — was a bill raised, or did it actually go out
+ *   lightsRecycleRequestedAt / lightsRecycledAt — asked back, or actually back on the shelf
+ * Flattened into one row each, the history answers the easy half and looks complete doing
+ * it. That is worse than showing nothing, because somebody acts on it.
+ * ------------------------------------------------------------------------- */
+{
+  const D = v => new Date(v + 'T12:00:00Z');
+  const has = f => stepFields.indexOf(f) !== -1;
+  const WANTED = {
+    quoteLastNudgedAt: 'the nudge is a step on the picture and recorded nothing',
+    approvalRespondedAt: 'the customer pressing the button in their own email',
+    quoteRespondedAt: 'the office recording an answer given on the phone',
+    formCompletedAt: 'the one step of the journey that is their work, not ours',
+    maybeNextYearAt: 'Addie named it: "or maybe next year date"',
+    lightsRecycledAt: 'the set actually back on the shelf, not merely asked for',
+    invoiceEmailSentAt: 'the bill actually leaving — "I never got my invoice"'
+  };
+  const absent = Object.keys(WANTED).filter(f => !has(f));
+  check('every dated event the sweep found as a real stage is on the history',
+    absent.length === 0,
+    'missing: ' + absent.map(f => f + ' (' + WANTED[f] + ')').join('; '));
+
+  /* ⚠ EACH PAIR STAYS TWO ROWS. Asserted by RUNNING both dates onto one record and counting
+     the lines, not by checking two entries exist — a step list can hold both names while
+     the words collapse them, and the words are what a person reads. */
+  const pairs = [
+    ['approvalRespondedAt', 'quoteRespondedAt', 'quote', /themselves/i, /office/i],
+    ['lightsRecycleRequestedAt', 'lightsRecycledAt', 'cust', /asked back/i, /came back/i]
+  ];
+  pairs.forEach(([a, b, from, ra, rb]) => {
+    const rec = {}; rec[a] = D('2026-06-01'); rec[b] = D('2026-06-02');
+    const h = history(from === 'quote' ? { quote: rec } : { cust: rec });
+    check('"' + a + '" and "' + b + '" stay two lines',
+      h.rows.length === 2 && h.rows.some(r => ra.test(r.what)) && h.rows.some(r => rb.test(r.what)),
+      'got: ' + h.rows.map(r => r.what).join(' | '));
+  });
+
+  /* ⚠ AND THE INVOICE PAIR SPANS TWO DOCUMENTS, which is why it is checked separately: the
+     bill being raised is on the invoice and the email leaving is on the customer, so a
+     harness feeding one record could never tell them apart. */
+  const invPair = history({ inv: {}, invoice: { invoicedAt: D('2026-06-01') },
+    cust: { invoiceEmailSentAt: D('2026-06-02') } });
+  check('a bill raised and a bill emailed are two lines from two documents',
+    invPair.rows.length === 2 &&
+    invPair.rows.some(r => /raised/i.test(r.what)) &&
+    invPair.rows.some(r => /emailed/i.test(r.what)),
+    'got: ' + invPair.rows.map(r => r.what).join(' | '));
+}
+
+/* ---------------------------------------------------------------------------
+ * 1d. "OR REQUOTED ON" — THE ONE THAT COULD NOT BE A STEP.
+ *
+ * `requotedAt` lives on the QUOTE, and a re-quote is a separate quote document. The history
+ * reads only the quote that CONVERTED them — deliberately, so a re-quote raised last week
+ * does not read as the day they joined — so a step keyed on this field would have looked
+ * right in the list and found nothing for almost everybody.
+ * ------------------------------------------------------------------------- */
+{
+  const D = v => new Date(v + 'T12:00:00Z');
+  const three = history({ requotes: [
+    { requotedAt: D('2026-05-01'), requoteKind: 'addition' },
+    { requotedAt: D('2026-06-01'), requoteKind: 'address' },
+    { requotedAt: D('2026-07-01'), requoteKind: 'price', requoteReason: 'rounding' }
+  ] });
+  /* ⚠ A ROW EACH, NOT ONE "last re-quoted on". Three re-quotes in a season is a house
+     nobody has measured properly, and a single latest-date row hides exactly that. */
+  check('every re-quote gets its own line', three.rows.length === 3,
+    'got ' + three.rows.length + ': ' + three.rows.map(r => r.what).join(' | '));
+
+  /* ⚠ AND EACH SAYS WHY. An addition, a move and a corrected price are three different
+     amounts of work; "Re-quoted" beside a date leaves the only useful question open. */
+  const words = three.rows.map(r => r.what).join(' | ');
+  check('a re-quote says which kind it was',
+    /more of the house/i.test(words) && /moved house/i.test(words) && /price was corrected/i.test(words),
+    'got: ' + words);
+  check('and carries the reason somebody typed', /rounding/.test(words),
+    'got: ' + words);
+
+  /* ⚠ AN UNKNOWN KIND SAYS NOTHING RATHER THAN GUESSING — re-quotes raised before
+     requoteKind existed carry none, and picking one prints a confident claim about work
+     that may never have happened. Same rule as the colour change's origin. */
+  const bare = history({ requotes: [{ requotedAt: D('2026-05-01') }] });
+  check('a re-quote with no kind recorded claims none',
+    bare.rows.length === 1 && !/moved|more of the house|price was corrected/i.test(bare.rows[0].what),
+    'got: ' + bare.rows[0].what);
+
+  /* ⚠ AND A QUOTE THAT WAS NEVER RE-QUOTED IS NOT ONE. The renderer filters on the date, so
+     an ordinary second quote against the same customer must not appear as a re-quote here. */
+  check('a quote with no re-quote date is not listed',
+    history({ requotes: [{ requoteKind: 'address' }] }).rows.length === 0,
+    'a quote nobody re-quoted was drawn as a re-quote');
+}
+
+/* ---------------------------------------------------------------------------
+ * 1a. EVERY STEP READS THE DOCUMENT THAT ACTUALLY CARRIES ITS FIELD.
+ *
+ * ⭐ THIS IS A THIRD SHAPE OF THE SAME HOLE, and it was found by committing one. A step
+ * names the document its field comes from — `cust`, `quote` or `inv` — and if that is
+ * wrong the step is silently dead: `customerHistory` looks the field up on a record that
+ * never carries it, finds nothing, and skips. No throw, no warning, no row, for everybody.
+ *
+ * ⚠ THE OTHER TWO CENSUSES ARE BLIND TO IT BY CONSTRUCTION. queue-date proves the field is
+ * WRITTEN with a real time somewhere; this file proves the field is ON the step list. Both
+ * are perfectly satisfied by a step pointed at the wrong document — the field really is
+ * written, and it really is listed. Only the `from` is wrong, and nothing looked at it.
+ *
+ * ⚠ IT HAPPENED TWICE IN ONE DAY. `createdAt` was read off the quote alone, so most of the
+ * book had no joining row; and `formCompletedAt` was added reading off the customer when
+ * both of its writers put it on the QUOTE, so it could never have fired for anybody. Every
+ * check in the repo passed through both.
+ *
+ * ⚠ SO IT IS CHECKED BY RUNNING, NOT BY READING. Working out which collection a field
+ * belongs to from the source was tried first and abandoned: the writes take five different
+ * shapes across two files, and the best attribution still produced six false mismatches and
+ * four unknowns. A gate that cries wolf on correct code is one somebody switches off. This
+ * populates ONE document at a time and asserts every step that names it produces a row —
+ * which is exactly the guarantee that matters, and cannot be got wrong.
+ * ------------------------------------------------------------------------- */
+{
+  const D = v => new Date(v + 'T12:00:00Z');
+  const byFrom = { cust: [], quote: [], inv: [] };
+  STEPS.forEach(s => { if (byFrom[s.from]) byFrom[s.from].push(s.field); });
+
+  check('every step names one of the three documents',
+    STEPS.every(s => s.from in byFrom),
+    'unknown source(s): ' + [...new Set(STEPS.map(s => s.from))].filter(f => !(f in byFrom)).join(', ') +
+    '. A step whose document is not one of these is read from nothing and never appears.');
+
+  Object.keys(byFrom).forEach(from => {
+    const fields = byFrom[from];
+    if (!fields.length) return;
+    /* One record carrying every field this document is supposed to supply, and nothing
+       else populated at all. Anything that does not come back is being looked for on a
+       record that will never have it. */
+    const rec = {};
+    fields.forEach((f, i) => { rec[f] = D('2026-0' + (1 + (i % 9)) + '-0' + (1 + (i % 9))); });
+    const src = {};
+    src[from === 'inv' ? 'invoice' : from] = rec;
+    const got = history(src).rows.length + history(src).undated.length;
+    check('every "' + from + '" step produces a row from a ' + from + ' record',
+      got === fields.length,
+      'expected ' + fields.length + ' row(s) from ' + fields.length + ' field(s), got ' + got +
+      '.\n        A step pointed at the wrong document is silently dead — the lookup finds ' +
+      'nothing and skips, with no throw and no warning, for every customer.');
+  });
+
+  /* ⚠ AND THE LOOP ABOVE CANNOT SEE A FIELD MOVED BETWEEN TWO DOCUMENTS, which the
+     red-check proved: swapping `quoteSentAt` from the quote to the customer went straight
+     through it. The reason is worth stating because it is the trap this repo keeps meeting
+     — the fixture is built FROM the declaration under test, so any assignment is
+     self-consistent and the counts always match. The loop still earns its place: it catches
+     a document name that does not exist at all, and it RUNS the lookup rather than reading
+     it. It just cannot be the only thing here.
+
+     ⭐ SO THE TEST STATES IT INDEPENDENTLY. Exactly the argument options-audit.test.js
+     already makes for its frozen AGREED map: when the declaration IS the thing under test,
+     a check derived from it proves only that it agrees with itself. This is a second copy
+     and is meant to be — its whole value is being written from the WRITE SITES rather than
+     from the step list, so the two can disagree.
+
+     ⚠ EACH ONE WAS CHECKED AT ITS WRITE SITE, not inferred from its name. `formCompletedAt`
+     reads like a customer field and is written to `quotes` by both of its writers, which is
+     precisely how it shipped wrong. If you add a step, open the writer. */
+  const FIELD_HOME = {
+    createdAt: 'both',                     /* every document has one; the history reads the
+                                              quote's for "quote raised" and the customer's
+                                              for "added to the customer list" */
+    quoteSentAt: 'quote', quoteLastNudgedAt: 'quote',
+    approvalRespondedAt: 'quote',          /* quoteRespond, on the quote */
+    quoteRespondedAt: 'quote',             /* admin's own dropdown, on the quote */
+    approvedByOfficeAt: 'quote', convertedToCustomerAt: 'quote',
+    formCompletedAt: 'quote',              /* BOTH writers put it on quotes — the portal's
+                                              own form and quoteSaveDetails */
+    requotedAt: 'quote',
+    lightsQueuedAt: 'cust', lightsMarkedBuiltAt: 'cust', needsDayAssignedAt: 'cust',
+    assignedCrewAt: 'cust', fixAssignedAt: 'cust', removalAssignedAt: 'cust',
+    fixRaisedAt: 'cust', fixDoneAt: 'cust', completedAt: 'cust', removalDoneAt: 'cust',
+    lightsRecycleRequestedAt: 'cust', lightsRecycledAt: 'cust', rsvpRespondedAt: 'cust',
+    seasonStatusAt: 'cust', seasonResetAt: 'cust', mergedAt: 'cust',
+    maybeNextYearAt: 'cust', requoteAppliedAt: 'cust', lightsChangedAt: 'cust',
+    lightsChangedAfterAssignAt: 'cust', askSameAsLastYearAt: 'cust',
+    cannotBillNoEmailAt: 'cust', invoiceEmailSentAt: 'cust',
+    invoicedAt: 'inv', newMemberFeeAppliedAt: 'inv'
+  };
+  const unstated = STEPS.map(s => s.field).filter(f => !(f in FIELD_HOME));
+  check('every step\'s field has a stated home',
+    unstated.length === 0,
+    'not stated: ' + unstated.join(', ') +
+    '.\n        Open the write site and say which document it lands on. Inferred from the ' +
+    'name, formCompletedAt reads like a customer field and is written to quotes.');
+
+  const wrongDoc = STEPS.filter(s => FIELD_HOME[s.field] &&
+    FIELD_HOME[s.field] !== 'both' && FIELD_HOME[s.field] !== s.from);
+  check('every step reads the document that actually carries its field',
+    wrongDoc.length === 0,
+    wrongDoc.map(s => s.field + ' is on the ' + FIELD_HOME[s.field] + ' and is read from ' +
+      s.from).join('; ') +
+    '.\n        A step pointed at the wrong document is silently dead: the lookup finds ' +
+    'nothing and skips, with no throw and no warning, for every customer.');
+
+  /* ⚠ AND THE ONE THAT ACTUALLY SHIPPED WRONG IS NAMED. Both writers of formCompletedAt put
+     it on the QUOTE — the portal's own form writes it there, and quoteSaveDetails writes it
+     there for somebody following an emailed link — and it was added here reading off the
+     customer. Named rather than left to the loop above, because a loop can be satisfied by
+     the field being moved to the wrong side of a correct-looking pair. */
+  check('the details form is read off the quote, where both writers put it',
+    (STEPS.find(s => s.field === 'formCompletedAt') || {}).from === 'quote',
+    'read off the customer it finds nothing for anybody, and nothing anywhere says so');
+}
 
 const strangers = stepFields.filter(f => pathFields.indexOf(f) === -1);
 if (strangers.length) note('history lists ' + strangers.length + ' field(s) the path does ' +

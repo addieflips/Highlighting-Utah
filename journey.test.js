@@ -148,6 +148,13 @@ const routeH = ['assigned', 'changedafter', 'queued'];
 const routeI = ['hung', 'noemail', 'invoiced'];
 const routeJ = ['invoiced', 'unmatched'];
 const routeK = ['scheduled', 'cancelrequest', 'recycled'];
+/* ⚠ TWO ROUTES IN, DELIBERATELY, AND BOTH ARE WALKED. A customer can ask for different
+   colours when they are asked what is changing, and again while they are sitting on the
+   schedule waiting for a day — the second is far commoner and was the one missing. A
+   reachability check alone would stay green with either of them deleted, because the
+   other still reaches the step; only naming both catches one being lost. */
+const routeL = ['memberchange', 'colourchange', 'queued'];
+const routeM = ['scheduled', 'colourchange', 'queued'];
 check('declining a re-quote asks about last year and keeps them in the season',
   walk(routeG) === '', walk(routeG));
 check('changing colours after the booking reaches a new bundle',
@@ -158,6 +165,30 @@ check('a payment that finds no bill is reachable from the invoice',
   walk(routeJ) === '', walk(routeJ));
 check('asking to cancel reaches the recycle queue',
   walk(routeK) === '', walk(routeK));
+check('asking what is changing reaches a colour change and a new bundle',
+  walk(routeL) === '', walk(routeL));
+check('and so does changing your mind while waiting for a day',
+  walk(routeM) === '', walk(routeM));
+
+/* ⚠ THE ORDINARY CHANGE AND THE LATE ONE ARE TWO BOXES, NOT ONE. Both are somebody
+   picking different colours; the only difference is whether a crew is already holding a
+   printed card for the old pattern, which is exactly what makes one routine and the other
+   an emergency. Merged, the page would either call every change an emergency or lose the
+   reassignment entirely — and the page only ever had the late one. */
+check('an ordinary colour change is not drawn as the late one',
+  byId.colourchange && byId.changedafter && byId.colourchange.id !== byId.changedafter.id &&
+  (byId.colourchange.records || []).indexOf('lightsChangedAt') !== -1 &&
+  (byId.changedafter.records || []).indexOf('lightsChangedAfterAssignAt') !== -1,
+  'the two states are recorded in different fields and must not share a box');
+
+/* ⚠ AND THE FEE IS ON THE PICTURE. Outside the 48-hour window a colour change is $30 —
+   its own field, its own note, its own parity test, and the one thing a customer asks
+   about afterwards. A route drawn straight from "they want changes" to "sent to the
+   warehouse" says nothing about it at all. */
+check('a colour change reaches the bill as well as the warehouse',
+  (byId.colourchange.next || []).some(n => n.to === 'queued') &&
+  (byId.colourchange.next || []).some(n => n.to === 'invoiced'),
+  'goes to: ' + (byId.colourchange.next || []).map(n => n.to).join(', '));
 
 /* ⚠ A NO TO A PRICE IS NOT A NO TO THE SEASON, and the graph said otherwise until now —
    `declined` was drawn as an ending. An existing customer who declines keeps their route,
@@ -203,7 +234,16 @@ const NOT_A_STAGE = {
     'and one date could not carry a part payment followed by the rest',
   fixAssignedAt: 'being put on a fix route is the booking, not a stage — the stages are the ' +
     'fault being reported and it being mended',
-  removalAssignedAt: 'same: the booking for a takedown, not a stage of the journey'
+  removalAssignedAt: 'same: the booking for a takedown, not a stage of the journey',
+  /* ⚠ A MERGE IS SOMETHING DONE TO THE RECORD, NOT SOMEWHERE THE CUSTOMER GOES. This page
+     answers "where can things go from here", and folding a duplicate in is office
+     housekeeping that leaves them exactly where they were — drawn as a box it would sit on
+     the path with no route out that is not the route they were already on. It IS on their
+     history, which is the right place for it: the history says what happened to this
+     record, the picture says where a customer can travel. */
+  mergedAt: 'a duplicate record being folded in is housekeeping on the record, not a place ' +
+    'the customer goes — it is on their history, which is where what-happened-to-this-record ' +
+    'belongs'
 };
 const drawn = new Set();
 STEPS.forEach(s => (s.records || []).forEach(f => drawn.add(f)));
@@ -213,11 +253,38 @@ check('every dated step of the path appears on the page', undrawn.length === 0,
   '.\n        Give it a step in connections/journey.js, or a NOT_A_STAGE entry with the ' +
   'reason. Left out, that stage is missing from the picture and the page still looks whole.');
 
+/* ⚠ THE STEPS THAT LOOK DATELESS AND ARE NOT. Three of them carried no `records` at all
+   and each was hiding a real date, which the census above cannot see: it only asks that
+   every field ON the dated path is drawn SOMEWHERE, so a field drawn on one step is not
+   missed when a second step that also carries it names nothing.
+   ⚠ THE TWO STARTS ARE THE POINT. Somebody typed in by the office or brought in by the
+   master sheet has no quote-raised day and no approval day — `createdAt` is the only date
+   they have, and until 2026-08-29 the history read it off the QUOTE alone, so that moment
+   was invisible for most of the book.
+   ⚠ AND A DECLINE IS DATED LIKE AN APPROVAL. `quoteRespond` stamps `approvalRespondedAt`
+   alongside the status BEFORE it branches on the action, so a no carries it exactly as a
+   yes does; drawn bare, the page reads as though only a yes is ever recorded. */
+[['addedbyhand', 'createdAt'], ['imported', 'createdAt'],
+ ['declined', 'approvalRespondedAt']].forEach(([id, field]) => {
+  check('"' + id + '" records the date it really has',
+    ((byId[id] || {}).records || []).indexOf(field) !== -1,
+    'records: ' + JSON.stringify((byId[id] || {}).records || []) +
+    '.\n        A step drawn with no date reads as a stage nothing records, and this one ' +
+    'has ' + field + '.');
+});
+
 const noReason = Object.keys(NOT_A_STAGE).filter(f => String(NOT_A_STAGE[f]).length < 20);
 check('every deliberately-undrawn field says why', noReason.length === 0,
   'no reason: ' + noReason.join(', '));
 
-const strangers = [...drawn].filter(f => pathFields.indexOf(f) === -1);
+/* ⚠ ONLY DATES ARE STRANGERS. A step may legitimately name a field that is not a date at
+   all — `moved` records `requoteKind`, which is what KIND of re-quote it was — and a note
+   that fires on it every single run for ever is a note somebody learns to scroll past,
+   which costs the real ones their audience. The dated path is a list of dates; comparing a
+   non-date against it asks a question that has no right answer. */
+const strangers = [...drawn]
+  .filter(f => /(?:At|Until)$/.test(f))
+  .filter(f => pathFields.indexOf(f) === -1);
 if (strangers.length) note('the page names ' + strangers.length + ' field(s) the dated path ' +
   'does not: ' + strangers.join(', ') + '. Not a failure — but if one has been retired, ' +
   'take it off the step too.');

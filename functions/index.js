@@ -308,6 +308,44 @@ async function recordUnmatchedPayment(phone, { captureId, tip, serviceAmount }) 
     // Nothing else can be done here, but it must be loud in the logs.
     console.error('[HU] FAILED to file an unmatched PayPal payment', captureId, phone, e);
   }
+  /* ⭐ AND IT GOES IN THE SYSTEM INBOX (added 2026-08-30). Addie: "we need unmatched
+     invoice to come up in system inbox before we send it out."
+
+     ⚠ THE TEXT WAS THE ONLY THING THAT EVER SAID SO, and a text is gone the moment you
+     look away. The money is real, it is ours, and the customer it came from still reads as
+     owing — so somebody chases a bill that has already been paid. A note keeps until
+     somebody deals with it, which is the whole difference.
+
+     ⚠ BEST-EFFORT, LIKE THE TEXT BESIDE IT. This runs inside the payment path: the card
+     has already been charged, and nothing here may throw back into it. A note that fails
+     is logged and the money is still filed.
+
+     ⚠ ONE NOTE PER CAPTURE, not per attempt. The document id above is the captureId
+     precisely so the webhook and the browser both landing here write one record; this
+     guard is the same idea for the Inbox, so a retried webhook cannot post twice. */
+  try {
+    const already = await db.collection('messages')
+      .where('topic', '==', 'Payment With No Bill')
+      .where('ref', '==', String(captureId)).limit(1).get();
+    if (already.empty) {
+      await db.collection('messages').add({
+        topic: 'Payment With No Bill', folder: 'System',
+        name: '', phone: phone || '', email: '', contactMethod: '',
+        ref: String(captureId),
+        message: 'A card payment of $' + (Number(serviceAmount) || 0).toFixed(2) +
+                 ' from ' + (phone || 'an unknown number') + ' went through, but no invoice ' +
+                 'could be found to put it against — usually because the phone or email the ' +
+                 'bill is filed under changed after the invoice was written. The money is ' +
+                 'ours and is safe, but that customer still reads as owing, so they may be ' +
+                 'chased for a bill they have already paid. It is on the Invoices tab beside ' +
+                 'them, and in Health Check under "A card payment that found no bill".',
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+  } catch (e) {
+    console.error('[HU] unmatched-payment inbox note failed:', e);
+  }
   // The alert is best-effort and must never throw back into the payment path.
   try {
     const cfgSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
@@ -1185,6 +1223,114 @@ function warehouseRebuildFields(oldData, newData) {
   });
 }
 
+/* ---- WHAT A CUSTOMER CHANGED IN THEIR OWN PORTAL -------------------------
+ *
+ * ⭐ THE LAST OF ADDIE'S SIX, AND THE OFFICE HALF WAS ALREADY DONE (added 2026-08-29).
+ * Her list ended "or changed timer settings this date. Changed address this date." Both
+ * are EDITS rather than stages, and the answer to an edit is a log line rather than a
+ * stamp — "Address changed on 3 Oct" is a worse answer than none, because the question is
+ * always what it changed FROM. `describeCustomerChanges` in admin.html does exactly that
+ * for the office.
+ *
+ * ⚠ AND IT DID NOTHING AT ALL FOR THE CUSTOMER. The activity log is written only from
+ * admin.html, so a timer switched on in Edit Customer produced "Timer: no → yes" and the
+ * same switch flicked by the customer in their own portal produced NOTHING — not a stamp,
+ * not a line, nothing. The office half looked complete, which is why nobody noticed the
+ * other half was missing. Exactly the asymmetry `lightsChangedVia` exists to close one
+ * level up, in a new place.
+ *
+ * ⚠ TWO COPIES, AND THE SCOPE IS WHAT MAKES THEM SAFE. This is the same two-copies
+ * problem as the invoice maths, and it gets the same answer: a parity test. What keeps it
+ * small is that the portal can only ever write PORTAL_WRITE_FIELDS — sixteen fields — so
+ * this table is deliberately that set and no more, and `change-log.test.js` runs both
+ * copies over every one of them and fails the moment they disagree about a sentence.
+ *
+ * ⚠ IT DECIDES NOTHING, like the log it writes into. Nothing anywhere reads these rows
+ * back into business logic; they are a record for a person, which is what makes it safe
+ * to write from a path that also moves money.
+ */
+const PORTAL_CHANGE_LABELS = {
+  name: 'Name', phone: 'Phone', phone2: 'Second phone',
+  email: 'Email', email2: 'Second email', address: 'Address',
+  gateCode: 'Gate code', installPreference: 'When they want it hung',
+  wireColor: 'Wire colour', outletTimer: 'Timer',
+  specificOutlet: { label: 'Specific outlet', kind: 'yesno' },
+  specificOutletNotes: 'Which outlet', notes: { label: 'Notes', kind: 'text' },
+  lightsDescription: 'Light colours',
+  houseSides: { label: 'Sides of the house', kind: 'number' },
+  cancellationReason: { label: 'Why they are cancelling', kind: 'text' }
+};
+/* ⚠ THE ORDER OF THESE FIRST TWO LINES IS THE RULE, and it is written out in the browser
+   copy too because it was found by running the diff rather than reading it: an unticked
+   box reaches a save as '' while the record stores false — the same answer spelt two ways
+   — so with the blank test first, every save of every customer reported a row of tick
+   boxes changing. */
+function portalChangeValueText(v, kind) {
+  if (kind === 'present') return v ? 'saved' : 'none';
+  if (kind === 'yesno' || typeof v === 'boolean') return v ? 'yes' : 'no';
+  if (v === null || v === undefined || v === '') return '(blank)';
+  if (kind === 'money') return '$' + (Number(v) || 0).toFixed(2);
+  if (kind === 'list') return Array.isArray(v) ? (v.join(', ') || '(blank)') : String(v);
+  const s = String(v).replace(/\s+/g, ' ').trim();
+  if (!s) return '(blank)';
+  return s.length > 60 ? s.slice(0, 60) + '\u2026' : s;
+}
+const PORTAL_CHANGE_EMPTY_TEXTS = ['(blank)', 'no', 'none', '0', '$0.00'];
+function describePortalChanges(before, updates) {
+  const out = [];
+  if (!updates) return out;
+  const was = before || {};
+  Object.keys(PORTAL_CHANGE_LABELS).forEach(function (f) {
+    if (!Object.prototype.hasOwnProperty.call(updates, f)) return;
+    const spec = PORTAL_CHANGE_LABELS[f];
+    const label = typeof spec === 'string' ? spec : spec.label;
+    const kind = typeof spec === 'string' ? '' : spec.kind;
+    const a = portalChangeValueText(was[f], kind);
+    const b = portalChangeValueText(updates[f], kind);
+    if (a === b) return;
+    /* ⚠ A FIELD THE RECORD NEVER HELD, arriving at its own default, is not an edit. Every
+       record written before a field existed reports "(blank) → no" on the first save that
+       touches it, which would put a row of noise on the history of the whole book. */
+    if (!Object.prototype.hasOwnProperty.call(was, f) &&
+        PORTAL_CHANGE_EMPTY_TEXTS.indexOf(b) !== -1) return;
+    out.push(label + ': ' + a + ' \u2192 ' + b);
+  });
+  return out;
+}
+/* ⚠ ONE ROW PER SAVE, capped, and SAYING it is capped — the same rule and the same number
+   as the office copy, for the same reason: a save is one event, and a row per field turns
+   one visit to the portal into a wall nobody scrolls. */
+const PORTAL_CHANGE_MAX_FIELDS = 12;
+function portalChangeSentence(changes) {
+  if (!changes || !changes.length) return '';
+  const shown = changes.slice(0, PORTAL_CHANGE_MAX_FIELDS);
+  const rest = changes.length - shown.length;
+  return 'They changed it themselves in their portal \u2014 ' + shown.join('; ') +
+    (rest > 0 ? ' (and ' + rest + ' more)' : '');
+}
+/* ⚠ IT MUST NEVER BREAK THE SAVE. A note about a change is worth less than the change,
+   and this runs on a path that also queues builds and charges a $30 fee. The office copy
+   carries the identical guarantee in the identical words. */
+async function logPortalChange(custId, changes) {
+  const what = portalChangeSentence(changes);
+  if (!custId || !what) return null;
+  try {
+    return await db.collection('activity').add({
+      what: what,
+      area: 'customers',
+      refId: String(custId),
+      /* ⚠ NAMED AS THEM, NOT AS A USER. Four people share the dashboard and every other
+         row in this log is one of them; a portal edit signed with a staff name would be
+         the log actively answering "who changed this" wrongly. */
+      who: 'member portal',
+      at: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (err) {
+    console.error('[HU] portal activity log write failed', what, err);
+    return null;
+  }
+}
+
 /* --- portalSave -----------------------------------------------------------
  * Input: { token, section, data }
  *   section = 'info' | 'preferences' | 'lights' | 'cancel'
@@ -1341,8 +1487,17 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
   // Keep the normalised sign-in fields in step with whatever just changed —
   // see contactIndexFields. Without this a customer who edits their own phone
   // or email through the portal drops back to the full-collection scan.
+  /* ⚠ TAKEN BEFORE THE WRITE, LOGGED AFTER IT. The diff needs the record as it was, and
+     `oldData` is exactly that — but a line saying what changed, written before a save
+     that then fails, is the log claiming something happened that did not. So the
+     sentence is built here and posted below, once the write has actually landed. */
+  const portalChanges = describePortalChanges(oldData, updates);
   Object.assign(updates, contactIndexFields(updates));
   await db.collection('jobAddresses').doc(match.id).update(updates);
+  /* ⚠ IT CANNOT BREAK THE SAVE — logPortalChange swallows its own failure, because a
+     note about a change is worth less than the change, and this path also queues
+     builds and charges a $30 fee. */
+  await logPortalChange(match.id, portalChanges);
 
   /* A cancellation request means this customer is sitting out, same as an
      RSVP "no" or "back next year" — so it has to pull them off any route a
@@ -2972,14 +3127,14 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
  * sendNightlyInvoices — runs every night at 7:00 PM Mountain Time.
  *
  * Checks every house marked "Done" by the crew that hasn't been billed yet
- * (regardless of which day it was actually completed \u2014 so a house marked
+ * (regardless of which day it was actually completed — so a house marked
  * Done late, after 7pm or the next morning, still gets caught on the very
  * next run instead of being missed) and sends an automatic invoice email:
  *   - already paid in full  -> "Nightly Auto-Invoice — Paid Receipt" template
  *   - still owes money      -> "Nightly Auto-Invoice — Unpaid" template
  * Houses flagged "needs fix" or marked "Didn't Get To" by the crew are
  * skipped entirely and never billed. Each house is only ever billed once
- * (guarded by invoiceEmailSent on the jobAddresses doc) \u2014 there's no
+ * (guarded by invoiceEmailSent on the jobAddresses doc) — there's no
  * "today vs yesterday" distinction at all, which is what keeps this from
  * ever double-billing or silently skipping a late completion.
  *
@@ -3042,11 +3197,18 @@ async function logNightlyInvoiceRun(data) {
       // Called out by name, not folded into the generic skip count — an
       // uninvoiceable customer is a bill that will never be sent, not a bill
       // that is waiting.
-      if (data.skippedNoEmail) parts.push(data.skippedNoEmail + ' NO EMAIL (cannot be billed)');
+      /* ⚠ THE WORDING CHANGED WITH THE BEHAVIOUR (2026-08-30). It read "cannot be
+         billed", which was true while a payer with no email got no invoice document at
+         all. They are billed now — the invoice is raised and waiting in their member
+         portal, which they reach with their phone — and the only thing missing is
+         somebody sending it. Addie: "I'll send invoices that only have phone number on
+         file myself." A summary that still said "cannot be billed" would read as work
+         that is impossible rather than work that is hers. */
+      if (data.skippedNoEmail) parts.push(data.skippedNoEmail + ' BILLED, SEND BY HAND (no email)');
       parts.push((data.errorCount || 0) + ' error' + (data.errorCount === 1 ? '' : 's'));
       let body = 'Highlighting Utah billing (' + (data.triggeredBy || 'run') + '): ' + parts.join(', ') + '.';
       if (data.skippedNoEmail && data.noEmailNames && data.noEmailNames.length) {
-        body += ' No email: ' + data.noEmailNames.slice(0, 3).join(', ') +
+        body += ' Send by hand: ' + data.noEmailNames.slice(0, 3).join(', ') +
           (data.noEmailNames.length > 3 ? ' +' + (data.noEmailNames.length - 3) + ' more' : '') + '.';
       }
       if (data.errorCount && data.errors && data.errors.length) body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
@@ -3151,7 +3313,7 @@ async function runInvoiceBatch(triggeredBy) {
     const pricingSnap = await db.collection('pricing').doc('config').get();
     const perFootRate = pricingSnap.exists ? (pricingSnap.data().perFootRate || 0) : 0;
 
-    // Bills any house marked Done that hasn't been invoiced yet \u2014 no matter
+    // Bills any house marked Done that hasn't been invoiced yet — no matter
     // which calendar day it was actually completed on. This avoids ever missing
     // a house that gets marked Done late (after 7pm, or the next morning): it
     // simply gets caught on the very next nightly run instead of being skipped.
@@ -3258,59 +3420,6 @@ async function runInvoiceBatch(triggeredBy) {
 
         const withEmail = active.find(function (h) { return !!h.data.email; });
         const email = payer.data.email || (withEmail ? withEmail.data.email : '');
-        /* No email address anywhere in this payer's group, so there is nothing
-           to send an invoice to. This used to be a bare `continue`: not counted
-           as sent, skipped or errored, so the nightly text read "0 sent, 0
-           errors" and looked healthy while an installed house went unbilled all
-           season. A phone-only signup is the ordinary case for a phone enquiry,
-           so this is not rare. Counted and named now, and Health Check has a
-           matching "Customer with no email address" row. */
-        if (!email) {
-          skippedNoEmail++;
-          noEmailNames.push(payer.data.name || payer.data.address || payer.id);
-          /* ⭐ AND IT LANDS ON THE CUSTOMER, NOT ONLY IN LAST NIGHT'S TEXT
-             (hole H, 2026-08-21). Counting them fixed the "0 sent, 0 errors"
-             lie; it did not make the work findable. A number in a nightly
-             summary is the same number every night, so it reads as background
-             noise while an installed house — materials, a crew's day, a bundle
-             made — goes unbilled all season.
-
-             With the flag on the record the office can filter All Customers,
-             see who they are and go and get an email address.
-
-             ⚠ SET AND CLEARED BY THE SAME RUN, so it cannot go stale the way
-             maybeNextYear did — one writer, one rule. A customer who gains an
-             email is cleared on the next nightly pass, and the office screen
-             does not even wait for that: the tag also checks live that they
-             still have no email, so it disappears the moment one is typed.
-             Stored flag, derived display — the same shape as derivedDoneFor.
-
-             ⚠ AND THE NOTE GOES UP ONCE, not nightly. Guarded on the flag not
-             already being set: a note every night for the same house is how
-             somebody learns to ignore the folder. */
-          if (!payer.data.cannotBillNoEmail) {
-            await tryFirestore('no-email flag', () =>
-              db.collection('jobAddresses').doc(payer.id).update({
-                cannotBillNoEmail: true,
-                cannotBillNoEmailAt: admin.firestore.FieldValue.serverTimestamp()
-              }));
-            await tryFirestore('no-email note', () =>
-              db.collection('messages').add({
-                topic: 'Cannot Be Billed', folder: 'System',
-                name: payer.data.name || '', phone: payer.data.phone || '', email: '',
-                contactMethod: '',
-                message: (payer.data.name || 'A customer') + ' has no email address ' +
-                         'anywhere on their bill, so tonight\'s invoice could not be ' +
-                         'sent and they have not been charged for work already done. ' +
-                         'They are in All Customers under the "Cannot Be Billed" ' +
-                         'filter. Adding an email address clears this by itself.',
-                autoQueuedToWarehouse: false, needsReassign: false,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
-              }));
-          }
-          continue;
-        }
-
         /* ⚠ THE SAME RUN CLEARS IT. A flag with only one way in is the sticky
            bug this file has already been bitten by; the writer that sets it is
            the only thing that should decide it is over. Written only when it is
@@ -3491,6 +3600,93 @@ async function runInvoiceBatch(triggeredBy) {
           });
         }
 
+        /* ⭐ THE BILL IS RAISED EVEN WHEN THERE IS NOWHERE TO SEND IT (moved 2026-08-30).
+           Addie: "How invoice bills. So if no email on file than invoice by phone for
+           member portal. I'll send invoices that only have phone number on file myself."
+
+           ⚠ THIS BLOCK USED TO SIT ABOVE THE INVOICE WRITE, so a payer with no email got
+           no invoice DOCUMENT at all — not merely no email. Their member portal, which
+           they sign into with their phone, had nothing to show them, and the work stayed
+           unbilled with no record anywhere of what was owed. Moving it here is the whole
+           change: everything above has already run, so the invoice exists, the join fee is
+           on it, a carried charge has landed and a carryover credit has been drawn.
+
+           ⚠ IT MUST STAY BELOW THE CARRYOVER DRAWDOWN, and that ordering is the reason the
+           block moved HERE rather than a few lines earlier. Both the charge-clearing and
+           the credit drawdown are written immediately after the invoice so the two
+           documents agree even if what follows fails; skipping out above them would leave
+           the invoice holding a credit the customer still has in full, and the next run
+           would apply it a second time.
+
+           ⚠ AND `invoiceEmailSent` IS DELIBERATELY NOT SET. It means the bill has gone
+           out, and it has not — so they stay on tomorrow night's list and in the nightly
+           summary until somebody deals with them, which is what "I'll send those myself"
+           needs. Re-running is safe: the fee is guarded by `newMemberFeeApplied`, the
+           carried charge was cleared off each house, the credit was drawn off the payer,
+           and the note below only posts once.
+
+           ⚠ AND IT IS STILL COUNTED AND NAMED in the nightly text. The count now means
+           "billed, but you must send it" rather than "skipped entirely"; the summary
+           wording says so. */
+        /* No email address anywhere in this payer's group, so there is nothing
+           to send an invoice to. This used to be a bare `continue`: not counted
+           as sent, skipped or errored, so the nightly text read "0 sent, 0
+           errors" and looked healthy while an installed house went unbilled all
+           season. A phone-only signup is the ordinary case for a phone enquiry,
+           so this is not rare. Counted and named now, and Health Check has a
+           matching "Customer with no email address" row. */
+        if (!email) {
+          skippedNoEmail++;
+          noEmailNames.push(payer.data.name || payer.data.address || payer.id);
+          /* ⭐ AND IT LANDS ON THE CUSTOMER, NOT ONLY IN LAST NIGHT'S TEXT
+             (hole H, 2026-08-21). Counting them fixed the "0 sent, 0 errors"
+             lie; it did not make the work findable. A number in a nightly
+             summary is the same number every night, so it reads as background
+             noise while an installed house — materials, a crew's day, a bundle
+             made — goes unbilled all season.
+
+             With the flag on the record the office can filter All Customers,
+             see who they are and go and get an email address.
+
+             ⚠ SET AND CLEARED BY THE SAME RUN, so it cannot go stale the way
+             maybeNextYear did — one writer, one rule. A customer who gains an
+             email is cleared on the next nightly pass, and the office screen
+             does not even wait for that: the tag also checks live that they
+             still have no email, so it disappears the moment one is typed.
+             Stored flag, derived display — the same shape as derivedDoneFor.
+
+             ⚠ AND THE NOTE GOES UP ONCE, not nightly. Guarded on the flag not
+             already being set: a note every night for the same house is how
+             somebody learns to ignore the folder. */
+          if (!payer.data.cannotBillNoEmail) {
+            await tryFirestore('no-email flag', () =>
+              db.collection('jobAddresses').doc(payer.id).update({
+                cannotBillNoEmail: true,
+                cannotBillNoEmailAt: admin.firestore.FieldValue.serverTimestamp()
+              }));
+            await tryFirestore('no-email note', () =>
+              db.collection('messages').add({
+                topic: 'Cannot Be Billed', folder: 'System',
+                name: payer.data.name || '', phone: payer.data.phone || '', email: '',
+                contactMethod: '',
+                /* ⚠ THE NOTE SAID THEY HAD NOT BEEN CHARGED, and since 2026-08-30 that is
+                   no longer true — the invoice is raised and waiting in their portal, and
+                   only the sending is manual. Left as it was, this note described the one
+                   customer whose bill DOES exist as one who had been missed entirely. */
+                message: (payer.data.name || 'A customer') + ' has no email address ' +
+                         'anywhere on their bill. Their invoice has been raised and is ' +
+                         'waiting in their member portal, which they sign into with their ' +
+                         'phone \u2014 but nothing could be emailed, so it needs sending by ' +
+                         'hand. They are in All Customers under the "Cannot Be Billed" ' +
+                         'filter. Adding an email address clears this by itself.',
+                autoQueuedToWarehouse: false, needsReassign: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+              }));
+          }
+          continue;
+        }
+
+
         /* One house reads exactly as it always has. Two or more get a line per
            address so the customer can see what each one cost - the whole point
            of a combined bill is that it still itemises. */
@@ -3626,7 +3822,7 @@ async function runInvoiceBatch(triggeredBy) {
   }
 }
 
-// Runs automatically every night at 7:00 PM Mountain Time \u2014 but only if the
+// Runs automatically every night at 7:00 PM Mountain Time — but only if the
 // "Send nightly invoice emails automatically" toggle is on in Admin > Automation.
 /* ---------------------------------------------------------------------------
    listAdminUsers - who can sign in to the admin dashboard.
@@ -3990,7 +4186,7 @@ exports.sendNightlyInvoices = onSchedule(
   async () => {
     const autoSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
     if (!autoSnap.exists || !autoSnap.data().enabled) {
-      return; // automation turned off \u2014 do nothing, don't even log
+      return; // automation turned off — do nothing, don't even log
     }
     await runInvoiceBatch('schedule');
   }
@@ -3998,7 +4194,7 @@ exports.sendNightlyInvoices = onSchedule(
 
 /* --- sendInvoicesNow -------------------------------------------------------
  * Manual "Send Invoices Now" button in Admin > Automation > EmailJS Setup.
- * Runs the exact same billing logic as the 7:00 PM automation, on demand \u2014
+ * Runs the exact same billing logic as the 7:00 PM automation, on demand —
  * works whether the automatic toggle is on or off, so this is the way to send
  * invoices out on a night the automation is turned off. Requires the caller
  * to be signed in (same Firebase Auth already used across admin.html).

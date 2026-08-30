@@ -396,6 +396,28 @@ check('the one place that sets the flag without queuing is still excluded',
       'without it every record carries last season\'s dates beside this season\'s flags, ' +
       'and the customer history runs the two years together with nothing between them');
 
+    /* ⭐ A TAKEDOWN IS THIS SEASON'S WORK AND RESETS WITH THE REST. Addie, asked directly:
+       "Oh so if we removed lights from someone's house that should reset for new season."
+       ⚠ IT WAS THE ONE JOB-DONE FLAG LEFT STANDING. Nothing else in the app ever cleared it
+       — the only other writer of `removalDone: false` is the Mark Done toggle being unticked
+       by hand — so a customer whose lights came down last December read "Removed" all the
+       way through the new season until somebody opened their record.
+       ⚠ THIS IS A CHANGE TO START NEW SEASON, which rewrites every customer in one press and
+       cannot be undone, so it is checked rather than trusted: the flag must be cleared, and
+       cleared IN THIS WRITE. A separate write can fail on its own and leave half the book
+       reset. */
+    check('and a finished takedown resets with the rest of the season',
+      /removalDone\s*:\s*false/.test(write),
+      'left standing, a customer whose lights came down last December reads "Removed" all ' +
+      'the way through the new season — the one job-done flag nothing else ever clears');
+
+    /* ⚠ AND ITS DATE SURVIVES, which is the other half of the same ruling and the half a
+       "tidy" fix would take with it. The flag says what is true of the season starting now;
+       the date says when last season's takedown happened, and the history needs it. */
+    check('but the date it happened on is kept',
+      !/removalDoneAt\s*:\s*null/.test(write),
+      'clearing the date throws away the only record the takedown ever happened');
+
     /* ⚠ AND IT MUST NOT START WIPING THE DATES. That is the tempting "tidy" fix and it
        destroys the only record the work happened — the history needs them, and "queued on
        the 2nd, built on the 9th" is the whole point of keeping them. */
@@ -453,8 +475,14 @@ check('the one place that sets the flag without queuing is still excluded',
     dupExactBtn: 'the Danger Zone merge — writes the gains onto the keeper and deletes the spare',
     rbWireDiffButtons: 'the sheet sync folding in a spare copy — the same thing, on the path ' +
       'that actually runs often',
-    dupFindBtn: 'the duplicate scan — builds the preview of what would be gained, and ' +
-      'writes nothing',
+    /* ⚠ ITS CALL of the shared rule only SCANS — it builds the preview of what a merge
+       would gain and nothing is written from it. That is not the same as the handler
+       writing nothing: since 2026-08-29 it also deletes the losers and records that on
+       the keeper. The delete census below is what holds that half; this entry is only
+       about what it does with `mergeFieldsFrom`, and saying "writes nothing" flat would
+       now contradict the census twenty lines down. */
+    dupFindBtn: 'the duplicate scan — its mergeFieldsFrom call builds the preview of ' +
+      'what would be gained and writes none of it',
     findMergeableCustomers: 'works out what a merge WOULD take, for the report; writes nothing',
     /* ⚠ A LOCAL HELPER INSIDE findMergeableCustomers, which the scanner names on its own
        because it is a named `const consider = function(...)`. Verified rather than assumed:
@@ -512,6 +540,250 @@ check('the one place that sets the flag without queuing is still excluded',
       'a separate write can fail on its own and leave the record carrying another\'s ' +
       'values with nothing saying where they came from');
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1e1. EVERY CUSTOMER RECORD KNOWS THE DAY IT WAS MADE.
+ *
+ * ⚠ THE HISTORY READ `createdAt` OFF THE QUOTE ONLY, which answers nothing for a customer
+ * who arrived any other way — typed in by the office, or imported from the master sheet,
+ * which is most of the book. Their history simply began at whatever happened to them first,
+ * with no row anywhere saying when they became a customer. That is fixed in HISTORY_STEPS;
+ * this is the other half — the field it now reads must actually be there.
+ *
+ * ⚠ AND A SCAN THAT LOOKED INSIDE THE addDoc CALL ANSWERED THIS WRONGLY, which is why the
+ * check is written the way it is. Four of the six creators build their object in a variable
+ * above the call and pass it by name, so a scan of the call's own parentheses reported them
+ * as missing the field when every one of them sets it. A confidently wrong answer sent a
+ * whole line of work in the wrong direction before one at a time by hand corrected it.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+  const re = /addDoc\(collection\(db,'jobAddresses'\)/g;
+  const sites = [];
+  let m;
+  while ((m = re.exec(clean))) {
+    sites.push({ at: m.index, fn: scan.enclosing(ix, m.index) || '(top level)' });
+  }
+  check('the customer-creator census found the places that make a record',
+    sites.length >= 5,
+    'found ' + sites.length + ' — a matcher that has stopped matching demands nothing');
+
+  /* ⚠ THE OBJECT THAT IS ACTUALLY WRITTEN, NOT THE FUNCTION AROUND IT — and the first
+     version searched the whole enclosing function, which the red-check proved was too
+     loose to fail: these handlers write several collections, so a `createdAt:` belonging
+     to something else satisfied the search while the customer object had lost its own.
+     A check that cannot fail is worse than no check.
+     ⚠ SO THE ARGUMENT IS RESOLVED. Two of the six pass an inline literal; the other four
+     build the object above and pass it by name, which is exactly what made a scan of the
+     call's own parentheses answer this wrongly in the first place. Both shapes are read. */
+  function objectWrittenAt(at) {
+    /* addDoc's own parentheses, then its SECOND top-level argument — the first is the
+       collection(...) call. Depth-counted rather than matched by shape, because the object
+       itself is full of braces and commas. */
+    const open = clean.indexOf('(', at);
+    let i = open, d = 0, split = -1;
+    for (; i < clean.length; i++) {
+      const c = clean[i];
+      if (c === '(' || c === '{' || c === '[') d++;
+      else if (c === ')' || c === '}' || c === ']') { d--; if (!d) break; }
+      else if (c === ',' && d === 1 && split < 0) split = i;
+    }
+    if (split < 0 || i >= clean.length) return '';
+    const arg = clean.slice(split + 1, i).trim();
+    /* Inline literal, or Object.assign built from one — read it where it stands. */
+    if (arg[0] === '{' || /^Object\.assign/.test(arg)) return arg;
+    /* Passed by name: find its declaration, take the literal, and everything between that
+       and the write — `newDoc.customerNumber = cn` is part of what gets written too. */
+    const nm = /^([A-Za-z_$][\w$]*)$/.exec(arg);
+    if (!nm) return '';
+    const decl = new RegExp('(?:const|let|var)\\s+' + nm[1] + '\\s*=\\s*(?:Object\\.assign\\()?\\{');
+    const dm = decl.exec(clean.slice(0, at));
+    if (!dm) return '';
+    return clean.slice(dm.index, at);
+  }
+  const noDate = [];
+  sites.forEach(site => {
+    const obj = objectWrittenAt(site.at);
+    /* ⚠ "COULD NOT READ THE OBJECT" IS SAID AS ITSELF, never reported as a missing field.
+       The two need different fixes and only one of them is about the page. */
+    if (!obj) { noDate.push(site.fn + ' (could not read the object it writes)'); return; }
+    if (!/createdAt\s*:/.test(obj)) noDate.push(site.fn);
+  });
+  check('every place that creates a customer records the day it did',
+    noDate.length === 0,
+    'no createdAt in: ' + noDate.join(', ') +
+    '.\n        The history now reads this field to say when somebody joined; a record ' +
+    'created without it has no joining row at all, and the Enrolled box in Edit Customer ' +
+    'opens blank.');
+
+  /* ⚠ AND THE HISTORY READS IT OFF THE CUSTOMER, not only off the quote. Asserted here
+     rather than only in history.test.js because the two halves are one guarantee: the
+     field being written is worth nothing if nothing reads it for the people who have no
+     quote, and a reader is worth nothing if a creator stops writing it. */
+  check('and the history reads it off the customer as well as the quote',
+    /field:\s*'createdAt',\s*from:\s*'cust'/.test(clean),
+    'read off the quote alone it answers nothing for the imported book, which is most ' +
+    'of the customers on file');
+}
+
+/* ---------------------------------------------------------------------------
+ * 1e2. A CUSTOMER RECORD THAT IS DELETED LEAVES SOMETHING BEHIND, OR IS SAID NOT TO.
+ *
+ * ⭐ THE CENSUS ABOVE COULD NOT SEE THE HOLE THIS ONE FOUND, and that is the whole reason
+ * it exists. It scans callers of `mergeFieldsFrom` — the shared rule for TAKING another
+ * record's values — so a tool that deletes a duplicate WITHOUT taking anything is invisible
+ * to it by construction. Danger Zone → Duplicate customers is exactly that tool: the
+ * superset rule guarantees the keeper already holds everything, so it moves nothing and
+ * simply deletes. It left no trace anywhere, and nothing could have said so.
+ *
+ * ⚠ SO THE CENSUS IS OVER THE DELETE, NOT OVER THE MERGE. Deleting a `jobAddresses`
+ * document is the irreversible act; whether values moved first is a detail of how. Every
+ * site is named here with what happens to the memory of that record, and a new one fails
+ * the build until somebody decides.
+ *
+ * ⚠ AND "NOTHING TO TRACE" IS A LEGITIMATE ANSWER, said out loud rather than by omission.
+ * Delete All Customers empties the book — there is no keeper left to write a note onto, and
+ * inventing one would be a lie about where the data went.
+ * ------------------------------------------------------------------------- */
+{
+  const src = SOURCES['admin.html'];
+  const clean = scan.blankNonCode(src);
+  const ix = scan.index(src, true);
+
+  /* ⚠ NAMED, WITH WHAT EACH DOES ABOUT THE MEMORY OF THE RECORD IT REMOVES. */
+  const DELETERS = {
+    /* ⚠ THE DELETE LIVES IN dupFindBtn, NOT IN A dupDeleteBtn OF ITS OWN. The Delete
+       button is MINTED by the find handler's render, so its listener is nested inside it
+       and that is the function the scanner names. Naming the button here instead would be
+       a key that matches nothing, and a census whose entries match nothing demands
+       nothing — the exact vacuous shape this file has been caught by before. */
+    dupFindBtn: {
+      trace: true,
+      why: 'Danger Zone → Duplicate customers. Takes nothing (the superset rule is what ' +
+        'makes deleting safe at all), so it writes mergedFields: [] — the fact, with an ' +
+        'honest empty list rather than a missing key'
+    },
+    dupExactBtn: {
+      trace: true,
+      why: 'Danger Zone → Merge duplicates. Writes the gains and the trace in one write'
+    },
+    rbWireDiffButtons: {
+      trace: true,
+      why: 'the sheet sync folding in a spare copy — the path that actually runs often'
+    },
+    hlxRemoveCustomerToRecycle: {
+      trace: false,
+      why: 'the whole record is copied into archivedCustomers with archivedAt first, so ' +
+        'it is not lost at all — a trace on a keeper would be describing a merge that ' +
+        'did not happen'
+    },
+    deleteAllAddressesBtn: {
+      trace: false,
+      why: 'Delete All Customers. The book is emptied, so there is no keeper left to ' +
+        'write a note onto and nowhere for one to be read'
+    }
+  };
+
+  const dre = /deleteDoc\(doc\(db,'jobAddresses'/g;
+  const seen = new Map();
+  let dm;
+  while ((dm = dre.exec(clean))) {
+    if (insideComment(src, dm.index)) continue;
+    const fn = scan.enclosing(ix, dm.index) || '(top level)';
+    if (!seen.has(fn)) seen.set(fn, []);
+    seen.get(fn).push(dm.index);
+  }
+  check('the customer-delete census finds the places that remove a record',
+    seen.size >= 4,
+    'found ' + seen.size + ' — a matcher that has stopped matching demands nothing');
+
+  const unknownDeleter = [...seen.keys()]
+    .filter(f => !Object.keys(DELETERS).some(k => f.indexOf(k) !== -1));
+  check('no new place deletes a customer without a decision about the trace',
+    unknownDeleter.length === 0,
+    'new place(s): ' + unknownDeleter.join(', ') +
+    '.\n        Deleting a jobAddresses document is irreversible. Either the record ' +
+    'survives somewhere (archived, or its id written onto a keeper) or say here why ' +
+    'there is nothing to write it onto.');
+
+  /* ⚠ AND THE ONES THAT PROMISED A TRACE ACTUALLY WRITE ONE. Named per site rather than
+     asserted once, because the whole finding here was one of several delete sites having
+     been fixed while another was not. */
+  const missing = [];
+  Object.keys(DELETERS).forEach(name => {
+    if (!DELETERS[name].trace) return;
+    const fn = [...seen.keys()].find(f => f.indexOf(name) !== -1);
+    if (!fn) { missing.push(name + ' (no delete found in it at all)'); return; }
+    /* ⚠ THE BODY IS FOUND TWO WAYS BECAUSE THESE ARE TWO KINDS OF THING, and the first
+       version of this check only knew one — so it reported both button handlers as
+       untraced while the trace was sitting in them. A declared function is in `ix.fns`
+       with a real range. A button handler has no function name at all: `enclosing` names
+       it after the element it is wired to, and the range has to be recovered the same way
+       `enclosing` recovers the name, with sectionFrom from the wiring line.
+       ⚠ NO CHARACTER WINDOW EITHER WAY — §7 bans them by name, and one here would go
+       stale the moment a handler grows. */
+    const rec = ix.fns.find(x => x.name === fn);
+    let body = '';
+    if (rec) {
+      body = clean.slice(rec.start, rec.end);
+    } else {
+      const wire = clean.search(new RegExp("getElementById\\('" + name + "'\\)"));
+      if (wire > -1) body = clean.slice(wire, scan.sectionFrom(clean, wire));
+    }
+    if (!body) { missing.push(name + ' (could not find its body to look in)'); return; }
+    if (!/mergedAt\s*:\s*serverTimestamp\(\)/.test(body)) missing.push(name);
+  });
+  check('every deleter that should record what it removed does',
+    missing.length === 0,
+    'no mergedAt written in: ' + missing.join(', ') +
+    '.\n        The deleted record is gone the moment the delete runs; unless its id is ' +
+    'on the keeper, nothing anywhere can say it existed.');
+
+  /* ⚠ THE EMPTY LIST IS DELIBERATE AND MUST STAY WRITTEN OUT. `historyMergeWords` prints
+     the bare sentence for an empty list and appends "— took …" for a full one, so the two
+     tools read differently on the history without either lying. Dropping the key would
+     produce the same sentence by accident, and the next person would "tidy" it in. */
+  const dAt = clean.indexOf("updateDoc(doc(db,'jobAddresses', g.keeper.cust.id)");
+  check('the duplicate-delete trace write was found', dAt > -1,
+    'the checks below prove nothing against a string that is not there');
+  if (dAt > -1) {
+    const around = clean.slice(dAt, dAt + 320);
+    check('the duplicate-delete trace says when', /mergedAt\s*:\s*serverTimestamp\(\)/.test(around),
+      'a keeper that absorbed a copy with no date cannot be placed in the history at all');
+    check('and which records went', /mergedFromIds\s*:\s*absorbed/.test(around),
+      'the ids are the only thing left of them, and only the ones that ACTUALLY went ' +
+      'belong here — a refused delete leaves a live duplicate that must not read as absorbed');
+    check('and says out loud that it took nothing', /mergedFields\s*:\s*\[\]/.test(around),
+      'historyMergeWords prints a different sentence for an empty list than for a full one');
+  }
+
+  /* ⚠ AND THE WRITE IS REACHABLE. This one was MISSED by the first red-check pass and is
+     the reason the paragraph exists: wrapping the whole block in `if(false)` leaves every
+     string above exactly where it is, so all three checks stayed green over a trace that
+     could never run. That is this repo's oldest recurring fault — "a message that is in
+     the source is not a message on the screen" — and a text check cannot see it.
+     ⚠ SO THE GUARD IS ASSERTED AS THE COLLECTED LIST, not merely as some condition. It has
+     to be the ids that were actually absorbed, which makes it both the reachability proof
+     and the "only write when something really went" rule, in one line. */
+  const guardAt = clean.indexOf('if(absorbed.length){');
+  check('the trace write is reached by the ids that were really absorbed',
+    guardAt > -1 && dAt > -1 && guardAt < dAt,
+    'guard at ' + guardAt + ', write at ' + dAt +
+    '.\n        Wrapped in anything that is never true, every check above stays green ' +
+    'over a trace that can never run.');
+
+  /* ⚠ AND ONLY IDS THAT REALLY WENT ARE RECORDED. Asserted on the push rather than on the
+     write, because the ordering is the rule: pushed before the delete, a refused delete
+     would be reported as absorbed while the duplicate is still sitting in the book. */
+  const pushAt = clean.indexOf('absorbed.push(l.cust.id)');
+  const delAt = clean.indexOf("deleteDoc(doc(db,'jobAddresses', l.cust.id))");
+  check('an id is recorded as absorbed only after its record actually went',
+    pushAt > -1 && delAt > -1 && delAt < pushAt,
+    'push at ' + pushAt + ', delete at ' + delAt +
+    '. Recorded first, a refused delete reads as absorbed while the duplicate is still there.');
 }
 
 /* ---------------------------------------------------------------------------
@@ -782,6 +1054,38 @@ const PATH_STEPS = [
   ['the lights go up',             'completedAt',              'admin.html'],
   ['the takedown is done',         'removalDoneAt',            'admin.html'],
   ['their old set is asked back',  'lightsRecycleRequestedAt', 'admin.html'],
+  /* ⚠ ADDED 2026-08-29, AND IT WAS THE FIRST THING SHE ASKED FOR. "Asked for different
+     lights on this date" opened Addie's list. The field has existed for a while and is
+     written in three places, so nothing here was ever red — it was simply never listed as
+     a step, which is why neither this census nor the history one could see that the
+     customer's own history did not show it. A field written everywhere and named on no
+     path is the exact shape of hole these two lists exist to catch. */
+  ['they ask for different lights', 'lightsChangedAt',         'admin.html'],
+  /* ⚠ ADDED 2026-08-29 BY THE SWEEP BELOW, not one at a time. Once the colour change was
+     found by hand, scanning every field in the four source files written with a real
+     timestamp turned up thirty-five more on no path at all — and seven of them were plain
+     stages with the field already written. Two were Addie's own words a second and third
+     time: "or maybe next year date", "or requoted on". */
+  ['we nudge them about it',       'quoteLastNudgedAt',        'admin.html'],
+  ['they answer the quote',        'approvalRespondedAt',      'functions/index.js'],
+  ['the office records an answer', 'quoteRespondedAt',         'admin.html'],
+  ['they fill in the form',        'formCompletedAt',          'functions/index.js'],
+  ['they are marked maybe next year', 'maybeNextYearAt',       'admin.html'],
+  ['their old set comes back',     'lightsRecycledAt',         'admin.html'],
+  ['the invoice email goes out',   'invoiceEmailSentAt',       'functions/index.js'],
+  ['they are re-quoted',           'requotedAt',               'admin.html'],
+  /* ⚠ THESE SEVEN WERE ALREADY ON THE HISTORY OR ON THE PICTURE AND ON NO PATH, which is
+     how they came to be reported as "strangers" by both of the other censuses for weeks
+     without anybody acting on it. A note is not a gate. Listed here, all three lists agree
+     about what the journey is made of, and the two stranger notes go quiet because there
+     are no strangers left. */
+  ['the re-quote is applied',      'requoteAppliedAt',         'admin.html'],
+  ['colours change after booking', 'lightsChangedAfterAssignAt','admin.html'],
+  ['a duplicate is folded in',     'mergedAt',                 'admin.html'],
+  ['a new season starts',          'seasonResetAt',            'admin.html'],
+  ['we ask about last year',       'askSameAsLastYearAt',      'functions/index.js'],
+  ['there is nobody to bill',      'cannotBillNoEmailAt',      'functions/index.js'],
+  ['a card payment is taken',      'capturedAt',               'functions/index.js'],
   ['they answer the RSVP',         'rsvpRespondedAt',          'admin.html'],
   /* ⚠ ADDED 2026-08-29. Four values ride on `seasonStatus` — a cancellation asked for, an
      address changed, changes needed, changes settled — and not one of them was dated. The
@@ -805,9 +1109,135 @@ const WRITES_A_TIME = new RegExp(
    cannot find its target and skips. A step legitimately retired should lower this by
    hand, deliberately. */
 check('the path still has every step in it',
-  PATH_STEPS.length >= 20,
-  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 20. Removing a step deletes its ' +
+  PATH_STEPS.length >= 36,
+  'PATH_STEPS holds ' + PATH_STEPS.length + ', down from 36. Removing a step deletes its ' +
   'check silently — lower this number in the same change, and say which step went.');
+
+/* ---------------------------------------------------------------------------
+ * 1a2. EVERY DATE THE CODE WRITES IS ON A PATH, OR IS SAID NOT TO BE.
+ *
+ * ⭐ THIS IS THE CHECK THAT WOULD HAVE FOUND THEM ALL AT ONCE. The colour change was found
+ * by hand, one field at a time, and only because somebody happened to re-read Addie's list.
+ * Sweeping every field in the four source files that is written with a REAL timestamp then
+ * turned up thirty-five more on no path at all — and seven of them were plain stages of a
+ * customer's journey whose field was already being written. Two of those were her own words
+ * a second and third time: "or maybe next year date", "or requoted on".
+ *
+ * ⚠ THE OTHER TWO CENSUSES COULD NOT HAVE FOUND THEM, and that is the finding. `PATH_STEPS`
+ * proves every field ON the list is written and dated; `history.test.js` proves every field
+ * ON the list reaches the history. Both are satisfied by a field that was never put on the
+ * list — it is absent from the question, not answered wrongly. So the sweep has to start
+ * from the CODE and work back to the list, which is the opposite direction from everything
+ * else here.
+ *
+ * ⚠ "NOT A JOURNEY DATE" IS A LEGITIMATE ANSWER, and most of them are: a clock-in, an
+ * export, the nightly run's own last-run marker. What is not legitimate is silence. Each
+ * absence carries its reason, and a new dated field fails the build until somebody decides
+ * which it is — which is the whole difference between this and the sweep that found them.
+ * ------------------------------------------------------------------------- */
+{
+  /* ⚠ A REAL TIME, NOT MERELY A NAME ENDING IN "At". A variable called `sentAt` read out of
+     a document is not a write; the shapes below are the four ways this codebase actually
+     stamps one. Same rule WRITES_A_TIME already uses for the other direction. */
+  const STAMP = /\b([a-z][A-Za-z0-9]*(?:At|Until))\s*[:=]\s*(?:serverTimestamp\(\)|admin\.firestore\.FieldValue\.serverTimestamp\(\)|new Date|Timestamp\.|ts\b)/g;
+  const dated = new Map();
+  ['admin.html', 'functions/index.js', 'employee.html', 'index.html'].forEach(f => {
+    const src = SOURCES[f];
+    if (!src) return;
+    const clean = scan.blankNonCode(src);
+    let m;
+    STAMP.lastIndex = 0;
+    while ((m = STAMP.exec(clean))) {
+      if (!dated.has(m[1])) dated.set(m[1], new Set());
+      dated.get(m[1]).add(f);
+    }
+  });
+  check('the dated-field sweep found the dates the code writes',
+    dated.size >= 55,
+    'found ' + dated.size + ' — a sweep that has stopped matching demands nothing at all, ' +
+    'which is exactly the green this section exists to stop being possible');
+
+  /* ⚠ EACH ABSENCE CARRIES ITS REASON, AND THE REASON IS THE WORK. A bare list of names
+     cannot tell a date deliberately left off the journey from one nobody has looked at —
+     which is the state all thirty-five of these were in until 2026-08-29. */
+  const NOT_A_JOURNEY_DATE = {
+    /* --- not about a customer at all --- */
+    clockInAt: 'a crew member starting a shift — the timecards are their own thing',
+    clockOutAt: 'the other end of the same shift',
+    runAt: 'when a scheduled job ran, on the job\'s own record',
+    lastRunAt: 'the nightly run\'s own marker, used to raise the stale-run banner',
+    exportedAt: 'when a spreadsheet was downloaded',
+    savedAt: 'a settings document or a yearly snapshot writing its own save time',
+    connectedAt: 'when the master sheet was connected on this computer',
+    checkedAt: 'when a health check last ran',
+    releasedAt: 'a customer number going back into the pool — the pool\'s record, not the ' +
+      'customer\'s, and the customer side of it is the recycle step',
+    updatedAt: 'every write touches it; it is a modification marker, not an event',
+    addedToWarehouseAt: 'a MESSAGE being marked as dealt with, not the house being queued — ' +
+      'lightsQueuedAt is the house',
+
+    /* --- a real customer event, deliberately logged rather than stamped --- */
+    lastLightChangeFeeAt: 'the fee is a note on the invoice with its own date, and the ' +
+      'history reads those notes; a step would draw the same event twice',
+    lastPaymentAt: 'payments are their own ledger with a row each — the same reason paidAt ' +
+      'is not a step',
+    receiptSentAt: 'a receipt follows a payment, and the payment is already a row',
+    receiptErrorAt: 'a receipt that failed to send is an office problem, not a stage of ' +
+      'the customer\'s journey — it belongs in the error log',
+    smsOptedOutAt: 'a contact preference, not a stage — it changes how we reach them, ' +
+      'not where they are',
+    followUpAt: 'a flag on a QUOTE that the office needs to look at it, cleared by ' +
+      'followUpClearedAt; it is a to-do, not something that happened to the customer',
+    followUpClearedAt: 'the other end of that to-do',
+    quoteManuallySentAt: 'the office sending a quote by hand — quoteSentAt is the step, and ' +
+      'two rows for one email would read as two emails',
+    quoteSmsSentAt: 'the same quote going out as a text as well; still one quote sent',
+    quoteArchivedAt: 'a quote being filed away is housekeeping on the quote, not a stage — ' +
+      'and the customer-facing halves (declined, back next year) are stages of their own',
+    lightsLockedUntil: 'a window that is still OPEN, not something that happened — the ' +
+      'events at its two ends are joining and the colour change',
+    cameBackThisSeasonAt: 'coming back is already the RSVP answer; this marks the record ' +
+      'for the rejoin sweep rather than describing a separate event',
+    archivedAt: 'on the archivedCustomers document, written as the customer is removed — ' +
+      'the customer-side event is the recycle, and a step here could never be read because ' +
+      'the jobAddresses record no longer exists',
+    recycledAt: 'the same: closing off an ARCHIVED entry once the lights are back in stock',
+
+    /* --- the crew portal, dormant this season --- */
+    fixFlaggedAt: 'the crew portal raising a fault; fixRaisedAt is the step, and the portal ' +
+      'is not in use this season',
+    notCompletedAt: 'the crew portal unticking a house — the step is completedAt going away, ' +
+      'and dating an un-doing would put a row on the history saying nothing happened'
+  };
+
+  /* ⚠ READ OFF PATH_STEPS ITSELF, never a second list typed here — that is where a new
+     stage gets added, and a copy would be the thing that falls behind. */
+  const onPath = new Set(PATH_STEPS.map(([, f]) => f));
+  const undated = [...dated.keys()]
+    .filter(f => !onPath.has(f) && !(f in NOT_A_JOURNEY_DATE));
+  check('every date the code writes is on the path or is said not to be',
+    undated.length === 0,
+    'no decision about: ' + undated.join(', ') +
+    '.\n        Either it is a stage of a customer\'s journey — add it to PATH_STEPS, which ' +
+    'pulls it into the history and onto the picture — or say here why it is not. Silence is ' +
+    'how seven real stages sat written-and-shown-to-nobody until 2026-08-29.');
+
+  const noWhy = Object.keys(NOT_A_JOURNEY_DATE).filter(f => String(NOT_A_JOURNEY_DATE[f]).length < 25);
+  check('every date deliberately off the path says why', noWhy.length === 0,
+    'no reason: ' + noWhy.join(', ') +
+    '. A name with no reason cannot be told from one nobody looked at.');
+
+  /* ⚠ AND THE EXCUSE LIST CANNOT GROW STALE EITHER. A field that stops being written should
+     leave this list, or it silently excuses a name that no longer exists — and the next
+     real field with a similar name inherits the excuse. */
+  const goneFromCode = Object.keys(NOT_A_JOURNEY_DATE).filter(f => !dated.has(f));
+  check('nothing is excused that the code no longer writes',
+    goneFromCode.length === 0,
+    'not written anywhere any more: ' + goneFromCode.join(', ') +
+    '. Take it off the list — a standing excuse for a field that is gone will quietly cover ' +
+    'the next one that looks like it.');
+}
+
 
 PATH_STEPS.forEach(([label, field, file]) => {
   const src = SOURCES[file];

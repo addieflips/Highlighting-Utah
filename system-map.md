@@ -9,7 +9,10 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 ## 1. The lifecycle, start to finish
 
 1. **Public quote** — a visitor fills out the quote form on the public site. It's saved to `quotes` with `status: 'new'`. No photo is attached automatically anymore (see §9).
-2. **Office prices it** — a staff member opens the quote card in Admin, fills in estimated feet and a quoted price, and clicks "Get Approval Link." This saves `quotedPrice` and a `quoteToken`, and generates a link like `https://highlightingutah.com/#/payment?token=...`.
+2. **Office prices it, then sends it** — a staff member opens the quote card in Admin, fills in estimated feet and a quoted price, and sends it one of two ways. Both save a `quoteToken`, and that token is the whole of how the customer is later recognised.
+   - **Send quote email** (the gold button) saves `quotedPrice` and the token, then emails the long link, `https://highlightingutah.com/#/quote-details?token=...`.
+   - **Send as text instead** sends the short one, `highlightingutah.com/q/<token>` — the same page by a different address, about 40 characters shorter, which is what keeps a quote text inside one billed message. Netlify rewrites `/q/*` to the app and the app turns the path back into the same route the long link uses, so both spellings work for ever and every quote ever created already works at both.
+   - ⚠ **A quote reaches the text button without ever having been emailed**, so the text path mints the token itself (`ensureQuoteToken`) rather than assuming the email path already did. It did assume that until 2026-08-30, and the result was a link ending in a bare `/q/` — well-formed, accepted by the phone, and refused by the router, so the customer landed on the homepage instead of the quote and the office was told the text had sent, because it had. If the token cannot be saved, nothing is sent at all.
 3. **Customer approves** — the customer opens that link (no login needed) and approves or declines. This calls the `quoteRespond` Cloud Function, which is how an unauthenticated visitor is allowed to touch the `quotes` collection at all.
 4. **Convert to customer** — a staff member clicks "Convert to Customer" on the approved quote and is asked which way:
    - **Convert automatically** — saves them there and then, using everything the quote already holds, without leaving the Quotes tab. The popup lists anything the quote is missing *before* it runs, and the result is reported in a toast (customer number, bin count, whether they reached the Warehouse, whether the $30 fee was charged, and anything still missing).
@@ -378,6 +381,54 @@ This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFe
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
 
+### One route note a day, not one a sweep
+
+Addie, 2026-08-30: *"system inbox always has a bunch of schedule messages and it's to many to
+keep up with. How can we fix this"* — offered four options, she chose **one digest a day**.
+
+⚠ **Nothing was broken, which is why nothing was red.** The sweep runs every fifteen minutes,
+every notice it wrote was true, and the duplicate guard above already caught the identical
+ones. A day on which the routes genuinely keep changing is up to ninety-six *different* true
+notices — and true-and-unreadable is still unreadable. An inbox nobody can keep up with is
+one where the note that matters is missed.
+
+**How it works now.** `noticeRoutesReconciled` builds its lines exactly as before, then hands
+them to **`routeDigestBank`** instead of posting. The bank is `settings/routeDigest`, a single
+document holding `{day, lines, dropped, updatedAt}`; each sweep merges its lines in, skipping
+any it already holds. On the first sweep of a **new** day, `routeDigestBank` calls
+**`routeDigestFlush`** on the previous day's bank, which writes **one** System note covering
+the whole of it, and then starts today's bank fresh.
+
+⚠ **The cost, said plainly**: a date that moves this afternoon is in *tomorrow's* digest, not
+this afternoon's inbox. What still happens on the spot is the **activity log** entry and the
+**toast** — and both toasts were repointed to say *"open Routes"* rather than *"see System
+notices"*, because sending somebody to a note that will not exist for hours reads as the
+sweep having failed.
+
+⚠ **It is a document, not a variable.** The dashboard is closed and reopened all day and runs
+on more than one machine; a day's changes held in memory are a day's changes lost at the first
+refresh.
+
+⚠ **A refused note carries the day forward.** The bank is rewritten wholesale on every sweep,
+so a flush that failed would otherwise *delete the very day it was reporting*. `routeDigestFlush`
+returns whether it wrote; on false the lines are carried into today's bank, prefixed with the
+day they came from, and the overflow count travels with them. A refused flush also still writes
+a short note to the System folder — a toast is gone the moment the office looks away and the
+routes have already been rewritten.
+
+⚠ **A line saying part of the sweep did not take goes first.** `report.writeFailed` means a
+route and a customer record now disagree about which day a house is on. Per sweep that was
+free; over a whole day it is one line among a hundred, trimmed from the end. `routeDigestFlush`
+lifts any line beginning `⚠` to the top — a *stable partition*, so everything else keeps the
+order it happened in.
+
+⚠ **And the closing line survives whatever else is trimmed.** *"Nobody has been told about any
+date that moved"* is the reason the note exists at all, and it is appended **after** trimming
+rather than being inside the trimmed body.
+
+*Gated by* `route-digest.test.js` (`npm run test:digest`), which runs both functions against a
+fake Firestore that reads back what it wrote.
+
 ---
 
 ## 6. Customer Numbers
@@ -701,6 +752,410 @@ written in the archive branch, the function still "touched all three", and two r
 sabotages went straight through. It is scoped to the branch now. A check that looks right and
 cannot fail is worse than no check, and this is that trap caught in the act.
 
+### The colour change she asked for first, and the history that did not show it
+
+Addie's list of what she wanted dated opened with *"asked for different lights on this
+date"*. `lightsChangedAt` had existed for a while — written by the portal, by Edit
+Customer and by the sheet sync, read by the Color Changes tab and the warehouse badge —
+and it was **on no path and in no history**. So the event she named first was the one
+missing from the page built to answer her, and nothing anywhere was red about it.
+
+⚠ **A field written everywhere and named on no route is the shape of hole the two censuses
+exist to catch**, and neither could see it: `queue-date.test.js` checks that every field on
+`PATH_STEPS` is written and dated, `history.test.js` checks that every field on `PATH_STEPS`
+reaches the history, and a field that was never on the list satisfies both by being absent.
+It is on the list now, so both hold it.
+
+⚠ **The history says WHO changed it.** `lightsChangedVia` exists precisely because the
+customer changing their own colours and the office typing it in after a call are the same
+event from opposite ends — the warehouse badge already tells them apart, and the history
+must not be the one screen that flattens them. `historyLightsWords` gives the same three
+answers from the same field, and deliberately does **not** call `whBuildReasonKey`: that
+answers a different question (why a bundle is being built, where a re-quote outranks a
+colour change), so a house that moved *and* changed colours would come back "rebuild" and
+the line would say nothing about the colours at all.
+
+⚠ **An unrecorded origin claims neither.** Every colour change made before 2026-08-24
+carries no `lightsChangedVia`, and assigning one of the two on a coin toss prints a
+confidently wrong claim beside a real date — worse than an honest silence, and the rule the
+badge already keeps.
+
+⚠ **It is its own line, not the build-queue line.** A colour change queues a build, so the
+two sit together on a real record and it is tempting to read one as the other — but a build
+is also queued by joining, by a re-quote, by a wire change and by coming back after a
+recycle, and only one of those is somebody picking different colours.
+
+⚠ **And two boxes on the path, not one.** The page had only `changedafter` — a change made
+*after* a crew is holding a printed card, which is a genuine emergency. Drawing only that
+one makes every ordinary change look like an emergency and hides the fee question entirely:
+inside their 48-hour window a change is free, outside it is $30. `colourchange` now reaches
+both the warehouse **and** the bill, from two places — being asked what is changing, and
+changing your mind while waiting for a day. Both routes are walked by name in
+`journey.test.js`, because a reachability check alone stays green with either one deleted.
+
+### A card payment that found no bill now shows up
+
+Addie, asked where these should go: *"Put that in health check."*
+
+⚠ **The money was invisible.** `recordUnmatchedPayment` files a capture that succeeded with
+no invoice to apply it to — usually because the phone or email the bill is keyed on changed
+after it was written. **No screen in the app read that collection**, nothing ever wrote
+`resolved: true`, and `firestore.rules` forbids writing to it. Real money, correctly
+captured, in a place with no way in and no way out — while the customer's own portal reads
+**Paid in Full**.
+
+⚠ **The Invoices tab was argued for and she chose Health Check.** The objection was HC-03 —
+she had said she does not read that panel because nothing could be marked done — and it is
+largely spent: approve/deny shipped on 2026-08-27, so a row can be cleared now. Her answer
+stands, and it was put to her first.
+
+⚠ **No fix button.** Applying it to the right invoice, refunding it, or marking it seen are
+three different answers about somebody's money, and Q-025 settled only **where** it shows.
+
+**And she hears about it before the bill goes out.** Addie, 2026-08-30: *"we need unmatched
+invoice to come up in system inbox before we send it out."* Offered the choice between holding
+the invoice back and flagging it, she chose **note it and warn on the invoice screen**.
+
+- `recordUnmatchedPayment` now posts a **System inbox note** at the moment the capture is
+  filed, deduped on the capture id so one payment cannot raise a note every time anything
+  re-reads it. ⚠ It **cannot throw**: it runs after the money has already been taken, so a
+  failed note must never unwind a successful capture.
+- `renderUnmatchedPaymentBanner` puts a warning at the top of the **Invoices tab**, naming the
+  customers the payment might belong to (matched on phone digits).
+
+⚠ **The bill is NOT held back.** That was the other option and it was turned down for a good
+reason: a payment we cannot match is *our* bookkeeping problem, and stopping somebody's
+invoice over it means they are not billed at all — a worse outcome for a customer who has
+done nothing wrong.
+
+⚠ **The banner says the money is safe.** "Unmatched payment" reads as money lost; it is a
+payment that arrived and could not be filed, so the wording says so in those words.
+
+⚠ **And "Not a problem" is how one is cleared, which needs no rules deploy.** The decision
+is written to `healthCheckDecisions`, never to `unmatchedPayments`, so that collection stays
+write-forbidden exactly as it is — asserted, because a write from the browser would fail
+silently. The decision fingerprint lapses if the amount changes, so a second payment on the
+same key comes back rather than hiding behind an old decision.
+
+⚠ **A failed read reports nothing, not an all-clear.** `hcUnmatched` is null until it loads
+and stays null if the read fails; `(hcUnmatched || [])` is what makes that a silence rather
+than a confident *"no stranded money"* on the one screen that must never give a false one.
+
+### A customer with no email is billed anyway — the bill just gets sent by hand
+
+Addie, 2026-08-30: *"How invoice bills. So if no email on file than invoice by phone for
+member portal. I'll send invoices that only have phone number on file myself."*
+
+⚠ **They were not getting an invoice at all — not merely not getting an email.** The
+nightly run gave up on a payer with no email address *before* the invoice document was
+written, so there was nothing in their member portal to look at, no record anywhere of what
+was owed, and the work stayed unbilled. Their portal is reached with a **phone** and a last
+name, so the bill being there is the whole point.
+
+⚠ **The fix is an ordering, and that is all it is.** The no-email block moved **down**, past
+the invoice write and past the carryover handling, to sit immediately before the email send.
+Everything that raises the bill now runs first; only the sending is skipped.
+
+⚠ **It had to go below the carryover drawdown**, which is why it landed exactly there.
+Both the carried-charge clearing and the credit drawdown are written straight after the
+invoice so the two documents agree even if what follows fails — bailing out above them
+would leave the invoice holding a credit the customer still has in full, and the next run
+would apply it a second time.
+
+⚠ **`invoiceEmailSent` is deliberately NOT set.** It means the bill has gone out, and it has
+not — so they stay on tomorrow night's list and in the nightly summary until somebody deals
+with them, which is what *"I'll send those myself"* needs. Re-running is safe: the join fee
+is guarded by `newMemberFeeApplied`, the carried charge was cleared off each house, the
+credit was drawn off the payer, and the Inbox note only posts once.
+
+⚠ **Three pieces of wording went untrue with the behaviour and all three moved.** The
+nightly text said *"NO EMAIL (cannot be billed)"*; the Inbox note said they *"have not been
+charged for work already done"*; a check in `run-all.js` pinned the first of those
+literally. They are billed now — describing that as impossible is the one thing that would
+stop her doing the part that is hers. The **"Cannot Be Billed" filter name** in All
+Customers is deliberately left alone: it is an identifier the office reads, not stale copy.
+
+⚠ **And the check that pinned the copy was repointed, not weakened** — same slow-fuse shape
+as S82 and S129: pinned to where a string sat rather than to what must be true, so it failed
+on correct code the moment the copy had to change. What must be true is that the alert
+**names** them.
+
+### A finished takedown resets with the season
+
+Addie, 2026-08-29, asked directly: *"Oh so if we removed lights from someone's house that
+should reset for new season."*
+
+⚠ **It was the one job-done flag left standing.** Start New Season clears `completed`,
+`invoiceEmailSent`, `scheduled`, `scheduledDate`, `assignedCrew`, `chargeNewMemberFee`,
+`needsDayAssignedAt`, `rejoinedForSeasonAt` and `cameBackThisSeasonAt` — and did not clear
+`removalDone`. Nothing else in the app ever did either: the only other writer of
+`removalDone: false` is the Mark Done toggle being unticked by hand. So a customer whose
+lights came down last December read **Removed** all the way through the new season, until
+somebody visited the record.
+
+⚠ **Same shape as `completed`, which is why it belongs beside it.** Both say a job was
+finished *this* season, and neither is true of the season about to start.
+
+⚠ **The date stays.** `removalDoneAt` is untouched, like every other date in that write —
+the history needs it to say when last season's takedown happened, and `seasonResetAt` is
+the line that stops it reading as this season's. **Clearing the flag and keeping the date
+is the whole design**, and the tempting "tidy" fix that nulled both would throw away the
+only record the work ever happened. Asserted in both directions.
+
+⚠ **In the same write as the rest of the reset**, and checked. Start New Season rewrites
+every customer in one press and cannot be undone; a separate write can fail on its own and
+leave half the book reset.
+
+### Three steps that looked dateless and were not
+
+Three boxes on the journey page carried no dates at all, and each was hiding a real one.
+**The census could not see it**: it only asks that every field on the dated path is drawn
+*somewhere*, so a field already drawn on one step is not missed when a second step that
+also carries it names nothing.
+
+⚠ **The two starts are the point.** Somebody typed in by the office, or brought in by the
+master sheet, has no quote-raised day and no approval day — `createdAt` is the only date
+they have. Until the joining row was added, the history read that field off the **quote**
+alone, so the moment those customers came into existence was invisible for most of the
+book.
+
+⚠ **And a decline is dated exactly like an approval.** `quoteRespond` stamps
+`approvalRespondedAt` alongside the status **before** it branches on the action, so a no
+carries it as surely as a yes does. Drawn bare, the page read as though only a yes is ever
+recorded — and *"did they actually reply, or did we take somebody's word for it"* is the
+question behind every argument about a quote, on a no more than on a yes.
+
+### Two rows for one colour change, on purpose
+
+Editing colours produces **two** lines on a customer's history, and it is worth saying why
+rather than leaving somebody to find it and tidy one away:
+
+- the **step** — *"Asked for different lights — they changed them in their own portal"* —
+  answers **when**, as a stage of the journey, and **who**;
+- the **log row** — *"Light colours: Warm White → Red, Green"* — answers **what it changed
+  from**, which a date cannot carry.
+
+That split is the whole design of the change log, in its own words: *"a date can say the
+address moved on 3 October and never what it moved FROM"*. They are two mechanisms
+answering two questions about one event, and dropping either loses the half the other
+cannot say. `CUSTOMER_FIELD_QUIET` already suppresses `lightsChangedAt` **as a field edit**
+so the date itself is not logged twice.
+
+⚠ **If it reads as noise on a real record, take the log row, not the step** — the step is
+what the journey page and the path both draw, and the office's from→to survives in the
+activity log either way.
+
+### Checked and closed: the portal read whitelist
+
+CLAUDE.md names a silent-blank class — *"a field the client reads must be in that
+function's read whitelist or the customer never sees it"* — so every field `index.html`
+reads off a portal record was swept against `PORTAL_READ_FIELDS`. **Nothing is missing.**
+
+⚠ **Eleven looked missing and all eleven are fine**, which is why this is recorded rather
+than left for somebody to run again. Nine are read off a variable called `record` that is
+reused for the **invoice** document, which has its own whitelist (`INVOICE_READ_FIELDS`).
+`lightChangeFreeUntil` is set by `portalInvoice`, not `portalLookup`, and
+`currentLookupRecord` — despite the name — is filled from the invoice call.
+`addrDoc.portalToken` is assigned by the browser from the response's `token`, not read off
+the record at all.
+
+⚠ **And it is deliberately not a gate.** Disambiguating which document a variable named
+`record` holds is exactly the leaky attribution that was abandoned for the by-document
+check above, and for the same reason: a gate that cries wolf on correct code is one
+somebody switches off.
+
+### A step that reads the wrong document is silently dead
+
+Each history step names the document its field comes from — `cust`, `quote` or `inv`. If
+that is wrong the step is **silently dead**: `customerHistory` looks the field up on a
+record that never carries it, finds nothing, and skips. No throw, no warning, no row, for
+everybody.
+
+⚠ **The other two censuses are blind to it by construction.** `queue-date.test.js` proves
+the field is *written* with a real time somewhere; `history.test.js` proves the field is *on*
+the step list. Both are perfectly satisfied by a step pointed at the wrong document — the
+field really is written, and it really is listed. Only the `from` is wrong, and nothing
+looked at it.
+
+⚠ **It happened twice in one day, and the second one was mine.** `createdAt` was read off
+the quote alone, so most of the book had no joining row. Then `formCompletedAt` was added
+reading off the **customer** when both of its writers put it on the **quote** — the portal's
+own form writes it there, and `quoteSaveDetails` writes it there for somebody following an
+emailed link. It could never have fired for anybody, and every check in the repo passed.
+
+⚠ **Working out the home from the source was tried and abandoned.** The writes take five
+different shapes across two files, and the best attribution still produced six false
+mismatches and four unknowns. A gate that cries wolf on correct code is one somebody
+switches off.
+
+⚠ **And a behavioural check alone could not do it either** — proved by red-check, not
+assumed. Populating one document at a time and counting rows misses a field *moved between*
+two documents, because the fixture is built **from the declaration under test**, so any
+assignment is self-consistent. That is the trap this repo keeps meeting.
+
+⚠ **So the test states it independently** — a frozen `FIELD_HOME`, exactly the argument
+`options-audit.test.js` already makes for its `AGREED` map. It is a second copy and is meant
+to be: its whole value is being written from the **write sites** rather than from the step
+list, so the two can disagree. Each entry was checked at its writer, not inferred from its
+name — `formCompletedAt` reads like a customer field, which is precisely how it shipped
+wrong. **If you add a step, open the writer.**
+
+### The day they joined, for everybody who never had a quote
+
+`HISTORY_STEPS` read `createdAt` off the **quote**, so it answered nothing for a customer
+who arrived any other way — typed in by the office, or imported from the master sheet, which
+is most of the book. Their history simply began at whatever happened to them first, with no
+row anywhere saying when they became a customer.
+
+⚠ **The path census could not have caught this one either**, and the reason is worth
+noticing because it is a *third* shape: `createdAt` was already on `PATH_STEPS`, so every
+list was satisfied — the field is written, the field reaches the history — while the row was
+missing for almost everybody, because it is read from the wrong **document**. It takes
+running the history against a customer who has no quote at all.
+
+⚠ **A quote customer gets both rows**, which is right rather than duplication: the day
+somebody asked for a price and the day they became a customer are different days, often
+weeks apart, and the gap between them is a real thing to look at.
+
+⚠ **All six creators do set the field** — checked one at a time. The field was never the
+problem; nothing read it. A census now freezes that, and it is written against **the object
+that is actually written**, not the function around it: a first version searched the whole
+enclosing handler and the red-check proved it could not fail, because those handlers write
+several collections and a `createdAt:` belonging to something else satisfied the search.
+
+⚠ **And a scan that looked inside the `addDoc` call answered the original question
+wrongly.** Four of the six build their object in a variable above the call and pass it by
+name, so a scan of the call's own parentheses reported them as missing the field when every
+one of them sets it — *"three of six never set it"* was a confidently wrong answer that sent
+a whole line of work in the wrong direction until it was checked one at a time by hand. The
+census reads both shapes now, and says *"could not read the object"* as itself rather than
+reporting it as a missing field: the two need different fixes and only one is about the app.
+
+### A waived $30 fee left no trace at all
+
+`lightFeeWaived` is a **local variable** in the Edit Customer save. It decides whether the
+$30 light-change fee is charged and then goes out of scope: nothing is written, no field
+moves, and the only thing that ever said it happened was a toast — which is gone the moment
+somebody looks away.
+
+⚠ **The asymmetry is the fault**, and it is the same shape as everything else found today.
+A fee that **is** charged lands on the invoice as a `changeFeeNotes` entry with its own
+amount, reason and date, and `historyNoteRows` reads it straight onto the customer's
+history. A fee that is **waived** produced nothing anywhere — so *"why was this customer not
+charged for changing their colours"* had no answer, and the record was indistinguishable
+from one where nobody was ever asked.
+
+⚠ **The log, not a field.** This is an act somebody performed, not a state the customer is
+in. A `feeWaived: true` on the record would be read back by something eventually and would
+then have to be cleared, and there is no correct moment to clear it.
+
+⚠ **Its own row, not folded into the edit sentence.** That sentence lists what *changed* and
+is capped at twelve fields; a waiver is precisely a thing that did **not** change, so folded
+in it would be the first line dropped by the cap and the last one anybody would look for.
+
+⚠ **Guarded on both the flag and the amount.** `lightFeeWaived` starts false and stays false
+when there was no fee to waive at all, so the flag alone would eventually log a waiver on an
+ordinary save — and a log with invented rows in it is one nobody trusts.
+
+### What a customer changed in their own portal
+
+Addie's list ended *"or changed timer settings this date. Changed address this date."* Both
+are **edits** rather than stages, and the answer to an edit is a log line rather than a
+stamp — *"Address changed on 3 Oct"* is a worse answer than none, because the question is
+always what it changed **from**. `describeCustomerChanges` does exactly that for the office.
+
+⚠ **And it did nothing at all for the customer.** The activity log is written only from
+`admin.html`, so a timer switched on in Edit Customer produced *"Timer: no → yes"* and the
+same switch flicked by the customer in their own portal produced **nothing** — not a stamp,
+not a line. The office half looked complete, which is why nobody noticed the other half was
+missing. Exactly the asymmetry `lightsChangedVia` exists to close one level up, in a new
+place.
+
+⚠ **Two copies, so a parity test** — the same answer this repo gives the invoice maths, and
+for the same reason: a browser ES module and a Node function cannot share code. What keeps
+it small is the **scope**: the portal can only ever write `PORTAL_WRITE_FIELDS`, so
+`PORTAL_CHANGE_LABELS` is deliberately that set and no more, and `change-log.test.js` runs
+both copies over every one of them in six shapes and fails the moment they disagree about a
+sentence. It asserts they are **right** as well as equal — two copies wrong in the same way
+agree perfectly.
+
+⚠ **The diff is taken before the write and posted after it.** Taken afterwards it compares
+the new record with itself and reports nothing ever changing; posted before, a line about a
+save that then failed is the log claiming something happened that did not.
+
+⚠ **It says it was them.** Every other row in that log is one of the four people who share
+the dashboard, so a portal edit worded like an office one would be the log actively
+answering *"who changed this"* wrongly.
+
+⚠ **It cannot break the save.** `logPortalChange` swallows its own failure — this runs on a
+path that also queues builds and charges a $30 fee, and a note about a change is worth less
+than the change. `firestore.rules` needs no edit: the function writes with the Admin SDK,
+and the history reads the log from a signed-in dashboard.
+
+⚠ **One of this section's own checks was vacuous and the red-check caught it**, for a
+reason worth writing down: `hasOwnProperty` is **true** for a key explicitly set to
+`undefined`, so every fixture written as `{f: undefined}` sails past the never-held guard
+without reaching it — and for a yes/no field both sides render `no` either way, so the
+earlier equality return fires first and the guard is never consulted at all. Deleting it
+entirely left the whole section green. It takes a field genuinely absent and a value that
+renders as an empty text but not as `(blank)` — a zero — to reach it.
+
+### Every date the code writes is on a path, or is said not to be
+
+The colour change above was found **by hand**, one field at a time, and only because
+somebody happened to re-read Addie's list. So the obvious next question was how many more
+there were. Sweeping every field in the four source files that is written with a **real
+timestamp** — a server sentinel, a `Timestamp`, a `new Date`, or the `ts` a shared rule is
+handed — turned up **thirty-five more on no path at all**, and **twelve of them were plain
+stages of a customer's journey whose field was already being written**. Two were Addie's own
+words a second and third time: *"or maybe next year date"*, *"or requoted on"*.
+
+⚠ **Neither existing census could have found them, and that is the finding.**
+`queue-date.test.js` proves every field **on** `PATH_STEPS` is written and dated;
+`history.test.js` proves every field **on** `PATH_STEPS` reaches the history. Both are
+perfectly satisfied by a field that was never put on the list — it is *absent from the
+question*, not answered wrongly. So the sweep has to start from the **code** and work back
+to the list, which is the opposite direction from everything else in that file.
+
+⚠ **The pairs are what was really missing**, and each one is a question somebody actually
+asks:
+
+| the easy half | the half that was missing | the question it answers |
+|---|---|---|
+| `approvalRespondedAt` | `quoteRespondedAt` | did they reply, or did we take somebody's word for it |
+| `invoicedAt` | `invoiceEmailSentAt` | was a bill raised, or did it actually go out |
+| `lightsRecycleRequestedAt` | `lightsRecycledAt` | asked back, or actually back on the shelf |
+| `requotedAt` | `requoteAppliedAt` | when the price changed, or when they agreed to it |
+
+Flattened into one row each, the history answers the easy half **and looks complete doing
+it** — which is worse than showing nothing, because somebody acts on it.
+
+⚠ **`requotedAt` could not be a step at all**, and that is why it needed its own mechanism.
+It lives on the **quote**, and a re-quote is a separate quote document — the history reads
+only the quote that *converted* them, deliberately, so a re-quote raised last week does not
+read as the day they joined. A step keyed on it would have looked right in the list and
+found nothing for almost everybody. `historyRequoteRows` gives **a row per re-quote**,
+because three re-quotes in a season is a house nobody has measured properly and a single
+"last re-quoted on" hides exactly that — each naming its kind, since an addition, a move and
+a corrected price are three very different amounts of work.
+
+⚠ **"Not a journey date" is a legitimate answer and most of them are** — a clock-in, an
+export, the nightly run's own last-run marker. What is not legitimate is *silence*. All
+twenty-seven now carry their reason in `NOT_A_JOURNEY_DATE`, and a new dated field fails the
+build until somebody decides which it is. **That is the whole difference between this and
+the sweep that found them**: the sweep was a thing somebody thought to run once.
+
+⚠ **And the excuse list cannot go stale either.** A field that stops being written must
+leave it, or it silently excuses a name that no longer exists — and the next real field with
+a similar name inherits the excuse.
+
+⚠ **All three lists agree now, with no standing notes.** Both censuses used to end in a
+"the page names N fields the path does not" note, and those notes had been true and ignored
+for weeks. **A note is not a gate.** The seven strangers are on the path; the two that
+genuinely are not stages carry reasons; and the strangers check now only considers fields
+that are dates, so a step naming `requoteKind` no longer fires a note for ever — which costs
+the real notes their audience.
+
 ### A merge says what it took, and from where
 
 Merging duplicates writes another record's values onto the keeper and then **deletes that
@@ -728,6 +1183,31 @@ write of any kind.
 ⚠ **Only when something was actually taken.** A merge that gained nothing is a spare empty
 copy being tidied away; stamping it would claim this record was built out of another when it
 was not.
+
+⚠ **AND A FOURTH TOOL DELETES WITHOUT TAKING ANYTHING AT ALL, which the census above could
+not see.** Danger Zone → **Duplicate customers** refuses any group where a copy holds
+something the keeper does not — that superset rule is the whole reason it is safe to delete
+rather than merge — so it never calls `mergeFieldsFrom`, and a census over that function was
+blind to it by construction. It left no trace anywhere. It now writes `mergedFromIds` with
+the ids that **actually went** and `mergedFields: []`, which is the honest answer rather than
+a missing key: `historyMergeWords` prints the bare *"Merged with a duplicate record"* for an
+empty list and appends *"— took …"* for a full one, so the two tools read differently on the
+history without either of them lying.
+
+⚠ **So the census is over the DELETE now, not over the merge.** Deleting a `jobAddresses`
+document is the irreversible act; whether values moved first is a detail of how. All five
+sites are named in `queue-date.test.js` with what happens to the memory of that record, and a
+sixth fails the build until somebody decides. **"Nothing to trace" is a legitimate answer said
+out loud** — Delete All Customers empties the book, so there is no keeper left to write onto,
+and `hlxRemoveCustomerToRecycle` copies the whole record into `archivedCustomers` first, so
+nothing is lost to trace.
+
+⚠ **AND THE FIRST RED-CHECK PASS MISSED THE ONE THAT MATTERED.** Wrapping the whole trace
+write in `if(false)` left every string exactly where it was and all three checks stayed green
+over a write that could never run — this repo's oldest recurring fault, *"a message that is in
+the source is not a message on the screen"*. The guard is now asserted as **the collected list
+of ids**, which is both the reachability proof and the only-write-when-something-went rule in
+one line.
 
 ⚠ **The history names the fields**, not just the event — *"took address, housePrice,
 gateCode"*. "Merged with a duplicate" beside a date leaves the actual question, which of these
@@ -832,35 +1312,54 @@ the file excuses nothing and hides the rename, so that is checked too.
 sweeps the same file because `whToggleRecycle` cleared a customer number and then swallowed
 the pool write, leaving the number on nobody's record and in no pool.
 
-### A payment that finds no bill — an open hole
+### A payment that finds no bill — half closed
+
+⚠ **THIS SECTION USED TO BE HEADED "an open hole" AND SAID NO SCREEN READ THE COLLECTION.
+That stopped being true on 2026-08-30.** The original text is kept below the line because it
+is the argument for why the remaining half is still open.
 
 When a card is captured and the invoice document cannot be found — usually because the phone
 or email the bill is keyed on has changed — `recordUnmatchedPayment` files it in
-`unmatchedPayments` and texts the office, if an alert number is set. **Three things are then
-true at once, and each was checked rather than assumed:**
+`unmatchedPayments` and texts the office, if an alert number is set. **What happens now:**
 
-- nothing anywhere writes `resolved: true`
-- **no screen in `admin.html` reads that collection at all**
-- `firestore.rules` says `allow write: if false`, so even a screen that existed could not
-  mark one dealt with
+- **A System inbox note**, written by the server at the moment the capture is filed and
+  deduped on the capture id, so she hears about it *before* the next night's invoices go out
+  (Addie: *"we need unmatched invoice to come up in system inbox before we send it out"*).
+- **A Health Check row**, `unmatchedPayment` (MON-29 — *"Put that in health check."*), fed by
+  `hcLoadUnmatched`, which leaves `hcUnmatched` **null** on a failed read so a silence is
+  never mistaken for an all-clear.
+- **A banner on the Invoices tab**, `renderUnmatchedPaymentBanner`, naming the customers the
+  payment might belong to.
+- **A way to clear one**: Health Check's *Not a problem*, which writes to
+  `healthCheckDecisions` and **never** to `unmatchedPayments` — so that collection stays
+  `allow write: if false` and **no `firestore.rules` deploy is needed**.
 
-Meanwhile the customer's own portal reads **Paid in Full**. Real money, correctly captured,
-in a place with no way in and no way out.
+**What is still open.** Whether an unmatched payment may ever be *applied* to an invoice from
+Health Check — the remaining half of **Q-025**. Applying it, refunding it and marking it seen
+are three different answers about somebody's money, and only *where it shows* has been
+settled. That is why none of the three surfaces above carries a fix button.
 
-⚠ **It is drawn on the path as an ending**, because that is what it is today — money in,
-nothing out. Drawing a route onward would describe a repair nobody has built, and the value
-of that page is that it is true.
+---
 
-⚠ **The fix needs two decisions and a manual deploy**, so it is **Q-025** in
-`docs/open-questions.md` rather than a guess: where these should show (Health Check is the
-obvious place and the wrong one — HC-03), and who may clear one, since applying it to the
-right invoice, refunding it and marking it seen are three different answers about somebody's
-money. Letting the office write to that collection also needs a `firestore.rules` change,
-which **CI does not deploy** — it needs `firebase deploy --only firestore:rules` by hand.
+*The original entry, kept because it is why the remaining half is still open:*
 
-⚠ **And it is a hole, not a ruling**, so it is deliberately not in the questions map. That
-file holds judgement calls she made; a finding of mine put there would be the map describing
-itself rather than her.
+> Three things were true at once, and each was checked rather than assumed: nothing anywhere
+> writes `resolved: true`; no screen in `admin.html` read that collection at all;
+> `firestore.rules` says `allow write: if false`, so even a screen that existed could not mark
+> one dealt with. Meanwhile the customer's own portal reads **Paid in Full**. Real money,
+> correctly captured, in a place with no way in and no way out.
+>
+> ⚠ **It was drawn on the path as an ending**, because that is what it was — money in, nothing
+> out. Drawing a route onward would have described a repair nobody had built, and the value of
+> that page is that it is true.
+>
+> ⚠ **Letting the office write to that collection needs a `firestore.rules` change, which CI
+> does not deploy** — it needs `firebase deploy --only firestore:rules` by hand. That
+> constraint is exactly why *Not a problem* was built to write somewhere else instead.
+
+⚠ **And it is a hole, not a ruling**, so the finding itself is deliberately not in the
+questions map — that file holds judgement calls she made. Her answers *about* it are: MON-29
+(where it shows) and MON-30 (the inbox note and the invoice banner).
 
 ### Asking to cancel is dated, and on the path
 
