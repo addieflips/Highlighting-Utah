@@ -41776,9 +41776,22 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
   check('S265', 'composing the capture is its own function, so it can be redone',
     !!compose,
     'drawn once inline, the only way to remove a line is to re-fetch the picture');
-  check('S265', 'the capture starts clean',
-    /lines: false/.test(capture),
-    'measuring lines are working notes; the photo is what the customer and the crew look at');
+  /* ⭐ SUPERSEDED 2026-08-30 (R-024, the newer answer wins). Owner: "when the
+     picture uploads the dots dont go with it which is the whole point." The
+     capture now starts with its marks ON.
+     ⚠ THE OLD RULING IS NOT WRONG AND IS NOT GONE — it is why the CLEAN copy is
+     still kept. "I don't want red lines showing here after I'm done measuring"
+     was about a photograph nobody could get back, because the lines were burnt
+     into the JPEG and poisoned the `original` too. Nothing is burnt in now: the
+     clean photograph IS the picture's original and the marks ride along as
+     markup. With that true, off-by-default only meant her dots were dropped. */
+  check('S265', 'a capture starts with its marks on',
+    /lines: true/.test(capture),
+    'off by default, the dots she placed are silently not on the picture she attaches');
+  check('S265', 'and the clean photograph is still what is kept',
+    /original: original,/.test(extractFn(admin, 'rmAttachShots') || '') &&
+    /const clean = await rmCroppedBlob\(false\);/.test(extractFn(admin, 'rmStageCapture') || ''),
+    'that is the whole reason the marks are allowed to be on by default');
   check('S265', 'and the lines are only drawn when they are asked for',
     /if\(!withMarks\) return;/.test(paint) &&
     /rmPaintCapture\(rmCrop\.canvas, !!rmCrop\.lines\);/.test(compose),
@@ -41801,9 +41814,9 @@ suite('265. Measure Roof - the captured picture is clean, and can be marked up')
   check('S265', 'and toggling does not throw away a crop already dragged',
     !/rmCrop\.box = null/.test(lineWire),
     'the box is fractions of an unchanged picture — it survives a redraw, so clearing it is pure loss');
-  check('S265', 'the box does not carry over to the next house',
-    /cropLines\.checked = false/.test(extractFn(admin, 'rmReset') || ''),
-    'markup belongs to the capture it was ticked for');
+  check('S265', 'the box goes back to its default for the next house',
+    /cropLines\.checked = true/.test(extractFn(admin, 'rmReset') || ''),
+    'what belongs to one capture is the CROP, not the marks — and the marks are the point');
 
   /* ---- and it can be marked up without leaving the tool -------------- */
   /* The Mark Up tool already existed and could already do this — but only from
@@ -44905,6 +44918,95 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
       outside.length === 0,
       'markup pinned outside the picture reappears squashed against its edge');
   }
+
+  /* ---- 6. the picture is the same photograph the marks were placed on ---- */
+  /* ⭐ Owner, 2026-08-30: "when you go to capture street view its a different
+     google map entirely just in the same spot and so the dots dont follow when
+     you click attach and so when it uploads the dots dont follow." Three separate
+     ways that can be true, and all three are closed here. */
+  {
+    const cap = extractFn(admin, 'rmCapture') || '';
+    check('S282', 'the street capture names the panorama it wants',
+      /streetview\?pano='\+encodeURIComponent\(panoId\)/.test(cap),
+      'location= asks for the NEAREST panorama, which the arrow keys can walk away from — ' +
+      'and a mark is a direction from ONE camera, meaningless from the next one');
+    check('S282', 'and falls back to the point when a panorama cannot be served',
+      /rmCaptureFallbackUrl/.test(cap) && /got\.error === 'refused' && rmCaptureFallbackUrl/.test(cap),
+      'a user-contributed photo sphere can be on screen and refused by the static service');
+    check('S282', 'the fov asked for is one the service can actually give',
+      /const fov = rmCaptureFov\(pov\.zoom\);/.test(cap) &&
+      /'&fov='\+fov\.toFixed\(2\)/.test(cap),
+      'the static service caps fov at 120 and says nothing — ask for 180 and every mark ' +
+      'is drawn for a picture that was never taken');
+    check('S282', 'and the marks are drawn for THAT fov, not the pane\'s',
+      /pov = \{heading: pov\.heading, pitch: pov\.pitch, zoom: rmZoomForFov\(fov\)\};/.test(cap),
+      'the crop carries the zoom that MEANS the fov the photograph used, so the drawing ' +
+      'and the picture cannot be told two different things');
+    /* Run the two helpers rather than reading them. */
+    const fovFns = new Function(
+      (extractFn(admin, 'rmFovDeg') || '') + NLS +
+      'const RM_STATIC_FOV_MAX = 120;' + NLS +
+      (extractFn(admin, 'rmCaptureFov') || '') + NLS +
+      (extractFn(admin, 'rmZoomForFov') || '') + NLS +
+      'return {fov: rmCaptureFov, zoom: rmZoomForFov, raw: rmFovDeg};')();
+    check('S282', 'a zoomed-out pane is clamped to what the picture will hold',
+      fovFns.raw(0) === 180 && fovFns.fov(0) === 120,
+      'got ' + fovFns.fov(0) + ' — 180 degrees is refused and quietly served as 120');
+    check('S282', 'an ordinary zoom is left exactly alone',
+      fovFns.fov(1) === 90 && fovFns.fov(2) === 45,
+      'clamping a fov that was already legal would zoom every capture in for nothing');
+    check('S282', 'and the round trip is exact, so nothing drifts',
+      Math.abs(fovFns.raw(fovFns.zoom(fovFns.fov(0))) - 120) < 1e-9 &&
+      Math.abs(fovFns.raw(fovFns.zoom(fovFns.fov(1.7))) - fovFns.fov(1.7)) < 1e-9,
+      'the projection asks rmFovDeg for the fov, so the stored zoom has to mean it exactly');
+  }
+
+  /* ---- 7. and a picture with none of her marks on it SAYS so ------------ */
+  {
+    const tally = extractFn(admin, 'rmCaptureMarkTally') || '';
+    const text = extractFn(admin, 'rmMarkTallyText') || '';
+    check('S282', 'the marks that landed on the picture are counted',
+      !!tally && /p\.x >= 0 && p\.x <= W && p\.y >= 0 && p\.y <= H/.test(tally),
+      'a capture with the marks off and a capture whose marks all fell outside the frame ' +
+      'look exactly alike — a clean photograph — and neither says a word');
+    check('S282', 'and none of them landing is said out loud',
+      /None of your/.test(text) && /capture again/.test(text),
+      'this is the reported failure; silence about it is what let it survive one fix');
+    check('S282', 'the crop screen says it as soon as the picture appears',
+      /rmCropStatus'\)\.textContent = rmMarkTallyText\(\);/.test(extractFn(admin, 'rmCapture') || ''),
+      'after it is attached is too late to do anything about it');
+    check('S282', 'and unticking the box says what that costs',
+      /your marks will NOT be on the one you attach/.test(admin),
+      '"clean picture" reads like a tidier picture, not like losing the measuring');
+    /* Run the sentence builder over the three cases. */
+    const mk = new Function('rmCrop', 'rmStreetDotsHere', 'rmCorners', 'rmCaptureMarks',
+      tally + NLS + text + NLS + 'return rmMarkTallyText;');
+    const crop = {canvas: {width: 100, height: 100}, which: 'street', w: 50, h: 50,
+                  scale: 2, pov: null, cam: null, center: null, zoom: 0};
+    const three = [{}, {}, {}];
+    const none = mk(crop, function(){ return three; }, [],
+      function(){ return [{path: [], dots: [{x: -40, y: 10}, {x: 900, y: 10}, {x: 10, y: -9}], color: ''}]; })();
+    check('S282', 'three dots, none of them on the picture, reports exactly that',
+      /None of your 3 dots landed/.test(none), 'got ' + JSON.stringify(none));
+    const some = mk(crop, function(){ return three; }, [],
+      function(){ return [{path: [{x:1,y:1},{x:2,y:2}], dots: [{x: 10, y: 10}, {x: 20, y: 20}, {x: 900, y: 1}], color: ''}]; })();
+    check('S282', 'two of three on it reports the count, not a false all-clear',
+      some.indexOf('2 of 3 dots on this picture') === 0 && /1 line/.test(some),
+      'got ' + JSON.stringify(some));
+    const nothing = mk(crop, function(){ return []; }, [], function(){ return []; })();
+    check('S282', 'and a house nobody has marked says nothing at all',
+      nothing === '', 'got ' + JSON.stringify(nothing) + ' — a count of nought is noise on every capture');
+  }
+
+  /* ---- 8. Attach captures the pane the marks are actually in ------------ */
+  check('S282', 'Attach captures the view the marks are in, not the last one touched',
+    /const hasStreet = rmStreetReady && rmStreetDotsHere\(\)\.length > 0;/.test(attach) &&
+    /const hasSky = rmSkyReady && rmCorners\.length > 0;/.test(attach),
+    'rmLastPane moves on a plain mousedown on the sky map, so nudging the satellite after ' +
+    'dotting a front elevation attached a picture of the roof and none of her dots');
+  check('S282', 'and rmLastPane still breaks the tie when both views are marked',
+    /hasStreet && \(rmLastPane === 'street' \|\| !hasSky\)/.test(attach),
+    'with marks in both, the one she was last working in is the better guess');
   /* ---- 4. and then it closes ---- */
   check('S282', 'the tool closes itself once everything has landed',
     /roofMeasureOverlay'\)\.style\.display = 'none';/.test(attach),
