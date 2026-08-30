@@ -1696,7 +1696,7 @@ Nobody changes this number without her.
 
 ---
 
-## Q-025 · intent · OPEN · raised 2026-08-29
+## Q-025 · intent · PART-ANSWERED · raised and part-answered 2026-08-29
 A card is charged and no invoice can be found to apply it to. Where should that show, and who may clear it?
 
 **This is real money that is currently invisible, so it is recorded rather than
@@ -1736,8 +1736,27 @@ correctly captured, and in a place with no way in and no way out.
 marked not built, saying in as many words that there is no way out of the state.
 That makes it visible without pretending a repair exists.
 
-**Resulting map change.** None yet — this is a hole, not a ruling, and the
-questions map holds rulings only. It gets a row there when it is answered.
+**PART-ANSWERED, 2026-08-30** — *"Put that in health check."*
+
+**Where they show is settled and built.** A Health Check row, `unmatchedPayment`, naming
+the amount, the number it was paid on, and who on file has that number now. It reads the
+collection (staff may read it; only writing is forbidden) and reports nothing at all if
+that read has not landed.
+
+⚠ **The Invoices tab was argued for and she chose Health Check.** The objection was HC-03,
+and it is largely spent — approve/deny shipped on 2026-08-27, so a row can be cleared.
+
+**What clearing means is still not fully answered, and did not need to be to ship this.**
+There is no Fix button: applying it to the right invoice, refunding it, or marking it seen
+are three different answers about somebody's money. **"Not a problem" gives her the third
+one today**, and it writes to `healthCheckDecisions` rather than to `unmatchedPayments` —
+so the collection stays write-forbidden and **no `firebase deploy --only firestore:rules`
+is needed**, which was the other cost this question was carrying.
+
+**Still open:** whether one of these should ever be *applied* to an invoice from here, and
+by whom. That is a real money decision and is not urgent while the row makes them visible.
+
+**Resulting map change.** MON-29.
 
 ---
 

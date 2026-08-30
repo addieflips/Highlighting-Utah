@@ -3159,11 +3159,18 @@ async function logNightlyInvoiceRun(data) {
       // Called out by name, not folded into the generic skip count — an
       // uninvoiceable customer is a bill that will never be sent, not a bill
       // that is waiting.
-      if (data.skippedNoEmail) parts.push(data.skippedNoEmail + ' NO EMAIL (cannot be billed)');
+      /* ⚠ THE WORDING CHANGED WITH THE BEHAVIOUR (2026-08-30). It read "cannot be
+         billed", which was true while a payer with no email got no invoice document at
+         all. They are billed now — the invoice is raised and waiting in their member
+         portal, which they reach with their phone — and the only thing missing is
+         somebody sending it. Addie: "I'll send invoices that only have phone number on
+         file myself." A summary that still said "cannot be billed" would read as work
+         that is impossible rather than work that is hers. */
+      if (data.skippedNoEmail) parts.push(data.skippedNoEmail + ' BILLED, SEND BY HAND (no email)');
       parts.push((data.errorCount || 0) + ' error' + (data.errorCount === 1 ? '' : 's'));
       let body = 'Highlighting Utah billing (' + (data.triggeredBy || 'run') + '): ' + parts.join(', ') + '.';
       if (data.skippedNoEmail && data.noEmailNames && data.noEmailNames.length) {
-        body += ' No email: ' + data.noEmailNames.slice(0, 3).join(', ') +
+        body += ' Send by hand: ' + data.noEmailNames.slice(0, 3).join(', ') +
           (data.noEmailNames.length > 3 ? ' +' + (data.noEmailNames.length - 3) + ' more' : '') + '.';
       }
       if (data.errorCount && data.errors && data.errors.length) body += ' First issue: ' + String(data.errors[0]).slice(0, 90);
@@ -3375,59 +3382,6 @@ async function runInvoiceBatch(triggeredBy) {
 
         const withEmail = active.find(function (h) { return !!h.data.email; });
         const email = payer.data.email || (withEmail ? withEmail.data.email : '');
-        /* No email address anywhere in this payer's group, so there is nothing
-           to send an invoice to. This used to be a bare `continue`: not counted
-           as sent, skipped or errored, so the nightly text read "0 sent, 0
-           errors" and looked healthy while an installed house went unbilled all
-           season. A phone-only signup is the ordinary case for a phone enquiry,
-           so this is not rare. Counted and named now, and Health Check has a
-           matching "Customer with no email address" row. */
-        if (!email) {
-          skippedNoEmail++;
-          noEmailNames.push(payer.data.name || payer.data.address || payer.id);
-          /* ⭐ AND IT LANDS ON THE CUSTOMER, NOT ONLY IN LAST NIGHT'S TEXT
-             (hole H, 2026-08-21). Counting them fixed the "0 sent, 0 errors"
-             lie; it did not make the work findable. A number in a nightly
-             summary is the same number every night, so it reads as background
-             noise while an installed house — materials, a crew's day, a bundle
-             made — goes unbilled all season.
-
-             With the flag on the record the office can filter All Customers,
-             see who they are and go and get an email address.
-
-             ⚠ SET AND CLEARED BY THE SAME RUN, so it cannot go stale the way
-             maybeNextYear did — one writer, one rule. A customer who gains an
-             email is cleared on the next nightly pass, and the office screen
-             does not even wait for that: the tag also checks live that they
-             still have no email, so it disappears the moment one is typed.
-             Stored flag, derived display — the same shape as derivedDoneFor.
-
-             ⚠ AND THE NOTE GOES UP ONCE, not nightly. Guarded on the flag not
-             already being set: a note every night for the same house is how
-             somebody learns to ignore the folder. */
-          if (!payer.data.cannotBillNoEmail) {
-            await tryFirestore('no-email flag', () =>
-              db.collection('jobAddresses').doc(payer.id).update({
-                cannotBillNoEmail: true,
-                cannotBillNoEmailAt: admin.firestore.FieldValue.serverTimestamp()
-              }));
-            await tryFirestore('no-email note', () =>
-              db.collection('messages').add({
-                topic: 'Cannot Be Billed', folder: 'System',
-                name: payer.data.name || '', phone: payer.data.phone || '', email: '',
-                contactMethod: '',
-                message: (payer.data.name || 'A customer') + ' has no email address ' +
-                         'anywhere on their bill, so tonight\'s invoice could not be ' +
-                         'sent and they have not been charged for work already done. ' +
-                         'They are in All Customers under the "Cannot Be Billed" ' +
-                         'filter. Adding an email address clears this by itself.',
-                autoQueuedToWarehouse: false, needsReassign: false,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
-              }));
-          }
-          continue;
-        }
-
         /* ⚠ THE SAME RUN CLEARS IT. A flag with only one way in is the sticky
            bug this file has already been bitten by; the writer that sets it is
            the only thing that should decide it is over. Written only when it is
@@ -3607,6 +3561,93 @@ async function runInvoiceBatch(triggeredBy) {
               : []
           });
         }
+
+        /* ⭐ THE BILL IS RAISED EVEN WHEN THERE IS NOWHERE TO SEND IT (moved 2026-08-30).
+           Addie: "How invoice bills. So if no email on file than invoice by phone for
+           member portal. I'll send invoices that only have phone number on file myself."
+
+           ⚠ THIS BLOCK USED TO SIT ABOVE THE INVOICE WRITE, so a payer with no email got
+           no invoice DOCUMENT at all — not merely no email. Their member portal, which
+           they sign into with their phone, had nothing to show them, and the work stayed
+           unbilled with no record anywhere of what was owed. Moving it here is the whole
+           change: everything above has already run, so the invoice exists, the join fee is
+           on it, a carried charge has landed and a carryover credit has been drawn.
+
+           ⚠ IT MUST STAY BELOW THE CARRYOVER DRAWDOWN, and that ordering is the reason the
+           block moved HERE rather than a few lines earlier. Both the charge-clearing and
+           the credit drawdown are written immediately after the invoice so the two
+           documents agree even if what follows fails; skipping out above them would leave
+           the invoice holding a credit the customer still has in full, and the next run
+           would apply it a second time.
+
+           ⚠ AND `invoiceEmailSent` IS DELIBERATELY NOT SET. It means the bill has gone
+           out, and it has not — so they stay on tomorrow night's list and in the nightly
+           summary until somebody deals with them, which is what "I'll send those myself"
+           needs. Re-running is safe: the fee is guarded by `newMemberFeeApplied`, the
+           carried charge was cleared off each house, the credit was drawn off the payer,
+           and the note below only posts once.
+
+           ⚠ AND IT IS STILL COUNTED AND NAMED in the nightly text. The count now means
+           "billed, but you must send it" rather than "skipped entirely"; the summary
+           wording says so. */
+        /* No email address anywhere in this payer's group, so there is nothing
+           to send an invoice to. This used to be a bare `continue`: not counted
+           as sent, skipped or errored, so the nightly text read "0 sent, 0
+           errors" and looked healthy while an installed house went unbilled all
+           season. A phone-only signup is the ordinary case for a phone enquiry,
+           so this is not rare. Counted and named now, and Health Check has a
+           matching "Customer with no email address" row. */
+        if (!email) {
+          skippedNoEmail++;
+          noEmailNames.push(payer.data.name || payer.data.address || payer.id);
+          /* ⭐ AND IT LANDS ON THE CUSTOMER, NOT ONLY IN LAST NIGHT'S TEXT
+             (hole H, 2026-08-21). Counting them fixed the "0 sent, 0 errors"
+             lie; it did not make the work findable. A number in a nightly
+             summary is the same number every night, so it reads as background
+             noise while an installed house — materials, a crew's day, a bundle
+             made — goes unbilled all season.
+
+             With the flag on the record the office can filter All Customers,
+             see who they are and go and get an email address.
+
+             ⚠ SET AND CLEARED BY THE SAME RUN, so it cannot go stale the way
+             maybeNextYear did — one writer, one rule. A customer who gains an
+             email is cleared on the next nightly pass, and the office screen
+             does not even wait for that: the tag also checks live that they
+             still have no email, so it disappears the moment one is typed.
+             Stored flag, derived display — the same shape as derivedDoneFor.
+
+             ⚠ AND THE NOTE GOES UP ONCE, not nightly. Guarded on the flag not
+             already being set: a note every night for the same house is how
+             somebody learns to ignore the folder. */
+          if (!payer.data.cannotBillNoEmail) {
+            await tryFirestore('no-email flag', () =>
+              db.collection('jobAddresses').doc(payer.id).update({
+                cannotBillNoEmail: true,
+                cannotBillNoEmailAt: admin.firestore.FieldValue.serverTimestamp()
+              }));
+            await tryFirestore('no-email note', () =>
+              db.collection('messages').add({
+                topic: 'Cannot Be Billed', folder: 'System',
+                name: payer.data.name || '', phone: payer.data.phone || '', email: '',
+                contactMethod: '',
+                /* ⚠ THE NOTE SAID THEY HAD NOT BEEN CHARGED, and since 2026-08-30 that is
+                   no longer true — the invoice is raised and waiting in their portal, and
+                   only the sending is manual. Left as it was, this note described the one
+                   customer whose bill DOES exist as one who had been missed entirely. */
+                message: (payer.data.name || 'A customer') + ' has no email address ' +
+                         'anywhere on their bill. Their invoice has been raised and is ' +
+                         'waiting in their member portal, which they sign into with their ' +
+                         'phone \u2014 but nothing could be emailed, so it needs sending by ' +
+                         'hand. They are in All Customers under the "Cannot Be Billed" ' +
+                         'filter. Adding an email address clears this by itself.',
+                autoQueuedToWarehouse: false, needsReassign: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+              }));
+          }
+          continue;
+        }
+
 
         /* One house reads exactly as it always has. Two or more get a line per
            address so the customer can see what each one cost - the whole point

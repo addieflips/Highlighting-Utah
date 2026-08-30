@@ -709,6 +709,74 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### A card payment that found no bill now shows up
+
+Addie, asked where these should go: *"Put that in health check."*
+
+⚠ **The money was invisible.** `recordUnmatchedPayment` files a capture that succeeded with
+no invoice to apply it to — usually because the phone or email the bill is keyed on changed
+after it was written. **No screen in the app read that collection**, nothing ever wrote
+`resolved: true`, and `firestore.rules` forbids writing to it. Real money, correctly
+captured, in a place with no way in and no way out — while the customer's own portal reads
+**Paid in Full**.
+
+⚠ **The Invoices tab was argued for and she chose Health Check.** The objection was HC-03 —
+she had said she does not read that panel because nothing could be marked done — and it is
+largely spent: approve/deny shipped on 2026-08-27, so a row can be cleared now. Her answer
+stands, and it was put to her first.
+
+⚠ **No fix button.** Applying it to the right invoice, refunding it, or marking it seen are
+three different answers about somebody's money, and Q-025 settled only **where** it shows.
+
+⚠ **And "Not a problem" is how one is cleared, which needs no rules deploy.** The decision
+is written to `healthCheckDecisions`, never to `unmatchedPayments`, so that collection stays
+write-forbidden exactly as it is — asserted, because a write from the browser would fail
+silently. The decision fingerprint lapses if the amount changes, so a second payment on the
+same key comes back rather than hiding behind an old decision.
+
+⚠ **A failed read reports nothing, not an all-clear.** `hcUnmatched` is null until it loads
+and stays null if the read fails; `(hcUnmatched || [])` is what makes that a silence rather
+than a confident *"no stranded money"* on the one screen that must never give a false one.
+
+### A customer with no email is billed anyway — the bill just gets sent by hand
+
+Addie, 2026-08-30: *"How invoice bills. So if no email on file than invoice by phone for
+member portal. I'll send invoices that only have phone number on file myself."*
+
+⚠ **They were not getting an invoice at all — not merely not getting an email.** The
+nightly run gave up on a payer with no email address *before* the invoice document was
+written, so there was nothing in their member portal to look at, no record anywhere of what
+was owed, and the work stayed unbilled. Their portal is reached with a **phone** and a last
+name, so the bill being there is the whole point.
+
+⚠ **The fix is an ordering, and that is all it is.** The no-email block moved **down**, past
+the invoice write and past the carryover handling, to sit immediately before the email send.
+Everything that raises the bill now runs first; only the sending is skipped.
+
+⚠ **It had to go below the carryover drawdown**, which is why it landed exactly there.
+Both the carried-charge clearing and the credit drawdown are written straight after the
+invoice so the two documents agree even if what follows fails — bailing out above them
+would leave the invoice holding a credit the customer still has in full, and the next run
+would apply it a second time.
+
+⚠ **`invoiceEmailSent` is deliberately NOT set.** It means the bill has gone out, and it has
+not — so they stay on tomorrow night's list and in the nightly summary until somebody deals
+with them, which is what *"I'll send those myself"* needs. Re-running is safe: the join fee
+is guarded by `newMemberFeeApplied`, the carried charge was cleared off each house, the
+credit was drawn off the payer, and the Inbox note only posts once.
+
+⚠ **Three pieces of wording went untrue with the behaviour and all three moved.** The
+nightly text said *"NO EMAIL (cannot be billed)"*; the Inbox note said they *"have not been
+charged for work already done"*; a check in `run-all.js` pinned the first of those
+literally. They are billed now — describing that as impossible is the one thing that would
+stop her doing the part that is hers. The **"Cannot Be Billed" filter name** in All
+Customers is deliberately left alone: it is an identifier the office reads, not stale copy.
+
+⚠ **And the check that pinned the copy was repointed, not weakened** — same slow-fuse shape
+as S82 and S129: pinned to where a string sat rather than to what must be true, so it failed
+on correct code the moment the copy had to change. What must be true is that the alert
+**names** them.
+
 ### A finished takedown resets with the season
 
 Addie, 2026-08-29, asked directly: *"Oh so if we removed lights from someone's house that
