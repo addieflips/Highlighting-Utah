@@ -1760,7 +1760,7 @@ by whom. That is a real money decision and is not urgent while the row makes the
 
 ---
 
-## Q-026 · intent · OPEN · raised 2026-08-29
+## Q-026 · intent · ANSWERED · raised and answered 2026-08-29
 Should Start New Season clear `removalDone`, the way it clears `completed`?
 
 **This is a change to Start New Season, which is on the short list of things
