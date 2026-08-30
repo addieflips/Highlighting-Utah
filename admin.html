@@ -6723,25 +6723,25 @@ async function logActivity(what, area, refId){
  */
 const HISTORY_STEPS = [
   { field: 'createdAt',                from: 'quote', what: 'Quote raised' },
-  /* \u2b50 THE DAY THEY JOINED, FOR EVERYBODY WHO NEVER HAD A QUOTE (added 2026-08-29).
+  /* ⭐ THE DAY THEY JOINED, FOR EVERYBODY WHO NEVER HAD A QUOTE (added 2026-08-29).
      The line above reads `createdAt` off the QUOTE, so it answers nothing at all for a
-     customer who arrived any other way \u2014 typed in by the office, or imported from the
+     customer who arrived any other way — typed in by the office, or imported from the
      master sheet, which is most of the book. Their history simply began at whatever
      happened to them first, with no row anywhere saying when they became a customer.
-     \u26a0 ALL SIX CREATORS DO SET IT, checked one at a time rather than assumed: Add
+     ⚠ ALL SIX CREATORS DO SET IT, checked one at a time rather than assumed: Add
      Customer, the conversion, Bulk Updates, the sheet sync's fold-in, the invoice importer
-     and the test-person builder. The field was never the problem \u2014 nothing read it.
-     \u26a0 A QUOTE CUSTOMER GETS BOTH ROWS, and that is right rather than duplication: the
+     and the test-person builder. The field was never the problem — nothing read it.
+     ⚠ A QUOTE CUSTOMER GETS BOTH ROWS, and that is right rather than duplication: the
      day somebody asked for a price and the day they became a customer are different days,
      often weeks apart, and the gap between them is a real thing to look at. */
   { field: 'createdAt',                from: 'cust',  what: 'Added to the customer list' },
   { field: 'quoteSentAt',              from: 'quote', what: 'Quote emailed to them' },
   { field: 'quoteLastNudgedAt',        from: 'quote', what: 'Nudged about it' },
-  /* \u26a0 TWO FIELDS, TWO ACTORS, TWO ROWS \u2014 NOT ONE EVENT WRITTEN TWICE. `quoteRespond`
+  /* ⚠ TWO FIELDS, TWO ACTORS, TWO ROWS — NOT ONE EVENT WRITTEN TWICE. `quoteRespond`
      stamps `approvalRespondedAt` when the CUSTOMER presses the button in their email;
      admin's own dropdown stamps `quoteRespondedAt` when the office records an answer it
      was given on the phone. Merged into one line the history could not answer "did they
-     actually reply, or did we take somebody's word for it" \u2014 which is the question
+     actually reply, or did we take somebody's word for it" — which is the question
      behind every argument about a quote. Same shape as the colour change's portal/office
      split, and for the same reason. */
   { field: 'approvalRespondedAt',      from: 'quote', what: 'They answered the quote themselves' },
@@ -6752,12 +6752,12 @@ const HISTORY_STEPS = [
      reading it off `cust` returns nothing for everybody and the history silently loses
      the day they joined. Checked at the write site rather than assumed from the name. */
   { field: 'convertedToCustomerAt',    from: 'quote', what: 'Became a customer' },
-  /* \u26a0 IT IS THE ONE STEP OF THE WHOLE JOURNEY THAT IS THEIR WORK rather than ours \u2014 the
+  /* ⚠ IT IS THE ONE STEP OF THE WHOLE JOURNEY THAT IS THEIR WORK rather than ours — the
      colours, the wire, the timer and the gate code all arrive here. A house sitting unbuilt
      because nobody ever filled this in looks identical to one waiting its turn, and this row
      is the only thing that tells them apart.
-     \u26a0 ON THE QUOTE, NOT THE CUSTOMER, and it shipped the wrong way round for an hour on
-     2026-08-29 \u2014 which is the whole argument for the by-document check in history.test.js.
+     ⚠ ON THE QUOTE, NOT THE CUSTOMER, and it shipped the wrong way round for an hour on
+     2026-08-29 — which is the whole argument for the by-document check in history.test.js.
      Both writers put it on `quotes`: the portal's own form writes it there directly, and
      `quoteSaveDetails` writes it there for somebody following an emailed link. Read off the
      customer it found nothing for anybody, and every check in the repo passed. */
@@ -6773,44 +6773,44 @@ const HISTORY_STEPS = [
   { field: 'completedAt',              from: 'cust',  what: 'Lights went up' },
   { field: 'removalDoneAt',            from: 'cust',  what: 'Lights taken down' },
   { field: 'lightsRecycleRequestedAt', from: 'cust',  what: 'Old set asked back' },
-  /* \u26a0 ASKED BACK AND ACTUALLY BACK ARE DIFFERENT DAYS, and the gap between them is the
+  /* ⚠ ASKED BACK AND ACTUALLY BACK ARE DIFFERENT DAYS, and the gap between them is the
      whole question: a set asked back in October and still not on the shelf in November is
      somebody's bundle that cannot be rebuilt. One date could not carry both. */
   { field: 'lightsRecycledAt',         from: 'cust',  what: 'Old set came back in' },
-  /* \u2b50 HER WORDS, AND THE FIELD ALREADY EXISTED. Addie's list: "or maybe next year date".
+  /* ⭐ HER WORDS, AND THE FIELD ALREADY EXISTED. Addie's list: "or maybe next year date".
      `maybeNextYearAt` is written in three places and was read by nothing that shows a
-     customer anything \u2014 the same hole as the colour change, found by the same sweep.
-     \u26a0 IT IS NOT `rsvpRespondedAt`. The badge is what the OFFICE recorded, usually from a
+     customer anything — the same hole as the colour change, found by the same sweep.
+     ⚠ IT IS NOT `rsvpRespondedAt`. The badge is what the OFFICE recorded, usually from a
      conversation; the RSVP is what the customer answered through the link. They disagree
      often, and which of the two happened is exactly what somebody is asking. */
   { field: 'maybeNextYearAt',          from: 'cust',  what: 'Marked as maybe next year' },
-  /* \u26a0 RAISED AND APPLIED ARE DIFFERENT DAYS, and this is the second half of the pair.
+  /* ⚠ RAISED AND APPLIED ARE DIFFERENT DAYS, and this is the second half of the pair.
      `requotedAt` (on the quote) is the day the office decided the price had to change;
      this is the day the customer agreed and it landed on their record. A re-quote sitting
      three weeks between the two is exactly what somebody is looking for. */
   { field: 'requoteAppliedAt',         from: 'cust',  what: 'Their re-quote was applied' },
-  /* \u26a0 NOT THE SAME AS AN ORDINARY COLOUR CHANGE, and the difference is that a crew is
+  /* ⚠ NOT THE SAME AS AN ORDINARY COLOUR CHANGE, and the difference is that a crew is
      already holding a printed card for the old pattern. Somebody is on their way. */
   { field: 'lightsChangedAfterAssignAt', from: 'cust',
     what: 'Changed their colours after the crew had been booked' },
   { field: 'askSameAsLastYearAt',      from: 'cust',
     what: 'Needed asking whether last year\u2019s job would do' },
-  /* \u26a0 THIS ONE IS MONEY SITTING STILL. The house is finished and there is no address to
+  /* ⚠ THIS ONE IS MONEY SITTING STILL. The house is finished and there is no address to
      send the bill to, so the nightly run passes over it every night and nobody is charged.
      It is a note in the Inbox once, and then nothing until somebody notices. */
   { field: 'cannotBillNoEmailAt',      from: 'cust',
     what: 'Finished, but there was nobody to send the bill to' },
-  /* \u2b50 THE ONE SHE NAMED FIRST, AND THE HISTORY DID NOT SHOW IT (added 2026-08-29).
+  /* ⭐ THE ONE SHE NAMED FIRST, AND THE HISTORY DID NOT SHOW IT (added 2026-08-29).
      Addie's list opened with "asked for different lights on this date". `lightsChangedAt`
      has existed for a while, is written by the portal, by Edit Customer and by the sheet
-     sync, and is read by the Color Changes tab and the warehouse badge \u2014 it was simply
+     sync, and is read by the Color Changes tab and the warehouse badge — it was simply
      never added here, so the one event she asked for by name was the one missing from the
      page built to answer her.
-     \u26a0 IT IS NOT THE SAME LINE AS "Sent to the warehouse to be built". A colour change
-     queues a build, so the two sit together and it is tempting to read one as the other \u2014
+     ⚠ IT IS NOT THE SAME LINE AS "Sent to the warehouse to be built". A colour change
+     queues a build, so the two sit together and it is tempting to read one as the other —
      but a build is also queued by joining, by a re-quote, by a wire change and by coming
      back after a recycle, and only one of those is somebody picking different colours.
-     \u26a0 AND THE WORDS SAY WHO DID IT. `lightsChangedVia` is the whole reason that field
+     ⚠ AND THE WORDS SAY WHO DID IT. `lightsChangedVia` is the whole reason that field
      exists: the customer changing their own colours and the office typing them in after a
      call are the same event from opposite ends, and the warehouse badge already tells them
      apart. The history must not be the one screen that flattens them. */
@@ -6831,10 +6831,10 @@ const HISTORY_STEPS = [
      record's values onto this one and deletes that record, so without this line the
      history cannot answer "where did this address come from" and nothing else can either. */
   { field: 'mergedAt',                 from: 'cust',  what: 'Merged with a duplicate record' },
-  /* \u26a0 THE BILL BEING RAISED AND THE EMAIL GOING OUT ARE TWO FACTS ON TWO DOCUMENTS.
+  /* ⚠ THE BILL BEING RAISED AND THE EMAIL GOING OUT ARE TWO FACTS ON TWO DOCUMENTS.
      `invoicedAt` is stamped on the INVOICE when the bill is worked out; `invoiceEmailSentAt`
      is stamped on the CUSTOMER when the mail actually leaves. "I never got my bill" is
-     answered by the second one and by nothing else \u2014 and until now the history showed only
+     answered by the second one and by nothing else — and until now the history showed only
      the first, which reads as proof of something it does not prove. */
   { field: 'invoicedAt',               from: 'inv',   what: 'Invoice raised' },
   { field: 'invoiceEmailSentAt',       from: 'cust',  what: 'Invoice emailed to them' },
@@ -6853,15 +6853,15 @@ function historyMergeWords(cust){
     (got.length ? ' — took ' + got.slice(0, 6).join(', ') +
       (got.length > 6 ? ' and ' + (got.length - 6) + ' more' : '') : '');
 }
-/* \u26a0 THE SAME THREE ANSWERS THE WAREHOUSE BADGE GIVES, from the same field, so the
+/* ⚠ THE SAME THREE ANSWERS THE WAREHOUSE BADGE GIVES, from the same field, so the
    history and the build queue cannot start disagreeing about where a colour change came
    from. `whBuildReasonKey` is deliberately NOT called: it answers a different question
    (why a bundle is being built, where a re-quote outranks a colour change), so a house
    that moved AND changed colours would come back "rebuild" and this line would print
    nothing about the colours at all.
-   \u26a0 AND AN UNRECORDED ORIGIN SAYS NOTHING RATHER THAN GUESSING. Every colour change
+   ⚠ AND AN UNRECORDED ORIGIN SAYS NOTHING RATHER THAN GUESSING. Every colour change
    made before 2026-08-24 carries no `lightsChangedVia`, and assigning one of the two on a
-   coin toss is worse than an honest silence \u2014 the same rule the badge already keeps. */
+   coin toss is worse than an honest silence — the same rule the badge already keeps. */
 function historyLightsWords(cust){
   const via = String((cust && cust.lightsChangedVia) || '').trim().toLowerCase();
   if(via === 'portal') return 'Asked for different lights \u2014 they changed them in their own portal';
@@ -6889,19 +6889,19 @@ function historyRsvpWords(cust){
 /* ⚠ A NOTE CARRIES ITS OWN DATE and several of them can sit on one invoice — the
    change fees, the credits and the carryover charge each keep a `date` on their own
    entry, which is why they are read here rather than being given stamps of their own. */
-/* \u2b50 "OR REQUOTED ON" \u2014 HER WORDS, AND THE ONE THAT COULD NOT BE A STEP (added 2026-08-29).
+/* ⭐ "OR REQUOTED ON" — HER WORDS, AND THE ONE THAT COULD NOT BE A STEP (added 2026-08-29).
    `requotedAt` lives on the QUOTE, and a re-quote is a SEPARATE quote document: the history
    deliberately reads only the quote that CONVERTED them, so that a re-quote raised last week
    does not read as the day they joined. So the field is written, is shown on the quote card,
-   and could never reach a customer's history \u2014 a step keyed on it would have looked right and
+   and could never reach a customer's history — a step keyed on it would have looked right and
    found nothing for almost everybody.
-   \u26a0 A ROW PER RE-QUOTE, because there can be several and they are the story: three
+   ⚠ A ROW PER RE-QUOTE, because there can be several and they are the story: three
    re-quotes in a season is a house nobody has measured properly, and one line saying "last
    re-quoted on" hides exactly that.
-   \u26a0 AND IT NAMES WHY. `requoteKind` is already stored and already decides what the
-   warehouse is offered \u2014 an addition, a move, or just the price \u2014 and those are three
+   ⚠ AND IT NAMES WHY. `requoteKind` is already stored and already decides what the
+   warehouse is offered — an addition, a move, or just the price — and those are three
    different amounts of work. "Re-quoted" beside a date leaves the only useful question open.
-   \u26a0 'price' IS NOT DRAWN AS WORK. A price-only re-quote changes no glass and queues no
+   ⚠ 'price' IS NOT DRAWN AS WORK. A price-only re-quote changes no glass and queues no
    build; wording it like the other two would describe work nobody did. */
 const REQUOTE_KIND_WORDS = {
   addition: 'they wanted more of the house lit',
@@ -7046,7 +7046,7 @@ async function renderCustomerHistory(custId){
        raised last week as the day they joined. */
     const mine = (quotesCache || []).filter(q => q.data && q.data.existingCustomerId === custId);
     quote = mine.find(q => q.data.convertedToCustomerAt) || null;
-    /* \u26a0 EVERY QUOTE AGAINST THEM, NOT JUST THE CONVERTING ONE. The line above picks the
+    /* ⚠ EVERY QUOTE AGAINST THEM, NOT JUST THE CONVERTING ONE. The line above picks the
        quote that MADE them a customer, on purpose; a re-quote is a document of its own and
        is invisible to it. Filtering on `requotedAt` rather than on "not the converting one"
        is what keeps an ordinary second quote that was never re-quoted off the list. */
@@ -7595,7 +7595,7 @@ async function sendPaymentReceipt(invId, invData, paidNow){
     console.error('Payment receipt failed for ' + invId + ':', err);
     /* Recorded on the invoice as well as shown on screen, so a failure that
        happened while nobody was looking still surfaces later. */
-    try{ await updateDoc(doc(db,'invoices',invId), {receiptError: msg, receiptErrorAt: serverTimestamp()}); }catch(e){ /* quiet on purpose: this is the SECOND place the failure is recorded, and the first has already worked \u2014 the reason is returned to the caller on the next line and shown on screen. Losing the copy on the invoice costs the banner later, never the message now, and a receipt that failed must not also break the payment that succeeded. */ }
+    try{ await updateDoc(doc(db,'invoices',invId), {receiptError: msg, receiptErrorAt: serverTimestamp()}); }catch(e){ /* quiet on purpose: this is the SECOND place the failure is recorded, and the first has already worked — the reason is returned to the caller on the next line and shown on screen. Losing the copy on the invoice costs the banner later, never the message now, and a receipt that failed must not also break the payment that succeeded. */ }
     return {sent:false, quiet:false, why:'Receipt failed to send: ' + msg + ' The payment was still recorded.'};
   }
 }
@@ -7611,7 +7611,7 @@ function reportReceiptOutcome(res){
 function partialPaymentNote(d){
   return (Number(d.deposit)||0) > 0 ? ('\n\nYou\'ve already paid ' + fmtMoney(Number(d.deposit)) + ' \u2014 the amount above is what\'s left.') : '';
 }
-// A customer inside their 48-hour light-change window is "locked" \u2014 their pattern
+// A customer inside their 48-hour light-change window is "locked" — their pattern
 // may still move, so they can't be assigned to an install route until it closes.
 function lightsLockMillis(d){
   const t = d && d.lightsLockedUntil;
@@ -8604,6 +8604,20 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
       await Promise.all(chunk.map(function(a){
         return updateDoc(doc(db,'jobAddresses', a.id), {
           completed: false, invoiceEmailSent: false, scheduled: false, scheduledDate: null, assignedCrew: null,
+          /* ⭐ A TAKEDOWN IS THIS SEASON'S WORK, SO IT RESETS WITH THE REST (2026-08-29).
+             Addie, asked directly: "Oh so if we removed lights from someone's house that
+             should reset for new season."
+             ⚠ IT WAS THE ONE JOB-DONE FLAG LEFT STANDING, and nothing else ever cleared it
+             — the only other writer of `removalDone: false` is the Mark Done toggle being
+             unticked by hand. So a customer whose lights came down last December read
+             "Removed" all the way through the new season until somebody opened their record.
+             ⚠ THE SAME SHAPE AS `completed`, WHICH IS WHY IT BELONGS BESIDE IT: both say a
+             job was finished THIS season, and neither is true of the season about to start.
+             ⚠ THE DATE STAYS. `removalDoneAt` is left exactly where it is, like every other
+             date in this write — the history needs it to say when last season's takedown
+             happened, and `seasonResetAt` below is the line that stops it reading as this
+             season's. Clearing the flag and keeping the date is the whole design here. */
+          removalDone: false,
           /* ⭐ THEY ARE NOT A NEW CUSTOMER ANY MORE. Owner: "if someone came from
              quotes this year but we are in 2027 than they are no longer a new
              costumer." Nothing else in the app has ever cleared this, while the
@@ -8631,9 +8645,11 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              record that any of it happened; the history needs them, and "queued on the 2nd,
              built on the 9th" is the whole point of having them. What was missing was a
              line between the seasons, and this is that line.
-             ⚠ AND IT IS THE ONLY THING ADDED TO THIS WRITE. Nothing existing reads it, so
-             it changes no behaviour — deciding whether removalDone should also be cleared
-             here is a real change to Start New Season and belongs to Addie. */
+             ⚠ THE DATES ARE KEPT AND THE FLAGS ARE CLEARED, and that split is the design.
+             `removalDone` is cleared above — Addie's ruling, 2026-08-29 — while
+             `removalDoneAt` stays, so the history can still say when last season's
+             takedown happened without the record claiming it is done for the season
+             starting now. */
           seasonResetAt: serverTimestamp()
         });
       }));
@@ -9261,13 +9277,13 @@ function initData(){
      counts open items before anyone opens the checklist. */
   // Keep the checklist current without anyone having to remember to press
   // Sync — quiet unless it actually finds something to add or flag.
-  runProjectTestSync().catch(function(){ /* quiet on purpose: the checklist syncs again on the next sign-in, and the list on screen is whatever Firestore already holds \u2014 a failed sync shows a slightly old checklist, never a wrong one. */ });
+  runProjectTestSync().catch(function(){ /* quiet on purpose: the checklist syncs again on the next sign-in, and the list on screen is whatever Firestore already holds — a failed sync shows a slightly old checklist, never a wrong one. */ });
   // Same idea for Health Check: run it on our own and light the sidebar badge,
   // instead of waiting for someone to suspect a problem and press a button.
   // Read the nightly run's health once at login, then again on the same ten
   // minute beat as the checks that report it.
-  loadNightlyHealth().catch(function(){ /* quiet on purpose: the ten-minute beat below re-reads it, and the stale-run banner is driven by the LAST successful read \u2014 so a failed read leaves the banner saying the run is stale, which is the safe direction. */ });
-  setInterval(function(){ loadNightlyHealth().catch(function(){ /* quiet on purpose: see above \u2014 the next tick re-reads it. */ }); }, 10 * 60 * 1000);
+  loadNightlyHealth().catch(function(){ /* quiet on purpose: the ten-minute beat below re-reads it, and the stale-run banner is driven by the LAST successful read — so a failed read leaves the banner saying the run is stale, which is the safe direction. */ });
+  setInterval(function(){ loadNightlyHealth().catch(function(){ /* quiet on purpose: see above — the next tick re-reads it. */ }); }, 10 * 60 * 1000);
   /* ⚠ EAGER, WITH THE OTHER BADGE LOADERS. The Health badge counts findings and a
      denied one must not be in that count, so the answers have to be in hand before the
      first render — a badge that is only right once you open the panel is not a badge.
@@ -9281,7 +9297,7 @@ function initData(){
   /* Before the sweep, not after: the sweep builds and re-spreads crew-days, and
      doing that on the default two while the office has saved one would build a
      season it then has to take apart again. */
-  loadSchedulingSettings().catch(function(){ /* quiet on purpose: a failed read falls back to the built-in nearby-towns list and two crews, which is what an unconfigured office gets. Resetting to empty would be worse than either \u2014 see DEFAULT_NEARBY_TOWNS. */ });
+  loadSchedulingSettings().catch(function(){ /* quiet on purpose: a failed read falls back to the built-in nearby-towns list and two crews, which is what an unconfigured office gets. Resetting to empty would be worse than either — see DEFAULT_NEARBY_TOWNS. */ });
   startReconcileAuto();
   loadSettings();
   loadJobAddresses();
@@ -11228,7 +11244,7 @@ _tpBtn.addEventListener('click', async function(){
     logActivity('Created a test person', 'customers', id);
     /* Straight into the record, because the thing being tested is done in there and
        finding a customer called Test in a book of nine hundred is its own errand. */
-    setTimeout(function(){ try{ openEditCustomerModal(id); }catch(e){ /* quiet on purpose: a convenience. The test person HAS been created \u2014 that is reported above \u2014 and they are in the customer list either way; this only saves an errand. */ } }, 400);
+    setTimeout(function(){ try{ openEditCustomerModal(id); }catch(e){ /* quiet on purpose: a convenience. The test person HAS been created — that is reported above — and they are in the customer list either way; this only saves an errand. */ } }, 400);
   }catch(err){
     console.error('Could not create the test person:', err);
     toast('Could not create it \u2014 ' + ((err && err.message) || err));
@@ -13467,15 +13483,15 @@ function renderQuoteRows(filtered){
   /* REMOVED 2026-08-15: the .quoteLightsInput handler that used to live here.
      It wrote whatever was typed straight into lightsDescription as free text,
      and free text is the thing that makes the warehouse have to interpret a
-     colour list instead of just reading it. Colours come from the picker now \u2014
-     the customer's own detail form, or the colour boxes on Add/Edit Customer \u2014
+     colour list instead of just reading it. Colours come from the picker now —
+     the customer's own detail form, or the colour boxes on Add/Edit Customer —
      so there is one shape and nothing has to guess.
      It was already dead: the P1 work took the Detail Form off the quote card,
      so nothing has rendered an element with this class since. A live handler
      with no markup is worse than nothing, because re-adding an input with that
      class would silently start writing free text again and no test would say
      so. Suite 6 of run-all.js now asserts this stays gone. */
-  // Save on blur (change), not on every keystroke \u2014 an input-debounced save
+  // Save on blur (change), not on every keystroke — an input-debounced save
   // triggers a re-render mid-typing, which used to collapse the Pricing panel
   // out from under the person typing into it.
   list.querySelectorAll('.quoteFeetInput').forEach(function(input){
@@ -15976,7 +15992,7 @@ function folderCount(folderName, folderId, collapsed){
 /* Which folders are closed. Remembered per browser so the tree does not spring
    back open on every render, and a corrupt value reads as "nothing closed". */
 let collapsedFolders = new Set();
-try{ collapsedFolders = new Set(JSON.parse(localStorage.getItem('hu.inboxCollapsed.v1') || '[]')); }catch(e){ /* quiet on purpose: a corrupt or blocked value reads as nothing closed, which the comment above states as the intended fallback \u2014 an open tree shows every folder, so nothing can be hidden by this failing. */ }
+try{ collapsedFolders = new Set(JSON.parse(localStorage.getItem('hu.inboxCollapsed.v1') || '[]')); }catch(e){ /* quiet on purpose: a corrupt or blocked value reads as nothing closed, which the comment above states as the intended fallback — an open tree shows every folder, so nothing can be hidden by this failing. */ }
 function saveCollapsedFolders(){
   try{ localStorage.setItem('hu.inboxCollapsed.v1', JSON.stringify(Array.from(collapsedFolders))); }catch(e){ /* quiet on purpose: the tree springs back open next time and nothing else changes. */ }
 }
@@ -16475,8 +16491,8 @@ function renderMessagesList(){
       // This is a NEW entry, so drop out of edit mode first — otherwise it
       // would save over whichever queue entry was being corrected.
       whCancelEditExtra();
-      /* The house goes in first and whExtraSync fills the rest from their record \u2014
-         pattern and bundle count both \u2014 so this hand-off cannot drift from what
+      /* The house goes in first and whExtraSync fills the rest from their record —
+         pattern and bundle count both — so this hand-off cannot drift from what
          the form works out for a house picked by hand. */
       document.getElementById('whExtraKind').value = 'lights';
       whSetExtraPattern('');
@@ -30337,7 +30353,7 @@ const rbRefreshCounts = wireBulkCounts(rbAreaIds, BULK_BY_NUMBER ? 'rbCustNumber
    or a refresh looks exactly like the run having vanished. Defined later in
    the file, so this waits until everything is parsed. */
 setTimeout(function(){
-  try{ renderBulkResumeBanner(); } catch(err){ /* quiet on purpose: drawn again by every later call to renderBulkResumeBanner, and the saved job itself is untouched in localStorage \u2014 this is the banner, not the run. */ }
+  try{ renderBulkResumeBanner(); } catch(err){ /* quiet on purpose: drawn again by every later call to renderBulkResumeBanner, and the saved job itself is untouched in localStorage — this is the banner, not the run. */ }
 }, 0);
 /* ---- Check First for the customer bulk importer -------------------------
  *
@@ -33129,7 +33145,7 @@ function findDuplicateCustomers(invoiceKeys, routedIds){
     const losers = scored.slice(1);
     /* ⚠ REFUSE THE PAIR if any copy holds something the keeper does not. One of
        them has the invoice and the other has the route means real work dies
-       whichever way it goes, and that is the owner\u2019s call, not the code\u2019s. */
+       whichever way it goes, and that is the owner’s call, not the code’s. */
     const unique = [];
     losers.forEach(function(l){
       Object.keys(l.assets).forEach(function(k2){
@@ -33369,21 +33385,21 @@ document.getElementById('dupFindBtn')?.addEventListener('click', onceAtATime(asy
             gone++;
           } catch(err){ failed++; }
         }
-        /* \u2b50 THE KEEPER RECORDS THAT A COPY WAS HERE (added 2026-08-29). This tool
-           takes NOTHING off the losers \u2014 the superset rule is the whole reason it is
-           safe to delete them \u2014 so there is no list of fields to write, and an empty
+        /* ⭐ THE KEEPER RECORDS THAT A COPY WAS HERE (added 2026-08-29). This tool
+           takes NOTHING off the losers — the superset rule is the whole reason it is
+           safe to delete them — so there is no list of fields to write, and an empty
            one is the honest answer rather than an omission. What was missing is the
            fact ITSELF: those records existed, they are gone for good, and without this
            nothing anywhere can answer "was this customer ever duplicated".
-           \u26a0 `mergedFields: []` IS DELIBERATE AND IS READ. `historyMergeWords` prints
+           ⚠ `mergedFields: []` IS DELIBERATE AND IS READ. `historyMergeWords` prints
            the bare "Merged with a duplicate record" when the list is empty and appends
-           "\u2014 took \u2026" when it is not, so the two tools read differently on the history
+           "— took …" when it is not, so the two tools read differently on the history
            without either of them lying. Leaving the key out entirely would be the same
            sentence by accident rather than on purpose.
-           \u26a0 AFTER THE DELETES, AND ONLY OVER IDS THAT ACTUALLY WENT \u2014 a refused delete
+           ⚠ AFTER THE DELETES, AND ONLY OVER IDS THAT ACTUALLY WENT — a refused delete
            leaves that record sitting there, and naming it here would say it had been
            absorbed when it is still a live duplicate.
-           \u26a0 AND IT MUST NOT UNDO THEM. The deletes have happened and cannot be taken
+           ⚠ AND IT MUST NOT UNDO THEM. The deletes have happened and cannot be taken
            back, so a throw here would abandon the rest of the run over a note. */
         if(absorbed.length){
           try{
@@ -33699,7 +33715,7 @@ document.getElementById('rbConnectSheetBtn')?.addEventListener('click', onceAtAT
       return;
     }
     if(!res.usable){
-      /* \u26a0 Not saved as the connection. Remembering a file that cannot be used
+      /* ⚠ Not saved as the connection. Remembering a file that cannot be used
          means every future Compare fails the same way, silently. */
       await hlxSheetHandleClear();
       rbShowSheetStatus("That file read fine (" + res.rows + " rows) but it is not your customer list \u2014 " +
@@ -33735,7 +33751,7 @@ setTimeout(function(){
     rbShowSheetStatus("Your master sheet is \u201c" + saved.name + "\u201d" +
       (saved.rows ? " (" + saved.rows + " rows)" : "") +
       " \u2014 this computer has not been given access to it yet. Press the button and pick that file once.");
-  }).catch(function(){ /* quiet on purpose: reading which master sheet was chosen. No answer leaves the status line as it was and the Use my master sheet button still works \u2014 this only saves her being told which file to pick. */ });
+  }).catch(function(){ /* quiet on purpose: reading which master sheet was chosen. No answer leaves the status line as it was and the Use my master sheet button still works — this only saves her being told which file to pick. */ });
 }, 0);
 document.getElementById('rbFindMissingBtn')?.addEventListener('click', async function(){
   const report = document.getElementById('rbMissingReport');
@@ -36098,7 +36114,7 @@ function whWatchArchivedPending(){
         /* Shaped like a customer so the queue can treat both the same. */
         whArchivedPending.push({id: docSnap.id, archived: true, data: v.customer || {}});
       });
-      try{ safeRender('warehouseRecycleQueue', renderWarehouseRecycleQueue); } catch(err){ /* quiet on purpose: safeRender has its own catch and its own \u201cthis didn\u2019t load\u201d bar, so anything reaching here is the call itself, not the render. The archive data is already in whArchivedPending and draws on the next pass. */ }
+      try{ safeRender('warehouseRecycleQueue', renderWarehouseRecycleQueue); } catch(err){ /* quiet on purpose: safeRender has its own catch and its own “this didn’t load” bar, so anything reaching here is the call itself, not the render. The archive data is already in whArchivedPending and draws on the next pass. */ }
     });
   } catch(err){ console.error("[HU] archived recycle watch failed", err); }
 }
@@ -36668,7 +36684,7 @@ function bulkJobLoad(){
   } catch(err){ return null; }
 }
 function bulkJobClear(){
-  try{ localStorage.removeItem(BULK_JOB_KEY); } catch(err){ /* quiet on purpose: the saved import job is only ever OFFERED, never resumed on its own, and a cursor from a different paste is refused by bulkJobFingerprint \u2014 so a job that will not delete is declined the next time rather than acted on. */ }
+  try{ localStorage.removeItem(BULK_JOB_KEY); } catch(err){ /* quiet on purpose: the saved import job is only ever OFFERED, never resumed on its own, and a cursor from a different paste is refused by bulkJobFingerprint — so a job that will not delete is declined the next time rather than acted on. */ }
 }
 /* Put the saved columns back in the boxes, so Check First and the row counts
    work on a resumed job exactly as they do on a fresh paste. */
@@ -38048,19 +38064,19 @@ function whWireLabel(wire){
  * the same houses differently. */
 /* Every colour the light picker offers, longest name first so "Warm White" is
    read as one colour and never as a stray "White". rbNormalizeColors in the
-   bulk importer holds the same list \u2014 a colour added to the picker goes in
+   bulk importer holds the same list — a colour added to the picker goes in
    both.
-   \u26a0 admin.html and employee.html each carry their own copy of this. */
+   ⚠ admin.html and employee.html each carry their own copy of this. */
 const WH_LIGHT_COLORS = ['Warm White','Pure White','Purple','Orange','Green','Multi','Blue','Pink','Red'];
-/* Reads a run of free text as a list of colours \u2014 "red green" becomes
-   Red, Green \u2014 so a description typed in words groups with the identical
+/* Reads a run of free text as a list of colours — "red green" becomes
+   Red, Green — so a description typed in words groups with the identical
    one that was ticked in the colour boxes.
    It consumes from the front and gives up the moment it meets a word it does
    not know, returning null. That is the important half: only a description
    made ENTIRELY of colour names is rewritten. "Red with tinsel" is left
    exactly as typed rather than being guessed at and quietly merged into the
    plain Red group, because those are not the same build.
-   \u26a0 admin.html and employee.html each carry their own copy of this. */
+   ⚠ admin.html and employee.html each carry their own copy of this. */
 /* ⭐ ONE VOCABULARY, TWO NORMALISERS (2026-08-24). Addie: "Is there any other colors
    having problems besides that" — and this was the answer.
    ⚠ THE IMPORT AND THE WAREHOUSE KNEW DIFFERENT WORDS. `rbNormalizeColors` reads the
@@ -38178,14 +38194,14 @@ function whNormalizeLights(text){
   /* Split on every separator people actually type, not just the comma the
      colour boxes produce. "Red and Green", "Red & Green", "Red/Green" and
      "Red, Green" are one build and used to be four separate headings in the
-     build queue \u2014 plus a fifth for "red, green" in lower case, because the
+     build queue — plus a fifth for "red, green" in lower case, because the
      sort ignored case but the group key did not. */
   const colors = [];
   main.split(WH_LIGHT_SEP).forEach(function(piece){
     const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
     if(!t) return;
     /* A known colour is rewritten in the app's own spelling and capitalisation
-       so it groups. Anything else goes through untouched \u2014 see
+       so it groups. Anything else goes through untouched — see
        whColorsFromWords for why guessing is worse than leaving it alone. */
     const asColors = whColorsFromWords(t);
     if(asColors) colors.push.apply(colors, asColors);
@@ -38273,20 +38289,20 @@ function whGroupKey(lightsDescription, wire){
 }
 /* Which parts of a light description are NOT a colour this app knows.
  *
- * Nothing in the app writes free text into lightsDescription any more \u2014 every
+ * Nothing in the app writes free text into lightsDescription any more — every
  * way in is a picker: the customer's own detail form, the colour boxes on Add
  * and Edit Customer, and the portal's colour change. So a record that still
- * has words in it here is OLD data \u2014 typed or bulk-imported before that was
- * true \u2014 and it is the only reason the warehouse ever has to interpret
+ * has words in it here is OLD data — typed or bulk-imported before that was
+ * true — and it is the only reason the warehouse ever has to interpret
  * anything instead of just reading it.
  *
  * Rather than guess at those records forever, Health Check lists them so they
  * can be re-picked once and be right from then on. Returns [] for a
  * description that is entirely colours, so an empty result means "nothing to
- * do". A trailing "(note)" is ignored on purpose \u2014 that is a real feature, not
+ * do". A trailing "(note)" is ignored on purpose — that is a real feature, not
  * a typo, and whNormalizeLights already keeps it out of the colour list.
  *
- * \u26a0 Deliberately admin-only. employee.html shows the crew what to build; it is
+ * ⚠ Deliberately admin-only. employee.html shows the crew what to build; it is
  * not where data gets cleaned up, so it does not carry a copy of this. */
 function whUnreadableLightParts(text){
   const raw = String(text || '');
@@ -38464,7 +38480,7 @@ function whBuildQueueGroups(){
   });
   warehouseExtras.forEach(function(item){
     if(!item.data.pattern) return;
-    /* An extra tied to a real member is that member's REQUEST \u2014 lights and a
+    /* An extra tied to a real member is that member's REQUEST — lights and a
        timer for the same person belong on one heading, not scattered through the
        buffer-stock groups where nothing says they are the same job. Keyed by id
        so two customers with the same name can never merge. */
@@ -38478,9 +38494,9 @@ function whBuildQueueGroups(){
     /* Not tied to a member. With a wire colour on it this is the same build as
        a house in those colours on that wire, so it joins that group. Without
        one it still gets its own bucket rather than being folded into a real
-       house group by mistake \u2014 that is what the Wire Color box on the form,
+       house group by mistake — that is what the Wire Color box on the form,
        and the Edit button on the row, are for.
-       \u26a0 employee.html groups these the same way \u2014 change both together. */
+       ⚠ employee.html groups these the same way — change both together. */
     const key = item.data.wireColor
       ? whGroupKey(item.data.pattern, item.data.wireColor)
       : item.data.pattern + ' \u2014 buffer stock (wire not set)';
@@ -38996,7 +39012,7 @@ function whSetExtraPattern(text){
   whRenderExtraPattern();
 }
 /* One request per member per kind. A second Lights add for the same house tops up
-   the request they already have instead of making Dad a second, competing one \u2014
+   the request they already have instead of making Dad a second, competing one —
    which is what "two different requests for the same member" meant. */
 function whExtraFindExisting(customerId, kind){
   if(!customerId) return null;
@@ -39005,7 +39021,7 @@ function whExtraFindExisting(customerId, kind){
   }) || null;
 }
 /* Bundles come from the feet on their record, the same ceil(feet / 40) the build
-   queue uses \u2014 so the number here and the number on the queue can never disagree. */
+   queue uses — so the number here and the number on the queue can never disagree. */
 function whExtraBundlesFor(d){
   const need = houseBundleNeed(d);
   return need.unknown
@@ -39060,7 +39076,7 @@ function whExtraSync(){
   }
   if(match){
     const auto = match.data.lightsDescription || '';
-    /* Only overwrite the picker while it is still holding what we put there \u2014
+    /* Only overwrite the picker while it is still holding what we put there —
        through whSetExtraPattern, so the chips repaint with it rather than the
        hidden value quietly moving underneath them. */
     if(!editing && (!patternEl.value.trim() || patternEl.value.trim() === whExtraPatternFromRecord)){
@@ -40074,7 +40090,7 @@ function cnUpdateAddCustPreview(){
   const typed = document.getElementById('addCustNumber').value.trim();
   /* Keep the Number of Bins box in step with the feet. Submitting already
      recalculates it from the feet and ignores whatever is showing here, so the
-     box used to sit on 1 while the preview underneath said 3 \u2014 same form, two
+     box used to sit on 1 while the preview underneath said 3 — same form, two
      different answers. With no feet entered the box is left alone: that is the
      one case where the typed value is what actually gets saved. */
   const binsBox = document.getElementById('addCustBins');
@@ -42527,28 +42543,28 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
       logActivity(customerChangeSentence(newName || item.data.name, custChanges),
         'customers', editCustomerId);
     }
-    /* \u2b50 A WAIVED FEE IS A DECISION, AND IT LEFT NO TRACE AT ALL (added 2026-08-29).
+    /* ⭐ A WAIVED FEE IS A DECISION, AND IT LEFT NO TRACE AT ALL (added 2026-08-29).
        `lightFeeWaived` is a LOCAL VARIABLE. It decides whether the $30 is charged and then
        goes out of scope: nothing is written, no field moves, and the only thing that ever
        said it happened was a toast that is gone the moment somebody looks away.
 
-       \u26a0 THE ASYMMETRY IS THE FAULT, and it is the same shape as everything else found
+       ⚠ THE ASYMMETRY IS THE FAULT, and it is the same shape as everything else found
        today. A fee that IS charged lands on the invoice as a `changeFeeNotes` entry with
        its own amount, reason and date, and `historyNoteRows` reads it straight onto the
        customer's history. A fee that is WAIVED produces nothing anywhere — so "why was
        this customer not charged for changing their colours" has no answer, and the record
        is indistinguishable from one where nobody was ever asked.
 
-       \u26a0 IT IS THE LOG, NOT A FIELD, for the same reason the office's edits are: this is
+       ⚠ IT IS THE LOG, NOT A FIELD, for the same reason the office's edits are: this is
        an act somebody performed, not a state the customer is in. A `feeWaived: true` on the
        record would be read back by something eventually and would then have to be cleared,
        and there is no correct moment to clear it.
 
-       \u26a0 IT NAMES WHO AND WHAT, because the amount is the whole question. `logActivity`
+       ⚠ IT NAMES WHO AND WHAT, because the amount is the whole question. `logActivity`
        stamps the signed-in user by itself — four people share this dashboard — and the
        reason the office typed goes in beside it.
 
-       \u26a0 AND IT IS ITS OWN ROW, not folded into the edit sentence above. That sentence is
+       ⚠ AND IT IS ITS OWN ROW, not folded into the edit sentence above. That sentence is
        capped at twelve fields and lists what CHANGED; a waiver is precisely a thing that
        did NOT change, so it would be the first line dropped by the cap and the last one
        anybody would think to look for. */
@@ -48118,7 +48134,7 @@ function loadChecklistForSelection(){
   const dateEl = document.getElementById('checklistDateInput');
   if(dateEl && !dateEl.value) dateEl.value = toDateStr(new Date());
   updateChecklistDateHint();
-  if(checklistLiveUnsub){ try{ checklistLiveUnsub(); }catch(e){ /* quiet on purpose: same as loadTimeLogs \u2014 the reference is dropped on the same line and a refused unsubscribe costs one stale listener. */ } checklistLiveUnsub = null; }
+  if(checklistLiveUnsub){ try{ checklistLiveUnsub(); }catch(e){ /* quiet on purpose: same as loadTimeLogs — the reference is dropped on the same line and a refused unsubscribe costs one stale listener. */ } checklistLiveUnsub = null; }
   const dateStr = document.getElementById('checklistDateInput').value;
   const empName = document.getElementById('checklistEmployeeSelect').value;
   if(!dateStr || !empName) return;
@@ -48284,7 +48300,7 @@ function renderSystemMessagesTab(){
       const cust = jobAddresses.find(function(a){ return (a.data.phone||'').replace(/\D/g,'') === phoneDigits; });
       whPendingMessageId = msg.id;
       document.querySelector('.nav-item[data-panel="warehouse"]').click();
-      // Same hand-off as the Inbox copy above \u2014 the form fills itself from the
+      // Same hand-off as the Inbox copy above — the form fills itself from the
       // house, and this is a NEW entry so edit mode has to be dropped first.
       whCancelEditExtra();
       document.getElementById('whExtraKind').value = 'lights';
@@ -50575,7 +50591,7 @@ function startHealthCheckAuto(){
   if(hide) hide.addEventListener('change', hcRender);
   /* The archived toggle only changes what is drawn, so it redraws and nothing else. */
   const sa = document.getElementById('invShowArchived');
-  if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){ /* quiet on purpose: a toggle that only changes what is DRAWN \u2014 no invoice is touched. Toggling back and forth redraws it. */ } });
+  if(sa) sa.addEventListener('change', function(){ try{ renderInvoicesList(); }catch(e){ /* quiet on purpose: a toggle that only changes what is DRAWN — no invoice is touched. Toggling back and forth redraws it. */ } });
 })();
 /* ---------------- PROJECT: TEST CHECKLIST ----------------
    Three tabs, three collections:
@@ -53155,7 +53171,7 @@ function renderWaitingRsvp(){
   const rows = waitingOnRsvpHouses();
   /* ⚠ THE MARK CHANGES THE WORDING AND NOTHING ELSE. Before the RSVP has gone out these
      people have not been ASKED; afterwards they have not REPLIED. Same people, same
-     consequence, completely different phone call \u2014 and the mark is the only thing
+     consequence, completely different phone call — and the mark is the only thing
      that knows which. */
   const sent = (typeof rsvpSentAtCache !== 'undefined') && !!rsvpSentAtCache;
   const lead = '<h3>\ud83d\udcde Waiting on RSVP</h3>' +
@@ -53603,7 +53619,7 @@ function rebuildSeasonDays(){
       });
     }catch(err){ console.error('Could not add new customers to the plan:',err); }
   }
-  /* \u26a0 AND IF THEY WERE THE ONLY THING LEFT, SAY SO. "Every house is done" is a lie
+  /* ⚠ AND IF THEY WERE THE ONLY THING LEFT, SAY SO. "Every house is done" is a lie
      when the truth is that the last few sat the season out, and it is the kind of lie
      that gets somebody hunting a broken button. */
   /* ⭐ HOW MANY ARE WAITING ON THE WAREHOUSE (added 2026-08-29). The build gate holds

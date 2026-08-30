@@ -1775,7 +1775,14 @@ customer history, which draws a line at that date so last season's dates stop
 reading as this season's. That was the visible symptom; this question is the
 underlying one.
 
-**Resulting map change.** None yet — it gets a row when it is answered.
+**ANSWERED, 2026-08-29.** *"Oh so if we removed lights from someone's house that should
+reset for new season."* Yes — it is season-scoped, so it now clears alongside `completed`
+and the other eight, **in the same write** (a separate one can fail on its own and leave
+half the book reset). The **date** is deliberately kept: `removalDoneAt` says when last
+season's takedown happened and the history needs it, while the flag says what is true of
+the season starting now.
+
+**Resulting map change.** SCH-35.
 
 ## Q-027 · intent · OPEN · raised 2026-08-29
 Should an existing member who approves a re-quote fill in the install-details
