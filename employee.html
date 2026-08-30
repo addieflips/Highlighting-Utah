@@ -1417,20 +1417,20 @@ function whWireLabel(wire){
  * the same houses differently. */
 /* Every colour the light picker offers, longest name first so "Warm White" is
    read as one colour and never as a stray "White". rbNormalizeColors in the
-   bulk importer holds the same list \u2014 a colour added to the picker goes in
+   bulk importer holds the same list — a colour added to the picker goes in
    both.
-   \u26a0 admin.html and employee.html each carry their own copy of this. */
+   ⚠ admin.html and employee.html each carry their own copy of this. */
 const WH_LIGHT_COLORS = ['Warm White','Pure White','Purple','Orange','Green','Multi','Blue','Pink','Red'];
 
-/* Reads a run of free text as a list of colours \u2014 "red green" becomes
-   Red, Green \u2014 so a description typed in words groups with the identical
+/* Reads a run of free text as a list of colours — "red green" becomes
+   Red, Green — so a description typed in words groups with the identical
    one that was ticked in the colour boxes.
    It consumes from the front and gives up the moment it meets a word it does
    not know, returning null. That is the important half: only a description
    made ENTIRELY of colour names is rewritten. "Red with tinsel" is left
    exactly as typed rather than being guessed at and quietly merged into the
    plain Red group, because those are not the same build.
-   \u26a0 admin.html and employee.html each carry their own copy of this. */
+   ⚠ admin.html and employee.html each carry their own copy of this. */
 /* ⭐ THE SAME COLOUR VOCABULARY THE OFFICE USES (2026-08-24). This copy knew only the
    nine full names while admin.html read the master sheet through an alias table, so
    "ww" grouped here as "ww" and there as "Warm White" — two headings for one build, on
@@ -1598,14 +1598,14 @@ function whSplitAllKnown(text){
   /* Split on every separator people actually type, not just the comma the
      colour boxes produce. "Red and Green", "Red & Green", "Red/Green" and
      "Red, Green" are one build and used to be four separate headings in the
-     build queue \u2014 plus a fifth for "red, green" in lower case, because the
+     build queue — plus a fifth for "red, green" in lower case, because the
      sort ignored case but the group key did not. */
   const colors = [];
   main.split(WH_LIGHT_SEP).forEach(function(piece){
     const t = piece.trim().replace(/\s+/g, ' ').replace(/[.;]+$/, '');
     if(!t) return;
     /* A known colour is rewritten in the app's own spelling and capitalisation
-       so it groups. Anything else goes through untouched \u2014 see
+       so it groups. Anything else goes through untouched — see
        whColorsFromWords for why guessing is worse than leaving it alone. */
     const asColors = whColorsFromWords(t);
     if(asColors) colors.push.apply(colors, asColors);
@@ -1636,7 +1636,7 @@ function whLightsSummary(){
     /* A hand-added build now carries a wire colour when the office set one, so
        it belongs in the same group as houses in those colours on that wire.
        Without one it stays in its own bucket, as before.
-       \u26a0 admin.html groups these the same way \u2014 change both together. */
+       ⚠ admin.html groups these the same way — change both together. */
     const key = d.data.wireColor
       ? whGroupKey(d.data.pattern, d.data.wireColor)
       : d.data.pattern + ' \u2014 buffer stock (wire not set)';
@@ -1679,7 +1679,7 @@ function whCurrentLightsItems(){
     return {n:i+1, key:d.id, name:d.data.name||'(no name)', sub:(d.data.lightsDescription||'') + extra, done:false, kind:'new', timer: d.data.outletTimer === 'Yes', bin: d.data.customerNumber || ''};
   });
   const oldItems = whLightsOld.map(function(d, i){
-    // Wire rides along here too when the office set one \u2014 building the right
+    // Wire rides along here too when the office set one — building the right
     // colours on the wrong wire is the mistake this is here to prevent.
     const wire = d.data.wireColor ? ' \u2014 ' + whWireLabel(d.data.wireColor) + ' wire' : '';
     return {n:i+1, key:d.id, name:d.data.label || 'Buffer stock', sub:d.data.pattern + wire + (d.data.quantity>1 ? ' \u00d7 '+d.data.quantity : ''), done:false, kind:'old', bin: d.data.customerNumber || ''};

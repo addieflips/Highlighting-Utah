@@ -396,6 +396,28 @@ check('the one place that sets the flag without queuing is still excluded',
       'without it every record carries last season\'s dates beside this season\'s flags, ' +
       'and the customer history runs the two years together with nothing between them');
 
+    /* ⭐ A TAKEDOWN IS THIS SEASON'S WORK AND RESETS WITH THE REST. Addie, asked directly:
+       "Oh so if we removed lights from someone's house that should reset for new season."
+       ⚠ IT WAS THE ONE JOB-DONE FLAG LEFT STANDING. Nothing else in the app ever cleared it
+       — the only other writer of `removalDone: false` is the Mark Done toggle being unticked
+       by hand — so a customer whose lights came down last December read "Removed" all the
+       way through the new season until somebody opened their record.
+       ⚠ THIS IS A CHANGE TO START NEW SEASON, which rewrites every customer in one press and
+       cannot be undone, so it is checked rather than trusted: the flag must be cleared, and
+       cleared IN THIS WRITE. A separate write can fail on its own and leave half the book
+       reset. */
+    check('and a finished takedown resets with the rest of the season',
+      /removalDone\s*:\s*false/.test(write),
+      'left standing, a customer whose lights came down last December reads "Removed" all ' +
+      'the way through the new season — the one job-done flag nothing else ever clears');
+
+    /* ⚠ AND ITS DATE SURVIVES, which is the other half of the same ruling and the half a
+       "tidy" fix would take with it. The flag says what is true of the season starting now;
+       the date says when last season's takedown happened, and the history needs it. */
+    check('but the date it happened on is kept',
+      !/removalDoneAt\s*:\s*null/.test(write),
+      'clearing the date throws away the only record the takedown ever happened');
+
     /* ⚠ AND IT MUST NOT START WIPING THE DATES. That is the tempting "tidy" fix and it
        destroys the only record the work happened — the history needs them, and "queued on
        the 2nd, built on the 9th" is the whole point of keeping them. */
