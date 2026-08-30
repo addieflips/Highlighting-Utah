@@ -308,6 +308,44 @@ async function recordUnmatchedPayment(phone, { captureId, tip, serviceAmount }) 
     // Nothing else can be done here, but it must be loud in the logs.
     console.error('[HU] FAILED to file an unmatched PayPal payment', captureId, phone, e);
   }
+  /* ⭐ AND IT GOES IN THE SYSTEM INBOX (added 2026-08-30). Addie: "we need unmatched
+     invoice to come up in system inbox before we send it out."
+
+     ⚠ THE TEXT WAS THE ONLY THING THAT EVER SAID SO, and a text is gone the moment you
+     look away. The money is real, it is ours, and the customer it came from still reads as
+     owing — so somebody chases a bill that has already been paid. A note keeps until
+     somebody deals with it, which is the whole difference.
+
+     ⚠ BEST-EFFORT, LIKE THE TEXT BESIDE IT. This runs inside the payment path: the card
+     has already been charged, and nothing here may throw back into it. A note that fails
+     is logged and the money is still filed.
+
+     ⚠ ONE NOTE PER CAPTURE, not per attempt. The document id above is the captureId
+     precisely so the webhook and the browser both landing here write one record; this
+     guard is the same idea for the Inbox, so a retried webhook cannot post twice. */
+  try {
+    const already = await db.collection('messages')
+      .where('topic', '==', 'Payment With No Bill')
+      .where('ref', '==', String(captureId)).limit(1).get();
+    if (already.empty) {
+      await db.collection('messages').add({
+        topic: 'Payment With No Bill', folder: 'System',
+        name: '', phone: phone || '', email: '', contactMethod: '',
+        ref: String(captureId),
+        message: 'A card payment of $' + (Number(serviceAmount) || 0).toFixed(2) +
+                 ' from ' + (phone || 'an unknown number') + ' went through, but no invoice ' +
+                 'could be found to put it against — usually because the phone or email the ' +
+                 'bill is filed under changed after the invoice was written. The money is ' +
+                 'ours and is safe, but that customer still reads as owing, so they may be ' +
+                 'chased for a bill they have already paid. It is on the Invoices tab beside ' +
+                 'them, and in Health Check under "A card payment that found no bill".',
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+  } catch (e) {
+    console.error('[HU] unmatched-payment inbox note failed:', e);
+  }
   // The alert is best-effort and must never throw back into the payment path.
   try {
     const cfgSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();

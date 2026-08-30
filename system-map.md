@@ -348,6 +348,54 @@ This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFe
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
 
+### One route note a day, not one a sweep
+
+Addie, 2026-08-30: *"system inbox always has a bunch of schedule messages and it's to many to
+keep up with. How can we fix this"* — offered four options, she chose **one digest a day**.
+
+⚠ **Nothing was broken, which is why nothing was red.** The sweep runs every fifteen minutes,
+every notice it wrote was true, and the duplicate guard above already caught the identical
+ones. A day on which the routes genuinely keep changing is up to ninety-six *different* true
+notices — and true-and-unreadable is still unreadable. An inbox nobody can keep up with is
+one where the note that matters is missed.
+
+**How it works now.** `noticeRoutesReconciled` builds its lines exactly as before, then hands
+them to **`routeDigestBank`** instead of posting. The bank is `settings/routeDigest`, a single
+document holding `{day, lines, dropped, updatedAt}`; each sweep merges its lines in, skipping
+any it already holds. On the first sweep of a **new** day, `routeDigestBank` calls
+**`routeDigestFlush`** on the previous day's bank, which writes **one** System note covering
+the whole of it, and then starts today's bank fresh.
+
+⚠ **The cost, said plainly**: a date that moves this afternoon is in *tomorrow's* digest, not
+this afternoon's inbox. What still happens on the spot is the **activity log** entry and the
+**toast** — and both toasts were repointed to say *"open Routes"* rather than *"see System
+notices"*, because sending somebody to a note that will not exist for hours reads as the
+sweep having failed.
+
+⚠ **It is a document, not a variable.** The dashboard is closed and reopened all day and runs
+on more than one machine; a day's changes held in memory are a day's changes lost at the first
+refresh.
+
+⚠ **A refused note carries the day forward.** The bank is rewritten wholesale on every sweep,
+so a flush that failed would otherwise *delete the very day it was reporting*. `routeDigestFlush`
+returns whether it wrote; on false the lines are carried into today's bank, prefixed with the
+day they came from, and the overflow count travels with them. A refused flush also still writes
+a short note to the System folder — a toast is gone the moment the office looks away and the
+routes have already been rewritten.
+
+⚠ **A line saying part of the sweep did not take goes first.** `report.writeFailed` means a
+route and a customer record now disagree about which day a house is on. Per sweep that was
+free; over a whole day it is one line among a hundred, trimmed from the end. `routeDigestFlush`
+lifts any line beginning `⚠` to the top — a *stable partition*, so everything else keeps the
+order it happened in.
+
+⚠ **And the closing line survives whatever else is trimmed.** *"Nobody has been told about any
+date that moved"* is the reason the note exists at all, and it is appended **after** trimming
+rather than being inside the trimmed body.
+
+*Gated by* `route-digest.test.js` (`npm run test:digest`), which runs both functions against a
+fake Firestore that reads back what it wrote.
+
 ---
 
 ## 6. Customer Numbers
@@ -730,6 +778,25 @@ stands, and it was put to her first.
 
 ⚠ **No fix button.** Applying it to the right invoice, refunding it, or marking it seen are
 three different answers about somebody's money, and Q-025 settled only **where** it shows.
+
+**And she hears about it before the bill goes out.** Addie, 2026-08-30: *"we need unmatched
+invoice to come up in system inbox before we send it out."* Offered the choice between holding
+the invoice back and flagging it, she chose **note it and warn on the invoice screen**.
+
+- `recordUnmatchedPayment` now posts a **System inbox note** at the moment the capture is
+  filed, deduped on the capture id so one payment cannot raise a note every time anything
+  re-reads it. ⚠ It **cannot throw**: it runs after the money has already been taken, so a
+  failed note must never unwind a successful capture.
+- `renderUnmatchedPaymentBanner` puts a warning at the top of the **Invoices tab**, naming the
+  customers the payment might belong to (matched on phone digits).
+
+⚠ **The bill is NOT held back.** That was the other option and it was turned down for a good
+reason: a payment we cannot match is *our* bookkeeping problem, and stopping somebody's
+invoice over it means they are not billed at all — a worse outcome for a customer who has
+done nothing wrong.
+
+⚠ **The banner says the money is safe.** "Unmatched payment" reads as money lost; it is a
+payment that arrived and could not be filed, so the wording says so in those words.
 
 ⚠ **And "Not a problem" is how one is cleared, which needs no rules deploy.** The decision
 is written to `healthCheckDecisions`, never to `unmatchedPayments`, so that collection stays
@@ -1212,35 +1279,54 @@ the file excuses nothing and hides the rename, so that is checked too.
 sweeps the same file because `whToggleRecycle` cleared a customer number and then swallowed
 the pool write, leaving the number on nobody's record and in no pool.
 
-### A payment that finds no bill — an open hole
+### A payment that finds no bill — half closed
+
+⚠ **THIS SECTION USED TO BE HEADED "an open hole" AND SAID NO SCREEN READ THE COLLECTION.
+That stopped being true on 2026-08-30.** The original text is kept below the line because it
+is the argument for why the remaining half is still open.
 
 When a card is captured and the invoice document cannot be found — usually because the phone
 or email the bill is keyed on has changed — `recordUnmatchedPayment` files it in
-`unmatchedPayments` and texts the office, if an alert number is set. **Three things are then
-true at once, and each was checked rather than assumed:**
+`unmatchedPayments` and texts the office, if an alert number is set. **What happens now:**
 
-- nothing anywhere writes `resolved: true`
-- **no screen in `admin.html` reads that collection at all**
-- `firestore.rules` says `allow write: if false`, so even a screen that existed could not
-  mark one dealt with
+- **A System inbox note**, written by the server at the moment the capture is filed and
+  deduped on the capture id, so she hears about it *before* the next night's invoices go out
+  (Addie: *"we need unmatched invoice to come up in system inbox before we send it out"*).
+- **A Health Check row**, `unmatchedPayment` (MON-29 — *"Put that in health check."*), fed by
+  `hcLoadUnmatched`, which leaves `hcUnmatched` **null** on a failed read so a silence is
+  never mistaken for an all-clear.
+- **A banner on the Invoices tab**, `renderUnmatchedPaymentBanner`, naming the customers the
+  payment might belong to.
+- **A way to clear one**: Health Check's *Not a problem*, which writes to
+  `healthCheckDecisions` and **never** to `unmatchedPayments` — so that collection stays
+  `allow write: if false` and **no `firestore.rules` deploy is needed**.
 
-Meanwhile the customer's own portal reads **Paid in Full**. Real money, correctly captured,
-in a place with no way in and no way out.
+**What is still open.** Whether an unmatched payment may ever be *applied* to an invoice from
+Health Check — the remaining half of **Q-025**. Applying it, refunding it and marking it seen
+are three different answers about somebody's money, and only *where it shows* has been
+settled. That is why none of the three surfaces above carries a fix button.
 
-⚠ **It is drawn on the path as an ending**, because that is what it is today — money in,
-nothing out. Drawing a route onward would describe a repair nobody has built, and the value
-of that page is that it is true.
+---
 
-⚠ **The fix needs two decisions and a manual deploy**, so it is **Q-025** in
-`docs/open-questions.md` rather than a guess: where these should show (Health Check is the
-obvious place and the wrong one — HC-03), and who may clear one, since applying it to the
-right invoice, refunding it and marking it seen are three different answers about somebody's
-money. Letting the office write to that collection also needs a `firestore.rules` change,
-which **CI does not deploy** — it needs `firebase deploy --only firestore:rules` by hand.
+*The original entry, kept because it is why the remaining half is still open:*
 
-⚠ **And it is a hole, not a ruling**, so it is deliberately not in the questions map. That
-file holds judgement calls she made; a finding of mine put there would be the map describing
-itself rather than her.
+> Three things were true at once, and each was checked rather than assumed: nothing anywhere
+> writes `resolved: true`; no screen in `admin.html` read that collection at all;
+> `firestore.rules` says `allow write: if false`, so even a screen that existed could not mark
+> one dealt with. Meanwhile the customer's own portal reads **Paid in Full**. Real money,
+> correctly captured, in a place with no way in and no way out.
+>
+> ⚠ **It was drawn on the path as an ending**, because that is what it was — money in, nothing
+> out. Drawing a route onward would have described a repair nobody had built, and the value of
+> that page is that it is true.
+>
+> ⚠ **Letting the office write to that collection needs a `firestore.rules` change, which CI
+> does not deploy** — it needs `firebase deploy --only firestore:rules` by hand. That
+> constraint is exactly why *Not a problem* was built to write somewhere else instead.
+
+⚠ **And it is a hole, not a ruling**, so the finding itself is deliberately not in the
+questions map — that file holds judgement calls she made. Her answers *about* it are: MON-29
+(where it shows) and MON-30 (the inbox note and the invoice banner).
 
 ### Asking to cancel is dated, and on the path
 

@@ -6446,9 +6446,56 @@ suite('9. Portal sign-in security');
   check('money', 'a captured payment with no invoice is filed, not discarded',
     /orphaned = true/.test(rppSrc) && /recordUnmatchedPayment/.test(rppSrc),
     'the money was charged and then silently forgotten');
+  /* ⚠ REPOINTED 2026-08-30. This sliced a FIXED 2000 CHARACTERS after the function's
+     name — the magic-number extraction window CLAUDE.md §7 bans by name — so adding the
+     Inbox note pushed twilioSendRaw past the end of the window and it failed on correct
+     code. It clips to the end of the real function now. */
+  const unmatchedFn = sectionFrom(fns, fns.indexOf('async function recordUnmatchedPayment'));
   check('money', 'an unmatched payment raises an alert',
-    /twilioSendRaw/.test(fns.slice(fns.indexOf('async function recordUnmatchedPayment'), fns.indexOf('async function recordUnmatchedPayment') + 2000)),
+    /twilioSendRaw/.test(unmatchedFn),
     'a record nobody is told about is a record nobody reads');
+  /* ⭐ AND IT REACHES THE SYSTEM INBOX (2026-08-30). Addie: "we need unmatched invoice to
+     come up in system inbox before we send it out." A text is gone the moment you look
+     away; a note keeps until somebody deals with it, and the money is real. */
+  check('money', 'and it reaches the System inbox, not only a text',
+    /folder: 'System'/.test(unmatchedFn) && /Payment With No Bill/.test(unmatchedFn),
+    'the text was the only thing that ever said so, and a text does not keep');
+  /* ⚠ ONE NOTE PER CAPTURE. The record's own doc id is the captureId precisely so a
+     retried webhook and the browser write one row; the Inbox needs the same guard or a
+     retry posts the same note twice. */
+  check('money', 'and one note per capture, not one per attempt',
+    /where\('ref', '==', String\(captureId\)\)/.test(unmatchedFn),
+    'a retried webhook would post the same note again');
+  /* ⚠ AND IT CANNOT BREAK THE PAYMENT PATH. The card is already charged by the time this
+     runs; a note that throws would roll back into a successful capture. */
+  check('money', 'and the note cannot throw back into a charged payment',
+    /catch \(e\) \{\s*console\.error\('\[HU\] unmatched-payment inbox note failed/.test(unmatchedFn),
+    'the card has already been charged — nothing here may throw');
+  /* ⭐ AND IT IS WARNED ABOUT WHERE THE MONEY LIVES (2026-08-30). Addie chose "note it,
+     and warn on the invoice screen" over holding the bill.
+     ⚠ A BANNER, NOT A PILL ON A ROW, and that is forced by what an unmatched payment is:
+     it is filed under a key that has NO invoice, so there is no row to attach it to.
+     Pinning it to a nearby invoice would invent an association about somebody's money. */
+  {
+    const banner = sectionFrom(admin, admin.indexOf('function renderUnmatchedPaymentBanner'));
+    check('money', 'the Invoices screen warns about a payment on no bill',
+      banner.length > 0 && /invStatusStrip/.test(banner),
+      'the inbox note keeps, but the warning belongs where the money is looked at');
+    check('money', 'and the banner is actually drawn by the invoices render',
+      /renderUnmatchedPaymentBanner\(\);/.test(sectionFrom(admin, admin.indexOf('function renderInvoicesList'))),
+      'a banner nothing calls is the rule proved and the wiring missing — the split this ' +
+      'repo has been caught by all week');
+    /* ⚠ A READ THAT HAS NOT LANDED REPORTS NOTHING, never a confident all-clear. */
+    check('money', 'and a read that has not landed shows no banner',
+      /hcUnmatched \|\| \[\]/.test(banner),
+      'an empty list would say there is no stranded money because a read failed');
+    /* ⚠ AND IT SAYS THE MONEY IS SAFE. The instinct on reading it is that a payment was
+       lost; it was not, and somebody acting on that would go looking for the wrong fault. */
+    check('money', 'and it says the money is safe rather than lost',
+      /is ours and is safe/.test(banner),
+      'read as a lost payment, it sends somebody hunting a fault that is not there');
+  }
+
   check('money', 'unmatchedPayments is readable by staff and writable only by the function',
     /match \/unmatchedPayments\/\{id\}\s*\{\s*allow read: if request\.auth != null; allow write: if false;/.test(read('firestore.rules')),
     'a collection missing from the rules is denied by default and the panel renders empty');
@@ -8354,6 +8401,12 @@ suite('17. A new customer lands on the next day in their city');
                      RSVP-sent marker and the reply window. Lifted here rather than
                      stubbed; the preamble below supplies the marker. */
                   'toJsDate','seasonRuleIsLive',
+                  /* ⚠ routeDigestBank DATES THE BANK WITH THIS. It is declared far below
+                     the sweep in admin.html, so it is outside this slice — and the bank
+                     is written inside a try/catch, so a missing name is not an error
+                     here, it is an empty result that reads exactly like a sweep that
+                     found nothing to say. Lifted, never stubbed. */
+                  'toDateStr',
                   'scheduledFieldForType','freeUpFieldForType'];
 
   if (recStart === -1 || recEnd < recStart) {
@@ -8385,6 +8438,7 @@ suite('17. A new customer lands on the next day in their city');
     function makeRec(houses, cache) {
       const writes = [];   // {path, payload}
       const added = [];    // documents added to a collection
+      const store = {};    // documents setDoc has written, so getDoc can read them back
       const ctx = {
         db: {},
         doc: (...a) => ({ __path: a.slice(1).join('/') }),
@@ -8399,8 +8453,19 @@ suite('17. A new customer lands on the next day in their city');
            not exercised at all. A fake that is missing a method does not fail
            loudly — it fails as a plausible-looking empty result, which is the
            worst way for a test harness to be wrong. */
-        setDoc: async (ref, payload) => { writes.push({ path: ref.__path, payload, set: true }); },
+        setDoc: async (ref, payload) => { store[ref.__path] = payload; writes.push({ path: ref.__path, payload, set: true }); },
         deleteDoc: async (ref) => { writes.push({ path: ref.__path, deleted: true }); },
+        /* ⚠ getDoc WAS MISSING FOR THE SAME REASON setDoc AND deleteDoc ONCE WERE, and
+           it bit in exactly the way the comment above predicts. routeDigestBank reads
+           settings/routeDigest before it writes, inside a try/catch, so the missing
+           method threw, was swallowed, and the sweep's whole notice simply did not
+           happen — a plausible-looking empty result rather than a loud failure. It reads
+           back what setDoc wrote, so a second sweep in one test sees the first one's
+           lines, which is the behaviour the digest is entirely about. */
+        getDoc: async (ref) => ({
+          exists: () => Object.prototype.hasOwnProperty.call(store, ref.__path),
+          data: () => store[ref.__path]
+        }),
         jobAddresses: houses,
         scheduledRoutesCache: cache,
         console: { error(){}, warn(){}, log(){} }
@@ -8409,7 +8474,7 @@ suite('17. A new customer lands on the next day in their city');
       const api = new Function(...names, src +
         '\nreturn {reconcile: reconcileUpcomingRoutes, problem: stopProblem, drifted: stopDrifted,' +
         ' upcoming: upcomingInstallRoutes};')(...names.map(n => ctx[n]));
-      return { api, writes, added };
+      return { api, writes, added, store };
     }
 
     // ---- 18.1 stopProblem — why a house should not be on a day -------------
@@ -8574,13 +8639,30 @@ suite('17. A new customer lands on the next day in their city');
 
       check('reconcile', 'everything that changed is reported, not just done',
         report.changed === true && report.dropped.length >= 3 && report.moved.length >= 1);
-      check('reconcile', 'one System notice for the whole sweep, not one per house',
-        h.added.filter(a => a.col === 'messages').length === 1,
+      /* ⭐ REPOINTED 2026-08-30 — THE SWEEP BANKS, IT NO LONGER POSTS. Addie: "system
+         inbox always has a bunch of schedule messages and it's to many to keep up with",
+         and shown the options she chose one digest a day. So a sweep writes its lines to
+         settings/routeDigest and `routeDigestFlush` posts them once, on the first sweep
+         of the following day.
+         ⚠ THE GUARANTEE IS UNCHANGED AND IS ASKED OF THE NEW HOME: one record for the
+         whole sweep, and it names the houses. What has changed is where to look. Left
+         asserting on addDoc these two would have failed on correct code — and worse,
+         a "0 notices" pass would have been available by simply writing nothing. */
+      check('reconcile', 'one record for the whole sweep, not one per house',
+        h.writes.filter(w => w.path === 'settings/routeDigest').length === 1,
         'a sweep that tidies twelve things must not put twelve notices in front of somebody');
-      const note = (h.added.find(a => a.col === 'messages') || {payload:{}}).payload;
-      check('reconcile', 'the notice goes to the System folder and names names',
-        note.folder === 'System' && /Left Over|Said No|No Town/.test(note.message || ''),
-        'a notice nobody can act on is noise');
+      check('reconcile', 'and it posts nothing to the inbox on the day it runs',
+        h.added.filter(a => a.col === 'messages').length === 0,
+        'the volume Addie asked us to stop was one note per sweep, every fifteen minutes');
+      const bank = h.store['settings/routeDigest'] || {};
+      check('reconcile', 'the banked lines name names',
+        Array.isArray(bank.lines) && /Left Over|Said No|No Town/.test(bank.lines.join('\n')),
+        'a notice nobody can act on is noise — banked: ' +
+        JSON.stringify((bank.lines || []).slice(0, 3)));
+      check('reconcile', 'and the bank is dated, so a day can be closed off',
+        !!bank.day,
+        'without a day the flush can never tell yesterday from today and either posts ' +
+        'every sweep or never posts at all');
 
       // ---- 18.3 Nothing to do must cost nothing ---------------------------
       /* "Already right" now includes the customer RECORD agreeing with the
@@ -20673,15 +20755,24 @@ suite('Suite 68. Awaiting Response, the address check, and the route notice');
   check('S68', 'freed houses still call out the new hangs',
     /newHangs\.length \+ ' of them '/.test(admin),
     'a returning customer waiting another week is not the same as a new hang never going out');
+  /* \u26a0 REPOINTED 2026-08-30, NOT WEAKENED. These three used to read
+     noticeRoutesReconciled, because that is where the note was written. It now BANKS its
+     lines and `routeDigestFlush` writes the note once a day (see the digest entry in
+     CLAUDE.md), so the body noticeRoutesReconciled still builds is only a dedupe
+     fingerprint \u2014 it never reaches an inbox. Left pointing there, all three would have
+     gone on passing while the thing they guard moved out from under them: the classic
+     shape this file records for S82, S129 and the folder-names suite. */
+  const flush = sectionFrom(admin, admin.indexOf('async function routeDigestFlush(bank)'));
   check('S68', 'there is a hard length backstop before the write',
-    /if\(body\.length > 4500\)\{/.test(admin) &&
-    /body\.slice\(0, 4500 - trimNote\.length - tail\.length\)/.test(admin),
+    /if\(body\.length > 4500 - tail\.length\)\{/.test(flush) &&
+    /body\.slice\(0, 4500 - trimNote\.length - tail\.length\)/.test(flush),
     'the create is all-or-nothing: over the ceiling, the WHOLE notice is refused');
   check('S68', 'and the ending survives the trim',
-    /\+ trimNote \+ tail;/.test(admin),
-    'the part that says nobody has been told is the part that must never be cut');
-  check('S68', 'a notice that cannot be saved is no longer silent',
-    /Could not raise the reconcile note[\s\S]{0,260}toast\(/.test(admin),
+    /body \+= tail;/.test(flush) && flush.indexOf('body += tail;') > flush.indexOf('trimNote;'),
+    'the part that says nobody has been told is the part that must never be cut \u2014 it ' +
+    'is appended AFTER any trimming now, which is stronger than being inside it');
+  check('S68', 'a digest that cannot be saved is no longer silent',
+    /Could not raise the route digest[\s\S]{0,260}toast\(/.test(flush),
     'it is the LAST step of a sweep that has already rewritten routes \u2014 a console ' +
     'line meant days moved and nobody knew');
 
@@ -29905,10 +29996,21 @@ suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
      moment the office looks away. This is the LAST step of a sweep that has
      already rewritten real routes, so "the sweep happened" is the part that has
      to survive in somewhere it keeps. */
+  /* ⚠ REPOINTED 2026-08-30 WHEN THE NOTE MOVED, NOT WEAKENED. The sweep now banks its
+     lines and `routeDigestFlush` writes one note a day, so the fallback these checks guard
+     lives there. Every guarantee below is the same one, asked of the function that now
+     makes it — and the argument is unchanged: this is the last step of a sweep that has
+     ALREADY rewritten routes, so "the sweep happened" has to survive somewhere it keeps. */
   const notice = sectionFrom(admin, admin.indexOf('async function noticeRoutesReconciled'));
-  const catchBlock = (notice.match(/\} catch\(err\)\{[\s\S]*$/) || [''])[0];
+  const flushFn = sectionFrom(admin, admin.indexOf('async function routeDigestFlush(bank)'));
+  const catchBlock = (flushFn.match(/\} catch\(err\)\{[\s\S]*$/) || [''])[0];
 
   check('S71', 'noticeRoutesReconciled still exists', !!notice);
+  check('S71', 'and it hands its lines to the digest rather than writing a note itself',
+    /await routeDigestBank\(lines\)/.test(notice) &&
+    !/addDoc\(collection\(db,'messages'\)/.test(notice),
+    'one note a sweep is what Addie asked us to stop — a note written here as well as ' +
+    'in the flush is the volume back, from a second place');
   check('S71', 'a failed note is still said on screen',
     /toast\(/.test(catchBlock),
     'the immediate half — the office is looking at the page right now');
@@ -29940,10 +30042,16 @@ suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
      the summary has printed can never fail the build. */
   pendingAsync.push((async () => {
     const wrote = [];
-    const fn = new Function('addDoc', 'collection', 'db', 'serverTimestamp', 'toast',
+    /* ⚠ IT READS WHAT IS BANKED NOW, not what is addDoc'd. noticeRoutesReconciled no
+       longer writes anything; its whole output is the array it hands routeDigestBank, and
+       that array is what a day's note is built from. Left asserting on addDoc, this
+       harness would have gone green for ever on a function that writes nothing — the
+       same repoint as the structural half above. `message` is kept as the key so the
+       assertions below read the same way round. */
+    const fn = new Function('routeDigestBank', 'toast',
       'console', 'formatDateNice', 'reconcileNoteIsRepeat', 'allMessages',
       'let lastReconcileNote = {body: "", at: 0};' + notice + ';return noticeRoutesReconciled;'
-    )(async (r, p) => { wrote.push(p); return {id: 'n1'}; }, () => ({}), {}, () => 'NOW',
+    )(async (lines) => { wrote.push({message: (lines || []).join('\n')}); },
       () => {}, {error(){}, warn(){}, log(){}}, (d) => String(d), () => false, []);
 
     const base = {refreshed: 0, moved: [], freed: [], dropped: [], capped: [], over: [],

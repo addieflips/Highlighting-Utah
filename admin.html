@@ -16976,6 +16976,58 @@ function fcRunScenarios(){
 });
 if(document.getElementById('fcRunBtn')) document.getElementById('fcRunBtn').addEventListener('click', fcRunScenarios);
 if(document.getElementById('fcResult')) fcRender();
+/* ⭐ MONEY THAT LANDED ON NOBODY'S BILL, SAID WHERE THE MONEY LIVES (added 2026-08-30).
+   Addie asked for the unmatched payment to reach the System inbox, and to be warned on the
+   invoice screen. The inbox note is written by `recordUnmatchedPayment` on the server; this
+   is the other half.
+
+   ⚠ A BANNER, NOT A PILL ON A ROW, and that is forced by what an unmatched payment IS. It
+   is filed under a key that has NO invoice — that is the definition — so there is no row to
+   attach it to. Pinning it to some nearby invoice would be inventing an association that
+   may be wrong about somebody's money.
+
+   ⚠ IT NAMES THE CUSTOMER WHERE ONE CAN BE FOUND, and says plainly when one cannot. The
+   payment carries only the key it tried; whether anybody on file still has that number is a
+   separate question, and answering "nobody" is as useful as answering with a name.
+
+   ⚠ AND IT SAYS THE MONEY IS SAFE. The instinct on reading this is that a payment has been
+   lost; it has not. It is captured, it is filed, and what is wrong is that a customer who
+   has paid still reads as owing — which is what gets them chased. */
+function renderUnmatchedPaymentBanner(){
+  const wrap = document.getElementById('invStatusStrip');
+  if(!wrap) return;
+  const existing = document.getElementById('unmatchedPayBanner');
+  if(existing) existing.remove();
+  /* ⚠ null MEANS THE READ HAS NOT LANDED, and reports nothing. An empty list would say
+     there is no stranded money because a read failed — a false all-clear about money. */
+  const open = (hcUnmatched || []).filter(function(u){ return !(u.data || {}).resolved; });
+  if(!open.length) return;
+  const total = open.reduce(function(t, u){
+    const d = u.data || {};
+    return t + (Number(d.serviceAmount) || 0) + (Number(d.tip) || 0);
+  }, 0);
+  const who = open.map(function(u){
+    const d = u.data || {};
+    const amt = (Number(d.serviceAmount) || 0) + (Number(d.tip) || 0);
+    const match = jobAddresses.filter(function(c){
+      return hcDigits((c.data || {}).phone) === hcDigits(d.phone);
+    });
+    return fmtMoney(amt) + ' on ' + esc(hcDigits(d.phone) || 'an unknown number') +
+      (match.length ? ' (looks like ' + esc((match[0].data || {}).name || '') + ')' : ' (nobody on file has that number)');
+  });
+  const bar = document.createElement('div');
+  bar.id = 'unmatchedPayBanner';
+  bar.style.cssText = 'background:#FDECEA; border:1px solid var(--ember); border-radius:10px; padding:12px 14px; margin-bottom:12px; font-size:13px;';
+  bar.innerHTML = '<strong>&#9888; ' + fmtMoney(total) + ' paid, on no bill.</strong> ' +
+    open.length + ' card payment' + (open.length === 1 ? '' : 's') + ' went through with no ' +
+    'invoice to put ' + (open.length === 1 ? 'it' : 'them') + ' against &mdash; usually because ' +
+    'the phone or email the bill is filed under changed after the invoice was written. ' +
+    '<strong>The money is ours and is safe</strong>, but whoever paid still reads as owing, so ' +
+    'they may be chased for a bill they have already settled. ' +
+    who.slice(0, 5).join('; ') + (who.length > 5 ? '; and ' + (who.length - 5) + ' more' : '') +
+    '. Health Check lists them under &ldquo;A card payment that found no bill&rdquo;.';
+  wrap.parentNode.insertBefore(bar, wrap);
+}
 function renderReceiptErrorBanner(){
   const wrap = document.getElementById('invStatusStrip');
   if(!wrap) return;
@@ -17053,6 +17105,7 @@ function renderInvoicesList(){
      while nobody was watching - are counted here so they cannot be scrolled
      past. Clicking filters the list down to just those. */
   renderReceiptErrorBanner();
+  renderUnmatchedPaymentBanner();
   if(!allInvoicesCache.length){ list.innerHTML = '<div class="empty-note">No invoices yet.</div>'; return; }
   /* ⚠ ARCHIVED ONES ARE HIDDEN, NOT GONE. They still sit in allInvoicesCache, so
      every keyed lookup and every money total behaves exactly as before — this is a
@@ -45744,6 +45797,105 @@ async function noticeRoutesReconciled(report){
       'the days named in the last notice.');
     return;
   }
+  /* ⭐ ONE DIGEST A DAY, NOT ONE NOTE A SWEEP (changed 2026-08-30). Addie: "system inbox
+     always has a bunch of schedule messages and it's to many to keep up with", and shown
+     the options she chose one digest a day.
+
+     ⚠ THE VOLUME WAS THE SWEEP'S CADENCE, NOT A BUG. It runs every fifteen minutes, so a
+     day on which the routes genuinely keep changing is up to ninety-six notices — each one
+     true, each one correctly suppressed only when word-for-word identical to the last. True
+     and unreadable is still unreadable, and an inbox nobody can keep up with is one where
+     the note that matters is missed.
+
+     ⚠ SO THE LINES ARE BANKED, NOT POSTED. Everything this sweep found goes into
+     `settings/routeDigest` against today's date; the note itself is written by
+     `routeDigestFlush` on the first sweep of the NEXT day, covering the whole of the one
+     before. That is the honest description of the timing and it is the cost she accepted:
+     a date that moves this afternoon is in tomorrow's digest, not this afternoon's inbox.
+
+     ⚠ IT IS A DOCUMENT, NOT A VARIABLE, precisely because the dashboard is closed and
+     reopened all day and runs on more than one machine. A day's worth of changes held in
+     memory is a day's worth lost at the first refresh.
+
+     ⚠ AND THE CLOSING LINE SURVIVES WHATEVER ELSE IS TRIMMED — "nobody has been told about
+     any date that moved" is the reason the note exists at all, and `routeDigestFlush`
+     appends it after any trimming rather than storing it per sweep. */
+  await routeDigestBank(lines);
+  lastReconcileNote = {body: body, at: Date.now()};
+  return;
+}
+/* Where a day's route changes are banked between sweeps. One row per distinct line, so a
+   sweep that finds the same thing twice does not say it twice. */
+const ROUTE_DIGEST_MAX_LINES = 200;
+async function routeDigestBank(lines){
+  const today = toDateStr(new Date());
+  try{
+    const ref = doc(db,'settings','routeDigest');
+    const snap = await getDoc(ref);
+    const cur = snap.exists() ? (snap.data() || {}) : {};
+    /* A new day: yesterday's bank is posted before today's first line is added, or the two
+       days run together in one note and neither is answerable. */
+    const rolled = !!(cur.day && cur.day !== today);
+    const posted = rolled ? await routeDigestFlush(cur) : true;
+    /* ⭐ A DAY WHOSE NOTE WAS REFUSED IS CARRIED, NEVER DROPPED. The bank is rewritten
+       wholesale below, so without this the failed flush would delete the very day it was
+       trying to report — the sweep rewrote real routes and the only record of it goes in
+       the bin, silently. Carried lines are prefixed with the day they belong to, because
+       "3 houses moved" is not answerable if you cannot tell which day it is about. */
+    const carried = (rolled && !posted && Array.isArray(cur.lines) && cur.lines.length)
+      ? ['(carried over from ' + cur.day + ', where the note could not be saved)'].concat(cur.lines)
+      : [];
+    const keep = (cur.day === today && Array.isArray(cur.lines)) ? cur.lines : [];
+    const merged = keep.concat(carried);
+    (lines || []).forEach(function(l){ if(merged.indexOf(l) === -1) merged.push(l); });
+    /* ⚠ TRIMMED WITH A COUNT, never silently. A digest that quietly loses half a day is
+       worse than one that says it did. */
+    const over = Math.max(0, merged.length - ROUTE_DIGEST_MAX_LINES);
+    /* The running "and N more that would not fit" count. It resets only when the previous
+       day's note actually went out — a day carried forward keeps its own overflow count,
+       or the note that finally posts under-reports what it lost. */
+    const priorDropped = (rolled && posted) ? 0 : (Number(cur.dropped) || 0);
+    await setDoc(ref, {
+      day: today,
+      lines: over ? merged.slice(0, ROUTE_DIGEST_MAX_LINES) : merged,
+      dropped: priorDropped + over,
+      updatedAt: serverTimestamp()
+    }, {merge:false});
+  } catch(err){
+    /* ⚠ NOT SILENT. The sweep has already rewritten routes; losing the record of it is the
+       failure this whole block exists for. */
+    console.error('Could not bank the route digest:', err);
+    if(typeof toast === 'function'){
+      toast('Routes were updated, but the note about it could not be saved — check Routes for changed days.');
+    }
+  }
+}
+/* Posts one day's banked lines as a single System note. Called only when the day has
+   rolled over, so it is at most one note per day. Returns whether the note was written —
+   the caller carries the lines forward when it was not. */
+async function routeDigestFlush(bank){
+  const all = (bank && Array.isArray(bank.lines)) ? bank.lines : [];
+  if(!all.length) return true;
+  /* ⭐ A LINE THAT SAYS PART OF THE SWEEP DID NOT TAKE GOES FIRST, whatever hour of the
+     day it was found. Per sweep that was free — the note was written there and then, and
+     the warning was the first line built. A digest is a whole day of lines trimmed from
+     the END, so a refused write found at four o'clock would be cut by the changes found
+     after it. Stable partition, so everything else keeps the order it happened in. */
+  const urgent = all.filter(function(l){ return String(l).charAt(0) === '⚠'; });
+  const rest = all.filter(function(l){ return String(l).charAt(0) !== '⚠'; });
+  const lines = urgent.concat(rest);
+  const tail = '\n\nNobody has been told about any date that moved — if a day was already ' +
+    'confirmed with them, they need telling.';
+  const head = 'Route changes on ' + (bank.day || 'the previous day') + ':\n\n';
+  const droppedNote = (Number(bank.dropped) || 0)
+    ? '\n\n… and ' + bank.dropped + ' more change(s) that would not fit in one note. Open Routes to see every day in full.'
+    : '';
+  let body = head + lines.join('\n') + droppedNote;
+  if(body.length > 4500 - tail.length){
+    const trimNote = '\n\n… the rest is trimmed to fit in one note. Open Routes to see every day in full.';
+    body = body.slice(0, 4500 - trimNote.length - tail.length) + trimNote;
+  }
+  body += tail;
   try{
     await addDoc(collection(db,'messages'), {
       topic: 'Routes Kept Up To Date', folder: 'System',
@@ -45752,35 +45904,31 @@ async function noticeRoutesReconciled(report){
       autoQueuedToWarehouse: false, needsReassign: false,
       createdAt: serverTimestamp()
     });
-    lastReconcileNote = {body: body, at: Date.now()};
+    return true;
   } catch(err){
-    /* ⚠ THIS FAILING USED TO BE INVISIBLE. It is the last step of a sweep that
-       has ALREADY rewritten routes, so a console line meant days moved and
-       nobody knew. Say it on screen. */
-    console.error('Could not raise the reconcile note:', err);
+    console.error('Could not raise the route digest:', err);
     if(typeof toast === 'function'){
-      toast('Routes were updated, but the note about it could not be saved — check Routes for changed days.');
+      toast('Routes were updated, but the daily note about it could not be saved — check Routes for changed days.');
     }
-    /* ⚠ A TOAST IS NOT A RECORD. It is gone the moment they look away, and this
-       is the LAST step of a sweep that has already rewritten real routes — the
-       failure mode this whole block exists for is days moving with nobody
-       knowing. So a short note still goes in the System folder, where it keeps.
-       (Restored 2026-08-19: it was lost when admin.html was pasted over from a
-       stale read, along with sysNoteBody. The toast is kept as well — it is the
-       half that gets noticed immediately.)
-
-       Short on purpose: whatever refused the long one, length cannot be the
-       reason this is refused too. */
+    /* ⚠ A TOAST IS NOT A RECORD. It is gone the moment they look away, and these routes
+       have ALREADY been rewritten — "days moved and nobody knew" is the failure this whole
+       block exists for. So a short note still goes in the System folder, where it keeps.
+       Short on purpose: whatever refused the long one, length cannot be the reason this is
+       refused too. */
     try{
       await addDoc(collection(db,'messages'), {
         topic: 'Routes Kept Up To Date', folder: 'System',
         name: '', phone: '', email: '', contactMethod: '',
-        message: 'The upcoming routes were checked and ' + lines.length +
-          ' thing(s) changed. The full note could not be saved, so open Routes to see them.',
+        message: 'The routes were checked on ' + (bank.day || 'the previous day') + ' and ' +
+          lines.length + ' thing(s) changed. The full note could not be saved, so open ' +
+          'Routes to see them.',
         autoQueuedToWarehouse: false, needsReassign: false,
         createdAt: serverTimestamp()
       });
-    } catch(err2){ console.error('And the short reconcile note failed too:', err2); }
+    } catch(err2){ console.error('And the short route digest failed too:', err2); }
+    /* ⚠ FALSE EITHER WAY. The short note names no houses and no days, so it is a flag
+       that something happened, not the record — the lines still have to be carried. */
+    return false;
   }
 }
 /* Same shape as the automatic health check: a few seconds after sign-in, then on
@@ -45805,9 +45953,14 @@ function runReconcileAuto(){
         report.moved.length + ' moved, ' + (report.built || []).length + ' days built, ' +
         report.dropped.length + ' removed, ' +
         report.freed.length + ' back in the pool', 'routes', '');
+      /* ⚠ THIS USED TO SAY "see System notices" AND THAT IS NO LONGER TRUE THE SAME DAY.
+         The notice is now a daily digest written on the first sweep of the following day
+         (see `routeDigestBank`), so sending somebody to the inbox for a change made this
+         afternoon sends them to a note that is not there — which reads as the sweep having
+         failed. Point at Routes, which is where the change actually is, right now. */
       toast((report.built || []).length
-        ? (report.built.length + ' more days built — see System notices')
-        : 'Routes updated — see System notices');
+        ? (report.built.length + ' more days built — open Routes to see them')
+        : 'Routes updated — open Routes to see the days that changed');
     }
     /* One pass is bounded on purpose, so the first run of a season does not
        write the whole book at once. Rather than leaving the rest for fifteen

@@ -1753,10 +1753,29 @@ one today**, and it writes to `healthCheckDecisions` rather than to `unmatchedPa
 so the collection stays write-forbidden and **no `firebase deploy --only firestore:rules`
 is needed**, which was the other cost this question was carrying.
 
-**Still open:** whether one of these should ever be *applied* to an invoice from here, and
-by whom. That is a real money decision and is not urgent while the row makes them visible.
+**FURTHER ANSWERED, 2026-08-30** — *"we need unmatched invoice to come up in system inbox
+before we send it out."*
 
-**Resulting map change.** MON-29.
+**Timing was the half Health Check could not cover.** A capture that lands at eleven at
+night and an invoice that goes out at seven the next evening pass each other with nothing
+said, because Health Check is a panel somebody has to open. Offered the choice between
+**holding the invoice back** and **noting it and warning on the invoice screen**, she chose
+the second.
+
+- `recordUnmatchedPayment` posts a **System inbox note** when the capture is filed, deduped
+  on the capture id, wrapped so it can never unwind a successful capture.
+- `renderUnmatchedPaymentBanner` warns at the top of the **Invoices tab**, naming the
+  customers the payment might belong to.
+
+⚠ **The bill is deliberately NOT held.** A payment we cannot match is our bookkeeping
+problem; stopping somebody's invoice over it means a customer who has done nothing wrong is
+not billed at all.
+
+**Still open:** whether one of these should ever be *applied* to an invoice from here, and
+by whom. That is a real money decision and is not urgent while three surfaces make them
+visible.
+
+**Resulting map change.** MON-29, and MON-30 for the inbox note and the invoice banner.
 
 ---
 
