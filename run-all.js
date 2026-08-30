@@ -6431,9 +6431,44 @@ suite('9. Portal sign-in security');
   check('money', 'the no-email count reaches the run log',
     (fns.match(/skippedNoEmail,/g) || []).length >= 2 && /skippedNoEmail: 0/.test(fns),
     'a counter that never reaches the result object is a counter nobody sees');
+  /* ⚠ REPOINTED 2026-08-30, NOT WEAKENED. This asserted the literal words "NO EMAIL
+     (cannot be billed)" — pinned to where a string happened to sit rather than to what
+     must be true — so it failed on correct code the moment the behaviour changed and the
+     copy had to change with it. Same slow-fuse shape as S82, S129 and the folder-names
+     suite. The guarantee is that the alert NAMES them and says what to do about them; the
+     exact sentence is copy and is allowed to move. */
   check('money', 'the alert text names the customers who could not be billed',
-    /noEmailNames/.test(fns) && /NO EMAIL \(cannot be billed\)/.test(fns),
+    /noEmailNames/.test(fns) && /body \+= '[^']*' \+ data\.noEmailNames/.test(fns),
     'a number with no names gives you nothing to act on');
+  /* ⚠ AND IT NO LONGER SAYS THEY CANNOT BE BILLED, because since 2026-08-30 they ARE —
+     the invoice is raised and waiting in their member portal, and only the sending is
+     manual. Addie: "I'll send invoices that only have phone number on file myself." A
+     summary reading "cannot be billed" would describe work as impossible when it is hers,
+     which is the one thing that would stop her doing it. */
+  /* ⚠ THE NOTE'S BODY, WITH COMMENTS STRIPPED — the rule Suites 58, 274 and 275 each
+     learned separately, and the first version of this check re-learned it by matching its
+     own explanatory comment. "Cannot Be Billed" also survives as the All Customers FILTER
+     NAME, which is a real identifier the office reads and not stale copy, so the claim
+     being checked is the one sentence that went untrue: that they have not been charged. */
+  /* ⚠ THE SUMMARY LINE ITSELF, scoped to the one push that builds it. The red-check
+     found this gap: reverting that line to "cannot be billed" went straight through a
+     check that only looked at the Inbox note. The nightly text is the thing she actually
+     reads, so it is the sentence that most needs to be true. */
+  const noEmailPush = (stripComments(fns)
+    .match(/parts\.push\(data\.skippedNoEmail[^;]*\);/) || [''])[0];
+  check('money', 'the nightly summary line was found', !!noEmailPush,
+    'the check below proves nothing against a line that is not there');
+  check('money', 'and the summary does not call a raised invoice unbillable',
+    !!noEmailPush && !/cannot be billed/i.test(noEmailPush),
+    'reads: ' + noEmailPush + '\n        The invoice exists now and is waiting in their ' +
+    'portal — only the sending is manual. Describing that as impossible is what would ' +
+    'stop her doing it.');
+
+  check('money', 'and the note does not say a raised invoice went uncharged',
+    !/have not been charged/i.test(stripComments(fns)),
+    'the invoice exists now — a note saying otherwise describes the one customer whose ' +
+    'bill DOES exist as one who was missed entirely, and sends her looking for a bug ' +
+    'instead of sending the bill');
   check('money', 'admin shows the no-email count in the nightly log',
     (admin.match(/skippedNoEmail/g) || []).length >= 2,
     'both the run-now message and the last-10-runs list must show it');
@@ -34874,6 +34909,36 @@ suite('Suite 135. A house that cannot be invoiced is a job, not a statistic');
 {
   const fns = read('functions/index.js');
   const admin = read('admin.html');
+
+  /* ---- 0. THE BILL IS RAISED BEFORE THE RUN GIVES UP ON THE EMAIL -------
+     ⭐ Addie, 2026-08-30: "if no email on file than invoice by phone for member portal.
+     I'll send invoices that only have phone number on file myself."
+     ⚠ THE SKIP USED TO SIT ABOVE THE INVOICE WRITE, so a payer with no email got no
+     invoice DOCUMENT at all — not merely no email. Their portal, which they sign into
+     with their phone, had nothing to show them, and the work stayed unbilled with no
+     record anywhere of what was owed.
+     ⚠ ASSERTED AS AN ORDERING, because that is exactly what the guarantee is: everything
+     that raises the bill runs first, and only the SEND is skipped. A red-check moving the
+     skip back above the write made this suite CRASH rather than fail — caught, but a
+     crash names nothing, and the one guarantee about money here deserves a sentence. */
+  {
+    const body = sectionFrom(fns, fns.indexOf('async function runInvoiceBatch'));
+    const iWrite = body.indexOf('await invRef.set(inv, { merge: true })');
+    const iSkip = body.indexOf('skippedNoEmail++');
+    const iSend = body.indexOf("fetch('https://api.emailjs.com");
+    check('S135', 'the invoice write, the no-email skip and the send were all found',
+      iWrite > -1 && iSkip > -1 && iSend > -1,
+      'write ' + iWrite + ', skip ' + iSkip + ', send ' + iSend +
+      ' — the checks below prove nothing against a string that is not there');
+    check('S135', 'a payer with no email still has their invoice raised',
+      iWrite > -1 && iSkip > -1 && iWrite < iSkip,
+      'the skip runs before the invoice is written, so nothing is raised at all and ' +
+      'their member portal has nothing to show them');
+    check('S135', 'and it is only the sending that is skipped',
+      iSkip > -1 && iSend > -1 && iSkip < iSend,
+      'the skip must come between the invoice write and the email, or it is not ' +
+      'skipping the send');
+  }
 
   /* ---- 1. the rule the office screen reads, RUN ----------------------- */
   const ruleSrc = extractFn(admin, 'custCannotBeBilled');
