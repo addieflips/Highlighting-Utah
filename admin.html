@@ -6333,6 +6333,39 @@ function quoteShortLink(d){
   return 'highlightingutah.com/q/' + (d.quoteToken || '') +
     (portal ? ('?' + portal.slice(1)) : '');
 }
+/* ⭐ A SHORT LINK WITH NO TOKEN IS A DEAD LINK (fixed 2026-08-30). Owner, on
+   texting a quote: "the link isn't right and doesn't send to the form."
+
+   ⚠ THE LINK BUILDER WAS NEVER THE BUG. quoteShortLink is `(d.quoteToken || '')`,
+   so a quote with no token builds `highlightingutah.com/q/` — and index.html's
+   router matches /^\/q\/([A-Za-z0-9_-]+)\/?$/, which needs at least one
+   character. A bare /q/ matches NOTHING, so the customer falls through to the
+   saved-login block below it and lands on the homepage, or on their own
+   balance page if they have signed in before. Never the quote.
+
+   ⚠ AND IT IS THE ORDINARY CASE, NOT AN EDGE ONE. "Send as text instead"
+   renders on `d.phone && !d.smsOptedOut` and nothing else, while the gold
+   button beside it mints a token before it sends (data-getquotelink). So the
+   email path was guarded by its own entry point and the text path was not —
+   and texting a quote is an ALTERNATIVE to emailing it, not a follow-up, so
+   the quotes reached this way are exactly the ones that never got a token.
+
+   ⚠ IT THROWS RATHER THAN RETURNING BLANK. Both callers refuse to build the
+   message at all if this fails: a text whose link is dead is worse than no
+   text, because it is sent, it is billed, and the customer reads it as us
+   sending them to the wrong place. Same argument addOnEmailBlock already makes
+   for its buttons.
+
+   ⚠ MINTED ON DEMAND, NEVER AT RENDER TIME. Doing it as the card draws would
+   write a token to every quote on screen for a button nobody pressed. */
+async function ensureQuoteToken(item){
+  if(!item || !item.data) return '';
+  if(item.data.quoteToken) return item.data.quoteToken;
+  const token = newQuoteToken();
+  await updateDoc(doc(db,'quotes', item.id), {quoteToken: token});
+  item.data.quoteToken = token;
+  return token;
+}
 function quotePortalParam(d){
   const c = quoteExistingCustomer(d);
   const t = c && c.data ? c.data.portalToken : '';
@@ -12934,6 +12967,17 @@ function renderQuoteRows(filtered){
         ' Open <strong>Quote email settings</strong> above and pick one under Text message versions.</div>';
       return;
     }
+    /* The link is useless without a token, and this is the path that could
+       reach it without one — see ensureQuoteToken. Done before the message is
+       built, so a failed write shows here rather than being discovered by the
+       customer. */
+    try{ await ensureQuoteToken(item); }
+    catch(err){
+      console.error('[HU] quote token write failed', err);
+      resultEl.innerHTML = '<div class="rtext" style="color:var(--ember); font-weight:600;">'+
+        'Could not prepare the quote link — nothing has been sent. Try again.</div>';
+      return;
+    }
     const link = quoteShortLink(d);
     /* Plain characters only. Anything HTML in the template body is stripped
        rather than sent as-is, so a template picked by mistake degrades to
@@ -13157,6 +13201,15 @@ function renderQuoteRows(filtered){
       const template = tmplName ? getEmailTemplateByName(tmplName) : null;
       if(!template){
         toast('No text template picked yet \u2014 open Quote email settings first.');
+        return;
+      }
+      /* Same token guarantee as the Send-the-text path — this one puts the
+         link on the clipboard, so a dead one is pasted into somebody's
+         messages app by hand and looks like our mistake twice over. */
+      try{ await ensureQuoteToken(item); }
+      catch(err){
+        console.error('[HU] quote token write failed', err);
+        toast('Could not prepare the quote link — nothing was copied. Try again.');
         return;
       }
       const link = quoteShortLink(d);
