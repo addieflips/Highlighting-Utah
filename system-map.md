@@ -709,6 +709,35 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### A card payment that found no bill now shows up
+
+Addie, asked where these should go: *"Put that in health check."*
+
+⚠ **The money was invisible.** `recordUnmatchedPayment` files a capture that succeeded with
+no invoice to apply it to — usually because the phone or email the bill is keyed on changed
+after it was written. **No screen in the app read that collection**, nothing ever wrote
+`resolved: true`, and `firestore.rules` forbids writing to it. Real money, correctly
+captured, in a place with no way in and no way out — while the customer's own portal reads
+**Paid in Full**.
+
+⚠ **The Invoices tab was argued for and she chose Health Check.** The objection was HC-03 —
+she had said she does not read that panel because nothing could be marked done — and it is
+largely spent: approve/deny shipped on 2026-08-27, so a row can be cleared now. Her answer
+stands, and it was put to her first.
+
+⚠ **No fix button.** Applying it to the right invoice, refunding it, or marking it seen are
+three different answers about somebody's money, and Q-025 settled only **where** it shows.
+
+⚠ **And "Not a problem" is how one is cleared, which needs no rules deploy.** The decision
+is written to `healthCheckDecisions`, never to `unmatchedPayments`, so that collection stays
+write-forbidden exactly as it is — asserted, because a write from the browser would fail
+silently. The decision fingerprint lapses if the amount changes, so a second payment on the
+same key comes back rather than hiding behind an old decision.
+
+⚠ **A failed read reports nothing, not an all-clear.** `hcUnmatched` is null until it loads
+and stays null if the read fails; `(hcUnmatched || [])` is what makes that a silence rather
+than a confident *"no stranded money"* on the one screen that must never give a false one.
+
 ### A customer with no email is billed anyway — the bill just gets sent by hand
 
 Addie, 2026-08-30: *"How invoice bills. So if no email on file than invoice by phone for

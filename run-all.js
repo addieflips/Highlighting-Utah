@@ -4069,8 +4069,44 @@ console.log('\n=== 7. Health check engine ===');
      ⚠ TWO SESSIONS BOTH NUMBERED THEIR ROW 24 on the same day — this one is 25, and
      the count below is what caught it. That is the check earning its keep: a hard
      number is the only thing that notices two people adding a row at once. */
-  check('health', 'all 25 checks present',
-    all.length === 25, 'got ' + all.length);
+  check('health', 'all 26 checks present',
+    all.length === 26, 'got ' + all.length);
+
+  /* ---- a card payment that found no bill (2026-08-30) -------------------
+     Addie, asked where these should show: "Put that in health check." The money was
+     invisible: `recordUnmatchedPayment` files a capture that succeeded with no invoice
+     to apply it to, and NOTHING in admin.html read that collection.
+     ⚠ NO FIX BUTTON, and that is checked. Applying it to the right invoice, refunding it
+     or marking it seen are three different answers about somebody's money, and Q-025 has
+     settled only WHERE it shows. A button that guessed would move a payment onto a bill
+     nobody chose. "Not a problem" is how one is cleared, which writes to
+     `healthCheckDecisions` and never to `unmatchedPayments` — so the collection stays
+     write-forbidden in firestore.rules exactly as it is, and no rules deploy is needed. */
+  {
+    const row = get(all, 'unmatchedPayment');
+    check('health', 'a card payment that found no bill is reported',
+      !!all.find(c => c.id === 'unmatchedPayment'),
+      'the money is real, correctly captured, and on no bill and no screen');
+    check('health', 'and it offers no fix button',
+      row.fix === null || row.fix === undefined,
+      'applying, refunding and marking-seen are three different answers about ' +
+      'somebody\'s money and only Addie can pick');
+    check('health', 'and it says so, rather than leaving a dead row',
+      /Invoices tab/.test(String(row.fixNote || '')),
+      'a row with no button and no note reads as a bug in the panel');
+    /* ⚠ AND A FAILED READ MUST REPORT NOTHING RATHER THAN AN ALL-CLEAR. hcUnmatched is
+       null until it loads and stays null if the read fails; `(hcUnmatched || [])` is what
+       makes that a silence instead of a confident "no stranded money". */
+    check('health', 'and a read that has not landed reports nothing',
+      /hcUnmatched \|\| \[\]/.test(admin),
+      'reading it as an empty list announces there is no stranded money because a read ' +
+      'failed — a false all-clear on the one screen that must not give one');
+    check('health', 'and the collection is still never written to',
+      !/collection\(db,'unmatchedPayments'\)[^;]*(setDoc|updateDoc|addDoc|deleteDoc)/.test(admin) &&
+      !/(setDoc|updateDoc|addDoc|deleteDoc)\([^;]*unmatchedPayments/.test(admin),
+      'firestore.rules forbids it, so a write here fails silently in the browser — ' +
+      'clearing a row goes through healthCheckDecisions instead');
+  }
   /* ⚠ NOT `!!get(all, 'notifyOff')` — get() returns {rows: []} for a miss, so that
      form is truthy whatever happens and proves nothing. Red-checking caught it:
      renaming the id sailed straight through. */

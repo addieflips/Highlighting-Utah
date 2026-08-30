@@ -49353,6 +49353,31 @@ function hcInvoiceGroups(){
    "silently disabled every 'you have a new message' email". Nothing anywhere said so.
    Read once at sign-in, so hcRunChecks — which is synchronous — can just look. */
 let hcNotifyCfg = null;
+/* ⭐ A CARD PAYMENT THAT FOUND NO BILL (added 2026-08-30). Addie, asked where these
+   should show: "Put that in health check."
+   ⚠ THE MONEY WAS INVISIBLE. `recordUnmatchedPayment` files a successful capture in
+   `unmatchedPayments` when the invoice it belongs to cannot be found — the usual cause
+   being the phone or email the bill is keyed on having changed since it was written —
+   and NO SCREEN IN THIS APP READ THAT COLLECTION. Real money, correctly captured, in a
+   place with no way in and no way out, while the customer's own portal reads Paid in Full.
+   ⚠ READ ONCE AT SIGN-IN, because `hcRunChecks` is synchronous and can only look at what
+   is already here — the same shape as the EmailJS settings read above.
+   ⚠ LEFT null ON A FAILED READ, never []. Null means "we do not know" and the check
+   reports nothing; an empty array would announce that there is no stranded money because
+   a read failed, which is a false all-clear on the one screen that must not give one. */
+let hcUnmatched = null;
+async function hcLoadUnmatched(){
+  try{
+    const snap = await getDocs(collection(db,'unmatchedPayments'));
+    const out = [];
+    snap.forEach(function(d){ out.push({id: d.id, data: d.data() || {}}); });
+    hcUnmatched = out;
+  }catch(err){
+    /* ⚠ Staff may read this collection (firestore.rules), so a failure here is a real
+       fault worth seeing rather than an expected denial. */
+    console.error('[HU] could not read unmatched payments for Health Check', err);
+  }
+}
 async function hcLoadNotifyCfg(){
   try{
     const snap = await getDoc(doc(db,'settings','emailjs'));
@@ -49599,6 +49624,52 @@ function hcRunChecks(){
      key: flagged only when every customer filed under it now bills elsewhere, or
      when there is nobody under it at all. A warning that cries wolf on ordinary
      prepayments is one the office learns to click past. */
+  /* ⭐ A CARD PAYMENT THAT FOUND NO BILL (added 2026-08-30). Addie, asked where these
+     should show: "Put that in health check."
+     ⚠ THE MONEY WAS INVISIBLE, WHICH IS THE WHOLE FINDING. `recordUnmatchedPayment` files
+     a capture that succeeded but had no invoice to apply it to — the usual cause being the
+     phone or email the bill is keyed on having changed since it was written. Nothing in
+     this app read that collection, nothing ever wrote `resolved: true`, and
+     `firestore.rules` forbids writing to it. Real money, correctly captured, in a place
+     with no way in and no way out — while the customer's own portal reads Paid in Full.
+
+     ⚠ I ARGUED FOR THE INVOICES TAB AND SHE CHOSE HERE. The concern was HC-03 — she had
+     said she does not read Health Check because nothing could be marked done — and that
+     objection is largely spent: approve/deny shipped on 2026-08-27, so a row can now be
+     cleared. Her answer stands, and this note records that it was put to her first.
+
+     ⚠ NO FIX BUTTON. Applying it to the right invoice, refunding it, or marking it seen
+     are three different answers about somebody's money, and Q-025 has only settled WHERE
+     it shows. A button that guessed would move a payment onto a bill nobody chose.
+     ⚠ AND "Not a problem" IS THE WAY TO CLEAR ONE, which needs no rules change at all:
+     the decision is written to `healthCheckDecisions`, never to `unmatchedPayments`, so
+     the collection stays write-forbidden exactly as it is. The fingerprint lapses if the
+     amount changes, so a second payment on the same key comes back rather than staying
+     hidden behind an old decision.
+
+     ⚠ AND A FAILED READ REPORTS NOTHING. `hcUnmatched` is null until it loads and stays
+     null if the read fails, so this says "no stranded money" only when it has actually
+     looked. */
+  checks.push({
+    id: 'unmatchedPayment',
+    title: 'A card payment that found no bill',
+    why: 'The card was charged and no invoice could be found to apply it to — usually because the phone or email the bill is keyed on changed after it was written. The money is real and is sitting outside every total on the Invoices tab.',
+    fix: null,
+    fixNote: 'No button: applying it to the right invoice, refunding it, or marking it seen are three different answers about somebody\u2019s money. Decide, then set it by hand on the Invoices tab \u2014 and use Not a problem here once it is dealt with.',
+    rows: (hcUnmatched || []).filter(function(u){ return !(u.data || {}).resolved; }).map(function(u){
+      const d = u.data || {};
+      const amt = (Number(d.serviceAmount) || 0) + (Number(d.tip) || 0);
+      /* Who it was probably for, said as a guess rather than as a fact — the key is the
+         only thing the capture carries, and it is the key that stopped matching. */
+      const who = jobAddresses.filter(function(c){ return hcDigits((c.data || {}).phone) === hcDigits(d.phone); })
+        .map(function(c){ return (c.data || {}).name || c.id; });
+      return {
+        label: fmtMoney(amt) + ' paid on ' + (hcDigits(d.phone) || 'an unknown number'),
+        detail: (who.length ? 'Looks like ' + who.slice(0, 3).join(', ') + '. ' : 'Nobody on file has that number now. ') +
+                'No invoice was filed under it, so the money is on no bill.'
+      };
+    })
+  });
   checks.push({
     id: 'strandedPayment',
     title: 'A payment sitting on an invoice that bills nothing',
@@ -50578,6 +50649,7 @@ function startHealthCheckAuto(){
   if(hcAutoTimer) return;
   /* Read once, before the first pass. Its own failure is reported inside. */
   hcLoadNotifyCfg();
+  hcLoadUnmatched();
   /* A few seconds after login, then every ten minutes. The first attempt waits
      for the listeners; if the data is not in yet it simply tries again on the
      interval rather than reporting on nothing. */
