@@ -45255,6 +45255,212 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
     attach.indexOf('Could not upload') < attach.indexOf('rmSaveNumbersOnAttach'),
     'closing over a failure is the failure being hidden');
 }
+
+// =====================================================================
+suite('283. A peak adds what a peak actually adds');
+/* ⭐ Owner, 2026-08-30: "24 feet 45 degree angle would add 10 feet almost exactly
+   meaning an extra $20 to do a peak but your system doesnt adjust it nearly as
+   much as it should."
+
+   ⚠ HER ARITHMETIC IS EXACTLY RIGHT AND SO WAS THE FORMULA. Two rakes at 45
+   degrees over a 24 ft span are 2 x (12 / cos 45) = 33.94 ft, so the peak adds
+   9.94 ft. `span x (1/cos - 1)` returns exactly that. What was wrong was the
+   GRADE going in: the drag measured rise over run in SCREEN PIXELS, and the grade
+   panorama is aimed UP at the roof, which compresses the apparent slope of a line
+   above the camera — always in the same direction, always too shallow.
+
+   ⚠ SO THE FIRST CHECK HERE IS HERS, VERBATIM, and the rest prove the pitch that
+   reaches it is the real one. */
+{
+  const NLS2 = String.fromCharCode(10);
+  const rad = 'const rmRad = d => d*Math.PI/180;';
+  const deg = 'const rmDeg = r => r*180/Math.PI;';
+
+  /* ---- 1. the number she quoted ---- */
+  {
+    const api = new Function('rmRoofFacts', 'rmGradeSet', 'rmCorners', 'rmOrigin', 'rmToLocal', 'RM_M_TO_FT',
+      (extractFn(admin, 'rmPeakExtraFraction') || '') + NLS2 +
+      (extractFn(admin, 'rmPeakSpanFeet') || '') + NLS2 +
+      (extractFn(admin, 'rmPeakFeet') || '') + NLS2 +
+      'return {frac: rmPeakExtraFraction, feet: rmPeakFeet, span: rmPeakSpanFeet};');
+    /* Two corners 24 ft apart, in a frame where a metre is a metre. */
+    const FT = 0.3048;
+    const corners = [{lat: 0, lng: 0, h: 0}, {lat: 0, lng: 24*FT, h: 0}];
+    const toLocal = function(lat, lng, h){ return {e: lng, n: lat, u: h || 0}; };
+    const run = api({}, null, corners, {lat: 0, lng: 0}, toLocal, 1/FT);
+    check('S283', 'a 24 ft span really is measured as 24 ft',
+      Math.abs(run.span({a: 0, b: 1}) - 24) < 0.01,
+      'got ' + run.span({a: 0, b: 1}).toFixed(2) + ' — every peak figure is this times a fraction');
+    /* 45 degrees is a grade of 100%: rise equals run. */
+    const added = run.feet({a: 0, b: 1, grade: 100});
+    check('S283', 'a 24 ft peak at 45 degrees adds 9.9 ft, as she worked out by hand',
+      Math.abs(added - 9.94) < 0.05,
+      'got ' + added.toFixed(2) + ' ft — she said "10 feet almost exactly", and ' +
+      '2 x (12 / cos 45) - 24 = 9.94');
+    check('S283', 'and at $2 a foot that is the $20 she said it was',
+      Math.abs(added * 2 - 20) < 0.15,
+      'got $' + (added * 2).toFixed(2));
+    /* The shallower pitches, so the curve is right and not just one point. */
+    check('S283', 'a 12/12 pitch on 20 ft still adds 8.3 ft',
+      Math.abs(run.feet({a: 0, b: 1, grade: 100}) * (20/24) - 8.28) < 0.05,
+      'the figure the checklist has quoted since 2026-08-25 — this must not move');
+    /* ⚠ NO GRADE IS NOT A GUESS. */
+    const noGrade = new Function('rmRoofFacts', 'rmGradeSet',
+      (extractFn(admin, 'rmPeakExtraFraction') || '') + NLS2 + 'return rmPeakExtraFraction;');
+    check('S283', 'no grade anywhere adds nothing at all, rather than a guess',
+      noGrade({}, null)() === null && noGrade({typicalGrade: 0}, null)() === null,
+      'a silent number here reads as measured and sets a price');
+    check('S283', 'and a peak of its own beats the roof average',
+      Math.abs(noGrade({typicalGrade: 30}, 30)(100) - 0.41421) < 1e-4,
+      'a gable is a specific roof, not the average of eleven facets');
+  }
+
+  /* ---- 2. the pitch can be typed, and a bare number is degrees ---- */
+  {
+    const p = new Function(rad + NLS2 + (extractFn(admin, 'rmPitchToGrade') || '') +
+      NLS2 + 'return rmPitchToGrade;')();
+    check('S283', 'typing 45 means 45 degrees, which is a grade of 100%',
+      Math.abs(p('45') - 100) < 1e-6 && Math.abs(p('45°') - 100) < 1e-6,
+      'she said "45 degree angle", so a bare number is degrees — got ' + p('45'));
+    check('S283', 'and 12/12 is the same roof said the other way',
+      Math.abs(p('12/12') - 100) < 1e-6 && Math.abs(p('6/12') - 50) < 1e-6,
+      'got ' + p('12/12') + ' and ' + p('6/12'));
+    check('S283', 'a percentage is taken as a percentage',
+      Math.abs(p('100%') - 100) < 1e-6 && Math.abs(p('35%') - 35) < 1e-6);
+    /* ⚠ REFUSED, NEVER GUESSED AT. A number nobody meant is worse here than no
+       number: it reads as measured and it sets a price. */
+    check('S283', 'nonsense is refused rather than turned into a pitch',
+      p('') === null && p('steep') === null && p('12/0') === null &&
+      p('0') === null && p('90') === null && p('45 45') === null,
+      'a wrong pitch is a wrong price, and nothing on screen would say so');
+    check('S283', 'and the round trip is exact, so the box shows what was typed',
+      (function(){
+        const back = new Function(deg + NLS2 + (extractFn(admin, 'rmGradeToDeg') || '') +
+          NLS2 + 'return rmGradeToDeg;')();
+        return Math.abs(back(p('45')) - 45) < 1e-6 && Math.abs(back(p('30')) - 30) < 1e-6;
+      })(),
+      'a box that re-opens showing a different number than was typed is not trusted again');
+  }
+
+  /* ---- 3. the drag is solved against the gable, not the glass ---- */
+  /* ⚠ THIS IS THE ACTUAL BUG. A photograph is not an elevation drawing: the grade
+     panorama is aimed UP at the roof, and under an upward pitch a rectilinear view
+     compresses the apparent slope of a line above the camera. Always shallow,
+     never steep. The fix intersects each dragged ray with the gable's own vertical
+     plane, which the two peak dots define — so the answer stops depending on where
+     the camera was standing or which way it was pointing. */
+  {
+    const api = new Function('rmCorners', 'rmOrigin', 'rmToLocal', 'rmRay', 'rmBasis', 'rmFovDeg', 'rmRad',
+      (extractFn(admin, 'rmOnGablePlane') || '') + NLS2 +
+      (extractFn(admin, 'rmGradeFromGable') || '') + NLS2 +
+      'return {plane: rmOnGablePlane, grade: rmGradeFromGable};');
+    const rmRad2 = d => d*Math.PI/180;
+    const basis = new Function('rmRad', (extractFn(admin, 'rmBasis') || '') + NLS2 + 'return rmBasis;')(rmRad2);
+    const fov = new Function((extractFn(admin, 'rmFovDeg') || '') + NLS2 + 'return rmFovDeg;')();
+    const ray = new Function('rmRad', 'rmBasis', 'rmFovDeg',
+      (extractFn(admin, 'rmRay') || '') + NLS2 + 'return rmRay;')(rmRad2, basis, fov);
+
+    /* A gable 24 ft across, its eaves 15 ft up, standing due north of the camera.
+       Everything in metres, the frame the tool works in. */
+    const FT = 0.3048;
+    const half = 12 * FT, eave = 15 * FT, D = 40 * FT;
+    const corners = [{lat: 1, lng: -1, h: eave}, {lat: 1, lng: 1, h: eave}];
+    const toLocal = function(lat, lng, h){
+      /* lat 1 = the gable line at distance D; lng -1/+1 = the two ends. */
+      return {e: lng * half, n: lat * D, u: h || 0};
+    };
+    const cam = {e: 0, n: 0, u: 2.5};
+    const api2 = api(corners, {lat: 0, lng: 0}, toLocal, ray, basis, fov, rmRad2);
+
+    /* Put a REAL 45-degree rake in the world and photograph it: the apex is half
+       a span above the eave, straight above the middle. */
+    const W = 800, H = 500;
+    const apex = {e: 0, n: D, u: eave + half};       /* 45 degrees: rise = run */
+    const left = {e: -half, n: D, u: eave};
+    const project = function(p, pov){
+      const b = basis(pov.heading, pov.pitch);
+      const v = {e: p.e - cam.e, n: p.n - cam.n, u: p.u - cam.u};
+      const f = b.forward.e*v.e + b.forward.n*v.n + b.forward.u*v.u;
+      const r = b.right.e*v.e + b.right.n*v.n + b.right.u*v.u;
+      const up = b.up.e*v.e + b.up.n*v.n + b.up.u*v.u;
+      const focal = (W/2)/Math.tan(rmRad2(fov(pov.zoom))/2);
+      return {x: W/2 + focal*r/f, y: H/2 - focal*up/f};
+    };
+
+    [0, 8, 20, 30].forEach(function(pitch){
+      const pov = {heading: 0, pitch: pitch, zoom: 1};
+      const got = api2.grade({a: 0, b: 1}, project(left, pov), project(apex, pov), W, H, pov, cam);
+      check('S283', 'a real 45-degree rake reads 45 degrees with the camera tilted up ' + pitch + '\u00b0',
+        got !== null && Math.abs(got - 100) < 1.5,
+        'got ' + (got === null ? 'null' : got.toFixed(1) + '%') + ' — the pixel-slope reading ' +
+        'came out shallow here, which is exactly the under-adjustment reported');
+    });
+
+    /* ⚠ AND THE OLD READING REALLY WAS SHALLOW — measured, not asserted, so the
+       reason for this whole change is on the record rather than in prose. */
+    {
+      const flat = new Function('return function(a, b){ const dx = Math.abs(b.x-a.x), dy = Math.abs(b.y-a.y);' +
+        ' if(dx < 4) return null; return (dy/dx)*100; };')();
+      const pov = {heading: 0, pitch: 20, zoom: 1};
+      const old = flat(project(left, pov), project(apex, pov));
+      check('S283', 'and the reading it replaces really did come out too shallow',
+        old !== null && old < 97,
+        'got ' + (old === null ? 'null' : old.toFixed(1) + '%') + ' for a true 100% rake — ' +
+        'if this ever stops being true the fix is measuring nothing');
+    }
+
+    /* ⚠ IT REFUSES RATHER THAN INVENTING. A gable seen exactly end-on has no plane
+       a ray can meet, and a drag onto the sky is a real number about the wrong
+       thing — both fall back to the picture reading instead. */
+    /* ⚠ TRULY end-on means the RAY runs parallel to the plane, which is the middle
+       COLUMN of a view turned ninety degrees. An off-centre pixel there still has a
+       sideways component and can legitimately meet the plane a long way off, so a
+       fixture built from one proves nothing — the first version of this check used
+       exactly that and failed on correct code. */
+    check('S283', 'a gable seen end-on is refused, not answered',
+      api2.grade({a: 0, b: 1}, {x: W/2, y: 100}, {x: W/2, y: 300}, W, H,
+                 {heading: 90, pitch: 0, zoom: 1}, cam) === null,
+      'looking along the gable, the ray never meets its plane');
+    check('S283', 'two dots on one spot name no gable',
+      api2.plane(cam, {e: 0, n: 1, u: 0}, {e: 0, n: 1, u: 0}, {e: 0, n: 1, u: 0}) === null,
+      'a plane needs a line to stand on');
+    check('S283', 'and a point behind the camera is not on this roof',
+      api2.plane(cam, {e: 0, n: -1, u: 0}, {e: -1, n: 5, u: 4}, {e: 1, n: 5, u: 4}) === null,
+      'the intersection is behind the lens — a real number about nothing');
+  }
+
+  /* ---- 4. the wiring ---- */
+  check('S283', 'the drag asks the gable before it asks the glass',
+    /const real = pk \? rmGradeFromGable\(/.test(admin) &&
+    /if\(real !== null\) return \{pct: real, measured: true\};/.test(admin),
+    'the pixel reading is the fallback now, not the answer');
+  check('S283', 'the live line and the applied answer come from ONE reader',
+    (admin.match(/rmGradeRead\(/g) || []).length === 3,
+    'two readers is a line drawn from one measurement and a price set by another');
+  check('S283', 'and it says when the figure was only read off the picture',
+    /read\.measured \? '' :/.test(admin) && /a little shallow/.test(admin),
+    'a measured figure and an estimate must not look alike on a number that sets a price');
+  /* ⚠ SCOPED TO THE ROW BUILDER. `inp.addEventListener('input'` exists elsewhere
+     in a 3.5MB file, so the file-wide negative match below failed on code that is
+     right — the same over-broad-anchor trap this suite file records four times. */
+  const peakRows = extractFn(admin, 'rmRenderPeaks') || '';
+  check('S283', 'the row builder is findable', !!peakRows);
+  check('S283', 'each peak row shows ITS OWN pitch, not the house average',
+    /* ⚠ SCOPED, because rmPeakFeet contains a line spelled IDENTICALLY, so a
+       file-wide match stays green with the row builder reverted — a red-check
+       proved exactly that and this check was vacuous until it did. */
+    /const frac = rmPeakExtraFraction\(pk && pk\.grade\);/.test(peakRows) &&
+    /\(roof average\)/.test(peakRows),
+    'the row asked with no argument, so two gables of different pitches both ' +
+    'reported the average — the number the peak feature exists to stop using');
+  check('S283', 'the pitch box saves on change, not on every keystroke',
+    /inp\.addEventListener\('change'/.test(peakRows) &&
+    !/addEventListener\('input'/.test(peakRows),
+    'rmRenderResults rebuilds the row, which would destroy the box being typed into');
+  check('S283', 'and emptying it hands the peak back rather than storing a nought',
+    /if\(!txt\)\{ delete pk\.grade;/.test(admin),
+    'a zero pitch is a flat roof, which is not what a cleared box means');
+}
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

@@ -59,6 +59,24 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **A peak's pitch is measured in the WORLD, or simply typed** (2026-08-30). A
+24 ft gable at 45° adds 9.94 ft — two rakes of 12 / cos 45 instead of a flat 24 —
+and that is what the tool now gives. It was giving less, and the formula was never
+the problem: the drag measured rise over run **in screen pixels**, and the grade
+panorama is aimed UP at the roof, which compresses the apparent slope of anything
+above the camera. Always too shallow, so a true 45° rake read back as 87–94%.
+
+Each dragged pixel is now a ray intersected with the **gable's own vertical plane**
+— the two dots that name the peak already define it — so the answer stops
+depending on where the camera stood or which way it was pointing. ⚠ The old pixel
+reading is kept as the fallback for a gable seen end-on, and the tool SAYS when
+that is what you are looking at.
+
+⭐ **Or type it.** Each peak row has a pitch box: **45** (degrees), **12/12**, or
+**100%**. A typed angle carries no projection error at all. ⚠ A peak with no pitch
+of its own says **(roof average)** beside its figure rather than showing Google's
+whole-house average as though it were this gable's.
+
 Overhead cannot see HEIGHT, and height only lengthens a line where the roof
 *climbs*. That is what **peaks** answer: you say which two lettered dots a peak
 sits between, the tool takes you to a street view aimed at that gable, you drag
