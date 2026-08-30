@@ -90,6 +90,18 @@ bin and a 5000-series number it does not need. Dropping the dial from 1.3 to 1.1
 narrowed that; it did not remove it. The clean fix is to store the true footage
 and apply the multiplier to the MONEY only — offered, not yet decided.
 
+⭐ **Recentre is reachable in full screen** (2026-08-30). It already existed in the
+toolbar and already worked — but full screen is requested on the PANE, so the
+toolbar is simply not on the glass, and losing the house is exactly what happens
+when somebody is zoomed in and full screen. There is a second Recentre inside the
+sky pane's own head, beside the full-screen button. ⚠ **One function, two doors**:
+`rmRecentre` is at module level and both buttons call it, because a second copy of
+"put the camera back" is the copy that stops matching. It frames what has been
+traced when there are dots down, falls back to the house otherwise, re-aims Street
+View, and takes the covers off — so it is also the way out of a stuck pane. ⚠ It
+changes **no measurement at all**, which is what makes it safe to sit where a thumb
+can find it by accident.
+
 ⭐ **How big a mark is, and what happens on a dormer** (2026-08-30). Every mark
 size is one named constant — `RM_DOT_R`, `RM_SKY_DOT`, `RM_LINE_W` and their
 neighbours near `rmCornerMarkers` — because FOUR things draw these marks (the
