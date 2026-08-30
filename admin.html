@@ -22476,6 +22476,119 @@ let rmGradeArmed = false;   /* the grade tool is open and taking a drag */
 let rmGradeFor = -1;        /* which peak the grade map is currently reading */
 let rmGradePending = null;  /* read, shown, and not applied until it is confirmed */
 let rmGradePano = null;     /* the third map: one gable, as square on as the road allows */
+/* ⭐ THE PITCH IS MEASURED IN THE WORLD, NOT ON THE GLASS (2026-08-30). Owner:
+   "24 feet 45 degree angle would add 10 feet almost exactly meaning an extra $20
+   to do a peak but your system doesnt adjust it nearly as much as it should."
+
+   ⚠ HER ARITHMETIC IS EXACTLY RIGHT, AND SO WAS THE FORMULA. Two rakes at 45
+   degrees over a 24 ft span are 2 x (12 / cos 45) = 33.94 ft, so the peak adds
+   9.94 ft — and `span x (1/cos - 1)` returns exactly that. What was wrong was the
+   GRADE going into it.
+
+   ⚠ THE DRAG MEASURED THE SLOPE OF A LINE ON THE GLASS — rise over run in screen
+   pixels — and a photograph is not an elevation drawing. The grade panorama is
+   deliberately aimed UP at the roof (pov pitch 8, steeper once anybody looks up),
+   and under an upward pitch a rectilinear view compresses the apparent slope of a
+   line above the camera. The error is always in the SAME DIRECTION: too shallow.
+   On ordinary geometry a true 45-degree rake read back as 87-94%, so a 24 ft peak
+   added 7.9 to 9.0 ft instead of 9.94, and a closer camera is worse. That is the
+   "not nearly as much as it should".
+
+   ⭐ SO IT IS INTERSECTED WITH THE GABLE INSTEAD. The two dots that NAME a peak
+   are real places, so the triangular end of that gable is a KNOWN VERTICAL PLANE:
+   it contains both dots and stands up from the line between them. A dragged pixel
+   is a ray out of the camera — rmRay, the same one every street mark already uses
+   — and a ray meeting a known plane gives a real point in the world. Two of them
+   give a real rise over a real run. There is no projection left to be wrong
+   about: the camera may be pitched, turned, close or far, and the answer does not
+   move.
+
+   ⚠ AND THE PIXEL READING IS KEPT AS THE FALLBACK, never deleted. A gable seen
+   end-on, or a drag that lands on the sky, cannot be solved this way — and an
+   answer that is merely a little shallow beats no answer at all. Which one was
+   used is SAID, because a measured figure and an approximate one should not look
+   alike on a number that sets a price. */
+function rmGradeCamLocal(){
+  if(!rmGradePano || !rmOrigin || !rmGradePano.getPosition) return null;
+  const pos = rmGradePano.getPosition();
+  if(!pos) return null;
+  const p = rmToLocal(pos.lat(), pos.lng(), 0);
+  /* Same height rule the street camera uses — measured where the panorama will
+     say, and the road-to-house drop applied either way. */
+  p.u = (rmCamHeightM !== null ? rmCamHeightM : RM_CAM_HEIGHT_M) + rmCamGroundDrop;
+  return p;
+}
+function rmGradePov(){
+  if(!rmGradePano || !rmGradePano.getPov) return {heading: 0, pitch: 0, zoom: 1};
+  const p = rmGradePano.getPov() || {};
+  let z = rmGradePano.getZoom ? rmGradePano.getZoom() : 1;
+  if(typeof z !== 'number' || !isFinite(z)) z = 1;
+  return {heading: p.heading || 0, pitch: p.pitch || 0, zoom: z};
+}
+/* Where a ray out of the camera meets the vertical plane the gable end stands in.
+   Null whenever the two cannot honestly meet in front of the camera. */
+function rmOnGablePlane(cam, dir, a, b){
+  if(!cam || !dir || !a || !b) return null;
+  const ve = b.e - a.e, vn = b.n - a.n;
+  const len = Math.hypot(ve, vn);
+  if(!(len > 0.2)) return null;                /* two dots on one spot name no plane */
+  const nE = vn / len, nN = -ve / len;         /* horizontal, square across the gable */
+  const denom = nE*dir.e + nN*dir.n;
+  /* Looking ALONG the gable rather than at it: the ray never meets the plane. */
+  if(Math.abs(denom) < 1e-6) return null;
+  const t = (nE*(a.e - cam.e) + nN*(a.n - cam.n)) / denom;
+  if(!(t > 0.5)) return null;                  /* behind the camera, or on top of it */
+  return {e: cam.e + t*dir.e, n: cam.n + t*dir.n, u: cam.u + t*dir.u};
+}
+function rmGradeFromGable(pk, from, to, W, H, pov, cam){
+  if(!pk || !cam || !rmOrigin) return null;
+  const ca = rmCorners[pk.a], cb = rmCorners[pk.b];
+  if(!ca || !cb) return null;
+  const a = rmToLocal(ca.lat, ca.lng, ca.h), b = rmToLocal(cb.lat, cb.lng, cb.h);
+  const p1 = rmOnGablePlane(cam, rmRay(from.x, from.y, W, H, pov), a, b);
+  const p2 = rmOnGablePlane(cam, rmRay(to.x, to.y, W, H, pov), a, b);
+  if(!p1 || !p2) return null;
+  const run = Math.hypot(p2.e - p1.e, p2.n - p1.n);
+  const rise = Math.abs(p2.u - p1.u);
+  if(!(run > 0.3)) return null;                /* straight up is not a pitch */
+  const pct = (rise / run) * 100;
+  /* ⚠ A DRAG THAT LANDS ON THE SKY OR THE LAWN gives a real number about the
+     wrong thing. Nothing outside this is a roof anybody hangs lights on, so it is
+     refused and the picture reading is used instead. */
+  if(!(pct > 1 && pct < 400)) return null;
+  return pct;
+}
+/* ⭐ OR SHE CAN JUST SAY IT (2026-08-30). She opened with "24 feet 45 degree
+   angle" — she knows the pitch of her own gables, and a typed answer carries no
+   projection error at all, which is the strongest version of her own standing
+   rule: "I need no guessing I need feet to be correct."
+   ⚠ A BARE NUMBER IS DEGREES, because that is what she said. `12/12` and `100%`
+   are read as themselves; anything else is refused rather than guessed at. */
+function rmPitchToGrade(text){
+  const s = String(text == null ? '' : text).trim().toLowerCase();
+  if(!s) return null;
+  const slash = s.match(/^(\d+(?:\.\d+)?)\s*[\/:]\s*(\d+(?:\.\d+)?)$/);
+  if(slash){
+    const run = Number(slash[2]);
+    if(!(run > 0)) return null;
+    const pct = (Number(slash[1]) / run) * 100;
+    return (pct > 0 && pct < 400) ? pct : null;
+  }
+  const pc = s.match(/^(\d+(?:\.\d+)?)\s*%$/);
+  if(pc){
+    const v = Number(pc[1]);
+    return (v > 0 && v < 400) ? v : null;
+  }
+  const deg = s.match(/^(\d+(?:\.\d+)?)\s*(?:°|deg|degs|degree|degrees)?$/);
+  if(!deg) return null;
+  const d = Number(deg[1]);
+  /* 90 degrees is a wall, not a roof, and tan blows up at it. */
+  if(!(d > 0 && d < 76)) return null;
+  return Math.tan(rmRad(d)) * 100;
+}
+/* The same answer the other way round, so a stored grade can be shown as the
+   angle somebody typed. */
+function rmGradeToDeg(pct){ return rmDeg(Math.atan((Number(pct) || 0) / 100)); }
 function rmPeakExtraFraction(gradePct){
   const f = rmRoofFacts || {};
   /* This peak's own grade, read off the third map, wins over everything. */
@@ -25770,10 +25883,23 @@ function openRoofMeasure(quoteId){
      so the tool takes a number off it and never a position. */
   let rmGradeDrag = null;
   const rmGradeLine = document.getElementById('rmGradeLine');
+  /* ⚠ THE OLD READING, KEPT AS THE FALLBACK. Rise over run in SCREEN pixels — see
+     rmGradeFromGable for why that is always a little too shallow, and why it is
+     still worth having when the gable cannot be solved. */
   function rmGradeFrom(a, b){
     const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
     if(dx < 4) return null;                       /* straight up is not a pitch */
     return (dy / dx) * 100;
+  }
+  /* ⭐ THE GABLE IS ASKED FIRST. One reader, so the live line and the answer that
+     is finally applied can never come from two different measurements. */
+  function rmGradeRead(from, to, rect){
+    const pk = rmPeaks[rmGradeFor];
+    const real = pk ? rmGradeFromGable(pk, from, to, rect.width, rect.height,
+                                       rmGradePov(), rmGradeCamLocal()) : null;
+    if(real !== null) return {pct: real, measured: true};
+    const flat = rmGradeFrom(from, to);
+    return flat === null ? null : {pct: flat, measured: false};
   }
   function rmGradeSay(g){
     const el = document.getElementById('rmGradeNote');
@@ -25859,17 +25985,48 @@ function openRoofMeasure(quoteId){
   function rmRenderPeaks(){
     const box = document.getElementById('rmPeakList');
     if(!box) return;
-    const frac = rmPeakExtraFraction();
     box.innerHTML = rmPeaks.map(function(pk, i){
       const span = rmPeakSpanFeet(pk), add = rmPeakFeet(pk);
+      /* ⚠ THIS PEAK'S OWN ANSWER, not the whole roof's. The row used to ask
+         rmPeakExtraFraction() with no argument, so two gables of different
+         pitches both reported the house average — which is the number the whole
+         peak feature exists to stop using. */
+      const frac = rmPeakExtraFraction(pk && pk.grade);
+      const own = isFinite(pk && pk.grade) && pk.grade > 0;
       return '<div class="rm-runrow"><span>' +
         rmCornerLabel(pk.a) + ' &ndash; ' + rmCornerLabel(pk.b) +
-        ' <span style="opacity:.6;">' + rmFmtFeet(span) + ' across</span></span>' +
+        ' <span style="opacity:.6;">' + rmFmtFeet(span) + ' across</span>' +
+        /* ⭐ TYPE THE ANGLE. Owner opened with "24 feet 45 degree angle" — she
+           knows her own gables, and a typed pitch carries no projection error. */
+        ' <input data-rmpeakpitch="' + i + '" value="' + (own ? (Math.round(rmGradeToDeg(pk.grade) * 10) / 10) : '') + '"' +
+        ' placeholder="45°" title="Type this gable&#39;s pitch — 45 for degrees, or 12/12, or 100%"' +
+        ' style="width:52px; padding:2px 5px; font-size:11px;"></span>' +
         '<span>' + (frac === null
-          ? '<span style="color:var(--ember);">measure the grade</span>'
-          : '+' + rmFmtFeet(add)) +
+          ? '<span style="color:var(--ember);">needs a pitch</span>'
+          : '+' + rmFmtFeet(add) + (own ? '' : ' <span style="color:var(--ember);" title="This is the roof’s average pitch, not this gable’s">(roof average)</span>')) +
         ' <button type="button" data-rmdelpeak="' + i + '" title="Remove this peak">&#10005;</button></span></div>';
     }).join('');
+    box.querySelectorAll('[data-rmpeakpitch]').forEach(function(inp){
+      /* ⚠ ON change, NOT ON EVERY KEYSTROKE. rmRenderResults rebuilds this row,
+         which would destroy the box being typed into. */
+      inp.addEventListener('change', function(){
+        const pk = rmPeaks[Number(inp.dataset.rmpeakpitch)];
+        if(!pk) return;
+        const txt = inp.value.trim();
+        /* Emptying it hands the peak back to whatever the roof says, rather than
+           leaving a number nobody stands behind. */
+        if(!txt){ delete pk.grade; rmRenderResults(); return; }
+        const pct = rmPitchToGrade(txt);
+        if(pct === null){
+          const note = document.getElementById('rmPeakNote');
+          if(note) note.textContent = 'Type the pitch as an angle (45), a pitch (12/12) or a grade (100%).';
+          inp.value = isFinite(pk.grade) && pk.grade > 0 ? (Math.round(rmGradeToDeg(pk.grade) * 10) / 10) : '';
+          return;
+        }
+        pk.grade = pct;
+        rmRenderResults();
+      });
+    });
     box.querySelectorAll('[data-rmdelpeak]').forEach(function(b){
       b.addEventListener('click', function(){
         rmPeaks.splice(Number(b.dataset.rmdelpeak), 1);
@@ -25957,16 +26114,18 @@ function openRoofMeasure(quoteId){
       rmGradeLine.setAttribute('x2', to.x); rmGradeLine.setAttribute('y2', to.y);
       rmGradeLine.style.display = 'block';
     }
-    rmGradeSay(rmGradeFrom(rmGradeDrag, to));
+    const live = rmGradeRead(rmGradeDrag, to, r);
+    rmGradeSay(live && live.pct);
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmGradeLock').addEventListener(ev, function(e){
       if(!rmGradeArmed || !rmGradeDrag) return;
       const r = this.getBoundingClientRect();
-      const g = rmGradeFrom(rmGradeDrag, {x: e.clientX - r.left, y: e.clientY - r.top});
+      const read = rmGradeRead(rmGradeDrag, {x: e.clientX - r.left, y: e.clientY - r.top}, r);
+      const g = read && read.pct;
       rmGradeDrag = null;
       if(rmGradeLine) rmGradeLine.style.display = 'none';
-      if(g === null){ rmGradeSay(null); return; }
+      if(!read){ rmGradeSay(null); return; }
       /* ⭐ LETTING GO IS WHAT APPLIES IT, to the peak this map was opened for.
          Owner: "after you let go of using the tool it automatically adds the
          extra." Nothing to confirm and nothing to type. */
@@ -25976,8 +26135,13 @@ function openRoofMeasure(quoteId){
       const ask = document.getElementById('rmGradeAsk');
       const txt = document.getElementById('rmGradeAskText');
       const pkNow = rmPeaks[rmGradeFor];
-      if(txt) txt.textContent = Math.round(g) + '% — ' + (Math.round(g * 12 / 100 * 10) / 10) +
-        '/12' + (pkNow ? ', adding ' + rmFmtFeet(rmPeakSpanFeet(pkNow) * ((1 / Math.cos(Math.atan(g / 100))) - 1)) : '') +
+      /* ⚠ IT SAYS WHICH READING THIS IS. A figure measured against the gable and
+         one estimated off the glass must not look alike on a number that sets a
+         price — and the estimate is known to read shallow. */
+      if(txt) txt.textContent = Math.round(rmGradeToDeg(g)) + '\u00b0 (' + Math.round(g) + '%, ' +
+        (Math.round(g * 12 / 100 * 10) / 10) + '/12)' +
+        (pkNow ? ', adding ' + rmFmtFeet(rmPeakSpanFeet(pkNow) * ((1 / Math.cos(Math.atan(g / 100))) - 1)) : '') +
+        (read.measured ? '' : ' \u2014 read off the picture, which tends to come out a little shallow; type the angle on the peak if you know it') +
         '. Was that right?';
       if(ask) ask.style.display = 'flex';
     });
