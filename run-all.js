@@ -38920,23 +38920,56 @@ suite('170. Measure Roof - a peak is two dots and a grade');
   /* ⭐ RECENTRE ACTUALLY DOES SOMETHING (2026-08-28). Owner: "the recentre button
      doesnt fix sky view." It did nothing at all - the button had been in the markup
      since it was asked for and NOTHING was ever wired to it. */
+  /* ⚠ REPOINTED 2026-08-30, NOT WEAKENED. These matched the ONE button by its id,
+     which was right while there was one. Recentre is now a named function with two
+     doors — the toolbar and the sky pane's own head — so an id match would fail on
+     code that is right. Same slow-fuse shape as S82 and S129: pinned to where a
+     handler happened to sit rather than to what must be true. */
+  const recentre = extractFn(admin, 'rmRecentre') || '';
   check('S170', 'Recentre has a handler',
-    /getElementById\('rmRecentreBtn'\)\.addEventListener/.test(admin),
+    !!recentre && /\.rm-recentre'\)\.forEach/.test(admin) && /rmRecentre\(\);/.test(admin),
     'the button existed and did nothing; a control that cannot fail is not the same as one that works');
   check('S170', 'and it frames what has been traced, not just the address',
-    (function(){
-      const i = admin.indexOf("getElementById('rmRecentreBtn').addEventListener");
-      if(i === -1) return false;
-      const body = admin.slice(i, admin.indexOf('rmPaneReady(', i));
-      return /fitBounds\(/.test(body) && /setZoom\(RM_SKY_ZOOM\)/.test(body);
-    })(),
+    /fitBounds\(/.test(recentre) && /setZoom\(RM_SKY_ZOOM\)/.test(recentre),
     're-centring on the house throws away the zoom somebody set to see their own gutters');
   check('S170', 'and it is the way out of a stuck pane',
+    /rmPaneReady\('sky'\); rmPaneReady\('street'\);/.test(recentre));
+  /* ⭐ AND IT IS REACHABLE IN FULL SCREEN (2026-08-30). Owner: "can you add a
+     recentre button even when full screened on sky view." Full screen is requested
+     on the PANE, so a control in the toolbar above simply is not on the glass —
+     and losing the house is exactly when somebody is zoomed in and full screen. */
+  check('S170', 'Recentre is inside the sky pane, so full screen has it',
+    /class="rm-panebtn rm-recentre"/.test(admin) &&
     (function(){
-      const i = admin.indexOf("getElementById('rmRecentreBtn').addEventListener");
-      const j = admin.indexOf("rmPaneReady('sky'); rmPaneReady('street');", i);
-      return i !== -1 && j > i;
-    })());
+      /* Inside the pane's own head, which is inside .rm-pane — the element that
+         goes full screen. A button outside it is invisible there. */
+      const head = admin.slice(admin.indexOf('&#128506; Sky View'));
+      const end = head.indexOf('</div>');
+      return head.slice(0, end).indexOf('rm-recentre') !== -1;
+    })(),
+    'the toolbar is not on the glass in full screen, which is the whole complaint');
+  check('S170', 'and both doors run the ONE function',
+    (admin.match(/rmRecentre\(\);/g) || []).length === 1 &&
+    (admin.match(/class="[^"]*rm-recentre/g) || []).length === 2,
+    'a second copy of "put the camera back" is the copy that stops matching');
+  /* ⚠ A CLICK THAT CARRIES ON DOWN REACHES THE MEASURING SHEET, and pressing
+     Recentre would place a corner on the roof. */
+  check('S170', 'and the press does not fall through onto the roof',
+    (function(){
+      /* ⚠ SLICED TO A STRUCTURAL ANCHOR, not a character count — §7 bans fixed
+         windows by name, and the first version of this check used one and failed
+         on correct code the moment the explaining comment was written. */
+      const after = admin.split(".rm-recentre').forEach")[1] || '';
+      const upToCall = after.split('rmRecentre();')[0];
+      return !!upToCall && /stopPropagation\(\);/.test(upToCall);
+    })(),
+    'the head lies over the map; an unstopped click puts a dot where the button was');
+  /* ⚠ AND IT MUST STAY HARMLESS, because it now sits where a thumb can find it by
+     accident. It moves cameras and takes covers off; it must never touch a
+     measurement. */
+  check('S170', 'and it changes no measurement at all',
+    !/rmCorners\.push|rmCorners\s*=|rmStreetDots|rmRuns\s*=|updateDoc|rmAddCorner/.test(recentre),
+    'a control this easy to press by accident must not be able to alter the roofline');
 
   /* ⭐ THE COVER COMES OFF EVERY TIME THE TOOL IS OPENED, not only the first. */
   check('S170', 'reopening the tool clears the "finding the house" cover',
@@ -38952,8 +38985,12 @@ suite('170. Measure Roof - a peak is two dots and a grade');
   check('S170', 'each picture has a full-screen button of our own',
     /class="rm-fs" data-rmfull="sky"/.test(admin) && /class="rm-fs" data-rmfull="street"/.test(admin));
   check('S170', 'and it can be clicked through the head that ignores clicks',
-    /\.rm-fs\{pointer-events:auto;/.test(admin),
+    /\.rm-fs,[\s\S]{0,80}\.rm-panebtn\{pointer-events:auto;/.test(admin),
     'the pane head is pointer-events:none so it never swallows a click meant for the roof');
+  /* Two pane controls that drift apart look like two different kinds of thing. */
+  check('S170', 'and the two pane controls share one style rather than copying it',
+    (admin.match(/pointer-events:auto; border:0; background:rgba\(255,255,255,\.9\)/g) || []).length === 1,
+    'a copied rule is one that gets tuned on one button and not the other');
   check('S170', 'and the map is told when full screen changes its box',
     /fullscreenchange[\s\S]{0,160}google\.maps\.event\.trigger\(rmMap, 'resize'\)/.test(admin),
     'without it the pane fills the screen and the map draws in the corner of it');

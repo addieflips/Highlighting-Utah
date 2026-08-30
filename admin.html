@@ -4687,9 +4687,19 @@
                is visible and unreachable, which is worse than not being there.
                ⚠ pointer-events:auto, because the head it lives in is deliberately
                pointer-events:none so it never swallows a click meant for the roof. */
-            #roofMeasureOverlay .rm-fs{pointer-events:auto; border:0; background:rgba(255,255,255,.9); color:#20321f;
+            /* ⭐ AND RECENTRE SITS BESIDE IT, FOR THE SAME REASON (2026-08-30).
+               Owner: "can you add a recentre button even when full screened on sky
+               view." Recentre already existed and already worked — in the TOOLBAR,
+               which is outside the pane, and it is the PANE that goes full screen.
+               So the one moment you are most likely to have lost the house is the
+               one moment the button for finding it again is off the screen.
+               ⚠ IT SHARES THE STYLE RATHER THAN COPYING IT: two pane controls that
+               drift apart look like two different kinds of thing. */
+            #roofMeasureOverlay .rm-fs,
+            #roofMeasureOverlay .rm-panebtn{pointer-events:auto; border:0; background:rgba(255,255,255,.9); color:#20321f;
               border-radius:6px; cursor:pointer; font-size:12px; line-height:1; padding:3px 7px; margin-left:6px;}
-            #roofMeasureOverlay .rm-fs:hover{background:#fff;}
+            #roofMeasureOverlay .rm-fs:hover,
+            #roofMeasureOverlay .rm-panebtn:hover{background:#fff;}
             /* ⭐ AND EVERY REMAINING LINE IS SQUEEZED, because each one is a strip
                of house. The keyboard hints move into a tooltip, the heading loses
                its own row, and the bars run at 11px. */
@@ -5132,7 +5142,7 @@
                          you zoom out on sky view it will readjust the camera", and a
                          reset filed under a disclosure about corner detection is one
                          nobody finds when they have lost the house. -->
-                    <button type="button" class="btn btn-outline btn-sm" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre</button>
+                    <button type="button" class="btn btn-outline btn-sm rm-recentre" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre</button>
                     <!-- ⛔ AUTO-DETECT, SUGGEST CORNERS AND SHOW ASSUMED HOUSE ARE GONE
                          (2026-08-26). Owner asked for the tool to be stripped to what is
                          needed, and named these first. They had already been ruled against
@@ -5405,7 +5415,10 @@
                    worse than one usable one. -->
               <div class="rm-panes" style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
-                <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
+                <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span><!-- ⚠ INSIDE .rm-pane ON PURPOSE. Full screen is requested on the PANE, so only
+                       this pane's own children are on the glass — a control in the toolbar
+                       above simply is not there. The head is pointer-events:none and the
+                       button turns it back on, exactly as the full-screen button does. --> <button type="button" class="rm-panebtn rm-recentre" title="Recentre — put the camera back over the house, or over what you have traced">&#9678;</button> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
                 <div id="rmMap" class="rm-canvas"></div>
                 <!-- ⚠ Tiles take a few seconds. Without this the pane is a
                      blank grey rectangle on open, which reads as broken - it
@@ -19814,6 +19827,43 @@ function rmMarkerLabel(c, i){
   return {text: rmCornerLabel(i), color: c.on ? '#E0574B' : '#6b7683',
           fontSize: RM_LABEL_PX + 'px', fontWeight: '700'};
 }
+/* ⭐ PUT THE CAMERA BACK. Owner: "a reset button so if you zoom out on sky view it
+   will readjust the camera", and 2026-08-30: "can you add a recentre button even
+   when full screened on sky view."
+
+   ⚠ IT FRAMES WHAT HAS BEEN TRACED, not just the address. Once there are dots
+   down, "put the camera back" means put it back over the WORK; re-centring on the
+   house would throw away the zoom somebody had set to see their own gutters. With
+   nothing traced it falls back to the house at the working zoom.
+
+   ⚠ AT MODULE LEVEL, NOT INSIDE THE WIRING. Two buttons reach it now and a third
+   may later; a function that lives inside one handler's closure is the one that
+   has to be copied to be reused. Same lesson as rmSaveGrade.
+
+   ⚠ AND IT TOUCHES NO MEASUREMENT. It moves two cameras and takes the covers off;
+   no dot, no height, no side, no footage. That is what makes it safe to put where
+   somebody might press it by accident. */
+function rmRecentre(){
+  if(!rmMap || !rmOrigin) return false;
+  const pts = rmCorners.slice();
+  rmRuns.forEach(function(r){ (r.path || []).forEach(function(p){ pts.push(p); }); });
+  if(pts.length >= 2){
+    const b = new google.maps.LatLngBounds();
+    pts.forEach(function(p){ b.extend(new google.maps.LatLng(p.lat, p.lng)); });
+    rmMap.fitBounds(b, 40);
+  } else {
+    rmMap.setCenter(rmOrigin);
+    rmMap.setZoom(RM_SKY_ZOOM);
+  }
+  /* Street View goes back to looking at the house too, and the cover comes off
+     whatever state it was left in - this button is the way out of a stuck pane. */
+  if(rmPano && rmPano.setPov && rmPano.getPosition && rmPano.getPosition()) rmPano.setPov({heading: rmHeadingTo(
+    rmPano.getPosition().lat(), rmPano.getPosition().lng(), rmOrigin.lat, rmOrigin.lng), pitch: 0});
+  google.maps.event.trigger(rmMap, 'resize');
+  if(rmPano) google.maps.event.trigger(rmPano, 'resize');
+  rmPaneReady('sky'); rmPaneReady('street');
+  return true;
+}
 function rmSyncCornersSky(){
   if(!rmMap){ rmClearCornerMarkers(); return; }
   if(rmCornerMarkers.length !== rmCorners.length) rmClearCornerMarkers();
@@ -25957,33 +26007,18 @@ function openRoofMeasure(quoteId){
     if(rmMap) google.maps.event.trigger(rmMap, 'resize');
     if(rmPano) google.maps.event.trigger(rmPano, 'resize');
   });
-  /* ⭐ RECENTRE HAD NO HANDLER AT ALL. The button has been in the markup since it
-     was asked for - "a reset button so if you zoom out on sky view it will readjust
-     the camera" - and nothing was ever wired to it, so it did nothing at all.
-
-     ⚠ IT FRAMES WHAT HAS BEEN TRACED, not just the address. Once there are dots
-     down, "put the camera back" means put it back over the WORK; re-centring on the
-     house would throw away the zoom somebody had set to see their own gutters. With
-     nothing traced it falls back to the house at the working zoom. */
-  document.getElementById('rmRecentreBtn').addEventListener('click', function(){
-    if(!rmMap || !rmOrigin) return;
-    const pts = rmCorners.slice();
-    rmRuns.forEach(function(r){ (r.path || []).forEach(function(p){ pts.push(p); }); });
-    if(pts.length >= 2){
-      const b = new google.maps.LatLngBounds();
-      pts.forEach(function(p){ b.extend(new google.maps.LatLng(p.lat, p.lng)); });
-      rmMap.fitBounds(b, 40);
-    } else {
-      rmMap.setCenter(rmOrigin);
-      rmMap.setZoom(RM_SKY_ZOOM);
-    }
-    /* Street View goes back to looking at the house too, and the cover comes off
-       whatever state it was left in - this button is the way out of a stuck pane. */
-    if(rmPano && rmPano.setPov) rmPano.setPov({heading: rmHeadingTo(
-      rmPano.getPosition().lat(), rmPano.getPosition().lng(), rmOrigin.lat, rmOrigin.lng), pitch: 0});
-    google.maps.event.trigger(rmMap, 'resize');
-    if(rmPano) google.maps.event.trigger(rmPano, 'resize');
-    rmPaneReady('sky'); rmPaneReady('street');
+  /* ⭐ EVERY WAY IN RUNS THE ONE FUNCTION. There are two buttons now — the toolbar
+     one and the one inside the sky pane, which is the only one that exists in full
+     screen — and a second copy of "put the camera back" is the copy that stops
+     matching. A third door later is one more element carrying .rm-recentre. */
+  document.querySelectorAll('#roofMeasureOverlay .rm-recentre').forEach(function(b){
+    b.addEventListener('click', function(e){
+      /* ⚠ STOPPED HERE. The in-pane one sits in the head that lies over the map,
+         and a click that carries on down reaches the measuring sheet and puts a
+         dot on the roof — pressing Recentre would place a corner. */
+      e.preventDefault(); e.stopPropagation();
+      rmRecentre();
+    });
   });
   document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
     if(!rmPano) return;
