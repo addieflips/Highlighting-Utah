@@ -204,7 +204,32 @@ never rewritten — a number already given out is on a bin in the warehouse, so
 the tool says the series no longer matches the footage and leaves it to a
 person. Suite 282.
 
-**And the picture is the same photograph the dots were placed on.** The street
+⭐ **The picture is a PHOTOGRAPH OF THE SCREEN** (2026-08-30). Press Capture, or
+press Attach with nothing captured, and Chrome asks once per house whether this
+tab may be photographed; from then on every capture is a frame of the pane
+exactly as it appears — the dots, their numbers, the joined strands, the letters,
+all of it. Nothing is downloaded: the frame goes onto a canvas and straight to
+Cloudinary.
+
+⚠ **This is why three earlier fixes did not land the dots on the house.** Every
+version before it FETCHED A FRESH PHOTOGRAPH from Google and re-drew the marks
+onto it from the directions they are stored as, so the dots were only ever as
+right as the arithmetic lining that new photograph up with the one on screen.
+Panorama, heading, pitch, field of view, aspect — any one of them off by a little
+and the marks sit beside the house. There is nothing to line up if the picture is
+the screen.
+
+⚠ **A screenshot has no clean twin, and that is the trade.** A fetched photograph
+could be uploaded twice, clean and marked, because we drew the marks. The marks
+in a screenshot were on the glass. So the marked picture IS the picture, the
+markup shapes are not offered (they would draw every line a second time), and
+Replace This One is how it is undone.
+
+⚠ **The fetched path is still there**, for a browser that will not share — and it
+says so, and says the dots on that one are worth checking. What follows describes
+that fallback.
+
+**And the fallback picture is the same photograph the dots were placed on.** The street
 capture is asked for by **panorama id**, not by position: `location=` makes the
 static service go and find the nearest panorama, and the arrow keys walk between
 panoramas — a mark is a *direction from one camera* and means nothing from the
