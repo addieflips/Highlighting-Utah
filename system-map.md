@@ -205,11 +205,19 @@ the tool says the series no longer matches the footage and leaves it to a
 person. Suite 282.
 
 ⭐ **The picture is a PHOTOGRAPH OF THE SCREEN** (2026-08-30). Press Capture, or
-press Attach with nothing captured, and Chrome asks once per house whether this
+press Attach with nothing captured, and Chrome asks **once a session** whether this
 tab may be photographed; from then on every capture is a frame of the pane
 exactly as it appears — the dots, their numbers, the joined strands, the letters,
 all of it. Nothing is downloaded: the frame goes onto a canvas and straight to
 Cloudinary.
+
+⚠ **There is no way to allow that question permanently, and it is not an
+oversight.** Chrome has no site permission for screen capture, because a page
+that could photograph itself unasked could photograph whatever else is in the
+tab. So the answer is kept for as long as the admin page is open — one ask covers
+a morning of quotes — and Chrome's own **Stop sharing** button is the way out of
+it: pressing it means the next capture simply asks again. Nothing is ever shared
+until a capture is actually pressed.
 
 ⚠ **This is why three earlier fixes did not land the dots on the house.** Every
 version before it FETCHED A FRESH PHOTOGRAPH from Google and re-drew the marks
