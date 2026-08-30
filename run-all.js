@@ -45101,6 +45101,112 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
       'the fallback is the path that CAN put them in the wrong place — saying so is the difference ' +
       'between a known limitation and the bug being reported a fourth time');
   }
+
+  /* ---- 10. a dormer's worth of dots stays readable --------------------- */
+  /* ⭐ Owner, 2026-08-30: "the dots look a little messy when you do something like
+     a dormer and it has a ton of little edges can you make the dots smaller and
+     cleaner." A dormer's edges are a few feet long, so on screen the dots ending
+     them are a few pixels apart — a dot comfortable on a long eave is wider than
+     the edge it is marking, and the labels land on top of one another. */
+  {
+    const sizes = {};
+    ['RM_DOT_R','RM_DOT_RING','RM_LABEL_PX','RM_LINE_W','RM_LINE_HALO','RM_SKY_DOT','RM_SKY_HANDLE','RM_LABEL_GAP']
+      .forEach(function(n){
+        const m = admin.match(new RegExp('const ' + n + ' = ([0-9.]+)'));
+        sizes[n] = m ? Number(m[1]) : null;
+      });
+    check('S282', 'every mark size is a named constant, not a number in a renderer',
+      Object.keys(sizes).every(function(n){ return typeof sizes[n] === 'number'; }),
+      'four renderers draw these marks — separately tuned numbers is how two views ' +
+      'start disagreeing about how big a dot is: ' + JSON.stringify(sizes));
+    /* ⚠ THE FLOOR AND THE CEILING BOTH MATTER. Too big is the complaint; too small
+       is a mark nobody can see or aim at, which is worse and harder to report. */
+    check('S282', 'a street dot is smaller than it was and still visible',
+      sizes.RM_DOT_R > 2 && sizes.RM_DOT_R < 6,
+      'it was r=6, which on a dormer edge is wider than the edge — got ' + sizes.RM_DOT_R);
+    check('S282', 'and the sky dot and the line came down with it',
+      sizes.RM_SKY_DOT > 1.5 && sizes.RM_SKY_DOT < 4 &&
+      sizes.RM_LINE_W > 1 && sizes.RM_LINE_W < 5,
+      'shrinking one renderer and not the others is the disagreement this guards');
+    check('S282', 'the four renderers all read the constants',
+      /r="'\+RM_DOT_R\+'"/.test(admin) &&
+      /scale: RM_SKY_DOT/.test(admin) &&
+      /scale: RM_SKY_HANDLE/.test(admin) &&
+      /RM_DOT_R\*2/.test(admin),
+      'the street SVG, the sky markers, the run handles and the fallback picture');
+    /* ⚠ THE FALLBACK PICTURE IS FETCHED AT scale 2, so it must DOUBLE the screen
+       sizes rather than carry its own — or shrinking the dots on screen leaves
+       that path drawing the old fat ones. */
+    check('S282', 'and the fallback picture doubles them rather than keeping its own',
+      /lw:RM_LINE_HALO\*2/.test(admin) && /lw:RM_LINE_W\*2/.test(admin) &&
+      /\(RM_LABEL_PX\*2\)/.test(admin),
+      'the static image is fetched at scale 2 — a number of its own goes stale silently');
+
+    /* ---- the thinner, RUN rather than read ---- */
+    const thin = new Function('RM_LABEL_GAP', (extractFn(admin, 'rmThinLabels') || '') +
+      NLS + 'return rmThinLabels;')(sizes.RM_LABEL_GAP);
+    const far = thin([{x:0,y:0},{x:100,y:0},{x:200,y:0}]);
+    check('S282', 'well-spaced dots all keep their label',
+      far.every(Boolean), 'got ' + JSON.stringify(far) + ' — thinning a clear picture loses letters for nothing');
+    const dormer = thin([{x:0,y:0},{x:3,y:1},{x:5,y:2},{x:60,y:0}]);
+    check('S282', 'a cluster keeps ONE label, not none and not all four',
+      dormer[0] === true && dormer[1] === false && dormer[2] === false && dormer[3] === true,
+      'got ' + JSON.stringify(dormer) + ' — two letters on one spot are a smudge, ' +
+      'and dropping every one of them loses the cluster entirely');
+    /* ⚠ ORDER IS THE RULE: the FIRST of a cluster survives, so the letter that
+       stays is stable while dots are added rather than jumping between them. */
+    /* ⚠ THE COMPARISON IS AGAINST WHAT WAS KEPT, NOT AGAINST EVERY DOT, and a
+       long evenly-spaced run is the only shape that can tell the two apart —
+       which is why it is here. On a dormer ridge of dots 11px apart, comparing
+       against every dot drops all but the FIRST and the ridge loses its
+       numbering entirely; comparing against the kept ones leaves a readable
+       every-other-one. A red-check of the wrong version passes on a cluster
+       fixture and fails only on this. */
+    const ridge = thin([{x:0,y:0},{x:11,y:0},{x:22,y:0},{x:33,y:0},{x:44,y:0}]);
+    check('S282', 'a long evenly-spaced run keeps a readable spread, not just its first dot',
+      ridge.filter(Boolean).length >= 3,
+      'got ' + JSON.stringify(ridge) + ' — measured against every dot rather than the kept ones, ' +
+      'a whole dormer ridge comes back with one label on it');
+    check('S282', 'and it is the first of the cluster that survives',
+      thin([{x:0,y:0},{x:2,y:0}])[0] === true &&
+      thin([{x:0,y:0},{x:2,y:0}])[1] === false,
+      'a rule that kept the last one would move the visible letter every time a dot is added');
+    const holes = thin([null, {x:0,y:0}, null]);
+    check('S282', 'a mark that is off screen is skipped, not counted as a collision',
+      holes[0] === false && holes[1] === true && holes[2] === false,
+      'a dot behind the camera has no position to be near — got ' + JSON.stringify(holes));
+
+    check('S282', 'the dots themselves are never thinned, only the labels',
+      /const keepNum = rmThinLabels\(pts\);/.test(extractFn(admin, 'rmPaintStreet') || '') &&
+      /if\(!keepNum\[i\]\) return;/.test(extractFn(admin, 'rmPaintStreet') || '') &&
+      (extractFn(admin, 'rmPaintStreet') || '').indexOf('<circle cx=') <
+      (extractFn(admin, 'rmPaintStreet') || '').indexOf('if(!keepNum[i]) return;'),
+      'hiding a DOT would hide a measurement; hiding a label hides only a name, ' +
+      'and zooming in brings it back');
+    check('S282', 'the sky letters thin out the same way',
+      /const keep = perM \? rmThinLabels\(/.test(extractFn(admin, 'rmSyncCornersSky') || '') &&
+      /const lab = \(!keep \|\| keep\[i\]\) \? rmMarkerLabel\(c, i\) : null;/.test(extractFn(admin, 'rmSyncCornersSky') || ''),
+      'a peak is named by the two letters it sits between, so a smudge there costs more than on a number');
+    /* ⚠ NO MAP, NO ORIGIN, NO ZOOM: draw every label. Thinning on a guess would
+       hide letters for a crowding nobody can see. */
+    check('S282', 'and it fails towards showing them',
+      /const perM = rmOrigin \? rmSkyPxPerM\(\) : 0;/.test(extractFn(admin, 'rmSyncCornersSky') || '') &&
+      /if\(!rmMap \|\| !rmMap\.getZoom \|\| !rmMap\.getCenter\) return 0;/.test(extractFn(admin, 'rmSkyPxPerM') || ''),
+      'a zero answer must mean draw everything, never hide everything');
+    /* Run the pixels-per-metre sum rather than reading it. */
+    const perM = new Function('rmMap', 'rmRad',
+      (extractFn(admin, 'rmSkyPxPerM') || '') + NLS + 'return rmSkyPxPerM;');
+    const rad = function(d){ return d * Math.PI / 180; };
+    const atZoom20 = perM({getZoom: function(){ return 20; }, getCenter: function(){ return {lat: function(){ return 40.4; }}; }}, rad)();
+    const atZoom18 = perM({getZoom: function(){ return 18; }, getCenter: function(){ return {lat: function(){ return 40.4; }}; }}, rad)();
+    check('S282', 'zooming out really does pack the marks closer together',
+      atZoom20 > atZoom18 * 3.9 && atZoom20 < atZoom18 * 4.1,
+      'two zoom levels is four times the spacing — got ' + atZoom20.toFixed(2) + ' vs ' + atZoom18.toFixed(2));
+    check('S282', 'and a map that cannot answer gives nought, not NaN',
+      perM(null, rad)() === 0 &&
+      perM({getZoom: function(){ return undefined; }, getCenter: function(){ return null; }}, rad)() === 0,
+      'NaN compares false against every gap, which silently hides every label');
+  }
   /* ---- 4. and then it closes ---- */
   check('S282', 'the tool closes itself once everything has landed',
     /roofMeasureOverlay'\)\.style\.display = 'none';/.test(attach),
