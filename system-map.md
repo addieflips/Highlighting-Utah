@@ -90,6 +90,21 @@ bin and a 5000-series number it does not need. Dropping the dial from 1.3 to 1.1
 narrowed that; it did not remove it. The clean fix is to store the true footage
 and apply the multiplier to the MONEY only — offered, not yet decided.
 
+⭐ **How big a mark is, and what happens on a dormer** (2026-08-30). Every mark
+size is one named constant — `RM_DOT_R`, `RM_SKY_DOT`, `RM_LINE_W` and their
+neighbours near `rmCornerMarkers` — because FOUR things draw these marks (the
+street overlay, the sky markers, a traced run's handles, and the fallback
+picture) and separately tuned numbers are how two views start disagreeing about
+how big a dot is. They are deliberately small: a dormer's edges are a few feet
+long, so a dot comfortable on a long eave is wider than the edge it is marking.
+
+⚠ **The labels thin themselves out; the dots never do.** Where marks are packed
+closer than `RM_LABEL_GAP` on screen, the ones whose number or letter would land
+on top of another are drawn without it — every dot still shows. **Zoom in and the
+letters come back**, because it is the picture that is crowded, not the roof. A
+letter is hidden at that magnification, never taken away. If the map cannot say
+how far apart things are, every label is drawn — the safe direction.
+
 **Street View has its own dots.** Click the picture and it takes a mark of its
 own, numbered 1, 2, 3… and visible only there — the sky view's lettered dots
 never appear on it. A mark is a *direction* from the camera rather than a place,
