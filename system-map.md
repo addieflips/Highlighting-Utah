@@ -1328,6 +1328,57 @@ settled. That is why none of the three surfaces above carries a fix button.
 questions map — that file holds judgement calls she made. Her answers *about* it are: MON-29
 (where it shows) and MON-30 (the inbox note and the invoice banner).
 
+### What the customer's own page can actually see
+
+The member portal never touches Firestore. Everything it knows comes back through
+`portalLookup` / `portalSave`, both of which return `sanitizeRecord(data)` — a copy
+containing **only** the names in `PORTAL_READ_FIELDS`. A field that is not on that list
+arrives as `undefined`. **Nothing throws**; `|| ''`, `|| 0` and `|| []` turn it into a
+plausible empty and the page renders as though the record held nothing.
+
+**Found 2026-08-30: the member portal's sides-changed re-quote was sending five blanks.**
+A customer changes which sides of their house are lit; the portal raises a quote and — per
+Addie, 2026-08-18, *"we should be able to find what their old # was no matter what"* —
+carries everything the old record knew. It reads five of those values off
+`currentJobAddressData`, and `customerNumber`, `measuredFeet`, `numberOfBins`,
+`lightColors` and `housePrice` are **not** whitelisted. Measured by running the real
+`sanitizeRecord` over a real record: only `lightsDescription` survived. So the office's
+*"On file"* strip read **"On file: no number"** above an instruction reading *"same
+number, same bin, same lights"* — and finding the number meant opening All Customers,
+which is the one lookup that strip exists to save.
+
+⚠ **The exclusion is right and was not reversed.** That list's own comment names
+*"pricing, customer number, bin assignments"* as things that never leave the server, and a
+value handed to the browser only to be echoed back proves nothing anyway.
+
+⭐ **`requoteOnFile` derives them at render time** from the live customer (`custById`, via
+the quote's `existingCustomerId`), falling back to the stored `existing*` snapshot for a
+quote whose customer has since gone. Same answer `invoiceDisplayName` gives to the same
+shape of problem — and it fixes the **staleness** a snapshot always had, where a footage
+corrected after the re-quote was raised left the strip quoting the old figure for ever.
+
+⚠ **And when it genuinely knows nothing it says so**, naming All Customers. "On file: no
+number" under "same number, same bin" is unusable silently.
+
+**Two office-side writers fill different halves of the snapshot**, which is worth knowing:
+Edit Customer's re-quote writes `existingCustomerNumber` and nothing else; the portal's
+writes the other four (as blanks). Neither ever filled all five. Deriving live makes that
+moot.
+
+**The other direction — whitelisted and never read.** Six fields are sent to the browser
+and never looked at. Two of them matter: `askSameAsLastYear` and `cannotBillNoEmail` each
+carry a comment saying they are whitelisted *"so the portal cannot contradict the office"*,
+and neither string appears anywhere in `index.html` — so the portal can still do exactly
+that. Nothing is broken and nothing leaks; what is wrong is a documented protection that
+was never built. **Q-028**, open, because both would change what a customer sees on their
+own page and the wording is the whole decision.
+
+*Gated by* `portal-fields.test.js` (`npm run test:portal-fields`), which sweeps from the
+**code back to the list** — every property `index.html` reads off a sanitised record must
+be whitelisted or declared, and every whitelisted field must be read or declared. That
+direction is the point: every check that existed asked *"is this listed field correct?"*,
+so a field never put on the list satisfied all of them by being absent from the question.
+
 ### Asking to cancel is dated, and on the path
 
 `seasonStatus` carries four answers — a cancellation asked for, an address changed, changes

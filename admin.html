@@ -9646,6 +9646,63 @@ function quoteFolder(d){
   if(stage === 'closed') return 'closed';
   return isRequote(d) ? 'requote' : stage;
 }
+/* ⭐ WHAT A RE-QUOTED HOUSE ALREADY HAS, READ OFF THE CUSTOMER (2026-08-30).
+   Addie, 2026-08-18: "we should be able to find what their old # was no matter what",
+   and "hold everything as long as they stay below 260 feet".
+
+   ⚠ THE CARD WAS SHOWING FIVE BLANKS AND ITS OWN INSTRUCTION COULD NOT BE FOLLOWED.
+   The four `existing*` fields are a SNAPSHOT copied onto the quote when it was raised,
+   and the two writers fill different halves of it. The office one (Edit Customer) writes
+   the customer NUMBER and nothing else. The portal one — a member changing which sides
+   of their house are lit — reads them off `currentJobAddressData`, which is whatever
+   `sanitizeRecord` on the server let through, and `customerNumber`, `measuredFeet`,
+   `numberOfBins` and `lightColors` are NOT in PORTAL_READ_FIELDS. That exclusion is
+   deliberate and correct — pricing, numbers and bins are named in that list's own
+   comment as things that never leave the server — so the browser could only ever send
+   `''`, `0`, `0` and `[]`, and the `|| ''` fallbacks made that look like a record with
+   nothing on it. Measured by running the real `sanitizeRecord` over a real record shape,
+   not reasoned about.
+
+   So the "On file" strip read "On file: no number" over an instruction that says
+   "same number, same bin" — and finding the number meant going to All Customers, which
+   is the one lookup the strip exists to save.
+
+   ⭐ SO IT IS DERIVED AT RENDER TIME, NOT WIDENED. This is `invoiceDisplayName`'s answer
+   to the same shape of problem: the quote already carries `existingCustomerId`, the
+   customer is already loaded, and reading them live fixes the STALENESS as well as the
+   blank — a footage corrected after the re-quote was raised used to leave the strip
+   quoting the old figure for ever. It also needs no privacy reversal and no round trip,
+   and it does not ask the browser to be trusted with values it would only be echoing
+   back to us.
+
+   ⚠ THE STORED SNAPSHOT IS THE FALLBACK, NEVER REPLACED. A quote whose customer has
+   since been deleted or archived has only the snapshot, and a stale number is worth more
+   than no number. Same rule as `invoiceDisplayName` falling back to the stored name and
+   never to blank.
+   ⚠ AND IT FAILS TOWARDS THE SNAPSHOT WHILE `jobAddresses` IS LOADING. `custById` is
+   empty until `rebuildCustomerIndexes` has run, and answering "" for a moment would make
+   the strip flicker between a number and "no number" on the one card that is about the
+   number. */
+function requoteOnFile(d){
+  const stored = {
+    number: (d && d.existingCustomerNumber) || '',
+    feet: Number((d && d.existingMeasuredFeet) || 0) || 0,
+    bins: Number((d && d.existingNumberOfBins) || 0) || 0,
+    lights: (d && d.existingLightsDescription) || ''
+  };
+  const id = d && d.existingCustomerId;
+  const live = (id && typeof custById !== 'undefined' && custById.has(id))
+    ? (custById.get(id) || {}).data : null;
+  if(!live) return stored;
+  /* Field by field, so a customer record that happens to be missing one of them still
+     contributes the other three rather than the whole answer falling back. */
+  return {
+    number: live.customerNumber || stored.number,
+    feet: Number(live.measuredFeet || 0) || stored.feet,
+    bins: Number(live.numberOfBins || 0) || stored.bins,
+    lights: live.lightsDescription || stored.lights
+  };
+}
 function quoteTemplateFor(d, kind){
   if(kind === 'nudge') return quoteTemplateNames.nudge;
   return isRequote(d) ? quoteTemplateNames.requote : quoteTemplateNames.newQuote;
@@ -12045,6 +12102,10 @@ function renderQuoteRows(filtered){
     const d = item.data;
     const status = d.status || 'new';
     const formDone = !!d.formCompletedAt;
+    /* What this house already has, read off the live customer where there is one — see
+       `requoteOnFile`. Only the re-quote block below uses it, but it is computed once
+       per row rather than twice inside one template string. */
+    const onFile = requoteOnFile(d);
     html += '<div class="row-item">'+
       '<div class="rmain">'+
         '<div class="row-name-line">'+esc(d.name)+' <span class="status-pill status-'+status+'">'+status+'</span>'+
@@ -12106,7 +12167,7 @@ function renderQuoteRows(filtered){
         // ---- Why this is a re-quote --------------------------------------
         ((quoteStage(d) === 'new' && d.existingCustomerId && d.changed) ? (
           '<div style="margin-top:10px; background:#EEF1FF; border:1px solid #C7CEF5; border-radius:9px; padding:10px 12px; font-size:12.5px; color:#33397a; line-height:1.55;">'+
-            '<strong>Existing customer</strong>'+(d.existingCustomerNumber ? ' &middot; Bin #'+esc(d.existingCustomerNumber) : '')+
+            '<strong>Existing customer</strong>'+(onFile.number ? ' &middot; Bin #'+esc(onFile.number) : '')+
             (d.changed.what === 'feet'
               ? '<div style="margin-top:4px;">Feet changed <strong>'+d.changed.oldFeet+' ft &rarr; '+d.changed.newFeet+' ft</strong>'+
                 (d.changed.oldPrice ? '. They were paying '+fmtMoney(d.changed.oldPrice)+'.' : '.')+
@@ -12139,10 +12200,16 @@ function renderQuoteRows(filtered){
                   '<strong>⚠ They are already built &mdash; do not build this house again.</strong>'+
                   '<div style="margin-top:3px;">'+
                     'On file: '+
-                    (d.existingCustomerNumber ? '<strong>#'+esc(d.existingCustomerNumber)+'</strong>' : 'no number')+
-                    (Number(d.existingMeasuredFeet) ? ' &middot; <strong>'+Number(d.existingMeasuredFeet)+' ft</strong>' : '')+
-                    (Number(d.existingNumberOfBins) ? ' &middot; <strong>'+Number(d.existingNumberOfBins)+' bin'+(Number(d.existingNumberOfBins) === 1 ? '' : 's')+'</strong>' : '')+
-                    (d.existingLightsDescription ? ' &middot; '+esc(d.existingLightsDescription) : '')+
+                    (onFile.number ? '<strong>#'+esc(onFile.number)+'</strong>' : 'no number')+
+                    (onFile.feet ? ' &middot; <strong>'+onFile.feet+' ft</strong>' : '')+
+                    (onFile.bins ? ' &middot; <strong>'+onFile.bins+' bin'+(onFile.bins === 1 ? '' : 's')+'</strong>' : '')+
+                    (onFile.lights ? ' &middot; '+esc(onFile.lights) : '')+
+                    /* ⚠ SAYS SO WHEN IT STILL DOES NOT KNOW. A strip reading "no number"
+                       under an instruction that says "same number, same bin" is unusable
+                       silently; naming the one place the answer is sends whoever is
+                       pricing it somewhere rather than nowhere. */
+                    ((!onFile.number && !onFile.feet)
+                      ? '<div style="margin-top:3px; color:#B91C1C;">Nothing on file for this house here — open them in All Customers before you re-measure.</div>' : '')+
                   '</div>'+
                   '<div style="margin-top:4px;">Re-measure. <strong>Under '+CN_DOUBLE_BIN_FEET+' ft</strong> and everything above stays as it is &mdash; same number, same bin, same lights, just more of them hung. '+
                   '<strong>Over '+CN_DOUBLE_BIN_FEET+' ft</strong> they need another bin and a 5000-series number, so keep whatever still fits and change only what has to.</div>'+

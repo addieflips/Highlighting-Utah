@@ -1897,3 +1897,64 @@ column that has gone stale is worse than a missing one: it sent this session tow
 designing something that already shipped. Corrected at the code, not from the row.
 
 **Resulting map change.** QT-17, re-confirmed and its status corrected.
+
+---
+
+## Q-028 · intent · OPEN · raised 2026-08-30
+Two flags are sent to the customer's own page so it "cannot contradict the office", and the page never looks at either. Should it show something, and what?
+
+**Found by sweeping the code back to the whitelist**, working the standing
+instruction to *"make sure there all accurate, and there all there along with
+marking were the errors or holes are at"*. Every existing check about
+`PORTAL_READ_FIELDS` asks *"is this listed field correct?"*, so a claim about a
+field that nothing reads is absent from the question rather than answered
+wrongly — the same blind spot the dated-field census hit on 2026-08-29.
+
+**What is true today, and each half was checked rather than assumed:**
+
+1. `askSameAsLastYear` is in `PORTAL_READ_FIELDS`. Its comment there says it is
+   in the list *"so the portal cannot contradict the office about a question
+   that is still open"*. **The string appears nowhere in `index.html`.**
+2. `cannotBillNoEmail` is in the list. Its comment says it is there *"so the
+   portal cannot show a customer as settled while the office is chasing them for
+   an address"*. **The string appears nowhere in `index.html`.**
+
+So both flags arrive at the browser on every sign-in and nothing reads them. The
+portal can contradict the office about a re-quote somebody declined, and it can
+show a customer as settled while the office has no way to bill them — exactly
+the two things the comments say cannot happen.
+
+**Nothing is broken and nothing leaks.** These are the customer's own flags and
+sending them costs nothing. What is wrong is that two comments and two test
+failure messages describe a protection that was never built, which is the
+**P-001** shape — a rule stated as fact about a guard that does not exist. Read
+by the next person, they close the question rather than opening it.
+
+**Why it is not simply built.** Both would change **what a customer sees on
+their own page**, and the wording is the whole of it:
+
+- The re-quote one is a customer who **declined** a new price. Saying *"we are
+  checking whether last year's setup will do"* is reassuring; saying nothing
+  leaves them thinking they have no lights this year; saying the wrong thing
+  invites a cancellation. Only Addie can pick.
+- The billing one is more delicate still. The customer has done nothing wrong —
+  we do not have an email for them. A line reading *"we cannot bill you"* on
+  their own account page is alarming and would generate calls; but showing them
+  a clean, settled-looking page while the office is chasing them is the state
+  the comment says must not happen.
+
+Neither is urgent: the office side of both works, and this is about a message the
+customer might see, not about money moving.
+
+**What was done meanwhile.**
+
+- The two run-all.js failure messages were corrected to say what they actually
+  prove — that the field *can reach* the browser, not that anything acts on it.
+- `portal-fields.test.js` holds a declared `WHITELISTED_UNREAD` list naming all
+  six whitelisted-and-unread fields with what is and is not true of each, so the
+  next one is visible rather than silent.
+
+⚠ **The fields stay whitelisted.** Dropping them would make building the portal
+half a two-surface change with a Cloud Functions deploy in it, for no benefit
+today.
+

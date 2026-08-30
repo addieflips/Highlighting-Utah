@@ -155,6 +155,13 @@ jobs:
       - name: Route notices (one digest a day)
         run: npm run test:digest
 
+      # What the customer's own page can actually see. Named separately because its
+      # failure is invisible by construction: a field missing from PORTAL_READ_FIELDS
+      # arrives as undefined, the `|| ''` fallbacks turn it into a plausible empty, and
+      # the page renders as though the record held nothing. Nothing throws.
+      - name: What the portal can see (the read whitelist)
+        run: npm run test:portal-fields
+
       - name: Run the fast suite
         run: npm test
 
