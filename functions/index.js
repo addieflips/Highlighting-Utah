@@ -3089,14 +3089,14 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
  * sendNightlyInvoices — runs every night at 7:00 PM Mountain Time.
  *
  * Checks every house marked "Done" by the crew that hasn't been billed yet
- * (regardless of which day it was actually completed \u2014 so a house marked
+ * (regardless of which day it was actually completed — so a house marked
  * Done late, after 7pm or the next morning, still gets caught on the very
  * next run instead of being missed) and sends an automatic invoice email:
  *   - already paid in full  -> "Nightly Auto-Invoice — Paid Receipt" template
  *   - still owes money      -> "Nightly Auto-Invoice — Unpaid" template
  * Houses flagged "needs fix" or marked "Didn't Get To" by the crew are
  * skipped entirely and never billed. Each house is only ever billed once
- * (guarded by invoiceEmailSent on the jobAddresses doc) \u2014 there's no
+ * (guarded by invoiceEmailSent on the jobAddresses doc) — there's no
  * "today vs yesterday" distinction at all, which is what keeps this from
  * ever double-billing or silently skipping a late completion.
  *
@@ -3268,7 +3268,7 @@ async function runInvoiceBatch(triggeredBy) {
     const pricingSnap = await db.collection('pricing').doc('config').get();
     const perFootRate = pricingSnap.exists ? (pricingSnap.data().perFootRate || 0) : 0;
 
-    // Bills any house marked Done that hasn't been invoiced yet \u2014 no matter
+    // Bills any house marked Done that hasn't been invoiced yet — no matter
     // which calendar day it was actually completed on. This avoids ever missing
     // a house that gets marked Done late (after 7pm, or the next morning): it
     // simply gets caught on the very next nightly run instead of being skipped.
@@ -3743,7 +3743,7 @@ async function runInvoiceBatch(triggeredBy) {
   }
 }
 
-// Runs automatically every night at 7:00 PM Mountain Time \u2014 but only if the
+// Runs automatically every night at 7:00 PM Mountain Time — but only if the
 // "Send nightly invoice emails automatically" toggle is on in Admin > Automation.
 /* ---------------------------------------------------------------------------
    listAdminUsers - who can sign in to the admin dashboard.
@@ -4107,7 +4107,7 @@ exports.sendNightlyInvoices = onSchedule(
   async () => {
     const autoSnap = await db.collection('settings').doc('nightlyInvoiceAutomation').get();
     if (!autoSnap.exists || !autoSnap.data().enabled) {
-      return; // automation turned off \u2014 do nothing, don't even log
+      return; // automation turned off — do nothing, don't even log
     }
     await runInvoiceBatch('schedule');
   }
@@ -4115,7 +4115,7 @@ exports.sendNightlyInvoices = onSchedule(
 
 /* --- sendInvoicesNow -------------------------------------------------------
  * Manual "Send Invoices Now" button in Admin > Automation > EmailJS Setup.
- * Runs the exact same billing logic as the 7:00 PM automation, on demand \u2014
+ * Runs the exact same billing logic as the 7:00 PM automation, on demand —
  * works whether the automatic toggle is on or off, so this is the way to send
  * invoices out on a night the automation is turned off. Requires the caller
  * to be signed in (same Firebase Auth already used across admin.html).

@@ -709,6 +709,32 @@ both the warehouse **and** the bill, from two places — being asked what is cha
 changing your mind while waiting for a day. Both routes are walked by name in
 `journey.test.js`, because a reachability check alone stays green with either one deleted.
 
+### A finished takedown resets with the season
+
+Addie, 2026-08-29, asked directly: *"Oh so if we removed lights from someone's house that
+should reset for new season."*
+
+⚠ **It was the one job-done flag left standing.** Start New Season clears `completed`,
+`invoiceEmailSent`, `scheduled`, `scheduledDate`, `assignedCrew`, `chargeNewMemberFee`,
+`needsDayAssignedAt`, `rejoinedForSeasonAt` and `cameBackThisSeasonAt` — and did not clear
+`removalDone`. Nothing else in the app ever did either: the only other writer of
+`removalDone: false` is the Mark Done toggle being unticked by hand. So a customer whose
+lights came down last December read **Removed** all the way through the new season, until
+somebody visited the record.
+
+⚠ **Same shape as `completed`, which is why it belongs beside it.** Both say a job was
+finished *this* season, and neither is true of the season about to start.
+
+⚠ **The date stays.** `removalDoneAt` is untouched, like every other date in that write —
+the history needs it to say when last season's takedown happened, and `seasonResetAt` is
+the line that stops it reading as this season's. **Clearing the flag and keeping the date
+is the whole design**, and the tempting "tidy" fix that nulled both would throw away the
+only record the work ever happened. Asserted in both directions.
+
+⚠ **In the same write as the rest of the reset**, and checked. Start New Season rewrites
+every customer in one press and cannot be undone; a separate write can fail on its own and
+leave half the book reset.
+
 ### Three steps that looked dateless and were not
 
 Three boxes on the journey page carried no dates at all, and each was hiding a real one.
