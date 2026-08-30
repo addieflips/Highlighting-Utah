@@ -1756,6 +1756,16 @@ if (JSDOM) {
   eval(extractFn(admin, 'quoteDifficultyMult') + '\nglobal.quoteDifficultyMult = quoteDifficultyMult;');
   eval(extractFn(admin, 'quoteEstimatedPrice') + '\nglobal.quoteEstimatedPrice = quoteEstimatedPrice;');
   eval(extractFn(admin, 'quoteDifficultyNote') + '\nglobal.quoteDifficultyNote = quoteDifficultyNote;');
+  /* ⚠ AND WHAT A RE-QUOTED HOUSE ALREADY HAS (added 2026-08-30). The "On file" strip
+     used to read the four `existing*` fields straight off the quote; it asks
+     `requoteOnFile`, which prefers the LIVE customer record, because the portal's writer
+     could never fill four of them — they are not in PORTAL_READ_FIELDS. LIFTED, NOT
+     STUBBED: the checks below are about what the strip really prints, and a stub would
+     let it agree with a fiction. `custById` is the index it reads; the fixtures here have
+     no customers, which is deliberate — it exercises the stored-snapshot fallback, and
+     the live-record path is checked on its own below. */
+  global.custById = new Map();
+  eval(extractFn(admin, 'requoteOnFile') + '\nglobal.requoteOnFile = requoteOnFile;');
 
   // Sliced through the end of renderQuoteRows (not just up to innerHTML) so
   // the data-pricingtoggle click handler is actually live for the toggle test.
@@ -19377,6 +19387,24 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
       /existingMeasuredFeet:/.test(body) && /existingNumberOfBins:/.test(body) &&
       /existingLightsDescription:/.test(body) && /existingLightColors:/.test(body),
       'held so the office can keep whatever still fits rather than rebuilding from nothing');
+    /* ⚠ THOSE TWO CHECKS PASSED FOR MONTHS OVER A PAYLOAD THAT COULD ONLY EVER SEND
+       BLANKS, and this is the note that has to sit beside them. They assert the field
+       NAMES appear; four of the five values are read off `currentJobAddressData`, which
+       is whatever `sanitizeRecord` let through, and customerNumber / measuredFeet /
+       numberOfBins / lightColors are NOT in PORTAL_READ_FIELDS — deliberately, that
+       list's own comment names pricing, numbers and bins as things that never leave the
+       server. Naming a field is not carrying a value.
+       The general form of that check is `portal-fields.test.js`, which sweeps every
+       property index.html reads off a sanitised record; it is its own file per R-018 and
+       runs from the CODE back to the LIST, which is the direction nothing was asking.
+       Kept here, narrowed to what they honestly prove: the names are the FALLBACK for a
+       quote whose customer has since been deleted, and the live values come from
+       `requoteOnFile` in admin.html. */
+    check('S64', 'and admin does not depend on those blanks',
+      /function requoteOnFile\(d\)\{/.test(admin) &&
+      /const onFile = requoteOnFile\(d\);/.test(admin),
+      'four of the five can only ever arrive empty, so the office card has to derive ' +
+      'them from the live customer or the strip reads "no number" for ever');
   }
   check('S64', 'the card says not to build the house again',
     admin.indexOf('They are already built &mdash; do not build this house again') > 0,
@@ -19390,14 +19418,60 @@ suite('Suite 64. Back into Quotes, and labelled for what it is');
     const end = at > 0 ? admin.indexOf("'</div>'+", at) : -1;
     const strip = (at > 0 && end > at) ? admin.slice(at, end).replace(/\+\s*$/, '') : "''";
     const esc = v => String(v);
-    const d = { existingCustomerNumber: '541', existingMeasuredFeet: 300,
-                existingNumberOfBins: 2, existingLightsDescription: 'warm white' };
-    let onFile = '';
-    try { onFile = eval('(' + strip + ')'); } catch (e) { onFile = 'THREW: ' + e.message; }
-    check('S64', 'and it shows what they already have',
-      /#541/.test(onFile) && /300 ft/.test(onFile) && /2 bins/.test(onFile) &&
-      /warm white/.test(onFile),
-      'telling somebody not to rebuild without showing them what exists is half an instruction');
+    /* ⭐ BOTH SOURCES, because the strip reads `requoteOnFile`, which prefers the LIVE
+       customer and falls back to the snapshot the quote carries. A fixture exercising one
+       of those proves nothing about the other, and the whole reason the helper exists is
+       that the portal's writer can only ever fill the snapshot with blanks. */
+    const onFileFn = (function () {
+      const src = extractFn(admin, 'requoteOnFile');
+      return new Function('custById', src + '\nreturn requoteOnFile;');
+    })();
+
+    // (a) the snapshot alone, which is all a quote whose customer has gone still has.
+    {
+      const d = { existingCustomerNumber: '541', existingMeasuredFeet: 300,
+                  existingNumberOfBins: 2, existingLightsDescription: 'warm white' };
+      const onFile = onFileFn(new Map())(d);
+      let html = '';
+      try { html = eval('(' + strip + ')'); } catch (e) { html = 'THREW: ' + e.message; }
+      check('S64', 'and it shows what they already have',
+        /#541/.test(html) && /300 ft/.test(html) && /2 bins/.test(html) &&
+        /warm white/.test(html),
+        'telling somebody not to rebuild without showing them what exists is half an ' +
+        'instruction \u2014 got: ' + String(html).slice(0, 140));
+    }
+
+    // (b) the live customer, which is where the portal's blanks are rescued.
+    {
+      const d = { existingCustomerId: 'c1', existingCustomerNumber: '',
+                  existingMeasuredFeet: 0, existingNumberOfBins: 0,
+                  existingLightsDescription: '' };
+      const idxMap = new Map([['c1', {id: 'c1', data: {customerNumber: '894',
+        measuredFeet: 300, numberOfBins: 2, lightsDescription: 'Warm White, Red'}}]]);
+      const onFile = onFileFn(idxMap)(d);
+      let html = '';
+      try { html = eval('(' + strip + ')'); } catch (e) { html = 'THREW: ' + e.message; }
+      check('S64', 'and a re-quote raised from the member portal shows it too',
+        /#894/.test(html) && /300 ft/.test(html) && /2 bins/.test(html) &&
+        /Warm White, Red/.test(html),
+        'the portal can only ever send blanks for four of these \u2014 without the live ' +
+        'read the strip says "no number" above an instruction that says "same number". ' +
+        'Got: ' + String(html).slice(0, 140));
+      check('S64', 'and it does not claim there is nothing on file when there is',
+        !/Nothing on file for this house/.test(html),
+        'the red line is for the genuinely unknown case only');
+    }
+
+    // (c) genuinely nothing anywhere: say so rather than reading as an empty record.
+    {
+      const d = { existingCustomerId: 'gone' };
+      const onFile = onFileFn(new Map())(d);
+      let html = '';
+      try { html = eval('(' + strip + ')'); } catch (e) { html = 'THREW: ' + e.message; }
+      check('S64', 'and when it really knows nothing it says where to look',
+        /Nothing on file for this house/.test(html) && /All Customers/.test(html),
+        '"On file: no number" under "same number, same bin" is unusable silently');
+    }
   }
   /* ⚠ The 260ft line, named rather than written down twice. */
   check('S64', 'the 260ft line comes from the same constant the bins do',
@@ -33072,9 +33146,20 @@ suite('Suite 137. A decline asks a question, it does not cancel their season');
   check('S137', 'answering the RSVP clears the question',
     /askSameAsLastYear: false/.test(stripComments(fns)),
     'a state with no exit is the hole this whole job exists to close');
+  /* ⚠ CORRECTED 2026-08-30. This said the field is in PORTAL_READ_FIELDS "so the
+     portal cannot contradict the office about a question that is still open" — which
+     describes a protection nothing implements: the string `askSameAsLastYear` appears
+     NOWHERE in index.html, so the flag arrives at the browser and nothing looks at it.
+     The check itself was never wrong, only its failure text; a message that names a
+     guarantee the check does not test is the P-001 shape, and it is how a guard that was
+     never built reads as one that exists. Recorded as a hole in docs/open-questions.md
+     — whether the portal should SHOW anything is Addie's call, since it changes what a
+     customer sees. `portal-fields.test.js` holds the whitelisted-but-unread list. */
   check('S137', 'and the portal can read it',
     /'askSameAsLastYear'/.test(fns),
-    'in PORTAL_READ_FIELDS so the portal cannot contradict the office about a ' +
+    'it is in PORTAL_READ_FIELDS, which is what lets a portal-side warning be built ' +
+    'without a server change — note that nothing in index.html reads it yet, so this ' +
+    'proves the field CAN reach the browser, not that anything acts on it. A quote ' +
     'question that is still open');
 }
 
@@ -35267,7 +35352,11 @@ suite('Suite 135. A house that cannot be invoiced is a job, not a statistic');
     'customers have vanished');
   check('S135', 'the portal can read the flag',
     /'cannotBillNoEmail'/.test(fns),
-    'in PORTAL_READ_FIELDS so the portal cannot show a customer as settled while ' +
+    /* ⚠ CORRECTED 2026-08-30, same reason as the askSameAsLastYear message above:
+       nothing in index.html reads this either. */
+    'it is in PORTAL_READ_FIELDS, so a portal-side warning can be built with no server ' +
+    'change — but nothing reads it yet, so this proves the flag CAN reach the browser ' +
+    'and not that the portal acts on it. Without the field there at all, a page could ' +
     'the office is chasing them for an address');
 }
 
