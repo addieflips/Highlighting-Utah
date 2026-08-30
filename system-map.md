@@ -352,6 +352,15 @@ This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFe
 | `paymentImports` / `paymentImportFolders` | Bank/payment CSV import history |
 | `reviews` / `gallery` / `heroImages` / `faq` / `siteContent` | Public website content — publicly **readable**, staff-only to write |
 | `projectPeople` / `projectTests` | Internal QA — the Test Checklist tab |
+| `routeSchedule` | **The Schedule tab's whole saved season**, one document (`routeSchedule/plan`). Distinct from `scheduledRoutes`, which is the crew's frozen day sheets — see §5 |
+| `archivedCustomers` | Customers removed to the recycle queue. The customer is **nested** (`{customer, archivedAt, archivedBy, reason}`), which has caught a sweep out before |
+| `activity` | The activity log — one row per office action, keyed by `refId` so a customer's history can be read back. This is what still records a route sweep on the spot now the inbox note is a daily digest |
+| `payments` | The payment ledger — one row per payment received, keyed on `invoiceKey`. Append-only in practice; `logPayment` refuses a zero |
+| `unmatchedPayments` | A card capture that succeeded with no invoice to apply it to. Staff-readable, `allow write: if false` — see *"A payment that finds no bill"* below |
+| `healthCheckDecisions` | Health Check's *Fix this one* / *Not a problem* answers, fingerprinted on check + member + values so a decision lapses when the numbers move |
+| `ruleDecisions` | Approve/deny on a rules finding. Deliberately **not** a second copy of the rulings — only the decision, its fingerprint, who and when. `claude/questions-map.md` stays the one place a ruling lives |
+| `yearlySnapshots` | One document per season, written by Start New Season before it resets anything: every invoice as it stood. Read back immediately, because "the write resolved" is not "the data is there" |
+| `adminUserPrefs` | Per-signed-in-user dashboard preferences (`adminUserPrefs/{uid}`) — the only per-user collection here |
 | `houseMaps`, `inventoryItems`, `smsTemplateFolders`, `smsTemplates`, `employeeMessages`, `teamMessages` | Present in the rules; no direct usage found in this pass in the three HTML files — likely legacy/reserved |
 
 **Read/written only by Cloud Functions** (Admin SDK, bypass rules entirely — this is *how* the public site touches protected data without being logged in):
@@ -360,6 +369,14 @@ This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFe
 |---|---|
 | `portalRateLimits` | Sign-in / lookup attempt counters, to slow down guessing |
 | `nightlyInvoiceLog` | Log of nightly billing runs — staff can read it, only the function writes (`allow write: if false`) |
+
+⚠ **THE NINE ROWS ABOVE `routeSchedule` DOWN WERE MISSING UNTIL 2026-08-30**, under a
+heading reading *"Every Firestore collection"*. `routeSchedule` holds the entire Schedule
+tab; `payments` and `unmatchedPayments` hold money. Nothing checked the table, which is
+why "every" drifted — the same code-back-to-the-list gap found the same day in the portal
+whitelist. `collections.test.js` (`npm run test:collections`) now sweeps every collection
+touched in the four source files against this table, and every name in
+`firestore.rules` against the code.
 
 `jobAddresses`, `invoices`, `quotes`, `messages`, and `scheduledRoutes` are touched by **both** sides — staff directly (authenticated), and the public/portal side only through Cloud Functions.
 
