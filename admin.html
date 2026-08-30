@@ -5538,7 +5538,7 @@
                      choice rather than a removal because a picture showing
                      somebody where their lights will go is a real thing to
                      want — it just is not what every capture should be. -->
-                <label style="font-size:12.5px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+                <label id="rmCropLinesWrap" style="font-size:12.5px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
                   <!-- ⭐ TICKED BY DEFAULT (2026-08-30). Owner: "when the picture
                        uploads the dots dont go with it which is the whole point."
                        ⚠ THIS SUPERSEDES THE 2026-08-25 DEFAULT and the old reasoning is
@@ -24567,8 +24567,42 @@ function rmStaticFailMessage(which, res, why){
 async function rmCapture(which, auto){
   const status = document.getElementById('rmStatus');
   rmFinishRun();
-  status.textContent = 'Capturing…';
   const el = document.getElementById(which === 'street' ? 'rmPano' : 'rmMap');
+  /* ⭐ THE SCREEN FIRST — see rmGrabPane for why this replaced fetching a fresh
+     photograph and re-drawing the marks onto it. What is on the glass IS the
+     answer: the dots, the numbers, the joined strands, the letters, all of it,
+     with no projection anywhere that could put them somewhere else.
+     ⚠ AND IT MUST BE THE FIRST THING THIS FUNCTION AWAITS. getDisplayMedia needs
+     the click that is still in hand; anything awaited before it spends that. */
+  if(which === 'street' || which === 'sky'){
+    status.textContent = 'Taking a picture of the screen…';
+    const shot = await rmGrabPane(el);
+    if(shot){
+      const work = document.createElement('canvas');
+      work.width = shot.width; work.height = shot.height;
+      rmCrop = {canvas: work, shot: shot, box: null, which: which, img: null,
+                w: shot.width, h: shot.height, scale: 1,
+                pov: null, cam: null, center: null, zoom: 0, lines: true};
+      rmComposeCapture();
+      const linesWrap = document.getElementById('rmCropLinesWrap');
+      /* ⚠ THE TOGGLE IS MEANINGLESS ON A SCREENSHOT and a control that does
+         nothing is worse than no control — the marks are in the pixels already. */
+      if(linesWrap) linesWrap.style.display = 'none';
+      if(auto){ status.textContent = ''; return await rmStageCapture(); }
+      document.getElementById('rmCropBox').style.display = 'none';
+      document.getElementById('rmCropStatus').textContent = rmMarkTallyText();
+      document.getElementById('rmWorkStage').style.display = 'none';
+      document.getElementById('rmCropStage').style.display = 'block';
+      status.textContent = '';
+      return true;
+    }
+    /* No stream — she said no, or the browser will not do it. The fetched
+       photograph is still better than nothing, and it still carries the marks
+       as well as the arithmetic can place them. */
+    status.textContent = 'Could not photograph the screen — falling back to Google\u2019s own picture, so check the dots are on the house.';
+  }
+  const linesWrapBack = document.getElementById('rmCropLinesWrap');
+  if(linesWrapBack) linesWrapBack.style.display = '';
   const ratio = (el.clientWidth||640) / (el.clientHeight||400);
   let w, h;
   if(ratio >= 1){ w = RM_STATIC_MAX; h = Math.max(160, Math.round(RM_STATIC_MAX/ratio)); }
@@ -24709,6 +24743,110 @@ function rmPaintCropBox(){
   box.style.left = (b.x*100)+'%'; box.style.top = (b.y*100)+'%';
   box.style.width = (b.w*100)+'%'; box.style.height = (b.h*100)+'%';
 }
+/* ⭐ THE PICTURE IS A PICTURE OF THE SCREEN (2026-08-30). Owner: "the issue is
+   when it uploads i think the dots remain as code but i want the computer to
+   actually take a picture and move it to the customers picture without
+   downloading it because it all stays in the website."
+
+   ⚠ SHE DIAGNOSED IT EXACTLY, AND IT IS WHY THREE FIXES DID NOT HOLD. Every
+   version until now FETCHED A FRESH PHOTOGRAPH from Google and then re-drew the
+   marks onto it from the directions they were stored as — so the dots were only
+   ever as right as the arithmetic lining that new photograph up with the one on
+   screen. Panorama, heading, pitch, field of view, aspect: any one of them off
+   and the marks land beside the house. Each fix closed one of those and the next
+   one was still there. THERE IS NOTHING TO LINE UP IF THE PICTURE IS THE SCREEN.
+
+   ⚠ AND NOTHING IS DOWNLOADED, which she has now asked for twice. getDisplayMedia
+   hands the page a live video of its own tab; one frame is drawn onto a canvas and
+   goes straight to Cloudinary. Nothing touches the disk and nothing leaves the
+   browser except the finished picture.
+
+   ⚠ IT COSTS ONE PERMISSION CLICK PER HOUSE, and there is no way round that — a
+   web page cannot photograph itself without the person saying so, by design. The
+   stream is kept for as long as the tool is open, so it is asked once and every
+   capture after that is instant, and it is STOPPED when the tool closes rather
+   than left running behind a sharing bar nobody asked for. */
+let rmShotStream = null;
+async function rmEnsureShotStream(){
+  const live = rmShotStream && rmShotStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+  if(live) return rmShotStream;
+  rmShotStream = null;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return null;
+  try{
+    rmShotStream = await navigator.mediaDevices.getDisplayMedia({
+      /* ⚠ THE CURRENT TAB AND NOTHING ELSE. Chrome narrows the picker to this one
+         tab, which is what makes the crop below reliable: a frame of the whole
+         screen or of another window has no fixed relationship to this page's
+         coordinates, and cropping it would cut out the wrong rectangle. */
+      video: {displaySurface: 'browser'},
+      preferCurrentTab: true,
+      selfBrowserSurface: 'include',
+      audio: false
+    });
+  } catch(err){
+    /* Said no, or the browser refused. The caller falls back to the fetched
+       photograph rather than leaving the office with no picture at all. */
+    console.warn('Measure: screen capture was not available —', err && err.name);
+    return null;
+  }
+  /* Stopped from Chrome's own sharing bar: forget it rather than handing out a
+     dead stream on the next capture. */
+  rmShotStream.getVideoTracks().forEach(function(t){
+    t.addEventListener('ended', function(){ rmShotStream = null; });
+  });
+  return rmShotStream;
+}
+function rmStopShotStream(){
+  if(!rmShotStream) return;
+  try{ rmShotStream.getTracks().forEach(function(t){ t.stop(); }); }
+  catch(err){ /* already gone; nothing to stop */ }
+  rmShotStream = null;
+}
+/* One frame of this tab, cropped to the pane. Null when there is no stream,
+   which is the caller's signal to fall back. */
+async function rmGrabPane(el){
+  if(!el) return null;
+  const stream = await rmEnsureShotStream();
+  if(!stream) return null;
+  const video = document.createElement('video');
+  video.srcObject = stream;
+  video.muted = true;
+  video.playsInline = true;
+  /* ⚠ IN THE DOM, OFF SCREEN. Some browsers will not decode a frame for a video
+     that was never attached, and a detached one can sit at 0x0 for ever. */
+  video.style.cssText = 'position:fixed; left:-10000px; top:0; width:2px; height:2px; opacity:0;';
+  document.body.appendChild(video);
+  let canvas = null;
+  try{
+    await video.play();
+    /* A frame is not there the instant play() resolves. Two frames of grace, so
+       what is captured is the pane as it is now rather than as it was. */
+    await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const rect = el.getBoundingClientRect();
+    if(vw > 0 && vh > 0 && rect.width > 20 && rect.height > 20){
+      /* The tab is captured at its own scale, so one CSS pixel of this page is
+         this many pixels of the frame. Measured rather than assumed: it is NOT
+         always devicePixelRatio — a zoomed page and a scaled display disagree. */
+      const sx = vw / window.innerWidth, sy = vh / window.innerHeight;
+      const cx = Math.max(0, Math.round(rect.left * sx));
+      const cy = Math.max(0, Math.round(rect.top * sy));
+      const cw = Math.min(vw - cx, Math.round(rect.width * sx));
+      const ch = Math.min(vh - cy, Math.round(rect.height * sy));
+      if(cw > 20 && ch > 20){
+        canvas = document.createElement('canvas');
+        canvas.width = cw; canvas.height = ch;
+        canvas.getContext('2d').drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch);
+      }
+    }
+  } catch(err){
+    console.warn('Measure: could not read a frame off the screen —', err);
+  }
+  try{ video.pause(); } catch(err){ /* nothing to pause */ }
+  video.srcObject = null;
+  video.remove();
+  return canvas;
+}
 /* ⭐ EVERY MARK THE OFFICE PLACED, IN THE CAPTURED PICTURE'S OWN PIXELS
    (2026-08-29). Owner: "make sure the placed dots moves with it."
 
@@ -24775,7 +24913,19 @@ function rmCaptureMarks(which, w, h, scale, pov, cam, center, zoom){
    painter that can only work on one canvas would have to destroy one to make the
    other. */
 function rmPaintCapture(canvas, withMarks){
-  if(!rmCrop || !rmCrop.img) return;
+  if(!rmCrop) return;
+  /* ⚠ A SCREENSHOT IS FINISHED WHEN IT IS TAKEN. The marks are already in the
+     pixels — that is the whole reason for taking one — so drawing them again
+     would put a second set beside the first, half a house apart. */
+  if(rmCrop.shot){
+    const sctx = canvas.getContext('2d');
+    sctx.clearRect(0, 0, canvas.width, canvas.height);
+    /* ⚠ NO FILTER HERE. rmApplyFilter puts it on the PANE, so a picture of the
+       pane already has it — applying it again would apply it twice. */
+    sctx.drawImage(rmCrop.shot, 0, 0);
+    return;
+  }
+  if(!rmCrop.img) return;
   const img = rmCrop.img;
   const which = rmCrop.which, w = rmCrop.w, h = rmCrop.h, scale = rmCrop.scale;
   const pov = rmCrop.pov, cam = rmCrop.cam, center = rmCrop.center, zoom = rmCrop.zoom;
@@ -24817,7 +24967,7 @@ function rmPaintCapture(canvas, withMarks){
  * Owner: "I don't want red lines showing here after I'm done measuring."
  * The toggle composes either version on demand and neither is destroyed. */
 function rmComposeCapture(){
-  if(!rmCrop || !rmCrop.img) return;
+  if(!rmCrop || !(rmCrop.img || rmCrop.shot)) return;
   rmPaintCapture(rmCrop.canvas, !!rmCrop.lines);
   document.getElementById('rmCropImg').src = rmCrop.canvas.toDataURL('image/jpeg', .92);
 }
@@ -24830,6 +24980,10 @@ function rmComposeCapture(){
    with the picture without being burnt into it for ever. */
 function rmCaptureShapes(){
   if(!rmCrop || !rmCrop.canvas) return [];
+  /* Nothing to hand the Mark Up tool: on a screenshot the marks are pixels, not
+     shapes, and offering editable copies of lines that are already burnt in
+     would draw every one of them twice. */
+  if(rmCrop.shot) return [];
   const W = rmCrop.canvas.width, H = rmCrop.canvas.height;
   const b = (rmCrop.box && rmCrop.box.w >= .02 && rmCrop.box.h >= .02) ? rmCrop.box : null;
   const ox = b ? b.x*W : 0, oy = b ? b.y*H : 0;
@@ -24871,6 +25025,10 @@ function rmCaptureMarkTally(){
 }
 /* The same tally as a sentence, or '' when there is nothing to say. */
 function rmMarkTallyText(){
+  /* ⚠ THERE IS NOTHING TO COUNT ON A SCREENSHOT. The count exists to catch marks
+     that were re-drawn onto the wrong photograph; a picture of the screen cannot
+     have that fault, and a reassuring number would only imply it might. */
+  if(rmCrop && rmCrop.shot) return 'Taken straight off the screen — whatever you could see is on it.';
   const t = rmCaptureMarkTally();
   if(!t.placed && !t.lines) return '';
   if(t.placed && !t.on){
@@ -24889,13 +25047,22 @@ function rmMarkTallyText(){
    own button and by Attach when it had to take the picture itself, so there is
    ONE place that decides what a staged picture is. */
 async function rmStageCapture(){
-  if(!rmCrop || !rmCrop.img) return false;
+  if(!rmCrop || !(rmCrop.img || rmCrop.shot)) return false;
   const clean = await rmCroppedBlob(false);
   if(!clean) return false;
   const shapes = rmCaptureShapes();
-  const marks = rmCaptureMarks(rmCrop.which, rmCrop.w, rmCrop.h, rmCrop.scale,
-                               rmCrop.pov, rmCrop.cam, rmCrop.center, rmCrop.zoom);
-  const marked = (rmCrop.lines && marks.length) ? await rmCroppedBlob(true) : null;
+  /* Not asked at all for a screenshot: there is no pov behind one, and the mark
+     projection would be handed nulls to divide by. */
+  const marks = rmCrop.shot ? [] :
+    rmCaptureMarks(rmCrop.which, rmCrop.w, rmCrop.h, rmCrop.scale,
+                   rmCrop.pov, rmCrop.cam, rmCrop.center, rmCrop.zoom);
+  /* ⚠ A SCREENSHOT HAS NO CLEAN TWIN, and that is the honest trade. A fetched
+     photograph could be uploaded twice — once clean as the picture's `original`,
+     once marked — because the marks were drawn by us and could be left off. The
+     marks in a screenshot were on the glass; there is no version of that frame
+     without them. Owner has now twice said the dots are the point, so the picture
+     that shows them is the picture, and Replace This One is how it is undone. */
+  const marked = (!rmCrop.shot && rmCrop.lines && marks.length) ? await rmCroppedBlob(true) : null;
   const t = rmTotals();
   const from = rmCrop.which === 'street' ? 'Front of house' : 'Roofline from above';
   rmShots.push({
@@ -24912,7 +25079,7 @@ async function rmStageCapture(){
    never destroys the other - Attach asks for both. */
 function rmCroppedBlob(withMarks){
   return new Promise(function(resolve){
-    if(!rmCrop || !rmCrop.img){ resolve(null); return; }
+    if(!rmCrop || !(rmCrop.img || rmCrop.shot)){ resolve(null); return; }
     const src = document.createElement('canvas');
     src.width = rmCrop.canvas.width; src.height = rmCrop.canvas.height;
     rmPaintCapture(src, !!withMarks);
@@ -26124,6 +26291,8 @@ function openRoofMeasure(quoteId){
          half that did not happen. */
       document.getElementById('roofMeasureOverlay').style.display = 'none';
       rmSetDrawing(false);
+      /* Nobody wants a sharing bar left running behind a closed tool. */
+      rmStopShotStream();
       /* ⚠ ONLY AFTER THE WRITE LANDED. openQuoteMarkup reads the photo list off
          quotesCache, so opening it before the update would mark up a slot that
          does not exist yet and silently fall back to photo #1 — somebody else's
@@ -26281,6 +26450,7 @@ function openRoofMeasure(quoteId){
     if(rmShots.length && !confirm('Close without attaching?\n\n' + rmShots.length + ' captured picture' + (rmShots.length === 1 ? '' : 's') + ' will be thrown away.')) return;
     overlay.style.display = 'none';
     rmSetDrawing(false);
+    rmStopShotStream();
   });
 })();
 /* ---------------- DASHBOARD & EXPENSES ---------------- */

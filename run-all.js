@@ -45007,6 +45007,78 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
   check('S282', 'and rmLastPane still breaks the tie when both views are marked',
     /hasStreet && \(rmLastPane === 'street' \|\| !hasSky\)/.test(attach),
     'with marks in both, the one she was last working in is the better guess');
+
+  /* ---- 9. the picture is a picture of the SCREEN ----------------------- */
+  /* ⭐ Owner, 2026-08-30, having watched three fixes fail to land the dots on the
+     house: "the issue is when it uploads i think the dots remain as code but i
+     want the computer to actually take a picture and move it to the customers
+     picture without downloading it because it all stays in the website."
+     ⚠ SHE DIAGNOSED IT EXACTLY. Every version until now fetched a FRESH
+     photograph and re-drew the marks onto it from their stored directions, so the
+     dots were only ever as right as the arithmetic lining that new photograph up
+     with the one on screen — panorama, heading, pitch, fov, aspect, any one of
+     them off and they land beside the house. There is nothing to line up if the
+     picture IS the screen. The fetched path is KEPT as the fallback for a browser
+     that will not share, and these checks pin both. */
+  {
+    const cap = extractFn(admin, 'rmCapture') || '';
+    const grab = extractFn(admin, 'rmGrabPane') || '';
+    const ensure = extractFn(admin, 'rmEnsureShotStream') || '';
+    const paint = extractFn(admin, 'rmPaintCapture') || '';
+
+    check('S282', 'the screen is photographed, not re-fetched and re-drawn',
+      !!grab && /getDisplayMedia/.test(ensure) && /const shot = await rmGrabPane\(el\);/.test(cap),
+      'redrawing marks onto a different photograph is the fault she named — ' +
+      '"the dots remain as code"');
+    /* ⚠ getDisplayMedia NEEDS THE CLICK THAT IS STILL IN HAND. Anything awaited
+       before it spends that activation and the prompt is refused outright. */
+    check('S282', 'and it is the first thing the capture awaits',
+      cap.indexOf('await rmGrabPane') > -1 &&
+      cap.indexOf('await rmGrabPane') < cap.indexOf('await rmFetchStatic'),
+      'an await before it spends the user activation getDisplayMedia requires');
+    check('S282', 'only this tab can be photographed',
+      /preferCurrentTab: true/.test(ensure) && /displaySurface: 'browser'/.test(ensure),
+      'a frame of the whole screen has no fixed relationship to this page\'s coordinates, ' +
+      'so the crop below would cut out the wrong rectangle');
+    check('S282', 'nothing is written to disk',
+      !/download/i.test(grab) && !/createObjectURL/.test(grab) &&
+      /canvas\.getContext\('2d'\)\.drawImage\(video/.test(grab),
+      'owner: "without downloading it because it all stays in the website"');
+    /* ⚠ MEASURED, NOT ASSUMED. devicePixelRatio is NOT the scale — a zoomed page
+       and a scaled display disagree, and the crop is then off by that ratio. */
+    check('S282', 'the crop is measured off the frame, not off devicePixelRatio',
+      /const sx = vw \/ window\.innerWidth, sy = vh \/ window\.innerHeight;/.test(grab) &&
+      /* ⚠ COMMENTS STRIPPED — the reason this rule exists is written INSIDE the
+         function it guards, so a plain search finds the explanation and calls it
+         a violation. The lesson Suites 58, 274 and 275 have each already learned. */
+      !/devicePixelRatio/.test(stripComments(grab)),
+      'a page at 125% zoom crops the wrong rectangle if the ratio is assumed');
+    check('S282', 'a screenshot is never drawn on again',
+      /if\(rmCrop\.shot\)\{/.test(paint) && /sctx\.drawImage\(rmCrop\.shot, 0, 0\);/.test(paint),
+      'the marks are already in the pixels — drawing them again puts a second set ' +
+      'beside the first, half a house apart');
+    check('S282', 'and the pane filter is not applied to it twice',
+      !/sctx\.filter = rmFilterCss\(\)/.test(paint),
+      'rmApplyFilter puts it on the PANE, so a picture of the pane already has it');
+    check('S282', 'a screenshot offers no editable copies of burnt-in marks',
+      /if\(rmCrop\.shot\) return \[\];/.test(extractFn(admin, 'rmCaptureShapes') || ''),
+      'markup shapes over marks that are already pixels draws every line twice');
+    check('S282', 'and no mark projection is asked for when there is no pov',
+      /const marks = rmCrop\.shot \? \[\] :/.test(extractFn(admin, 'rmStageCapture') || ''),
+      'rmStreetDotPixel would be handed a null pov and throw inside the attach');
+    check('S282', 'the sharing stops when the tool does',
+      !!extractFn(admin, 'rmStopShotStream') &&
+      (admin.match(/rmStopShotStream\(\);/g) || []).length >= 2,
+      'a sharing bar left running behind a closed tool is something nobody asked for');
+    /* The fallback is the whole reason the old path is still here. */
+    check('S282', 'a browser that will not share still gets a picture',
+      /falling back to Google/.test(cap) && /await rmFetchStatic\(makeUrl\)/.test(cap),
+      'no stream must mean a worse picture, never no picture');
+    check('S282', 'and it says the dots on that one are worth checking',
+      /check the dots are on the house/.test(cap),
+      'the fallback is the path that CAN put them in the wrong place — saying so is the difference ' +
+      'between a known limitation and the bug being reported a fourth time');
+  }
   /* ---- 4. and then it closes ---- */
   check('S282', 'the tool closes itself once everything has landed',
     /roofMeasureOverlay'\)\.style\.display = 'none';/.test(attach),
