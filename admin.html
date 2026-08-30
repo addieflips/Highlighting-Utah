@@ -5516,7 +5516,7 @@
               <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                 <button type="button" class="btn btn-gold" id="rmCaptureSky" disabled>Capture Sky View</button>
                 <button type="button" class="btn btn-gold" id="rmCaptureStreet" disabled>Capture Street View</button>
-                <span style="font-size:11.5px; color:var(--slate);">Capture as many as you like &mdash; crop each one before it goes on.</span>
+                <span style="font-size:11.5px; color:var(--slate);">Capture as many as you like &mdash; crop each one before it goes on. <strong>Chrome asks once a session</strong> to photograph this tab; that ask IS how the picture gets your dots on it.</span>
               </div>
             </div>
           </div>
@@ -24761,11 +24761,22 @@ function rmPaintCropBox(){
    goes straight to Cloudinary. Nothing touches the disk and nothing leaves the
    browser except the finished picture.
 
-   ⚠ IT COSTS ONE PERMISSION CLICK PER HOUSE, and there is no way round that — a
-   web page cannot photograph itself without the person saying so, by design. The
-   stream is kept for as long as the tool is open, so it is asked once and every
-   capture after that is instant, and it is STOPPED when the tool closes rather
-   than left running behind a sharing bar nobody asked for. */
+   ⭐ ASKED ONCE PER SESSION, NOT ONCE PER HOUSE (2026-08-30). Owner: "is there
+   anyway i can permanently allow the question it asks." There is no permanent
+   grant to give — Chrome has no site permission for screen capture, on purpose,
+   because a page that could photograph itself unasked could photograph whatever
+   else is in the tab. What IS ours to decide is how long the answer is kept, and
+   throwing it away when the tool closed meant asking again for every house.
+
+   ⚠ SO IT IS NOT STOPPED ON CLOSE ANY MORE. The stream lives as long as the admin
+   page does: one answer covers a morning of quotes. Chrome's own sharing bar is
+   the way out of it — pressing Stop there fires 'ended' below, and the next
+   capture simply asks again. That is the whole of the off switch and it is the
+   browser's, not ours, which is the right place for it.
+
+   ⚠ AND IT IS NEVER STARTED SPECULATIVELY. rmEnsureShotStream is only ever
+   reached from a capture the office pressed for, so nothing is shared until a
+   picture is actually wanted. */
 let rmShotStream = null;
 async function rmEnsureShotStream(){
   const live = rmShotStream && rmShotStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
@@ -26291,8 +26302,6 @@ function openRoofMeasure(quoteId){
          half that did not happen. */
       document.getElementById('roofMeasureOverlay').style.display = 'none';
       rmSetDrawing(false);
-      /* Nobody wants a sharing bar left running behind a closed tool. */
-      rmStopShotStream();
       /* ⚠ ONLY AFTER THE WRITE LANDED. openQuoteMarkup reads the photo list off
          quotesCache, so opening it before the update would mark up a slot that
          does not exist yet and silently fall back to photo #1 — somebody else's
@@ -26450,7 +26459,6 @@ function openRoofMeasure(quoteId){
     if(rmShots.length && !confirm('Close without attaching?\n\n' + rmShots.length + ' captured picture' + (rmShots.length === 1 ? '' : 's') + ' will be thrown away.')) return;
     overlay.style.display = 'none';
     rmSetDrawing(false);
-    rmStopShotStream();
   });
 })();
 /* ---------------- DASHBOARD & EXPENSES ---------------- */

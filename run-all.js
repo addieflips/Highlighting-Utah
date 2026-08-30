@@ -45066,10 +45066,32 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
     check('S282', 'and no mark projection is asked for when there is no pov',
       /const marks = rmCrop\.shot \? \[\] :/.test(extractFn(admin, 'rmStageCapture') || ''),
       'rmStreetDotPixel would be handed a null pov and throw inside the attach');
-    check('S282', 'the sharing stops when the tool does',
-      !!extractFn(admin, 'rmStopShotStream') &&
-      (admin.match(/rmStopShotStream\(\);/g) || []).length >= 2,
-      'a sharing bar left running behind a closed tool is something nobody asked for');
+    /* ⭐ SUPERSEDED 2026-08-30, the same day: "is there anyway i can permanently
+       allow the question it asks." There is no permanent grant to give — Chrome
+       has no site permission for screen capture, deliberately — so the only thing
+       that IS ours is how long the answer is kept. Stopping on close, which is
+       what this check used to require, meant asking again for every house.
+       ⚠ THE OLD REASONING IS NOT WRONG and is why the off switch still has to
+       exist: nobody wants a sharing bar they cannot end. It is Chrome's Stop
+       button now, which is the right place for it — that fires 'ended' and the
+       next capture asks again. */
+    check('S282', 'the permission is kept for the session, not thrown away per house',
+      (admin.match(/rmStopShotStream\(\);/g) || []).length === 0,
+      'asked again for every house is the complaint; the answer outlives the tool now');
+    check('S282', 'and Chrome\'s own Stop is honoured',
+      /addEventListener\('ended', function\(\)\{ rmShotStream = null; \}\)/.test(ensure),
+      'stopped from the sharing bar and not noticed here, every later capture hands out a dead stream');
+    check('S282', 'the off switch still exists to be called',
+      !!extractFn(admin, 'rmStopShotStream'),
+      'a share with no way to end it in code is one nothing can ever clean up');
+    /* ⚠ NEVER SPECULATIVELY. Nothing may share until a picture is actually asked
+       for — a prompt on opening the tool would be a page asking to watch the
+       screen before anybody wanted a photograph. */
+    check('S282', 'nothing is shared until a capture is pressed',
+      /* `await`-prefixed, so the declaration itself is not counted as a caller. */
+      (admin.match(/await rmEnsureShotStream\(\)/g) || []).length === 1 &&
+      /const stream = await rmEnsureShotStream\(\);/.test(grab),
+      'the only caller is the grab, and the only caller of THAT is a capture');
     /* The fallback is the whole reason the old path is still here. */
     check('S282', 'a browser that will not share still gets a picture',
       /falling back to Google/.test(cap) && /await rmFetchStatic\(makeUrl\)/.test(cap),
