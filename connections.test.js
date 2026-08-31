@@ -1060,6 +1060,97 @@ if (unguarded.length) {
     unguarded.join(', ') + '. This map is the only thing holding those.');
 }
 /* ---------------------------------------------------------------------------
+ * A TOUCH ON SOMEBODY ELSE'S RECORD IS NOT A TOUCH ON THIS ONE.
+ *
+ * Addie, 2026-08-31, picking five areas to work through after being told there were 760
+ * undeclared touches. Measuring them first showed the number was badly inflated:
+ * `status` alone reported 184, and its list was `ccRenderCardList`, `ccStatusColor`,
+ * `approveTimeOffRequest`, `renderExpensesList` — the status of a credit-card
+ * transaction, a time-off request, an expense. Half a dozen collections in this app have
+ * a field called `status`, and `hits()` knows nothing about records.
+ *
+ * `otherRecord()` drops a touch only when the function around it names OTHER collections
+ * and never names this field's own. These checks hold the two properties that make that
+ * safe: it really does drop the known-false ones, and "cannot tell" really does mean keep.
+ * ------------------------------------------------------------------------- */
+{
+  const eng = require('./connections/engine.js');
+  const sc = require('./connections/scan.js');
+
+  check('the engine can tell one record from another',
+    typeof eng.otherRecord === 'function',
+    ': the filter is not exported, so nothing below is testing the shipped rule');
+
+  if (typeof eng.otherRecord === 'function') {
+    const mk = src => sc.index(src, true);
+
+    /* A function that names another collection and never this field's own. */
+    const away = mk('function renderExpensesList(){ const s = getDocs(collection(db,"expenses")); ' +
+      'rows.forEach(function(r){ r.status = "paid"; }); }');
+    check('a quote field touched inside an expenses function is not a quote touch',
+      eng.otherRecord({ x: away }, away, away.src.indexOf('r.status'), { record: 'quote' }),
+      ': this is the 184 — a page whose amber carries known-false rows is a page nobody ' +
+      'works through');
+
+    /* The same function, but it does name quotes. */
+    const home = mk('function fixQuote(){ const q = collection(db,"quotes"); ' +
+      'const s = getDocs(collection(db,"expenses")); q.status = "new"; }');
+    check('and one that names quotes as well is kept',
+      !eng.otherRecord({ x: home }, home, home.src.indexOf('q.status'), { record: 'quote' }),
+      ': a function touching both records really might be doing both');
+
+    /* ⚠ THE SAFE DIRECTION, TWICE. A false drop makes a real connection invisible, which
+       is the failure this whole page exists to prevent; a false keep is one more amber
+       row. So both "cannot tell" cases are asserted rather than assumed. */
+    const bare = mk('function ccStatusColor(v){ return v.status === "ok" ? "green" : "red"; }');
+    check('a function that names no collection at all is kept',
+      !eng.otherRecord({ x: bare }, bare, bare.src.indexOf('v.status'), { record: 'quote' }),
+      ': naming no collection means we cannot tell, and cannot-tell must mean keep');
+
+    const loose = mk('const s = getDocs(collection(db,"expenses"));\nthing.status = 1;\n');
+    check('and a touch outside any named function is kept',
+      !eng.otherRecord({ x: loose }, loose, loose.src.indexOf('thing.status'), { record: 'quote' }),
+      ': a great deal of this codebase lives in anonymous handlers, and dropping those ' +
+      'would hide real connections wholesale');
+
+    const unknown = mk('function f(){ const s = getDocs(collection(db,"expenses")); r.status = 1; }');
+    check('and a spine on a record the filter has never heard of is kept',
+      !eng.otherRecord({ x: unknown }, unknown, unknown.src.indexOf('r.status'), { record: 'somethingNew' }),
+      ': a new record type must not silently start hiding its own connections');
+  }
+
+  /* ⭐ AND THE ENGINE ACTUALLY CALLS IT. Asserted separately from the rule, because the
+     red-check proved it was not: every check above passed with the call deleted, so the
+     filter would have been perfectly correct and completely unused. That is the shape
+     this repo has shipped more than once — a working helper nothing calls — and here it
+     would have left the 184 phantom rows on the page while the tests said the fix was in.
+
+     ⚠ RUN AGAINST THE REAL REPORT, and named by the function it must have dropped:
+     `renderExpensesList` reads an EXPENSE's status and named quotes nowhere, so it must
+     not appear on the quote spine's amber list. */
+  {
+    const quoteSpine = m.report.filter(r => r.spine.field === 'status')[0];
+    check('and the report really is filtered by it',
+      !!quoteSpine && !(quoteSpine.undeclared || []).some(u => /renderExpensesList|ccRenderCardList|approveTimeOffRequest/.test(u)),
+      ': an expense, a credit-card transaction and a time-off request are still being ' +
+      'counted as touches on a QUOTE\'s status — the filter exists but nothing is using it');
+    check('and it has not swallowed the whole list',
+      !!quoteSpine && quoteSpine.undeclaredTotal > 20,
+      ': got ' + ((quoteSpine || {}).undeclaredTotal) + ' — a filter that drops nearly ' +
+      'everything is hiding real connections, which is worse than the noise it removes');
+  }
+
+  /* ⚠ AND THE COLLECTION LIST IS READ OUT OF THE SOURCE, never written down. A hard-coded
+     list goes stale the day somebody adds a collection — and stale in the SILENT
+     direction: the new collection stops counting as "another record", so its fields start
+     appearing as false amber on somebody else's spine. */
+  const engSrc = require('fs').readFileSync(require('path').join(__dirname, 'connections/engine.js'), 'utf8');
+  check('the collections it compares against are read out of the code',
+    /function collectionsIn\(ix\)/.test(engSrc) && /ix\[fk\]\.src/.test(engSrc),
+    ': a hard-coded collection list would go stale silently');
+}
+
+/* ---------------------------------------------------------------------------
  * WHAT RUNS WITHOUT ANYBODY PRESSING ANYTHING — the code back to the list.
  *
  * Addie, 2026-08-30: "I think where things go does not have a complete representation of

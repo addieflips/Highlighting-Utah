@@ -1592,6 +1592,44 @@ a style choice: the graph has real cycles and an unbounded draw never terminates
 grandchild is a **label, not a button** — making it clickable would let somebody skip the
 middle step and leave a trail claiming a route they did not take.
 
+### "760 undeclared connections" was mostly a scanner that could not tell records apart
+
+Addie picked five areas to work through — **quotes, warehouse, invoices, schedule,
+customers-RSVP**. Measuring them before starting showed the headline number was badly
+inflated, and saying so is the point: `status` alone reported **184**, and its list was
+`ccRenderCardList`, `ccStatusColor`, `approveTimeOffRequest`, `renderExpensesList` — the
+status of a **credit-card transaction**, a **time-off request**, an **expense**. Half a
+dozen collections in this app have a field called `status`, and the matcher is
+word-bounded but knows nothing about which record a field belongs to.
+
+⚠ **Amber that carries known-false rows is amber nobody reads** — `engine.js` says so in
+its own header, about a two-row collision. At 184 it stops being noise and becomes the
+reason the column had never been worked through.
+
+**`otherRecord()` drops a touch only when it can positively identify it as somebody
+else's**: the function around it names other Firestore collections and never names this
+field's own. `renderExpensesList` says `expenses` and never `quotes`, so its `status` is
+not a quote's.
+
+⚠ **"Cannot tell" always means keep** — a function naming no collection, one naming this
+record too, a touch outside any named function, or a spine on a record the filter has
+never heard of. A false drop makes a real connection invisible, which is the failure this
+page exists to prevent; a false keep is one more amber row.
+
+⚠ **The collection list is read out of the source, never written down.** A hard-coded list
+goes stale the day somebody adds a collection — and stale in the *silent* direction: the
+new collection stops counting as "another record", so its fields start appearing as false
+amber on somebody else's spine.
+
+**760 → 665**, and `status` **184 → 117**. What is left is largely real: `customerNumber`
+still has 135, and those are genuinely the warehouse's — `cnBuildPrintTable`,
+`cnBulkAnalyze`, `cnHighestAssigned`, the exports. That is the work Addie asked for, and
+it is now readable enough to do.
+
+⚠ **The hand-written `ignore` lists stay.** They name functions that genuinely touch the
+right record for a reason that is not a connection, which no amount of collection-sniffing
+can work out. This runs after them.
+
 ### What runs without anybody pressing anything
 
 Addie, 2026-08-30: *"where things go does not have a complete representation of the
