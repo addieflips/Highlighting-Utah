@@ -1165,6 +1165,32 @@ if (unguarded.length) {
       eng.hits(real, 'completed').some(h => h.kind === 'set'),
       ': the rule must not swallow the thing it is filtering around');
 
+    /* ⭐ A COLON AFTER A PROPERTY ACCESS IS A TERNARY, NOT AN OBJECT KEY.
+       `d.completed ? 'a' : 'b'` leaves the field followed by ` : ` and used to be counted
+       as a WRITE — ten across the map, in the more misleading direction, because a
+       phantom writer on a money field is exactly what somebody would investigate.
+       ⚠ AND THE OBVIOUS FIX WAS WRONG. Deciding "property access ⇒ read" FIRST broke
+       twenty real declarations in one go: every `updates.field = value` in the app became
+       a read. Both directions are asserted here because the ordering looks right either
+       way round and is only correct one of them. */
+    /* ⚠ THE FIXTURE HAS TO PUT THE FIELD IMMEDIATELY BEFORE THE COLON, which is the
+       shape the real code takes: `cond ? 'text ' + d.field : 'other'`. The first version
+       put it before the QUESTION MARK, where it is followed by ` ?` and never reaches the
+       colon branch at all — so the red-check reported a MISS against a check that was
+       never in danger. */
+    const tern = mk("function t(d){ return d.on ? 'yes ' + d.completed : 'no'; }");
+    check('a ternary colon after a property is a read, not a write',
+      eng.hits(tern, 'completed').every(h => h.kind !== 'set'),
+      ': got ' + JSON.stringify(eng.hits(tern, 'completed').map(h => h.kind)));
+    const propWrite = mk('function w(u){ u.completed = true; }');
+    check('but assigning to a property is still a write',
+      eng.hits(propWrite, 'completed').some(h => h.kind === 'set'),
+      ': this is the half the first attempt broke — twenty declarations at once');
+    const objKey = mk('function o(){ return { completed: true }; }');
+    check('and a real object key is still a write',
+      eng.hits(objKey, 'completed').some(h => h.kind === 'set'),
+      ': most writes in this app are object literals handed to updateDoc');
+
     /* ⭐ A KNOWN LIMIT, TURNED INTO A GATE RATHER THAN LEFT AS A COMMENT.
        `const {completed} = d` produces NO hit at all — not a write, and not a read either:
        `hits()` decides a read from the character before the name, and `{` is not one of

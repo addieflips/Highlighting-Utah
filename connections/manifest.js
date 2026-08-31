@@ -82,6 +82,25 @@ module.exports = [
         rules: ['Updating an existing customer never re-queues them.'] },
       { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'the invoice importer adds a house',
         rules: ['These arrive with no colours, so they show as blocked until somebody adds them.'] },
+      /* ⭐ DECLARED 2026-08-31. This flag decides whether a bundle gets MADE, so every
+         writer of it is somebody deciding a crew either has lights to hang or does not.
+
+         ⚠ THE TWO PORTAL WRITERS ARE THE ONES THE OFFICE CANNOT SEE HAPPENING. A customer
+         changing their colours queues their own rebuild, and a customer saying yes again
+         after a no puts the build back — both from a page nobody in the office is looking
+         at. */
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes their own colours',
+        rules: ['A colour change queues the rebuild itself — the office is told by the queue, not by a message.'] },
+      { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers' },
+      { file: 'server', fn: 'pullCustomerFromSeason', where: 'Member Portal › RSVP', when: 'they sit the season out' },
+      { file: 'admin', fn: 'seasonYesUpdates', where: 'Customers › All Customers', when: 'the office marks somebody back in',
+        rules: ['Coming back re-queues the build ONLY where the recycle actually happened — otherwise their bundle is still on the shelf.'] },
+      { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office answers for them' },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer record is saved',
+        rules: ['A blank colour field means the build cannot be DONE yet, never that it is not OWED — clearing the flag here silently un-queued houses once.'] },
+      { file: 'admin', el: 'whFindNotQueuedBtn', where: 'Warehouse › Tools', when: 'the office looks for houses nobody queued' },
+      { file: 'admin', fn: 'renderWarehouseQueue', where: 'Warehouse › Build', when: 'a bundle is marked built',
+        rules: ['Marking one built clears only that house.'] },
       { file: 'admin', el: 'editCustBuildStayBtn', where: 'Customers › All Customers', when: 'Build Them A New Set is pressed',
         rules: ['This button never also queues a recycle.'] },
       { file: 'admin', near: 'if(warehouseRebuildFields(item.data, addrUpdates).length)', where: 'Customers › All Customers', when: 'the wire or timer changed',
@@ -172,6 +191,10 @@ module.exports = [
       { file: 'admin', el: 'editCustRecycleStayBtn', where: 'Customers › All Customers', when: 'Recycle Their Old Set is pressed',
         rules: ['This button never also queues a build.'] },
       { file: 'admin', near: 'addrUpdates.needsLightRecycle', where: 'Customers › All Customers', when: 'the RSVP answer changes' },
+      { file: 'admin', fn: 'renderWarehouseRecycleQueue', where: 'Warehouse › Recycle', when: 'a set is marked recycled',
+        rules: ['Marking one recycled clears only that house, and keeps their number.'] },
+      { file: 'admin', fn: 'seasonYesUpdates', where: 'Customers › All Customers', when: 'the office marks somebody back in',
+        rules: ['A yes cancels a queued recycle — the same rule the server applies, written twice.'] },
       { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers no',
         rules: ['Answering through the link and the office button must agree.'] },
       { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody says yes',
@@ -179,6 +202,16 @@ module.exports = [
     ],
     reads: [
       { file: 'admin', fn: 'whRecycleGroups', where: 'Warehouse › Recycle', when: 'the queue is drawn' },
+      /* ⭐ DECLARED 2026-08-31. The readers that DECIDE something, rather than draw it. */
+      { file: 'admin', fn: 'stopProblem', where: 'Routes › Install', when: 'the sweep decides a house should not be on a day',
+        rules: ['A house whose lights are being taken apart must not be on a crew sheet — they would arrive with nothing to hang.'] },
+      { file: 'admin', fn: 'seasonYesUpdates', where: 'Customers › All Customers', when: 'somebody says yes again',
+        rules: ['It reads the queued recycle to know whether the build has to be put back.'] },
+      { file: 'admin', fn: 'stampRecycleRequested', where: 'Warehouse › Recycle', when: 'a recycle is queued',
+        rules: ['Dated on the way in, so the queue can say how long something has been waiting.'] },
+      { file: 'server', fn: 'stampRecycleRequestedServer', where: 'Member Portal › RSVP', when: 'the server queues a recycle',
+        rules: ['The browser and server copies stamp the same field the same way.'] },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes something that affects their set' },
       { file: 'admin', fn: 'printRecycleList', where: 'Schedule › Printing', when: 'the sheet prints' },
       { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
         rules: ['A house queued for recycle is out of the season. Somebody who moved is not.'] }
@@ -851,6 +884,28 @@ module.exports = [
 
   {
     field: 'customerNumber',
+    /* ⚠ THREE FAMILIES ARE EXCLUDED, AND EACH IS A DIFFERENT KIND OF NOT-A-CONNECTION.
+       Declaring them one by one would add sixty rows that tell nobody anything, while
+       leaving them as amber leaves sixty rows nobody can explain. Named here with the
+       reason is the honest middle.
+
+       1. A ROUTE STOP CARRIES A COPY. `nearestNeighborOrder`, `pickClustered`,
+          `pickClusteredSimple` and `findNearbyMissedHouses` build a stop and copy the
+          number onto it — that is the `stops` spine's business, and it is declared there.
+          A number is not CHANGING here.
+       2. PRINTING AND DRAWING IT. The crew sheets, the warehouse sheets, the exports,
+          the chips and the panels all show the number. A screen that shows a number is
+          not a connection anybody needs to police; a screen that DECIDES something with
+          it is, and those are declared above.
+       3. A RANK TABLE NAMED AFTER FIELDS. `rbCollectMissingCustomers` holds
+          `{street: 1, housePrice: 2, customerNumber: 4, …}` to sort the comparison — a
+          key named after a field, which reads as a write to any matcher and is not one.
+       And the test-record builder, as everywhere else. */
+    ignore: ['^(nearestNeighborOrder|pickClustered|pickClusteredSimple|findNearbyMissedHouses)$',
+             '^(print|render|cnPrint|cnBuildPrintTable|wh(Sheet|Refresh|House|PutInto)|custNumChip|numOf|add)',
+             '^(rbCollectMissingCustomers|rbCustomerToSheetRow|rbCompareFindCustomer|rbCollectNameFixes|rbCollectNumberFixes)$',
+             '^(buildTestPerson|testSweepFind)$',
+             'ExportBtn handler$'],
     areas: ['Customers', 'Warehouse'], record: 'cust',
     title: 'The number on their bin',
     plain: 'How the warehouse finds this house’s lights on a shelf.',
@@ -868,6 +923,16 @@ module.exports = [
        first (Addie, 2026-08-21: "we need the old one in the recycle section because
        thats how they find it"). */
     sets: [
+      /* ⭐ DECLARED 2026-08-31. Everything that puts a number ON a customer, which is what
+         a bin gets labelled with — two houses wearing one label is the mistake this field
+         exists to prevent. */
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in',
+        rules: ['A number is taken from the pool, never invented — and the series follows the bin count.'] },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer writes a row' },
+      { file: 'admin', el: 'rbFixNumbersBtn', where: 'Customers › Bulk Updates', when: 'the sheet\'s numbers are pushed onto the records',
+        rules: ['The office controls the numbers, so the sheet wins here — but a collision must be refused rather than resolved.'] },
+      { file: 'admin', el: 'whAddExtraBtn', where: 'Warehouse › Build', when: 'buffer stock is added',
+        rules: ['Buffer stock belongs to nobody, so it carries no customer number of its own.'] },
       { file: 'admin', el: 'cnAssignBtn', where: 'Customer Numbers', when: 'a number is handed out' },
       { file: 'admin', el: 'cnBulkAssignBtn', where: 'Customer Numbers', when: 'numbers are assigned in bulk' },
       { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved',
@@ -875,6 +940,46 @@ module.exports = [
       { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the master sheet adds somebody' }
     ],
     reads: [
+      /* ⭐ THE READERS THAT DECIDE SOMETHING, declared 2026-08-31 — as opposed to the
+         several dozen that print it, which are excluded below with the reason. */
+      { file: 'admin', fn: 'cnNumberIsHeld', where: 'Customer Numbers', when: 'the pool is asked whether a number is free',
+        rules: ['A number somebody still holds is not available, however the pool was told otherwise — the list and the next-number picker must read one rule.'] },
+      { file: 'admin', fn: 'cnHighestAssigned', where: 'Customer Numbers', when: 'the next number is worked out' },
+      { file: 'admin', fn: 'hlxRemoveCustomerToRecycle', where: 'Warehouse › Recycle', when: 'a customer is archived',
+        rules: ['Their number goes back to the pool with its series, or it is lost to everybody.'] },
+      { file: 'admin', fn: 'whFindCustomerByLabel', where: 'Warehouse › Recycle', when: 'somebody looks up the house a bin belongs to',
+        rules: ['The number painted on the box is not always the number on the record — a move leaves the old label standing.'] },
+      { file: 'admin', fn: 'whBinNumberMoved', where: 'Warehouse › Recycle', when: 'the queue asks which number to look for' },
+      { file: 'admin', fn: 'findExistingAddressMatch', where: 'Customers › Bulk Updates', when: 'an import decides whether this row is somebody we have',
+        rules: ['A failed match writes a duplicate — this is the path that duplicated the whole book once.'] },
+      { file: 'admin', fn: 'rebuildCustomerIndexes', where: 'Customers › All Customers', when: 'the lookup indexes are rebuilt' },
+      { file: 'admin', fn: 'noticeCustomerNumberStuck', where: 'Customer Numbers', when: 'a number cannot be released' },
+      { file: 'admin', fn: 'requoteOnFile', where: 'Quote Requests', when: 'a re-quote card shows what the house already has',
+        rules: ['Read live off the customer, because the copy on the quote can only ever be blank when the portal raised it.'] },
+      { file: 'server', fn: 'payerSort', where: 'Invoices › Nightly Automation', when: 'the payer on a shared bill is chosen',
+        rules: ['The lowest customer number wins — the longest-standing account, and the same answer however the houses arrive.'] },
+      { file: 'admin', fn: 'cnBulkAnalyze', where: 'Customer Numbers', when: 'Assign in Bulk dry-runs',
+        rules: ['The dry run is what makes a 960-row assignment safe, so it has to read exactly what the real run would.'] },
+      { file: 'admin', el: 'cnFindConflictsBtn', where: 'Customer Numbers', when: 'the office looks for two houses on one number',
+        rules: ['Two records on one number is two bins wearing one label.'] },
+      { file: 'admin', el: 'cnFindGapsBtn', where: 'Customer Numbers', when: 'the office looks for numbers nobody holds' },
+      { file: 'admin', fn: 'findDuplicateCustomers', where: 'Customers › All Customers', when: 'duplicates are grouped',
+        rules: ['The number groups them, but a name that disagrees outranks it — a collision would delete a customer silently.'] },
+      { file: 'admin', fn: 'houseFromCustomer', where: 'Schedule › Scheduling', when: 'a customer is turned into a house on the plan' },
+      { file: 'admin', fn: 'billingGroupMatches', where: 'Customers › Who Pays for Whom', when: 'the who-pays list is searched' },
+      { file: 'admin', fn: 'bulkFindCustomer', where: 'Customers › Bulk Updates', when: 'an import row is matched to a customer' },
+      { file: 'admin', fn: 'hcRunChecks', where: 'Customers › All Customers', when: 'the health check runs' },
+      { file: 'admin', fn: 'archRender', where: 'Warehouse › Recycle', when: 'the archive is drawn' },
+      { file: 'admin', fn: 'wireWhFind', where: 'Warehouse › Build', when: 'the warehouse search box looks a house up' },
+      { file: 'admin', fn: 'whExtraSync', where: 'Warehouse › Build', when: 'buffer stock is matched to a house' },
+      { file: 'admin', fn: 'editCustRenderHouseTabs', where: 'Customers › All Customers', when: 'the house tabs on one bill are drawn' },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened for editing' },
+      { file: 'admin', fn: 'rmPushToCustomer', where: 'Quote Requests', when: 'a measurement is pushed onto the customer' },
+      { file: 'admin', el: 'editCustDeleteBtn', where: 'Customers › All Customers', when: 'a customer is deleted',
+        rules: ['Their number has to be released, or it is held by nobody and handed to nobody.'] },
+      { file: 'admin', el: 'editCustRecycleStayBtn', where: 'Customers › All Customers', when: 'their old set is asked back but they stay',
+        rules: ['They still hold the number — pooling it here would hand a live label to somebody new.'] },
+      { file: 'admin', el: 'deleteAllAddressesBtn', where: 'Customers › All Customers', when: 'Delete All Customers runs' },
       { file: 'admin', fn: 'whBinNumberFor', where: 'Warehouse › Recycle', when: 'somebody is sent to fetch a bin',
         rules: ['This asks what the BIN says, which is not always what the record says.'] },
       { file: 'admin', fn: 'payerHouseOf', where: 'Customers › Who Pays for Whom', when: 'a shared bill picks a name',

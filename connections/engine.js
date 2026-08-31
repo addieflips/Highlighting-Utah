@@ -70,9 +70,22 @@ function hits(ix, field) {
     const after = s.slice(m.index + field.length, m.index + field.length + 14);
     const before = s.slice(Math.max(0, m.index - 2), m.index);
     let kind = null;
-    if (/^\s*:/.test(after)) kind = 'set';
-    else if (/^\s*=[^=]/.test(after)) kind = 'set';
-    else if (/[.[]$|['"]$/.test(before)) kind = 'read';
+    const isProp = /[.[]$|['"]$/.test(before);
+    /* ⚠ ASSIGNMENT FIRST, BECAUSE IT IS A WRITE EITHER WAY. `updates.needsLightBuild =`
+       and a bare `needsLightBuild =` are both writes; only the local-declaration rule
+       below takes any of those back. */
+    if (/^\s*=[^=]/.test(after)) kind = 'set';
+    /* ⚠ A COLON AFTER A PROPERTY ACCESS IS A TERNARY, NOT AN OBJECT KEY. `d.completed ?
+       'a' : 'b'` leaves the field followed by ` : `, and that used to be read as an
+       object key and counted as a WRITE — ten across the map, in the more misleading
+       direction, because a phantom writer on a money field is exactly what somebody would
+       go and investigate. `x.field:` cannot be an object key in any valid JavaScript.
+       ⚠ THE FIRST VERSION OF THIS PUT THE PROPERTY TEST AHEAD OF THE ASSIGNMENT TEST and
+       broke twenty real declarations at once — every `updates.field = value` in the app
+       became a read. Kept as a comment because the fix looks obviously right both ways
+       round and is only correct one of them. */
+    else if (/^\s*:/.test(after)) kind = isProp ? 'read' : 'set';
+    else if (isProp) kind = 'read';
     /* ⚠ A LOCAL DECLARATION IS NOT A WRITE TO THE RECORD. `const completed = !!d.completed`
        reads the field and names a local after it; `let deposit = 0` names one after a field
        it never touches. Both matched `= ` and were counted as writers — 45 of them across
