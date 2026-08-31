@@ -41,6 +41,7 @@ const SPEC_TARGETS = {
   'portal.spec.js': 'index.html',
   'quote-link.spec.js': 'index.html',
   'rsvp-link.spec.js': 'index.html',
+  'signed-in-links.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'

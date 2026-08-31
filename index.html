@@ -2334,7 +2334,25 @@ function navigate(){
   var initialHash = window.location.hash.replace('#','').split('?')[0];
   var initialQuery = window.location.hash.split('?')[1] || '';
   var onBarePaymentPage = initialHash === '/payment' && !initialQuery;
-  var atRootOrEmpty = !initialHash || initialHash === '/';
+  /* ⚠ A QUERY MEANS THE LINK IS ASKING FOR SOMETHING SPECIFIC, so it is not
+     "root" and must not be swallowed by the remembered login. This read
+     `!initialHash || initialHash === '/'` with no query test at all, while
+     `onBarePaymentPage` one line up has always had one — and that asymmetry was
+     the bug. The Back Next Year button in the RSVP email is
+     `#/?token=…&rsvp=back`, whose hash IS `/`, so for anybody with a saved
+     sign-in it was redirected to `#/payment` and handed their account instead.
+     ⚠ AND THE ANSWER WAS LOST, not merely mis-displayed: the redirect happens
+     before navigate() reaches the rsvp=back branch, so `handleBackNextYear`
+     never ran and `portalRsvp` was never called — the customer pressed Back
+     Next Year and nothing anywhere recorded it.
+     ⚠ HANDLERS SAVE A LOGIN THEMSELVES (`savePortalLogin` in handleRsvpLink),
+     so pressing Yes or No on an earlier link is what CREATES the remembered
+     sign-in that then swallows this one. Testing all three buttons in one
+     browser hits it every time, which is why it survived a fix that was
+     verified with empty storage.
+     test/signed-in-links.spec.js opens every one of these links with a login
+     already saved, because that is the ordinary case and not an edge one. */
+  var atRootOrEmpty = (!initialHash || initialHash === '/') && !initialQuery;
   if((savedCreds || savedPortalToken) && (atRootOrEmpty || onBarePaymentPage)){
     if(atRootOrEmpty) window.location.hash = '/payment';
     if(savedCreds && savedCreds.c && savedCreds.ln && typeof performSignInLookup === 'function'){
