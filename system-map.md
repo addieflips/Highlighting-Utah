@@ -59,6 +59,81 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **A PEAK SURVIVES THE PAGE BEING LEFT** (2026-08-30). Owner: *"the peaks are
+not adding anything because i left the page then came back, but the dots are
+still there so it should've included the peak addition into the price but it
+didnt."* A peak is a pair of corner NUMBERS, and the corners were never saved —
+only the traced runs were. So reopening a quote put the lines back on the map,
+which made the dots look present, while the corner list came back empty and
+every peak measured a span of nought. The pitch she had taken was still on the
+row, so each peak showed its angle beside no span and added nothing to the
+price.
+
+⚠ **The peaks were cleared nowhere at all**, which is the worse half: a gable
+measured on one roof stayed in the list when the tool opened on the next one,
+pointing at corner numbers that by then meant somebody else's dots.
+
+What is true now: the dots and the peaks are written into the saved drawing and
+put back before anything reads a total; a peak whose corners did not come back
+is **dropped** rather than listed spanning nothing; the peaks are emptied
+everywhere the dots are; and taking a dot back off drops the peak on it and
+shifts the rest down, instead of silently re-hanging a gable between two
+different corners. ⚠ A run built from the corners is **rebuilt** from them on
+the way back in rather than restored beside them — restoring both puts the same
+footage on the price twice.
+
+⭐ **THE PICTURE ON THE QUOTE IS THE STREET VIEW** (2026-08-30). Owner: *"when you
+dot the sky view the picture of that gets uploaded as well but we just want the
+street view to be uploaded."* Attach used to work out which pane she meant from
+where the marks were — and since the roofline is traced overhead and nowhere
+else, that answered *the aerial* for every house measured properly. ⚠ The sky
+view is where the house is MEASURED; the street view is the PICTURE, which is
+the same line she drew on 2026-08-28 when she said the street picture must not
+show the sky view's dots.
+
+⚠ **Capture Sky View is gone.** Its only job was to put a picture on a quote.
+The sky view itself is untouched — it simply is not a picture source. ⚠ An
+aerial still reaches a quote in one case only, where Google has no street
+photograph of the address at all, and then the picture's own label says so.
+
+⭐ **BOTH PICTURES AT ONCE, HALF AND HALF** (2026-08-30). A third button in the
+sky view's top corner — ◫, beside Recentre and Full screen — gives the whole
+screen to the PAIR: the map on one side, the photograph on the other, 50/50.
+Placing a corner needs both, big; full-screening one pane takes the other away,
+and leaving full screen gives them back at a couple of hundred pixels each.
+⚠ Pressed while one pane is already full screen it swaps straight over; pressed
+again it comes back out. On a tall narrow screen the two stack rather than
+squeeze into 200px columns.
+
+⭐ **AND A PITCH IS SAID IN DEGREES FIRST** (2026-08-30). Owner, on a peak the
+tool reported at 49%: *"does this math add up to you because it doesnt to me"*,
+then *"i think it did the math as if its a 4 degree angle not 49 or something"*.
+⚠ THE SUM WAS RIGHT AND WAS NOT CHANGED. 49% grade IS 26.1°, and 26.1° across a
+24.7 ft span really does add 2.81 ft — but a bare "49" beside a roof reads as
+forty-nine DEGREES, which would have added 12.95 ft. So every figure that could
+be mistaken for an angle now leads with the actual angle, the percentage is
+called a *grade* where it still appears, and the note after **Yes, use it** shows
+its working: the slope runs 27.6 ft across a 24.7 ft span, so +2.9 ft. A number
+that sets a price has to be checkable by the person reading it.
+
+⭐ **A peak's pitch is measured in the WORLD, or simply typed** (2026-08-30). A
+24 ft gable at 45° adds 9.94 ft — two rakes of 12 / cos 45 instead of a flat 24 —
+and that is what the tool now gives. It was giving less, and the formula was never
+the problem: the drag measured rise over run **in screen pixels**, and the grade
+panorama is aimed UP at the roof, which compresses the apparent slope of anything
+above the camera. Always too shallow, so a true 45° rake read back as 87–94%.
+
+Each dragged pixel is now a ray intersected with the **gable's own vertical plane**
+— the two dots that name the peak already define it — so the answer stops
+depending on where the camera stood or which way it was pointing. ⚠ The old pixel
+reading is kept as the fallback for a gable seen end-on, and the tool SAYS when
+that is what you are looking at.
+
+⭐ **Or type it.** Each peak row has a pitch box: **45** (degrees), **12/12**, or
+**100%**. A typed angle carries no projection error at all. ⚠ A peak with no pitch
+of its own says **(roof average)** beside its figure rather than showing Google's
+whole-house average as though it were this gable's.
+
 Overhead cannot see HEIGHT, and height only lengthens a line where the roof
 *climbs*. That is what **peaks** answer: you say which two lettered dots a peak
 sits between, the tool takes you to a street view aimed at that gable, you drag
@@ -89,6 +164,33 @@ the bundles at 40 ft, so a 230 ft house is filed as 265 and can be given a secon
 bin and a 5000-series number it does not need. Dropping the dial from 1.3 to 1.15
 narrowed that; it did not remove it. The clean fix is to store the true footage
 and apply the multiplier to the MONEY only — offered, not yet decided.
+
+⭐ **Recentre is reachable in full screen** (2026-08-30). It already existed in the
+toolbar and already worked — but full screen is requested on the PANE, so the
+toolbar is simply not on the glass, and losing the house is exactly what happens
+when somebody is zoomed in and full screen. There is a second Recentre inside the
+sky pane's own head, beside the full-screen button. ⚠ **One function, two doors**:
+`rmRecentre` is at module level and both buttons call it, because a second copy of
+"put the camera back" is the copy that stops matching. It frames what has been
+traced when there are dots down, falls back to the house otherwise, re-aims Street
+View, and takes the covers off — so it is also the way out of a stuck pane. ⚠ It
+changes **no measurement at all**, which is what makes it safe to sit where a thumb
+can find it by accident.
+
+⭐ **How big a mark is, and what happens on a dormer** (2026-08-30). Every mark
+size is one named constant — `RM_DOT_R`, `RM_SKY_DOT`, `RM_LINE_W` and their
+neighbours near `rmCornerMarkers` — because FOUR things draw these marks (the
+street overlay, the sky markers, a traced run's handles, and the fallback
+picture) and separately tuned numbers are how two views start disagreeing about
+how big a dot is. They are deliberately small: a dormer's edges are a few feet
+long, so a dot comfortable on a long eave is wider than the edge it is marking.
+
+⚠ **The labels thin themselves out; the dots never do.** Where marks are packed
+closer than `RM_LABEL_GAP` on screen, the ones whose number or letter would land
+on top of another are drawn without it — every dot still shows. **Zoom in and the
+letters come back**, because it is the picture that is crowded, not the roof. A
+letter is hidden at that magnification, never taken away. If the map cannot say
+how far apart things are, every label is drawn — the safe direction.
 
 **Street View has its own dots.** Click the picture and it takes a mark of its
 own, numbered 1, 2, 3… and visible only there — the sky view's lettered dots
@@ -179,7 +281,9 @@ had just been measured — and a greyed-out button reading "Attach to Quote" is
 indistinguishable from a broken one. Nothing staged is now a reason to TAKE the
 picture: it captures whichever view you were last working in and attaches that.
 
-**Your dots go on the picture.** The marks are drawn onto a capture — the street
+**Your dots go on the picture, and the box is TICKED to start with** (2026-08-30 —
+the first version drew them and left the box unticked, so the clean copy is what
+got attached and the dots were still missing). The marks are drawn onto a capture — the street
 view's numbered marks and the sky view's lettered corners, joined per strand,
 with any run you switched off left out because nobody is going to hang it.
 ⚠ The photograph underneath is still kept CLEAN. Two copies are attached: the
@@ -201,6 +305,74 @@ name or phone is how a book gets duplicates in it. ⚠ And the customer NUMBER i
 never rewritten — a number already given out is on a bin in the warehouse, so
 the tool says the series no longer matches the footage and leaves it to a
 person. Suite 282.
+
+⭐ **The picture is a PHOTOGRAPH OF THE SCREEN** (2026-08-30). Press Capture, or
+press Attach with nothing captured, and Chrome asks **once a session** whether this
+tab may be photographed; from then on every capture is a frame of the pane
+exactly as it appears — the dots, their numbers, the joined strands, the letters,
+all of it. Nothing is downloaded: the frame goes onto a canvas and straight to
+Cloudinary.
+
+⚠ **There is no way to allow that question permanently, and it is not an
+oversight.** Chrome has no site permission for screen capture, because a page
+that could photograph itself unasked could photograph whatever else is in the
+tab. So the answer is kept for as long as the admin page is open — one ask covers
+a morning of quotes — and Chrome's own **Stop sharing** button is the way out of
+it: pressing it means the next capture simply asks again. Nothing is ever shared
+until a capture is actually pressed.
+
+⭐ **There is now a way to skip the question entirely, and it is a separate
+browser** (2026-08-30, at her request after the trade was spelled out). **Highlighting
+Utah Admin.bat** on the Desktop opens Chrome with its own profile
+(`C:\Users\lanil\HLU-Admin-Chrome`) and the `--auto-accept-this-tab-capture`
+flag, so captures happen with no prompt at all. ⚠ **That browser can photograph
+its own tab without asking, whatever site is open in it** — the flag belongs to
+the whole browser and cannot be limited to one address, which is exactly why it
+lives in a profile that only ever opens the admin. Her everyday Chrome is
+untouched and still asks. ⚠ It also HAD to be its own profile to work at all:
+one Chrome process serves every profile on this machine, so flags on a shortcut
+are ignored whenever Chrome is already running. Nothing in the page changed —
+the admin works the same in either browser, one just stops asking.
+
+⚠ **This is why three earlier fixes did not land the dots on the house.** Every
+version before it FETCHED A FRESH PHOTOGRAPH from Google and re-drew the marks
+onto it from the directions they are stored as, so the dots were only ever as
+right as the arithmetic lining that new photograph up with the one on screen.
+Panorama, heading, pitch, field of view, aspect — any one of them off by a little
+and the marks sit beside the house. There is nothing to line up if the picture is
+the screen.
+
+⚠ **A screenshot has no clean twin, and that is the trade.** A fetched photograph
+could be uploaded twice, clean and marked, because we drew the marks. The marks
+in a screenshot were on the glass. So the marked picture IS the picture, the
+markup shapes are not offered (they would draw every line a second time), and
+Replace This One is how it is undone.
+
+⚠ **The fetched path is still there**, for a browser that will not share — and it
+says so, and says the dots on that one are worth checking. What follows describes
+that fallback.
+
+**And the fallback picture is the same photograph the dots were placed on.** The street
+capture is asked for by **panorama id**, not by position: `location=` makes the
+static service go and find the nearest panorama, and the arrow keys walk between
+panoramas — a mark is a *direction from one camera* and means nothing from the
+next one down the street. It also asks for a field of view the service can
+actually give (it caps at 120° and does not say so, so a zoomed-out pane used to
+get a 120° photograph with every mark laid out for 180°), and the crop carries the
+zoom that MEANS that fov, so the drawing and the photograph cannot be told two
+different things.
+
+⚠ **And a picture with none of your marks on it says so.** The crop screen counts
+them the moment the picture appears — *"2 of 3 dots on this picture"*, or *"None of
+your 3 dots landed on this picture — it is aimed somewhere else"*. A capture with
+the marks switched off and a capture whose marks all fell outside the frame look
+identical, and neither said a word; that silence is what let the missing dots
+survive a fix. Attach names it in its toast too.
+
+⚠ **Attach captures the view the marks are IN**, not merely the one last touched —
+`rmLastPane` moves on a plain mousedown on the satellite map, so nudging it after
+dotting a front elevation was enough to attach a picture of the roof from above
+and none of the dots.
 
 **Every control is at the top, in its own bar; the pictures are last.** Attach
 to Quote and Close ride above the heading row, then the capture buttons, the

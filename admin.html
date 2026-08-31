@@ -4659,6 +4659,45 @@
             #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
             #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
 
+            /* ⭐ BOTH PICTURES, HALF AND HALF (2026-08-30). Owner: "give a third
+               button in the top right of sky view where you can instead of full
+               screen do half and half sky view and street view so you can see where
+               you need to place."
+
+               ⚠ FULL SCREEN WAS ALL OR NOTHING AND BOTH ENDS WERE WRONG FOR THIS.
+               Full-screening ONE pane gives a big sky view and takes the photograph
+               away — and the photograph is how you know WHICH corner you are looking
+               at. Leaving full screen gives both pictures back at the height the
+               ribbon leaves them, which on a laptop is a couple of hundred pixels
+               each. Placing a dot needs both, big.
+
+               ⚠ SO IT IS THE CONTAINER THAT GOES FULL SCREEN, not a pane. The two
+               panes are already side by side inside it; all this does is give that
+               row the whole screen.
+
+               ⚠ !important ON THE THREE THAT FIGHT. The ribbon-height rule above
+               and two media queries lower down all set height, flex and order on
+               this same element at the same specificity, so which one wins depends
+               on where it sits in a 3.5MB stylesheet — a fragile thing to rest a
+               layout on. Full screen is an explicit, temporary mode; it is allowed
+               to say so outright.
+
+               ⚠ AND flex:1 1 0, NOT 1 1 50%. When the grade map is open the other
+               two panes are stood aside, and a 50% basis would leave that one
+               picture in half a screen with nothing beside it. */
+            #roofMeasureOverlay .rm-panes:fullscreen{
+              height:100% !important; width:100%; flex:1 1 auto !important;
+              flex-wrap:nowrap !important; align-items:stretch;
+              padding:8px; gap:8px; background:#0c121a; box-sizing:border-box;}
+            #roofMeasureOverlay .rm-panes:fullscreen > .rm-pane{
+              flex:1 1 0 !important; min-width:0; height:100%;}
+            /* Stacked rather than squeezed on a tall narrow screen — two 200px
+               columns are worse than two half-height rows. */
+            @media (max-aspect-ratio: 1/1){
+              #roofMeasureOverlay .rm-panes:fullscreen{flex-direction:column;}
+              #roofMeasureOverlay .rm-panes:fullscreen > .rm-pane{width:100%;}
+            }
+
             /* ⭐ AND THE CHROME IS CUT TO THE BONE, because whatever it takes comes
                straight off the house. Owner: "it should be really small definitely
                no scrolling to see everything." Measured before: 400px of heading,
@@ -4687,9 +4726,19 @@
                is visible and unreachable, which is worse than not being there.
                ⚠ pointer-events:auto, because the head it lives in is deliberately
                pointer-events:none so it never swallows a click meant for the roof. */
-            #roofMeasureOverlay .rm-fs{pointer-events:auto; border:0; background:rgba(255,255,255,.9); color:#20321f;
+            /* ⭐ AND RECENTRE SITS BESIDE IT, FOR THE SAME REASON (2026-08-30).
+               Owner: "can you add a recentre button even when full screened on sky
+               view." Recentre already existed and already worked — in the TOOLBAR,
+               which is outside the pane, and it is the PANE that goes full screen.
+               So the one moment you are most likely to have lost the house is the
+               one moment the button for finding it again is off the screen.
+               ⚠ IT SHARES THE STYLE RATHER THAN COPYING IT: two pane controls that
+               drift apart look like two different kinds of thing. */
+            #roofMeasureOverlay .rm-fs,
+            #roofMeasureOverlay .rm-panebtn{pointer-events:auto; border:0; background:rgba(255,255,255,.9); color:#20321f;
               border-radius:6px; cursor:pointer; font-size:12px; line-height:1; padding:3px 7px; margin-left:6px;}
-            #roofMeasureOverlay .rm-fs:hover{background:#fff;}
+            #roofMeasureOverlay .rm-fs:hover,
+            #roofMeasureOverlay .rm-panebtn:hover{background:#fff;}
             /* ⭐ AND EVERY REMAINING LINE IS SQUEEZED, because each one is a strip
                of house. The keyboard hints move into a tooltip, the heading loses
                its own row, and the bars run at 11px. */
@@ -5132,7 +5181,7 @@
                          you zoom out on sky view it will readjust the camera", and a
                          reset filed under a disclosure about corner detection is one
                          nobody finds when they have lost the house. -->
-                    <button type="button" class="btn btn-outline btn-sm" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre</button>
+                    <button type="button" class="btn btn-outline btn-sm rm-recentre" id="rmRecentreBtn" style="padding:4px 10px; font-size:11px;">Recentre</button>
                     <!-- ⛔ AUTO-DETECT, SUGGEST CORNERS AND SHOW ASSUMED HOUSE ARE GONE
                          (2026-08-26). Owner asked for the tool to be stripped to what is
                          needed, and named these first. They had already been ruled against
@@ -5405,7 +5454,10 @@
                    worse than one usable one. -->
               <div class="rm-panes" style="display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;">
               <div class="rm-pane" style="flex:1 1 520px; min-width:330px;">
-                <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
+                <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span><!-- ⚠ INSIDE .rm-pane ON PURPOSE. Full screen is requested on the PANE, so only
+                       this pane's own children are on the glass — a control in the toolbar
+                       above simply is not there. The head is pointer-events:none and the
+                       button turns it back on, exactly as the full-screen button does. --> <button type="button" class="rm-panebtn rm-recentre" title="Recentre — put the camera back over the house, or over what you have traced">&#9678;</button> <button type="button" class="rm-panebtn rm-both" title="Both pictures, half and half — the whole screen split between the sky view and the street view">&#9707;</button> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
                 <div id="rmMap" class="rm-canvas"></div>
                 <!-- ⚠ Tiles take a few seconds. Without this the pane is a
                      blank grey rectangle on open, which reads as broken - it
@@ -5514,9 +5566,15 @@
                    unreachable so nothing that reads them breaks. -->
 
               <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <button type="button" class="btn btn-gold" id="rmCaptureSky" disabled>Capture Sky View</button>
+                <!-- ⛔ CAPTURE SKY VIEW REMOVED 2026-08-30. Owner: "we just want the
+                     street view to be uploaded." Its only job was to put a picture on
+                     the quote, and an aerial is no longer one of the pictures a quote
+                     may have — leaving the button would have been a door that stages a
+                     photograph the attach then has to refuse, which is worse than no
+                     door at all. The sky view itself is untouched: it is where the
+                     roofline is traced, it is simply not a picture source. -->
                 <button type="button" class="btn btn-gold" id="rmCaptureStreet" disabled>Capture Street View</button>
-                <span style="font-size:11.5px; color:var(--slate);">Capture as many as you like &mdash; crop each one before it goes on.</span>
+                <span style="font-size:11.5px; color:var(--slate);">Capture as many as you like &mdash; crop each one before it goes on. <strong>Chrome asks once a session</strong> to photograph this tab; that ask IS how the picture gets your dots on it.</span>
               </div>
             </div>
           </div>
@@ -5538,8 +5596,19 @@
                      choice rather than a removal because a picture showing
                      somebody where their lights will go is a real thing to
                      want — it just is not what every capture should be. -->
-                <label style="font-size:12.5px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
-                  <input type="checkbox" id="rmCropLines" style="vertical-align:-2px;">
+                <label id="rmCropLinesWrap" style="font-size:12.5px; display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+                  <!-- ⭐ TICKED BY DEFAULT (2026-08-30). Owner: "when the picture
+                       uploads the dots dont go with it which is the whole point."
+                       ⚠ THIS SUPERSEDES THE 2026-08-25 DEFAULT and the old reasoning is
+                       kept below, because it is still why the CLEAN copy is preserved:
+                       "I don't want red lines showing here after I'm done measuring."
+                       That was about a photograph nobody could get back — burning the
+                       lines into a JPEG poisons the original too. Nothing is burnt in
+                       now: the clean photograph is attached as the picture's `original`
+                       and the marks ride along as markup, so unticking this — or Mark Up
+                       → Clear → Save afterwards — gives the clean house back. With that
+                       true, off-by-default only meant her dots were silently dropped. -->
+                  <input type="checkbox" id="rmCropLines" checked style="vertical-align:-2px;">
                   Show the measured lines on it
                 </label>
                 <span id="rmCropStatus" style="font-size:12.5px; color:var(--slate);"></span>
@@ -18397,6 +18466,17 @@ function rmPointOnStatic(pt, center, zoom, w, h, scale){
 /* ---- street view: pixel <-> ray <-> world ------------------------------ */
 const rmRad = d => d*Math.PI/180;
 function rmFovDeg(zoom){ return 180 / Math.pow(2, zoom); }
+/* ⚠ THE STATIC STREET VIEW SERVICE CAPS fov AT 120 AND DOES NOT SAY SO — ask
+   for 180 and you get a 120-degree photograph with a 200 OK. Everything drawn
+   on that picture has to be drawn for the fov it REALLY used, or the marks are
+   laid out for a view that does not exist. */
+const RM_STATIC_FOV_MAX = 120;
+function rmCaptureFov(zoom){ return Math.min(RM_STATIC_FOV_MAX, rmFovDeg(zoom)); }
+/* The zoom that MEANS this fov, so a captured pov can be handed to the same
+   projection the live pane uses without giving it a second way to be told. */
+function rmZoomForFov(fov){ return Math.log2(180 / fov); }
+/* Set by rmCapture when the picture was asked for by panorama id. */
+let rmCaptureFallbackUrl = null;
 function rmBasis(headingDeg, pitchDeg){
   const h = rmRad(headingDeg), p = rmRad(pitchDeg);
   return {
@@ -19647,9 +19727,36 @@ function rmEndStrand(){
   if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished and joined up. The next dot starts a new one.';
   return true;
 }
+/* ⭐ A PEAK IS A PAIR OF CORNER NUMBERS, AND THE NUMBERS MOVE (2026-08-30).
+   Taking a dot out shifts every dot after it down one, so a peak naming any of
+   them silently starts spanning a DIFFERENT pair — same row, same letters on
+   screen, a different gable and a different price, with nothing to say so.
+
+   ⚠ THIS WAS ALMOST UNREACHABLE UNTIL PEAKS PERSISTED and is ordinary now: a
+   quote reopens with its peaks on it, and backspace is the only way to take a
+   dot back. It is the same fault as the one she reported — a peak outliving the
+   dots it was measured between — one step further on.
+
+   ⚠ A PEAK ON THE REMOVED DOT IS DROPPED, NOT RE-POINTED. There is no honest
+   answer to "which gable did she mean" once one end of it is gone, and a peak
+   quietly re-hung on the next dot along is a number nobody chose that goes
+   straight into the price. */
+function rmPeaksAfterCornerRemoved(i){
+  rmPeaks = rmPeaks.filter(function(p){ return p.a !== i && p.b !== i; })
+    .map(function(p){
+      return {a: p.a > i ? p.a - 1 : p.a, b: p.b > i ? p.b - 1 : p.b,
+              /* Rebuilt rather than mutated, so a caller holding the old object
+                 cannot be looking at a peak that has moved underneath it. */
+              grade: p.grade};
+    })
+    /* A grade of undefined must stay undefined — see rmRestoreMeasurement: a
+       zero is a flat roof, which is an answer nobody gave. */
+    .map(function(p){ if(p.grade === undefined) delete p.grade; return p; });
+}
 /* Take the last dot back off. */
 function rmDeleteLastCorner(){
   if(!rmCorners.length) return false;
+  rmPeaksAfterCornerRemoved(rmCorners.length - 1);
   rmCorners.pop();
   rmCornersChanged();
   return true;
@@ -19657,7 +19764,10 @@ function rmDeleteLastCorner(){
 
 function rmRemoveLastCorner(){
   for(let i = rmCorners.length - 1; i >= 0; i--){
-    if(rmCorners[i].byHand){ rmCorners.splice(i, 1); rmCornersChanged(); return true; }
+    if(rmCorners[i].byHand){
+      rmPeaksAfterCornerRemoved(i);
+      rmCorners.splice(i, 1); rmCornersChanged(); return true;
+    }
   }
   return false;
 }
@@ -19709,6 +19819,55 @@ function rmCornersToRun(){
    ⚠ PICTURE POSITIONS. The stored point is true and the tile is displaced, so
    every marker used to go out through rmSkyUnshift, which is gone with the
    alignment (2026-08-27) - positions are now drawn exactly as stored. */
+/* ⭐ HOW BIG A MARK IS (2026-08-30). Owner: "the dots look a little messy when
+   you do something like a dormer and it has a ton of little edges can you make
+   the dots smaller and cleaner."
+
+   ⚠ A DORMER IS THE CASE THAT DECIDES THE SIZE. Its edges are a few feet long,
+   so on screen the dots ending them are a few pixels apart — and a dot wide
+   enough to be comfortable on a long eave is then wider than the edge it is
+   marking. The mark has to be smaller than the smallest thing anybody measures
+   with it, or it hides what it is pointing at.
+
+   ⚠ IN ONE PLACE BECAUSE THERE ARE FOUR RENDERERS. The street SVG, the sky
+   markers, the traced-run handles and the fallback picture all draw the same
+   marks, and four separately-tuned sizes is how two views start disagreeing
+   about how big a dot is. */
+const RM_DOT_R = 3.4;          /* street dot radius, screen px */
+const RM_DOT_RING = 1.2;       /* its white ring */
+const RM_LABEL_PX = 9.5;       /* the number or letter beside it */
+const RM_LINE_W = 1.8;         /* a joined strand */
+const RM_LINE_HALO = 3.4;      /* the dark edge under it, so red survives brick */
+const RM_SKY_DOT = 2.6;        /* google.maps circle scale — a RADIUS, so ~5px across */
+const RM_SKY_HANDLE = 3.6;     /* a traced run's own draggable handle */
+/* ⭐ AND LABELS THIN THEMSELVES OUT WHEN THEY COLLIDE. Two letters drawn on top
+   of each other are not two labels, they are a smudge — so on a dormer the
+   dots all stay and only the labels that would overlap are dropped.
+   ⚠ IT UNDOES ITSELF ON ZOOM, which is what makes it safe to do at all: the
+   dots spread out, nothing collides, and every letter comes back. Nothing is
+   lost — a letter is hidden at this magnification, not taken away. */
+const RM_LABEL_GAP = 12;       /* px two labels must be apart to both be drawn */
+function rmThinLabels(pts, gap){
+  const keep = [], placed = [];
+  const g = (gap || RM_LABEL_GAP);
+  pts.forEach(function(p){
+    if(!p){ keep.push(false); return; }
+    const clear = placed.every(function(q){ return Math.hypot(q.x - p.x, q.y - p.y) >= g; });
+    keep.push(clear);
+    if(clear) placed.push(p);
+  });
+  return keep;
+}
+/* Screen pixels per metre on the sky map, so the thinning above can be asked
+   about corners that are stored as places rather than as pixels. Zero when the
+   map cannot say, which leaves every label drawn — the safe direction. */
+function rmSkyPxPerM(){
+  if(!rmMap || !rmMap.getZoom || !rmMap.getCenter) return 0;
+  const z = rmMap.getZoom(), c = rmMap.getCenter();
+  if(typeof z !== 'number' || !isFinite(z) || !c) return 0;
+  const mPerPx = 156543.03392 * Math.cos(rmRad(c.lat())) / Math.pow(2, z);
+  return mPerPx > 0 ? 1 / mPerPx : 0;
+}
 let rmCornerMarkers = [];
 function rmClearCornerMarkers(){
   rmCornerMarkers.forEach(function(m){ m.setMap(null); });
@@ -19733,26 +19892,73 @@ function rmMarkerIcon(c){
      hold its number is big enough to hide the corner it marks. The number sits
      beside it. A pinned dot is ringed — it has been seen from more than one place
      and is where it says it is. */
-  return {path: google.maps.SymbolPath.CIRCLE, scale: 4,
+  return {path: google.maps.SymbolPath.CIRCLE, scale: RM_SKY_DOT,
           fillColor: lit ? '#E0574B' : 'rgba(255,255,255,.85)', fillOpacity: 1,
           strokeColor: c.pinned ? (lit ? '#E0574B' : '#8b95a1') : (lit ? '#ffffff' : '#8b95a1'),
-          strokeWeight: c.pinned ? 3 : 1.4,
-          labelOrigin: new google.maps.Point(2.6, -2.2)};
+          strokeWeight: c.pinned ? 2 : 1,
+          labelOrigin: new google.maps.Point(2.4, -2.4)};
 }
 function rmMarkerLabel(c, i){
   return {text: rmCornerLabel(i), color: c.on ? '#E0574B' : '#6b7683',
-          fontSize: '11px', fontWeight: '700'};
+          fontSize: RM_LABEL_PX + 'px', fontWeight: '700'};
+}
+/* ⭐ PUT THE CAMERA BACK. Owner: "a reset button so if you zoom out on sky view it
+   will readjust the camera", and 2026-08-30: "can you add a recentre button even
+   when full screened on sky view."
+
+   ⚠ IT FRAMES WHAT HAS BEEN TRACED, not just the address. Once there are dots
+   down, "put the camera back" means put it back over the WORK; re-centring on the
+   house would throw away the zoom somebody had set to see their own gutters. With
+   nothing traced it falls back to the house at the working zoom.
+
+   ⚠ AT MODULE LEVEL, NOT INSIDE THE WIRING. Two buttons reach it now and a third
+   may later; a function that lives inside one handler's closure is the one that
+   has to be copied to be reused. Same lesson as rmSaveGrade.
+
+   ⚠ AND IT TOUCHES NO MEASUREMENT. It moves two cameras and takes the covers off;
+   no dot, no height, no side, no footage. That is what makes it safe to put where
+   somebody might press it by accident. */
+function rmRecentre(){
+  if(!rmMap || !rmOrigin) return false;
+  const pts = rmCorners.slice();
+  rmRuns.forEach(function(r){ (r.path || []).forEach(function(p){ pts.push(p); }); });
+  if(pts.length >= 2){
+    const b = new google.maps.LatLngBounds();
+    pts.forEach(function(p){ b.extend(new google.maps.LatLng(p.lat, p.lng)); });
+    rmMap.fitBounds(b, 40);
+  } else {
+    rmMap.setCenter(rmOrigin);
+    rmMap.setZoom(RM_SKY_ZOOM);
+  }
+  /* Street View goes back to looking at the house too, and the cover comes off
+     whatever state it was left in - this button is the way out of a stuck pane. */
+  if(rmPano && rmPano.setPov && rmPano.getPosition && rmPano.getPosition()) rmPano.setPov({heading: rmHeadingTo(
+    rmPano.getPosition().lat(), rmPano.getPosition().lng(), rmOrigin.lat, rmOrigin.lng), pitch: 0});
+  google.maps.event.trigger(rmMap, 'resize');
+  if(rmPano) google.maps.event.trigger(rmPano, 'resize');
+  rmPaneReady('sky'); rmPaneReady('street');
+  return true;
 }
 function rmSyncCornersSky(){
   if(!rmMap){ rmClearCornerMarkers(); return; }
   if(rmCornerMarkers.length !== rmCorners.length) rmClearCornerMarkers();
+  /* ⚠ WHICH LETTERS FIT, worked out in screen pixels rather than in metres: the
+     same dormer is a smudge zoomed out and perfectly legible zoomed in, and it is
+     the PICTURE that is crowded, not the roof. No origin or no map means no
+     thinning, which draws every letter — the safe direction. */
+  const perM = rmOrigin ? rmSkyPxPerM() : 0;
+  const keep = perM ? rmThinLabels(rmCorners.map(function(c){
+    const p = rmToLocal(c.lat, c.lng, 0);
+    return {x: p.e * perM, y: p.n * perM};
+  })) : null;
   rmCorners.forEach(function(c, i){
     const q = {lat: c.lat, lng: c.lng};
+    const lab = (!keep || keep[i]) ? rmMarkerLabel(c, i) : null;
     const have = rmCornerMarkers[i];
-    if(have){ have.setPosition(q); have.setIcon(rmMarkerIcon(c)); have.setLabel(rmMarkerLabel(c, i)); return; }
+    if(have){ have.setPosition(q); have.setIcon(rmMarkerIcon(c)); have.setLabel(lab); return; }
     rmCornerMarkers.push(new google.maps.Marker({
       position: q, map: rmMap, clickable: false, zIndex: 7,
-      icon: rmMarkerIcon(c), label: rmMarkerLabel(c, i)
+      icon: rmMarkerIcon(c), label: lab
     }));
   });
 }
@@ -22345,6 +22551,119 @@ let rmGradeArmed = false;   /* the grade tool is open and taking a drag */
 let rmGradeFor = -1;        /* which peak the grade map is currently reading */
 let rmGradePending = null;  /* read, shown, and not applied until it is confirmed */
 let rmGradePano = null;     /* the third map: one gable, as square on as the road allows */
+/* ⭐ THE PITCH IS MEASURED IN THE WORLD, NOT ON THE GLASS (2026-08-30). Owner:
+   "24 feet 45 degree angle would add 10 feet almost exactly meaning an extra $20
+   to do a peak but your system doesnt adjust it nearly as much as it should."
+
+   ⚠ HER ARITHMETIC IS EXACTLY RIGHT, AND SO WAS THE FORMULA. Two rakes at 45
+   degrees over a 24 ft span are 2 x (12 / cos 45) = 33.94 ft, so the peak adds
+   9.94 ft — and `span x (1/cos - 1)` returns exactly that. What was wrong was the
+   GRADE going into it.
+
+   ⚠ THE DRAG MEASURED THE SLOPE OF A LINE ON THE GLASS — rise over run in screen
+   pixels — and a photograph is not an elevation drawing. The grade panorama is
+   deliberately aimed UP at the roof (pov pitch 8, steeper once anybody looks up),
+   and under an upward pitch a rectilinear view compresses the apparent slope of a
+   line above the camera. The error is always in the SAME DIRECTION: too shallow.
+   On ordinary geometry a true 45-degree rake read back as 87-94%, so a 24 ft peak
+   added 7.9 to 9.0 ft instead of 9.94, and a closer camera is worse. That is the
+   "not nearly as much as it should".
+
+   ⭐ SO IT IS INTERSECTED WITH THE GABLE INSTEAD. The two dots that NAME a peak
+   are real places, so the triangular end of that gable is a KNOWN VERTICAL PLANE:
+   it contains both dots and stands up from the line between them. A dragged pixel
+   is a ray out of the camera — rmRay, the same one every street mark already uses
+   — and a ray meeting a known plane gives a real point in the world. Two of them
+   give a real rise over a real run. There is no projection left to be wrong
+   about: the camera may be pitched, turned, close or far, and the answer does not
+   move.
+
+   ⚠ AND THE PIXEL READING IS KEPT AS THE FALLBACK, never deleted. A gable seen
+   end-on, or a drag that lands on the sky, cannot be solved this way — and an
+   answer that is merely a little shallow beats no answer at all. Which one was
+   used is SAID, because a measured figure and an approximate one should not look
+   alike on a number that sets a price. */
+function rmGradeCamLocal(){
+  if(!rmGradePano || !rmOrigin || !rmGradePano.getPosition) return null;
+  const pos = rmGradePano.getPosition();
+  if(!pos) return null;
+  const p = rmToLocal(pos.lat(), pos.lng(), 0);
+  /* Same height rule the street camera uses — measured where the panorama will
+     say, and the road-to-house drop applied either way. */
+  p.u = (rmCamHeightM !== null ? rmCamHeightM : RM_CAM_HEIGHT_M) + rmCamGroundDrop;
+  return p;
+}
+function rmGradePov(){
+  if(!rmGradePano || !rmGradePano.getPov) return {heading: 0, pitch: 0, zoom: 1};
+  const p = rmGradePano.getPov() || {};
+  let z = rmGradePano.getZoom ? rmGradePano.getZoom() : 1;
+  if(typeof z !== 'number' || !isFinite(z)) z = 1;
+  return {heading: p.heading || 0, pitch: p.pitch || 0, zoom: z};
+}
+/* Where a ray out of the camera meets the vertical plane the gable end stands in.
+   Null whenever the two cannot honestly meet in front of the camera. */
+function rmOnGablePlane(cam, dir, a, b){
+  if(!cam || !dir || !a || !b) return null;
+  const ve = b.e - a.e, vn = b.n - a.n;
+  const len = Math.hypot(ve, vn);
+  if(!(len > 0.2)) return null;                /* two dots on one spot name no plane */
+  const nE = vn / len, nN = -ve / len;         /* horizontal, square across the gable */
+  const denom = nE*dir.e + nN*dir.n;
+  /* Looking ALONG the gable rather than at it: the ray never meets the plane. */
+  if(Math.abs(denom) < 1e-6) return null;
+  const t = (nE*(a.e - cam.e) + nN*(a.n - cam.n)) / denom;
+  if(!(t > 0.5)) return null;                  /* behind the camera, or on top of it */
+  return {e: cam.e + t*dir.e, n: cam.n + t*dir.n, u: cam.u + t*dir.u};
+}
+function rmGradeFromGable(pk, from, to, W, H, pov, cam){
+  if(!pk || !cam || !rmOrigin) return null;
+  const ca = rmCorners[pk.a], cb = rmCorners[pk.b];
+  if(!ca || !cb) return null;
+  const a = rmToLocal(ca.lat, ca.lng, ca.h), b = rmToLocal(cb.lat, cb.lng, cb.h);
+  const p1 = rmOnGablePlane(cam, rmRay(from.x, from.y, W, H, pov), a, b);
+  const p2 = rmOnGablePlane(cam, rmRay(to.x, to.y, W, H, pov), a, b);
+  if(!p1 || !p2) return null;
+  const run = Math.hypot(p2.e - p1.e, p2.n - p1.n);
+  const rise = Math.abs(p2.u - p1.u);
+  if(!(run > 0.3)) return null;                /* straight up is not a pitch */
+  const pct = (rise / run) * 100;
+  /* ⚠ A DRAG THAT LANDS ON THE SKY OR THE LAWN gives a real number about the
+     wrong thing. Nothing outside this is a roof anybody hangs lights on, so it is
+     refused and the picture reading is used instead. */
+  if(!(pct > 1 && pct < 400)) return null;
+  return pct;
+}
+/* ⭐ OR SHE CAN JUST SAY IT (2026-08-30). She opened with "24 feet 45 degree
+   angle" — she knows the pitch of her own gables, and a typed answer carries no
+   projection error at all, which is the strongest version of her own standing
+   rule: "I need no guessing I need feet to be correct."
+   ⚠ A BARE NUMBER IS DEGREES, because that is what she said. `12/12` and `100%`
+   are read as themselves; anything else is refused rather than guessed at. */
+function rmPitchToGrade(text){
+  const s = String(text == null ? '' : text).trim().toLowerCase();
+  if(!s) return null;
+  const slash = s.match(/^(\d+(?:\.\d+)?)\s*[\/:]\s*(\d+(?:\.\d+)?)$/);
+  if(slash){
+    const run = Number(slash[2]);
+    if(!(run > 0)) return null;
+    const pct = (Number(slash[1]) / run) * 100;
+    return (pct > 0 && pct < 400) ? pct : null;
+  }
+  const pc = s.match(/^(\d+(?:\.\d+)?)\s*%$/);
+  if(pc){
+    const v = Number(pc[1]);
+    return (v > 0 && v < 400) ? v : null;
+  }
+  const deg = s.match(/^(\d+(?:\.\d+)?)\s*(?:°|deg|degs|degree|degrees)?$/);
+  if(!deg) return null;
+  const d = Number(deg[1]);
+  /* 90 degrees is a wall, not a roof, and tan blows up at it. */
+  if(!(d > 0 && d < 76)) return null;
+  return Math.tan(rmRad(d)) * 100;
+}
+/* The same answer the other way round, so a stored grade can be shown as the
+   angle somebody typed. */
+function rmGradeToDeg(pct){ return rmDeg(Math.atan((Number(pct) || 0) / 100)); }
 function rmPeakExtraFraction(gradePct){
   const f = rmRoofFacts || {};
   /* This peak's own grade, read off the third map, wins over everything. */
@@ -22869,6 +23188,12 @@ function rmMeasurementDoc(){
       include: rmRunIsOn(r),
       suggested: !!r.suggested,
       side: r.side || '',
+      /* ⚠ SAVED SO THE RESTORE CAN LEAVE IT OUT. A run with this flag is DRAWN
+         FROM THE CORNERS and is rebuilt from them by rmCornersToRun, which
+         first throws away every run carrying it. Restore one as an ordinary run
+         and the next dot she places rebuilds the corner run beside it — the
+         same footage twice, in the number that sets the price. */
+      fromCorners: !!r.fromCorners,
       feet: Math.round(rmRunFeet(r) * 10) / 10
     };
   });
@@ -22883,6 +23208,37 @@ function rmMeasurementDoc(){
        counts it, so it has to be saved or the total will not add up on the way
        back in. */
     photoFeet: Number(rmPhotoExtraFeet) || 0,
+    /* ⭐ THE DOTS THEMSELVES, AND THE PEAKS ON THEM (2026-08-30). Owner: "the
+       peaks are not adding anything because i left the page then came back, but
+       the dots are still there so it should've included the peak addition into
+       the price but it didnt."
+
+       ⚠ SHE WAS LOOKING AT THREE PEAKS READING 0 ft ACROSS. Neither of these
+       was ever written down: only the RUNS were saved, so reopening a quote put
+       the lines back on the map — which is why the dots looked to be there —
+       while rmCorners came back EMPTY. A peak is a pair of corner NUMBERS, and
+       rmPeakSpanFeet returns 0 the moment either one is missing. The pitch she
+       had measured was still on the row, so every peak showed its angle beside
+       a span of nothing and added nothing to the price.
+
+       ⚠ THE RAYS ARE DELIBERATELY NOT SAVED. A ray is the line of sight from a
+       camera that is not on screen when a quote is reopened somewhere else;
+       keeping it would invite a later crossing against a sighting that no longer
+       means anything. The point it already produced is what is worth keeping. */
+    corners: rmCorners.map(function(c){
+      return {lat: Number(c.lat), lng: Number(c.lng),
+              h: isFinite(c.h) ? Number(c.h) : 0,
+              on: c.on !== false, band: Number(c.band) || 0};
+    }),
+    /* ⚠ BY INDEX, exactly as they are held. Storing the letters instead would
+       be a second naming of the same thing, and rmCornerLabel already turns an
+       index into a letter without needing the corner to exist — which is
+       precisely how three peaks came to be listed as A–B, E–F and I–J on a
+       house whose corners had all gone. */
+    peaks: rmPeaks.map(function(p){
+      return {a: Number(p.a), b: Number(p.b),
+              grade: isFinite(p.grade) ? Number(p.grade) : null};
+    }),
     pano: pano || null,
     origin: rmOrigin ? {lat: rmOrigin.lat, lng: rmOrigin.lng} : null,
     datum: {m: Number(datum.m) || 0, source: datum.source || 'assumed'},
@@ -22940,8 +23296,38 @@ function rmRestoreMeasurement(m){
      carry the alignment they were traced under; the paths in them are already
      corrected, so restoring them straight is right and re-applying anything
      would move the whole drawing twice as far off as the picture ever was. */
+  /* ⚠ BOTH ARE EMPTIED FIRST, WHATEVER THIS SAVE CARRIES. Neither was ever
+     cleared when the tool moved house, so a peak measured on one roof stayed in
+     the list on the next one — pointing at corner numbers that now mean somebody
+     else's dots. Restoring is the moment that has to stop being true, including
+     for a drawing saved before either was written down. */
+  rmCorners = []; rmPeaks = []; rmCurrentBand = 0;
+  /* ⭐ THE DOTS GO BACK BEFORE ANYTHING ELSE, because a peak is a pair of corner
+     numbers and the run rebuild reads them too. */
+  const hadCorners = Array.isArray(m.corners) && m.corners.length > 0;
+  if(hadCorners){
+    m.corners.forEach(function(c){
+      const lat = Number(c.lat), lng = Number(c.lng);
+      if(!isFinite(lat) || !isFinite(lng)) return;
+      /* byHand, because every one of them was put there by somebody looking at
+         the house — that is what stops a later sweep moving it. */
+      rmCorners.push({lat: lat, lng: lng, h: Number(c.h) || 0, on: c.on !== false,
+                      byHand: true, band: Number(c.band) || 0, rays: []});
+    });
+    /* ⚠ A NEW DOT STARTS A NEW STRAND. Continuing the last restored band would
+       join a fresh dot to the far end of a run traced days ago and draw a line
+       across the roof that nobody will hang and somebody is charged for. */
+    rmCurrentBand = rmCorners.reduce(function(n, c){ return Math.max(n, (c.band || 0) + 1); }, 0);
+  }
   let restored = 0;
   m.runs.forEach(function(sr){
+    /* ⚠ THE CORNER RUNS ARE NOT PUSHED BACK, THEY ARE REBUILT. rmCornersToRun
+       throws away every fromCorners run and draws them again from rmCorners, so
+       restoring one here as well would leave the same footage on the map twice.
+       ⚠ ONLY when the corners really came back: a drawing saved before they were
+       written down has nothing to rebuild from, and dropping its runs would lose
+       the measurement outright. */
+    if(hadCorners && sr.fromCorners){ restored++; return; }
     const path = (sr.path || []).map(function(p){
       return {lat: Number(p.lat), lng: Number(p.lng), h: Number(p.h) || 0};
     });
@@ -22959,6 +23345,24 @@ function rmRestoreMeasurement(m){
     if(run.surface !== 'manual') rmSyncSky(run);
     restored++;
   });
+  /* ⭐ AND THE PEAKS, ONLY ONTO DOTS THAT ARE ACTUALLY THERE. A peak whose
+     corners did not come back is not a peak with a span of nought — it is a row
+     claiming a gable nobody can see, and it is what she was looking at. */
+  if(hadCorners && Array.isArray(m.peaks)){
+    m.peaks.forEach(function(p){
+      const a = Number(p.a), b = Number(p.b);
+      if(!rmCorners[a] || !rmCorners[b] || a === b) return;
+      const pk = {a: a, b: b};
+      /* A saved grade of null is a peak nobody measured, and it must come back
+         that way rather than as a zero — a zero grade is a flat roof, which is
+         an answer, and this is the absence of one. */
+      if(isFinite(p.grade) && Number(p.grade) > 0) pk.grade = Number(p.grade);
+      rmPeaks.push(pk);
+    });
+  }
+  /* Draws the corner markers, rebuilds the runs they make, and re-totals — so
+     the peaks are in the footage before anything reads the price. */
+  if(hadCorners) rmCornersChanged();
   rmPhotoExtraFeet = Number(m.photoFeet) || 0;
   const sel = document.getElementById('rmDifficulty');
   if(sel && m.difficulty) sel.value = m.difficulty;
@@ -23076,8 +23480,8 @@ function rmDot(run, idx){
        backspace instead of a drag to put it back. */
     position: {lat: w.lat, lng: w.lng}, map: rmMap, draggable: false, clickable: false,
     zIndex: 6, crossOnDrag: false,
-    icon: {path: google.maps.SymbolPath.CIRCLE, scale: 5.5, fillColor: '#fff',
-           fillOpacity: 1, strokeColor: RM_TYPES[run.type].color, strokeWeight: 2.5}
+    icon: {path: google.maps.SymbolPath.CIRCLE, scale: RM_SKY_HANDLE, fillColor: '#fff',
+           fillOpacity: 1, strokeColor: RM_TYPES[run.type].color, strokeWeight: 1.6}
   });
   /* Dragging edits the world point, so the street view line moves with it -
      one model, two windows. */
@@ -23110,7 +23514,9 @@ function rmSyncSky(run){
   const on = rmRunIsOn(run);
   const style = {
     strokeColor: on ? RM_TYPES[run.type].color : '#9aa4b0',
-    strokeWeight: on ? 5 : 3,
+    /* Thinner for the same reason the dots are smaller: a five-pixel line across
+       a dormer edge covers the edge. */
+    strokeWeight: on ? 3.2 : 2,
     strokeOpacity: on ? .95 : .75
   };
   if(!run.line){
@@ -23919,15 +24325,18 @@ function rmPaintStreet(){
     /* the break between two strands is the whole point of ending one */
     if((here[i].band || 0) !== (here[i-1].band || 0)) continue;
     parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
-      '" stroke="rgba(0,0,0,.45)" stroke-width="4" stroke-linecap="round"/>');
+      '" stroke="rgba(0,0,0,.45)" stroke-width="'+RM_LINE_HALO+'" stroke-linecap="round"/>');
     parts.push('<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+
-      '" stroke="#E0574B" stroke-width="2" stroke-linecap="round"/>');
+      '" stroke="#E0574B" stroke-width="'+RM_LINE_W+'" stroke-linecap="round"/>');
   }
+  /* Same thinning as the sky view — see rmThinLabels. The dots all stay. */
+  const keepNum = rmThinLabels(pts);
   pts.forEach(function(q, i){
     if(!q) return;
-    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="6" fill="#E0574B" stroke="#fff" stroke-width="2"/>');
-    parts.push('<text x="'+q.x+'" y="'+(q.y - 10)+'" text-anchor="middle" font-size="11" font-weight="700" ' +
-      'fill="#fff" stroke="rgba(0,0,0,.55)" stroke-width="3" paint-order="stroke">'+(i+1)+'</text>');
+    parts.push('<circle cx="'+q.x+'" cy="'+q.y+'" r="'+RM_DOT_R+'" fill="#E0574B" stroke="#fff" stroke-width="'+RM_DOT_RING+'"/>');
+    if(!keepNum[i]) return;
+    parts.push('<text x="'+q.x+'" y="'+(q.y - RM_DOT_R - 3.5)+'" text-anchor="middle" font-size="'+RM_LABEL_PX+'" font-weight="700" ' +
+      'fill="#fff" stroke="rgba(0,0,0,.55)" stroke-width="2.2" paint-order="stroke">'+(i+1)+'</text>');
   });
   svg.innerHTML = parts.join('');
 }
@@ -24078,7 +24487,10 @@ function rmForgetLastHouse(){
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
   rmModelShift = null; rmModelShiftFt = 0; rmModelShiftResidIn = 0;
-  rmCorners = []; rmCurrentBand = 0; rmCandidates = [];
+  /* ⚠ THE PEAKS GO WITH THE DOTS. A peak is a pair of corner numbers, so one
+     left behind points at whatever dot later takes that number — on the next
+     house. rmPeaks was cleared NOWHERE in this file before 2026-08-30. */
+  rmCorners = []; rmPeaks = []; rmCurrentBand = 0; rmCandidates = [];
   rmClearCornerMarkers();
   rmRenderCornerBar();
   /* the roof model and everything derived from it */
@@ -24131,7 +24543,9 @@ async function rmLoadAddress(){
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
   rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false; rmSnapNote = null;
   rmFramed = false; rmRoadDir = null;
-  rmCorners = []; rmCornerMode = 'dot'; rmSwapFrom = null; rmCurrentBand = 0;
+  /* ⚠ AND HERE — see the note at the other clearing site. A peak cannot outlive
+     the corners it names. */
+  rmCorners = []; rmPeaks = []; rmCornerMode = 'dot'; rmSwapFrom = null; rmCurrentBand = 0;
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
@@ -24147,7 +24561,6 @@ async function rmLoadAddress(){
   google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmPaneReady('sky'); });
   if(rmHomeMarker) rmHomeMarker.setMap(null);
   rmHomeMarker = new google.maps.Marker({position: rmOrigin, map: rmMap, clickable:false, zIndex:1, opacity:.55});
-  document.getElementById('rmCaptureSky').disabled = false;
   document.getElementById('rmHeightPanel').style.display = 'block';
   rmApplyFilter();
   rmSetDrawing(false);
@@ -24545,8 +24958,42 @@ function rmStaticFailMessage(which, res, why){
 async function rmCapture(which, auto){
   const status = document.getElementById('rmStatus');
   rmFinishRun();
-  status.textContent = 'Capturing…';
   const el = document.getElementById(which === 'street' ? 'rmPano' : 'rmMap');
+  /* ⭐ THE SCREEN FIRST — see rmGrabPane for why this replaced fetching a fresh
+     photograph and re-drawing the marks onto it. What is on the glass IS the
+     answer: the dots, the numbers, the joined strands, the letters, all of it,
+     with no projection anywhere that could put them somewhere else.
+     ⚠ AND IT MUST BE THE FIRST THING THIS FUNCTION AWAITS. getDisplayMedia needs
+     the click that is still in hand; anything awaited before it spends that. */
+  if(which === 'street' || which === 'sky'){
+    status.textContent = 'Taking a picture of the screen…';
+    const shot = await rmGrabPane(el);
+    if(shot){
+      const work = document.createElement('canvas');
+      work.width = shot.width; work.height = shot.height;
+      rmCrop = {canvas: work, shot: shot, box: null, which: which, img: null,
+                w: shot.width, h: shot.height, scale: 1,
+                pov: null, cam: null, center: null, zoom: 0, lines: true};
+      rmComposeCapture();
+      const linesWrap = document.getElementById('rmCropLinesWrap');
+      /* ⚠ THE TOGGLE IS MEANINGLESS ON A SCREENSHOT and a control that does
+         nothing is worse than no control — the marks are in the pixels already. */
+      if(linesWrap) linesWrap.style.display = 'none';
+      if(auto){ status.textContent = ''; return await rmStageCapture(); }
+      document.getElementById('rmCropBox').style.display = 'none';
+      document.getElementById('rmCropStatus').textContent = rmMarkTallyText();
+      document.getElementById('rmWorkStage').style.display = 'none';
+      document.getElementById('rmCropStage').style.display = 'block';
+      status.textContent = '';
+      return true;
+    }
+    /* No stream — she said no, or the browser will not do it. The fetched
+       photograph is still better than nothing, and it still carries the marks
+       as well as the arithmetic can place them. */
+    status.textContent = 'Could not photograph the screen — falling back to Google\u2019s own picture, so check the dots are on the house.';
+  }
+  const linesWrapBack = document.getElementById('rmCropLinesWrap');
+  if(linesWrapBack) linesWrapBack.style.display = '';
   const ratio = (el.clientWidth||640) / (el.clientHeight||400);
   let w, h;
   if(ratio >= 1){ w = RM_STATIC_MAX; h = Math.max(160, Math.round(RM_STATIC_MAX/ratio)); }
@@ -24558,14 +25005,46 @@ async function rmCapture(which, auto){
     pov = rmPanoPov();
     cam = rmCamLocal();
     const pos = rmPano.getPosition();
-    makeUrl = function(key){
-      return 'https://maps.googleapis.com/maps/api/streetview?size='+w+'x'+h+'&scale='+scale+
-        '&location='+pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+
+    /* ⭐ THE SAME PANORAMA, NAMED (2026-08-30). Owner: "when you go to capture
+       street view its a different google map entirely just in the same spot and
+       so the dots dont follow."
+       ⚠ SHE IS DESCRIBING A REAL RISK. `location=` asks the static service to go
+       and find the NEAREST panorama to a point, which is not necessarily the one
+       on screen — the arrow keys walk between panoramas with setPano, and a mark
+       is a DIRECTION FROM ONE CAMERA, meaningless from the next one down the
+       street. Naming the panorama makes them the same photograph by construction.
+       Same fix, and the same reason, as rmEnsurePano's own setPano note. */
+    const panoId = (rmPano.getPano && rmPano.getPano()) || '';
+    /* ⚠ AND THE FIELD OF VIEW IS WHAT THE PICTURE WILL ACTUALLY USE. The static
+       service CAPS fov at 120 and silently gives you 120 when asked for more —
+       so a zoomed-out pane asked for 180, got 120, and every mark was then drawn
+       as though the picture held 180 degrees of street: spread out across a photo
+       that never matched them. rmCaptureFov is clamped and the crop's pov carries
+       the zoom that MEANS that fov, so the drawing cannot disagree with the
+       photograph whatever the office does to the zoom control. */
+    const fov = rmCaptureFov(pov.zoom);
+    pov = {heading: pov.heading, pitch: pov.pitch, zoom: rmZoomForFov(fov)};
+    const tail = '&size='+w+'x'+h+'&scale='+scale+
         '&heading='+pov.heading.toFixed(2)+'&pitch='+pov.pitch.toFixed(2)+
-        '&fov='+rmFovDeg(pov.zoom).toFixed(2)+'&return_error_code=true&key='+key;
+        '&fov='+fov.toFixed(2)+'&return_error_code=true&key=';
+    makeUrl = function(key){
+      return 'https://maps.googleapis.com/maps/api/streetview?pano='+encodeURIComponent(panoId)+tail+key;
     };
+    /* ⚠ A PANORAMA ID IS NOT ALWAYS SERVEABLE — a user-contributed photo sphere
+       can be on screen and refused by the static service. Falling back to the
+       point keeps the capture working; it is only ever reached when naming the
+       panorama failed outright, so it cannot quietly become the normal path. */
+    if(!panoId) makeUrl = function(key){
+      return 'https://maps.googleapis.com/maps/api/streetview?location='+
+        pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+tail+key;
+    };
+    rmCaptureFallbackUrl = panoId ? function(key){
+      return 'https://maps.googleapis.com/maps/api/streetview?location='+
+        pos.lat().toFixed(7)+','+pos.lng().toFixed(7)+tail+key;
+    } : null;
   } else {
     if(!rmMap){ status.textContent = 'Load an address first.'; return false; }
+    rmCaptureFallbackUrl = null;
     center = {lat: rmMap.getCenter().lat(), lng: rmMap.getCenter().lng()};
     zoom = Math.round(rmMap.getZoom());
     makeUrl = function(key){
@@ -24573,7 +25052,13 @@ async function rmCapture(which, auto){
         '&zoom='+zoom+'&size='+w+'x'+h+'&scale='+scale+'&maptype=satellite&format=jpg&key='+key;
     };
   }
-  const got = await rmFetchStatic(makeUrl);
+  let got = await rmFetchStatic(makeUrl);
+  /* The named panorama was refused; ask for the point instead rather than
+     leaving the office with no picture at all. */
+  if(got.error === 'refused' && rmCaptureFallbackUrl){
+    console.warn('Measure: that panorama could not be fetched by name — falling back to the position.');
+    got = await rmFetchStatic(rmCaptureFallbackUrl);
+  }
   if(got.error === 'nokey'){
     status.textContent = 'Could not find a Google key on this page, so the picture cannot be fetched. Measuring still works.';
     return false;
@@ -24610,7 +25095,7 @@ async function rmCapture(which, auto){
    * either version on demand and neither is destroyed. */
   rmCrop = {canvas: canvas, box: null, which: which, img: img,
             w: w, h: h, scale: scale, pov: pov, cam: cam,
-            center: center, zoom: zoom, lines: false};
+            center: center, zoom: zoom, lines: true};
   URL.revokeObjectURL(objUrl);
   /* ⭐ A PICTURE ATTACH ASKED FOR CARRIES THE MARKS (2026-08-29). Owner: "make
      sure the placed dots moves with it." Nobody pressed the toggle on this
@@ -24627,7 +25112,8 @@ async function rmCapture(which, auto){
   rmComposeCapture();
   if(auto) return await rmStageCapture();
   document.getElementById('rmCropBox').style.display = 'none';
-  document.getElementById('rmCropStatus').textContent = '';
+  /* Said the moment the picture is on screen, not after it has been attached. */
+  document.getElementById('rmCropStatus').textContent = rmMarkTallyText();
   document.getElementById('rmWorkStage').style.display = 'none';
   document.getElementById('rmCropStage').style.display = 'block';
   status.textContent = '';
@@ -24647,6 +25133,121 @@ function rmPaintCropBox(){
   box.style.display = 'block';
   box.style.left = (b.x*100)+'%'; box.style.top = (b.y*100)+'%';
   box.style.width = (b.w*100)+'%'; box.style.height = (b.h*100)+'%';
+}
+/* ⭐ THE PICTURE IS A PICTURE OF THE SCREEN (2026-08-30). Owner: "the issue is
+   when it uploads i think the dots remain as code but i want the computer to
+   actually take a picture and move it to the customers picture without
+   downloading it because it all stays in the website."
+
+   ⚠ SHE DIAGNOSED IT EXACTLY, AND IT IS WHY THREE FIXES DID NOT HOLD. Every
+   version until now FETCHED A FRESH PHOTOGRAPH from Google and then re-drew the
+   marks onto it from the directions they were stored as — so the dots were only
+   ever as right as the arithmetic lining that new photograph up with the one on
+   screen. Panorama, heading, pitch, field of view, aspect: any one of them off
+   and the marks land beside the house. Each fix closed one of those and the next
+   one was still there. THERE IS NOTHING TO LINE UP IF THE PICTURE IS THE SCREEN.
+
+   ⚠ AND NOTHING IS DOWNLOADED, which she has now asked for twice. getDisplayMedia
+   hands the page a live video of its own tab; one frame is drawn onto a canvas and
+   goes straight to Cloudinary. Nothing touches the disk and nothing leaves the
+   browser except the finished picture.
+
+   ⭐ ASKED ONCE PER SESSION, NOT ONCE PER HOUSE (2026-08-30). Owner: "is there
+   anyway i can permanently allow the question it asks." There is no permanent
+   grant to give — Chrome has no site permission for screen capture, on purpose,
+   because a page that could photograph itself unasked could photograph whatever
+   else is in the tab. What IS ours to decide is how long the answer is kept, and
+   throwing it away when the tool closed meant asking again for every house.
+
+   ⚠ SO IT IS NOT STOPPED ON CLOSE ANY MORE. The stream lives as long as the admin
+   page does: one answer covers a morning of quotes. Chrome's own sharing bar is
+   the way out of it — pressing Stop there fires 'ended' below, and the next
+   capture simply asks again. That is the whole of the off switch and it is the
+   browser's, not ours, which is the right place for it.
+
+   ⚠ AND IT IS NEVER STARTED SPECULATIVELY. rmEnsureShotStream is only ever
+   reached from a capture the office pressed for, so nothing is shared until a
+   picture is actually wanted. */
+let rmShotStream = null;
+async function rmEnsureShotStream(){
+  const live = rmShotStream && rmShotStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+  if(live) return rmShotStream;
+  rmShotStream = null;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return null;
+  try{
+    rmShotStream = await navigator.mediaDevices.getDisplayMedia({
+      /* ⚠ THE CURRENT TAB AND NOTHING ELSE. Chrome narrows the picker to this one
+         tab, which is what makes the crop below reliable: a frame of the whole
+         screen or of another window has no fixed relationship to this page's
+         coordinates, and cropping it would cut out the wrong rectangle. */
+      video: {displaySurface: 'browser'},
+      preferCurrentTab: true,
+      selfBrowserSurface: 'include',
+      audio: false
+    });
+  } catch(err){
+    /* Said no, or the browser refused. The caller falls back to the fetched
+       photograph rather than leaving the office with no picture at all. */
+    console.warn('Measure: screen capture was not available —', err && err.name);
+    return null;
+  }
+  /* Stopped from Chrome's own sharing bar: forget it rather than handing out a
+     dead stream on the next capture. */
+  rmShotStream.getVideoTracks().forEach(function(t){
+    t.addEventListener('ended', function(){ rmShotStream = null; });
+  });
+  return rmShotStream;
+}
+function rmStopShotStream(){
+  if(!rmShotStream) return;
+  try{ rmShotStream.getTracks().forEach(function(t){ t.stop(); }); }
+  catch(err){ /* already gone; nothing to stop */ }
+  rmShotStream = null;
+}
+/* One frame of this tab, cropped to the pane. Null when there is no stream,
+   which is the caller's signal to fall back. */
+async function rmGrabPane(el){
+  if(!el) return null;
+  const stream = await rmEnsureShotStream();
+  if(!stream) return null;
+  const video = document.createElement('video');
+  video.srcObject = stream;
+  video.muted = true;
+  video.playsInline = true;
+  /* ⚠ IN THE DOM, OFF SCREEN. Some browsers will not decode a frame for a video
+     that was never attached, and a detached one can sit at 0x0 for ever. */
+  video.style.cssText = 'position:fixed; left:-10000px; top:0; width:2px; height:2px; opacity:0;';
+  document.body.appendChild(video);
+  let canvas = null;
+  try{
+    await video.play();
+    /* A frame is not there the instant play() resolves. Two frames of grace, so
+       what is captured is the pane as it is now rather than as it was. */
+    await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const rect = el.getBoundingClientRect();
+    if(vw > 0 && vh > 0 && rect.width > 20 && rect.height > 20){
+      /* The tab is captured at its own scale, so one CSS pixel of this page is
+         this many pixels of the frame. Measured rather than assumed: it is NOT
+         always devicePixelRatio — a zoomed page and a scaled display disagree. */
+      const sx = vw / window.innerWidth, sy = vh / window.innerHeight;
+      const cx = Math.max(0, Math.round(rect.left * sx));
+      const cy = Math.max(0, Math.round(rect.top * sy));
+      const cw = Math.min(vw - cx, Math.round(rect.width * sx));
+      const ch = Math.min(vh - cy, Math.round(rect.height * sy));
+      if(cw > 20 && ch > 20){
+        canvas = document.createElement('canvas');
+        canvas.width = cw; canvas.height = ch;
+        canvas.getContext('2d').drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch);
+      }
+    }
+  } catch(err){
+    console.warn('Measure: could not read a frame off the screen —', err);
+  }
+  try{ video.pause(); } catch(err){ /* nothing to pause */ }
+  video.srcObject = null;
+  video.remove();
+  return canvas;
 }
 /* ⭐ EVERY MARK THE OFFICE PLACED, IN THE CAPTURED PICTURE'S OWN PIXELS
    (2026-08-29). Owner: "make sure the placed dots moves with it."
@@ -24714,7 +25315,19 @@ function rmCaptureMarks(which, w, h, scale, pov, cam, center, zoom){
    painter that can only work on one canvas would have to destroy one to make the
    other. */
 function rmPaintCapture(canvas, withMarks){
-  if(!rmCrop || !rmCrop.img) return;
+  if(!rmCrop) return;
+  /* ⚠ A SCREENSHOT IS FINISHED WHEN IT IS TAKEN. The marks are already in the
+     pixels — that is the whole reason for taking one — so drawing them again
+     would put a second set beside the first, half a house apart. */
+  if(rmCrop.shot){
+    const sctx = canvas.getContext('2d');
+    sctx.clearRect(0, 0, canvas.width, canvas.height);
+    /* ⚠ NO FILTER HERE. rmApplyFilter puts it on the PANE, so a picture of the
+       pane already has it — applying it again would apply it twice. */
+    sctx.drawImage(rmCrop.shot, 0, 0);
+    return;
+  }
+  if(!rmCrop.img) return;
   const img = rmCrop.img;
   const which = rmCrop.which, w = rmCrop.w, h = rmCrop.h, scale = rmCrop.scale;
   const pov = rmCrop.pov, cam = rmCrop.cam, center = rmCrop.center, zoom = rmCrop.zoom;
@@ -24732,18 +25345,22 @@ function rmPaintCapture(canvas, withMarks){
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       /* dark halo under the colour, so a red line stays readable over a
          red-brown roof */
-      [{c:'rgba(0,0,0,.55)', lw:9}, {c:m.color, lw:5}].forEach(function(pass){
+      /* ⚠ THE FALLBACK PICTURE IS DRAWN AT TWICE THE SCREEN SCALE (the static
+         image is fetched at scale 2), so it doubles the screen sizes rather than
+         carrying numbers of its own — otherwise shrinking the dots on screen
+         leaves this path drawing the old fat ones. */
+      [{c:'rgba(0,0,0,.55)', lw:RM_LINE_HALO*2}, {c:m.color, lw:RM_LINE_W*2}].forEach(function(pass){
         ctx.beginPath();
         pts.forEach(function(p, i){ if(i===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
         ctx.strokeStyle = pass.c; ctx.lineWidth = pass.lw; ctx.stroke();
       });
     }
     (m.dots.length ? m.dots : pts).forEach(function(p){
-      ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI*2);
+      ctx.beginPath(); ctx.arc(p.x, p.y, RM_DOT_R*2, 0, Math.PI*2);
       ctx.fillStyle = '#fff'; ctx.fill();
-      ctx.strokeStyle = m.color; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.strokeStyle = m.color; ctx.lineWidth = RM_DOT_RING*2; ctx.stroke();
       if(!p.text) return;
-      ctx.font = '700 15px system-ui, -apple-system, sans-serif';
+      ctx.font = '700 ' + (RM_LABEL_PX*2) + 'px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'center';
       ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.6)';
       ctx.strokeText(p.text, p.x, p.y - 10);
@@ -24756,7 +25373,7 @@ function rmPaintCapture(canvas, withMarks){
  * Owner: "I don't want red lines showing here after I'm done measuring."
  * The toggle composes either version on demand and neither is destroyed. */
 function rmComposeCapture(){
-  if(!rmCrop || !rmCrop.img) return;
+  if(!rmCrop || !(rmCrop.img || rmCrop.shot)) return;
   rmPaintCapture(rmCrop.canvas, !!rmCrop.lines);
   document.getElementById('rmCropImg').src = rmCrop.canvas.toDataURL('image/jpeg', .92);
 }
@@ -24769,6 +25386,10 @@ function rmComposeCapture(){
    with the picture without being burnt into it for ever. */
 function rmCaptureShapes(){
   if(!rmCrop || !rmCrop.canvas) return [];
+  /* Nothing to hand the Mark Up tool: on a screenshot the marks are pixels, not
+     shapes, and offering editable copies of lines that are already burnt in
+     would draw every one of them twice. */
+  if(rmCrop.shot) return [];
   const W = rmCrop.canvas.width, H = rmCrop.canvas.height;
   const b = (rmCrop.box && rmCrop.box.w >= .02 && rmCrop.box.h >= .02) ? rmCrop.box : null;
   const ox = b ? b.x*W : 0, oy = b ? b.y*H : 0;
@@ -24784,20 +25405,82 @@ function rmCaptureShapes(){
   });
   return out;
 }
+/* ⭐ HOW MANY OF HER MARKS ARE ACTUALLY ON THIS PICTURE (2026-08-30). Owner:
+   "when the picture uploads the dots dont go with it which is the whole point."
+   ⚠ THE FAILURE WAS SILENT, WHICH IS WHY IT SURVIVED A FIX. A capture with the
+   marks switched off and a capture whose marks all fell outside the frame look
+   exactly alike — a clean photograph — and neither says a word. Counting them
+   makes the difference readable at the moment it happens, on the screen where
+   something can still be done about it.
+   ⚠ COUNTED AGAINST THE PICTURE, NOT AGAINST THE SCREEN: a mark behind the
+   camera or off the edge is legitimately not on this photograph, and saying so
+   is the whole point. */
+function rmCaptureMarkTally(){
+  const out = {placed: 0, on: 0, lines: 0};
+  if(!rmCrop || !rmCrop.canvas) return out;
+  const W = rmCrop.canvas.width, H = rmCrop.canvas.height;
+  out.placed = rmCrop.which === 'street' ? rmStreetDotsHere().length : rmCorners.length;
+  rmCaptureMarks(rmCrop.which, rmCrop.w, rmCrop.h, rmCrop.scale, rmCrop.pov,
+                 rmCrop.cam, rmCrop.center, rmCrop.zoom).forEach(function(m){
+    if(m.path.length > 1) out.lines++;
+    m.dots.forEach(function(p){
+      if(p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H) out.on++;
+    });
+  });
+  return out;
+}
+/* The same tally as a sentence, or '' when there is nothing to say. */
+function rmMarkTallyText(){
+  /* ⚠ THERE IS NOTHING TO COUNT ON A SCREENSHOT. The count exists to catch marks
+     that were re-drawn onto the wrong photograph; a picture of the screen cannot
+     have that fault, and a reassuring number would only imply it might. */
+  if(rmCrop && rmCrop.shot) return 'Taken straight off the screen — whatever you could see is on it.';
+  const t = rmCaptureMarkTally();
+  if(!t.placed && !t.lines) return '';
+  if(t.placed && !t.on){
+    /* ⚠ THE ONE CASE WORTH SHOUTING ABOUT. Attaching this picture attaches a
+       photograph of a house with none of the measuring on it, which is exactly
+       what was reported — so it names the two things that cause it. */
+    return 'None of your ' + t.placed + ' dots landed on this picture — it is aimed somewhere else. ' +
+      'Point the view back at the marks and capture again.';
+  }
+  const bits = [];
+  if(t.placed) bits.push(t.on + ' of ' + t.placed + ' dot' + (t.placed === 1 ? '' : 's') + ' on this picture');
+  if(t.lines) bits.push(t.lines + ' line' + (t.lines === 1 ? '' : 's'));
+  return bits.join(', ') + '.';
+}
 /* Put the capture on the "ready to attach" strip. Shared by the crop screen's
    own button and by Attach when it had to take the picture itself, so there is
    ONE place that decides what a staged picture is. */
 async function rmStageCapture(){
-  if(!rmCrop || !rmCrop.img) return false;
+  if(!rmCrop || !(rmCrop.img || rmCrop.shot)) return false;
   const clean = await rmCroppedBlob(false);
   if(!clean) return false;
   const shapes = rmCaptureShapes();
-  const marks = rmCaptureMarks(rmCrop.which, rmCrop.w, rmCrop.h, rmCrop.scale,
-                               rmCrop.pov, rmCrop.cam, rmCrop.center, rmCrop.zoom);
-  const marked = (rmCrop.lines && marks.length) ? await rmCroppedBlob(true) : null;
+  /* Not asked at all for a screenshot: there is no pov behind one, and the mark
+     projection would be handed nulls to divide by. */
+  const marks = rmCrop.shot ? [] :
+    rmCaptureMarks(rmCrop.which, rmCrop.w, rmCrop.h, rmCrop.scale,
+                   rmCrop.pov, rmCrop.cam, rmCrop.center, rmCrop.zoom);
+  /* ⚠ A SCREENSHOT HAS NO CLEAN TWIN, and that is the honest trade. A fetched
+     photograph could be uploaded twice — once clean as the picture's `original`,
+     once marked — because the marks were drawn by us and could be left off. The
+     marks in a screenshot were on the glass; there is no version of that frame
+     without them. Owner has now twice said the dots are the point, so the picture
+     that shows them is the picture, and Replace This One is how it is undone. */
+  const marked = (!rmCrop.shot && rmCrop.lines && marks.length) ? await rmCroppedBlob(true) : null;
   const t = rmTotals();
-  const from = rmCrop.which === 'street' ? 'Front of house' : 'Roofline from above';
+  /* ⚠ THE AERIAL NAMES ITSELF. Since 2026-08-30 the only way one reaches a quote
+     is the no-street-photograph fallback, so the label has to say that — a
+     picture of a roof from above, sitting on a quote with no explanation, reads
+     as the tool having attached the wrong thing again. */
+  const from = rmCrop.which === 'street' ? 'Front of house'
+             : 'Roofline from above — Google has no street photograph here';
   rmShots.push({
+    /* ⚠ WHICH PANE IT CAME FROM TRAVELS WITH IT. The crop is torn down after
+       staging, so by upload time nothing else can still answer that — and "is
+       this the photograph or the aerial" is the whole of the rule above. */
+    which: rmCrop.which,
     blob: clean, marked: marked, markup: shapes,
     preview: URL.createObjectURL(marked || clean),
     label: rmRuns.length ? (from + ' — ' + rmFmtFeet(Math.round(t.all))) : from
@@ -24811,7 +25494,7 @@ async function rmStageCapture(){
    never destroys the other - Attach asks for both. */
 function rmCroppedBlob(withMarks){
   return new Promise(function(resolve){
-    if(!rmCrop || !rmCrop.img){ resolve(null); return; }
+    if(!rmCrop || !(rmCrop.img || rmCrop.shot)){ resolve(null); return; }
     const src = document.createElement('canvas');
     src.width = rmCrop.canvas.width; src.height = rmCrop.canvas.height;
     rmPaintCapture(src, !!withMarks);
@@ -24909,7 +25592,10 @@ function rmReset(){
   /* Unticked with the rest — the box is markup, and markup belongs to the
      capture it was ticked for, not to the next house. */
   const cropLines = document.getElementById('rmCropLines');
-  if(cropLines) cropLines.checked = false;
+  /* ⚠ BACK TO TICKED, not to blank — see the box's own note. The marks are the
+     point of the picture; what belongs to one capture and must not carry over is
+     the CROP, which is cleared with rmCrop itself. */
+  if(cropLines) cropLines.checked = true;
   rmWall = null; rmWallPts = []; rmWallPicking = false;
   rmSkyReady = false; rmStreetReady = false; rmCamGroundDrop = 0;
   rmSetType('perimeter');
@@ -24936,7 +25622,6 @@ function rmReset(){
   rmHeightTyped = false;
   document.getElementById('rmStreetNote').textContent = '';
   document.getElementById('rmSkyNote').textContent = '';
-  document.getElementById('rmCaptureSky').disabled = true;
   document.getElementById('rmCaptureStreet').disabled = true;
   rmApplyFilter();
   rmSetDrawing(false);
@@ -25370,16 +26055,36 @@ function openRoofMeasure(quoteId){
      so the tool takes a number off it and never a position. */
   let rmGradeDrag = null;
   const rmGradeLine = document.getElementById('rmGradeLine');
+  /* ⚠ THE OLD READING, KEPT AS THE FALLBACK. Rise over run in SCREEN pixels — see
+     rmGradeFromGable for why that is always a little too shallow, and why it is
+     still worth having when the gable cannot be solved. */
   function rmGradeFrom(a, b){
     const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
     if(dx < 4) return null;                       /* straight up is not a pitch */
     return (dy / dx) * 100;
   }
+  /* ⭐ THE GABLE IS ASKED FIRST. One reader, so the live line and the answer that
+     is finally applied can never come from two different measurements. */
+  function rmGradeRead(from, to, rect){
+    const pk = rmPeaks[rmGradeFor];
+    const real = pk ? rmGradeFromGable(pk, from, to, rect.width, rect.height,
+                                       rmGradePov(), rmGradeCamLocal()) : null;
+    if(real !== null) return {pct: real, measured: true};
+    const flat = rmGradeFrom(from, to);
+    return flat === null ? null : {pct: flat, measured: false};
+  }
+  /* ⚠ THE ANGLE FIRST, AND THE PERCENT SAID TO BE A GRADE (2026-08-30). Owner,
+     on a peak the tool had read at 49%: "i think it did the math as if its a 4
+     degree angle not 49 or something". The arithmetic was right — 49% grade IS
+     26°, and 26° across 24.7 ft really does add 2.9 ft — but a bare "49" beside
+     a peak reads as forty-nine DEGREES, which would have added 12.9 ft. Every
+     figure that could be mistaken for an angle now leads with the actual angle. */
   function rmGradeSay(g){
     const el = document.getElementById('rmGradeNote');
     if(!el) return;
     el.textContent = g === null ? 'Drag along the slope of a gable.'
-      : Math.round(g) + '% — ' + (Math.round(g * 12 / 100 * 10) / 10) + '/12, read off the picture';
+      : Math.round(rmGradeToDeg(g)) + '° (' + Math.round(g) + '% grade, ' +
+        (Math.round(g * 12 / 100 * 10) / 10) + '/12), read off the picture';
   }
   /* ⭐ OPEN THE GRADE MAP ON ONE PEAK. Owner: "it should automatically take you
      to the third map."
@@ -25459,17 +26164,48 @@ function openRoofMeasure(quoteId){
   function rmRenderPeaks(){
     const box = document.getElementById('rmPeakList');
     if(!box) return;
-    const frac = rmPeakExtraFraction();
     box.innerHTML = rmPeaks.map(function(pk, i){
       const span = rmPeakSpanFeet(pk), add = rmPeakFeet(pk);
+      /* ⚠ THIS PEAK'S OWN ANSWER, not the whole roof's. The row used to ask
+         rmPeakExtraFraction() with no argument, so two gables of different
+         pitches both reported the house average — which is the number the whole
+         peak feature exists to stop using. */
+      const frac = rmPeakExtraFraction(pk && pk.grade);
+      const own = isFinite(pk && pk.grade) && pk.grade > 0;
       return '<div class="rm-runrow"><span>' +
         rmCornerLabel(pk.a) + ' &ndash; ' + rmCornerLabel(pk.b) +
-        ' <span style="opacity:.6;">' + rmFmtFeet(span) + ' across</span></span>' +
+        ' <span style="opacity:.6;">' + rmFmtFeet(span) + ' across</span>' +
+        /* ⭐ TYPE THE ANGLE. Owner opened with "24 feet 45 degree angle" — she
+           knows her own gables, and a typed pitch carries no projection error. */
+        ' <input data-rmpeakpitch="' + i + '" value="' + (own ? (Math.round(rmGradeToDeg(pk.grade) * 10) / 10) : '') + '"' +
+        ' placeholder="45°" title="Type this gable&#39;s pitch — 45 for degrees, or 12/12, or 100%"' +
+        ' style="width:52px; padding:2px 5px; font-size:11px;"></span>' +
         '<span>' + (frac === null
-          ? '<span style="color:var(--ember);">measure the grade</span>'
-          : '+' + rmFmtFeet(add)) +
+          ? '<span style="color:var(--ember);">needs a pitch</span>'
+          : '+' + rmFmtFeet(add) + (own ? '' : ' <span style="color:var(--ember);" title="This is the roof’s average pitch, not this gable’s">(roof average)</span>')) +
         ' <button type="button" data-rmdelpeak="' + i + '" title="Remove this peak">&#10005;</button></span></div>';
     }).join('');
+    box.querySelectorAll('[data-rmpeakpitch]').forEach(function(inp){
+      /* ⚠ ON change, NOT ON EVERY KEYSTROKE. rmRenderResults rebuilds this row,
+         which would destroy the box being typed into. */
+      inp.addEventListener('change', function(){
+        const pk = rmPeaks[Number(inp.dataset.rmpeakpitch)];
+        if(!pk) return;
+        const txt = inp.value.trim();
+        /* Emptying it hands the peak back to whatever the roof says, rather than
+           leaving a number nobody stands behind. */
+        if(!txt){ delete pk.grade; rmRenderResults(); return; }
+        const pct = rmPitchToGrade(txt);
+        if(pct === null){
+          const note = document.getElementById('rmPeakNote');
+          if(note) note.textContent = 'Type the pitch as an angle (45), a pitch (12/12) or a grade (100%).';
+          inp.value = isFinite(pk.grade) && pk.grade > 0 ? (Math.round(rmGradeToDeg(pk.grade) * 10) / 10) : '';
+          return;
+        }
+        pk.grade = pct;
+        rmRenderResults();
+      });
+    });
     box.querySelectorAll('[data-rmdelpeak]').forEach(function(b){
       b.addEventListener('click', function(){
         rmPeaks.splice(Number(b.dataset.rmdelpeak), 1);
@@ -25527,8 +26263,20 @@ function openRoofMeasure(quoteId){
       rmRegrade(rmEaveFtForGrade ? {eaveFt: rmEaveFtForGrade} : {});
       rmRenderResults();
       const note = document.getElementById('rmPeakNote');
-      if(note && pk) note.textContent = 'Peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b) +
-        ' at ' + Math.round(g) + '% — ' + rmFmtFeet(rmPeakFeet(pk)) + ' on top of the span.';
+      /* ⭐ IT SHOWS ITS WORKING. Owner: "does this math add up to you because it
+         doesnt to me". The answer was right and she still could not check it,
+         which for a number that sets a price is the same as wrong. The rake
+         length is the whole of the sum: a 24.7 ft span at 26° is 27.6 ft of
+         slope, and the difference IS the extra footage. ⚠ And it says how to
+         overrule it, because a grade read off a photograph tends to come out
+         shallow and she knows her own gables. */
+      if(note && pk){
+        const spanFt = rmPeakSpanFeet(pk);
+        note.textContent = 'Peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b) +
+          ' at ' + Math.round(rmGradeToDeg(g)) + '° (' + Math.round(g) + '% grade) — the slope runs ' +
+          rmFmtFeet(spanFt / Math.cos(Math.atan(g / 100))) + ' across a ' + rmFmtFeet(spanFt) +
+          ' span, so +' + rmFmtFeet(rmPeakFeet(pk)) + '. Not the pitch you know it to be? Type the angle on its row.';
+      }
     }
     rmGradePending = null;
     rmCloseGrade();
@@ -25557,16 +26305,18 @@ function openRoofMeasure(quoteId){
       rmGradeLine.setAttribute('x2', to.x); rmGradeLine.setAttribute('y2', to.y);
       rmGradeLine.style.display = 'block';
     }
-    rmGradeSay(rmGradeFrom(rmGradeDrag, to));
+    const live = rmGradeRead(rmGradeDrag, to, r);
+    rmGradeSay(live && live.pct);
   });
   ['mouseup', 'mouseleave'].forEach(function(ev){
     document.getElementById('rmGradeLock').addEventListener(ev, function(e){
       if(!rmGradeArmed || !rmGradeDrag) return;
       const r = this.getBoundingClientRect();
-      const g = rmGradeFrom(rmGradeDrag, {x: e.clientX - r.left, y: e.clientY - r.top});
+      const read = rmGradeRead(rmGradeDrag, {x: e.clientX - r.left, y: e.clientY - r.top}, r);
+      const g = read && read.pct;
       rmGradeDrag = null;
       if(rmGradeLine) rmGradeLine.style.display = 'none';
-      if(g === null){ rmGradeSay(null); return; }
+      if(!read){ rmGradeSay(null); return; }
       /* ⭐ LETTING GO IS WHAT APPLIES IT, to the peak this map was opened for.
          Owner: "after you let go of using the tool it automatically adds the
          extra." Nothing to confirm and nothing to type. */
@@ -25576,8 +26326,13 @@ function openRoofMeasure(quoteId){
       const ask = document.getElementById('rmGradeAsk');
       const txt = document.getElementById('rmGradeAskText');
       const pkNow = rmPeaks[rmGradeFor];
-      if(txt) txt.textContent = Math.round(g) + '% — ' + (Math.round(g * 12 / 100 * 10) / 10) +
-        '/12' + (pkNow ? ', adding ' + rmFmtFeet(rmPeakSpanFeet(pkNow) * ((1 / Math.cos(Math.atan(g / 100))) - 1)) : '') +
+      /* ⚠ IT SAYS WHICH READING THIS IS. A figure measured against the gable and
+         one estimated off the glass must not look alike on a number that sets a
+         price — and the estimate is known to read shallow. */
+      if(txt) txt.textContent = Math.round(rmGradeToDeg(g)) + '\u00b0 (' + Math.round(g) + '%, ' +
+        (Math.round(g * 12 / 100 * 10) / 10) + '/12)' +
+        (pkNow ? ', adding ' + rmFmtFeet(rmPeakSpanFeet(pkNow) * ((1 / Math.cos(Math.atan(g / 100))) - 1)) : '') +
+        (read.measured ? '' : ' \u2014 read off the picture, which tends to come out a little shallow; type the angle on the peak if you know it') +
         '. Was that right?';
       if(ask) ask.style.display = 'flex';
     });
@@ -25590,6 +26345,22 @@ function openRoofMeasure(quoteId){
                                         box.width, box.height, rmPanoPov()));
   });
   document.getElementById('rmMapLock').addEventListener('mousedown', function(){ rmLastPane = 'sky'; });
+  /* ⭐ BOTH PICTURES AT ONCE, filling the screen (2026-08-30) — see the
+     .rm-panes:fullscreen rules for why this is the CONTAINER rather than a pane.
+     ⚠ IT SWAPS RATHER THAN REFUSING. Pressed while one pane is already full
+     screen it goes straight to half and half, because that comparison is the whole
+     point of it; pressed while ALREADY half and half it comes back out. A button
+     that did nothing until you had left full screen would just look broken. */
+  document.querySelectorAll('#roofMeasureOverlay .rm-both').forEach(function(b){
+    b.addEventListener('click', function(e){
+      /* ⚠ STOPPED, like the other two: the head lies over the map, and a click
+         that carries on down places a corner where the button was. */
+      e.preventDefault(); e.stopPropagation();
+      const panes = b.closest('.rm-panes');
+      if(document.fullscreenElement === panes){ document.exitFullscreen(); return; }
+      if(panes && panes.requestFullscreen) panes.requestFullscreen();
+    });
+  });
   /* Full screen on the pane itself, so whatever is drawn over it goes too. */
   document.querySelectorAll('#roofMeasureOverlay .rm-fs').forEach(function(b){
     b.addEventListener('click', function(e){
@@ -25607,33 +26378,18 @@ function openRoofMeasure(quoteId){
     if(rmMap) google.maps.event.trigger(rmMap, 'resize');
     if(rmPano) google.maps.event.trigger(rmPano, 'resize');
   });
-  /* ⭐ RECENTRE HAD NO HANDLER AT ALL. The button has been in the markup since it
-     was asked for - "a reset button so if you zoom out on sky view it will readjust
-     the camera" - and nothing was ever wired to it, so it did nothing at all.
-
-     ⚠ IT FRAMES WHAT HAS BEEN TRACED, not just the address. Once there are dots
-     down, "put the camera back" means put it back over the WORK; re-centring on the
-     house would throw away the zoom somebody had set to see their own gutters. With
-     nothing traced it falls back to the house at the working zoom. */
-  document.getElementById('rmRecentreBtn').addEventListener('click', function(){
-    if(!rmMap || !rmOrigin) return;
-    const pts = rmCorners.slice();
-    rmRuns.forEach(function(r){ (r.path || []).forEach(function(p){ pts.push(p); }); });
-    if(pts.length >= 2){
-      const b = new google.maps.LatLngBounds();
-      pts.forEach(function(p){ b.extend(new google.maps.LatLng(p.lat, p.lng)); });
-      rmMap.fitBounds(b, 40);
-    } else {
-      rmMap.setCenter(rmOrigin);
-      rmMap.setZoom(RM_SKY_ZOOM);
-    }
-    /* Street View goes back to looking at the house too, and the cover comes off
-       whatever state it was left in - this button is the way out of a stuck pane. */
-    if(rmPano && rmPano.setPov) rmPano.setPov({heading: rmHeadingTo(
-      rmPano.getPosition().lat(), rmPano.getPosition().lng(), rmOrigin.lat, rmOrigin.lng), pitch: 0});
-    google.maps.event.trigger(rmMap, 'resize');
-    if(rmPano) google.maps.event.trigger(rmPano, 'resize');
-    rmPaneReady('sky'); rmPaneReady('street');
+  /* ⭐ EVERY WAY IN RUNS THE ONE FUNCTION. There are two buttons now — the toolbar
+     one and the one inside the sky pane, which is the only one that exists in full
+     screen — and a second copy of "put the camera back" is the copy that stops
+     matching. A third door later is one more element carrying .rm-recentre. */
+  document.querySelectorAll('#roofMeasureOverlay .rm-recentre').forEach(function(b){
+    b.addEventListener('click', function(e){
+      /* ⚠ STOPPED HERE. The in-pane one sits in the head that lies over the map,
+         and a click that carries on down reaches the measuring sheet and puts a
+         dot on the roof — pressing Recentre would place a corner. */
+      e.preventDefault(); e.stopPropagation();
+      rmRecentre();
+    });
   });
   document.getElementById('rmPanoLock').addEventListener('wheel', function(e){
     if(!rmPano) return;
@@ -25750,14 +26506,15 @@ function openRoofMeasure(quoteId){
      tool refusing. One button, one meaning: nothing left in either picture. */
   document.getElementById('rmClearBtn').addEventListener('click', function(){
     rmClearDrawing();
-    rmCorners = []; rmCurrentBand = 0; rmSwapFrom = null;
+    /* ⚠ CLEAR TAKES THE PEAKS TOO. Leaving them turns "start this house again"
+       into a list of gables between dots that are no longer on the screen. */
+    rmCorners = []; rmPeaks = []; rmCurrentBand = 0; rmSwapFrom = null;
     rmSetDrawing(false);
     rmCornersChanged();
     rmRenderResults();
     const note = document.getElementById('rmCornerNote');
     if(note) note.textContent = 'Cleared — both pictures are empty.';
   });
-  document.getElementById('rmCaptureSky').addEventListener('click', function(){ rmCapture('sky'); });
   document.getElementById('rmCaptureStreet').addEventListener('click', function(){ rmCapture('street'); });
   document.getElementById('rmCropBackBtn').addEventListener('click', rmBackToHouse);
   document.getElementById('rmCropResetBtn').addEventListener('click', function(){
@@ -25803,8 +26560,8 @@ function openRoofMeasure(quoteId){
        afterwards. Clearing it would be a small betrayal of work already done. */
     rmComposeCapture();
     document.getElementById('rmCropStatus').textContent = this.checked
-      ? 'Lines drawn on. They become part of the picture when you add it.'
-      : 'Clean picture — the lines are only on screen while you measure.';
+      ? ('Marks drawn on. ' + rmMarkTallyText())
+      : 'Clean picture — your marks will NOT be on the one you attach.';
   });
   document.getElementById('rmCropUseBtn').addEventListener('click', async function(){
     /* One stager, so the crop screen and Attach cannot drift about what a
@@ -25942,9 +26699,31 @@ function openRoofMeasure(quoteId){
        press the gold button underneath - did nothing at all. The marks go on it:
        see rmCapture, which is handed `auto`. */
     if(!rmShots.length){
-      const which = (rmLastPane === 'street' && rmStreetReady) ? 'street'
-                  : (rmSkyReady ? 'sky' : (rmStreetReady ? 'street' : ''));
-      if(!which){ status.textContent = 'No picture yet — the house has not loaded. Check the address above and press Load Property, then Attach.'; btn.disabled = false; return; }
+      /* ⭐ THE STREET VIEW, ALWAYS (2026-08-30). Owner: "when you dot the sky view
+         the picture of that gets uploaded as well but we just want the street view
+         to be uploaded."
+
+         ⛔ WHAT THIS USED TO DO, and why it is gone: it guessed which picture she
+         meant from where the marks were, so tracing a roofline overhead — which is
+         the ONLY place a roofline is traced — attached a satellite photograph of
+         the roof to the quote. That guess was right about where the WORK was and
+         wrong about what the PICTURE is for: the quote's photograph is what the
+         customer and the crew look at to recognise the house, and an aerial does
+         not do that job at any price.
+
+         ⚠ IT FITS THE PANE'S OWN RULE. She settled on 2026-08-28 that the street
+         picture "should not show the dots from sky view" — rmPaintStreet draws
+         only its own marks. So this is the same decision followed through: the
+         sky view is where the house is MEASURED, the street view is the PICTURE.
+
+         ⚠ THE AERIAL SURVIVES ONLY WHERE THERE IS NO PHOTOGRAPH AT ALL, and then
+         it says so on the picture's own label. Refusing outright would leave a
+         quote with no picture on it, which is a worse answer than a labelled one. */
+      const which = rmStreetReady ? 'street' : (rmSkyReady ? 'sky' : '');
+      /* ⚠ IT NO LONGER NAMES Load Property, which was removed on 2026-08-25 when
+         the tool stopped having an address bar — the message was telling her to
+         press a button that is not there, which is worse than saying nothing. */
+      if(!which){ status.textContent = 'No picture yet — neither view has loaded for this address. Close this and open Measure Roof again; if it still says this, Google may not recognise the address on the quote.'; btn.disabled = false; return; }
       status.textContent = 'Capturing this view…';
       const staged = await rmCapture(which, true);
       if(!staged || !rmShots.length){
@@ -25953,6 +26732,10 @@ function openRoofMeasure(quoteId){
         btn.disabled = false; return;
       }
     }
+    /* ⚠ TAKEN BEFORE THE UPLOAD, because rmStageCapture clears rmCrop's place in
+       the flow and the toast is written after everything. The office asked for
+       the dots; the press that attaches them should say whether they went. */
+    const marksSaid = rmMarkTallyText();
     /* Re-read the list rather than holding the one from when this opened: a
        photo could have been added on the card behind, and writing a stale list
        back would drop it. */
@@ -25999,6 +26782,7 @@ function openRoofMeasure(quoteId){
          behind the quote when there is one - see rmSaveNumbersOnAttach. */
       const saidNumbers = await rmSaveNumbersOnAttach();
       toast((added === 1 ? 'Picture added to the quote' : (added + ' pictures added to the quote')) +
+            (marksSaid ? ' (' + marksSaid + ')' : '') +
             (saidNumbers ? ' — ' + saidNumbers : ''));
       /* ⭐ AND IT CLOSES ITSELF (owner, 2026-08-29: "after everything happens it
          should close it automatically after everything attaches") — after the
@@ -26142,7 +26926,11 @@ function openRoofMeasure(quoteId){
       }
     } else if(k === 'c' || k === 'C'){
       e.preventDefault();
-      const b = document.getElementById(rmStreetReady && !rmMap ? 'rmCaptureStreet' : 'rmCaptureSky');
+      /* ⚠ C AND V ARE THE SAME KEY NOW, deliberately. There is one picture to
+         take, so a shortcut that used to choose between two panes must not go on
+         pointing at an element that no longer exists — that is a silent no-op on
+         a key somebody has learned. */
+      const b = document.getElementById('rmCaptureStreet');
       if(b && !b.disabled) b.click();
     } else if(k === 'v' || k === 'V'){
       e.preventDefault();
