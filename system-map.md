@@ -1639,7 +1639,7 @@ rather than dent — then Warehouse, Quotes, Invoices.
 |---|---|---|
 | **Schedule** | 32 | **2** (was 56) |
 | **Customers-RSVP** | 36 | **4** (was 40) |
-| Warehouse | 46 | 170 |
+| **Warehouse** | 92 | **10** (was 170) |
 | Quotes | 17 | 159 |
 | Invoices | 22 | 215 |
 
@@ -1665,6 +1665,28 @@ the server's, which is the shape money-parity exists for.
   It happens **zero** times in the real files today, so building for it would be building
   for nothing — but the *assumption* is now gated: if somebody starts reading a watched
   field that way, it goes red and a person decides.
+
+**Warehouse, and a third matcher fault.** `customerNumber` went 134 → 2 and the build
+flags to nought. The writers are what matters — this is the number a bin gets labelled
+with, and two houses wearing one label is the mistake the field exists to prevent. On
+`needsLightBuild` the two the office cannot see happening are both the portal: a customer
+changing their own colours queues their own rebuild, and a customer saying yes again after
+a no puts the build back.
+
+⚠ **A ternary's colon was read as an object key**, so `d.field ? 'a' : 'b'` counted as a
+*write* — ten across the map, in the more misleading direction, because a phantom writer on
+a money field is exactly what somebody would go and investigate. **And the obvious fix was
+wrong**: deciding "property access ⇒ read" first broke twenty real declarations in one go,
+because every `updates.field = value` in the app became a read. Assignment is tested first;
+only then does a colon after a property mean a ternary. Both directions are gated, because
+the ordering looks right either way round and is only correct one of them.
+
+⚠ **Three families are excluded from `customerNumber` with reasons rather than declared
+one by one**: a route stop carries a *copy* of the number (that is the `stops` spine's
+business, declared there); dozens of `print*`/`render*` functions *show* it, and a screen
+that shows a number is not a connection anybody needs to police, while one that *decides*
+something with it is and those are declared; and a rank table named after fields
+(`{street: 1, housePrice: 2, customerNumber: 4, …}`) reads as a write to any matcher.
 
 ⚠ **A label map is not a write either.** `renderAllCustomersTable` holds
 `{completed:'Install Complete'}` so a filter can be shown in words. That one cannot be
