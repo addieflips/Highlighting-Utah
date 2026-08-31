@@ -539,6 +539,13 @@ was left. Nothing about the formula above changed — the ledger was already cou
 everywhere, already survives both invoice rebuilds, already prints as its own row on the
 invoice, and already reaches the customer's portal.
 
+⚠ **The 2026 season was reset before this shipped**, so those balances were written off
+and survive only in the snapshot. **Invoices → Start New Season → Carry last season's
+unpaid bills** is the one-off repair: it reads the snapshot, shows what it would do, and
+on a typed CARRY writes the same `kind: 'arrears'` lines the reset now writes itself. It
+skips anyone already carrying a line — re-checked against a fresh read at write time — so
+running it twice cannot double a debt (MON-33).
+
 **And they are not scheduled until it is paid** (RS-24/RS-25). Addie: *"If they didn't pay
 last year they should not be scheduled to be hung."* `isOutForSeason` asks
 `houseOwesFromLastSeason`, so a debtor gets no crew, no bundle and no route **even if they
