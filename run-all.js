@@ -40746,9 +40746,13 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
      run at all. */
   const LF_ = String.fromCharCode(10);
   const pick = n => extractFn(admin, n);
+  /* ⚠ rmCornersToRun IS LIFTED, NEVER STUBBED (2026-08-30). It is what turns the
+     restored dots back into a drawn run, and it is also the thing that decides
+     whether the same footage ends up on the map twice — a stub would agree with
+     itself about that and prove nothing. */
   const NAMES = ['rmMetresPerDeg', 'rmToLocal', 'rmFeetBetween', 'rmRunIsOn', 'rmRunSpanFeet', 'rmPeakExtraFraction', 'rmPeakSpanFeet', 'rmPeakFeet', 'rmPeaksFeet', 'rmRunFeet',
                  'rmTotals', 'rmRunName', 'rmRunArea', 'rmPanoState', 'rmMeasurementDoc',
-                 'rmRestoreMeasurement'];
+                 'rmCornersToRun', 'rmRestoreMeasurement'];
   const missing = NAMES.filter(n => !pick(n));
   check('S257', 'the save-and-restore pair is findable', missing.length === 0,
     'not found: ' + missing.join(', '));
@@ -40762,6 +40766,16 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
       'const RM_TYPES={perimeter:{label:"Perimeter"},ridge:{label:"Ridge"},ground:{label:"Ground"}};' + LF_ +
       'let rmOrigin={lat:40.2969,lng:-111.6946};' + LF_ +
       'let rmPeaks=[], rmRuns=[], rmPhotoExtraFeet=0, rmRoofDatumM=null, rmDatumSource="";' + LF_ +
+      /* ⚠ THE DOTS AND THE STRAND COUNTER. Both are saved and restored now, and
+         a sandbox without them dies with a bare ReferenceError inside
+         rmMeasurementDoc rather than failing a named check. */
+      'let rmCorners=[], rmCurrentBand=0;' + LF_ +
+      /* ⚠ AND WHAT A PEAK WITH NO PITCH OF ITS OWN FALLS BACK TO. Nothing here
+         had a peak on it until 2026-08-30, so rmPeakExtraFraction was never
+         reached and the two names it reads were never missed — declared as
+         EMPTY, so a peak in these fixtures can only ever use the grade it
+         actually carries. */
+      'let rmRoofFacts=null, rmGradeSet=null;' + LF_ +
       /* Module-level state rmMeasurementDoc closes over. Declared, not stubbed —
          the scale check is saved with the drawing, and a sandbox missing it dies
          with a bare ReferenceError rather than failing a named check. */
@@ -40777,6 +40791,12 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
       'const rmPano=null;' + LF_ +
       /* The map side of a restore: drawing is not what is under test here. */
       'function rmClearDrawing(){ rmRuns=[]; }' + LF_ +
+      /* ⚠ THE ONE PIECE OF THIS THAT IS NOT DRAWING IS KEPT. rmCornersChanged
+         paints four things and rebuilds the runs; only the rebuild changes a
+         number, so that is what the stub does and the rest is left out. */
+      'function rmCornersChanged(){ rmCornersToRun(); }' + LF_ +
+      'function rmSyncCornersSky(){}' + LF_ +
+      'function rmRenderCornerBar(){}' + LF_ +
       'function rmSyncSky(){}' + LF_ +
       'function rmRenderResults(){}' + LF_ +
       'function rmPaintStreet(){}' + LF_ +
@@ -40786,10 +40806,14 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
       ' totals:rmTotals, runFeet:rmRunFeet,' +
       ' set:function(rs,cam,g){ rmRuns=rs; __cam=cam||null; __grade=g||"Medium"; },' +
       ' box:function(b){ __box=b||{}; }, runs:function(){ return rmRuns; },' +
+      ' corners:function(cs){ if(cs) rmCorners=cs; return rmCorners; },' +
+      ' peaks:function(ps){ if(ps) rmPeaks=ps; return rmPeaks; },' +
+      ' band:function(){ return rmCurrentBand; },' +
       ' photo:function(f){ rmPhotoExtraFeet=f; }};';
     assertSandbox('S257', 'measurement round-trip', BODY, admin,
       ['rmCamOnRoad', 'rmDatum', 'rmCurrentGrade', 'rmClearDrawing', 'rmSyncSky',
-       'rmRenderResults', 'rmPaintStreet']);
+       'rmRenderResults', 'rmPaintStreet', 'rmCornersChanged', 'rmSyncCornersSky',
+       'rmRenderCornerBar']);
     const api = new Function(BODY)();
 
     const m = new Function('return ' + pick('rmMetresPerDeg').replace('function rmMetresPerDeg', 'function') + ';')()(40.2969);
@@ -40906,6 +40930,128 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
     check('S257', 'with no camera on the road it refuses to name a side',
       api.area(front) === '',
       'got "' + api.area(front) + '" with nothing to measure the bearing against');
+
+  {
+  /* ---- the dots and the peaks survive the page being left --------------
+     ⭐ Owner, 2026-08-30, looking at three peak rows reading `0 ft across` with
+     their pitches still on them: "the peaks are not adding anything because i
+     left the page then came back, but the dots are still there so it should've
+     included the peak addition into the price but it didnt."
+
+     ⚠ NEITHER rmCorners NOR rmPeaks WAS EVER SAVED. Only the RUNS were, so
+     reopening put the lines back on the map — which is why the dots looked to be
+     there — while the corners came back empty and rmPeakSpanFeet returned 0 for
+     every peak. rmCornerLabel turns an index into a letter without needing the
+     corner to exist, so the rows still read A–B, E–F and I–J.
+
+     ⚠ AND rmPeaks WAS CLEARED NOWHERE IN THE FILE, which is the worse half: a
+     peak measured on one roof stayed in the list when the tool opened on the
+     next one, pointing at corner numbers that now meant somebody else's dots.
+
+     ⚠ THESE RUN THE REAL SERIALISER AND THE REAL RESTORE. Every claim here is
+     about a NUMBER THAT REACHES A PRICE, which a text match cannot see. */
+    const api2 = new Function(BODY)();
+    /* A gable 24 ft across at 45°, on a house with one traced side. The peak is
+       between the two corners that name it, exactly as the tool holds it. */
+    const FTM = 0.3048;
+    const corner = (e, n) => ({lat: ll(e, n).lat, lng: ll(e, n).lng, h: 3, on: true,
+                               byHand: true, band: 0, rays: [{dummy: 1}]});
+    const cs = [corner(0, 0), corner(24 * FTM, 0), corner(24 * FTM, 10 * FTM)];
+    api2.corners(cs);
+    api2.peaks([{a: 0, b: 1, grade: 100}]);
+    api2.set([{type: 'perimeter', on: true, fromCorners: true, suggested: false,
+               path: cs.map(c => ({lat: c.lat, lng: c.lng, h: c.h})), line: {}, dots: [{}]}],
+             null, 'Medium');
+
+    const beforeAll = api2.totals().all;
+    check('S257', 'a peak is in the footage before the quote is ever saved',
+      beforeAll > 24 && Math.abs(beforeAll - (api2.runFeet(api2.runs()[0]) + 9.94)) < 0.2,
+      'got ' + beforeAll.toFixed(2) + ' — a 24 ft gable at 45° adds 9.94 ft, and ' +
+      'if it is not in the total here the rest of this proves nothing');
+
+    const saved = JSON.parse(JSON.stringify(api2.doc()));
+    check('S257', 'the dots themselves are written down, not just the lines',
+      Array.isArray(saved.corners) && saved.corners.length === 3 &&
+      isFinite(saved.corners[0].lat) && saved.corners[0].on === true,
+      'got ' + JSON.stringify(saved.corners) + ' — a peak is a pair of corner ' +
+      'NUMBERS, so a saved peak with no saved corners can only ever span nothing');
+    check('S257', 'and so are the peaks, by the numbers they actually hold',
+      Array.isArray(saved.peaks) && saved.peaks.length === 1 &&
+      saved.peaks[0].a === 0 && saved.peaks[0].b === 1 && saved.peaks[0].grade === 100,
+      'got ' + JSON.stringify(saved.peaks));
+    check('S257', 'the camera rays are left out',
+      !/rays/.test(JSON.stringify(saved.corners)),
+      'a ray is a line of sight from a camera that is not on screen when the ' +
+      'quote is reopened somewhere else');
+    check('S257', 'and a corner run says it was built from the dots',
+      saved.runs[0].fromCorners === true,
+      'without the flag the restore cannot tell which runs it must NOT push back, ' +
+      'and rmCornersToRun rebuilds them beside the restored copy');
+
+    /* ---- the round trip itself ---- */
+    const fresh = new Function(BODY)();
+    fresh.restore(saved);
+    check('S257', 'the dots come back', fresh.corners().length === 3,
+      'got ' + fresh.corners().length);
+    check('S257', 'the peak comes back with its pitch',
+      fresh.peaks().length === 1 && fresh.peaks()[0].grade === 100,
+      'got ' + JSON.stringify(fresh.peaks()));
+    check('S257', 'and its span is a real distance, not nought',
+      Math.abs(fresh.totals().all - beforeAll) < 0.05,
+      'got ' + fresh.totals().all.toFixed(2) + ' against ' + beforeAll.toFixed(2) +
+      ' — this IS the report: the pitch was on the row and the span was 0, so the ' +
+      'peak added nothing to the price');
+    check('S257', 'the corner run is rebuilt from the dots, not counted twice',
+      fresh.runs().filter(r => r.fromCorners).length === 1 && fresh.runs().length === 1,
+      'got ' + fresh.runs().length + ' runs — restoring a fromCorners run AND ' +
+      'rebuilding it from the corners puts the same footage on the price twice');
+    check('S257', 'and a new dot starts a new strand rather than joining a day-old one',
+      fresh.band() === 1,
+      'got band ' + fresh.band() + ' — continuing the restored band draws a line ' +
+      'from a fresh dot to the far end of a run traced days ago');
+
+    /* ---- and a peak never outlives its dots ---- */
+    const stale = new Function(BODY)();
+    stale.corners([corner(0, 0), corner(24 * FTM, 0)]);
+    stale.peaks([{a: 0, b: 1, grade: 100}]);
+    /* An OLD saved drawing — runs only, exactly what every quote measured before
+       2026-08-30 carries. */
+    const old = JSON.parse(JSON.stringify(saved));
+    delete old.corners; delete old.peaks;
+    stale.restore(old);
+    check('S257', 'opening a drawing saved before this keeps none of the last house',
+      stale.peaks().length === 0 && stale.corners().length === 0,
+      'got ' + stale.peaks().length + ' peaks and ' + stale.corners().length +
+      ' dots — a peak left behind points at whatever dot later takes that number, ' +
+      'on somebody else’s roof');
+    check('S257', 'and an old drawing still restores its runs in full',
+      stale.runs().length === 1 && stale.totals().all > 24,
+      'got ' + stale.runs().length + ' runs — dropping a fromCorners run when ' +
+      'there are no corners to rebuild it from loses the measurement outright');
+
+    /* ⚠ A PEAK POINTING AT A DOT THAT DID NOT COME BACK IS DROPPED, not shown
+       spanning nothing. That row is what she was looking at. */
+    const bad = new Function(BODY)();
+    const halfSaved = JSON.parse(JSON.stringify(saved));
+    halfSaved.corners = [halfSaved.corners[0]];
+    bad.restore(halfSaved);
+    check('S257', 'a peak whose dots are gone is dropped, not listed spanning nothing',
+      bad.peaks().length === 0,
+      'a row claiming a gable nobody can see is the bug being reported, not a ' +
+      'peak that happens to measure zero');
+
+    /* ⚠ null IS NOT 0. A zero grade is a flat roof, which is an answer; an
+       unmeasured peak is the absence of one, and rmPeakFeet must keep saying so. */
+    const nog = new Function(BODY)();
+    const noGrade = JSON.parse(JSON.stringify(saved));
+    noGrade.peaks = [{a: 0, b: 1, grade: null}];
+    nog.restore(noGrade);
+    check('S257', 'an unmeasured peak comes back unmeasured, not flat',
+      nog.peaks().length === 1 && !('grade' in nog.peaks()[0]),
+      'got ' + JSON.stringify(nog.peaks()) + ' — a stored 0 reads as a flat roof, ' +
+      'which is an answer nobody gave');
+
+  }
   }
 
   /* ---- and the wiring around it ------------------------------------- */
@@ -40957,6 +41103,82 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
     load.indexOf('rmClearDrawing()') < load.indexOf('rmRestoreMeasurement'),
     'rmLoadAddress clears the drawing near the top - restoring before that point ' +
     'is wiped by it, and an empty tool looks exactly like a quote never measured');
+
+
+  /* ---- and taking a dot back off does not re-hang a peak ----------------
+     ⚠ THE SAME FAULT ONE STEP ON. A peak is a pair of corner NUMBERS, and
+     removing a dot shifts every dot after it down one — so a peak naming any of
+     them silently spans a DIFFERENT pair: same letters on the row, a different
+     gable, a different price. Almost unreachable while peaks never survived;
+     ordinary now that a quote reopens with them on it and backspace is the only
+     way to take a dot back. */
+  {
+    const fn = extractFn(admin, 'rmPeaksAfterCornerRemoved');
+    check('S257', 'the peak-shifting rule is its own function, so it can be run', !!fn,
+      'written inline in both removal paths, the only available check is a text ' +
+      'match — and this suite exists because that is not enough');
+    if (fn) {
+      const api3 = new Function(
+        'let rmPeaks=[];' + LF_ + fn + LF_ +
+        'return {run:function(ps, i){ rmPeaks = ps; rmPeaksAfterCornerRemoved(i); return rmPeaks; }};')();
+      const out = api3.run([{a: 0, b: 1, grade: 100}, {a: 2, b: 3, grade: 50}], 1);
+      check('S257', 'a peak on the dot that went is dropped, not re-hung on the next one',
+        out.length === 1,
+        'got ' + JSON.stringify(out) + ' — there is no honest answer to which gable ' +
+        'she meant once one end of it is gone');
+      check('S257', 'and the peaks after it follow their dots down',
+        out[0].a === 1 && out[0].b === 2 && out[0].grade === 50,
+        'got ' + JSON.stringify(out[0]) + ' — leaving the numbers alone points that ' +
+        'peak at two different corners with nothing on screen to say so');
+      const keep = api3.run([{a: 0, b: 1, grade: 100}], 5);
+      check('S257', 'a peak before the removed dot is left exactly as it was',
+        keep.length === 1 && keep[0].a === 0 && keep[0].b === 1,
+        'got ' + JSON.stringify(keep));
+      const none = api3.run([{a: 0, b: 2}], 1);
+      check('S257', 'and an unmeasured peak stays unmeasured through the shift',
+        none.length === 1 && none[0].b === 1 && !('grade' in none[0]),
+        'got ' + JSON.stringify(none) + ' — a grade of 0 is a flat roof, which is ' +
+        'an answer nobody gave');
+    }
+    /* ⚠ AND BOTH REMOVAL PATHS MUST ASK IT. A red-check proved they need saying
+       separately: with only the rule above asserted, deleting the call from each
+       removal path went straight through, and the rule then protects nothing at
+       all. "A rule in one place is worth nothing unless something asserts the
+       callers ask it" — this file's own words, in a new place. */
+    const del = extractFn(admin, 'rmDeleteLastCorner') || '';
+    const rem = extractFn(admin, 'rmRemoveLastCorner') || '';
+    check('S257', 'both ways of taking a dot back off are findable', !!del && !!rem);
+    check('S257', 'backspacing the last dot takes its peak with it',
+      /rmPeaksAfterCornerRemoved\(rmCorners\.length - 1\);/.test(del) &&
+      del.indexOf('rmPeaksAfterCornerRemoved') < del.indexOf('rmCorners.pop()'),
+      'asked AFTER the pop, the index it is handed is already off the end and the ' +
+      'peak on that dot is left pointing past the last one');
+    check('S257', 'and so does removing a hand-placed one',
+      /rmPeaksAfterCornerRemoved\(i\);/.test(rem) &&
+      rem.indexOf('rmPeaksAfterCornerRemoved') < rem.indexOf('rmCorners.splice'),
+      'asked after the splice, every index has already moved and it shifts them ' +
+      'a second time');
+  }
+
+  /* ⚠ THE INVARIANT, NOT THE THREE SITES. A peak is a pair of corner NUMBERS, so
+     anywhere the dots are emptied and the peaks are not, the surviving rows point
+     at whatever dots later take those numbers — on the next house. Naming the
+     places would go stale the moment a fourth one is added; this cannot.
+     ⚠ AND A RED-CHECK IS WHY IT EXISTS: with only the restore-time clear asserted,
+     deleting the pairing from the load path and from the Clear button both went
+     straight through, and those are the two that leak inside a live session. */
+  {
+    /* ⚠ NOT THE DECLARATION. `let rmCorners = [];` is where the array comes from,
+       not a place it is emptied, and counting it made this fail on code that is
+       right — the first thing it did on a clean file. */
+    const clears = (admin.match(/(?<!let )rmCorners = \[\];/g) || []).length;
+    const paired = (admin.match(/(?<!let )rmCorners = \[\]; rmPeaks = \[\];/g) || []).length;
+    check('S257', 'every place that clears the dots clears the peaks with them',
+      clears > 0 && clears === paired,
+      clears + ' places empty rmCorners and ' + paired + ' of them empty rmPeaks too — ' +
+      'rmPeaks was cleared NOWHERE in this file before 2026-08-30, which is how a ' +
+      'gable measured on one roof stayed in the list on the next one');
+  }
   const open = extractFn(admin, 'openRoofMeasure') || '';
   check('S257', 'and opening a quote stashes it after the reset that would clear it',
     open.indexOf('rmReset()') < open.indexOf('rmPendingMeasurement'),
