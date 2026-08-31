@@ -501,6 +501,32 @@ This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFe
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
 - **Light-change fee** (`changeFees`, with itemized `changeFeeNotes`) — added by `portalSave` when a member changes their light colors outside a 48-hour grace window. Tracked as its own field, separate from `install`, so it can be waived/removed independently (there's a dedicated "Remove light-change fee(s)" button in the Invoices panel).
 
+**Last season's unpaid bill is carried, not written off** (2026-08-31, MON-31/MON-32).
+Start New Season used to write `install: newInstall, deposit: 0` over every invoice, so a
+customer who never paid opened the new season owing this year's charge and nothing else —
+the debt gone from the books for all ~967 customers, surviving only inside a
+`yearlySnapshot` nothing bills from. It is now carried onto the new invoice as **its own
+line in the fee ledger**: a `changeFeeNotes` entry with `kind: 'arrears'`, reading
+*"Unpaid balance carried from the 2026 season"*, worth whatever `balanceDueAmount` said
+was left. Nothing about the formula above changed — the ledger was already counted
+everywhere, already survives both invoice rebuilds, already prints as its own row on the
+invoice, and already reaches the customer's portal.
+
+**And they are not scheduled until it is paid** (RS-24/RS-25). Addie: *"If they didn't pay
+last year they should not be scheduled to be hung."* `isOutForSeason` asks
+`houseOwesFromLastSeason`, so a debtor gets no crew, no bundle and no route **even if they
+RSVP yes** — a yes is not a payment. Money is read oldest-debt-first, so "have they paid
+for last year?" is one subtraction: paid plus credits against the carried amount. A
+part-payment releases nobody (*"needed to pay 800 and paid only 400... we cannot schedule
+them"*). There is **no override button**; the hold lifts when they pay, or when the office
+credits the amount off, which is money on the invoice rather than a hidden flag.
+Everybody held is named, with the amount and a phone number, under
+**Schedule → Owes from last year**.
+
+⚠ This is **not** `houseIsOnTheBill`, which decides who is *charged* — and for these
+customers that answer is emphatically yes. Folding the two together would write the debt
+off again by the back door.
+
 **Credits** (`credits`/`creditNotes`) never push the balance below $0 — anything left over becomes `carryoverCredit` on the customer, applied to their *next* invoice, not refunded.
 
 ---
@@ -687,6 +713,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 - **A yes comes from exactly three places**, and all three stamp a real reply: the member portal, the RSVP email link, and the office marking it on the customer's record. A bare stored `rsvpStatus: 'yes'` with no reply date behind it is *not* an answer — that shape comes from an import, a hand-edit, or the assumed yes written when a quote is converted, and `effectiveRsvpStatus` deliberately distrusts it (RS-19).
 - **No email address is not an exception.** They are skipped by the send (counted, never silently), so they never answer, so they are never scheduled. Addie, 2026-08-27: *"anyone that doesn't have an email I don't want you to worry about those people... there are no exceptions."* Find them under **Customers → Filters → Email** (RS-18).
 - **A customer converted from a quote this year is the one exception**, for two independent reasons she gave: converting *is* the approval, and they are deliberately never sent an RSVP (asking a first-year customer "will you be getting lights hung *again* this year?" reads wrong). It expires by itself — Start New Season clears the flag and the quote-join year is compared against the current year, so in 2027 they answer like anybody else. They carry an **"Approved — new this year"** badge beside their RSVP pill so the office can see why they are in without a reply (RS-20, RS-21).
+- **Owing money from last season keeps you out of the season too**, on top of the RSVP rule and independently of it — a yes is not a payment. Start New Season carries the unpaid balance onto the new bill as its own `kind: 'arrears'` line, and `isOutForSeason` holds them until the whole of that amount is covered by payment or credit. They are listed under **Schedule → Owes from last year** (§3, MON-31, RS-24).
 - A legacy customer record without a `portalToken` gets one minted automatically the first time they're looked up.
 - Nightly-run failures/results text the owner via Twilio — a separate channel from email, so it still works if email itself breaks.
 
@@ -1955,6 +1982,8 @@ are the two copies of the rule — change one, change the other, in the same pus
 
 - **A route/customer list is empty with no error** → check `firestore.rules` first for that collection. A collection missing a rules entry is denied by default and fails *silently* in a listener (no console error a non-coder would notice).
 - **A field the portal should show is blank or stuck at 0** → check whether that field is in the relevant Cloud Function's *read whitelist* (`PORTAL_READ_FIELDS`, `INVOICE_READ_FIELDS`, `QUOTE_READ_FIELDS` in `functions/index.js`). The portal only ever sees a function's sanitized output, never the raw document — a field can be correctly written and still invisible to the customer if it's not on that list.
+- **A customer who answered yes is on no route, and Waiting on RSVP does not list them** → check **Schedule → Owes from last year**. Owing from last season holds them out of the season on its own, and it is deliberately outside the RSVP rule, so they do not appear on the waiting list. The amount and what clears it are on that pane.
+- **Somebody is held who you know has paid** → the payment is not on the invoice. There is no override by design (RS-25): record the payment, or credit the amount off, and they rejoin the season on the next draw.
 - **An invoice's balance/status looks wrong** → check whether `changeFees` is actually being included in that particular screen's math. This was the P0 bug for this pass; the formula is documented in §3 so any *new* code touching balances can be checked against it.
 - **A route change (address, gate code, name) isn't reaching the crew** → check whether the route is *upcoming* — both resync paths deliberately skip past/history routes. Also remember only `id, address, name, phone, difficulty, lat, lng, gateCode, specificOutlet, specificOutletNotes, customerNumber` are ever frozen into a stop; other fields are supposed to be looked up live, so if one of *those* isn't updating, the live-lookup code itself is the place to check, not the resync.
 - **Firestore is throwing `failed-precondition`** → almost always a missing composite index. The index (or rules) file being correct in the repo means nothing until `firebase deploy --only firestore:indexes` (or `:rules`) actually runs — Netlify never touches Firebase, and a correct file sitting undeployed looks identical to a wrong one from the app's point of view.

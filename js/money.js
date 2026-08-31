@@ -218,3 +218,93 @@ export function custInvoiceKey(d) {
   return String((d && d.email) || '').toLowerCase().trim();
 }
 
+
+/* ⭐ LAST SEASON'S UNPAID BILL, CARRIED ONTO THIS ONE (added 2026-08-31).
+ *
+ * Addie, asked whether the debt should keep being written off at the reset:
+ * "Carry it onto this year's bill." And on how a payment is read afterwards:
+ * "If they were billed 400 last year and paid 400 last year than it is cleared
+ * but if they needed to pay 800 and paid only 400 than bill is not cleared and
+ * we cannot schedule them."
+ *
+ * ⚠ START NEW SEASON USED TO ERASE IT. The reset writes `install: newInstall,
+ * deposit: 0` over every invoice, so a customer who never paid started the new
+ * season owing this year's charge and nothing else — their debt written off in
+ * silence, for all ~967 customers, with the only surviving record buried in
+ * yearlySnapshots. That is the behaviour this replaces.
+ *
+ * ⭐ IT IS A LINE IN THE FEE LEDGER, NOT A NEW TERM IN THE FORMULA, and that is
+ * the whole reason this change is small. `changeFeeNotes` is already a
+ * kind-tagged ledger of additive charges: syncPayerInvoice leaves it alone and
+ * still counts it (`existing.changeFees`), the Edit Customer save rebuilds only
+ * the `manual` kind and keeps every other, the printed and emailed invoice
+ * renders one row per note using that note's own `reason`, and the portal
+ * already receives it — `changeFees` and `changeFeeNotes` are both in
+ * INVOICE_READ_FIELDS. So the carried debt reaches the customer, the PayPal
+ * total, the {{amount_due}} token and every balance in the app for free.
+ * Adding a sixth term to computeInvoiceStatus would have meant 47 call sites in
+ * admin.html, a second copy on the server and a rewritten parity sweep, to buy
+ * exactly what the ledger already does.
+ *
+ * ⚠ SO THE LEDGER IS THE ONE SOURCE OF TRUTH FOR THE AMOUNT. Nothing stores the
+ * carried figure a second time as a marker field. Two copies of one number is
+ * how a bill and the rule that reads it start disagreeing, and here the two
+ * would disagree about whether somebody may be sent a crew.
+ *
+ * ⚠ AND `kind` IS WHAT MAKES IT SURVIVE. A note with no kind reads as a
+ * light-change fee to every existing reader; `arrears` is what lets the Edit
+ * Customer rebuild keep it, the history name it correctly, and this rule find
+ * it again. Do not write one without the kind.
+ */
+export const ARREARS_KIND = 'arrears';
+
+/* How much of this invoice is last season's unpaid bill. Summed from the
+ * ledger rather than read from a stored total, so an office hand-edit to the
+ * line moves the rule with it instead of leaving the two out of step. */
+export function arrearsOnInvoice(inv) {
+  const notes = (inv && Array.isArray(inv.changeFeeNotes)) ? inv.changeFeeNotes : [];
+  return notes.reduce(function (sum, n) {
+    return sum + ((n && n.kind === ARREARS_KIND) ? (Number(n.amount) || 0) : 0);
+  }, 0);
+}
+
+/* ⭐ OLDEST DEBT FIRST, WHICH IS WHAT MAKES THE QUESTION ANSWERABLE. Once last
+ * year's amount sits on this year's bill there is one balance and two debts in
+ * it, and a payment is just `deposit` going up — PayPal, Venmo, cash and the
+ * payment importer all look identical by the time they reach here. So money is
+ * read as paying off the carried amount before it touches this year's charge,
+ * and "have they paid for last year?" becomes one subtraction that never has to
+ * know where the money came from.
+ *
+ * ⚠ PART-PAYMENT IS NOT PAYMENT — Addie's own example: billed 800, paid 400,
+ * "bill is not cleared and we cannot schedule them". The comparison is against
+ * the WHOLE carried amount, never a proportion of it.
+ *
+ * ⚠ CREDITS COUNT, AND THAT IS THE ONE WAY A HOLD LIFTS WITHOUT CASH. A credit
+ * is the office deciding the money is not owed — the same mechanism Q-013 names
+ * for an "our fault" write-off — so once one covers the carried amount the debt
+ * genuinely is not outstanding. It is deliberately NOT a hidden override flag:
+ * it is money, on the invoice, visible to the customer and countable in the
+ * books. Addie asked for no "hang them anyway" button and there is none.
+ *
+ * ⚠ WHOLE CENTS, via centsOf, for the same reason computeInvoiceStatus uses it:
+ * a customer who has paid every cent must never come out a fraction short and
+ * be held out of the season against a balance that displays as $0.00. */
+export function arrearsSettled(inv) {
+  const owed = centsOf(arrearsOnInvoice(inv));
+  if (owed <= 0) return true;
+  const paid = centsOf((inv && inv.deposit) || 0) + centsOf((inv && inv.credits) || 0);
+  return paid >= owed;
+}
+
+/* The question the season rule asks: is last season's bill still outstanding?
+ *
+ * ⚠ NO INVOICE IS NOT A DEBT. A missing or unloaded invoice answers false —
+ * "they do not owe" — and that direction is deliberate and matches every other
+ * fail-safe in the season rule: holding somebody who paid costs a customer
+ * their lights, while carrying somebody who did not costs one bundle. Anything
+ * this cannot answer must keep them IN. */
+export function owesFromLastSeason(inv) {
+  if (!inv) return false;
+  return arrearsOnInvoice(inv) > 0 && !arrearsSettled(inv);
+}
