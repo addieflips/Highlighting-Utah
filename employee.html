@@ -1923,7 +1923,13 @@ async function whLoadChecklist(){
   } catch(err){ whChecklistDoc = {items:[]}; }
   // Same doc as the Checklist tab, so keep it live: anything the office adds or
   // ticks during the day shows here without closing and reopening the portal.
-  if(whChecklistUnsub){ try{ whChecklistUnsub(); }catch(e){} whChecklistUnsub = null; }
+  if(whChecklistUnsub){
+    try{ whChecklistUnsub(); }
+    catch(e){ /* quiet on purpose: detaching a listener Firestore has already dropped
+                 throws and means nothing — the aim is that it is gone, and it is. The
+                 handle is cleared either way on the next line. */ }
+    whChecklistUnsub = null;
+  }
   let first = true;
   whChecklistUnsub = onSnapshot(doc(db,'dailyChecklists',whChecklistDocId), function(snap){
     if(first){ first = false; return; }
