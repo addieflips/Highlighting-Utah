@@ -2201,7 +2201,20 @@ function navigate(){
     var contactParam = params.get('c');
     var lastNameParam = params.get('ln');
     if(token && (rsvp === 'yes' || rsvp === 'no') && typeof handleRsvpLink === 'function'){
-      document.body.classList.add('quote-minimal');
+      /* ⚠ rsvp-minimal, NOT quote-minimal. THE TWO CLASSES SHOW DIFFERENT
+         PAGES and this line held the wrong one, so every RSVP button in every
+         email landed the customer on the new-customer install-details form:
+         body.quote-minimal force-shows #page-quote-details with !important,
+         while the RSVP confirmations live in #page-payment (#rsvpConfirmCard)
+         and #page-home (#backNextYearConfirm), which only rsvp-minimal opens.
+         ⚠ NOTHING WENT RED AND NOTHING WAS LOST — the answer was recorded on
+         the server correctly the whole time and both messages were built
+         correctly; only the screen in front of the customer was wrong, which
+         is why every source check passed. ⚠ Both handlers below END by
+         REMOVING rsvp-minimal, which is the proof of which class belongs here.
+         test/rsvp-link.spec.js RUNS all three links, because a regex over this
+         file passes on the broken version. */
+      document.body.classList.add('rsvp-minimal');
       handleRsvpLink(token, rsvp);
     } else if(token && typeof loadPortalByToken === 'function'){
       loadPortalByToken(token);
@@ -2215,7 +2228,10 @@ function navigate(){
     var backToken = homeParams.get('token');
     var backRsvp = homeParams.get('rsvp');
     if(backToken && backRsvp === 'back' && typeof handleBackNextYear === 'function'){
-      document.body.classList.add('quote-minimal');
+      /* rsvp-minimal, for the reason spelled out on the /payment branch above.
+         Here it is what hides the rest of the home page so the confirmation is
+         a receipt rather than a line floating over the marketing site. */
+      document.body.classList.add('rsvp-minimal');
       handleBackNextYear(backToken);
     }
   } else if(hash === '/quote-details' && queryString){
