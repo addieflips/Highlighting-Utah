@@ -127,6 +127,7 @@ async function sendPaymentReceipt(invoiceId, { paidNow }) {
     const tplSnap = await findTemplateSnapByName(templateName);
 
     let body;
+    let tplData = null;
     if (tplSnap.empty) {
       // A renamed or deleted template must not silently swallow the receipt: the
       // email still goes out from a built-in body, and the gap is recorded on the
@@ -136,8 +137,15 @@ async function sendPaymentReceipt(invoiceId, { paidNow }) {
         ? 'Hi {{name}},<br><br>Thank you \u2014 your Christmas lights invoice is paid in full.<br><br>Amount paid: {{amount_paid}}<br><br>{{view_portal_button}}<br><br>\u2014 Highlighting Utah'
         : 'Hi {{name}},<br><br>Thanks \u2014 we have received your payment of {{payment_amount}}.<br><br>Invoice total: {{amount_total}}<br>Paid so far: {{amount_paid}}<br>Amount still due: {{amount_due}}<br><br>You can finish paying any time using the button below.<br><br>{{pay_button}} {{venmo_button}}<br><br>\u2014 Highlighting Utah';
     } else {
-      body = tplSnap.docs[0].data().body || '';
+      tplData = tplSnap.docs[0].data();
+      body = tplData.body || '';
     }
+    /* Named after what the customer is being told, not after the template that
+       happened to supply it — a paid receipt and a part-payment are different
+       sentences in an inbox. */
+    const receiptSubject = templateSubjectOr(tplData, paidInFull
+      ? 'Your Highlighting Utah invoice \u2014 paid in full'
+      : 'We received your payment \u2014 Highlighting Utah');
 
     const portalUrl = 'https://highlightingutah.com/#/payment'
       + (inv.portalToken ? ('?token=' + inv.portalToken) : '');
@@ -172,7 +180,7 @@ async function sendPaymentReceipt(invoiceId, { paidNow }) {
         template_id: templateId,
         user_id: publicKey || '',
         accessToken: privateKey,
-        template_params: { to_email: email, body: body }
+        template_params: { to_email: email, to_name: inv.name || '', subject: receiptSubject, body: body, message: body }
       })
     });
     if (!res.ok) {
@@ -205,6 +213,24 @@ function tplNameKey(n) {
     .trim()
     .toLowerCase();
 }
+/* ⭐ THE SERVER'S HALF OF "EVERY EMAIL SAYS WHAT IT IS" (added 2026-08-31).
+ * The browser copy is `emailSubjectFor` / `defaultEmailSubject` in admin.html.
+ * These two are deliberately SIMPLER than that pair and must stay so: the
+ * server only ever sends the two billing emails, so it needs the billing
+ * fallback and nothing else — no RSVP, no quote, no token resolution.
+ *
+ * ⚠ THE TEMPLATE'S OWN SUBJECT WINS, exactly as it does in the browser, so the
+ * office sets it once under Automation Emails > Templates and both surfaces
+ * obey it. A blank one falls back rather than sending an empty subject line.
+ *
+ * ⚠ AND THE FALLBACK MATTERS MORE HERE THAN ANYWHERE. This is the nightly run:
+ * nobody is watching it, and no template saved before today has the field.
+ */
+function templateSubjectOr(tplData, fallback) {
+  const s = String((tplData && tplData.subject) || '').trim();
+  return s || fallback;
+}
+
 async function findTemplateSnapByName(name) {
   const exact = await db.collection('emailTemplates').where('name', '==', name).limit(1).get();
   if (!exact.empty) return exact;
@@ -3774,6 +3800,7 @@ async function runInvoiceBatch(triggeredBy) {
         // the built-in wording just because someone typed a hyphen.
         const tplSnap = await findTemplateSnapByName(templateName);
         let body;
+        let tplData = null;
         if (tplSnap.empty) {
           // A missing or renamed template must NOT silently stop billing. Fall
           // back to a built-in body (with all the tokens) so the invoice still
@@ -3783,8 +3810,14 @@ async function runInvoiceBatch(triggeredBy) {
             : 'Hi {{name}},<br><br>Here is your Christmas lights invoice.<br><br>{{feet_line}}<br>{{new_member_fee_line}}<br>{{fee_lines}}<br>{{credit_lines}}<br><br>Amount due: {{amount_due}}<br>Please pay by {{due_date}}.<br><br>Pay your invoice here:<br><br>{{pay_button}} {{venmo_button}}<br><br>Questions? {{message_link}}<br><br>— Highlighting Utah';
           if (errors.length < 10) errors.push('Template missing, used built-in fallback: ' + templateName);
         } else {
-          body = tplSnap.docs[0].data().body || '';
+          tplData = tplSnap.docs[0].data();
+          body = tplData.body || '';
         }
+        /* ⚠ THE ONE EMAIL EVERY CUSTOMER GETS, sent by a run nobody is watching.
+           A blank subject line on a bill is what makes it look like spam. */
+        const invoiceSubject = templateSubjectOr(tplData, status === 'Paid in Full'
+          ? 'Your Highlighting Utah invoice \u2014 paid in full'
+          : 'Your Highlighting Utah invoice');
 
         const token = await ensureToken(payer.id, payer.data);
         const portalUrl = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
@@ -3826,7 +3859,7 @@ async function runInvoiceBatch(triggeredBy) {
             template_id: templateId,
             user_id: publicKey || '',
             accessToken: privateKey,
-            template_params: { to_email: email, body: body }
+            template_params: { to_email: email, to_name: payer.data.name || '', subject: invoiceSubject, body: body, message: body }
           })
         });
         if (!res.ok) {

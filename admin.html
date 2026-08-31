@@ -2999,6 +2999,11 @@
           <div class="form-row"><label>Template Name</label><input type="text" id="etTemplateName" placeholder="e.g. Quote Follow-Up"></div>
           <div class="form-row"><label>Folder</label><select id="etTemplateFolder"><option value="">(No folder — top level)</option></select></div>
           <div class="form-row">
+            <label>Subject line</label>
+            <input type="text" id="etTemplateSubject" placeholder="Leave blank to use the standard one for this kind of email">
+            <p style="margin:4px 0 0; font-size:12px; color:var(--slate);">What the customer sees in their inbox before they open it. <span class="et-code-token">{{name}}</span> works here too. Leave it blank and an RSVP goes out as &ldquo;Your Christmas lights this year &mdash; a quick yes or no&rdquo;.</p>
+          </div>
+          <div class="form-row">
             <label>Body</label>
             <textarea id="etTemplateBody" rows="10" placeholder="Hi {{name}}, ..."></textarea>
           </div>
@@ -3229,6 +3234,12 @@
                 <label>Billing Email Template ID</label>
                 <input type="text" id="emailjsTemplateId" placeholder="template_xxxxxxx" class="emailjs-auto-save">
                 <span class="emailjs-save-status" style="font-size:12px; color:var(--slate); margin-top:4px; display:none;"></span>
+                <p style="margin:6px 0 0; font-size:12px; color:var(--slate); line-height:1.5;">
+                  &#9888; <b>One box to check in EmailJS, once.</b> Open this template on emailjs.com and make sure its <b>Subject</b> field says exactly
+                  <span class="et-code-token">{{subject}}</span>. Every email this app sends now carries its own subject line &mdash; the RSVP says
+                  &ldquo;Your Christmas lights this year&rdquo;, an invoice says &ldquo;Your Highlighting Utah invoice&rdquo; &mdash; but EmailJS uses
+                  whatever is typed in that box unless it asks for the variable. If it holds fixed text, every email goes out with that same subject instead.
+                </p>
               </div>
               <div class="form-row">
                 <label>EmailJS Public Key</label>
@@ -7702,7 +7713,7 @@ async function sendPaymentReceipt(invId, invData, paidNow){
     body = await resolveLinkTokens(body.replace(/\{\{name\}\}/g, d.name || 'there'), d.phone || invId, amountDue);
     body = body.replace(/\n/g, '<br>');
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: email, to_name: d.name || '', message: body });
+    await emailjs.send(serviceId, templateId, { to_email: email, to_name: d.name || '', subject: await emailSubjectFor(tpl, d.phone || invId, {name: d.name || 'there'}), message: body });
     await updateDoc(doc(db,'invoices',invId), {
       receiptSentForDeposit: deposit,
       receiptSentAt: serverTimestamp(),
@@ -14347,6 +14358,7 @@ function renderEmailTemplateList(){
       document.getElementById('etEditingId').value = t.id;
       document.getElementById('etTemplateName').value = t.data.name || '';
       document.getElementById('etTemplateFolder').value = t.data.folderId || '';
+      document.getElementById('etTemplateSubject').value = t.data.subject || '';
       document.getElementById('etTemplateBody').value = t.data.body || '';
       etCurrentLinkedTokens = Array.isArray(t.data.linkedTokens) ? t.data.linkedTokens.slice() : [];
       etEditorDirty = false;
@@ -14467,6 +14479,7 @@ document.getElementById('etSendConfirmBtn').addEventListener('click', async func
         to_email: to,
         to_name: name,
         customer_name: name,
+        subject: await emailSubjectFor(template, phone, {name: name}),
         message: body
       });
       sent++;
@@ -14492,6 +14505,7 @@ document.getElementById('etNewTemplateBtn').addEventListener('click', function()
   document.getElementById('etEditingId').value = '';
   document.getElementById('etTemplateName').value = '';
   document.getElementById('etTemplateFolder').value = '';
+  document.getElementById('etTemplateSubject').value = '';
   document.getElementById('etTemplateBody').value = '';
   etCurrentLinkedTokens = [];
   etEditorDirty = false;
@@ -14510,13 +14524,16 @@ document.getElementById('etSaveTemplateBtn').addEventListener('click', async fun
   const name = document.getElementById('etTemplateName').value.trim();
   const folderId = document.getElementById('etTemplateFolder').value || null;
   const body = document.getElementById('etTemplateBody').value;
+  /* Written even when blank, so clearing the box really does go back to the
+     standard subject rather than leaving the old one on the record. */
+  const subject = document.getElementById('etTemplateSubject').value.trim();
   if(!name){ statusEl.textContent = 'Give the template a name first.'; return; }
   const editingId = document.getElementById('etEditingId').value;
   try{
     if(editingId){
-      await updateDoc(doc(db,'emailTemplates', editingId), {name: name, folderId: folderId, body: body, linkedTokens: etCurrentLinkedTokens});
+      await updateDoc(doc(db,'emailTemplates', editingId), {name: name, folderId: folderId, subject: subject, body: body, linkedTokens: etCurrentLinkedTokens});
     } else {
-      await addDoc(collection(db,'emailTemplates'), {name: name, folderId: folderId, body: body, linkedTokens: etCurrentLinkedTokens, createdAt: serverTimestamp()});
+      await addDoc(collection(db,'emailTemplates'), {name: name, folderId: folderId, subject: subject, body: body, linkedTokens: etCurrentLinkedTokens, createdAt: serverTimestamp()});
     }
     statusEl.textContent = 'Saved!';
     etEditorDirty = false;
@@ -14526,7 +14543,9 @@ document.getElementById('etSaveTemplateBtn').addEventListener('click', async fun
       document.getElementById('etEditingId').value = '';
       document.getElementById('etTemplateName').value = '';
       document.getElementById('etTemplateFolder').value = '';
-      document.getElementById('etTemplateBody').value = '';
+      document.getElementById('etTemplateSubject').value = '';
+      document.getElementById('etTemplateSubject').value = '';
+  document.getElementById('etTemplateBody').value = '';
       etCurrentLinkedTokens = [];
     }, 700);
   } catch(err){
@@ -14539,6 +14558,7 @@ document.getElementById('etCancelEditBtn').addEventListener('click', function(){
   document.getElementById('etEditingId').value = '';
   document.getElementById('etTemplateName').value = '';
   document.getElementById('etTemplateFolder').value = '';
+  document.getElementById('etTemplateSubject').value = '';
   document.getElementById('etTemplateBody').value = '';
   etCurrentLinkedTokens = [];
   etEditorDirty = false;
@@ -14848,6 +14868,56 @@ function allCustNewMemberRows(rows, mode){
    ⚠ It is a DEFAULT, not a lock: the dropdown still works, so an RSVP that
    really is meant for everybody is one click away. Automatic is fine, invisible
    is not — the recipient count line says it happened. */
+/* ⭐ EVERY EMAIL SAYS WHAT IT IS, IN THE INBOX (added 2026-08-31). Addie:
+   "how do we add subject to the RSVP emails. I need a subject on all them...
+   we just need them to know it a christmas light RSVP."
+
+   ⚠ SIXTEEN OF THE TWENTY emailjs.send calls in this file passed NO subject at
+   all. Twelve of those are dead UI (quickEmail*, bulkAuto*, rsvpInclude*, pib* —
+   every id is in KNOWN_MISSING_IDS, so those functions return on their first
+   line); the other four are live and are the ones wired below. Only the quote
+   emails have ever set one, which is why quotes look right in an inbox and the
+   RSVP does not.
+
+   ⚠ ONE EMAILJS TEMPLATE SERVES EVERY SEND in this app — they all read
+   #emailjsTemplateId — so the subject cannot be set per-email over there. It has
+   to travel with each send, which is what this does.
+
+   ⚠ AND THE EMAILJS TEMPLATE'S OWN SUBJECT FIELD MUST SAY {{subject}}, or none
+   of this reaches anybody: EmailJS uses its stored subject unless the template
+   asks for the variable. The quote emails already pass `subject` and read
+   correctly, which is the evidence it is wired — but it is one box in their
+   dashboard and it is worth looking at once.
+
+   ⚠ THE TEMPLATE'S OWN SUBJECT WINS, and a blank one falls back rather than
+   sending an empty subject line. That fallback is what makes this work today on
+   ~every template already saved, none of which has the field. */
+function defaultEmailSubject(template){
+  if(etTemplateIsRsvp(template)) return 'Your Christmas lights this year \u2014 a quick yes or no';
+  /* ⚠ A FALLBACK ONLY, and it reads the template NAME, which is the one thing a
+     template always has. Nothing here decides money or who is emailed — it picks
+     a sentence. The subject box above overrides it whenever the office cares. */
+  const n = String((template && template.data && template.data.name) || '').toLowerCase();
+  if(n.indexOf('invoice') !== -1 || n.indexOf('receipt') !== -1 || n.indexOf('balance') !== -1 || n.indexOf('payment') !== -1){
+    return 'Your Highlighting Utah invoice';
+  }
+  if(n.indexOf('quote') !== -1) return 'Your Highlighting Utah quote';
+  return 'A message from Highlighting Utah';
+}
+/* Resolved through the SAME token machinery as the body, so {{name}} means the
+   same thing in both and there is only one vocabulary to learn. A subject with
+   no tokens in it passes straight through. */
+async function emailSubjectFor(template, phone, vars){
+  const raw = String((template && template.data && template.data.subject) || '').trim()
+              || defaultEmailSubject(template);
+  try{
+    return (await resolveLinkTokens(raw, phone || '', 0, vars || {})).replace(/<[^>]*>/g, '').trim();
+  } catch(e){
+    /* A token that cannot be resolved must not cost the customer their email —
+       the unresolved text is still a better subject than none. */
+    return raw;
+  }
+}
 function etTemplateIsRsvp(t){
   const d = (t && t.data) ? t.data : t;
   if(!d) return false;
@@ -15761,7 +15831,7 @@ async function invTestSend(){
       '<strong>Test copy.</strong> This is ' + esc(d.name || 'this customer') + '\'s real invoice, sent to you. They were not emailed and nothing on their record changed.'+
       '</div>' + body;
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: 'Test', message: body });
+    await emailjs.send(serviceId, templateId, { to_email: sendTo, to_name: 'Test', subject: await emailSubjectFor(tpl, d.phone || key, {name: d.name || 'there'}), message: body });
     /* ⚠ "HANDED TO", NOT "SENT TO". EmailJS accepting the request says the request
        was well formed, and nothing about whether the address exists. Claiming
        delivery is what sent somebody looking for a bug in the invoice code when the
@@ -15931,7 +16001,8 @@ document.getElementById('etSendToSelectedBtn').addEventListener('click', async f
       quotePhotosForPhone(vars.phone), false) + addOnBlock;
     statusEl.textContent = 'Sending ' + (sent+failed+1) + ' of ' + selectedIds.length + '…';
     try{
-      await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', message: message });
+      const subject = await emailSubjectFor(template, vars.phone, vars);
+      await emailjs.send(serviceId, templateJsId, { to_email: member.data.email, to_name: member.data.name || '', subject: subject, message: message });
       sent++;
     } catch(err){ failed++; }
   }
@@ -16028,7 +16099,8 @@ document.getElementById('etSendTestBtn').addEventListener('click', async functio
   const message = '[TEST EMAIL — sample data below]<br><br>' + await resolveLinkTokens(template.data.body, vars.phone||'', 0, vars) + testAddOn;
   try{
     emailjs.init(publicKey);
-    await emailjs.send(serviceId, templateJsId, { to_email: testEmail, to_name: 'Test', message: message });
+    const testSubject = await emailSubjectFor(template, vars.phone || '', vars);
+    await emailjs.send(serviceId, templateJsId, { to_email: testEmail, to_name: 'Test', subject: testSubject, message: message });
     statusEl.textContent = 'Test sent!';
     setTimeout(() => { statusEl.textContent = ''; }, 2500);
   } catch(err){

@@ -204,7 +204,37 @@ const FAKE_FUNCTIONS_MODULE = `
   const HANDLERS = {
     portalLookup:      lookup,
     portalInvoice:     invoice,
-    portalRsvp:        p => ({ ok: true, rsvpStatus: p && p.answer }),
+    /* ⚠ THROWS FOR AN UNKNOWN TOKEN, BECAUSE THE REAL ONE THROWS. portalRsvp
+       does throw new HttpsError of not-found, which REJECTS the callable on the
+       client -- it does NOT resolve with ok:false. This used to return ok:true
+       for ANY token at all, so every spec exercised a path no real customer
+       with a stale link ever reaches, and the failure wording went unchecked.
+       Same fix, and the same reasoning, as quoteRespond below.
+       ⚠ AND IT READS response, NOT answer. index.html sends {token, response};
+       the old stub echoed p.answer, which is always undefined, so nothing here
+       could ever have caught a wrong answer being sent.
+       ⚠ NO BACKTICKS ANYWHERE IN THIS FILE. Its source is injected into the
+       page as a template literal, so one backtick in a comment ends the literal
+       and the whole stub fails to parse -- which reads as "no tests found",
+       not as a syntax error in a comment. */
+    portalRsvp: function (payload) {
+      const token = String((payload && payload.token) || '').trim();
+      const response = String((payload && payload.response) || '').trim();
+      if (['yes', 'no', 'backnextyear'].indexOf(response) === -1) {
+        throw new Error('Unknown RSVP response: ' + response);
+      }
+      /* The same documented sentinel quoteRespond carries, so a spec can prove
+         a genuine outage still reads as one rather than as a stale link. */
+      if (token === 'forceinternal') {
+        const e = new Error('boom'); e.code = 'functions/internal'; throw e;
+      }
+      let hit = null;
+      Object.keys(F.customers || {}).forEach(function (k) {
+        if (F.customers[k].token === token) hit = F.customers[k];
+      });
+      if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
+      return { ok: true, rsvpStatus: response };
+    },
     portalSave:        () => ({ ok: true, saved: true }),
     publicQuoteLookup: publicQuoteLookup,
 

@@ -134,3 +134,62 @@ test.describe('RSVP email links', () => {
   });
 
 });
+
+/* ---- A LINK THAT NO LONGER MATCHES AN ACCOUNT ---------------------------
+ *
+ * ⚠ THE MESSAGE WAS THE SIGN-IN FORM'S, SHOWN TO SOMEBODY WHO NEVER SIGNED IN.
+ * Both Yes and No failed into `#lookupEmpty` — "We couldn't find an account
+ * matching that phone number and last name" — at a customer who typed neither
+ * and only pressed a button in an email. It reads exactly like the button
+ * being broken, which is what it was reported as.
+ *
+ * ⚠ AND IT WAS THE ONLY PATH THEY HAD. portalRsvp reports a miss by THROWING
+ * (`HttpsError('not-found')`), which REJECTS the callable — so the `!res.ok`
+ * branch is unreachable in production and EVERY failure landed there.
+ *
+ * ⚠ handleBackNextYear ALREADY used the friendly shared wording. This is the
+ * same "one reader left behind when the others were changed" shape as the
+ * quote link on 2026-08-31, which is where `portalCallFailedText` came from.
+ */
+test.describe('An RSVP link that no longer matches an account', () => {
+
+  test('Yes says the link may be out of date, not that a sign-in failed', async ({ page }) => {
+    const stub = await open(page, '/index.html#/payment?token=nosuchtoken&rsvp=yes');
+
+    const card = page.locator('#rsvpConfirmCard');
+    await expect(card).toBeVisible();
+    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/link may be out of date/i);
+    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/901-0011/);
+
+    /* ⚠ THE WRONG MESSAGE MUST BE GONE, not merely covered up. A customer who
+       never typed a phone number or a last name cannot act on being told those
+       did not match. */
+    await expect(page.locator('#lookupEmpty')).toBeHidden();
+
+    expect(stub.thrown, stub.consoleNoise.join('\n')).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  test('No gets the same treatment', async ({ page }) => {
+    const stub = await open(page, '/index.html#/payment?token=nosuchtoken&rsvp=no');
+
+    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/link may be out of date/i);
+    await expect(page.locator('#lookupEmpty')).toBeHidden();
+
+    expect(stub.thrown, stub.consoleNoise.join('\n')).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ A GENUINE OUTAGE MUST STILL READ AS ONE. Calling every failure a stale
+     link is the opposite error, and it hides a real fault behind a reassuring
+     sentence — the exact caveat written into portalCallFailedText. */
+  test('a real server failure still reads as a failure, not a stale link', async ({ page }) => {
+    const stub = await open(page, '/index.html#/payment?token=forceinternal&rsvp=yes');
+
+    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/something went wrong/i);
+    await expect(page.locator('#rsvpConfirmMsg')).not.toContainText(/out of date/i);
+
+    stub.assertNoRealCalls();
+  });
+
+});
