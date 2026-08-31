@@ -80,6 +80,73 @@ function hits(ix, field) {
 
 const inAny = (ranges, pos) => ranges.some(r => pos >= r[0] && pos <= r[1]);
 
+/* ---------------------------------------------------------------------------
+ * IS THIS TOUCH EVEN ON THE RIGHT RECORD?
+ *
+ * Addie, 2026-08-31, having been told there were 760 undeclared touches, picked five
+ * areas to work through. Measuring them first showed most of that number was not real:
+ * `status` alone reported 184, and the list was `ccRenderCardList`, `ccStatusColor`,
+ * `approveTimeOffRequest`, `renderExpensesList` — the status of a CREDIT CARD
+ * TRANSACTION, a TIME-OFF REQUEST, an EXPENSE. `hits()` is word-bounded but knows
+ * nothing about which record a field belongs to, and half a dozen collections in this
+ * app have a field called `status`.
+ *
+ * ⚠ AMBER THAT CARRIES KNOWN-FALSE ROWS IS AMBER NOBODY READS — engine.js's own words,
+ * written about a two-row collision. At 184 it stops being noise and becomes the reason
+ * the column has never been worked through.
+ *
+ * ⭐ THE RULE, AND IT ONLY EVER DROPS WHAT IT CAN POSITIVELY IDENTIFY: a touch is
+ * discarded when the function around it names OTHER Firestore collections and never
+ * names this field's own. `renderExpensesList` says `expenses` and never `quotes`, so
+ * its `status` is not a quote's. A function naming no collection at all, or naming this
+ * one, or sitting outside any named function, is KEPT — "cannot tell" always means keep.
+ * The cost of a false drop is a real connection going invisible, which is the failure
+ * this whole page exists to prevent; the cost of a false keep is one more amber row.
+ *
+ * ⚠ IT REPLACES NOTHING. The hand-written `ignore` lists stay: they name functions that
+ * genuinely touch the right record for a reason that is not a connection, which no
+ * amount of collection-sniffing can work out. This runs after them.
+ *
+ * ⚠ AND THE COLLECTIONS ARE READ OUT OF THE SOURCE, never listed here. A hard-coded list
+ * would go stale the day somebody adds a collection, and it would go stale SILENTLY —
+ * the new collection would simply stop being recognised as "another record", and its
+ * fields would start appearing as false amber on somebody else's spine.
+ * ------------------------------------------------------------------------- */
+const RECORD_COLLECTION = { cust: 'jobAddresses', inv: 'invoices', quote: 'quotes', route: 'scheduledRoutes' };
+let COLLECTIONS = null;
+function collectionsIn(ix) {
+  if (COLLECTIONS) return COLLECTIONS;
+  const found = new Set();
+  const pats = [
+    /\bcollection\(\s*db\s*,\s*['"]([A-Za-z0-9_]+)['"]/g,
+    /\bdoc\(\s*db\s*,\s*['"]([A-Za-z0-9_]+)['"]/g,
+    /\bdb\s*\.collection\(\s*['"]([A-Za-z0-9_]+)['"]\s*\)/g
+  ];
+  Object.keys(ix).forEach(fk => {
+    pats.forEach(re => { re.lastIndex = 0; let m; while ((m = re.exec(ix[fk].src))) found.add(m[1]); });
+  });
+  COLLECTIONS = [...found];
+  return COLLECTIONS;
+}
+/* The SMALLEST named function containing this offset, with its range — `enclosing()`
+   returns only a name, and the name is not enough to read the body. */
+function fnRange(I, pos) {
+  let best = null;
+  for (const f of I.fns) {
+    if (f.start <= pos && pos < f.end && (!best || (f.end - f.start) < (best.end - best.start))) best = f;
+  }
+  return best;
+}
+function otherRecord(ix, I, pos, spine) {
+  const mine = RECORD_COLLECTION[spine.record];
+  if (!mine) return false;                       /* an unknown record: cannot tell, keep */
+  const f = fnRange(I, pos);
+  if (!f) return false;                          /* a handler: cannot tell, keep */
+  const body = I.blanked.slice(f.start, f.end);
+  if (new RegExp('\\b' + mine + '\\b').test(body)) return false;   /* names its own record */
+  return collectionsIn(ix).some(c => c !== mine && new RegExp('\\b' + c + '\\b').test(body));
+}
+
 function check(files, manifest) {
   const ix = {};
   Object.keys(files).forEach(k => { ix[k] = index(files[k]); });
@@ -138,6 +205,7 @@ function check(files, manifest) {
       hits(ix[fk], spine.field).forEach(h => {
         if (inAny(dr, h.pos)) return;
         if ((spine.ignore || []).some(rx => new RegExp(rx).test(enclosing(ix[fk], h.pos) || ''))) return;
+        if (otherRecord(ix, ix[fk], h.pos, spine)) return;
         const key = fk + ' · ' + (enclosing(ix[fk], h.pos) || '(a handler)') + ' · ' + h.kind;
         extra[key] = (extra[key] || 0) + 1;
       });
@@ -156,4 +224,4 @@ function check(files, manifest) {
   });
 }
 
-module.exports = { check, hits, anchorRanges };
+module.exports = { check, hits, anchorRanges, otherRecord };
