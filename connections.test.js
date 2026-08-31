@@ -1140,6 +1140,72 @@ if (unguarded.length) {
       'everything is hiding real connections, which is worse than the noise it removes');
   }
 
+  /* ⭐ AND A LOCAL DECLARATION IS NOT A WRITE TO THE RECORD.
+     `const completed = !!d.completed` reads the field and names a local after it;
+     `let deposit = 0` names one after a field it never touches. Both matched `= ` and were
+     counted as WRITERS — 45 across the map, and they are the worst kind of amber because
+     they sit inside functions that genuinely do handle the right record, so no amount of
+     record-sniffing can see them.
+     ⚠ RUN, not read: the claim is about what `hits()` returns. */
+  {
+    const sc2 = require('./connections/scan.js');
+    const mk = src => sc2.index(src, true);
+    const dec = mk('function f(d){ const completed = !!d.completed; return completed; }');
+    const kinds = eng.hits(dec, 'completed').map(h => h.kind);
+    check('a local named after a field is not counted as writing it',
+      kinds.indexOf('set') === -1,
+      ': got ' + JSON.stringify(kinds) + ' — a const can never write to a record');
+    check('but the read beside it is still counted',
+      kinds.indexOf('read') !== -1,
+      ': got ' + JSON.stringify(kinds) + ' — dropping the read would hide a real connection, ' +
+      'which is the failure this page exists to prevent');
+
+    const real = mk('function g(d){ d.completed = true; }');
+    check('and a real write is still a write',
+      eng.hits(real, 'completed').some(h => h.kind === 'set'),
+      ': the rule must not swallow the thing it is filtering around');
+
+    /* ⭐ A KNOWN LIMIT, TURNED INTO A GATE RATHER THAN LEFT AS A COMMENT.
+       `const {completed} = d` produces NO hit at all — not a write, and not a read either:
+       `hits()` decides a read from the character before the name, and `{` is not one of
+       them. So a field pulled out by destructuring is INVISIBLE to this whole map.
+
+       ⚠ THAT IS PRE-EXISTING, NOT SOMETHING THE local-declaration RULE INTRODUCED, and it
+       was found by writing a check that assumed the opposite. Measured against the real
+       files it happens ZERO times today — this codebase does not read record fields that
+       way — so building for it would be building for nothing.
+
+       ⚠ WHAT IS GATED IS THE ASSUMPTION. If somebody ever does start destructuring a
+       watched field, this goes red and a person decides whether to teach the matcher or
+       to declare it by hand. Left as a comment it would be a silent hole the day the
+       style changed, which is exactly the shape of thing this page exists to catch. */
+    const destr = mk('function h(d){ const {completed} = d; return completed; }');
+    check('destructuring is still invisible to the matcher, as recorded',
+      eng.hits(destr, 'completed').length === 0,
+      ': it now returns ' + JSON.stringify(eng.hits(destr, 'completed').map(h => h.kind)) +
+      ' — if the matcher has learned this, delete this check and the note beside it');
+
+    const sc3 = require('./connections/scan.js');
+    const files = { admin: 'admin.html', server: 'functions/index.js',
+                    index: 'index.html', employee: 'employee.html' };
+    const destructured = [];
+    m.report.forEach(sp => {
+      Object.keys(files).forEach(fk => {
+        const I = sc3.index(require('path').join(__dirname, files[fk]));
+        const re = new RegExp('\\{[^{}\\n]{0,120}\\b' + sp.spine.field + '\\b[^{}\\n]{0,120}\\}\\s*=', 'g');
+        let mm;
+        while ((mm = re.exec(I.blanked))) {
+          destructured.push(sp.spine.field + ' · ' + fk + ' · ' + (sc3.enclosing(I, mm.index) || '(a handler)'));
+        }
+      });
+    });
+    check('and no watched field is actually read that way in the real files',
+      destructured.length === 0,
+      ': ' + [...new Set(destructured)].join(', ') + ' — these reads are invisible to the ' +
+      'map, so that box is green on a connection nothing can see. Teach hits() or declare ' +
+      'them by hand, but do not leave them.');
+  }
+
   /* ⚠ AND THE COLLECTION LIST IS READ OUT OF THE SOURCE, never written down. A hard-coded
      list goes stale the day somebody adds a collection — and stale in the SILENT
      direction: the new collection stops counting as "another record", so its fields start

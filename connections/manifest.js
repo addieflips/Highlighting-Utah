@@ -200,16 +200,37 @@ module.exports = [
        stops, plan days and schedule rows all carry a `completed` of their own — the
        prototype returned 28 undeclared touches for this field, nearly all of them that.
        Narrowing to the customer-record readers is what keeps amber worth reading. */
-    ignore: ['^(stopProblem|renderRouteOrderedList|renderRouteAddressList|runGenerateInstallRoute|findNearbyMissedHouses|nextVisitFor|visitBadgeType|renderTakedownsList|reconcileUpcomingRoutes|renderOverviewMap|isOctoberUrgent|isNewHangUrgent|isBeforeThanksgivingUrgent|derivedDoneFor|houseBillingRow)$'],
+    ignore: ['^(stopProblem|renderRouteOrderedList|renderRouteAddressList|runGenerateInstallRoute|findNearbyMissedHouses|nextVisitFor|visitBadgeType|renderTakedownsList|reconcileUpcomingRoutes|renderOverviewMap|isOctoberUrgent|isNewHangUrgent|isBeforeThanksgivingUrgent|derivedDoneFor|houseBillingRow)$',
+      /* ⚠ A LABEL MAP IS NOT A WRITE. `renderAllCustomersTable` holds
+         `{completed:'Install Complete'}` — a key named after the field so a filter can be
+         shown in words. It reads as a write to any matcher and is not one. */
+      '^renderAllCustomersTable$'],
     sets: [
       { file: 'admin', fn: 'planTickCustomer', where: 'Schedule › Scheduling', when: 'one house is marked done',
         rules: ['Ticking one stop marks that one customer, never the whole day.'] },
       { file: 'admin', near: 'const HLX_DONE_KINDS', where: 'Routes › Install', when: 'any of five doors marks a job done',
-        rules: ['Install, takedown and fix are separate. One never implies another.'] }
+        rules: ['Install, takedown and fix are separate. One never implies another.'] },
+      /* ⭐ DECLARED 2026-08-31. Two more writers, and both matter for money: this field is
+         what the nightly run bills on.
+
+         ⚠ THE ALL CUSTOMERS ROW TICK IS THE ONE TO WATCH. `attachAddressRowHandlers` is
+         already recorded on this page as writing needsLightBuild with the WRONG VALUE, so
+         it is a handler with a history — and here it decides whether somebody is invoiced
+         tonight. */
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'the Install Complete box on a row is ticked',
+        rules: ['Ticking this bills them on the next nightly run, so it must never be set as a side effect of another box on the same row.'] },
+      { file: 'admin', el: 'ssnRunBtn', where: 'Customers › All Customers', when: 'Start New Season runs',
+        rules: ['Clearing this is what stops last season\'s work being billed again in the new one — and it is why the hung-is-hung rule is safe.'] }
     ],
     reads: [
       { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: '7 PM Mountain',
         rules: ['A shared bill waits for every house on it.'] },
+      { file: 'admin', fn: 'buildAddressRowHtml', where: 'Customers › All Customers', when: 'a customer row is drawn',
+        rules: ['A house that is installed is what makes a takedown due, so one row shows both.'] },
+      { file: 'admin', fn: 'memberExportStatus', where: 'Customers › Bulk Updates', when: 'the workbook is written back',
+        rules: ['Removed beats installed — the export says where they are NOW, not everything true of them.'] },
+      { file: 'admin', el: 'generateRemovalBtn', where: 'Routes › Install', when: 'a takedown route is generated',
+        rules: ['Only a house that was actually hung can have its lights taken down.'] },
       { file: 'server', fn: 'houseIsOnTheBillServer', where: 'Invoices › Nightly Automation', when: 'deciding who is on a bill',
         rules: ['A house that was hung is charged, whatever they said afterwards.'] },
       { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices › Invoice List', when: 'deciding who is on a bill',
@@ -403,7 +424,28 @@ module.exports = [
     sets: [
       { file: 'admin', fn: 'generateAllRoutes', where: 'Schedule › Scheduling', when: 'the season is recalculated',
         rules: ['Ordered inside a crew, never across the day — one list sends each crew into the other\'s town.'] },
-      { file: 'admin', fn: 'autoScheduleNewCustomer', where: 'Customers › Add a Customer', when: 'a new customer is slotted in' }
+      { file: 'admin', fn: 'autoScheduleNewCustomer', where: 'Customers › Add a Customer', when: 'a new customer is slotted in' },
+      /* ⭐ DECLARED 2026-08-31, working the five areas Addie picked. `stops` is the one
+         field on this page where an undeclared writer is somebody driving to the wrong
+         house: it is the FROZEN list a crew is handed, so anything that rewrites it after
+         the sheet is printed has to be visible.
+
+         ⚠ THE SWEEP IS THE BIGGEST OF THEM and runs every fifteen minutes with nobody
+         watching — it evicts, refreshes, caps and tops up, all by rewriting this array. */
+      { file: 'admin', fn: 'reconcileUpcomingRoutes', where: 'Routes › Install', when: 'the sweep runs, every 15 minutes',
+        rules: ['A day inside 48 hours is never re-ordered — the truck is loaded the night before.',
+                'Anything it moves is reported, never dropped silently.'] },
+      { file: 'admin', fn: 'resyncSavedRouteStops', where: 'Routes › Install', when: 'a customer record is corrected',
+        rules: ['A stop is a snapshot, so a corrected address has to be pushed onto it — upcoming days only, never history.'] },
+      { file: 'admin', fn: 'removeCustomerFromUpcomingRoutes', where: 'Routes › Install', when: 'a customer is deleted or pulled from the season',
+        rules: ['Leaving the stop behind sends a crew to a house that is not in the book any more.'] },
+      { file: 'server', fn: 'removeCustomerFromUpcomingRoutes', where: 'Member Portal › My Lights', when: 'a customer takes themselves out',
+        rules: ['The browser and the server both have to be able to do this — the customer is not signed into the office.'] },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a customer changes something that affects their stop',
+        rules: ['A change inside 48 hours of a printed day must not silently rewrite the sheet.'] },
+      { file: 'admin', fn: 'dayMapRoutes', where: 'Routes › Map View', when: 'a day is dragged into a new order' },
+      { file: 'admin', fn: 'hcFixRow', where: 'Customers › All Customers', when: 'the health check repairs a route fault' },
+      { file: 'admin', el: 'markScheduledBtn', where: 'Routes › Install', when: 'a route is saved as scheduled' }
     ],
     reads: [
       { file: 'admin', fn: 'evenOutDays', where: 'Schedule › Scheduling', when: 'a day is over the cap' },
@@ -411,8 +453,17 @@ module.exports = [
       /* ⚠ NOT crewSheetRows. It reads `day.houses` off the season PLAN, which is a
          different shape from a saved route's `stops` — declaring it here was a false
          red on correct code. The map view is what really reads the stops. */
-      { file: 'admin', fn: 'dayMapDraw', where: 'Routes › Map View', when: 'the day is drawn on the map' }
-    ]
+      { file: 'admin', fn: 'dayMapDraw', where: 'Routes › Map View', when: 'the day is drawn on the map' },
+      { file: 'admin', fn: 'renderCalendar', where: 'Schedule › Scheduling', when: 'the calendar counts what is on each day' },
+      { file: 'admin', fn: 'renderDayMaps', where: 'Routes › Map View', when: 'the day maps are drawn' }
+    ],
+    /* ⚠ THE TEST SWEEP AND THE DUPLICATE TOOLS READ STOPS FOR THEIR OWN REASONS, not as
+       a connection. The duplicate finders check whether a copy is on a route before
+       deleting it — real and important, but it is a SAFETY CHECK on a delete, not a
+       route being built; and the test sweep exists to take throwaway records back out.
+       Declared as exceptions rather than left as amber, so the reasoning is written down
+       instead of the rows just sitting there unexplained. */
+    ignore: ['^(testSweepFind|testSweepDelete|dupFindBtn handler|dupExactBtn handler)$']
   },
 
   {
@@ -460,6 +511,12 @@ module.exports = [
   {
     field: 'rsvpStatus',
     areas: ['Customers', 'Schedule', 'Invoices'], record: 'cust',
+    /* ⚠ THE TEST-RECORD BUILDERS TOUCH THE RIGHT RECORD AND ARE NOT CONNECTIONS. They
+       mint a throwaway customer so somebody can walk a flow; declaring them would put a
+       row on the map for a house that is deleted the same afternoon. The record-aware
+       filter cannot work this out — they really are writing jobAddresses — so it stays a
+       hand-written exception, which is what `ignore` is for. */
+    ignore: ['^(buildTestPerson|qBuildTestBtn handler)$'],
     title: 'What they said about this season',
     plain: 'Their answer to "are you having lights again this year".',
     guard: 'season-state.test.js runs every answer through the five lists it lands on.',
@@ -481,11 +538,51 @@ module.exports = [
         rules: ['One yes cancels a queued recycle and clears a Maybe Next Year badge.'] },
       { file: 'server', fn: 'pullCustomerFromSeason', where: 'Member Portal › RSVP', when: 'they ask to sit the season out' },
       { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office marks the answer for them',
-        rules: ['This is one of the three ways to say yes, so it stamps a reply date like the others.'] }
+        rules: ['This is one of the three ways to say yes, so it stamps a reply date like the others.'] },
+      /* ⭐ DECLARED 2026-08-31, working the five areas Addie picked. Everything below was
+         a real writer the map could not see — and the browser copy of `seasonYesUpdates`
+         is the one that matters most: it is a SECOND implementation of what a yes does,
+         beside the server's, and two copies of a rule about who is in the season is
+         exactly the shape money-parity exists for. */
+      { file: 'admin', fn: 'seasonYesUpdates', where: 'Customers › All Customers', when: 'the office marks somebody in for the season',
+        rules: ['The browser and server copies of what a yes does must agree — one cancels a queued recycle, re-queues a build only where that recycle happened, and clears the badge in BOTH its fields.'] },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer record is saved',
+        rules: ['Editing a record must not quietly change what they answered about the season.'] },
+      { file: 'admin', el: 'rsvpResetBtn', where: 'Customers › All Customers', when: 'everybody is moved to Unanswered before an RSVP goes out',
+        rules: ['A reset touches the ANSWER only — a queued recycle is work the warehouse has already done, and a Maybe Next Year badge is a decision rather than a reply, so both survive.'] },
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' },
+      /* ⚠ A LOCAL MIRROR, NOT A FIRESTORE WRITE, and it is declared BECAUSE of that. The
+         quote card repaints from `jobAddresses` rather than re-reading the database, so
+         approving a quote has to put the answer into the cache as well as send it — and a
+         mirror that falls out of step with what was actually written is a screen
+         confidently showing something that is not in the record. */
+      { file: 'admin', fn: 'renderQuoteRows', where: 'Quote Requests', when: 'approving a quote marks them in for the season',
+        rules: ['Approving is one of the ways to say yes, so the card must mirror exactly what the shared rule wrote.'] }
     ],
     reads: [
       { file: 'admin', fn: 'isOutForSeason', where: 'Schedule › Scheduling', when: 'anything asks who is in the season',
         rules: ['Only somebody who actually replied yes is in, once the RSVP has gone out.'] },
+      /* ⭐ THE READERS, DECLARED 2026-08-31. `stopProblem` is the one worth reading twice:
+         it is what takes a house OFF a crew day, and until 2026-08-26 it and the two
+         passes that put houses back on disagreed about who was in the season — a house
+         evicted and re-placed every fifteen minutes, for ever. */
+      { file: 'admin', fn: 'stopProblem', where: 'Routes › Install', when: 'the sweep decides a house should not be on a day',
+        rules: ['Eviction and the passes that fill a day must ask the same question — a disagreement is a loop nobody sees.'] },
+      { file: 'admin', fn: 'etRsvpAnswered', where: 'Automation Emails › Recipients', when: 'an RSVP audience is counted',
+        rules: ['Unanswered is its own state, not a blank — after a reset a filter on "no answer yet" must still find everybody.'] },
+      { file: 'admin', fn: 'etRenderRecipientList', where: 'Automation Emails › Recipients', when: 'a send audience is drawn' },
+      { file: 'admin', fn: 'historyRsvpWords', where: 'Customers › All Customers', when: 'a customer history is drawn',
+        rules: ['Which of the ways they answered is the question somebody has when they open the record.'] },
+      { file: 'admin', fn: 'whHouseBuildStatus', where: 'Warehouse › Build', when: 'the office asks why a house is not on the build list',
+        rules: ['Sitting the season out is one of the four reasons a house is missing, and the answer has to say which.'] },
+      { file: 'admin', fn: 'hcRunChecks', where: 'Customers › All Customers', when: 'the health check runs' },
+      { file: 'admin', fn: 'ssnScopeHouses', where: 'Customers › All Customers', when: 'Start New Season works out who it is about',
+        rules: ['Start New Season rewrites every customer in one press with no undo, so who is in scope is the whole of it.'] },
+      { file: 'admin', fn: 'housesForInvoiceKey', where: 'Invoices › Invoice List', when: 'the houses on one bill are listed',
+        rules: ['A house that said no is off the bill, so naming it would print a list that does not add up to the amount under it.'] },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened for editing' },
+      { file: 'admin', fn: 'editCustHouseholdHouses', where: 'Customers › All Customers', when: 'the house tabs on one bill are drawn' },
+      { file: 'admin', fn: 'hcSharedPhoneGroups', where: 'Customers › All Customers', when: 'households sharing a phone are grouped' },
       { file: 'admin', fn: 'effectiveRsvpStatus', where: 'Customers › All Customers', when: 'a status is shown anywhere',
         rules: ['A stored yes with no reply date behind it is not an answer.'] },
       { file: 'admin', fn: 'houseIsOnTheBill', where: 'Invoices › Nightly Automation', when: 'the bill is built',
@@ -513,7 +610,18 @@ module.exports = [
       { file: 'server', fn: 'portalRsvp', where: 'Member Portal › RSVP', when: 'a customer answers' },
       { file: 'server', fn: 'seasonYesUpdates', where: 'Member Portal › RSVP', when: 'somebody says yes',
         rules: ['Every route that takes a yes stamps this, or the yes is not believed.'] },
-      { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office answers for them' }
+      { file: 'admin', fn: 'setCustomerSeason', where: 'Customers › All Customers', when: 'the office answers for them' },
+      /* ⭐ DECLARED 2026-08-31. Five more writers, and the point of listing them is that
+         this field is what makes a yes REAL — a writer that sets the status and forgets
+         the date has written an answer nothing downstream will believe. */
+      { file: 'admin', fn: 'seasonYesUpdates', where: 'Customers › All Customers', when: 'the office marks somebody in',
+        rules: ['The browser copy stamps the reply date exactly as the server copy does — a yes without it is not an answer.'] },
+      { file: 'server', fn: 'pullCustomerFromSeason', where: 'Member Portal › RSVP', when: 'they ask to sit the season out',
+        rules: ['A no is an answer too, and is dated like one.'] },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a record is saved' },
+      { file: 'admin', el: 'rsvpResetBtn', where: 'Customers › All Customers', when: 'everybody is moved to Unanswered',
+        rules: ['The reset clears the ANSWER and its date together — a date left behind would make an emptied status read as a real reply.'] },
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a customer is typed in' }
     ],
     reads: [
       { file: 'admin', fn: 'effectiveRsvpStatus', where: 'Customers › All Customers', when: 'a status is shown',
