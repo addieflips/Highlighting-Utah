@@ -464,6 +464,131 @@ function seasonResetWrite() {
     'a filler with no element is a silent no-op under optional chaining');
 
   /* ---------------------------------------------------------------------
+     4c. The one-off backfill, for a season that was already reset under the
+         old write-off behaviour. Addie: "The new season started but RSVP
+         hasn't been sent out" — so the debts are gone from the invoices and
+         live only in the snapshot.
+     --------------------------------------------------------------------- */
+  const planSb = [
+    'const ARREARS_KIND = ' + JSON.stringify(money.ARREARS_KIND) + ';',
+    'const arrearsOnInvoice = ' + money.arrearsOnInvoice.toString() + ';',
+    lift('balanceDueAmount'),
+    lift('arrearsBackfillPlan'),
+    lift('lastSeasonSnapshotFrom'),
+    'return { arrearsBackfillPlan, lastSeasonSnapshotFrom };'
+  ].join('\n');
+  ['arrearsBackfillPlan', 'lastSeasonSnapshotFrom'].forEach(function (n) {
+    check('lifted ' + n + ' out of the page, whole', liftOk(lift(n)));
+  });
+  const pApi = new Function(planSb)();
+
+  /* Snapshot rows are exactly what ssnBuildSnapshotRows writes: the invoice as it
+     stood the moment before the reset wiped it. */
+  const snapRows = [
+    { id: '8015550001', name: 'Owes Money',  install: 400, removal: 0, changeFees: 0,  credits: 0,  deposit: 0 },
+    { id: '8015550002', name: 'Paid Up',     install: 400, removal: 0, changeFees: 0,  credits: 0,  deposit: 400 },
+    { id: '8015550003', name: 'Part Paid',   install: 800, removal: 0, changeFees: 0,  credits: 0,  deposit: 400 },
+    { id: '8015550006', name: 'Already Done',install: 300, removal: 0, changeFees: 0,  credits: 0,  deposit: 0 },
+    { id: '8015550007', name: 'No Invoice',  install: 250, removal: 0, changeFees: 0,  credits: 0,  deposit: 0 },
+    /* ⚠ A fee and a credit on last year's bill, so the carried figure is the real
+       outstanding balance rather than the install alone. */
+    { id: '8015550008', name: 'Fee And Credit', install: 400, removal: 0, changeFees: 30, credits: 50, deposit: 100 }
+  ];
+  const liveInv = new Map([
+    ['8015550001', { data: { install: 450, deposit: 0, credits: 0, changeFees: 0 } }],
+    ['8015550002', { data: { install: 450, deposit: 0, credits: 0, changeFees: 0 } }],
+    ['8015550003', { data: { install: 450, deposit: 0, credits: 0, changeFees: 0 } }],
+    ['8015550006', { data: { install: 450, deposit: 0, credits: 300,
+        changeFees: 300, changeFeeNotes: [{ amount: 300, kind: 'arrears', reason: 'already carried' }] } }],
+    ['8015550008', { data: { install: 450, deposit: 0, credits: 0, changeFees: 0 } }]
+  ]);
+  const bf = pApi.arrearsBackfillPlan(snapRows, liveInv);
+  const carried = bf.carry.map(r => r.name + ' ' + r.owed);
+
+  check('somebody who never paid is carried, for what they actually owed',
+    carried.indexOf('Owes Money 400') !== -1,
+    'got ' + JSON.stringify(carried));
+  check('somebody who paid in full is left alone',
+    bf.settled.some(r => r.name === 'Paid Up') && !bf.carry.some(r => r.name === 'Paid Up'),
+    'carrying a debt onto a customer who paid is the worst outcome available here');
+  check('a part payment carries only the remainder',
+    carried.indexOf('Part Paid 400') !== -1,
+    'billed 800, paid 400 — 400 is carried, not 800; got ' + JSON.stringify(carried));
+  check('last season\'s own fees and credits are already inside the figure',
+    carried.indexOf('Fee And Credit 280') !== -1,
+    '400 + 30 fee - 50 credit - 100 paid = 280; got ' + JSON.stringify(carried));
+  /* ⚠ IDEMPOTENT BY THE LEDGER, not by a flag. Running it twice must not double
+     anybody's debt, and this is what makes that true. */
+  check('a bill already carrying a line is skipped',
+    bf.already.some(r => r.name === 'Already Done') && !bf.carry.some(r => r.name === 'Already Done'),
+    'running this twice must never double a debt');
+  /* ⚠ NEVER GUESS AT A MISSING INVOICE. A customer re-keyed since the reset would
+     otherwise have their debt put on whichever bill a name match happened to find. */
+  check('a snapshot row with no invoice today is reported, never guessed at',
+    bf.missing.some(r => r.name === 'No Invoice') && !bf.carry.some(r => r.name === 'No Invoice'),
+    'picking an invoice by name would put one person\'s debt on a stranger\'s bill');
+  check('and the biggest debt is listed first',
+    bf.carry[0].owed >= bf.carry[bf.carry.length - 1].owed,
+    'the report is read top-down');
+
+  /* The picker is shared with the Automation Emails filter rather than copied. */
+  check('the newest snapshot that actually has rows is the one used',
+    pApi.lastSeasonSnapshotFrom([
+      { id: '2027', data: { year: 2027, invoices: [] } },
+      { id: '2026', data: { year: 2026, invoices: [{ id: 'x' }] } },
+      { id: '2025', data: { year: 2025, invoices: [{ id: 'y' }] } }
+    ]).id === '2026',
+    'an empty newer snapshot must not hide the real books');
+  check('and no snapshot at all answers null, never an empty guess',
+    pApi.lastSeasonSnapshotFrom([]) === null && pApi.lastSeasonSnapshotFrom(null) === null,
+    'this decides whether the office is told there is nothing to repair');
+  check('the audience filter asks the same picker rather than a copy',
+    /function audienceLastSeasonSnapshot\(\)\{ return lastSeasonSnapshotFrom\(yearlySnapshotsCache\); \}/.test(admin),
+    'two copies of "which snapshot is last season" is the second way for them to disagree');
+
+  /* ⚠ IT MUST READ THE COLLECTION FRESH. yearlySnapshotsCache is filled by the `money`
+     panel group, which the Invoices panel does not load — so reading the cache on this
+     screen reports "nothing to carry" while real debts sit in the snapshot. */
+  const checkHandler = admin.slice(admin.indexOf("document.getElementById('arrearsCheckBtn')"),
+                                   admin.indexOf("document.getElementById('arrearsRunBtn')"));
+  check('the dry run reads the snapshot fresh, not from the panel cache',
+    /getDocs\(query\(collection\(db,'yearlySnapshots'\)/.test(checkHandler) &&
+    !/yearlySnapshotsCache/.test(checkHandler),
+    'the Invoices panel never loads that cache, so it would report nothing to carry ' +
+    'while real debts sat in the snapshot — a confident wrong answer about money');
+  check('and a failed read says so rather than reading as nobody-owes-anything',
+    /Could not read the snapshot/.test(checkHandler),
+    'silence here is indistinguishable from an all-clear');
+
+  const runHandler = admin.slice(admin.indexOf("document.getElementById('arrearsRunBtn')"),
+                                 admin.indexOf('async function loadNightlyInvoiceLog'));
+  check('the apply writes only what the dry run showed',
+    /const job = arrearsBackfillPending;/.test(runHandler) &&
+    /for\(const row of job\.rows\)/.test(runHandler),
+    're-finding rows at write time would charge people she never saw — the same rule ' +
+    'the delete tools follow');
+  check('and it refuses without the typed confirmation',
+    /!== 'CARRY'/.test(runHandler),
+    'a mass money write needs the same lock every other one here has');
+  check('it re-reads each invoice immediately before writing',
+    /await getDoc\(doc\(db,'invoices', row\.key\)\)/.test(runHandler) &&
+    /if\(arrearsOnInvoice\(d\) > 0\)\{ skipped\+\+; continue; \}/.test(runHandler),
+    'two people are in admin every day and this loop is not a transaction — a bill that ' +
+    'gained a line since the dry run must not gain a second one');
+  /* ⚠ THIS CHECK WAS WEAK AND THE RED-CHECK CAUGHT IT. It asserted only that `.concat`
+     appeared, so a sabotage replacing the base with `[].concat([{ … }])` — which throws
+     away every existing fee — sailed straight through. The base of the concat is the
+     whole claim, so that is what is asserted. */
+  check('it appends to the EXISTING fee ledger and re-sums it, never assigns over it',
+    /\(Array\.isArray\(d\.changeFeeNotes\) \? d\.changeFeeNotes : \[\]\)\.concat\(/.test(runHandler) &&
+    /notes\.reduce/.test(runHandler),
+    'a light-change fee added since the reset is a real charge and must survive; ' +
+    'starting the concat from an empty array deletes it');
+  check('and a failure is counted and named, never swallowed',
+    /failed\+\+/.test(runHandler) && /failed and were NOT carried/.test(runHandler),
+    'a half-finished money run reporting success is the worst outcome here');
+
+  /* ---------------------------------------------------------------------
      5. The ledger has to survive the two invoice rebuilds, or the debt
         disappears again on the next ordinary save. The whole design rests
         on this, and neither rebuild is in a place a run can reach cheaply.
