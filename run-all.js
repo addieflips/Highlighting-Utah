@@ -1194,6 +1194,7 @@ const RETIRED_CHECKLIST_TERMS = [
   ['start measuring', 'clicking the picture starts a side now, so that button is gone — while one is open the button reads Finish this side (2026-08-25)'],
   ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
   ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
+  ['capture sky view', 'removed 2026-08-30 — the picture that goes on a quote is the street view, so an aerial has no way onto one and the button had no job left: "we just want the street view to be uploaded"'],
   /* ⚠ THE TERM IS THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired
      button read "Use <n> as Estimated Feet" with the footage in the middle, so
      a seed row quoting it writes "Use ... as Estimated Feet" and a term
@@ -44769,9 +44770,21 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
   check('S282', 'with nothing staged it captures rather than refusing',
     /if\(!rmShots\.length\)\{/.test(attach) && /await rmCapture\(which, true\)/.test(attach),
     'this IS the bug — a press that does nothing at all');
+  /* ⚠ REPOINTED, NOT WEAKENED, 2026-08-30: this matched "the house has not loaded",
+     and that sentence went on to name **Load Property** — a button removed on
+     2026-08-25 — so the check was holding a message in place that told her to press
+     something that is not there. The claim was never about those words; it is that
+     the two ways of getting no picture both SAY so. */
   check('S282', 'and it says which pictures it could not make',
-    /the house has not loaded/.test(attach) && /Could not make a picture of this view/.test(attach),
+    /neither view has loaded/.test(attach) && /Could not make a picture of this view/.test(attach),
     'silence after a press is the failure being reported again in a new place');
+  /* ⚠ COMMENTS STRIPPED, and this check caught itself doing it: the comment beside
+     the fix SAYS the words "Load Property", so a plain match read the explanation as
+     the violation and failed on code that is right. Suites 58, 274 and 275 each
+     learned the same thing. */
+  check('S282', 'and it does not send her to a button that was removed',
+    !/Load Property/.test(stripComments(attach)),
+    'the address bar went on 2026-08-25 — naming it is worse than saying nothing');
   /* ⚠ A SILENT `return` IS THE BUG, in the one function that is always pressable.
      It is indistinguishable from a click that never registered — which is the
      sentence this was reported in, twice. */
@@ -44825,9 +44838,13 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
   check('S282', 'a failed marked upload still leaves the picture attached',
     /catch\(err\)\{ url = original; \}/.test(attach),
     'losing the photograph because the second upload failed is the worse half of that trade');
+  /* ⚠ THIS COUNTED INSIDE A 40-CHARACTER WINDOW and §7 bans exactly that: adding
+     one honest field to the staged shot pushed `blob: clean` past the end of it and
+     the check failed on code that is right. It counts the staging shape itself now,
+     which cannot go stale as the object grows. */
   check('S282', 'one stager, shared by the crop screen and by Attach',
     !!stage && /const staged = await rmStageCapture\(\);/.test(admin) &&
-    (admin.match(/rmShots\.push\(\{[\s\S]{0,40}blob: clean/g) || []).length === 1,
+    (admin.match(/blob: clean/g) || []).length === 1,
     'two stagers is two answers to what a staged picture is');
 
   /* ---- 3. the feet and the price reach the customer ---- */
@@ -45061,15 +45078,54 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
       nothing === '', 'got ' + JSON.stringify(nothing) + ' — a count of nought is noise on every capture');
   }
 
-  /* ---- 8. Attach captures the pane the marks are actually in ------------ */
-  check('S282', 'Attach captures the view the marks are in, not the last one touched',
-    /const hasStreet = rmStreetReady && rmStreetDotsHere\(\)\.length > 0;/.test(attach) &&
-    /const hasSky = rmSkyReady && rmCorners\.length > 0;/.test(attach),
-    'rmLastPane moves on a plain mousedown on the sky map, so nudging the satellite after ' +
-    'dotting a front elevation attached a picture of the roof and none of her dots');
-  check('S282', 'and rmLastPane still breaks the tie when both views are marked',
-    /hasStreet && \(rmLastPane === 'street' \|\| !hasSky\)/.test(attach),
-    'with marks in both, the one she was last working in is the better guess');
+  /* ---- 8. Attach puts the PHOTOGRAPH on the quote ---------------------- */
+  /* ⭐ Owner, 2026-08-30: "when you dot the sky view the picture of that gets
+     uploaded as well but we just want the street view to be uploaded."
+
+     ⛔ WHAT THESE TWO CHECKS USED TO SAY, kept because the reasoning was sound and
+     is what makes the new answer obviously right rather than merely newer: Attach
+     used to guess which picture she meant from WHERE THE MARKS WERE, because
+     rmLastPane moves on a plain mousedown on the sky map — so nudging the satellite
+     after dotting a front elevation attached a picture of the roof and none of her
+     dots, and rmLastPane broke the tie when both views were marked.
+
+     ⚠ THAT GUESS WAS RIGHT ABOUT WHERE THE WORK WAS AND WRONG ABOUT WHAT THE
+     PICTURE IS FOR. The roofline is traced overhead and nowhere else, so "where the
+     marks are" answers "sky" for every properly measured house — and the quote's
+     photograph is what the customer and the crew look at to recognise the place.
+     There is no tie left to break. */
+  check('S282', 'Attach puts the street photograph on the quote, wherever the marks are',
+    /const which = rmStreetReady \? 'street' : \(rmSkyReady \? 'sky' : ''\);/.test(attach),
+    'the roofline is traced overhead on EVERY house, so a rule that follows the ' +
+    'marks attaches an aerial to every quote — which is the report');
+  check('S282', 'and it no longer guesses from the pane last touched',
+    !/rmLastPane/.test(attach) && !/hasSky/.test(attach),
+    'a leftover tiebreak is a second rule about which picture goes on the quote');
+  check('S282', 'the aerial survives only where there is no photograph at all',
+    /rmSkyReady \? 'sky' : ''/.test(attach),
+    'refusing outright leaves a quote with no picture on it, which is worse than ' +
+    'a labelled one — but it must be reachable ONLY through !rmStreetReady');
+  {
+    /* ⚠ SCOPED TO THE STAGER. "Google has no street photograph" is prose and would
+       match its own explanation anywhere in a 3.5MB file. */
+    const stager = extractFn(admin, 'rmStageCapture') || '';
+    check('S282', 'the stager is findable', !!stager);
+    check('S282', 'and the aerial says on its own label why it is there',
+      /Google has no street photograph here/.test(stager),
+      'a picture of a roof from above sitting on a quote with no explanation reads ' +
+      'as the tool having attached the wrong thing again');
+    check('S282', 'and every staged picture remembers which pane it came from',
+      /which: rmCrop\.which,/.test(stager),
+      'the crop is torn down after staging, so nothing else can answer that by ' +
+      'upload time');
+  }
+  check('S282', 'there is no Capture Sky View button left to stage one',
+    admin.indexOf('rmCaptureSky') === -1,
+    'a button that stages a picture the attach then refuses is a worse door than ' +
+    'no door — and a listener on an element that is gone is a silent no-op');
+  check('S282', 'and the C shortcut still reaches a button that exists',
+    /getElementById\('rmCaptureStreet'\)/.test(admin),
+    'a shortcut somebody has learned must not quietly stop doing anything');
 
   /* ---- 9. the picture is a picture of the SCREEN ----------------------- */
   /* ⭐ Owner, 2026-08-30, having watched three fixes fail to land the dots on the

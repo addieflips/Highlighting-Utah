@@ -5566,7 +5566,13 @@
                    unreachable so nothing that reads them breaks. -->
 
               <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <button type="button" class="btn btn-gold" id="rmCaptureSky" disabled>Capture Sky View</button>
+                <!-- ⛔ CAPTURE SKY VIEW REMOVED 2026-08-30. Owner: "we just want the
+                     street view to be uploaded." Its only job was to put a picture on
+                     the quote, and an aerial is no longer one of the pictures a quote
+                     may have — leaving the button would have been a door that stages a
+                     photograph the attach then has to refuse, which is worse than no
+                     door at all. The sky view itself is untouched: it is where the
+                     roofline is traced, it is simply not a picture source. -->
                 <button type="button" class="btn btn-gold" id="rmCaptureStreet" disabled>Capture Street View</button>
                 <span style="font-size:11.5px; color:var(--slate);">Capture as many as you like &mdash; crop each one before it goes on. <strong>Chrome asks once a session</strong> to photograph this tab; that ask IS how the picture gets your dots on it.</span>
               </div>
@@ -24435,7 +24441,6 @@ async function rmLoadAddress(){
   google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmPaneReady('sky'); });
   if(rmHomeMarker) rmHomeMarker.setMap(null);
   rmHomeMarker = new google.maps.Marker({position: rmOrigin, map: rmMap, clickable:false, zIndex:1, opacity:.55});
-  document.getElementById('rmCaptureSky').disabled = false;
   document.getElementById('rmHeightPanel').style.display = 'block';
   rmApplyFilter();
   rmSetDrawing(false);
@@ -25345,8 +25350,17 @@ async function rmStageCapture(){
      that shows them is the picture, and Replace This One is how it is undone. */
   const marked = (!rmCrop.shot && rmCrop.lines && marks.length) ? await rmCroppedBlob(true) : null;
   const t = rmTotals();
-  const from = rmCrop.which === 'street' ? 'Front of house' : 'Roofline from above';
+  /* ⚠ THE AERIAL NAMES ITSELF. Since 2026-08-30 the only way one reaches a quote
+     is the no-street-photograph fallback, so the label has to say that — a
+     picture of a roof from above, sitting on a quote with no explanation, reads
+     as the tool having attached the wrong thing again. */
+  const from = rmCrop.which === 'street' ? 'Front of house'
+             : 'Roofline from above — Google has no street photograph here';
   rmShots.push({
+    /* ⚠ WHICH PANE IT CAME FROM TRAVELS WITH IT. The crop is torn down after
+       staging, so by upload time nothing else can still answer that — and "is
+       this the photograph or the aerial" is the whole of the rule above. */
+    which: rmCrop.which,
     blob: clean, marked: marked, markup: shapes,
     preview: URL.createObjectURL(marked || clean),
     label: rmRuns.length ? (from + ' — ' + rmFmtFeet(Math.round(t.all))) : from
@@ -25488,7 +25502,6 @@ function rmReset(){
   rmHeightTyped = false;
   document.getElementById('rmStreetNote').textContent = '';
   document.getElementById('rmSkyNote').textContent = '';
-  document.getElementById('rmCaptureSky').disabled = true;
   document.getElementById('rmCaptureStreet').disabled = true;
   rmApplyFilter();
   rmSetDrawing(false);
@@ -26380,7 +26393,6 @@ function openRoofMeasure(quoteId){
     const note = document.getElementById('rmCornerNote');
     if(note) note.textContent = 'Cleared — both pictures are empty.';
   });
-  document.getElementById('rmCaptureSky').addEventListener('click', function(){ rmCapture('sky'); });
   document.getElementById('rmCaptureStreet').addEventListener('click', function(){ rmCapture('street'); });
   document.getElementById('rmCropBackBtn').addEventListener('click', rmBackToHouse);
   document.getElementById('rmCropResetBtn').addEventListener('click', function(){
@@ -26565,18 +26577,31 @@ function openRoofMeasure(quoteId){
        press the gold button underneath - did nothing at all. The marks go on it:
        see rmCapture, which is handed `auto`. */
     if(!rmShots.length){
-      /* ⚠ THE PANE THE MARKS ARE IN, not merely the one last touched. rmLastPane
-         moves on a plain mousedown on the sky map, so nudging the satellite after
-         dotting a front elevation was enough to attach a picture of the roof from
-         above and none of her dots. Where the marks are is the better answer to
-         "which picture did she mean"; rmLastPane only breaks the tie. */
-      const hasStreet = rmStreetReady && rmStreetDotsHere().length > 0;
-      const hasSky = rmSkyReady && rmCorners.length > 0;
-      const which = hasStreet && (rmLastPane === 'street' || !hasSky) ? 'street'
-                  : hasSky ? 'sky'
-                  : (rmLastPane === 'street' && rmStreetReady) ? 'street'
-                  : (rmSkyReady ? 'sky' : (rmStreetReady ? 'street' : ''));
-      if(!which){ status.textContent = 'No picture yet — the house has not loaded. Check the address above and press Load Property, then Attach.'; btn.disabled = false; return; }
+      /* ⭐ THE STREET VIEW, ALWAYS (2026-08-30). Owner: "when you dot the sky view
+         the picture of that gets uploaded as well but we just want the street view
+         to be uploaded."
+
+         ⛔ WHAT THIS USED TO DO, and why it is gone: it guessed which picture she
+         meant from where the marks were, so tracing a roofline overhead — which is
+         the ONLY place a roofline is traced — attached a satellite photograph of
+         the roof to the quote. That guess was right about where the WORK was and
+         wrong about what the PICTURE is for: the quote's photograph is what the
+         customer and the crew look at to recognise the house, and an aerial does
+         not do that job at any price.
+
+         ⚠ IT FITS THE PANE'S OWN RULE. She settled on 2026-08-28 that the street
+         picture "should not show the dots from sky view" — rmPaintStreet draws
+         only its own marks. So this is the same decision followed through: the
+         sky view is where the house is MEASURED, the street view is the PICTURE.
+
+         ⚠ THE AERIAL SURVIVES ONLY WHERE THERE IS NO PHOTOGRAPH AT ALL, and then
+         it says so on the picture's own label. Refusing outright would leave a
+         quote with no picture on it, which is a worse answer than a labelled one. */
+      const which = rmStreetReady ? 'street' : (rmSkyReady ? 'sky' : '');
+      /* ⚠ IT NO LONGER NAMES Load Property, which was removed on 2026-08-25 when
+         the tool stopped having an address bar — the message was telling her to
+         press a button that is not there, which is worse than saying nothing. */
+      if(!which){ status.textContent = 'No picture yet — neither view has loaded for this address. Close this and open Measure Roof again; if it still says this, Google may not recognise the address on the quote.'; btn.disabled = false; return; }
       status.textContent = 'Capturing this view…';
       const staged = await rmCapture(which, true);
       if(!staged || !rmShots.length){
@@ -26779,7 +26804,11 @@ function openRoofMeasure(quoteId){
       }
     } else if(k === 'c' || k === 'C'){
       e.preventDefault();
-      const b = document.getElementById(rmStreetReady && !rmMap ? 'rmCaptureStreet' : 'rmCaptureSky');
+      /* ⚠ C AND V ARE THE SAME KEY NOW, deliberately. There is one picture to
+         take, so a shortcut that used to choose between two panes must not go on
+         pointing at an element that no longer exists — that is a silent no-op on
+         a key somebody has learned. */
+      const b = document.getElementById('rmCaptureStreet');
       if(b && !b.disabled) b.click();
     } else if(k === 'v' || k === 'V'){
       e.preventDefault();

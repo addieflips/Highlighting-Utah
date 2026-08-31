@@ -59,6 +59,20 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **THE PICTURE ON THE QUOTE IS THE STREET VIEW** (2026-08-30). Owner: *"when you
+dot the sky view the picture of that gets uploaded as well but we just want the
+street view to be uploaded."* Attach used to work out which pane she meant from
+where the marks were — and since the roofline is traced overhead and nowhere
+else, that answered *the aerial* for every house measured properly. ⚠ The sky
+view is where the house is MEASURED; the street view is the PICTURE, which is
+the same line she drew on 2026-08-28 when she said the street picture must not
+show the sky view's dots.
+
+⚠ **Capture Sky View is gone.** Its only job was to put a picture on a quote.
+The sky view itself is untouched — it simply is not a picture source. ⚠ An
+aerial still reaches a quote in one case only, where Google has no street
+photograph of the address at all, and then the picture's own label says so.
+
 ⭐ **BOTH PICTURES AT ONCE, HALF AND HALF** (2026-08-30). A third button in the
 sky view's top corner — ◫, beside Recentre and Full screen — gives the whole
 screen to the PAIR: the map on one side, the photograph on the other, 50/50.
