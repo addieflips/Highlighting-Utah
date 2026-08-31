@@ -59,6 +59,40 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **THE PICTURE ON THE QUOTE IS THE STREET VIEW** (2026-08-30). Owner: *"when you
+dot the sky view the picture of that gets uploaded as well but we just want the
+street view to be uploaded."* Attach used to work out which pane she meant from
+where the marks were — and since the roofline is traced overhead and nowhere
+else, that answered *the aerial* for every house measured properly. ⚠ The sky
+view is where the house is MEASURED; the street view is the PICTURE, which is
+the same line she drew on 2026-08-28 when she said the street picture must not
+show the sky view's dots.
+
+⚠ **Capture Sky View is gone.** Its only job was to put a picture on a quote.
+The sky view itself is untouched — it simply is not a picture source. ⚠ An
+aerial still reaches a quote in one case only, where Google has no street
+photograph of the address at all, and then the picture's own label says so.
+
+⭐ **BOTH PICTURES AT ONCE, HALF AND HALF** (2026-08-30). A third button in the
+sky view's top corner — ◫, beside Recentre and Full screen — gives the whole
+screen to the PAIR: the map on one side, the photograph on the other, 50/50.
+Placing a corner needs both, big; full-screening one pane takes the other away,
+and leaving full screen gives them back at a couple of hundred pixels each.
+⚠ Pressed while one pane is already full screen it swaps straight over; pressed
+again it comes back out. On a tall narrow screen the two stack rather than
+squeeze into 200px columns.
+
+⭐ **AND A PITCH IS SAID IN DEGREES FIRST** (2026-08-30). Owner, on a peak the
+tool reported at 49%: *"does this math add up to you because it doesnt to me"*,
+then *"i think it did the math as if its a 4 degree angle not 49 or something"*.
+⚠ THE SUM WAS RIGHT AND WAS NOT CHANGED. 49% grade IS 26.1°, and 26.1° across a
+24.7 ft span really does add 2.81 ft — but a bare "49" beside a roof reads as
+forty-nine DEGREES, which would have added 12.95 ft. So every figure that could
+be mistaken for an angle now leads with the actual angle, the percentage is
+called a *grade* where it still appears, and the note after **Yes, use it** shows
+its working: the slope runs 27.6 ft across a 24.7 ft span, so +2.9 ft. A number
+that sets a price has to be checkable by the person reading it.
+
 ⭐ **A peak's pitch is measured in the WORLD, or simply typed** (2026-08-30). A
 24 ft gable at 45° adds 9.94 ft — two rakes of 12 / cos 45 instead of a flat 24 —
 and that is what the tool now gives. It was giving less, and the formula was never

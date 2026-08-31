@@ -530,6 +530,21 @@ if (!THX_CONST) throw new Error('PRE_THANKSGIVING_DAYS has gone from admin.html'
 const money = read('js/money.js');
 const computeInvoiceStatusSrc = extractFn(money, 'computeInvoiceStatus');
 const cnBinsForFeetSrc = extractFn(money, 'cnBinsForFeet');
+/* ⚠ THE CONSTANT TRAVELS WITH THE FUNCTION. cnBinsForFeet reads
+   CN_DOUBLE_BIN_FEET, so a sandbox given the function alone dies with a bare
+   ReferenceError the first time a sheet counts a bin — which kills the whole
+   run, not one check. ⚠ AND IT IS LIFTED, NEVER TYPED: this repo has already
+   had two screens each holding their own copy of that number, and one of them
+   said 200. */
+const cnDoubleBinFeetSrc = (money.match(/export const CN_DOUBLE_BIN_FEET = [0-9]+;/) || [''])[0]
+  .replace('export ', '');
+/* ⚠ AND houseBundleNeed CARRIES ITS OWN CONSTANT for the same reason — eight
+   sandboxes lift it, so leaving FEET_PER_BUNDLE to each of them is eight places
+   to forget it and one bare ReferenceError that stops the whole run. Lifted,
+   not typed: the bundle size is a business number and this file is not allowed
+   a second copy of it. */
+const houseBundleNeedSrc = (admin.match(/const FEET_PER_BUNDLE = [0-9]+;/) || [''])[0] +
+  String.fromCharCode(10) + extractFn(admin, 'houseBundleNeed');
 const custInvoiceKeySrc = extractFn(money, 'custInvoiceKey');
 const statusClassSrc = extractFn(money, 'statusClass');
 // computeInvoiceStatus compares whole cents, so its rounding helper has to be
@@ -1179,6 +1194,7 @@ const RETIRED_CHECKLIST_TERMS = [
   ['start measuring', 'clicking the picture starts a side now, so that button is gone — while one is open the button reads Finish this side (2026-08-25)'],
   ['quick material estimate', 'removed 2026-08-25 — bulbs sit a foot apart, so the count is the footage; it is a subline under the total now'],
   ['load property', 'the tool only opens from a quote, which knows its own address, so the address bar went (2026-08-25)'],
+  ['capture sky view', 'removed 2026-08-30 — the picture that goes on a quote is the street view, so an aerial has no way onto one and the button had no job left: "we just want the street view to be uploaded"'],
   /* ⚠ THE TERM IS THE TAIL OF THE LABEL, NOT THE WHOLE OF IT. The retired
      button read "Use <n> as Estimated Feet" with the footage in the middle, so
      a seed row quoting it writes "Use ... as Estimated Feet" and a term
@@ -6664,7 +6680,7 @@ if (!JSDOM) {
            .replace(/^export /gm, '')
            .replace(/^import [^;]+;$/gm, ''));
     eval(extractFn(admin, 'whBinsForHouse') + '\n' + extractFn(admin, 'whWhoLabel') + '\n' +
-      extractFn(admin, 'houseBundleNeed') + '\n' + extractFn(admin, 'whPutIntoLabel') +
+      houseBundleNeedSrc + '\n' + extractFn(admin, 'whPutIntoLabel') +
       /* The recycle queue sends people to the number ON THE BIN, which is not always the
          one on the record. Declared beside whRecycleGroups, not inside the slice. */
       '\n' + extractFn(admin, 'whBinNumberFor') +
@@ -22736,7 +22752,7 @@ suite('Suite 104. The Printing tab');
            being made is that the crew sheet and the warehouse sheet get the SAME
            number out of the SAME rule; a second copy of the arithmetic here would
            agree with itself and prove nothing. */
-        cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
+        cnDoubleBinFeetSrc + cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
         extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
         srcs.join('') + 'return {g: printGateCode, s: printSideCount, ' +
         'n: printCrewNotes, b: printBinCount};'
@@ -23152,7 +23168,7 @@ suite('Suite 104. The Printing tab');
          A stubbed whBinsForHouse would prove the column renders and nothing about
          whether the crew and the warehouse are told the same number, which is the
          only claim worth making here. */
-      cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
+      cnDoubleBinFeetSrc + cnBinsForFeetSrc + extractFn(admin, 'whBinsForHouse') +
       extractFn(admin, 'whBinNumberFor') + extractFn(admin, 'whBinNumberMoved') +
       /* ⚠ AND THE FIX REASON, LIFTED TOO (2026-08-25). printCrewRow fills a `fix`
          cell now — a stub of it would prove the column renders and nothing about
@@ -24296,6 +24312,9 @@ suite('Suite 107. Pricing a re-quote from the popup');
      and the Printing tab's Needs Building list all read houseBundleNeed, so they cannot
      disagree about how much to make up. */
   {
+    /* ⚠ THE BARE EXTRACTION HERE, not houseBundleNeedSrc: this harness hands in its
+       OWN FEET_PER_BUNDLE (100, so the arithmetic below is readable at a glance), and
+       the lifted const would be a second declaration of the same name. */
     const need = new Function('d', 'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);');
     const N = (d) => need(d, 100, 2, (p, r) => Math.round(p / r));
@@ -24336,6 +24355,8 @@ suite('Suite 107. Pricing a re-quote from the popup');
      ordinary row so the ones that need it stand out, and survives the paste into Excel
      this sheet is built for. */
   {
+    /* ⚠ Bare, for the same reason as the harness above — FEET_PER_BUNDLE comes in as
+       an argument here. */
     const label = new Function('d', 'FEET_PER_BUNDLE', 'perFootRate', 'estimateFeetFromPrice',
       extractFn(admin, 'houseBundleNeed') + extractFn(admin, 'whPutIntoLabel') +
       'return whPutIntoLabel(d);');
@@ -26096,9 +26117,9 @@ suite('Suite 112. The number on the bin');
       'return whSheetRowsForBuild();');
     const build = function(cust){
       return rows([{id: 'a1', data: cust}], [], (p, w) => p + '|' + (w || ''),
-        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+        new Function('d', houseBundleNeedSrc + 'return houseBundleNeed(d);'),
         (w) => String(w || 'white'),
-        new Function('d', extractFn(admin, 'houseBundleNeed') +
+        new Function('d', houseBundleNeedSrc +
           extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'),
         []).rows.filter(function(r){ return r.type !== 'Blocked'; })[0];
     };
@@ -26163,8 +26184,8 @@ suite('Suite 112. The number on the bin');
                           needsLightBuild: true, measuredFeet: 300,
                           buildTopUpFromFeet: 180}}],
         () => 'Warm White', () => 'No',
-        new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
-        new Function('d', extractFn(admin, 'houseBundleNeed') +
+        new Function('d', houseBundleNeedSrc + 'return houseBundleNeed(d);'),
+        new Function('d', houseBundleNeedSrc +
           extractFn(admin, 'whPutIntoLabel') + 'return whPutIntoLabel(d);'));
       check('S112', 'the printed Needs Building list says EXISTING BIN',
         out.length === 1 && /^EXISTING BIN/.test(out[0].putInto) &&
@@ -26187,7 +26208,7 @@ suite('Suite 112. The number on the bin');
                                           needsLightBuild: true, lightsDescription: 'Warm',
                                           measuredFeet: 200}, extra)}],
           () => 'Warm White', () => 'No',
-          new Function('d', extractFn(admin, 'houseBundleNeed') + 'return houseBundleNeed(d);'),
+          new Function('d', houseBundleNeedSrc + 'return houseBundleNeed(d);'),
           function(){ return ''; });
         check('S112', 'the printed list drops somebody badged Maybe Next Year',
           bag({maybeNextYear: true}).length === 0,
@@ -34660,8 +34681,14 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
       const branch = admin.slice(a, b);
       const runRsvp = (newRsvp, oldRsvp, had) => {
         const addrUpdates = {};
-        new Function('newRsvp', 'oldRsvpForRecycle', 'item', 'addrUpdates',
-          branch)(newRsvp, oldRsvp, { data: { needsLightRecycle: had } }, addrUpdates);
+        /* ⚠ serverTimestamp IS SUPPLIED, exactly as the sibling harness above does
+           it. The branch gained `needsDayAssignedAt` / `cameBackThisSeasonAt`
+           stamps at some point and this sandbox was never told about the name, so
+           the whole suite died mid-run with a bare ReferenceError — which stops
+           every suite AFTER it from scoring at all. §3's sandboxDeps lesson, in a
+           harness that predates the guard. */
+        new Function('newRsvp', 'oldRsvpForRecycle', 'item', 'addrUpdates', 'serverTimestamp',
+          branch)(newRsvp, oldRsvp, { data: { needsLightRecycle: had } }, addrUpdates, () => '@ts');
         return addrUpdates;
       };
       check('S132', 'moving from No to Back Next Year keeps an owed recycle',
@@ -44743,9 +44770,21 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
   check('S282', 'with nothing staged it captures rather than refusing',
     /if\(!rmShots\.length\)\{/.test(attach) && /await rmCapture\(which, true\)/.test(attach),
     'this IS the bug — a press that does nothing at all');
+  /* ⚠ REPOINTED, NOT WEAKENED, 2026-08-30: this matched "the house has not loaded",
+     and that sentence went on to name **Load Property** — a button removed on
+     2026-08-25 — so the check was holding a message in place that told her to press
+     something that is not there. The claim was never about those words; it is that
+     the two ways of getting no picture both SAY so. */
   check('S282', 'and it says which pictures it could not make',
-    /the house has not loaded/.test(attach) && /Could not make a picture of this view/.test(attach),
+    /neither view has loaded/.test(attach) && /Could not make a picture of this view/.test(attach),
     'silence after a press is the failure being reported again in a new place');
+  /* ⚠ COMMENTS STRIPPED, and this check caught itself doing it: the comment beside
+     the fix SAYS the words "Load Property", so a plain match read the explanation as
+     the violation and failed on code that is right. Suites 58, 274 and 275 each
+     learned the same thing. */
+  check('S282', 'and it does not send her to a button that was removed',
+    !/Load Property/.test(stripComments(attach)),
+    'the address bar went on 2026-08-25 — naming it is worse than saying nothing');
   /* ⚠ A SILENT `return` IS THE BUG, in the one function that is always pressable.
      It is indistinguishable from a click that never registered — which is the
      sentence this was reported in, twice. */
@@ -44799,9 +44838,13 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
   check('S282', 'a failed marked upload still leaves the picture attached',
     /catch\(err\)\{ url = original; \}/.test(attach),
     'losing the photograph because the second upload failed is the worse half of that trade');
+  /* ⚠ THIS COUNTED INSIDE A 40-CHARACTER WINDOW and §7 bans exactly that: adding
+     one honest field to the staged shot pushed `blob: clean` past the end of it and
+     the check failed on code that is right. It counts the staging shape itself now,
+     which cannot go stale as the object grows. */
   check('S282', 'one stager, shared by the crop screen and by Attach',
     !!stage && /const staged = await rmStageCapture\(\);/.test(admin) &&
-    (admin.match(/rmShots\.push\(\{[\s\S]{0,40}blob: clean/g) || []).length === 1,
+    (admin.match(/blob: clean/g) || []).length === 1,
     'two stagers is two answers to what a staged picture is');
 
   /* ---- 3. the feet and the price reach the customer ---- */
@@ -45035,15 +45078,54 @@ suite('282. Measure Roof — Attach to Quote actually attaches');
       nothing === '', 'got ' + JSON.stringify(nothing) + ' — a count of nought is noise on every capture');
   }
 
-  /* ---- 8. Attach captures the pane the marks are actually in ------------ */
-  check('S282', 'Attach captures the view the marks are in, not the last one touched',
-    /const hasStreet = rmStreetReady && rmStreetDotsHere\(\)\.length > 0;/.test(attach) &&
-    /const hasSky = rmSkyReady && rmCorners\.length > 0;/.test(attach),
-    'rmLastPane moves on a plain mousedown on the sky map, so nudging the satellite after ' +
-    'dotting a front elevation attached a picture of the roof and none of her dots');
-  check('S282', 'and rmLastPane still breaks the tie when both views are marked',
-    /hasStreet && \(rmLastPane === 'street' \|\| !hasSky\)/.test(attach),
-    'with marks in both, the one she was last working in is the better guess');
+  /* ---- 8. Attach puts the PHOTOGRAPH on the quote ---------------------- */
+  /* ⭐ Owner, 2026-08-30: "when you dot the sky view the picture of that gets
+     uploaded as well but we just want the street view to be uploaded."
+
+     ⛔ WHAT THESE TWO CHECKS USED TO SAY, kept because the reasoning was sound and
+     is what makes the new answer obviously right rather than merely newer: Attach
+     used to guess which picture she meant from WHERE THE MARKS WERE, because
+     rmLastPane moves on a plain mousedown on the sky map — so nudging the satellite
+     after dotting a front elevation attached a picture of the roof and none of her
+     dots, and rmLastPane broke the tie when both views were marked.
+
+     ⚠ THAT GUESS WAS RIGHT ABOUT WHERE THE WORK WAS AND WRONG ABOUT WHAT THE
+     PICTURE IS FOR. The roofline is traced overhead and nowhere else, so "where the
+     marks are" answers "sky" for every properly measured house — and the quote's
+     photograph is what the customer and the crew look at to recognise the place.
+     There is no tie left to break. */
+  check('S282', 'Attach puts the street photograph on the quote, wherever the marks are',
+    /const which = rmStreetReady \? 'street' : \(rmSkyReady \? 'sky' : ''\);/.test(attach),
+    'the roofline is traced overhead on EVERY house, so a rule that follows the ' +
+    'marks attaches an aerial to every quote — which is the report');
+  check('S282', 'and it no longer guesses from the pane last touched',
+    !/rmLastPane/.test(attach) && !/hasSky/.test(attach),
+    'a leftover tiebreak is a second rule about which picture goes on the quote');
+  check('S282', 'the aerial survives only where there is no photograph at all',
+    /rmSkyReady \? 'sky' : ''/.test(attach),
+    'refusing outright leaves a quote with no picture on it, which is worse than ' +
+    'a labelled one — but it must be reachable ONLY through !rmStreetReady');
+  {
+    /* ⚠ SCOPED TO THE STAGER. "Google has no street photograph" is prose and would
+       match its own explanation anywhere in a 3.5MB file. */
+    const stager = extractFn(admin, 'rmStageCapture') || '';
+    check('S282', 'the stager is findable', !!stager);
+    check('S282', 'and the aerial says on its own label why it is there',
+      /Google has no street photograph here/.test(stager),
+      'a picture of a roof from above sitting on a quote with no explanation reads ' +
+      'as the tool having attached the wrong thing again');
+    check('S282', 'and every staged picture remembers which pane it came from',
+      /which: rmCrop\.which,/.test(stager),
+      'the crop is torn down after staging, so nothing else can answer that by ' +
+      'upload time');
+  }
+  check('S282', 'there is no Capture Sky View button left to stage one',
+    admin.indexOf('rmCaptureSky') === -1,
+    'a button that stages a picture the attach then refuses is a worse door than ' +
+    'no door — and a listener on an element that is gone is a silent no-op');
+  check('S282', 'and the C shortcut still reaches a button that exists',
+    /getElementById\('rmCaptureStreet'\)/.test(admin),
+    'a shortcut somebody has learned must not quietly stop doing anything');
 
   /* ---- 9. the picture is a picture of the SCREEN ----------------------- */
   /* ⭐ Owner, 2026-08-30, having watched three fixes fail to land the dots on the
@@ -45461,6 +45543,160 @@ suite('283. A peak adds what a peak actually adds');
     /if\(!txt\)\{ delete pk\.grade;/.test(admin),
     'a zero pitch is a flat roof, which is not what a cleared box means');
 }
+suite('284. Both pictures at once, and a pitch you can read');
+/* ⭐ Owner, 2026-08-30, two asks in one sitting.
+
+   FIRST: "give a third button in the top right of sky view where you can instead
+   of full screen do half and half sky view and street view so you can see where
+   you need to place." Full screen was all or nothing: one pane huge and the other
+   gone, or both at the couple of hundred pixels the ribbon leaves them. Placing a
+   corner needs the map AND the photograph, both big — so the thing that goes full
+   screen is the CONTAINER the two panes already sit in.
+
+   SECOND: "Peak A–B at 49% — 2.9 ft on top of the span. does this math add up to
+   you because it doesnt to me", then "i think it did the math as if its a 4 degree
+   angle not 49 or something".
+
+   ⚠ THE ARITHMETIC WAS RIGHT AND THAT IS THE POINT. 49% grade is 26.1°, and 26.1°
+   across a 24.7 ft span really does add 2.81 ft. What was wrong was that a bare
+   "49" beside a peak reads as forty-nine DEGREES — which would have added 12.95 ft,
+   four and a half times as much. A number that sets a price has to be readable by
+   the person paying attention to it, so every pitch now leads with the angle and
+   the note shows its working. */
+{
+  const NL284 = String.fromCharCode(10);
+
+  /* ---- 1. the button, and where it lives ---- */
+  /* ⚠ SCOPED TO THE SKY PANE HEAD. "A button exists somewhere in a 3.5MB file" is
+     not the ask — she said top right of sky view, beside the other two. */
+  const skyHead = admin.split('id="rmSkyNote"')[1] || '';
+  const headOnly = skyHead.split('id="rmMap"')[0] || '';
+  check('S284', 'the sky pane head is findable', !!headOnly);
+  check('S284', 'a third button sits in the sky view head, beside the other two',
+    /class="rm-panebtn rm-both"/.test(headOnly) &&
+    headOnly.indexOf('rm-recentre') < headOnly.indexOf('rm-both') &&
+    headOnly.indexOf('rm-both') < headOnly.indexOf('rm-fs'),
+    'recentre, then half and half, then full screen — she asked for a THIRD button');
+  check('S284', 'and it says what it does when you hover it',
+    /rm-both"[^>]*title="Both pictures, half and half/.test(headOnly),
+    'three unlabelled glyphs in a row is a puzzle, not a toolbar');
+
+  /* ---- 2. it full-screens the PAIR, not a pane ---- */
+  const bothWire = (admin.split(".rm-both').forEach(function(b){")[1] || '')
+    .split('Full screen on the pane itself')[0] || '';
+  check('S284', 'the half-and-half button is wired up at all', !!bothWire);
+  check('S284', 'it asks the CONTAINER for the screen, not one pane',
+    /closest\('\.rm-panes'\)/.test(bothWire) && !/closest\('\.rm-pane'\)/.test(bothWire),
+    'full-screening a pane is the button that already existed — this one has to ' +
+    'take the row the two panes sit in, or the street view goes away again');
+  check('S284', 'pressed from single-pane full screen it swaps straight over',
+    /document\.fullscreenElement === panes/.test(bothWire),
+    'a plain `if(document.fullscreenElement) exit` would make this button do ' +
+    'nothing but close whatever you were already looking at');
+  check('S284', 'and it comes back out when it is pressed again',
+    /document\.exitFullscreen\(\)/.test(bothWire),
+    'a mode you cannot leave by the way you entered it is a trap');
+  check('S284', 'the click does not carry on down into the map',
+    /e\.stopPropagation\(\)/.test(bothWire),
+    'the head lies over the map — an unstopped click places a corner where the ' +
+    'button was, which is how the recentre button had to be fixed too');
+
+  /* ---- 3. the layout it asks for ---- */
+  const fsCss = (admin.split('.rm-panes:fullscreen{')[1] || '').split('}')[0] || '';
+  const fsKid = (admin.split('.rm-panes:fullscreen > .rm-pane{')[1] || '').split('}')[0] || '';
+  check('S284', 'there is a rule for the pair on the glass', !!fsCss && !!fsKid);
+  check('S284', 'the pair fills the screen instead of the ribbon height',
+    /height:100% !important/.test(fsCss),
+    'the panes row is pinned to clamp(150px, 100vh - 528px, 560px) by a rule of ' +
+    'equal specificity — full screen has to say so outright or it wins nothing');
+  check('S284', 'and the two stay side by side rather than wrapping',
+    /flex-wrap:nowrap !important/.test(fsCss),
+    'the row wraps by default, which on a wide screen is one pane above the other ' +
+    'with half the screen empty');
+  check('S284', 'half and half, with no fixed basis',
+    /flex:1 1 0 !important/.test(fsKid) && !/flex:1 1 50%/.test(fsKid),
+    'a 50% basis leaves the grade map — which is shown alone — in half a screen ' +
+    'with nothing beside it');
+  check('S284', 'a pane may shrink to its share',
+    /min-width:0/.test(fsKid),
+    'without this a flex child refuses to go below its content and one pane ' +
+    'pushes the other off the screen');
+  check('S284', 'on a tall narrow screen they stack instead of squeezing',
+    /max-aspect-ratio: 1\/1/.test(admin) &&
+    /\.rm-panes:fullscreen\{flex-direction:column;\}/.test(admin),
+    'two 200px columns are worse than two half-height rows');
+  check('S284', 'and Google is still told the box changed',
+    /fullscreenchange[\s\S]{0,400}rmPano[\s\S]{0,80}'resize'/.test(admin),
+    'the panes fill the screen and the maps draw in the top-left corner of them');
+
+  /* ---- 4. her peak, in numbers ---- */
+  {
+    /* ⚠ rmRad IS SUPPLIED, not stubbed away. rmPitchToGrade turns 45 into a
+       grade through it, so a sandbox without it dies mid-run — and this suite's
+       whole point is the difference between reading 49 as degrees and as a
+       grade, which is exactly what that call decides. */
+    const api = new Function('rmRoofFacts', 'rmGradeSet', 'rmRad',
+      (extractFn(admin, 'rmPeakExtraFraction') || '') + NL284 +
+      (extractFn(admin, 'rmPitchToGrade') || '') + NL284 +
+      'return {frac: rmPeakExtraFraction, pitch: rmPitchToGrade};')(
+        {}, null, function(d){ return d * Math.PI / 180; });
+    const SPAN = 24.7;                       /* the span she quoted */
+    const asGrade = SPAN * api.frac(49);
+    check('S284', 'her peak really does add 2.9 ft at 49% GRADE',
+      Math.abs(asGrade - 2.81) < 0.05,
+      'got ' + asGrade.toFixed(2) + ' ft — the tool was right, which is why the ' +
+      'fix is in what it SAYS and not in the sum');
+    const asDeg = SPAN * api.frac(api.pitch('49'));
+    check('S284', 'but read as 49 DEGREES the same peak adds 13 ft',
+      Math.abs(asDeg - 12.95) < 0.1,
+      'got ' + asDeg.toFixed(2) + ' ft — four and a half times the other reading, ' +
+      'off one ambiguous number, which is exactly what she spotted');
+    check('S284', 'so the two readings of "49" are nowhere near each other',
+      asDeg > asGrade * 4,
+      'if these were close the labelling would not matter; they are not');
+  }
+
+  /* ---- 5. so every pitch leads with the angle ---- */
+  {
+    let said = '';
+    const doc = {getElementById: function(){ return {set textContent(v){ said = v; }}; }};
+    const say = new Function('document', 'rmGradeToDeg',
+      (extractFn(admin, 'rmGradeSay') || '') + NL284 + 'return rmGradeSay;')(
+        doc, function(pct){ return Math.atan((Number(pct) || 0) / 100) * 180 / Math.PI; });
+    say(49);
+    check('S284', 'the live readout answers in degrees first',
+      /^26°/.test(said),
+      'got "' + said + '" — it led with "49%", and 49 beside a roof reads as an angle');
+    check('S284', 'and the percentage is named as a GRADE where it still appears',
+      /49% grade/.test(said),
+      'got "' + said + '" — a bare percent next to a pitch is the whole confusion');
+    say(null);
+    check('S284', 'with nothing dragged it still asks for a drag',
+      /Drag along the slope/.test(said),
+      'got "' + said + '"');
+  }
+
+  /* ⚠ SCOPED TO THE CONFIRM HANDLER. rmGradeToDeg is called in four places, so a
+     file-wide match here stays green with this note reverted. */
+  {
+    const yesWire = (admin.split("getElementById('rmGradeYes')")[1] || '')
+      .split('rmGradePending = null;')[0] || '';
+    check('S284', 'the confirm handler is findable', !!yesWire);
+    check('S284', 'the peak note says the angle, not just the grade',
+      /rmGradeToDeg\(g\)/.test(yesWire),
+      'this is the exact line she quoted back — "Peak A–B at 49%"');
+    check('S284', 'and it shows its working, so the sum can be checked',
+      /Math\.cos\(Math\.atan\(g \/ 100\)\)/.test(yesWire) &&
+      /span/.test(yesWire),
+      'she asked "does this math add up to you" about a correct answer — the rake ' +
+      'length against the span IS the sum, and without it there is nothing to check');
+    check('S284', 'and it says how to overrule a pitch she knows better',
+      /Type the angle on its row/.test(yesWire),
+      'a grade read off a photograph tends to come out shallow, and she knows her ' +
+      'own gables — see suite 283');
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

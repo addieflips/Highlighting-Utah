@@ -4659,6 +4659,45 @@
             #roofMeasureOverlay .rm-panes > .rm-pane{min-height:0;}
             #roofMeasureOverlay .rm-canvas{width:100%; height:100%; min-height:120px;}
 
+            /* ⭐ BOTH PICTURES, HALF AND HALF (2026-08-30). Owner: "give a third
+               button in the top right of sky view where you can instead of full
+               screen do half and half sky view and street view so you can see where
+               you need to place."
+
+               ⚠ FULL SCREEN WAS ALL OR NOTHING AND BOTH ENDS WERE WRONG FOR THIS.
+               Full-screening ONE pane gives a big sky view and takes the photograph
+               away — and the photograph is how you know WHICH corner you are looking
+               at. Leaving full screen gives both pictures back at the height the
+               ribbon leaves them, which on a laptop is a couple of hundred pixels
+               each. Placing a dot needs both, big.
+
+               ⚠ SO IT IS THE CONTAINER THAT GOES FULL SCREEN, not a pane. The two
+               panes are already side by side inside it; all this does is give that
+               row the whole screen.
+
+               ⚠ !important ON THE THREE THAT FIGHT. The ribbon-height rule above
+               and two media queries lower down all set height, flex and order on
+               this same element at the same specificity, so which one wins depends
+               on where it sits in a 3.5MB stylesheet — a fragile thing to rest a
+               layout on. Full screen is an explicit, temporary mode; it is allowed
+               to say so outright.
+
+               ⚠ AND flex:1 1 0, NOT 1 1 50%. When the grade map is open the other
+               two panes are stood aside, and a 50% basis would leave that one
+               picture in half a screen with nothing beside it. */
+            #roofMeasureOverlay .rm-panes:fullscreen{
+              height:100% !important; width:100%; flex:1 1 auto !important;
+              flex-wrap:nowrap !important; align-items:stretch;
+              padding:8px; gap:8px; background:#0c121a; box-sizing:border-box;}
+            #roofMeasureOverlay .rm-panes:fullscreen > .rm-pane{
+              flex:1 1 0 !important; min-width:0; height:100%;}
+            /* Stacked rather than squeezed on a tall narrow screen — two 200px
+               columns are worse than two half-height rows. */
+            @media (max-aspect-ratio: 1/1){
+              #roofMeasureOverlay .rm-panes:fullscreen{flex-direction:column;}
+              #roofMeasureOverlay .rm-panes:fullscreen > .rm-pane{width:100%;}
+            }
+
             /* ⭐ AND THE CHROME IS CUT TO THE BONE, because whatever it takes comes
                straight off the house. Owner: "it should be really small definitely
                no scrolling to see everything." Measured before: 400px of heading,
@@ -5418,7 +5457,7 @@
                 <div class="rm-panehead"><span>&#128506; Sky View &mdash; gutter runs measure true here</span><span><span id="rmSkyNote" style="font-weight:400; opacity:.85;"></span><!-- ⚠ INSIDE .rm-pane ON PURPOSE. Full screen is requested on the PANE, so only
                        this pane's own children are on the glass — a control in the toolbar
                        above simply is not there. The head is pointer-events:none and the
-                       button turns it back on, exactly as the full-screen button does. --> <button type="button" class="rm-panebtn rm-recentre" title="Recentre — put the camera back over the house, or over what you have traced">&#9678;</button> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
+                       button turns it back on, exactly as the full-screen button does. --> <button type="button" class="rm-panebtn rm-recentre" title="Recentre — put the camera back over the house, or over what you have traced">&#9678;</button> <button type="button" class="rm-panebtn rm-both" title="Both pictures, half and half — the whole screen split between the sky view and the street view">&#9707;</button> <button type="button" class="rm-fs" data-rmfull="sky" title="Full screen">&#9974;</button></span></div>
                 <div id="rmMap" class="rm-canvas"></div>
                 <!-- ⚠ Tiles take a few seconds. Without this the pane is a
                      blank grey rectangle on open, which reads as broken - it
@@ -5527,7 +5566,13 @@
                    unreachable so nothing that reads them breaks. -->
 
               <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <button type="button" class="btn btn-gold" id="rmCaptureSky" disabled>Capture Sky View</button>
+                <!-- ⛔ CAPTURE SKY VIEW REMOVED 2026-08-30. Owner: "we just want the
+                     street view to be uploaded." Its only job was to put a picture on
+                     the quote, and an aerial is no longer one of the pictures a quote
+                     may have — leaving the button would have been a door that stages a
+                     photograph the attach then has to refuse, which is worse than no
+                     door at all. The sky view itself is untouched: it is where the
+                     roofline is traced, it is simply not a picture source. -->
                 <button type="button" class="btn btn-gold" id="rmCaptureStreet" disabled>Capture Street View</button>
                 <span style="font-size:11.5px; color:var(--slate);">Capture as many as you like &mdash; crop each one before it goes on. <strong>Chrome asks once a session</strong> to photograph this tab; that ask IS how the picture gets your dots on it.</span>
               </div>
@@ -24396,7 +24441,6 @@ async function rmLoadAddress(){
   google.maps.event.addListenerOnce(rmMap, 'idle', function(){ rmPaneReady('sky'); });
   if(rmHomeMarker) rmHomeMarker.setMap(null);
   rmHomeMarker = new google.maps.Marker({position: rmOrigin, map: rmMap, clickable:false, zIndex:1, opacity:.55});
-  document.getElementById('rmCaptureSky').disabled = false;
   document.getElementById('rmHeightPanel').style.display = 'block';
   rmApplyFilter();
   rmSetDrawing(false);
@@ -25306,8 +25350,17 @@ async function rmStageCapture(){
      that shows them is the picture, and Replace This One is how it is undone. */
   const marked = (!rmCrop.shot && rmCrop.lines && marks.length) ? await rmCroppedBlob(true) : null;
   const t = rmTotals();
-  const from = rmCrop.which === 'street' ? 'Front of house' : 'Roofline from above';
+  /* ⚠ THE AERIAL NAMES ITSELF. Since 2026-08-30 the only way one reaches a quote
+     is the no-street-photograph fallback, so the label has to say that — a
+     picture of a roof from above, sitting on a quote with no explanation, reads
+     as the tool having attached the wrong thing again. */
+  const from = rmCrop.which === 'street' ? 'Front of house'
+             : 'Roofline from above — Google has no street photograph here';
   rmShots.push({
+    /* ⚠ WHICH PANE IT CAME FROM TRAVELS WITH IT. The crop is torn down after
+       staging, so by upload time nothing else can still answer that — and "is
+       this the photograph or the aerial" is the whole of the rule above. */
+    which: rmCrop.which,
     blob: clean, marked: marked, markup: shapes,
     preview: URL.createObjectURL(marked || clean),
     label: rmRuns.length ? (from + ' — ' + rmFmtFeet(Math.round(t.all))) : from
@@ -25449,7 +25502,6 @@ function rmReset(){
   rmHeightTyped = false;
   document.getElementById('rmStreetNote').textContent = '';
   document.getElementById('rmSkyNote').textContent = '';
-  document.getElementById('rmCaptureSky').disabled = true;
   document.getElementById('rmCaptureStreet').disabled = true;
   rmApplyFilter();
   rmSetDrawing(false);
@@ -25901,11 +25953,18 @@ function openRoofMeasure(quoteId){
     const flat = rmGradeFrom(from, to);
     return flat === null ? null : {pct: flat, measured: false};
   }
+  /* ⚠ THE ANGLE FIRST, AND THE PERCENT SAID TO BE A GRADE (2026-08-30). Owner,
+     on a peak the tool had read at 49%: "i think it did the math as if its a 4
+     degree angle not 49 or something". The arithmetic was right — 49% grade IS
+     26°, and 26° across 24.7 ft really does add 2.9 ft — but a bare "49" beside
+     a peak reads as forty-nine DEGREES, which would have added 12.9 ft. Every
+     figure that could be mistaken for an angle now leads with the actual angle. */
   function rmGradeSay(g){
     const el = document.getElementById('rmGradeNote');
     if(!el) return;
     el.textContent = g === null ? 'Drag along the slope of a gable.'
-      : Math.round(g) + '% — ' + (Math.round(g * 12 / 100 * 10) / 10) + '/12, read off the picture';
+      : Math.round(rmGradeToDeg(g)) + '° (' + Math.round(g) + '% grade, ' +
+        (Math.round(g * 12 / 100 * 10) / 10) + '/12), read off the picture';
   }
   /* ⭐ OPEN THE GRADE MAP ON ONE PEAK. Owner: "it should automatically take you
      to the third map."
@@ -26084,8 +26143,20 @@ function openRoofMeasure(quoteId){
       rmRegrade(rmEaveFtForGrade ? {eaveFt: rmEaveFtForGrade} : {});
       rmRenderResults();
       const note = document.getElementById('rmPeakNote');
-      if(note && pk) note.textContent = 'Peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b) +
-        ' at ' + Math.round(g) + '% — ' + rmFmtFeet(rmPeakFeet(pk)) + ' on top of the span.';
+      /* ⭐ IT SHOWS ITS WORKING. Owner: "does this math add up to you because it
+         doesnt to me". The answer was right and she still could not check it,
+         which for a number that sets a price is the same as wrong. The rake
+         length is the whole of the sum: a 24.7 ft span at 26° is 27.6 ft of
+         slope, and the difference IS the extra footage. ⚠ And it says how to
+         overrule it, because a grade read off a photograph tends to come out
+         shallow and she knows her own gables. */
+      if(note && pk){
+        const spanFt = rmPeakSpanFeet(pk);
+        note.textContent = 'Peak ' + rmCornerLabel(pk.a) + '–' + rmCornerLabel(pk.b) +
+          ' at ' + Math.round(rmGradeToDeg(g)) + '° (' + Math.round(g) + '% grade) — the slope runs ' +
+          rmFmtFeet(spanFt / Math.cos(Math.atan(g / 100))) + ' across a ' + rmFmtFeet(spanFt) +
+          ' span, so +' + rmFmtFeet(rmPeakFeet(pk)) + '. Not the pitch you know it to be? Type the angle on its row.';
+      }
     }
     rmGradePending = null;
     rmCloseGrade();
@@ -26154,6 +26225,22 @@ function openRoofMeasure(quoteId){
                                         box.width, box.height, rmPanoPov()));
   });
   document.getElementById('rmMapLock').addEventListener('mousedown', function(){ rmLastPane = 'sky'; });
+  /* ⭐ BOTH PICTURES AT ONCE, filling the screen (2026-08-30) — see the
+     .rm-panes:fullscreen rules for why this is the CONTAINER rather than a pane.
+     ⚠ IT SWAPS RATHER THAN REFUSING. Pressed while one pane is already full
+     screen it goes straight to half and half, because that comparison is the whole
+     point of it; pressed while ALREADY half and half it comes back out. A button
+     that did nothing until you had left full screen would just look broken. */
+  document.querySelectorAll('#roofMeasureOverlay .rm-both').forEach(function(b){
+    b.addEventListener('click', function(e){
+      /* ⚠ STOPPED, like the other two: the head lies over the map, and a click
+         that carries on down places a corner where the button was. */
+      e.preventDefault(); e.stopPropagation();
+      const panes = b.closest('.rm-panes');
+      if(document.fullscreenElement === panes){ document.exitFullscreen(); return; }
+      if(panes && panes.requestFullscreen) panes.requestFullscreen();
+    });
+  });
   /* Full screen on the pane itself, so whatever is drawn over it goes too. */
   document.querySelectorAll('#roofMeasureOverlay .rm-fs').forEach(function(b){
     b.addEventListener('click', function(e){
@@ -26306,7 +26393,6 @@ function openRoofMeasure(quoteId){
     const note = document.getElementById('rmCornerNote');
     if(note) note.textContent = 'Cleared — both pictures are empty.';
   });
-  document.getElementById('rmCaptureSky').addEventListener('click', function(){ rmCapture('sky'); });
   document.getElementById('rmCaptureStreet').addEventListener('click', function(){ rmCapture('street'); });
   document.getElementById('rmCropBackBtn').addEventListener('click', rmBackToHouse);
   document.getElementById('rmCropResetBtn').addEventListener('click', function(){
@@ -26491,18 +26577,31 @@ function openRoofMeasure(quoteId){
        press the gold button underneath - did nothing at all. The marks go on it:
        see rmCapture, which is handed `auto`. */
     if(!rmShots.length){
-      /* ⚠ THE PANE THE MARKS ARE IN, not merely the one last touched. rmLastPane
-         moves on a plain mousedown on the sky map, so nudging the satellite after
-         dotting a front elevation was enough to attach a picture of the roof from
-         above and none of her dots. Where the marks are is the better answer to
-         "which picture did she mean"; rmLastPane only breaks the tie. */
-      const hasStreet = rmStreetReady && rmStreetDotsHere().length > 0;
-      const hasSky = rmSkyReady && rmCorners.length > 0;
-      const which = hasStreet && (rmLastPane === 'street' || !hasSky) ? 'street'
-                  : hasSky ? 'sky'
-                  : (rmLastPane === 'street' && rmStreetReady) ? 'street'
-                  : (rmSkyReady ? 'sky' : (rmStreetReady ? 'street' : ''));
-      if(!which){ status.textContent = 'No picture yet — the house has not loaded. Check the address above and press Load Property, then Attach.'; btn.disabled = false; return; }
+      /* ⭐ THE STREET VIEW, ALWAYS (2026-08-30). Owner: "when you dot the sky view
+         the picture of that gets uploaded as well but we just want the street view
+         to be uploaded."
+
+         ⛔ WHAT THIS USED TO DO, and why it is gone: it guessed which picture she
+         meant from where the marks were, so tracing a roofline overhead — which is
+         the ONLY place a roofline is traced — attached a satellite photograph of
+         the roof to the quote. That guess was right about where the WORK was and
+         wrong about what the PICTURE is for: the quote's photograph is what the
+         customer and the crew look at to recognise the house, and an aerial does
+         not do that job at any price.
+
+         ⚠ IT FITS THE PANE'S OWN RULE. She settled on 2026-08-28 that the street
+         picture "should not show the dots from sky view" — rmPaintStreet draws
+         only its own marks. So this is the same decision followed through: the
+         sky view is where the house is MEASURED, the street view is the PICTURE.
+
+         ⚠ THE AERIAL SURVIVES ONLY WHERE THERE IS NO PHOTOGRAPH AT ALL, and then
+         it says so on the picture's own label. Refusing outright would leave a
+         quote with no picture on it, which is a worse answer than a labelled one. */
+      const which = rmStreetReady ? 'street' : (rmSkyReady ? 'sky' : '');
+      /* ⚠ IT NO LONGER NAMES Load Property, which was removed on 2026-08-25 when
+         the tool stopped having an address bar — the message was telling her to
+         press a button that is not there, which is worse than saying nothing. */
+      if(!which){ status.textContent = 'No picture yet — neither view has loaded for this address. Close this and open Measure Roof again; if it still says this, Google may not recognise the address on the quote.'; btn.disabled = false; return; }
       status.textContent = 'Capturing this view…';
       const staged = await rmCapture(which, true);
       if(!staged || !rmShots.length){
@@ -26705,7 +26804,11 @@ function openRoofMeasure(quoteId){
       }
     } else if(k === 'c' || k === 'C'){
       e.preventDefault();
-      const b = document.getElementById(rmStreetReady && !rmMap ? 'rmCaptureStreet' : 'rmCaptureSky');
+      /* ⚠ C AND V ARE THE SAME KEY NOW, deliberately. There is one picture to
+         take, so a shortcut that used to choose between two panes must not go on
+         pointing at an element that no longer exists — that is a silent no-op on
+         a key somebody has learned. */
+      const b = document.getElementById('rmCaptureStreet');
       if(b && !b.disabled) b.click();
     } else if(k === 'v' || k === 'V'){
       e.preventDefault();
