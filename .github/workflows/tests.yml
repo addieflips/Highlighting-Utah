@@ -136,6 +136,8 @@ jobs:
       # for two different reasons — here so a CI failure reads legibly before the big
       # suite swallows it, and last locally so its standing reminder is the final thing
       # printed rather than being buried under the suite's own summary.
+      - name: The schedule hold and where a re-quote lands
+        run: npm run test:hold
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 

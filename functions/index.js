@@ -2701,6 +2701,53 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
  * Input:  { quoteToken, details:{...} }
  * Output: { ok: true }
  * ------------------------------------------------------------------------- */
+/* ⭐ A MEMBER WHO SAYS NOTHING IS CHANGING (added 2026-08-31, QT-21). Addie:
+ * "as long as they kept details the same that should just be put in schedule after
+ * we price them".
+ *
+ * ⚠ THE CARD USED TO STICK IN AWAITING RESPONSE FOR EVER. An existing member is
+ * deliberately never shown the install-details form — they get "anything changing
+ * this year?" and then "Perfect, you're all set" — so formCompleted was never set,
+ * and quoteStage only leaves Awaiting Response on approved AND (formCompleted OR
+ * approvedByOffice). Nothing marked them done, so the office had to press Mark
+ * Approved by hand on every re-quote a member approved.
+ *
+ * ⚠ IT IS ITS OWN FIELD, NOT A FAKED formCompleted. That field means the customer
+ * filled the form in, and writing it when they did not would make Ready to Convert
+ * lie about where the details came from — the office reads that folder expecting
+ * answers a customer typed. This says exactly what happened: they were asked, and
+ * they said nothing is changing.
+ *
+ * ⚠ AND IT NEVER TOUCHES THE HOUSE. Nothing is changing is the whole claim, so it
+ * writes no colours, no wire, no timer, and queues no build. A member who DOES want
+ * a change takes the other button and goes to their portal, which raises its own
+ * re-quote and its own warehouse work. */
+exports.quoteMemberKeptDetails = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';
+  if (!quoteToken) throw new HttpsError('invalid-argument', 'Missing quote token.');
+
+  const snap = await db.collection('quotes')
+    .where('quoteToken', '==', quoteToken).limit(1).get();
+  if (snap.empty) throw new HttpsError('not-found', 'Quote not found.');
+
+  const quoteId = snap.docs[0].id;
+  const quoteData = snap.docs[0].data();
+  /* ⚠ ONLY ON AN APPROVED QUOTE. This is reached from the screen that follows an
+     approval, but the token is generated in the visitor's own browser, so it proves
+     nothing on its own — the same reasoning that keeps a portalToken out of
+     quoteRespond. Without an approval there is nothing to settle. */
+  if ((quoteData.approvalStatus || 'pending') !== 'approved') {
+    throw new HttpsError('failed-precondition', 'That quote has not been approved.');
+  }
+
+  await db.collection('quotes').doc(quoteId).update({
+    memberKeptDetails: true,
+    memberKeptDetailsAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+  return { ok: true };
+});
+
 exports.quoteSaveDetails = onCall({ cors: true }, async (request) => {
   const body = request.data || {};
   const quoteToken = body.quoteToken ? String(body.quoteToken).trim() : '';

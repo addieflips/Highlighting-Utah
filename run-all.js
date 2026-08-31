@@ -26510,6 +26510,18 @@ suite('Suite 108. The Edit Customer save, actually run');
         extractFn(admin, 'customerChangeSentence') + 'return customerChangeSentence;')(),
       logActivity: (what, area, refId) => { logged.push({what: what, area: area, refId: refId}); },
       LIGHT_CHANGE_FEE: 30, LIGHT_WINDOW_MS: 48 * 3600000,
+      /* ⭐ THE REAL 72-WORKING-HOUR HOLD, LIFTED, NOT STUBBED (QT-21, 2026-08-31).
+         The save sets scheduleHoldUntil whenever it newly queues a build, so a sandbox
+         without this does not skip a check — it throws on the save's last lines and
+         reports the customer write as never happening, which is exactly how these four
+         checks failed. §3's rule: lift, never stub, or the branch becomes untestable
+         while reporting green. */
+      scheduleHoldUntil: (function(){
+        const src = (/const SCHEDULE_HOLD_HOURS = \d+;/.exec(admin) || [''])[0] +
+          ['thanksgivingDate', 'isThanksgivingDay', 'isWorkingDay', 'scheduleHoldUntil']
+            .map(n => extractFn(admin, n)).join('\n');
+        return new Function(src + 'return scheduleHoldUntil;')();
+      })(),
       fmtMoney: (n) => '$' + (Number(n) || 0).toFixed(2),
       /* The popup CANNOT be real — it waits for a click. Stubbed, but it records
          that it was asked and what it was asked about, so the checks below can
@@ -30611,19 +30623,38 @@ suite('Suite 117. The colour-change fee, actually charged');
     if (missSrc) {
       const soon = { toMillis: () => Date.now() + 3600000 };
       const past = { toMillis: () => Date.now() - 3600000 };
+      /* ⚠ THE SANDBOX SUPPLIES isHeldFromRoutes, not isLightsLocked. Since 2026-08-31
+         there are TWO holds — the colour-change window, and the 72-working-hour wait
+         after a build is queued — and this adder asks the one question that covers
+         both. Handing it only the old one leaves the typeof guard false, nobody is
+         held, and the check fails against correct code. */
       const book = [
         { id: 'free', data: {} },
         { id: 'locked', data: { lightsLockedUntil: soon } },
-        { id: 'expired', data: { lightsLockedUntil: past } }
+        { id: 'expired', data: { lightsLockedUntil: past } },
+        { id: 'atWarehouse', data: { scheduleHoldUntil: soon } },
+        { id: 'builtLongAgo', data: { scheduleHoldUntil: past } }
       ];
+      const held = (d) => {
+        const t = d.lightsLockedUntil || d.scheduleHoldUntil;
+        return !!(t && t.toMillis() > Date.now());
+      };
       const out = new Function('jobAddresses', 'seasonCustomerIds', 'isOutForSeason',
-        'isLightsLocked', missSrc + ';return customersMissingFromSeason();')(
-        book, () => new Set(), () => false,
-        (d) => !!(d.lightsLockedUntil && d.lightsLockedUntil.toMillis() > Date.now()));
+        'isHeldFromRoutes', missSrc + ';return customersMissingFromSeason();')(
+        book, () => new Set(), () => false, held);
       check('S117', 'a customer inside their 48 hours is NOT put on a schedule day',
         !out.some(x => x.id === 'locked'),
         'the crew would hang a pattern that is still free to change — the exact thing ' +
         'the window exists to prevent');
+      /* ⭐ AND HER RULE (QT-21): a house whose bundle has just been queued is not put on
+         a day either. "isnt scheduled until 48 hours after sent to warehouse", which she
+         then made 72 working hours. */
+      check('S117', 'nor is one still waiting on the warehouse',
+        !out.some(x => x.id === 'atWarehouse'),
+        'a crew would be sent to a house whose bundle is not built yet');
+      check('S117', 'but one whose warehouse hold has expired is added',
+        out.some(x => x.id === 'builtLongAgo'),
+        'a house held for ever is worse than one scheduled early');
       /* ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, so they
          must arrive by themselves once the window closes. */
       check('S117', 'but is added once that window has closed',
