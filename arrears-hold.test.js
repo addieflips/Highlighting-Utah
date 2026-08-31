@@ -1,0 +1,417 @@
+/*
+ * Last season's unpaid bill — carried, and holding them out of this season
+ * Highlighting Utah
+ *
+ * WHY THIS IS ITS OWN GATE
+ * Addie, 2026-08-31, in two answers that only work together:
+ *   "Carry it onto this year's bill."
+ *   "If they didn't pay last year they should not be scheduled to be hung."
+ * and, asked how a payment against a bill holding two debts is read:
+ *   "If they were billed 400 last year and paid 400 last year than it is cleared
+ *    but if they needed to pay 800 and paid only 400 than bill is not cleared and
+ *    we cannot schedule them."
+ *
+ * ⚠ WHAT THIS REPLACES. Start New Season wrote `install: newInstall, deposit: 0`
+ * over every invoice, so an unpaid customer opened the new season owing this
+ * year's charge and nothing else — the debt written off in silence for all ~967
+ * customers, surviving only inside a yearlySnapshot nothing bills from.
+ *
+ * ⚠ THE RULE DECIDES WHO GETS A CREW, so nearly every check here RUNS the shipped
+ * code rather than matching its source. A regex over admin.html cannot see that a
+ * customer who has paid comes out held anyway, and this repo has been caught three
+ * times by a check that read the source of behaviour that could never happen.
+ *
+ * ⚠ AND IT LIFTS, IT NEVER STUBS. The money rule is imported from js/money.js —
+ * the real module the browser loads — and the predicates are lifted out of
+ * admin.html. A stub here would agree with itself and prove nothing about what
+ * ships, which is the whole failure this file exists to catch.
+ *
+ * R-018: one file, one job, wired into `npm test`.
+ *
+ * Run:  node arrears-hold.test.js      (or: npm run test:arrears)
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const admin = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8');
+
+let pass = 0, fail = 0;
+const failures = [];
+function check(label, ok, detail) {
+  if (ok) { pass++; } else { fail++; failures.push(label + (detail ? ' — ' + detail : '')); }
+}
+
+/* Lifts a function by name, slicing to its closing brace at column 0 — the same
+   terminator every other harness in this repo relies on.
+ *
+ * ⚠ BRACE-COUNTING WAS TRIED FIRST AND SILENTLY TRUNCATED isOutForSeason. The
+ * scanner skipped quoted text so a brace inside a string could not close the
+ * function early, which is right — but it treated an apostrophe inside a COMMENT
+ * as opening a string ("somebody who's", and this file is mostly prose), so the
+ * quote state desynced and the count closed 9,000 characters early. It came back
+ * as a function that parsed as far as the RSVP branch and simply ended.
+ *
+ * ⚠ SO EVERY LIFT IS PARSED BEFORE IT IS USED (liftOk below). A truncated lift is
+ * the worst failure available here: it produces a plausible function that answers
+ * confidently and wrongly, and the suite reports green while testing a rule that
+ * ends halfway.
+ *
+ * ⚠ AND `async` IS HANDLED, because extractFn's habit of matching only
+ * `function NAME(` is written up in CLAUDE.md as having cost three suites a run:
+ * the body arrives full of bare `await`, which is a parse error that kills the
+ * whole file as one unattributable crash. */
+function lift(name) {
+  for (const opener of ['async function ' + name + '(', 'function ' + name + '(']) {
+    const at = admin.indexOf(opener);
+    if (at === -1) continue;
+    const end = admin.indexOf('\n}', at);
+    if (end === -1) return '';
+    return admin.slice(at, end + 2);
+  }
+  return '';
+}
+function liftOk(src) {
+  if (!src) return false;
+  try { new Function(src + '\nreturn 1;'); return true; } catch (e) { return false; }
+}
+
+/* ⚠ COMMENTS OUT FIRST, AND THIS FILE EARNED THE RULE ON ITS FIRST RUN. The check
+ * below asserts the reset no longer contains `changeFees: 0, changeFeeNotes: []`
+ * — and the comment that was added to admin.html to EXPLAIN the change quotes that
+ * very line to say what it replaced. So a correct file failed a check about it.
+ * Suites 58, 274 and 275 each learned the same thing separately; §7 has the general
+ * form of it. Match the code, never the prose describing the code. */
+function stripComments(s) {
+  return s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
+/* The season reset's invoice write, sliced to its own structural end rather than
+   by a character count — §7 bans fixed-length extraction windows by name, and a
+   window here would go stale the moment the write grows. */
+function seasonResetWrite() {
+  const at = admin.indexOf("return updateDoc(doc(db,'invoices', x.id), {");
+  if (at === -1) return '';
+  const end = admin.indexOf('priceReviewed: true', at);
+  return end === -1 ? '' : stripComments(admin.slice(at, end));
+}
+
+(async function main() {
+  const money = await import('./js/money.js');
+
+  /* ---------------------------------------------------------------------
+     1. The rule itself, run against Addie's own two examples.
+     --------------------------------------------------------------------- */
+  const billed = (amount, paid, credits) => ({
+    changeFeeNotes: amount ? [{ amount: amount, kind: 'arrears', reason: 'Unpaid balance carried from the 2026 season' }] : [],
+    changeFees: amount || 0,
+    deposit: paid || 0,
+    credits: credits || 0
+  });
+
+  check('billed 400 last year and paid 400 — cleared',
+    money.owesFromLastSeason(billed(400, 400)) === false,
+    'her own example, and the one that decides whether somebody gets a crew');
+  check('needed to pay 800 and paid only 400 — not cleared',
+    money.owesFromLastSeason(billed(800, 400)) === true,
+    'a part-payment must not release anybody; her words are "bill is not cleared ' +
+    'and we cannot schedule them"');
+  /* ⚠ THE BOUNDARY IS WHERE A PROPORTIONAL READING WOULD DIFFER. Anything that
+     released somebody at "most of it" passes the two rows above and fails here. */
+  check('one dollar short is still not cleared',
+    money.owesFromLastSeason(billed(400, 399)) === true,
+    'nearly paid is not paid');
+  check('overpaying is cleared',
+    money.owesFromLastSeason(billed(400, 450)) === false);
+
+  /* ⚠ A FIXTURE THAT ONLY EVER CARRIES ARREARS CANNOT TELL THE LEDGER APART FROM
+     A TOTAL. The fee ledger holds light-change fees too, and reading the whole of
+     changeFees as last season's debt would hold every customer who ever changed
+     their colours. */
+  check('a light-change fee is not last season\'s debt',
+    money.owesFromLastSeason({ changeFees: 30, deposit: 0, credits: 0,
+      changeFeeNotes: [{ amount: 30, reason: 'Light change' }] }) === false,
+    'a $30 colour change would otherwise hold them out of the season for ever');
+  check('and a mixed ledger counts only the arrears line',
+    money.arrearsOnInvoice({ changeFeeNotes: [
+      { amount: 30, reason: 'Light change' },
+      { amount: 400, kind: 'arrears', reason: 'Unpaid balance carried from the 2026 season' }
+    ] }) === 400,
+    'got ' + money.arrearsOnInvoice({ changeFeeNotes: [
+      { amount: 30, reason: 'Light change' },
+      { amount: 400, kind: 'arrears' }] }));
+  check('a customer who owed 400 and changed colours is cleared by paying the 400',
+    money.owesFromLastSeason({ changeFees: 430, deposit: 400, credits: 0, changeFeeNotes: [
+      { amount: 30, reason: 'Light change' },
+      { amount: 400, kind: 'arrears' }] }) === false,
+    'oldest first — this year\'s fee is not what is being tested');
+
+  /* ⚠ CREDITS ARE THE ONE WAY A HOLD LIFTS WITHOUT CASH, and it is deliberate:
+     a credit is the office deciding the money is not owed, recorded as money on
+     the invoice rather than as a hidden override flag. Addie asked for no "hang
+     them anyway" button and there is none. */
+  check('a credit covering the debt releases them',
+    money.owesFromLastSeason(billed(400, 0, 400)) === false,
+    'writing it off is the recorded way, and Q-013 already names a credit as how ' +
+    'an "our fault" case is settled');
+
+  /* ⚠ FAIL-SAFE DIRECTION. Every unknown in the season rule keeps people IN:
+     holding somebody who paid costs them their lights, carrying somebody who did
+     not costs one bundle. */
+  check('no invoice is not a debt',
+    money.owesFromLastSeason(null) === false && money.owesFromLastSeason(undefined) === false,
+    'an unloaded cache must never read as everybody owing money');
+  check('an invoice with no arrears line is not a debt',
+    money.owesFromLastSeason({ deposit: 0, credits: 0 }) === false);
+
+  /* Whole cents, for the same reason computeInvoiceStatus uses them: a customer
+     who has paid every cent must not be held against a balance showing $0.00. */
+  check('floating-point crumbs do not hold a paid-up customer',
+    money.owesFromLastSeason(billed(0.1 + 0.2, 0.3)) === false,
+    '0.1 + 0.2 is 0.30000000000000004');
+
+  /* ---------------------------------------------------------------------
+     2. Start New Season carries the debt instead of erasing it.
+     --------------------------------------------------------------------- */
+  const write = seasonResetWrite();
+  check('the season reset write was found',
+    write.length > 0,
+    'a check that cannot find its target reports green for the worst possible reason');
+  check('the reset no longer zeroes the fee ledger',
+    !/changeFees:\s*0,\s*changeFeeNotes:\s*\[\]/.test(write),
+    'that single line IS the write-off this change removes');
+  check('it carries the outstanding balance instead',
+    /changeFees:\s*x\.arrears/.test(write),
+    'the debt has to be on the new invoice or nothing is carried');
+  check('the carried line is tagged as arrears',
+    /kind:\s*ARREARS_KIND/.test(write),
+    'without the kind it reads as a light-change fee to every existing reader, the ' +
+    'Edit Customer rebuild cannot tell it apart, and owesFromLastSeason never finds ' +
+    'it — so the hold silently never applies');
+  check('and the saved status counts it',
+    /computeInvoiceStatus\(x\.newInstall,\s*x\.removal,\s*0,\s*0,\s*x\.arrears\)/.test(write),
+    'a status computed without the debt reads Paid in Full on a bill that is not');
+
+  /* ⚠ THE AMOUNT IS THE WHOLE OUTSTANDING BALANCE, run rather than read: last
+     season's own light-change fees and credits are already settled inside
+     balanceDueAmount, and re-deriving it would be a second opinion about a debt
+     we are about to charge somebody. */
+  const balanceDue = new Function('return ' + lift('balanceDueAmount'))();
+  check('balanceDueAmount was lifted',
+    typeof balanceDue === 'function');
+  check('the carried amount is what was actually left on the bill',
+    balanceDue({ install: 400, removal: 0, changeFees: 30, credits: 50, deposit: 100 }) === 280,
+    'install + fees - credits - paid; got ' +
+    balanceDue({ install: 400, removal: 0, changeFees: 30, credits: 50, deposit: 100 }));
+  check('and a fully paid customer carries nothing',
+    balanceDue({ install: 400, removal: 0, changeFees: 0, credits: 0, deposit: 400 }) === 0,
+    'her rule: billed 400, paid 400, cleared — they must not be held');
+
+  const plan = lift('ssnBuildPlan');
+  check('the plan reads the balance through that one rule',
+    /const arrears = balanceDueAmount\(inv\.data\)/.test(plan),
+    'a second opinion about the debt here is how the bill and the hold start ' +
+    'disagreeing about the same customer');
+  check('and the dry run\'s total includes it',
+    /totalOwed \+= newInstall \+ removal \+ arrears/.test(plan),
+    'otherwise the dry run reports a smaller number than the invoices it writes');
+
+  /* ⚠ NAMED BEFORE IT HAPPENS. This changes what real people are charged AND takes
+     them off the routes, and the button has no undo. */
+  check('the dry run names who is carrying a debt',
+    /did not pay last season/.test(admin) && /not scheduled/.test(admin),
+    'a change to what people are charged has to be on screen before it is written');
+  check('and the confirmation says it too',
+    /carryLine/.test(admin) && /will NOT be scheduled until they pay it in full/.test(admin),
+    'the dry run can have been read ten minutes ago against a different book');
+
+  /* ---------------------------------------------------------------------
+     3. The hold — RUN through the real season rule.
+     --------------------------------------------------------------------- */
+  const sandbox = [
+    'const ARREARS_KIND = ' + JSON.stringify(money.ARREARS_KIND) + ';',
+    'const centsOf = ' + money.centsOf.toString() + ';',
+    'const arrearsOnInvoice = ' + money.arrearsOnInvoice.toString() + ';',
+    'const arrearsSettled = ' + money.arrearsSettled.toString() + ';',
+    'const owesFromLastSeason = ' + money.owesFromLastSeason.toString() + ';',
+    'const custInvoiceKey = ' + money.custInvoiceKey.toString() + ';',
+    'let invoiceById = new Map();',
+    'let jobAddresses = [];',
+    'let seasonRuleOffForMeasurement = false;',
+    'function seasonRuleIsLive(){ return !seasonRuleOffForMeasurement; }',
+    'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }',
+    'function effectiveRsvpStatus(d){ let s = String((d||{}).rsvpStatus||"").toLowerCase();' +
+      ' if(s === "yes" && !(d||{}).rsvpRespondedAt) s = ""; return s; }',
+    'function extractCleanCity(c){ return String(c||"").trim(); }',
+    'function esc(s){ return String(s == null ? "" : s); }',
+    'function fmtMoney(n){ return "$" + (Number(n)||0).toFixed(2); }',
+    lift('houseOwesFromLastSeason'),
+    lift('houseArrearsOutstanding'),
+    lift('isOutForSeason'),
+    lift('owesFromLastYearHouses'),
+    'return { houseOwesFromLastSeason, houseArrearsOutstanding, isOutForSeason,' +
+    ' owesFromLastYearHouses,' +
+    ' setInvoices(m){ invoiceById = m; }, setBook(b){ jobAddresses = b; },' +
+    ' dropInvoices(){ invoiceById = null; } };'
+  ].join('\n');
+
+  /* ⚠ EACH LIFT IS PARSED, NOT JUST FOUND. A lift that silently truncates gives a
+     function that answers confidently and wrongly — see the note over lift(). */
+  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'isOutForSeason', 'owesFromLastYearHouses']
+    .forEach(function (n) {
+      check('lifted ' + n + ' out of the page, whole', liftOk(lift(n)),
+        'a missing or truncated lift is a suite testing nothing while reporting green');
+    });
+
+  const api = new Function(sandbox)();
+
+  // A customer who replied Yes — in the season on every other count.
+  const replied = { name: 'Owes Money', phone: '8015550001', address: '1 Elm St', city: 'Lehi',
+                    rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+  const invUnpaid = new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]);
+  const invPaid = new Map([['8015550001', { id: '8015550001', data: billed(400, 400) }]]);
+  const invPart = new Map([['8015550001', { id: '8015550001', data: billed(800, 400) }]]);
+
+  api.setInvoices(invUnpaid);
+  check('a customer who said Yes but owes for last year is OUT of the season',
+    api.isOutForSeason(replied) === true,
+    'a Yes is not a payment — this is the whole of what she asked for');
+  check('and the amount still outstanding is reported',
+    api.houseArrearsOutstanding(replied) === 400,
+    'got ' + api.houseArrearsOutstanding(replied));
+
+  api.setInvoices(invPaid);
+  check('the same customer, once last year is paid, is IN',
+    api.isOutForSeason(replied) === false,
+    'if paying does not release them the hold is a trap with no way out');
+  check('and then owes nothing',
+    api.houseArrearsOutstanding(replied) === 0);
+
+  api.setInvoices(invPart);
+  check('paying part of it does not put them back in',
+    api.isOutForSeason(replied) === true,
+    'her example: needed 800, paid 400, "we cannot schedule them"');
+
+  /* ⚠ THE HOLD IS NOT AN RSVP RULE and must not be reachable only through one. */
+  api.setInvoices(invUnpaid);
+  check('a new customer this year is still held by an unpaid last year',
+    api.isOutForSeason({ ...replied, chargeNewMemberFee: true }) === true,
+    'the never-asked exemption is about an unanswered question, not about money');
+
+  /* ⚠ FAIL-SAFE, RUN. A page whose invoices have not loaded must not empty the
+     season — the same direction every other unknown in this rule takes. */
+  api.dropInvoices();
+  check('with no invoices loaded nobody is held',
+    api.isOutForSeason(replied) === false,
+    'an unloaded cache reading as "everybody owes" would take the whole book off ' +
+    'the routes at once, silently');
+  api.setInvoices(invUnpaid);
+
+  /* ⚠ THE PAYER'S BILL, NOT THE HOUSE'S OWN KEY. If Dana pays for Kyle and Dana
+     did not pay, Kyle's lights were not paid for either. Reading Kyle's own key
+     finds a zeroed leftover invoice and reports no debt. */
+  const kyle = { name: 'Kyle', phone: '8015559999', billToPhone: '(801) 555-0001',
+                 address: '2 Oak Ave', city: 'Lehi',
+                 rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+  check('a house billed to somebody who did not pay is held too',
+    api.isOutForSeason(kyle) === true,
+    'the work on that house was not paid for, whoever the bill is addressed to');
+
+  /* ---------------------------------------------------------------------
+     4. The list — nobody may be held invisibly.
+     --------------------------------------------------------------------- */
+  const clear = { name: 'Paid Up', phone: '8015550002', address: '3 Fir', city: 'Lehi',
+                  rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+  const saidNo = { name: 'Said No', phone: '8015550003', address: '4 Ash', city: 'Lehi',
+                   rsvpStatus: 'no' };
+  const neverReplied = { name: 'Never Replied', phone: '8015550004', address: '5 Birch', city: 'Alpine' };
+  const bigger = { name: 'Owes More', phone: '8015550005', address: '6 Cedar', city: 'Alpine',
+                   rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+
+  api.setBook([
+    { id: 'a', data: replied }, { id: 'b', data: clear }, { id: 'c', data: saidNo },
+    { id: 'd', data: neverReplied }, { id: 'e', data: bigger }
+  ]);
+  api.setInvoices(new Map([
+    ['8015550001', { data: billed(400, 0) }],
+    ['8015550002', { data: billed(400, 400) }],
+    ['8015550003', { data: billed(250, 0) }],
+    ['8015550004', { data: billed(150, 0) }],
+    ['8015550005', { data: billed(900, 0) }]
+  ]));
+  const listed = api.owesFromLastYearHouses().map(r => r.d.name);
+
+  check('a customer who owes is on the list',
+    listed.indexOf('Owes Money') !== -1);
+  check('a customer who is square is not',
+    listed.indexOf('Paid Up') === -1,
+    'a list that names people who owe nothing is one nobody reads');
+  /* ⭐ THE CHECK THIS FILE MOST EXISTS FOR. A debtor who has ALSO not replied is
+     out twice over, so seasonEligibilityWouldDrop cancels them out and they are
+     absent from Waiting on RSVP. If this list dropped them too they would appear
+     on NEITHER — held, invisible, with nothing on any screen saying why. */
+  check('a debtor who has ALSO not answered the RSVP is still listed here',
+    listed.indexOf('Never Replied') !== -1,
+    'held by two rules and shown by neither list is the vanishing this list exists ' +
+    'to prevent');
+  check('somebody who said No is not listed',
+    listed.indexOf('Said No') === -1,
+    'paying would not put them in the season either, so they are not waiting on ' +
+    'anything and chasing them for money about lights they refused is wrong');
+  check('and the biggest debt is at the top',
+    listed[0] === 'Owes More',
+    'this list is worked down in order of what is worth chasing; got ' + JSON.stringify(listed));
+
+  /* ---------------------------------------------------------------------
+     5. The ledger has to survive the two invoice rebuilds, or the debt
+        disappears again on the next ordinary save. The whole design rests
+        on this, and neither rebuild is in a place a run can reach cheaply.
+     --------------------------------------------------------------------- */
+  const editRebuild = admin.slice(admin.indexOf('const priorFees = Array.isArray(inv.data.changeFeeNotes)'),
+                                  admin.indexOf('invoiceUpdates.changeFees = rebuiltFees;') + 40);
+  check('the Edit Customer save keeps every fee kind except its own manual one',
+    /f\.kind !== 'manual'/.test(editRebuild),
+    'rebuilding the whole ledger there would delete the carried debt on the next ' +
+    'ordinary save of that customer');
+  check('and it re-sums the ledger it kept',
+    /rebuiltFeeNotes\.reduce/.test(editRebuild),
+    'keeping the note but not counting it puts the line on the invoice for $0');
+
+  const sync = lift('syncPayerInvoice');
+  check('syncPayerInvoice does not rewrite the fee ledger',
+    !/changeFeeNotes:/.test(sync),
+    'it rebuilds install from house prices on every Edit Customer save — writing the ' +
+    'ledger there would wipe the carried debt');
+  check('and it still counts the ledger in the status it saves',
+    /existing\.changeFees/.test(sync),
+    'a status that ignores the debt reads Paid in Full on a bill that is not');
+
+  /* ⚠ THE CUSTOMER HAS TO BE ABLE TO SEE AND PAY IT, or carrying the debt is a
+     hold with no route out. Both fields were already in the whitelist, which is
+     why this design needed no server change — asserted so a tidy-up cannot
+     quietly remove them and strand every held customer. */
+  const server = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+  const whitelist = server.slice(server.indexOf('const INVOICE_READ_FIELDS'),
+                                 server.indexOf('function sanitizeInvoice'));
+  check('the portal still receives the fee ledger',
+    /'changeFees'/.test(whitelist) && /'changeFeeNotes'/.test(whitelist),
+    'without both, a held customer cannot see the debt that is holding them, and ' +
+    'the balance they are asked to pay is not the balance we hold them against');
+
+  /* ---------------------------------------------------------------------
+     Report
+     --------------------------------------------------------------------- */
+  console.log('\n=== Last season\'s unpaid bill: carried, and holding the season ===\n');
+  failures.forEach(f => console.log('  FAIL  ' + f));
+  if (!failures.length) console.log('  PASS  every check');
+  console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
+  if (fail) {
+    console.log('A customer who paid must never be held out of the season, and a customer');
+    console.log('who did not pay must never be sent a crew. Fix the rule, not this file.\n');
+    process.exit(1);
+  }
+})().catch(function (e) {
+  console.error('\narrears-hold.test.js could not run:', e && e.message);
+  console.error(e && e.stack);
+  process.exit(1);
+});

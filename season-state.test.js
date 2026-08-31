@@ -1345,9 +1345,36 @@ check('badging Back Next Year clears the build but not the recycle',
   /* ⚠ THE PANE LIST IS THE TRAP CLAUDE.md NAMES BY NAME, twice, having been caught by
      it twice. A pane left out of it never HIDES — it sits underneath whichever tab is
      showing. */
+  /* ⚠ REPOINTED 2026-08-31, NOT WEAKENED. This asserted the exact array literal
+     ['schedule','fixes','oneman','waiting','printing','takedowns'], which is a check
+     pinned to the SPELLING of a list rather than to what must be true of it — so
+     adding a legitimate pane (Owes from last year) failed a check about code that was
+     right. Same slow-fuse shape as S82, S129 and the folder-names suite. It reads the
+     real list out of the page and asserts MEMBERSHIP, so it still fails for the reason
+     it was written — a pane missing from the switcher — and no longer fails for a
+     reason it was never about. */
+  const paneList = (admin.match(/\[((?:'[a-z]+',)+'[a-z]+')\]\.forEach\(n=>RT\.getElementById\('pane-'\+n\)/) || [])[1] || '';
+  const panes = paneList.split(',').map(function (x) { return x.replace(/'/g, '').trim(); });
+  check('the tab switcher list was found at all',
+    panes.length >= 2,
+    'a check that cannot find its target reports green for the worst possible reason — ' +
+    'got ' + JSON.stringify(paneList));
   check('the Waiting pane is in the tab switcher list',
-    /\['schedule','fixes','oneman','waiting','printing','takedowns'\]/.test(admin),
+    panes.indexOf('waiting') !== -1,
     'a pane left out of that list sits underneath whichever tab is open');
+  /* ⭐ THE MONEY HOLD'S OWN PANE, added with it. Held customers must be visible
+     somewhere or the season quietly shrinks — the same argument the Waiting list is
+     built on, and the reason both panes exist rather than one. */
+  check('the Owes from last year pane is in the tab switcher list too',
+    panes.indexOf('owes') !== -1,
+    'a pane left out of that list sits underneath whichever tab is open');
+  check('and its tab, pane and renderer all exist',
+    /data-tab=\\"owes\\"/.test(admin) && /id=\\"pane-owes\\"/.test(admin) &&
+    /id=\\"owesLastYearPane\\"/.test(admin) && /function renderOwesLastYear\(/.test(admin),
+    'a tab with no pane, or a pane with no renderer, is a blank screen and no error');
+  check('and opening it is what draws it',
+    /activeTab==='owes'\)\{renderOwesLastYear\(\)/.test(admin),
+    'without this the tab is permanently empty');
   check('and the tab, the pane and the renderer all exist',
     /data-tab=\\"waiting\\"/.test(admin) && /id=\\"pane-waiting\\"/.test(admin) &&
     /id=\\"waitingRsvpPane\\"/.test(admin) && /function renderWaitingRsvp\(/.test(admin),
