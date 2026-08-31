@@ -3234,6 +3234,12 @@
                 <label>Billing Email Template ID</label>
                 <input type="text" id="emailjsTemplateId" placeholder="template_xxxxxxx" class="emailjs-auto-save">
                 <span class="emailjs-save-status" style="font-size:12px; color:var(--slate); margin-top:4px; display:none;"></span>
+                <p style="margin:6px 0 0; font-size:12px; color:var(--slate); line-height:1.5;">
+                  &#9888; <b>One box to check in EmailJS, once.</b> Open this template on emailjs.com and make sure its <b>Subject</b> field says exactly
+                  <span class="et-code-token">{{subject}}</span>. Every email this app sends now carries its own subject line &mdash; the RSVP says
+                  &ldquo;Your Christmas lights this year&rdquo;, an invoice says &ldquo;Your Highlighting Utah invoice&rdquo; &mdash; but EmailJS uses
+                  whatever is typed in that box unless it asks for the variable. If it holds fixed text, every email goes out with that same subject instead.
+                </p>
               </div>
               <div class="form-row">
                 <label>EmailJS Public Key</label>
