@@ -619,6 +619,25 @@ order it happened in.
 date that moved"* is the reason the note exists at all, and it is appended **after** trimming
 rather than being inside the trimmed body.
 
+⚠ **AND A LINE THAT TURNED UP IN EVERY SWEEP IS A LOOP, NOT NEWS** (2026-08-31). Addie:
+*"I don't even know why there are so many changes being made in schedule and it is
+concerning."* The digest answered the volume and not the question — deduplicating into one
+note makes a line that happened **once** look identical to one the sweep found **forty
+times**, which is exactly the thing she is worried about. The bank counts how many sweeps
+each line appeared in; three or more is labelled `[happened N times today]`, and the note
+opens with what a repeat usually means: a customer whose town field holds a **street**
+invents a town that does not exist and every house on it is evicted each pass, and a record
+that disagrees with the route it sits on does the same. Both are named by Health Check and
+fixable from a customer record in a minute.
+
+⚠ **Twice is not a loop.** Two sweeps can honestly find the same thing. Three is where it
+stops being a coincidence, and a threshold that fired at two would put a warning on
+ordinary days — which is how a warning gets ignored.
+
+⚠ **And only surviving lines keep a count.** Carrying one for a line no longer in the bank
+grows the document across a long day, and Firestore has a size limit — that ceiling is what
+the reconcile note hit in 2026-08-19, reported as "Missing or insufficient permissions".
+
 *Gated by* `route-digest.test.js` (`npm run test:digest`), which runs both functions against a
 fake Firestore that reads back what it wrote.
 
