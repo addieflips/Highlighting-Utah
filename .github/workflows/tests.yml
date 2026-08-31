@@ -99,6 +99,14 @@ jobs:
       - name: What the crew is told is wrong (fix sheet)
         run: npm run test:fix
 
+      # Addie, 2026-08-31: "I need a subject on all them." Sixteen of the twenty
+      # emailjs.send calls in admin.html passed no subject at all, so the RSVP
+      # landed in inboxes with a blank subject line. Named separately because
+      # "Email subject lines" is a thing to go and look at; the same failure
+      # swallowed by npm test is not.
+      - name: Every email says what it is (subject lines)
+        run: npm run test:subject
+
       # Owner, 2026-08-25: "nothing should fail quietly." This one refuses an empty
       # catch block that does not say WHY it is empty — the reason has to be written
       # inside the braces, where it travels with the code rather than three lines
