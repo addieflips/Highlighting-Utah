@@ -1862,7 +1862,16 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
    out by hand in a dozen places; adding a thirteenth rounding rule here would have
    been the fourth copy in this file's own history. This script is a module, so it
    can simply use the real one. */
-import { centsOf } from "./js/money.js";
+/* ⚠ ROOT-ABSOLUTE, NOT "./" (fixed 2026-08-31). This page is served at MORE
+   THAN ONE PATH: Netlify 200-rewrites /q/<token> and /home to this same file.
+   A relative import resolves against the URL the browser THINKS it is at, so
+   at /q/<token> this asked for /q/js/money.js, got a 404, and the whole module
+   failed to load — every script on the page dead, header and footer still
+   rendering because they are static HTML. That is the blank page a customer
+   following a quote text landed on, and it is why the short link had never
+   once worked. Nothing threw anywhere a person would see it.
+   ⚠ ANY future import here must be root-absolute for the same reason. */
+import { centsOf } from "/js/money.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
@@ -4251,13 +4260,53 @@ function handleBackNextYear(token){
   // "Back Next Year" gets its own status and never triggers light recycling.
   callPortalFn('portalRsvp', {token: token, response: 'backnextyear'}).then(function(res){
     if(!res || !res.ok){
-      if(msg) msg.textContent = "We couldn't find your account \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
+      if(msg) msg.textContent = portalCallFailedText(null, 'account');
       return;
     }
     if(msg) msg.textContent = 'We look forward to seeing you next year!';
-  }).catch(function(){
-    if(msg) msg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+  }).catch(function(err){
+    if(msg) msg.textContent = portalCallFailedText(err, 'account');
   });
+}
+/* ⭐ WHAT A CUSTOMER IS TOLD WHEN THEIR LINK FAILS (fixed 2026-08-31). Addie,
+   sent a screenshot of "Something went wrong" from a quote approve link:
+   "It looks like the form is still not coming up."
+
+   ⚠ THE FRIENDLY MESSAGE WAS UNREACHABLE IN PRODUCTION, and that is the bug.
+   Every one of these callables reports a miss by THROWING —
+   `throw new HttpsError('not-found', ...)` in quoteRespond and portalRsvp — and
+   a thrown HttpsError REJECTS the callable on the client. So the then-handler
+   never runs, the not-ok branch can never be true, and the accurate
+   "we couldn't find your quote" line was dead code. Every failure landed in
+   the rejection handler and read as though the site were broken.
+
+   ⚠ THE COST WAS DIAGNOSIS, NOT JUST WORDING. "Something went wrong" is what
+   you say when you have no idea; it sent us looking for a server fault when the
+   real answer was that a link no longer matches a quote. An out-of-date link is
+   ORDINARY — a quote gets deleted, or re-sent — and the customer needs to know
+   to ask for a new one, not that our site fell over.
+
+   ⚠ THE NOT-OK BRANCHES ARE KEPT, not deleted. They are unreachable through
+   today's server, but they are the correct handling if a callable is ever
+   changed to RETURN a miss instead of throwing — which is the more usual
+   pattern. Both routes now produce the same sentence, so the two can never
+   drift into telling one customer something different from another.
+
+   ⚠ AND THE REAL ERROR IS STILL LOGGED. The customer gets plain English; the
+   console keeps the code, because "nothing should fail quietly" cuts both ways
+   — a genuine outage must not be silently relabelled as a stale link. */
+function portalCallMissed(err){
+  var code = String((err && (err.code || err.status)) || '').toLowerCase();
+  return code === 'functions/not-found' || code === 'not-found';
+}
+function portalCallFailedText(err, thing){
+  if(err) console.error('[HU] portal call failed', err);
+  if(err && !portalCallMissed(err)){
+    return "Something went wrong — please call or text us at (801) 901-0011 " +
+           "and we'll get it sorted out.";
+  }
+  return "We couldn't find your " + thing + " — this link may be out of date. " +
+         "Please call or text us at (801) 901-0011 and we'll send you a fresh one.";
 }
 function setQuoteConfirmSub(html){
   var sub = document.getElementById('quoteLinkConfirmSub');
@@ -4450,11 +4499,11 @@ function openPortalFromQuote(contactHint){
     return;
   }
   var savedToken = null, savedCreds = null;
-  try{ savedToken = localStorage.getItem('huPortalToken'); } catch(e){}
+  try{ savedToken = localStorage.getItem('huPortalToken'); } catch(e){ /* quiet on purpose: private browsing or storage disabled. There is simply no remembered sign-in to offer, and the customer signs in normally below — telling them their browser would not read a key is noise they can do nothing with. */ }
   try{
     var rawCreds = localStorage.getItem('huPortalCreds');
     if(rawCreds) savedCreds = JSON.parse(rawCreds);
-  } catch(e){}
+  } catch(e){ /* quiet on purpose: unreadable or corrupt saved credentials are treated as none at all, which is the safe direction — the sign-in box is shown instead of the page acting on half-parsed JSON. */ }
   if(savedCreds && savedCreds.c && savedCreds.ln && typeof performSignInLookup === 'function'){
     if(typeof hideLoginPrompt === 'function') hideLoginPrompt();
     performSignInLookup(savedCreds.c, savedCreds.ln);
@@ -4473,7 +4522,7 @@ function openPortalFromQuote(contactHint){
   var contactEl = document.getElementById('lookupPhone');
   if(contactEl && contactHint) contactEl.value = contactHint;
   var lastNameEl = document.getElementById('lookupLastName');
-  if(lastNameEl){ try{ lastNameEl.focus(); } catch(e){} }
+  if(lastNameEl){ try{ lastNameEl.focus(); } catch(e){ /* quiet on purpose: focusing is a convenience. A browser that refuses it costs one tap and nothing else. */ } }
 }
 function handleQuoteLink(token, action, confirmed){
   if(!isQuoteLinkAction(action)) return offerQuoteChoice(token);
@@ -4504,7 +4553,7 @@ function handleQuoteLink(token, action, confirmed){
       if(!res || !res.ok){
         if(formWrap) formWrap.style.display = 'none';
         if(confirmWrap) confirmWrap.style.display = 'block';
-        if(confirmMsg) confirmMsg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
+        if(confirmMsg) confirmMsg.textContent = portalCallFailedText(null, 'quote');
         return;
       }
       quoteDetailQuoteId = res.quoteId || null;
@@ -4535,10 +4584,10 @@ function handleQuoteLink(token, action, confirmed){
         greet.textContent = 'Thanks ' + String(res.name).split(' ')[0] + '! Just a few details and we\'re all set.';
         greet.style.display = 'block';
       }
-    }).catch(function(){
+    }).catch(function(err){
       if(formWrap) formWrap.style.display = 'none';
       if(confirmWrap) confirmWrap.style.display = 'block';
-      if(confirmMsg) confirmMsg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+      if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'quote');
     });
     return;
   }
@@ -4552,7 +4601,7 @@ function handleQuoteLink(token, action, confirmed){
 
   callPortalFn('quoteRespond', {quoteToken: token, action: action}).then(function(res){
     if(!res || !res.ok){
-      if(confirmMsg) confirmMsg.textContent = "We couldn't find your quote \u2014 please call or text us at (801) 901-0011 and we'll help you out.";
+      if(confirmMsg) confirmMsg.textContent = portalCallFailedText(null, 'quote');
       return;
     }
     if(action === 'maybe_next_year'){
@@ -4570,8 +4619,8 @@ function handleQuoteLink(token, action, confirmed){
       if(confirmMsg) confirmMsg.textContent = 'Thanks for letting us know.';
       setQuoteConfirmSub('We appreciate you taking the time to consider us. If anything changes \u2014 this year or years from now \u2014 we\'d be glad to hear from you. There\'s no catch and no hard feelings.<br><br>Merry Christmas from all of us at Highlighting Utah.');
     }
-  }).catch(function(){
-    if(confirmMsg) confirmMsg.textContent = "Something went wrong \u2014 please call or text us at (801) 901-0011 and we'll get it sorted out.";
+  }).catch(function(err){
+    if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'quote');
   });
 }
 

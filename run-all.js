@@ -4626,11 +4626,22 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'both answers give a follow-up line, not just a headline',
     (quoteAnswer.match(/setQuoteConfirmSub\(/g) || []).length >= 2,
     'one of the two answers would show a bare one-liner with no explanation');
+  /* ⚠ REPOINTED 2026-08-31, NOT WEAKENED. These two pinned the literal sentence
+     and the literal `catch(function(){`, so they failed on correct code the
+     moment both branches moved behind portalCallFailedText — the slow-fuse
+     shape S82, S129 and the folder-names suite each hit. What must be TRUE is
+     that a customer who cannot be matched is given a phone number rather than a
+     dead end, and that a rejected call still reaches that same wording. Both
+     are now asserted through the one helper that produces it, which is stricter
+     than the old string match: a second hand-written failure message beside it
+     would not satisfy them. */
+  const failText = extractFn(idx, 'portalCallFailedText') || '';
   check('quoteresp', 'a quote that cannot be found tells them who to call',
-    /couldn't find your quote[\s\S]{0,120}901-0011/.test(quoteAnswer),
+    /901-0011/.test(failText) && /couldn't find your/.test(failText),
     'a dead end with no phone number turns a lost quote into a lost customer');
   check('quoteresp', 'a failed call still gives them a way through',
-    /catch\(function\(\)\{[\s\S]{0,220}901-0011/.test(quoteAnswer),
+    /\.catch\(function\(err\)\{[\s\S]{0,220}portalCallFailedText/.test(quoteAnswer) &&
+    /901-0011/.test(failText),
     'a network blip would leave "saving your answer..." on screen forever');
   check('quoteresp', 'the confirmation actually gets shown',
     /confirmWrap\.style\.display = 'block'/.test(quoteAnswer) ||
@@ -33640,7 +33651,16 @@ suite('Suite 138. Declining an add-on refuses the add-on, not the season');
        SERVER's answer, not the link — if the two ever disagree, the one that
        wrote to the database is the one telling the truth. */
     const mStart = idx.indexOf("    if(action === 'maybe_next_year'){");
-    const mEnd = idx.indexOf('  }).catch(function(){', mStart);
+    /* ⚠ ANCHORED ON THE REJECTION HANDLER, WHOSE SIGNATURE MOVED. It was
+       `}).catch(function(){` until the handler had to read the error to tell a
+       not-found link from a real outage. Matched loosely on the closing shape
+       so a parameter rename cannot silently empty this slice again — and the
+       findable check above is what turns that into a FAIL rather than five
+       checks quietly passing over an empty block. */
+    const mEnd = (function(){
+      const m = /\n  \}\)\.catch\(function\([A-Za-z0-9_$]*\)\{/.exec(idx.slice(mStart));
+      return m ? mStart + m.index + 1 : -1;
+    })();
     check('S138', 'the after-answer message block is findable',
       mStart !== -1 && mEnd > mStart);
     if (mStart !== -1 && mEnd > mStart) {

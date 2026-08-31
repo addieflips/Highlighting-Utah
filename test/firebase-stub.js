@@ -223,7 +223,21 @@ const FAKE_FUNCTIONS_MODULE = `
       Object.keys(F.quotes || {}).forEach(function (k) {
         if (F.quotes[k].data.quoteToken === token) hit = F.quotes[k];
       });
-      if (!hit) return { ok: false };
+      /* ⚠ THROWS, BECAUSE THE REAL ONE THROWS. quoteRespond does
+         throw new HttpsError of not-found, which REJECTS the callable on the
+         client — it does NOT resolve with ok:false. This stub returned
+         ok:false, so index.html's if(!res||!res.ok) branch looked covered while being unreachable in production, and every
+         dead quote link showed the customer "Something went wrong" instead.
+         A stub that fails more gently than production hides exactly the
+         handling that only ever runs in production. */
+      /* A documented sentinel so a spec can exercise the OTHER failure — a
+         function that actually crashed. Without it there is no way to prove
+         the not-found wording is not simply shown for everything, which is the
+         opposite error and hides a real outage. */
+      if (token === 'qt_forceinternal') {
+        const e = new Error('boom'); e.code = 'functions/internal'; throw e;
+      }
+      if (!hit) { const e = new Error('Quote not found.'); e.code = 'functions/not-found'; throw e; }
       return { ok: true, quoteId: hit.id, name: hit.data.name,
                formCompleted: !!hit.data.formCompleted };
     },
@@ -248,7 +262,15 @@ const FAKE_FUNCTIONS_MODULE = `
           'TEST STUB: no fake for callable "' + name + '". Add it to tests/firebase-stub.js.'
         ));
       }
-      return Promise.resolve({ data: handler(payload || {}) });
+      /* ⚠ A THROWN HttpsError REJECTS ON THE WIRE, it does not surface as a
+         synchronous throw at the call site. Without this try/catch the stub
+         threw out of callPortalFn itself, which no .catch would ever see —
+         a third failure shape that production does not have. */
+      try {
+        return Promise.resolve({ data: handler(payload || {}) });
+      } catch (e) {
+        return Promise.reject(e);
+      }
     };
   }
 `;
