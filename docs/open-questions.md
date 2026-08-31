@@ -1900,7 +1900,7 @@ designing something that already shipped. Corrected at the code, not from the ro
 
 ---
 
-## Q-028 · intent · OPEN · raised 2026-08-30
+## Q-028 · intent · ANSWERED · raised and answered 2026-08-30
 Two flags are sent to the customer's own page so it "cannot contradict the office", and the page never looks at either. Should it show something, and what?
 
 **Found by sweeping the code back to the whitelist**, working the standing
@@ -1957,4 +1957,57 @@ customer might see, not about money moving.
 ⚠ **The fields stay whitelisted.** Dropping them would make building the portal
 half a two-surface change with a Cloud Functions deploy in it, for no benefit
 today.
+
+---
+
+**ANSWERED, 2026-08-30** — *"Okay make a protection"*.
+
+Both are built. The wording is mine and she can change any of it; what follows is
+the reasoning behind each choice so a change is made knowingly.
+
+**No email on the bill** — a notice at the top of the invoice card
+(`renderNoEmailNotice`):
+
+> **We do not have an email address for you.**
+> That is the only reason your invoice has not arrived — nothing is wrong with
+> your account. Add one on the **Your Details** tab and we will send it straight
+> over, or call us on (801) 901-0011 and we will take it down for you.
+
+- **It asks for the address rather than announcing a problem.** "We cannot bill
+  you" is alarming to somebody who has done nothing wrong and gives them nothing
+  to do about it. What they can act on is adding an email, so that is what it
+  says — and the sentence saying nothing is wrong with their account is doing
+  real work, not padding.
+- **The person reading it is the one who can fix it.** The nightly run checks the
+  whole bill for an email before setting the flag, and sets it on the **payer** —
+  so a house billed to somebody else never carries it, and this can never tell a
+  tenant to go and fix their landlord's record.
+- **It is derived, not just stored.** The flag is only cleared by the next
+  nightly pass, so between typing an address and 7pm a stored-only reading would
+  keep nagging somebody who has already done what was asked. If the record now
+  has an email the notice hides itself whatever the flag says — the same
+  stored-flag-derived-display shape the office tag already uses.
+
+**A declined re-quote still open** — a branch in the schedule strip:
+
+> 📝 Thanks for letting us know about the new quote — we're working out whether
+> last year's setup will do. Nothing needed from you; we'll be in touch.
+
+- **It says the ball is with us.** Nobody has asked them for anything; somebody in
+  the office has to decide. Asking them to act would be inventing a job for a
+  customer who has already answered.
+- **It replaces a promise we had not made.** The line it displaces read *"You're
+  on the list for this season. We'll be in touch with your install date"* — an
+  install date, for a season they are not booked for.
+- **It sits below the scheduled-date branch.** A house with a date has been
+  decided in practice whatever the flag still says, and telling somebody holding
+  a date that we are still working it out is the same contradiction pointing the
+  other way.
+
+⚠ **Both are RUN against jsdom, not matched in the source.** Every claim here is
+about a line on a page, and this repo has been caught three times by a check that
+matched the source of a message which could never reach the screen. Ten sabotages
+red-checked, ten caught.
+
+**Resulting map change.** PR-07.
 
