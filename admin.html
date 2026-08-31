@@ -7249,6 +7249,12 @@ const CUSTOMER_FIELD_QUIET = {
   lightsChangedAt: 'the colour line above it is the event',
   lightsChangedVia: 'the colour line above it is the event',
   lightsLockedUntil: 'a consequence of the colour change, not a separate edit',
+  /* ⚠ BOTH ARE CONSEQUENCES OF QUEUEING A BUILD, not edits somebody made. The build
+     being queued IS the change and it is already labelled; a second history line saying
+     the hold moved would report the same event twice, in the record's own words rather
+     than the office's. Same reasoning as lightsLockedUntil directly above. */
+  scheduleHoldUntil: 'a consequence of the build being queued, not a separate edit',
+  scheduleHeldReason: 'says WHY the hold above exists; it moves only when that does',
   lightsQueuedAt: 'the build line is the event; this is its date',
   lightsRecycleRequestedAt: 'the recycle line is the event; this is its date',
   needsDayAssignedAt: 'the booking line is the event; this is its date',
@@ -7724,6 +7730,22 @@ function lightsLockMillis(d){
   return isNaN(n) ? 0 : n;
 }
 function isLightsLocked(d){ return lightsLockMillis(d) > Date.now(); }
+/* ⭐ HELD OFF THE SCHEDULE UNTIL THE WAREHOUSE HAS HAD ITS 72 HOURS. Read the same
+   shapes lightsLockMillis does, because this arrives as a Firestore Timestamp from a
+   listener and as a plain Date from the local mirror on the save that wrote it. */
+function scheduleHoldMillis(d){
+  const t = d && d.scheduleHoldUntil;
+  if(!t) return 0;
+  if(typeof t.toMillis === 'function') return t.toMillis();
+  if(typeof t.seconds === 'number') return t.seconds * 1000;
+  const n = new Date(t).getTime();
+  return isNaN(n) ? 0 : n;
+}
+function isScheduleHeld(d){ return scheduleHoldMillis(d) > Date.now(); }
+/* ⚠ ONE QUESTION, ONE ANSWER: "may this house go on a crew day yet". Both holds are
+   asked here so a caller cannot honour one and forget the other — which is how the
+   route sweep and the builder came to disagree about who was in the season. */
+function isHeldFromRoutes(d){ return isLightsLocked(d) || isScheduleHeld(d); }
 async function getOrCreatePortalToken(phone){
   const phoneDigits = (phone||'').replace(/\D/g,'');
   if(!phoneDigits) return null;
@@ -9514,7 +9536,16 @@ function quoteStage(d){
      anything: there is no form coming, and on a RE-QUOTE the details are already on the
      customer record anyway. So the office saying yes on their behalf stands in for the
      form, and the card moves on. */
-  if(d.approvalStatus === 'approved' && (d.formCompleted || d.approvedByOffice)) return 'form';
+  /* ⭐ AND A MEMBER SAYING NOTHING IS CHANGING IS THE THIRD WAY (QT-21, 2026-08-31).
+     Addie: "as long as they kept details the same that should just be put in schedule
+     after we price them". An existing member is never shown the form — they are asked
+     "anything changing this year?" — so before this the card sat in Awaiting Response
+     for ever and the office pressed Mark Approved by hand on every one.
+     ⚠ IT SITS BESIDE approvedByOffice, NOT INSIDE formCompleted, because it is the
+     same shape of thing: no form is coming, and somebody with the authority to settle
+     it has settled it. Here that somebody is the customer, which is better evidence
+     than the office guessing on their behalf. */
+  if(d.approvalStatus === 'approved' && (d.formCompleted || d.approvedByOffice || d.memberKeptDetails)) return 'form';
   /* ⭐ PRICED IS NOT SENT (added 2026-08-25). Owner: "when we push attach quote it
      takes us to awaiting response but it should stay in quote until we send text/email."
 
@@ -43887,6 +43918,31 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the record held and item.data is mirrored from the cache the moment the save
        lands; after, because an entry for a save that then failed is a history of
        something that did not happen. */
+    /* ⭐ SENT TO THE WAREHOUSE MEANS HELD OFF THE SCHEDULE FOR 72 WORKING HOURS
+       (added 2026-08-31). Addie: "if they did get changes on houses than that gets
+       sent to warehouse and isnt scheduled until 48 hours after sent to warehouse",
+       then "lets do 72 hours instead of 48... only bussiness hours not counting
+       weekends".
+
+       ⚠ ONE HOOK, NOT ONE PER ROUTE IN. Every way this form queues a build ends at
+       the same fact — needsLightBuild going from off to ON — so the hold is set
+       there: a re-quote topping up, a re-quote recycling and rebuilding, a colour
+       change, a wire or timer change. Writing it inside the re-quote branch alone
+       would have honoured her rule for re-quotes and left every colour change able
+       to be routed the same evening, which is the case she started from.
+
+       ⚠ ONLY WHEN IT IS NEWLY QUEUED. A save that leaves an already-queued house
+       queued must not push the hold out again, or an office that opens a record
+       twice keeps a built house off the routes for ever.
+
+       ⚠ AND NOTHING CLEARS IT EARLY, DELIBERATELY. The warehouse marking the bundle
+       done clears needsLightBuild, not this — she asked for a time, and a hold that
+       the warehouse could shorten by ticking early is not the rule she gave. It
+       simply expires. */
+    if(addrUpdates.needsLightBuild === true && !item.data.needsLightBuild){
+      addrUpdates.scheduleHoldUntil = new Date(scheduleHoldUntil(Date.now()));
+      addrUpdates.scheduleHeldReason = 'Sent to the warehouse';
+    }
     const custChanges = describeCustomerChanges(item.data, addrUpdates);
     await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates);
     /* ⚠ NOT AWAITED, like every other logActivity call: a note about a change must
@@ -44939,6 +44995,58 @@ function isWorkingDay(dt){
   const w = dt.getDay();
   if(w === 0 || w === 6) return false;
   return !isThanksgivingDay(dt);
+}
+/* ⭐ THE SCHEDULE HOLD — 72 HOURS, WEEKENDS AND THANKSGIVING DO NOT COUNT
+   (added 2026-08-31). Addie: "requote is same thing if requoted than it should be
+   assigned after 48 hours", then "lets do 72 hours instead of 48 hours... this is
+   only bussiness hours not counting weekends".
+
+   ⚠ THE CLOCK RUNS ON WORKING DAYS, ALL 24 HOURS OF THEM. Asked which of the two
+   readings she meant, she chose three working days: a Friday afternoon re-quote is
+   schedulable Wednesday afternoon, not a fortnight later. Counting only 8am-5pm
+   would make 72 hours about eight working days, which in October is most of the
+   season.
+
+   ⚠ IT REUSES isWorkingDay AND MUST KEEP DOING SO. That is the one place the crew
+   calendar decides what a working day is — Saturday, Sunday and Thanksgiving — and
+   she asked for Thanksgiving to pause this too. A second weekend rule here is two
+   definitions of a working day that drift apart, and the one nobody looks at is the
+   one that goes wrong.
+
+   ⚠ AND IT IS NOT lightsLockedUntil. That field decides whether a colour change is
+   FREE (applyLightChange: withinFreeWindow = lockedUntil > now), so stretching it to
+   72 would quietly widen the fee-free window and charge the $30 less often. She asked
+   about SCHEDULING and said nothing about what customers pay. The two also now have
+   genuinely different reasons — the old 48 was "so they can change their lights
+   again", this one is "so the warehouse has built the thing" — which is exactly why
+   they are two fields and not one. */
+const SCHEDULE_HOLD_HOURS = 72;
+function scheduleHoldUntil(startMs, hours){
+  const total = (typeof hours === 'number' ? hours : SCHEDULE_HOLD_HOURS);
+  const start = Number(startMs);
+  if(!start || !isFinite(start) || total <= 0) return 0;
+  let left = total * 60 * 60 * 1000;
+  const cur = new Date(start);
+  let guard = 0;
+  while(left > 0 && guard++ < 400){
+    if(!isWorkingDay(cur)){
+      /* A non-working day is skipped whole: jump to 00:00 of the next day and
+         spend none of the budget on it. */
+      cur.setDate(cur.getDate() + 1);
+      cur.setHours(0, 0, 0, 0);
+      continue;
+    }
+    /* How much of THIS working day is left after the cursor. */
+    const endOfDay = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1, 0, 0, 0, 0);
+    const available = endOfDay.getTime() - cur.getTime();
+    if(left <= available) return cur.getTime() + left;
+    left -= available;
+    cur.setTime(endOfDay.getTime());
+  }
+  /* ⚠ FAILS TOWARDS HOLDING, NOT RELEASING. A guard that ran out means the
+     calendar is doing something unexpected; releasing the house would send a crew
+     to a bundle that may not exist, which is the whole thing this prevents. */
+  return cur.getTime();
 }
 function nextWorkingDay(dt){
   const d = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
@@ -47569,7 +47677,7 @@ async function runGenerateInstallRoute(){
      not "not this season": a November house before November, a staff-set
      earliest date, the 48-hour light-change window. They come back on their own
      as soon as the hold lifts. */
-  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isLightsLocked(a.data)) && !isOutForSeason(a.data));
+  let available = jobAddresses.filter(a => !a.data.scheduled && !a.data.completed && typeof a.data.lat === 'number' && !isInstallPrefLocked(a.data.installPreference) && !isEarliestInstallDateLocked(a.data) && (isTest || !isHeldFromRoutes(a.data)) && !isOutForSeason(a.data));
   if(cityChoice !== 'all') available = available.filter(a => extractCleanCity(a.data.city) === cityChoice || normInstallPref(a.data.installPreference) === 'November - Before Thanksgiving');
   const startText = document.getElementById('routeStartInput').value.trim();
   let startPoint = null;
@@ -47888,7 +47996,7 @@ document.getElementById('markScheduledBtn').addEventListener('click', async func
   if(currentRouteType === 'install'){
     const lockedStops = currentRouteStops.filter(function(s){
       const a = jobAddresses.find(x => x.id === s.id);
-      return a && isLightsLocked(a.data);
+      return a && isHeldFromRoutes(a.data);
     });
     if(lockedStops.length){
       const lockedIds = new Set(lockedStops.map(s => s.id));
@@ -56147,7 +56255,7 @@ function customersMissingFromSeason(){
 
        ⚠ HELD BACK, NOT DROPPED. This runs on every Recalculate everything, and the
        window expires on its own, so they are added by the next run after it closes. */
-    if(typeof isLightsLocked === 'function' && isLightsLocked(d)) return;
+    if(typeof isHeldFromRoutes === 'function' && isHeldFromRoutes(d)) return;
     /* ⭐ AND NOT UNTIL THE WAREHOUSE HAS BUILT THEIR BUNDLE (added 2026-08-29). Addie,
        shown that the code did not do this: "I do want it to wait for the build before
        sending it to schedule." Until now a customer joined the season the moment they

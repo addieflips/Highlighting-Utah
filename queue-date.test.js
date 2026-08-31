@@ -1194,6 +1194,19 @@ check('the path still has every step in it',
     quoteSmsSentAt: 'the same quote going out as a text as well; still one quote sent',
     quoteArchivedAt: 'a quote being filed away is housekeeping on the quote, not a stage — ' +
       'and the customer-facing halves (declined, back next year) are stages of their own',
+    /* ⚠ THE SAME SHAPE AS lightsLockedUntil BELOW, and for the same reason: it is a
+       DEADLINE, not an event. Nothing happened at that moment — it is when the house
+       stops being held off the routes. What DID happen is the build being queued, and
+       lightsQueuedAt is already the step for that. */
+    scheduleHoldUntil: 'a window that is still OPEN, not something that happened — it is ' +
+      'when the warehouse hold expires, and the thing that happened is the build being ' +
+      'queued, which lightsQueuedAt already records',
+    /* ⚠ AND THIS ONE IS A DETAIL OF THE APPROVAL, NOT A STAGE AFTER IT. Same argument as
+       quoteManuallySentAt above: approvalRespondedAt is the step. This records HOW a
+       member answered the follow-up question, which is what lets the card leave Awaiting
+       Response — real, on the record, and not a new place the customer travels to. */
+    memberKeptDetailsAt: 'a member answering "nothing is changing" is how they answered ' +
+      'the approval, not a stage after it — approvalRespondedAt is the step',
     lightsLockedUntil: 'a window that is still OPEN, not something that happened — the ' +
       'events at its two ends are joining and the colour change',
     cameBackThisSeasonAt: 'coming back is already the RSVP answer; this marks the record ' +

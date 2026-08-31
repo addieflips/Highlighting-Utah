@@ -4447,6 +4447,17 @@ function offerMemberChangeChoice(contactHint, memberDetails){
       actions.innerHTML = '';
       if(confirmMsg) confirmMsg.textContent = 'Perfect \u2014 you\u2019re all set. \uD83C\uDF84';
       setQuoteConfirmSub('We can\u2019t wait to light up your home again this year. We\u2019ll be in touch to get you on the schedule \u2014 there\u2019s nothing else for you to do.');
+      /* ⭐ AND IT IS RECORDED (QT-21). Saying "nothing is changing" used to write
+         nothing at all, so the office's card sat in Awaiting Response until somebody
+         pressed Mark Approved by hand on their behalf.
+         ⚠ THE MESSAGE IS SHOWN FIRST AND THE CALL IS NOT AWAITED. They have answered;
+         making them watch a spinner for a write that only affects OUR screen would be
+         charging the customer for our bookkeeping. A failure is logged, and the worst
+         case is exactly the old behaviour — one press of Mark Approved. */
+      if(quoteDetailToken){
+        callPortalFn('quoteMemberKeptDetails', {quoteToken: quoteDetailToken})
+          .catch(function(err){ console.error('[HU] quoteMemberKeptDetails failed', err); });
+      }
     });
   });
 }
