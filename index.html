@@ -1498,6 +1498,19 @@
                simply never sent to the browser. The date only: never the crew
                and never the stop order. -->
           <div id="portalScheduleStrip" style="display:none; border-radius:12px; padding:13px 16px; margin-bottom:14px; font-size:14px; font-weight:600;"></div>
+          <!-- ⭐ WE HAVE NO EMAIL ADDRESS FOR THEM, so their invoice cannot be sent.
+               `cannotBillNoEmail` was whitelisted on 2026-08-21 with a comment saying it
+               was there "so the portal cannot show a customer as settled while the office
+               is chasing them for an address" — and nothing here ever read it, so the
+               portal did exactly that for five months. Q-028; Addie: "make a protection".
+
+               ⚠ IT ASKS FOR THE ADDRESS, IT DOES NOT ANNOUNCE A PROBLEM. "We cannot bill
+               you" is alarming to somebody who has done nothing wrong and gives them
+               nothing to do about it. The flag is only ever set on the PAYER (the nightly
+               run checks the whole bill before setting it), so the person reading this IS
+               the one who can fix it, and their own email box is two taps away on the
+               Details tab. -->
+          <div id="invNoEmail" role="status" style="display:none; background:#FDF6E7; border:1px solid #EBD7A6; color:#7A5C16; border-radius:12px; padding:13px 16px; margin-bottom:14px; font-size:14px; line-height:1.5;"></div>
           <div class="invoice-status" id="invStatus" style="display:none;">Balance Due</div>
           <div class="portal-card" id="portalPaymentCard" style="border-top:4px solid var(--gold); box-shadow:var(--shadow);">
           <div style="text-align:center; margin-bottom:6px;">
@@ -3565,6 +3578,12 @@ function renderCustomerInvoicePage(raw, opts){
     if(Array.isArray(res.houses)) portalHouses = res.houses;
     renderPortalHouses();
     renderLastPaymentNote(record);
+    /* ⚠ FED THE SAME RECORD `renderScheduleStrip` GETS, not `record` on its own. This is
+       the invoice record from portalInvoice, which carries neither cannotBillNoEmail nor
+       the email fields — those come through portalLookup, on currentJobAddressData. Left
+       reading `record` the notice would never appear at all, which is the state it was
+       written to end. */
+    renderNoEmailNotice(currentJobAddressData || currentLookupRecord);
     renderScheduleStrip(currentJobAddressData || currentLookupRecord);
     renderPortalRsvp();
     /* A quote waiting on this customer has to be offered even though they are
@@ -3732,6 +3751,28 @@ function renderScheduleStrip(rec){
   } else if(String(rec.rsvpStatus || '') === 'no'){
     strip.style.display = 'none';
     return;
+  } else if(rec.askSameAsLastYear){
+    /* ⭐ THEY TURNED DOWN A NEW PRICE AND THE QUESTION IS STILL OPEN (2026-08-30, Q-028).
+       Addie: "make a protection."
+
+       ⚠ THE FLAG WAS WHITELISTED AND NEVER READ. `askSameAsLastYear` went into
+       PORTAL_READ_FIELDS on 2026-08-21 with a comment saying it was there "so the portal
+       cannot contradict the office about a question that is still open", and the string
+       appeared nowhere in this file. So the page told them "You're on the list for this
+       season. We'll be in touch with your install date" — a promise the office has not
+       made, about a season they are not yet booked for.
+
+       ⚠ IT SAYS THE BALL IS WITH US, NOT WITH THEM. Nobody has asked them for anything;
+       somebody in the office has to decide whether last year's setup will do. Asking them
+       to act would be inventing a job for a customer who has already answered.
+
+       ⚠ AND IT SITS BELOW THE DATE BRANCH ON PURPOSE. A house with a scheduled date has
+       been decided in practice, whatever the flag still says, and telling somebody with a
+       date in hand that we are still working it out is the contradiction pointing the
+       other way. */
+    text = '\ud83d\udcdd Thanks for letting us know about the new quote \u2014 we\'re working out ' +
+      'whether last year\'s setup will do. Nothing needed from you; we\'ll be in touch.';
+    bg = '#FDF6E7'; bd = '#EBD7A6'; fg = '#7A5C16';
   } else {
     text = '📋 You\'re on the list for this season. We\'ll be in touch with your install date.';
     bg = '#FDF6E7'; bd = '#EBD7A6'; fg = '#7A5C16';
@@ -3755,6 +3796,45 @@ function portalNiceDate(value){
     if(isNaN(d.getTime())) return s;
     return d.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'});
   } catch(e){ return String(value || ''); }
+}
+
+/* ⭐ WE HAVE NO EMAIL ADDRESS FOR THIS BILL (2026-08-30, Q-028). Addie: "make a
+   protection."
+
+   ⚠ THE FLAG WAS WHITELISTED AND NEVER READ. `cannotBillNoEmail` went into
+   PORTAL_READ_FIELDS on 2026-08-21 with a comment saying it was there "so the portal
+   cannot show a customer as settled while the office is chasing them for an address",
+   and the string appeared nowhere in this file. So the flag arrived on every sign-in and
+   the page went on showing exactly the settled-looking account the comment says must not
+   happen. A protection that is only asserted is not a protection; that is why this was
+   raised as a hole rather than left as a comment.
+
+   ⚠ IT ASKS FOR THE ADDRESS RATHER THAN ANNOUNCING A PROBLEM. "We cannot bill you" is
+   alarming to somebody who has done nothing wrong, and gives them nothing to do about it.
+   What they can act on is adding an email, so that is what it says.
+
+   ⚠ THE PERSON READING IT IS THE ONE WHO CAN FIX IT. The nightly run checks the WHOLE
+   bill for an email before it sets this, and sets it on the PAYER — so a house billed to
+   somebody else never carries it, and this can never tell a tenant to fix their
+   landlord's record.
+
+   ⚠ AND IT IS DERIVED, NOT JUST STORED. The flag is cleared by the next nightly pass, so
+   between typing an address and 7pm a stored-only reading would keep nagging somebody who
+   has already done what was asked. If the record now HAS an email, the notice is hidden
+   whatever the flag says — the same stored-flag-derived-display shape the office tag uses
+   (its own comment says so in as many words). */
+function renderNoEmailNotice(record){
+  var el = document.getElementById('invNoEmail');
+  if(!el) return;
+  var rec = record || currentJobAddressData || currentLookupRecord || {};
+  var hasEmail = !!String(rec.email || '').trim() || !!String(rec.email2 || '').trim();
+  if(!rec.cannotBillNoEmail || hasEmail){ el.style.display = 'none'; return; }
+  el.innerHTML = '<strong>We do not have an email address for you.</strong>' +
+    '<div style="margin-top:4px; font-weight:400;">That is the only reason your invoice ' +
+    'has not arrived \u2014 nothing is wrong with your account. Add one on the ' +
+    '<strong>Your Details</strong> tab and we will send it straight over, or call us on ' +
+    '(801) 901-0011 and we will take it down for you.</div>';
+  el.style.display = 'block';
 }
 
 /* "Did you get my payment?" lastPaymentAt and lastPaymentMethod were written by

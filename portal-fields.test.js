@@ -74,6 +74,46 @@ function check(name, ok, why) {
 const idx = read('index.html');
 const fns = read('functions/index.js');
 
+/* stripComments — LIFTED OUT OF run-all.js, NOT COPIED (the repo's "lift, don't stub"
+   rule). It carries two hard-won fixes a fresh copy would not have: `/*` is only a
+   comment after start-of-line, whitespace or one of ;{}()[], and `//` is only stripped
+   when not preceded by a colon, so the 57 lines holding an https:// keep their tails.
+
+   ⚠ IT IS HERE BECAUSE ONE OF THIS FILE'S OWN CHECKS CAUGHT ITSELF. The check that no
+   notice says "we cannot bill you" failed on the COMMENT above the notice explaining why
+   it must not say that — a test a comment can satisfy, and in this case fail, is not
+   testing code. Suites 58, 274, 275 and import-build-flag each learned this separately. */
+const stripComments = (function () {
+  const suite = read('run-all.js');
+  const start = suite.indexOf('const stripComments = s =>');
+  if (start === -1) {
+    throw new Error(
+      'stripComments could not be found in run-all.js. It was lifted rather than copied ' +
+      'so the two cannot drift; if it moved or was renamed, repoint this lift — do NOT ' +
+      'paste a fresh copy in here.');
+  }
+  /* To the end of the statement, not a magic number: the declaration ends at the first
+     `;` that closes it, which is the line holding the `//` replace. Same lift as
+     import-build-flag.test.js, deliberately identical so both stay repointable together. */
+  const end = suite.indexOf("'$1');", start);
+  if (end === -1) throw new Error('stripComments was found but its end could not be located in run-all.js');
+  // eslint-disable-next-line no-eval
+  const fn = eval('(function(){ ' + suite.slice(start, end + "'$1');".length) + ' return stripComments; })()');
+  if (typeof fn !== 'function') throw new Error('the lifted stripComments did not evaluate to a function');
+  return fn;
+})();
+/* ⚠ THE LIFT IS WORTH NOTHING IF THE THING LIFTED NO LONGER STRIPS. Proven against a
+   fixture rather than assumed — a helper that quietly returns its input makes every
+   negative check below pass for free, which is this file's own worst failure mode. */
+{
+  const fixture = 'a: 1, /* cannot bill you */ b: 2, // cannot bill you\nvar url = "https://x/y";';
+  const out = stripComments(fixture);
+  check('the lifted stripComments really strips',
+    !/cannot bill you/.test(out) && /b: 2/.test(out) && /https:\/\/x\/y/.test(out),
+    'got: ' + out);
+}
+const idxCode = stripComments(idx);
+
 /* ---------------------------------------------------------------------------
  * The landmarks, asserted before anything is derived from them. An extractor that has
  * quietly stopped matching reports NO violations — a green build for the worst possible
@@ -275,17 +315,13 @@ check('nothing is read off a record that neither whitelist could have filled',
  * of them read as protections for months.
  * ------------------------------------------------------------------------- */
 const WHITELISTED_UNREAD = {
-  askSameAsLastYear:
-    'SENT, NEVER READ. The whitelist comment says it is here "so the portal cannot ' +
-    'contradict the office about a question that is still open" — index.html contains ' +
-    'the string nowhere, so the portal does not know about the open question and can ' +
-    'contradict it exactly as before. Whether it SHOULD show something is Addie\'s call ' +
-    '(it changes what a customer sees), so it is a hole in docs/open-questions.md, not a ' +
-    'guess. Kept whitelisted so building the portal half needs no server change.',
-  cannotBillNoEmail:
-    'SENT, NEVER READ. Same shape: the comment says it stops the portal showing a ' +
-    'customer as settled while the office chases them for an address, and nothing in ' +
-    'index.html reads it. Same hole, same reason for not guessing at the wording.',
+  /* ⭐ askSameAsLastYear AND cannotBillNoEmail WERE HERE UNTIL 2026-08-30 and are
+     deliberately gone. Both were "sent, never read" — each whitelisted with a comment
+     claiming a protection that nothing in index.html implemented (Q-028). Addie: "make a
+     protection", so both are now read and rendered, and the checks below assert that.
+     Their entries are removed rather than reworded: an unread-declaration that describes
+     a field the portal now reads is exactly what this file's own staleness check exists
+     to fail on. */
   seasonStatus:
     'SENT, NEVER READ. The four answers — cancellation asked for, address changed, ' +
     'changes needed, changes settled — are the OFFICE\'s view of where a customer is. ' +
@@ -342,6 +378,139 @@ check('and no unread-declaration names a field that left the whitelist',
     !/in PORTAL_READ_FIELDS so the portal cannot show a customer as settled/.test(suite),
     'those two check only that the NAME is in the list; saying it stops the portal ' +
     'contradicting the office is a guarantee nothing in index.html provides');
+}
+
+/* ---------------------------------------------------------------------------
+ * AND THE TWO PROTECTIONS ARE ACTUALLY WIRED (Q-028, 2026-08-30).
+ *
+ * ⚠ ASSERTED AT THE CALL SITE, NOT ONLY AT THE RENDERER. The whole finding was a flag
+ * that arrived and was never looked at; a renderer nothing calls is the same failure one
+ * level up, and this repo has shipped that twice (the house-tab strip, the recycle
+ * "bin says" box).
+ * ------------------------------------------------------------------------- */
+check('the no-email notice exists and is called',
+  /function renderNoEmailNotice\(record\)\{/.test(idx) &&
+  /renderNoEmailNotice\(currentJobAddressData \|\| currentLookupRecord\)/.test(idx),
+  'the flag arriving and nothing reading it is the whole of what Q-028 was about');
+check('and it is fed the record that actually carries the flag',
+  !/renderNoEmailNotice\(record\);/.test(idx),
+  '`record` there is the portalInvoice record, which carries neither cannotBillNoEmail ' +
+  'nor the email fields — the notice would never appear');
+check('and it hides itself once an email is on file',
+  /if\(!rec\.cannotBillNoEmail \|\| hasEmail\)/.test(idx),
+  'the flag is only cleared by the next nightly pass, so a stored-only reading would go ' +
+  'on nagging somebody who has already done what was asked');
+check('the open-question notice reads askSameAsLastYear',
+  /\} else if\(rec\.askSameAsLastYear\)\{/.test(idx),
+  'without it the strip promises "we\'ll be in touch with your install date" to somebody ' +
+  'the office has not booked');
+check('and it sits below the scheduled-date branch',
+  idx.indexOf('else if(when){') !== -1 &&
+  idx.indexOf('else if(when){') < idx.indexOf('} else if(rec.askSameAsLastYear){'),
+  'a house with a date has been decided in practice; telling them we are still working ' +
+  'it out is the same contradiction pointing the other way');
+check('and neither notice asks the customer to chase us',
+  !/cannot bill you/i.test(idxCode),
+  /* ⚠ COMMENTS STRIPPED. The first version of this read the raw file and failed on the
+     comment above the notice explaining why it must not say this. */
+  '"we cannot bill you" is alarming to somebody who has done nothing wrong and gives ' +
+  'them nothing to act on');
+
+/* ---------------------------------------------------------------------------
+ * AND BOTH NOTICES ARE RUN, NOT READ.
+ *
+ * ⚠ EVERY CLAIM ABOVE IS ABOUT SOURCE. The claim that matters is about A LINE ON A PAGE,
+ * and this repo has been caught three times by a check that matched the source of a
+ * message which could never reach the screen — the ledger render on 2026-08-19 being the
+ * one that cost a bug report. Both renderers are lifted and driven against jsdom.
+ * ------------------------------------------------------------------------- */
+{
+  let JSDOM = null;
+  try { JSDOM = require('jsdom').JSDOM; } catch (e) { /* no jsdom in this checkout */ }
+  if (!JSDOM) {
+    console.log('  NOTE  jsdom not installed — the two render checks were skipped. ' +
+      'Run npm install; a source-only pass is a weaker claim than it looks.');
+  } else {
+    const lift = name => {
+      const at = idx.indexOf('function ' + name + '(');
+      if (at === -1) throw new Error(name + ' not found in index.html — repoint this lift');
+      /* To the closing brace at column 0, not a character count (CLAUDE.md §7). */
+      const end = idx.indexOf('\n}', at);
+      return idx.slice(at, end + 2);
+    };
+
+    // ---- the no-email notice -------------------------------------------
+    {
+      const dom = new JSDOM('<div id="invNoEmail" style="display:none"></div>');
+      const fn = new Function('document', 'currentJobAddressData', 'currentLookupRecord',
+        lift('renderNoEmailNotice') + '\nreturn renderNoEmailNotice;'
+      )(dom.window.document, null, null);
+      const el = dom.window.document.getElementById('invNoEmail');
+
+      fn({ cannotBillNoEmail: true, email: '', email2: '' });
+      check('a payer we cannot bill is told so, in words, on the page',
+        el.style.display === 'block' && /email address/i.test(el.textContent),
+        'got display=' + el.style.display + ' text=' + JSON.stringify(el.textContent.slice(0, 90)));
+      check('and it says nothing is wrong with their account',
+        /nothing is wrong/i.test(el.textContent),
+        'they have done nothing wrong, and a bare "we cannot bill you" reads as though ' +
+        'they had');
+      check('and it tells them where to fix it',
+        /Your Details/.test(el.textContent) && /901-0011/.test(el.textContent),
+        'a warning with no next step is the phone call it was meant to prevent');
+
+      fn({ cannotBillNoEmail: true, email: 'dana@x.com' });
+      check('and it goes the moment an email is on the record',
+        el.style.display === 'none',
+        'the flag is only cleared by the next nightly pass — a stored-only reading would ' +
+        'nag somebody who has already done what was asked');
+
+      fn({ cannotBillNoEmail: false, email: '' });
+      check('and an ordinary customer never sees it',
+        el.style.display === 'none',
+        'a warning that appears when nothing is wrong is the next one people skim past');
+
+      fn({});
+      check('and a record that has not loaded shows nothing',
+        el.style.display === 'none',
+        'the portal reads the flag before jobAddresses has necessarily landed');
+    }
+
+    // ---- the open-question strip ---------------------------------------
+    {
+      const dom = new JSDOM('<div id="portalScheduleStrip" style="display:none"></div>');
+      const fn = new Function('document', 'portalNiceDate',
+        lift('renderScheduleStrip') + '\nreturn renderScheduleStrip;'
+      )(dom.window.document, v => String(v));
+      const el = dom.window.document.getElementById('portalScheduleStrip');
+
+      fn({ askSameAsLastYear: true });
+      check('somebody who declined a re-quote is not promised an install date',
+        el.style.display === 'block' &&
+        !/We'll be in touch with your install date/.test(el.textContent) &&
+        /last year/i.test(el.textContent),
+        'got: ' + JSON.stringify(el.textContent.slice(0, 110)));
+      check('and the strip says the ball is with us',
+        /Nothing needed from you/i.test(el.textContent),
+        'nobody has asked them for anything — somebody in the office has to decide');
+
+      fn({ askSameAsLastYear: true, scheduledDate: '2026-11-18' });
+      check('but a house with a date is told its date, flag or no flag',
+        /2026-11-18/.test(el.textContent) && !/last year/i.test(el.textContent),
+        'a date in hand means it was decided in practice; still saying we are working it ' +
+        'out is the same contradiction pointing the other way');
+
+      fn({ askSameAsLastYear: true, completed: true });
+      check('and an installed house is told it is installed',
+        /Installed/.test(el.textContent),
+        'the flag can outlive the question it was raised for');
+
+      fn({});
+      check('and an ordinary customer still gets the ordinary line',
+        /on the list for this season/i.test(el.textContent),
+        'the new branch must not swallow the case it sits next to');
+    }
+  }
 }
 
 /* ---------------------------------------------------------------------------

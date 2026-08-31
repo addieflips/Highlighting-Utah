@@ -1588,12 +1588,27 @@ writes the other four (as blanks). Neither ever filled all five. Deriving live m
 moot.
 
 **The other direction — whitelisted and never read.** Six fields are sent to the browser
-and never looked at. Two of them matter: `askSameAsLastYear` and `cannotBillNoEmail` each
-carry a comment saying they are whitelisted *"so the portal cannot contradict the office"*,
-and neither string appears anywhere in `index.html` — so the portal can still do exactly
-that. Nothing is broken and nothing leaks; what is wrong is a documented protection that
-was never built. **Q-028**, open, because both would change what a customer sees on their
-own page and the wording is the whole decision.
+and never looked at, each declared with what is and is not true of it. **Two of them were
+protections that had been asserted and never built**, and are now real (Q-028; Addie:
+*"Okay make a protection"*):
+
+- `cannotBillNoEmail` → **`renderNoEmailNotice`**, a notice at the top of the invoice card.
+  It *asks for the address* rather than announcing a problem — "we cannot bill you" is
+  alarming to somebody who has done nothing wrong and gives them nothing to act on — and
+  says in as many words that nothing is wrong with their account. It is **derived, not
+  just stored**: the flag is only cleared by the next nightly pass, so an email typed at
+  nine in the morning would otherwise be nagged about until seven at night. The nightly
+  run only ever sets it on the **payer**, so this can never tell a tenant to go and fix
+  their landlord's record.
+- `askSameAsLastYear` → a branch in **`renderScheduleStrip`**. It replaces *"You're on the
+  list for this season. We'll be in touch with your install date"* — an install date, for
+  a season they are not booked for — with a line saying we are working out whether last
+  year's setup will do, and that nothing is needed from them. It sits **below** the
+  scheduled-date branch: a house with a date was decided in practice, and saying otherwise
+  is the same contradiction pointing the other way.
+
+Both are **run against jsdom**, not matched in the source: every claim about them is about
+a line on a page, and a regex over the file is a different and weaker claim.
 
 *Gated by* `portal-fields.test.js` (`npm run test:portal-fields`), which sweeps from the
 **code back to the list** — every property `index.html` reads off a sanitised record must
