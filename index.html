@@ -3235,7 +3235,12 @@ async function hmLoadHouseMapForInvoice(phoneDigits, opts){
     }
 
     /* Which sides they are down for, ticked from the record. */
-    try{ portalRenderSides(); }catch(err){}
+    try{ portalRenderSides(); }
+    catch(err){ /* One panel must not take down the account page — the address, the
+                   balance and the invoice all still render below. Reported rather than
+                   swallowed: the customer sees no sides at all when this fires, which
+                   looks like us not knowing which sides they ordered. */
+      console.error('[HU] portalRenderSides failed', err); }
     document.getElementById('infoAddress').value = addrDoc.address || '';
     document.getElementById('infoGateCode').value = addrDoc.gateCode || '';
     if(addrDoc.phone2){
