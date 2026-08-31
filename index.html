@@ -4226,9 +4226,13 @@ function handleRsvpLink(token, rsvpValue){
   // "No" is saved even if the customer closes the page immediately after.
   savePortalLogin(token);
   callPortalFn('portalRsvp', {token: token, response: rsvpValue === 'yes' ? 'yes' : 'no'}).then(function(res){
+    /* ⚠ UNREACHABLE THROUGH TODAY'S SERVER, AND KEPT. portalRsvp reports a
+       miss by THROWING, so a failure rejects the callable and lands in the
+       catch below — this branch is the correct handling if it is ever changed
+       to RETURN a miss instead, which is the more usual pattern. Both routes
+       produce the same sentence so the two cannot drift. */
     if(!res || !res.ok){
-      if(confirmCard) confirmCard.style.display = 'none';
-      document.getElementById('lookupEmpty').style.display = 'block';
+      rsvpLinkFailed(null);
       return;
     }
     if(rsvpValue === 'yes'){
@@ -4286,10 +4290,40 @@ function handleRsvpLink(token, rsvpValue){
         };
       }
     }
-  }).catch(function(){
-    if(confirmCard) confirmCard.style.display = 'none';
-    document.getElementById('lookupEmpty').style.display = 'block';
-  });
+  }).catch(rsvpLinkFailed);
+
+  /* ⭐ WHAT THE CUSTOMER IS TOLD WHEN AN RSVP LINK FAILS (fixed 2026-08-31).
+     Addie: "Approve and Decline don't seem to be working."
+
+     ⚠ IT WAS THE SIGN-IN FORM'S MESSAGE, SHOWN TO SOMEBODY WHO NEVER SIGNED
+     IN. Both branches used to reveal #lookupEmpty — "We couldn't find an
+     account matching that phone number and last name" — at a customer who
+     typed neither and only pressed a button in an email. There is nothing
+     they can do with that, and it reads exactly like the button being broken.
+
+     ⚠ AND IT WAS THE ONLY PATH THEY HAD. portalRsvp throws on a miss, so the
+     not-ok branch above cannot run in production and EVERY failure arrived
+     here.
+
+     ⚠ handleBackNextYear ALREADY called portalCallFailedText. This is the same
+     "one reader left behind when the others were changed" shape as the quote
+     link, which is where that helper came from — so the third RSVP button gave
+     plain English while the other two blamed a sign-in nobody attempted.
+
+     ⚠ THE MESSAGE GOES IN THE CONFIRM CARD, which is already on screen and
+     already centred by rsvp-minimal. Revealing a second box and hiding this
+     one is what put two different explanations on the page at once. */
+  function rsvpLinkFailed(err){
+    if(confirmCard) confirmCard.style.display = 'block';
+    if(openPortalBtn) openPortalBtn.style.display = 'none';
+    if(noChangesBtn) noChangesBtn.style.display = 'none';
+    /* ⚠ Explicitly hidden, not merely left alone: a previous render of this
+       page may have revealed it, and two contradictory boxes is worse than
+       the wrong one. */
+    var empty = document.getElementById('lookupEmpty');
+    if(empty) empty.style.display = 'none';
+    if(confirmMsg) confirmMsg.textContent = portalCallFailedText(err, 'account');
+  }
 }
 function handleBackNextYear(token){
   var wrap = document.getElementById('backNextYearConfirm');
