@@ -57626,7 +57626,12 @@ function exportCSV(){
   function __startSyncTimer(){
     if(__syncTimer) return;
     __syncTimer=setInterval(function(){
-      try{ window.scheduleSyncFromCustomers({quiet:false}); }catch(e){}
+      try{ window.scheduleSyncFromCustomers({quiet:false}); }
+      catch(e){ /* The timer must survive a bad tick — killing it would stop the plan
+                   following the customers for the rest of the session, silently. But it
+                   is SAID: a sync that throws every five minutes is a real fault, and
+                   swallowing it whole is how the schedule drifts with nobody knowing. */
+        console.error('[HU] periodic schedule sync failed', e); }
     }, 5*60*1000);
   }
   /* The New Members panel was the only thing this redrew, and that tab is gone. The
@@ -57645,7 +57650,11 @@ function exportCSV(){
      sitting loaded while somebody edited customers on another tab. */
   const __navSync=document.querySelector('.nav-item[data-panel="schedule"]');
   if(__navSync) __navSync.addEventListener("click", function(){
-    setTimeout(function(){ try{ window.scheduleSyncFromCustomers(); }catch(e){} }, 600);
+    setTimeout(function(){
+      try{ window.scheduleSyncFromCustomers(); }
+      /* Same reasoning as the timer above: opening the tab must still open it. */
+      catch(e){ console.error('[HU] schedule sync on tab open failed', e); }
+    }, 600);
   });
   const __nav=document.querySelector('.nav-item[data-panel="schedule"]');
   if(__nav) __nav.addEventListener("click", __start);

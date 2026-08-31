@@ -67,8 +67,17 @@ function blankNoise(js) {
       while (j < n) {
         if (js[j] === '\\') { j += 2; continue; }
         if (js[j] === c) break;
+        /* ⚠ A QUOTE STRING CANNOT SPAN A LINE, and saying so BOUNDS THE DAMAGE
+           of any future mis-read. The 2026-08-31 bug ran one phantom string for
+           2576 characters across 52 lines; with this, the worst a mistake can
+           cost is the rest of one line. A template literal legitimately spans
+           lines, so only ' and " stop here. */
+        if (js[j] === '\n' && c !== '`') break;
         j++;
       }
+      /* Unterminated on its line: it was never a string. Blank nothing and step
+         over the one character, rather than swallowing everything after it. */
+      if (j >= n || js[j] !== c) { i++; continue; }
       for (let k = i; k < Math.min(j + 1, n); k++) if (js[k] !== '\n') out[k] = ' ';
       i = j + 1; continue;
     }
@@ -84,9 +93,60 @@ function blankNoise(js) {
       for (let k = i; k < j; k++) if (js[k] !== '\n') out[k] = ' ';
       i = j; continue;
     }
+    /* ⭐ A REGEX LITERAL IS NOT CODE EITHER, AND THIS IS WHY THE GATE WENT BLIND
+       (fixed 2026-08-31). index.html line 3202 holds
+
+           replace(/[&<>"']/g, function(c){ ... })
+
+       and a scanner that does not know regexes sees the " inside that character
+       class, opens a string, and runs to the next " — 2576 characters and 52
+       lines later. Everything between was invisible, including a genuinely bare
+       `}catch(err){}`. The gate reported green because it could not see it.
+       ⚠ THAT IS THE WORST WAY FOR THIS PARTICULAR GATE TO FAIL, and its own
+       header says so: a matcher that has quietly stopped matching reports NO
+       bare catches, which is a green build for exactly the wrong reason. */
+    if (c === '/' && regexStartsAt(js, i)) {
+      let j = i + 1, inClass = false, ok = false;
+      while (j < n) {
+        const d = js[j];
+        if (d === '\\') { j += 2; continue; }
+        if (d === '\n') break;              /* unterminated — not a regex */
+        if (inClass) { if (d === ']') inClass = false; }
+        else if (d === '[') inClass = true;  /* a / inside [...] is literal */
+        else if (d === '/') { ok = true; break; }
+        j++;
+      }
+      if (ok) {
+        for (let k = i; k < j + 1; k++) if (js[k] !== '\n') out[k] = ' ';
+        i = j + 1; continue;
+      }
+      /* Not a regex after all — fall through and treat it as division. */
+    }
     i++;
   }
   return out.join('');
+}
+
+/* Can a `/` at this position begin a REGEX, or is it division? Decided by the
+   last significant character before it — the standard rule, and the only part
+   of this that needs judgement.
+   ⚠ IT ERRS TOWARDS DIVISION. Reading a division sign as a regex would blank
+   real code, which is the failure being fixed; reading a regex as division only
+   risks the older behaviour, now bounded to one line by the string rule above. */
+const REGEX_MAY_FOLLOW = new Set(['return', 'typeof', 'instanceof', 'in', 'of',
+  'new', 'delete', 'void', 'case', 'do', 'else', 'yield', 'await']);
+function regexStartsAt(js, i) {
+  let k = i - 1;
+  while (k >= 0 && /\s/.test(js[k])) k--;
+  if (k < 0) return true;                     /* start of input */
+  const c = js[k];
+  if ('(,=:[!&|?{};+-*%~^<>'.indexOf(c) !== -1) return true;
+  if (/[A-Za-z0-9_$]/.test(c)) {              /* a word: only a keyword allows one */
+    let e = k;
+    while (e >= 0 && /[A-Za-z0-9_$]/.test(js[e])) e--;
+    return REGEX_MAY_FOLLOW.has(js.slice(e + 1, k + 1));
+  }
+  return false;                               /* after ) ] . or a literal: division */
 }
 
 /* Everything outside a <script> is blanked rather than cut out, for the same reason:
@@ -157,10 +217,15 @@ function enclosingFn(js, pos) {
  * a clean bill of health. Set well under the real numbers on 2026-08-26
  * (admin 310, index 41, employee 24, functions 31). */
 const FILES = [
-  { file: 'admin.html', floor: 200 },
-  { file: 'index.html', floor: 25 },
-  { file: 'employee.html', floor: 10 },
-  { file: 'functions/index.js', floor: 20 }
+  /* ⚠ RAISED 2026-08-31, and this is the point: the old floors were met while the
+     scanner was BLIND to whole regions — 351 of admin's 366, 49 of index's 61, 21 of
+     employee's 32 — because a quote inside a regex opened a phantom string that ran
+     for dozens of lines. A floor set under a broken scanner is a floor that certifies
+     the breakage. These are set just under today's real counts. */
+  { file: 'admin.html', floor: 340 },
+  { file: 'index.html', floor: 55 },
+  { file: 'employee.html', floor: 28 },
+  { file: 'functions/index.js', floor: 30 }
 ];
 
 /* ⭐ THE SCANNER PROVES ITSELF FIRST, ON A FIXTURE (added 2026-08-26).
@@ -183,17 +248,42 @@ suite('Silent failures — the scanner can still tell the difference');
     'function c(){ try{ x(); }catch(e){ console.error("} not a brace", e); } }',
     'function d(){ try{ x(); }catch(e){} /* a reason AFTER the braces is not in them */ }',
     'function e(){ /* } */ try{ x(); }catch(e){ // said inside',
-    '  } }'
+    '  } }',
+    /* ⭐ THE 2026-08-31 BUG, IN ONE LINE. A regex character class holding a quote.
+       A scanner that does not know regex literals opens a string on that " and
+       runs to the next one, swallowing every catch in between — which is exactly
+       what hid four bare catches across three files while this gate reported
+       green. If line 7's catch stops being found, that blindness is back. */
+    'function f(){ var t = s.replace(/[&<>"\']/g, esc); try{ x(); }catch(e){} }',
+    /* And the other half: a / that is DIVISION must not be read as a regex, or
+       real code gets blanked instead — the same damage from the other side. */
+    'function g(){ var r = (a + b) / 2; try{ x(); }catch(e){ /* fine */ } }',
+    /* ⚠ LINE 9 IS THE ONE THAT ISOLATES REGEX AWARENESS. Line 7 above does not:
+       the one-line bound below rescues it on its own, so BOTH fixes had to be
+       removed together before it noticed — which a red-check caught. Here the
+       phantom string opens on the regex quote and closes on the "z" LATER IN THE
+       SAME LINE, so it swallows the catch between them. Only knowing the regex
+       is a regex saves this one. */
+    'function h(){ var t = s.replace(/"/g, x); try{ y(); }catch(e){ /* r */ } var u = "z"; }',
+    /* ⚠ AND LINES 10-11 ISOLATE THE ONE-LINE BOUND. A regex after `)` is read as
+       division on purpose — erring that way is safer — so this quote DOES open a
+       phantom string. Without the bound it runs to the "z" on the next line and
+       eats the catch; with it, the damage stops at the end of its own line. This
+       is the belt to the regex braces, and it is what keeps any future mis-read
+       cheap. */
+    'function i(){ if (a) /"/.test(s);',
+    '  try{ x(); }catch(e){ /* r */ } var q = "z"; }'
   ].join('\n');
   const r = scanText(FIX);
   const bareLines = r.bare.map(function (b) { return b.line; });
   const emptyLines = r.empty.map(function (b) { return b.line; });
-  check('the fixture\'s five catch blocks are all found', r.all.length === 5,
-    'found ' + r.all.length + ' — a brace inside a string or a comment is throwing ' +
-    'the matcher off');
-  check('the bare one, and only it, is reported bare',
-    bareLines.length === 2 && bareLines[0] === 1 && bareLines[1] === 4,
-    'expected lines 1 and 4 (bare, and reason-outside-the-braces); got ' + bareLines.join(', '));
+  check('the fixture\'s nine catch blocks are all found', r.all.length === 9,
+    'found ' + r.all.length + ' — a brace inside a string or a comment, or a quote ' +
+    'inside a regex, is throwing the matcher off');
+  check('the bare ones, and only they, are reported bare',
+    bareLines.length === 3 && bareLines[0] === 1 && bareLines[1] === 4 && bareLines[2] === 7,
+    'expected lines 1, 4 and 7 (bare, reason-outside-the-braces, and the one after ' +
+    'a regex holding a quote); got ' + bareLines.join(', '));
   check('an empty catch with a reason in it is not reported',
     emptyLines.indexOf(2) >= 0 && bareLines.indexOf(2) < 0);
   check('a catch that does something is not empty at all, even if it holds a brace',
