@@ -380,6 +380,83 @@ function makeDigest(opts) {
 }
 
 /* ---------------------------------------------------------------------------
+ * A LINE THAT TURNED UP IN EVERY SWEEP IS A LOOP, AND SAYS SO.
+ *
+ * Addie, 2026-08-31: "I don't even know why there are so many changes being made in
+ * schedule and it is concerning."
+ *
+ * ⚠ THE DIGEST ANSWERED THE VOLUME AND NOT THE QUESTION. One note a day is what she
+ * asked for, but deduplicating hides the thing she is actually worried about: a line
+ * that appears in ONE sweep is a real change, and the same line appearing in FORTY is
+ * the sweep undoing and redoing its own work all day. In one note those look identical,
+ * so the fix for the noise was quietly making the cause harder to see.
+ * ------------------------------------------------------------------------- */
+{
+  const h = makeDigest();
+  block(async () => {
+    /* The same sentence found by eight sweeps, plus one that really did happen once. */
+    for (let i = 0; i < 8; i++) await h.bank(['12 houses taken off a day — a S Summit Crest Ln day.']);
+    await h.bank(['1 stop updated to match the customer record.']);
+    h.setDay('2026-08-31');
+    await h.bank(['a new day']);
+
+    const msg = String((h.posted[0] || { payload: {} }).payload.message);
+    check('a line found by eight sweeps says how many times',
+      /happened 8 times today/.test(msg),
+      'got: ' + msg.slice(0, 200));
+    check('and the one that happened once is left alone',
+      /1 stop updated to match the customer record\.(?!\s*\[)/.test(msg),
+      'a count on a single real change is noise on the thing that is not the problem');
+    check('and the note says what a repeat usually means',
+      /repeated all day/.test(msg) && /STREET/.test(msg) && /Health Check/.test(msg),
+      '"this repeated 40 times" is a symptom nobody can act on — the note has to name ' +
+      'the two things that actually cause it, both fixable from a customer record');
+    check('and that warning is at the top, where the trim cannot reach it',
+      msg.indexOf('repeated all day') < msg.indexOf('taken off a day'),
+      'the body is trimmed from the END');
+  });
+}
+
+/* ⚠ AND TWICE IS NOT A LOOP. Two sweeps can honestly find the same thing — a house moved
+   at ten past and another moved onto the same day at twenty past produce one identical
+   sentence twice. Three is where it stops being a coincidence, and a threshold that fires
+   at two would put a warning on ordinary days, which is how a warning gets ignored. */
+{
+  const h = makeDigest();
+  block(async () => {
+    await h.bank(['2 houses moved to a different day.']);
+    await h.bank(['2 houses moved to a different day.']);
+    h.setDay('2026-08-31');
+    await h.bank(['a new day']);
+    const msg = String((h.posted[0] || { payload: {} }).payload.message);
+    check('a line found twice is not called a loop',
+      !/happened 2 times/.test(msg) && !/repeated all day/.test(msg),
+      'got: ' + msg.slice(0, 160));
+  });
+}
+
+/* ⚠ AND THE COUNTS DO NOT GROW WITHOUT BOUND. Only lines that survived the trim keep a
+   count — carrying one for a line no longer in the bank grows the document across a long
+   day, and Firestore has a size limit. That ceiling is what the reconcile note hit in
+   2026-08-19, reported as "Missing or insufficient permissions". */
+{
+  const h = makeDigest();
+  block(async () => {
+    const many = [];
+    for (let i = 0; i < h.cap + 40; i++) many.push('line ' + i);
+    await h.bank(many);
+    const d = h.digest();
+    const counted = Object.keys(d.seen || {});
+    check('a trimmed line does not keep a count nobody can see',
+      counted.length <= h.cap,
+      'got ' + counted.length + ' counts for ' + (d.lines || []).length + ' lines');
+    check('and every count belongs to a line that is still banked',
+      counted.every(k => (d.lines || []).indexOf(k) !== -1),
+      'a count for a line that is gone is a document that grows for ever');
+  });
+}
+
+/* ---------------------------------------------------------------------------
  * 7. A REFUSED NOTE CARRIES THE DAY FORWARD.
  *
  * ⭐ THE ONE THAT WOULD BE SILENT. The bank is rewritten wholesale on every sweep, so

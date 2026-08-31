@@ -47167,7 +47167,25 @@ async function routeDigestBank(lines){
       : [];
     const keep = (cur.day === today && Array.isArray(cur.lines)) ? cur.lines : [];
     const merged = keep.concat(carried);
-    (lines || []).forEach(function(l){ if(merged.indexOf(l) === -1) merged.push(l); });
+    /* ⭐ HOW MANY SWEEPS EACH LINE TURNED UP IN (2026-08-31). Addie: "I don't even know
+       why there are so many changes being made in schedule and it is concerning."
+
+       ⚠ THE DIGEST ANSWERED THE VOLUME AND NOT THE QUESTION. One note a day instead of
+       twenty is what she asked for, but it hides exactly the thing she is worried about:
+       a line that appears in one sweep is a real change, and the SAME line appearing in
+       forty is the sweep undoing and redoing its own work. Deduplicated into one note
+       those two look identical, so the fix for the noise was quietly making the cause
+       harder to see.
+
+       ⚠ COUNTED, NOT LISTED TWICE. The note stays one line per thing; the count rides
+       beside it, so a busy day reads the same length and a looping day says so. */
+    const seen = (cur.day === today && cur.seen && typeof cur.seen === 'object') ? cur.seen : {};
+    const times = {};
+    Object.keys(seen).forEach(function(k){ times[k] = Number(seen[k]) || 0; });
+    (lines || []).forEach(function(l){
+      if(merged.indexOf(l) === -1) merged.push(l);
+      times[l] = (times[l] || 0) + 1;
+    });
     /* ⚠ TRIMMED WITH A COUNT, never silently. A digest that quietly loses half a day is
        worse than one that says it did. */
     const over = Math.max(0, merged.length - ROUTE_DIGEST_MAX_LINES);
@@ -47175,9 +47193,17 @@ async function routeDigestBank(lines){
        day's note actually went out — a day carried forward keeps its own overflow count,
        or the note that finally posts under-reports what it lost. */
     const priorDropped = (rolled && posted) ? 0 : (Number(cur.dropped) || 0);
+    const keptLines = over ? merged.slice(0, ROUTE_DIGEST_MAX_LINES) : merged;
+    /* ⚠ ONLY THE COUNTS FOR LINES THAT SURVIVED THE TRIM. Carrying a count for a line
+       that is no longer in the bank grows this object without bound across a long day,
+       and Firestore documents have a size limit — the same ceiling the reconcile note
+       hit in 2026-08-19. */
+    const keptSeen = {};
+    keptLines.forEach(function(l){ if(times[l]) keptSeen[l] = times[l]; });
     await setDoc(ref, {
       day: today,
-      lines: over ? merged.slice(0, ROUTE_DIGEST_MAX_LINES) : merged,
+      lines: keptLines,
+      seen: keptSeen,
       dropped: priorDropped + over,
       updatedAt: serverTimestamp()
     }, {merge:false});
@@ -47203,14 +47229,46 @@ async function routeDigestFlush(bank){
      after it. Stable partition, so everything else keeps the order it happened in. */
   const urgent = all.filter(function(l){ return String(l).charAt(0) === '⚠'; });
   const rest = all.filter(function(l){ return String(l).charAt(0) !== '⚠'; });
-  const lines = urgent.concat(rest);
+  /* ⭐ A LINE THAT TURNED UP IN EVERY SWEEP IS NOT NEWS, IT IS A LOOP (2026-08-31).
+     Addie: "I don't even know why there are so many changes being made in schedule and
+     it is concerning." The sweep runs every fifteen minutes, so the same sentence
+     appearing forty times means it undid and redid the same work all day — and
+     deduplicated into one note that is indistinguishable from something that happened
+     once. The count is what tells them apart.
+
+     ⚠ THE THRESHOLD IS "MORE THAN TWICE", not "more than once". Two sweeps can honestly
+     find the same thing: a house moved at ten past and a second house moved onto the same
+     day at twenty past produces one identical sentence twice. Three is where it stops
+     being a coincidence.
+
+     ⚠ AND IT NAMES THE LIKELIEST CAUSE. "This repeated 40 times" is a symptom nobody can
+     act on; a town that is really a street, or a customer record disagreeing with the
+     route it sits on, are the two things that actually produce this — and both are
+     fixable from a customer record in a minute. */
+  const seen = (bank && bank.seen && typeof bank.seen === 'object') ? bank.seen : {};
+  const REPEAT_AT = 3;
+  const looping = Object.keys(seen).filter(function(k){ return (Number(seen[k]) || 0) >= REPEAT_AT; });
+  const label = function(l){
+    const n = Number(seen[l]) || 0;
+    return n >= REPEAT_AT ? l + '  [happened ' + n + ' times today]' : l;
+  };
+  const lines = urgent.concat(rest).map(label);
   const tail = '\n\nNobody has been told about any date that moved — if a day was already ' +
     'confirmed with them, they need telling.';
   const head = 'Route changes on ' + (bank.day || 'the previous day') + ':\n\n';
   const droppedNote = (Number(bank.dropped) || 0)
     ? '\n\n… and ' + bank.dropped + ' more change(s) that would not fit in one note. Open Routes to see every day in full.'
     : '';
-  let body = head + lines.join('\n') + droppedNote;
+  /* Sits directly under the heading, above the changes, because it is the thing to read
+     first on a day that has one — and the body is trimmed from the END. */
+  const loopNote = looping.length
+    ? '\n\u26a0 ' + looping.length + ' of these repeated all day rather than happening once. ' +
+      'That usually means the sweep is undoing its own work: a customer whose town field ' +
+      'holds a STREET makes a town that does not exist and every house on it is evicted ' +
+      'each pass, and a record that disagrees with the route it sits on does the same. ' +
+      'Health Check names both.\n'
+    : '';
+  let body = head + loopNote + lines.join('\n') + droppedNote;
   if(body.length > 4500 - tail.length){
     const trimNote = '\n\n… the rest is trimmed to fit in one note. Open Routes to see every day in full.';
     body = body.slice(0, 4500 - trimNote.length - tail.length) + trimNote;
