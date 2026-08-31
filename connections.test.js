@@ -1059,6 +1059,228 @@ if (unguarded.length) {
   note(unguarded.length + ' of ' + m.report.length + ' watched things have nothing else guarding them: ' +
     unguarded.join(', ') + '. This map is the only thing holding those.');
 }
+/* ---------------------------------------------------------------------------
+ * WHAT RUNS WITHOUT ANYBODY PRESSING ANYTHING — the code back to the list.
+ *
+ * Addie, 2026-08-30: "I think where things go does not have a complete representation of
+ * the automation. There is still things missing there." She was right: the only automatic
+ * run with a place on the page was the 7pm billing, and Automation Emails was folded into
+ * the Portal column.
+ *
+ * ⚠ NOTHING COULD HAVE CAUGHT THAT. Every check on this page asks "is the declared thing
+ * still connected", so a run nobody declared is absent from the question rather than
+ * answered wrongly — the same blind spot found three times in three days. This sweeps the
+ * SOURCE for scheduled and interval-driven work and requires each one to be on the list.
+ *
+ * ⚠ IT CANNOT CHECK THE PROSE, and that is said out loud rather than implied. What a run
+ * is FOR and what it would cost if it stopped are a person's job; what rots is the list
+ * falling behind the code, and that is the half held here.
+ * ------------------------------------------------------------------------- */
+{
+  const { AUTOMATION } = require('./connections/automation.js');
+  const readSrc = f => require('fs').readFileSync(require('path').join(__dirname, f), 'utf8');
+  const listed = new Set(AUTOMATION.map(a => a.id));
+
+  check('the automation list is not empty', AUTOMATION.length > 0,
+    ': a list that failed to load reports no violations, which is a green build for the ' +
+    'worst possible reason');
+
+  /* Cloud Functions scheduled by cron. `exports.NAME = onSchedule(` is the only shape
+     this repo uses, and a new one written differently would not be found — so the count
+     is asserted too rather than trusting the pattern alone. */
+  const fns = readSrc('functions/index.js');
+  const crons = (fns.match(/exports\.(\w+)\s*=\s*onSchedule\(/g) || [])
+    .map(x => x.replace(/exports\.(\w+).*/s, '$1'));
+  check('every scheduled Cloud Function is on the automation list',
+    crons.length > 0 && crons.every(c => listed.has(c)),
+    ': found ' + crons.length + ' — missing from connections/automation.js: ' +
+    crons.filter(c => !listed.has(c)).join(', '));
+
+  /* Browser timers. `setInterval` assigned to a named variable is what a long-lived
+     automatic run looks like here; an anonymous one-off is not that. */
+  const timerIds = [];
+  ['admin.html', 'index.html', 'employee.html'].forEach(f => {
+    const src = readSrc(f);
+    const re = /(\w+)\s*=\s*setInterval\(/g;
+    let mm;
+    while ((mm = re.exec(src)) !== null) timerIds.push(mm[1]);
+  });
+  /* ⚠ NOT EVERY setInterval IS AN AUTOMATIC PROCESS, and the difference is whether it
+     cancels itself. A retry that gives up after eight tries is a loading detail, not
+     something that runs by itself all season, and putting it on a list headed "what runs
+     without anybody pressing anything" would be padding a page whose whole value is that
+     it is true. Each exclusion names WHY, and a stale one fails below. */
+  const NOT_AUTOMATION = {
+    frameTimer:
+      'Self-cancelling. It re-frames the house in Street View while the measure tool is ' +
+      'opening and clears itself after eight tries or on the first success — a loading ' +
+      'retry, not a process.'
+  };
+  const unlistedTimers = [...new Set(timerIds)]
+    .filter(t => !listed.has(t) && !NOT_AUTOMATION[t]);
+  check('every named browser timer is on the automation list',
+    timerIds.length > 0 && unlistedTimers.length === 0,
+    ': found ' + timerIds.length + ' — missing from connections/automation.js: ' +
+    unlistedTimers.join(', ') + '. A timer that runs and is not drawn is exactly the ' +
+    '"still things missing" this list was written for.');
+  const staleExcl = Object.keys(NOT_AUTOMATION).filter(t => timerIds.indexOf(t) === -1);
+  check('and no timer exclusion names something that is gone',
+    staleExcl.length === 0,
+    ': ' + staleExcl.join(', ') + ' — an exception that describes nothing excuses nothing');
+
+  /* ⭐ AND AN ANONYMOUS LONG-LIVED TIMER IS REFUSED OUTRIGHT. The sweep above finds a
+     timer by the variable it is assigned to, so `setInterval(function(){…}, 600000)` with
+     no name is invisible to it — which is exactly what the ten-minute re-read of the
+     nightly billing log was: the one alarm on the most expensive automatic run in the
+     app, unfindable by the list that exists to say what runs by itself. Naming it is a
+     one-word change; being unable to see it is not.
+     ⚠ THE THRESHOLD IS THE POINT. A short anonymous interval is an animation or a poll
+     that finishes; a minute or more is something that runs all day. */
+  const anon = [];
+  ['admin.html', 'index.html', 'employee.html'].forEach(f => {
+    const src = readSrc(f);
+    const re = /(^|[^\w.])setInterval\(/g;
+    let mm;
+    while ((mm = re.exec(src)) !== null) {
+      const before = src.slice(Math.max(0, mm.index - 40), mm.index + mm[0].length);
+      if (/[\w$]\s*=\s*setInterval\($/.test(before)) continue;   // named, handled above
+      /* How long between ticks, read off the call's own last argument. */
+      const tail = src.slice(mm.index, mm.index + 900);
+      const ms = /,\s*([0-9][0-9_ *]*)\s*\)/.exec(tail);
+      let every = 0;
+      if (ms) { try { every = Function('return (' + ms[1] + ')')(); } catch (e) { every = 0; } }
+      if (every >= 60000) anon.push(f + ' @' + every + 'ms');
+    }
+  });
+  check('no long-lived timer is anonymous',
+    anon.length === 0,
+    ': ' + anon.join(', ') + ' — an unnamed interval cannot be matched to a row on the ' +
+    'automation list, so it runs and the page that says what runs cannot see it. Assign ' +
+    'it to a variable and add the row.');
+
+  /* And the other direction: a row describing something that no longer exists. */
+  const allSrc = ['functions/index.js', 'admin.html', 'index.html', 'employee.html']
+    .map(readSrc).join('\n');
+  const ghosts = AUTOMATION.filter(a => allSrc.indexOf(a.id) === -1).map(a => a.id);
+  check('and no row on the list describes a run that is gone',
+    ghosts.length === 0,
+    ': ' + ghosts.join(', ') + ' — a row nothing matches excuses nothing and hides the ' +
+    'rename, which is how a list that looks complete stops being it');
+
+  /* Every row says the four things that make it worth reading. A row with a blank
+     "if it stopped" is the one nobody can act on, and it is the reason for the list. */
+  AUTOMATION.forEach(a => {
+    check('the ' + a.title + ' row says when it runs and what it would cost',
+      !!a.when && !!a.does && !!a.ifItStopped && typeof a.watched === 'boolean',
+      ': what a timer does is guessable from its name; what it costs when it silently ' +
+      'stops is not, and every one of these fails quietly');
+  });
+
+  note('names ' + AUTOMATION.length + ' automatic runs, ' +
+    AUTOMATION.filter(a => !a.watched).length + ' of them not watched by the grid.');
+}
+
+/* ---------------------------------------------------------------------------
+ * ONE PEDIGREE PER TAB — six views of one graph, never six graphs.
+ *
+ * Addie, 2026-08-30: "make a pedigree branch for each of the following tabs". The whole
+ * safety of doing that is that each tab names steps that ALREADY EXIST, so a step cannot
+ * say one thing on the full path and another on its own tab. Six diagrams that drift
+ * apart would be worse than the one.
+ * ------------------------------------------------------------------------- */
+{
+  const { STEPS, TAB_ROOTS } = require('./connections/journey.js');
+  const byId = {};
+  STEPS.forEach(st => { byId[st.id] = st; });
+
+  check('all six tabs Addie named have a pedigree',
+    ['Quote', 'Customers', 'Routes', 'Schedule', 'Warehouse', 'Invoices']
+      .every(t => TAB_ROOTS.some(r => r.tab === t)),
+    ': got ' + TAB_ROOTS.map(r => r.tab).join(', '));
+
+  TAB_ROOTS.forEach(t => {
+    check('the ' + t.tab + ' tab starts at a step that exists', !!byId[t.root],
+      ': "' + t.root + '" is not in STEPS — a tab rooted at a step nobody wrote is a ' +
+      'button that opens an empty page');
+    check('and it hands off to a step that exists', !!byId[t.handOff],
+      ': "' + t.handOff + '" is not in STEPS');
+    check('and it says what it is for', !!t.blurb && t.blurb.length > 20,
+      ': a tab door with no blurb is six identical buttons');
+  });
+
+  /* ⚠ THE FIRST VERSION OF THIS CHECKED REACHABILITY AND IT WAS VACUOUS — the red-check
+     caught it. This graph is densely cyclic (a re-quote goes back to the quote email,
+     back-next-year returns to the RSVP), so almost every step reaches almost every other
+     and pointing the Warehouse's hand-off at `quote` sailed straight through. Kept as a
+     note rather than quietly deleted, because "walk the graph" reads like the rigorous
+     answer and here it proves nothing.
+
+     ⭐ THE REAL CLAIM IS A CHAIN. "This tab's work ends at X" means X is where the NEXT
+     tab picks up, so each hand-off must be the following tab's root — and the last one
+     must simply be a step that exists. That is checkable, and it is what makes the six
+     views one journey rather than six disconnected diagrams.
+
+     ⚠ AND THE ORDER IS THE ORDER WORK REALLY HAPPENS IN, not the order Addie listed the
+     tabs. She wrote Quote, Costumers, Routes, Schedule, Warehouse, Invoices; a bundle is
+     built before a day is planned and a day is planned before a crew is given a sheet, so
+     Warehouse and Schedule sit ahead of Routes here. If that ever stops being true the
+     chain breaks loudly rather than the page quietly describing a season nobody works. */
+  TAB_ROOTS.forEach((t, i) => {
+    const nextTab = TAB_ROOTS[i + 1];
+    if (!nextTab) {
+      check('the last tab hands off to a step that exists', !!byId[t.handOff],
+        ': "' + t.handOff + '" is not in STEPS');
+      return;
+    }
+    check('the ' + t.tab + ' tab hands off to where ' + nextTab.tab + ' begins',
+      t.handOff === nextTab.root,
+      ': it says its work ends at "' + t.handOff + '" but ' + nextTab.tab +
+      ' starts at "' + nextTab.root + '" — the six views are meant to be one journey, ' +
+      'and a hand-off pointing anywhere else leaves a gap nobody owns');
+  });
+
+  /* And the whole graph, checked once here rather than trusted: every edge points at a
+     real step, every step is reachable from a door, and nothing dead-ends without saying
+     it is an ending. */
+  const bad = [];
+  STEPS.forEach(st => (st.next || []).forEach(e => { if (!byId[e.to]) bad.push(st.id + ' → ' + e.to); }));
+  check('every step on the path points at a step that exists', bad.length === 0, ': ' + bad.join(', '));
+
+  const reached = new Set();
+  const queue = STEPS.filter(st => st.start).map(st => st.id);
+  while (queue.length) {
+    const id = queue.pop();
+    if (reached.has(id)) continue;
+    reached.add(id);
+    ((byId[id] || {}).next || []).forEach(e => queue.push(e.to));
+  }
+  const orphans = STEPS.filter(st => !reached.has(st.id)).map(st => st.id);
+  check('and every step can be reached from one of the doors', orphans.length === 0,
+    ': ' + orphans.join(', ') + ' — a step nobody can walk to is on the page and in ' +
+    'nobody\'s path');
+
+  const silentEnds = STEPS.filter(st => !(st.next || []).length && !st.end).map(st => st.id);
+  check('and nothing stops without saying it is an ending', silentEnds.length === 0,
+    ': ' + silentEnds.join(', ') + ' — a step that just runs out reads as a page that ' +
+    'failed to draw the rest');
+
+  /* ⭐ AND THE RETURNING CUSTOMER HAS A DOOR OF THEIR OWN. Addie: "for old costumers are
+     starting point is just at RSVP". Asserted by name, because the whole point is that
+     the ~960 people already on the books can start their season somewhere rather than
+     only as a footnote to somebody else's first one. */
+  check('a returning customer can start at the RSVP',
+    STEPS.some(st => st.id === 'rsvpasked' && st.start),
+    ': rsvpasked is not a start — the returning path is only reachable by walking the ' +
+    'whole first-season path from a quote');
+  check('and the RSVP step is dated',
+    (byId.rsvpasked || {}).records && byId.rsvpasked.records.indexOf('rsvpSentAt') !== -1,
+    ': the send stamps rsvpSentAt, and that stamp is what decides whether anybody may be ' +
+    'dropped for not answering — a step that important showing no trace is its own finding');
+
+  note('draws ' + STEPS.length + ' steps, ' + STEPS.filter(st => st.start).length +
+    ' ways in and ' + TAB_ROOTS.length + ' tab views of the same graph.');
+}
+
 note('watches ' + m.report.length + ' things. It cannot tell whether a connection is RIGHT, ' +
   'only whether it is there — and nothing appears here until a person declares it.');
 

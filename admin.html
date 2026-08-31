@@ -9347,6 +9347,12 @@ document.getElementById('downloadBackupBtn').addEventListener('click', async fun
     statusEl.textContent = 'Backup failed — try again.';
   }
 });
+/* The ten-minute re-read of the nightly billing log — declared here, beside the only
+   thing that uses it, rather than with the other timer variables 42,000 lines down. A
+   `let` used before its declaration line has been evaluated is a TDZ error, and the only
+   reason the far-away version worked was that initData runs after the module finishes.
+   Not a fact worth depending on. */
+let nightlyHealthTimer = null;
 function initData(){
   if(initialized) return;
   initialized = true;
@@ -9385,7 +9391,13 @@ function initData(){
   // Read the nightly run's health once at login, then again on the same ten
   // minute beat as the checks that report it.
   loadNightlyHealth().catch(function(){ /* quiet on purpose: the ten-minute beat below re-reads it, and the stale-run banner is driven by the LAST successful read — so a failed read leaves the banner saying the run is stale, which is the safe direction. */ });
-  setInterval(function(){ loadNightlyHealth().catch(function(){ /* quiet on purpose: see above — the next tick re-reads it. */ }); }, 10 * 60 * 1000);
+  /* ⚠ NAMED, AND THAT IS NOT COSMETIC. This was an anonymous setInterval, and the
+     Connections page's automation sweep finds a long-lived timer by the variable it is
+     assigned to — so the one alarm on the most expensive automatic run in the app was
+     invisible to the list that exists to say what runs by itself. Naming it is what makes
+     it findable; `connections.test.js` now refuses an anonymous long-lived timer for
+     exactly this reason. */
+  nightlyHealthTimer = setInterval(function(){ loadNightlyHealth().catch(function(){ /* quiet on purpose: see above — the next tick re-reads it. */ }); }, 10 * 60 * 1000);
   /* ⚠ EAGER, WITH THE OTHER BADGE LOADERS. The Health badge counts findings and a
      denied one must not be in that count, so the answers have to be in hand before the
      first render — a badge that is only right once you open the panel is not a badge.
