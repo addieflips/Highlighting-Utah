@@ -124,6 +124,7 @@ function build(opts) {
      fields that record it, and clicking one lands on that field's row, which is the same
      one level in it has always been. What changed is how you get there. */
   const journey = require('./journey.js');
+  const { AUTOMATION } = require('./automation.js');
   const JSTEPS = {};
   journey.STEPS.forEach(s => { JSTEPS[s.id] = s; });
   const JSTARTS = journey.STEPS.filter(s => s.start).map(s => s.id);
@@ -154,12 +155,35 @@ function build(opts) {
     '<span><i class="cell bad"></i> should, doesn’t</span><span><i class="cell wrn"></i> does, never agreed</span>' +
     '<span><i class="rt cust">Customer</i> <i class="rt inv">Invoice</i> which record it is stored on</span></div>' +
     '<div class="detail" id="gdetail">Click any square to see its rules, or a red one to see what’s wrong.</div>' +
+    /* ⭐ WHAT RUNS WITHOUT ANYBODY PRESSING ANYTHING (2026-08-30). Addie: "I think where
+       things go does not have a complete representation of the automation. There is still
+       things missing there." The grid is field × SCREEN and automation is not a screen, so
+       it goes underneath as its own list rather than as six more columns on a table that
+       is already eight wide on a tablet. See connections/automation.js. */
+    '<h2 class="autohead">What runs without anybody pressing anything</h2>' +
+    '<p class="note">' + AUTOMATION.length + ' automatic runs. ' +
+      AUTOMATION.filter(a => !a.watched).length + ' of them are not watched by the grid ' +
+      'above — said plainly, because a page claiming to cover the automation and ' +
+      'quietly leaving some out is the fault it exists to catch.</p>' +
+    '<div class="autolist">' + AUTOMATION.map(a =>
+      '<div class="autorow' + (a.watched ? '' : ' unwatched') + '">' +
+      '<div class="autotop"><b>' + esc(a.title) + '</b>' +
+        '<span class="autowhen">' + esc(a.when) + '</span>' +
+        '<span class="autowatch">' + (a.watched ? 'watched' : 'not watched') + '</span></div>' +
+      '<p class="autodoes">' + esc(a.does) + '</p>' +
+      '<p class="autowhere">' + esc(a.where) + '</p>' +
+      (a.touches.length
+        ? '<p class="autotouch">Writes to ' + a.touches.map(t => '<code>' + esc(t) + '</code>').join(' ') + '</p>'
+        : '<p class="autotouch dim">Reads only — it changes nothing.</p>') +
+      '<p class="autostop"><b>If it stopped:</b> ' + esc(a.ifItStopped) + '</p>' +
+      '</div>').join('') + '</div>' +
     '<p class="note" style="margin-top:18px;">Counts last rebuilt at ' +
       (builtFrom() || 'rebuild date unknown') + '.</p>' +
     '</div><div id="rules" hidden></div></div>' +
     '<script>\nconst DEST=' + JSON.stringify(grid.DEST) + ';\n' +
     'const JSTEPS=' + JSON.stringify(JSTEPS) + ';\n' +
     'const JSTARTS=' + JSON.stringify(JSTARTS) + ';\n' +
+    'const JTABS=' + JSON.stringify(journey.TAB_ROOTS) + ';\n' +
     'const TABS=' + JSON.stringify(TABS) + ';\n' +
     'const FAULTS=' + JSON.stringify(FAULTS) + ';\n' +
     'const CELLRULES=' + JSON.stringify(CELLRULES) + ';\n' +

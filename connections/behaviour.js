@@ -220,12 +220,35 @@ function drawPath(){
    '<div class="headline"><b>Follow a customer through.</b> Start with how they reached '+
     'us, then press whatever happens next — where a customer has a choice, so does this '+
     'page.</div>'+
-   '<p class="jnexthead">How did this customer arrive?</p><div class="jnexts">'+
+   /* ⚠ THE DOORS FAN OUT TOO. The opening screen is where somebody decides which kind
+      of customer they are following, and a returning customer's door (the RSVP) leads
+      somewhere completely different from a quote's — which is invisible if all four are
+      drawn as identical buttons. */
+   /* ⭐ A PEDIGREE PER TAB (2026-08-30). Addie: "make a pedigree branch for each of the
+      following tabs". One path start-to-finish answers "what happens to a customer"; it
+      does not answer the question somebody standing on a tab has, which is "what can
+      happen from HERE". Each of these drops you into the same graph at that tab's own
+      root, so the trail and every branch behave exactly as they do from a front door —
+      six views of one graph, never six graphs. */
+   '<p class="jnexthead">Or start on a tab</p>'+
+   '<div class="jtabs">'+JTABS.map(function(t){
+     return '<button type="button" class="jtab" data-jgo="'+esc(t.root)+'">'+
+      '<span class="jtabname">'+esc(t.tab)+'</span>'+
+      '<span class="jtabblurb">'+esc(t.blurb)+'</span></button>';
+   }).join('')+'</div>'+
+   '<p class="jnexthead">How did this customer arrive?</p><div class="jnexts jped">'+
    JSTARTS.map(function(id){
-    const s=JSTEPS[id]||{title:id,plain:''};
-    return '<button type="button" class="jnext" data-jgo="'+esc(id)+'">'+
-     '<span class="jlabel">'+esc(s.plain||'')+'</span>'+
-     '<span class="jto">'+esc(s.title)+' ›</span></button>';
+    const st=JSTEPS[id]||{title:id,plain:''};
+    const kids=(st.next||[]).map(function(g){
+     const gt=JSTEPS[g.to]||{title:g.to};
+     return '<span class="jgrand">'+esc(gt.title)+'</span>';
+    }).join('');
+    return '<div class="jbranch">'+
+     '<button type="button" class="jnext" data-jgo="'+esc(id)+'">'+
+      '<span class="jlabel">'+esc(st.plain||'')+'</span>'+
+      '<span class="jto">'+esc(st.title)+' ›</span></button>'+
+     (kids?'<span class="jgrands">'+kids+'</span>':'')+
+    '</div>';
    }).join('')+'</div>';
   return;
  }
@@ -242,17 +265,62 @@ function drawPath(){
  const recs=(here.records||[]).map(function(f){
   return '<button type="button" class="jfield" data-jfield="'+esc(f)+'">'+esc(f)+'</button>';
  }).join(' ');
+ /* ⭐ THE BRANCHES ARE DRAWN, NOT LISTED (2026-08-30). Addie: "make the path look more
+    like a pedigree". A stacked list of buttons answers "what can I press" and hides the
+    one thing a pedigree is for — the SHAPE. Two generations are drawn: every way out of
+    here, and under each of those, every way out of THAT. So a branch that immediately
+    fans into four is visibly different from one that runs straight on, before you click
+    anything.
+
+    ⚠ TWO GENERATIONS AND NO MORE, AND THAT IS NOT A STYLE CHOICE. This graph has real
+    cycles — back next year returns to the quote, a re-quote returns to approval — so an
+    unbounded draw never terminates. Depth two is also the most that stays readable at
+    43 steps.
+
+    ⚠ A GRANDCHILD IS A LABEL, NOT A BUTTON. Making it clickable would let somebody skip
+    the middle step, and the trail behind them would then claim a route they did not take
+    — which is the one thing this page must never do.
+
+    ⚠ AND A STEP ALREADY ON THE TRAIL IS MARKED RATHER THAN EXPANDED. Drawing its
+    children again would show the same fan twice and read as though the customer could
+    be in two places; `back to` says what it really is. */
+ const grands=function(id){
+  const t=JSTEPS[id];
+  if(!t) return '';
+  const kids=(t.next||[]);
+  if(!kids.length) return '<span class="jleaf">'+(t.end?'ends here':'nothing follows')+'</span>';
+  return '<span class="jgrands">'+kids.map(function(g){
+   const gt=JSTEPS[g.to]||{title:g.to};
+   return '<span class="jgrand'+(trail.indexOf(g.to)!==-1?' seen':'')+'">'+esc(gt.title)+'</span>';
+  }).join('')+'</span>';
+ };
  const outs=(here.next||[]).map(function(e){
   const t=JSTEPS[e.to]||{title:e.to};
-  return '<button type="button" class="jnext" data-jgo="'+esc(e.to)+'">'+
-   '<span class="jlabel">'+esc(e.label)+'</span>'+
-   '<span class="jto">'+esc(t.title)+' ›</span></button>';
+  const back=trail.indexOf(e.to)!==-1;
+  return '<div class="jbranch">'+
+   '<button type="button" class="jnext'+(t.built===false?' unbuilt':'')+
+    (back?' back':'')+'" data-jgo="'+esc(e.to)+'">'+
+    '<span class="jlabel">'+esc(e.label)+'</span>'+
+    '<span class="jto">'+(back?'back to ':'')+esc(t.title)+' ›</span></button>'+
+   (back?'':grands(e.to))+
+  '</div>';
  }).join('');
  host.innerHTML=
   '<div class="headline"><b>Follow a customer through.</b> Start at the top and press '+
    'whatever happens next — where a customer has a choice, so does this page.</div>'+
   '<div class="jtrail">'+crumbs+(trail.length>1?
    ' <button type="button" class="jreset" data-jreset="1">start again</button>':'')+'</div>'+
+  /* ⚠ A STEP THAT IS A TAB'S ROOT SAYS SO, AND SAYS WHERE THAT TAB'S WORK ENDS. Without
+     it the six tab buttons drop you into the middle of the path with nothing to tell you
+     which view you asked for, and the hand-off — the step where this tab stops being the
+     one doing the work — is the thing somebody on that tab most wants to see. */
+  (function(){
+    const t=JTABS.filter(function(x){ return x.root===here.id; })[0];
+    if(!t) return '';
+    const h=JSTEPS[t.handOff]||{title:t.handOff};
+    return '<div class="jtabhead"><b>'+esc(t.tab)+'</b> \u2014 '+esc(t.blurb)+
+     '<div class="jhandoff">This tab\u2019s work ends at <b>'+esc(h.title)+'</b>.</div></div>';
+  })()+
   '<div class="jcard'+(here.built===false?' unbuilt':'')+'">'+
    '<h2>'+esc(here.title)+'</h2>'+
    (here.built===false?'<p class="jwarn">Not built yet — this is how it should work, '+
@@ -263,7 +331,8 @@ function drawPath(){
      '<p class="jrec dim">Nothing on the record marks this step.</p>')+
   '</div>'+
   (outs?'<p class="jnexthead">'+(here.next.length===1?'Then:':'From here it can go '+
-    here.next.length+' ways:')+'</p><div class="jnexts">'+outs+'</div>'
+    here.next.length+' ways \u2014 and here is what each one leads to:')+
+    '</p><div class="jnexts jped">'+outs+'</div>'
    :'<p class="jnexthead">This is where the journey ends.</p>');
 }
 /* Clicking a field on a step takes you to that field's row on the grid — the same one

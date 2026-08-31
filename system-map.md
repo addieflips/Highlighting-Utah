@@ -1550,6 +1550,72 @@ settled. That is why none of the three surfaces above carries a fix button.
 questions map — that file holds judgement calls she made. Her answers *about* it are: MON-29
 (where it shows) and MON-30 (the inbox note and the invoice banner).
 
+### The Connections page — the path, the tabs, and what runs by itself
+
+**The path is a graph you walk, not a list you read.** 43 steps, four ways in, and every
+step offers the things that can happen next.
+
+**Four doors, and one of them is new (2026-08-30).** Addie: *"for old costumers are
+starting point is just at RSVP can we work on those paths to"*. `rsvpasked` was a
+*through*-step, reachable only by walking the whole first-season path from a quote — so
+the ~960 people already on the books had no starting point of their own. It is a start
+now, and it gained the date it always should have had (`rsvpSentAt`, the stamp
+`seasonRuleIsLive` reads to decide whether anybody may be dropped for not answering).
+
+The returning path was also **thin**: a yes went straight to the warehouse. It now draws
+what a yes really does (`seasonYesUpdates` cancels a queued recycle, re-queues a build
+only where that recycle happened, clears the badge in both its fields, and stamps both
+the planner's instruction and the office's badge), plus the price-only re-quote where the
+warehouse does nothing, and the second door out of the season — **the office badging
+somebody Back Next Year**, which is a different field from the customer answering the link
+and is the exact split `isOutForSeason` was fixed for.
+
+**A pedigree per tab** (2026-08-30). Addie: *"make a pedigree branch for each of the
+following tabs"* — Quote, Customers, Routes, Schedule, Warehouse, Invoices. Each drops you
+into the **same graph** at that tab's own root, so a step can never say one thing on the
+full path and another on its tab. Each names where its work hands off, and the hand-offs
+**form a chain**: Quote → Customers → Warehouse → Schedule → Routes → Invoices, each one's
+hand-off being the next one's root. ⚠ That order is the order work really happens in, not
+the order the tabs were listed — a bundle is built before a day is planned.
+
+**Two path errors were found and fixed** while checking it:
+- `newMemberFeeAppliedAt` was drawn on **Paid**. `runInvoiceBatch` stamps it when the
+  invoice is *built*, so the page said a customer is charged their $30 at the moment they
+  settle — the one place somebody querying that charge would look. It is on **Invoiced**.
+- **Back next year** went only to a fresh quote. Somebody already a customer gets the
+  *RSVP* next season; only a lead who was never converted gets quoted again. It forks now.
+
+**The branches are drawn, not listed.** Two generations: every way out of here, and under
+each of those, what *that* leads to — so a branch that fans into four looks different from
+one that runs straight on, before anything is clicked. Two generations and no more is not
+a style choice: the graph has real cycles and an unbounded draw never terminates. A
+grandchild is a **label, not a button** — making it clickable would let somebody skip the
+middle step and leave a trail claiming a route they did not take.
+
+### What runs without anybody pressing anything
+
+Addie, 2026-08-30: *"where things go does not have a complete representation of the
+automation. There is still things missing there."* She was right, and the grid could not
+have shown it — that grid is field × **screen**, and automation is not a screen. The only
+automatic run with a column was the 7pm billing; **Automation Emails was folded into the
+Portal column**, which is simply wrong (an automation email lands in a customer's inbox).
+
+`connections/automation.js` lists all seven with cadence, what each writes, and — the row
+that earns the list — **what it would cost if it stopped**. Five of the seven are *not*
+watched by the grid, and the page says so rather than implying coverage it does not have.
+
+⚠ **The list is gated from the code back to the list.** `connections.test.js` sweeps every
+`onSchedule` and every named `setInterval` out of the four source files and fails if one is
+not on it — the same direction as the portal whitelist and the collections table, and for
+the same reason: every check that existed asked *"is the declared thing still connected"*,
+so a run nobody declared was absent from the question.
+
+⚠ **And an anonymous long-lived timer is now refused outright.** The sweep finds a timer by
+the variable it is assigned to, so `setInterval(function(){…}, 600000)` with no name is
+invisible to it — which is exactly what the ten-minute re-read of the nightly billing log
+was: *the one alarm on the most expensive automatic run in the app*, unfindable by the list
+that exists to say what runs by itself. It is `nightlyHealthTimer` now.
+
 ### What the customer's own page can actually see
 
 The member portal never touches Firestore. Everything it knows comes back through

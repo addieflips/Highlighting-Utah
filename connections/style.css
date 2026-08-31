@@ -154,6 +154,114 @@ ul.rl li::before{content:'';position:absolute;left:0;top:16px;width:6px;height:6
 .jnext:hover{ border-color:var(--ink); background:var(--wire); }
 .jlabel{ font-size:13.5px; }
 .jto{ font-size:12.5px; color:var(--dim); white-space:nowrap; font-weight:600; }
+/* ---- ONE PEDIGREE PER TAB ------------------------------------------------
+   Six doors into the same graph, offered beside the four "how did they arrive" ones.
+   Deliberately a different shape from those: arriving is a question about one customer,
+   a tab is a question about where you are standing. */
+.jtabs{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 22px; }
+.jtab{
+  flex:1 1 190px; text-align:left; background:none; cursor:pointer; font:inherit;
+  border:1px solid var(--wire); border-radius:9px; padding:11px 13px;
+  display:flex; flex-direction:column; gap:3px;
+}
+.jtab:hover{ border-color:var(--ink); background:var(--wire); }
+.jtabname{ font-size:14px; font-weight:700; }
+.jtabblurb{ font-size:12px; color:var(--dim); line-height:1.45; }
+/* Standing on a tab's root. Says which view you asked for and where that view stops
+   being the one doing the work — without it the six buttons drop you into the middle of
+   the path with nothing to say which one you pressed. */
+.jtabhead{
+  border-left:3px solid var(--ww, #ffd49a); border-radius:0 8px 8px 0;
+  background:rgba(255,212,154,.06); padding:10px 14px; margin:0 0 14px;
+  font-size:13px; line-height:1.55;
+}
+.jhandoff{ margin-top:4px; font-size:12px; color:var(--dim); }
+
+/* ---- WHAT RUNS BY ITSELF -------------------------------------------------
+   Under the grid, not in it. The grid is field × screen; automation is not a screen, and
+   six more columns on a table already eight wide would make it unreadable on the tablet
+   the office actually uses.
+
+   ⚠ AN UNWATCHED RUN IS COLOURED, not merely labelled. Five of the seven are not watched
+   by the grid, and a page that says so only in small grey text is a page that says so to
+   nobody. */
+.autohead{ font-size:16px; margin:30px 0 4px; }
+.autolist{ display:flex; flex-direction:column; gap:10px; margin:14px 0 0; }
+.autorow{
+  border:1px solid var(--wire); border-left:4px solid var(--ink);
+  border-radius:10px; padding:13px 16px;
+}
+.autorow.unwatched{ border-left-color:var(--gold, #B8860B); }
+.autotop{ display:flex; flex-wrap:wrap; align-items:baseline; gap:10px; margin:0 0 6px; }
+.autotop b{ font-size:15px; }
+.autowhen{ font-size:12px; color:var(--dim); }
+.autowatch{
+  margin-left:auto; font-size:11px; font-weight:700; letter-spacing:.04em;
+  text-transform:uppercase; color:var(--dim);
+}
+.autorow.unwatched .autowatch{ color:var(--gold, #B8860B); }
+.autodoes{ margin:0 0 6px; font-size:13.5px; line-height:1.55; }
+.autowhere{ margin:0 0 6px; font-size:12px; color:var(--dim); font-style:italic; }
+.autotouch{ margin:0 0 6px; font-size:12px; color:var(--dim); }
+.autotouch code{ background:rgba(255,255,255,.06); border-radius:4px; padding:1px 5px; }
+/* ⚠ "IF IT STOPPED" IS THE ROW THAT EARNS THE LIST. What a timer does is guessable from
+   its name; what it costs when it silently stops is not, and every one of these fails
+   quietly. */
+.autostop{ margin:0; font-size:12.5px; line-height:1.5; }
+@media (max-width:640px){ .autowatch{ margin-left:0; } }
+
+/* ---- THE PEDIGREE --------------------------------------------------------
+   Addie, 2026-08-30: "make the path look more like a pedigree". A stacked list of
+   buttons answers "what can I press"; a pedigree shows the SHAPE — which branch fans
+   into four and which runs straight on — before anything is clicked.
+
+   ⚠ THE CONNECTORS ARE BORDERS, NOT SVG. The number of branches and the length of
+   every label are decided at draw time from the graph, so anything positioned by
+   coordinate would need measuring and re-measuring on every resize. A left border with
+   an elbow is the same picture, reflows for free, and cannot drift out of line with the
+   text it belongs to.
+
+   ⚠ AND IT DEGRADES TO THE OLD LIST. Every rule here is decoration on top of `.jnext`,
+   which is unchanged — so a branch whose children fail to render is still a button that
+   works, which is the half that matters on a tablet in an office. */
+.jped{ gap:14px; }
+.jbranch{ position:relative; }
+/* The children of a branch, drawn under it and hanging off an elbow. */
+.jgrands{
+  display:flex; flex-wrap:wrap; gap:6px;
+  margin:0 0 0 26px; padding:8px 0 2px 16px;
+  border-left:1px solid var(--wire);
+}
+/* ⚠ THE ELBOW IS THE WHOLE PICTURE. Without it the children read as a second row of
+   tags belonging to nothing; with it they visibly hang off the branch above. */
+.jgrands::before{
+  content:''; position:absolute; left:26px; width:16px; height:1px;
+  background:var(--wire); margin-top:9px;
+}
+.jgrand{
+  font-size:11.5px; color:var(--dim); background:rgba(255,255,255,.04);
+  border:1px solid var(--rule); border-radius:999px; padding:3px 9px; line-height:1.4;
+}
+/* A step already behind you on the trail. Marked, never expanded — see the note in
+   behaviour.js about why drawing its fan twice would read as two places at once. */
+.jgrand.seen{ opacity:.55; font-style:italic; }
+.jnext.back{ border-style:dashed; }
+.jnext.back .jto{ font-style:italic; }
+/* A branch that leads somewhere not built yet is coloured on the way IN, not only once
+   you are standing on it — the whole point of drawing two generations is deciding where
+   to go before you go there. */
+.jnext.unbuilt{ border-color:var(--gold, #B8860B); }
+.jnext.unbuilt .jto{ color:var(--gold, #B8860B); }
+.jleaf{
+  display:inline-block; margin:6px 0 0 42px; font-size:11.5px;
+  color:var(--dim); font-style:italic;
+}
+@media (max-width:640px){
+  .jgrands{ margin-left:12px; padding-left:10px; }
+  .jgrands::before{ left:12px; width:10px; }
+  .jleaf{ margin-left:22px; }
+}
+
 /* The row you were sent to, so the jump from a step lands somewhere visible. */
 tr.flash td{ background:rgba(184,134,11,.16); transition:background .5s; }
 @media (max-width:640px){

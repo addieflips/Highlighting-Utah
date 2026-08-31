@@ -137,7 +137,16 @@ const STEPS = [
      * usually from a conversation. Which of the two happened is exactly what somebody is
      * asking when they open the record. */
     records: ['rsvpRespondedAt', 'maybeNextYearAt'],
-    next: [{ to: 'quote', label: 'and next season we ask them again' }] },
+    /* ⚠ IT FORKS, AND IT USED TO GO ONLY TO `quote`. Somebody who is ALREADY a customer
+       and says back next year is still a customer — next season they get the RSVP with
+       everybody else, not a fresh quote, and drawing it the old way sent a returning
+       customer round the whole first-season path again. A LEAD who says it was never
+       converted, so for them a new quote really is the next thing. Two different people
+       in one step, which is exactly the kind of branch this page is for. */
+    next: [
+      { to: 'rsvpasked', label: 'they are already a customer, so next season they get the RSVP' },
+      { to: 'quote',     label: 'they were only ever a lead, so next season we quote them again' }
+    ] },
 
   { id: 'approved', title: 'They approve',
     plain: 'The price is agreed. What happens next depends on whether they are already a customer. ' +
@@ -326,7 +335,11 @@ const STEPS = [
      * `invoicedAt` is stamped on the INVOICE when the amount is worked out; the email
      * leaving is stamped on the CUSTOMER. Drawing only the first reads as proof of
      * something it does not prove. */
-    records: ['invoicedAt', 'invoiceEmailSentAt'],
+    /* ⚠ THE JOIN FEE IS DATED HERE, not on `paid`. It is folded straight into `install`
+       rather than listed like the change fee, so this stamp is the only record of WHEN a
+       customer was charged their $30 — and that is the question asked when they query the
+       bill. Start New Season clears the flag, so it answers "this season" each year. */
+    records: ['invoicedAt', 'invoiceEmailSentAt', 'newMemberFeeAppliedAt'],
     next: [
       { to: 'paid',      label: 'they pay it all' },
       { to: 'partpaid',  label: 'they pay some of it' },
@@ -393,9 +406,14 @@ const STEPS = [
       'written down: $25 if they have paid something, $40 if they have paid nothing.',
     next: [{ to: 'paid', label: 'they pay' }] },
 
+  /* ⚠ `newMemberFeeAppliedAt` USED TO BE ON THIS STEP AND IT IS WRONG. `runInvoiceBatch`
+     stamps it when the invoice is BUILT — the $30 is folded into `install`, so the date
+     belongs to the bill going out, not to somebody settling it. Drawn here the page said
+     a customer is charged the join fee at the moment they pay, which is the one place
+     somebody querying that charge would look. It has moved to `invoiced`. */
   { id: 'paid', title: 'Paid',
     plain: 'The bill is settled. Their part of the season is over.',
-    records: ['newMemberFeeAppliedAt'],
+    records: ['lastPaymentAt'],
     next: [{ to: 'takedown', label: 'and after Christmas the lights come down' }] },
 
   { id: 'takedown', title: 'Lights taken down',
@@ -423,18 +441,85 @@ const STEPS = [
     records: ['seasonResetAt'],
     next: [{ to: 'rsvpasked', label: 'and next season we ask if they want lights again' }] },
 
-  /* ⚠ THE RSVP IS A DIFFERENT NO FROM A DECLINED QUOTE, and this is where it lives.
-     Declining a quote is "not at this price"; answering no here is "not this year at all",
-     and it takes them off every route, the build queue and the bill. */
-  { id: 'rsvpasked', title: 'Asked again next season',
-    plain: 'The RSVP goes out. Only somebody who answers is scheduled — nobody is carried ' +
-      'into the season on last year’s yes.',
+  /* ⭐ THE RETURNING CUSTOMER'S PATH BEGINS HERE (2026-08-30). Addie: "for old costumers
+     are starting point is just at RSVP can we work on those paths to".
+
+     ⚠ IT WAS A THROUGH-STEP, NOT A DOOR. `rsvpasked` was reachable only by walking the
+     whole first-season path from a quote — so the ~960 people who are already customers
+     had no starting point of their own, and their season could only be read as a footnote
+     to somebody else's. It is a `start` now, beside the three first-season doors.
+
+     ⚠ AND IT HAD NO DATE ON IT AT ALL, which is its own finding: the send stamps
+     `rsvpSentAt`, that stamp is what `seasonRuleIsLive` reads to decide whether anybody
+     may be dropped for not answering, and the page showed the step as leaving no trace.
+
+     ⚠ THE RSVP IS A DIFFERENT NO FROM A DECLINED QUOTE. Declining a quote is "not at this
+     price"; answering no here is "not this year at all", and it takes them off every
+     route, the build queue and the bill. */
+  { id: 'rsvpasked', title: 'The RSVP goes out', start: true,
+    plain: 'Where a returning customer\u2019s season starts. We ask everybody who had ' +
+      'lights last year whether they want them again. Only somebody who answers is ' +
+      'scheduled \u2014 nobody is carried into the season on last year\u2019s yes.',
+    records: ['rsvpSentAt'],
     next: [
-      { to: 'queued',       label: 'they say yes' },
+      { to: 'rsvpyes',      label: 'they say yes' },
       { to: 'rsvpno',       label: 'they say no' },
       { to: 'backnextyear', label: 'they say back next year' },
+      { to: 'officebadged', label: 'the office badges them out after a conversation' },
       { to: 'unanswered',   label: 'they never answer' }
     ] },
+
+  /* ⭐ A YES IS NOT ONE FIELD, IT IS EIGHT — and drawing it as a straight line to the
+     warehouse was the thin part Addie is pointing at. `seasonYesUpdates` is one shared
+     server rule (portalRsvp and quoteRespond both call it), and it: sets the status,
+     stamps the reply, CANCELS a queued recycle their earlier no created, re-queues a
+     build only where that recycle had actually happened, clears the Back Next Year badge
+     in both of its fields, and — for somebody who was out — stamps both the instruction
+     the planner consumes and the record the office reads.
+
+     ⚠ TWO FIELDS FOR COMING BACK, ON PURPOSE. `needsDayAssignedAt` is an instruction the
+     planner eats; `cameBackThisSeasonAt` is the badge, and it has to outlive the
+     instruction or it disappears the moment it does any good. */
+  { id: 'rsvpyes', title: 'They say yes',
+    plain: 'In for the season. If they had said no earlier, the recycle that answer ' +
+      'started is cancelled and their build is put back \u2014 and if they were out, they ' +
+      'are marked as having come back so the office can see it and the planner gives them ' +
+      'the next day going.',
+    records: ['rsvpRespondedAt', 'cameBackThisSeasonAt', 'needsDayAssignedAt'],
+    next: [
+      { to: 'queued',       label: 'and they go to the warehouse like anybody else' },
+      { to: 'pricerequote', label: 'their price has changed since last year' },
+      { to: 'memberchange', label: 'they want something different this year' }
+    ] },
+
+  /* ⚠ A PRICE RE-QUOTE IS ITS OWN THING AND THE WAREHOUSE DOES NOTHING. Addie, 2026-08-21:
+     "you can also get a requote because you just changed the price and when that happens
+     nothing gets added to warehouse". Same house, same lights, same feet, same street —
+     building anything would put a real bundle on a real shelf for no reason. It is drawn
+     here rather than folded into `requote` because on the returning path it is the
+     COMMONEST kind, and the other two both imply work. */
+  { id: 'pricerequote', title: 'Re-quoted on price only',
+    plain: 'The number changed and nothing about the house did. The office is asked ' +
+      'whether it goes back to the customer, and can type why. Nothing reaches the ' +
+      'warehouse and nothing is rebuilt.',
+    records: ['requoteAppliedAt'],
+    next: [
+      { to: 'approved',  label: 'they agree the new price' },
+      { to: 'declined',  label: 'they say not at that price' },
+      { to: 'queued',    label: 'the office just corrects it and carries on' }
+    ] },
+
+  /* ⚠ A SECOND DOOR OUT OF THE SEASON, and it is not the RSVP link. The office badges
+     somebody Back Next Year from a conversation — `maybeNextYear` plus `maybeNextYearAt`
+     — while `portalRsvp` writes the STATUS. Two writers, two fields, and reading only one
+     of them is the exact bug `isOutForSeason` was fixed for: everybody who answered
+     through the link stayed fully in the season, routed, scheduled and built for. */
+  { id: 'officebadged', title: 'The office badges them out',
+    plain: 'Somebody rang in, or said so to a crew, and the office marked them Back Next ' +
+      'Year. Same outcome as answering the link \u2014 but it is a different field, and ' +
+      'anything that reads only one of the two gets this customer wrong.',
+    records: ['maybeNextYearAt'],
+    next: [{ to: 'backnextyear', label: 'and they are out for the season' }] },
 
   { id: 'rsvpno', title: 'No this year', end: true,
     plain: 'Out of the season. Their old set is asked back and their number returns to the ' +
@@ -442,10 +527,65 @@ const STEPS = [
     records: ['rsvpRespondedAt'] },
 
   /* ⚠ NEVER ANSWERING IS ITS OWN OUTCOME, not a kind of no. It is the one the office has
-     to act on, and the only one nobody chose. */
+     to act on, and the only one nobody chose.
+
+     ⚠ AND IT ONLY COSTS THEM THEIR SEASON ONCE THE RULE IS LIVE — the RSVP must actually
+     have gone out AND the reply window must have closed. Before that a non-replier is
+     still in, which is what stops the switch emptying the book on the day it ships. */
   { id: 'unanswered', title: 'Never answered', end: true,
-    plain: 'Not scheduled, because only an answer counts — but nobody has said no either, ' +
-      'so they are still worth ringing.' }
+    plain: 'Not scheduled, because only an answer counts \u2014 but nobody has said no ' +
+      'either, so they are still worth ringing. Health Check names them before the rule ' +
+      'starts biting rather than after.',
+    records: ['rsvpSentAt'] }
 ];
 
-module.exports = { STEPS };
+/* ⭐ A PEDIGREE PER TAB (2026-08-30). Addie: "make a pedigree branch for each of the
+ * following tabs — Quote, Costumers, Routes, Schedule, Warehouse, Invoices."
+ *
+ * One path start-to-finish answers "what happens to a customer". It does NOT answer the
+ * question somebody standing on a tab actually has, which is: **what can happen from
+ * here, and where does it go next?** Somebody in the Warehouse does not care how the
+ * quote was emailed; they care that a bundle can be built, topped up or recycled and what
+ * each of those does downstream.
+ *
+ * ⚠ THESE ARE VIEWS OF ONE GRAPH, NOT SIX NEW GRAPHS. Each names steps that already exist
+ * in STEPS, so a step can never say one thing on the whole path and another on its tab —
+ * which is the drift that would make six diagrams worse than one. `connections.test.js`
+ * fails if a tab names a step that is not in STEPS.
+ *
+ * ⚠ AND A STEP APPEARS ON EVERY TAB IT BELONGS TO. A colour change is a Customers event,
+ * a Warehouse event and — inside 48 hours of a crew day — a Routes one. Filing it under
+ * exactly one would be the picture lying by omission, which is the same argument the grid
+ * already makes about a field appearing on several areas.
+ */
+const TAB_ROOTS = [
+  { tab: 'Quote', root: 'quote',
+    blurb: 'Everything that can happen to a price before it is a customer.',
+    /* Where this tab's work stops being this tab's work. Drawn as the last node so the
+       hand-off is visible rather than the branch just ending. */
+    handOff: 'converted' },
+
+  { tab: 'Customers', root: 'converted',
+    blurb: 'From the moment somebody is on the books. Every change they can ask for, and ' +
+      'both ways out of the season.',
+    handOff: 'queued' },
+
+  { tab: 'Warehouse', root: 'queued',
+    blurb: 'What puts a bundle on the list, what takes one off, and what comes back.',
+    handOff: 'scheduled' },
+
+  { tab: 'Schedule', root: 'scheduled',
+    blurb: 'Being given a day, and everything that can move somebody off one.',
+    handOff: 'assigned' },
+
+  { tab: 'Routes', root: 'assigned',
+    blurb: 'On a crew sheet. What the crew can report back, and what a late change does ' +
+      'to a day that is already printed.',
+    handOff: 'invoiced' },
+
+  { tab: 'Invoices', root: 'invoiced',
+    blurb: 'The bill going out, and every way it can be settled or not settled.',
+    handOff: 'takedown' }
+];
+
+module.exports = { STEPS, TAB_ROOTS };
