@@ -1640,8 +1640,12 @@ rather than dent — then Warehouse, Quotes, Invoices.
 | **Schedule** | 32 | **2** (was 56) |
 | **Customers-RSVP** | 36 | **4** (was 40) |
 | **Warehouse** | 92 | **10** (was 170) |
-| Quotes | 17 | 159 |
-| Invoices | 22 | 215 |
+| **Quotes** | 45 | **27** (was 159) |
+| **Invoices** | 79 | **14** (was 215) |
+
+**All five are done. 760 → 57 across the whole map.** What is left is almost entirely
+anonymous handlers, which cannot be attributed to a named function and are the honest
+floor of this technique.
 
 **What declaring found.** `stops` went from 42 undeclared to **nought**, and the entries
 are the ones that matter: the 15-minute route sweep rewrites the frozen list a crew is
@@ -1687,6 +1691,30 @@ business, declared there); dozens of `print*`/`render*` functions *show* it, and
 that shows a number is not a connection anybody needs to police, while one that *decides*
 something with it is and those are declared; and a rank table named after fields
 (`{street: 1, housePrice: 2, customerNumber: 4, …}`) reads as a write to any matcher.
+
+**Quotes, and `status` is six fields wearing one name.** A QUOTE's status, an INVOICE's
+(`computeInvoiceStatus` — its own field, and it still has no spine), a credit-card
+transaction's, a time-off request's, an SMS delivery receipt's, and an HTTP response's
+(`res.status` in the measure tool). The record filter catches the ones whose function names
+another collection; a fetch and a Twilio call name none, so those stay hand-written. 98 → 23.
+
+**Invoices — the money.** Every writer of `deposit` can lose a recorded payment, which is
+the one mistake here with no cheap undo. The rules are recorded beside each: Invoice Bulk
+Update preserves an existing payment rather than zeroing it; the Edit Customer save writes
+the change fee LAST, after `syncPayerInvoice`, because that rebuild would overwrite one
+written before it; Start New Season clearing `chargeNewMemberFee` is what stopped the join
+fee being charged every season. 215 → 14.
+
+⚠ **A duplicate key in a spine silently discards the earlier one**, and I introduced one:
+a second `ignore:` on `deposit`, where the later key wins in a JavaScript object literal —
+an exclusion list that reads as active and does nothing, which is this page's own fault
+shape occurring in its own data. Nothing would have said so; every other check passed and
+the counts moved as expected. Now gated for every spine key.
+
+⚠ **And a two-part script half-applied again.** The invoice READER declarations were in a
+script that aborted on an assertion before writing, so the `ignore` fix landed and the
+declarations did not. Caught by the red-check reporting three MISSes — the sabotage could
+not break a declaration that was never there.
 
 ⚠ **A label map is not a write either.** `renderAllCustomersTable` holds
 `{completed:'Install Complete'}` so a filter can be shown in words. That one cannot be
