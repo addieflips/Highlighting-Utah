@@ -36401,6 +36401,40 @@ function cityLooksLikeStreet(cityRaw){
   const last = words[words.length - 1].toLowerCase().replace(/\.$/,'');
   return CITY_STREET_SUFFIXES.indexOf(last) !== -1;
 }
+/* ⭐ A TOWN THAT IS REALLY A STREET NEVER GETS A CREW-DAY OF ITS OWN (2026-08-31).
+   Addie, reading a sweep that took 828 houses off their days: "I don't even know why
+   there are so many changes being made in schedule and it is concerning."
+
+   ⚠ ONE OF THOSE GROUPS WAS TWELVE HERRIMAN HOUSES ON A "S Summit Crest Ln day". A
+   customer record has a STREET in its town box, and nothing downstream can tell — every
+   route day is one town, so the builder grouped that record under a town of its own,
+   built a day for it, and borrowed neighbouring Herriman houses onto it to fill it up.
+   `stopProblem` then evicts every one of them on the next pass, because Herriman is not
+   among that day's towns. Built, evicted, rebuilt — every fifteen minutes, indefinitely.
+
+   ⭐ SO THE DAY IS NEVER BUILT. That is the whole fix: the phantom town seeds nothing, so
+   nobody is borrowed onto it and nobody is evicted from it. It is the same answer
+   `townsAreNeighbours` already gives when it cannot tell — leave the house unassigned and
+   VISIBLE rather than acting on a guess.
+
+   ⚠ THE HOUSE IS NAMED, NEVER SILENTLY DROPPED. It goes into the sweep's stranded list
+   beside the no-pin and no-town houses and is reported in the notice with the value that
+   is wrong, because the fix is one box on one customer record.
+
+   ⚠ AND THE OFFICE'S OWN LIST WINS. A town she has typed into the nearby-towns settings
+   is a town, whatever it looks like to a word list — the same exemption Health Check's
+   `townIsStreet` row already makes. ONE function so the two cannot disagree: a scheduler
+   that skipped a town the health panel called fine would be unexplainable from either
+   screen.
+   ⚠ IT TAKES THE CLEANED TOWN, like every other reader — `extractCleanCity` first. */
+function townIsPhantom(town){
+  const t = String(town == null ? '' : town).trim();
+  if(!t) return false;
+  if(!cityLooksLikeStreet(t)) return false;
+  if(typeof NEARBY_TOWN_LIST !== 'undefined' && NEARBY_TOWN_LIST &&
+     Object.prototype.hasOwnProperty.call(NEARBY_TOWN_LIST, t)) return false;
+  return true;
+}
 /* ---- filling in a town that was never imported ----
    A customer with no town cannot be scheduled at all: every route day is one
    town, so a blank one matches nothing and the house sits out the season in
@@ -45746,6 +45780,11 @@ function planNewCrewDays(waiting, taken, opts){
   const byCity = {};
   waiting.forEach(function(w){
     if(!w || !w.city) return;
+    /* ⚠ A STREET IN A TOWN BOX SEEDS NOTHING. See townIsPhantom: grouped as a town it
+       gets a crew-day of its own, neighbours are borrowed onto it to fill it, and the
+       sweep evicts every one of them on the next pass because their real town is not on
+       that day. The house is reported by name in the sweep's stranded list instead. */
+    if(townIsPhantom(w.city)) return;
     (byCity[w.city] = byCity[w.city] || []).push(w);
   });
   Object.keys(byCity).forEach(function(c){
@@ -46467,7 +46506,7 @@ async function reconcileUpcomingRoutes(){
                      said in the note, because a sweep runs on a timer with nobody
                      standing there: tier 3, not a toast. */
                   writeFailed: [],
-                  stranded: {noCity: [], noPin: [], byCity: {}}};
+                  stranded: {noCity: [], noPin: [], badTown: [], byCity: {}}};
   /* Retired FIRST, and excluded from this pass, so nothing below builds on a
      day that is about to be taken apart. Their houses come free and get
      re-spread by the fill and the builder in this same sweep. */
@@ -46733,7 +46772,7 @@ async function reconcileUpcomingRoutes(){
        so the notice can say what to DO about it. "Not everyone is scheduled"
        was impossible to act on without knowing whether the answer was build
        more days, fix an address, or nothing at all. */
-    const stranded = {noCity: [], noPin: [], byCity: {}};
+    const stranded = {noCity: [], noPin: [], badTown: [], byCity: {}};
     jobAddresses.forEach(function(a){
       const d = a.data || {};
       if((d.scheduled && !freedThisPass.has(a.id)) || d.completed) return;
@@ -46745,6 +46784,15 @@ async function reconcileUpcomingRoutes(){
       }
       const city = extractCleanCity(d.city);
       if(!city){ stranded.noCity.push(d.name || 'a house'); return; }
+      /* ⚠ NAMED, NOT SILENTLY SKIPPED. `planNewCrewDays` refuses to build a day for a
+         town that is really a street (see townIsPhantom), so without this the house would
+         simply never appear anywhere — which is the invisible state the whole notice
+         exists to prevent. The value that is wrong is quoted, because the fix is one box
+         on one customer record. */
+      if(townIsPhantom(city)){
+        stranded.badTown.push((d.name || 'a house') + ' — "' + city + '"');
+        return;
+      }
       /* newHang, NOT isNew — `.isNew` is a dead flag the Schedule tab used to
          read and run-all.js forbids it by name across the whole page, so that
          it can never quietly come back. */
@@ -47089,6 +47137,18 @@ async function noticeRoutesReconciled(report){
   if((str.noCity || []).length){
     lines.push(str.noCity.length + ' house' + (str.noCity.length === 1 ? '' : 's') +
       ' have no town on file, so there is no day to match them to.');
+  }
+  /* ⚠ THIS ONE NAMES THE HOUSES AND THE VALUE, where the two above only count. It is the
+     only stranded reason with a fix that takes ten seconds — and until 2026-08-31 it was
+     not a stranded reason at all: the phantom town got a crew-day, borrowed real houses
+     onto it, and had them evicted again on every pass, which is what a repeated line in
+     the daily digest is usually made of. */
+  if((str.badTown || []).length){
+    lines.push(str.badTown.length + ' house' + (str.badTown.length === 1 ? '' : 's') +
+      ' have a STREET in the town box rather than a town, so no day can match them and ' +
+      'none is built for them — ' + nameFew(str.badTown.map(function(x){ return {name: x}; })) +
+      '. Put the real town in the Town box on their record and they are picked up on the ' +
+      'next pass.');
   }
   /* ⚠ THE BACKSTOP FOR THE 5,000-CHARACTER RULE. Every list above is summarised
      now, so this should never fire — which is exactly why it is here. A sweep
@@ -51041,10 +51101,11 @@ function hcRunChecks(){
       const byValue = {};
       jobAddresses.forEach(function(c){
         const town = extractCleanCity((c.data || {}).city);
-        if(!town || !cityLooksLikeStreet(town)) return;
-        /* A town the office has typed into its own nearby-towns list is a town,
-           whatever it looks like to a word list. */
-        if(NEARBY_TOWN_LIST && Object.prototype.hasOwnProperty.call(NEARBY_TOWN_LIST, town)) return;
+        /* ⚠ THE SAME RULE THE SCHEDULER USES, not a second copy of it. `townIsPhantom`
+           carries the office's-own-list exemption that used to live here; a panel calling
+           a town fine while the day builder skipped it would be unexplainable from either
+           screen. */
+        if(!townIsPhantom(town)) return;
         (byValue[town] = byValue[town] || []).push(c);
       });
       return Object.keys(byValue).sort().map(function(town){

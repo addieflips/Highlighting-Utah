@@ -437,6 +437,25 @@ try { claudeMd = read('CLAUDE.md'); } catch (e) { /* no CLAUDE.md in this checko
    ⚠ WHAT IT COSTS, SAID PLAINLY: those seven suites no longer exercise the live rule.
    They never meant to. The rule itself is proved in season-state.test.js and in the
    season suite below, both of which run it strict and both of which own that job. */
+/* ⭐ EVERYTHING townIsPhantom NEEDS, IN ONE PLACE (2026-08-31) — the same answer
+   seasonRuleSrc gives for isOutForSeason, and for the same reason. The day builder now
+   refuses to seed a crew-day from a town that is really a street, so eight sandboxes that
+   lift planNewCrewDays or rebuildSeasonDays suddenly needed the rule; supplying it here
+   makes the NEXT dependency one edit rather than a hunt through failing suites, which is
+   exactly what this file already learned once.
+
+   ⚠ LIFTED WITH ITS SUFFIX LIST, NEVER STUBBED. A stub returning false would leave every
+   one of those suites green through precisely the churn the rule was written to stop: a
+   phantom town gets a day, real houses are borrowed onto it, and the sweep evicts them
+   again on the next pass.
+   ⚠ AND IT DECLARES NO NEARBY_TOWN_LIST of its own — every caller already has one, and a
+   second declaration in the same scope is a SyntaxError that reads as the whole suite
+   crashing rather than as one missing name. */
+const phantomTownSrc = () =>
+  (admin.match(/const CITY_STREET_SUFFIXES = \[[\s\S]*?\];/) || [''])[0] + '\n' +
+  extractFn(admin, 'cityLooksLikeStreet') + '\n' +
+  extractFn(admin, 'townIsPhantom') + '\n';
+
 const seasonRuleSrc = (sentAtExpr, live) =>
   'let rsvpSentAtCache = ' + (sentAtExpr || 'null') + ';\n' +
   'let seasonRuleOffForMeasurement = ' + (live ? 'false' : 'true') + ';\n' +
@@ -3704,6 +3723,11 @@ console.log('\n=== 7. Health check engine ===');
      rsvpSentAtCache is null — the honest pre-send state, so the row says "would". */
     [ extractFn(admin, 'cityLooksLikeStreet'),
       (admin.match(/const CITY_STREET_SUFFIXES = \[[\s\S]*?\];/) || [''])[0],
+      /* ⚠ ADDED 2026-08-31 WITH townIsPhantom. The health row stopped carrying the
+         office's-own-list exemption itself and asks the shared rule instead, so the
+         rule has to be here — lifted, never stubbed, because a stub would let the
+         panel and the day builder disagree about a town while this stayed green. */
+      extractFn(admin, 'townIsPhantom'),
       seasonRuleSrc(),
       extractFn(admin, 'isOutForSeason'),
       extractFn(admin, 'audienceIsNew'),
@@ -8444,6 +8468,12 @@ suite('17. A new customer lands on the next day in their city');
                      here, it is an empty result that reads exactly like a sweep that
                      found nothing to say. Lifted, never stubbed. */
                   'toDateStr',
+                  /* ⚠ ADDED 2026-08-31. The sweep's stranded list now names houses whose
+                     town box holds a STREET, and the builder refuses to seed a crew-day
+                     from one — see townIsPhantom. Lifted rather than stubbed: a stub
+                     returning false would leave this suite green through exactly the
+                     build-evict-rebuild churn the rule was written to stop. */
+                  'cityLooksLikeStreet','townIsPhantom',
                   'scheduledFieldForType','freeUpFieldForType'];
 
   if (recStart === -1 || recEnd < recStart) {
@@ -8466,6 +8496,11 @@ suite('17. A new customer lands on the next day in their city');
        in every fixture and prove nothing about routes. The out-of-season cases this
        suite really tests are supplied explicitly (recycle flags, RSVP answers). */
     const helpers = eligLine + '\nlet seasonRuleOffForMeasurement = true;\n' +
+      /* ⚠ THE SUFFIX LIST ONLY. This harness already declares NEARBY_TOWN_LIST, and a
+         second `let` for it in the same scope is a SyntaxError that reads as the whole
+         suite crashing. townIsPhantom guards that read with `typeof` precisely so it can
+         be lifted into a sandbox that has no list at all. */
+      (admin.match(/const CITY_STREET_SUFFIXES = \[[\s\S]*?\];/) || [''])[0] + '\n' +
       NEEDED.map(n => extractFn(admin, n)).join('\n');
     const src = helpers + '\n' + admin.slice(recStart, recEnd);
 
@@ -8584,6 +8619,12 @@ suite('17. A new customer lands on the next day in their city');
                            scheduled:true, scheduledDate: dstr(-9)}},
         {id:'nocity',data:{name:'No Town',     city:'',     address:'7 Lost Way',lat:40.4, lng:-111.8, rsvpStatus:'yes',
                            scheduled:true, scheduledDate: dstr(-9)}},
+        /* ⚠ A TOWN BOX HOLDING A STREET, which is a different fault from a blank one and
+           needs a different fix — the real value from Addie's 2026-08-27 notice, where
+           twelve Herriman houses were sitting on a day built for it. */
+        {id:'badtown',data:{name:'Street Town', city:'S Summit Crest Ln', address:'9 Wrong Way',
+                           lat:40.4, lng:-111.8, rsvpStatus:'yes',
+                           scheduled:true, scheduledDate: dstr(-9)}},
         {id:'done',  data:{name:'All Done',    city:'Lehi', address:'8 Done Dr', lat:40.4, lng:-111.8, rsvpStatus:'yes',
                            scheduled:true, scheduledDate: dstr(-9), completed:true}}
       ];
@@ -8692,6 +8733,19 @@ suite('17. A new customer lands on the next day in their city');
         h.added.filter(a => a.col === 'messages').length === 0,
         'the volume Addie asked us to stop was one note per sweep, every fifteen minutes');
       const bank = h.store['settings/routeDigest'] || {};
+      /* ⭐ AND A HOUSE WHOSE TOWN BOX HOLDS A STREET REACHES THE STRANDED LIST, added
+         2026-08-31. The builder refuses to seed a day from that town, so if the sweep did
+         not collect the house it would be invisible everywhere — placed nowhere, named
+         nowhere. Run against the real sweep rather than asserted structurally: the claim
+         is that the house ENDS UP on that list. */
+      check('reconcile', 'a house whose town is really a street is named, not lost',
+        (report.stranded.badTown || []).some(x => /Street Town/.test(x) && /Crest Ln/.test(x)),
+        'got: ' + JSON.stringify(report.stranded.badTown || []) + ' — the builder will not ' +
+        'give it a day, so the stranded list is the only place it can appear');
+      check('reconcile', 'and it is not miscounted as having no town at all',
+        !(report.stranded.noCity || []).some(x => /Street Town/.test(x)),
+        'a house WITH a town that is wrong needs a different fix from one with none, and ' +
+        'the notice says so differently');
       check('reconcile', 'the banked lines name names',
         Array.isArray(bank.lines) && /Left Over|Said No|No Town/.test(bank.lines.join('\n')),
         'a notice nobody can act on is noise — banked: ' +
@@ -10048,6 +10102,106 @@ check('season', 'the waiting summary counts rather than lists',
  * checked — that is the only way to know an ordering rule expressed as a
  * priority number actually produces the calendar that was asked for.
  */
+/* =====================================================================
+ * A TOWN THAT IS REALLY A STREET NEVER GETS A CREW-DAY.
+ *
+ * Addie, 2026-08-31, reading a sweep that took 828 houses off their days: "I don't even
+ * know why there are so many changes being made in schedule and it is concerning."
+ *
+ * One of the groups in that notice was TWELVE HERRIMAN HOUSES on a "S Summit Crest Ln
+ * day". A customer record has a street in its town box; every route day is one town, so
+ * the builder grouped that record under a town of its own, built a day for it, and
+ * borrowed neighbouring Herriman houses onto it to fill it up. `stopProblem` then evicts
+ * every one of them on the next pass, because Herriman is not among that day's towns.
+ * Built, evicted, rebuilt — every fifteen minutes, indefinitely.
+ *
+ * ⚠ RUN, NOT MATCHED. The claim is about a day that must not EXIST and houses that must
+ * not be moved onto it, which a regex over the builder cannot see.
+ * ===================================================================== */
+suite('22c. A street in the town box builds no day');
+{
+  const start = admin.indexOf('function planNewCrewDays(');
+  const end = admin.indexOf('\nfunction ', start + 10);
+  if (start === -1 || end < start) {
+    check('phantom', 'the day builder is findable', false, 'renamed — repoint this');
+  } else {
+    const LF = String.fromCharCode(10);
+    const consts = admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'),
+                               admin.indexOf('function installPriority'));
+    const api = eval('(function(){' + LF + 'const NEARBY_TOWN_LIST = {};' + LF +
+      phantomTownSrc() + extractFn(admin, 'haversine') + LF +
+      extractFn(admin, 'sameTownName') + LF + consts + LF +
+      extractFn(admin, 'installPriority') + LF + admin.slice(start, end) + LF +
+      'return {plan: planNewCrewDays, phantom: townIsPhantom};})()');
+
+    /* ⚠ ONE RULE, TWO READERS, ASSERTED. Health Check's townIsStreet row and the day
+       builder must answer the same question — a panel calling a town fine while the
+       builder skipped it is unexplainable from either screen, and the exemption used to
+       be written out separately in the health row. */
+    {
+      const hcRow = sectionFrom(admin, admin.indexOf("id: 'townIsStreet'"));
+      check('phantom', 'Health Check asks the shared rule rather than its own copy',
+        /townIsPhantom\(town\)/.test(hcRow) &&
+        !/hasOwnProperty\.call\(NEARBY_TOWN_LIST/.test(hcRow),
+        'the office\'s-own-list exemption lives in townIsPhantom now; a second copy here ' +
+        'is how the panel and the schedule start disagreeing about one town');
+    }
+    check('phantom', 'a street in the town box is spotted',
+      api.phantom('S Summit Crest Ln') === true,
+      'the real value from Addie\'s 2026-08-27 notice');
+    /* ⚠ THE OFFICE'S OWN LIST WINS, and it has to be RUN with a non-empty list — the
+       sandbox above declares an empty one, so the exemption branch is never reached by
+       any other check here and a red-check deleting it went straight through. */
+    {
+      const withList = eval('(function(){' + LF + "const NEARBY_TOWN_LIST = {'Red Cedar Ln': ['Lehi']};" + LF +
+        phantomTownSrc() + 'return townIsPhantom;})()');
+      check('phantom', 'a street-shaped name the office typed into its own list is a town',
+        withList('Red Cedar Ln') === false,
+        'she decides what a town is — a scheduler that skipped a town her own nearby-towns ' +
+        'list names would be unexplainable from either screen');
+      check('phantom', 'but one she has not is still a street',
+        withList('S Summit Crest Ln') === true,
+        'the exemption is for what she listed, not for everything');
+    }
+    check('phantom', 'and a real town is not',
+      !api.phantom('Herriman') && !api.phantom('Pleasant Grove') &&
+      !api.phantom('Saratoga Springs') && !api.phantom('American Fork'),
+      'nine Utah towns end in a word that is also a street type — flagging one of those ' +
+      'would take a real town out of the season, which is far worse than the churn');
+
+    /* ⚠ THE FIXTURE NEEDS REAL HOUSES IN A REAL TOWN AS WELL, or "no day was built" is
+       true for the boring reason that nothing was built at all. */
+    /* ⚠ `from` AND `floorDate` ARE NOT OPTIONAL DECORATION. Without them the builder has
+       no date it is allowed to place anybody on and returns NOTHING — at which point
+       "no day was built for the phantom town" is true for the boring reason that no day
+       was built at all, and the two checks above pass vacuously. The third check below is
+       what caught exactly that on the first run of this suite. */
+    const mk = (id, city, lat, lng) => ({
+      id: id, city: city, priority: 2, named: false, from: '2026-10-01',
+      stop: {id: id, lat: lat, lng: lng, name: id}
+    });
+    const waiting = [mk('bad', 'S Summit Crest Ln', 40.51, -112.03)];
+    for (let i = 0; i < 6; i++) waiting.push(mk('h' + i, 'Herriman', 40.51 + i * 0.001, -112.03));
+
+    const days = api.plan(waiting, {}, {floorDate: '2026-10-01', maxDays: 12, horizonDays: 120});
+    const towns = [];
+    (days || []).forEach(d => (d.towns || [d.city]).forEach(t => { if (t) towns.push(t); }));
+
+    check('phantom', 'no crew-day is built for it',
+      towns.indexOf('S Summit Crest Ln') === -1,
+      'built days for: ' + JSON.stringify([...new Set(towns)]) + ' — a day for a town ' +
+      'that does not exist borrows real houses onto it and the sweep evicts them all again');
+    check('phantom', 'and the house on it is never placed',
+      !(days || []).some(d => (d.houses || []).some(h => h.id === 'bad')),
+      'it cannot be routed to a town nobody can find — it belongs in the stranded list, ' +
+      'named, not quietly loaded onto somebody else\'s crew');
+    check('phantom', 'while the real town still gets its day',
+      towns.indexOf('Herriman') !== -1,
+      'built: ' + JSON.stringify([...new Set(towns)]) + ' — refusing the phantom must ' +
+      'not cost the six real houses beside it');
+  }
+}
+
 suite('22. Building the crew-days the season needs');
 {
   const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
@@ -10066,7 +10220,16 @@ suite('22. Building the crew-days the season needs');
        towns reached the live book with this suite green. The list is left EMPTY on
        purpose: these fixtures test the MEASURED rule, and a typed-in one overrides it. */
     const LF_ = String.fromCharCode(10);
+    /* ⚠ AND townIsPhantom, ADDED 2026-08-31. The builder now refuses to seed a crew-day
+       from a town that is really a street — a customer with "S Summit Crest Ln" in the
+       town box got a day of its own, real houses were borrowed onto it to fill it, and
+       the sweep evicted every one of them on the next pass. LIFTED WITH ITS SUFFIX LIST,
+       never stubbed: a stub returning false would leave this suite green through exactly
+       the churn the rule was written to stop. */
     const prelude = 'const NEARBY_TOWN_LIST = {};' + LF_ +
+      (admin.match(/const CITY_STREET_SUFFIXES = \[[\s\S]*?\];/) || [''])[0] + LF_ +
+      extractFn(admin, 'cityLooksLikeStreet') + LF_ +
+      extractFn(admin, 'townIsPhantom') + LF_ +
       extractFn(admin, 'haversine') + LF_ + extractFn(admin, 'sameTownName') + LF_;
     const api = eval(prelude + consts + '\n' +
       extractFn(admin, 'installPriority') + '\n' + admin.slice(start, end) +
@@ -11485,7 +11648,7 @@ suite('Suite 27. Short crew-days reach into nearby towns');
       'return 2*R*Math.asin(Math.sqrt(q));}\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
       admin.slice(nearbyConst, admin.indexOf('function townCentres')) + '\n' +
-      'let NEARBY_TOWN_LIST={};' + extract('sameTownName') +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + extract('sameTownName') +
       extract('townCentres') + '\n' + extract('nearbyTowns') + '\n' +
       extract('installPriority') + '\n' + admin.slice(start, end) +
       '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE, crews: CREWS_PER_DAY})');
@@ -11653,7 +11816,7 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
       'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
       admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') +
       fn('townCentres') + fn('nearbyTowns') + fn('installPriority') + admin.slice(planStart, planEnd) +
       /* The rebuild now asks pinHorizon whether a day is close enough to be
          SET, so the sandbox needs it and its constant. */
@@ -11859,7 +12022,7 @@ suite('Suite 29. Towns the office says are near each other');
       'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
       'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
       'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(q));}' +
-      'const NEARBY_TOWN_MILES=8; let NEARBY_TOWN_LIST={};' +
+      'const NEARBY_TOWN_MILES=8; let NEARBY_TOWN_LIST={};' + phantomTownSrc() +
       need.map(fn).join('\n') +
       'this.parse=parseNearbyTowns;this.text=nearbyTownsToText;this.near=nearbyTowns;' +
       'this.set=function(m){NEARBY_TOWN_LIST=m;};'
@@ -14369,7 +14532,7 @@ suite('Suite 43. Install order and the one-other-town rule');
       new Function(
         admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
         admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-        'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+        'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
         'function seasonFirstDate(){return new Date(2026,9,1);}' +
         fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
         ';this.plan=planNewCrewDays;'
@@ -15225,7 +15388,7 @@ suite('Suite 47. The two biggest towns get each day');
     new Function(
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
       admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') + fn('haversine') + fn('townCentres') + fn('nearbyTowns') +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       fn('toDateStr') + fn('nextWorkingDay') + admin.slice(planStart, planEnd) +
       ';this.plan=planNewCrewDays;'
@@ -15464,7 +15627,7 @@ suite('Suite 48. Days within two working days are set');
       'var BASE_START=new Date(2026,9,1),globalDelta=0,SEASON=[],selSchedule=null;\n' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
       admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) + '\n' +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       admin.slice(planStart, planEnd) +
       'const PIN_HONOURED_BUSINESS_DAYS=2;' +
@@ -16294,7 +16457,7 @@ suite('Suite 51. The dribble at the end of the season');
       'function seasonFirstDate(){return new Date(2026,9,1);}' +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
       admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
       admin.slice(start, end) +
       '\nreturn {plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE};')();
 
@@ -16569,7 +16732,7 @@ suite('Suite 53. October is a deadline');
       fn('thanksgivingDate') +
       admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) +
       admin.slice(admin.indexOf('const NEARBY_TOWN_MILES'), admin.indexOf('function townCentres')) +
-      'let NEARBY_TOWN_LIST={};' + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + fn('sameTownName') + fn('townCentres') + fn('nearbyTowns') +
       admin.slice(start, end) +
       '\nreturn {plan: planNewCrewDays};')();
 
@@ -30202,6 +30365,27 @@ suite('Suite 71. A reconcile note that cannot be saved still leaves a record');
     check('S71', 'and says what it means for the crew',
       wrote.length === 1 && /disagree/.test(wrote[0].message),
       '"2 records would not update" is not something anybody can act on');
+    /* ⭐ A HOUSE WHOSE TOWN BOX HOLDS A STREET IS NAMED, added 2026-08-31. The builder now
+       refuses to seed a crew-day from one (see townIsPhantom), so without this line the
+       house simply never appears anywhere — which is the invisible state this whole notice
+       exists to prevent. It is the only stranded reason with a ten-second fix, so it names
+       the houses and quotes the value rather than only counting them. */
+    wrote.length = 0;
+    await fn(Object.assign({}, base, {refreshed: 1, stranded: {noCity: [], noPin: [],
+      badTown: ['Brian Petersen — "S Summit Crest Ln"'], byCity: {}}}));
+    check('S71', 'a house with a street in the town box is named, not just counted',
+      wrote.length === 1 && /Brian Petersen/.test(wrote[0].message) &&
+      /S Summit Crest Ln/.test(wrote[0].message),
+      'got: ' + ((wrote[0] || {}).message || '(no note)').slice(0, 200));
+    check('S71', 'and it says what to do about it',
+      wrote.length === 1 && /Town box/.test(wrote[0].message),
+      'the fix is one box on one customer record — a report that does not say so is a ' +
+      'line somebody reads and cannot act on');
+
+    wrote.length = 0;
+    await fn(Object.assign({}, base, {refreshed: 2, writeFailed: [
+      {name: 'Ashley Wray', what: 'moving them off a full day'},
+      {name: 'Rachel Oslund', what: 'putting them on a day'}]}));
     check('S71', 'and puts it FIRST, where the length trim cannot reach it',
       wrote.length === 1 &&
       wrote[0].message.indexOf('would not update') < wrote[0].message.indexOf('updated to match'),
