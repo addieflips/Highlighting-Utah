@@ -147,4 +147,58 @@ test.describe('The quote link', () => {
 
     await stub.assertNoRealCalls();
   });
+  /* ---- the SHORT link, loaded the way a phone loads it --------------------
+   * Addie, 2026-08-31, on a quote text: "Still bringing me here" — the site
+   * chrome with nothing between the header and the footer.
+   *
+   * ⚠ NOTHING HAD EVER LOADED THIS PAGE AT /q/<token>. Suite S281 proved the
+   * _redirects rule exists and that the path pattern extracts a token, and both
+   * were right — but a regex passing is not a page booting. index.html imported
+   * "./js/money.js" relatively, and this file is served at MORE THAN ONE PATH:
+   * Netlify 200-rewrites /q/<token> and /home to it. At /q/<token> that relative
+   * import asked for /q/js/money.js, 404'd, and the whole module died — every
+   * script dead, header and footer still drawn because they are static HTML.
+   * So the short link had never once worked, and nothing anywhere went red.
+   *
+   * ⚠ THE REWRITE IS SIMULATED, because the test server is a plain static file
+   * server and would 404 on /q/ — exactly as it would have done in CI. Netlify
+   * answers that path with this file, so the spec does the same. */
+  test('the short link boots the app and opens the quote', async ({ page }) => {
+    const stub = await installFirebaseStub(page);
+    const errs = [];
+    page.on('pageerror', e => errs.push('pageerror: ' + e));
+    const INDEX = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'index.html'), 'utf8');
+    await page.route(u => u.pathname === '/q/' + TOKEN, r =>
+      r.fulfill({ status: 200, contentType: 'text/html', body: INDEX }));
+
+    await page.goto('/q/' + TOKEN);
+
+    /* The module actually ran. Without this the checks below can pass on a dead
+       page — every element they look for is static HTML that renders anyway. */
+    await expect.poll(async () =>
+      page.evaluate(() => typeof window.__HU_CALLS__ !== 'undefined'),
+      { timeout: 5000 }).toBe(true);
+
+    /* And it reached the quote, by the same route the long link uses. */
+    await expect.poll(async () => page.evaluate(() => location.hash),
+      { timeout: 5000 }).toBe('#/quote-details?token=' + TOKEN);
+    await expect(page.locator('#page-quote-details')).toHaveClass(/active/);
+
+    expect(errs).toEqual([]);
+    await stub.assertNoRealCalls();
+  });
+
+  /* ⚠ AND THE CLASS OF BUG, NOT JUST THE ONE LINE. index.html is served at /,
+     at /home and at /q/<token>, so ANY relative import here dies at two of those
+     three — silently, because a module that fails to load throws nowhere a
+     person can see. This is cheaper to keep true than to rediscover. */
+  test('index.html has no relative imports, which break under /q/', () => {
+    const src = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'index.html'), 'utf8');
+    const relative = (src.match(/^\s*import[^\n]*from\s+["']\.{0,2}\//gm) || [])
+      .filter(l => !/from\s+["']\//.test(l));
+    expect(relative, 'served at /q/<token> these resolve to /q/... and 404, ' +
+      'killing every script on the page').toEqual([]);
+  });
 });
