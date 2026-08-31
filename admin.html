@@ -2930,6 +2930,27 @@
             <div id="ssnStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
             <div id="ssnReport" style="margin-top:10px;"></div>
           </div>
+          <!-- ⭐ THE ONE-OFF REPAIR for a season that was already reset under the old
+               behaviour, where the debt was written off instead of carried. Sits directly
+               under Start New Season because that is the button whose old behaviour it
+               repairs, and it is where somebody would look for it. -->
+          <div class="card" id="arrearsBackfillCard" style="border-color:var(--gold-dim);">
+            <h3>Carry last season&rsquo;s unpaid bills (one-off repair)</h3>
+            <p style="font-size:13px;">Until 31 August, Start New Season <strong>wrote off</strong> whatever a customer still owed instead of carrying it. If you reset this season before then, those balances are gone from the invoices and survive only in the saved snapshot under <strong>Snapshots</strong>. This reads that snapshot and puts each unpaid balance back on the customer&rsquo;s current bill as its own line &mdash; exactly as Start New Season does now.</p>
+            <p style="font-size:12px; color:var(--slate); margin:4px 0 10px;">Anyone whose bill already carries a line from last season is skipped, so running this twice does no harm. Nobody who paid in full is touched. Once a balance is carried, that customer is <strong>not scheduled</strong> until it is paid in full &mdash; they appear under Schedule &rarr; Owes from last year.</p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
+              <button type="button" class="btn btn-outline" id="arrearsCheckBtn">Check First (writes nothing)</button>
+            </div>
+            <div id="arrearsStatus" style="font-size:13px; color:var(--slate); margin-top:8px;"></div>
+            <div id="arrearsReport" style="margin-top:10px;"></div>
+            <div id="arrearsConfirmWrap" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">
+              <label style="font-size:12.5px; font-weight:600; display:block; margin-bottom:6px;">Type CARRY to confirm, then press the button.</label>
+              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <input type="text" id="arrearsConfirmInput" placeholder="CARRY" style="max-width:160px;">
+                <button type="button" class="btn btn-gold" id="arrearsRunBtn">Carry these onto this year&rsquo;s bills</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -8871,6 +8892,167 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
   }
   btn.disabled = false;
 });
+/* ⭐ THE ONE-OFF ARREARS BACKFILL (added 2026-08-31). Addie: "The new season started but
+   RSVP hasn't been sent out." So Start New Season already ran under the OLD behaviour,
+   which wrote `install: newInstall, deposit: 0` over every invoice — writing off whatever
+   each customer still owed. That money is gone from the books and survives only in
+   yearlySnapshots, which nothing bills from. This puts it back.
+
+   ⚠ IT IS A MASS MONEY WRITE, so it follows the rules Start New Season and the duplicate
+   tools already follow: a dry run that writes nothing, a report naming everybody and every
+   amount, a typed confirmation, and — the important one — THE APPLY ONLY EVER WRITES WHAT
+   THE DRY RUN SHOWED. Re-finding rows at write time would charge people she never saw.
+
+   ⚠ IT READS THE SNAPSHOT FRESH, not from yearlySnapshotsCache. That cache is filled by
+   the `money` panel group, which the Invoices panel does not load — so on this screen it
+   is usually empty, and reading it would report "nothing to carry" while real debts sat in
+   the snapshot. A confident wrong answer about who owes money is worse than a slow one.
+
+   ⚠ IDEMPOTENT BY THE LEDGER, not by a flag. A bill that already carries an arrears line
+   is skipped, and the check is made AGAIN against a fresh read at write time — so running
+   it twice, or twice at once from two machines, cannot double anybody's debt. */
+let arrearsBackfillPending = null;
+function arrearsBackfillPlan(snapRows, invById){
+  const carry = [], already = [], settled = [], missing = [];
+  (snapRows || []).forEach(function(row){
+    const key = String((row && row.id) || '').trim();
+    if(!key) return;
+    /* The same one rule for what is left on a bill, so this cannot disagree with what
+       Start New Season itself would have carried. */
+    const owed = balanceDueAmount(row || {});
+    const name = (row && row.name) || key;
+    if(owed <= 0){ settled.push({key: key, name: name}); return; }
+    const inv = invById && invById.get ? invById.get(key) : null;
+    /* ⚠ NEVER GUESS AT A MISSING INVOICE. A customer whose phone or email was edited since
+       the reset keys to a different invoice now, and picking one by name would put somebody
+       else's debt on a stranger's bill. Reported instead, so she can look. */
+    if(!inv){ missing.push({key: key, name: name, owed: owed}); return; }
+    if(arrearsOnInvoice(inv.data || {}) > 0){ already.push({key: key, name: name}); return; }
+    carry.push({key: key, name: name, owed: owed});
+  });
+  carry.sort(function(a, b){ return b.owed - a.owed; });
+  return {carry: carry, already: already, settled: settled, missing: missing};
+}
+document.getElementById('arrearsCheckBtn')?.addEventListener('click', async function(){
+  const status = document.getElementById('arrearsStatus');
+  const report = document.getElementById('arrearsReport');
+  const wrap = document.getElementById('arrearsConfirmWrap');
+  const btn = this;
+  btn.disabled = true;
+  wrap.style.display = 'none';
+  arrearsBackfillPending = null;
+  report.innerHTML = '';
+  status.textContent = 'Reading last season\u2019s snapshot\u2026';
+  try{
+    const snap = await getDocs(query(collection(db,'yearlySnapshots'), orderBy('year','desc')));
+    const list = [];
+    snap.forEach(function(d){ list.push({id: d.id, data: d.data()}); });
+    const season = lastSeasonSnapshotFrom(list);
+    if(!season){
+      status.textContent = 'No saved snapshot holds per-customer rows, so there is nothing to read. ' +
+        'That means Start New Season has not run since snapshots began \u2014 nothing to repair.';
+      btn.disabled = false; return;
+    }
+    const invById = new Map();
+    (allInvoicesCache || []).forEach(function(i){ invById.set(i.id, i); });
+    const plan = arrearsBackfillPlan(season.data.invoices || [], invById);
+    const total = plan.carry.reduce(function(n, r){ return n + r.owed; }, 0);
+    arrearsBackfillPending = {year: season.id, rows: plan.carry, total: total};
+    if(!plan.carry.length){
+      status.textContent = '\u2713 Nothing to carry from the ' + esc(season.id) + ' season \u2014 ' +
+        plan.settled.length + ' paid in full, ' + plan.already.length + ' already carried, ' +
+        plan.missing.length + ' with no invoice on file.';
+      btn.disabled = false; return;
+    }
+    report.innerHTML =
+      '<div style="font-weight:700; margin-bottom:4px;">' + plan.carry.length + ' customer' +
+        (plan.carry.length===1?'':'s') + ' did not pay for the ' + esc(season.id) + ' season, owing ' +
+        fmtMoney(total) + ' between them.</div>' +
+      '<div style="font-size:13px; margin-bottom:8px;">Each amount goes onto that customer\u2019s current bill as its own line. ' +
+        '<b>They will not be scheduled until it is paid in full.</b></div>' +
+      '<div style="font-size:12.5px; color:var(--slate); margin-bottom:8px;">Skipped: ' +
+        plan.settled.length + ' paid in full, ' + plan.already.length + ' already carrying a line' +
+        (plan.missing.length ? ', <b>' + plan.missing.length + ' with no invoice on file</b> (' +
+          plan.missing.slice(0,5).map(function(r){ return esc(r.name) + ' ' + fmtMoney(r.owed); }).join(', ') +
+          (plan.missing.length > 5 ? ', \u2026' : '') + ') \u2014 those are not carried and are worth a look' : '') +
+        '.</div>' +
+      '<div style="max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:8px;">' +
+        '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="background:var(--paper);">' +
+        '<th style="text-align:left; padding:6px 8px;">Customer</th>' +
+        '<th style="text-align:right; padding:6px 8px;">Carried onto this year</th></tr></thead><tbody>' +
+        plan.carry.map(function(r){
+          return '<tr><td style="padding:4px 8px;">' + esc(r.name) + '</td>' +
+                 '<td style="padding:4px 8px; text-align:right; font-weight:600;">' + fmtMoney(r.owed) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    status.textContent = 'Nothing written yet \u2014 review the list, then type CARRY below.';
+    wrap.style.display = 'block';
+  }catch(err){
+    /* Said out loud rather than swallowed: a failed read here looks exactly like ' +
+       "nobody owes anything", which is the one answer this must never give by accident. */
+    status.textContent = '\u2717 Could not read the snapshot \u2014 nothing was changed. (' +
+      (err && err.message ? err.message : 'error') + ')';
+  }
+  btn.disabled = false;
+});
+document.getElementById('arrearsRunBtn')?.addEventListener('click', async function(){
+  const status = document.getElementById('arrearsStatus');
+  const input = document.getElementById('arrearsConfirmInput');
+  if(!arrearsBackfillPending || !arrearsBackfillPending.rows.length){
+    status.textContent = 'Run Check First again \u2014 there is nothing prepared to write.';
+    return;
+  }
+  if(String(input.value || '').trim().toUpperCase() !== 'CARRY'){
+    status.textContent = 'Type CARRY to confirm.';
+    return;
+  }
+  const job = arrearsBackfillPending;
+  const btn = this; btn.disabled = true;
+  let done = 0, skipped = 0, failed = 0;
+  status.textContent = 'Working\u2026';
+  for(const row of job.rows){
+    try{
+      /* ⚠ RE-READ IMMEDIATELY BEFORE WRITING, the same rule the light-change fee follows.
+         Two people are in admin every day and this loop is not a transaction; a bill that
+         gained a line since the dry run must not gain a second one. */
+      const cur = await getDoc(doc(db,'invoices', row.key));
+      if(!cur.exists()){ skipped++; continue; }
+      const d = cur.data() || {};
+      if(arrearsOnInvoice(d) > 0){ skipped++; continue; }
+      const notes = (Array.isArray(d.changeFeeNotes) ? d.changeFeeNotes : []).concat([{
+        amount: row.owed,
+        kind: ARREARS_KIND,
+        reason: 'Unpaid balance carried from the ' + job.year + ' season',
+        date: new Date().toISOString()
+      }]);
+      /* ⚠ APPENDED AND RE-SUMMED, never assigned. A light-change fee added since the reset
+         is a real charge and must survive; overwriting changeFees with the arrears alone
+         would quietly delete it. */
+      const fees = notes.reduce(function(n, f){ return n + (Number(f.amount) || 0); }, 0);
+      await updateDoc(doc(db,'invoices', row.key), {
+        changeFees: fees,
+        changeFeeNotes: notes,
+        status: computeInvoiceStatus(d.install || 0, d.removal || 0, d.deposit || 0, d.credits || 0, fees),
+        updatedAt: serverTimestamp()
+      });
+      done++;
+    }catch(err){
+      /* Counted, never silent \u2014 a half-finished money run that reports success is the
+         worst outcome here. Re-running is safe, so what failed can simply be retried. */
+      failed++;
+      console.error('arrears backfill failed for ' + row.key, err);
+    }
+    status.textContent = 'Working\u2026 ' + (done + skipped + failed) + '/' + job.rows.length;
+  }
+  status.textContent = '\u2713 Carried ' + done + ' balance' + (done===1?'':'s') + ' onto this year\u2019s bills' +
+    (skipped ? ' \u2014 ' + skipped + ' skipped (already carried, or no invoice)' : '') +
+    (failed ? ' \u2014 \u26a0 ' + failed + ' failed and were NOT carried; run Check First again to see what is left' : '') +
+    '. Those customers are now under Schedule \u2192 Owes from last year.';
+  document.getElementById('arrearsReport').innerHTML = '';
+  document.getElementById('arrearsConfirmWrap').style.display = 'none';
+  document.getElementById('arrearsConfirmInput').value = '';
+  arrearsBackfillPending = null;
+  btn.disabled = false;
+});
 async function loadNightlyInvoiceLog(){
   const el = document.getElementById('nightlyInvoiceLog');
   if(!el) return;
@@ -14717,12 +14899,20 @@ function audiencePayerKey(d){
    is the one written the moment the season was reset, before the live invoices
    were wiped. Returns null when no such snapshot exists yet, so the two "last
    year" filters can say so instead of silently matching nobody. */
-function audienceLastSeasonSnapshot(){
-  const withRows = (yearlySnapshotsCache||[]).filter(s => s.data && Array.isArray(s.data.invoices) && s.data.invoices.length);
+/* ⚠ THE PICKER IS SHARED, not copied (2026-08-31). The one-off arrears backfill has to
+   answer the same question — "which snapshot holds last season's books" — but it reads
+   the collection FRESH rather than from this cache, because yearlySnapshotsCache is only
+   filled by the money group, which the Invoices panel does not load. Reading the cache
+   there would report "no snapshot" when one exists, which is a confident wrong answer
+   about whether anybody is owed money. Two copies of the picking rule would be the
+   second way for those to disagree, so it is one pure function and two callers. */
+function lastSeasonSnapshotFrom(list){
+  const withRows = (list||[]).filter(s => s.data && Array.isArray(s.data.invoices) && s.data.invoices.length);
   if(!withRows.length) return null;
   withRows.sort((a,b) => (Number(b.data.year)||0) - (Number(a.data.year)||0));
   return withRows[0];
 }
+function audienceLastSeasonSnapshot(){ return lastSeasonSnapshotFrom(yearlySnapshotsCache); }
 // payerKey -> { paid:boolean, ordered:true } for everyone billed last season.
 function audienceLastSeasonMap(){
   const snap = audienceLastSeasonSnapshot();
