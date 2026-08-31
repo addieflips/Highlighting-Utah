@@ -19727,9 +19727,36 @@ function rmEndStrand(){
   if(note) note.textContent = 'Strand ' + rmCurrentBand + ' finished and joined up. The next dot starts a new one.';
   return true;
 }
+/* ⭐ A PEAK IS A PAIR OF CORNER NUMBERS, AND THE NUMBERS MOVE (2026-08-30).
+   Taking a dot out shifts every dot after it down one, so a peak naming any of
+   them silently starts spanning a DIFFERENT pair — same row, same letters on
+   screen, a different gable and a different price, with nothing to say so.
+
+   ⚠ THIS WAS ALMOST UNREACHABLE UNTIL PEAKS PERSISTED and is ordinary now: a
+   quote reopens with its peaks on it, and backspace is the only way to take a
+   dot back. It is the same fault as the one she reported — a peak outliving the
+   dots it was measured between — one step further on.
+
+   ⚠ A PEAK ON THE REMOVED DOT IS DROPPED, NOT RE-POINTED. There is no honest
+   answer to "which gable did she mean" once one end of it is gone, and a peak
+   quietly re-hung on the next dot along is a number nobody chose that goes
+   straight into the price. */
+function rmPeaksAfterCornerRemoved(i){
+  rmPeaks = rmPeaks.filter(function(p){ return p.a !== i && p.b !== i; })
+    .map(function(p){
+      return {a: p.a > i ? p.a - 1 : p.a, b: p.b > i ? p.b - 1 : p.b,
+              /* Rebuilt rather than mutated, so a caller holding the old object
+                 cannot be looking at a peak that has moved underneath it. */
+              grade: p.grade};
+    })
+    /* A grade of undefined must stay undefined — see rmRestoreMeasurement: a
+       zero is a flat roof, which is an answer nobody gave. */
+    .map(function(p){ if(p.grade === undefined) delete p.grade; return p; });
+}
 /* Take the last dot back off. */
 function rmDeleteLastCorner(){
   if(!rmCorners.length) return false;
+  rmPeaksAfterCornerRemoved(rmCorners.length - 1);
   rmCorners.pop();
   rmCornersChanged();
   return true;
@@ -19737,7 +19764,10 @@ function rmDeleteLastCorner(){
 
 function rmRemoveLastCorner(){
   for(let i = rmCorners.length - 1; i >= 0; i--){
-    if(rmCorners[i].byHand){ rmCorners.splice(i, 1); rmCornersChanged(); return true; }
+    if(rmCorners[i].byHand){
+      rmPeaksAfterCornerRemoved(i);
+      rmCorners.splice(i, 1); rmCornersChanged(); return true;
+    }
   }
   return false;
 }
@@ -23158,6 +23188,12 @@ function rmMeasurementDoc(){
       include: rmRunIsOn(r),
       suggested: !!r.suggested,
       side: r.side || '',
+      /* ⚠ SAVED SO THE RESTORE CAN LEAVE IT OUT. A run with this flag is DRAWN
+         FROM THE CORNERS and is rebuilt from them by rmCornersToRun, which
+         first throws away every run carrying it. Restore one as an ordinary run
+         and the next dot she places rebuilds the corner run beside it — the
+         same footage twice, in the number that sets the price. */
+      fromCorners: !!r.fromCorners,
       feet: Math.round(rmRunFeet(r) * 10) / 10
     };
   });
@@ -23172,6 +23208,37 @@ function rmMeasurementDoc(){
        counts it, so it has to be saved or the total will not add up on the way
        back in. */
     photoFeet: Number(rmPhotoExtraFeet) || 0,
+    /* ⭐ THE DOTS THEMSELVES, AND THE PEAKS ON THEM (2026-08-30). Owner: "the
+       peaks are not adding anything because i left the page then came back, but
+       the dots are still there so it should've included the peak addition into
+       the price but it didnt."
+
+       ⚠ SHE WAS LOOKING AT THREE PEAKS READING 0 ft ACROSS. Neither of these
+       was ever written down: only the RUNS were saved, so reopening a quote put
+       the lines back on the map — which is why the dots looked to be there —
+       while rmCorners came back EMPTY. A peak is a pair of corner NUMBERS, and
+       rmPeakSpanFeet returns 0 the moment either one is missing. The pitch she
+       had measured was still on the row, so every peak showed its angle beside
+       a span of nothing and added nothing to the price.
+
+       ⚠ THE RAYS ARE DELIBERATELY NOT SAVED. A ray is the line of sight from a
+       camera that is not on screen when a quote is reopened somewhere else;
+       keeping it would invite a later crossing against a sighting that no longer
+       means anything. The point it already produced is what is worth keeping. */
+    corners: rmCorners.map(function(c){
+      return {lat: Number(c.lat), lng: Number(c.lng),
+              h: isFinite(c.h) ? Number(c.h) : 0,
+              on: c.on !== false, band: Number(c.band) || 0};
+    }),
+    /* ⚠ BY INDEX, exactly as they are held. Storing the letters instead would
+       be a second naming of the same thing, and rmCornerLabel already turns an
+       index into a letter without needing the corner to exist — which is
+       precisely how three peaks came to be listed as A–B, E–F and I–J on a
+       house whose corners had all gone. */
+    peaks: rmPeaks.map(function(p){
+      return {a: Number(p.a), b: Number(p.b),
+              grade: isFinite(p.grade) ? Number(p.grade) : null};
+    }),
     pano: pano || null,
     origin: rmOrigin ? {lat: rmOrigin.lat, lng: rmOrigin.lng} : null,
     datum: {m: Number(datum.m) || 0, source: datum.source || 'assumed'},
@@ -23229,8 +23296,38 @@ function rmRestoreMeasurement(m){
      carry the alignment they were traced under; the paths in them are already
      corrected, so restoring them straight is right and re-applying anything
      would move the whole drawing twice as far off as the picture ever was. */
+  /* ⚠ BOTH ARE EMPTIED FIRST, WHATEVER THIS SAVE CARRIES. Neither was ever
+     cleared when the tool moved house, so a peak measured on one roof stayed in
+     the list on the next one — pointing at corner numbers that now mean somebody
+     else's dots. Restoring is the moment that has to stop being true, including
+     for a drawing saved before either was written down. */
+  rmCorners = []; rmPeaks = []; rmCurrentBand = 0;
+  /* ⭐ THE DOTS GO BACK BEFORE ANYTHING ELSE, because a peak is a pair of corner
+     numbers and the run rebuild reads them too. */
+  const hadCorners = Array.isArray(m.corners) && m.corners.length > 0;
+  if(hadCorners){
+    m.corners.forEach(function(c){
+      const lat = Number(c.lat), lng = Number(c.lng);
+      if(!isFinite(lat) || !isFinite(lng)) return;
+      /* byHand, because every one of them was put there by somebody looking at
+         the house — that is what stops a later sweep moving it. */
+      rmCorners.push({lat: lat, lng: lng, h: Number(c.h) || 0, on: c.on !== false,
+                      byHand: true, band: Number(c.band) || 0, rays: []});
+    });
+    /* ⚠ A NEW DOT STARTS A NEW STRAND. Continuing the last restored band would
+       join a fresh dot to the far end of a run traced days ago and draw a line
+       across the roof that nobody will hang and somebody is charged for. */
+    rmCurrentBand = rmCorners.reduce(function(n, c){ return Math.max(n, (c.band || 0) + 1); }, 0);
+  }
   let restored = 0;
   m.runs.forEach(function(sr){
+    /* ⚠ THE CORNER RUNS ARE NOT PUSHED BACK, THEY ARE REBUILT. rmCornersToRun
+       throws away every fromCorners run and draws them again from rmCorners, so
+       restoring one here as well would leave the same footage on the map twice.
+       ⚠ ONLY when the corners really came back: a drawing saved before they were
+       written down has nothing to rebuild from, and dropping its runs would lose
+       the measurement outright. */
+    if(hadCorners && sr.fromCorners){ restored++; return; }
     const path = (sr.path || []).map(function(p){
       return {lat: Number(p.lat), lng: Number(p.lng), h: Number(p.h) || 0};
     });
@@ -23248,6 +23345,24 @@ function rmRestoreMeasurement(m){
     if(run.surface !== 'manual') rmSyncSky(run);
     restored++;
   });
+  /* ⭐ AND THE PEAKS, ONLY ONTO DOTS THAT ARE ACTUALLY THERE. A peak whose
+     corners did not come back is not a peak with a span of nought — it is a row
+     claiming a gable nobody can see, and it is what she was looking at. */
+  if(hadCorners && Array.isArray(m.peaks)){
+    m.peaks.forEach(function(p){
+      const a = Number(p.a), b = Number(p.b);
+      if(!rmCorners[a] || !rmCorners[b] || a === b) return;
+      const pk = {a: a, b: b};
+      /* A saved grade of null is a peak nobody measured, and it must come back
+         that way rather than as a zero — a zero grade is a flat roof, which is
+         an answer, and this is the absence of one. */
+      if(isFinite(p.grade) && Number(p.grade) > 0) pk.grade = Number(p.grade);
+      rmPeaks.push(pk);
+    });
+  }
+  /* Draws the corner markers, rebuilds the runs they make, and re-totals — so
+     the peaks are in the footage before anything reads the price. */
+  if(hadCorners) rmCornersChanged();
   rmPhotoExtraFeet = Number(m.photoFeet) || 0;
   const sel = document.getElementById('rmDifficulty');
   if(sel && m.difficulty) sel.value = m.difficulty;
@@ -24372,7 +24487,10 @@ function rmForgetLastHouse(){
   rmCamGroundDrop = 0;
   /* the dots and what was offered */
   rmModelShift = null; rmModelShiftFt = 0; rmModelShiftResidIn = 0;
-  rmCorners = []; rmCurrentBand = 0; rmCandidates = [];
+  /* ⚠ THE PEAKS GO WITH THE DOTS. A peak is a pair of corner numbers, so one
+     left behind points at whatever dot later takes that number — on the next
+     house. rmPeaks was cleared NOWHERE in this file before 2026-08-30. */
+  rmCorners = []; rmPeaks = []; rmCurrentBand = 0; rmCandidates = [];
   rmClearCornerMarkers();
   rmRenderCornerBar();
   /* the roof model and everything derived from it */
@@ -24425,7 +24543,9 @@ async function rmLoadAddress(){
   rmFacesReady = false; rmStreetSettled = false; rmSuggestionsBuilt = false;
   rmGuessedCount = 0; rmPhotoDatumTries = 0; rmPhotoDatumBusy = false; rmSnapNote = null;
   rmFramed = false; rmRoadDir = null;
-  rmCorners = []; rmCornerMode = 'dot'; rmSwapFrom = null; rmCurrentBand = 0;
+  /* ⚠ AND HERE — see the note at the other clearing site. A peak cannot outlive
+     the corners it names. */
+  rmCorners = []; rmPeaks = []; rmCornerMode = 'dot'; rmSwapFrom = null; rmCurrentBand = 0;
   /* A BOUNDED wait. If the road photo has not settled in ten seconds it is not
      coming in time to be useful, and a blank panel helps nobody - draw from the
      map and say so on the status line. */
@@ -26386,7 +26506,9 @@ function openRoofMeasure(quoteId){
      tool refusing. One button, one meaning: nothing left in either picture. */
   document.getElementById('rmClearBtn').addEventListener('click', function(){
     rmClearDrawing();
-    rmCorners = []; rmCurrentBand = 0; rmSwapFrom = null;
+    /* ⚠ CLEAR TAKES THE PEAKS TOO. Leaving them turns "start this house again"
+       into a list of gables between dots that are no longer on the screen. */
+    rmCorners = []; rmPeaks = []; rmCurrentBand = 0; rmSwapFrom = null;
     rmSetDrawing(false);
     rmCornersChanged();
     rmRenderResults();

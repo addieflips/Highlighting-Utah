@@ -59,6 +59,29 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **A PEAK SURVIVES THE PAGE BEING LEFT** (2026-08-30). Owner: *"the peaks are
+not adding anything because i left the page then came back, but the dots are
+still there so it should've included the peak addition into the price but it
+didnt."* A peak is a pair of corner NUMBERS, and the corners were never saved —
+only the traced runs were. So reopening a quote put the lines back on the map,
+which made the dots look present, while the corner list came back empty and
+every peak measured a span of nought. The pitch she had taken was still on the
+row, so each peak showed its angle beside no span and added nothing to the
+price.
+
+⚠ **The peaks were cleared nowhere at all**, which is the worse half: a gable
+measured on one roof stayed in the list when the tool opened on the next one,
+pointing at corner numbers that by then meant somebody else's dots.
+
+What is true now: the dots and the peaks are written into the saved drawing and
+put back before anything reads a total; a peak whose corners did not come back
+is **dropped** rather than listed spanning nothing; the peaks are emptied
+everywhere the dots are; and taking a dot back off drops the peak on it and
+shifts the rest down, instead of silently re-hanging a gable between two
+different corners. ⚠ A run built from the corners is **rebuilt** from them on
+the way back in rather than restored beside them — restoring both puts the same
+footage on the price twice.
+
 ⭐ **THE PICTURE ON THE QUOTE IS THE STREET VIEW** (2026-08-30). Owner: *"when you
 dot the sky view the picture of that gets uploaded as well but we just want the
 street view to be uploaded."* Attach used to work out which pane she meant from
