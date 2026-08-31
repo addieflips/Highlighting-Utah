@@ -19205,8 +19205,18 @@ suite('Suite 63. Changing your sides in the Member Portal');
       return index.indexOf('class="portal-side-pick" value="' + n + '"') > 0;
     }),
     'the member and the office have to be answering the same question');
+  /* ⚠ REPOINTED 2026-08-31, NOT WEAKENED — and it was pinning the wrong thing.
+     It matched the literal `try{ portalRenderSides(); }catch(err){}`, which meant
+     it ASSERTED THE BARE EMPTY CATCH, putting it in direct conflict with the
+     silent-failures gate the moment that catch was given a reason. Two gates
+     cannot disagree about one line. What must be TRUE is that the sides are
+     filled from the record on load: the renderer is CALLED in the account-load
+     path, before the rest of the record is painted. The catch around it is not
+     the guarantee and never was. */
+  const sidesCall = index.indexOf('portalRenderSides();');
   check('S63', 'and it is filled in from the record on load',
-    /try\{ portalRenderSides\(\); \}catch\(err\)\{\}/.test(index),
+    sidesCall > 0 && index.indexOf('portalRenderSides();', sidesCall) <
+      index.indexOf("getElementById('infoAddress')", sidesCall),
     'an empty set of boxes reads as "we are lighting none of it"');
 
   /* ---- ⭐ the pop-up ---- */
