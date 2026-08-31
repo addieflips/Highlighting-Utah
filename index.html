@@ -1446,7 +1446,24 @@
 
         <div class="invoice-empty" id="rsvpConfirmCard" style="display:none; text-align:center;">
           <div id="rsvpConfirmMsg" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
-          <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+          <!-- ⭐ GATE CODE, ASKED BEFORE "do you want changes?" (Addie, 2026-08-31:
+               "Lets do gate code before changes"). Only reached from the RSVP-yes
+               branch — somebody sitting the season out is never asked. -->
+          <div id="rsvpGateCodeStep" style="display:none;">
+            <div id="rsvpGateCodeQuestion" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
+            <div id="rsvpGateCodeAsk" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+              <button type="button" class="btn btn-gold" id="rsvpGateCodeYesBtn">Yes, I have one</button>
+              <button type="button" class="btn btn-outline" id="rsvpGateCodeNoBtn">No / not applicable</button>
+            </div>
+            <div id="rsvpGateCodeEntry" style="display:none; margin-top:14px;">
+              <label for="rsvpGateCodeInput" style="display:block; font-size:13px; color:var(--slate); margin-bottom:6px;">Gate code</label>
+              <input type="text" id="rsvpGateCodeInput" autocomplete="off" maxlength="60" placeholder="e.g. 4417"
+                     style="width:100%; max-width:260px; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-size:14px; box-sizing:border-box; margin-bottom:10px;">
+              <div><button type="button" class="btn btn-gold" id="rsvpGateCodeSaveBtn">Save</button></div>
+              <div id="rsvpGateCodeStatus" role="status" aria-live="polite" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>
+            </div>
+          </div>
+          <div id="rsvpConfirmBtnRow" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
             <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Yes, Take Me to My Portal</button>
             <button type="button" class="btn btn-outline" id="rsvpNoChangesBtn" style="display:none;">No, I'm All Set</button>
           </div>
@@ -4209,6 +4226,108 @@ function loadPortalByToken(token, extraOpts){
   });
 }
 
+/* ⭐ THE GATE CODE, ASKED ON THE WAY PAST (added 2026-08-31). Addie: "Lets do
+   gate code before changes." The RSVP is the one email every customer opens
+   and acts on, so it is the cheapest chance each season to catch a wrong gate
+   code before a crew is standing at a locked gate — which is the same argument
+   behind checklist row 218, from the other end.
+
+   ⚠ IT CONFIRMS WHEN WE ALREADY HOLD ONE, AND ASKS WHEN WE DO NOT. Asking "do
+   you have a gate code?" of somebody who gave us 4417 last year invites them to
+   answer a question we already know, and a customer who taps No there has told
+   us nothing while looking like they removed it. Two questions, one step.
+
+   ⚠ IT FAILS OPEN, EVERY WAY OUT. Missing markup, a refused save, a thrown
+   call — all of them move on to the changes question rather than stranding
+   somebody mid-RSVP. Their answer is already recorded by this point (portalRsvp
+   ran first), so nothing here can cost them their RSVP, and the same field is
+   reachable any time under My Info.
+
+   ⚠ AND IT NEVER BLOCKS THE ANSWER THAT MATTERS. The yes is saved before this
+   is ever shown. */
+function showRsvpGateCodeStep(token, existingGateCode, thenFn){
+  var step     = document.getElementById('rsvpGateCodeStep');
+  var question = document.getElementById('rsvpGateCodeQuestion');
+  var msgEl    = document.getElementById('rsvpConfirmMsg');
+  var btnRow   = document.getElementById('rsvpConfirmBtnRow');
+  var askRow   = document.getElementById('rsvpGateCodeAsk');
+  var entryRow = document.getElementById('rsvpGateCodeEntry');
+  var input    = document.getElementById('rsvpGateCodeInput');
+  var status   = document.getElementById('rsvpGateCodeStatus');
+  var yesBtn   = document.getElementById('rsvpGateCodeYesBtn');
+  var noBtn    = document.getElementById('rsvpGateCodeNoBtn');
+  var saveBtn  = document.getElementById('rsvpGateCodeSaveBtn');
+  /* Fail open: a customer must never be stranded because a div is missing. */
+  if(!step || !question || !askRow || !entryRow || !input || !yesBtn || !noBtn || !saveBtn){
+    thenFn();
+    return;
+  }
+
+  var held = String(existingGateCode || '').trim();
+
+  if(msgEl) msgEl.style.display = 'none';
+  if(btnRow) btnRow.style.display = 'none';
+  step.style.display = 'block';
+  askRow.style.display = 'flex';
+  entryRow.style.display = 'none';
+  input.value = held;
+  if(status) status.textContent = '';
+
+  if(held){
+    /* textContent, never innerHTML — a gate code is customer-supplied text and
+       goes on screen. */
+    question.textContent = 'We have ' + held + ' as your gate code. Is that still right?';
+    yesBtn.textContent = "Yes, that's right";
+    noBtn.textContent = 'It has changed';
+  } else {
+    question.textContent = 'Quick one \u2014 is there a gate code our crew needs to get in?';
+    yesBtn.textContent = 'Yes, I have one';
+    noBtn.textContent = 'No / not applicable';
+  }
+
+  function finish(){
+    step.style.display = 'none';
+    if(msgEl) msgEl.style.display = 'block';
+    if(btnRow) btnRow.style.display = 'flex';
+    thenFn();
+  }
+
+  function openEntry(){
+    askRow.style.display = 'none';
+    entryRow.style.display = 'block';
+    input.focus();
+    input.select();
+  }
+
+  /* ⚠ WITH A CODE ON FILE THE BUTTONS SWAP JOBS, deliberately. "Yes, that's
+     right" confirms and moves on — writing the same value back would be a
+     pointless write and would stamp gateCodeUpdatedAt for a change nobody
+     made. "It has changed" is the one that opens the box. */
+  yesBtn.onclick = held ? finish : openEntry;
+  noBtn.onclick  = held ? openEntry : finish;
+
+  function saveFailed(){
+    saveBtn.disabled = false;
+    /* Says where to do it instead, rather than only that it did not work. */
+    if(status) status.textContent = "Couldn't save that \u2014 you can add it any time under My Info.";
+    setTimeout(finish, 1800);
+  }
+
+  saveBtn.onclick = function(){
+    var val = input.value.trim();
+    /* An empty box is not an answer, and must not silently clear a code we
+       already hold — they have a way out through the buttons above. */
+    if(!val){ finish(); return; }
+    saveBtn.disabled = true;
+    if(status) status.textContent = 'Saving\u2026';
+    callPortalFn('portalSetGateCode', {token: token, gateCode: val}).then(function(res){
+      if(!res || !res.ok){ saveFailed(); return; }
+      saveBtn.disabled = false;
+      if(status) status.textContent = 'Saved \u2014 thank you!';
+      setTimeout(finish, 700);
+    }).catch(saveFailed);
+  };
+}
 function handleRsvpLink(token, rsvpValue){
   var lookupFormWrap = document.getElementById('lookupFormWrap');
   var confirmCard = document.getElementById('rsvpConfirmCard');
@@ -4219,6 +4338,13 @@ function handleRsvpLink(token, rsvpValue){
   if(lookupFormWrap) lookupFormWrap.style.display = 'none';
   if(confirmCard) confirmCard.style.display = 'block';
   if(reasonWrap) reasonWrap.style.display = 'none';
+  /* Reset on every open: this card is reused by all three answers, and a step
+     left showing from a previous render would sit above the wrong message. */
+  var gateCodeStep = document.getElementById('rsvpGateCodeStep');
+  var confirmBtnRow = document.getElementById('rsvpConfirmBtnRow');
+  if(gateCodeStep) gateCodeStep.style.display = 'none';
+  if(confirmMsg) confirmMsg.style.display = 'block';
+  if(confirmBtnRow) confirmBtnRow.style.display = 'flex';
   if(openPortalBtn) openPortalBtn.style.display = 'none';
   if(noChangesBtn) noChangesBtn.style.display = 'none';
   confirmMsg.textContent = 'One moment\u2026';
@@ -4236,29 +4362,17 @@ function handleRsvpLink(token, rsvpValue){
       return;
     }
     if(rsvpValue === 'yes'){
-      confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
-      if(openPortalBtn){
-        /* Labels set explicitly in BOTH branches. The "no" branch below reuses
-           these same two buttons with different wording, so leaving either to
-           the markup default means whichever branch ran second wins. */
-        openPortalBtn.textContent = 'Yes, Take Me to My Portal';
-        if(noChangesBtn) noChangesBtn.textContent = "No, I'm All Set";
-        openPortalBtn.style.display = 'inline-flex';
-        openPortalBtn.onclick = function(){
-          document.body.classList.remove('rsvp-minimal');
-          confirmCard.style.display = 'none';
-          loadPortalByToken(token);
-        };
-      }
-      if(noChangesBtn){
-        noChangesBtn.style.display = 'inline-flex';
-        noChangesBtn.onclick = function(){
-          if(openPortalBtn) openPortalBtn.style.display = 'none';
-          noChangesBtn.style.display = 'none';
-          confirmMsg.innerHTML = 'Thank you for choosing HighlightingUtah!<br>We\'ll get you scheduled!';
-        };
-      }
-    } else {
+      /* ⚠ THE GATE CODE COMES FIRST, and the changes question is handed to it
+         as a callback rather than run alongside — otherwise both are on screen
+         at once and the customer answers whichever they see. Addie's ordering:
+         "Lets do gate code before changes." */
+      showRsvpGateCodeStep(token, res.gateCode || '', showChangesQuestion);
+      return;
+    }
+    /* Everything below is the "no" path; the yes branch above returns. Kept as
+       a block rather than re-indented so this change stays reviewable — the
+       wording and the two button handlers are untouched. */
+    {
       /* ⭐ SAY WHY THEY ARE HERE BEFORE PUTTING THEM THERE (owner, 2026-08-19:
          "keep the Cancel tab, but put a message in front of it first so they
          know why they've landed there"). A "no" used to drop them STRAIGHT into
@@ -4313,6 +4427,35 @@ function handleRsvpLink(token, rsvpValue){
      ⚠ THE MESSAGE GOES IN THE CONFIRM CARD, which is already on screen and
      already centred by rsvp-minimal. Revealing a second box and hiding this
      one is what put two different explanations on the page at once. */
+  /* ⭐ THE SECOND HALF OF A YES, in its own function so the gate-code step can
+     hand control back to it when it is finished. It used to be written inline
+     in the yes branch; nothing about it changed except that it now has a name
+     and a caller. */
+  function showChangesQuestion(){
+    confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
+    if(openPortalBtn){
+      /* Labels set explicitly in BOTH branches. The "no" branch reuses these
+         same two buttons with different wording, so leaving either to the
+         markup default means whichever branch ran second wins. */
+      openPortalBtn.textContent = 'Yes, Take Me to My Portal';
+      if(noChangesBtn) noChangesBtn.textContent = "No, I'm All Set";
+      openPortalBtn.style.display = 'inline-flex';
+      openPortalBtn.onclick = function(){
+        document.body.classList.remove('rsvp-minimal');
+        confirmCard.style.display = 'none';
+        loadPortalByToken(token);
+      };
+    }
+    if(noChangesBtn){
+      noChangesBtn.style.display = 'inline-flex';
+      noChangesBtn.onclick = function(){
+        if(openPortalBtn) openPortalBtn.style.display = 'none';
+        noChangesBtn.style.display = 'none';
+        confirmMsg.innerHTML = 'Thank you for choosing HighlightingUtah!<br>We\'ll get you scheduled!';
+      };
+    }
+  }
+
   function rsvpLinkFailed(err){
     if(confirmCard) confirmCard.style.display = 'block';
     if(openPortalBtn) openPortalBtn.style.display = 'none';
