@@ -1862,7 +1862,16 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
    out by hand in a dozen places; adding a thirteenth rounding rule here would have
    been the fourth copy in this file's own history. This script is a module, so it
    can simply use the real one. */
-import { centsOf } from "./js/money.js";
+/* ⚠ ROOT-ABSOLUTE, NOT "./" (fixed 2026-08-31). This page is served at MORE
+   THAN ONE PATH: Netlify 200-rewrites /q/<token> and /home to this same file.
+   A relative import resolves against the URL the browser THINKS it is at, so
+   at /q/<token> this asked for /q/js/money.js, got a 404, and the whole module
+   failed to load — every script on the page dead, header and footer still
+   rendering because they are static HTML. That is the blank page a customer
+   following a quote text landed on, and it is why the short link had never
+   once worked. Nothing threw anywhere a person would see it.
+   ⚠ ANY future import here must be root-absolute for the same reason. */
+import { centsOf } from "/js/money.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
