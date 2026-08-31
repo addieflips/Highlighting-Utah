@@ -2007,6 +2007,12 @@
             <div class="form-row"><label>Don't Install Before This Date (staff only)</label><input type="date" id="editCustEarliestInstall"></div>
           </div>
           <p class="form-note" style="margin:-4px 0 16px;">Customers never see or can change this &mdash; use it when someone needs us to hold off until a specific date (e.g. they're out of town until then). Leave blank for no restriction.</p>
+          <!-- ⭐ WHY THIS CUSTOMER IS NOT BEING SCHEDULED (added 2026-08-31). Filled by
+               openEditCustomerModal from seasonHold(), which is gated on isOutForSeason —
+               the same rule the routes ask — so this box can never disagree with whether a
+               crew is actually being sent. Empty and hidden for anybody who is in the
+               season. -->
+          <div id="editCustHoldNote" style="display:none; margin:-4px 0 16px; padding:10px 12px; border-radius:8px; font-size:12.5px; line-height:1.5;"></div>
           <!-- Radio group rather than two checkboxes: the browser enforces that
                only one can be on, so the pair can never end up both set or both
                clear the way two checkboxes eventually would. -->
@@ -28627,6 +28633,51 @@ function isOutForSeason(d){
   }
   return false;
 }
+/* ⭐ WHY THIS CUSTOMER IS NOT BEING SCHEDULED (added 2026-08-31). Addie, having
+   asked how she can tell a paid-up customer from a held one: "how do we measure if
+   someone paid for last year so than they can be marked approved for the year and be
+   scheduled?" — and the screen could not tell her. `allCustRouteStatus` says
+   "Unscheduled" for a customer who owes money, one who has never replied, and one who
+   is simply not on a day yet. Three different phone calls, one word.
+
+   ⚠ IT NEVER DECIDES ANYTHING. It is gated on `isOutForSeason` — the one rule the
+   routes, the build queue and the schedule all ask — so it cannot name a customer who
+   is actually in the season, and it cannot stay silent about one who is out. Everything
+   below that gate only chooses WORDS for a decision already made somewhere else. That
+   is the whole reason it is safe to have a second list of reasons here at all.
+
+   ⚠ THE ORDER MIRRORS isOutForSeason's OWN, deliberately: said no, back next year,
+   lights queued to come back, owes from last season, no reply. Somebody who said no AND
+   owes money reads "they said no", because that is the answer that is actually keeping
+   them out and chasing them for money about lights they refused is the wrong call. If
+   that order ever drifts the worst case is a wrong LABEL on a genuinely held customer,
+   never a wrong decision — but it is still wrong, so a check pins each reason.
+
+   ⚠ AND IT IS DERIVED EVERY TIME IT IS DRAWN, never stored. A payment recorded at four
+   o'clock takes the line off that row at five past without anybody pressing anything,
+   which is the same rule Waiting on RSVP and Owes from last year already follow. A
+   stored reason would be right on the day it was written and wrong every day after. */
+function seasonHold(d){
+  if(!d) return null;
+  if(typeof isOutForSeason !== 'function' || !isOutForSeason(d)) return null;
+  const said = (typeof effectiveRsvpStatus === 'function') ? effectiveRsvpStatus(d) : '';
+  if(said === 'no') return {why: 'they said no', money: false};
+  if(d.maybeNextYear || said === 'backnextyear') return {why: 'back next year', money: false};
+  if(d.needsLightRecycle && !d.recycleKeepingCustomer) return {why: 'their lights are queued to come back', money: false};
+  /* ⭐ THE ONE REASON NO OTHER PART OF THE ROW STATES, which is why it is drawn in the
+     warning colour while the rest are quiet: the RSVP pill directly above already says
+     no, back next year or pending, so repeating those loudly on ~960 rows would bury
+     the one line somebody has to act on. */
+  if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)){
+    return {why: 'owes ' + fmtMoney(houseArrearsOutstanding(d)) + ' from last season', money: true};
+  }
+  return {why: 'no RSVP yet', money: false};
+}
+/* The same answer as words, for anywhere that just wants the sentence. */
+function seasonHoldReason(d){
+  const h = seasonHold(d);
+  return h ? h.why : '';
+}
 /* ---- the same timing preference, written five different ways ----
    Read out of the live book on 2026-08-15, across 970 customers:
        Normal Schedule 479 · October 222 · NOV 190 · November 72 · OCT 4
@@ -42135,7 +42186,21 @@ function renderAllCustomersTable(){
        written as td:nth-child(2) and td:nth-child(4), so an extra column would
        silently relabel two others on a phone. */
     const visitChip = nextVisitChip(r.d);
-    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>'+approvedOnJoinBadge(r.d);
+    /* ⭐ WHY THEY ARE NOT GOING OUT, under the status that only ever said "Unscheduled"
+       (added 2026-08-31). One word covered three different phone calls — owes money, has
+       not replied, or simply not placed on a day yet.
+       ⚠ THE MONEY ONE IS THE ONLY ONE DRAWN LOUD, and that is deliberate: the RSVP pill
+       on the line above already says no, back next year or pending, so putting those in
+       the warning colour on ~960 rows would bury the one line somebody has to act on.
+       ⚠ IT IS APPENDED, never merged into r.routeStatus — that string is what the Route
+       filter matches against (`r.routeStatus === map[routeFilter]`), so changing it would
+       silently break filtering on this table. */
+    const hold = seasonHold(r.d);
+    const holdLine = hold
+      ? '<br><span style="font-size:11px; color:' + (hold.money ? 'var(--ember)' : 'var(--slate)') +
+        '; font-weight:' + (hold.money ? '700' : '600') + ';">Not scheduled &mdash; ' + esc(hold.why) + '</span>'
+      : '';
+    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>'+approvedOnJoinBadge(r.d)+holdLine;
     /* Shows the normalised MEANING, not the raw shorthand. A row reading "NOV"
        while the scheduler treats it as November is how nobody notices that 190
        customers were being read as having no preference at all. Anything the
@@ -42650,6 +42715,29 @@ function openEditCustomerModal(id){
   }
   document.getElementById('editCustEnrolled').value = (d.createdAt && d.createdAt.toDate) ? toDateStr(d.createdAt.toDate()) : '';
   document.getElementById('editCustRsvp').value = d.rsvpStatus || '';
+  /* ⚠ CLEARED WHEN THEY ARE NOT HELD, not merely left alone. The house tabs repoint this
+     same form at a sibling without closing it, so a note left standing from the previous
+     customer would be a confident lie about this one — the exact leak the re-quote fields
+     were fixed for. */
+  const ecHold = (typeof seasonHold === 'function') ? seasonHold(d) : null;
+  const ecHoldEl = document.getElementById('editCustHoldNote');
+  if(ecHoldEl){
+    if(ecHold){
+      ecHoldEl.style.display = 'block';
+      ecHoldEl.style.background = ecHold.money ? '#FBE9E7' : 'var(--paper)';
+      ecHoldEl.style.color = ecHold.money ? '#9A2A1F' : 'var(--dusk)';
+      ecHoldEl.innerHTML = '<b>Not being scheduled &mdash; ' + esc(ecHold.why) + '.</b> ' +
+        (ecHold.money
+          ? 'No crew, no bundle and no route until last season&rsquo;s carried amount is paid in ' +
+            'full. A part-payment does not release them, and answering the RSVP does not either. ' +
+            'Record the payment on their invoice and they rejoin on the next draw.'
+          : 'No crew, no bundle and no route while this is true. It corrects itself as soon as ' +
+            'the reason does &mdash; nothing here needs pressing.');
+    } else {
+      ecHoldEl.style.display = 'none';
+      ecHoldEl.innerHTML = '';
+    }
+  }
   /* Confirmed is the default for anyone not explicitly sitting out, which is
      what an All Customers record has always meant. */
   document.getElementById(d.maybeNextYear ? 'editCustSeasonMaybe' : 'editCustSeasonConfirmed').checked = true;
