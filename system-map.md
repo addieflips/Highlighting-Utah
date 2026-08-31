@@ -48,6 +48,20 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 9. **Nightly invoice** — every night at 7 PM Mountain, any completed-but-not-yet-invoiced house gets billed automatically (§8).
 10. **Payment** — the customer pays via PayPal (in-portal) or Venmo (deep link) from the Member Portal.
 11. **RSVP "no"** — a flat "no" (not "back next year") sets `needsLightRecycle: true`, sending the house to the Warehouse Recycle queue.
+
+   ⭐ **WHERE THE THREE RSVP EMAIL BUTTONS LAND** (corrected 2026-08-31). The buttons are built by `applyEmailTokens` in `admin.html` — `{{rsvp_yes_button}}`, `{{rsvp_no_button}}`, `{{rsvp_back_button}}` — and each one carries the customer's own portal token:
+
+   | Button | Link | Answer saved | What the customer sees |
+   |---|---|---|---|
+   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | "You're confirmed for this season!" then two buttons — *Yes, Take Me to My Portal* / *No, I'm All Set* |
+   | **No** | `#/payment?token=…&rsvp=no` | `no` | "We'll be sorry to miss you this year" then *Tell us why (optional)* / *That's all, thanks* |
+   | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | "We look forward to seeing you next year!" |
+
+   All three are a **receipt, not the website**: the header, footer and hero come off, and nothing else is reachable from the page. That is `body.rsvp-minimal`, which force-shows `#page-payment` (holding `#rsvpConfirmCard`) for the first two and `#backNextYearConfirm` for the third.
+
+   ⚠ **NONE OF THE THREE SHOWS THE INSTALL-DETAILS FORM, and until 2026-08-31 all three did.** The router added `body.quote-minimal` instead — a different class, for the *quote* screens, which force-shows `#page-quote-details` with `!important`. So an existing member pressing Approve was handed the form a brand-new customer fills in (colours, wire, timer), asking again for everything already on their record. ⚠ **The answer was being saved correctly the whole time** — `portalRsvp` ran before any of the UI, and both confirmation messages were built correctly — so nothing anywhere went red and no data was lost or wrong. Only the screen was. That is why it is proved by `test/rsvp-link.spec.js`, which **drives all three links in a real browser**: a source check over `index.html` passes on the broken version, because every message and every handler was present and correct.
+
+   ⚠ **A member is never re-asked for details they already gave.** That rule is the same one behind "an existing member does not get the form" in step 3 above; this was that rule leaking through a different door.
 12. **Recycle** — marking a house recycled in the warehouse clears its `customerNumber` and drops that number back into `availableCustomerNumbers` for reuse (lowest number first).
 
 ---
