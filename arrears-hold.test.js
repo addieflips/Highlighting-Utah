@@ -243,6 +243,8 @@ function seasonResetWrite() {
     'function effectiveRsvpStatus(d){ let s = String((d||{}).rsvpStatus||"").toLowerCase();' +
       ' if(s === "yes" && !(d||{}).rsvpRespondedAt) s = ""; return s; }',
     'function extractCleanCity(c){ return String(c||"").trim(); }',
+    lift('seasonHold'),
+    lift('seasonHoldReason'),
     'function esc(s){ return String(s == null ? "" : s); }',
     'function fmtMoney(n){ return "$" + (Number(n)||0).toFixed(2); }',
     lift('houseOwesFromLastSeason'),
@@ -250,14 +252,15 @@ function seasonResetWrite() {
     lift('isOutForSeason'),
     lift('owesFromLastYearHouses'),
     'return { houseOwesFromLastSeason, houseArrearsOutstanding, isOutForSeason,' +
-    ' owesFromLastYearHouses,' +
+    ' owesFromLastYearHouses, seasonHold, seasonHoldReason,' +
     ' setInvoices(m){ invoiceById = m; }, setBook(b){ jobAddresses = b; },' +
     ' dropInvoices(){ invoiceById = null; } };'
   ].join('\n');
 
   /* ⚠ EACH LIFT IS PARSED, NOT JUST FOUND. A lift that silently truncates gives a
      function that answers confidently and wrongly — see the note over lift(). */
-  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'isOutForSeason', 'owesFromLastYearHouses']
+  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'isOutForSeason', 'owesFromLastYearHouses',
+   'seasonHold', 'seasonHoldReason']
     .forEach(function (n) {
       check('lifted ' + n + ' out of the page, whole', liftOk(lift(n)),
         'a missing or truncated lift is a suite testing nothing while reporting green');
@@ -361,6 +364,104 @@ function seasonResetWrite() {
   check('and the biggest debt is at the top',
     listed[0] === 'Owes More',
     'this list is worked down in order of what is worth chasing; got ' + JSON.stringify(listed));
+
+  /* ---------------------------------------------------------------------
+     4b. Why a customer is not being scheduled — the note on the row and in
+         Edit Customer. It must never disagree with whether a crew is
+         actually being sent.
+     --------------------------------------------------------------------- */
+  /* ⚠ ONE DEBT ONLY, AND A DEBT-FREE NON-REPLIER. The list fixtures above deliberately
+     gave EVERYBODY a debt — that is the vanishing case they exist to prove — and reused
+     here it made "no RSVP yet" unreachable: the money reason outranks it, correctly, so
+     the check failed against code that was right. A fixture where every record hits the
+     same branch cannot tell the branches apart. */
+  api.setInvoices(new Map([
+    ['8015550001', { data: billed(400, 0) }],   // replied yes, owes
+    ['8015550002', { data: billed(400, 400) }], // square
+    ['8015550003', { data: billed(250, 0) }]    // said no, and owes — precedence case
+  ]));
+
+  /* ⭐ THE STRUCTURAL GUARANTEE, and the only one that really matters: the note is
+     silent for everybody in the season and speaks for everybody out of it. Run over a
+     matrix rather than asserted case by case, because the failure worth catching is a
+     reason list that has drifted out of step with the rule it explains — a row saying
+     "Not scheduled" about somebody a crew is on its way to. */
+  const matrix = [
+    { name: 'owes', d: replied },
+    { name: 'square', d: clear },
+    { name: 'said no', d: saidNo },
+    { name: 'never replied', d: neverReplied },
+    { name: 'back next year', d: { ...clear, rsvpStatus: 'backnextyear' } },
+    { name: 'badged next year', d: { ...clear, maybeNextYear: true } },
+    { name: 'being recycled', d: { ...clear, needsLightRecycle: true } },
+    { name: 'moved, staying', d: { ...clear, needsLightRecycle: true, recycleKeepingCustomer: true } },
+    { name: 'new this year', d: { ...clear, chargeNewMemberFee: true } }
+  ];
+  const disagreed = matrix.filter(function (m) {
+    return api.isOutForSeason(m.d) !== !!api.seasonHold(m.d);
+  }).map(m => m.name);
+  check('the note speaks for exactly the customers the season rule holds',
+    disagreed.length === 0,
+    'it must never name somebody a crew is on its way to, nor go silent about somebody ' +
+    'who is being left out: disagreed on ' + JSON.stringify(disagreed));
+
+  check('somebody in the season gets no note at all',
+    api.seasonHold(clear) === null && api.seasonHoldReason(clear) === '',
+    'a leftover note on a customer who is going out is worse than none');
+
+  /* ⚠ EACH REASON PINNED, because the order mirrors isOutForSeason's own and a drift
+     there puts the wrong words on a genuinely held customer. */
+  check('the money reason names the amount',
+    api.seasonHoldReason(replied) === 'owes $400.00 from last season',
+    'got ' + JSON.stringify(api.seasonHoldReason(replied)));
+  check('and it is the only one drawn as money',
+    api.seasonHold(replied).money === true &&
+    [saidNo, neverReplied].every(function (d) { return api.seasonHold(d).money === false; }),
+    'the RSVP pill already says no/pending on the line above — putting those in the ' +
+    'warning colour on ~960 rows buries the one line somebody has to act on');
+  check('no reply reads as no reply',
+    api.seasonHoldReason(neverReplied) === 'no RSVP yet');
+  check('a no reads as a no',
+    api.seasonHoldReason(saidNo) === 'they said no');
+  check('back next year reads as back next year, however it was recorded',
+    api.seasonHoldReason({ ...clear, rsvpStatus: 'backnextyear' }) === 'back next year' &&
+    api.seasonHoldReason({ ...clear, maybeNextYear: true }) === 'back next year');
+  check('a queued recycle says so',
+    api.seasonHoldReason({ ...clear, needsLightRecycle: true }) === 'their lights are queued to come back');
+
+  /* ⚠ SAYING NO OUTRANKS OWING, matching isOutForSeason's own order. Chasing somebody
+     for money about lights they refused is the wrong call, and it is the reason that is
+     actually keeping them out. */
+  api.setInvoices(new Map([['8015550003', { data: billed(250, 0) }]]));
+  check('somebody who said no AND owes reads as a no, not as a debt',
+    api.seasonHoldReason(saidNo) === 'they said no',
+    'got ' + JSON.stringify(api.seasonHoldReason(saidNo)));
+
+  /* ⚠ THE FILTER ON THAT TABLE MATCHES r.routeStatus EXACTLY
+     (`r.routeStatus === map[routeFilter]`), so folding the reason into that string
+     would silently break filtering on All Customers. It has to be appended. */
+  check('the row appends the reason rather than merging it into the route status',
+    /\+approvedOnJoinBadge\(r\.d\)\+holdLine;/.test(admin) &&
+    !/routeStatus:\s*allCustRouteStatus\(d\)\s*\+/.test(admin),
+    'the Route filter compares routeStatus exactly — changing it breaks the filter');
+  check('and the row only draws a line when there is one to draw',
+    /const holdLine = hold\s*\r?\n?\s*\?/.test(admin),
+    'an empty line on every in-season row is noise on ~960 rows');
+
+  /* ⚠ THE HOUSE TABS REPOINT THIS FORM WITHOUT CLOSING IT, so a note left standing from
+     the previous customer is a confident lie about this one — the exact leak the
+     re-quote fields were fixed for. */
+  const opener = lift('openEditCustomerModal');
+  check('Edit Customer fills the note from the same rule',
+    /seasonHold\(d\)/.test(opener),
+    'a second opinion in the form would disagree with the routes');
+  check('and clears it for a customer who is NOT held',
+    /ecHoldEl\.innerHTML = '';/.test(opener) && /ecHoldEl\.style\.display = 'none';/.test(opener),
+    'the house tabs repoint this form at a sibling without closing it, so a stale note ' +
+    'would be a lie about the customer now on screen');
+  check('the note element exists in the page',
+    /id="editCustHoldNote"/.test(admin),
+    'a filler with no element is a silent no-op under optional chaining');
 
   /* ---------------------------------------------------------------------
      5. The ledger has to survive the two invoice rebuilds, or the debt
