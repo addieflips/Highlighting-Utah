@@ -73,6 +73,17 @@ function hits(ix, field) {
     if (/^\s*:/.test(after)) kind = 'set';
     else if (/^\s*=[^=]/.test(after)) kind = 'set';
     else if (/[.[]$|['"]$/.test(before)) kind = 'read';
+    /* ⚠ A LOCAL DECLARATION IS NOT A WRITE TO THE RECORD. `const completed = !!d.completed`
+       reads the field and names a local after it; `let deposit = 0` names one after a field
+       it never touches. Both matched `= ` and were counted as writers — 45 of them across
+       the map, and they are the worst kind of amber because they sit inside functions that
+       genuinely do handle the right record, so no record filter can see them.
+       ⚠ THE DESTRUCTURING FORM IS DELIBERATELY NOT CAUGHT: `const {completed} = d` has a
+       brace between the keyword and the name, so it does not match here — and it is a
+       READ, which the branch above has already decided correctly. */
+    if (kind === 'set' && /\b(?:const|let|var)\s+$/.test(s.slice(Math.max(0, m.index - 12), m.index))) {
+      kind = null;
+    }
     if (kind) out.push({ pos: m.index, kind });
   }
   return out;

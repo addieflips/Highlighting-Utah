@@ -1630,6 +1630,46 @@ it is now readable enough to do.
 right record for a reason that is not a connection, which no amount of collection-sniffing
 can work out. This runs after them.
 
+### Declaring the five areas Addie picked
+
+Working order: **Schedule and Customers-RSVP first** — the two small enough to *finish*
+rather than dent — then Warehouse, Quotes, Invoices.
+
+| Area | Declared | Undeclared |
+|---|---|---|
+| **Schedule** | 32 | **2** (was 56) |
+| **Customers-RSVP** | 36 | **4** (was 40) |
+| Warehouse | 46 | 170 |
+| Quotes | 17 | 159 |
+| Invoices | 22 | 215 |
+
+**What declaring found.** `stops` went from 42 undeclared to **nought**, and the entries
+are the ones that matter: the 15-minute route sweep rewrites the frozen list a crew is
+handed, `resyncSavedRouteStops` pushes a corrected address onto a saved stop,
+`removeCustomerFromUpcomingRoutes` exists **twice** (browser and server, because a customer
+taking themselves out is not signed into the office), and `portalSave` can touch a stop
+from the customer's own page. On `rsvpStatus`, the one worth reading twice is
+**`seasonYesUpdates` in admin.html** — a second implementation of what a yes does, beside
+the server's, which is the shape money-parity exists for.
+
+**And two more matcher faults surfaced, both in the silent direction:**
+
+- **A local declaration was counted as a write.** `const completed = !!d.completed` reads
+  the field and names a local after it; `let deposit = 0` names one after a field it never
+  touches. Both matched `= ` and were counted as *writers* — **45 across the map**, and
+  the worst kind of amber, because they sit inside functions that genuinely do handle the
+  right record, so no record filter can see them. **665 → 560.**
+- **Destructuring is invisible.** `const {completed} = d` produces no hit at all — not a
+  write, and not a read either, because `hits()` decides a read from the character before
+  the name and `{` is not one of them. Found by writing a check that assumed the opposite.
+  It happens **zero** times in the real files today, so building for it would be building
+  for nothing — but the *assumption* is now gated: if somebody starts reading a watched
+  field that way, it goes red and a person decides.
+
+⚠ **A label map is not a write either.** `renderAllCustomersTable` holds
+`{completed:'Install Complete'}` so a filter can be shown in words. That one cannot be
+worked out mechanically and is a hand-written `ignore`, like the test-record builders.
+
 ### What runs without anybody pressing anything
 
 Addie, 2026-08-30: *"where things go does not have a complete representation of the
