@@ -146,6 +146,12 @@ jobs:
       # printed rather than being buried under the suite's own summary.
       - name: The schedule hold and where a re-quote lands
         run: npm run test:hold
+      # ⭐ WHO IS HELD BECAUSE LAST SEASON'S BILL WAS NEVER PAID. Named separately
+      # because it is two rules at once — money that is now carried instead of written
+      # off, and who may be sent a crew — and "a customer who paid is being held" is a
+      # different thing to go and look at than a line inside the big suite.
+      - name: Last season's unpaid bill (carried, and holding the season)
+        run: npm run test:arrears
       - name: Addie's rulings (the questions map)
         run: npm run test:questions
 
