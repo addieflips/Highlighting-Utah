@@ -346,7 +346,31 @@ const FAKE_FUNCTIONS_MODULE = `
         const e = new Error('boom'); e.code = 'functions/internal'; throw e;
       }
       if (!hit) { const e = new Error('Quote not found.'); e.code = 'functions/not-found'; throw e; }
+      /* ⚠ AND WHAT THAT MEMBER STILL OWES FROM LAST SEASON, on an approve. Approving
+         IS a yes for an existing member -- the real quoteRespond writes seasonYesUpdates
+         -- so RS-24 holds them out of the season on the money, and all three of this
+         page's approval endings used to promise an install anyway. Without this here
+         no browser test could see the fix, whether or not the server sends it.
+         ⚠ RESOLVED ONLY THROUGH THE EXPLICIT LINK, exactly as the real one is. It must
+         NOT fall back to matching a phone: 17 numbers in the real book are shared and 14
+         are two genuinely different households, so a phone join would hand one house's
+         debt to another family. That join is red-checked against in Suite 69. */
+      let qArrears = { outstanding: 0, season: '' };
+      if (action === 'approve' && hit.data.existingCustomerId) {
+        let cust = null;
+        Object.keys(F.customers || {}).forEach(function (k) {
+          if (F.customers[k].id === hit.data.existingCustomerId) cust = F.customers[k];
+        });
+        if (cust) {
+          const billKey = String((cust.record && cust.record.billToPhone) || '').replace(/\D/g, '') ||
+                          cust.invoiceKey;
+          const inv = billKey ? (F.invoices || {})[billKey] : null;
+          if (inv) qArrears = stubArrears(inv);
+        }
+      }
       return { ok: true, quoteId: hit.id, name: hit.data.name,
+               arrearsOutstanding: qArrears.outstanding,
+               arrearsSeason: qArrears.season,
                formCompleted: !!hit.data.formCompleted };
     },
 

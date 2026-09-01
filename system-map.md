@@ -666,9 +666,24 @@ last thing they read.
   - ⚠ **It reads the bill the house is ON** (`billToPhone` before the house's own key),
     which is RS-24's rule verbatim: if Dana pays for Kyle and Dana did not pay, Kyle's
     lights were not paid for either.
-  - Proved by `test/rsvp-arrears.spec.js` (eight browser checks — every claim is words
-    on a screen) and the `portalRsvp` section of `arrears-hold.test.js` (the server half,
-    which no browser spec can reach). 10 sabotages red-checked.
+  - ⭐ **And the same is true of the second door: approving a quote.** For an existing
+    member `quoteRespond` writes `seasonYesUpdates`, so approving **is** a yes and RS-24
+    holds them exactly as it does an RSVP yes — while all three approval endings promised
+    an install. Fixing one door and leaving the other is half a fix, and would leave two
+    screens making opposite claims about one rule. `arrearsForCustomer` on the server is
+    the one lookup both doors call; `quoteScheduleSub` in index.html is the one wording
+    rule all three endings call. It reports nought — so the original wording stands — for
+    a decline, and for an approver we cannot identify (`alreadyMember` is deliberately
+    wider than `memberRef`: a quote can say "this became a customer" without saying who).
+  - Proved by `test/rsvp-arrears.spec.js` (twelve browser checks — every claim is words
+    on a screen) and the `portalRsvp`/`arrearsForCustomer` sections of
+    `arrears-hold.test.js` (the server half, which no browser spec can reach).
+    19 sabotages red-checked.
+    - ⚠ **Two of the three quote endings are only covered structurally**, and that is
+      stated rather than glossed: the member "keep everything the same" ending and the
+      portal's own `quoteApprovedMsg` need stub shapes the suite does not build, so all
+      that is asserted is that they still route through `quoteScheduleSub`. That catches
+      a revert; it does not prove what renders.
 
 ⚠ **`houseArrearsOutstanding` asks `arrearsOutstanding` from js/money.js** rather than
 subtracting for itself. It hand-rolled `owed - (deposit + credits)` in plain floats while

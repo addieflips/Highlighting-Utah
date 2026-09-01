@@ -1306,42 +1306,28 @@ function seasonResetWrite() {
     'every check below slices this — an empty slice would pass them all vacuously');
 
   check('the RSVP answer carries what is still owed from last season',
-    /arrearsOutstanding: arrearsOutstanding/.test(rsvpSrc) &&
-    /arrearsSeason: arrearsSeason/.test(rsvpSrc),
+    /arrearsOutstanding: owed\.outstanding/.test(rsvpSrc) &&
+    /arrearsSeason: owed\.season/.test(rsvpSrc),
     'without these two the confirmation cannot know, and goes back to promising ' +
     'an install to somebody RS-24 holds out of the season');
 
-  check('and it asks the shared rule rather than summing the ledger again',
-    /arrearsOutstandingServer\(/.test(rsvpSrc) && !/kind === ARREARS_KIND/.test(rsvpSrc),
-    'a third copy of the carried-balance maths would sit outside money-parity ' +
-    'entirely — and it would be the copy talking to the customer');
+  /* ⚠ REPOINTED, NOT WEAKENED (2026-09-01). These four asserted the lookup INLINE
+     in portalRsvp — that is, they were pinned to where the code happened to sit.
+     The quote-approval door needed the same lookup, so it moved into the shared
+     arrearsForCustomer and these began failing on correct code: the §7 slow-fuse
+     shape, and the same one that already caught S82, S129 and the folder-names
+     suite. What must be true is that portalRsvp ASKS the one rule, on a yes, and
+     returns both fields; the bill-key rule, the fail-safe and the logging are
+     properties of the helper and are asserted against it below. */
+  check('a yes asks the one shared rule for what they owe',
+    /response === 'yes' \? await arrearsForCustomer\(oldData\)/.test(rsvpSrc),
+    'and only a yes — somebody saying no or back next year is not being scheduled ' +
+    'anyway, so reading an invoice for them is a Firestore read per answer for nothing');
 
-  /* ⚠ RS-24's OWN RULE, VERBATIM: the bill the house is ON, never the house's own
-     key. If Dana pays for Kyle and Dana did not pay, Kyle's lights were not paid
-     for either — and reading Kyle's own key finds no invoice and tells him he is
-     clear, which is the reassuring answer and the wrong one. */
-  check('it reads the bill the house is on, not the house\u2019s own key',
-    /digitsOnly\(oldData\.billToPhone\)\s*\|\|\s*invoiceKeyFor\(oldData\)/.test(rsvpSrc),
-    'billToPhone must be tried BEFORE the house\u2019s own invoice key');
-
-  check('only a yes goes looking for a debt',
-    /if \(response === 'yes'\) \{[\s\S]{0,80}try \{/.test(rsvpSrc),
-    'somebody saying no or back next year is not being scheduled anyway, and ' +
-    'reading an invoice for them is a Firestore read per answer for nothing');
-
-  /* ⚠ SILENCE IS THE FAIL-SAFE HERE, and it is deliberately the OPPOSITE direction
-     to the season hold. An unreadable invoice must not tell a customer they owe
-     money we cannot prove they owe: being wrongly accused of a debt is worse than
-     not being warned about a real one, and the office still has Schedule › Owes
-     from last year either way. */
-  check('an unreadable invoice says nothing rather than accusing them',
-    /let arrearsOutstanding = 0;/.test(rsvpSrc) && /catch \(e\) \{/.test(rsvpSrc),
-    'it must initialise to nought and swallow the read failure — the RSVP itself ' +
-    'is already saved by this point and must never be lost to an invoice read');
-
-  check('and the failure is logged rather than swallowed in silence',
-    /console\.error\('\[HU\] portalRsvp arrears lookup failed/.test(rsvpSrc),
-    'Addie 2026-08-25: "nothing should fail quietly"');
+  check('and portalRsvp does not resolve an invoice for itself',
+    !/collection\('invoices'\)/.test(rsvpSrc),
+    'a second lookup here is a second copy of "does this customer owe", which is ' +
+    'how two screens start making different claims about one rule');
 
   /* ⚠ AND THE PAGE MUST NOT WORK IT OUT FOR ITSELF, the same rule the payment
      card already follows. index.html repeats the server's figure and never sums
@@ -1353,6 +1339,72 @@ function seasonResetWrite() {
   check('the confirmation repeats the server\u2019s figure, never its own',
     !!changesSrc && /rsvpArrearsLeft/.test(changesSrc) && !/changeFeeNotes/.test(changesSrc),
     'got: ' + JSON.stringify(changesSrc.slice(0, 120)));
+
+  /* ---------------------------------------------------------------------
+     THE SECOND DOOR INTO A YES — approving a quote (2026-09-01)
+
+     For an existing member quoteRespond writes seasonYesUpdates, so RS-24 holds
+     a debtor out of the season through this door exactly as through the RSVP
+     link — and all three of the page's approval endings promised an install.
+     Fixing one door and leaving the other is half a fix by this repo's own name
+     for it, and would leave two screens contradicting each other about one rule.
+     --------------------------------------------------------------------- */
+  const helperAt = serverSrc.indexOf('async function arrearsForCustomer(');
+  const helperSrc = helperAt === -1 ? ''
+    : stripComments(serverSrc.slice(helperAt, serverSrc.indexOf('\n}', helperAt) + 2));
+
+  check('there is ONE server helper for what a customer owes', !!helperSrc,
+    'arrearsForCustomer is what stops the quote door becoming a second copy of ' +
+    'the lookup — two copies is how two screens start making different claims');
+
+  check('both doors ask it rather than looking the invoice up themselves',
+    (serverSrc.match(/await arrearsForCustomer\(/g) || []).length >= 2 &&
+    (stripComments(serverSrc).match(/collection\('invoices'\)\.doc\(billKey\)/g) || []).length === 1,
+    'portalRsvp and quoteRespond must both call the helper, and only the helper ' +
+    'may resolve the bill key');
+
+  check('the helper reads the bill the house is on, not the house\u2019s own key',
+    /digitsOnly\(d\.billToPhone\)\s*\|\|\s*invoiceKeyFor\(d\)/.test(helperSrc),
+    'RS-24 verbatim: if Dana pays for Kyle and Dana did not pay, Kyle\u2019s lights ' +
+    'were not paid for either');
+
+  check('and it answers nought rather than throwing',
+    /catch \(e\)/.test(helperSrc) && /return none;/.test(helperSrc) &&
+    /console\.error\('\[HU\] arrearsForCustomer failed/.test(helperSrc),
+    'silence is the fail-safe: telling somebody they owe money we cannot prove ' +
+    'they owe is worse than not warning them about a real debt — and it is logged, ' +
+    'because nothing may fail quietly');
+
+  const qrAt = serverSrc.indexOf('exports.quoteRespond');
+  const qrSrc = qrAt === -1 ? '' : stripComments(serverSrc.slice(qrAt));
+  check('quoteRespond returns the figure, and only for an approve it can attribute',
+    /* ⚠ ANCHORED TO THE ASSIGNMENT, NOT THE BARE CONDITION — the red-check caught
+       this one vacuous: `action === 'approve' && memberRef` is ALSO the condition on
+       the season write twenty lines above, so the sabotage that dropped it from the
+       arrears line matched the other occurrence and sailed through. */
+    /const approverOwes = \(action === 'approve' && memberRef\)/.test(qrSrc) &&
+    /arrearsOutstanding: approverOwes\.outstanding/.test(qrSrc),
+    'alreadyMember is deliberately wider than memberRef — a debt cannot be looked ' +
+    'up for somebody we cannot identify — and telling a customer who just DECLINED ' +
+    'that they owe money is a chase');
+
+  /* ⚠ WEAKER THAN THE BROWSER SPECS, AND SAID SO RATHER THAN PRETENDED OTHERWISE.
+     test/rsvp-arrears.spec.js drives the formCompleted ending for real. The other
+     two — the member "keep everything the same" ending and the portal's own
+     quoteApprovedMsg — need stub shapes this suite does not build, so all that is
+     asserted here is that they still route through the one helper. That catches a
+     revert; it does not prove what renders. */
+  const idxSrc = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  check('all three approval endings go through the one wording rule',
+    (idxSrc.match(/quoteScheduleSub\(/g) || []).length >= 4,
+    'the helper is declared once and called at three endings — a site that stops ' +
+    'calling it goes back to promising an install to somebody held out of the season');
+
+  check('and the page still never sums the fee ledger itself',
+    /function quoteScheduleSub\(/.test(idxSrc) &&
+    !/quoteScheduleSub[\s\S]{0,400}changeFeeNotes/.test(idxSrc),
+    'the figure is the server\u2019s — a third copy of the carried-balance maths ' +
+    'here would sit outside money-parity and would be the one the customer reads');
 
   /* ---------------------------------------------------------------------
      Report
