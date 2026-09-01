@@ -676,6 +676,13 @@ invoice, and already reaches the customer's portal.
   - **A note written before the field existed reads its year out of its own sentence** ("Unpaid balance carried from the 2025 season"), rather than showing blank on an invoice nobody has touched since.
   - **It shows in four places**, all from `arrearsYearOnInvoice` / `houseArrearsYear` so they cannot name different years: the reason a customer is held out of the season, the Unpaid badge on their row, the invoice status cell, and the held-customers list.
 
+**After they pay last season**, the invoice is re-read and the chooser rebuilds from it:
+the last-season option disappears and the payable figure becomes what is left of this
+year. ⚠ `portalPayableNow` falls back to the whole balance when the carried amount is
+gone — the scope is still `arrears` at that moment, so a naive read returns 0 and shows
+the customer nothing to pay. A part payment leaves the option up for the remainder
+(MON-52).
+
 ⚠ **Changing the amount takes the PayPal buttons down and puts them back** — because the
 card button creates its order when the inline form OPENS, not when it is submitted. Once
 that form is up it is bound to the amount chosen before it, and nothing in the browser can
