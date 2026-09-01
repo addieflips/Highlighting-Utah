@@ -928,6 +928,202 @@ function seasonResetWrite() {
     'the balance they are asked to pay is not the balance we hold them against');
 
   /* ---------------------------------------------------------------------
+     6. TWO AMOUNTS ON THE PORTAL, AND THE TIP THAT WAS BEING EATEN (2026-08-31)
+
+     Addie, looking at a bill carrying last year's balance: "it says pay 1,146 but
+     should only show 200", and then: "2 button options for last year and full
+     payment."
+
+     ⚠ EVERY CHECK IN THIS SECTION RUNS THE SHIPPED CODE. The bug it was written
+     over — a $30 tip on a $200 part payment being booked as $230 against the bill
+     and $0 to the crew — is invisible to a regex: the old line was correct-looking
+     arithmetic that only went wrong once the button stopped charging the whole
+     balance. Reading the source would have passed it every day it was broken.
+     --------------------------------------------------------------------- */
+  const captureSrc = serverSrc.slice(serverSrc.indexOf('exports.paypalCaptureOrder'),
+                                     serverSrc.indexOf('exports.paypalCaptureOrder') + 6000);
+  const splitFrom = captureSrc.indexOf('const owed =');
+  const splitTo   = captureSrc.indexOf('tip = Math.max(', splitFrom);
+  const splitSrc  = captureSrc.slice(splitFrom, captureSrc.indexOf('\n', splitTo));
+  check('the capture split was lifted out of the Cloud Function', splitFrom !== -1 && splitTo !== -1,
+    'nothing below this line is testing what ships');
+
+  /* arrearsOutstandingServer and centsOf are handed in from js/money.js — the twin
+     money-parity already holds identical to the server's copy — so this runs the
+     real rule rather than a fixture that would agree with itself. */
+  const splitPayment = new Function('inv', 'capturedAmount', 'arrearsOutstandingServer', 'centsOf',
+    'let serviceAmount = capturedAmount; let tip = 0;\n' + splitSrc +
+    '\nreturn { serviceAmount: serviceAmount, tip: tip };');
+  function split(inv, captured) {
+    return splitPayment(inv, captured, money.arrearsOutstanding, money.centsOf);
+  }
+
+  const carrying = {
+    install: 946, removal: 0, changeFees: 200, credits: 0, deposit: 0,
+    changeFeeNotes: [{ amount: 200, kind: 'arrears', year: '2025',
+                       reason: 'Unpaid balance from the 2025 season' }]
+  };
+
+  const partWithTip = split(carrying, 230);
+  check('a $30 tip on a $200 part payment reaches the crew',
+    money.centsOf(partWithTip.tip) === 3000,
+    'THE BUG: the old rule called anything under the balance service, so the tip was ' +
+    'booked as bill payment and recorded as $0; got tip ' + partWithTip.tip);
+  check('and the $200 still settles last season',
+    money.centsOf(partWithTip.serviceAmount) === 20000,
+    'if the tip is carved out of the wrong side, the debt survives a payment that cleared it; ' +
+    'got service ' + partWithTip.serviceAmount);
+
+  const partNoTip = split(carrying, 200);
+  check('paying last season with no tip books no tip',
+    money.centsOf(partNoTip.serviceAmount) === 20000 && money.centsOf(partNoTip.tip) === 0,
+    'got ' + JSON.stringify(partNoTip));
+
+  const allNoTip = split(carrying, 1146);
+  check('choosing everything owing settles the whole bill',
+    money.centsOf(allNoTip.serviceAmount) === 114600 && money.centsOf(allNoTip.tip) === 0,
+    'the second button must not turn the balance into a tip; got ' + JSON.stringify(allNoTip));
+
+  const allWithTip = split(carrying, 1176);
+  check('and a tip on top of everything owing is still a tip',
+    money.centsOf(allWithTip.serviceAmount) === 114600 && money.centsOf(allWithTip.tip) === 3000,
+    'got ' + JSON.stringify(allWithTip));
+
+  const noArrears = { install: 946, removal: 0, changeFees: 0, credits: 0, deposit: 0, changeFeeNotes: [] };
+  check('a customer with nothing carried is split exactly as before',
+    money.centsOf(split(noArrears, 946).serviceAmount) === 94600 &&
+    money.centsOf(split(noArrears, 976).tip) === 3000,
+    'this change must not move the ordinary payment, which is nearly every payment');
+  check('and a short payment against an ordinary bill is all service, no tip',
+    money.centsOf(split(noArrears, 400).serviceAmount) === 40000 &&
+    money.centsOf(split(noArrears, 400).tip) === 0,
+    'an underpayment is not a gratuity');
+
+  /* Floating point: $230 against a $200 debt has been the shape of every rounding
+     bug in this repo. A cent adrift here books the whole payment as a tip. */
+  const crumbs = { install: 0.1, removal: 0, changeFees: 200, credits: 0, deposit: 0,
+                   changeFeeNotes: [{ amount: 200, kind: 'arrears', reason: '2025' }] };
+  check('a crumb does not turn a payment into a tip',
+    money.centsOf(split(crumbs, 200).serviceAmount) === 20000,
+    'got ' + JSON.stringify(split(crumbs, 200)));
+
+  /* ---- the choice itself ---- */
+  check('the customer can now choose the whole balance instead',
+    /const payingLastSeason = arrearsLeft > 0 && !payAll;/.test(createOrder) &&
+    /const \{ phone, tipAmount, payAll \}/.test(createOrder),
+    'her words: "2 button options for last year and full payment"');
+  check('and the choice arrives as a flag, never as an amount',
+    !/Number\(request\.data[^)]*amount/i.test(createOrder) &&
+    /payingLastSeason \? arrearsLeft : balanceDue/.test(createOrder),
+    'a browser that can name a figure can name $0.01 — both figures must stay ' +
+    'the server\'s own');
+
+  /* ---- and what the customer is shown ---- */
+  const payable = site.slice(site.indexOf('function portalPayableNow()'),
+                             site.indexOf('function renderPayChoice'));
+  const payableOk = liftOk(payable) && /function portalPayableNow\(\)/.test(payable);
+  check('portalPayableNow was lifted out of the portal', payableOk,
+    'the portal has no single answer to "what are we charging them right now", so the ' +
+    'four checks below cannot run at all');
+  /* ⚠ A MISSING LIFT REPORTS, IT DOES NOT THROW. Left unguarded this crashed the whole
+     file with one unattributable ReferenceError when run against a page that predates
+     the function — which is exactly the run (red-first, §9.6) where the failures need
+     to be readable. */
+  const payableFn = payableOk
+    ? new Function('portalPayScope', 'portalArrearsLeft', 'portalTotalDue',
+        payable + '\nreturn portalPayableNow();')
+    : function () { return null; };
+  check('the panel offers last season\'s figure, not the balance',
+    payableFn('arrears', 200, 1146) === 200,
+    'THE BUG SHE FOUND: "it says pay 1,146 but should only show 200" — the page ' +
+    'printed the balance above a button charging the arrears, and pre-filled Venmo ' +
+    'with it, which is money collected wrongly rather than a display fault');
+  check('choosing everything owing offers the balance',
+    payableFn('all', 200, 1146) === 1146);
+  check('a customer with nothing carried is offered their balance as always',
+    payableFn('arrears', 0, 946) === 946);
+  check('and the arrears figure can never exceed the balance on screen',
+    payableFn('arrears', 900, 400) === 400,
+    'a carried line larger than what is left must not ask for more than they owe');
+
+  check('the tip and the Venmo link follow the amount actually being charged',
+    /currentServiceDue = portalPayableNow\(\)/.test(site) &&
+    /var total = currentServiceDue \+ currentTipAmount/.test(site) &&
+    /venmoBtn\.href = 'https:\/\/venmo\.com\/HighLightingUtah\?txn=pay&amount=' \+ total\.toFixed\(2\)/.test(site),
+    'Venmo is typed by hand at the other end — whatever this link says is what ' +
+    'actually arrives, so a wrong number here is a wrong payment, not a wrong label');
+  check('the portal sends the choice to the server',
+    /payAll: portalPayScope === 'all'/.test(site),
+    'without it the second button charges last season again and nothing says why');
+  check('last season gets its own card on the bill',
+    /still owing<\/div>/.test(site) && /This season\\u2019s total/.test(site),
+    'her words: "I need the unpaid last year to look more obvious but still nice ' +
+    'and organized"');
+  /* ⚠ AND THE TWO CARDS ARE RUN, NOT READ. Splitting one bill into two subtotals is
+     arithmetic a regex cannot check, and a card whose lines do not add up to its own
+     total is worse than the single list it replaced — it looks like a mistake in the
+     books rather than a layout. Money already received is applied oldest-debt-first,
+     the same order the hold reads it in. */
+  const bdStart = site.indexOf('function renderInvoiceBreakdown(record, n){');
+  const bdSrc = site.slice(bdStart, site.indexOf('\n}\n',
+                  site.lastIndexOf("box.style.display = 'block';",
+                    site.indexOf('function renderScheduleStrip'))) + 3);
+  check('renderInvoiceBreakdown was lifted whole', liftOk(bdSrc), bdSrc.slice(0, 60));
+  const bdBox = { innerHTML: '', style: {} };
+  const breakdown = new Function('document', 'fmt', 'escapeHtmlPortal', 'centsOf',
+    'ARREARS_KIND', 'arrearsOnInvoice', bdSrc + '\nreturn renderInvoiceBreakdown;')(
+    { getElementById: function () { return bdBox; } },
+    function (n) { return '$' + Number(n).toFixed(2); },
+    String, money.centsOf, money.ARREARS_KIND, money.arrearsOnInvoice);
+  function bill(rec, n) {
+    breakdown(rec, n);
+    const out = {};
+    const re = /<span>([^<]*)<\/span><span[^>]*>[^\d−-]*([−-]?)\$([\d.]+)<\/span>/g;
+    let m;
+    while ((m = re.exec(bdBox.innerHTML))) out[m[1]] = Number(m[3]) * (m[2] ? -1 : 1);
+    return out;
+  }
+  const arrearsNotes = [{ amount: 200, kind: 'arrears', year: '2025',
+                          reason: 'Unpaid balance from the 2025 season' }];
+
+  const unpaid = bill({ changeFeeNotes: arrearsNotes, creditNotes: [],
+                        arrearsOutstanding: 200, arrearsSeason: '2025' },
+                      { install: 946, removal: 0, changeFees: 200, credits: 0, deposit: 0, totalDue: 1146 });
+  check('the bill from her screenshot splits into 200 and 946',
+    unpaid['Still owing'] === 200 && unpaid['This season\u2019s total'] === 946 &&
+    unpaid['Balance due'] === 1146,
+    'got ' + JSON.stringify(unpaid));
+
+  const partly = bill({ changeFeeNotes: arrearsNotes, creditNotes: [],
+                        arrearsOutstanding: 0, arrearsSeason: '2025' },
+                      { install: 946, removal: 0, changeFees: 200, credits: 0, deposit: 250, totalDue: 896 });
+  check('a payment spanning both seasons is shown on the card it went to',
+    partly['Payments received'] === -50 && partly['This season\u2019s total'] === 896 &&
+    partly['Still owing'] === undefined,
+    'the 200 that cleared last season must not also be printed against this one, ' +
+    'where it would make the subtotal miss by 200; got ' + JSON.stringify(partly));
+
+  const short = bill({ changeFeeNotes: arrearsNotes, creditNotes: [],
+                       arrearsOutstanding: 100, arrearsSeason: '2025' },
+                     { install: 946, removal: 0, changeFees: 200, credits: 0, deposit: 100, totalDue: 1046 });
+  check('a part payment against last season shows on last season\u2019s card',
+    short['Unpaid balance'] === 200 && short['Paid or credited so far'] === -100 &&
+    short['Still owing'] === 100 && short['This season\u2019s total'] === 946,
+    'got ' + JSON.stringify(short));
+
+  const plain = bill({ changeFeeNotes: [], creditNotes: [], arrearsOutstanding: 0 },
+                     { install: 946, removal: 0, changeFees: 0, credits: 0, deposit: 100, totalDue: 846 });
+  check('a customer carrying nothing still gets the one plain list',
+    plain['This season\u2019s total'] === undefined && plain['Balance due'] === 846,
+    'two cards for one season is ceremony around a number that needs none; got ' +
+    JSON.stringify(plain));
+
+  check('and the breakdown still never sums the ledger itself',
+    /record\.arrearsOutstanding/.test(site) && !/kind === 'arrears'/.test(site),
+    'the card needs to know WHICH line is last season\'s, which is what ARREARS_KIND ' +
+    'is imported for — what is still outstanding stays the server\'s answer');
+
+  /* ---------------------------------------------------------------------
      Report
      --------------------------------------------------------------------- */
   console.log('\n=== Last season\'s unpaid bill: carried, and holding the season ===\n');
