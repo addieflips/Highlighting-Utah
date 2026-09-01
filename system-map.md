@@ -539,6 +539,11 @@ was left. Nothing about the formula above changed — the ledger was already cou
 everywhere, already survives both invoice rebuilds, already prints as its own row on the
 invoice, and already reaches the customer's portal.
 
+⭐ **THE YEAR ON THAT LINE IS PINNED TO THE DEBT, NOT TO THE CALENDAR** (added 2026-08-31). Addie: *"if it is 2028 but they haven't paid in 2025 than that does not change every year."* The arrears note carries its own `year`, stamped the first time the debt is carried and **preserved on every reset after that** while it stands. Relabelling it each season would erase how old the debt is — which is the one thing that tells the office whether to chase it or write it off.
+  - **Earliest year only, for the whole lump sum.** A customer unpaid across several seasons shows the year they *first* fell behind. That falls out for free from there being exactly ONE arrears note per invoice — Start New Season **replaces** it rather than appending — so "the note's year" and "the earliest unpaid year" are the same fact, as long as it is preserved rather than rewritten.
+  - **A note written before the field existed reads its year out of its own sentence** ("Unpaid balance carried from the 2025 season"), rather than showing blank on an invoice nobody has touched since.
+  - **It shows in four places**, all from `arrearsYearOnInvoice` / `houseArrearsYear` so they cannot name different years: the reason a customer is held out of the season, the Unpaid badge on their row, the invoice status cell, and the held-customers list.
+
 ⚠ **The 2026 season was reset before this shipped**, so those balances were written off
 and survive only in the snapshot. **Invoices → Start New Season → Carry last season's
 unpaid bills** is the one-off repair: it reads the snapshot, shows what it would do, and

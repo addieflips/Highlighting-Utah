@@ -8595,11 +8595,20 @@ function ssnBuildPlan(){
        fees and credits are already settled inside it. Re-deriving it here would be a
        second opinion about a debt we are about to charge somebody. */
     const arrears = balanceDueAmount(inv.data);
+    /* ⭐ THE YEAR IS PINNED, NOT RECOMPUTED (added 2026-08-31). If this invoice
+       already carries an arrears note, its year is kept exactly as it is — this
+       reset is not the first time they fell behind, and relabeling the debt with
+       today's year would erase how old it actually is. Only a debt with no
+       existing arrears note gets today's year, because for that one this reset
+       IS the first carry. See arrearsYearOnInvoice. */
+    const arrearsYear = arrears > 0
+      ? ((typeof arrearsYearOnInvoice === 'function' && arrearsYearOnInvoice(inv.data)) || String(new Date().getFullYear()))
+      : null;
     totalArchive += lastPaid;
     /* The dry run's "owes this year" has to include the carried debt or it reports a
        smaller number than the invoices it is about to write. */
     totalOwed += newInstall + removal + arrears;
-    invoices.push({ id: k, name: inv.data.name || '', lastPaid: lastPaid, newInstall: newInstall, removal: removal, fee: fee, arrears: arrears });
+    invoices.push({ id: k, name: inv.data.name || '', lastPaid: lastPaid, newInstall: newInstall, removal: removal, fee: fee, arrears: arrears, arrearsYear: arrearsYear });
   });
   /* ⭐ WHO STOPS BEING A NEW MEMBER TONIGHT (added 2026-08-21). Owner: "if someone
      came from quotes this year but we are in 2027 than they are no longer a new
@@ -8807,8 +8816,8 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              colour changes and has nothing to do with the debt. */
           changeFees: x.arrears,
           changeFeeNotes: x.arrears > 0
-            ? [{ amount: x.arrears, kind: ARREARS_KIND,
-                 reason: 'Unpaid balance carried from the ' + seasonYear + ' season',
+            ? [{ amount: x.arrears, kind: ARREARS_KIND, year: x.arrearsYear,
+                 reason: 'Unpaid balance carried from the ' + x.arrearsYear + ' season',
                  date: new Date().toISOString() }]
             : [],
           lastLightChangeFeeAt: null,
@@ -9032,6 +9041,7 @@ document.getElementById('arrearsRunBtn')?.addEventListener('click', async functi
       const notes = (Array.isArray(d.changeFeeNotes) ? d.changeFeeNotes : []).concat([{
         amount: row.owed,
         kind: ARREARS_KIND,
+        year: job.year,
         reason: 'Unpaid balance carried from the ' + job.year + ' season',
         date: new Date().toISOString()
       }]);
@@ -14854,6 +14864,48 @@ function houseArrearsOutstanding(d){
   const owed = arrearsOnInvoice(inv.data);
   const paid = (Number(inv.data.deposit) || 0) + (Number(inv.data.credits) || 0);
   return Math.max(0, owed - paid);
+}
+/* ⭐ THE YEAR PINNED TO THE DEBT, NOT THE YEAR ON THE CALENDAR (added 2026-08-31).
+   Addie: "if it is 2028 but they haven't paid in 2025 than that does not change every
+   year." Start New Season and the one-off Arrears Backfill both now write a `year`
+   field on the arrears note the first time a debt is carried, and preserve it — never
+   recompute it — on every reset after that while it stays unpaid.
+
+   ⚠ EARLIEST YEAR ONLY, on Addie's ruling (2026-08-31): a customer unpaid across more
+   than one season shows the year they first fell behind, for the whole lump sum. This
+   falls out for free from there being exactly one arrears note per invoice — Start New
+   Season REPLACES it, never appends — so as long as the year is preserved rather than
+   rewritten, "the note's year" and "the earliest unpaid year" are the same fact.
+
+   ⚠ OLDER NOTES READ FROM THEIR SENTENCE. A note written before this field existed has
+   no `year`, so one is pulled from the four digits already sitting in its `reason` —
+   "Unpaid balance carried from the 2025 season" — rather than showing blank on an
+   invoice nobody has touched since. */
+function arrearsYearOnInvoice(d){
+  const notes = (d && Array.isArray(d.changeFeeNotes)) ? d.changeFeeNotes : [];
+  const note = notes.find(function(n){ return n && n.kind === ARREARS_KIND; });
+  if(!note) return null;
+  if(note.year) return String(note.year);
+  const m = /(\d{4})/.exec(note.reason || '');
+  return m ? m[1] : null;
+}
+// The same resolution as houseArrearsOutstanding, so the badge and the dollar figure
+// beside it can never name different people or different years.
+function houseArrearsYear(d){
+  if(!houseOwesFromLastSeason(d)) return null;
+  const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
+  const inv = invoiceById.get(key);
+  return inv ? arrearsYearOnInvoice(inv.data) : null;
+}
+/* The " (2025)" that hangs off an Unpaid/Partial pill wherever one is drawn from an
+   invoice record directly (rather than a customer record, which is what the two
+   functions above resolve). Empty string when there is nothing unresolved to carry,
+   so a plain "Unpaid" from an ordinary unpaid-this-season bill is left alone — this
+   badge is only ever about a debt that outlived the season it was charged in. */
+function arrearsBadgeSuffix(invData){
+  if(typeof owesFromLastSeason !== 'function' || !owesFromLastSeason(invData)) return '';
+  const y = arrearsYearOnInvoice(invData);
+  return y ? ' (' + esc(y) + ')' : '';
 }
 function etPopulateTemplateSelect(){
   const sel = document.getElementById('etSendTemplateSelect');
@@ -28865,7 +28917,8 @@ function seasonHold(d){
      no, back next year or pending, so repeating those loudly on ~960 rows would bury
      the one line somebody has to act on. */
   if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)){
-    return {why: 'owes ' + fmtMoney(houseArrearsOutstanding(d)) + ' from last season', money: true};
+    const arrYear = (typeof houseArrearsYear === 'function') ? houseArrearsYear(d) : null;
+    return {why: 'owes ' + fmtMoney(houseArrearsOutstanding(d)) + ' from ' + (arrYear || 'last season'), money: true};
   }
   return {why: 'no RSVP yet', money: false};
 }
@@ -39840,7 +39893,10 @@ function renderDashRsvpPanel(){
       : '';
     const payStatus = getLiveInvoiceStatus(d);
     const gateBadge = d.gateCode ? ' <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-size:10.5px;">Gate Code: '+esc(d.gateCode)+'</span>' : ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">No Gate Code</span>';
-    const payBadge = payStatus === 'Unpaid' ? ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">Unpaid</span>' : (payStatus === 'Partial Payment' ? ' <span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-size:10.5px;">Partial</span>' : '');
+    // houseOwesFromLastSeason/houseArrearsYear read the customer record directly — only
+    // d is in scope here, not the invoice arrearsBadgeSuffix expects further up.
+    const payYearSuffix = (typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d) && typeof houseArrearsYear === 'function' && houseArrearsYear(d)) ? ' (' + esc(houseArrearsYear(d)) + ')' : '';
+    const payBadge = payStatus === 'Unpaid' ? ' <span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-size:10.5px;">Unpaid'+payYearSuffix+'</span>' : (payStatus === 'Partial Payment' ? ' <span class="status-pill" style="background:#FFF4DE; color:#8a6d1f; font-size:10.5px;">Partial'+payYearSuffix+'</span>' : '');
     return '<div class="row-item">'+
       '<div class="rmain">'+
         '<h4 style="margin:0;">'+esc(d.name||'(no name)')+' <span class="status-pill" style="background:#FFF8E9; color:'+statusColor+'; font-weight:700;">'+statusLabel+'</span>'+cameBackBadge(d)+approvedOnJoinBadge(d)+gateBadge+payBadge+'</h4>'+
@@ -42362,7 +42418,7 @@ function renderAllCustomersTable(){
     const billToDigits = (r.d.billToPhone||'').replace(/\D/g,'');
     const billedElsewhere = billToDigits ? custByPhoneDigits.get(billToDigits) : null;
     const invCell = r.inv
-      ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
+      ? '<span class="status-pill '+statusClass(r.invStatus)+'">'+r.invStatus+arrearsBadgeSuffix(r.inv.data)+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+(r.invStatus==='Partial Payment' ? 'Paid '+fmtMoney(r.inv.data.deposit||0)+' &middot; Bal '+fmtMoney(balanceDueAmount(r.inv.data)) : fmtMoney((r.inv.data.install||0)+(r.inv.data.removal||0)))+'</span>'
       : (r.d.billToPhone ? '<span style="color:var(--slate); font-size:12px;">Billed to '+esc((billedElsewhere && billedElsewhere.data.name) || r.d.billToPhone)+'</span>' : '<span style="color:var(--slate); font-size:12px;">No invoice</span>');
     /* ⚠ THE EFFECTIVE STATUS, NOT THE STORED FIELD — fixed 2026-08-27 while adding
        the badge below, because the badge would otherwise have sat on a row already
@@ -55453,7 +55509,7 @@ function owesFromLastYearHouses(){
     if(!houseOwesFromLastSeason(d)) return;
     const said = (typeof effectiveRsvpStatus === 'function') ? effectiveRsvpStatus(d) : '';
     if(said === 'no' || said === 'backnextyear') return;
-    rows.push({id: c.id, d: d, owed: houseArrearsOutstanding(d)});
+    rows.push({id: c.id, d: d, owed: houseArrearsOutstanding(d), year: houseArrearsYear(d)});
   });
   /* Biggest debt first — this list is worked down in order of what is worth chasing,
      which is the one thing that separates it from every other list in this tab. Name
@@ -55495,7 +55551,7 @@ function renderOwesLastYear(){
       '<div class="meta"><b>' + esc(d.name || '(no name)') + '</b> \u00b7 ' +
       esc(d.address || 'no address') + ' \u00b7 ' + esc(extractCleanCity(d.city) || 'no town') + '</div>' +
       '<div class="meta">' + contact + '</div>' + via + '</div>' +
-      '<div style="font-weight:700; color:var(--ember); white-space:nowrap;">' + fmtMoney(r.owed) + '</div></div>';
+      '<div style="font-weight:700; color:var(--ember); white-space:nowrap;">' + fmtMoney(r.owed) + (r.year ? ' <span style="font-weight:400; font-size:11.5px;">(' + esc(r.year) + ')</span>' : '') + '</div></div>';
   }).join('');
   el.innerHTML = lead + '<div class="traynote"><b>' + rows.length + '</b> customer' +
     (rows.length === 1 ? '' : 's') + ' held, owing <b>' + fmtMoney(total) + '</b> between them ' +

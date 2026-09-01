@@ -103,7 +103,7 @@ function seasonResetWrite() {
      1. The rule itself, run against Addie's own two examples.
      --------------------------------------------------------------------- */
   const billed = (amount, paid, credits) => ({
-    changeFeeNotes: amount ? [{ amount: amount, kind: 'arrears', reason: 'Unpaid balance carried from the 2026 season' }] : [],
+    changeFeeNotes: amount ? [{ amount: amount, kind: 'arrears', year: 2026, reason: 'Unpaid balance carried from the 2026 season' }] : [],
     changeFees: amount || 0,
     deposit: paid || 0,
     credits: credits || 0
@@ -191,6 +191,15 @@ function seasonResetWrite() {
   check('and the saved status counts it',
     /computeInvoiceStatus\(x\.newInstall,\s*x\.removal,\s*0,\s*0,\s*x\.arrears\)/.test(write),
     'a status computed without the debt reads Paid in Full on a bill that is not');
+  /* ⭐ THE YEAR IS PINNED, NOT RECOMPUTED (added 2026-08-31). Writing today's calendar
+     year into the note on every reset is the exact bug this replaces — the label would
+     creep forward each season and the true origin year would be lost. */
+  check('the note stores the pinned year as its own field',
+    /year:\s*x\.arrearsYear/.test(write),
+    'a badge reading the year needs a real field, not a re-parse of the sentence every time');
+  check('the reason names the pinned year, not a freshly computed one',
+    /'Unpaid balance carried from the '\s*\+\s*x\.arrearsYear\s*\+\s*' season'/.test(write),
+    'the reset\'s own new Date().getFullYear() here is the exact bug this replaces');
 
   /* ⚠ THE AMOUNT IS THE WHOLE OUTSTANDING BALANCE, run rather than read: last
      season's own light-change fees and credits are already settled inside
@@ -215,6 +224,16 @@ function seasonResetWrite() {
   check('and the dry run\'s total includes it',
     /totalOwed \+= newInstall \+ removal \+ arrears/.test(plan),
     'otherwise the dry run reports a smaller number than the invoices it writes');
+  check('the plan keeps an existing pinned year rather than recomputing it',
+    /arrearsYearOnInvoice\(inv\.data\)/.test(plan),
+    'without this, a debt still unpaid on its second or third reset gets relabeled with ' +
+    'that reset\'s own year and the true origin year is lost');
+  check('a first-time carry, with no note yet to read a year from, uses today\'s year',
+    /String\(new Date\(\)\.getFullYear\(\)\)/.test(plan),
+    'the first time a debt is carried there is nothing pinned yet to preserve');
+  check('the pinned year travels with the rest of the plan row',
+    /arrearsYear:\s*arrearsYear/.test(plan),
+    'without this the write loop above has no pinned year to write');
 
   /* ⚠ NAMED BEFORE IT HAPPENS. This changes what real people are charged AND takes
      them off the routes, and the button has no undo. */
@@ -249,18 +268,20 @@ function seasonResetWrite() {
     'function fmtMoney(n){ return "$" + (Number(n)||0).toFixed(2); }',
     lift('houseOwesFromLastSeason'),
     lift('houseArrearsOutstanding'),
+    lift('arrearsYearOnInvoice'),
+    lift('houseArrearsYear'),
     lift('isOutForSeason'),
     lift('owesFromLastYearHouses'),
-    'return { houseOwesFromLastSeason, houseArrearsOutstanding, isOutForSeason,' +
-    ' owesFromLastYearHouses, seasonHold, seasonHoldReason,' +
+    'return { houseOwesFromLastSeason, houseArrearsOutstanding, arrearsYearOnInvoice, houseArrearsYear,' +
+    ' isOutForSeason, owesFromLastYearHouses, seasonHold, seasonHoldReason,' +
     ' setInvoices(m){ invoiceById = m; }, setBook(b){ jobAddresses = b; },' +
     ' dropInvoices(){ invoiceById = null; } };'
   ].join('\n');
 
   /* ⚠ EACH LIFT IS PARSED, NOT JUST FOUND. A lift that silently truncates gives a
      function that answers confidently and wrongly — see the note over lift(). */
-  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'isOutForSeason', 'owesFromLastYearHouses',
-   'seasonHold', 'seasonHoldReason']
+  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'arrearsYearOnInvoice', 'houseArrearsYear',
+   'isOutForSeason', 'owesFromLastYearHouses', 'seasonHold', 'seasonHoldReason']
     .forEach(function (n) {
       check('lifted ' + n + ' out of the page, whole', liftOk(lift(n)),
         'a missing or truncated lift is a suite testing nothing while reporting green');
@@ -283,7 +304,25 @@ function seasonResetWrite() {
     api.houseArrearsOutstanding(replied) === 400,
     'got ' + api.houseArrearsOutstanding(replied));
 
+  /* ⭐ THE YEAR IS PINNED TO THE DEBT (added 2026-08-31). Addie: "if it is 2028 but
+     they haven't paid in 2025 than that does not change every year." */
+  check('the year is read off the pinned field on the note',
+    api.arrearsYearOnInvoice(billed(400, 0)) === '2026',
+    'got ' + JSON.stringify(api.arrearsYearOnInvoice(billed(400, 0))));
+  check('an older note with no year field falls back to the sentence it already has',
+    api.arrearsYearOnInvoice({ changeFeeNotes: [{ amount: 400, kind: 'arrears',
+      reason: 'Unpaid balance carried from the 2025 season' }] }) === '2025',
+    'a note written before this field existed must still show a year, not go blank');
+  check('an invoice with no arrears note has no year',
+    api.arrearsYearOnInvoice({ changeFeeNotes: [] }) === null &&
+    api.arrearsYearOnInvoice({}) === null);
+  check('houseArrearsYear resolves the same payer key houseArrearsOutstanding does',
+    api.houseArrearsYear(replied) === '2026',
+    'got ' + JSON.stringify(api.houseArrearsYear(replied)));
+
   api.setInvoices(invPaid);
+  check('and once they are clear there is no year to show',
+    api.houseArrearsYear(replied) === null);
   check('the same customer, once last year is paid, is IN',
     api.isOutForSeason(replied) === false,
     'if paying does not release them the hold is a trap with no way out');
@@ -411,8 +450,8 @@ function seasonResetWrite() {
 
   /* ⚠ EACH REASON PINNED, because the order mirrors isOutForSeason's own and a drift
      there puts the wrong words on a genuinely held customer. */
-  check('the money reason names the amount',
-    api.seasonHoldReason(replied) === 'owes $400.00 from last season',
+  check('the money reason names the amount and the pinned year, not "last season"',
+    api.seasonHoldReason(replied) === 'owes $400.00 from 2026',
     'got ' + JSON.stringify(api.seasonHoldReason(replied)));
   check('and it is the only one drawn as money',
     api.seasonHold(replied).money === true &&
@@ -584,6 +623,10 @@ function seasonResetWrite() {
     /notes\.reduce/.test(runHandler),
     'a light-change fee added since the reset is a real charge and must survive; ' +
     'starting the concat from an empty array deletes it');
+  check('and the note it writes carries the pinned year too, same shape as Start New Season',
+    /year:\s*job\.year/.test(runHandler),
+    'without this, a debt this tool carries in cannot survive a LATER ordinary reset — ' +
+    'ssnBuildPlan has nothing pinned to read back');
   check('and a failure is counted and named, never swallowed',
     /failed\+\+/.test(runHandler) && /failed and were NOT carried/.test(runHandler),
     'a half-finished money run reporting success is the worst outcome here');
