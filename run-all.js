@@ -26583,6 +26583,11 @@ suite('Suite 108. The Edit Customer save, actually run');
                    ? (o.ticked || []).map((v) => ({value: v})) : []),
                  querySelector: () => null,
                  createElement: () => elm('_t')},
+      /* ⚠ THE ASSUMED SEASON, LIFTED RATHER THAN TYPED (2026-08-31). The save handler
+         reads it when the Which season box is left empty, so a sandbox without it dies
+         with a bare ReferenceError and takes every suite after it down — and a copy
+         typed here would agree with itself while the page said something else. */
+      ARREARS_ASSUMED_SEASON: (admin.match(/const ARREARS_ASSUMED_SEASON = '([^']*)';/) || [])[1] || '',
       doc: (db, col, id) => ({col: col, id: id}),
       collection: (db, col) => ({col: col}),
       updateDoc: async (r, p) => { writes.push({op:'update', col:r.col, id:r.id, payload:p}); },

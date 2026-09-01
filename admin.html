@@ -2173,10 +2173,11 @@
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Owed from a previous season</label>
             <div class="ec-grid">
               <div class="form-row"><label>Amount ($)</label><input type="number" id="editCustArrears" min="0" step="1" placeholder="0"></div>
-              <div class="form-row"><label>Which season</label><input type="text" id="editCustArrearsSeason" placeholder="e.g. 2025"></div>
+              <div class="form-row"><label>Which season</label><input type="text" id="editCustArrearsSeason" placeholder="2025"></div>
             </div>
+            <div style="margin-top:6px;"><button type="button" class="btn btn-outline btn-sm" id="editCustArrearsSameAsThis" style="font-size:11.5px;">Same as this season</button></div>
             <div id="editCustArrearsSummary" style="font-size:13px; font-weight:600; color:var(--ember); margin-top:8px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">For a bill from before the app was tracking them. It goes on this year&rsquo;s invoice as its own line and <strong>they are not scheduled until it is paid in full</strong> &mdash; the same as a balance the app carried itself. Set it to 0 to remove it. A balance the app carried on its own is shown here but is not changed by this box.</p>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">For a bill from before the app was tracking them. It goes on this year&rsquo;s invoice as its own line and <strong>they are not scheduled until it is paid in full</strong> &mdash; the same as a balance the app carried itself. Set it to 0 to remove it. A balance the app carried on its own is shown here but is not changed by this box. <strong>The season is assumed to be 2025</strong> unless you type another one, and the amount suggests this season&rsquo;s price &mdash; press <em>Same as this season</em> to use it.</p>
           </div>
           <div class="form-row" style="margin-top:14px;"><label>Invoice Notes (optional)</label><textarea id="editCustInvoiceNotes" rows="2" placeholder="e.g. split payment agreed, billed after Thanksgiving" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
           <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Unlike the crew notes above, this one <strong>does</strong> appear on the customer&rsquo;s invoice.</p>
@@ -14948,10 +14949,31 @@ function houseArrearsYear(d){
    A note written before the year field existed is still real money, and a tag
    reading "Unpaid" alone reads as THIS season's bill — the one thing this is not
    about. */
+/* ⭐ THE SEASON THE APP ASSUMES A PREVIOUS-SEASON DEBT CAME FROM, AND IT IS ONE
+   NUMBER IN ONE PLACE (2026-08-31).
+   Addie: "assume if they havent paid for a previous season its always 2025."
+
+   ⚠ THIS OVERRULES THE DERIVED YEAR SHE WAS FIRST GIVEN, and the reasoning for
+   that is kept in MON-45 rather than deleted, because it is the argument for
+   moving this number rather than for leaving it: a debt carried out of THIS
+   season is a 2026 debt, and while this constant says 2025 the tag will call it
+   a 2025 one. She was told that and chose it — every debt on the book today did
+   come from 2025, and "Unpaid last season" on the older notes was the ambiguity
+   she was actually objecting to.
+
+   ⚠ SO IT IS A NAMED CONSTANT, NOT A STRING TYPED INTO A FUNCTION. When it does
+   need moving it is this line and nothing else — and a grep for the year finds
+   the decision and the reasoning together instead of a bare literal in a
+   renderer. Change it here; nothing else needs touching. */
+const ARREARS_ASSUMED_SEASON = '2025';
 function houseArrearsTag(d){
   if(typeof houseOwesFromLastSeason !== 'function' || !houseOwesFromLastSeason(d)) return '';
-  const y = (typeof houseArrearsYear === 'function') ? houseArrearsYear(d) : null;
-  return 'Unpaid ' + (y || 'last season');
+  /* ⚠ THE YEAR IS NOT ASKED FOR ANY MORE, deliberately. houseArrearsYear still
+     exists and is still what the invoice pill's " (2025)" suffix reads — that one
+     shows a year only when the note carries one, so the two cannot contradict
+     each other on a real record today. If this tag and that suffix ever DO
+     disagree on screen, this constant is out of date and that is the signal. */
+  return 'Unpaid ' + ARREARS_ASSUMED_SEASON;
 }
 function arrearsBadgeSuffix(invData){
   if(typeof owesFromLastSeason !== 'function' || !owesFromLastSeason(invData)) return '';
@@ -42897,6 +42919,18 @@ document.addEventListener('DOMContentLoaded', function(){
   /* ⚠ RE-READ FROM THE INVOICE ON EVERY KEYSTROKE, never from a value captured when the
      form opened — the house tabs repoint this form at a sibling without closing it, so a
      captured figure would show the previous customer's carried amount. */
+  /* ⭐ ONE CLICK INSTEAD OF TYPING THE SAME NUMBER AGAIN. It reads the price box
+     rather than any figure captured when the form opened, and it fires the box's
+     own `input` event rather than recalculating the summary itself — a second copy
+     of that sum is how the line under the box starts disagreeing with the box. */
+  const editArrSameBtn = document.getElementById('editCustArrearsSameAsThis');
+  if(editArrSameBtn) editArrSameBtn.addEventListener('click', function(){
+    const priceEl = document.getElementById('editCustArrears');
+    const p = Math.max(0, Number(document.getElementById('editCustHousePrice').value) || 0);
+    if(!p || !priceEl) return;
+    priceEl.value = p;
+    priceEl.dispatchEvent(new Event('input'));
+  });
   const editArrEl = document.getElementById('editCustArrears');
   if(editArrEl) editArrEl.addEventListener('input', function(){
     const inv = (typeof allCustInvoiceFor === 'function' && typeof editCustomerId !== 'undefined')
@@ -43300,7 +43334,31 @@ function openEditCustomerModal(id){
   /* ⚠ `year`, THE SAME FIELD arrearsYearOnInvoice READS. A second name for the same
      fact (this box briefly wrote `season`) is how the badge on the row and the line on
      the bill start naming different years for one debt. */
-  document.getElementById('editCustArrearsSeason').value = ecOfficeArrears ? (ecOfficeArrears.year || '') : '';
+  /* ⭐ IT OPENS ON THE ASSUMED SEASON RATHER THAN BLANK (2026-08-31). Addie: "we
+     actually want to use that just modify this … so it assumes 2025 season and
+     adjust everything youve done to be centered around that." A debt that HAS a
+     season recorded still shows its own — overwriting that would throw away
+     something somebody typed on purpose. */
+  document.getElementById('editCustArrearsSeason').value =
+    (ecOfficeArrears && ecOfficeArrears.year) || ARREARS_ASSUMED_SEASON;
+  /* ⭐ AND THE AMOUNT SUGGESTS THIS SEASON'S PRICE. Addie: "by default assume they
+     owe the same for this season as last season on the unpaid for last year."
+
+     ⚠ A PLACEHOLDER AND A BUTTON, NOT A FILLED-IN VALUE, and that is the one place
+     this deliberately stops short of the instruction. A real value in this box
+     means every ordinary save of any customer — opened to fix a phone number —
+     writes a debt of their whole year's price onto them, AND holds them off the
+     schedule until it is paid. Grey text costs one click and cannot do that.
+     ⚠ READ OFF THE PRICE BOX AT CLICK TIME rather than captured here, because the
+     house tabs repoint this form at a sibling without closing it. */
+  const ecArrEl = document.getElementById('editCustArrears');
+  const ecPriceNow = Math.max(0, Number(document.getElementById('editCustHousePrice').value) || 0);
+  if(ecArrEl) ecArrEl.placeholder = ecPriceNow ? String(ecPriceNow) : '0';
+  const ecSameBtn = document.getElementById('editCustArrearsSameAsThis');
+  if(ecSameBtn){
+    ecSameBtn.textContent = ecPriceNow ? ('Same as this season \u2014 ' + fmtMoney(ecPriceNow)) : 'Same as this season';
+    ecSameBtn.disabled = !ecPriceNow;
+  }
   updateEditCustArrearsSummary(ecFeeNotes);
   updateEditCustDiscountSummary();
   updateEditCustFeeSummary();
@@ -44132,7 +44190,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newReferralCount = Math.max(0, parseInt(document.getElementById('editCustReferralCount').value, 10) || 0);
   const newManualFee = Math.max(0, Number(document.getElementById('editCustFee').value) || 0);
   const newArrearsAmount = Math.max(0, Number(document.getElementById('editCustArrears').value) || 0);
-  const newArrearsSeason = String(document.getElementById('editCustArrearsSeason').value || '').trim();
+  /* ⭐ A BLANK SEASON IS THE ASSUMED ONE, never nothing. The box opens pre-filled,
+     so emptying it is an unusual act rather than the ordinary case — and a debt
+     stored with no season is what produced the "Unpaid last season" wording she
+     objected to. Centring everything on one assumption means the DATA carries it
+     too, not just the badge that reads it. */
+  const newArrearsSeason = String(document.getElementById('editCustArrearsSeason').value || '').trim() || ARREARS_ASSUMED_SEASON;
   const newFeeReason = document.getElementById('editCustFeeReason').value.trim();
   const newManualDiscount = Math.max(0, Number(document.getElementById('editCustManualDiscount').value) || 0);
   const newDiscountReason = document.getElementById('editCustDiscountReason').value.trim();
@@ -45006,12 +45069,13 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         if(newArrearsAmount > 0){
           rebuiltFeeNotes.push({
             amount: newArrearsAmount,
-            reason: newArrearsSeason
-              ? ('Unpaid balance from the ' + newArrearsSeason + ' season \u2014 not a charge for this year')
-              : 'Unpaid balance from a previous season \u2014 not a charge for this year',
+            /* ⚠ NO BLANK BRANCH ANY MORE — newArrearsSeason cannot be empty since
+               2026-08-31, so the "from a previous season" wording was a dead path
+               and a dead path is one nobody notices going wrong. */
+            reason: 'Unpaid balance from the ' + newArrearsSeason + ' season \u2014 not a charge for this year',
             kind: ARREARS_KIND,
             source: 'office',
-            year: newArrearsSeason || '',
+            year: newArrearsSeason,
             date: new Date().toISOString()
           });
         }
