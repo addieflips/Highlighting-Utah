@@ -270,9 +270,11 @@ function seasonResetWrite() {
     lift('houseArrearsOutstanding'),
     lift('arrearsYearOnInvoice'),
     lift('houseArrearsYear'),
+    lift('houseArrearsTag'),
     lift('isOutForSeason'),
     lift('owesFromLastYearHouses'),
     'return { houseOwesFromLastSeason, houseArrearsOutstanding, arrearsYearOnInvoice, houseArrearsYear,' +
+    ' tag: houseArrearsTag,' +
     ' isOutForSeason, owesFromLastYearHouses, seasonHold, seasonHoldReason,' +
     ' setInvoices(m){ invoiceById = m; }, setBook(b){ jobAddresses = b; },' +
     ' dropInvoices(){ invoiceById = null; } };'
@@ -280,7 +282,7 @@ function seasonResetWrite() {
 
   /* ⚠ EACH LIFT IS PARSED, NOT JUST FOUND. A lift that silently truncates gives a
      function that answers confidently and wrongly — see the note over lift(). */
-  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'arrearsYearOnInvoice', 'houseArrearsYear',
+  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'arrearsYearOnInvoice', 'houseArrearsYear', 'houseArrearsTag',
    'isOutForSeason', 'owesFromLastYearHouses', 'seasonHold', 'seasonHoldReason']
     .forEach(function (n) {
       check('lifted ' + n + ' out of the page, whole', liftOk(lift(n)),
@@ -926,6 +928,73 @@ function seasonResetWrite() {
     /'changeFees'/.test(whitelist) && /'changeFeeNotes'/.test(whitelist),
     'without both, a held customer cannot see the debt that is holding them, and ' +
     'the balance they are asked to pay is not the balance we hold them against');
+
+
+  /* ---- the tag All Customers prints under the season badge --------------
+     ⭐ Owner, 2026-08-31: "we need a seperate tag for people who havent paid for
+     2025 can you just add another one under the same badge that says unpaid
+     2025."
+
+     ⚠ THE WORDS ARE RUN, NOT MATCHED. houseArrearsTag is its own function for
+     exactly that reason, and the year in it is read off the debt rather than
+     typed — a tag with 2025 written into it would call a 2026 debt a 2025 one
+     the moment a season turns. */
+  {
+    const tag = api.tag;
+    const owing = { name: 'Owes', phone: '8015550001', address: '1 Elm St', city: 'Lehi',
+                    rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+
+    api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]));
+    check('a customer who still owes gets a tag naming the year of the debt',
+      tag(owing) === 'Unpaid 2026',
+      'got "' + tag(owing) + '" — the fixture note carries year 2026, so a tag ' +
+      'reading 2025 would mean the year had been typed rather than read');
+
+    api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(400, 400) }]]));
+    check('and a customer who has paid it gets none',
+      tag(owing) === '',
+      'got "' + tag(owing) + '" — a tag on somebody who is square is worse than ' +
+      'no tag: the office rings them for money they do not owe');
+
+    api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(800, 400) }]]));
+    check('a part payment still leaves the tag on',
+      tag(owing) === 'Unpaid 2026',
+      'got "' + tag(owing) + '" — half of last season is still last season, and ' +
+      'the season hold already refuses to release them');
+
+    /* ⚠ A NOTE FROM BEFORE THE YEAR FIELD EXISTED, and with no four digits in its
+       sentence either, so neither route to a year can answer. */
+    api.setInvoices(new Map([['8015550001', { id: '8015550001', data: {
+      changeFeeNotes: [{ amount: 400, kind: 'arrears', reason: 'Unpaid balance carried over' }],
+      changeFees: 400, deposit: 0, credits: 0 } }]]));
+    check('an older debt with no year on it still says what it is',
+      tag(owing) === 'Unpaid last season',
+      'got "' + tag(owing) + '" — a bare "Unpaid" reads as THIS season’s bill, ' +
+      'which is the one thing this tag is not about');
+
+    /* ⚠ AND A HOUSE ON SOMEBODY ELSE'S BILL IS JUDGED BY THAT BILL. The tag reads
+       through billToPhone, so the tenant is tagged when the landlord's bill is the
+       one still carrying the debt — and can never name a different year from the
+       money figure the Route column prints beside it. */
+    const tenant = { name: 'Tenant', phone: '8015559999', address: '2 Oak Ave', city: 'Lehi',
+                     billToPhone: '(801) 555-0001', rsvpStatus: 'yes',
+                     rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+    api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]));
+    check('a house billed elsewhere is tagged off the bill it is actually on',
+      tag(tenant) === 'Unpaid 2026',
+      'got "' + tag(tenant) + '" — reading their own key instead would tag nobody, ' +
+      'and the debt would be invisible on every row it belongs to');
+    api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(400, 400) }]]));
+    check('and is untagged once that bill is settled',
+      tag(tenant) === '',
+      'got "' + tag(tenant) + '"');
+
+    api.setInvoices(new Map());
+    check('a customer with no invoice at all is not tagged',
+      tag(owing) === '',
+      'got "' + tag(owing) + '" — no bill is not the same as an unpaid one');
+    check('and neither is a missing record', tag(null) === '', 'got "' + tag(null) + '"');
+  }
 
   /* ---------------------------------------------------------------------
      Report

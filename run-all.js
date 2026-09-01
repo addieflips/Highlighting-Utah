@@ -4560,6 +4560,33 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'every customer reads Confirmed or Maybe Next Year',
     maybeCell.includes('Maybe Next Year<') && maybeCell.includes('Confirmed<'),
     'a blank cell is ambiguous between "confirmed" and "nobody has looked yet"');
+  /* ⭐ AND UNDER IT, WHETHER THEY STILL OWE FOR AN EARLIER SEASON (2026-08-31).
+     Owner: "we need a seperate tag for people who havent paid for 2025 can you
+     just add another one under the same badge that says unpaid 2025."
+     ⚠ THE WORDING IS PROVED BY RUNNING IT, in arrears-hold.test.js — these three
+     are the half that file cannot see: that the cell ASKS, that it asks on BOTH
+     branches, and that the year is not typed into the renderer. A rule is worth
+     nothing unless something asserts the callers ask it, which this suite learned
+     the hard way on the peaks earlier the same day. */
+  /* ⚠ ITS OWN SLICE, STARTING HIGHER. The tag is computed just above the cell, so
+     the maybeCell slice above cannot see it — and a check that cannot see the code
+     it is about passes or fails for the wrong reason. Anchored on the first line of
+     the tag rather than on a character count (CLAUDE.md §7). */
+  const seasonCellStart = admin.indexOf('const unpaidTag = houseArrearsTag(r.d);');
+  const seasonCell = seasonCellStart === -1 ? '' :
+    admin.slice(seasonCellStart, admin.indexOf('return \'<tr style="border-bottom', seasonCellStart));
+  check('quoteresp', 'the season cell is findable with its arrears tag', !!seasonCell);
+  check('quoteresp', 'the season cell asks whether they still owe for an earlier season',
+    /houseArrearsTag\(r\.d\)/.test(seasonCell),
+    'the tag would live in a function nothing calls — green suite, nothing on screen');
+  check('quoteresp', 'and it shows on the Maybe Next Year rows as well as the Confirmed ones',
+    (seasonCell.match(/unpaidPill/g) || []).length >= 3,
+    'somebody sitting the season out who still owes for the last one is exactly ' +
+    'who has to be rung, and dropping it from that branch loses them');
+  check('quoteresp', 'the year is read off the debt, never typed into the row',
+    !/20\d\d/.test(seasonCell),
+    'a hardcoded year is wrong the moment a season turns, and wrong in the ' +
+    'direction that matters — it would call a 2026 debt a 2025 one');
   check('quoteresp', 'the badge can be flipped both ways from All Customers',
     /data-seasontoggle/.test(admin) && /data-to="maybe"/.test(admin) && /data-to="confirmed"/.test(admin),
     'the office could only ever set it one way');
