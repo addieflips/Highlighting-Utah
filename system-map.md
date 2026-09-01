@@ -53,11 +53,11 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
    | Button | Link | Answer saved | What the customer sees |
    |---|---|---|---|
-   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | The gate-code step, then **their member portal opens by itself** — no confirmation screen, no button to press (changed 2026-09-01, RS-31) |
-   | **No** | `#/payment?token=…&rsvp=no` | `no` | "We'll be sorry to miss you this year" then *Tell us why (optional)* / *That's all, thanks* |
-   | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | "We look forward to seeing you next year!" |
+   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | The gate-code step, then **their member portal opens by itself** — no confirmation screen, no button to press (RS-33) |
+   | **No** | `#/payment?token=…&rsvp=no` | `no` | recorded, then **straight into the member portal** on the Cancel tab (RS-33) |
+   | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | a **pop-up card** — "We look forward to seeing you next year!" (RS-34) |
 
-   ⭐ **A YES ENDS IN THE PORTAL, NOT ON A QUESTION** (changed 2026-09-01, RS-31). Dax: the RSVP buttons
+   ⭐ **A YES ENDS IN THE PORTAL, NOT ON A QUESTION** (changed 2026-09-01, RS-33). Dax: the RSVP buttons
    *"dont do anythng we need but it needs to change the customers badge and it should also automatically
    send the customer to their member portal."* The badge half was already working and was checked before
    anything was built — all three buttons call `portalRsvp`, `seasonBadgeKey` derives the badge from
@@ -73,7 +73,7 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
      book them; that line is now on the portal's own *"<year> season — still owing"* card, where it is true
      whenever they open the page instead of only just after an RSVP.
    - ⚠ **The second answer used to be invisible, and that hid a dead end** (fixed
-     2026-09-01, RS-32). `.btn-outline` is the DARK hero's button — white text on a
+     2026-09-01, RS-34). `.btn-outline` is the DARK hero's button — white text on a
      35%-white border — so on these light cards it rendered white-on-white. On a
      customer who already has a gate code the answers are *Yes, that's right* and
      ***It has changed***, and that second one is the only route to the entry box, so
@@ -92,12 +92,22 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    - ⚠ **Back Next Year was leaking too**, and it was only invisible because the right message happened to be on top: that route left `#page-payment` open underneath, so the **sign-in form sat below the goodbye**.
    - ⚠ **The specs asserted what the right card said, and never that no other card was on screen.** That is the gap; `test/rsvp-link.spec.js` now checks each route shows exactly one card and leaves no visible *"One moment"* anywhere. Four sabotages red-checked, including the original bug put back verbatim.
 
+   ⭐ **A NO GOES STRAIGHT INTO THE PORTAL** (RS-33, 2026-09-01). Addie: *"can no go straight to member portal but will track it even if they don't get to member portal."* ⚠ **This reverses her 2026-08-19 ruling** (*"put a message in front of it first so they know why they've landed there"*), which is kept as the argument against and lived only in a code comment — never a map row, which is the gap R-023 exists to close.
+   - ⚠ **The tracking half is not new and must not be broken.** `portalRsvp` runs **before** any navigation, so closing the tab, a portal that will not load, or a dead network cannot cost the answer. The **order** is the whole guarantee, and it is asserted as an order — `portalRsvp` must be the first call — not as "both happened".
+   - ⚠ **It fails back, never blank.** If the portal cannot be opened they get the old confirmation and the offer to say why, which is exactly the flow this replaced.
+
+   ⭐ **AND BACK NEXT YEAR IS A POP-UP, NOT A LOADING SCREEN** (RS-34). Addie: *"it looks like a loading page so if they don't read it they might be a little confused."* A tree over one centred line on the page background is what a spinner looks like. It is a white card on a dimmed backdrop now, with a heading saying the answer was recorded — ⚠ **and that heading waits for the write**, because "that's recorded" is a claim: shown early it promises what we do not yet know, shown after a failure it contradicts the error beneath it.
+
+   ⚠ **AND THE BUTTONS ON THESE CARDS WERE WHITE ON WHITE** (fixed 2026-09-01). Addie: *"on computer the do you have gate code comes up far left and it doesn't give you an option you can only choose yes I have one."* `.btn-outline` is `color:#fff` with a translucent white border, built for the dark hero at the top of the site; on the white cards these screens are made of it renders as **nothing at all** — present, sized, laid out, clickable, invisible. It was never one button: the same class sat on *No, I'm All Set*, on both colour-pattern **Clear** buttons, and on **Pay with Venmo** inside the payment dropdown, so the fallback Addie asked to keep as a last resort could not be seen. `.btn-outline-dark` already existed for exactly this.
+   - ⚠ **No existing check could have caught it.** Every spec asks whether an element is *visible*, and Playwright's answer is about layout — a white-on-white button is `visible: true`, has a bounding box and takes a click. Colour was the one thing nothing looked at. `test/button-contrast.spec.js` now compares each button's text colour against what is actually painted behind it.
+   - ⚠ **And the card sat at the far left**, because `rsvp-minimal` makes `#page-payment` a flex container and its only visible child had no width, so it shrank to its content and settled at flex-start. Measured at 1440px: `x=65, w=584`. The centring is asserted by measurement, not by eye.
+
    ⚠ **NONE OF THE THREE SHOWS THE INSTALL-DETAILS FORM, and until 2026-08-31 all three did.** The router added `body.quote-minimal` instead — a different class, for the *quote* screens, which force-shows `#page-quote-details` with `!important`. So an existing member pressing Approve was handed the form a brand-new customer fills in (colours, wire, timer), asking again for everything already on their record. ⚠ **The answer was being saved correctly the whole time** — `portalRsvp` ran before any of the UI, and both confirmation messages were built correctly — so nothing anywhere went red and no data was lost or wrong. Only the screen was. That is why it is proved by `test/rsvp-link.spec.js`, which **drives all three links in a real browser**: a source check over `index.html` passes on the broken version, because every message and every handler was present and correct.
 
    ⭐ **THE GATE CODE IS ASKED ON THE WAY PAST A YES** (added 2026-08-31). Addie: *"Lets do gate code before changes."* After the yes is recorded and before *"do you want to make any changes?"*, the customer is asked about their gate code — the RSVP is the one email everybody opens and acts on, so it is the cheapest chance each season to catch a wrong code before a crew is standing at a locked gate.
    - **It confirms when we hold one, and asks when we do not.** A code on file is quoted back (*"We have 4417 as your gate code. Is that still right?"*); confirming writes nothing, so `gateCodeUpdatedAt` marks a real change rather than every RSVP.
    - ⚠ **Only on a yes.** Somebody sitting the season out is never asked — no crew is coming, so it is a question with nothing behind it.
-   - ⚠ **It fails open, every way out.** Missing markup, a refused save, a thrown call: all of them move on to the portal (the changes question until 2026-09-01 — see RS-31). The RSVP answer is already recorded by then, so nothing here can cost them their reply, and the same field is reachable any time under My Info.
+   - ⚠ **It fails open, every way out.** Missing markup, a refused save, a thrown call: all of them move on to the portal (the changes question until 2026-09-01 — see RS-33). The RSVP answer is already recorded by then, so nothing here can cost them their reply, and the same field is reachable any time under My Info.
    - ⚠ **It is NOT `portalSave`, and that is the trap.** `gateCode` is in `portalSave`'s `info` whitelist, so reusing it looks clean — but that section ends `updates.seasonStatus = 'needs_changes'`, the **re-quote state**, resolved by answering a quote. No quote exists here, so every customer who typed a gate code would sit in Needs Changes for ever. `portalSetGateCode` writes one field and nothing else.
    - ⚠ **The browser specs cannot see the server half.** `test/rsvp-gate-code.spec.js` drives the page against a fake Firebase; `gate-code.test.js` holds `functions/index.js`. A red-check proved the split was needed — breaking the real server's return left all ten browser specs green.
 
