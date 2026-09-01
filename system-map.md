@@ -100,11 +100,28 @@ add another one under the same badge that says unpaid 2025."* Under the
 Confirmed / Maybe Next Year badge there is now a red **Unpaid 2025** tag on
 anybody whose last-season balance is still outstanding.
 
-⚠ **The year comes off the debt, not the calendar.** It says 2025 today because
-that is the year on those arrears notes; a year typed into the row would call a
-2026 debt a 2025 one the moment a season turns. A debt too old to carry a year
-reads **Unpaid last season** rather than a bare "Unpaid", which would look like
-this season's bill.
+⚠ **The year is ASSUMED to be 2025, everywhere** (changed the same day, at her
+instruction: *"assume if they havent paid for a previous season its always
+2025"*, then *"so it assumes 2025 season and adjust everything youve done to be
+centered around that"*). One constant, `ARREARS_ASSUMED_SEASON`, governs the
+badge, the **Which season** box in Edit Customer — which now opens on 2025
+rather than blank — and what a blank box saves, so the debt itself carries the
+year rather than the badge guessing over it. A season somebody typed is never
+overwritten. ⚠ The cost, taken knowingly: a debt carried out of THIS season is a
+2026 debt and will still read 2025 until that one line is moved.
+
+⚠ **The amount is suggested, not filled in.** *"by default assume they owe the
+same for this season as last season"* — so the box shows this season's price in
+grey with a **Same as this season** button beside it. It is deliberately not a
+real value: a filled-in amount would mean every ordinary save of any customer,
+opened to fix a phone number, wrote a debt of their whole year's price onto them
+and held them off the schedule until it was paid.
+
+⛔ **What this replaced,** kept because it is the argument for MOVING the
+constant rather than for reinstating the derivation: the tag used to read the
+year off the debt, so it stayed right when a season turned, and a debt with no
+year recorded read “Unpaid last season”. That last wording was the ambiguity
+she was objecting to.
 
 ⚠ It is judged by **the bill the house is actually on**, so a tenant billed to a
 landlord is tagged from the landlord's bill — the tag and the "owes $X from

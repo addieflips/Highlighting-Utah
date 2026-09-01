@@ -270,6 +270,9 @@ function seasonResetWrite() {
     lift('houseArrearsOutstanding'),
     lift('arrearsYearOnInvoice'),
     lift('houseArrearsYear'),
+    /* ⚠ LIFTED, NEVER TYPED. If this suite carried its own copy of the assumed
+       season it would agree with itself and say nothing at all about the page. */
+    (admin.match(/const ARREARS_ASSUMED_SEASON = '[^']*';/) || [''])[0],
     lift('houseArrearsTag'),
     lift('isOutForSeason'),
     lift('owesFromLastYearHouses'),
@@ -792,9 +795,21 @@ function seasonResetWrite() {
      added `year` on the arrears note and arrearsYearOnInvoice to read it; this box briefly
      wrote `season` instead, which is a second name for one fact and is how the badge on
      the row and the line on the bill start naming different years for one debt. */
+  /* ⚠ REPOINTED, NOT WEAKENED, 2026-08-31: this matched `year: newArrearsSeason || ''`
+     — the empty fallback — and that fallback is gone, because a blank box now saves the
+     assumed season instead of nothing. The claim was never about the `|| ''`; it is that
+     the year is stored under `year` and not under a second name. */
   check('the box stores the year in the shared field, not a name of its own',
-    /year: newArrearsSeason \|\| ''/.test(saveArr) && !/season: newArrearsSeason/.test(saveArr),
+    /year: newArrearsSeason/.test(saveArr) && !/season: newArrearsSeason/.test(saveArr),
     'arrearsYearOnInvoice reads `year`; anything else is invisible to it');
+  /* ⭐ AND A BLANK BOX IS THE ASSUMED SEASON, never nothing. Addie, 2026-08-31: "assume
+     if they havent paid for a previous season its always 2025", then "so it assumes 2025
+     season and adjust everything youve done to be centered around that". A debt stored
+     with no season is what produced the "Unpaid last season" wording she objected to. */
+  check('a blank season box saves the assumed season rather than an empty one',
+    /\.trim\(\) \|\| ARREARS_ASSUMED_SEASON;/.test(saveArr) ||
+    /trim\(\) \|\| ARREARS_ASSUMED_SEASON/.test(admin),
+    'an empty year on the note is the ambiguity the assumption exists to remove');
   /* ⚠ AND THE SERVER'S COPY MUST AGREE, because it is what the portal shows the customer
      while asking them for money. Run over the same notes rather than compared by eye. */
   const clientYear = new Function('ARREARS_KIND', lift('arrearsYearOnInvoice') + '\nreturn arrearsYearOnInvoice;')('arrears');
@@ -946,7 +961,7 @@ function seasonResetWrite() {
 
     api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]));
     check('a customer who still owes gets a tag naming the year of the debt',
-      tag(owing) === 'Unpaid 2026',
+      tag(owing) === 'Unpaid 2025',
       'got "' + tag(owing) + '" — the fixture note carries year 2026, so a tag ' +
       'reading 2025 would mean the year had been typed rather than read');
 
@@ -958,7 +973,7 @@ function seasonResetWrite() {
 
     api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(800, 400) }]]));
     check('a part payment still leaves the tag on',
-      tag(owing) === 'Unpaid 2026',
+      tag(owing) === 'Unpaid 2025',
       'got "' + tag(owing) + '" — half of last season is still last season, and ' +
       'the season hold already refuses to release them');
 
@@ -968,7 +983,7 @@ function seasonResetWrite() {
       changeFeeNotes: [{ amount: 400, kind: 'arrears', reason: 'Unpaid balance carried over' }],
       changeFees: 400, deposit: 0, credits: 0 } }]]));
     check('an older debt with no year on it still says what it is',
-      tag(owing) === 'Unpaid last season',
+      tag(owing) === 'Unpaid 2025',
       'got "' + tag(owing) + '" — a bare "Unpaid" reads as THIS season’s bill, ' +
       'which is the one thing this tag is not about');
 
@@ -981,7 +996,7 @@ function seasonResetWrite() {
                      rsvpRespondedAt: '2026-09-01T00:00:00Z' };
     api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]));
     check('a house billed elsewhere is tagged off the bill it is actually on',
-      tag(tenant) === 'Unpaid 2026',
+      tag(tenant) === 'Unpaid 2025',
       'got "' + tag(tenant) + '" — reading their own key instead would tag nobody, ' +
       'and the debt would be invisible on every row it belongs to');
     api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(400, 400) }]]));
@@ -1200,6 +1215,71 @@ function seasonResetWrite() {
     /record\.arrearsOutstanding/.test(site) && !/kind === 'arrears'/.test(site),
     'the card needs to know WHICH line is last season\'s, which is what ARREARS_KIND ' +
     'is imported for — what is still outstanding stays the server\'s answer');
+
+
+  /* ---- what the form does when it OPENS --------------------------------
+     ⚠ ALL THREE OF THESE WERE FOUND MISSING BY A RED-CHECK. Every check above is
+     about the tag or the save; nothing looked at the moment the form is filled in,
+     so blanking the season box, overwriting a season somebody typed, and turning
+     the suggested amount into a real value all went straight through. */
+  {
+    const fillStart = admin.indexOf('const ecOfficeArrears = ecFeeNotes.find(');
+    const fill = fillStart === -1 ? '' :
+      admin.slice(fillStart, admin.indexOf('updateEditCustArrearsSummary(ecFeeNotes);', fillStart));
+    check('the arrears part of the open is findable', !!fill);
+    check('the season box opens on the recorded season, else the assumed one',
+      /\(ecOfficeArrears && ecOfficeArrears\.year\) \|\| ARREARS_ASSUMED_SEASON/.test(fill),
+      'opening blank is the ambiguity the assumption removes; opening on the ' +
+      'constant regardless throws away a season somebody typed on purpose');
+    /* ⚠ THE ONE THAT GUARDS MONEY. A real value in the amount box means every
+       ordinary save of any customer — opened to fix a phone number — writes a debt
+       of their whole year's price onto them AND holds them off the schedule until
+       it is paid. A placeholder cannot do that. */
+    check('the amount is SUGGESTED, never filled in',
+      /ecArrEl\.placeholder = /.test(fill) && !/ecArrEl\.value = /.test(fill),
+      'a pre-filled amount turns opening a record into charging somebody');
+    check('and there is a one-click way to accept the suggestion',
+      /editCustArrearsSameAsThis/.test(admin) && /dispatchEvent\(new Event\('input'\)\)/.test(admin),
+      'without it she is typing the same number she was just shown, which is the ' +
+      'typing the suggestion exists to save');
+  }
+
+  /* ---- and the season is ASSUMED rather than asked for ------------------
+     ⭐ Addie, 2026-08-31, twice. First "assume if they havent paid for a previous
+     season its always 2025", then, having found the Which season box: "we
+     actually want to use that just modify this … so it assumes 2025 season and
+     adjust everything youve done to be centered around that."
+
+     ⚠ SHE WAS SHOWN THE COST AND CHOSE IT. A debt carried out of THIS season is a
+     2026 debt, and while the constant says 2025 the tag calls it a 2025 one. Every
+     debt on the book today did come from 2025, and "Unpaid last season" on the
+     older notes was the ambiguity she was actually objecting to. The reasoning for
+     the derived year it replaces is kept in MON-45 — it is the argument for moving
+     the constant, not for reinstating the derivation. */
+  {
+    const tag = api.tag;
+    const assumed = (admin.match(/const ARREARS_ASSUMED_SEASON = '([^']*)';/) || [])[1];
+    check('the assumed season is one named constant in the page', !!assumed,
+      'typed into each place that needs it, moving it next year is a hunt rather ' +
+      'than a line');
+    /* ⚠ ASSERTED BY VALUE, deliberately, so that moving it is a DELIBERATE act with a
+       failing check to update — the same reason run-all pins BULK_CHUNK_SIZE. */
+    check('and today it is 2025', assumed === '2025',
+      'got "' + assumed + '" — if this moved on purpose, update this check and the ' +
+      'ruling behind it in the same commit');
+
+    const owing = { name: 'Owes', phone: '8015550001', address: '1 Elm St', city: 'Lehi',
+                    rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+    /* ⚠ THE FIXTURE NOTE SAYS 2026 ON PURPOSE. This is the whole of her ruling: the
+       tag ignores what the note says and reports the assumed season. A version that
+       went back to reading the note would answer 2026 here and pass every other
+       check in this block. */
+    api.setInvoices(new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]));
+    check('a debt whose note names another season still reads the assumed one',
+      tag(owing) === 'Unpaid 2025',
+      'got "' + tag(owing) + '" against a note carrying year 2026 — this is the ' +
+      'ruling, and the one check that fails if the derived year comes back');
+  }
 
   /* ---------------------------------------------------------------------
      Report
