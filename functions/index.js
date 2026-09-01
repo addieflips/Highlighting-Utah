@@ -407,6 +407,20 @@ function arrearsOnInvoiceServer(inv) {
     return sum + ((n && n.kind === ARREARS_KIND_SERVER) ? (Number(n.amount) || 0) : 0);
   }, 0);
 }
+/* Which season a carried debt is FROM — the year they fell behind, not today's.
+ * ⚠ admin.html has arrearsYearOnInvoice, which is the same two steps: the note's own
+ * `year`, else the four-digit year out of its reason text so a line written before the
+ * field existed still names itself. Kept in step by arrears-hold.test.js, which runs
+ * both over the same notes — the portal and the office screen naming different years
+ * for one debt is exactly what "charged twice" looks like to a customer. */
+function arrearsYearServer(inv) {
+  const notes = (inv && Array.isArray(inv.changeFeeNotes)) ? inv.changeFeeNotes : [];
+  const note = notes.filter(function (n) { return n && n.kind === ARREARS_KIND_SERVER; })[0];
+  if (!note) return null;
+  if (note.year) return String(note.year);
+  const m = /(\d{4})/.exec(note.reason || '');
+  return m ? m[1] : null;
+}
 function arrearsOutstandingServer(inv) {
   const owed = centsOf(arrearsOnInvoiceServer(inv));
   if (owed <= 0) return 0;
@@ -477,12 +491,9 @@ exports.paypalCreateOrder = onCall(
        emphasize that is last years payment so someone doesn't get mad and think they are
        charged twice." A button showing a number smaller than the balance, with nothing
        saying why, reads as a mistake or a double charge. */
-    const arrearsNote = ((inv.changeFeeNotes || []).filter(function (n) {
-      return n && n.kind === ARREARS_KIND_SERVER;
-    })[0]) || null;
     return { orderID: order.id, balanceDue, tip, total: chargeAmount,
              payingLastSeason, arrearsLeft,
-             arrearsSeason: (arrearsNote && arrearsNote.season) || '' };
+             arrearsSeason: arrearsYearServer(inv) || '' };
   }
 );
 
@@ -3290,10 +3301,7 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
    * argument as lightChangeFreeUntil above: derive it on the server, send the
    * answer. */
   record.arrearsOutstanding = arrearsOutstandingServer(data);
-  const arrNote = ((data.changeFeeNotes || []).filter(function (n) {
-    return n && n.kind === ARREARS_KIND_SERVER;
-  })[0]) || null;
-  record.arrearsSeason = (arrNote && arrNote.season) || '';
+  record.arrearsSeason = arrearsYearServer(data) || '';
 
   /* ⭐ WHO THIS BILL IS FOR, sent from HERE and not only from portalLookup.
    *
