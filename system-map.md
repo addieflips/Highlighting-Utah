@@ -676,6 +676,13 @@ invoice, and already reaches the customer's portal.
   - **A note written before the field existed reads its year out of its own sentence** ("Unpaid balance carried from the 2025 season"), rather than showing blank on an invoice nobody has touched since.
   - **It shows in four places**, all from `arrearsYearOnInvoice` / `houseArrearsYear` so they cannot name different years: the reason a customer is held out of the season, the Unpaid badge on their row, the invoice status cell, and the held-customers list.
 
+⚠ **Changing the amount takes the PayPal buttons down and puts them back** — because the
+card button creates its order when the inline form OPENS, not when it is submitted. Once
+that form is up it is bound to the amount chosen before it, and nothing in the browser can
+revise an order PayPal has already created. Every control that changes what will be
+charged (the choice, the tip buttons, a typed tip on leaving the box) calls
+`resetPaypalButtons` (MON-50).
+
 **Paying it: one season at a time.** While last season's carried balance is outstanding,
 the portal's payment button charges **exactly that** and says so in words — the season it
 is for, that it is *not* a second charge for this year, and what this year's amount will

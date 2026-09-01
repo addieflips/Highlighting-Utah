@@ -5219,8 +5219,12 @@ document.addEventListener('click', function(e){
   var tipInput = document.getElementById('customTipInput');
   if(tipInput && currentTipPct > 0) tipInput.value = currentTipAmount || '';
   updateTipBreakdown();
-  /* PayPal builds its order when the button is pressed, not now — but the SDK
-     caches nothing about the amount, so nothing needs re-rendering here. */
+  /* ⚠ AND THE BUTTONS COME DOWN AND GO BACK UP. The comment that used to sit here said
+     no re-render was needed because PayPal builds its order on press — which is true of
+     the plain button and false of the card one, whose form is opened (and whose order is
+     created) before this choice can change. That was the bug: the card form went on
+     showing last season's amount after switching to the full balance. */
+  resetPaypalButtons();
 });
 /* Which payment methods the portal offers. 'venmo' and 'paypal' are one-or-the-
    other; 'both' shows them side by side so the customer picks. PayPal needs a
@@ -5274,6 +5278,46 @@ function updateTipBreakdown(){
 /* ---------------- PayPal Smart Buttons ---------------- */
 var paypalSdkLoadedForClientId = null;
 var paypalButtonsRendered = false;
+/* ⭐ THE RENDERED BUTTON INSTANCES, so they can be TAKEN DOWN when the amount they
+   were built for changes (added 2026-09-01).
+
+   Addie: "if I push on 2025 payment than do credit/debit dropdown but than decide to
+   switch to full payment it does not automatically changed to full payment. It still
+   shows 2025 payment."
+
+   ⚠ THE COMMENT THAT USED TO SIT IN THE CHOICE HANDLER WAS WRONG, and that wrong
+   assumption IS this bug: "PayPal builds its order when the button is pressed, not now
+   — so nothing needs re-rendering here." That is true of the plain PayPal button, which
+   calls createOrder on click. It is NOT true of the card button: pressing that opens an
+   inline card form, and PayPal calls createOrder at THAT moment. From then on the form
+   is bound to an order that already exists, for the amount chosen before it opened.
+   Changing the choice afterwards updated our variable and could not touch the order.
+
+   ⚠ SO THE FIX IS A TEARDOWN, not a bigger variable. Nothing in the browser can revise
+   an order PayPal has already created, and it must not be able to — the amount is the
+   server's decision. Closing the buttons discards the open form, and the next press
+   creates a fresh order from whatever is chosen then. */
+var paypalButtonInstances = [];
+function resetPaypalButtons(){
+  if(!paypalButtonsRendered) return;
+  paypalButtonInstances.forEach(function(inst){
+    /* ⚠ close() rejects if the button is already gone, and a rejection here would be an
+       unhandled promise that leaves the containers half torn down. The clear below is
+       what actually guarantees the form is gone; close() is the SDK's tidy way of
+       getting there first. */
+    try{
+      var r = inst && inst.close && inst.close();
+      if(r && r.catch) r.catch(function(){ /* quiet on purpose: close() rejects when the button is already gone, which is the state we were asking for. The container clear below is what actually guarantees it, so there is nothing here worth telling anybody. */ });
+    }catch(err){ /* already closed — the clear below finishes the job */ }
+  });
+  paypalButtonInstances = [];
+  var c = document.getElementById('paypal-button-container');
+  var cc = document.getElementById('paypal-card-button-container');
+  if(c) c.innerHTML = '';
+  if(cc) cc.innerHTML = '';
+  paypalButtonsRendered = false;
+  renderPaypalButtons();
+}
 function setupPaypalButtonsIfNeeded(){
   if(!paypalAvailable()) return;
   if(paypalSdkLoadedForClientId === PAYMENT_SETTINGS.paypalClientId && window.paypal){
@@ -5404,7 +5448,7 @@ function renderPaypalButtons(){
       fundingSource: window.paypal.FUNDING.CARD,
       style: { layout: 'vertical', color: 'black' }
     }, ppConfig));
-    if(cardBtn.isEligible()) cardBtn.render('#paypal-card-button-container');
+    if(cardBtn.isEligible()){ paypalButtonInstances.push(cardBtn); cardBtn.render('#paypal-card-button-container'); }
     else cardContainer.style.display = 'none';
   }
   /* fundingSource is set only when the SDK actually exposes FUNDING. The card
@@ -5420,7 +5464,7 @@ function renderPaypalButtons(){
     ppOpts.fundingSource = window.paypal.FUNDING.PAYPAL;
   }
   var ppBtn = window.paypal.Buttons(ppOpts);
-  if(ppBtn.isEligible()) ppBtn.render('#paypal-button-container');
+  if(ppBtn.isEligible()){ paypalButtonInstances.push(ppBtn); ppBtn.render('#paypal-button-container'); }
 }
 document.querySelectorAll('.tip-option-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -5434,12 +5478,24 @@ document.querySelectorAll('.tip-option-btn').forEach(function(btn){
     input.value = val || '';
     currentTipAmount = val;
     updateTipBreakdown();
+    /* ⚠ THE SAME BUG IN THE OTHER DIRECTION. A tip picked after the card form is open
+       would be left out of an order that already exists — fixing only the choice above
+       would be half a fix. */
+    resetPaypalButtons();
   });
 });
 document.getElementById('customTipInput').addEventListener('input', function(){
   currentTipAmount = Math.max(0, Number(this.value) || 0);
   currentTipPct = 0;   /* typed by hand — never re-worked underneath them */
   updateTipBreakdown();
+});
+/* ⚠ ON `change`, NOT ON `input`. The figure on screen has to keep up with every
+   keystroke, but re-rendering PayPal on each one would tear the buttons down and build
+   them again half a dozen times while somebody types "25" — flickering, slow, and it
+   would close a card form they were in the middle of filling in. `change` fires when
+   they leave the box, which is the moment the number is settled. */
+document.getElementById('customTipInput').addEventListener('change', function(){
+  resetPaypalButtons();
 });
 
 function parseLightsDescription(text){
