@@ -41424,6 +41424,31 @@ suite('257. Measure Roof - the drawing is saved, not just the number');
       'rmPeaks was cleared NOWHERE in this file before 2026-08-30, which is how a ' +
       'gable measured on one roof stayed in the list on the next one');
   }
+  /* ⭐ AND OPENING THE TOOL ON A DIFFERENT HOUSE FORGETS THE LAST ONE
+     (2026-08-31). Owner, on a quote she had not started measuring: "A – B 0 ft
+     across … E – F 0 ft across … I – J 0 ft across … this is there before i even
+     start measuring."
+
+     ⚠ rmReset CLEARED NEITHER THE DOTS NOR THE PEAKS. It resets a dozen
+     per-house things by hand and those two were not among them, so the only
+     thing emptying them was rmLoadAddress — on a LATER TICK, and only when the
+     quote has an address at all. The previous house's dots and peaks are on
+     screen for as long as the map takes to load, and on an address-less quote
+     they stay, counting that house's footage into this one's price. */
+  {
+    const reset = extractFn(admin, 'rmReset') || '';
+    const forget = extractFn(admin, 'rmForgetLastHouse') || '';
+    check('S257', 'the reset and the forget are both findable', !!reset && !!forget);
+    check('S257', 'opening the tool on another house forgets the last one',
+      /rmForgetLastHouse\(\);/.test(reset),
+      'rmReset resets a dozen per-house things by hand and the two that name the ' +
+      'gables were not among them — which is the report, word for word');
+    check('S257', 'and the forgetting is still done in the one place that knows what is per-house',
+      /rmCorners = \[\]; rmPeaks = \[\];/.test(forget),
+      'that function’s own note says it is "the one place to add to when ' +
+      'something new is remembered" — adding a thirteenth line to rmReset’s ' +
+      'list by hand is how the fourteenth gets missed');
+  }
   const open = extractFn(admin, 'openRoofMeasure') || '';
   check('S257', 'and opening a quote stashes it after the reset that would clear it',
     open.indexOf('rmReset()') < open.indexOf('rmPendingMeasurement'),

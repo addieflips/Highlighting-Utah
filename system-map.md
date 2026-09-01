@@ -94,6 +94,23 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **AND OPENING THE TOOL FORGETS THE LAST HOUSE** (2026-08-31). Owner, on a
+quote she had not started measuring: *"A – B 0 ft across … E – F 0 ft across …
+I – J 0 ft across … this is there before i even start measuring."*
+
+⚠ **On a page left open from before the fix above, that is the fix not being
+loaded** — the dots and peaks now clear together, so "peaks present, dots gone"
+cannot happen on the current file. A hard refresh (Ctrl+Shift+R) is the answer.
+
+⚠ **But there was a second path, and it is closed.** `rmReset` — what runs when
+the tool opens on a quote — resets a dozen per-house things by hand, and the
+dots and the peaks were not among them. The only thing emptying them was the
+address load, which happens a tick later and only when the quote HAS an
+address. So the previous house's marks sat on screen while the map loaded, and
+on an address-less quote they stayed, putting that house's footage into this
+one's price. `rmReset` now calls **`rmForgetLastHouse`**, which is the one
+function that knows what belongs to a house.
+
 ⭐ **A PEAK SURVIVES THE PAGE BEING LEFT** (2026-08-30). Owner: *"the peaks are
 not adding anything because i left the page then came back, but the dots are
 still there so it should've included the peak addition into the price but it
