@@ -199,3 +199,85 @@ test.describe('An RSVP link that no longer matches an account', () => {
   });
 
 });
+
+/* ---- ONE ANSWER, ONE CARD ------------------------------------------------
+ *
+ * Addie, 2026-09-01, over a screenshot of a bare "One moment…":
+ *   "this is what happens when I open up Yes or No, but back next year seems
+ *    to be working"
+ *
+ * ⭐ THE SENTENCE WAS THE DIAGNOSIS. The three answers land on TWO different
+ * cards in TWO different pages — yes/no on #rsvpConfirmCard inside
+ * #page-payment, back next year on #backNextYearConfirm inside #page-home —
+ * and body.rsvp-minimal force-showed BOTH pages for every route. So a yes or a
+ * no opened with the back-next-year card above it, still holding the static
+ * "One moment…" that only handleBackNextYear ever rewrites. The real
+ * confirmation rendered correctly, below the fold, under a dead card.
+ *
+ * ⚠ IT LOOKED LIKE A HANG AND WAS NOT. The answer was recorded, the message was
+ * built — which is exactly why every existing check passed. The specs above
+ * assert what the RIGHT card says; not one of them noticed a SECOND card on the
+ * same screen. That is the gap these close, and it is the same shape as the bug
+ * this class was introduced to fix in the first place.
+ *
+ * ⚠ AND BACK NEXT YEAR WAS LEAKING TOO — it left #page-payment open underneath,
+ * so the SIGN-IN FORM sat below the goodbye. "Seems to be working" was the
+ * correct message happening to be on top of the wrong page.
+ */
+test.describe('One answer shows one card, and nothing else', () => {
+
+  const TOKEN = CUSTOMERS.standard.token;
+
+  test('Yes does not show the Back Next Year card', async ({ page }) => {
+    const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=yes`);
+
+    await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
+    await expect(page.locator('#backNextYearConfirm')).toBeHidden();
+    /* The sign-in form lives on the same page as the yes/no card, and an RSVP
+       answer must never sit above a box asking them to sign in. */
+    await expect(page.locator('#lookupFormWrap')).toBeHidden();
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  test('No does not show it either', async ({ page }) => {
+    const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=no`);
+
+    await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
+    await expect(page.locator('#backNextYearConfirm')).toBeHidden();
+    await expect(page.locator('#lookupFormWrap')).toBeHidden();
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ THE STATIC TEXT IS THE TELL, and it is asserted by its own words rather
+     than by the element being hidden: "One moment…" is what the markup ships
+     and what a customer stares at for ever when the wrong card is revealed. */
+  test('and neither one leaves a stray "One moment" on screen', async ({ page }) => {
+    for (const answer of ['yes', 'no']) {
+      const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=${answer}`);
+      await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
+      /* ⚠ VISIBLE ONLY, and that is not a loosening. Both cards legitimately KEEP
+         that text in the DOM — it is the markup default each handler overwrites —
+         so counting DOM matches asserts something that was never true and fails on
+         correct code. What must be true is that none of them is on screen. */
+      await expect(page.locator(':text("One moment"):visible')).toHaveCount(0);
+      stub.assertNoRealCalls();
+    }
+  });
+
+  /* ⚠ THE MIRROR, and it is not symmetry for its own sake: the back route was
+     leaking the payment page, so this is a real fix and not a guard. */
+  test('Back Next Year shows only its own card, with no sign-in form under it', async ({ page }) => {
+    const stub = await open(page, `/index.html#/?token=${TOKEN}&rsvp=back`);
+
+    await expect(page.locator('#backNextYearConfirm')).toBeVisible();
+    await expect(page.locator('#rsvpConfirmCard')).toBeHidden();
+    await expect(page.locator('#lookupFormWrap')).toBeHidden();
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+});
