@@ -913,6 +913,112 @@ function seasonResetWrite() {
     'the money HAS been taken — showing four more ways to pay would be worse');
 
   /* ---------------------------------------------------------------------
+     4g. Switching what you are paying for, after the card form is open.
+         Addie: "if I push on 2025 payment than do credit/debit dropdown but
+         than decide to switch to full payment it does not automatically
+         changed to full payment. It still shows 2025 payment."
+     --------------------------------------------------------------------- */
+  {
+    /* ⚠ RUN, NOT MATCHED. The whole failure was an assumption about the SDK's
+       lifecycle that read perfectly as source — there was even a comment stating it.
+       What must be true is that the open form is TAKEN DOWN, so the teardown is
+       executed against a fake SDK that records what happened to it. */
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<div id="paypal-button-container">old</div>' +
+                          '<div id="paypal-card-button-container">open card form</div>');
+    const closed = [];
+    let rendered = 0;
+    const resetSrc = (function () {
+      const at = site.indexOf('function resetPaypalButtons(){');
+      return at === -1 ? '' : site.slice(at, site.indexOf('\n}', at) + 2);
+    })();
+    check('the teardown was lifted whole', liftOk(resetSrc));
+
+    const api2 = new Function('document', resetSrc + `
+      return {
+        run: resetPaypalButtons,
+        arm: function(list){ paypalButtonsRendered = true; paypalButtonInstances = list; },
+        state: function(){ return {rendered: paypalButtonsRendered, n: paypalButtonInstances.length}; }
+      };
+      function renderPaypalButtons(){ rendered++; }
+      var paypalButtonsRendered = false;
+      var paypalButtonInstances = [];
+    `.replace('rendered++', 'globalThis.__rendered++'))(dom.window.document);
+
+    globalThis.__rendered = 0;
+    api2.arm([
+      { close: function(){ closed.push('card'); return Promise.resolve(); } },
+      { close: function(){ closed.push('paypal'); return Promise.resolve(); } }
+    ]);
+    api2.run();
+    check('switching the amount closes the open card form',
+      closed.indexOf('card') !== -1 && closed.indexOf('paypal') !== -1,
+      'nothing in the browser can revise an order PayPal has already created — the ' +
+      'form has to go; got ' + JSON.stringify(closed));
+    check('and both containers are emptied',
+      dom.window.document.getElementById('paypal-card-button-container').innerHTML === '' &&
+      dom.window.document.getElementById('paypal-button-container').innerHTML === '',
+      'close() is the tidy way; clearing the container is what guarantees it');
+    check('and the buttons are built again for the new amount',
+      globalThis.__rendered === 1,
+      'taking them down without putting them back leaves no way to pay at all');
+    check('the tracked instances are forgotten, so a second switch cannot close them twice',
+      api2.state().n === 0);
+
+    /* ⚠ A close() THAT THROWS MUST NOT STOP THE TEARDOWN. The SDK rejects when a button
+       is already gone, and an unhandled rejection there would leave the containers half
+       cleared — a dead card form on screen with no way to pay. */
+    globalThis.__rendered = 0;
+    dom.window.document.getElementById('paypal-card-button-container').innerHTML = 'still here';
+    api2.arm([
+      { close: function(){ throw new Error('already closed'); } },
+      { close: function(){ closed.push('second'); return Promise.resolve(); } }
+    ]);
+    let threw = false;
+    try { api2.run(); } catch (e) { threw = true; }
+    check('a close() that throws does not abandon the teardown',
+      !threw && closed.indexOf('second') !== -1 &&
+      dom.window.document.getElementById('paypal-card-button-container').innerHTML === '',
+      'a half-cleared panel is a dead card form with no way to pay');
+
+    /* ⚠ AND IT DOES NOTHING WHEN THERE IS NOTHING UP, or opening the invoice page would
+       render the buttons and immediately tear them down again. */
+    globalThis.__rendered = 0;
+    api2.run();
+    check('it is a no-op when no buttons are rendered', globalThis.__rendered === 0);
+  }
+
+  /* Every control that changes what will be charged has to trigger it — fixing only
+     the one Addie hit would leave the identical bug behind the tip buttons. */
+  const choiceHandler = site.slice(site.indexOf("closest('#invPayChoice .pay-choice')"),
+                                   site.indexOf("closest('#invPayChoice .pay-choice')") + 1800);
+  check('changing what you are paying for takes the buttons down',
+    /resetPaypalButtons\(\)/.test(choiceHandler),
+    'this is the bug she reported');
+  /* ⚠ THE END ANCHOR IS THE LISTENER, NOT THE ELEMENT. `customTipInput` also appears
+     INSIDE the tip button handler (it writes the figure into that box), so slicing to
+     the element's first mention cut the block off before the line under test and failed
+     a check about correct code. */
+  const tipBtns = site.slice(site.indexOf("document.querySelectorAll('.tip-option-btn')"),
+                             site.indexOf("getElementById('customTipInput').addEventListener('input'"));
+  check('and so does picking a tip',
+    /resetPaypalButtons\(\)/.test(tipBtns),
+    'a tip picked after the card form is open would be left out of an order that ' +
+    'already exists — fixing only the choice would be half a fix');
+  const tipInput = site.slice(site.indexOf("getElementById('customTipInput').addEventListener('input'"),
+                              site.indexOf("function parseLightsDescription"));
+  check('a typed tip re-renders when the box is left, not on every keystroke',
+    /addEventListener\('change', function\(\)\{\s*resetPaypalButtons\(\);/.test(tipInput) &&
+    !/'input', function\(\)\{[\s\S]{0,200}resetPaypalButtons/.test(tipInput),
+    'tearing the buttons down on each keystroke would close a card form somebody is ' +
+    'in the middle of filling in');
+  check('and the rendered buttons are tracked so there is something to close',
+    /paypalButtonInstances\.push\(cardBtn\)/.test(site) &&
+    /paypalButtonInstances\.push\(ppBtn\)/.test(site),
+    'without the references the teardown can only clear the container and the SDK is ' +
+    'left holding a form it thinks is live');
+
+  /* ---------------------------------------------------------------------
      5. The ledger has to survive the two invoice rebuilds, or the debt
         disappears again on the next ordinary save. The whole design rests
         on this, and neither rebuild is in a place a run can reach cheaply.
