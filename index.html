@@ -137,15 +137,26 @@
      "Seems to be working" was the correct message happening to be on top.
 
      Each route now reveals exactly ONE page. The modifier is what says which. */
-  body.rsvp-minimal #page-payment{ display:flex !important; min-height:100vh; align-items:center; }
+  /* ⚠ CENTRED, AND THE CHILD NEEDS THE WIDTH (fixed 2026-09-01). Addie: "on
+     computer the do you have gate code comes up far left". Making #page-payment a
+     flex container turns its children into flex ITEMS, and the only visible one —
+     section.page-block, once the hero is hidden — had no width, so it shrank to its
+     content and settled at flex-start. The `.wrap` rule below sets the width of a
+     div INSIDE that section, which can do nothing about the section itself.
+     Measured before the fix at 1440px wide: the card sat at x=65, w=584. */
+  body.rsvp-minimal #page-payment{ display:flex !important; min-height:100vh; align-items:center; justify-content:center; }
+  body.rsvp-minimal #page-payment > *{ width:100%; }
   body.rsvp-minimal #page-payment .wrap{ width:100%; }
   body.rsvp-minimal #page-home{ display:none !important; }
   /* Back Next Year — its card is the only thing wanted out of the home page, and
      the payment page (which carries the sign-in form) must stay shut. */
   body.rsvp-minimal.rsvp-back #page-payment{ display:none !important; }
-  body.rsvp-minimal.rsvp-back #page-home{ display:flex !important; min-height:100vh; align-items:center; }
+  body.rsvp-minimal.rsvp-back #page-home{ display:flex !important; min-height:100vh; align-items:center; justify-content:center; }
+  body.rsvp-minimal.rsvp-back #page-home > *{ width:100%; }
   body.rsvp-minimal.rsvp-back #page-home > *:not(#backNextYearConfirm){ display:none !important; }
   body.rsvp-minimal.rsvp-back #backNextYearConfirm{ display:block !important; width:100%; }
+  /* The dim behind the card is what turns a centred line into a pop-up. */
+  body.rsvp-minimal.rsvp-back #page-home{ background:rgba(12,35,24,.10); }
 
   /* ---------- Header ---------- */
   header{
@@ -797,9 +808,18 @@
 <!-- ============ HOME ============ -->
 <main id="page-home" class="page">
 
-  <div id="backNextYearConfirm" style="display:none; text-align:center; padding:60px 20px; max-width:480px; margin:0 auto;">
-    <div style="font-size:38px; margin-bottom:14px;">🎄</div>
-    <div id="backNextYearConfirmMsg" style="font-size:20px; font-weight:700; color:var(--ink);">One moment&hellip;</div>
+  <!-- ⭐ A MESSAGE, NOT A LOADING SCREEN (Addie, 2026-09-01): "back next year it
+       looks like a loading page so if they don't read it they might be a little
+       confused. Can we make it more of a pop up message". A tree over one centred
+       line on the page background is exactly what a spinner looks like, so it read
+       as "still working" rather than "we are done". It is a card on a dimmed
+       backdrop now, with a heading that says the answer was recorded. -->
+  <div id="backNextYearConfirm" style="display:none;">
+    <div id="backNextYearCard" style="text-align:center; background:#fff; max-width:460px; margin:0 auto; padding:34px 28px; border-radius:18px; box-shadow:0 18px 50px rgba(12,35,24,.22);">
+      <div style="font-size:38px; margin-bottom:10px;">🎄</div>
+      <div id="backNextYearConfirmTitle" style="display:none; font-size:14px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin-bottom:8px;">Thanks &mdash; that&rsquo;s recorded</div>
+      <div id="backNextYearConfirmMsg" style="font-size:20px; font-weight:700; color:var(--ink);">One moment&hellip;</div>
+    </div>
   </div>
 
   <!-- HERO -->
@@ -1377,7 +1397,7 @@
                   <button type="button" class="qd-swatch" data-color="Orange" title="Orange" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:none; padding:0;"></button>
                   <button type="button" class="qd-swatch" data-color="Pink" title="Pink" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:none; padding:0;"></button>
                   <button type="button" class="qd-swatch" data-color="Multi" title="Multi" style="width:32px; height:32px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
-                  <button type="button" class="btn btn-outline btn-sm" id="qdClearPattern" style="margin-left:auto;">Clear</button>
+                  <button type="button" class="btn btn-outline-dark btn-sm" id="qdClearPattern" style="margin-left:auto;">Clear</button>
                 </div>
                 <div id="qdPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
               </div>
@@ -1478,7 +1498,7 @@
             <div id="rsvpGateCodeQuestion" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
             <div id="rsvpGateCodeAsk" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
               <button type="button" class="btn btn-gold" id="rsvpGateCodeYesBtn">Yes, I have one</button>
-              <button type="button" class="btn btn-outline" id="rsvpGateCodeNoBtn">No / not applicable</button>
+              <button type="button" class="btn btn-outline-dark" id="rsvpGateCodeNoBtn">No / not applicable</button>
             </div>
             <div id="rsvpGateCodeEntry" style="display:none; margin-top:14px;">
               <label for="rsvpGateCodeInput" style="display:block; font-size:13px; color:var(--slate); margin-bottom:6px;">Gate code</label>
@@ -1490,7 +1510,7 @@
           </div>
           <div id="rsvpConfirmBtnRow" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
             <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Yes, Take Me to My Portal</button>
-            <button type="button" class="btn btn-outline" id="rsvpNoChangesBtn" style="display:none;">No, I'm All Set</button>
+            <button type="button" class="btn btn-outline-dark" id="rsvpNoChangesBtn" style="display:none;">No, I'm All Set</button>
           </div>
         </div>
 
@@ -1668,7 +1688,7 @@
                as an equal alternative, the opposite of a last resort. -->
           <details id="otherPaymentsPanel" style="display:none; margin-top:20px; border-top:1px solid var(--line); padding-top:14px;">
             <summary style="cursor:pointer; font-size:14px; color:var(--slate); text-align:center;">Other payment options</summary>
-            <a href="#" id="venmoPayBtn" class="btn btn-outline btn-block" style="margin-top:14px; text-align:center; display:block;" target="_blank" rel="noopener">&#128179; Pay with Venmo <span id="venmoPayAmt" style="display:none;"></span></a>
+            <a href="#" id="venmoPayBtn" class="btn btn-outline-dark btn-block" style="margin-top:14px; text-align:center; display:block;" target="_blank" rel="noopener">&#128179; Pay with Venmo <span id="venmoPayAmt" style="display:none;"></span></a>
             <p class="form-note" id="payNoteText" style="margin-top:10px; text-align:center;">Opens Venmo with the amount and your name pre-filled &mdash; just confirm and send.</p>
           </details>
         </div>
@@ -1746,7 +1766,7 @@
                   <button type="button" class="rc-swatch" data-color="Orange" title="Orange" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#D97D2B; border:none; padding:0;"></button>
                   <button type="button" class="rc-swatch" data-color="Pink" title="Pink" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:#D97BA0; border:none; padding:0;"></button>
                   <button type="button" class="rc-swatch" data-color="Multi" title="Multi" style="width:44px; height:44px; border-radius:50%; flex-shrink:0; background:linear-gradient(45deg, #C23B2E 0 25%, #3E7D46 25% 50%, #2E5FA3 50% 75%, #F4BE55 75% 100%); border:none; padding:0;"></button>
-                  <button type="button" class="btn btn-outline btn-sm" id="rcClearPattern" style="margin-left:auto;">Clear</button>
+                  <button type="button" class="btn btn-outline-dark btn-sm" id="rcClearPattern" style="margin-left:auto;">Clear</button>
                 </div>
                 <div id="rcPatternReadout" style="font-size:12.5px; color:var(--slate);"></div>
               </div>
@@ -4569,24 +4589,63 @@ function handleRsvpLink(token, rsvpValue){
          closing the page here loses nothing. That is exactly why it is safe to
          stop and speak to them first, and why the reason box is offered rather
          than demanded. */
+      /* ⭐ STRAIGHT INTO THE PORTAL (Addie, 2026-09-01): "can no go straight to
+         member portal but will track it even if they don't get to member portal."
+
+         ⚠ THIS REVERSES HER 2026-08-19 RULING and the old reasoning is kept here
+         because it is the argument against: "keep the Cancel tab, but put a message
+         in front of it first so they know why they've landed there" — a no used to
+         drop them into an account page with a reason box and nothing saying what had
+         happened. R-024 says the later answer wins, and it is recorded as RS-31.
+         What is lost is the sentence in front; what is gained is one less tap for
+         somebody who has already said no. Do not put the interstitial back without
+         asking her again.
+
+         ⭐ AND THE HALF SHE NAMED HERSELF IS THE IMPORTANT ONE: the answer is
+         tracked whether or not they ever reach the portal. That is not new and must
+         not be broken — portalRsvp runs ABOVE, before any of this, so the no is
+         already saved on the server by the time we navigate. Closing the tab here,
+         a portal that fails to load, a dead network: none of them can cost the
+         answer. The ordering is what guarantees it. */
       confirmMsg.textContent = "Thanks for letting us know \u2014 we'll be sorry to miss you this year.";
-      if(openPortalBtn){
-        openPortalBtn.textContent = 'Tell us why (optional)';
-        openPortalBtn.style.display = 'inline-flex';
-        openPortalBtn.onclick = function(){
+      var wentToPortal = false;
+      try{
+        if(typeof loadPortalByToken === 'function'){
           document.body.classList.remove('rsvp-minimal', 'rsvp-back');
           if(confirmCard) confirmCard.style.display = 'none';
           loadPortalByToken(token, {bypassDeactivation: true, activateTab: 'cancel'});
-        };
+          wentToPortal = true;
+        }
+      }catch(e){
+        /* Logged, never swallowed (Addie, 2026-08-25: "nothing should fail quietly").
+           The answer is saved either way; what is left to decide is only what they
+           are looking at. */
+        console.error('[HU] could not open the portal after an RSVP no', e);
       }
-      if(noChangesBtn){
-        noChangesBtn.textContent = "That's all, thanks";
-        noChangesBtn.style.display = 'inline-flex';
-        noChangesBtn.onclick = function(){
-          if(openPortalBtn) openPortalBtn.style.display = 'none';
-          noChangesBtn.style.display = 'none';
-          confirmMsg.innerHTML = "All done \u2014 we've got it.<br>If you change your mind, just give us a call and we'll get you back on the list.";
-        };
+      /* ⚠ FAIL BACK TO THE OLD SCREEN RATHER THAN A BLANK ONE. If the portal could
+         not be opened, they still get the confirmation and the offer to say why —
+         which is exactly the flow this replaced, so nothing is worse than before. */
+      if(!wentToPortal){
+        document.body.classList.add('rsvp-minimal');
+        if(confirmCard) confirmCard.style.display = 'block';
+        if(openPortalBtn){
+          openPortalBtn.textContent = 'Tell us why (optional)';
+          openPortalBtn.style.display = 'inline-flex';
+          openPortalBtn.onclick = function(){
+            document.body.classList.remove('rsvp-minimal', 'rsvp-back');
+            if(confirmCard) confirmCard.style.display = 'none';
+            loadPortalByToken(token, {bypassDeactivation: true, activateTab: 'cancel'});
+          };
+        }
+        if(noChangesBtn){
+          noChangesBtn.textContent = "That's all, thanks";
+          noChangesBtn.style.display = 'inline-flex';
+          noChangesBtn.onclick = function(){
+            if(openPortalBtn) openPortalBtn.style.display = 'none';
+            noChangesBtn.style.display = 'none';
+            confirmMsg.innerHTML = "All done \u2014 we've got it.<br>If you change your mind, just give us a call and we'll get you back on the list.";
+          };
+        }
       }
     }
   }).catch(rsvpLinkFailed);
@@ -4699,7 +4758,14 @@ function handleRsvpLink(token, rsvpValue){
 function handleBackNextYear(token){
   var wrap = document.getElementById('backNextYearConfirm');
   var msg = document.getElementById('backNextYearConfirmMsg');
+  /* ⚠ THE HEADING IS THE PROOF, SO IT WAITS FOR THE ANSWER. It reads "that's
+     recorded", which is a claim — shown while the call is still in flight it would
+     be the screen promising something it does not yet know, and shown after a
+     failure it would flatly contradict the error underneath it. Hidden until the
+     write comes back, and left hidden on every way out. */
+  var title = document.getElementById('backNextYearConfirmTitle');
   if(wrap) wrap.style.display = 'block';
+  if(title) title.style.display = 'none';
   if(msg) msg.textContent = 'One moment\u2026';
   // "Back Next Year" gets its own status and never triggers light recycling.
   callPortalFn('portalRsvp', {token: token, response: 'backnextyear'}).then(function(res){
@@ -4707,6 +4773,7 @@ function handleBackNextYear(token){
       if(msg) msg.textContent = portalCallFailedText(null, 'account');
       return;
     }
+    if(title) title.style.display = 'block';
     if(msg) msg.textContent = 'We look forward to seeing you next year!';
   }).catch(function(err){
     if(msg) msg.textContent = portalCallFailedText(err, 'account');

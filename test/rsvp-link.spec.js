@@ -91,7 +91,13 @@ test.describe('RSVP email links', () => {
     stub.assertNoRealCalls();
   });
 
-  test('No — records the no and says so, without dropping them in the form', async ({ page }) => {
+  /* ⭐ CHANGED 2026-09-01 (RS-31). Addie: "can no go straight to member portal but
+     will track it even if they don't get to member portal." This used to assert the
+     interstitial — "sorry to miss you" plus a Tell us why button — which was her
+     2026-08-19 ruling and is now superseded. The check that MATTERS is unchanged and
+     is asserted first: the answer reaches the server BEFORE any navigation, so it is
+     recorded whether or not they ever arrive in the portal. */
+  test('No — records the no first, then takes them into the portal', async ({ page }) => {
     const cust = CUSTOMERS.standard;
     const stub = await open(page, `/index.html#/payment?token=${cust.token}&rsvp=no`);
 
@@ -101,13 +107,16 @@ test.describe('RSVP email links', () => {
       return rsvp.length ? rsvp[rsvp.length - 1].payload.response : null;
     }).toBe('no');
 
-    await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/sorry to miss you/i);
-    /* The reason box is OFFERED, never demanded — the no is already saved. */
-    await expect(page.locator('#rsvpOpenPortalBtn')).toContainText(/tell us why/i);
+    /* ⚠ THE ORDER IS THE GUARANTEE, so it is asserted as an order and not merely as
+       "both happened": portalRsvp must be the FIRST call, ahead of everything the
+       portal itself fetches. Reversed, a customer who closes the tab while the
+       account is loading has said no and we never heard it. */
+    const names = (await stub.calls()).map(c => c.name);
+    expect(names[0], 'the answer must reach the server before the portal is opened')
+      .toBe('portalRsvp');
 
+    await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
     await expectNotTheQuoteForm(page);
-    await expect(page.locator('header')).toBeHidden();
 
     expect(stub.thrown, stub.consoleNoise.join('\n')).toEqual([]);
     stub.assertNoRealCalls();
@@ -241,12 +250,14 @@ test.describe('One answer shows one card, and nothing else', () => {
     stub.assertNoRealCalls();
   });
 
-  test('No does not show it either', async ({ page }) => {
+  /* ⚠ NO LEAVES THIS SCREEN ALTOGETHER NOW (RS-31) — it goes straight into the
+     portal — so what must be true is that the Back Next Year card never appears on
+     the way past, which is the fault this describes. */
+  test('No does not flash the Back Next Year card on its way to the portal', async ({ page }) => {
     const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=no`);
 
-    await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
+    await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
     await expect(page.locator('#backNextYearConfirm')).toBeHidden();
-    await expect(page.locator('#lookupFormWrap')).toBeHidden();
 
     expect(stub.thrown).toEqual([]);
     stub.assertNoRealCalls();
@@ -258,7 +269,11 @@ test.describe('One answer shows one card, and nothing else', () => {
   test('and neither one leaves a stray "One moment" on screen', async ({ page }) => {
     for (const answer of ['yes', 'no']) {
       const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=${answer}`);
-      await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
+      /* Yes settles on this card; No carries on into the portal (RS-31). Either way
+         the assertion below is the same one, and it is the point of this test. */
+      await expect(answer === 'yes'
+        ? page.locator('#rsvpConfirmCard')
+        : page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
       /* ⚠ VISIBLE ONLY, and that is not a loosening. Both cards legitimately KEEP
          that text in the DOM — it is the markup default each handler overwrites —
          so counting DOM matches asserts something that was never true and fails on

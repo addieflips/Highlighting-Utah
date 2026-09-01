@@ -100,11 +100,22 @@ test.describe('Email links, with a login already remembered', () => {
     await stub.assertNoRealCalls();
   });
 
-  test('No still shows its confirmation, not the account', async ({ page }) => {
+  /* ⚠ THE EXPECTATION INVERTED, THE GUARANTEE DID NOT (RS-31, 2026-09-01). A No now
+     goes straight into the account by design, so "not the account" is no longer the
+     right assertion — but the reason this spec exists is unchanged and is what is
+     checked instead: a remembered sign-in must never SWALLOW the answer. That was the
+     #251 bug, where the saved login hijacked the route and portalRsvp was never
+     called at all. Deleting this spec because its wording went stale would drop the
+     only guard on that. */
+  test('No is still recorded even with a login already remembered', async ({ page }) => {
     const stub = await openSignedIn(page, `#/payment?token=${CUST.token}&rsvp=no`);
 
-    await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/sorry to miss you/i);
+    await expect.poll(async () => {
+      const calls = await stub.calls();
+      const rsvp = calls.filter(c => c.name === 'portalRsvp');
+      return rsvp.length ? rsvp[rsvp.length - 1].payload.response : null;
+    }, { timeout: 8000 }).toBe('no');
+
     await expect(page.locator('#page-quote-details')).toBeHidden();
 
     expect(stub.scriptErrors).toEqual([]);
