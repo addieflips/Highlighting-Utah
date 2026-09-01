@@ -3346,7 +3346,25 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
      exactly how it failed in CI on 2026-08-28. */
   const stampSrcs = [extractFn(fnSrc, 'stampBuildQueuedServer'), extractFn(fnSrc, 'stampRecycleRequestedServer')]
     .filter(Boolean).join('\n');
-  const fullSrc = [todayStrSrc, stampSrcs, seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
+  /* ⚠ AND THE ARREARS LOOKUP (2026-09-01). A yes now reads the customer's invoice so
+     the RSVP confirmation can stop promising an install to somebody RS-24 holds out
+     of the season. Four more names, and the same trap for the fourth time — left out,
+     the lift dies with a bare ReferenceError naming neither this suite nor the missing
+     function. sandboxDeps caught it this time, which is what it is for.
+     ⚠ LIFTED, NOT STUBBED (§3). Stubbing arrearsOutstandingServer here would make the
+     harness agree with itself about what a customer owes while the real rule moved. */
+  const arrearsSrcs = ['arrearsOutstandingServer', 'arrearsYearServer', 'invoiceKeyFor', 'digitsOnly',
+                       /* what those two call in turn — a lift is only whole once its own
+                          dependencies are in, and centsOf is the whole-cents discipline that
+                          stops a customer who paid every cent reading a fraction short */
+                       'arrearsOnInvoiceServer', 'centsOf']
+    .map(function(n){ return extractFn(fnSrc, n); });
+  check('flow', 'the arrears helpers portalRsvp calls were all found',
+    arrearsSrcs.every(Boolean),
+    'renamed or removed — a missing one leaves the yes path throwing a bare ' +
+    'ReferenceError, which reads as "an async suite crashed"');
+  const fullSrc = [todayStrSrc, stampSrcs, arrearsSrcs.filter(Boolean).join('\n'),
+                   seasonYesSrc, removeFromRoutesSrc && ('async ' + removeFromRoutesSrc), src]
     .filter(Boolean).join('\n');
   /* ⭐ AND THE SANDBOX IS CHECKED AGAINST WHAT IT CALLS (2026-08-22). This exact
      harness died today with a bare "seasonYesUpdates is not defined" and no suite

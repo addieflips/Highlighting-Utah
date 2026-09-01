@@ -33,6 +33,16 @@ function withArrears(amount, year) {
     amount: amount, kind: 'arrears', source: 'office', year: String(year),
     reason: 'Unpaid balance from the ' + year + ' season — not a charge for this year'
   }]);
+  /* ⚠ THE PAYMENTS ARE CLEARED, AND THAT IS THE WHOLE FIXTURE (2026-09-01). The
+     standard invoice already carries a $200 deposit, which exactly cancelled a $200
+     carried balance — so this built a customer who had ALREADY PAID last season while
+     the test's name said they owed for it. It passed only because the stub computed
+     arrearsOutstanding WITHOUT subtracting payments, unlike the real
+     arrearsOutstandingServer; the moment the stub was made faithful, both tests using
+     it went red on correct code. A carried debt with money already against it is the
+     SETTLED case and is tested separately below. */
+  base.deposit = 0;
+  base.credits = 0;
   return { invoices: { [CUST.invoiceKey]: base } };
 }
 

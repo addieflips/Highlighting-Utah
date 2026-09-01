@@ -254,6 +254,12 @@ function seasonResetWrite() {
     'const arrearsSettled = ' + money.arrearsSettled.toString() + ';',
     'const owesFromLastSeason = ' + money.owesFromLastSeason.toString() + ';',
     'const custInvoiceKey = ' + money.custInvoiceKey.toString() + ';',
+    /* ⚠ THE REAL RULE, NOT A STUB (§3). houseArrearsOutstanding used to hand-roll
+       `owed - (deposit + credits)` in plain floats; it now asks money.js, which
+       works in whole cents. Supplying the genuine export is what keeps this suite
+       testing the shipped rule rather than agreeing with itself. centsOf is already
+       in this sandbox above, so it is not repeated. */
+    'const arrearsOutstanding = ' + money.arrearsOutstanding.toString() + ';',
     'let invoiceById = new Map();',
     'let jobAddresses = [];',
     'let seasonRuleOffForMeasurement = false;',
@@ -1122,6 +1128,73 @@ function seasonResetWrite() {
     /record\.arrearsOutstanding/.test(site) && !/kind === 'arrears'/.test(site),
     'the card needs to know WHICH line is last season\'s, which is what ARREARS_KIND ' +
     'is imported for — what is still outstanding stays the server\'s answer');
+
+  /* ---------------------------------------------------------------------
+     A YES IS NOT A PAYMENT, AND THE RSVP USED TO SAY IT WAS (2026-09-01)
+
+     RS-24 holds a debtor out of the season EVEN WHEN THEY ANSWER YES — and the
+     RSVP confirmation nonetheless ended on "We'll get you scheduled!". The one
+     group guaranteed not to get a crew was the one being promised one.
+
+     ⚠ THE BROWSER SPECS CANNOT REACH ANY OF THIS. test/rsvp-arrears.spec.js runs
+     against a fake Firebase, so a portalRsvp that stopped returning the figure
+     entirely would leave all eight of them green. This is that half.
+     --------------------------------------------------------------------- */
+  const rsvpAt = serverSrc.indexOf('exports.portalRsvp');
+  const rsvpSrc = rsvpAt === -1 ? ''
+    : stripComments(serverSrc.slice(rsvpAt, serverSrc.indexOf('exports.portalSetGateCode', rsvpAt)));
+
+  check('portalRsvp was found, whole', !!rsvpSrc && rsvpSrc.length > 400,
+    'every check below slices this — an empty slice would pass them all vacuously');
+
+  check('the RSVP answer carries what is still owed from last season',
+    /arrearsOutstanding: arrearsOutstanding/.test(rsvpSrc) &&
+    /arrearsSeason: arrearsSeason/.test(rsvpSrc),
+    'without these two the confirmation cannot know, and goes back to promising ' +
+    'an install to somebody RS-24 holds out of the season');
+
+  check('and it asks the shared rule rather than summing the ledger again',
+    /arrearsOutstandingServer\(/.test(rsvpSrc) && !/kind === ARREARS_KIND/.test(rsvpSrc),
+    'a third copy of the carried-balance maths would sit outside money-parity ' +
+    'entirely — and it would be the copy talking to the customer');
+
+  /* ⚠ RS-24's OWN RULE, VERBATIM: the bill the house is ON, never the house's own
+     key. If Dana pays for Kyle and Dana did not pay, Kyle's lights were not paid
+     for either — and reading Kyle's own key finds no invoice and tells him he is
+     clear, which is the reassuring answer and the wrong one. */
+  check('it reads the bill the house is on, not the house\u2019s own key',
+    /digitsOnly\(oldData\.billToPhone\)\s*\|\|\s*invoiceKeyFor\(oldData\)/.test(rsvpSrc),
+    'billToPhone must be tried BEFORE the house\u2019s own invoice key');
+
+  check('only a yes goes looking for a debt',
+    /if \(response === 'yes'\) \{[\s\S]{0,80}try \{/.test(rsvpSrc),
+    'somebody saying no or back next year is not being scheduled anyway, and ' +
+    'reading an invoice for them is a Firestore read per answer for nothing');
+
+  /* ⚠ SILENCE IS THE FAIL-SAFE HERE, and it is deliberately the OPPOSITE direction
+     to the season hold. An unreadable invoice must not tell a customer they owe
+     money we cannot prove they owe: being wrongly accused of a debt is worse than
+     not being warned about a real one, and the office still has Schedule › Owes
+     from last year either way. */
+  check('an unreadable invoice says nothing rather than accusing them',
+    /let arrearsOutstanding = 0;/.test(rsvpSrc) && /catch \(e\) \{/.test(rsvpSrc),
+    'it must initialise to nought and swallow the read failure — the RSVP itself ' +
+    'is already saved by this point and must never be lost to an invoice read');
+
+  check('and the failure is logged rather than swallowed in silence',
+    /console\.error\('\[HU\] portalRsvp arrears lookup failed/.test(rsvpSrc),
+    'Addie 2026-08-25: "nothing should fail quietly"');
+
+  /* ⚠ AND THE PAGE MUST NOT WORK IT OUT FOR ITSELF, the same rule the payment
+     card already follows. index.html repeats the server's figure and never sums
+     the fee ledger. */
+  const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const changesAt = idx.indexOf('function showChangesQuestion(');
+  const changesSrc = changesAt === -1 ? ''
+    : stripComments(idx.slice(changesAt, idx.indexOf('\n  }', changesAt) + 4));
+  check('the confirmation repeats the server\u2019s figure, never its own',
+    !!changesSrc && /rsvpArrearsLeft/.test(changesSrc) && !/changeFeeNotes/.test(changesSrc),
+    'got: ' + JSON.stringify(changesSrc.slice(0, 120)));
 
   /* ---------------------------------------------------------------------
      Report

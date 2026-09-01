@@ -606,6 +606,41 @@ credits the amount off, which is money on the invoice rather than a hidden flag.
 Everybody held is named, with the amount and a phone number, under
 **Schedule → Owes from last year**.
 
+⭐ **AND THE CUSTOMER IS TOLD, ON THE RSVP, RATHER THAN PROMISED A CREW** (added
+2026-09-01). This is the half that was missing. The RSVP confirmation ended on *"We'll
+get you scheduled!"* — so the one group guaranteed **not** to be scheduled was the one
+being promised an install. Nothing on either side said otherwise: the office saw them
+under Owes from last year, the customer saw a tick and a thank-you, and the two only met
+in December in front of a dark house. A yes from somebody carrying a debt now reads
+*"we've got your yes"*, then the amount, the season it is from, and that we cannot book
+the install until it is settled; the button offers the balance instead of a generic
+portal link. **Both** screens changed — the follow-on *"That's all, thanks"* message was
+where the promise actually lived, and fixing only the first would have left it as the
+last thing they read.
+  - ⚠ **Their yes is still recorded.** `portalRsvp` writes the answer before this screen
+    is drawn. RS-24 holds them on the money, never on the answer.
+  - ⚠ **This is not MON-34's automatic chase**, and the distinction is the whole of why
+    it was safe to build. Nothing is *sent* — no email, no text, no note. It is one
+    sentence on a page the customer opened themselves, and MON-34's own reasoning
+    already rests on them being able to *"see and pay it in their portal"*.
+  - ⚠ **Silence is the fail-safe here**, deliberately the opposite direction to the
+    season hold. `portalRsvp` returns `arrearsOutstanding` from the shared rule and
+    reports nought if the invoice cannot be read, which leaves the original wording
+    untouched. Holding somebody who paid costs them their lights; **telling somebody
+    they owe money we cannot prove they owe is worse than not warning them at all**.
+  - ⚠ **It reads the bill the house is ON** (`billToPhone` before the house's own key),
+    which is RS-24's rule verbatim: if Dana pays for Kyle and Dana did not pay, Kyle's
+    lights were not paid for either.
+  - Proved by `test/rsvp-arrears.spec.js` (eight browser checks — every claim is words
+    on a screen) and the `portalRsvp` section of `arrears-hold.test.js` (the server half,
+    which no browser spec can reach). 10 sabotages red-checked.
+
+⚠ **`houseArrearsOutstanding` asks `arrearsOutstanding` from js/money.js** rather than
+subtracting for itself. It hand-rolled `owed - (deposit + credits)` in plain floats while
+the shared rule works in whole cents — the guard above it meant the two could not yet
+disagree, but a second copy of a money rule is what this repo forbids, and the next change
+to the rule would have moved only one of them.
+
 ⚠ This is **not** `houseIsOnTheBill`, which decides who is *charged* — and for these
 customers that answer is emphatically yes. Folding the two together would write the debt
 off again by the back door.
@@ -804,6 +839,7 @@ Home (role-specific dashboard) · Route (Today's Route) · Checklist · Time Car
 - **When somebody pays off last season but has still never answered the RSVP, a note lands in the System inbox** — because that is the one moment nothing else reports: they quietly leave *Owes from last year* and are still not scheduled. It hangs off the invoices listener, so it catches a payment however it arrived (the Paid/Partial dropdown, a PayPal capture, or the importer), and is raised once per customer per season. Only for people who have said nothing — somebody who said no or Back Next Year has answered (RS-30).
 - **Nobody held for last season's debt is chased automatically.** Addie sends those herself. The nightly run only emails a bill once every house on it is complete, and a held customer never gets there — so their bill sits on their portal, they are named under Schedule → Owes from last year, and they appear in the Unpaid/Partial email audiences (MON-34).
 - **Owing money from last season keeps you out of the season too**, on top of the RSVP rule and independently of it — a yes is not a payment. Start New Season carries the unpaid balance onto the new bill as its own `kind: 'arrears'` line, and `isOutForSeason` holds them until the whole of that amount is covered by payment or credit. They are listed under **Schedule → Owes from last year** (§3, MON-31, RS-24).
+- **And the RSVP says so to their face rather than promising a crew** (2026-09-01). A yes from a debtor used to end on *"We'll get you scheduled!"*, which is the one thing that was never going to happen for them. It now names the amount and the season and says the install cannot be booked until it is settled — on both screens, because the follow-on message is where that promise actually lived. Their yes is still recorded, nothing is sent (so it is not MON-34's chase), and an invoice that cannot be read reports nought and leaves the old wording alone. Full reasoning in §3.
 - A legacy customer record without a `portalToken` gets one minted automatically the first time they're looked up.
 - Nightly-run failures/results text the owner via Twilio — a separate channel from email, so it still works if email itself breaks.
 

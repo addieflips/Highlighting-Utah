@@ -5714,7 +5714,15 @@ import {
      "If they didn't pay last year they should not be scheduled to be hung."
      The amount is summed from the fee ledger rather than stored twice, so the
      bill and the rule that holds them can never disagree. */
-  ARREARS_KIND, arrearsOnInvoice, arrearsSettled, owesFromLastSeason
+  ARREARS_KIND, arrearsOnInvoice, arrearsSettled, owesFromLastSeason,
+  /* ⚠ AND THE OUTSTANDING FIGURE ITSELF, rather than a second subtraction here.
+     houseArrearsOutstanding hand-rolled `owed - (deposit + credits)` in plain
+     floats while this one works in whole cents — the same centsOf discipline
+     arrearsSettled uses so a customer who has paid every cent never comes out a
+     fraction short. The guard above it meant the two could not yet disagree, but
+     a second copy of a money rule is precisely what this repo forbids: the next
+     change to the rule would have moved one of them. */
+  arrearsOutstanding
 } from './js/money.js';
 import { fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight } from './js/svdepth.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -14887,9 +14895,7 @@ function houseArrearsOutstanding(d){
   if(!houseOwesFromLastSeason(d)) return 0;
   const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
   const inv = invoiceById.get(key);
-  const owed = arrearsOnInvoice(inv.data);
-  const paid = (Number(inv.data.deposit) || 0) + (Number(inv.data.credits) || 0);
-  return Math.max(0, owed - paid);
+  return inv ? arrearsOutstanding(inv.data) : 0;
 }
 /* ⭐ THE YEAR PINNED TO THE DEBT, NOT THE YEAR ON THE CALENDAR (added 2026-08-31).
    Addie: "if it is 2028 but they haven't paid in 2025 than that does not change every

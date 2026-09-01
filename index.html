@@ -4482,6 +4482,11 @@ function handleRsvpLink(token, rsvpValue){
   var openPortalBtn = document.getElementById('rsvpOpenPortalBtn');
   var noChangesBtn = document.getElementById('rsvpNoChangesBtn');
   var reasonWrap = document.getElementById('rsvpReasonWrap');
+  /* Set from the server's answer in the yes branch below, and read by
+     showChangesQuestion, which runs later as the gate-code step's callback.
+     Zero until then, so every other path behaves exactly as it did. */
+  var rsvpArrearsLeft = 0;
+  var rsvpArrearsSeason = '';
   if(lookupFormWrap) lookupFormWrap.style.display = 'none';
   if(confirmCard) confirmCard.style.display = 'block';
   if(reasonWrap) reasonWrap.style.display = 'none';
@@ -4509,6 +4514,11 @@ function handleRsvpLink(token, rsvpValue){
       return;
     }
     if(rsvpValue === 'yes'){
+      /* ⭐ WHAT THEY STILL OWE FROM LAST SEASON, so the confirmation below can stop
+         promising an install this app will not deliver. See showChangesQuestion. The
+         server decides the figure (portalRsvp); this page only ever repeats it. */
+      rsvpArrearsLeft = Number(res.arrearsOutstanding) || 0;
+      rsvpArrearsSeason = res.arrearsSeason ? String(res.arrearsSeason) : '';
       /* ⚠ THE GATE CODE COMES FIRST, and the changes question is handed to it
          as a callback rather than run alongside — otherwise both are on screen
          at once and the customer answers whichever they see. Addie's ordering:
@@ -4578,14 +4588,51 @@ function handleRsvpLink(token, rsvpValue){
      hand control back to it when it is finished. It used to be written inline
      in the yes branch; nothing about it changed except that it now has a name
      and a caller. */
+  /* ⭐ A YES IS NOT A PAYMENT, AND THIS SCREEN USED TO SAY OTHERWISE (2026-09-01).
+     RS-24 holds a customer who owes for last season out of the season EVEN WHEN THEY
+     ANSWER YES — that is the whole ruling. This confirmation nevertheless ended on
+     "We'll get you scheduled!", so the one group guaranteed not to be scheduled was
+     the one being promised a crew. Nothing on either side said so: the office sees
+     them on Schedule › Owes from last year, the customer saw a tick and a thank-you,
+     and the two only meet in December in front of a dark house.
+
+     ⚠ IT IS NOT MON-34's AUTOMATIC CHASE. Nothing is sent — no email, no text, no
+     note. This is one sentence on a page the customer opened themselves, answering a
+     button they just pressed, and MON-34's own reasoning already rests on them being
+     able to "see and pay it in their portal". If Addie reads it as a chase, the fix is
+     to soften the words here, NOT to put the false promise back.
+
+     ⚠ THE FIGURE IS THE SERVER'S. index.html never computes what is outstanding —
+     js/money.js and functions/index.js carry that rule and money-parity holds them
+     together; a third copy here would be outside that guard and would be the one
+     talking to the customer.
+
+     ⚠ AND SILENCE IS THE FAIL-SAFE, deliberately the opposite direction to the season
+     hold. Nought — including an unreadable invoice, which the server reports as nought
+     — takes the original wording untouched. Telling somebody they owe money we cannot
+     prove they owe is worse than not warning them about a real debt. */
   function showChangesQuestion(){
-    confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
+    var owes = rsvpArrearsLeft > 0;
+    /* "the 2025 season" reads correctly; "the last season" does not, so the article
+       belongs to the branch that has a year rather than to both. */
+    var seasonWord = rsvpArrearsSeason ? 'the ' + escapeHtmlPortal(rsvpArrearsSeason) + ' season' : 'last season';
+    if(owes){
+      /* Their answer IS recorded — portalRsvp wrote it before this screen drew — so
+         it is confirmed first and plainly. What follows is about the install, not
+         about whether we heard them. */
+      confirmMsg.innerHTML = "Thanks \u2014 we've got your yes. \uD83C\uDF84<br><br>" +
+        'One thing before we can book you in: <strong>' + escapeHtmlPortal(fmt(rsvpArrearsLeft)) +
+        '</strong> from ' + seasonWord + ' is still outstanding on your account. ' +
+        "We can't schedule your install until that's settled.";
+    } else {
+      confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
+    }
     if(openPortalBtn){
       /* Labels set explicitly in BOTH branches. The "no" branch reuses these
          same two buttons with different wording, so leaving either to the
          markup default means whichever branch ran second wins. */
-      openPortalBtn.textContent = 'Yes, Take Me to My Portal';
-      if(noChangesBtn) noChangesBtn.textContent = "No, I'm All Set";
+      openPortalBtn.textContent = owes ? "Pay Last Season's Balance" : 'Yes, Take Me to My Portal';
+      if(noChangesBtn) noChangesBtn.textContent = owes ? "I'll Do It Later" : "No, I'm All Set";
       openPortalBtn.style.display = 'inline-flex';
       openPortalBtn.onclick = function(){
         document.body.classList.remove('rsvp-minimal');
@@ -4598,7 +4645,13 @@ function handleRsvpLink(token, rsvpValue){
       noChangesBtn.onclick = function(){
         if(openPortalBtn) openPortalBtn.style.display = 'none';
         noChangesBtn.style.display = 'none';
-        confirmMsg.innerHTML = 'Thank you for choosing HighlightingUtah!<br>We\'ll get you scheduled!';
+        /* ⚠ THE SECOND SCREEN HAS TO HOLD THE LINE TOO. This was the sentence that
+           actually made the promise, and leaving it while fixing only the one above
+           would put "We'll get you scheduled!" back as the LAST thing they read. */
+        confirmMsg.innerHTML = owes
+          ? "No problem \u2014 your yes is saved.<br>We'll book your install as soon as that " +
+            "balance is settled."
+          : 'Thank you for choosing HighlightingUtah!<br>We\'ll get you scheduled!';
       };
     }
   }
