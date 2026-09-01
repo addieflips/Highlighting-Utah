@@ -2147,21 +2147,6 @@
             <div id="editCustFeeSummary" style="font-size:13px; font-weight:600; color:var(--ember); margin-top:8px;"></div>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added on top of the total. Saving replaces the manual fee; automatic light-change fees are left alone.</p>
           </div>
-          <!-- ⭐ A DEBT FROM BEFORE THE SYSTEM RECORDED IT (added 2026-09-01). Addie: this
-               is the first year on the new system, so 2025's unpaid bills are in her
-               spreadsheet and nowhere the app can see. The Fees box above cannot do this
-               job: a manual fee raises what they owe and does NOT hold them out of the
-               season, so a crew would still be sent. This writes the same kind of carried
-               line Start New Season writes, which is what holds them. -->
-          <div style="margin-top:14px; padding:12px; border:1px solid var(--gold-dim); border-radius:10px; background:#FFF8E9;">
-            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Owed from a previous season</label>
-            <div class="ec-grid">
-              <div class="form-row"><label>Amount ($)</label><input type="number" id="editCustArrears" min="0" step="1" placeholder="0"></div>
-              <div class="form-row"><label>Which season</label><input type="text" id="editCustArrearsSeason" placeholder="e.g. 2025"></div>
-            </div>
-            <div id="editCustArrearsSummary" style="font-size:13px; font-weight:600; color:var(--ember); margin-top:8px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">For a bill from before the app was tracking them. It goes on this year&rsquo;s invoice as its own line and <strong>they are not scheduled until it is paid in full</strong> &mdash; the same as a balance the app carried itself. Set it to 0 to remove it. A balance the app carried on its own is shown here but is not changed by this box.</p>
-          </div>
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
             <div class="ec-grid">
@@ -2177,6 +2162,21 @@
               <span>Charge $30 new member installation fee</span>
             </label>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added to their invoice automatically the night their install is marked complete. If it has already been applied, unticking this won't remove it &mdash; adjust the invoice amount directly. Ticking it also marks the house as a <strong>New Hang</strong> on the Routes list and the map until the install is scheduled.</p>
+          </div>
+          <!-- ⭐ A DEBT FROM BEFORE THE SYSTEM RECORDED IT (added 2026-09-01). Addie: this
+               is the first year on the new system, so 2025's unpaid bills are in her
+               spreadsheet and nowhere the app can see. The Fees box above cannot do this
+               job: a manual fee raises what they owe and does NOT hold them out of the
+               season, so a crew would still be sent. This writes the same kind of carried
+               line Start New Season writes, which is what holds them. -->
+          <div style="margin-top:14px; padding:12px; border:1px solid var(--gold-dim); border-radius:10px; background:#FFF8E9;">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Owed from a previous season</label>
+            <div class="ec-grid">
+              <div class="form-row"><label>Amount ($)</label><input type="number" id="editCustArrears" min="0" step="1" placeholder="0"></div>
+              <div class="form-row"><label>Which season</label><input type="text" id="editCustArrearsSeason" placeholder="e.g. 2025"></div>
+            </div>
+            <div id="editCustArrearsSummary" style="font-size:13px; font-weight:600; color:var(--ember); margin-top:8px;"></div>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">For a bill from before the app was tracking them. It goes on this year&rsquo;s invoice as its own line and <strong>they are not scheduled until it is paid in full</strong> &mdash; the same as a balance the app carried itself. Set it to 0 to remove it. A balance the app carried on its own is shown here but is not changed by this box.</p>
           </div>
           <div class="form-row" style="margin-top:14px;"><label>Invoice Notes (optional)</label><textarea id="editCustInvoiceNotes" rows="2" placeholder="e.g. split payment agreed, billed after Thanksgiving" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-family:inherit; font-size:14px;"></textarea></div>
           <p style="font-size:12px; color:var(--slate); margin:4px 0 0;">Unlike the crew notes above, this one <strong>does</strong> appear on the customer&rsquo;s invoice.</p>

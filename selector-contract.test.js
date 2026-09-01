@@ -43,6 +43,7 @@ const SPEC_TARGETS = {
   'rsvp-link.spec.js': 'index.html',
   'signed-in-links.spec.js': 'index.html',
   'rsvp-gate-code.spec.js': 'index.html',
+  'arrears-portal.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'
