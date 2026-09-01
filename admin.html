@@ -8869,6 +8869,11 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              builder lay it out by town. */
           needsDayAssignedAt: null,
           rejoinedForSeasonAt: null,
+          /* ⚠ SEASON-SCOPED, like every other flag in this write. Left standing, a
+             customer who was noticed last season could never be noticed again — and
+             the note is the only prompt to ring somebody whose money is settled and
+             whose answer is still missing. */
+          arrearsPaidNoticeAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
           cameBackThisSeasonAt: null,
@@ -17340,6 +17345,85 @@ function isInvoiceOverdue(d){
   const days = (Date.now() - issued.getTime()) / 86400000;
   return days >= OVERDUE_DAYS;
 }
+/* ⭐ THEY PAID LAST SEASON'S BILL BUT HAVE NOT SAID YES (added 2026-09-01). Addie:
+   "if someone pays that didn't pay last year, but also didn't approve email than that
+   needs to show in system inbox so we can send them an email asking if they approve for
+   us to put there lights up for this year."
+
+   ⚠ IT IS THE ONE MOMENT NOTHING ELSE WOULD TELL HER ABOUT. Paying clears the money
+   hold, so they quietly stop being on Schedule > Owes from last year — and they still
+   are not being scheduled, because they have never answered. Without this they would
+   move from one silent list to another with nothing prompting the phone call that is
+   now the only thing standing between them and their lights.
+
+   ⚠ IT HANGS OFF THE INVOICES LISTENER, which is the ONE place every payment lands
+   whatever door it came in by: the Paid/Partial dropdown on either screen, a PayPal
+   capture written by the server, and the payment importer. Detecting this at each of
+   those would be four copies of one rule, and the copy that gets missed is the one that
+   silently stops raising the note.
+
+   ⚠ ONLY FOR SOMEBODY WHO HAS SAID NOTHING. effectiveRsvpStatus answers '' for pending,
+   unanswered, and a bare stored yes with no reply behind it — which is exactly the set
+   worth asking. Somebody who said NO or Back Next Year has answered, and a note asking
+   whether they approve would be arguing with a decision they already gave; a panel that
+   raises notes about settled answers is one the office learns to scroll past.
+
+   ⚠ RAISED ONCE, EVER, PER CUSTOMER PER SEASON. `arrearsPaidNoticeAt` on the customer is
+   the durable guard and Start New Season clears it with the rest of the season; the
+   in-memory set stops a slow write being raised twice by the next snapshot before the
+   stamp lands. A failed write clears the memory entry so it retries rather than being
+   lost — a note nobody gets is the whole failure this exists to prevent. */
+const arrearsNoticedThisSession = new Set();
+function arrearsPaidNotApproved(d, inv){
+  if(!d || !inv) return false;
+  /* A bill that never carried last season's debt has nothing to be paid off. */
+  if(arrearsOnInvoice(inv) <= 0) return false;
+  if(!arrearsSettled(inv)) return false;
+  /* '' means pending, unanswered, or a bare yes with no reply — nobody has answered. */
+  return !effectiveRsvpStatus(d);
+}
+async function noticeArrearsPaidNotApproved(){
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return;
+  if(typeof invoiceById === 'undefined' || !invoiceById) return;
+  for(const item of jobAddresses){
+    const d = (item && item.data) || {};
+    if(d.arrearsPaidNoticeAt) continue;
+    if(arrearsNoticedThisSession.has(item.id)) continue;
+    /* The bill this house is actually on — the same expression the hold uses, so the
+       note and the hold can never be about different invoices. */
+    const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
+    const inv = key ? invoiceById.get(key) : null;
+    if(!inv || !arrearsPaidNotApproved(d, inv.data || {})) continue;
+    arrearsNoticedThisSession.add(item.id);
+    try{
+      await addDoc(collection(db,'messages'), {
+        topic: 'Paid Last Season — Still Needs to RSVP', folder: 'System',
+        name: d.name || '', phone: d.phone || '', email: d.email || '',
+        contactMethod: '',
+        message: (d.name || 'A customer') + ' has now paid off what they owed from last ' +
+          'season, but they have never answered the RSVP — so they are still not being ' +
+          'scheduled.\n\n' +
+          'Their money is no longer the thing holding them: the only step left is a yes.\n\n' +
+          'Email or text them to ask whether they want their lights up this year. Their ' +
+          'answer can be marked on their record (Customers > Edit > RSVP Status), or they ' +
+          'can use the RSVP link. The moment it is a yes they join the season on their own.',
+        autoQueuedToWarehouse: false, needsReassign: false,
+        createdAt: serverTimestamp()
+      });
+      await updateDoc(doc(db,'jobAddresses', item.id), {arrearsPaidNoticeAt: serverTimestamp()});
+      /* Local mirror, so a snapshot arriving before the write lands cannot raise it
+         again — the same optimistic mirror the rest of admin uses. */
+      d.arrearsPaidNoticeAt = new Date();
+    }catch(err){
+      /* ⚠ RETRIED, NOT SWALLOWED. Addie, 2026-08-25: "nothing should fail quietly." A
+         note that was never raised is invisible, and this one is the only prompt to make
+         a phone call that is now the last thing between them and their lights. */
+      arrearsNoticedThisSession.delete(item.id);
+      console.error('[HU] could not raise the paid-but-not-approved note for ' +
+        (d.name || item.id), err);
+    }
+  }
+}
 function loadInvoices(){
   const q = query(collection(db,'invoices'), orderBy('updatedAt','desc'));
   onSnapshot(q, function(snap){
@@ -17361,6 +17445,14 @@ function loadInvoices(){
     if(typeof populateQuickEmailSelect === 'function') populateQuickEmailSelect();
     if(typeof renderDashboard === 'function') renderDashboard();
     if(typeof renderExpensesList === 'function') renderExpensesList();
+    /* ⚠ AFTER the caches are rebuilt, because the sweep reads invoiceById. Not
+       awaited: a note is a side effect of a payment landing and must never hold up
+       the screens above, and it can never throw into this listener. */
+    if(typeof noticeArrearsPaidNotApproved === 'function'){
+      noticeArrearsPaidNotApproved().catch(function(err){
+        console.error('[HU] paid-but-not-approved sweep failed', err);
+      });
+    }
   });
 }
 /* Phone digits -> customer, built once whenever the customer list changes.

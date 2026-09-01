@@ -589,6 +589,143 @@ function seasonResetWrite() {
     'a half-finished money run reporting success is the worst outcome here');
 
   /* ---------------------------------------------------------------------
+     4d. END TO END: approving by email must not schedule somebody who owes.
+         Addie: "unpaid members don't move forward on the schedule even if
+         they approve over email."
+     --------------------------------------------------------------------- */
+  /* ⚠ THE REAL SERVER WRITE, lifted out of functions/index.js, not a fixture shaped
+     like one. The whole question is whether what an RSVP yes ACTUALLY writes is enough
+     to get a debtor onto a day, so inventing the write would prove nothing. */
+  const serverSrc = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+  const yesAt = serverSrc.indexOf('function seasonYesUpdates(');
+  const yesSrc = yesAt === -1 ? '' : serverSrc.slice(yesAt, serverSrc.indexOf('\n}', yesAt) + 2);
+  check('lifted the real RSVP-yes write off the server, whole',
+    yesSrc.length > 0 && (function () { try { new Function(yesSrc + '\nreturn 1;'); return true; } catch (e) { return false; } })(),
+    'a fixture shaped like the write would prove nothing about the write');
+  const seasonYesUpdates = new Function('stampBuildQueuedServer',
+    yesSrc + '\nreturn seasonYesUpdates;')(function () {});
+
+  /* ⚠ THEY MUST HAVE BEEN OUT BEFORE, and the first version of this fixture was not —
+     seasonYesUpdates only stamps needsDayAssignedAt when the customer was previously out
+     (a no, a back next year, or the office badge). A first-time yes asks for no day at
+     all, so a fixture without a prior answer proved nothing about the placer. This is
+     also the more dangerous case: somebody actively coming back into the season. */
+  const debtor = { name: 'Approved By Email', phone: '8015550001', address: '9 Pine', city: 'Lehi',
+                   rsvpStatus: 'no' };
+  const afterYes = Object.assign({}, debtor, seasonYesUpdates(debtor, function () { return '2026-09-01T10:00:00Z'; }));
+  check('the real yes write does record a genuine reply',
+    afterYes.rsvpStatus === 'yes' && !!afterYes.rsvpRespondedAt,
+    'if this stopped being true the check below would pass for the wrong reason');
+  api.setInvoices(new Map([['8015550001', { data: billed(400, 0) }]]));
+  check('a customer who owes and approves BY EMAIL is still out of the season',
+    api.isOutForSeason(afterYes) === true,
+    'this is the guarantee in her own words — approving over email must not move an ' +
+    'unpaid member forward on the schedule');
+  api.setInvoices(new Map([['8015550001', { data: billed(400, 400) }]]));
+  check('and the same customer, once last season is paid, is in',
+    api.isOutForSeason(afterYes) === false,
+    'the hold has to release, or paying achieves nothing');
+
+  /* ⚠ THE YES ALSO STAMPS needsDayAssignedAt — "an instruction the planner consumes".
+     That is the path this guarantee actually rides on: the placer must refuse them
+     rather than acting on the instruction. */
+  check('the yes really does ask for a day, so the placer is the thing being trusted',
+    !!afterYes.needsDayAssignedAt,
+    'if it stopped asking, the check below would be guarding nothing');
+  const placer = lift('placeUnscheduledOnNextDay');
+  check('and the placer refuses anybody the season rule holds',
+    /if\(typeof isOutForSeason === 'function' && isOutForSeason\(d\)\) return;/.test(placer),
+    'without this line an unpaid customer who approves by email is put straight onto ' +
+    'the next day going');
+
+  /* ---------------------------------------------------------------------
+     4e. Paid last season, still never answered — it has to reach the Inbox.
+         Addie: "if someone pays that didn't pay last year, but also didn't
+         approve email than that needs to show in system inbox."
+     --------------------------------------------------------------------- */
+  const noticeSb = [
+    'const ARREARS_KIND = ' + JSON.stringify(money.ARREARS_KIND) + ';',
+    'const centsOf = ' + money.centsOf.toString() + ';',
+    'const arrearsOnInvoice = ' + money.arrearsOnInvoice.toString() + ';',
+    'const arrearsSettled = ' + money.arrearsSettled.toString() + ';',
+    'function effectiveRsvpStatus(d){ let s = String((d||{}).rsvpStatus||"").toLowerCase();' +
+      ' if(s === "yes" && !(d||{}).rsvpRespondedAt) s = ""; return s; }',
+    lift('arrearsPaidNotApproved'),
+    'return { arrearsPaidNotApproved };'
+  ].join('\n');
+  check('lifted arrearsPaidNotApproved out of the page, whole', liftOk(lift('arrearsPaidNotApproved')));
+  const nApi = new Function(noticeSb)();
+  const silent = { name: 'Silent' };
+
+  check('paid off last season and never answered — the note is raised',
+    nApi.arrearsPaidNotApproved(silent, billed(400, 400)) === true,
+    'this is the one moment nothing else tells her about: they leave the owes list and ' +
+    'are still not scheduled');
+  check('still owing — no note yet',
+    nApi.arrearsPaidNotApproved(silent, billed(400, 200)) === false,
+    'the money is still the thing holding them, and that is already on a list');
+  check('never carried a debt — no note',
+    nApi.arrearsPaidNotApproved(silent, billed(0, 0)) === false,
+    'this note is only about somebody who owed and has now squared up');
+  /* ⚠ ONLY THE SILENT. Somebody who answered has answered — a note asking whether they
+     approve would be arguing with a decision already given, and a panel that raises
+     notes about settled answers is one the office learns to scroll past. */
+  check('they said yes for real — nothing to ask',
+    nApi.arrearsPaidNotApproved({ rsvpStatus: 'yes', rsvpRespondedAt: 'x' }, billed(400, 400)) === false);
+  check('they said no — not asked again',
+    nApi.arrearsPaidNotApproved({ rsvpStatus: 'no' }, billed(400, 400)) === false);
+  check('back next year — not asked again',
+    nApi.arrearsPaidNotApproved({ rsvpStatus: 'backnextyear' }, billed(400, 400)) === false);
+  /* ⚠ A BARE STORED YES IS NOT AN APPROVAL (RS-19) — an import or a hand-edit. Those
+     people genuinely have not answered, and are exactly who this note is for. */
+  check('a bare stored yes with no reply behind it still counts as silent',
+    nApi.arrearsPaidNotApproved({ rsvpStatus: 'yes' }, billed(400, 400)) === true,
+    'that shape is an import or the assumed yes at conversion, not an answer');
+
+  const sweep = lift('noticeArrearsPaidNotApproved');
+  check('the note goes to the System folder of the Inbox',
+    /folder: 'System'/.test(sweep) && /topic: 'Paid Last Season/.test(sweep),
+    'she asked for the system inbox by name');
+  check('it is raised once per customer per season',
+    /if\(d\.arrearsPaidNoticeAt\) continue;/.test(sweep) &&
+    /arrearsPaidNoticeAt: serverTimestamp\(\)/.test(sweep),
+    'a note repeated on every payment is one nobody reads');
+  /* ⚠ THE CUSTOMER WRITE, NOT THE INVOICE WRITE. seasonResetWrite() slices the invoice
+     update; this flag lives on jobAddresses beside the other season-scoped ones, and the
+     first version of this check looked in the wrong half of the reset. */
+  /* ⚠ THE END IS FOUND RELATIVE TO THE START. `seasonResetAt: serverTimestamp()` also
+     appears EARLIER, in the snapshot write a few hundred lines above, so a bare indexOf
+     put the end before the start and handed back an empty string — a check that finds
+     nothing and reports on nothing. That is why the "was it found at all" check above
+     it exists. */
+  const custResetAt = admin.indexOf("return updateDoc(doc(db,'jobAddresses', a.id), {");
+  const custResetWrite = custResetAt === -1 ? ''
+    : admin.slice(custResetAt, admin.indexOf('seasonResetAt: serverTimestamp()', custResetAt));
+  check('the customer half of the reset was found',
+    custResetWrite.length > 0 && /chargeNewMemberFee: false/.test(custResetWrite),
+    'a check that cannot find its target reports green for the worst possible reason');
+  check('and the stamp is cleared by Start New Season',
+    /arrearsPaidNoticeAt: null,/.test(custResetWrite),
+    'left standing, somebody noticed last season could never be noticed again');
+  check('a failed write retries rather than losing the note',
+    /arrearsNoticedThisSession\.delete\(item\.id\);/.test(sweep),
+    'a note nobody gets is the whole failure this exists to prevent');
+  check('it reads the bill the house is on, like the hold does',
+    /d\.billToPhone/.test(sweep) && /custInvoiceKey\(d\)/.test(sweep),
+    'the note and the hold must never be about different invoices');
+  /* ⚠ HUNG OFF THE INVOICES LISTENER, which is the one place every payment lands
+     whatever door it came in by — the dropdown on either screen, a PayPal capture
+     written by the server, and the payment importer. */
+  const invListener = admin.slice(admin.indexOf('function loadInvoices(){'),
+                                  admin.indexOf('let custByPhoneDigits'));
+  check('the sweep runs whenever any payment lands',
+    /noticeArrearsPaidNotApproved\(\)/.test(invListener),
+    'detecting this at each payment door would be four copies of one rule');
+  check('and it cannot throw into the listener or block the screens',
+    /noticeArrearsPaidNotApproved\(\)\.catch\(/.test(invListener),
+    'a note is a side effect of a payment landing and must never hold up the render');
+
+  /* ---------------------------------------------------------------------
      5. The ledger has to survive the two invoice rebuilds, or the debt
         disappears again on the next ordinary save. The whole design rests
         on this, and neither rebuild is in a place a run can reach cheaply.

@@ -1211,6 +1211,14 @@ check('the path still has every step in it',
       'events at its two ends are joining and the colour change',
     cameBackThisSeasonAt: 'coming back is already the RSVP answer; this marks the record ' +
       'for the rejoin sweep rather than describing a separate event',
+    /* ⚠ IT RECORDS WHAT THE OFFICE WAS TOLD, NOT WHAT THE CUSTOMER DID. The two things
+       that actually happened to this customer are already stages: they paid (the payment
+       is on their invoice) and, when it comes, they answer the RSVP. This only stops the
+       Inbox note being raised a second time on the next payment. Drawn as a step it would
+       put a milestone on the picture for a piece of our own bookkeeping. */
+    arrearsPaidNoticeAt: 'the once-only guard on the "paid last season, still needs to ' +
+      'RSVP" Inbox note — our bookkeeping about a note we raised, not a stage the ' +
+      'customer passed through; the events are their payment and their eventual answer',
     archivedAt: 'on the archivedCustomers document, written as the customer is removed — ' +
       'the customer-side event is the recycle, and a step here could never be read because ' +
       'the jobAddresses record no longer exists',
