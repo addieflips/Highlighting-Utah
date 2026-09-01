@@ -211,6 +211,27 @@ async function approveByLink(page, overrides) {
     if (m.type() === 'error' && !BLOCKED_RESOURCE.test(m.text())) thrown.push('console: ' + m.text());
   });
   await page.goto('/index.html#/quote-details?token=quotetokenarrears001&action=approve');
+
+  /* ⚠ A MEMBER IS ASKED A QUESTION FIRST, AND THESE TESTS HAD NEVER SEEN IT
+     (2026-09-01). memberQuote sets existingCustomerId — correctly, it is the only
+     join quoteRespond accepts — and that is exactly what makes the quote a MEMBER'S.
+     handleQuoteLink's approve path tests res.alreadyMember BEFORE res.formCompleted
+     and RETURNS, so a real member never reaches the formCompleted ending these
+     assertions were written against. They landed there only because the stub did not
+     return alreadyMember at all, so every one of them took the new-lead path.
+
+     The wording under test is on the member ending too — the "No, keep everything the
+     same" branch calls the same quoteScheduleSub — so the coverage is unchanged in
+     substance. What changes is that it is now asserted on the screen the customer
+     actually reaches, one step later.
+
+     ⚠ AND THE STEP IS CONDITIONAL, not assumed: a quote that is NOT a member's still
+     ends on approve, and forcing a click that no button exists for would fail here
+     rather than where the difference is. */
+  const keepSame = page.locator('#page-quote-details')
+    .getByRole('button', { name: /keep everything the same/i });
+  if (await keepSame.count()) await keepSame.click();
+
   stub.thrown = thrown;
   return stub;
 }
@@ -222,7 +243,7 @@ test.describe('Approving a quote when last season is still owed', () => {
     const sub = page.locator('#quoteLinkConfirmSub');
 
     await expect(sub).toContainText(/before we can book the install/i, { timeout: 8000 });
-    await expect(sub).not.toContainText(/be in touch to get you scheduled/i);
+    await expect(sub).not.toContainText(/be in touch to get you (on the )?schedule/i);
 
     stub.assertNoRealCalls();
   });
@@ -256,7 +277,12 @@ test.describe('Approving a quote when last season is still owed', () => {
     const stub = await approveByLink(page, memberQuote());
     const sub = page.locator('#quoteLinkConfirmSub');
 
-    await expect(sub).toContainText(/be in touch to get you scheduled/i, { timeout: 8000 });
+    /* ⚠ EITHER ENDING'S WORDING. The member branch says "get you ON THE schedule"
+       and the formCompleted branch says "get you scheduled" — same promise, two
+       phrasings. Pinning one made this fail on the other perfectly correct screen,
+       which is the slow-fuse shape this repo keeps hitting. The claim under test is
+       that somebody who owes nothing is still PROMISED an install. */
+    await expect(sub).toContainText(/be in touch to get you (on the )?schedule/i, { timeout: 8000 });
     await expect(sub).not.toContainText(/outstanding/i);
 
     stub.assertNoRealCalls();
