@@ -28900,7 +28900,25 @@ function thanksgivingDate(year){
    confirmed and put them in schedule", and "make sure they cant have the confirmed
    tag if they are breaking a rule". Confirmed and in-the-season are one fact now,
    so the screen and the scheduler cannot disagree about a customer. */
-const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';
+/* ⭐ AND BACK ON THE SAME DAY, ONCE THE BADGE COULD TELL THE TRUTH (2026-09-01).
+   Addie, shown a season with ~953 people on it: "anyone who is confirmed is scheduled
+   but if one person is confirmed there should be one person on the schedule."
+
+   ⚠ THE COMPLAINT THAT STARTED ALL OF THIS WAS NEVER "schedule everybody". It was
+   that a row said CONFIRMED while every scheduler in the app had dropped that
+   customer — the badge was lying. There are two ways to make those two agree, and
+   turning the rule OFF was the wrong one: it made the badge honest by scheduling
+   everybody, which is not what she meant by confirmed.
+
+   ⭐ THE OTHER WAY IS THE RIGHT ONE, and it only became possible a few hours ago:
+   seasonBadgeKey has a PENDING state now and delegates to isOutForSeason, so with the
+   rule on, somebody who has never replied reads "Pending — no RSVP yet" rather than a
+   false Confirmed. One confirmed, one scheduled, and the badge and the scheduler still
+   cannot disagree. Her invariant holds in both directions.
+
+   ⚠ SO THE 2026-08-27 HARDCODING IS THE LIVE RULE AGAIN and this line is back to what
+   it was; what changed permanently is the badge beside it. */
+const SEASON_ELIGIBILITY = 'confirmed-only';
 /* ⚠ ONE LEVER, AND IT IS NOT A SETTING. `seasonEligibilityWouldDrop` has to run
    isOutForSeason BOTH ways to count who the rule is leaving out — that is the whole of
    why it is trustworthy, since a second opinion about who is in the season is exactly
