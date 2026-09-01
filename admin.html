@@ -28873,7 +28873,30 @@ function thanksgivingDate(year){
    nothing to forget. Without it, shipping this line empties the season today: nobody
    has been asked, so everybody reads as unconfirmed and every route, build and crew
    day drains at once. */
-const SEASON_ELIGIBILITY = 'confirmed-only';
+/* ⭐ AND ON 2026-08-31 SHE TURNED THAT OFF AGAIN, TWICE OVER. "the no rsvp yet is
+   the testing faze but doesnt mean anything as far as who should be scheduled", and
+   then, asked to confirm: "if its no rsvp that shouldnt effect it because we still
+   need to test if its no rsvp so tht is irrelevant."
+
+   ⚠ MEASURED ON HER OWN BOOK BEFORE ANYTHING WAS CHANGED: of 956 customers, 951
+   were being held out with "no RSVP yet", 2 for owing from 2025, 1 back next year,
+   and exactly 1 was scheduled. The rule had emptied the season.
+
+   ⚠ AND THE REASON IT WAS LIVE AT ALL IS WORTH KNOWING, because it will happen
+   again: the rule waits for `rsvpSentAt`, and the send stamps that itself — so a
+   TEST send switched it on. The gate did exactly what it was built to do; what it
+   could not know is that nobody had really been asked yet.
+
+   ⚠ THE 2026-08-27 RULING ABOVE IS KEPT WORD FOR WORD, because it is not wrong —
+   it is about the season AFTER the RSVP has genuinely gone out, and this is about
+   the weeks before it. Turning it back on is this one line and nothing else.
+
+   ⭐ WHAT DECIDES INSTEAD IS THE BADGE, which is now derived from this same
+   predicate — see seasonBadgeKey. Addie: "it should look for anyone who is
+   confirmed and put them in schedule", and "make sure they cant have the confirmed
+   tag if they are breaking a rule". Confirmed and in-the-season are one fact now,
+   so the screen and the scheduler cannot disagree about a customer. */
+const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';
 /* ⚠ ONE LEVER, AND IT IS NOT A SETTING. `seasonEligibilityWouldDrop` has to run
    isOutForSeason BOTH ways to count who the rule is leaving out — that is the whole of
    why it is trustworthy, since a second opinion about who is in the season is exactly
@@ -28931,6 +28954,36 @@ let seasonRuleOffForMeasurement = false;
    information, not a switch, and nothing about who gets a crew reads it. */
 function seasonRuleIsLive(){
   return !seasonRuleOffForMeasurement;
+}
+/* ⭐ THE BADGE IN All Customers, AND IT IS THE SAME FACT AS BEING IN THE SEASON
+   (2026-08-31). Addie: "they should not be able to have the confirmed tag if they
+   havent paid for a previous year … so it should look for anyone who is confirmed
+   and put them in schedule … make sure they cant have the confirmed tag if they are
+   breaking a rule so if you break one of the rules they automatically change the
+   badge to pending mainly just the havent paid for last year."
+
+   ⚠ IT DELEGATES RATHER THAN RE-DECIDING, and that is the whole point. The badge
+   used to be `maybeNextYear ? 'Maybe Next Year' : 'Confirmed'` — which knew nothing
+   about money, nothing about the recycle queue and nothing about the season rule, so
+   a row could read Confirmed while every scheduler in the app had already dropped
+   that customer. Asking isOutForSeason makes "Confirmed" mean "will be scheduled"
+   by construction; a second opinion here is the one thing that could bring the
+   disagreement back.
+
+   ⚠ AND IT IS DERIVED, NEVER STORED. Addie: "you shouldnt have to manually add them
+   to pending". Nothing writes a Pending flag; paying the bill moves the badge on its
+   own the next time the row is drawn.
+
+   ⚠ MAYBE NEXT YEAR STAYS ITS OWN ANSWER rather than collapsing into Pending. Those
+   are opposite things: Pending is somebody we want who is blocked, Maybe Next Year is
+   somebody who told us no for now — and the office toggles that one by hand. Addie:
+   "if they end up in recycle that means they didnt confirm and same with back next
+   year so you dont need to worry about that." */
+function seasonBadgeKey(d){
+  if(!d) return 'pending';
+  const said = String(d.rsvpStatus || '').toLowerCase();
+  if(d.maybeNextYear || said === 'backnextyear' || said === 'no') return 'maybe';
+  return isOutForSeason(d) ? 'pending' : 'confirmed';
 }
 function isOutForSeason(d){
   if(!d) return true;
@@ -42733,9 +42786,19 @@ function renderAllCustomersTable(){
     const unpaidPill = unpaidTag
       ? '<br><span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700; margin-top:4px; display:inline-block;">'+esc(unpaidTag)+'</span>'
       : '';
-    const maybeCell = r.d.maybeNextYear
+    /* ⚠ THREE STATES NOW, NOT TWO. Pending is a customer we want who is blocked by a
+       rule — today that is owing for a previous season, or a set queued to come back.
+       It is DERIVED, so it clears itself the moment the reason does. */
+    const badgeKey = seasonBadgeKey(r.d);
+    const maybeCell = badgeKey === 'maybe'
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
+      : badgeKey === 'pending'
+      /* ⚠ THE REASON IS NOT REPEATED HERE. The Route column already prints "Not
+         scheduled — owes $X from 2025" from the same helper, and the Unpaid tag sits
+         directly under this pill; a third copy is a third thing to keep true. */
+      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="Not scheduled until the reason beside it is cleared — this clears itself">Pending</span>'+unpaidPill+
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>'
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
     return '<tr style="border-bottom:1px solid var(--line);">'+

@@ -3031,8 +3031,10 @@ check('flow', 'nothing closes a quote except converting it',
      "has the RSVP gone out" — a second reading of that date inside the predicate is how
      the routes and the Dashboard start disagreeing about whether the rule is on. */
   const eligLine = (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0];
-  check('flow', 'the mark is what starts the rule, and the mode is hardcoded',
-    /^const SEASON_ELIGIBILITY = 'confirmed-only';$/.test(eligLine) &&
+  /* ⚠ THE MODE MOVED ON 2026-08-31 (MON-47); the half that still holds is the half
+     named below — isOutForSeason must not read the marker itself. */
+  check('flow', 'the mark is what starts the rule, and the mode is a const',
+    /^const SEASON_ELIGIBILITY = '[^']*';$/.test(eligLine) &&
     !/rsvpSentAt/.test(extractFn(admin, 'isOutForSeason') || ''),
     'found ' + JSON.stringify(eligLine) + '. A `let` is a season something can put ' +
     'back to everybody; and isOutForSeason must ask seasonRuleIsLive rather than ' +
@@ -4572,12 +4574,29 @@ suite('8. Quote decline / maybe next year');
     'header and body would disagree and the table would render misaligned');
   // Sliced to the next real statement rather than a fixed window — a character
   // count here goes stale the moment the cell grows (see CLAUDE.md §7).
-  const maybeCellStart = admin.indexOf('const maybeCell = r.d.maybeNextYear');
+  /* ⚠ THE ANCHOR MOVED WITH THE CELL (2026-08-31). It read `const maybeCell =
+     r.d.maybeNextYear`, which was the two-state test itself — so the moment the badge
+     gained its third state the slice came back empty and this failed on code that is
+     right. Anchored on the line that DECIDES the badge instead. */
+  const maybeCellStart = admin.indexOf('const badgeKey = seasonBadgeKey(r.d);');
   const maybeCell = admin.slice(maybeCellStart,
     admin.indexOf('return \'<tr style="border-bottom', maybeCellStart));
-  check('quoteresp', 'every customer reads Confirmed or Maybe Next Year',
-    maybeCell.includes('Maybe Next Year<') && maybeCell.includes('Confirmed<'),
+  /* ⭐ THREE STATES SINCE 2026-08-31, not two. Addie: "make sure they cant have the
+     confirmed tag if they are breaking a rule so if you break one of the rules they
+     automatically change the badge to pending". A blank cell is still what this
+     refuses — every customer reads exactly one of the three. */
+  check('quoteresp', 'every customer reads Confirmed, Pending or Maybe Next Year',
+    maybeCell.includes('Maybe Next Year<') && maybeCell.includes('Confirmed<') &&
+    maybeCell.includes('Pending<'),
     'a blank cell is ambiguous between "confirmed" and "nobody has looked yet"');
+  /* ⚠ AND THE BADGE HAS TO DRIVE THEM. A red-check proved the line above is not
+     enough on its own: replacing the `badgeKey === 'pending'` test with `false` leaves
+     every one of those three words sitting in the file, so the check stayed green
+     while no row could ever read Pending again. Match on what DECIDES, not on what is
+     printed. */
+  check('quoteresp', 'and the badge is what chooses between them',
+    /badgeKey === 'maybe'/.test(maybeCell) && /badgeKey === 'pending'/.test(maybeCell),
+    'a branch nothing can reach still contains all the right words');
   /* ⭐ AND UNDER IT, WHETHER THEY STILL OWE FOR AN EARLIER SEASON (2026-08-31).
      Owner: "we need a seperate tag for people who havent paid for 2025 can you
      just add another one under the same badge that says unpaid 2025."
@@ -4601,8 +4620,11 @@ suite('8. Quote decline / maybe next year');
     (seasonCell.match(/unpaidPill/g) || []).length >= 3,
     'somebody sitting the season out who still owes for the last one is exactly ' +
     'who has to be rung, and dropping it from that branch loses them');
+  /* ⚠ COMMENTS STRIPPED — this failed on correct code the moment a comment inside
+     the cell mentioned "owes $X from 2025", reading its own explanation as the
+     violation. The trap suites 58, 274, 275 and 282 each hit. */
   check('quoteresp', 'the year is read off the debt, never typed into the row',
-    !/20\d\d/.test(seasonCell),
+    !/20\d\d/.test(stripComments(seasonCell)),
     'a hardcoded year is wrong the moment a season turns, and wrong in the ' +
     'direction that matters — it would call a 2026 debt a 2025 one');
   check('quoteresp', 'the badge can be flipped both ways from All Customers',
@@ -9861,10 +9883,21 @@ suite('21. Everyone is in unless they said otherwise');
      a hardcoded confirmed-only, and anything else is somebody having put the season back
      to counting people nobody asked. */
   const eligLine = (admin.match(/(?:const|let) SEASON_ELIGIBILITY = '[^']*';/) || [''])[0];
-  check('season', 'the rule is hardcoded to confirmed-only, with no switch left',
-    /^const SEASON_ELIGIBILITY = 'confirmed-only';$/.test(eligLine),
-    'found: ' + JSON.stringify(eligLine) + '. A `let`, or any other value, is a season ' +
-    'that something can quietly put back to everybody');
+  /* ⚠ REPOINTED 2026-08-31, NOT DROPPED. Addie turned the confirmed-only rule off
+     for the testing weeks — "if its no rsvp that shouldnt effect it because we still
+     need to test if its no rsvp so tht is irrelevant" — measured on her book at 951
+     of 956 customers held out by it. What this check was ACTUALLY protecting is
+     unchanged and still asserted: it must be a `const`, so nothing stored can move the
+     season either way behind somebody's back. The VALUE is asserted separately, against
+     the ruling rather than against one spelling. */
+  check('season', 'the season rule is a const, so no stored setting can move it',
+    /^const SEASON_ELIGIBILITY = '(confirmed-only|all-but-maybe-next-year)';$/.test(eligLine),
+    'found: ' + JSON.stringify(eligLine) + '. A `let`, or a value nobody ruled on, is ' +
+    'a season that something can quietly put back to everybody');
+  check('season', 'and today it is the one she asked for while testing',
+    /^const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';$/.test(eligLine),
+    'found: ' + JSON.stringify(eligLine) + '. If this moved on purpose — the RSVP has ' +
+    'really gone out now — update this check and MON-47 in the same commit');
   /* ⚠ REPOINTED 2026-08-26, AND IT IS STRONGER THAN WHAT IT REPLACED. This used to
      assert the constant read 'all-but-maybe-next-year', because that string was the
      only thing standing between one edit and an empty season. Addie then asked for

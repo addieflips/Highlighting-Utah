@@ -263,7 +263,21 @@ function seasonResetWrite() {
     'let invoiceById = new Map();',
     'let jobAddresses = [];',
     'let seasonRuleOffForMeasurement = false;',
-    'function seasonRuleIsLive(){ return !seasonRuleOffForMeasurement; }',
+    /* ⚠ THE STUB HONOURS THE REAL CONSTANT NOW (2026-08-31). It used to answer a flat
+       true, so every check here ran with the confirmed-only rule ON whatever the page
+       said — and the moment Addie turned that rule off for the testing weeks this
+       harness went on holding people out that the real app schedules. The measurement
+       toggle above is kept: some checks below need the rule forced on to prove what it
+       does when it IS live. */
+    'let seasonRuleForcedOn = false;',
+    /* ⚠ THE STUB HONOURS THE REAL CONSTANT NOW (2026-08-31), plus a lever to force it
+       on. It used to answer a flat true, so every check here ran with the
+       confirmed-only rule ON whatever the page said — and the moment Addie turned that
+       rule off for the testing weeks this harness would have gone on holding people
+       out that the real app schedules. What the rule does WHEN LIVE is still worth
+       proving, hence the lever. */
+    (admin.match(/const SEASON_ELIGIBILITY = '[^']*';/) || [''])[0],
+    'function seasonRuleIsLive(){ return (SEASON_ELIGIBILITY === "confirmed-only" || seasonRuleForcedOn) && !seasonRuleOffForMeasurement; }',
     'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }',
     'function effectiveRsvpStatus(d){ let s = String((d||{}).rsvpStatus||"").toLowerCase();' +
       ' if(s === "yes" && !(d||{}).rsvpRespondedAt) s = ""; return s; }',
@@ -280,10 +294,12 @@ function seasonResetWrite() {
        season it would agree with itself and say nothing at all about the page. */
     (admin.match(/const ARREARS_ASSUMED_SEASON = '[^']*';/) || [''])[0],
     lift('houseArrearsTag'),
+    lift('seasonBadgeKey'),
     lift('isOutForSeason'),
     lift('owesFromLastYearHouses'),
     'return { houseOwesFromLastSeason, houseArrearsOutstanding, arrearsYearOnInvoice, houseArrearsYear,' +
-    ' tag: houseArrearsTag,' +
+    ' tag: houseArrearsTag, badge: seasonBadgeKey, out: isOutForSeason,' +
+    ' forceRule(on){ seasonRuleForcedOn = !!on; },' +
     ' isOutForSeason, owesFromLastYearHouses, seasonHold, seasonHoldReason,' +
     ' setInvoices(m){ invoiceById = m; }, setBook(b){ jobAddresses = b; },' +
     ' dropInvoices(){ invoiceById = null; } };'
@@ -291,7 +307,7 @@ function seasonResetWrite() {
 
   /* ⚠ EACH LIFT IS PARSED, NOT JUST FOUND. A lift that silently truncates gives a
      function that answers confidently and wrongly — see the note over lift(). */
-  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'arrearsYearOnInvoice', 'houseArrearsYear', 'houseArrearsTag',
+  ['houseOwesFromLastSeason', 'houseArrearsOutstanding', 'arrearsYearOnInvoice', 'houseArrearsYear', 'houseArrearsTag', 'seasonBadgeKey',
    'isOutForSeason', 'owesFromLastYearHouses', 'seasonHold', 'seasonHoldReason']
     .forEach(function (n) {
       check('lifted ' + n + ' out of the page, whole', liftOk(lift(n)),
@@ -431,6 +447,12 @@ function seasonResetWrite() {
     ['8015550003', { data: billed(250, 0) }]    // said no, and owes — precedence case
   ]));
 
+  /* ⚠ THE CONFIRMED-ONLY RULE IS FORCED ON FOR THIS BLOCK (2026-08-31). It is off in
+     the page while Addie tests, so "never replied" is IN the season there — but these
+     checks are about what the reason list says when the rule IS live, which is what
+     happens the day the RSVP really goes out. Turned off again below. */
+  api.forceRule(true);
+
   /* ⭐ THE STRUCTURAL GUARANTEE, and the only one that really matters: the note is
      silent for everybody in the season and speaks for everybody out of it. Run over a
      matrix rather than asserted case by case, because the failure worth catching is a
@@ -471,6 +493,7 @@ function seasonResetWrite() {
     'warning colour on ~960 rows buries the one line somebody has to act on');
   check('no reply reads as no reply',
     api.seasonHoldReason(neverReplied) === 'no RSVP yet');
+  api.forceRule(false);
   check('a no reads as a no',
     api.seasonHoldReason(saidNo) === 'they said no');
   check('back next year reads as back next year, however it was recorded',
@@ -1353,6 +1376,75 @@ function seasonResetWrite() {
   check('the confirmation repeats the server\u2019s figure, never its own',
     !!changesSrc && /rsvpArrearsLeft/.test(changesSrc) && !/changeFeeNotes/.test(changesSrc),
     'got: ' + JSON.stringify(changesSrc.slice(0, 120)));
+
+
+  /* ---- the badge IS the gate --------------------------------------------
+     ⭐ Addie, 2026-08-31: "they should not be able to have the confirmed tag if they
+     havent paid for a previous year … so it should look for anyone who is confirmed
+     and put them in schedule … make sure they cant have the confirmed tag if they
+     are breaking a rule so if you break one of the rules they automatically change
+     the badge to pending mainly just the havent paid for last year", and "you
+     shouldnt have to manually add them to pending".
+
+     ⚠ MEASURED ON HER BOOK FIRST: 956 customers, 951 held out with "no RSVP yet", 2
+     for owing from 2025, 1 back next year, 1 scheduled. The rule had emptied the
+     season, and it was live because a TEST send stamps rsvpSentAt just as a real one
+     does.
+
+     ⚠ THESE RUN THE PREDICATE. "Confirmed means they will be scheduled" is a claim
+     about two functions agreeing, and the only way to check it is to ask both. */
+  {
+    const badge = api.badge, out = api.out;
+    const base = { name: 'A', phone: '8015550001', address: '1 Elm St', city: 'Lehi' };
+    const clear = new Map([['8015550001', { id: '8015550001', data: billed(0, 0) }]]);
+    const owing = new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]);
+
+    api.setInvoices(clear);
+    check('somebody who has never answered the RSVP is CONFIRMED now',
+      badge(base) === 'confirmed' && out(base) === false,
+      'got "' + badge(base) + '" — this is the 951, and her words are that a missing ' +
+      'RSVP "doesnt mean anything as far as who should be scheduled"');
+
+    api.setInvoices(owing);
+    check('and owing for a previous season makes it PENDING, not confirmed',
+      badge(base) === 'pending' && out(base) === true,
+      'got "' + badge(base) + '" — "they should not be able to have the confirmed tag ' +
+      'if they havent paid for a previous year"');
+
+    api.setInvoices(clear);
+    check('a set queued to come back is PENDING too',
+      badge(Object.assign({}, base, {needsLightRecycle: true})) === 'pending',
+      'a house whose lights are being collected is not one to send a crew to');
+    check('but a mover keeping their customer is confirmed',
+      badge(Object.assign({}, base, {needsLightRecycle: true, recycleKeepingCustomer: true})) === 'confirmed',
+      'their old set comes back AND a new one is built — they are still in the season');
+
+    check('Maybe Next Year stays its own answer rather than collapsing into Pending',
+      badge(Object.assign({}, base, {maybeNextYear: true})) === 'maybe' &&
+      badge(Object.assign({}, base, {rsvpStatus: 'backnextyear'})) === 'maybe' &&
+      badge(Object.assign({}, base, {rsvpStatus: 'no'})) === 'maybe',
+      'Pending is somebody we want who is blocked; Maybe Next Year is somebody who ' +
+      'told us no for now, and the office toggles that one by hand');
+
+    /* ⚠ THE INVARIANT SHE ACTUALLY ASKED FOR, and the reason the badge delegates
+       instead of deciding for itself: Confirmed and in-the-season are ONE fact, so no
+       row can read Confirmed while every scheduler in the app has dropped them. */
+    const cases = [
+      {}, {maybeNextYear: true}, {rsvpStatus: 'no'}, {rsvpStatus: 'backnextyear'},
+      {needsLightRecycle: true}, {needsLightRecycle: true, recycleKeepingCustomer: true},
+      {rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z'}
+    ];
+    [['clear', clear], ['owing', owing]].forEach(function(pair){
+      api.setInvoices(pair[1]);
+      cases.forEach(function(extra, i){
+        const d = Object.assign({}, base, extra);
+        check('confirmed means scheduled — ' + pair[0] + ' case ' + i,
+          (badge(d) === 'confirmed') === (out(d) === false),
+          'badge said "' + badge(d) + '" and isOutForSeason said ' + out(d) +
+          ' — the screen and the scheduler must not disagree about one customer');
+      });
+    });
+  }
 
   /* ---------------------------------------------------------------------
      Report
