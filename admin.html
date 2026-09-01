@@ -56389,13 +56389,46 @@ function rebuildSeasonDays(){
      ⚠ AND NOT TAKEDOWNS OR FIXES. Both are copies made from an install house and are
      work on lights that are already up — somebody sitting the season out may still
      need theirs taking down. */
-  const left=[];
+  /* ⭐ AND A ROW THAT IS NOT A CUSTOMER AT ALL COMES OFF TOO (2026-09-01). Addie:
+     "play with it until the only customers in the schedule are the confirmed ones
+     and also that all confirmed customers are in the schedule because currently its
+     not working."
+
+     ⚠ MEASURED ON HER OWN PLAN. One customer carried the Confirmed badge and the
+     schedule held SIXTEEN houses. The rule below was working perfectly; the sixteen
+     were not customers. Marcus Nicolls #968, Tamara Jensen #464 and Jamie Harmon
+     #360 are rows left over from an imported schedule file and match nothing in a
+     book of 956 — so `customerForHouse` answered null, the no-record-no-opinion
+     guard kept them, and no Recalculate could ever shift them.
+
+     ⛔ THAT GUARD'S OWN REASONING, kept because it is exactly what this has to be
+     careful about: "Imported CSV rows need not match a record at all, and treating
+     'no customer found' as 'not coming' would empty most of the plan on the first
+     press." That was true when the plan WAS the season and the customer book was
+     half-filled. It is the wrong way round now: every house reaches the plan through
+     customersMissingFromSeason, so a row with nobody behind it is a leftover, and
+     leaving it there is a crew-day built for a house nobody will visit.
+
+     ⚠ SO IT IS GATED ON THE BOOK HAVING LOADED, which is the half of the old
+     reasoning that still holds absolutely. `jobAddresses` is empty for a moment
+     after login and empty again if the listener fails, and an ungated version would
+     read that as "nobody is a customer" and wipe the whole season. Empty book, no
+     opinion, nothing removed.
+
+     ⚠ AND THEY ARE COUNTED SEPARATELY FROM THE ONES WHO LEFT THE SEASON. "Somebody
+     said back next year" and "this row is not a person" need different actions from
+     the office, and one number covering both tells them neither. */
+  const bookLoaded = typeof jobAddresses !== 'undefined' && Array.isArray(jobAddresses) && jobAddresses.length > 0;
+  const left=[], orphans=[];
   for(let i=movable.length-1;i>=0;i--){
     const h=movable[i];
     if(h.isTakedown||h.isFix) continue;
     const cust=(typeof customerForHouse==='function')?customerForHouse(h):null;
     const cd=(cust&&cust.data)||null;
-    if(!cd) continue;
+    if(!cd){
+      if(bookLoaded){ orphans.push(h); movable.splice(i,1); }
+      continue;
+    }
     if(typeof isOutForSeason==='function' && isOutForSeason(cd)){
       left.push(h);
       movable.splice(i,1);
@@ -56544,7 +56577,7 @@ function rebuildSeasonDays(){
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, waitingOnBuild:waitingOnBuild,
-          left:left.length, stillSet:stillSet,
+          left:left.length, orphans:orphans.length, stillSet:stillSet,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
           first:dates[0], last:dates[dates.length-1]};
 }
@@ -57686,6 +57719,11 @@ RT.addEventListener('click',e=>{const t=e.target;
        button working. */
     if(r.left) parts.push(r.left+' taken off — '+(r.left===1?'that customer is':'those customers are')+
       ' out for the season');
+    /* ⭐ AND THE ROWS THAT WERE NEVER CUSTOMERS, said separately. "Taken off because
+       they are out for the season" and "taken off because there is nobody there" are
+       different pieces of news: the first is somebody to ring, the second is an old
+       import finally clearing itself out. */
+    if(r.orphans) parts.push(r.orphans+' row'+(r.orphans===1?'':'s')+' removed — no customer of that name or number is on the books any more');
     /* ⚠ AND THE ONES IT COULD NOT TAKE OFF. They are on a day inside the 48-hour lock
        or one already worked, so the crew may be holding that sheet — a rebuild cannot
        un-print paper, and pretending otherwise is worse than saying so. */

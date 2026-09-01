@@ -15735,6 +15735,12 @@ suite('Suite 48. Days within two working days are set');
       'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
       'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
       'function customerForHouse(h){return h.__cust||null;}' +
+      /* ⚠ ITS OWN BOOK, DECLARED HERE (2026-09-01). The orphan rule below is gated on
+         the customer book having loaded, and this sandbox had no jobAddresses of its
+         own — so it read whichever one an earlier suite had left in the global scope and
+         the answer depended on evaluation order. That is the leak CLAUDE.md §3 warns
+         about, found by a check failing for a reason unrelated to the code under test. */
+      'var jobAddresses=[];' +
       'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
       'function dayDate(d){return d._date;}' +
       'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
@@ -15758,6 +15764,7 @@ suite('Suite 48. Days within two working days are set');
          The live setting comes with it for the same reason. */
       seasonRuleSrc() + fn('isOutForSeason') +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+      String.fromCharCode(10) + 'this.book=function(k){jobAddresses=[];for(var i=0;i<k;i++)jobAddresses.push({id:"c"+i,data:{}});};' +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
 
@@ -15873,13 +15880,43 @@ suite('Suite 48. Days within two working days are set');
          match one at all, and reading "no customer found" as "not coming" would empty
          most of the plan on the first press. */
       const orphan = { id: 'orphan', name: 'orphan', city: 'Lehi', pref: 'OCT', __cust: null };
+      /* ⚠ WHILE THE BOOK IS EMPTY, NOTHING IS ASSUMED. This is the half of the old
+         fail-safe that still holds absolutely: jobAddresses is empty for a moment after
+         login and empty again if the listener ever fails, and reading that as "nobody
+         is a customer" would wipe the whole season on a slow morning. */
+      ctx.book(0);
+      const out3e = ctx.run([day(new Date(2026, 9, 20),
+        [house('Lehi', 'kept'), orphan], 19)]);
+      const n3e = [];
+      out3e.season.forEach(d => (d.houses || []).forEach(h => n3e.push(h.name)));
+      check('S48', 'with the customer book not loaded, an unmatched row is KEPT',
+        n3e.indexOf('orphan') !== -1 && !(out3e.r && out3e.r.orphans),
+        'no book, no opinion — an ungated version empties the season on a slow login');
+
+      /* ⭐ BUT ONCE THE BOOK IS THERE, A ROW WITH NOBODY BEHIND IT COMES OFF (2026-09-01).
+         Addie: "the only customers in the schedule are the confirmed ones ... currently
+         its not working." Measured on her own plan: ONE customer badged Confirmed and
+         SIXTEEN houses on the season — and the sixteen were rows from an old imported
+         file matching nothing in a book of 956. The season rule was working perfectly;
+         those rows never reached it, because customerForHouse answered null and the
+         no-record-no-opinion guard kept them for ever.
+         ⛔ THE REASONING THAT GUARD WAS BUILT ON is kept in the page: an imported row
+         need not match a record. True when the plan WAS the season; the wrong way round
+         now that every house arrives through customersMissingFromSeason. */
+      ctx.book(50);
       const out3 = ctx.run([day(new Date(2026, 9, 20),
         [house('Lehi', 'kept'), orphan], 19)]);
       const n3 = [];
       out3.season.forEach(d => (d.houses || []).forEach(h => n3.push(h.name)));
-      check('S48', 'a house with no customer record is KEPT, not assumed gone',
-        n3.indexOf('orphan') !== -1 && (out3.r && out3.r.left === 0),
-        'an imported row need not match a record — no record, no opinion');
+      check('S48', 'with the book loaded, a row matching no customer is taken off',
+        n3.indexOf('orphan') === -1 && n3.indexOf('kept') !== -1,
+        'a crew-day built for a house nobody will visit, and no Recalculate could shift it');
+      check('S48', 'and it is counted apart from the ones who left the season',
+        out3.r && out3.r.orphans === 1 && out3.r.left === 0,
+        'got orphans=' + (out3.r && out3.r.orphans) + ' left=' + (out3.r && out3.r.left) +
+        ' — "somebody said back next year" and "this row is not a person" need ' +
+        'different actions from the office, and one number tells them neither');
+      ctx.book(0);
 
       /* ⚠ AND IT DOES NOT REACH A DAY THAT IS SET. Tue 6 Oct is inside the lock, the
          crew may be holding that sheet, and a rebuild cannot un-print paper. Reported
