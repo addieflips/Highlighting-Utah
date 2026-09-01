@@ -1601,6 +1601,27 @@
                think they are charged twice." A button charging less than the balance,
                with nothing saying why, reads as a mistake or a double charge. Filled by
                renderArrearsNotice from the figure the server computed. -->
+          <!-- ⭐ TWO AMOUNTS, NEITHER OF THEM TYPED (2026-08-31). Addie asked for
+               "2 button options for last year and full payment". Her earlier rule still
+               holds — "I don't want them to type there amount because then we can't
+               trust if someone paid in full" — so both figures are computed and the
+               customer only chooses between them. Last season is pre-selected, which is
+               the behaviour that was already here; the second button is the way out for
+               somebody who would rather clear the lot in one go.
+               ⚠ THE CHOICE TRAVELS AS A FLAG, NEVER AS AN AMOUNT. paypalCreateOrder
+               works both figures out from the invoice itself and picks between them, so
+               nothing the browser sends can decide what a card is charged. -->
+          <div id="invPayChoice" style="display:none; margin-top:18px;">
+            <div style="font-weight:700; font-size:14px; margin-bottom:8px;">What would you like to pay today?</div>
+            <button type="button" class="pay-choice" data-scope="arrears" aria-pressed="true" style="display:block; width:100%; text-align:left; background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px; cursor:pointer; font:inherit;">
+              <span style="display:flex; justify-content:space-between; gap:12px; font-weight:700; font-size:15px;"><span id="payChoiceArrearsTitle">Last season</span><span id="payChoiceArrearsAmt">$0</span></span>
+              <span id="payChoiceArrearsWhy" style="display:block; margin-top:5px; font-size:13px; line-height:1.5; color:var(--slate);"></span>
+            </button>
+            <button type="button" class="pay-choice" data-scope="all" aria-pressed="false" style="display:block; width:100%; text-align:left; background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:4px; cursor:pointer; font:inherit;">
+              <span style="display:flex; justify-content:space-between; gap:12px; font-weight:700; font-size:15px;"><span>Everything owing</span><span id="payChoiceAllAmt">$0</span></span>
+              <span id="payChoiceAllWhy" style="display:block; margin-top:5px; font-size:13px; line-height:1.5; color:var(--slate);"></span>
+            </button>
+          </div>
           <div id="invArrearsNotice" style="display:none; background:#FFF8E9; border:1px solid #D89F3D; border-radius:12px; padding:14px 16px; margin-top:18px; font-size:14px; line-height:1.55; color:#5A4A1F;"></div>
           <div id="paypalButtonWrap" style="display:none; margin-top:20px;">
             <div id="paypal-card-button-container"></div>
@@ -1608,19 +1629,23 @@
             <p class="form-note" id="paypalPaidMsg" style="display:none; text-align:center; color:#2E6B3E; font-weight:600; margin-top:10px;">&#10003; Payment received &mdash; thank you!</p>
             <p class="form-note" id="paypalErrorMsg" style="display:none; text-align:center; color:var(--ember); margin-top:10px;"></p>
           </div>
-          <p class="form-note" id="paypalOrNote" style="display:none; text-align:center; margin:18px 0 0;">&mdash; or pay with Venmo &mdash;</p>
-          <a href="#" id="venmoPayBtn" class="btn btn-gold btn-block" style="margin-top:20px; text-align:center; display:block;" target="_blank" rel="noopener">&#128179; Pay with Venmo <span id="venmoPayAmt" style="display:none;"></span></a>
-          <p class="form-note" id="payNoteText" style="margin-top:10px; text-align:center;">Opens Venmo with the amount and your name pre-filled &mdash; just confirm and send.</p>
-          <div id="qrPanel" style="display:none; text-align:center; margin-top:18px; padding-top:16px; border-top:1px solid var(--line);">
-            <p class="form-note" style="margin-bottom:12px;">Or scan this Venmo code from another device &mdash; you'll need to type the amount in yourself.</p>
-            <div style="display:inline-block; width:100%; max-width:240px; background:#008CFF; border-radius:20px; padding:16px 16px 14px; box-shadow:var(--shadow);">
-              <div style="background:#fff; border-radius:12px; padding:12px; line-height:0;">
-                <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVEAAAFRCAAAAADoHcGeAAAhE0lEQVR4AezBAWLiWKIkwEi2Dl4+ee6TwCCEJLBNTffMr4jUX2918td7nfz1Xid/vdfJX+918td7nfz1Xid/vdfJX+918td7nfz1Xid/vdfJX+918td7nfz1Xid/vdfJX+918td7nfz1Xid/vdfJX+918td7nfz1Xid/vdcvu4IKKqigggoV1FlQQS2FWgrqLKizUEEFtRRUqLOgHoV6FFRQoZaCOgsqqKBCCRVUUHtSe+I1NYtPtRBD3cSkJjHULFbqJq5qFkOtxVAP4l4txFCzeE3tONkTXxJX8efFl8RKbIufOtlT/2b1M/WnnByroTW0hprUpIaa1dAaaqUWaqhZrdSkhlqooVbqQW2qoTXUpprV0BpqUpOa1NAaak9qV6hPqQ2hzoIK6qeCehTqWKg9QUndC3UW1KGg9vyyK5ZqQ3xbUF+XWgjqLKghtRDUnRqCBhVvdHIonopZDIkXxYEY4kFsiVkMiS0xiyFmMcSQGGIWQzwVe07eL14UPxRPxbvFoZP3qxfVtnpRPVUr9UN16ORQPVWzGlovqmfqQVFrNauhNtWsbmqooTXUrIZ6qvb88hONlXpRfUMdqKGhluqmbmpoDI33+eUl8akx1CxIPQhqFp/qLKizoGZB7QlqFkNtC1KzGGoW1IMgjW1BY2hQrzg5FLO4im0xxCy2xCyGmMW9mMUQC7EphnguhtgWQ8xiiFkMMYkhZjHEnpM98TPxovifcrKnvqRW6kDd1Fq9qL6i3qIOnRyqWQ2toXWvbmpWN0VrqFnd1E1RN7VQ1FlRN7VQN0XNalvRFjWroWY1tGgNdVN7ftnV2FNnjat6kKKGxlXNoiZFirqqWdRFzVL7oiZFipqlPqWG1L3aU2eNF6X2BHUW92oWQ63FVc1iqIW4Vw+CWoirmgV1FvdqFltqFkMtBHUWnxpDzYLac3IoZvFu8VQMcSSGmMWm+JIYYhZXsRJ7TvbE/7L4tjh0sqf+YTXUkRrqSG2qbTXUkTp0cqhmNbSG1r16ULR1rxaKtoYW9YKiNdSDoi3aos6K1tCirZuidtTQoi3qpvb88h111liLUhcl1EUUUWpbFFGfooQ6a0xCXUSpSU1qEkpd1UVd1Lul9gR1FvdqFkMtBDWLfTWLq5rFN9WDGGoW1CyG2hHULFZqFtSek0MxixfFEE/FtviuOBJDPBdDHIkh9pz83xR/yskr6ivqqdpW31VHaqib2lZDHalDvxyqs0YRJdRZQy00rhpKqKCCEnVWUULdVFBBiRJKKKGCCkrUo4Z6UFEvqCihRC3Unl9eU5MaalvURaiLWqubeqqGmtS2OhDqIooaQj1RQ03qRak9MdSRGGoWW2oWV7UWQ83iXj2IldoWW2oWQz0I6lBQe07eJN4hVuLd4kgM8VTsOflXqf96J29Sr6kvqafqS+pIDfVU7fllV0MdaqibEiUoqYtGiU0NddZQosSmhhIlDjRUUKLEVUP9Ab/siklQQQUVSqh4UDc1hFIroR7FrFZC3amVoM5CqZs6EGopqKBCCSXUsdSeeE3NYqhJDDWLoWYx1CSGmsVQsxhqEkPNYqhZDDULahZDzWKoWQw1iaFmMdQshprFa2rHyZ74kliJtViJtViJIzHETazFShyJnzrZUz9Ta/VU/Uz9406O1YG6qaGeqlkNtalmNdSsNtVQs9pUQ81qqE01q5Wa1KQmNdSe1BekrlJ3gjoLdRHqLKizoC5SV6mLoB6FehTqU2pDUGehzoJ6k1++om5qS1BDahakQZ0FdRaUGkJRT8SuVFBqX1B/Suo9YqVm8UzNYqibmNRaDLUWV7UtVmoWQ73HyZ8SL4p/WLzTyZ9SL6p/WL3TyZvU0NpUkxpaQ03qSA21qR7UUEdqqEmt1Juk3iSos1AXoR4FFdRZqKWgHoXaE+pYUEuh3uSXlwQVNIaaBbUpNQtS22IWNEhjaFBnQWNoDI2boDHUVWoW1FlQD2JokAYVVFALMTSooPakXhArNYuhJjGpSQw1i6HW4mdqEjc1iaFmMdQkJjWJoWZxoG5ipXac/CnxbxZ/ysmfUn9eXdWX1FP1LSevqKE1tG6KmtVQs7op6kENraEmNbSG1tAaWkNraA011E3rpqibmtVQs6LOirZoDa2htVa0htZQe1KvCyXUj4USSiihLkIFFUoooe6ECrUh1FdFCUXqXqhjqT0xNKiz+FTfEfcaKzWLT42VWggaV7UQQ31N3KuFoI6dHIshZvFmsS2u4kgM8UbxTBw7+c+JPy7+cSf/OfWielGt1A/VT/2yq6GCmjWUUN9WQYUSSiihbiqooEIJtVZBhVqrb6igQi011LFf9tVKTeomiiii7kU9qklN6qau6k6pp2oWddaYRBH1KYqoiyii1KQmtVaTqF2pY0HtiHu1EEMtBPUghnoQn2oWQy3Ep5rFULO4V2fxqWbxqV4Q1J6TYzHEi+JIDPGquIptcRVPxSz2xYtiz8lfXxSHTo7VUG9RX1JXta2u6ql6ixpqz8kTpfYUbdEaaqG21IOiHpW2bopaa90UdVa0ReumaIs6K9qifuyXZ2oSRZRQQqlJ3UQRNamLqCdCXURRV6HuRN2LUmu1UpOaRFGTmkQRRZSoL0i9IrbUQmypWVzVWlzVLIaaxErNYkstxFCzoB7EUAuxpRaC2nPyingq3ieeik2xLYZ4Lp6KIfac/PVFdejkFfVUvU8NNatNtam21VDP1WtqT+oVQQUVSqiloEQJRdRFlKAehRLqIuoiqFBCnQUVVFCi7kR9itoQ6k6UoEQJtRTUnl+eCbUn1J06S6mrugl1FuqiJqHUo9RZqA11FUrd1BBKKKFiFuqibmqoSSihjqWOxTM1i6EmMdSD+FSzuKpZDHUTr6mFGGotDtRNDLUQK7Xj5Fi8KJ6Kq3i3eLf4lpO/3uvkWL2ohprVpprUULMaaqUW6qomtVKTeq6GWquhFmqobTXUntSxoIKSGlJDakh9ivqU2hBUUGehhPqUupciFKkhRShRgrqT2hJFFClCkboT1J3UkCJqV+pYUEHtCOosqKVQZ0EFdRY0hloIaimohaDOgvqOoJaCCiqoLzo5FkPimZjFWhA3iZsYYlMsxJaYxY/EWmJIfMfJy2JbrMS2uIoj8VSsxFvET538WK3Utnqf+rc6OVZXdaBm9VQNNauh1mqop2pWQ71FDTWpb0kdCyqobwm1FNQXhbqX+rlQj4IK9VW/7ApqKaigMTSoR0EFjVeFCuosqKtUqE+1L2hQQZ0FdRY0SIMKaiFIzYIKKqg9qT3xmlqLlbqJSa3FVU1iqFlc1XOxUpMYahabahJXNYuV2nHy7xbvFn/WyV/vdXKoNbSG1tAaalJDPaihRWuohRpqWw01q6FmNdRQLyhakxpqVkPNaqhJTWqoWQ21VkNrqD2pVwQV1Fmotwq1FNQPhDoWSiihlkI9CmrPL98TpGZBnQX1IIYGdRbULIbGphjqZUHN4iaoB0EapEEa1FXM6mUnr4ghsS9mcSCGmMVKDLEQQ3xN3ItZDLEtJjGJIWaxL/acvF+8KF4U/yJx6OT96kX1ovqhep86dPKKGlr36qZmta1oDTWrm6I11EINrS+pm6Ju6kHRGlpDa6hZDS1qrfb88kyUmtRVYxKlsS1KFDXULOpODXUo6k7UvahJkaKuahZF1FI9iFKTmkQR9UTqWFAP4l6dBTWLoTHUQnyqQ0HjqhaCWopPjaEeBI2hZjHULIYGjaEW4l7tOTkWQzwVsxjiJtbiRTHEthhiIa5iWwyxLSYxxFOx5+QfFP+YeCq+5eRYfV0dqas6UgfqZ2qtVupbTl5QD4q2aA01q5uiLWqt9ZrW0KKWilqooTXUUA9qaFFnRd20htaW1tAaas8vB1Kfoj6lqEkNNUtRN3UTdVELUaSG1JC6qJuapYYUtVIX1Zil7tSkbmoStS+lcVVHUnviXs1iqAdBPYirWohdtRTULK5qW6zUc7GlZnGvjp3siZU4EkO8KvbFQvxTYlMcO/nrvU721EodqaH+h9S3pHZFCUrURahHQT0KFdRSUKKEEiqopaDOQgW1J5RQQr0gKFFECXURSqigjv2yr27qqiahhHpB4ybqU13V0DhQQ2MS6iKKKDWpSa1FCXUR6qImNdRa3UTtSh2LodbiqmZBPYirmsWnmsVQsxjqJoZaiKuaxFUdiauaxVVti6FmcVU7To7Fi2KI5+Iq1mJTvCj+pHjByb9Kbap/hXrBybEa6rka6rm6qufqqbqqI/U2tSf1RNSGUKIugnoUStSnKKI+RV2EuhN1J4qoT1FCPREl1EUUoXZFXYQKak9qV6izoM5CCbUUVFChhBLqItSeUEEFtRRqQ6izoEI9CuosqFBnQZ0FFVSopaCC2pPaE0NNYqhZXNVC7KtZDLUtVuomhnoQQ03iqh7EUJO4qlkMNYt7tRBXteNkT6zEkXgq3i1eFC+KnzrZU+9W/xecHKpZDXVTa/WaelE9V0M9V0PN6kA9VUPtSe1LXaWeSF2lCCXUS1JDakOoR0EthXoU1FkooS5CnQUVitRKSlB7fjlQBEUR6k6ooNRNfYojQYWiJvUpqKCG1EJQm1KhzoI6C2pIgzSo2JBSV6GoZ1KHYlKTGGohrmotrmpbXNVarNRCXNVNXNUsXlOz+FQLMdQshtpx8kXxrxAvii+Jq9gWh06+qP4V6h9Th06O1VCz2tIa6kENNdSOGlqbamgNtak11EINNdSshtbQGmrSGmpSQ81qaA21Uje1J3UsqLNQf0CoPaGE+oGgXhDUo1Cv+OUlQQ2ps1BLQZ0FtRBUUEGtpEGdBXWVBqlZUC8I6mVBPQoar0odipWaxVA3MalJDLUQK3UTVzWJSU3iqmYx1HMx1CQmdSBu6iau6gUnf0r833RyrL6rDtSR+iPqSL3HyQtaQ+teLdRQs9pUQ2uthhrqpmY1tO7Vi2pWr2kNtVC0hnrFL19TZ41jtVQ3taEaV7Whzhqz1LHGVX1HihrqVak9MTTuNYbGVeNTnQU1i6FmQS3Fp8ZQC0HjqjE07tWDGBpDgzoLahZDzeKqQeOqFmJoUHv+3297PgwfVj5MPtx8uPr4bRLDb7MPw2+zD3z8dhNXHya/3cTw4ebD5MPKx29rH4YPkw/Dx2+TGD5+m3wYfpt9uPowfLj5beHD8GH4+G3HyZ74mViL/wtO9tTP1Fr9G9SfdXKoNbSG1tAaWrSG1tAaalbUWVE3tVBDi7aohRpaQ2to0RpaQ2uoB0VraA01q5u61xpaQ2tobWkNtSe1K9RSKKEeBXUndZW6FyXUvdSQEtSjUEEFdZG6F2pDilCkCPUo1J1Qx1J7glqKT/UgqIUYahZDLcSnWoh79SD21UIMNQvqLLbUWgy1ENSxk0OxEAdiiFfFa+JLYlsMMYsfiWMn/7i4iZ+pPylecPImNdQ31E2t1FvUUD9ULzjZVdRCDS3qBUXd1EINLWqptDW09rVFW9oaWtRSUQ9qaNEWraEe1FpRx37ZVzdRG0LdiSJKXTVuoi7qJpTaFOqsMalJXdUklFAXUZ+iJnVRQ+Mm6qYuQqmnUq+IezWLoWZxrxZiqFl8qoUYahafahZDzWKohaBm8RU1C+osqFkMNYuhXnDyingqVmJbXMW2uIrnYoifiVkM8QMnf73XySvqqVqpbXVV2+qqnquh3qKG+oHUK4IKJdRFqLOgggp1J9RFlFB3Qp0FFdRZqItQS0GdhRJKKFGCEiWUUBehLqIuQl2EesUvX1BrtanW6qaGmoS6qAO1Fkqos1DqpiZ1U2epmoSKhVpKndUk1LHUK4KaxVAP4lO9KoZ6EJ/qQeyrWQy1ENQshprFVa3FUAsx1KGTV8QQR+Iqfiiu4ktiWwxxE3/KyT8u3qf+cSevqKGO1FV9Sa3VVb1FDXVT31XHTr6qqG2tLylqW2tb0RatoTW0qLOidrTUWdEa6kGt1XO/PBHUSiqUUEE9CnUnVFCPQgW1FFQooS7qUSrURaig7tQQKiaNIaigghrqTg1B7Ukdi081i2dqFkMtxKeaxVCz+IqaxRfUQrymHsRQO06OxVW8KLbFVbxFfEW8RRw6+c+p/wl16ORYXdWshprUpCY1qaEOtIaa1UpNamgNNalJTWqoWQ01qZua1KQmNdRCDTWpmxpqUgdqT+qrQn1KESooqU+hloJaCvUpdZUSVChSQ4pQG1KEEooUoYJaCkVqSAnqLKhv+WVXUEtBDamLIhZqKQ3qUVBD6qJuaiGlJkWQBnWnztIgpYi1oEFKTept/t9vez7w8dtNDB8fht8WPvDxYfj47SaGD8PHb7MPfPw2ieHjw/Dbjg98fBh+W/gwfBg+fluL4cPkt9kHPj4MH79NYvgw+W3hAx+/TWL47VtO9sSL4kWxKbbFVXxbvChW4ltO9tSL6kW1qZ6qb6vvqm85OVQLNdSm1lALNdRKzWqoIzXUthrqQQ011EINNauh1mqoWX3fL7tqrYZaq2011LYaGupQY6Wh9tRQ92ql6kh92y9PBLUjqKWgMdRCDDUL6io1i6FBBTWLtSD1IKhNqVnQIDULak9QsxgaVFB7UodiUttiqEms1EKs1CSGmsW+WoiruomhHsSWmsVQsxjqJoaaxUrtOPlT4kXxVLwo1mJTrMV7nLxJrdSBuqmn6kW1Vptqrd7j5FgNtaOom9bQ2lRD66butYbW0Bpaa0VrqIXa1xpaQ+umqJtaqJsaamgNtSf1RKiXBfUolFBCnYW6CHURKqhQG0K9LKizUN8T6tgvT8RNUA+COhTEJCYxaZCaBalZELMgjaEW4kAMjaG2pBaCOotP9SCeOzkWQ8xiX8xiiBfFtriKSWyKI3ETQ8xiS8zimTh28mPxD4ifiafiW06O1VO1Uj9UT9WX1Eptq6v6lpMX1KyoR0XNal9btIYWbd0UdVbaGlpDi1oqakfRFnVTs6KWirppbSvq2C/7ojQmUZ9SQ4ooahJ1L4qUxqSu6qKIuoiihrootZCi1qJIUZOaRH2KUrMoUdRSbUlRk6hdqT3xmprFp5rFSs2CmsWWWgpqIYZ6EJ9qIe7VLK5qIT7VQgw1C2rPyZ74kriKIzHEgViIF8WmWIkjcRXbYog9J/8N4l+kDp3sqS+pqzpSQ31JfVut1JG6qgO1J7UrVFBBBRVKKKHOggrqLJRQQl1EXYQSSiih7kTdCfUolFBLQQUV1Fkooe5ECXUn1EWoPb/sq001qUlNQi2FuqhJ3dQk6qKuYhb1qYZQQsW2+pKa1CTqUw21EKVu6kDqWNyrB7GvdsSnmsW9WoiV2hZDLcS9ehBDbYuhXnZyLJ6Kb4hn4i1iJdbinU5+rP7N6ql6p5Nj9WfUM/Vn1J+VOhZUUKE2RBElqKBC7YoS6iKUKEEthRJKqD2h7kQRJahHofaEet0vX5MKdRFKTWqpLkJdhLqoq1BqUiuh1KQ2hRJKrdWkrkJdhLoIJeoilJqEugi1J3UoNtUshrqJTTWLoW7iqhZiqEkMtRBDLcSnOhJXNYstNYuhZjHULIbacfKfEy+KlTgSXxcH4gdO/nPqu+rd6k85OVZfUiu1Ugu1qYaa1VP1otpUK/VU7Uk9kSIoKUJ9St0JSopQpC6CupMi1J2oT1F3Qi0FFepYUKEuQgUltS/UK37ZFZS6qbPURRHUnbqpIdSGOkuDuqghKDUEFSpugrpKhboIdRbUVWoWC3UV1FmoeFVqTww1iUlNYqiFGGoSQ81iqFlc1Vpc1U0MNYuVmsWWmsVQs7hXs7iqmxhqFlf1gpM98aJYifeJI/GiWImn4ltO9tSL6r9Q/Sknh2pWQx2oWQ01q5UaalsNtVBDzWqoSQ01q6EmNamVmtVQk1qroRZqqJt6WWpXqEeh9gR1FuoVoV4R6k6olwW1FOpRqO/5ZVdMgjoLakjNgjqQehDUWdAg9ZrULKh4KqhHQeMmqKCG1IOggtqT2hNXNYmrmsVQNzHULIZai0lN4qqei6FmcVVHYqhJTGoSVzWLe/UgrmrHyZ74rvjz4kXxoliJbznZU99VT9UP1YvqRbVS33JyqDXUrIbWvVqom6Ie1E0NLeoFda811FM1q6FmNdRQN62hta811J7UrlBLoYTaE+pYUN8Saimobwm1J9T3/LIrboIaUkMaQ82CuopZLQR1E5N6QVCzII2hdgSNoUGdBXUWNEjNglpJY2gM9bKTQzGLITEkhliJWeyLWXxJrMRNDLEQQ0xiiFkMMYshVmIhhpjEF538WGyKp+JF8d/j5MdqU22rq3pRbasX1VD/CSe7iprV0BpaQ4u6qVkNrbWiblrUC+qmaA11UwtFW7RFPaihRZ0VtVBDa6ihXpd6RVChhPqUIpSoi1BfkBpSG4I6CyUUqXtRW1KfooTalSKUUEKRGlJPpI7Fp8ZVzeJenQX1qriqhaAx1CyGxqdaCupBUGdBY6hZDLUQWxr3as/JsbiKp2IW7xBDrMVVLMS+mMUQR2JTrMSekz8l3ideFGuxKf6Uk2P1XfVDdVUvqrXaVNvqp05e0BpaQ4s6K1pDa6hZfUnRFrXWos6KtmgNtVDbiprV0KLOilprDS3aoi3aojXUnl9eUtvqqmZRk7oT9SmKKKLUQupOzaI2RN2LulOTqIu6qVmKKDWpSd3UpIY6kjoW1CyuaiGos/hUCzHULO7VLK5qFtQs9tUsrupBfKoH8akexFAvOzkWQzwVs7iKbfGiGOKpeC6u4kD82Mk/Lv6nnByroV5VV7WtVmpbDfVUPVdX9WeljgV1ESXUnaiLoELdifoUJahQF6GEuoi6CCqUKKKIuggl1KOggnoUKqhHoV73y1fUUJNQQqmVugmlbupFtVQXNalJTaI2hBJ1U0IJtSHqItSdUKJ2pY7FUGtxVQtBLcRQD+JTzeKq1uKqHsS9msUzNYt7NYurmsWn2nNyLL4khnguruKH4s3iqdhz8o+r/yknx2qoV9VQz9X71JvVU7UndSyoDakhdS/qXmpLlFAXoUhtCCXUhiihhPqUIlRQogQV6lOKKKI+RQl1EUrUrl9eElSoTzWplRpCCUV9CuqizlKhPtWO1J46Sw2pUBSxUNtqqEkNoahNdSB1LO7Vc3FVCzHUTazUtriqbbFSs/hUs7iqbTHULIaaxVCHTo7FSnxb/APiKr4kvuXki+rb6h9Q/2Enx+obal8t1FfUkbqqtRpqVk/VUJvqWOqJUKG+KtSdUEuhXhFKqD2hNoR6FGpPqA2hjv2yK6i4SD0KFdRZUFepUELFJKhQk9SOoIIaUkMaVFBBBTWklkLFTVBLoYIKKqghFdRZqHgutSfu1YO4qkkMNYvX1Lb4/+3BAXKbWgIEwB4q97/y7APFEpYAyQ5Ofm2p++tqJa5qFkMt4jW1iKs6NNkTd+JF8c/EU/GzJnvqu+qfqX9ucqg1tIbaVkMt6qaGmtXQGlpDa6gjNbSGmtWshtbQGlpDa1MNtaihFjXUrGY1tIbWUPdqqGOpUwX1KFRQQb0gqEehggrqWKiLoC5C/RbqUaiv+uUsQV0EtRJPBRXUoSD1qiAN6iKoIbWIXakvSp0j7tRK3Kl7cVWzmNW9uFNHYl8tYqh7MdQXTX5K/CfEXzb5KXWgXlR/qP6yyUlqaA21qTW09rWGWtSBGlpDPdUaWkNraFE39aC+I/VXhPok6pNQa0H9lvoQSqigXhBUqA2hHoX6qtSeGBofGleNoUHtCWoR1Fp8qEUMtRLURVCL+KzWglrEUIv4UA+CugjqImgMtYihQe2ZHIuruIlZDLEjPouVeCqGWMS+WIlNcRWbYhFDLGKIezHEnsk/F/9XJv9cHahT1FX9rMmh1tAaWkOLtmgNtaOoi6JWamjdFLVSN0XdtIbWUCtFXRR109pW1KKGWtTQoi6K1lB7ftnVGGpWs5rVrIbGthR1rGb1irpqDI2hcaCualZP1Selbuqp1J6gDsVQD4JaiaFWYkst4kM9iM9qJa5qEdRK3GlQD2KoB0HtmRyK74in4jXxVDwVR2KIL4k9k/+gOE/8ZZP/oLqqp+pI/WWpXaGOhXoU6pNQa0GFEkqoi6CCehRKKFGfhBLqIqi1UEIJJdSjUI+C2vPLa6KIEmpDFFHqXs2iiPqkDoQSSqiLWNRNlJrVLNRvUUTNUo+iiCLqk6iXpPbEUIv4rBYx1CI+1I7YUosYahGvqZsYaiVOUIsYahHUnsmeuImn4iq2xaa4F/9lMcSeyf+V+Ocme+qmnqqr2lab6l59V/28GmrPL4fqpoIKddFQNyXqSAUVVKiLhropUUQJJZRQotYqaq2hRAlKlKBCCSWUKEGJEuqioV7xy8lqCPWiVCh1r2Y11Kxu6l5dhVKzuqmruqlZ3dRFKpR6UWpPDDWLO7WIoRYx1CyGehD7aiWoHTHUkRhqJahFDLWIoVaCWsRVrcRQOyZ74kviTnxbDHGiGOImtsUQR+LQZE/9P6tvq0OTQ7Wop2qom3pR3auhTlRDLepADfVU7UntCnURVCihfgt1EdRvURuiBBVKKFKfhdoT6onUJ0FdhPot1CdRH1KEWgtqzy9fkzoUlLoK9VutpYaU+hBUzIIK6iLUo6BCfairUHdSodaCUjd1J9Sx1J4YahZ3ahFDLeJDrcRQK/FZrcSWWsRV3cRVPYgPtYg7tYih7sVQi7iqHZOTxFUciQPxZ+JeXMWROMfkfPVt9WfqXv1lk0O1qKE11J1a1FDP1VVtq6E11L0aaqWeqqEWNdSshlrUUM/VUHtSe4I6FmotqENBXYT6JNRFUC8L9YpQQq0F9YKg9vzyJ+JIqLWg7qRCBRXbQq0FFdRV6iJoUJvSIPUgqKCC+qLUnhjqSAx1E0MtYqiVuKpZbKpZDLWIoVbiqmYx1CKu6l5c1UpsqQcx1I7Jnviu2BZfF9tiU3xbvCgOTfbUd9W2Ok9tqm+rF9WhyaF6qlbqpra0hlrUULOa1VCLGmpRm2qoRd2poR7UUJtaQ2to7as9qV2hjoVaC7Ur1Fqo7wkV1BeF+gNB7fllV8yCCiqooDE0NqQx1CKoi7gJGqS+JobGtqBWgroIakgtgjoWNIYGdSy1J15TN3FVixhqFrOaxVV9TdypmxhqJYaaxVUtYqgjsal2TPbEn4kXxU+KTfFTJnvqz9S92lQ/qTbVT5kcag2toTW0aIu2qJUaWtRFUTe1qKH1DUVraA21UtS9WtTQoi6KOlS0RWtoDbUn9Xaqydu5Jm/nmryda/J2rsnbuSZv55q8nWvydq7J27kmb+eavJ1r8nauydu5Jm/nmryda/J2rsnbuSZv55q8nWvydq7J27kmb+eavJ1r8nauydu5Jm/n+h/6qIqFHXCsWAAAAABJRU5ErkJggg==" alt="Scan to pay Highlighting Utah on Venmo" style="width:100%; height:auto; display:block;">
-              </div>
-              <div style="color:#fff; font-weight:700; font-size:15px; margin-top:12px; line-height:1.2;">Venmo</div>
-              <div style="color:rgba(255,255,255,0.88); font-size:12.5px; margin-top:2px;">@HighLightingUtah</div>
-            </div>
-          </div>
+          <!-- ⭐ VENMO IS A LAST RESORT, BEHIND A DROPDOWN (2026-09-01). Addie: "I
+               don't want a venmo QR code anymore and I want venmo under other payments
+               not showing at all cause I want venmo to be a last resort", and "venmo
+               will be under other payments which will need to be a dropdown to see
+               venmo."
+               ⚠ A <details> RATHER THAN A SCRIPTED TOGGLE. It is closed by default with
+               no JavaScript, so Venmo cannot flash on screen before a handler hides it,
+               and it still opens if a script on this page has thrown.
+               ⚠ THE QR CODE IS GONE, not hidden: a ~30KB base64 image shipped to every
+               customer on every load, which asked them to TYPE THE AMOUNT IN THEMSELVES.
+               ⚠ AND THE OLD "or pay with Venmo" DIVIDER GOES WITH IT: it announced Venmo
+               as an equal alternative, the opposite of a last resort. -->
+          <details id="otherPaymentsPanel" style="display:none; margin-top:20px; border-top:1px solid var(--line); padding-top:14px;">
+            <summary style="cursor:pointer; font-size:14px; color:var(--slate); text-align:center;">Other payment options</summary>
+            <a href="#" id="venmoPayBtn" class="btn btn-outline btn-block" style="margin-top:14px; text-align:center; display:block;" target="_blank" rel="noopener">&#128179; Pay with Venmo <span id="venmoPayAmt" style="display:none;"></span></a>
+            <p class="form-note" id="payNoteText" style="margin-top:10px; text-align:center;">Opens Venmo with the amount and your name pre-filled &mdash; just confirm and send.</p>
+          </details>
         </div>
           </div>
           </div>
@@ -1894,7 +1919,14 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
    following a quote text landed on, and it is why the short link had never
    once worked. Nothing threw anywhere a person would see it.
    ⚠ ANY future import here must be root-absolute for the same reason. */
-import { centsOf } from "/js/money.js";
+import { centsOf, ARREARS_KIND, arrearsOnInvoice } from "/js/money.js";
+/* ⚠ THE CONSTANT AND THE LEDGER READER ARE IMPORTED, NOT RETYPED (2026-08-31).
+   arrears-hold.test.js asserts this page never contains the arrears kind as a
+   bare literal, because that is how a third copy of a money rule starts. The
+   two cards below need to know WHICH ledger line is last season's, and
+   arrearsOnInvoice gives the amount that was carried before anything was paid
+   off it. What is still OUTSTANDING is never worked out here — that number
+   arrives from the server as rec.arrearsOutstanding, as it always has. */
 
 const firebaseConfig = {
   apiKey: "AIzaSyBf0u9ZvXQiYsV8l_bMQNW6tjgF74oZRaE",
@@ -3636,6 +3668,7 @@ function renderCustomerInvoicePage(raw, opts){
     statusEl.style.color = noInvoiceYet ? '#2B5C8A' : (isPaid ? '#2E6B3E' : '#E0574B');
     document.getElementById('invAmount').textContent = fmt(totalDue);
     renderArrearsNotice(res, totalDue);
+    renderPayChoice(res, totalDue);
     renderInvoiceBreakdown(record, {
       install: invInstall, removal: invRemoval, changeFees: invChangeFee,
       credits: invCredits, deposit: invDeposit, totalDue: totalDue
@@ -3678,8 +3711,15 @@ function renderCustomerInvoicePage(raw, opts){
     if(noInvoiceYet){
       tipRow.style.display = 'none';
     } else if(!isPaid){
-      currentServiceDue = totalDue;
+      /* ⚠ WHAT IS ACTUALLY BEING CHARGED, NOT THE WHOLE BALANCE (fixed 2026-08-31).
+         This said `totalDue`, while paypalCreateOrder had been charging last
+         season's figure alone since 2026-09-01 — so the panel printed Total
+         Payment $1,146.00 directly above a button that took $200.00, and the
+         Venmo link opened pre-filled at the wrong number, which is money
+         actually collected wrongly rather than a cosmetic mismatch. */
+      currentServiceDue = portalPayableNow();
       currentTipAmount = 0;
+      currentTipPct = 0;
       tipRow.style.display = 'block';
       document.getElementById('customTipInput').value = '';
       updateTipBreakdown();
@@ -3757,43 +3797,143 @@ function renderPortalHouses(){
 function renderInvoiceBreakdown(record, n){
   var box = document.getElementById('invBreakdown');
   if(!box) return;
-  var rows = [];
 
-  if(n.install > 0) rows.push(['Installation', fmt(n.install), '']);
-  if(n.removal > 0) rows.push(['Removal / takedown', fmt(n.removal), '']);
+  var feeNotes    = Array.isArray(record.changeFeeNotes) ? record.changeFeeNotes : [];
+  var creditNotes = Array.isArray(record.creditNotes)    ? record.creditNotes    : [];
 
-  /* Fees and credits carry their own reasons. Showing the reason is the whole
-     point — a bare "-$25" prompts exactly the call this is meant to prevent. */
-  var feeNotes = Array.isArray(record.changeFeeNotes) ? record.changeFeeNotes : [];
-  if(feeNotes.length){
-    feeNotes.forEach(function(f){
-      rows.push([f.reason || 'Light change fee', fmt(Number(f.amount) || 0), '']);
-    });
-  } else if(n.changeFees > 0){
-    rows.push(['Light change fee', fmt(n.changeFees), '']);
+  /* ⭐ TWO SEASONS, TWO CARDS (2026-08-31). Addie, on the bill a customer carrying
+     last year's balance was looking at: "I need the unpaid last year to look more
+     obvious but still nice and organized."
+
+     Before this every line sat in one list, so last season's debt read as an
+     ordinary charge on this year's bill and the only thing saying otherwise was a
+     box four screens further down, under the tip picker. By the time they reached
+     it they had already decided they were being billed twice.
+
+     ⚠ ONLY WHEN THERE IS ONE. A customer with nothing carried — which is nearly
+     all of them — gets exactly the single list this page has always shown. Two
+     cards for one season would be ceremony around a number that needs none. */
+  var lastSeasonGross = arrearsOnInvoice(record);
+
+  if(centsOf(lastSeasonGross) <= 0){
+    var rows = [];
+    if(n.install > 0) rows.push(['Installation', fmt(n.install), '']);
+    if(n.removal > 0) rows.push(['Removal / takedown', fmt(n.removal), '']);
+
+    /* Fees and credits carry their own reasons. Showing the reason is the whole
+       point — a bare "-$25" prompts exactly the call this is meant to prevent. */
+    if(feeNotes.length){
+      feeNotes.forEach(function(f){
+        rows.push([f.reason || 'Light change fee', fmt(Number(f.amount) || 0), '']);
+      });
+    } else if(n.changeFees > 0){
+      rows.push(['Light change fee', fmt(n.changeFees), '']);
+    }
+
+    if(creditNotes.length){
+      creditNotes.forEach(function(c){
+        rows.push([c.reason || 'Credit', '−' + fmt(Number(c.amount) || 0), 'credit']);
+      });
+    } else if(n.credits > 0){
+      rows.push(['Credit', '−' + fmt(n.credits), 'credit']);
+    }
+
+    if(n.deposit > 0) rows.push(['Payments received', '−' + fmt(n.deposit), 'credit']);
+
+    // A single installation line and nothing else explains itself already.
+    if(rows.length < 2){ box.style.display = 'none'; box.innerHTML = ''; return; }
+
+    var html = rows.map(function(r){
+      var colour = r[2] === 'credit' ? ' style="color:#2E6B3E;"' : '';
+      return '<div class="invoice-line"><span>' + escapeHtmlPortal(r[0]) + '</span><span' + colour + '>' + r[1] + '</span></div>';
+    }).join('');
+    html += '<div class="invoice-line total"><span>' + (n.totalDue > 0 ? 'Balance due' : 'Balance') + '</span><span>' + fmt(n.totalDue) + '</span></div>';
+
+    box.innerHTML = html;
+    box.style.display = 'block';
+    return;
   }
 
-  var creditNotes = Array.isArray(record.creditNotes) ? record.creditNotes : [];
+  /* ⚠ WHAT IS STILL OWING FROM LAST SEASON IS THE SERVER'S ANSWER, NOT THIS PAGE'S.
+     Everything below only ever SPLITS numbers that already arrived; the rule that
+     decides how much of the debt survives a payment lives in js/money.js and its
+     server twin, held together by money-parity. */
+  var lastSeasonLeft = Number(record.arrearsOutstanding) || 0;
+  var paidOffLastSeason = Math.max(0, (centsOf(lastSeasonGross) - centsOf(lastSeasonLeft)) / 100);
+
+  /* Money already received is applied OLDEST DEBT FIRST — the same order the hold
+     reads it in, so the two cards cannot disagree with the rule that decides
+     whether this customer gets a crew. Each credit and payment is shown on the
+     card it actually went to, and anything wholly swallowed by last season is not
+     printed against this one, where it would make the subtotal miss. */
+  var potItems = [];
+  if(n.deposit > 0) potItems.push({ label: 'Payments received', amount: n.deposit });
   if(creditNotes.length){
     creditNotes.forEach(function(c){
-      rows.push([c.reason || 'Credit', '−' + fmt(Number(c.amount) || 0), 'credit']);
+      var amt = Number(c.amount) || 0;
+      if(amt > 0) potItems.push({ label: c.reason || 'Credit', amount: amt });
     });
   } else if(n.credits > 0){
-    rows.push(['Credit', '−' + fmt(n.credits), 'credit']);
+    potItems.push({ label: 'Credit', amount: n.credits });
+  }
+  var stillToAbsorb = centsOf(paidOffLastSeason);
+  potItems.forEach(function(it){
+    var take = Math.min(stillToAbsorb, centsOf(it.amount));
+    stillToAbsorb -= take;
+    it.leftForThisSeason = (centsOf(it.amount) - take) / 100;
+  });
+
+  function lineHtml(label, amount, credit){
+    var colour = credit ? ' style="color:#2E6B3E;"' : '';
+    return '<div class="invoice-line"><span>' + escapeHtmlPortal(label) + '</span>' +
+           '<span' + colour + '>' + (credit ? '−' : '') + fmt(amount) + '</span></div>';
   }
 
-  if(n.deposit > 0) rows.push(['Payments received', '−' + fmt(n.deposit), 'credit']);
+  var out = '';
 
-  // A single installation line and nothing else explains itself already.
-  if(rows.length < 2){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  /* ---- Last season ---- */
+  if(centsOf(lastSeasonLeft) > 0){
+    out += '<div style="background:#FFF8E9; border:1px solid #D89F3D; border-radius:12px; padding:13px 15px; margin-bottom:12px;">' +
+             '<div style="font-weight:700; color:#5A4A1F; margin-bottom:2px;">' +
+               (record.arrearsSeason ? escapeHtmlPortal(String(record.arrearsSeason)) + ' season' : 'Last season') +
+               ' &mdash; still owing</div>' +
+             '<div style="font-size:13px; line-height:1.5; color:#7A5C16; margin-bottom:8px;">' +
+               'Left over from last year. Not a new charge for this year.</div>' +
+             lineHtml('Unpaid balance', lastSeasonGross, false) +
+             (paidOffLastSeason > 0 ? lineHtml('Paid or credited so far', paidOffLastSeason, true) : '') +
+             '<div class="invoice-line total" style="color:#5A4A1F;"><span>Still owing</span><span>' +
+               fmt(lastSeasonLeft) + '</span></div>' +
+           '</div>';
+  } else {
+    out += '<div style="background:#E6F2EA; border:1px solid #b8d9c2; border-radius:12px; padding:11px 15px; margin-bottom:12px; font-size:13.5px; line-height:1.5; color:#2E6B3E; font-weight:600;">' +
+             '&#10003; ' + (record.arrearsSeason ? escapeHtmlPortal(String(record.arrearsSeason)) : 'Last season') +
+             ' is settled &mdash; thank you. Everything below is this season.</div>';
+  }
 
-  var html = rows.map(function(r){
-    var colour = r[2] === 'credit' ? ' style="color:#2E6B3E;"' : '';
-    return '<div class="invoice-line"><span>' + escapeHtmlPortal(r[0]) + '</span><span' + colour + '>' + r[1] + '</span></div>';
-  }).join('');
-  html += '<div class="invoice-line total"><span>' + (n.totalDue > 0 ? 'Balance due' : 'Balance') + '</span><span>' + fmt(n.totalDue) + '</span></div>';
+  /* ---- This season ---- */
+  var thisSeason = '';
+  if(n.install > 0) thisSeason += lineHtml('Installation', n.install, false);
+  if(n.removal > 0) thisSeason += lineHtml('Removal / takedown', n.removal, false);
+  feeNotes.forEach(function(f){
+    if(f && f.kind === ARREARS_KIND) return;
+    thisSeason += lineHtml(f.reason || 'Light change fee', Number(f.amount) || 0, false);
+  });
+  potItems.forEach(function(it){
+    if(centsOf(it.leftForThisSeason) > 0) thisSeason += lineHtml(it.label, it.leftForThisSeason, true);
+  });
+  var thisSeasonDue = Math.max(0, (centsOf(n.totalDue) - centsOf(lastSeasonLeft)) / 100);
 
-  box.innerHTML = html;
+  out += '<div style="border:1px solid var(--line); border-radius:12px; padding:13px 15px;">' +
+           '<div style="font-weight:700; margin-bottom:8px;">This season</div>' +
+           thisSeason +
+           '<div class="invoice-line total"><span>This season\u2019s total</span><span>' + fmt(thisSeasonDue) + '</span></div>' +
+         '</div>';
+
+  /* ---- The two of them together ---- */
+  out += '<div class="invoice-line total" style="margin-top:6px;"><span>' +
+           (n.totalDue > 0 ? 'Balance due' : 'Balance') + '</span><span>' + fmt(n.totalDue) + '</span></div>';
+
+  box.innerHTML = out;
   box.style.display = 'block';
 }
 
@@ -4895,6 +5035,74 @@ function commitPendingPortalCreds(){
 
 var currentServiceDue = 0;
 var currentTipAmount = 0;
+/* Which of the two amounts the customer has picked, and the two figures it picks
+   between. Both come from the server's own numbers — arrearsOutstanding and the
+   balance — so this holds a choice, never a calculation. */
+var portalPayScope = 'arrears';
+var portalArrearsLeft = 0;
+var portalTotalDue = 0;
+var currentTipPct = 0;
+function portalPayableNow(){
+  if(portalPayScope === 'all') return portalTotalDue;
+  if(portalArrearsLeft > 0) return Math.min(portalArrearsLeft, portalTotalDue);
+  return portalTotalDue;
+}
+/* ⚠ REBUILT ON EVERY READ OF THE INVOICE, including the one that runs straight
+   after a payment. Somebody who has just cleared last season must not be left
+   looking at a button offering to charge them for it again. */
+function renderPayChoice(res, totalDue){
+  var wrap = document.getElementById('invPayChoice');
+  if(!wrap) return;
+  var rec = (res && res.record) || {};
+  portalTotalDue = Number(totalDue) || 0;
+  portalArrearsLeft = Math.min(Number(rec.arrearsOutstanding) || 0, portalTotalDue);
+  portalPayScope = 'arrears';
+  if(centsOf(portalArrearsLeft) <= 0 || centsOf(portalTotalDue) <= 0){
+    wrap.style.display = 'none';
+    return;
+  }
+  var season = rec.arrearsSeason ? String(rec.arrearsSeason) : '';
+  var thisYear = Math.max(0, (centsOf(portalTotalDue) - centsOf(portalArrearsLeft)) / 100);
+  document.getElementById('payChoiceArrearsTitle').textContent = season ? (season + ' season') : 'Last season';
+  document.getElementById('payChoiceArrearsAmt').textContent = fmt(portalArrearsLeft);
+  document.getElementById('payChoiceArrearsWhy').textContent =
+    thisYear > 0
+      ? 'Clears what is left from ' + (season || 'last season') + '. This season\u2019s ' + fmt(thisYear) + ' then becomes your next payment.'
+      : 'Clears what is left from ' + (season || 'last season') + '.';
+  document.getElementById('payChoiceAllAmt').textContent = fmt(portalTotalDue);
+  document.getElementById('payChoiceAllWhy').textContent =
+    thisYear > 0
+      ? (season ? (season + '\u2019s ') : 'Last season\u2019s ') + fmt(portalArrearsLeft) + ' and this season\u2019s ' + fmt(thisYear) + ' together, settled in one payment.'
+      : 'Settles your account in full.';
+  paintPayChoice();
+  wrap.style.display = 'block';
+}
+function paintPayChoice(){
+  var btns = document.querySelectorAll('#invPayChoice .pay-choice');
+  for(var i = 0; i < btns.length; i++){
+    var on = btns[i].getAttribute('data-scope') === portalPayScope;
+    btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    btns[i].style.borderColor = on ? 'var(--pine, #14452F)' : 'var(--line)';
+    btns[i].style.boxShadow = on ? 'inset 0 0 0 1px var(--pine, #14452F)' : 'none';
+    btns[i].style.background = on ? '#F2F7F3' : '#fff';
+  }
+}
+document.addEventListener('click', function(e){
+  var btn = e.target && e.target.closest ? e.target.closest('#invPayChoice .pay-choice') : null;
+  if(!btn) return;
+  portalPayScope = btn.getAttribute('data-scope') === 'all' ? 'all' : 'arrears';
+  paintPayChoice();
+  currentServiceDue = portalPayableNow();
+  /* ⚠ THE TIP FOLLOWS THE AMOUNT. A percentage picked against $1,146 and left
+     sitting on a $200 payment is a tip nobody agreed to. A typed figure is left
+     exactly as typed — that one they did agree to. */
+  if(currentTipPct > 0) currentTipAmount = Math.round(currentServiceDue * currentTipPct / 100 * 100) / 100;
+  var tipInput = document.getElementById('customTipInput');
+  if(tipInput && currentTipPct > 0) tipInput.value = currentTipAmount || '';
+  updateTipBreakdown();
+  /* PayPal builds its order when the button is pressed, not now — but the SDK
+     caches nothing about the amount, so nothing needs re-rendering here. */
+});
 /* Which payment methods the portal offers. 'venmo' and 'paypal' are one-or-the-
    other; 'both' shows them side by side so the customer picks. PayPal needs a
    Client ID to render at all, so it is never offered without one. */
@@ -4918,9 +5126,8 @@ function updateTipBreakdown(){
   var showVenmo = venmoAvailable();
   var venmoBtn = document.getElementById('venmoPayBtn');
   var payNote = document.getElementById('payNoteText');
-  var qrPanel = document.getElementById('qrPanel');
   var paypalWrap = document.getElementById('paypalButtonWrap');
-  var paypalOrNote = document.getElementById('paypalOrNote');
+  var otherPanel = document.getElementById('otherPaymentsPanel');
   if(venmoBtn){
     venmoBtn.style.display = showVenmo ? 'block' : 'none';
     if(showVenmo && currentLookupRecord){
@@ -4932,12 +5139,17 @@ function updateTipBreakdown(){
     payNote.style.display = showVenmo ? '' : 'none';
     payNote.textContent = 'Opens Venmo with the amount and your name pre-filled — just confirm and send.';
   }
-  /* The Venmo QR sits permanently at the bottom of the Venmo block now, rather
-     than behind a Show/Hide toggle, so it simply follows Venmo's visibility. */
-  if(qrPanel) qrPanel.style.display = showVenmo ? 'block' : 'none';
   if(paypalWrap) paypalWrap.style.display = showPaypal ? 'block' : 'none';
-  /* Only worth a divider when both are on screen at once. */
-  if(paypalOrNote) paypalOrNote.style.display = (showPaypal && showVenmo) ? 'block' : 'none';
+  /* ⭐ VENMO LIVES UNDER "Other payment options" AND IS SHUT BY DEFAULT.
+     ⚠ CLOSED ON EVERY RENDER, not just the first: this runs again whenever the
+     amount changes (a tip, an instalment), and a <details> the customer opened
+     would otherwise stay open — turning the last resort back into a visible
+     equal option. Shut rather than rebuilt, so the Venmo link keeps the amount
+     just written to it. */
+  if(otherPanel){
+    otherPanel.style.display = showVenmo ? 'block' : 'none';
+    otherPanel.open = false;
+  }
 }
 
 /* ---------------- PayPal Smart Buttons ---------------- */
@@ -5015,7 +5227,7 @@ function renderPaypalButtons(){
       // lowercase email for customers without a phone. The Cloud Function
       // treats it as an opaque invoice ID either way.
       var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
-      return createOrderFn({ phone: phone, tipAmount: currentTipAmount }).then(function(result){
+      return createOrderFn({ phone: phone, tipAmount: currentTipAmount, payAll: portalPayScope === 'all' }).then(function(result){
         return result.data.orderID;
       }).catch(function(err){
         if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Something went wrong starting the payment — please try again or call/text us at (801) 901-0011.'; }
@@ -5094,6 +5306,10 @@ function renderPaypalButtons(){
 document.querySelectorAll('.tip-option-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
     var pct = Number(btn.dataset.tip) || 0;
+    /* The percentage is remembered, not just the figure it produced, so that
+       switching between the two payment amounts re-works it against the amount
+       actually being paid. */
+    currentTipPct = pct;
     var val = Math.round(currentServiceDue * pct / 100 * 100) / 100;
     var input = document.getElementById('customTipInput');
     input.value = val || '';
@@ -5103,6 +5319,7 @@ document.querySelectorAll('.tip-option-btn').forEach(function(btn){
 });
 document.getElementById('customTipInput').addEventListener('input', function(){
   currentTipAmount = Math.max(0, Number(this.value) || 0);
+  currentTipPct = 0;   /* typed by hand — never re-worked underneath them */
   updateTipBreakdown();
 });
 

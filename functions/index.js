@@ -433,7 +433,7 @@ function arrearsOutstandingServer(inv) {
 exports.paypalCreateOrder = onCall(
   { secrets: [PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_ENV] },
   async (request) => {
-    const { phone, tipAmount } = request.data || {};
+    const { phone, tipAmount, payAll } = request.data || {};
     if (!phone) throw new HttpsError('invalid-argument', 'Missing phone.');
 
     const invSnap = await db.collection('invoices').doc(phone).get();
@@ -461,7 +461,16 @@ exports.paypalCreateOrder = onCall(
        ⚠ CAPPED AT THE BALANCE. A carried figure larger than what is left on the bill
        (a credit applied since, say) must never charge more than they owe. */
     const arrearsLeft = Math.min(arrearsOutstandingServer(inv), balanceDue);
-    const payingLastSeason = arrearsLeft > 0;
+    /* ⭐ AND SINCE 2026-08-31 THEY CAN CHOOSE THE OTHER ONE. Addie: "2 button options
+       for last year and full payment." The default is unchanged — last season, chosen
+       for them — but somebody who would rather clear the whole account in one go no
+       longer has to ring the office or fall back to Venmo to do it.
+
+       ⚠ A FLAG, NOT AN AMOUNT. `payAll` only picks between two figures this function
+       has just worked out from the invoice itself. A caller cannot name a number, so
+       the worst a forged request can do is pay MORE of their own bill than the page
+       offered — which is why this needs no further guard. */
+    const payingLastSeason = arrearsLeft > 0 && !payAll;
     const chargeAmount = (payingLastSeason ? arrearsLeft : balanceDue) + tip;
 
     if (chargeAmount <= 0) throw new HttpsError('failed-precondition', 'Nothing due to charge.');
@@ -541,8 +550,34 @@ exports.paypalCaptureOrder = onCall(
       const inv = invSnap.data();
       const owed = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0);
       const balanceDue = Math.max(0, owed - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
-      serviceAmount = Math.min(capturedAmount, balanceDue);
-      tip = Math.max(0, capturedAmount - serviceAmount);
+      /* ⭐ A PART PAYMENT'S TIP IS A TIP (fixed 2026-08-31). This read
+         `serviceAmount = min(captured, balanceDue)` and called only the surplus a
+         tip — right while the button always charged the whole bill, and wrong from
+         the moment it started charging last season alone. A customer paying $200 of
+         a $1,146 bill and adding $30 for the crew sent $230, which is under the
+         balance, so the whole $230 was booked against the bill and the tip was
+         recorded as $0. The crew's tip quietly became bill payment, on every arrears
+         payment since 2026-09-01.
+
+         ⚠ STILL DERIVED, NEVER TAKEN FROM THE BROWSER. The reason the old line
+         existed is unchanged: a caller supplying tipAmount could book a real payment
+         as 100% tip and leave a customer who paid still showing as owing. So the
+         split is inferred from the invoice instead — createOrder only ever charges
+         one of two figures plus a tip, so a capture landing on or above either of
+         them settles that figure and the remainder is the tip.
+
+         ⚠ WHOLE CENTS, because $230 against a $230 debt must not miss by 2.8e-14
+         and book a customer's whole payment as a tip. */
+      const arrearsLeft = Math.min(arrearsOutstandingServer(inv), balanceDue);
+      const cap = centsOf(capturedAmount);
+      if (cap >= centsOf(balanceDue)) {
+        serviceAmount = balanceDue;
+      } else if (arrearsLeft > 0 && cap >= centsOf(arrearsLeft)) {
+        serviceAmount = arrearsLeft;
+      } else {
+        serviceAmount = capturedAmount;
+      }
+      tip = Math.max(0, (cap - centsOf(serviceAmount)) / 100);
     }
 
     await recordPaypalPayment(invoiceKey, { captureId, tip, serviceAmount });
