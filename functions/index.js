@@ -2062,9 +2062,52 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      just proved belongs to this one record. Nothing else about the customer
      comes back. It is what lets the next step say "we have 4417 on file, is
      that still right?" instead of asking a customer who already told us. */
+  /* ⭐ A YES IS NOT A PAYMENT, AND THE PAGE HAS TO BE ABLE TO SAY SO (2026-09-01).
+     RS-24 holds a customer who owes for last season out of the season even when they
+     answer Yes — but the RSVP confirmation told them "We'll get you scheduled!", which
+     is a promise this app will not keep for exactly the people it is not keeping it
+     for. They would have found out in December, looking at a dark house.
+
+     ⚠ THIS IS NOT MON-34's AUTOMATIC CHASE, and the line matters. Nothing is SENT:
+     no email, no text, no note. It is one honest sentence on a screen the customer is
+     already looking at, in answer to a button they just pressed — and MON-34's own
+     reasoning already rests on them being able to "see and pay it in their portal".
+
+     ⚠ THE BILL THE HOUSE IS ON, NEVER THE HOUSE'S OWN KEY, which is RS-24's rule
+     verbatim: if Dana pays for Kyle and Dana did not pay, Kyle's lights were not paid
+     for either. Reading Kyle's own key finds no invoice and tells him he is clear.
+
+     ⚠ AND IT FAILS TOWARDS SILENCE, which is the opposite direction to the season
+     hold and is deliberate. An unreadable invoice there keeps somebody IN the season;
+     here it must not tell a customer they owe money we cannot prove they owe. Being
+     wrongly accused of a debt is worse than not being warned about a real one, and the
+     office still has Schedule › Owes from last year either way. */
+  let arrearsOutstanding = 0;
+  let arrearsSeason = '';
+  if (response === 'yes') {
+    try {
+      const billKey = digitsOnly(oldData.billToPhone) || invoiceKeyFor(oldData);
+      if (billKey) {
+        const invSnap = await db.collection('invoices').doc(billKey).get();
+        if (invSnap.exists) {
+          const inv = invSnap.data();
+          arrearsOutstanding = arrearsOutstandingServer(inv);
+          arrearsSeason = arrearsYearServer(inv) || '';
+        }
+      }
+    } catch (e) {
+      /* Silent by the rule above: the RSVP itself is already saved, and a failed
+         invoice read must never cost the customer their answer. Logged so it is not
+         one of the quiet failures Addie ruled out on 2026-08-25. */
+      console.error('[HU] portalRsvp arrears lookup failed:', e);
+    }
+  }
+
   return { ok: true, rsvpStatus: response,
            rejoinedAfterRecycle: rejoinedAfterRecycle,
            removedFromRoutes: removedFrom,
+           arrearsOutstanding: arrearsOutstanding,
+           arrearsSeason: arrearsSeason,
            gateCode: String(oldData.gateCode || '') };
 });
 

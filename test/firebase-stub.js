@@ -178,15 +178,14 @@ const FAKE_FUNCTIONS_MODULE = `
        and it would be the copy the customer reads). Without these two fields
        the portal's arrears notice can never appear in a test, and the split
        payment looks unbuilt when it is merely unsent. */
-    const notes = Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [];
-    const arrears = notes.reduce(function (sum, n) {
-      return sum + ((n && n.kind === 'arrears') ? (Number(n.amount) || 0) : 0);
-    }, 0);
     const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0);
     const balanceDue = Math.max(0, total - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
-    record.arrearsOutstanding = Math.min(arrears, balanceDue);
-    const withYear = notes.find(function (n) { return n && n.kind === 'arrears'; });
-    record.arrearsSeason = (withYear && (withYear.year || (/(\d{4})/.exec(withYear.reason || '') || [])[1])) || '';
+    const a = stubArrears(inv);
+    /* Capped here and NOT inside stubArrears: portalInvoice returns the raw figure
+       and index.html caps it against the balance, so a stub that capped for every
+       caller would hide a page that had stopped doing so. */
+    record.arrearsOutstanding = Math.min(a.outstanding, balanceDue);
+    record.arrearsSeason = a.season;
     return { found: true, record };
   }
 
@@ -214,6 +213,23 @@ const FAKE_FUNCTIONS_MODULE = `
       quotes.push({ id: q.id, data: Object.assign({}, d) });
     });
     return { quotes: quotes };
+  }
+
+  /* ⭐ ONE ARREARS DERIVATION FOR THE WHOLE STUB, mirroring arrearsOutstandingServer
+     in functions/index.js: what the carried line adds up to, less what has been paid
+     and credited against it, floored at nought. Two copies in here would drift from
+     each other and, worse, could agree with a broken page. */
+  function stubArrears(inv) {
+    const notes = Array.isArray(inv && inv.changeFeeNotes) ? inv.changeFeeNotes : [];
+    const owed = notes.reduce(function (sum, n) {
+      return sum + ((n && n.kind === 'arrears') ? (Number(n.amount) || 0) : 0);
+    }, 0);
+    const paid = (Number((inv && inv.deposit) || 0)) + (Number((inv && inv.credits) || 0));
+    const withYear = notes.find(function (n) { return n && n.kind === 'arrears'; });
+    return {
+      outstanding: owed <= 0 ? 0 : Math.max(0, owed - paid),
+      season: (withYear && (withYear.year || (/(\d{4})/.exec(withYear.reason || '') || [])[1])) || ''
+    };
   }
 
   const HANDLERS = {
@@ -248,10 +264,34 @@ const FAKE_FUNCTIONS_MODULE = `
         if (F.customers[k].token === token) hit = F.customers[k];
       });
       if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
+      /* ⚠ AND SO DOES WHAT THEY STILL OWE FROM LAST SEASON, on a yes. The real
+         portalRsvp reads the invoice and returns these two so the confirmation can
+         stop promising an install to somebody RS-24 holds out of the season. Without
+         them here the notice can never appear in a browser test, and a spec asserting
+         it would be green over a server that never sent it -- which is the exact way
+         this stub has already been caught lying three times.
+         ⚠ DERIVED FROM THE FIXTURE INVOICE, never hardcoded, and by the SAME key rule
+         the server uses: the bill the house is ON (billToPhone) before the house's own
+         key. A stub that returns a constant proves only that the page can render a
+         number somebody typed into the stub. */
+      let arrearsOutstanding = 0;
+      let arrearsSeason = '';
+      if (response === 'yes') {
+        const billKey = String((hit.record && hit.record.billToPhone) || '').replace(/\D/g, '') ||
+                        hit.invoiceKey;
+        const inv = billKey ? (F.invoices || {})[billKey] : null;
+        if (inv) {
+          const a = stubArrears(inv);
+          arrearsOutstanding = a.outstanding;
+          arrearsSeason = a.season;
+        }
+      }
       /* The gate code rides back on the answer, exactly as the real one does,
          so the step that follows can CONFIRM a code we hold rather than ask a
          customer who already told us. */
       return { ok: true, rsvpStatus: response,
+               arrearsOutstanding: arrearsOutstanding,
+               arrearsSeason: arrearsSeason,
                gateCode: String((hit.record && hit.record.gateCode) || '') };
     },
 
