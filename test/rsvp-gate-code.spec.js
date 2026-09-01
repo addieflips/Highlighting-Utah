@@ -43,6 +43,11 @@ function noGateCode() {
   return { customers: { nogate: c } };
 }
 
+/* ⚠ "MOVED ON" IS THE PORTAL NOW, NOT A CONFIRMATION MESSAGE (2026-09-01).
+   Dax asked for the RSVP buttons to "automatically send the customer to their
+   member portal", so the gate-code step hands off straight to it. These tests
+   are about the GATE CODE and are unchanged in substance — what they assert
+   after it is simply the screen that now follows. */
 test.describe('Gate code on the RSVP yes', () => {
 
   /* ⚠ ORDER IS THE RULING. "Gate code before changes" — so the changes
@@ -104,9 +109,9 @@ test.describe('Gate code on the RSVP yes', () => {
     const stub = await openRsvpYes(page, CUSTOMERS.standard.token);
     await page.locator('#rsvpGateCodeYesBtn').click();
 
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i);
+    await expect(page.locator('#invBreakdown')).toBeVisible();
     await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
-    await expect(page.locator('#rsvpOpenPortalBtn')).toBeVisible();
+    await expect(page.locator('#rsvpConfirmCard')).toBeHidden();
 
     const calls = await stub.calls();
     expect(calls.filter(c => c.name === 'portalSetGateCode').length).toBe(0);
@@ -123,11 +128,11 @@ test.describe('Gate code on the RSVP yes', () => {
     stub.assertNoRealCalls();
   });
 
-  test('saying there is none goes straight to the changes question', async ({ page }) => {
+  test('saying there is none goes straight to the portal', async ({ page }) => {
     const stub = await openRsvpYes(page, 'testtokennogate0001', noGateCode());
     await page.locator('#rsvpGateCodeNoBtn').click();
 
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i);
+    await expect(page.locator('#invBreakdown')).toBeVisible();
     const calls = await stub.calls();
     expect(calls.filter(c => c.name === 'portalSetGateCode').length).toBe(0);
 
@@ -148,7 +153,7 @@ test.describe('Gate code on the RSVP yes', () => {
       return c.length ? c[c.length - 1].payload.gateCode : null;
     }, { timeout: 5000 }).toBe('#0754');
 
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i, { timeout: 5000 });
+    await expect(page.locator('#invBreakdown')).toBeVisible({ timeout: 5000 });
 
     expect(stub.thrown).toEqual([]);
     stub.assertNoRealCalls();
@@ -162,7 +167,7 @@ test.describe('Gate code on the RSVP yes', () => {
     await page.locator('#rsvpGateCodeInput').fill('');
     await page.locator('#rsvpGateCodeSaveBtn').click();
 
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i);
+    await expect(page.locator('#invBreakdown')).toBeVisible();
     const calls = await stub.calls();
     expect(calls.filter(c => c.name === 'portalSetGateCode').length).toBe(0);
 
@@ -185,7 +190,7 @@ test.describe('Gate code on the RSVP yes', () => {
 
     await expect(page.locator('#rsvpGateCodeStatus')).toContainText(/my info/i);
     /* And it does not stop there — it moves them on by itself. */
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i, { timeout: 6000 });
+    await expect(page.locator('#invBreakdown')).toBeVisible({ timeout: 6000 });
 
     stub.assertNoRealCalls();
   });

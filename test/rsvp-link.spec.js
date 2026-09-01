@@ -69,23 +69,26 @@ test.describe('RSVP email links', () => {
       return rsvp.length ? rsvp[rsvp.length - 1].payload.response : null;
     }).toBe('yes');
 
-    /* 2. What they read. */
+    /* 2. What they read. The gate-code step still comes first (Addie,
+       2026-08-31: "Lets do gate code before changes") and is the ONLY thing
+       between a yes and the portal now — Dax, 2026-09-01, asked for the buttons
+       to "automatically send the customer to their member portal", so the
+       confirmation card that used to end this flow is gone. */
     await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
-    /* ⚠ THE GATE-CODE STEP NOW COMES FIRST on a yes (Addie, 2026-08-31: "Lets
-       do gate code before changes"), so this clicks through it to reach the
-       confirmation it has always been about. That is following the flow, not
-       relaxing the check — every assertion below is unchanged, and the step
-       itself is proved in test/rsvp-gate-code.spec.js. */
     await page.locator('#rsvpGateCodeYesBtn').click();
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i);
-    await expect(page.locator('#rsvpOpenPortalBtn')).toBeVisible();
-    await expect(page.locator('#rsvpNoChangesBtn')).toBeVisible();
+    await expect(page.locator('#invBreakdown')).toBeVisible();
+    await expect(page.locator('#rsvpConfirmCard')).toBeHidden();
 
     /* 3. What they must NOT be looking at. */
     await expectNotTheQuoteForm(page);
 
-    /* Minimal mode: a receipt, not the website. Nothing to browse away into. */
-    await expect(page.locator('header')).toBeHidden();
+    /* ⚠ AND MINIMAL MODE IS DELIBERATELY OVER BY NOW. `rsvp-minimal` strips the
+       page down to a receipt, which is right while the card is the whole screen
+       and wrong once they are inside their account — the old "Take me to my
+       portal" button removed the same two classes for the same reason. So the
+       header being BACK is the assertion here, not a relaxed one. The no and
+       back-next-year paths still end on the receipt and still assert it hidden. */
+    await expect(page.locator('header')).toBeVisible();
 
     expect(stub.thrown, stub.consoleNoise.join('\n')).toEqual([]);
     stub.assertNoRealCalls();

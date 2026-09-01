@@ -53,9 +53,28 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
    | Button | Link | Answer saved | What the customer sees |
    |---|---|---|---|
-   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | "You're confirmed for this season!" then two buttons — *Yes, Take Me to My Portal* / *No, I'm All Set* |
+   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | The gate-code step, then **their member portal opens by itself** — no confirmation screen, no button to press (changed 2026-09-01, RS-31) |
    | **No** | `#/payment?token=…&rsvp=no` | `no` | "We'll be sorry to miss you this year" then *Tell us why (optional)* / *That's all, thanks* |
    | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | "We look forward to seeing you next year!" |
+
+   ⭐ **A YES ENDS IN THE PORTAL, NOT ON A QUESTION** (changed 2026-09-01, RS-31). Dax: the RSVP buttons
+   *"dont do anythng we need but it needs to change the customers badge and it should also automatically
+   send the customer to their member portal."* The badge half was already working and was checked before
+   anything was built — all three buttons call `portalRsvp`, `seasonBadgeKey` derives the badge from
+   `rsvpStatus`, and two live customers read *RSVP: Yes — CONFIRMED*. What changed is the routing:
+   `showChangesQuestion` ("You're confirmed! Do you want to make any changes?", with the portal behind a
+   button) is replaced by `openPortalAfterYes`, which tears the card down and calls `loadPortalByToken`.
+
+   - ⚠ **The gate-code step stays, and is now the only thing in between.** Dax: *"gate codes change so
+     make sure it asks if theres a gate code."* That is RS-29 reaffirmed, not reversed.
+   - ⚠ **Yes only.** No still gets its message before the Cancel tab — Addie's 2026-08-19 ruling, *"put a
+     message in front of it first so they know why they've landed there"* — and Back Next Year is untouched.
+   - ⚠ **The debt sentence moved rather than being dropped.** The removed screen told a debtor we could not
+     book them; that line is now on the portal's own *"<year> season — still owing"* card, where it is true
+     whenever they open the page instead of only just after an RSVP.
+   - ⚠ **And minimal mode ends there by design.** `openPortalAfterYes` removes `rsvp-minimal`/`rsvp-back`,
+     exactly as the old *Take Me to My Portal* button did — a receipt is right for a card, wrong for an
+     account page. The no and back-next-year paths still end on the receipt.
 
    All three are a **receipt, not the website**: the header, footer and hero come off, and nothing else is reachable from the page. That is `body.rsvp-minimal`, which force-shows `#page-payment` (holding `#rsvpConfirmCard`) for the first two, plus the modifier `body.rsvp-minimal.rsvp-back`, which force-shows `#page-home` (holding `#backNextYearConfirm`) for the third.
 
@@ -69,7 +88,7 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    ⭐ **THE GATE CODE IS ASKED ON THE WAY PAST A YES** (added 2026-08-31). Addie: *"Lets do gate code before changes."* After the yes is recorded and before *"do you want to make any changes?"*, the customer is asked about their gate code — the RSVP is the one email everybody opens and acts on, so it is the cheapest chance each season to catch a wrong code before a crew is standing at a locked gate.
    - **It confirms when we hold one, and asks when we do not.** A code on file is quoted back (*"We have 4417 as your gate code. Is that still right?"*); confirming writes nothing, so `gateCodeUpdatedAt` marks a real change rather than every RSVP.
    - ⚠ **Only on a yes.** Somebody sitting the season out is never asked — no crew is coming, so it is a question with nothing behind it.
-   - ⚠ **It fails open, every way out.** Missing markup, a refused save, a thrown call: all of them move on to the changes question. The RSVP answer is already recorded by then, so nothing here can cost them their reply, and the same field is reachable any time under My Info.
+   - ⚠ **It fails open, every way out.** Missing markup, a refused save, a thrown call: all of them move on to the portal (the changes question until 2026-09-01 — see RS-31). The RSVP answer is already recorded by then, so nothing here can cost them their reply, and the same field is reachable any time under My Info.
    - ⚠ **It is NOT `portalSave`, and that is the trap.** `gateCode` is in `portalSave`'s `info` whitelist, so reusing it looks clean — but that section ends `updates.seasonStatus = 'needs_changes'`, the **re-quote state**, resolved by answering a quote. No quote exists here, so every customer who typed a gate code would sit in Needs Changes for ever. `portalSetGateCode` writes one field and nothing else.
    - ⚠ **The browser specs cannot see the server half.** `test/rsvp-gate-code.spec.js` drives the page against a fake Firebase; `gate-code.test.js` holds `functions/index.js`. A red-check proved the split was needed — breaking the real server's return left all ten browser specs green.
 

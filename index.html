@@ -3927,7 +3927,8 @@ function renderInvoiceBreakdown(record, n){
                (record.arrearsSeason ? escapeHtmlPortal(String(record.arrearsSeason)) + ' season' : 'Last season') +
                ' &mdash; still owing</div>' +
              '<div style="font-size:13px; line-height:1.5; color:#7A5C16; margin-bottom:8px;">' +
-               'Left over from last year. Not a new charge for this year.</div>' +
+               'Left over from last year. Not a new charge for this year. ' +
+               '<strong>We can&rsquo;t book your install until this is settled.</strong></div>' +
              lineHtml('Unpaid balance', lastSeasonGross, false) +
              (paidOffLastSeason > 0 ? lineHtml('Paid or credited so far', paidOffLastSeason, true) : '') +
              '<div class="invoice-line total" style="color:#5A4A1F;"><span>Still owing</span><span>' +
@@ -4511,11 +4512,12 @@ function handleRsvpLink(token, rsvpValue){
   var openPortalBtn = document.getElementById('rsvpOpenPortalBtn');
   var noChangesBtn = document.getElementById('rsvpNoChangesBtn');
   var reasonWrap = document.getElementById('rsvpReasonWrap');
-  /* Set from the server's answer in the yes branch below, and read by
-     showChangesQuestion, which runs later as the gate-code step's callback.
-     Zero until then, so every other path behaves exactly as it did. */
-  var rsvpArrearsLeft = 0;
-  var rsvpArrearsSeason = '';
+  /* ⚠ THERE ARE NO ARREARS VARIABLES HERE ANY MORE, deliberately. `rsvpArrearsLeft`
+     and `rsvpArrearsSeason` were set from portalRsvp's answer and read only by
+     showChangesQuestion, the screen a yes used to stop on. A yes now goes straight
+     into the portal, which draws the "<year> season — still owing" card itself from
+     the invoice — so keeping them here would be two variables written on every yes
+     and read by nothing, which is exactly what §1 of CLAUDE.md is about. */
   if(lookupFormWrap) lookupFormWrap.style.display = 'none';
   if(confirmCard) confirmCard.style.display = 'block';
   if(reasonWrap) reasonWrap.style.display = 'none';
@@ -4543,16 +4545,27 @@ function handleRsvpLink(token, rsvpValue){
       return;
     }
     if(rsvpValue === 'yes'){
-      /* ⭐ WHAT THEY STILL OWE FROM LAST SEASON, so the confirmation below can stop
-         promising an install this app will not deliver. See showChangesQuestion. The
-         server decides the figure (portalRsvp); this page only ever repeats it. */
-      rsvpArrearsLeft = Number(res.arrearsOutstanding) || 0;
-      rsvpArrearsSeason = res.arrearsSeason ? String(res.arrearsSeason) : '';
-      /* ⚠ THE GATE CODE COMES FIRST, and the changes question is handed to it
-         as a callback rather than run alongside — otherwise both are on screen
-         at once and the customer answers whichever they see. Addie's ordering:
-         "Lets do gate code before changes." */
-      showRsvpGateCodeStep(token, res.gateCode || '', showChangesQuestion);
+      /* ⚠ portalRsvp STILL RETURNS arrearsOutstanding AND arrearsSeason and this page
+         no longer reads either. That is deliberate rather than an oversight: the
+         portal's own invoice card is where a debtor is told the figure now, drawn
+         from the invoice rather than repeated from this answer, so there is one
+         place saying it instead of two that can disagree. Do not delete them from
+         the server — renderPortalInvoice is not the only caller. */
+      /* ⚠ THE GATE CODE STILL COMES FIRST, and it is now the ONLY thing between a
+         yes and their portal. Dax, 2026-09-01: "gate codes change so make sure it
+         asks if theres a gate code" — which is why this step survived the change
+         below. showRsvpGateCodeStep already asks every time: it offers "We have
+         1234 as your gate code. Is that still right?" when one is on file and
+         "is there a gate code our crew needs to get in?" when there is not, so a
+         code that changed over the summer is caught on the one screen a customer
+         reliably answers. Do NOT skip it for somebody who already has one stored.
+
+         ⭐ AND THEN STRAIGHT INTO THE PORTAL (Dax, 2026-09-01: the RSVP buttons
+         "should also automatically send the customer to their member portal").
+         It used to hand off to showChangesQuestion, which asked "do you want to
+         make any changes?" and put the portal behind a button — a question whose
+         only useful answer is the place we were about to send them anyway. */
+      showRsvpGateCodeStep(token, res.gateCode || '', openPortalAfterYes);
       return;
     }
     /* Everything below is the "no" path; the yes branch above returns. Kept as
@@ -4640,49 +4653,34 @@ function handleRsvpLink(token, rsvpValue){
      hold. Nought — including an unreadable invoice, which the server reports as nought
      — takes the original wording untouched. Telling somebody they owe money we cannot
      prove they owe is worse than not warning them about a real debt. */
-  function showChangesQuestion(){
-    var owes = rsvpArrearsLeft > 0;
-    /* "the 2025 season" reads correctly; "the last season" does not, so the article
-       belongs to the branch that has a year rather than to both. */
-    var seasonWord = rsvpArrearsSeason ? 'the ' + escapeHtmlPortal(rsvpArrearsSeason) + ' season' : 'last season';
-    if(owes){
-      /* Their answer IS recorded — portalRsvp wrote it before this screen drew — so
-         it is confirmed first and plainly. What follows is about the install, not
-         about whether we heard them. */
-      confirmMsg.innerHTML = "Thanks \u2014 we've got your yes. \uD83C\uDF84<br><br>" +
-        'One thing before we can book you in: <strong>' + escapeHtmlPortal(fmt(rsvpArrearsLeft)) +
-        '</strong> from ' + seasonWord + ' is still outstanding on your account. ' +
-        "We can't schedule your install until that's settled.";
-    } else {
-      confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
-    }
-    if(openPortalBtn){
-      /* Labels set explicitly in BOTH branches. The "no" branch reuses these
-         same two buttons with different wording, so leaving either to the
-         markup default means whichever branch ran second wins. */
-      openPortalBtn.textContent = owes ? "Pay Last Season's Balance" : 'Yes, Take Me to My Portal';
-      if(noChangesBtn) noChangesBtn.textContent = owes ? "I'll Do It Later" : "No, I'm All Set";
-      openPortalBtn.style.display = 'inline-flex';
-      openPortalBtn.onclick = function(){
-        document.body.classList.remove('rsvp-minimal', 'rsvp-back');
-        confirmCard.style.display = 'none';
-        loadPortalByToken(token);
-      };
-    }
-    if(noChangesBtn){
-      noChangesBtn.style.display = 'inline-flex';
-      noChangesBtn.onclick = function(){
-        if(openPortalBtn) openPortalBtn.style.display = 'none';
-        noChangesBtn.style.display = 'none';
-        /* ⚠ THE SECOND SCREEN HAS TO HOLD THE LINE TOO. This was the sentence that
-           actually made the promise, and leaving it while fixing only the one above
-           would put "We'll get you scheduled!" back as the LAST thing they read. */
-        confirmMsg.innerHTML = owes
-          ? "No problem \u2014 your yes is saved.<br>We'll book your install as soon as that " +
-            "balance is settled."
-          : 'Thank you for choosing HighlightingUtah!<br>We\'ll get you scheduled!';
-      };
-    }
+  /* ⭐ A YES ENDS IN THEIR PORTAL, NOT ON A QUESTION (Dax, 2026-09-01: the RSVP
+     buttons "should also automatically send the customer to their member portal").
+     This replaced showChangesQuestion, which asked "You're confirmed! Do you want
+     to make any changes?" and then put the portal behind a button — so the one
+     screen every confirming customer sees ended in a question whose only useful
+     answer was the page we were about to send them to.
+
+     ⚠ ONLY THE YES PATH CHANGED. "No" still gets its message first and reaches the
+     Cancel tab by an optional button, because that ordering is Addie's own ruling
+     of 2026-08-19 — "keep the Cancel tab, but put a message in front of it first
+     so they know why they've landed there" — and a no dropped straight into an
+     account page is exactly what she was fixing. Back Next Year is untouched too.
+
+     ⚠ AND THE MONEY IS NOT LOST BY SKIPPING THE OLD SCREEN. That screen told a
+     debtor what they owed and that we could not book them until it was settled;
+     the portal says the same thing and says it better — renderPortalInvoice draws
+     a "<year> season — still owing" card with the figure, what has been paid off
+     it, and a pay button. The sentence about SCHEDULING is the one thing the card
+     did not carry, so it was added there rather than dropped (see that card). */
+  function openPortalAfterYes(){
+    /* The card is torn down rather than hidden behind the portal: the RSVP body
+       classes drive a cut-down layout, and leaving them on renders the portal
+       inside it. Same three lines the old button handler used. */
+    document.body.classList.remove('rsvp-minimal', 'rsvp-back');
+    if(confirmCard) confirmCard.style.display = 'none';
+    if(openPortalBtn) openPortalBtn.style.display = 'none';
+    if(noChangesBtn) noChangesBtn.style.display = 'none';
+    loadPortalByToken(token);
   }
 
   function rsvpLinkFailed(err){
