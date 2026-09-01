@@ -285,6 +285,15 @@ module.exports = [
 
   {
     field: 'housePrice',
+    /* ⚠ THE SAME THREE FAMILIES AS customerNumber, and one more. Declared where they
+       decide something, excluded where they print, rank or test. `whFillFeetFromPriceBtn`
+       is the extra: it works FEET back out of a price for houses that were never
+       measured — reading the price to guess the footage, which is the guessing Addie has
+       ruled out and is a warehouse tool, not a pricing connection. */
+    ignore: ['^(print|render(?!InvoicesList)|rbCollect|rbCustomerToSheetRow|rbLedgerRank|rbCheckBtn handler)',
+             '^(buildTestPerson|qBuildTestBtn handler)$',
+             '^(whFillFeetFromPriceBtn handler|messageFeetEstimate|resolveLinkTokens|addOnEmailBlock)$',
+             'ExportBtn handler$'],
     areas: ['Quote Requests', 'Customers', 'Invoices'], record: 'cust',
     title: 'The price',
     plain: 'What the customer agreed to pay for their house.',
@@ -295,11 +304,32 @@ module.exports = [
       ['Never re-derived from feet', 'They are billed what they agreed, not a recalculation']
     ],
     sets: [
+      /* ⭐ DECLARED 2026-08-31. What a house is charged, and every place it can change. */
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'the office edits the price',
+        rules: ['A price typed on its own asks whether it goes back to the customer — a typo and a discount agreed on the phone are not the same thing.'] },
+      { file: 'admin', fn: 'rmPushToCustomer', where: 'Quote Requests', when: 'the measure tool commits a price',
+        rules: ['The feet and the price are written in ONE update — two writes can half-succeed, and the half that survives is a priced house with no footage.'] },
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices › Invoice List', when: 'a house price is corrected from the invoice',
+        rules: ['This writes the CUSTOMER, not the invoice — the invoice is rebuilt from house prices, so changing it here is what makes the bill follow.'] },
       { file: 'admin', near: 'needsGeocode: pinFailed', where: 'Customers › Add a Customer', when: 'a customer is created',
         rules: ['The agreed price is copied across, never worked out again.'] },
       { file: 'admin', fn: 'rbApplyTickedAdds', where: 'Customers › Bulk Updates', when: 'the sheet adds a house' }
     ],
     reads: [
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the bill is built',
+        rules: ['The bill is the sum of the house prices on it, so this is where the number on the invoice comes from.'] },
+      { file: 'admin', fn: 'billingGroupRows', where: 'Customers › Who Pays for Whom', when: 'a shared bill is broken down by house' },
+      { file: 'admin', fn: 'billedHousesRows', where: 'Invoices › Invoice List', when: 'the houses on one bill are priced' },
+      { file: 'admin', fn: 'invoiceAutoSync', where: 'Invoices › Invoice List', when: 'an invoice is rebuilt from its houses',
+        rules: ['A price change on a customer has to reach their invoice, or the office and the nightly run disagree about the bill.'] },
+      { file: 'admin', fn: 'houseBundleNeed', where: 'Warehouse › Build', when: 'the warehouse works out how much to build' },
+      { file: 'admin', fn: 'houseFromCustomer', where: 'Schedule › Scheduling', when: 'a customer joins the season plan' },
+      { file: 'admin', fn: 'hcRunChecks', where: 'Customers › All Customers', when: 'the health check looks for a drifted total' },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened' },
+      { file: 'admin', fn: 'editCustRenderHouseTabs', where: 'Customers › All Customers', when: 'the house tabs on one bill are drawn' },
+      { file: 'admin', fn: 'dupAssets', where: 'Customers › All Customers', when: 'duplicate copies are scored',
+        rules: ['A copy carrying a price is worth more than one that does not — that is what stops the richer record being deleted.'] },
+      { file: 'server', fn: 'feetLineFor', where: 'Invoices › Nightly Automation', when: 'the invoice email explains the charge' },
       { file: 'admin', fn: 'syncPayerInvoice', where: 'Invoices › Invoice List', when: 'the invoice is rebuilt',
         rules: ['The invoice total is the sum of the house prices on the bill.'] },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
@@ -309,6 +339,11 @@ module.exports = [
 
   {
     field: 'billToPhone',
+    /* ⚠ THE DISPLAY FAMILY, as on every other spine here: the All Customers table, the
+       sheet chips and the row handlers SHOW who pays; `fixMissingInvoicesBtn` and
+       `rmPushToCustomer` read it to find the right invoice while doing something else. */
+    ignore: ['^(renderAllCustomersTable|custSheetChips|attachAddressRowHandlers)$',
+             '^(fixMissingInvoicesBtn handler|rmPushToCustomer)$'],
     areas: ['Customers', 'Invoices'], record: 'cust',
     title: 'Whose bill this is on',
     plain: 'Set when one person pays for another house as well as their own.',
@@ -319,10 +354,40 @@ module.exports = [
       ['Set, and they had already paid', 'What they paid follows the house onto the new bill']
     ],
     sets: [
+      /* ⭐ DECLARED 2026-08-31. Who pays for this house — the field that joins two
+         customers onto one bill. */
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a house is switched to bill somebody else',
+        rules: ['Money already paid follows the house onto the new bill as a named credit — without it the business collects twice.',
+                'Their own invoice is zeroed rather than deleted when it carries a payment, so the record of it survives.'] },
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a new customer is billed to somebody else' },
       { file: 'admin', fn: 'rbResolveBillTo', where: 'Customers › Bulk Updates', when: 'the sheet says bill somebody else',
         rules: ['A payer who is not a customer is left as a note, never invented.'] }
     ],
     reads: [
+      /* ⭐ DECLARED 2026-08-31. */
+      { file: 'admin', fn: 'billedHousesFor', where: 'Customers › Who Pays for Whom', when: 'the houses on one bill are found',
+        rules: ['A group has two halves: a house with billToPhone set, AND one with none whose invoice key matches. Reading only the first misses half of them.'] },
+      { file: 'admin', fn: 'billedHousesForContact', where: 'Invoices › Invoice List', when: 'a bill is looked up by contact' },
+      { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the printed invoice is built',
+        rules: ['A house billed elsewhere is shown its own price and Due from you: $0.00, with no invitation to pay — the payer is already being asked for it.'] },
+      { file: 'admin', fn: 'audiencePayerKey', where: 'Automation Emails › Recipients', when: 'a send audience is grouped by payer' },
+      { file: 'admin', fn: 'audienceBillingGroup', where: 'Automation Emails › Recipients', when: 'a bill group is counted' },
+      { file: 'admin', fn: 'syncPayerInvoice', where: 'Invoices › Invoice List', when: 'a payer\'s bill is rebuilt',
+        rules: ['The authoritative money writer. A stored phone that is not digits-only cannot be matched by the equality query, so it falls back to the loaded list — without that, an ordinary save rebuilt a real total as install: 0, silently.'] },
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run groups a bill',
+        rules: ['A multi-house bill waits until every house on it that is actually getting lights is done.'] },
+      { file: 'admin', fn: 'payerHouseOf', where: 'Customers › Who Pays for Whom', when: 'the payer on a shared bill is chosen',
+        rules: ['The lowest customer number wins — the same answer however the houses arrive, where a .find() gave whichever came back first.'] },
+      { file: 'admin', fn: 'housesForInvoiceKey', where: 'Invoices › Invoice List', when: 'the houses on one bill are listed' },
+      { file: 'admin', fn: 'hcInvoiceGroups', where: 'Customers › All Customers', when: 'the health check groups bills' },
+      { file: 'admin', fn: 'hcRunChecks', where: 'Customers › All Customers', when: 'the health check runs' },
+      { file: 'admin', fn: 'hcSharedPhoneGroups', where: 'Customers › All Customers', when: 'households sharing a phone are grouped',
+        rules: ['17 numbers in the real book are shared and 14 are genuine households — a parent paying for a child. Two different names are never one customer.'] },
+      { file: 'admin', fn: 'editCustBillKey', where: 'Customers › All Customers', when: 'the form works out which bill this house is on' },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened' },
+      { file: 'admin', fn: 'ssnInvoiceKeyForHouse', where: 'Customers › All Customers', when: 'Start New Season keys a house to its bill' },
+      { file: 'server', fn: 'nameMatchesHousehold', where: 'Member Portal › RSVP', when: 'a portal sign-in checks the surname',
+        rules: ['A shared bill means the surname may belong to any house on it — checking only the keyed record locks a household out of its own account.'] },
       { file: 'admin', fn: 'billingGroupsByPayer', where: 'Customers › Who Pays for Whom', when: 'the screen is drawn',
         rules: ['Two houses on one phone are already one bill, even with nothing set.'] },
       { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Customers › All Customers', when: 'a row shows Paid or Unpaid' },
@@ -333,6 +398,10 @@ module.exports = [
 
   {
     field: 'changeFees',
+    ignore: [
+      '^(allCustExportBtn handler|invoiceExportBtn handler|renderYearlySnapshots)$',
+      '^(pibLoadBtn handler|invTestSend|hcFixRow|buildAddressRowHtml|renderBillingGroups|attachAddressRowHandlers)$',
+      '^(ibImportBtn handler|rbImportBtn handler|rbSettlePrepaid)$','^ssnBuildSnapshotRows$'],
     areas: ['Invoices'], record: 'inv',
     title: 'The $30 colour-change fee',
     plain: 'Added when a member changes their colours outside the free 48 hours.',
@@ -344,10 +413,32 @@ module.exports = [
       ['The office waives it', 'No fee, but the route still locks for 48 hours']
     ],
     sets: [
+      /* ⭐ DECLARED 2026-08-31. The $30 light-change fee, and it is its own field rather
+         than folded into install so it can be removed independently. */
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'the office changes a house\'s colours',
+        rules: ['The office is ASKED rather than charged silently — there are three answers, so it cannot be a confirm: charge, waive, or cancel the whole save.',
+                'Written LAST, after syncPayerInvoice, because that rebuild would overwrite a fee written before it.'] },
+      { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'a carried charge is collected next season',
+        rules: ['A fee added after the bill went out is carried to next season on the CUSTOMER — parked on the invoice it would be deleted by Start New Season.'] },
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices › Invoice List', when: 'a fee is edited or removed by hand' },
+      { file: 'admin', el: 'ssnRunBtn', where: 'Customers › All Customers', when: 'Start New Season clears last season\'s fees' },
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a fee is entered with a new customer' },
       { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a member changes colours late',
         rules: ['The office is always asked first. Never charged silently.'] }
     ],
     reads: [
+      /* ⭐ DECLARED 2026-08-31. */
+      { file: 'admin', fn: 'syncPayerInvoice', where: 'Invoices › Invoice List', when: 'a payer\'s bill is rebuilt',
+        rules: ['It owns the carried credit and keeps every other kind — the Edit Customer save owns referral and manual, so the two rebuilds cannot collide.'] },
+      { file: 'admin', fn: 'isInvoiceOverdue', where: 'Invoices › Invoice List', when: 'a bill is called overdue' },
+      { file: 'admin', fn: 'carriedPaymentOnBillToChange', where: 'Customers › All Customers', when: 'a house moves onto another bill',
+        rules: ['An outstanding light-change fee moves with them — it was the only thing that migrated before the payment did.'] },
+      { file: 'admin', fn: 'renderInvStatusStrip', where: 'Invoices › Invoice List', when: 'the amount owed is shown' },
+      { file: 'admin', fn: 'invoiceAutoSync', where: 'Invoices › Invoice List', when: 'an invoice is rebuilt' },
+      { file: 'admin', fn: 'hcRunChecks', where: 'Customers › All Customers', when: 'the health check totals a bill' },
+      { file: 'server', fn: 'sendPaymentReceipt', where: 'Member Portal › Pay', when: 'a receipt shows what is still due' },
+      { file: 'server', fn: 'paypalCreateOrder', where: 'Member Portal › Pay', when: 'the amount to charge is worked out',
+        rules: ['The fee is part of what they owe, so it has to be in the charge — it was missing from the PayPal total once.'] },
       { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'a balance is worked out',
         rules: ['The office screen and the nightly run must always agree.'] },
       { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Customers › All Customers', when: 'a row shows Paid or Unpaid' },
@@ -371,6 +462,12 @@ module.exports = [
       ['Next season', 'Cleared by Start New Season, so it is never charged twice']
     ],
     sets: [
+      /* ⭐ DECLARED 2026-08-31. The one-time $30 join fee. */
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'the office ticks or unticks the join fee',
+        rules: ['Only a person ever writes this — no importer does, or a bulk run would charge the whole book $30.'] },
+      { file: 'admin', el: 'ssnRunBtn', where: 'Customers › All Customers', when: 'Start New Season clears it',
+        rules: ['Nothing cleared this until 2026-08-21, so the join fee was charged EVERY season — the guard reset while the flag stayed true.',
+                'Cleared in the SAME write as the rest of the reset: a separate one can fail alone and leave the overcharge back.'] },
       { file: 'admin', near: 'addCustNewMemberFee', where: 'Quote Requests', when: 'a quote becomes a customer',
         rules: ['By quote, never by bulk, and it expires — a 2026 quote is not new in 2027.'] }
     ],
@@ -394,6 +491,8 @@ module.exports = [
       ['Next season\'s first bill', 'Collected, then cleared']
     ],
     sets: [
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a fee is carried to next season',
+        rules: ['It lives on the CUSTOMER, not the invoice — Start New Season zeroes invoice fees, so a charge parked there is deleted rather than carried.'] },
       { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a late fee lands after the bill went out',
         rules: ['It lives on the customer, not the invoice — Start New Season wipes invoices.'] }
     ],
@@ -418,11 +517,33 @@ module.exports = [
 
   {
     field: 'deposit',
+    /* ⚠ THE FINANCE TAB'S OWN `deposit` IS NOT THIS ONE. `fcRender` and the expenses
+       screens have deposits of their own — a supplier deposit is not a customer payment.
+       And `ssnBuildSnapshotRows` copies the value into the season snapshot rather than
+       changing it, which is Start New Season's business and is declared there. */
+
     areas: ['Invoices'], record: 'inv',
     title: 'Money recorded as paid',
     plain: 'What a customer has actually paid against their bill.',
     guard: 'money-parity.test.js sweeps the balance maths that reads it, but nothing checks the ten places that WRITE it agree.',
-    ignore: ['^(applyQuoteLinkLabel|esc)$'],
+    /* ⚠ MERGED 2026-08-31, AND THE DUPLICATE WAS A REAL BUG I INTRODUCED. Adding a second
+       `ignore:` key to this object meant the later one silently won and the first was
+       discarded — an exclusion list that reads as active and does nothing, which is the
+       exact shape of fault this whole page exists to catch, in the page's own data.
+
+       ⚠ THE FINANCE TAB'S `deposit` IS NOT THIS ONE. `fcRender` and the expenses screens
+       have deposits of their own — a supplier deposit is not a customer payment. And
+       `ssnBuildSnapshotRows` COPIES the value into the season snapshot rather than
+       changing it, which is Start New Season's business and is declared there. */
+    ignore: ['^(applyQuoteLinkLabel|esc)$',
+             '^(fcRender|fcRunScenarios|renderExpensesList|computeYearTotals)$',
+             '^ssnBuildSnapshotRows$',
+             /* Exports, snapshots and diagnostics READ the money to print or copy it —
+                not a connection anybody needs to police. `ledgerBackfillPlan` and
+                `pibLoadBtn` are import previews, `invTestSend` is the send-yourself-one
+                test, `fovRenderAll` is the Financial Overview. */
+             '^(allCustExportBtn handler|invoiceExportBtn handler|renderYearlySnapshots|fovRenderAll)$',
+             '^(ledgerBackfillPlan|pibLoadBtn handler|invTestSend|hcFixRow|buildAddressRowHtml|renderBillingGroups|deleteAllAddressesBtn handler)$'],
     states: [
       ['A payment is captured', 'Added to the deposit on their invoice'],
       ['Typed in by the office', 'Same field, same effect'],
@@ -430,12 +551,54 @@ module.exports = [
       ['They move onto somebody else\'s bill', 'What they paid follows the house across']
     ],
     sets: [
+      /* ⭐ DECLARED 2026-08-31. Money already paid. Every one of these can lose a recorded
+         payment, which is the one mistake here with no cheap undo — Invoice Bulk Update
+         zeroed this for every row until it was guarded in 2026-08-08. */
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices › Invoice List', when: 'the office records or edits a payment',
+        rules: ['Every change here is logged to the payment ledger — an amount that moves with no row behind it cannot be reconciled later.'] },
+      { file: 'admin', fn: 'attachAddressRowHandlers', where: 'Customers › All Customers', when: 'a payment is entered from a customer row' },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer record is saved',
+        rules: ['A recorded payment survives the rebuild — the invoice is rebuilt from house prices and this is not one of them.'] },
+      { file: 'admin', el: 'paymentImportBtn', where: 'Invoices › Import / Export', when: 'a bank or card file is imported',
+        rules: ['The file knows when the money actually arrived, so the ledger date comes from it rather than from now.'] },
+      { file: 'admin', el: 'ibImportBtn', where: 'Invoices › Import / Export', when: 'Invoice Bulk Update writes a row',
+        rules: ['An existing payment is PRESERVED, never zeroed — this tool wiped every deposit until it was guarded.'] },
+      { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'the raw importer touches an invoice' },
+      { file: 'admin', el: 'fixMissingInvoicesBtn', where: 'Invoices › Invoice List', when: 'a missing invoice is rebuilt' },
+      { file: 'admin', fn: 'rbSettlePrepaid', where: 'Customers › Bulk Updates', when: 'the sheet says somebody prepaid',
+        rules: ['"Paid" anywhere on the row marks them paid for this year — but never on a row that says unpaid, not paid or paid?.'] },
+      { file: 'admin', el: 'ssnRunBtn', where: 'Customers › All Customers', when: 'Start New Season runs',
+        rules: ['A snapshot of every invoice is written and READ BACK before anything is reset — "the write resolved" is not "the data is there".'] },
+      { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'an amount paid is entered with a new customer' },
+      { file: 'server', fn: 'portalSave', where: 'Member Portal › Pay', when: 'a customer changes the details their bill is keyed on',
+        rules: ['Moving the invoice must carry the recorded payment with it, or the money is stranded on a document nothing reads.'] },
       { file: 'admin', fn: 'syncPayerInvoice', where: 'Invoices › Invoice List', when: 'the invoice is rebuilt',
         rules: ['A rebuild must never wipe a payment already recorded.'] },
       { file: 'server', fn: 'recordPaypalPayment', where: 'Member Portal › Pay', when: 'a card payment clears',
         rules: ['Added to what is there, never overwritten — two payments must both land.'] }
     ],
     reads: [
+      /* ⭐ THE READERS THAT DECIDE, declared 2026-08-31. Everything here answers "what do
+         they still owe", which is the question the whole invoice exists for. */
+      { file: 'admin', fn: 'getLiveInvoiceStatus', where: 'Invoices › Invoice List', when: 'anything asks whether a bill is settled',
+        rules: ['Keyed on billToPhone else custInvoiceKey — a house billed elsewhere reports the bill it is really on, never its own zeroed leftover.'] },
+      { file: 'admin', fn: 'isInvoiceOverdue', where: 'Invoices › Invoice List', when: 'a bill is called overdue',
+        rules: ['Counted from invoicedAt, never updatedAt — an edit used to push the clock another 30 days and take a genuinely late bill off the list.'] },
+      { file: 'admin', fn: 'carriedPaymentOnBillToChange', where: 'Customers › All Customers', when: 'a house moves onto somebody else\'s bill',
+        rules: ['What was already paid travels with the house as a named credit, capped at what that house owed — without it the business collects twice.'] },
+      { file: 'admin', fn: 'invoiceAutoSync', where: 'Invoices › Invoice List', when: 'an invoice is rebuilt from its houses',
+        rules: ['A recorded payment survives every rebuild — the total is rebuilt, the money is not.'] },
+      { file: 'admin', fn: 'partialPaymentNote', where: 'Invoices › Invoice List', when: 'a part-paid bill is explained' },
+      { file: 'admin', fn: 'renderInvStatusStrip', where: 'Invoices › Invoice List', when: 'the paid/part/unpaid strip is drawn' },
+      { file: 'admin', fn: 'hcRunChecks', where: 'Customers › All Customers', when: 'the health check looks for a stranded payment',
+        rules: ['A zeroed invoice still carrying a deposit computes to Paid in Full — that is the false reading this check exists to catch.'] },
+      { file: 'admin', fn: 'hlxRemoveCustomerToRecycle', where: 'Warehouse › Recycle', when: 'a customer is archived' },
+      { file: 'admin', fn: 'ssnBuildPlan', where: 'Customers › All Customers', when: 'Start New Season previews what it will do',
+        rules: ['The preview is what makes an irreversible whole-book write safe.'] },
+      { file: 'server', fn: 'paypalCreateOrder', where: 'Member Portal › Pay', when: 'the amount to charge is worked out',
+        rules: ['They are charged what is still owed, never the whole total again.'] },
+      { file: 'server', fn: 'paypalCaptureOrder', where: 'Member Portal › Pay', when: 'a card payment is captured' },
+      { file: 'server', fn: 'sendPaymentReceipt', where: 'Member Portal › Pay', when: 'a receipt is sent' },
       { file: 'admin', fn: 'balanceDueAmount', where: 'Invoices › Invoice List', when: 'the balance is worked out' },
       { file: 'admin', fn: 'buildInvoiceDocHtml', where: 'Invoices › Invoice List', when: 'the invoice is printed or emailed' },
       { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'the nightly run bills' }
@@ -505,7 +668,34 @@ module.exports = [
     title: 'Where a quote sits',
     plain: 'New, priced, sent, approved or closed — which decides the folder it appears in.',
     guard: 'run-all.js covers the quote card and the folders, but the writers are spread across three files.',
-    ignore: ['^(computeInvoiceStatus|renderInvoicesList|syncPayerInvoice|hcRunChecks|etRenderRecipientList|allCustRouteStatus|buildAddressRowHtml|attachAddressRowHandlers|balanceDueAmount|buildInvoiceDocHtml|getLiveInvoiceStatus|paypalCaptureOrder|runInvoiceBatch|sendPaymentReceipt|houseBillingRow)$'],
+    /* ⚠ `status` IS THE MOST OVERLOADED NAME IN THIS APP, and that is why this list is
+       long. Six different records use it: a QUOTE (this spine), an INVOICE
+       (`computeInvoiceStatus`, which is its own field and has no spine yet — a finding
+       for the Invoices area), a CREDIT-CARD TRANSACTION, a TIME-OFF REQUEST, an SMS
+       delivery receipt, and an HTTP response (`res.status` in the measure tool).
+
+       The record-aware filter catches the ones whose function names another collection.
+       It cannot catch the rest — a fetch names no collection, and neither does Twilio —
+       so those stay hand-written, which is exactly what `ignore` is for. */
+    ignore: [
+      /* An INVOICE's status, not a quote's. Every one of these writes
+         `status: computeInvoiceStatus(...)`. */
+      '^(ssnRunBtn handler|fixMissingInvoicesBtn handler|rbImportBtn handler|ibImportBtn handler)$',
+      /* Not a record at all: an HTTP response and an SMS delivery receipt. */
+      '^(rmFetchStatic|rmCapture|sendSms)$',
+      /* Other records entirely — cards and time-off requests. */
+      '^(cc[A-Z]|atoAddBtn handler|approveTimeOffRequest|loadTimecardApprovalsAdmin|loadEmployeeRequestsAdmin)',
+      /* Test records, as everywhere else. */
+      '^(testQuote|qBuildTestBtn handler|buildTestPerson)',
+      /* And the display family: chips, badges and panels that show where a quote sits.
+         A screen that shows the state is not a connection anybody needs to police; one
+         that DECIDES from it is, and those are declared. */
+      '^(approvedOnJoinBadge|cameBackBadge|contactPrefChips|custEmailChip|archRender|audienceQuoteJoinYear)$',
+      /* More of the same six other meanings: a PayPal webhook's event status, a Street
+         View fetch, the time-off calendar, the expenses chips, the finance scenarios and
+         the Connections page reading its own summary file. None of them is a quote. */
+      '^(paypalWebhook|getStreetViewFrontUrlAdmin|rmStaticFailMessage|renderAdminTimeOffCalendar|renderAtoUndated|whoIsOffOn|renderAddExpenseInvoiceChips|fcRunScenarios|loadConnectionsSummary|poolHtml)$',
+      /* the original list */'^(computeInvoiceStatus|renderInvoicesList|syncPayerInvoice|hcRunChecks|etRenderRecipientList|allCustRouteStatus|buildAddressRowHtml|attachAddressRowHandlers|balanceDueAmount|buildInvoiceDocHtml|getLiveInvoiceStatus|paypalCaptureOrder|runInvoiceBatch|sendPaymentReceipt|houseBillingRow)$'],
     states: [
       ['New', 'Waiting to be priced'],
       ['Approved by the customer', 'Ready to convert'],
@@ -513,6 +703,13 @@ module.exports = [
       ['A re-quote', 'Its own folder, so it is never built as a new house']
     ],
     sets: [
+      /* ⭐ DECLARED 2026-08-31. The three places a QUOTE's own state is written. */
+      { file: 'admin', el: 'qAddByHandBtn', where: 'Quote Requests', when: 'the office types a quote in',
+        rules: ['A quote can never be CREATED already priced or already approved — firestore.rules refuses it, staff or not.'] },
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a change to a customer raises a re-quote',
+        rules: ['A re-quote is raised plain and staged afterwards, because a quote created already priced is refused by the rules.'] },
+      { file: 'admin', fn: 'renderQuoteRows', where: 'Quote Requests', when: 'a re-quote records what the old price was',
+        rules: ['The old price and its answer travel on the quote, so declining a new price does not lose what they were on.'] },
       /* ⚠ NOT quoteRespond — that writes `approvalStatus`, which is a different field
          answering a different question (what the customer said, versus where the quote
          sits). Conflating them was a false red. `status` is written when a quote is
@@ -531,7 +728,15 @@ module.exports = [
       { file: 'admin', fn: 'quoteStage', where: 'Quote Requests', when: 'a card is drawn' },
       /* quoteFolder asks quoteStage rather than reading the field itself, which is
          right — one rule, one reader — so it is not declared as a reader of `status`. */
-      { file: 'admin', fn: 'closedQuoteFor', where: 'Quote Requests', when: 'a house is checked for a closed quote' }
+      { file: 'admin', fn: 'closedQuoteFor', where: 'Quote Requests', when: 'a house is checked for a closed quote' },
+      { file: 'admin', fn: 'hasOpenQuote', where: 'Quote Requests', when: 'anything asks whether a quote is still in flight',
+        rules: ['An open quote is what stops a second one being raised for the same change.'] },
+      { file: 'admin', fn: 'syncCustomerToOpenQuote', where: 'Quote Requests', when: 'a customer edit is carried onto their open quote',
+        rules: ['A correction made on the customer has to reach the quote, or the office prices the old address.'] },
+      { file: 'admin', fn: 'whBuildReasonChip', where: 'Warehouse › Build', when: 'the badge says why a bundle is being built',
+        rules: ['A closed quote is what makes a house a NEW hang rather than a rebuild.'] },
+      { file: 'server', fn: 'runQuoteNudgeBatch', where: 'Quote Requests', when: 'the 10am nudge chases unanswered quotes',
+        rules: ['Only a quote nobody has answered is chased — and it stops on 1 November.'] }
     ]
   },
   /* ------------------------------------------------------------------------
@@ -674,6 +879,12 @@ module.exports = [
   },
   {
     field: 'measuredFeet',
+    /* ⚠ EXCLUDED, EACH FOR ITS OWN REASON. The test builders as everywhere else; the
+       sheet row and the estimate helpers PRINT it; `invTestSend` is the send-yourself-one
+       test invoice, which is a diagnostic rather than a connection; and `resolveLinkTokens`
+       fills {{feet_line}} in an email body, which is the message templater's business. */
+    ignore: ['^(buildTestPerson|qBuildTestBtn handler|rbCollectMissingCustomers|rbCustomerToSheetRow)$',
+             '^(messageFeetEstimate|resolveLinkTokens|invTestSend)$'],
     areas: ['Quote Requests', 'Customers', 'Warehouse'], record: 'cust',
     title: 'How many feet of roofline',
     plain: 'The measurement the whole job is sized from.',
@@ -689,6 +900,12 @@ module.exports = [
        That is why it is worth watching — one of them writing a different number from
        the others is invisible until a crew is short of glass. */
     sets: [
+      /* ⭐ DECLARED 2026-08-31. The highest-leverage number in the app — it decides the
+         bins, the number series, the bundle count and the auto-price. */
+      { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'the office edits the footage',
+        rules: ['Changed footage raises a re-quote by itself — the house is measurably different, so nobody is asked.'] },
+      { file: 'admin', fn: 'rmPushToCustomer', where: 'Quote Requests', when: 'the measure tool commits',
+        rules: ['Written in the SAME update as the price, so a house can never end up priced with no footage.'] },
       { file: 'admin', el: 'editCustSaveBtn', where: 'Customers › All Customers', when: 'a customer is saved',
         rules: ['Changing this raises a re-quote by itself — the house is measurably different.'] },
       /* ⚠ NOT rmCommitPayload, WHICH IS WHAT I DECLARED FIRST AND THE GATE REFUSED.
@@ -703,6 +920,16 @@ module.exports = [
       { file: 'admin', el: 'rbImportBtn', where: 'Customers › Bulk Updates', when: 'a bulk import runs' }
     ],
     reads: [
+      /* ⭐ DECLARED 2026-08-31. One number decides four things, so the readers that
+         DECIDE are worth naming individually. */
+      { file: 'admin', fn: 'requoteOnFile', where: 'Quote Requests', when: 'a re-quote card shows what the house already has',
+        rules: ['Read live off the customer, because the copy carried on the quote can only ever be blank when the portal raised it.'] },
+      { file: 'admin', fn: 'hcRunChecks', where: 'Customers › All Customers', when: 'the health check looks for a house with no footage' },
+      { file: 'admin', fn: 'dupAssets', where: 'Customers › All Customers', when: 'duplicate copies are scored',
+        rules: ['A copy carrying measured feet is worth more than one that does not.'] },
+      { file: 'admin', fn: 'openEditCustomerModal', where: 'Customers › All Customers', when: 'a record is opened' },
+      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices › Invoice List', when: 'the invoice list shows what a house was measured at' },
+
       { file: 'admin', fn: 'whBinsForHouse', where: 'Warehouse › Build', when: 'the bins are counted',
         rules: ['260 ft per bin, and the rule lives in one place.'] },
       { file: 'admin', fn: 'houseBundleNeed', where: 'Warehouse › Build', when: 'the bundles are counted' },

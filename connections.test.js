@@ -1060,6 +1060,47 @@ if (unguarded.length) {
     unguarded.join(', ') + '. This map is the only thing holding those.');
 }
 /* ---------------------------------------------------------------------------
+ * NO SPINE DECLARES THE SAME KEY TWICE.
+ *
+ * ⚠ FOUND BY MAKING THE MISTAKE, 2026-08-31. Declaring the Invoices area added a second
+ * `ignore:` to the `deposit` spine, and in a JavaScript object literal the later key
+ * silently wins — so the first exclusion list read as active and did nothing at all.
+ * An exclusion that looks present and is discarded is the exact shape of fault this whole
+ * page exists to catch, occurring in the page's own data.
+ *
+ * ⚠ AND NOTHING WOULD HAVE SAID SO. The map went on building, the counts moved in the
+ * direction they were expected to move, and every other check passed. It is only visible
+ * by reading the source of the object, which is what this does.
+ * ------------------------------------------------------------------------- */
+{
+  const mSrc = require('fs').readFileSync(require('path').join(__dirname, 'connections/manifest.js'), 'utf8');
+  const dupes = [];
+  const fieldRe = /field: '([A-Za-z0-9_]+)'/g;
+  let fm;
+  while ((fm = fieldRe.exec(mSrc)) !== null) {
+    /* The spine object this field belongs to, by brace matching back from the name. */
+    const start = mSrc.lastIndexOf('{', fm.index);
+    let depth = 0, end = start;
+    for (let i = start; i < mSrc.length; i++) {
+      if (mSrc[i] === '{') depth++;
+      else if (mSrc[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    const blk = mSrc.slice(start, end + 1);
+    /* Only keys at the spine's own indentation — a nested object's `rules:` is not this. */
+    ['ignore', 'sets', 'reads', 'field', 'areas', 'record', 'title', 'plain', 'guard', 'states']
+      .forEach(k => {
+        const n = (blk.match(new RegExp('^\\s{4}' + k + ':', 'gm')) || []).length;
+        if (n > 1) dupes.push(fm[1] + ' declares ' + k + ' ' + n + ' times');
+      });
+  }
+  check('no spine declares the same key twice',
+    dupes.length === 0,
+    ': ' + dupes.join('; ') + ' — in a JavaScript object literal the LATER key wins and ' +
+    'the earlier one is discarded silently, so an exclusion list or a whole sets/reads ' +
+    'block can read as active and do nothing.');
+}
+
+/* ---------------------------------------------------------------------------
  * A TOUCH ON SOMEBODY ELSE'S RECORD IS NOT A TOUCH ON THIS ONE.
  *
  * Addie, 2026-08-31, picking five areas to work through after being told there were 760
