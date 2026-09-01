@@ -1551,15 +1551,38 @@ function seasonResetWrite() {
     'how two screens start making different claims about one rule');
 
   /* ⚠ AND THE PAGE MUST NOT WORK IT OUT FOR ITSELF, the same rule the payment
-     card already follows. index.html repeats the server's figure and never sums
-     the fee ledger. */
+     card already follows: index.html repeats the server's OUTSTANDING figure and
+     never sums the fee ledger to get it.
+
+     ⭐ REPOINTED 2026-09-01 (RS-31). This used to read `showChangesQuestion`, the
+     RSVP confirmation screen. A yes now goes straight into the portal, so that
+     function is gone and the check was matching an empty string — failing on
+     correct code, which is the slow-fuse shape CLAUDE.md §7 records for S82, S129
+     and the folder-names suite: pinned to WHERE a rule happened to live rather
+     than to what must be true.
+
+     The rule is unchanged and is asserted on the screen that shows the figure now,
+     `renderInvoiceBreakdown`.
+
+     ⚠ IT IS NOT "the function never mentions the ledger", which was the shape of
+     the old check and is WRONG here — this one reads `changeFeeNotes` on purpose,
+     to LIST each fee as its own line, and `arrearsOnInvoice` to say what was
+     carried BEFORE anything was paid. Both are legitimate. The one figure that
+     must never be re-derived in the browser is what is STILL OWED, so that is what
+     is pinned: `lastSeasonLeft` comes from `record.arrearsOutstanding`, which
+     portalInvoice computes, and from nothing else. A version that summed the
+     ledger for it would put a second copy of the arrears rule in the page. */
   const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const changesAt = idx.indexOf('function showChangesQuestion(');
-  const changesSrc = changesAt === -1 ? ''
-    : stripComments(idx.slice(changesAt, idx.indexOf('\n  }', changesAt) + 4));
-  check('the confirmation repeats the server\u2019s figure, never its own',
-    !!changesSrc && /rsvpArrearsLeft/.test(changesSrc) && !/changeFeeNotes/.test(changesSrc),
-    'got: ' + JSON.stringify(changesSrc.slice(0, 120)));
+  const invAt = idx.indexOf('function renderInvoiceBreakdown(');
+  /* ⚠ String.fromCharCode(10), NOT a backslash-n literal. Written as an escape it
+     did not survive the script that inserted this block and became a real newline
+     inside the quotes — a syntax error. CLAUDE.md §5 records the same trap for the
+     $$ column and for run-all.js's word boundaries. */
+  const invEnd = idx.indexOf(String.fromCharCode(10) + '}', invAt);
+  const invSrc = invAt === -1 ? '' : stripComments(idx.slice(invAt, invEnd + 2));
+  check('the portal repeats the server’s outstanding figure, never its own',
+    !!invSrc && /lastSeasonLeft\s*=\s*Number\(record\.arrearsOutstanding\)/.test(invSrc),
+    'got: ' + JSON.stringify(invSrc.slice(0, 160)));
 
 
   /* ---- the badge IS the gate --------------------------------------------
