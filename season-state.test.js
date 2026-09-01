@@ -614,8 +614,24 @@ if (portalRsvp) {
   check('the badge says "Changed to Yes", which can only mean one thing',
     /Changed to Yes<\/span>/.test(admin) && !/Came back in<\/span>/.test(admin),
     '"came back" reads as next season, which is the opposite state');
+  /* ⚠ REPOINTED 2026-09-01, NOT WEAKENED — and NOT by raising the number, which would
+     re-arm the same trap for whoever adds the next field. This asserted
+     `needsDayAssignedAt: null,[\s\S]{0,400}cameBackThisSeasonAt: null` — a fixed-length
+     character window, which §7 of CLAUDE.md bans by name precisely because it goes stale
+     as the real code grows and turns a true pass into a false FAIL. Adding one more
+     season-scoped field to that write (arrearsPaidNoticeAt) pushed the two apart and
+     failed a check about code that was right.
+
+     The guarantee was never "within 400 characters of each other" — it is "both cleared
+     in the SAME write", so the write is sliced and both are asserted to be in it. */
+  const custResetAt = admin.indexOf("return updateDoc(doc(db,'jobAddresses', a.id), {");
+  const custReset = custResetAt === -1 ? ''
+    : admin.slice(custResetAt, admin.indexOf('seasonResetAt: serverTimestamp()', custResetAt));
+  check('the customer half of Start New Season was found at all',
+    custReset.length > 0 && /completed: false/.test(custReset),
+    'a check that cannot find its target reports green for the worst possible reason');
   check('and Start New Season clears the record as well as the instruction',
-    /needsDayAssignedAt: null,[\s\S]{0,400}cameBackThisSeasonAt: null/.test(admin),
+    /needsDayAssignedAt: null,/.test(custReset) && /cameBackThisSeasonAt: null,?/.test(custReset),
     'a badge that survives the reset says they changed their mind this year when ' +
     'they did it last year');
 
