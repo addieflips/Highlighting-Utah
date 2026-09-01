@@ -105,6 +105,19 @@ Route Status, because Confirmed *is* the route answer now. The badge is worked
 out once per row and the filter and the pill read that same answer, so a filtered
 list can never disagree with the badges in it.
 
+⭐ **AND A RECORD STOPS CLAIMING A DAY IT NO LONGER HAS** (2026-09-01). A row was
+showing *"Scheduled — Hang Tue, Oct 20"* and *"Not scheduled — no RSVP yet"* one
+above the other. The booking fields are stamped when somebody is put on a crew's
+sheet and cleared when they are taken off it — but a customer who simply stops
+being in the season is never taken off anything, so the stamp outlives the
+booking. **Recalculate everything** now clears them and takes the customer off
+any upcoming route in the same pass.
+
+⚠ **Install flags only.** A takedown or a fix is work on lights that are already
+up, and somebody sitting the season out still needs theirs taking down. ⚠ And
+only where there is something to clear — writing false over false on ~950 records
+says nothing and stamps `updatedAt` on every one.
+
 ⭐ **AND A PLAN ROW THAT IS NOT A CUSTOMER COMES OFF THE SEASON** (2026-09-01).
 Measured on the real plan: one customer badged Confirmed, sixteen houses on the
 schedule — and the sixteen were rows left over from an imported schedule file,

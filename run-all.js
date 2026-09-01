@@ -46357,6 +46357,149 @@ suite('284. Both pictures at once, and a pitch you can read');
   }
 }
 
+
+/* ---- a record stops claiming a day it no longer has -----------------------
+   ⭐ Addie, 2026-09-01, on Addie Eriksen #210: "shes not in the schedule but on here
+   it says shes scheduled make sure that this updates when you recalculate everything
+   too."
+
+   ⚠ HER ROW SAID BOTH THINGS AT ONCE — "Scheduled — Hang Tue, Oct 20" from the stored
+   flags and "Not scheduled — no RSVP yet" from the live rule, one above the other.
+   The flags are stamped when somebody is put on a crew's sheet and cleared when they
+   are taken off it; a customer who simply stops being in the season is never taken off
+   anything, so the stamp outlives the booking.
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about which records get WRITTEN to, and one
+   of them is that most of them are not written to at all — which a regex cannot see. */
+suite('286. A record stops claiming a day it no longer has');
+{
+  const NL286 = String.fromCharCode(10);
+  /* ⚠ LIFTED async-AWARE. extractFn searches for "function NAME(" and so drops the
+     `async` keyword, which turns the body into a parse error full of bare `await` —
+     CLAUDE.md §5 records that trap by name and this suite hit it on its first run. */
+  const sweepLift = (name) => {
+    let at = admin.indexOf('async function ' + name + '(');
+    if (at < 0) at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const sweepSrc = sweepLift('clearStaleInstallBookings');
+  check('S286', 'the sweep is findable', !!sweepSrc,
+    'written inline in the button handler it could only be checked by matching text');
+  /* ⚠ AND SOMETHING HAS TO ASK IT. Addie's words were "make sure that this updates
+     when you RECALCULATE everything too" — the button is half the request, and a
+     red-check proved the rest of this suite stays green with the call deleted. That is
+     the third time today a rule was proved and its caller was not. */
+  {
+    const recalc = (admin.split("if(t.id==='recalcBtn'){")[1] || '').split("if(t.id===")[0];
+    /* ⚠ THE GUARD'S OWN BODY, not the handler. A red-check replacing the guard with
+       `if(false)` left the call sitting there in plain text and this passed — the
+       trap this file records four times over. Slicing from the guard means the check
+       fails when the guard is what changed. */
+    const guarded = (recalc.split("if(typeof clearStaleInstallBookings === 'function'){")[1] || '').split('}')[0];
+    check('S286', 'the Recalculate button is the thing that runs it',
+      /clearStaleInstallBookings\(\)/.test(guarded),
+      'a sweep nothing calls is a green suite and a row still promising a crew');
+    check('S286', 'and it does not block the press waiting for the writes',
+      /clearStaleInstallBookings\(\)\.then\(/.test(guarded) &&
+      !/await clearStaleInstallBookings/.test(recalc),
+      'it is a round trip per stale record; awaited, the button sits there looking hung');
+  }
+  if (sweepSrc) {
+    /* ⚠ isOutForSeason IS LIFTED, NEVER STUBBED. "Which records are stale" IS the rule
+       about who is in the season, and a stub would let this sweep and the schedule
+       disagree about one customer — the whole family of bug this came out of. */
+    const mk = (book) => {
+      const writes = [], routeCalls = [];
+      const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomerFromUpcomingRoutes',
+        'jobAddresses', 'console',
+        seasonRuleLiveSrc() +
+        'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }' + NL286 +
+        'function houseOwesFromLastSeason(){ return false; }' + NL286 +
+        extractFn(admin, 'isOutForSeason') + NL286 +
+        extractFn(admin, 'freeUpFieldForType') + NL286 +
+        sweepSrc + NL286 + 'return clearStaleInstallBookings;');
+      const run = fn(
+        async (ref, payload) => { writes.push({ id: ref.id, payload: payload }); },
+        (d, col, id) => ({ col: col, id: id }), {},
+        async (id) => { routeCalls.push(id); return 1; },
+        book, { error: function(){} });
+      return { writes, routeCalls, go: () => run() };
+    };
+    const replied = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+    const booked = { scheduled: true, scheduledDate: '2026-10-20', assignedCrew: 'Crew 1' };
+
+    /* Her own case, and three that must NOT be touched. */
+    const book = [
+      { id: 'stale', data: Object.assign({ name: 'Addie Eriksen' }, booked) },
+      { id: 'real', data: Object.assign({ name: 'Really booked' }, replied, booked) },
+      { id: 'quiet', data: { name: 'Out, never booked' } },
+      { id: 'takedown', data: { name: 'Out, takedown due', removalScheduled: true,
+                                removalScheduledDate: '2026-12-02', fixScheduled: true } },
+      /* ⚠ STALE FOR AN INSTALL *AND* BOOKED FOR A TAKEDOWN. The record above has no
+         install flags, so the filter skips it and a sabotage that also cleared the
+         takedown fields never bit — a red-check proved that check vacuous. This one
+         reaches the write, so the payload itself has to be examined. */
+      { id: 'both', data: Object.assign({ name: 'Out, but a takedown is booked',
+        removalScheduled: true, removalScheduledDate: '2026-12-02' }, booked) }
+    ];
+    const h = mk(book);
+    pendingAsync.push(h.go().then(function(n){
+      const wStale = h.writes.find(x => x.id === 'stale');
+      check('S286', 'somebody out for the season stops saying they are booked',
+        n === 2 && !!wStale &&
+        wStale.payload.scheduled === false && wStale.payload.scheduledDate === null,
+        'wrote ' + JSON.stringify(h.writes) + ' — the row promised a crew that is not coming');
+      check('S286', 'and the crew sheet loses them in the same pass',
+        h.routeCalls.indexOf('stale') !== -1,
+        'clearing the flag while the stop survives is the same contradiction the other ' +
+        'way round: the sheet still has them and the screen says they are not booked');
+      check('S286', 'and the cache is corrected, so the row stops arguing with itself',
+        book[0].data.scheduled === false,
+        'the panel repaints from the cache as well as from the listener');
+      /* ⚠ THE THREE IT MUST LEAVE ALONE ARE THE POINT. A sweep that clears everything
+         is easy and wrong: it cancels a real booking, writes false over false on ~950
+         records, and cancels a takedown for a house that still has lights up. */
+      check('S286', 'somebody genuinely in the season keeps their day',
+        !h.writes.some(w => w.id === 'real') && !h.routeCalls.some(id => id === 'real'),
+        'they replied Yes and a crew is going — cancelling that is the worse mistake');
+      check('S286', 'and a record with nothing to clear is not written to at all',
+        !h.writes.some(w => w.id === 'quiet'),
+        'writing false over false on every out-of-season record is ~950 writes saying ' +
+        'nothing, and every one of them stamps updatedAt');
+      check('S286', 'a takedown or a fix is never cancelled by this',
+        !h.writes.some(w => w.id === 'takedown'),
+        'a takedown is work on lights that are already up — somebody sitting the season ' +
+        'out still needs theirs taking down');
+      /* ⚠ AND THE PAYLOAD IS READ, not just the absence of a write. The record above is
+         never written to at all, so it can only ever prove the FILTER; this one is
+         written to, and what matters is what the write contains. */
+      {
+        const w = h.writes.find(x => x.id === 'both');
+        check('S286', 'and a stale install on a house with a takedown clears only the install',
+          !!w && w.payload.scheduled === false &&
+          !('removalScheduled' in w.payload) && !('fixScheduled' in w.payload),
+          'wrote ' + JSON.stringify(w && w.payload) + ' — cancelling the takedown would ' +
+          'leave their lights up all winter');
+      }
+    }));
+
+    /* ⚠ AND AN UNLOADED BOOK MEANS NOTHING IS ASSUMED, the same guard the rebuild
+       itself carries: jobAddresses is empty for a moment after login. */
+    const empty = mk([]);
+    pendingAsync.push(empty.go().then(function(n){
+      check('S286', 'with the customer list not loaded it does nothing',
+        n === 0 && empty.writes.length === 0,
+        'an ungated version would read a slow login as "nobody is a customer"');
+    }));
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

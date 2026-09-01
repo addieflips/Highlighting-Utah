@@ -49200,6 +49200,55 @@ async function removeCustomerFromUpcomingRoutes(customerId){
   if(stuck.length) await noticeRouteStopStuck('take them off the route', customerId, stuck, lastErr);
   return removed;
 }
+/* ⭐ A RECORD THAT STILL CLAIMS A DAY IT NO LONGER HAS (2026-09-01). Addie, on
+   Addie Eriksen #210: "shes not in the schedule but on here it says shes scheduled
+   make sure that this updates when you recalculate everything too."
+
+   ⚠ HER ROW SAID BOTH THINGS AT ONCE, which is the tell: "Scheduled — Hang Tue,
+   Oct 20" from the stored flags, and "Not scheduled — no RSVP yet" from the live
+   rule, one above the other. `scheduled` / `scheduledDate` / `assignedCrew` are
+   STAMPED when somebody is put on a crew's sheet and cleared when they are taken
+   off it — but a customer who simply stops being in the season is never taken off
+   anything, so the stamp outlives the booking and the row goes on promising a
+   crew that is not coming.
+
+   ⚠ INSTALL FLAGS ONLY. A takedown or a fix is work on lights that are already up,
+   and somebody sitting the season out may still need theirs taking down — clearing
+   those would cancel real work. freeUpFieldForType('install') is the one shape that
+   is safe here, and it is the same one the routes side already writes.
+
+   ⚠ AND ONLY WHERE THERE IS SOMETHING TO CLEAR. Writing false over false on ~950
+   records every press is a lot of writes to say nothing, and every one of them
+   stamps updatedAt — which is what the Overdue clock used to count from.
+
+   ⚠ IT TAKES THEM OFF THE ROUTE TOO, in that order. Clearing the flag while a stop
+   survives is the same contradiction pointing the other way: the crew's sheet still
+   has them and the office screen says they are not booked. */
+async function clearStaleInstallBookings(){
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return 0;
+  if(typeof isOutForSeason !== 'function') return 0;
+  const stale = jobAddresses.filter(function(item){
+    const d = (item && item.data) || null;
+    if(!d) return false;
+    if(!(d.scheduled === true || d.scheduledDate || d.assignedCrew)) return false;
+    return isOutForSeason(d);
+  });
+  let cleared = 0;
+  for(let i = 0; i < stale.length; i++){
+    const item = stale[i];
+    try{
+      if(typeof removeCustomerFromUpcomingRoutes === 'function') await removeCustomerFromUpcomingRoutes(item.id);
+      await updateDoc(doc(db, 'jobAddresses', item.id), freeUpFieldForType('install'));
+      /* The panel repaints from the cache as well as from the listener, so the row
+         stops contradicting itself immediately rather than on the next snapshot. */
+      Object.assign(item.data, freeUpFieldForType('install'));
+      cleared++;
+    }catch(err){
+      console.error('Could not clear a stale booking for', item.id, err);
+    }
+  }
+  return cleared;
+}
 /* The one place that flips a customer between Confirmed and Maybe Next Year, so
    the badge, the Edit Customer toggle and (later) the RSVP email can never drift
    into disagreeing about what the pair of states means. Deliberately writes no
@@ -57695,6 +57744,18 @@ RT.addEventListener('click',e=>{const t=e.target;
        is reported at the end rather than abandoning the other two. */
     const r=rebuildSeasonDays();
     const routes=generateAllRoutes();
+    /* ⭐ AND THE RECORDS STOP CLAIMING A DAY THEY NO LONGER HAVE. Addie asked for
+       this to happen on THIS button — "make sure that this updates when you
+       recalculate everything too" — rather than waiting for a sweep on a timer.
+       ⚠ NOT AWAITED, deliberately: it is a Firestore round trip per stale record and
+       the rest of this press is instant. The count arrives in its own toast, so the
+       press never sits there looking hung and never reports a number it does not
+       have yet. */
+    if(typeof clearStaleInstallBookings === 'function'){
+      clearStaleInstallBookings().then(function(n){
+        if(n) toast(n + ' record' + (n===1?'':'s') + ' no longer says booked — they are out for the season');
+      }).catch(function(err){ console.error('Could not clear stale bookings:', err); });
+    }
     preRebuild=before;
     RT.getElementById('undoRebuildBtn').style.display='';
     computeDates();renderAll();scheduleSave();
