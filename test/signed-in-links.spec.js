@@ -87,6 +87,12 @@ test.describe('Email links, with a login already remembered', () => {
     const stub = await openSignedIn(page, `#/payment?token=${CUST.token}&rsvp=yes`);
 
     await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
+    /* ⚠ THE GATE-CODE STEP NOW COMES FIRST on a yes (Addie, 2026-08-31: "Lets
+       do gate code before changes"), so this clicks through it to reach the
+       confirmation it has always been about. That is following the flow, not
+       relaxing the check — every assertion below is unchanged, and the step
+       itself is proved in test/rsvp-gate-code.spec.js. */
+    await page.locator('#rsvpGateCodeYesBtn').click();
     await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i);
     await expect(page.locator('#page-quote-details')).toBeHidden();
 

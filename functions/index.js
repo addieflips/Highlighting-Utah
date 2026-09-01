@@ -1956,9 +1956,62 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
     removedFrom = await removeCustomerFromUpcomingRoutes(match.id);
   }
 
+  /* ⚠ THE GATE CODE RIDES BACK ON THE RSVP ANSWER, and only here. It is in
+     PORTAL_READ_FIELDS already, but this screen is reached with no sign-in —
+     so it is returned as the value for THIS token, which the write above has
+     just proved belongs to this one record. Nothing else about the customer
+     comes back. It is what lets the next step say "we have 4417 on file, is
+     that still right?" instead of asking a customer who already told us. */
   return { ok: true, rsvpStatus: response,
            rejoinedAfterRecycle: rejoinedAfterRecycle,
-           removedFromRoutes: removedFrom };
+           removedFromRoutes: removedFrom,
+           gateCode: String(oldData.gateCode || '') };
+});
+
+/* ⭐ ONE FIELD, WRITTEN FROM THE RSVP CONFIRMATION (added 2026-08-31).
+ * Addie: "Lets do gate code before changes." The RSVP is the one email every
+ * customer opens and acts on, so it is the cheapest chance each season to
+ * catch a wrong gate code before a crew is standing at a locked gate.
+ *
+ * ⚠ WHY THIS IS NOT portalSave. `gateCode` is already in PORTAL_WRITE_FIELDS
+ * under the `info` section, so reusing it looks like the obvious move and is
+ * WRONG: that section ends with
+ *     updates.seasonStatus = addressChanged ? 'address_changed' : 'needs_changes';
+ * which is the RE-QUOTE state. It is resolved by answering a quote, and no
+ * quote exists here — so every customer who typed a gate code during their
+ * RSVP would be parked in Needs Changes for ever, waiting on a question
+ * nobody asked. A gate code is not a change to the job.
+ *
+ * ⚠ SAME TRUST MODEL AS portalRsvp: a valid portalToken IS the credential,
+ * there is no separate login, and the token is looked up the same way. It
+ * writes exactly one field and returns nothing about the customer.
+ *
+ * ⚠ AND IT IS DELIBERATELY NOT FOLDED INTO portalRsvp. They are two questions
+ * asked at two different moments — the answer is saved the instant it is
+ * given, and somebody who says "no gate code" never calls this at all, so a
+ * combined write would have to invent a value for them.
+ */
+exports.portalSetGateCode = onCall({ cors: true }, async (request) => {
+  const body = request.data || {};
+  const token = body.token ? String(body.token).trim() : '';
+  /* 60 characters, the same ceiling the office form uses (see the details
+     writer above), so the two cannot disagree about what fits. */
+  const gateCode = String(body.gateCode || '').trim().slice(0, 60);
+
+  if (!token) throw new HttpsError('invalid-argument', 'Missing portal token.');
+
+  const match = await findByToken(token);
+  /* Throws, like every other portal callable, so index.html's shared
+     portalCallFailedText tells them the link may be out of date rather than
+     that something went wrong. */
+  if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  await db.collection('jobAddresses').doc(match.id).update({
+    gateCode: gateCode,
+    gateCodeUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  return { ok: true, gateCode: gateCode };
 });
 
 /* The one place that strips a customer out of any route a crew has already

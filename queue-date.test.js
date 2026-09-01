@@ -1215,6 +1215,7 @@ check('the path still has every step in it',
       'the customer-side event is the recycle, and a step here could never be read because ' +
       'the jobAddresses record no longer exists',
     recycledAt: 'the same: closing off an ARCHIVED entry once the lights are back in stock',
+    gateCodeUpdatedAt: 'a DETAIL being corrected, not a stage anybody passes through. A customer confirming or fixing their gate code during the RSVP has not moved along the path — they are wherever they already were, and drawing it as a step would put a milestone on the picture for a four-digit correction. It exists so the office can tell a code confirmed this season from one sitting on the record since an import',
 
     /* --- the crew portal, dormant this season --- */
     fixFlaggedAt: 'the crew portal raising a fault; fixRaisedAt is the step, and the portal ' +

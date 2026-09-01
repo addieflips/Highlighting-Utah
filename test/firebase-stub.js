@@ -233,7 +233,30 @@ const FAKE_FUNCTIONS_MODULE = `
         if (F.customers[k].token === token) hit = F.customers[k];
       });
       if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
-      return { ok: true, rsvpStatus: response };
+      /* The gate code rides back on the answer, exactly as the real one does,
+         so the step that follows can CONFIRM a code we hold rather than ask a
+         customer who already told us. */
+      return { ok: true, rsvpStatus: response,
+               gateCode: String((hit.record && hit.record.gateCode) || '') };
+    },
+
+    /* Mirrors portalSetGateCode: token is the credential, one field is written,
+       an unknown token THROWS not-found like every other portal callable. The
+       write is recorded on the fixture so a spec can assert what was saved
+       rather than only that the call happened. */
+    portalSetGateCode: function (payload) {
+      const token = String((payload && payload.token) || '').trim();
+      const gateCode = String((payload && payload.gateCode) || '').trim().slice(0, 60);
+      if (token === 'forcegatefail') {
+        const e = new Error('boom'); e.code = 'functions/internal'; throw e;
+      }
+      let hit = null;
+      Object.keys(F.customers || {}).forEach(function (k) {
+        if (F.customers[k].token === token) hit = F.customers[k];
+      });
+      if (!hit) { const e = new Error('Account not found.'); e.code = 'functions/not-found'; throw e; }
+      if (hit.record) hit.record.gateCode = gateCode;
+      return { ok: true, gateCode: gateCode };
     },
     portalSave:        () => ({ ok: true, saved: true }),
     publicQuoteLookup: publicQuoteLookup,

@@ -107,6 +107,13 @@ jobs:
       - name: Every email says what it is (subject lines)
         run: npm run test:subject
 
+      # The browser specs drive the gate-code step against a FAKE Firebase, so
+      # they prove what the customer sees and nothing about functions/index.js.
+      # A red-check proved it: breaking the real server's return left all ten of
+      # them green. This is the half they cannot see.
+      - name: The gate code reaches the record (server side)
+        run: npm run test:gatecode
+
       # Owner, 2026-08-25: "nothing should fail quietly." This one refuses an empty
       # catch block that does not say WHY it is empty — the reason has to be written
       # inside the braces, where it travels with the code rather than three lines
