@@ -1069,8 +1069,18 @@ check('badging Back Next Year clears the build but not the recycle',
      ⚠ THE THREE OLD GUARANTEES DID NOT DISAPPEAR, they collapsed into one: nothing may
      put the rule back to "everybody". A settings read that could do it was the largest
      of the three, and it is the one checked first. */
+  /* ⚠ REPOINTED 2026-08-31, NOT DROPPED. Addie turned confirmed-only off for the
+     testing weeks — "if its no rsvp that shouldnt effect it because we still need to
+     test if its no rsvp so tht is irrelevant" — after it was measured holding 951 of
+     her 956 customers out of the season. THE GUARANTEE THIS CHECK EXISTS FOR IS
+     UNCHANGED and is what is still asserted: it is a `const`, so nothing stored can
+     move the rule either way behind somebody's back. Which value it holds is a ruling
+     (MON-47), asserted where the ruling is, not here.
+     ⚠ A `let` here is still the failure: that is a value a stored setting, a handler
+     or a stray line can put back to everybody. */
   check('the season rule is hardcoded, not a variable something can reassign',
-    /const SEASON_ELIGIBILITY = 'confirmed-only';/.test(admin),
+    /const SEASON_ELIGIBILITY = '(confirmed-only|all-but-maybe-next-year)';/.test(admin) &&
+    !/let SEASON_ELIGIBILITY/.test(admin),
     'a `let` is a value a stored setting, a handler or a stray line can put back to ' +
     'everybody — which is a season quietly counting people nobody asked');
 

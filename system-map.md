@@ -94,6 +94,30 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **THE CONFIRMED BADGE IS THE GATE** (2026-08-31). Addie: *"it should look for
+anyone who is confirmed and put them in schedule … make sure they cant have the
+confirmed tag if they are breaking a rule so if you break one of the rules they
+automatically change the badge to pending mainly just the havent paid for last
+year"*, and *"you shouldnt have to manually add them to pending"*.
+
+The badge in All Customers has **three** states now — Confirmed, **Pending**,
+Maybe Next Year — and `seasonBadgeKey` works it out by asking `isOutForSeason`
+rather than deciding for itself. So **Confirmed and in-the-season are one fact**:
+no row can read Confirmed while every scheduler in the app has already dropped
+that customer. Pending is derived and never stored, so paying the bill moves the
+badge on its own the next time the row is drawn. ⚠ Maybe Next Year stays its own
+answer rather than folding into Pending — that one the office sets by hand.
+
+⚠ **And an unanswered RSVP stopped deciding who is scheduled.** Measured on the
+real book before anything was changed: of 956 customers, **951** were being held
+out with *no RSVP yet*, 2 for owing from 2025, 1 back next year, and exactly one
+was scheduled. The rule had emptied the season. ⚠ It was live because **a test
+send stamps `rsvpSentAt`** just as a real one does, and that marker is what arms
+it — the gate did what it was built to do and could not know nobody had really
+been asked. `SEASON_ELIGIBILITY` is `all-but-maybe-next-year` for the testing
+weeks; her 2026-08-27 hardcoding is about the season after the RSVP has genuinely
+gone out, and turning it back on is that one line.
+
 ⭐ **ALL CUSTOMERS TAGS WHO STILL OWES FOR AN EARLIER SEASON** (2026-08-31).
 Owner: *"we need a seperate tag for people who havent paid for 2025 can you just
 add another one under the same badge that says unpaid 2025."* Under the
