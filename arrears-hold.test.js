@@ -988,6 +988,97 @@ function seasonResetWrite() {
     check('it is a no-op when no buttons are rendered', globalThis.__rendered === 0);
   }
 
+  /* ⭐ AND WHAT THE CUSTOMER SEES AFTER THEY PAY LAST SEASON. Addie: "how much the full
+     amount should show as after they pay 2025... And 2025 unpaid payment should
+     disapear." RUN through the real renderer, because both claims are about what is on
+     the screen and neither can be read off the source. */
+  {
+    const { JSDOM } = require('jsdom');
+    const pd = new JSDOM('<div id="invPayChoice" style="display:none">' +
+      '<button class="pay-choice" data-scope="arrears"><span id="payChoiceArrearsTitle"></span>' +
+      '<span id="payChoiceArrearsAmt"></span><span id="payChoiceArrearsWhy"></span></button>' +
+      '<button class="pay-choice" data-scope="all"><span id="payChoiceAllAmt"></span>' +
+      '<span id="payChoiceAllWhy"></span></button></div>');
+    const liftSite = function (name) {
+      const at = site.indexOf('function ' + name + '(');
+      return at === -1 ? '' : site.slice(at, site.indexOf('\n}', at) + 2);
+    };
+    const pay = new Function('document', [
+      'var portalPayScope="arrears", portalArrearsLeft=0, portalTotalDue=0;',
+      'function centsOf(n){return Math.round(((Number(n)||0)+Number.EPSILON)*100);}',
+      'function fmt(n){return "$"+(Number(n)||0).toFixed(2);}',
+      liftSite('portalPayableNow'), liftSite('renderPayChoice'), liftSite('paintPayChoice'),
+      'return {render: renderPayChoice, payable: portalPayableNow};'
+    ].join('\n'))(pd.window.document);
+    const doc = pd.window.document;
+    const shown = () => doc.getElementById('invPayChoice').style.display !== 'none';
+
+    pay.render({ record: { arrearsOutstanding: 400, arrearsSeason: '2025' } }, 850);
+    check('while they owe 2025, both amounts are offered',
+      shown() && doc.getElementById('payChoiceArrearsAmt').textContent === '$400.00' &&
+      doc.getElementById('payChoiceAllAmt').textContent === '$850.00',
+      'got ' + doc.getElementById('payChoiceArrearsAmt').textContent + ' / ' +
+      doc.getElementById('payChoiceAllAmt').textContent);
+
+    /* Her two asks, in one state: the invoice re-read after paying the $400. */
+    pay.render({ record: { arrearsOutstanding: 0, arrearsSeason: '2025' } }, 450);
+    check('once 2025 is paid the 2025 option disappears',
+      !shown(),
+      'a button offering to charge them again for a season they have just settled');
+    check('and what is payable becomes the rest of this year, not nothing',
+      pay.payable() === 450,
+      'the scope is still "arrears" at that moment, so this is where a naive read ' +
+      'returns 0 and the customer is shown nothing to pay; got ' + pay.payable());
+
+    /* ⚠ A PART payment of the DEBT must leave the option up for the remainder — this is
+       the case that separates "hide it when they paid" from "hide it when it is gone". */
+    pay.render({ record: { arrearsOutstanding: 250, arrearsSeason: '2025' } }, 700);
+    check('a part payment of 2025 leaves the remainder offered',
+      shown() && doc.getElementById('payChoiceArrearsAmt').textContent === '$250.00' &&
+      doc.getElementById('payChoiceAllAmt').textContent === '$700.00',
+      'got ' + doc.getElementById('payChoiceArrearsAmt').textContent + ' / ' +
+      doc.getElementById('payChoiceAllAmt').textContent);
+  }
+
+  /* ⭐ AND IF PAYPAL KEEPS ITS WINDOW OPEN ANYWAY. The teardown is meant to close it, but
+     a window that survives still holds an order for the OLD amount, and completing it
+     would charge that while this page shows the new figure. */
+  check('the page knows when a payment window is actually open',
+    /onClick: function\(\)\{ paypalFlowOpen = true; \}/.test(site) &&
+    /onCancel: function\(\)\{\s*paypalFlowOpen = false;/.test(site),
+    'without this it cannot tell a switch made before the window opened from one made ' +
+    'after, and only the second is dangerous');
+  check('backing out of a payment rebuilds the buttons for the current choice',
+    /onCancel: function\(\)\{[\s\S]{0,400}resetPaypalButtons\(\);/.test(site),
+    'otherwise the next press is still priced from the abandoned attempt');
+  check('an error and a completed payment both clear it too',
+    /onError: function\(\)\{\s*paypalFlowOpen = false;/.test(site) &&
+    /onApprove: function\(data\)\{\s*paypalFlowOpen = false;/.test(site),
+    'a flag that only ever goes true would warn on every switch for the rest of the visit');
+  /* ⚠ READ BEFORE THE TEARDOWN, which is what clears the flag. Written the other way
+     round it is always false and the warning can never appear. */
+  const switchBlock = site.slice(site.indexOf('var hadWindowOpen = paypalFlowOpen;'),
+                                 site.indexOf('var hadWindowOpen = paypalFlowOpen;') + 900);
+  /* ⚠ THE ORDER IS THE WHOLE CHECK. resetPaypalButtons is what clears the flag, so a
+     read placed after it is always false and the warning could never appear — the same
+     shape of fault as reading a snapshot after the write that wipes it. */
+  const choiceBlock = site.slice(site.indexOf("closest('#invPayChoice .pay-choice')"),
+                                 site.indexOf('/* Which payment methods the portal offers'));
+  check('the flag is read BEFORE the teardown clears it',
+    choiceBlock.indexOf('var hadWindowOpen = paypalFlowOpen;') !== -1 &&
+    choiceBlock.indexOf('var hadWindowOpen = paypalFlowOpen;') <
+      choiceBlock.indexOf('resetPaypalButtons();'),
+    'read afterwards it is always false and the warning could never appear');
+  check('and it says the amount they would now be paying',
+    /portalPayableNow\(\)/.test(switchBlock) && /has been closed/.test(switchBlock),
+    'money going one way while the screen says another is worth interrupting somebody over');
+  check('the warning clears itself when no window was open',
+    /swEl\.style\.display = 'none';/.test(switchBlock),
+    'a warning left standing from an earlier switch is one nobody reads');
+  check('and there is an element for it to write into',
+    /id="paypalSwitchMsg"/.test(site),
+    'a filler with no element is a silent no-op');
+
   /* Every control that changes what will be charged has to trigger it — fixing only
      the one Addie hit would leave the identical bug behind the tip buttons. */
   const choiceHandler = site.slice(site.indexOf("closest('#invPayChoice .pay-choice')"),

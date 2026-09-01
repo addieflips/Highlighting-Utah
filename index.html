@@ -1653,6 +1653,7 @@
             <div id="paypal-button-container" style="margin-top:10px;"></div>
             <p class="form-note" id="paypalPaidMsg" style="display:none; text-align:center; color:#2E6B3E; font-weight:600; margin-top:10px;">&#10003; Payment received &mdash; thank you!</p>
             <p class="form-note" id="paypalErrorMsg" style="display:none; text-align:center; color:var(--ember); margin-top:10px;"></p>
+            <p class="form-note" id="paypalSwitchMsg" style="display:none; text-align:center; color:#8a6d1f; background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; margin-top:10px;"></p>
           </div>
           <!-- ⭐ VENMO IS A LAST RESORT, BEHIND A DROPDOWN (2026-09-01). Addie: "I
                don't want a venmo QR code anymore and I want venmo under other payments
@@ -5224,7 +5225,27 @@ document.addEventListener('click', function(e){
      the plain button and false of the card one, whose form is opened (and whose order is
      created) before this choice can change. That was the bug: the card form went on
      showing last season's amount after switching to the full balance. */
+  /* ⚠ SAID OUT LOUD WHEN A PAYMENT WINDOW WAS ALREADY OPEN. resetPaypalButtons closes
+     it, and that is normally the end of it — but a window PayPal keeps open is still
+     holding an order for the amount chosen before, and completing THAT would charge the
+     old figure while this page shows the new one. Money going one way while the screen
+     says another is the one outcome worth interrupting somebody over, so it is said
+     plainly rather than left to a bank statement. Read BEFORE the teardown, which is
+     what clears the flag. */
+  var hadWindowOpen = paypalFlowOpen;
   resetPaypalButtons();
+  var swEl = document.getElementById('paypalSwitchMsg');
+  if(swEl){
+    if(hadWindowOpen){
+      swEl.style.display = 'block';
+      swEl.textContent = 'Your card window was set up for a different amount, so it has been closed. ' +
+        'If it is still open, close it and start again \u2014 you will be paying ' +
+        fmt(portalPayableNow()) + '.';
+    } else {
+      swEl.style.display = 'none';
+      swEl.textContent = '';
+    }
+  }
 });
 /* Which payment methods the portal offers. 'venmo' and 'paypal' are one-or-the-
    other; 'both' shows them side by side so the customer picks. PayPal needs a
@@ -5298,6 +5319,12 @@ var paypalButtonsRendered = false;
    server's decision. Closing the buttons discards the open form, and the next press
    creates a fresh order from whatever is chosen then. */
 var paypalButtonInstances = [];
+/* ⚠ TRUE FROM THE MOMENT A PAYMENT WINDOW OPENS until it closes. Tearing the buttons
+   down is meant to close that window, and normally does — but if it ever does not, the
+   window is still holding an order for the OLD amount, and completing it would charge
+   that. This is what lets the page say so instead of leaving them to find out on their
+   statement. */
+var paypalFlowOpen = false;
 function resetPaypalButtons(){
   if(!paypalButtonsRendered) return;
   paypalButtonInstances.forEach(function(inst){
@@ -5383,6 +5410,15 @@ function renderPaypalButtons(){
   /* One shared config, rendered twice against two funding sources, so the card
      button can sit above the PayPal button instead of PayPal choosing the order. */
   var ppConfig = {
+    /* PayPal calls this the instant the button is pressed — BEFORE createOrder, and
+       before the card window opens. */
+    onClick: function(){ paypalFlowOpen = true; },
+    onCancel: function(){
+      paypalFlowOpen = false;
+      /* They backed out, so whatever they were half way through is gone. Rebuilding
+         means the next press is priced from whatever is chosen NOW. */
+      resetPaypalButtons();
+    },
     createOrder: function(){
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl) errEl.style.display = 'none';
@@ -5398,6 +5434,7 @@ function renderPaypalButtons(){
       });
     },
     onApprove: function(data){
+      paypalFlowOpen = false;
       var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
       return captureOrderFn({ orderID: data.orderID, phone: phone, tipAmount: currentTipAmount }).then(function(){
         /* ⚠ IT USED TO SAY "Paid in Full" AND $0 WHATEVER HAD JUST BEEN PAID, and
@@ -5436,6 +5473,7 @@ function renderPaypalButtons(){
       });
     },
     onError: function(){
+      paypalFlowOpen = false;
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Something went wrong with PayPal — please try again or call/text us at (801) 901-0011.'; }
     }
