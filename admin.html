@@ -26157,6 +26157,32 @@ function rmBackToHouse(){
 }
 function rmReset(){
   rmClearDrawing();
+  /* ⭐ AND IT FORGETS THE LAST HOUSE (2026-08-31). Owner, opening the tool on a
+     quote she had not started measuring: "A – B 0 ft across … E – F 0 ft across
+     … I – J 0 ft across … this is there before i even start measuring."
+
+     ⚠ rmReset CLEARED NEITHER THE DOTS NOR THE PEAKS. It resets a dozen
+     per-house things by hand — the roof model, the heights, the alignment, the
+     photograph — and the two that name the gables were not among them. The only
+     thing emptying them was rmLoadAddress, by way of rmForgetLastHouse, which
+     runs on a LATER TICK and only when the quote HAS an address: so the previous
+     house's dots and peaks are on screen for as long as the map takes to load,
+     and on a quote with no address they simply stay — counting that house's
+     footage into this one's price.
+
+     ⚠ SO IT CALLS rmForgetLastHouse RATHER THAN CLEARING TWO MORE THINGS HERE.
+     That function's own note says it: "Only this function knows what is
+     per-house, so it is the one place to add to when something new is
+     remembered." Adding a thirteenth line to this list is how the fourteenth
+     gets missed — which is exactly what happened. It keeps the remembered
+     NEIGHBOURS, which are re-consulted on load and belong to the street rather
+     than to the house.
+
+     ⚠ THE LINES BELOW THAT IT NOW DUPLICATES ARE LEFT ALONE, deliberately.
+     Every one of them is an assignment to a fresh value, so running twice costs
+     nothing — and thinning them by hand to remove the overlap is a change with
+     no test behind it to a reset that guards a price. */
+  rmForgetLastHouse();
   rmPendingMeasurement = null;
   /* A scale check belongs to the house it was taken on. Carrying one across
      to the next quote would report a figure about somebody else's roof. */
