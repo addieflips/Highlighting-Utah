@@ -697,6 +697,14 @@ season*. It writes the same kind of carried line, so it holds them out of the se
 The Fees box cannot do this — a manual fee raises the bill and does not hold anybody
 (MON-36).
 
+⚠ **The backfill button is NOT a pending task** (MON-51, 2026-09-01). Addie: *"I'm not
+going to do carry cause we did not have this website last year there is nothing to
+carry."* The book only started on this site, so no invoice carried a 2025 balance for the
+snapshot to hold. **Nothing is carried today** — the hold releases everybody, Owes from
+last year is empty, and the two-button payment choice never appears. It all begins working
+by itself at the END of this season, when Start New Season carries anyone who has not paid
+for 2026. Do not chase her to press the button.
+
 ⚠ **The 2026 season was reset before this shipped**, so those balances were written off
 and survive only in the snapshot. **Invoices → Start New Season → Carry last season's
 unpaid bills** is the one-off repair: it reads the snapshot, shows what it would do, and
