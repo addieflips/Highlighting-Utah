@@ -100,3 +100,65 @@ test.describe('Paying last season before this one', () => {
   });
 
 });
+
+/* ---- HOW THE PAYMENT PANEL IS LAID OUT ---------------------------------
+ *
+ * Addie, 2026-09-01: "I don't want a venmo QR code anymore and I want venmo
+ * under other payments not showing at all cause I want venmo to be a last
+ * resort", then "venmo will be under other payments which will need to be a
+ * dropdown to see venmo."
+ *
+ * ⚠ EVERY CLAIM HERE IS ABOUT WHAT IS ON SCREEN AND IN WHAT ORDER, which is
+ * exactly what a source check cannot see.
+ */
+test.describe('The payment panel', () => {
+
+  test('Venmo is not visible until the dropdown is opened', async ({ page }) => {
+    const stub = await openPortal(page);
+    await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
+
+    /* The dropdown itself is there... */
+    const other = page.locator('#otherPaymentsPanel');
+    await expect(other).toBeVisible();
+    await expect(other).toContainText(/other payment options/i);
+    /* ...but Venmo inside it is not, because it is shut. */
+    await expect(page.locator('#venmoPayBtn')).toBeHidden();
+
+    stub.assertNoRealCalls();
+  });
+
+  test('opening it reveals Venmo, with the amount already on the link', async ({ page }) => {
+    const stub = await openPortal(page);
+    await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
+
+    await page.locator('#otherPaymentsPanel summary').click();
+    const venmo = page.locator('#venmoPayBtn');
+    await expect(venmo).toBeVisible();
+    /* ⚠ THE AMOUNT MUST STILL BE PRE-FILLED. Shutting the panel on every render
+       must not rebuild it and lose the href written just before. */
+    await expect(venmo).toHaveAttribute('href', /venmo\.com.*amount=\d+\.\d\d/);
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ THE QR IS GONE, NOT HIDDEN. It was a ~30KB base64 image shipped to every
+     customer on every load, and it asked them to type the amount in
+     themselves — which is how a payment arrives for the wrong figure. */
+  test('the Venmo QR code is gone from the page entirely', async ({ page }) => {
+    const stub = await openPortal(page);
+    await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
+    expect(await page.locator('#qrPanel').count()).toBe(0);
+    expect(await page.locator('img[alt*="Venmo" i]').count()).toBe(0);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ AND THE OLD DIVIDER GOES WITH IT — "— or pay with Venmo —" announced
+     Venmo as an equal alternative, which is the opposite of a last resort. */
+  test('nothing announces Venmo as an equal alternative', async ({ page }) => {
+    const stub = await openPortal(page);
+    await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
+    expect(await page.locator('#paypalOrNote').count()).toBe(0);
+    stub.assertNoRealCalls();
+  });
+
+});

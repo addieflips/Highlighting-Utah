@@ -55,6 +55,29 @@ const RUNTIME_IDS = {
   // (none yet — add as "id": "why it is created at runtime")
 };
 
+/* ⭐ IDS A SPEC NAMES IN ORDER TO PROVE THEY ARE GONE (added 2026-09-01).
+ *
+ * A spec that asserts an element was REMOVED has to name its id, and this gate
+ * would otherwise read that as a broken selector — the one case where "the id
+ * is not in the page" is exactly what the spec is checking.
+ *
+ * ⚠ NOT RUNTIME_IDS. That means "created at runtime, so it will never appear in
+ * the HTML"; these are the opposite — deleted on purpose and required to stay
+ * deleted. Filing them there would be a true-looking entry that says something
+ * false, and the next person to read it would go looking for code that builds
+ * them.
+ *
+ * ⚠ EACH ONE CARRIES WHY IT WENT, so a future session that wants the element
+ * back has the argument in front of it rather than only its absence. */
+const REMOVED_IDS = {
+  qrPanel: 'the Venmo QR code, deleted 2026-09-01 — a ~30KB base64 image shipped ' +
+           'to every customer on every load, which asked them to type the amount ' +
+           'in themselves. Addie: "I don\'t want a venmo QR code anymore."',
+  paypalOrNote: 'the "— or pay with Venmo —" divider, deleted 2026-09-01. It ' +
+                'announced Venmo as an equal alternative, which is the opposite ' +
+                'of the last resort Addie asked for.'
+};
+
 /* Same idea for data-testid. These are created by a test double rather than
  * living in the page, so they will never appear in the HTML — but they are
  * still real contracts, just owned by tests/firebase-stub.js instead. Each
@@ -181,6 +204,17 @@ specFiles.forEach(specFile => {
   const target_ = htmlFor(target);
 
   ids.forEach(id => {
+    const removed = Object.prototype.hasOwnProperty.call(REMOVED_IDS, id);
+    /* An id listed as REMOVED must be ABSENT — if it comes back, the spec
+       asserting its absence is now lying and this says so. */
+    if (removed) {
+      check(specFile + ' → #' + id + ' is still gone from ' + target,
+        !target_.ids.has(id),
+        'this id is in REMOVED_IDS, so a spec asserts it no longer exists — but it is ' +
+        'back in the page. Either the removal was undone (drop the REMOVED_IDS entry ' +
+        'and the spec) or something re-added it by accident.');
+      return;
+    }
     const known = target_.ids.has(id) || Object.prototype.hasOwnProperty.call(RUNTIME_IDS, id);
     check(specFile + ' → #' + id + ' exists in ' + target,
       known,
