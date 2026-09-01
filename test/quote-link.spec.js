@@ -201,4 +201,78 @@ test.describe('The quote link', () => {
     expect(relative, 'served at /q/<token> these resolve to /q/... and 404, ' +
       'killing every script on the page').toEqual([]);
   });
+  /* ---- the TEXT link, all the way through --------------------------------
+   * Addie, 2026-08-31: "On text if they click on the link and approve it will
+   * currently show the form and move them to convert to costumer right or is the
+   * text link not going to connect that way?"
+   *
+   * A fair question, because the two links are NOT the same shape. The email
+   * button carries &action=approve; the text link is a bare /q/<token> with no
+   * action at all, so it lands on the three-answer screen first. What follows is
+   * whether pressing Approve there reaches the same place.
+   *
+   * ⚠ AND THE TWO CUSTOMERS GO DIFFERENT WAYS ON PURPOSE — which is the real
+   * answer. A new lead gets the install-details form. An existing member never
+   * does; they are asked "anything changing this year?", because we already hold
+   * their colours and re-collecting them invites a second build of a house that
+   * already has lights. */
+  test('the text link: a NEW customer approves and gets the details form', async ({ page }) => {
+    const stub = await installFirebaseStub(page);
+    const errs = [];
+    page.on('pageerror', e => errs.push('pageerror: ' + e));
+    const INDEX = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'index.html'), 'utf8');
+    await page.route(u => u.pathname === '/q/' + TOKEN, r =>
+      r.fulfill({ status: 200, contentType: 'text/html', body: INDEX }));
+
+    await page.goto('/q/' + TOKEN);
+    const onPage = page.locator('#page-quote-details');
+    await onPage.getByRole('button', { name: /approve/i }).first().click();
+
+    /* The approval is recorded... */
+    await expect.poll(async () => (await stub.calls()).some(c =>
+      c.name === 'quoteRespond' && c.payload.action === 'approve' &&
+      c.payload.quoteToken === TOKEN), { timeout: 5000 }).toBe(true);
+    /* ...and the form they must fill in is on screen. Without it the office never
+       gets the colours, and quoteStage never moves the card. */
+    await expect(page.locator('#quoteDetailFormWrap')).toBeVisible({ timeout: 5000 });
+
+    expect(errs).toEqual([]);
+    await stub.assertNoRealCalls();
+  });
+
+  /* ⭐ THE MEMBER PATH, WHICH IS THE ONE QT-21 FIXED. No form is coming for them,
+     so "No, keep everything the same" is what settles the card — and until
+     2026-08-31 it wrote nothing at all and the card stuck in Awaiting Response. */
+  test('the text link: a MEMBER approves, keeps everything, and it is recorded', async ({ page }) => {
+    const MEMBER = QUOTES.pendingForExistingCustomer.data.quoteToken;
+    const stub = await installFirebaseStub(page);
+    const errs = [];
+    page.on('pageerror', e => errs.push('pageerror: ' + e));
+    const INDEX = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'index.html'), 'utf8');
+    await page.route(u => u.pathname === '/q/' + MEMBER, r =>
+      r.fulfill({ status: 200, contentType: 'text/html', body: INDEX }));
+
+    await page.goto('/q/' + MEMBER);
+    const onPage = page.locator('#page-quote-details');
+    await onPage.getByRole('button', { name: /approve/i }).first().click();
+
+    /* They are asked the member question, NOT handed the new-customer form. */
+    await expect(onPage.getByRole('button', { name: /keep everything the same/i }))
+      .toBeVisible({ timeout: 5000 });
+    await expect(page.locator('#quoteDetailFormWrap')).toBeHidden();
+
+    await onPage.getByRole('button', { name: /keep everything the same/i }).click();
+
+    /* ⭐ THE WRITE THAT MOVES THE CARD. Before QT-21 this call did not exist and the
+       screen simply said "Perfect, you're all set" while the office saw no change. */
+    await expect.poll(async () => (await stub.calls()).some(c =>
+      c.name === 'quoteMemberKeptDetails' && c.payload.quoteToken === MEMBER),
+      { timeout: 5000 }).toBe(true);
+    await expect(onPage.locator('#quoteLinkConfirmMsg')).toContainText(/all set/i);
+
+    expect(errs).toEqual([]);
+    await stub.assertNoRealCalls();
+  });
 });
