@@ -2141,6 +2141,31 @@
             <div id="editCustFeeSummary" style="font-size:13px; font-weight:600; color:var(--ember); margin-top:8px;"></div>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added on top of the total. Saving replaces the manual fee; automatic light-change fees are left alone.</p>
           </div>
+          <!-- ⭐ OWED FROM AN EARLIER SEASON, TYPED IN BY HAND (added 2026-09-01).
+               Addie: "one at a time but only this year in the future we can use carry."
+               Start New Season carries an unpaid balance forward by itself, and the
+               Arrears Backfill repairs seasons reset before 31 August — but a debt from
+               a season with no snapshot behind it could be recorded NOWHERE. This is
+               that gap, and only that gap.
+               ⚠ IT IS ITS OWN BUTTON, NOT PART OF SAVE. The manual-fee box above is
+               REBUILT on every save, so a blank box removes the fee — right for a fee,
+               catastrophic here: an ordinary save to fix a phone number would wipe a
+               real debt and take the season hold with it. This writes only when
+               pressed, and an untouched box changes nothing. -->
+          <div style="margin-top:14px; padding:12px; border:1px solid var(--gold-dim); border-radius:10px; background:var(--paper);" id="editCustArrearsBlock">
+            <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Owed from an earlier season</label>
+            <div id="editCustArrearsCurrent" style="font-size:13px; font-weight:600; color:var(--ember); margin-bottom:8px;"></div>
+            <div class="ec-grid">
+              <div class="form-row"><label>Amount ($)</label><input type="number" id="editCustArrearsAmount" min="0" step="1" placeholder="0"></div>
+              <div class="form-row"><label>Season it is from</label><input type="number" id="editCustArrearsYear" min="2000" max="2100" step="1" placeholder="2025"></div>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+              <button type="button" class="btn btn-gold btn-sm" id="editCustArrearsSaveBtn">Record what they owe</button>
+              <button type="button" class="btn btn-outline btn-sm" id="editCustArrearsClearBtn" style="display:none;">Clear it</button>
+            </div>
+            <div id="editCustArrearsStatus" role="status" aria-live="polite" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Goes on this year&rsquo;s bill as its own line, and <b>holds them out of the season until it is paid</b> &mdash; the same as a balance Start New Season carries forward by itself. Saved on its own button, so an ordinary save never touches it.</p>
+          </div>
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
             <div class="ec-grid">
@@ -14715,6 +14740,139 @@ document.getElementById('etNewTemplateBtn').addEventListener('click', function()
     etEditorDirty = true;
     document.getElementById('etUnsavedNote').style.display = 'block';
   });
+});
+/* ⭐ A DEBT FROM AN EARLIER SEASON, TYPED IN BY HAND (added 2026-09-01).
+   Addie: "one at a time but only this year in the future we can use carry."
+
+   ⚠ THE GAP THIS FILLS IS NARROW AND REAL. Start New Season carries an unpaid
+   balance forward by itself, and the Arrears Backfill repairs seasons reset
+   before 31 August — but both read a saved snapshot. A debt from a season with
+   no snapshot behind it could be recorded NOWHERE, which is what Addie hit.
+
+   ⚠ IT WRITES THE SAME SHAPE THOSE TWO WRITE, and that is the whole point. The
+   `kind` is load-bearing: without ARREARS_KIND this reads as a light-change fee
+   to every existing reader, owesFromLastSeason cannot find it, and the season
+   hold never applies — so the customer would be billed and STILL be sent a crew.
+
+   ⚠ ONE ARREARS NOTE PER INVOICE, REPLACED NEVER APPENDED. "Earliest year only,
+   for the whole lump sum" (MON-35) falls out for free from that invariant, and
+   appending would break it silently — two notes, two years, and the badge would
+   show whichever came first in the array.
+
+   ⚠ AND IT IS ITS OWN BUTTON. The manual-fee box is REBUILT on every save, so a
+   blank box removes the fee. Doing that here would mean an ordinary save to fix
+   a phone number wipes a real debt and releases the season hold with it — the
+   colour-wipe bug of 2026-08-26, on money. */
+function editCustArrearsInvoice(){
+  const d = (jobAddresses.find(function(a){ return a.id === editCustomerId; }) || {}).data;
+  if(!d) return null;
+  const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
+  return allInvoicesCache.find(function(i){ return i.id === key; }) || null;
+}
+/* Redraws what is currently on file. Called on open and after every write, so
+   the box can never disagree with the invoice behind it. */
+function editCustArrearsRefresh(){
+  const cur = document.getElementById('editCustArrearsCurrent');
+  const clr = document.getElementById('editCustArrearsClearBtn');
+  const amt = document.getElementById('editCustArrearsAmount');
+  const yr  = document.getElementById('editCustArrearsYear');
+  if(!cur || !clr || !amt || !yr) return;
+  const inv = editCustArrearsInvoice();
+  const owed = inv ? arrearsOnInvoice(inv.data) : 0;
+  const year = inv ? arrearsYearOnInvoice(inv.data) : null;
+  if(owed > 0){
+    cur.textContent = 'On file: ' + fmtMoney(owed) + (year ? ' from ' + year : '');
+    clr.style.display = 'inline-flex';
+    /* Pre-filled so correcting an amount is an edit rather than a retype, and
+       so pressing Record without touching anything is a no-op rather than a
+       surprise. */
+    amt.value = String(owed);
+    yr.value = year || '';
+  } else {
+    cur.textContent = 'Nothing on file from an earlier season.';
+    clr.style.display = 'none';
+    amt.value = '';
+    /* Defaults to LAST season, which is what a debt being typed in almost
+       always is — and it is still editable. */
+    yr.value = String(new Date().getFullYear() - 1);
+  }
+}
+/* Replaces the arrears note and re-totals changeFees from the notes, so the
+   figure and the lines can never drift apart. amount 0 removes it. */
+async function editCustArrearsWrite(amount, year){
+  const inv = editCustArrearsInvoice();
+  const statusEl = document.getElementById('editCustArrearsStatus');
+  if(!inv){
+    if(statusEl) statusEl.textContent = 'No invoice on file for this customer yet — save them first, then record it.';
+    return false;
+  }
+  const prior = Array.isArray(inv.data.changeFeeNotes) ? inv.data.changeFeeNotes : [];
+  const kept = prior.filter(function(n){ return !n || n.kind !== ARREARS_KIND; });
+  const notes = kept.slice();
+  if(amount > 0){
+    notes.push({ amount: amount, kind: ARREARS_KIND, year: String(year),
+                 reason: 'Unpaid balance carried from the ' + year + ' season',
+                 date: new Date().toISOString() });
+  }
+  const fees = notes.reduce(function(sum, n){ return sum + (Number(n && n.amount) || 0); }, 0);
+  await updateDoc(doc(db,'invoices', inv.id), {changeFeeNotes: notes, changeFees: fees});
+  /* Mirrored into the cache because the panel repaints from it, not from
+     Firestore — the same reason every other write in this handler mirrors. */
+  inv.data.changeFeeNotes = notes;
+  inv.data.changeFees = fees;
+  return true;
+}
+document.getElementById('editCustArrearsSaveBtn')?.addEventListener('click', async function(){
+  const btn = this;
+  const statusEl = document.getElementById('editCustArrearsStatus');
+  const amount = Math.max(0, Number(document.getElementById('editCustArrearsAmount').value) || 0);
+  const year = parseInt(document.getElementById('editCustArrearsYear').value, 10);
+  if(!(amount > 0)){
+    statusEl.textContent = 'Enter what they owe first. To remove a debt, use Clear it.';
+    return;
+  }
+  /* A year is required and is not guessed. It decides what the customer and the
+     office both read, and MON-35 turns on it being the year they fell behind —
+     defaulting silently to this year would relabel an old debt as a new one. */
+  if(!(year >= 2000 && year <= 2100)){
+    statusEl.textContent = 'Enter the season it is from, as four digits.';
+    return;
+  }
+  btn.disabled = true;
+  statusEl.textContent = 'Saving\u2026';
+  try{
+    const ok = await editCustArrearsWrite(amount, year);
+    if(ok){
+      editCustArrearsRefresh();
+      statusEl.textContent = 'Recorded \u2014 ' + fmtMoney(amount) + ' from ' + year +
+        '. They are held out of the season until it is paid.';
+      safeRender('allCustomers');
+    }
+  } catch(err){
+    console.error('[HU] arrears write failed', err);
+    statusEl.textContent = 'Could not save that \u2014 try again.';
+  }
+  btn.disabled = false;
+});
+document.getElementById('editCustArrearsClearBtn')?.addEventListener('click', async function(){
+  /* Asked, because clearing says they have paid — it releases the season hold
+     and takes the line off their bill. */
+  if(!confirm('Remove the earlier-season debt from this bill? They will no longer be held out of the season for it.')) return;
+  const btn = this;
+  const statusEl = document.getElementById('editCustArrearsStatus');
+  btn.disabled = true;
+  try{
+    const ok = await editCustArrearsWrite(0, 0);
+    if(ok){
+      editCustArrearsRefresh();
+      statusEl.textContent = 'Cleared.';
+      safeRender('allCustomers');
+    }
+  } catch(err){
+    console.error('[HU] arrears clear failed', err);
+    statusEl.textContent = 'Could not clear that \u2014 try again.';
+  }
+  btn.disabled = false;
 });
 document.getElementById('etSaveTemplateBtn').addEventListener('click', async function(){
   const statusEl = document.getElementById('etSaveStatus');
@@ -43117,6 +43275,10 @@ function openEditCustomerModal(id){
   document.getElementById('editCustInvoiceNotes').value = (ecInv && ecInv.data.invoiceNotes) || '';
   /* Only the manual fee is editable here. Automatic light-change fees stay on
      the invoice and are managed from the Invoices tab. */
+  /* ⚠ CALLED ON EVERY OPEN, including a house-tab click. Without this the box
+     shows the previous customer's debt — the leak the tab strip was guarded
+     against, on money this time. */
+  if(typeof editCustArrearsRefresh === 'function') editCustArrearsRefresh();
   const ecFeeNotes = (ecInv && Array.isArray(ecInv.data.changeFeeNotes)) ? ecInv.data.changeFeeNotes : [];
   const ecManualFee = ecFeeNotes.find(f => f.kind === 'manual');
   document.getElementById('editCustFee').value = ecManualFee ? (Number(ecManualFee.amount) || '') : '';
