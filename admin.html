@@ -240,6 +240,12 @@
   .panel{ display:none; min-width:0; max-width:100%; }
   .panel table{ max-width:100%; }
   .row-item{ min-width:0; }
+  /* ⭐ THE CARD OF SOMEBODY WHO OWES GOES RED (added 2026-09-01). Addie: "turn
+     everyone that hasn't paid from last year or is 60 days over there payment
+     as red for there card." A left bar plus a tint, not red TEXT — the row
+     already uses colour for RSVP and invoice status, and recolouring those
+     would make an overdue customer's answers unreadable. */
+  .row-item.owes-red{ border-left:4px solid var(--ember); background:#FEF6F5; }
   .route-tab-panel, .gen-subtab-panel{ min-width:0; max-width:100%; }
   .panel.active{ display:block; }
   .panel-head{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
@@ -37207,6 +37213,42 @@ function populateCityDropdowns(){
     if(cities.includes(current)) sel.value = current;
   });
 }
+/* ⭐ WHOSE CARD IS RED (added 2026-09-01). Addie: "turn everyone that hasn't
+   paid from last year or is 60 days over there payment as red for there card."
+
+   Two separate ways in, deliberately OR'd rather than merged into one number:
+
+   1. THEY OWE FROM AN EARLIER SEASON — houseOwesFromLastSeason, the same rule
+      that holds them out of the season, so the red card and the hold can never
+      disagree about who is behind.
+   2. THEIR BILL WENT OUT 60 DAYS AGO and is still not settled.
+
+   ⚠ SIXTY DAYS FROM THE INVOICE, NOT FROM THE DUE DATE. Asked directly, Addie:
+   "no 60 days after invoice goes out." The first version counted from the due
+   date — 30 days of terms plus 60 — which reddened a card at 90 days and is
+   NOT what she asked for. Since terms are 30 days, a card now goes red 30 days
+   after the payment was actually due.
+
+   ⚠ IT IS NOT OVERDUE_DAYS. That one is 30 and drives the ordinary Overdue
+   flag; reusing it would turn most of the book red in November and say nothing.
+   Two thresholds, two purposes.
+
+   ⚠ AND IT READS invoiceIssuedAt, never updatedAt — a corrected spelling or a
+   payer re-sync would otherwise push the clock out and quietly un-redden a card
+   that really is months late. */
+const RED_CARD_DAYS_FROM_INVOICE = 60;
+function houseCardIsRed(d, inv){
+  if(!d) return false;
+  /* Paid in full is never red, whatever the dates say. */
+  if(inv && computeInvoiceStatus(inv.install, inv.removal, inv.deposit, inv.credits, inv.changeFees) === 'Paid in Full') return false;
+  if(typeof houseOwesFromLastSeason === 'function' && houseOwesFromLastSeason(d)) return true;
+  if(!inv) return false;
+  const issued = invoiceIssuedAt(inv);
+  /* No issue date means never billed, so there is nothing to be late for. */
+  if(!issued) return false;
+  const days = (Date.now() - issued.getTime()) / 86400000;
+  return days >= RED_CARD_DAYS_FROM_INVOICE;
+}
 function buildAddressRowHtml(item){
   const d = item.data;
   const diff = d.difficulty || 'Unrated';
@@ -37259,7 +37301,11 @@ function buildAddressRowHtml(item){
         (d.lightsDescription ? '<span class="status-pill" style="background:#FDECEA; color:#9A2A1F; font-weight:600;">&#127875; '+esc(d.lightsDescription)+'</span>' : '')+
       '</div>'
     : '';
-  return '<div class="row-item">'+
+  /* ⚠ THE INVOICE COMES FROM matchedInvoice, which resolved it through the
+     shared key rule — so the red bar names the same bill the price line above
+     it names, including for a house billed elsewhere. */
+  const cardRed = houseCardIsRed(d, matchedInvoice && matchedInvoice.data) ? ' owes-red' : '';
+  return '<div class="row-item'+cardRed+'">'+
     '<div class="rmain">'+
       '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">'+
         (d.name ? '<div class="row-name-line">'+esc(d.name)+'</div>' : '<div></div>')+

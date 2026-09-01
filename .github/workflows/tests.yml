@@ -114,6 +114,13 @@ jobs:
       - name: The gate code reaches the record (server side)
         run: npm run test:gatecode
 
+      # Addie, 2026-09-01: "turn everyone that hasn't paid from last year or is
+      # 60 days over there payment as red for there card." A card that reddens
+      # too early is one the office learns to scroll past, so the thresholds
+      # are worth a named failure rather than one buried in npm test.
+      - name: Whose card is red (seriously behind)
+        run: npm run test:redcard
+
       # Owner, 2026-08-25: "nothing should fail quietly." This one refuses an empty
       # catch block that does not say WHY it is empty — the reason has to be written
       # inside the braces, where it travels with the code rather than three lines
