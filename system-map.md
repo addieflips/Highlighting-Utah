@@ -99,6 +99,12 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **AND YOU CAN FILTER BY IT** (2026-09-01). All Customers → Filters has a
+**Season Badge** row — Any / Confirmed / Pending / Maybe Next Year — next to
+Route Status, because Confirmed *is* the route answer now. The badge is worked
+out once per row and the filter and the pill read that same answer, so a filtered
+list can never disagree with the badges in it.
+
 ⭐ **THE CONFIRMED BADGE IS THE GATE** (2026-08-31). Addie: *"it should look for
 anyone who is confirmed and put them in schedule … make sure they cant have the
 confirmed tag if they are breaking a rule so if you break one of the rules they
