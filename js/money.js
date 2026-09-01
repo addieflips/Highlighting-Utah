@@ -308,3 +308,26 @@ export function owesFromLastSeason(inv) {
   if (!inv) return false;
   return arrearsOnInvoice(inv) > 0 && !arrearsSettled(inv);
 }
+
+/* How much of last season's carried balance is STILL outstanding.
+ *
+ * Payments are read oldest-debt-first (see arrearsSettled), so this is what a
+ * customer has to pay before they can be scheduled — and, since 2026-09-01, it
+ * is also exactly what PayPal charges them first.
+ *
+ * ⚠ Addie, 2026-09-01, on why they pay it as its own step rather than typing an
+ * amount: "I don't want them to type there amount because then we can't trust
+ * if someone paid in full. Can we do a one year payment than next years payment
+ * will show up after they paid that year?" So the customer is only ever shown
+ * ONE figure to pay, and it is one we chose.
+ *
+ * ⚠ functions/index.js carries its own copy (arrearsOutstandingServer) because
+ * paypalCreateOrder needs it to decide what to charge. money-parity.test.js
+ * runs the two side by side — this decides what a card is actually charged, so
+ * the office screen and the payment button must never disagree. */
+export function arrearsOutstanding(inv) {
+  const owed = centsOf(arrearsOnInvoice(inv));
+  if (owed <= 0) return 0;
+  const paid = centsOf((inv && inv.deposit) || 0) + centsOf((inv && inv.credits) || 0);
+  return Math.max(0, owed - paid) / 100;
+}
