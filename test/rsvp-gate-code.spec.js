@@ -159,6 +159,60 @@ test.describe('Gate code on the RSVP yes', () => {
     stub.assertNoRealCalls();
   });
 
+  /* ⭐ THE SECOND ANSWER HAS TO BE READABLE (Dax, 2026-09-01: "the no/ not
+     applicable button blends in with the white"). `.btn-outline` is built for the
+     dark hero — white text on a 35%-white border — so on this white card it
+     rendered WHITE ON WHITE: present, taking its space, and invisible.
+
+     ⚠ IT WAS NOT ONLY UGLY. On a customer who already has a code the two answers
+     are "Yes, that's right" and "It has changed", and the second one is the ONLY
+     route to the entry box — so while it could not be seen, a gate code that had
+     changed could not be reported at all. Same class, same bug, on the No path's
+     "That's all, thanks".
+
+     ⚠ THIS IS A COMPUTED-STYLE CHECK ON PURPOSE. jsdom applies no stylesheet and
+     does no layout, so the fast suite cannot see a colour — CLAUDE.md records that
+     limit where the house-tab strip's layout was deliberately left unautomated.
+     A real browser can, and contrast is exactly the kind of claim that has to be
+     measured rather than read out of the source. */
+  test('both answers are readable against the card', async ({ page }) => {
+    const stub = await openRsvpYes(page);
+
+    const seen = await page.evaluate(() => {
+      const lum = (c) => {
+        const [r, g, b] = c.match(/\d+/g).slice(0, 3).map(Number).map((v) => {
+          const x = v / 255;
+          return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const btn = document.getElementById('rsvpGateCodeNoBtn');
+      /* ⚠ THE CARD'S OWN BACKGROUND IS TRANSPARENT, so reading it returns
+         rgba(0,0,0,0) and the sum compares the text against BLACK — which scored
+         1.7 on a button that is perfectly readable, failing correct code. This
+         check caught its own bug. Walk up to whatever is actually painted, which
+         is what the eye compares against. */
+      const painted = (el) => {
+        for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+          const bg = getComputedStyle(n).backgroundColor;
+          const parts = (bg.match(/[\d.]+/g) || []).map(Number);
+          if (parts.length >= 3 && (parts.length < 4 || parts[3] > 0)) return bg;
+        }
+        return 'rgb(255,255,255)';
+      };
+      const a = lum(getComputedStyle(btn).color);
+      const b = lum(painted(btn));
+      const hi = Math.max(a, b), lo = Math.min(a, b);
+      return { contrast: (hi + 0.05) / (lo + 0.05), text: getComputedStyle(btn).color };
+    });
+
+    /* 4.5 is WCAG AA for body text. The old white-on-white scored 1.0. */
+    expect(seen.contrast, 'No button text ' + seen.text + ' against the card')
+      .toBeGreaterThan(4.5);
+
+    stub.assertNoRealCalls();
+  });
+
   /* ⚠ AN EMPTY BOX MUST NOT CLEAR A CODE WE ALREADY HOLD. */
   test('an empty box saves nothing', async ({ page }) => {
     const stub = await openRsvpYes(page, CUSTOMERS.standard.token);
