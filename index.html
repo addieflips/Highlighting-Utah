@@ -89,6 +89,29 @@
   .btn-outline:hover{ background:rgba(255,255,255,.1); }
   .btn-outline-dark{ background:transparent; border-color:var(--ink); color:var(--ink); }
   .btn-outline-dark:hover{ background:var(--ink); color:#fff; }
+  /* ⭐ AN OUTLINE BUTTON ON A WHITE CARD WAS INVISIBLE (Dax, 2026-09-01: "the no/
+     not applicable button blends in with the white"). `.btn-outline` above is built
+     for the DARK hero — `color:#fff` on a 35%-white border — so on these light
+     confirmation cards it rendered white-on-white: the button was there, took its
+     space, and could not be seen or found. Measured in a real browser, not guessed:
+     the gate-code card showed ONE gold button and a strip of empty card underneath,
+     which was the invisible second button having wrapped onto its own line.
+
+     ⚠ SCOPED TO THESE THREE CARDS BY ID, never to `.btn-outline` at large — the same
+     class is correct as it stands on the hero and in the mobile panel, and repainting
+     it globally would turn white text dark on a dark background, which is this bug
+     pointing the other way. Same reason `.btn-outline-dark` exists rather than the
+     base class having been changed when that case first came up. */
+  #rsvpConfirmCard .btn-outline,
+  #backNextYearConfirm .btn-outline,
+  #quoteLinkConfirm .btn-outline{ border-color:var(--ink); color:var(--ink); }
+  #rsvpConfirmCard .btn-outline:hover,
+  #backNextYearConfirm .btn-outline:hover,
+  #quoteLinkConfirm .btn-outline:hover{ background:var(--ink); color:#fff; }
+  /* Two answers to one question read as a pair: equal minimum width so neither
+     looks like the afterthought, and room to sit side by side on a phone rather
+     than wrapping — the wrap is what left the dead strip of card. */
+  #rsvpGateCodeAsk .btn, #rsvpConfirmBtnRow .btn{ min-width:9.5rem; }
   .btn-ember{ background:var(--ember); color:#fff; }
   .btn-ember:hover{ background:#b23d33; }
   .btn-block{ width:100%; }

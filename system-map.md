@@ -72,6 +72,15 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    - ⚠ **The debt sentence moved rather than being dropped.** The removed screen told a debtor we could not
      book them; that line is now on the portal's own *"<year> season — still owing"* card, where it is true
      whenever they open the page instead of only just after an RSVP.
+   - ⚠ **The second answer used to be invisible, and that hid a dead end** (fixed
+     2026-09-01, RS-32). `.btn-outline` is the DARK hero's button — white text on a
+     35%-white border — so on these light cards it rendered white-on-white. On a
+     customer who already has a gate code the answers are *Yes, that's right* and
+     ***It has changed***, and that second one is the only route to the entry box, so
+     while it could not be seen a changed gate code could not be reported at all. The
+     No path's *That's all, thanks* was the same. The three cards now override the
+     class by id; `test/rsvp-gate-code.spec.js` measures the real computed contrast,
+     because jsdom applies no stylesheet and cannot see a colour.
    - ⚠ **And minimal mode ends there by design.** `openPortalAfterYes` removes `rsvp-minimal`/`rsvp-back`,
      exactly as the old *Take Me to My Portal* button did — a receipt is right for a card, wrong for an
      account page. The no and back-next-year paths still end on the receipt.
