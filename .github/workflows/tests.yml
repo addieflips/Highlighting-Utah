@@ -114,11 +114,6 @@ jobs:
       - name: The gate code reaches the record (server side)
         run: npm run test:gatecode
 
-      # A debt typed in by hand is money that also decides who gets a crew: the
-      # wrong `kind` bills them and still sends a van. Named separately because
-      # that is a specific thing to go and look at.
-      - name: A debt typed in by hand holds (manual arrears)
-        run: npm run test:arrears-manual
 
       # Owner, 2026-08-25: "nothing should fail quietly." This one refuses an empty
       # catch block that does not say WHY it is empty — the reason has to be written

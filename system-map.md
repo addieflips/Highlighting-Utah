@@ -539,10 +539,9 @@ was left. Nothing about the formula above changed — the ledger was already cou
 everywhere, already survives both invoice rebuilds, already prints as its own row on the
 invoice, and already reaches the customer's portal.
 
-⭐ **A DEBT CAN ALSO BE TYPED IN BY HAND** (added 2026-09-01). Addie: *"one at a time but only this year in the future we can use carry."* Both automatic routes read a **saved snapshot** — Start New Season carries the balance it sees at reset, and the Arrears Backfill repairs seasons reset before 31 August. A debt from a season with no snapshot behind it could be recorded nowhere. **Edit Customer → "Owed from an earlier season"** fills that gap: amount + year, written as the same `kind: 'arrears'` line the other two write.
-  - ⚠ **The `kind` is the whole thing.** Without it the line reads as a light-change fee, `owesFromLastSeason` cannot find it, and the customer is billed **and still sent a crew**.
-  - ⚠ **Its own button, not part of Save.** The manual-fee box beside it is rebuilt on every save, so a blank box removes the fee. Doing that here would mean an ordinary save to fix a phone number wipes a real debt and releases the season hold with it.
-  - ⚠ **One arrears note per invoice, replaced never appended** — the earliest-year rule above depends on that invariant.
+⭐ **A DEBT CAN ALSO BE TYPED IN BY HAND** (added 2026-09-01). Both automatic routes read a **saved snapshot** — Start New Season carries the balance it sees at reset, and the Arrears Backfill repairs seasons reset before 31 August. A debt from a season with no snapshot behind it could be recorded nowhere. **Edit Customer → "Owed from a previous season"** fills that gap: amount + which season, saved with the rest of the form.
+  - ⚠ **It is tagged `source: 'office'`**, and that tag is what lets a typed-in debt and an automatically carried one coexist on the same invoice. The Edit Customer rebuild drops only `manual` fees and only `arrears` lines the office typed, so a balance Start New Season worked out from the books **survives an ordinary save**.
+  - ⚠ **The Fees box beside it cannot do this job.** A manual fee raises what they owe and does **not** hold them out of the season — so a crew would still be sent.
 
 ⚠ **"CARRY" IS NOT A STEP THE OFFICE TAKES.** Addie, questioning it: *"I still don't see the use for carry I just think that should just stay on there account until they pay."* That is exactly what happens — carrying is the *mechanism* by which the debt stays on the account, run automatically inside Start New Season's invoice reset. Without it the reset zeroes the debt along with everything else. The one-off **Carry** button in the Invoices tab is not an ongoing tool: it repairs only seasons reset before 31 August, when the reset wrote debts off. Once used, or once it reports nothing to repair, it is finished.
 
@@ -550,6 +549,20 @@ invoice, and already reaches the customer's portal.
   - **Earliest year only, for the whole lump sum.** A customer unpaid across several seasons shows the year they *first* fell behind. That falls out for free from there being exactly ONE arrears note per invoice — Start New Season **replaces** it rather than appending — so "the note's year" and "the earliest unpaid year" are the same fact, as long as it is preserved rather than rewritten.
   - **A note written before the field existed reads its year out of its own sentence** ("Unpaid balance carried from the 2025 season"), rather than showing blank on an invoice nobody has touched since.
   - **It shows in four places**, all from `arrearsYearOnInvoice` / `houseArrearsYear` so they cannot name different years: the reason a customer is held out of the season, the Unpaid badge on their row, the invoice status cell, and the held-customers list.
+
+**Paying it: one season at a time.** While last season's carried balance is outstanding,
+the portal's payment button charges **exactly that** and says so in words — the season it
+is for, that it is *not* a second charge for this year, and what this year's amount will
+be next. Once it is paid the same button comes back offering this year's. The customer is
+never asked to type an amount, so "did they pay in full" is never a judgement call
+(MON-37). `arrearsOutstanding` in js/money.js and `arrearsOutstandingServer` in
+functions/index.js are swept against each other by money-parity — this one decides what a
+card is actually charged.
+
+**Entering a debt from before the app tracked it:** Edit Customer → *Owed from a previous
+season*. It writes the same kind of carried line, so it holds them out of the season too.
+The Fees box cannot do this — a manual fee raises the bill and does not hold anybody
+(MON-36).
 
 ⚠ **The 2026 season was reset before this shipped**, so those balances were written off
 and survive only in the snapshot. **Invoices → Start New Season → Carry last season's
