@@ -17097,6 +17097,32 @@ function messageFeetEstimate(d){
   }
   return '';
 }
+/* ⭐ THE ROUTINE ROUTE SWEEP IS NOT NEWS (owner's instruction, 2026-09-01: these
+   notices "flood the system messages making it so we cant see messages we actually
+   need to do something with ... make it so we dont see these spam ones but we still
+   see important messages"). The sweep runs on a beat and writes a note every time it
+   tidies anything, so on an ordinary day it IS the System folder and the one notice
+   that mattered — a background check that stopped, a customer number that needs
+   fixing — is somewhere underneath a pile of them.
+
+   What separates the two is already written down and does not need guessing at:
+   noticeRoutesReconciled marks every line that wants a human with a leading ⚠ and
+   sorts those to the top (`urgent` there is exactly this test). So that same mark
+   decides here. A sweep note with no ⚠ moved houses around and needs nobody; one
+   that could not write a record, or that caught itself looping all day, carries ⚠
+   and still comes through at full size.
+
+   ⚠ NOTHING IS DELETED AND NOTHING IS MARKED READ. The notes are a record of days
+   that moved under customers who may already have been told a date — losing them
+   silently would be worse than the flood. They are folded behind one line in the
+   System tab and left out of the two unread badges, and one click still shows them. */
+const ROUTINE_NOTICE_TOPIC = 'Routes Kept Up To Date';
+function noticeIsRoutine(d){
+  d = d || {};
+  if((d.folder || 'Inbox') !== 'System') return false;
+  if(d.topic !== ROUTINE_NOTICE_TOPIC) return false;
+  return String(d.message || '').indexOf('⚠') === -1;
+}
 function renderMessagesList(){
   const list = document.getElementById('messagesList');
   let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => (m.data.folder || 'Inbox') === selectedFolder);
@@ -17121,7 +17147,12 @@ function renderMessagesList(){
         (!!msgDigits && String(d.phone||'').replace(/\D/g,'').indexOf(msgDigits) !== -1);
     });
   }
-  const unreadCount = allMessages.filter(m => !m.data.read).length;
+  /* Counts what somebody actually has to look at: every unread customer message,
+     plus the system notices that are not the routine route sweep. It used to count
+     the sweep as well, so the badge read 91 while the list beneath it — which has
+     never shown System notes, see the folder filter above — held a fraction of that,
+     and a real message arriving moved the number by one and nobody could tell. */
+  const unreadCount = allMessages.filter(m => !m.data.read && !noticeIsRoutine(m.data)).length;
   document.getElementById('badgeMessages').style.display = unreadCount ? 'inline-block' : 'none';
   document.getElementById('badgeMessages').textContent = unreadCount;
   if(!filtered.length){
@@ -50949,10 +50980,16 @@ document.querySelectorAll('.inbox-tab').forEach(function(btn){
 function systemMessages(){
   return allMessages.filter(function(m){ return (m.data.folder || 'Inbox') === 'System'; });
 }
+/* Whether the folded-away routine notes are currently open. Deliberately not
+   remembered anywhere: the point is that the folder is quiet again next time. */
+let sysShowRoutine = false;
 function renderSystemMessagesTab(){
   const msgs = systemMessages();
+  /* See noticeIsRoutine: the sweep's own ⚠ decides which side a note falls on. */
+  const routine = msgs.filter(function(m){ return noticeIsRoutine(m.data); });
+  const needsEye = msgs.filter(function(m){ return !noticeIsRoutine(m.data); });
   const badge = document.getElementById('sysMsgBadge');
-  const unread = msgs.filter(function(m){ return !m.data.read; }).length;
+  const unread = needsEye.filter(function(m){ return !m.data.read; }).length;
   if(badge){
     badge.style.display = unread ? 'flex' : 'none';
     badge.textContent = unread > 99 ? '99+' : String(unread);
@@ -50960,7 +50997,41 @@ function renderSystemMessagesTab(){
   const list = document.getElementById('systemMessagesList');
   if(!list) return;
   if(!msgs.length){ list.innerHTML = '<div class="empty-note">No system notices right now.</div>'; return; }
-  list.innerHTML = msgs.map(function(item){
+  const parts = [];
+  if(needsEye.length) parts.push(needsEye.map(systemNoticeRow).join(''));
+  else parts.push('<div class="empty-note">Nothing here needs you right now.</div>');
+  if(routine.length){
+    parts.push(
+      '<div class="row-item" style="align-items:center;">'+
+        '<div class="rmain">'+
+          '<h4>Routine route updates <span class="status-pill">'+routine.length+'</span></h4>'+
+          '<div class="rtext">The scheduler tidied the upcoming days. Nothing in these needs '+
+            'you &mdash; any sweep that hit a problem stays in the list above. They are kept, '+
+            'not deleted, because they record days that moved under customers.</div>'+
+        '</div>'+
+        '<div class="row-actions" style="align-items:center;">'+
+          '<button type="button" class="btn btn-outline btn-sm" id="sysRoutineToggle">'+
+            (sysShowRoutine ? 'Hide' : 'Show')+'</button>'+
+        '</div>'+
+      '</div>'+
+      '<div id="sysRoutineList"'+(sysShowRoutine ? '' : ' hidden')+'>'+
+        routine.map(systemNoticeRow).join('')+
+      '</div>'
+    );
+  }
+  list.innerHTML = parts.join('');
+  const routineToggle = document.getElementById('sysRoutineToggle');
+  if(routineToggle){
+    routineToggle.addEventListener('click', function(){
+      sysShowRoutine = !sysShowRoutine;
+      renderSystemMessagesTab();
+    });
+  }
+  systemNoticeWireRows(list);
+}
+/* One notice's card. Pulled out of renderSystemMessagesTab so the folded routine
+   list and the list above it are rendered by the same code and cannot drift. */
+function systemNoticeRow(item){
     const d = item.data;
     const isUnread = !d.read;
     const address = messageAddressLookup(d);
@@ -50985,7 +51056,10 @@ function renderSystemMessagesTab(){
         '<button class="icon-btn danger" data-del="messages" data-id="'+item.id+'">'+trashIcon()+'</button>'+
       '</div>'+
     '</div>';
-  }).join('');
+}
+/* Wires the buttons on those cards. Called once per render, over the whole list,
+   so the folded routine rows get the same handlers the moment they are shown. */
+function systemNoticeWireRows(list){
   list.querySelectorAll('[data-sysread]').forEach(function(btn){
     btn.addEventListener('click', function(){
       updateDoc(doc(db,'messages',btn.dataset.sysread), {read: btn.dataset.current !== '1'});
