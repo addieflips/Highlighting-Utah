@@ -1133,10 +1133,19 @@ function seasonResetWrite() {
      total is worse than the single list it replaced — it looks like a mistake in the
      books rather than a layout. Money already received is applied oldest-debt-first,
      the same order the hold reads it in. */
+  /* ⚠ BOTH LINE ENDINGS, 2026-08-31. This searched for '\n}\n' alone, which does not
+     exist in a CRLF checkout — so on Windows the slice ran off the end, the lift came
+     back empty, and the whole file died with a bare "renderInvoiceBreakdown is not
+     defined" before a single check scored. Green on Linux CI, unrunnable on the
+     machine the office actually uses. CLAUDE.md §7 says it outright: write \r?\n. */
   const bdStart = site.indexOf('function renderInvoiceBreakdown(record, n){');
-  const bdSrc = site.slice(bdStart, site.indexOf('\n}\n',
-                  site.lastIndexOf("box.style.display = 'block';",
-                    site.indexOf('function renderScheduleStrip'))) + 3);
+  const bdFrom = site.lastIndexOf("box.style.display = 'block';",
+                   site.indexOf('function renderScheduleStrip'));
+  const bdEndLf = site.indexOf('\n}\n', bdFrom);
+  const bdEndCrLf = site.indexOf('\r\n}\r\n', bdFrom);
+  const bdEnd = bdEndCrLf !== -1 && (bdEndLf === -1 || bdEndCrLf < bdEndLf)
+    ? bdEndCrLf + 5 : bdEndLf + 3;
+  const bdSrc = site.slice(bdStart, bdEnd);
   check('renderInvoiceBreakdown was lifted whole', liftOk(bdSrc), bdSrc.slice(0, 60));
   const bdBox = { innerHTML: '', style: {} };
   const breakdown = new Function('document', 'fmt', 'escapeHtmlPortal', 'centsOf',
