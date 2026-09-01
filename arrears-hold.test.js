@@ -300,6 +300,7 @@ function seasonResetWrite() {
     'return { houseOwesFromLastSeason, houseArrearsOutstanding, arrearsYearOnInvoice, houseArrearsYear,' +
     ' tag: houseArrearsTag, badge: seasonBadgeKey, out: isOutForSeason,' +
     ' forceRule(on){ seasonRuleForcedOn = !!on; },' +
+    ' forceOff(on){ seasonRuleOffForMeasurement = !!on; },' +
     ' isOutForSeason, owesFromLastYearHouses, seasonHold, seasonHoldReason,' +
     ' setInvoices(m){ invoiceById = m; }, setBook(b){ jobAddresses = b; },' +
     ' dropInvoices(){ invoiceById = null; } };'
@@ -1382,28 +1383,40 @@ function seasonResetWrite() {
   {
     const badge = api.badge, out = api.out;
     const base = { name: 'A', phone: '8015550001', address: '1 Elm St', city: 'Lehi' };
+    const yes  = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
     const clear = new Map([['8015550001', { id: '8015550001', data: billed(0, 0) }]]);
     const owing = new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]);
+    const replied = Object.assign({}, base, yes);
 
     api.setInvoices(clear);
-    check('somebody who has never answered the RSVP is CONFIRMED now',
-      badge(base) === 'confirmed' && out(base) === false,
-      'got "' + badge(base) + '" — this is the 951, and her words are that a missing ' +
-      'RSVP "doesnt mean anything as far as who should be scheduled"');
+    check('somebody who replied Yes is CONFIRMED',
+      badge(replied) === 'confirmed' && out(replied) === false,
+      'got "' + badge(replied) + '" — "anyone who is confirmed is scheduled"');
+    /* ⚠ THE 951. They used to read Confirmed while every scheduler dropped them, which
+       is the complaint that started all of this. Pending is the honest word, and it is
+       what lets one-confirmed mean one-scheduled. */
+    check('and somebody who has never answered is PENDING, not falsely Confirmed',
+      badge(base) === 'pending' && out(base) === true,
+      'got "' + badge(base) + '" — a badge saying Confirmed about somebody no crew is ' +
+      'going to is the bug, whichever way the rule is set');
 
     api.setInvoices(owing);
-    check('and owing for a previous season makes it PENDING, not confirmed',
-      badge(base) === 'pending' && out(base) === true,
-      'got "' + badge(base) + '" — "they should not be able to have the confirmed tag ' +
-      'if they havent paid for a previous year"');
+    check('a replier who owes for a previous season is PENDING too',
+      badge(replied) === 'pending' && out(replied) === true,
+      'got "' + badge(replied) + '" — "they should not be able to have the confirmed ' +
+      'tag if they havent paid for a previous year"');
 
     api.setInvoices(clear);
-    check('a set queued to come back is PENDING too',
-      badge(Object.assign({}, base, {needsLightRecycle: true})) === 'pending',
+    check('a set queued to come back is PENDING',
+      badge(Object.assign({}, replied, {needsLightRecycle: true})) === 'pending',
       'a house whose lights are being collected is not one to send a crew to');
     check('but a mover keeping their customer is confirmed',
-      badge(Object.assign({}, base, {needsLightRecycle: true, recycleKeepingCustomer: true})) === 'confirmed',
+      badge(Object.assign({}, replied, {needsLightRecycle: true, recycleKeepingCustomer: true})) === 'confirmed',
       'their old set comes back AND a new one is built — they are still in the season');
+    /* ⚠ A NEW HANG IS IN WITHOUT A REPLY, because we deliberately never ask them. */
+    check('and a new customer nobody was ever going to ask is confirmed',
+      badge(Object.assign({}, base, {chargeNewMemberFee: true})) === 'confirmed',
+      'requiring an answer to a question we never send is a test nobody can pass');
 
     check('Maybe Next Year stays its own answer rather than collapsing into Pending',
       badge(Object.assign({}, base, {maybeNextYear: true})) === 'maybe' &&
@@ -1412,24 +1425,39 @@ function seasonResetWrite() {
       'Pending is somebody we want who is blocked; Maybe Next Year is somebody who ' +
       'told us no for now, and the office toggles that one by hand');
 
-    /* ⚠ THE INVARIANT SHE ACTUALLY ASKED FOR, and the reason the badge delegates
-       instead of deciding for itself: Confirmed and in-the-season are ONE fact, so no
-       row can read Confirmed while every scheduler in the app has dropped them. */
+    /* ⚠ THE INVARIANT SHE ASKED FOR, IN BOTH DIRECTIONS AND IN BOTH RULE STATES:
+       "anyone who is confirmed is scheduled but if one person is confirmed there
+       should be one person on the schedule." Confirmed and in-the-season are ONE
+       fact, so the count on the badges and the count on the schedule cannot drift —
+       whichever way SEASON_ELIGIBILITY is set. */
     const cases = [
-      {}, {maybeNextYear: true}, {rsvpStatus: 'no'}, {rsvpStatus: 'backnextyear'},
-      {needsLightRecycle: true}, {needsLightRecycle: true, recycleKeepingCustomer: true},
-      {rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z'}
+      {}, yes, {maybeNextYear: true}, {rsvpStatus: 'no'}, {rsvpStatus: 'backnextyear'},
+      Object.assign({needsLightRecycle: true}, yes),
+      Object.assign({needsLightRecycle: true, recycleKeepingCustomer: true}, yes),
+      {chargeNewMemberFee: true}
     ];
-    [['clear', clear], ['owing', owing]].forEach(function(pair){
-      api.setInvoices(pair[1]);
-      cases.forEach(function(extra, i){
-        const d = Object.assign({}, base, extra);
-        check('confirmed means scheduled — ' + pair[0] + ' case ' + i,
-          (badge(d) === 'confirmed') === (out(d) === false),
-          'badge said "' + badge(d) + '" and isOutForSeason said ' + out(d) +
-          ' — the screen and the scheduler must not disagree about one customer');
+    /* ⚠ BOTH LEVERS, because forceRule can only ever turn the rule ON — the page's
+       own constant already has it live, so a `forceRule(false)` mode was silently
+       testing the live rule twice and calling one of them "off". Caught by reading
+       the harness rather than by a failure, which is exactly how a vacuous case
+       survives. */
+    [[true, 'rule live'], [false, 'rule off']].forEach(function(mode){
+      api.forceRule(mode[0]);
+      api.forceOff(!mode[0]);
+      [['clear', clear], ['owing', owing]].forEach(function(pair){
+        api.setInvoices(pair[1]);
+        cases.forEach(function(extra, n){
+          const d = Object.assign({}, base, extra);
+          check('confirmed means scheduled — ' + mode[1] + ', ' + pair[0] + ' case ' + n,
+            (badge(d) === 'confirmed') === (out(d) === false),
+            'badge said "' + badge(d) + '" and isOutForSeason said ' + out(d) +
+            ' — the screen and the scheduler must not disagree about one customer');
+        });
       });
     });
+    api.forceRule(false);
+    api.forceOff(false);
+    api.setInvoices(clear);
   }
 
   /* ---------------------------------------------------------------------

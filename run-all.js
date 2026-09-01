@@ -9927,10 +9927,15 @@ suite('21. Everyone is in unless they said otherwise');
     /^const SEASON_ELIGIBILITY = '(confirmed-only|all-but-maybe-next-year)';$/.test(eligLine),
     'found: ' + JSON.stringify(eligLine) + '. A `let`, or a value nobody ruled on, is ' +
     'a season that something can quietly put back to everybody');
-  check('season', 'and today it is the one she asked for while testing',
-    /^const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';$/.test(eligLine),
-    'found: ' + JSON.stringify(eligLine) + '. If this moved on purpose — the RSVP has ' +
-    'really gone out now — update this check and MON-47 in the same commit');
+  /* ⚠ BACK TO confirmed-only ON 2026-09-01, hours after it was turned off. Addie:
+     "anyone who is confirmed is scheduled but if one person is confirmed there should
+     be one person on the schedule." Turning the rule off had made the badge honest by
+     scheduling everybody; the badge's new Pending state makes it honest the other way
+     round, which is what she meant. MON-49. */
+  check('season', 'and today it is confirmed-only, with Pending carrying the rest',
+    /^const SEASON_ELIGIBILITY = 'confirmed-only';$/.test(eligLine),
+    'found: ' + JSON.stringify(eligLine) + '. If this moved on purpose, update this ' +
+    'check and the ruling behind it in the same commit');
   /* ⚠ REPOINTED 2026-08-26, AND IT IS STRONGER THAN WHAT IT REPLACED. This used to
      assert the constant read 'all-but-maybe-next-year', because that string was the
      only thing standing between one edit and an empty season. Addie then asked for

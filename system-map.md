@@ -119,15 +119,20 @@ that customer. Pending is derived and never stored, so paying the bill moves the
 badge on its own the next time the row is drawn. ⚠ Maybe Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
 
-⚠ **And an unanswered RSVP stopped deciding who is scheduled.** Measured on the
-real book before anything was changed: of 956 customers, **951** were being held
-out with *no RSVP yet*, 2 for owing from 2025, 1 back next year, and exactly one
-was scheduled. The rule had emptied the season. ⚠ It was live because **a test
-send stamps `rsvpSentAt`** just as a real one does, and that marker is what arms
-it — the gate did what it was built to do and could not know nobody had really
-been asked. `SEASON_ELIGIBILITY` is `all-but-maybe-next-year` for the testing
-weeks; her 2026-08-27 hardcoding is about the season after the RSVP has genuinely
-gone out, and turning it back on is that one line.
+⚠ **And an unanswered RSVP decides again — Pending is what carries it.** For a few
+hours it did not: the rule was turned off, which made the badge honest by scheduling
+everybody. Addie, looking at the result: *"anyone who is confirmed is scheduled but
+if one person is confirmed there should be one person on the schedule."* The
+complaint was never "schedule everybody" — it was that a row said Confirmed while
+every scheduler had dropped that customer. With the badge able to say **Pending**,
+the rule can stay on and the badge still tells the truth: today one customer has
+actually replied Yes, so **one** is Confirmed and **one** is scheduled, and the ~951
+who have not replied read *Pending — no RSVP yet*.
+
+⚠ Worth knowing, because it caused the confusion: **a test send stamps `rsvpSentAt`**
+exactly as a real one does, and that marker is what arms the rule. Measured before
+any of this: 956 customers, 951 held out for no RSVP, 2 for owing from 2025, 1 back
+next year, 1 scheduled.
 
 ⭐ **ALL CUSTOMERS TAGS WHO STILL OWES FOR AN EARLIER SEASON** (2026-08-31).
 Owner: *"we need a seperate tag for people who havent paid for 2025 can you just
