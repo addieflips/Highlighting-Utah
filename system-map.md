@@ -94,6 +94,24 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **ALL CUSTOMERS TAGS WHO STILL OWES FOR AN EARLIER SEASON** (2026-08-31).
+Owner: *"we need a seperate tag for people who havent paid for 2025 can you just
+add another one under the same badge that says unpaid 2025."* Under the
+Confirmed / Maybe Next Year badge there is now a red **Unpaid 2025** tag on
+anybody whose last-season balance is still outstanding.
+
+⚠ **The year comes off the debt, not the calendar.** It says 2025 today because
+that is the year on those arrears notes; a year typed into the row would call a
+2026 debt a 2025 one the moment a season turns. A debt too old to carry a year
+reads **Unpaid last season** rather than a bare "Unpaid", which would look like
+this season's bill.
+
+⚠ It is judged by **the bill the house is actually on**, so a tenant billed to a
+landlord is tagged from the landlord's bill — the tag and the "owes $X from
+2025" line in the Route column read the same helper and cannot disagree. It
+shows on the Maybe Next Year rows as well: somebody sitting the season out who
+still owes for the last one is exactly who has to be rung.
+
 ⭐ **AND OPENING THE TOOL FORGETS THE LAST HOUSE** (2026-08-31). Owner, on a
 quote she had not started measuring: *"A – B 0 ft across … E – F 0 ft across …
 I – J 0 ft across … this is there before i even start measuring."*

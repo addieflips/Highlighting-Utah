@@ -14928,6 +14928,31 @@ function houseArrearsYear(d){
    functions above resolve). Empty string when there is nothing unresolved to carry,
    so a plain "Unpaid" from an ordinary unpaid-this-season bill is left alone — this
    badge is only ever about a debt that outlived the season it was charged in. */
+/* ⭐ THE TAG THE SEASON COLUMN PRINTS (2026-08-31). Owner: "we need a seperate tag
+   for people who havent paid for 2025 can you just add another one under the same
+   badge that says unpaid 2025."
+
+   ⚠ ITS OWN FUNCTION SO IT CAN BE RUN. Written inline in renderAllCustomersTable
+   the only way to check the words was to match the renderer's source, and this
+   repo records three separate occasions where a text-only check stayed green over
+   code that could not run at all.
+
+   ⚠ THE YEAR IS READ OFF THE DEBT, NEVER TYPED. houseArrearsYear is the year that
+   balance was first carried — the whole point of pinning the year to the note
+   rather than to the calendar. A tag with 2025 written into it is wrong the moment
+   a season turns, and wrong in the direction that matters: it would tell the office
+   a 2026 debt was a 2025 one. It says "Unpaid 2025" today because that IS the year
+   on those notes.
+
+   ⚠ AND "last season" RATHER THAN A BARE "Unpaid" when the note carries no year.
+   A note written before the year field existed is still real money, and a tag
+   reading "Unpaid" alone reads as THIS season's bill — the one thing this is not
+   about. */
+function houseArrearsTag(d){
+  if(typeof houseOwesFromLastSeason !== 'function' || !houseOwesFromLastSeason(d)) return '';
+  const y = (typeof houseArrearsYear === 'function') ? houseArrearsYear(d) : null;
+  return 'Unpaid ' + (y || 'last season');
+}
 function arrearsBadgeSuffix(invData){
   if(typeof owesFromLastSeason !== 'function' || !owesFromLastSeason(invData)) return '';
   const y = arrearsYearOnInvoice(invData);
@@ -42650,10 +42675,40 @@ function renderAllCustomersTable(){
        looked at this yet". Confirmed is the default because that is what being
        in All Customers has always meant; the RSVP email will set it properly
        once it is wired up. The button flips them the other way. */
+    /* ⭐ AND WHETHER THEY STILL OWE FOR AN EARLIER SEASON (2026-08-31). Owner:
+       "we need a seperate tag for people who havent paid for 2025 can you just
+       add another one under the same badge that says unpaid 2025."
+
+       ⚠ THE YEAR IS READ OFF THE DEBT, NEVER TYPED. `houseArrearsYear` is the
+       year that debt was first carried, which is the whole point of pinning the
+       year to the note rather than to the calendar — a badge with 2025 written
+       into it is wrong the moment a season turns, and wrong in the direction
+       that matters, because it would then be telling the office a 2026 debt was
+       a 2025 one. It prints "Unpaid 2025" today because that IS the year on
+       those notes.
+
+       ⚠ IT ASKS THE HOUSE-LEVEL PAIR, not this row's own invoice. Those two
+       resolve through `billToPhone || custInvoiceKey` — so a house on somebody
+       else's bill is judged by the bill it is actually on, and the badge cannot
+       name a different person or a different year from the money figure the
+       Route column prints beside it. Their own comment says exactly that.
+
+       ⚠ IT SHOWS ON BOTH BRANCHES, deliberately. Somebody sitting the season
+       out who still owes for the last one is precisely who the office needs to
+       ring, and hiding it on the Maybe Next Year rows would lose them.
+
+       ⚠ AND IT OVERLAPS THE ROUTE COLUMN'S "owes $X from 2025" ON PURPOSE.
+       That line answers WHY THIS HOUSE IS NOT ON A DAY and disappears the
+       moment they are scheduled; this one answers WHAT DO THEY STILL OWE and
+       does not. Both read the same helper, so they cannot disagree. */
+    const unpaidTag = houseArrearsTag(r.d);
+    const unpaidPill = unpaidTag
+      ? '<br><span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700; margin-top:4px; display:inline-block;">'+esc(unpaidTag)+'</span>'
+      : '';
     const maybeCell = r.d.maybeNextYear
-      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
-      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+
+      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       /* The customer number is the number painted on their bins in the
