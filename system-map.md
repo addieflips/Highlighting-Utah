@@ -105,6 +105,20 @@ Route Status, because Confirmed *is* the route answer now. The badge is worked
 out once per row and the filter and the pill read that same answer, so a filtered
 list can never disagree with the badges in it.
 
+⭐ **AND A PLAN ROW THAT IS NOT A CUSTOMER COMES OFF THE SEASON** (2026-09-01).
+Measured on the real plan: one customer badged Confirmed, sixteen houses on the
+schedule — and the sixteen were rows left over from an imported schedule file,
+matching nothing in a book of 956. `customerForHouse` answered null, the *no
+record, no opinion* guard kept them, and no Recalculate could shift them. The
+season rule was working perfectly; those rows never reached it.
+
+⚠ It is **gated on the customer book having loaded**, which is the half of that
+old guard that still holds: `jobAddresses` is empty for a moment after login and
+empty again if the listener fails, and an ungated version would wipe the whole
+season on a slow morning. ⚠ They are reported separately from the people who
+left the season — "somebody said back next year" and "this row is not a person"
+need different things from the office.
+
 ⭐ **THE CONFIRMED BADGE IS THE GATE** (2026-08-31). Addie: *"it should look for
 anyone who is confirmed and put them in schedule … make sure they cant have the
 confirmed tag if they are breaking a rule so if you break one of the rules they
