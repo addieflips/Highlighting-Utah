@@ -172,6 +172,21 @@ const FAKE_FUNCTIONS_MODULE = `
       'lastPaymentAt', 'lastPaymentMethod'];
     const record = {};
     READ_FIELDS.forEach(f => { if (inv[f] !== undefined) record[f] = inv[f]; });
+    /* ⚠ DERIVED ON THE SERVER, exactly as the real portalInvoice derives it —
+       index.html deliberately does NOT work the carried balance out for itself
+       (that would be a third copy of a money rule money-parity holds to two,
+       and it would be the copy the customer reads). Without these two fields
+       the portal's arrears notice can never appear in a test, and the split
+       payment looks unbuilt when it is merely unsent. */
+    const notes = Array.isArray(inv.changeFeeNotes) ? inv.changeFeeNotes : [];
+    const arrears = notes.reduce(function (sum, n) {
+      return sum + ((n && n.kind === 'arrears') ? (Number(n.amount) || 0) : 0);
+    }, 0);
+    const total = (Number(inv.install) || 0) + (Number(inv.removal) || 0) + (Number(inv.changeFees) || 0);
+    const balanceDue = Math.max(0, total - (Number(inv.credits) || 0) - (Number(inv.deposit) || 0));
+    record.arrearsOutstanding = Math.min(arrears, balanceDue);
+    const withYear = notes.find(function (n) { return n && n.kind === 'arrears'; });
+    record.arrearsSeason = (withYear && (withYear.year || (/(\d{4})/.exec(withYear.reason || '') || [])[1])) || '';
     return { found: true, record };
   }
 
