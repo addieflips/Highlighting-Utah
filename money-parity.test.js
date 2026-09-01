@@ -818,6 +818,100 @@ check('the portal balance is cent-rounded the way the office copy is',
 }
 
 // ---------------------------------------------------------------------------
+// Last season's carried balance — the browser copy vs the server copy.
+//
+// ⭐ THIS ONE DECIDES WHAT A CARD IS ACTUALLY CHARGED (added 2026-09-01).
+// paypalCreateOrder charges the outstanding carried amount first, so a drift
+// between these two copies means the office screen and the payment button ask
+// a customer for two different amounts — and the one the customer sees wins.
+//
+// ⚠ AND IT DECIDES WHO GETS A CREW. The same figure, at zero, is what releases
+// somebody from the season hold. Wrong here is either a crew sent to a house
+// that never paid, or a paid-up customer left off every route.
+// ---------------------------------------------------------------------------
+{
+  const cArrSrc = extractFn(moneySrc, 'arrearsOnInvoice');
+  const sArrSrc = extractFn(fnsSrc, 'arrearsOnInvoiceServer');
+  const cOutSrc = extractFn(moneySrc, 'arrearsOutstanding');
+  const sOutSrc = extractFn(fnsSrc, 'arrearsOutstandingServer');
+  const cKindSrc = extractConst(moneySrc, 'ARREARS_KIND');
+  const sKindSrc = extractConst(fnsSrc, 'ARREARS_KIND_SERVER');
+
+  /* Missing is a FAIL, never a skip — a rename that silently stopped this
+     comparing anything would report green while the two copies drifted. */
+  const missing = [
+    ['arrearsOnInvoice (js/money.js)', cArrSrc],
+    ['arrearsOnInvoiceServer (functions)', sArrSrc],
+    ['arrearsOutstanding (js/money.js)', cOutSrc],
+    ['arrearsOutstandingServer (functions)', sOutSrc],
+    ['ARREARS_KIND (js/money.js)', cKindSrc],
+    ['ARREARS_KIND_SERVER (functions)', sKindSrc]
+  ].filter(([, src]) => !src).map(([name]) => name);
+  check('both copies of the carried-balance rule are findable',
+    missing.length === 0, 'could not extract: ' + missing.join(', '));
+
+  if (!missing.length) {
+    const clientOut = compile([cKindSrc, clientCentsSrc, cArrSrc, cOutSrc], 'arrearsOutstanding');
+    const serverOut = compile([sKindSrc, serverCentsSrc, sArrSrc, sOutSrc], 'arrearsOutstandingServer');
+    const clientArr = compile([cKindSrc, cArrSrc], 'arrearsOnInvoice');
+    const serverArr = compile([sKindSrc, sArrSrc], 'arrearsOnInvoiceServer');
+
+    /* ⚠ THE FIXTURES MUST INCLUDE A LEDGER THAT IS NOT ALL ARREARS. A light-change
+       fee sitting beside the carried line is the case where reading the whole of
+       changeFees instead of the tagged notes gives a different answer — and it is
+       the difference between charging somebody $400 and charging them $430. */
+    const amounts = [0, 0.1, 30, 400, 400.55, 800, 1234.56];
+    const paids = [0, 0.1, 30, 399.99, 400, 400.55, 5000];
+    const creds = [0, 25, 400];
+    const ledgers = [
+      a => [],
+      a => [{ amount: a, kind: 'arrears' }],
+      a => [{ amount: 30, reason: 'Light change' }, { amount: a, kind: 'arrears' }],
+      a => [{ amount: a / 2, kind: 'arrears' }, { amount: a / 2, kind: 'arrears', source: 'office' }],
+      a => [{ amount: 30, kind: 'manual' }]
+    ];
+    let mismatch = null, runs = 0;
+    for (const a of amounts) {
+      for (const p of paids) {
+        for (const c of creds) {
+          for (const mk of ledgers) {
+            const inv = { changeFeeNotes: mk(a), deposit: p, credits: c };
+            runs++;
+            const co = clientOut(inv), so = serverOut(inv);
+            const ca = clientArr(inv), sa = serverArr(inv);
+            if (co !== so || ca !== sa) {
+              mismatch = JSON.stringify({ inv, clientOut: co, serverOut: so, clientArr: ca, serverArr: sa });
+              break;
+            }
+          }
+          if (mismatch) break;
+        }
+        if (mismatch) break;
+      }
+      if (mismatch) break;
+    }
+    check('the two carried-balance copies agree, over ' + runs + ' invoices',
+      !mismatch, mismatch ? 'first disagreement: ' + mismatch : '');
+
+    /* ⚠ EQUAL IS NOT ENOUGH — two copies wrong the same way agree perfectly. These
+       pin the ANSWERS, in Addie's own terms. */
+    const led = (a) => ({ changeFeeNotes: [{ amount: a, kind: 'arrears' }], deposit: 0, credits: 0 });
+    check('billed 400 and paid nothing leaves 400 to pay first',
+      clientOut(led(400)) === 400 && serverOut(led(400)) === 400);
+    check('paying it in full leaves nothing outstanding',
+      clientOut(Object.assign(led(400), { deposit: 400 })) === 0 &&
+      serverOut(Object.assign(led(400), { deposit: 400 })) === 0);
+    check('a part payment leaves the remainder, not the whole amount',
+      clientOut(Object.assign(led(800), { deposit: 400 })) === 400 &&
+      serverOut(Object.assign(led(800), { deposit: 400 })) === 400);
+    check('a light-change fee is never read as last season\'s debt',
+      clientOut({ changeFeeNotes: [{ amount: 30, reason: 'Light change' }], deposit: 0, credits: 0 }) === 0 &&
+      serverOut({ changeFeeNotes: [{ amount: 30, reason: 'Light change' }], deposit: 0, credits: 0 }) === 0,
+      'that would charge a colour change as though it were an unpaid season');
+  }
+}
+
+// ---------------------------------------------------------------------------
 failures.forEach(f => console.log('  FAIL  ' + f + '\n'));
 
 console.log(pass + ' passed, ' + fail + ' failed' +

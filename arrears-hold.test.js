@@ -726,16 +726,109 @@ function seasonResetWrite() {
     'a note is a side effect of a payment landing and must never hold up the render');
 
   /* ---------------------------------------------------------------------
+     4f. Entering a debt from before the app tracked it, and paying one
+         season at a time. Addie: this is the first year on the system, so
+         2025's unpaid bills are in her spreadsheet and nowhere else.
+     --------------------------------------------------------------------- */
+  check('there is a box for a debt from a previous season',
+    /id="editCustArrears"/.test(admin) && /id="editCustArrearsSeason"/.test(admin),
+    'the Fees box cannot do this job — a manual fee raises the bill and does NOT hold ' +
+    'them out of the season, so a crew would still be sent');
+  const saveArr = admin.slice(admin.indexOf('if(newArrearsAmount > 0){'),
+                              admin.indexOf('if(newArrearsAmount > 0){') + 900);
+  check('what it writes is a real carried line, so it holds them',
+    /kind: ARREARS_KIND/.test(saveArr) && /source: 'office'/.test(saveArr),
+    'without the kind it is just a fee and the crew still goes out; without the source ' +
+    'this box would rebuild the line Start New Season wrote');
+  /* ⭐ Addie, 2026-09-01: "we need to emphasize that is last years payment so someone
+     doesn't get mad and think they are charged twice." The reason text is what the
+     printed and emailed invoice prints for this row, and what their portal shows. */
+  check('and the line the CUSTOMER reads names the season and says it is not this year\'s',
+    /Unpaid balance from the ' \+ newArrearsSeason \+ ' season/.test(saveArr) &&
+    /not a charge for this year/.test(saveArr),
+    'a line on a bill with no year on it is exactly what reads as being charged twice');
+
+  const createOrder = serverSrc.slice(serverSrc.indexOf('exports.paypalCreateOrder'),
+                                      serverSrc.indexOf('exports.paypalCaptureOrder'));
+  check('PayPal charges last season first, not the whole balance',
+    /const arrearsLeft = Math\.min\(arrearsOutstandingServer\(inv\), balanceDue\)/.test(createOrder) &&
+    /payingLastSeason \? arrearsLeft : balanceDue/.test(createOrder),
+    'before this a customer owing $400 on an $850 bill could not pay the $400 that ' +
+    'would get their lights hung — it was all of it or Venmo');
+  check('and never more than they owe',
+    /Math\.min\(arrearsOutstandingServer\(inv\), balanceDue\)/.test(createOrder),
+    'a carried figure larger than the balance must not overcharge them');
+  check('it tells the portal which season it just quoted',
+    /payingLastSeason,/.test(createOrder) && /arrearsSeason:/.test(createOrder),
+    'a button showing less than the balance with nothing saying why reads as a double charge');
+  check('the portal is sent the figure rather than working it out again',
+    /record\.arrearsOutstanding = arrearsOutstandingServer\(data\)/.test(serverSrc),
+    'a third copy of a money rule would be outside money-parity entirely — and it ' +
+    'would be the copy the customer reads');
+
+  const site = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  check('the portal says whose season the payment is for',
+    /renderArrearsNotice/.test(site) && /it is not a second charge for this year/.test(site),
+    'her words: "so someone doesn\'t get mad and think they are charged twice"');
+  check('and it reads the server\'s figure, never its own sum of the ledger',
+    /rec\.arrearsOutstanding/.test(site) && !/kind === 'arrears'/.test(site),
+    'index.html must not become a third copy of the carried-balance rule');
+  check('it promises this year\'s amount comes next, which is what she asked for',
+    /will show here as the next payment/.test(site),
+    '"next years payment will show up after they paid that year"');
+  /* ⚠ THE BUG THIS FOUND. onApprove set "Paid in Full" and $0 unconditionally — right
+     while the button always charged the whole balance, and wrong the moment a part
+     payment exists, which is now the commonest payment on this page. */
+  const onApprove = site.slice(site.indexOf('onApprove: function(data)'),
+                               site.indexOf('onApprove: function(data)') + 2600);
+  check('paying part of a bill no longer claims Paid in Full',
+    !/statusEl\.textContent = 'Paid in Full';/.test(onApprove),
+    'told they were paid in full, a customer stops — and the balance they still owe is ' +
+    'never asked for again by anybody');
+  check('it re-reads the invoice instead of assuming',
+    /renderCustomerInvoicePage\(reloadKey/.test(onApprove),
+    'whatever they just paid, the panel then shows what the books actually say');
+  check('and a failed re-read still takes the pay panel down',
+    /could not refresh the invoice after payment/.test(onApprove),
+    'the money HAS been taken — showing four more ways to pay would be worse');
+
+  /* ---------------------------------------------------------------------
      5. The ledger has to survive the two invoice rebuilds, or the debt
         disappears again on the next ordinary save. The whole design rests
         on this, and neither rebuild is in a place a run can reach cheaply.
      --------------------------------------------------------------------- */
   const editRebuild = admin.slice(admin.indexOf('const priorFees = Array.isArray(inv.data.changeFeeNotes)'),
                                   admin.indexOf('invoiceUpdates.changeFees = rebuiltFees;') + 40);
-  check('the Edit Customer save keeps every fee kind except its own manual one',
-    /f\.kind !== 'manual'/.test(editRebuild),
-    'rebuilding the whole ledger there would delete the carried debt on the next ' +
-    'ordinary save of that customer');
+  /* ⚠ REPOINTED 2026-09-01, AND NOW RUN RATHER THAN MATCHED. This asserted the literal
+     `f.kind !== 'manual'`, so legitimately extending the filter (to also rebuild the
+     office's own carried line) failed a check about correct code — the same slow-fuse
+     shape as S82 and S129. What must be true is about WHICH NOTES SURVIVE, so the real
+     filter is lifted and run over one note of each kind. */
+  const keptFilterSrc = editRebuild.slice(editRebuild.indexOf('priorFees.filter('),
+                                          editRebuild.indexOf('const rebuiltFeeNotes'));
+  const keptFilter = new Function('ARREARS_KIND',
+    'const priorFees = arguments[1]; return ' + keptFilterSrc.replace(/;\s*$/, '') + ';');
+  const survivors = keptFilter('arrears', [
+    { amount: 30, kind: 'manual', reason: 'typed on this form' },
+    { amount: 30, reason: 'Light change' },
+    { amount: 400, kind: 'arrears', reason: 'carried by Start New Season' },
+    { amount: 250, kind: 'arrears', source: 'office', reason: 'typed in the arrears box' }
+  ]).map(f => f.reason);
+
+  check('an automatic carried balance survives an ordinary Edit Customer save',
+    survivors.indexOf('carried by Start New Season') !== -1,
+    'this is the whole design: the debt has to outlive a save that only fixed a phone ' +
+    'number; got ' + JSON.stringify(survivors));
+  check('and so does an automatic light-change fee',
+    survivors.indexOf('Light change') !== -1,
+    'editing a customer must never quietly cancel a fee the system charged them');
+  check('the manual fee is rebuilt from the form, not kept',
+    survivors.indexOf('typed on this form') === -1,
+    'that box owns its own line');
+  check('and so is the office-typed carried balance',
+    survivors.indexOf('typed in the arrears box') === -1,
+    'the box that wrote it owns it — otherwise editing the figure would add a second ' +
+    'line rather than change the one that is there');
   check('and it re-sums the ledger it kept',
     /rebuiltFeeNotes\.reduce/.test(editRebuild),
     'keeping the note but not counting it puts the line on the invoice for $0');

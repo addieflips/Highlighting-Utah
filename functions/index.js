@@ -387,6 +387,33 @@ async function recordUnmatchedPayment(phone, { captureId, tip, serviceAmount }) 
   }
 }
 
+/* ⭐ LAST SEASON'S CARRIED BALANCE — SERVER COPY (added 2026-09-01).
+ *
+ * ⚠ js/money.js has its own copy (ARREARS_KIND, arrearsOnInvoice,
+ * arrearsOutstanding). Change both, in the same push — money-parity.test.js
+ * feeds the two identical invoices and fails the build if they disagree. This
+ * one decides what a CARD IS ACTUALLY CHARGED, so a drift here is the office
+ * screen and the payment button asking a customer for two different amounts.
+ *
+ * The full reasoning is written out once, over the browser copy. In short: the
+ * debt rides in the fee ledger as a note tagged `arrears`, payments are read
+ * oldest-debt-first, and a customer is not scheduled until the whole carried
+ * amount is covered by payment or credit.
+ */
+const ARREARS_KIND_SERVER = 'arrears';
+function arrearsOnInvoiceServer(inv) {
+  const notes = (inv && Array.isArray(inv.changeFeeNotes)) ? inv.changeFeeNotes : [];
+  return notes.reduce(function (sum, n) {
+    return sum + ((n && n.kind === ARREARS_KIND_SERVER) ? (Number(n.amount) || 0) : 0);
+  }, 0);
+}
+function arrearsOutstandingServer(inv) {
+  const owed = centsOf(arrearsOnInvoiceServer(inv));
+  if (owed <= 0) return 0;
+  const paid = centsOf((inv && inv.deposit) || 0) + centsOf((inv && inv.credits) || 0);
+  return Math.max(0, owed - paid) / 100;
+}
+
 // Called from the Member Portal right before showing the PayPal button.
 // Figures out what's actually owed and creates a matching PayPal order.
 exports.paypalCreateOrder = onCall(
@@ -403,7 +430,25 @@ exports.paypalCreateOrder = onCall(
     const paid = Number(inv.deposit) || 0;
     const balanceDue = Math.max(0, total - credits - paid);
     const tip = Math.max(0, Number(tipAmount) || 0);
-    const chargeAmount = balanceDue + tip;
+    /* ⭐ ONE SEASON AT A TIME (2026-09-01). Addie: "I don't want them to type there
+       amount because then we can't trust if someone paid in full. Can we do a one year
+       payment than next years payment will show up after they paid that year?"
+
+       So the customer is never asked to choose a figure. While last season's carried
+       balance is outstanding, THAT is what the button charges — nothing else. Once it is
+       paid the same button comes back offering this year's, because this recalculates
+       from the invoice every time the panel is opened.
+
+       ⚠ IT MAKES A PART PAYMENT POSSIBLE AT ALL. Before this the button charged the
+       whole balance, so somebody who owed $400 from last season on an $850 bill could
+       not pay the $400 that would get their lights hung — they had to pay all of it or
+       use Venmo.
+
+       ⚠ CAPPED AT THE BALANCE. A carried figure larger than what is left on the bill
+       (a credit applied since, say) must never charge more than they owe. */
+    const arrearsLeft = Math.min(arrearsOutstandingServer(inv), balanceDue);
+    const payingLastSeason = arrearsLeft > 0;
+    const chargeAmount = (payingLastSeason ? arrearsLeft : balanceDue) + tip;
 
     if (chargeAmount <= 0) throw new HttpsError('failed-precondition', 'Nothing due to charge.');
 
@@ -428,7 +473,16 @@ exports.paypalCreateOrder = onCall(
       throw new HttpsError('internal', 'PayPal order creation failed: ' + text);
     }
     const order = await orderRes.json();
-    return { orderID: order.id, balanceDue, tip, total: chargeAmount };
+    /* ⚠ THE PORTAL HAS TO BE ABLE TO SAY WHICH YEAR THIS IS FOR. Addie: "we need to
+       emphasize that is last years payment so someone doesn't get mad and think they are
+       charged twice." A button showing a number smaller than the balance, with nothing
+       saying why, reads as a mistake or a double charge. */
+    const arrearsNote = ((inv.changeFeeNotes || []).filter(function (n) {
+      return n && n.kind === ARREARS_KIND_SERVER;
+    })[0]) || null;
+    return { orderID: order.id, balanceDue, tip, total: chargeAmount,
+             payingLastSeason, arrearsLeft,
+             arrearsSeason: (arrearsNote && arrearsNote.season) || '' };
   }
 );
 
@@ -3220,6 +3274,26 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
   const lastFeeAt = data.lastLightChangeFeeAt && data.lastLightChangeFeeAt.toMillis
     ? data.lastLightChangeFeeAt.toMillis() : 0;
   record.lightChangeFreeUntil = lastFeeAt > 0 ? lastFeeAt + (48 * 60 * 60 * 1000) : null;
+
+  /* ⭐ WHAT IS STILL OWED FROM LAST SEASON, computed here rather than worked out
+   * again in the browser. Addie, 2026-09-01: "we need to emphasize that is last
+   * years payment so someone doesn't get mad and think they are charged twice."
+   *
+   * The portal has to be able to say, in words, that the amount on the button is
+   * last season's and not a second charge for this year — and to do that it needs
+   * the figure and the year.
+   *
+   * ⚠ COMPUTED, NOT A THIRD COPY OF THE RULE. js/money.js and this file already
+   * carry the carried-balance maths and money-parity.test.js holds them together;
+   * a third implementation inside index.html would be outside that guard entirely,
+   * and it would be the one telling the customer what they are paying. The same
+   * argument as lightChangeFreeUntil above: derive it on the server, send the
+   * answer. */
+  record.arrearsOutstanding = arrearsOutstandingServer(data);
+  const arrNote = ((data.changeFeeNotes || []).filter(function (n) {
+    return n && n.kind === ARREARS_KIND_SERVER;
+  })[0]) || null;
+  record.arrearsSeason = (arrNote && arrNote.season) || '';
 
   /* ⭐ WHO THIS BILL IS FOR, sent from HERE and not only from portalLookup.
    *

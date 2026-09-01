@@ -1596,6 +1596,12 @@
           </div>
 
           <div id="payButtonsWrap">
+          <!-- ⭐ SAYS WHAT YEAR THEY ARE PAYING FOR (added 2026-09-01). Addie: "we need
+               to emphasize that is last years payment so someone doesn't get mad and
+               think they are charged twice." A button charging less than the balance,
+               with nothing saying why, reads as a mistake or a double charge. Filled by
+               renderArrearsNotice from the figure the server computed. -->
+          <div id="invArrearsNotice" style="display:none; background:#FFF8E9; border:1px solid #D89F3D; border-radius:12px; padding:14px 16px; margin-top:18px; font-size:14px; line-height:1.55; color:#5A4A1F;"></div>
           <div id="paypalButtonWrap" style="display:none; margin-top:20px;">
             <div id="paypal-card-button-container"></div>
             <div id="paypal-button-container" style="margin-top:10px;"></div>
@@ -3629,6 +3635,7 @@ function renderCustomerInvoicePage(raw, opts){
     statusEl.style.background = noInvoiceYet ? '#EAF1FA' : (isPaid ? '#E6F2EA' : '#FDECEA');
     statusEl.style.color = noInvoiceYet ? '#2B5C8A' : (isPaid ? '#2E6B3E' : '#E0574B');
     document.getElementById('invAmount').textContent = fmt(totalDue);
+    renderArrearsNotice(res, totalDue);
     renderInvoiceBreakdown(record, {
       install: invInstall, removal: invRemoval, changeFees: invChangeFee,
       credits: invCredits, deposit: invDeposit, totalDue: totalDue
@@ -4960,6 +4967,34 @@ function setupPaypalButtonsIfNeeded(){
   };
   document.head.appendChild(script);
 }
+/* ⭐ THE ONE THING THAT STOPS THIS LOOKING LIKE A DOUBLE CHARGE. When a customer
+   still owes for last season, the payment button charges THAT and nothing else — so
+   the amount on the button is smaller than the balance above it, and without a word
+   of explanation that reads as a mistake or as being billed twice.
+
+   ⚠ THE FIGURE COMES FROM THE SERVER (portalInvoice computes arrearsOutstanding).
+   Working it out again here would be a third copy of a money rule that money-parity
+   holds to two — and it would be the copy the customer actually reads. */
+function renderArrearsNotice(res, totalDue){
+  var el = document.getElementById('invArrearsNotice');
+  if(!el) return;
+  var rec = (res && res.record) || {};
+  var owed = Number(rec.arrearsOutstanding) || 0;
+  if(owed <= 0){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  var season = rec.arrearsSeason ? String(rec.arrearsSeason) : '';
+  var thisYear = Math.max(0, totalDue - owed);
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div style="font-weight:700; margin-bottom:6px;">' +
+      'Paying ' + fmt(owed) + ' for ' + (season ? ('the ' + season + ' season') : 'last season') +
+    '</div>' +
+    '<div>This is the balance still owing from ' + (season ? ('the ' + season + ' season') : 'last season') +
+      ' &mdash; <strong>it is not a second charge for this year</strong>.' +
+      (thisYear > 0
+        ? ' Once it is paid, this year&rsquo;s ' + fmt(thisYear) + ' will show here as the next payment.'
+        : '') +
+    '</div>';
+}
 function renderPaypalButtons(){
   if(paypalButtonsRendered || !window.paypal) return;
   var container = document.getElementById('paypal-button-container');
@@ -4990,23 +5025,36 @@ function renderPaypalButtons(){
     onApprove: function(data){
       var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
       return captureOrderFn({ orderID: data.orderID, phone: phone, tipAmount: currentTipAmount }).then(function(){
-        /* Take the whole pay panel down at once - card, PayPal, Venmo, the QR
-           and the tip row - so someone who has just paid is not still looking
-           at four more ways to pay. All that is left is the thank-you. */
-        var wrap = document.getElementById('payButtonsWrap');
-        if(wrap) wrap.style.display = 'none';
+        /* ⚠ IT USED TO SAY "Paid in Full" AND $0 WHATEVER HAD JUST BEEN PAID, and
+           from 2026-09-01 that is wrong: a customer who still owes for last season is
+           charged THAT and nothing else, so the commonest payment on this page is now
+           a part payment. Told they were paid in full, they would stop — and the
+           balance they still owe would never be asked for again by anybody.
+
+           Re-reading the invoice is the honest answer and costs one call: whatever
+           they have just paid, the panel then shows what the books actually say. It
+           also re-renders the last-season notice, so somebody who has just cleared
+           last season sees this year's amount appear as the next payment — which is
+           exactly what Addie asked for ("next years payment will show up after they
+           paid that year"). */
         var tipRow = document.getElementById('invTipRow');
         if(tipRow) tipRow.style.display = 'none';
-        var paidMsg = document.getElementById('invPaidMsg');
-        if(paidMsg) paidMsg.style.display = 'block';
-        var statusEl = document.getElementById('invStatus');
-        if(statusEl){
-          statusEl.textContent = 'Paid in Full';
-          statusEl.style.background = '#E6F2EA';
-          statusEl.style.color = '#2E6B3E';
+        paypalButtonsRendered = false;
+        var reloadKey = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
+        try{
+          renderCustomerInvoicePage(reloadKey, {skipLastNameCheck: true});
+        }catch(reloadErr){
+          /* ⚠ NEVER LEAVE THEM LOOKING AT A STALE BALANCE AFTER A REAL PAYMENT. If the
+             re-read fails, fall back to the old behaviour of taking the panel down and
+             thanking them — the money HAS been taken, and the office sees it either
+             way. Silence here would show four more ways to pay for a bill they just
+             paid. */
+          console.error('could not refresh the invoice after payment', reloadErr);
+          var wrap = document.getElementById('payButtonsWrap');
+          if(wrap) wrap.style.display = 'none';
+          var paidMsg = document.getElementById('invPaidMsg');
+          if(paidMsg) paidMsg.style.display = 'block';
         }
-        var amtEl = document.getElementById('invAmount');
-        if(amtEl) amtEl.textContent = fmt(0);
       }).catch(function(){
         var errEl = document.getElementById('paypalErrorMsg');
         if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Payment may not have gone through — please call/text us at (801) 901-0011 to double check before paying again.'; }

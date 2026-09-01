@@ -539,6 +539,20 @@ was left. Nothing about the formula above changed — the ledger was already cou
 everywhere, already survives both invoice rebuilds, already prints as its own row on the
 invoice, and already reaches the customer's portal.
 
+**Paying it: one season at a time.** While last season's carried balance is outstanding,
+the portal's payment button charges **exactly that** and says so in words — the season it
+is for, that it is *not* a second charge for this year, and what this year's amount will
+be next. Once it is paid the same button comes back offering this year's. The customer is
+never asked to type an amount, so "did they pay in full" is never a judgement call
+(MON-36). `arrearsOutstanding` in js/money.js and `arrearsOutstandingServer` in
+functions/index.js are swept against each other by money-parity — this one decides what a
+card is actually charged.
+
+**Entering a debt from before the app tracked it:** Edit Customer → *Owed from a previous
+season*. It writes the same kind of carried line, so it holds them out of the season too.
+The Fees box cannot do this — a manual fee raises the bill and does not hold anybody
+(MON-35).
+
 ⚠ **The 2026 season was reset before this shipped**, so those balances were written off
 and survive only in the snapshot. **Invoices → Start New Season → Carry last season's
 unpaid bills** is the one-off repair: it reads the snapshot, shows what it would do, and
