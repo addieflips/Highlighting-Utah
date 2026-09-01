@@ -4584,7 +4584,10 @@ suite('8. Quote decline / maybe next year');
      r.d.maybeNextYear`, which was the two-state test itself — so the moment the badge
      gained its third state the slice came back empty and this failed on code that is
      right. Anchored on the line that DECIDES the badge instead. */
-  const maybeCellStart = admin.indexOf('const badgeKey = seasonBadgeKey(r.d);');
+  /* ⚠ THE ANCHOR MOVED AGAIN (2026-09-01) and for a good reason: the badge is now
+     worked out ONCE per row, beside the other row facts, so the filter and the cell
+     cannot get different answers. Anchored on where the cell READS it. */
+  const maybeCellStart = admin.indexOf('const badgeKey = r.badge;');
   const maybeCell = admin.slice(maybeCellStart,
     admin.indexOf('return \'<tr style="border-bottom', maybeCellStart));
   /* ⭐ THREE STATES SINCE 2026-08-31, not two. Addie: "make sure they cant have the
@@ -4600,6 +4603,30 @@ suite('8. Quote decline / maybe next year');
      every one of those three words sitting in the file, so the check stayed green
      while no row could ever read Pending again. Match on what DECIDES, not on what is
      printed. */
+  /* ---- and you can FILTER by it (2026-09-01) --------------------------------
+     ⭐ Owner: "there is now way to filter who is confirmed fix that."
+     ⚠ THE TWO HOUSEKEEPING LISTS ARE THE POINT OF THESE CHECKS, not the select. This
+     file already records both failures by name: a select left out of the listener list
+     never repaints, and one left out of Clear Filters stays applied while the list
+     "stays mysteriously short" — and neither shows up as an error. */
+  check('quoteresp', 'All Customers can be filtered by the season badge',
+    /id="allCustFilterSeason"/.test(admin) &&
+    /value="confirmed"/.test(admin) && /value="pending"/.test(admin) && /value="maybe"/.test(admin),
+    'the badge decides who is scheduled and there was no way to list them');
+  check('quoteresp', 'and the filter reads the same badge the row shows',
+    /rows\.filter\(r => r\.badge === seasonFilter\)/.test(admin) &&
+    /badge: seasonBadgeKey\(d\)/.test(admin),
+    'asking seasonBadgeKey a second time is two answers to one question about one ' +
+    'customer — the shape of the bug the badge was rebuilt to close');
+  check('quoteresp', 'it repaints when the filter changes',
+    /'allCustFilterSeason'/.test((admin.match(/\['allCustFilterCity'[\s\S]*?\]/) || [''])[0]),
+    'a select left out of that list does nothing until you touch another filter');
+  {
+    const clr = (admin.split("getElementById('allCustFilterClear')")[1] || '').split('renderAllCustomersTable')[0];
+    check('quoteresp', 'and Clear Filters clears it',
+      /allCustFilterSeason/.test(clr),
+      'left out, Clear Filters leaves it applied and the list stays mysteriously short');
+  }
   check('quoteresp', 'and the badge is what chooses between them',
     /badgeKey === 'maybe'/.test(maybeCell) && /badgeKey === 'pending'/.test(maybeCell),
     'a branch nothing can reach still contains all the right words');

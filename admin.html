@@ -1867,6 +1867,10 @@
               <div class="form-row"><label>Invoice Status</label><select id="allCustFilterInvStatus"><option value="all">Any / No Invoice</option><option value="none">No Invoice</option><option value="Unpaid">Unpaid</option><option value="Partial Payment">Partial Payment</option><option value="Paid in Full">Paid in Full</option></select></div>
             </div>
             <div class="form-grid-3">
+              <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
+                   Beside Route Status on purpose — Confirmed IS the route answer now
+                   (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">Pending &mdash; blocked by a rule</option><option value="maybe">Maybe Next Year</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -42577,6 +42581,10 @@ function renderAllCustomersTable(){
   const diffFilter = document.getElementById('allCustFilterDifficulty').value;
   const invFilter = document.getElementById('allCustFilterInvStatus').value;
   const routeFilter = document.getElementById('allCustFilterRoute').value;
+  /* ⚠ OPTIONAL-CHAINED LIKE THE NEWER ONES. Suite 1 checks every id the JS names
+     exists, but a filter read straight would still throw on a page mid-render. */
+  const seasonEl = document.getElementById('allCustFilterSeason');
+  const seasonFilter = seasonEl ? seasonEl.value : 'all';
   const mapFilter = document.getElementById('allCustFilterMap').value;
   const lightsEl = document.getElementById('allCustFilterLights');
   const lightsFilter = lightsEl ? lightsEl.value : 'all';
@@ -42598,7 +42606,11 @@ function renderAllCustomersTable(){
        all — and is exactly as unroutable. */
     const hasPin = hcHasMapPin(d);
     const enrolled = memberExportDateAdded(d);
-    return {item, d, inv, invStatus, hasMap, hasPin, enrolled, routeStatus: allCustRouteStatus(d)};
+    /* ⚠ ONE CALL, TWO READERS. The filter below and the cell further down both need
+       the badge, and asking twice is two answers to one question about one customer —
+       the exact shape of the bug the badge was rebuilt to close. */
+    return {item, d, inv, invStatus, hasMap, hasPin, enrolled, badge: seasonBadgeKey(d),
+            routeStatus: allCustRouteStatus(d)};
   });
   if(term){
     const phoneDigits = term.replace(/\D/g,'');
@@ -42622,6 +42634,7 @@ function renderAllCustomersTable(){
     const map = {scheduled:'Scheduled', unscheduled:'Unscheduled', completed:'Install Complete', needsfix:'Needs Fix'};
     rows = rows.filter(r => r.routeStatus === map[routeFilter]);
   }
+  if(seasonFilter !== 'all') rows = rows.filter(r => r.badge === seasonFilter);
   if(mapFilter !== 'all') rows = rows.filter(r => mapFilter === 'has' ? r.hasMap : !r.hasMap);
   if(pinFilter !== 'all') rows = rows.filter(r => pinFilter === 'has' ? r.hasPin : !r.hasPin);
   /* ⚠ `custCanBeEmailed` IS THE ONE ANSWER, shared with the chip on the row, so the
@@ -42789,7 +42802,7 @@ function renderAllCustomersTable(){
     /* ⚠ THREE STATES NOW, NOT TWO. Pending is a customer we want who is blocked by a
        rule — today that is owing for a previous season, or a set queued to come back.
        It is DERIVED, so it clears itself the moment the reason does. */
-    const badgeKey = seasonBadgeKey(r.d);
+    const badgeKey = r.badge;
     const maybeCell = badgeKey === 'maybe'
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
@@ -45350,7 +45363,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
    perfectly and could not be reached, and it only appeared to work if you happened
    to touch another filter or the search box afterwards. Found 2026-08-21 while
    adding the Email one. Any select added to that panel has to be named here. */
-['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterNewMember','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
+['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterSeason','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterNewMember','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
   const el = document.getElementById(id);
   if(el) el.addEventListener('input', renderAllCustomersTable);
 });
@@ -45367,6 +45380,11 @@ document.getElementById('allCustFilterClear').addEventListener('click', function
   document.getElementById('allCustFilterDifficulty').value = 'all';
   document.getElementById('allCustFilterInvStatus').value = 'all';
   document.getElementById('allCustFilterRoute').value = 'all';
+  /* ⚠ NAMED HERE TOO. This file already records what happens when a new select is
+     left out of one of these two lists: Clear Filters leaves it applied and the list
+     stays mysteriously short, or it never repaints at all. */
+  const clrSeason = document.getElementById('allCustFilterSeason');
+  if(clrSeason) clrSeason.value = 'all';
   document.getElementById('allCustFilterMap').value = 'all';
   /* ⚠ Pin and Lights were never cleared here either, so "Clear Filters" left two of
      them still applied and the list stayed mysteriously short. Every select in the
