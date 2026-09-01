@@ -57,7 +57,12 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    | **No** | `#/payment?token=…&rsvp=no` | `no` | "We'll be sorry to miss you this year" then *Tell us why (optional)* / *That's all, thanks* |
    | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | "We look forward to seeing you next year!" |
 
-   All three are a **receipt, not the website**: the header, footer and hero come off, and nothing else is reachable from the page. That is `body.rsvp-minimal`, which force-shows `#page-payment` (holding `#rsvpConfirmCard`) for the first two and `#backNextYearConfirm` for the third.
+   All three are a **receipt, not the website**: the header, footer and hero come off, and nothing else is reachable from the page. That is `body.rsvp-minimal`, which force-shows `#page-payment` (holding `#rsvpConfirmCard`) for the first two, plus the modifier `body.rsvp-minimal.rsvp-back`, which force-shows `#page-home` (holding `#backNextYearConfirm`) for the third.
+
+   ⚠ **ONE CLASS USED TO SERVE BOTH CARDS AND SHOWED BOTH PAGES** (fixed 2026-09-01). Addie, over a screenshot of a bare *"One moment…"*: *"this is what happens when I open up Yes or No, but back next year seems to be working"* — and that sentence is the whole diagnosis. The two answers land on **different cards in different pages**, and `body.rsvp-minimal` force-showed *both*. So a Yes or a No opened with the Back Next Year card sitting above it, still holding the **static `One moment…` from the markup** that only `handleBackNextYear` ever rewrites. The real confirmation rendered perfectly, below the fold, under a dead card.
+   - ⚠ **It looked like a hang and was not.** The answer was recorded, the message was built, and the customer stared at *"One moment…"* for ever — the same shape as the bug this class was *introduced* to fix, which is how it hid inside the fix.
+   - ⚠ **Back Next Year was leaking too**, and it was only invisible because the right message happened to be on top: that route left `#page-payment` open underneath, so the **sign-in form sat below the goodbye**.
+   - ⚠ **The specs asserted what the right card said, and never that no other card was on screen.** That is the gap; `test/rsvp-link.spec.js` now checks each route shows exactly one card and leaves no visible *"One moment"* anywhere. Four sabotages red-checked, including the original bug put back verbatim.
 
    ⚠ **NONE OF THE THREE SHOWS THE INSTALL-DETAILS FORM, and until 2026-08-31 all three did.** The router added `body.quote-minimal` instead — a different class, for the *quote* screens, which force-shows `#page-quote-details` with `!important`. So an existing member pressing Approve was handed the form a brand-new customer fills in (colours, wire, timer), asking again for everything already on their record. ⚠ **The answer was being saved correctly the whole time** — `portalRsvp` ran before any of the UI, and both confirmation messages were built correctly — so nothing anywhere went red and no data was lost or wrong. Only the screen was. That is why it is proved by `test/rsvp-link.spec.js`, which **drives all three links in a real browser**: a source check over `index.html` passes on the broken version, because every message and every handler was present and correct.
 
@@ -94,6 +99,39 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **AND YOU CAN FILTER BY IT** (2026-09-01). All Customers → Filters has a
+**Season Badge** row — Any / Confirmed / Pending / Maybe Next Year — next to
+Route Status, because Confirmed *is* the route answer now. The badge is worked
+out once per row and the filter and the pill read that same answer, so a filtered
+list can never disagree with the badges in it.
+
+⭐ **AND A RECORD STOPS CLAIMING A DAY IT NO LONGER HAS** (2026-09-01). A row was
+showing *"Scheduled — Hang Tue, Oct 20"* and *"Not scheduled — no RSVP yet"* one
+above the other. The booking fields are stamped when somebody is put on a crew's
+sheet and cleared when they are taken off it — but a customer who simply stops
+being in the season is never taken off anything, so the stamp outlives the
+booking. **Recalculate everything** now clears them and takes the customer off
+any upcoming route in the same pass.
+
+⚠ **Install flags only.** A takedown or a fix is work on lights that are already
+up, and somebody sitting the season out still needs theirs taking down. ⚠ And
+only where there is something to clear — writing false over false on ~950 records
+says nothing and stamps `updatedAt` on every one.
+
+⭐ **AND A PLAN ROW THAT IS NOT A CUSTOMER COMES OFF THE SEASON** (2026-09-01).
+Measured on the real plan: one customer badged Confirmed, sixteen houses on the
+schedule — and the sixteen were rows left over from an imported schedule file,
+matching nothing in a book of 956. `customerForHouse` answered null, the *no
+record, no opinion* guard kept them, and no Recalculate could shift them. The
+season rule was working perfectly; those rows never reached it.
+
+⚠ It is **gated on the customer book having loaded**, which is the half of that
+old guard that still holds: `jobAddresses` is empty for a moment after login and
+empty again if the listener fails, and an ungated version would wipe the whole
+season on a slow morning. ⚠ They are reported separately from the people who
+left the season — "somebody said back next year" and "this row is not a person"
+need different things from the office.
+
 ⭐ **THE CONFIRMED BADGE IS THE GATE** (2026-08-31). Addie: *"it should look for
 anyone who is confirmed and put them in schedule … make sure they cant have the
 confirmed tag if they are breaking a rule so if you break one of the rules they
@@ -108,15 +146,20 @@ that customer. Pending is derived and never stored, so paying the bill moves the
 badge on its own the next time the row is drawn. ⚠ Maybe Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
 
-⚠ **And an unanswered RSVP stopped deciding who is scheduled.** Measured on the
-real book before anything was changed: of 956 customers, **951** were being held
-out with *no RSVP yet*, 2 for owing from 2025, 1 back next year, and exactly one
-was scheduled. The rule had emptied the season. ⚠ It was live because **a test
-send stamps `rsvpSentAt`** just as a real one does, and that marker is what arms
-it — the gate did what it was built to do and could not know nobody had really
-been asked. `SEASON_ELIGIBILITY` is `all-but-maybe-next-year` for the testing
-weeks; her 2026-08-27 hardcoding is about the season after the RSVP has genuinely
-gone out, and turning it back on is that one line.
+⚠ **And an unanswered RSVP decides again — Pending is what carries it.** For a few
+hours it did not: the rule was turned off, which made the badge honest by scheduling
+everybody. Addie, looking at the result: *"anyone who is confirmed is scheduled but
+if one person is confirmed there should be one person on the schedule."* The
+complaint was never "schedule everybody" — it was that a row said Confirmed while
+every scheduler had dropped that customer. With the badge able to say **Pending**,
+the rule can stay on and the badge still tells the truth: today one customer has
+actually replied Yes, so **one** is Confirmed and **one** is scheduled, and the ~951
+who have not replied read *Pending — no RSVP yet*.
+
+⚠ Worth knowing, because it caused the confusion: **a test send stamps `rsvpSentAt`**
+exactly as a real one does, and that marker is what arms the rule. Measured before
+any of this: 956 customers, 951 held out for no RSVP, 2 for owing from 2025, 1 back
+next year, 1 scheduled.
 
 ⭐ **ALL CUSTOMERS TAGS WHO STILL OWES FOR AN EARLIER SEASON** (2026-08-31).
 Owner: *"we need a seperate tag for people who havent paid for 2025 can you just

@@ -116,11 +116,36 @@
   #quoteLinkConfirmActions .qbtn-quiet{ background:#fff; color:var(--slate); border-color:var(--line); font-weight:600; font-size:14px; }
   #quoteLinkConfirmActions .qbtn:hover{ filter:brightness(.97); }
   body.rsvp-minimal header, body.rsvp-minimal footer, body.rsvp-minimal .page-hero{ display:none !important; }
+  /* ⚠ ONE CLASS WAS SERVING TWO DIFFERENT CARDS, AND SHOWED BOTH PAGES (fixed
+     2026-09-01). Addie: "this is what happens when I open up Yes or No, but back
+     next year seems to be working" — over a screenshot of a bare "One moment…".
+
+     That sentence is the whole diagnosis. The two answers land on DIFFERENT cards
+     in DIFFERENT pages — yes/no on #rsvpConfirmCard inside #page-payment, back next
+     year on #backNextYearConfirm inside #page-home — and this block force-showed
+     BOTH pages for BOTH routes. So an RSVP yes or no opened with the back-next-year
+     card sitting above it, still holding the static "One moment…" from the markup
+     that only handleBackNextYear ever rewrites. The real confirmation rendered
+     perfectly, below the fold, under a dead card.
+
+     ⚠ IT LOOKED LIKE A HANG AND WAS NOT. The answer was saved, the message was
+     built, and the customer read "One moment…" for ever — the same shape as the
+     bug this class was introduced to fix, which is why it hid inside the fix.
+
+     ⚠ AND BACK NEXT YEAR WAS LEAKING TOO, it just did not show: that route left
+     #page-payment open underneath, so the SIGN-IN FORM sat below the goodbye.
+     "Seems to be working" was the correct message happening to be on top.
+
+     Each route now reveals exactly ONE page. The modifier is what says which. */
   body.rsvp-minimal #page-payment{ display:flex !important; min-height:100vh; align-items:center; }
   body.rsvp-minimal #page-payment .wrap{ width:100%; }
-  body.rsvp-minimal #page-home{ display:flex !important; min-height:100vh; align-items:center; }
-  body.rsvp-minimal #page-home > *:not(#backNextYearConfirm){ display:none !important; }
-  body.rsvp-minimal #backNextYearConfirm{ display:block !important; width:100%; }
+  body.rsvp-minimal #page-home{ display:none !important; }
+  /* Back Next Year — its card is the only thing wanted out of the home page, and
+     the payment page (which carries the sign-in form) must stay shut. */
+  body.rsvp-minimal.rsvp-back #page-payment{ display:none !important; }
+  body.rsvp-minimal.rsvp-back #page-home{ display:flex !important; min-height:100vh; align-items:center; }
+  body.rsvp-minimal.rsvp-back #page-home > *:not(#backNextYearConfirm){ display:none !important; }
+  body.rsvp-minimal.rsvp-back #backNextYearConfirm{ display:block !important; width:100%; }
 
   /* ---------- Header ---------- */
   header{
@@ -2241,7 +2266,7 @@ function navigate(){
   document.querySelector('.nav-dropdown').classList.remove('open');
   document.getElementById('mMoreToggle').classList.remove('open');
   document.getElementById('mMoreSubmenu').classList.remove('open');
-  document.body.classList.remove('rsvp-minimal');
+  document.body.classList.remove('rsvp-minimal', 'rsvp-back');
   /* ⚠ AND quote-minimal, which this used to leave on. body.quote-minimal hides
      the header and footer and forces #page-quote-details visible with
      !important, so navigating away from a minimal screen left the site chrome
@@ -2285,8 +2310,11 @@ function navigate(){
     if(backToken && backRsvp === 'back' && typeof handleBackNextYear === 'function'){
       /* rsvp-minimal, for the reason spelled out on the /payment branch above.
          Here it is what hides the rest of the home page so the confirmation is
-         a receipt rather than a line floating over the marketing site. */
-      document.body.classList.add('rsvp-minimal');
+         a receipt rather than a line floating over the marketing site.
+         ⚠ PLUS rsvp-back, WHICH IS WHICH CARD. Without it this route gets the
+         yes/no layout — #page-payment open and #page-home shut — which is the
+         exact opposite of where this answer's card lives. */
+      document.body.classList.add('rsvp-minimal', 'rsvp-back');
       handleBackNextYear(backToken);
     }
   } else if(hash === '/quote-details' && queryString){
@@ -4546,7 +4574,7 @@ function handleRsvpLink(token, rsvpValue){
         openPortalBtn.textContent = 'Tell us why (optional)';
         openPortalBtn.style.display = 'inline-flex';
         openPortalBtn.onclick = function(){
-          document.body.classList.remove('rsvp-minimal');
+          document.body.classList.remove('rsvp-minimal', 'rsvp-back');
           if(confirmCard) confirmCard.style.display = 'none';
           loadPortalByToken(token, {bypassDeactivation: true, activateTab: 'cancel'});
         };
@@ -4635,7 +4663,7 @@ function handleRsvpLink(token, rsvpValue){
       if(noChangesBtn) noChangesBtn.textContent = owes ? "I'll Do It Later" : "No, I'm All Set";
       openPortalBtn.style.display = 'inline-flex';
       openPortalBtn.onclick = function(){
-        document.body.classList.remove('rsvp-minimal');
+        document.body.classList.remove('rsvp-minimal', 'rsvp-back');
         confirmCard.style.display = 'none';
         loadPortalByToken(token);
       };
@@ -4871,7 +4899,7 @@ function offerMemberChangeChoice(contactHint, memberDetails){
      back, so it has to be put away again here. */
   if(formWrap) formWrap.style.display = 'none';
   if(successWrap) successWrap.style.display = 'none';
-  document.body.classList.remove('rsvp-minimal');
+  document.body.classList.remove('rsvp-minimal', 'rsvp-back');
   document.body.classList.add('quote-minimal');
   if(confirmWrap) confirmWrap.style.display = 'block';
   if(confirmMsg) confirmMsg.textContent = 'Do you want anything changed with your lights this year?';
@@ -5006,7 +5034,7 @@ function handleQuoteLink(token, action, confirmed){
      in; the call finishes long before they press submit. */
   if(action === 'approve'){
     quoteDetailToken = token;
-    document.body.classList.remove('rsvp-minimal');
+    document.body.classList.remove('rsvp-minimal', 'rsvp-back');
     document.body.classList.remove('quote-minimal');
     if(confirmWrap) confirmWrap.style.display = 'none';
     if(formWrap) formWrap.style.display = 'block';
