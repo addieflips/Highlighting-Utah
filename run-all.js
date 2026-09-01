@@ -3360,7 +3360,13 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
                           dependencies are in, and centsOf is the whole-cents discipline that
                           stops a customer who paid every cent reading a fraction short */
                        'arrearsOnInvoiceServer', 'centsOf']
-    .map(function(n){ return extractFn(fnSrc, n); });
+    .map(function(n){ return extractFn(fnSrc, n); })
+    /* ⚠ AND THE HELPER ITSELF, WHICH IS async — extractFn matches from the `function`
+       keyword and drops the keyword before it, so the body arrives full of bare `await`
+       and is a parse error that kills the whole run as one unattributable crash. Same
+       trap as removeCustomerFromUpcomingRoutes below; CLAUDE.md §5 records it costing
+       three suites a run. */
+    .concat([(function(){ const f = extractFn(fnSrc, 'arrearsForCustomer'); return f ? 'async ' + f : ''; })()]);
   check('flow', 'the arrears helpers portalRsvp calls were all found',
     arrearsSrcs.every(Boolean),
     'renamed or removed — a missing one leaves the yes path throwing a bare ' +
@@ -29817,6 +29823,16 @@ suite('Suite 70. An existing member is asked what is changing, not handed the ne
              Stubbed here so this suite stays about WHICH answers are offered and what
              each one does with them; the form itself is filled in below. */
           'function showQuoteDetailFormFresh(md){ sb.freshWith = md; sb.freshCalled = true; }' +
+          /* ⚠ THE HOLD WORDING, LIFTED not stubbed (2026-09-01). This ending now asks
+             quoteScheduleSub, which swaps the "we'll get you on the schedule" clause for
+             a debt sentence when the approver owes for last season. A stub would let the
+             real rule change underneath this suite while it went on agreeing with itself;
+             lifted, a customer who owes NOTHING is proved to still read the warm ending,
+             which is exactly what this check is about. */
+          'var quoteApproveArrears = { outstanding: 0, season: \'\' };' +
+          'function escapeHtmlPortal(x){ return String(x == null ? "" : x); }' +
+          'function fmt(n){ return "$" + (Number(n) || 0).toFixed(2); }' +
+          extractFn(idx, 'quoteScheduleSub') +
           offerSrc + openSrc +
           'this.offer = offerMemberChangeChoice; this.open = openPortalFromQuote;'
         ).call(box, d, w, w.localStorage, box);

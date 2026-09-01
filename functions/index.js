@@ -996,6 +996,47 @@ function invoiceKeyFor(data) {
   return email || '';
 }
 
+/* ⭐ WHAT A CUSTOMER STILL OWES FROM LAST SEASON, for the screens that have to
+ * say so (2026-09-01). RS-24 holds a debtor out of the season EVEN WHEN THEY
+ * ANSWER YES, and there are two doors into a yes — the RSVP link (portalRsvp)
+ * and approving a quote as an existing member (quoteRespond). Both used to end
+ * on a promise to get them scheduled, which is the one thing that was never
+ * going to happen for them.
+ *
+ * ⚠ ONE HELPER, BECAUSE THE SECOND DOOR WOULD HAVE BEEN A SECOND COPY. Fixing
+ * the RSVP and leaving the quote path is half a fix by this repo's own name for
+ * it, and two copies of "does this customer owe" is how two screens start making
+ * different claims about one rule.
+ *
+ * ⚠ THE BILL THE HOUSE IS ON, NEVER THE HOUSE'S OWN KEY — RS-24 verbatim: if
+ * Dana pays for Kyle and Dana did not pay, Kyle's lights were not paid for
+ * either, and reading Kyle's own key finds no invoice and tells him he is clear.
+ *
+ * ⚠ AND IT FAILS TOWARDS SILENCE, deliberately the opposite direction to the
+ * season hold. An unreadable invoice answers nought, which leaves the original
+ * wording in place. Holding somebody who paid costs them their lights; telling
+ * somebody they owe money we cannot prove they owe is worse than not warning
+ * them about a real debt, and the office still has Schedule > Owes from last
+ * year either way. */
+async function arrearsForCustomer(custData) {
+  const none = { outstanding: 0, season: '' };
+  try {
+    const d = custData || {};
+    const billKey = digitsOnly(d.billToPhone) || invoiceKeyFor(d);
+    if (!billKey) return none;
+    const invSnap = await db.collection('invoices').doc(billKey).get();
+    if (!invSnap.exists) return none;
+    const inv = invSnap.data();
+    return { outstanding: arrearsOutstandingServer(inv), season: arrearsYearServer(inv) || '' };
+  } catch (e) {
+    /* Logged rather than swallowed (Addie, 2026-08-25: "nothing should fail
+       quietly"). The caller's own write is already done by this point and must
+       never be lost to an invoice read. */
+    console.error('[HU] arrearsForCustomer failed:', e);
+    return none;
+  }
+}
+
 // Make sure a record has a portalToken, minting one if it predates the system.
 async function ensureToken(id, data) {
   if (data.portalToken) return data.portalToken;
@@ -2082,32 +2123,13 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
      here it must not tell a customer they owe money we cannot prove they owe. Being
      wrongly accused of a debt is worse than not being warned about a real one, and the
      office still has Schedule › Owes from last year either way. */
-  let arrearsOutstanding = 0;
-  let arrearsSeason = '';
-  if (response === 'yes') {
-    try {
-      const billKey = digitsOnly(oldData.billToPhone) || invoiceKeyFor(oldData);
-      if (billKey) {
-        const invSnap = await db.collection('invoices').doc(billKey).get();
-        if (invSnap.exists) {
-          const inv = invSnap.data();
-          arrearsOutstanding = arrearsOutstandingServer(inv);
-          arrearsSeason = arrearsYearServer(inv) || '';
-        }
-      }
-    } catch (e) {
-      /* Silent by the rule above: the RSVP itself is already saved, and a failed
-         invoice read must never cost the customer their answer. Logged so it is not
-         one of the quiet failures Addie ruled out on 2026-08-25. */
-      console.error('[HU] portalRsvp arrears lookup failed:', e);
-    }
-  }
+  const owed = response === 'yes' ? await arrearsForCustomer(oldData) : { outstanding: 0, season: '' };
 
   return { ok: true, rsvpStatus: response,
            rejoinedAfterRecycle: rejoinedAfterRecycle,
            removedFromRoutes: removedFrom,
-           arrearsOutstanding: arrearsOutstanding,
-           arrearsSeason: arrearsSeason,
+           arrearsOutstanding: owed.outstanding,
+           arrearsSeason: owed.season,
            gateCode: String(oldData.gateCode || '') };
 });
 
@@ -2883,10 +2905,30 @@ exports.quoteRespond = onCall({ cors: true }, async (request) => {
     }
   }
 
+  /* ⭐ THE SECOND DOOR INTO A YES, AND IT MADE THE SAME PROMISE (2026-09-01).
+     Approving IS a yes for an existing member — the block just above writes
+     seasonYesUpdates — so RS-24 holds them out of the season on the money exactly
+     as it does an RSVP yes, while all three of this page's confirmations ended on
+     some form of "we'll be in touch to get you scheduled".
+     ⚠ ONLY WHEN WE KNOW WHICH MEMBER. `alreadyMember` is deliberately wider than
+     `memberRef` — a quote can say "this became a customer" without saying who — and
+     a debt cannot be looked up for somebody we cannot identify. That case reports
+     nought and keeps the original wording, which is this helper's fail-safe anyway.
+     ⚠ AND ONLY ON AN APPROVE. A decline is not being scheduled either way, and
+     telling somebody who just said no that they owe money is a chase. */
+  const approverOwes = (action === 'approve' && memberRef)
+    ? await arrearsForCustomer(memberRef.data || {})
+    : { outstanding: 0, season: '' };
+
   return {
     ok: true,
     action: action,
     quotedPrice: quoteData.quotedPrice || 0,
+    /* See arrearsForCustomer. Nought for anybody clear, and for anybody we cannot
+       identify — so the page's existing wording is what a reader sees unless there
+       is a debt we can actually prove. */
+    arrearsOutstanding: approverOwes.outstanding,
+    arrearsSeason: approverOwes.season,
     /* The page needs to know WHICH quote it just approved so it can open the
        detail form against it. Without this the approval was recorded and the
        customer was left looking at an empty page. Nothing sensitive: the id
