@@ -69,29 +69,32 @@ test.describe('RSVP email links', () => {
       return rsvp.length ? rsvp[rsvp.length - 1].payload.response : null;
     }).toBe('yes');
 
-    /* 2. What they read. */
+    /* 2. What they read. The gate-code step still comes first (Addie,
+       2026-08-31: "Lets do gate code before changes") and is the ONLY thing
+       between a yes and the portal now — Dax, 2026-09-01, asked for the buttons
+       to "automatically send the customer to their member portal", so the
+       confirmation card that used to end this flow is gone. */
     await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
-    /* ⚠ THE GATE-CODE STEP NOW COMES FIRST on a yes (Addie, 2026-08-31: "Lets
-       do gate code before changes"), so this clicks through it to reach the
-       confirmation it has always been about. That is following the flow, not
-       relaxing the check — every assertion below is unchanged, and the step
-       itself is proved in test/rsvp-gate-code.spec.js. */
     await page.locator('#rsvpGateCodeYesBtn').click();
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i);
-    await expect(page.locator('#rsvpOpenPortalBtn')).toBeVisible();
-    await expect(page.locator('#rsvpNoChangesBtn')).toBeVisible();
+    await expect(page.locator('#invBreakdown')).toBeVisible();
+    await expect(page.locator('#rsvpConfirmCard')).toBeHidden();
 
     /* 3. What they must NOT be looking at. */
     await expectNotTheQuoteForm(page);
 
-    /* Minimal mode: a receipt, not the website. Nothing to browse away into. */
-    await expect(page.locator('header')).toBeHidden();
+    /* ⚠ AND MINIMAL MODE IS DELIBERATELY OVER BY NOW. `rsvp-minimal` strips the
+       page down to a receipt, which is right while the card is the whole screen
+       and wrong once they are inside their account — the old "Take me to my
+       portal" button removed the same two classes for the same reason. So the
+       header being BACK is the assertion here, not a relaxed one. The no and
+       back-next-year paths still end on the receipt and still assert it hidden. */
+    await expect(page.locator('header')).toBeVisible();
 
     expect(stub.thrown, stub.consoleNoise.join('\n')).toEqual([]);
     stub.assertNoRealCalls();
   });
 
-  /* ⭐ CHANGED 2026-09-01 (RS-31). Addie: "can no go straight to member portal but
+  /* ⭐ CHANGED 2026-09-01 (RS-33). Addie: "can no go straight to member portal but
      will track it even if they don't get to member portal." This used to assert the
      interstitial — "sorry to miss you" plus a Tell us why button — which was her
      2026-08-19 ruling and is now superseded. The check that MATTERS is unchanged and
@@ -250,7 +253,7 @@ test.describe('One answer shows one card, and nothing else', () => {
     stub.assertNoRealCalls();
   });
 
-  /* ⚠ NO LEAVES THIS SCREEN ALTOGETHER NOW (RS-31) — it goes straight into the
+  /* ⚠ NO LEAVES THIS SCREEN ALTOGETHER NOW (RS-33) — it goes straight into the
      portal — so what must be true is that the Back Next Year card never appears on
      the way past, which is the fault this describes. */
   test('No does not flash the Back Next Year card on its way to the portal', async ({ page }) => {
@@ -269,7 +272,7 @@ test.describe('One answer shows one card, and nothing else', () => {
   test('and neither one leaves a stray "One moment" on screen', async ({ page }) => {
     for (const answer of ['yes', 'no']) {
       const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=${answer}`);
-      /* Yes settles on this card; No carries on into the portal (RS-31). Either way
+      /* Yes settles on this card; No carries on into the portal (RS-33). Either way
          the assertion below is the same one, and it is the point of this test. */
       await expect(answer === 'yes'
         ? page.locator('#rsvpConfirmCard')

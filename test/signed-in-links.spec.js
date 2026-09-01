@@ -83,24 +83,29 @@ test.describe('Email links, with a login already remembered', () => {
   /* The two RSVP links that land on /payment carry a query, so they were never
      at risk from the same rule — but they share the page the redirect targets,
      so a fix to it must not disturb them. */
-  test('Yes still shows its confirmation, not the account', async ({ page }) => {
+  /* ⭐ RENAMED AND REPOINTED 2026-09-01, and the guarantee is unchanged. Dax:
+     the RSVP buttons "should also automatically send the customer to their
+     member portal", so a yes now DOES end on the account — which is what the
+     old title ruled out. The thing this test has always actually asserted is
+     the line that has not moved: `#page-quote-details` stays hidden. That is
+     the router bug it exists for — a signed-in customer pressing Yes being
+     handed the new-customer install form — and it is still proved here. */
+  test('Yes lands on the portal, never on the install-details form', async ({ page }) => {
     const stub = await openSignedIn(page, `#/payment?token=${CUST.token}&rsvp=yes`);
 
+    /* The confirmation card still appears first — it carries the gate-code
+       step, which is the one thing kept between a yes and the portal. */
     await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
-    /* ⚠ THE GATE-CODE STEP NOW COMES FIRST on a yes (Addie, 2026-08-31: "Lets
-       do gate code before changes"), so this clicks through it to reach the
-       confirmation it has always been about. That is following the flow, not
-       relaxing the check — every assertion below is unchanged, and the step
-       itself is proved in test/rsvp-gate-code.spec.js. */
     await page.locator('#rsvpGateCodeYesBtn').click();
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i);
+
+    await expect(page.locator('#invBreakdown')).toBeVisible();
     await expect(page.locator('#page-quote-details')).toBeHidden();
 
     expect(stub.scriptErrors).toEqual([]);
     await stub.assertNoRealCalls();
   });
 
-  /* ⚠ THE EXPECTATION INVERTED, THE GUARANTEE DID NOT (RS-31, 2026-09-01). A No now
+  /* ⚠ THE EXPECTATION INVERTED, THE GUARANTEE DID NOT (RS-33, 2026-09-01). A No now
      goes straight into the account by design, so "not the account" is no longer the
      right assertion — but the reason this spec exists is unchanged and is what is
      checked instead: a remembered sign-in must never SWALLOW the answer. That was the

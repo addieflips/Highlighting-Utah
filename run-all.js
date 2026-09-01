@@ -4584,7 +4584,10 @@ suite('8. Quote decline / maybe next year');
      r.d.maybeNextYear`, which was the two-state test itself — so the moment the badge
      gained its third state the slice came back empty and this failed on code that is
      right. Anchored on the line that DECIDES the badge instead. */
-  const maybeCellStart = admin.indexOf('const badgeKey = seasonBadgeKey(r.d);');
+  /* ⚠ THE ANCHOR MOVED AGAIN (2026-09-01) and for a good reason: the badge is now
+     worked out ONCE per row, beside the other row facts, so the filter and the cell
+     cannot get different answers. Anchored on where the cell READS it. */
+  const maybeCellStart = admin.indexOf('const badgeKey = r.badge;');
   const maybeCell = admin.slice(maybeCellStart,
     admin.indexOf('return \'<tr style="border-bottom', maybeCellStart));
   /* ⭐ THREE STATES SINCE 2026-08-31, not two. Addie: "make sure they cant have the
@@ -4600,6 +4603,30 @@ suite('8. Quote decline / maybe next year');
      every one of those three words sitting in the file, so the check stayed green
      while no row could ever read Pending again. Match on what DECIDES, not on what is
      printed. */
+  /* ---- and you can FILTER by it (2026-09-01) --------------------------------
+     ⭐ Owner: "there is now way to filter who is confirmed fix that."
+     ⚠ THE TWO HOUSEKEEPING LISTS ARE THE POINT OF THESE CHECKS, not the select. This
+     file already records both failures by name: a select left out of the listener list
+     never repaints, and one left out of Clear Filters stays applied while the list
+     "stays mysteriously short" — and neither shows up as an error. */
+  check('quoteresp', 'All Customers can be filtered by the season badge',
+    /id="allCustFilterSeason"/.test(admin) &&
+    /value="confirmed"/.test(admin) && /value="pending"/.test(admin) && /value="maybe"/.test(admin),
+    'the badge decides who is scheduled and there was no way to list them');
+  check('quoteresp', 'and the filter reads the same badge the row shows',
+    /rows\.filter\(r => r\.badge === seasonFilter\)/.test(admin) &&
+    /badge: seasonBadgeKey\(d\)/.test(admin),
+    'asking seasonBadgeKey a second time is two answers to one question about one ' +
+    'customer — the shape of the bug the badge was rebuilt to close');
+  check('quoteresp', 'it repaints when the filter changes',
+    /'allCustFilterSeason'/.test((admin.match(/\['allCustFilterCity'[\s\S]*?\]/) || [''])[0]),
+    'a select left out of that list does nothing until you touch another filter');
+  {
+    const clr = (admin.split("getElementById('allCustFilterClear')")[1] || '').split('renderAllCustomersTable')[0];
+    check('quoteresp', 'and Clear Filters clears it',
+      /allCustFilterSeason/.test(clr),
+      'left out, Clear Filters leaves it applied and the list stays mysteriously short');
+  }
   check('quoteresp', 'and the badge is what chooses between them',
     /badgeKey === 'maybe'/.test(maybeCell) && /badgeKey === 'pending'/.test(maybeCell),
     'a branch nothing can reach still contains all the right words');
@@ -9900,10 +9927,15 @@ suite('21. Everyone is in unless they said otherwise');
     /^const SEASON_ELIGIBILITY = '(confirmed-only|all-but-maybe-next-year)';$/.test(eligLine),
     'found: ' + JSON.stringify(eligLine) + '. A `let`, or a value nobody ruled on, is ' +
     'a season that something can quietly put back to everybody');
-  check('season', 'and today it is the one she asked for while testing',
-    /^const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';$/.test(eligLine),
-    'found: ' + JSON.stringify(eligLine) + '. If this moved on purpose — the RSVP has ' +
-    'really gone out now — update this check and MON-47 in the same commit');
+  /* ⚠ BACK TO confirmed-only ON 2026-09-01, hours after it was turned off. Addie:
+     "anyone who is confirmed is scheduled but if one person is confirmed there should
+     be one person on the schedule." Turning the rule off had made the badge honest by
+     scheduling everybody; the badge's new Pending state makes it honest the other way
+     round, which is what she meant. MON-49. */
+  check('season', 'and today it is confirmed-only, with Pending carrying the rest',
+    /^const SEASON_ELIGIBILITY = 'confirmed-only';$/.test(eligLine),
+    'found: ' + JSON.stringify(eligLine) + '. If this moved on purpose, update this ' +
+    'check and the ruling behind it in the same commit');
   /* ⚠ REPOINTED 2026-08-26, AND IT IS STRONGER THAN WHAT IT REPLACED. This used to
      assert the constant read 'all-but-maybe-next-year', because that string was the
      only thing standing between one edit and an empty season. Addie then asked for
@@ -15703,6 +15735,12 @@ suite('Suite 48. Days within two working days are set');
       'function mdToDate(md){const p=(""+md).split("-").map(Number);return new Date(2026,p[0]-1,p[1]);}' +
       'function extractCleanCity(c){return (""+(c==null?"":c)).trim();}' +
       'function customerForHouse(h){return h.__cust||null;}' +
+      /* ⚠ ITS OWN BOOK, DECLARED HERE (2026-09-01). The orphan rule below is gated on
+         the customer book having loaded, and this sandbox had no jobAddresses of its
+         own — so it read whichever one an earlier suite had left in the global scope and
+         the answer depended on evaluation order. That is the leak CLAUDE.md §3 warns
+         about, found by a check failing for a reason unrelated to the code under test. */
+      'var jobAddresses=[];' +
       'function nextWorkingDay(d){let x=new Date(d);while(isWeekend(x))x=addDays(x,1);return x;}' +
       'function dayDate(d){return d._date;}' +
       'function installDays(){return SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown);}' +
@@ -15726,6 +15764,7 @@ suite('Suite 48. Days within two working days are set');
          The live setting comes with it for the same reason. */
       seasonRuleSrc() + fn('isOutForSeason') +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
+      String.fromCharCode(10) + 'this.book=function(k){jobAddresses=[];for(var i=0;i<k;i++)jobAddresses.push({id:"c"+i,data:{}});};' +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
     ).call(ctx, TODAY);
 
@@ -15841,13 +15880,43 @@ suite('Suite 48. Days within two working days are set');
          match one at all, and reading "no customer found" as "not coming" would empty
          most of the plan on the first press. */
       const orphan = { id: 'orphan', name: 'orphan', city: 'Lehi', pref: 'OCT', __cust: null };
+      /* ⚠ WHILE THE BOOK IS EMPTY, NOTHING IS ASSUMED. This is the half of the old
+         fail-safe that still holds absolutely: jobAddresses is empty for a moment after
+         login and empty again if the listener ever fails, and reading that as "nobody
+         is a customer" would wipe the whole season on a slow morning. */
+      ctx.book(0);
+      const out3e = ctx.run([day(new Date(2026, 9, 20),
+        [house('Lehi', 'kept'), orphan], 19)]);
+      const n3e = [];
+      out3e.season.forEach(d => (d.houses || []).forEach(h => n3e.push(h.name)));
+      check('S48', 'with the customer book not loaded, an unmatched row is KEPT',
+        n3e.indexOf('orphan') !== -1 && !(out3e.r && out3e.r.orphans),
+        'no book, no opinion — an ungated version empties the season on a slow login');
+
+      /* ⭐ BUT ONCE THE BOOK IS THERE, A ROW WITH NOBODY BEHIND IT COMES OFF (2026-09-01).
+         Addie: "the only customers in the schedule are the confirmed ones ... currently
+         its not working." Measured on her own plan: ONE customer badged Confirmed and
+         SIXTEEN houses on the season — and the sixteen were rows from an old imported
+         file matching nothing in a book of 956. The season rule was working perfectly;
+         those rows never reached it, because customerForHouse answered null and the
+         no-record-no-opinion guard kept them for ever.
+         ⛔ THE REASONING THAT GUARD WAS BUILT ON is kept in the page: an imported row
+         need not match a record. True when the plan WAS the season; the wrong way round
+         now that every house arrives through customersMissingFromSeason. */
+      ctx.book(50);
       const out3 = ctx.run([day(new Date(2026, 9, 20),
         [house('Lehi', 'kept'), orphan], 19)]);
       const n3 = [];
       out3.season.forEach(d => (d.houses || []).forEach(h => n3.push(h.name)));
-      check('S48', 'a house with no customer record is KEPT, not assumed gone',
-        n3.indexOf('orphan') !== -1 && (out3.r && out3.r.left === 0),
-        'an imported row need not match a record — no record, no opinion');
+      check('S48', 'with the book loaded, a row matching no customer is taken off',
+        n3.indexOf('orphan') === -1 && n3.indexOf('kept') !== -1,
+        'a crew-day built for a house nobody will visit, and no Recalculate could shift it');
+      check('S48', 'and it is counted apart from the ones who left the season',
+        out3.r && out3.r.orphans === 1 && out3.r.left === 0,
+        'got orphans=' + (out3.r && out3.r.orphans) + ' left=' + (out3.r && out3.r.left) +
+        ' — "somebody said back next year" and "this row is not a person" need ' +
+        'different actions from the office, and one number tells them neither');
+      ctx.book(0);
 
       /* ⚠ AND IT DOES NOT REACH A DAY THAT IS SET. Tue 6 Oct is inside the lock, the
          crew may be holding that sheet, and a rebuild cannot un-print paper. Reported
@@ -46285,6 +46354,242 @@ suite('284. Both pictures at once, and a pitch you can read');
       /Type the angle on its row/.test(yesWire),
       'a grade read off a photograph tends to come out shallow, and she knows her ' +
       'own gables — see suite 283');
+  }
+}
+
+
+/* ---- a record stops claiming a day it no longer has -----------------------
+   ⭐ Addie, 2026-09-01, on Addie Eriksen #210: "shes not in the schedule but on here
+   it says shes scheduled make sure that this updates when you recalculate everything
+   too."
+
+   ⚠ HER ROW SAID BOTH THINGS AT ONCE — "Scheduled — Hang Tue, Oct 20" from the stored
+   flags and "Not scheduled — no RSVP yet" from the live rule, one above the other.
+   The flags are stamped when somebody is put on a crew's sheet and cleared when they
+   are taken off it; a customer who simply stops being in the season is never taken off
+   anything, so the stamp outlives the booking.
+
+   ⚠ RUN, NOT MATCHED. Every claim here is about which records get WRITTEN to, and one
+   of them is that most of them are not written to at all — which a regex cannot see. */
+suite('286. A record stops claiming a day it no longer has');
+{
+  const NL286 = String.fromCharCode(10);
+  /* ⚠ LIFTED async-AWARE. extractFn searches for "function NAME(" and so drops the
+     `async` keyword, which turns the body into a parse error full of bare `await` —
+     CLAUDE.md §5 records that trap by name and this suite hit it on its first run. */
+  const sweepLift = (name) => {
+    let at = admin.indexOf('async function ' + name + '(');
+    if (at < 0) at = admin.indexOf('function ' + name + '(');
+    if (at < 0) return '';
+    let d = 0;
+    for (let i = admin.indexOf('{', at); i < admin.length; i++) {
+      if (admin[i] === '{') d++;
+      else if (admin[i] === '}') { d--; if (!d) return admin.slice(at, i + 1); }
+    }
+    return '';
+  };
+  const sweepSrc = sweepLift('clearStaleInstallBookings');
+  check('S286', 'the sweep is findable', !!sweepSrc,
+    'written inline in the button handler it could only be checked by matching text');
+  /* ⚠ AND SOMETHING HAS TO ASK IT. Addie's words were "make sure that this updates
+     when you RECALCULATE everything too" — the button is half the request, and a
+     red-check proved the rest of this suite stays green with the call deleted. That is
+     the third time today a rule was proved and its caller was not. */
+  {
+    const recalc = (admin.split("if(t.id==='recalcBtn'){")[1] || '').split("if(t.id===")[0];
+    /* ⚠ THE GUARD'S OWN BODY, not the handler. A red-check replacing the guard with
+       `if(false)` left the call sitting there in plain text and this passed — the
+       trap this file records four times over. Slicing from the guard means the check
+       fails when the guard is what changed. */
+    const guarded = (recalc.split("if(typeof clearStaleInstallBookings === 'function'){")[1] || '').split('}')[0];
+    check('S286', 'the Recalculate button is the thing that runs it',
+      /clearStaleInstallBookings\(\)/.test(guarded),
+      'a sweep nothing calls is a green suite and a row still promising a crew');
+    check('S286', 'and it does not block the press waiting for the writes',
+      /clearStaleInstallBookings\(\)\.then\(/.test(guarded) &&
+      !/await clearStaleInstallBookings/.test(recalc),
+      'it is a round trip per stale record; awaited, the button sits there looking hung');
+  }
+  if (sweepSrc) {
+    /* ⚠ isOutForSeason IS LIFTED, NEVER STUBBED. "Which records are stale" IS the rule
+       about who is in the season, and a stub would let this sweep and the schedule
+       disagree about one customer — the whole family of bug this came out of. */
+    const mk = (book) => {
+      const writes = [], routeCalls = [];
+      const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomerFromUpcomingRoutes',
+        'jobAddresses', 'console',
+        seasonRuleLiveSrc() +
+        'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }' + NL286 +
+        'function houseOwesFromLastSeason(){ return false; }' + NL286 +
+        extractFn(admin, 'isOutForSeason') + NL286 +
+        extractFn(admin, 'freeUpFieldForType') + NL286 +
+        sweepSrc + NL286 + 'return clearStaleInstallBookings;');
+      const run = fn(
+        async (ref, payload) => { writes.push({ id: ref.id, payload: payload }); },
+        (d, col, id) => ({ col: col, id: id }), {},
+        async (id) => { routeCalls.push(id); return 1; },
+        book, { error: function(){} });
+      return { writes, routeCalls, go: () => run() };
+    };
+    const replied = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
+    const booked = { scheduled: true, scheduledDate: '2026-10-20', assignedCrew: 'Crew 1' };
+
+    /* Her own case, and three that must NOT be touched. */
+    const book = [
+      { id: 'stale', data: Object.assign({ name: 'Addie Eriksen' }, booked) },
+      { id: 'real', data: Object.assign({ name: 'Really booked' }, replied, booked) },
+      { id: 'quiet', data: { name: 'Out, never booked' } },
+      { id: 'takedown', data: { name: 'Out, takedown due', removalScheduled: true,
+                                removalScheduledDate: '2026-12-02', fixScheduled: true } },
+      /* ⚠ STALE FOR AN INSTALL *AND* BOOKED FOR A TAKEDOWN. The record above has no
+         install flags, so the filter skips it and a sabotage that also cleared the
+         takedown fields never bit — a red-check proved that check vacuous. This one
+         reaches the write, so the payload itself has to be examined. */
+      { id: 'both', data: Object.assign({ name: 'Out, but a takedown is booked',
+        removalScheduled: true, removalScheduledDate: '2026-12-02' }, booked) }
+    ];
+    const h = mk(book);
+    pendingAsync.push(h.go().then(function(n){
+      const wStale = h.writes.find(x => x.id === 'stale');
+      check('S286', 'somebody out for the season stops saying they are booked',
+        n === 2 && !!wStale &&
+        wStale.payload.scheduled === false && wStale.payload.scheduledDate === null,
+        'wrote ' + JSON.stringify(h.writes) + ' — the row promised a crew that is not coming');
+      check('S286', 'and the crew sheet loses them in the same pass',
+        h.routeCalls.indexOf('stale') !== -1,
+        'clearing the flag while the stop survives is the same contradiction the other ' +
+        'way round: the sheet still has them and the screen says they are not booked');
+      check('S286', 'and the cache is corrected, so the row stops arguing with itself',
+        book[0].data.scheduled === false,
+        'the panel repaints from the cache as well as from the listener');
+      /* ⚠ THE THREE IT MUST LEAVE ALONE ARE THE POINT. A sweep that clears everything
+         is easy and wrong: it cancels a real booking, writes false over false on ~950
+         records, and cancels a takedown for a house that still has lights up. */
+      check('S286', 'somebody genuinely in the season keeps their day',
+        !h.writes.some(w => w.id === 'real') && !h.routeCalls.some(id => id === 'real'),
+        'they replied Yes and a crew is going — cancelling that is the worse mistake');
+      check('S286', 'and a record with nothing to clear is not written to at all',
+        !h.writes.some(w => w.id === 'quiet'),
+        'writing false over false on every out-of-season record is ~950 writes saying ' +
+        'nothing, and every one of them stamps updatedAt');
+      check('S286', 'a takedown or a fix is never cancelled by this',
+        !h.writes.some(w => w.id === 'takedown'),
+        'a takedown is work on lights that are already up — somebody sitting the season ' +
+        'out still needs theirs taking down');
+      /* ⚠ AND THE PAYLOAD IS READ, not just the absence of a write. The record above is
+         never written to at all, so it can only ever prove the FILTER; this one is
+         written to, and what matters is what the write contains. */
+      {
+        const w = h.writes.find(x => x.id === 'both');
+        check('S286', 'and a stale install on a house with a takedown clears only the install',
+          !!w && w.payload.scheduled === false &&
+          !('removalScheduled' in w.payload) && !('fixScheduled' in w.payload),
+          'wrote ' + JSON.stringify(w && w.payload) + ' — cancelling the takedown would ' +
+          'leave their lights up all winter');
+      }
+    }));
+
+    /* ⚠ AND AN UNLOADED BOOK MEANS NOTHING IS ASSUMED, the same guard the rebuild
+       itself carries: jobAddresses is empty for a moment after login. */
+    const empty = mk([]);
+    pendingAsync.push(empty.go().then(function(n){
+      check('S286', 'with the customer list not loaded it does nothing',
+        n === 0 && empty.writes.length === 0,
+        'an ungated version would read a slow login as "nobody is a customer"');
+    }));
+  }
+}
+
+suite('287. The routine route sweep does not bury the notice that matters');
+{
+  const NL287 = String.fromCharCode(10);
+  const WARN287 = String.fromCharCode(0x26a0);
+  /* ⚠ RUN THE CLASSIFIER, DO NOT MATCH IT. Every claim here is about which pile a
+     notice lands in and what a badge counts — a regex over the source proves the
+     words exist, which this file records as a weaker claim four separate times. */
+  const routineSrc = extractFn(admin, 'noticeIsRoutine');
+  check('S287', 'the rule is findable', !!routineSrc,
+    'written inline in the renderer it could only ever be checked as text');
+  if (routineSrc) {
+    /* ⚠ THE TOPIC CONSTANT IS LIFTED, NEVER RETYPED. Copied into the harness it
+       becomes a second place the topic string lives, and this suite would go on
+       passing after somebody renamed the notice in admin.html. */
+    const topicLine = (admin.match(/const ROUTINE_NOTICE_TOPIC = [^;]+;/) || [''])[0];
+    check('S287', 'the topic it keys on is lifted from the page', !!topicLine,
+      'retyped here, a rename in admin.html would leave this suite green and the folder flooded');
+    const isRoutine = new Function(topicLine + NL287 + routineSrc + NL287 + 'return noticeIsRoutine;')();
+    const sweep = (msg) => ({ folder: 'System', topic: 'Routes Kept Up To Date', message: msg });
+
+    check('S287', 'an ordinary sweep note is routine',
+      isRoutine(sweep('Route changes on Monday:' + NL287 + '25 houses moved to a different day.')) === true,
+      'this is the one that arrives on a beat and buries everything else');
+
+    /* ⚠ THE ONE THAT MUST STILL COME THROUGH. noticeRoutesReconciled marks every line
+       that wants a human with a leading warning sign and sorts those to the top — its
+       `urgent` filter IS this test — so a sweep that could not write a record, or that
+       caught itself looping all day, is not routine however ordinary the rest reads. */
+    check('S287', 'a sweep that failed to write records is NOT routine',
+      isRoutine(sweep('Route changes on Monday:' + NL287 + WARN287 +
+        ' 3 customer records would not update.')) === false,
+      'that is the sweep silently not doing what it said, and it is the whole reason to look');
+    check('S287', 'a sweep that caught itself looping is NOT routine',
+      isRoutine(sweep('Route changes:' + NL287 + WARN287 +
+        ' 4 of these repeated all day rather than happening once.')) === false,
+      'build-evict-rebuild for ever, which reads as an ordinary busy day without this');
+
+    /* ⚠ NOTHING ELSE IN THE FOLDER IS EVER FOLDED AWAY. A background check that
+       stopped, a customer number that needs fixing and a route sheet that is out of
+       date all live in this same folder and are the reason it is read at all. */
+    ['A Background Check Has Stopped', 'Customer Number Needs Fixing',
+     'A Route Sheet Is Out Of Date', 'Light Color Change'].forEach(function (t) {
+      check('S287', 'a "' + t + '" notice is never routine',
+        isRoutine({ folder: 'System', topic: t, message: 'anything at all' }) === false,
+        'folding one of these away is the bug this change exists to avoid, pointed the other way');
+    });
+
+    /* ⚠ AND A CUSTOMER MESSAGE IS NOT A SYSTEM NOTICE. The nav badge asks this rule
+       about every message in the book, so a rule that answered on topic alone would
+       silently drop a real customer message out of the count. */
+    check('S287', 'a customer message is never routine',
+      isRoutine({ folder: 'Inbox', topic: 'Routes Kept Up To Date', message: 'no warning here' }) === false &&
+      isRoutine({ message: 'hello' }) === false,
+      'the badge asks this about every message, not only the ones in the System folder');
+    check('S287', 'a missing record does not throw', isRoutine(null) === false && isRoutine(undefined) === false,
+      'it is called once per message on every render');
+  }
+
+  /* ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE RULE, because this repo has shipped
+     a correct rule nothing called at least three times — the recycle "bin says" box,
+     the house-tab strip and suite 286's own sweep. A perfect classifier that no badge
+     and no renderer consults changes nothing on screen. */
+  {
+    const navBadge = (admin.split('function renderMessagesList(){')[1] || '').split('function ')[0];
+    check('S287', 'the nav badge leaves the routine sweep out of its count',
+      /allMessages\.filter\([^)]*!noticeIsRoutine\(m\.data\)/.test(navBadge.replace(/\s+/g, ' ')),
+      'it read 91 while the list underneath it — which never shows System notes — held far fewer');
+
+    const sysTab = (admin.split('function renderSystemMessagesTab(){')[1] || '').split(NL287 + 'function ')[0];
+    check('S287', 'the System tab splits the two piles',
+      /noticeIsRoutine\(m\.data\)/.test(sysTab) && /const needsEye/.test(sysTab),
+      'one flat list is the flood');
+    check('S287', 'and its own badge counts only what needs an eye',
+      /needsEye\.filter\(function\(m\)\{ return !m\.data\.read; \}\)\.length/.test(sysTab),
+      'a number that can never reach nought is one nobody reads — HC-03, in a new place');
+    check('S287', 'the routine ones are still rendered, behind a toggle',
+      /routine\.map\(systemNoticeRow\)/.test(sysTab) && /sysRoutineToggle/.test(sysTab),
+      'they record days that moved under customers; hiding them for good is worse than the flood');
+    check('S287', 'and both piles are drawn by the SAME row builder',
+      /needsEye\.map\(systemNoticeRow\)/.test(sysTab),
+      'two renderers for one card is how the folded list quietly stops matching the one above it');
+    /* ⚠ THE HANDLERS HAVE TO REACH THE FOLDED ROWS. Mark-as-read and Send to Warehouse
+       are bound once per render over the whole list; bound only over the visible half,
+       a routine notice would render with dead buttons. */
+    check('S287', 'the row handlers are wired over the whole list',
+      /systemNoticeWireRows\(list\)/.test(sysTab),
+      'a Send to Warehouse button that does nothing is worse than one that is not there');
+    check('S287', 'nothing is deleted or marked read to achieve any of this',
+      !/deleteDoc/.test(sysTab) && !/\{read: true\}/.test(sysTab),
+      'these are the record of days that moved under customers who may already have been told');
   }
 }
 

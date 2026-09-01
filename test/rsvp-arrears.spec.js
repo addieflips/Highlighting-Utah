@@ -67,7 +67,7 @@ async function openRsvpYes(page, overrides) {
   });
   await page.goto(`/index.html#/payment?token=${CUST.token}&rsvp=yes`);
   /* Gate code is asked first (Addie's ordering), so every test here confirms
-     the code we already hold and lands on the changes question. */
+     the code we already hold and lands in the member portal. */
   await page.locator('#rsvpGateCodeYesBtn').click();
   stub.thrown = thrown;
   return stub;
@@ -80,26 +80,29 @@ test.describe('RSVP yes from somebody who owes for last season', () => {
      scheduled, which is the same lie with a footnote. */
   test('is never told we will get them scheduled', async ({ page }) => {
     const stub = await openRsvpYes(page, withArrears(200, 2025));
-    const msg = page.locator('#rsvpConfirmMsg');
+    const card = page.locator('#invBreakdown');
 
-    await expect(msg).not.toContainText(/get you scheduled/i);
-    await expect(msg).toContainText(/can't schedule your install/i);
+    await expect(card).toBeVisible();
+    await expect(card).not.toContainText(/get you scheduled/i);
+    /* ⚠ `can.t`, NOT `can't` — the page writes &rsquo;, so the rendered text
+       carries a CURLY apostrophe and a straight one matches nothing. */
+    await expect(card).toContainText(/can.t book your install/i);
 
     stub.assertNoRealCalls();
   });
 
   test('is told how much, and which season it is from', async ({ page }) => {
     const stub = await openRsvpYes(page, withArrears(200, 2025));
-    const msg = page.locator('#rsvpConfirmMsg');
+    const card = page.locator('#invBreakdown');
 
-    await expect(msg).toContainText('$200.00');
-    await expect(msg).toContainText('2025');
+    await expect(card).toContainText('$200.00');
+    await expect(card).toContainText('2025');
 
     stub.assertNoRealCalls();
   });
 
   /* ⚠ THEIR ANSWER IS STILL RECORDED. The debt must not cost them the yes —
-     portalRsvp writes it before this screen is drawn, and RS-24 holds them on
+     portalRsvp writes it before anything is drawn, and RS-24 holds them on
      the money, never on the answer. */
   test('their yes is still recorded', async ({ page }) => {
     const stub = await openRsvpYes(page, withArrears(200, 2025));
@@ -112,26 +115,22 @@ test.describe('RSVP yes from somebody who owes for last season', () => {
     stub.assertNoRealCalls();
   });
 
-  test('is offered the balance rather than a generic portal link', async ({ page }) => {
+  /* ⭐ REWRITTEN 2026-09-01. This used to assert a "Pay Last Season's Balance"
+     button on a confirmation card. Dax: the RSVP buttons "should also
+     automatically send the customer to their member portal", so that card is
+     gone and there is no button to press — they are ALREADY on the page that
+     button led to. The claim worth keeping is that the debt is put in front of
+     them rather than left behind a generic link, and the portal's own card is
+     a stronger version of it: the figure, what has been paid off it, and a way
+     to pay, instead of one sentence. */
+  test('lands in the portal with the balance in front of them', async ({ page }) => {
     const stub = await openRsvpYes(page, withArrears(200, 2025));
 
-    await expect(page.locator('#rsvpOpenPortalBtn')).toContainText(/pay last season/i);
-    await expect(page.locator('#rsvpNoChangesBtn')).toContainText(/later/i);
-
-    stub.assertNoRealCalls();
-  });
-
-  /* ⭐ THE SECOND SCREEN IS WHERE THE PROMISE ACTUALLY LIVED. Fixing only the
-     first message would leave "We'll get you scheduled!" as the LAST thing
-     they read, which is worse than not fixing it at all. */
-  test('and the follow-on screen does not put the promise back', async ({ page }) => {
-    const stub = await openRsvpYes(page, withArrears(200, 2025));
-    await page.locator('#rsvpNoChangesBtn').click();
-
-    const msg = page.locator('#rsvpConfirmMsg');
-    await expect(msg).not.toContainText(/get you scheduled/i);
-    await expect(msg).toContainText(/as soon as that balance is settled/i);
-    await expect(msg).toContainText(/your yes is saved/i);
+    /* The RSVP card is torn down, not merely covered. Left visible with its
+       body classes on, the portal renders inside a cut-down layout. */
+    await expect(page.locator('#rsvpConfirmCard')).toBeHidden();
+    await expect(page.locator('#invBreakdown')).toBeVisible();
+    await expect(page.locator('#invBreakdown')).toContainText(/still owing/i);
 
     stub.assertNoRealCalls();
   });
@@ -142,23 +141,21 @@ test.describe('RSVP yes from somebody who owes nothing', () => {
   /* ⚠ SILENCE IS THE FAIL-SAFE, and it is deliberately the opposite direction
      to the season hold. A customer wrongly told they owe money is worse than
      one not warned about a real debt, so anything the server cannot answer
-     comes back as nought and this wording is left exactly as it was. */
-  test('sees the original wording, with no mention of a balance', async ({ page }) => {
+     comes back as nought and the owing card is not drawn at all. */
+  /* ⚠ AN INVOICE WITH NO CARRIED LINE AT ALL DRAWS NO LAST-SEASON CARD, not a
+     card reading "settled" — the split-into-two-cards layout only appears once
+     there is something carried to split off. So the claim here is ABSENCE, and
+     asserting the settled wording instead fails on correct code: measured, the
+     plain card reads "Installation … Payments received … Balance due" and
+     nothing else. The settled wording is proved by the paid-off test below,
+     which is the case that really does carry a line. */
+  test('sees no mention of a balance', async ({ page }) => {
     const stub = await openRsvpYes(page);
-    const msg = page.locator('#rsvpConfirmMsg');
+    const card = page.locator('#invBreakdown');
 
-    await expect(msg).toContainText(/confirmed for this season/i);
-    await expect(msg).not.toContainText(/outstanding/i);
-    await expect(msg).not.toContainText(/can't schedule/i);
-
-    stub.assertNoRealCalls();
-  });
-
-  test('and is still promised a hanging, because they are getting one', async ({ page }) => {
-    const stub = await openRsvpYes(page);
-    await page.locator('#rsvpNoChangesBtn').click();
-
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/get you scheduled/i);
+    await expect(card).toBeVisible();
+    await expect(card).not.toContainText(/still owing/i);
+    await expect(card).not.toContainText(/can.t book your install/i);
 
     stub.assertNoRealCalls();
   });
@@ -172,22 +169,14 @@ test.describe('RSVP yes from somebody who owes nothing', () => {
     inv.deposit = (Number(inv.deposit) || 0) + 200;
 
     const stub = await openRsvpYes(page, paid);
-    await expect(page.locator('#rsvpConfirmMsg')).toContainText(/confirmed for this season/i);
-    await expect(page.locator('#rsvpConfirmMsg')).not.toContainText(/outstanding/i);
+    await expect(page.locator('#invBreakdown')).toContainText(/is settled/i);
+    await expect(page.locator('#invBreakdown')).not.toContainText(/still owing/i);
 
     stub.assertNoRealCalls();
   });
 });
 
-/* ---- THE SECOND DOOR INTO A YES -----------------------------------------
- *
- * Approving a quote as an existing member writes seasonYesUpdates on the server,
- * so RS-24 holds a debtor out of the season through this door exactly as it does
- * through the RSVP link. All three of the approval endings promised an install.
- *
- * ⚠ FIXING ONE DOOR AND NOT THE OTHER IS HALF A FIX — this repo's own phrase —
- * and it would leave two screens making opposite claims about one rule.
- */
+
 const { QUOTES } = require('./fixtures');
 
 /* A quote linked to the standard customer BY ID, which is the only join the real
@@ -211,6 +200,27 @@ async function approveByLink(page, overrides) {
     if (m.type() === 'error' && !BLOCKED_RESOURCE.test(m.text())) thrown.push('console: ' + m.text());
   });
   await page.goto('/index.html#/quote-details?token=quotetokenarrears001&action=approve');
+
+  /* ⚠ A MEMBER IS ASKED A QUESTION FIRST, AND THESE TESTS HAD NEVER SEEN IT
+     (2026-09-01). memberQuote sets existingCustomerId — correctly, it is the only
+     join quoteRespond accepts — and that is exactly what makes the quote a MEMBER'S.
+     handleQuoteLink's approve path tests res.alreadyMember BEFORE res.formCompleted
+     and RETURNS, so a real member never reaches the formCompleted ending these
+     assertions were written against. They landed there only because the stub did not
+     return alreadyMember at all, so every one of them took the new-lead path.
+
+     The wording under test is on the member ending too — the "No, keep everything the
+     same" branch calls the same quoteScheduleSub — so the coverage is unchanged in
+     substance. What changes is that it is now asserted on the screen the customer
+     actually reaches, one step later.
+
+     ⚠ AND THE STEP IS CONDITIONAL, not assumed: a quote that is NOT a member's still
+     ends on approve, and forcing a click that no button exists for would fail here
+     rather than where the difference is. */
+  const keepSame = page.locator('#page-quote-details')
+    .getByRole('button', { name: /keep everything the same/i });
+  if (await keepSame.count()) await keepSame.click();
+
   stub.thrown = thrown;
   return stub;
 }
@@ -222,7 +232,7 @@ test.describe('Approving a quote when last season is still owed', () => {
     const sub = page.locator('#quoteLinkConfirmSub');
 
     await expect(sub).toContainText(/before we can book the install/i, { timeout: 8000 });
-    await expect(sub).not.toContainText(/be in touch to get you scheduled/i);
+    await expect(sub).not.toContainText(/be in touch to get you (on the )?schedule/i);
 
     stub.assertNoRealCalls();
   });
@@ -256,7 +266,12 @@ test.describe('Approving a quote when last season is still owed', () => {
     const stub = await approveByLink(page, memberQuote());
     const sub = page.locator('#quoteLinkConfirmSub');
 
-    await expect(sub).toContainText(/be in touch to get you scheduled/i, { timeout: 8000 });
+    /* ⚠ EITHER ENDING'S WORDING. The member branch says "get you ON THE schedule"
+       and the formCompleted branch says "get you scheduled" — same promise, two
+       phrasings. Pinning one made this fail on the other perfectly correct screen,
+       which is the slow-fuse shape this repo keeps hitting. The claim under test is
+       that somebody who owes nothing is still PROMISED an install. */
+    await expect(sub).toContainText(/be in touch to get you (on the )?schedule/i, { timeout: 8000 });
     await expect(sub).not.toContainText(/outstanding/i);
 
     stub.assertNoRealCalls();

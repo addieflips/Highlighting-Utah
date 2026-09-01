@@ -53,9 +53,37 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
    | Button | Link | Answer saved | What the customer sees |
    |---|---|---|---|
-   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | "You're confirmed for this season!" then two buttons — *Yes, Take Me to My Portal* / *No, I'm All Set* |
-   | **No** | `#/payment?token=…&rsvp=no` | `no` | recorded, then **straight into the member portal** on the Cancel tab (RS-31) |
-   | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | a **pop-up card** — "We look forward to seeing you next year!" (RS-32) |
+   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | The gate-code step, then **their member portal opens by itself** — no confirmation screen, no button to press (RS-33) |
+   | **No** | `#/payment?token=…&rsvp=no` | `no` | recorded, then **straight into the member portal** on the Cancel tab (RS-33) |
+   | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | a **pop-up card** — "We look forward to seeing you next year!" (RS-34) |
+
+   ⭐ **A YES ENDS IN THE PORTAL, NOT ON A QUESTION** (changed 2026-09-01, RS-33). Dax: the RSVP buttons
+   *"dont do anythng we need but it needs to change the customers badge and it should also automatically
+   send the customer to their member portal."* The badge half was already working and was checked before
+   anything was built — all three buttons call `portalRsvp`, `seasonBadgeKey` derives the badge from
+   `rsvpStatus`, and two live customers read *RSVP: Yes — CONFIRMED*. What changed is the routing:
+   `showChangesQuestion` ("You're confirmed! Do you want to make any changes?", with the portal behind a
+   button) is replaced by `openPortalAfterYes`, which tears the card down and calls `loadPortalByToken`.
+
+   - ⚠ **The gate-code step stays, and is now the only thing in between.** Dax: *"gate codes change so
+     make sure it asks if theres a gate code."* That is RS-29 reaffirmed, not reversed.
+   - ⚠ **Yes only.** No still gets its message before the Cancel tab — Addie's 2026-08-19 ruling, *"put a
+     message in front of it first so they know why they've landed there"* — and Back Next Year is untouched.
+   - ⚠ **The debt sentence moved rather than being dropped.** The removed screen told a debtor we could not
+     book them; that line is now on the portal's own *"<year> season — still owing"* card, where it is true
+     whenever they open the page instead of only just after an RSVP.
+   - ⚠ **The second answer used to be invisible, and that hid a dead end** (fixed
+     2026-09-01, RS-34). `.btn-outline` is the DARK hero's button — white text on a
+     35%-white border — so on these light cards it rendered white-on-white. On a
+     customer who already has a gate code the answers are *Yes, that's right* and
+     ***It has changed***, and that second one is the only route to the entry box, so
+     while it could not be seen a changed gate code could not be reported at all. The
+     No path's *That's all, thanks* was the same. The three cards now override the
+     class by id; `test/rsvp-gate-code.spec.js` measures the real computed contrast,
+     because jsdom applies no stylesheet and cannot see a colour.
+   - ⚠ **And minimal mode ends there by design.** `openPortalAfterYes` removes `rsvp-minimal`/`rsvp-back`,
+     exactly as the old *Take Me to My Portal* button did — a receipt is right for a card, wrong for an
+     account page. The no and back-next-year paths still end on the receipt.
 
    All three are a **receipt, not the website**: the header, footer and hero come off, and nothing else is reachable from the page. That is `body.rsvp-minimal`, which force-shows `#page-payment` (holding `#rsvpConfirmCard`) for the first two, plus the modifier `body.rsvp-minimal.rsvp-back`, which force-shows `#page-home` (holding `#backNextYearConfirm`) for the third.
 
@@ -64,11 +92,11 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    - ⚠ **Back Next Year was leaking too**, and it was only invisible because the right message happened to be on top: that route left `#page-payment` open underneath, so the **sign-in form sat below the goodbye**.
    - ⚠ **The specs asserted what the right card said, and never that no other card was on screen.** That is the gap; `test/rsvp-link.spec.js` now checks each route shows exactly one card and leaves no visible *"One moment"* anywhere. Four sabotages red-checked, including the original bug put back verbatim.
 
-   ⭐ **A NO GOES STRAIGHT INTO THE PORTAL** (RS-31, 2026-09-01). Addie: *"can no go straight to member portal but will track it even if they don't get to member portal."* ⚠ **This reverses her 2026-08-19 ruling** (*"put a message in front of it first so they know why they've landed there"*), which is kept as the argument against and lived only in a code comment — never a map row, which is the gap R-023 exists to close.
+   ⭐ **A NO GOES STRAIGHT INTO THE PORTAL** (RS-33, 2026-09-01). Addie: *"can no go straight to member portal but will track it even if they don't get to member portal."* ⚠ **This reverses her 2026-08-19 ruling** (*"put a message in front of it first so they know why they've landed there"*), which is kept as the argument against and lived only in a code comment — never a map row, which is the gap R-023 exists to close.
    - ⚠ **The tracking half is not new and must not be broken.** `portalRsvp` runs **before** any navigation, so closing the tab, a portal that will not load, or a dead network cannot cost the answer. The **order** is the whole guarantee, and it is asserted as an order — `portalRsvp` must be the first call — not as "both happened".
    - ⚠ **It fails back, never blank.** If the portal cannot be opened they get the old confirmation and the offer to say why, which is exactly the flow this replaced.
 
-   ⭐ **AND BACK NEXT YEAR IS A POP-UP, NOT A LOADING SCREEN** (RS-32). Addie: *"it looks like a loading page so if they don't read it they might be a little confused."* A tree over one centred line on the page background is what a spinner looks like. It is a white card on a dimmed backdrop now, with a heading saying the answer was recorded — ⚠ **and that heading waits for the write**, because "that's recorded" is a claim: shown early it promises what we do not yet know, shown after a failure it contradicts the error beneath it.
+   ⭐ **AND BACK NEXT YEAR IS A POP-UP, NOT A LOADING SCREEN** (RS-34). Addie: *"it looks like a loading page so if they don't read it they might be a little confused."* A tree over one centred line on the page background is what a spinner looks like. It is a white card on a dimmed backdrop now, with a heading saying the answer was recorded — ⚠ **and that heading waits for the write**, because "that's recorded" is a claim: shown early it promises what we do not yet know, shown after a failure it contradicts the error beneath it.
 
    ⚠ **AND THE BUTTONS ON THESE CARDS WERE WHITE ON WHITE** (fixed 2026-09-01). Addie: *"on computer the do you have gate code comes up far left and it doesn't give you an option you can only choose yes I have one."* `.btn-outline` is `color:#fff` with a translucent white border, built for the dark hero at the top of the site; on the white cards these screens are made of it renders as **nothing at all** — present, sized, laid out, clickable, invisible. It was never one button: the same class sat on *No, I'm All Set*, on both colour-pattern **Clear** buttons, and on **Pay with Venmo** inside the payment dropdown, so the fallback Addie asked to keep as a last resort could not be seen. `.btn-outline-dark` already existed for exactly this.
    - ⚠ **No existing check could have caught it.** Every spec asks whether an element is *visible*, and Playwright's answer is about layout — a white-on-white button is `visible: true`, has a bounding box and takes a click. Colour was the one thing nothing looked at. `test/button-contrast.spec.js` now compares each button's text colour against what is actually painted behind it.
@@ -79,7 +107,7 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    ⭐ **THE GATE CODE IS ASKED ON THE WAY PAST A YES** (added 2026-08-31). Addie: *"Lets do gate code before changes."* After the yes is recorded and before *"do you want to make any changes?"*, the customer is asked about their gate code — the RSVP is the one email everybody opens and acts on, so it is the cheapest chance each season to catch a wrong code before a crew is standing at a locked gate.
    - **It confirms when we hold one, and asks when we do not.** A code on file is quoted back (*"We have 4417 as your gate code. Is that still right?"*); confirming writes nothing, so `gateCodeUpdatedAt` marks a real change rather than every RSVP.
    - ⚠ **Only on a yes.** Somebody sitting the season out is never asked — no crew is coming, so it is a question with nothing behind it.
-   - ⚠ **It fails open, every way out.** Missing markup, a refused save, a thrown call: all of them move on to the changes question. The RSVP answer is already recorded by then, so nothing here can cost them their reply, and the same field is reachable any time under My Info.
+   - ⚠ **It fails open, every way out.** Missing markup, a refused save, a thrown call: all of them move on to the portal (the changes question until 2026-09-01 — see RS-33). The RSVP answer is already recorded by then, so nothing here can cost them their reply, and the same field is reachable any time under My Info.
    - ⚠ **It is NOT `portalSave`, and that is the trap.** `gateCode` is in `portalSave`'s `info` whitelist, so reusing it looks clean — but that section ends `updates.seasonStatus = 'needs_changes'`, the **re-quote state**, resolved by answering a quote. No quote exists here, so every customer who typed a gate code would sit in Needs Changes for ever. `portalSetGateCode` writes one field and nothing else.
    - ⚠ **The browser specs cannot see the server half.** `test/rsvp-gate-code.spec.js` drives the page against a fake Firebase; `gate-code.test.js` holds `functions/index.js`. A red-check proved the split was needed — breaking the real server's return left all ten browser specs green.
 
@@ -109,6 +137,39 @@ A, B, C… and the footage is the distance between them on that one overhead
 picture. Street View is for the customer's photograph and for reading a roof's
 grade — it does not place a dot and never draws the sky view's.
 
+⭐ **AND YOU CAN FILTER BY IT** (2026-09-01). All Customers → Filters has a
+**Season Badge** row — Any / Confirmed / Pending / Maybe Next Year — next to
+Route Status, because Confirmed *is* the route answer now. The badge is worked
+out once per row and the filter and the pill read that same answer, so a filtered
+list can never disagree with the badges in it.
+
+⭐ **AND A RECORD STOPS CLAIMING A DAY IT NO LONGER HAS** (2026-09-01). A row was
+showing *"Scheduled — Hang Tue, Oct 20"* and *"Not scheduled — no RSVP yet"* one
+above the other. The booking fields are stamped when somebody is put on a crew's
+sheet and cleared when they are taken off it — but a customer who simply stops
+being in the season is never taken off anything, so the stamp outlives the
+booking. **Recalculate everything** now clears them and takes the customer off
+any upcoming route in the same pass.
+
+⚠ **Install flags only.** A takedown or a fix is work on lights that are already
+up, and somebody sitting the season out still needs theirs taking down. ⚠ And
+only where there is something to clear — writing false over false on ~950 records
+says nothing and stamps `updatedAt` on every one.
+
+⭐ **AND A PLAN ROW THAT IS NOT A CUSTOMER COMES OFF THE SEASON** (2026-09-01).
+Measured on the real plan: one customer badged Confirmed, sixteen houses on the
+schedule — and the sixteen were rows left over from an imported schedule file,
+matching nothing in a book of 956. `customerForHouse` answered null, the *no
+record, no opinion* guard kept them, and no Recalculate could shift them. The
+season rule was working perfectly; those rows never reached it.
+
+⚠ It is **gated on the customer book having loaded**, which is the half of that
+old guard that still holds: `jobAddresses` is empty for a moment after login and
+empty again if the listener fails, and an ungated version would wipe the whole
+season on a slow morning. ⚠ They are reported separately from the people who
+left the season — "somebody said back next year" and "this row is not a person"
+need different things from the office.
+
 ⭐ **THE CONFIRMED BADGE IS THE GATE** (2026-08-31). Addie: *"it should look for
 anyone who is confirmed and put them in schedule … make sure they cant have the
 confirmed tag if they are breaking a rule so if you break one of the rules they
@@ -123,15 +184,20 @@ that customer. Pending is derived and never stored, so paying the bill moves the
 badge on its own the next time the row is drawn. ⚠ Maybe Next Year stays its own
 answer rather than folding into Pending — that one the office sets by hand.
 
-⚠ **And an unanswered RSVP stopped deciding who is scheduled.** Measured on the
-real book before anything was changed: of 956 customers, **951** were being held
-out with *no RSVP yet*, 2 for owing from 2025, 1 back next year, and exactly one
-was scheduled. The rule had emptied the season. ⚠ It was live because **a test
-send stamps `rsvpSentAt`** just as a real one does, and that marker is what arms
-it — the gate did what it was built to do and could not know nobody had really
-been asked. `SEASON_ELIGIBILITY` is `all-but-maybe-next-year` for the testing
-weeks; her 2026-08-27 hardcoding is about the season after the RSVP has genuinely
-gone out, and turning it back on is that one line.
+⚠ **And an unanswered RSVP decides again — Pending is what carries it.** For a few
+hours it did not: the rule was turned off, which made the badge honest by scheduling
+everybody. Addie, looking at the result: *"anyone who is confirmed is scheduled but
+if one person is confirmed there should be one person on the schedule."* The
+complaint was never "schedule everybody" — it was that a row said Confirmed while
+every scheduler had dropped that customer. With the badge able to say **Pending**,
+the rule can stay on and the badge still tells the truth: today one customer has
+actually replied Yes, so **one** is Confirmed and **one** is scheduled, and the ~951
+who have not replied read *Pending — no RSVP yet*.
+
+⚠ Worth knowing, because it caused the confusion: **a test send stamps `rsvpSentAt`**
+exactly as a real one does, and that marker is what arms the rule. Measured before
+any of this: 956 customers, 951 held out for no RSVP, 2 for owing from 2025, 1 back
+next year, 1 scheduled.
 
 ⭐ **ALL CUSTOMERS TAGS WHO STILL OWES FOR AN EARLIER SEASON** (2026-08-31).
 Owner: *"we need a seperate tag for people who havent paid for 2025 can you just
@@ -648,6 +714,20 @@ invoice, and already reaches the customer's portal.
   - **A note written before the field existed reads its year out of its own sentence** ("Unpaid balance carried from the 2025 season"), rather than showing blank on an invoice nobody has touched since.
   - **It shows in four places**, all from `arrearsYearOnInvoice` / `houseArrearsYear` so they cannot name different years: the reason a customer is held out of the season, the Unpaid badge on their row, the invoice status cell, and the held-customers list.
 
+**After they pay last season**, the invoice is re-read and the chooser rebuilds from it:
+the last-season option disappears and the payable figure becomes what is left of this
+year. ⚠ `portalPayableNow` falls back to the whole balance when the carried amount is
+gone — the scope is still `arrears` at that moment, so a naive read returns 0 and shows
+the customer nothing to pay. A part payment leaves the option up for the remainder
+(MON-52).
+
+⚠ **Changing the amount takes the PayPal buttons down and puts them back** — because the
+card button creates its order when the inline form OPENS, not when it is submitted. Once
+that form is up it is bound to the amount chosen before it, and nothing in the browser can
+revise an order PayPal has already created. Every control that changes what will be
+charged (the choice, the tip buttons, a typed tip on leaving the box) calls
+`resetPaypalButtons` (MON-50).
+
 **Paying it: one season at a time.** While last season's carried balance is outstanding,
 the portal's payment button charges **exactly that** and says so in words — the season it
 is for, that it is *not* a second charge for this year, and what this year's amount will
@@ -661,6 +741,14 @@ card is actually charged.
 season*. It writes the same kind of carried line, so it holds them out of the season too.
 The Fees box cannot do this — a manual fee raises the bill and does not hold anybody
 (MON-36).
+
+⚠ **The backfill button is NOT a pending task** (MON-51, 2026-09-01). Addie: *"I'm not
+going to do carry cause we did not have this website last year there is nothing to
+carry."* The book only started on this site, so no invoice carried a 2025 balance for the
+snapshot to hold. **Nothing is carried today** — the hold releases everybody, Owes from
+last year is empty, and the two-button payment choice never appears. It all begins working
+by itself at the END of this season, when Start New Season carries anyone who has not paid
+for 2026. Do not chase her to press the button.
 
 ⚠ **The 2026 season was reset before this shipped**, so those balances were written off
 and survive only in the snapshot. **Invoices → Start New Season → Carry last season's
@@ -868,6 +956,45 @@ opens with what a repeat usually means: a customer whose town field holds a **st
 invents a town that does not exist and every house on it is evicted each pass, and a record
 that disagrees with the route it sits on does the same. Both are named by Health Check and
 fixable from a customer record in a minute.
+
+### The digest still shares a folder with the notices that matter
+
+Dax, 2026-09-01: *"these almost spam messages flood the system messages making it so we
+cant see messages we actually need to do something with, make it so we dont see these
+spam ones but we still see important messages that we need to see."*
+
+⚠ **This is not the 2026-08-30 complaint again, and the digest above is not the fix for
+it.** That one was about VOLUME and it worked — ninety-six notices a day became one. This
+is about the folder that one note lands in. `renderSystemMessagesTab` drew every System
+notice in one flat list, so the daily route digest sat in the same column as *A Background
+Check Has Stopped*, *Customer Number Needs Fixing* and *A Route Sheet Is Out Of Date* — and
+being the longest thing there, it is what the eye lands on.
+
+**What decides.** `noticeIsRoutine(d)` — a System notice, topic *Routes Kept Up To Date*,
+and **no `⚠` anywhere in its body**. The mark is not a new convention: `routeDigestFlush`
+already partitions on exactly it (`urgent`), so a digest that could not write a record, or
+that caught a line looping all day, carries one and is **not** routine. One signal, read the
+same way by the thing that writes the note and the thing that files it.
+
+**What it changes.** Routine digests fold behind a single *Routine route updates (N)* row in
+the System tab, one click from being read, and are left out of **both** unread badges.
+Everything else in the folder is untouched and draws exactly as before.
+
+⚠ **The nav badge was counting messages its own list has never shown.**
+`renderMessagesList` has always filtered System notices *out* of the customer list
+(`folder !== 'System'`) while the badge beside it counted `allMessages` unread — System
+notices included. That is why it read 91 over a list holding a fraction of that, and why a
+real customer message arriving moved it by one and nobody could tell.
+
+⚠ **Nothing is deleted and nothing is marked read.** These notes record days that moved
+under customers who may already have been told a date — the closing line of every digest
+says so. Folding is a view, not a write.
+
+⚠ **Both piles are drawn by one `systemNoticeRow`, and the handlers are bound over the
+whole list.** Two renderers for one card is how the folded half quietly stops matching the
+half above it; handlers bound over the visible half only would give a routine notice a dead
+*Send to Warehouse* button. Suite 287 asserts both, and RUNS the classifier rather than
+matching its source — four sabotages red-checked.
 
 ⚠ **Twice is not a loop.** Two sweeps can honestly find the same thing. Three is where it
 stops being a coincidence, and a threshold that fired at two would put a warning on

@@ -259,7 +259,14 @@ const QUOTES = {
       estimatedFeet: 160,
       quotedPrice: 640,
       quoteToken: 'quotetoken0000000002',
-      approvalStatus: 'pending'
+      approvalStatus: 'pending',
+      /* ⚠ WHAT MAKES THIS A MEMBER'S RE-QUOTE. quoteRespond decides alreadyMember
+         from an EXPLICIT link — existingCustomerId on a record that still exists, or
+         convertedToCustomerAt — never from a phone match, because 17 numbers in the
+         real book are shared and 14 of those are two different households. Without
+         this the fixture is just another new lead and the member branch is untested. */
+      existingCustomerId: 'cust-standard-1',
+      isRequote: true
     }
   },
 

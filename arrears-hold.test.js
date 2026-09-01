@@ -300,6 +300,7 @@ function seasonResetWrite() {
     'return { houseOwesFromLastSeason, houseArrearsOutstanding, arrearsYearOnInvoice, houseArrearsYear,' +
     ' tag: houseArrearsTag, badge: seasonBadgeKey, out: isOutForSeason,' +
     ' forceRule(on){ seasonRuleForcedOn = !!on; },' +
+    ' forceOff(on){ seasonRuleOffForMeasurement = !!on; },' +
     ' isOutForSeason, owesFromLastYearHouses, seasonHold, seasonHoldReason,' +
     ' setInvoices(m){ invoiceById = m; }, setBook(b){ jobAddresses = b; },' +
     ' dropInvoices(){ invoiceById = null; } };'
@@ -912,6 +913,203 @@ function seasonResetWrite() {
     'the money HAS been taken — showing four more ways to pay would be worse');
 
   /* ---------------------------------------------------------------------
+     4g. Switching what you are paying for, after the card form is open.
+         Addie: "if I push on 2025 payment than do credit/debit dropdown but
+         than decide to switch to full payment it does not automatically
+         changed to full payment. It still shows 2025 payment."
+     --------------------------------------------------------------------- */
+  {
+    /* ⚠ RUN, NOT MATCHED. The whole failure was an assumption about the SDK's
+       lifecycle that read perfectly as source — there was even a comment stating it.
+       What must be true is that the open form is TAKEN DOWN, so the teardown is
+       executed against a fake SDK that records what happened to it. */
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<div id="paypal-button-container">old</div>' +
+                          '<div id="paypal-card-button-container">open card form</div>');
+    const closed = [];
+    let rendered = 0;
+    const resetSrc = (function () {
+      const at = site.indexOf('function resetPaypalButtons(){');
+      return at === -1 ? '' : site.slice(at, site.indexOf('\n}', at) + 2);
+    })();
+    check('the teardown was lifted whole', liftOk(resetSrc));
+
+    const api2 = new Function('document', resetSrc + `
+      return {
+        run: resetPaypalButtons,
+        arm: function(list){ paypalButtonsRendered = true; paypalButtonInstances = list; },
+        state: function(){ return {rendered: paypalButtonsRendered, n: paypalButtonInstances.length}; }
+      };
+      function renderPaypalButtons(){ rendered++; }
+      var paypalButtonsRendered = false;
+      var paypalButtonInstances = [];
+    `.replace('rendered++', 'globalThis.__rendered++'))(dom.window.document);
+
+    globalThis.__rendered = 0;
+    api2.arm([
+      { close: function(){ closed.push('card'); return Promise.resolve(); } },
+      { close: function(){ closed.push('paypal'); return Promise.resolve(); } }
+    ]);
+    api2.run();
+    check('switching the amount closes the open card form',
+      closed.indexOf('card') !== -1 && closed.indexOf('paypal') !== -1,
+      'nothing in the browser can revise an order PayPal has already created — the ' +
+      'form has to go; got ' + JSON.stringify(closed));
+    check('and both containers are emptied',
+      dom.window.document.getElementById('paypal-card-button-container').innerHTML === '' &&
+      dom.window.document.getElementById('paypal-button-container').innerHTML === '',
+      'close() is the tidy way; clearing the container is what guarantees it');
+    check('and the buttons are built again for the new amount',
+      globalThis.__rendered === 1,
+      'taking them down without putting them back leaves no way to pay at all');
+    check('the tracked instances are forgotten, so a second switch cannot close them twice',
+      api2.state().n === 0);
+
+    /* ⚠ A close() THAT THROWS MUST NOT STOP THE TEARDOWN. The SDK rejects when a button
+       is already gone, and an unhandled rejection there would leave the containers half
+       cleared — a dead card form on screen with no way to pay. */
+    globalThis.__rendered = 0;
+    dom.window.document.getElementById('paypal-card-button-container').innerHTML = 'still here';
+    api2.arm([
+      { close: function(){ throw new Error('already closed'); } },
+      { close: function(){ closed.push('second'); return Promise.resolve(); } }
+    ]);
+    let threw = false;
+    try { api2.run(); } catch (e) { threw = true; }
+    check('a close() that throws does not abandon the teardown',
+      !threw && closed.indexOf('second') !== -1 &&
+      dom.window.document.getElementById('paypal-card-button-container').innerHTML === '',
+      'a half-cleared panel is a dead card form with no way to pay');
+
+    /* ⚠ AND IT DOES NOTHING WHEN THERE IS NOTHING UP, or opening the invoice page would
+       render the buttons and immediately tear them down again. */
+    globalThis.__rendered = 0;
+    api2.run();
+    check('it is a no-op when no buttons are rendered', globalThis.__rendered === 0);
+  }
+
+  /* ⭐ AND WHAT THE CUSTOMER SEES AFTER THEY PAY LAST SEASON. Addie: "how much the full
+     amount should show as after they pay 2025... And 2025 unpaid payment should
+     disapear." RUN through the real renderer, because both claims are about what is on
+     the screen and neither can be read off the source. */
+  {
+    const { JSDOM } = require('jsdom');
+    const pd = new JSDOM('<div id="invPayChoice" style="display:none">' +
+      '<button class="pay-choice" data-scope="arrears"><span id="payChoiceArrearsTitle"></span>' +
+      '<span id="payChoiceArrearsAmt"></span><span id="payChoiceArrearsWhy"></span></button>' +
+      '<button class="pay-choice" data-scope="all"><span id="payChoiceAllAmt"></span>' +
+      '<span id="payChoiceAllWhy"></span></button></div>');
+    const liftSite = function (name) {
+      const at = site.indexOf('function ' + name + '(');
+      return at === -1 ? '' : site.slice(at, site.indexOf('\n}', at) + 2);
+    };
+    const pay = new Function('document', [
+      'var portalPayScope="arrears", portalArrearsLeft=0, portalTotalDue=0;',
+      'function centsOf(n){return Math.round(((Number(n)||0)+Number.EPSILON)*100);}',
+      'function fmt(n){return "$"+(Number(n)||0).toFixed(2);}',
+      liftSite('portalPayableNow'), liftSite('renderPayChoice'), liftSite('paintPayChoice'),
+      'return {render: renderPayChoice, payable: portalPayableNow};'
+    ].join('\n'))(pd.window.document);
+    const doc = pd.window.document;
+    const shown = () => doc.getElementById('invPayChoice').style.display !== 'none';
+
+    pay.render({ record: { arrearsOutstanding: 400, arrearsSeason: '2025' } }, 850);
+    check('while they owe 2025, both amounts are offered',
+      shown() && doc.getElementById('payChoiceArrearsAmt').textContent === '$400.00' &&
+      doc.getElementById('payChoiceAllAmt').textContent === '$850.00',
+      'got ' + doc.getElementById('payChoiceArrearsAmt').textContent + ' / ' +
+      doc.getElementById('payChoiceAllAmt').textContent);
+
+    /* Her two asks, in one state: the invoice re-read after paying the $400. */
+    pay.render({ record: { arrearsOutstanding: 0, arrearsSeason: '2025' } }, 450);
+    check('once 2025 is paid the 2025 option disappears',
+      !shown(),
+      'a button offering to charge them again for a season they have just settled');
+    check('and what is payable becomes the rest of this year, not nothing',
+      pay.payable() === 450,
+      'the scope is still "arrears" at that moment, so this is where a naive read ' +
+      'returns 0 and the customer is shown nothing to pay; got ' + pay.payable());
+
+    /* ⚠ A PART payment of the DEBT must leave the option up for the remainder — this is
+       the case that separates "hide it when they paid" from "hide it when it is gone". */
+    pay.render({ record: { arrearsOutstanding: 250, arrearsSeason: '2025' } }, 700);
+    check('a part payment of 2025 leaves the remainder offered',
+      shown() && doc.getElementById('payChoiceArrearsAmt').textContent === '$250.00' &&
+      doc.getElementById('payChoiceAllAmt').textContent === '$700.00',
+      'got ' + doc.getElementById('payChoiceArrearsAmt').textContent + ' / ' +
+      doc.getElementById('payChoiceAllAmt').textContent);
+  }
+
+  /* ⭐ AND IF PAYPAL KEEPS ITS WINDOW OPEN ANYWAY. The teardown is meant to close it, but
+     a window that survives still holds an order for the OLD amount, and completing it
+     would charge that while this page shows the new figure. */
+  check('the page knows when a payment window is actually open',
+    /onClick: function\(\)\{ paypalFlowOpen = true; \}/.test(site) &&
+    /onCancel: function\(\)\{\s*paypalFlowOpen = false;/.test(site),
+    'without this it cannot tell a switch made before the window opened from one made ' +
+    'after, and only the second is dangerous');
+  check('backing out of a payment rebuilds the buttons for the current choice',
+    /onCancel: function\(\)\{[\s\S]{0,400}resetPaypalButtons\(\);/.test(site),
+    'otherwise the next press is still priced from the abandoned attempt');
+  check('an error and a completed payment both clear it too',
+    /onError: function\(\)\{\s*paypalFlowOpen = false;/.test(site) &&
+    /onApprove: function\(data\)\{\s*paypalFlowOpen = false;/.test(site),
+    'a flag that only ever goes true would warn on every switch for the rest of the visit');
+  /* ⚠ READ BEFORE THE TEARDOWN, which is what clears the flag. Written the other way
+     round it is always false and the warning can never appear. */
+  const switchBlock = site.slice(site.indexOf('var hadWindowOpen = paypalFlowOpen;'),
+                                 site.indexOf('var hadWindowOpen = paypalFlowOpen;') + 900);
+  /* ⚠ THE ORDER IS THE WHOLE CHECK. resetPaypalButtons is what clears the flag, so a
+     read placed after it is always false and the warning could never appear — the same
+     shape of fault as reading a snapshot after the write that wipes it. */
+  const choiceBlock = site.slice(site.indexOf("closest('#invPayChoice .pay-choice')"),
+                                 site.indexOf('/* Which payment methods the portal offers'));
+  check('the flag is read BEFORE the teardown clears it',
+    choiceBlock.indexOf('var hadWindowOpen = paypalFlowOpen;') !== -1 &&
+    choiceBlock.indexOf('var hadWindowOpen = paypalFlowOpen;') <
+      choiceBlock.indexOf('resetPaypalButtons();'),
+    'read afterwards it is always false and the warning could never appear');
+  check('and it says the amount they would now be paying',
+    /portalPayableNow\(\)/.test(switchBlock) && /has been closed/.test(switchBlock),
+    'money going one way while the screen says another is worth interrupting somebody over');
+  check('the warning clears itself when no window was open',
+    /swEl\.style\.display = 'none';/.test(switchBlock),
+    'a warning left standing from an earlier switch is one nobody reads');
+  check('and there is an element for it to write into',
+    /id="paypalSwitchMsg"/.test(site),
+    'a filler with no element is a silent no-op');
+
+  /* Every control that changes what will be charged has to trigger it — fixing only
+     the one Addie hit would leave the identical bug behind the tip buttons. */
+  const choiceHandler = site.slice(site.indexOf("closest('#invPayChoice .pay-choice')"),
+                                   site.indexOf("closest('#invPayChoice .pay-choice')") + 1800);
+  check('changing what you are paying for takes the buttons down',
+    /resetPaypalButtons\(\)/.test(choiceHandler),
+    'this is the bug she reported');
+  /* ⚠ THE END ANCHOR IS THE LISTENER, NOT THE ELEMENT. `customTipInput` also appears
+     INSIDE the tip button handler (it writes the figure into that box), so slicing to
+     the element's first mention cut the block off before the line under test and failed
+     a check about correct code. */
+  const tipBtns = site.slice(site.indexOf("document.querySelectorAll('.tip-option-btn')"),
+                             site.indexOf("getElementById('customTipInput').addEventListener('input'"));
+  check('and so does picking a tip',
+    /resetPaypalButtons\(\)/.test(tipBtns),
+    'a tip picked after the card form is open would be left out of an order that ' +
+    'already exists — fixing only the choice would be half a fix');
+  const tipInput = site.slice(site.indexOf("getElementById('customTipInput').addEventListener('input'"),
+                              site.indexOf("function parseLightsDescription"));
+  check('a typed tip re-renders when the box is left, not on every keystroke',
+    /addEventListener\('change', function\(\)\{\s*resetPaypalButtons\(\);/.test(tipInput) &&
+    !/'input', function\(\)\{[\s\S]{0,200}resetPaypalButtons/.test(tipInput),
+    'tearing the buttons down on each keystroke would close a card form somebody is ' +
+    'in the middle of filling in');
+  check('and the rendered buttons are tracked so there is something to close',
+    /paypalButtonInstances\.push\(cardBtn\)/.test(site) &&
+    /paypalButtonInstances\.push\(ppBtn\)/.test(site),
+    'without the references the teardown can only clear the container and the SDK is ' +
+    'left holding a form it thinks is live');
+
+  /* ---------------------------------------------------------------------
      5. The ledger has to survive the two invoice rebuilds, or the debt
         disappears again on the next ordinary save. The whole design rests
         on this, and neither rebuild is in a place a run can reach cheaply.
@@ -1353,15 +1551,38 @@ function seasonResetWrite() {
     'how two screens start making different claims about one rule');
 
   /* ⚠ AND THE PAGE MUST NOT WORK IT OUT FOR ITSELF, the same rule the payment
-     card already follows. index.html repeats the server's figure and never sums
-     the fee ledger. */
+     card already follows: index.html repeats the server's OUTSTANDING figure and
+     never sums the fee ledger to get it.
+
+     ⭐ REPOINTED 2026-09-01 (RS-31). This used to read `showChangesQuestion`, the
+     RSVP confirmation screen. A yes now goes straight into the portal, so that
+     function is gone and the check was matching an empty string — failing on
+     correct code, which is the slow-fuse shape CLAUDE.md §7 records for S82, S129
+     and the folder-names suite: pinned to WHERE a rule happened to live rather
+     than to what must be true.
+
+     The rule is unchanged and is asserted on the screen that shows the figure now,
+     `renderInvoiceBreakdown`.
+
+     ⚠ IT IS NOT "the function never mentions the ledger", which was the shape of
+     the old check and is WRONG here — this one reads `changeFeeNotes` on purpose,
+     to LIST each fee as its own line, and `arrearsOnInvoice` to say what was
+     carried BEFORE anything was paid. Both are legitimate. The one figure that
+     must never be re-derived in the browser is what is STILL OWED, so that is what
+     is pinned: `lastSeasonLeft` comes from `record.arrearsOutstanding`, which
+     portalInvoice computes, and from nothing else. A version that summed the
+     ledger for it would put a second copy of the arrears rule in the page. */
   const idx = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const changesAt = idx.indexOf('function showChangesQuestion(');
-  const changesSrc = changesAt === -1 ? ''
-    : stripComments(idx.slice(changesAt, idx.indexOf('\n  }', changesAt) + 4));
-  check('the confirmation repeats the server\u2019s figure, never its own',
-    !!changesSrc && /rsvpArrearsLeft/.test(changesSrc) && !/changeFeeNotes/.test(changesSrc),
-    'got: ' + JSON.stringify(changesSrc.slice(0, 120)));
+  const invAt = idx.indexOf('function renderInvoiceBreakdown(');
+  /* ⚠ String.fromCharCode(10), NOT a backslash-n literal. Written as an escape it
+     did not survive the script that inserted this block and became a real newline
+     inside the quotes — a syntax error. CLAUDE.md §5 records the same trap for the
+     $$ column and for run-all.js's word boundaries. */
+  const invEnd = idx.indexOf(String.fromCharCode(10) + '}', invAt);
+  const invSrc = invAt === -1 ? '' : stripComments(idx.slice(invAt, invEnd + 2));
+  check('the portal repeats the server’s outstanding figure, never its own',
+    !!invSrc && /lastSeasonLeft\s*=\s*Number\(record\.arrearsOutstanding\)/.test(invSrc),
+    'got: ' + JSON.stringify(invSrc.slice(0, 160)));
 
 
   /* ---- the badge IS the gate --------------------------------------------
@@ -1382,28 +1603,40 @@ function seasonResetWrite() {
   {
     const badge = api.badge, out = api.out;
     const base = { name: 'A', phone: '8015550001', address: '1 Elm St', city: 'Lehi' };
+    const yes  = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
     const clear = new Map([['8015550001', { id: '8015550001', data: billed(0, 0) }]]);
     const owing = new Map([['8015550001', { id: '8015550001', data: billed(400, 0) }]]);
+    const replied = Object.assign({}, base, yes);
 
     api.setInvoices(clear);
-    check('somebody who has never answered the RSVP is CONFIRMED now',
-      badge(base) === 'confirmed' && out(base) === false,
-      'got "' + badge(base) + '" — this is the 951, and her words are that a missing ' +
-      'RSVP "doesnt mean anything as far as who should be scheduled"');
+    check('somebody who replied Yes is CONFIRMED',
+      badge(replied) === 'confirmed' && out(replied) === false,
+      'got "' + badge(replied) + '" — "anyone who is confirmed is scheduled"');
+    /* ⚠ THE 951. They used to read Confirmed while every scheduler dropped them, which
+       is the complaint that started all of this. Pending is the honest word, and it is
+       what lets one-confirmed mean one-scheduled. */
+    check('and somebody who has never answered is PENDING, not falsely Confirmed',
+      badge(base) === 'pending' && out(base) === true,
+      'got "' + badge(base) + '" — a badge saying Confirmed about somebody no crew is ' +
+      'going to is the bug, whichever way the rule is set');
 
     api.setInvoices(owing);
-    check('and owing for a previous season makes it PENDING, not confirmed',
-      badge(base) === 'pending' && out(base) === true,
-      'got "' + badge(base) + '" — "they should not be able to have the confirmed tag ' +
-      'if they havent paid for a previous year"');
+    check('a replier who owes for a previous season is PENDING too',
+      badge(replied) === 'pending' && out(replied) === true,
+      'got "' + badge(replied) + '" — "they should not be able to have the confirmed ' +
+      'tag if they havent paid for a previous year"');
 
     api.setInvoices(clear);
-    check('a set queued to come back is PENDING too',
-      badge(Object.assign({}, base, {needsLightRecycle: true})) === 'pending',
+    check('a set queued to come back is PENDING',
+      badge(Object.assign({}, replied, {needsLightRecycle: true})) === 'pending',
       'a house whose lights are being collected is not one to send a crew to');
     check('but a mover keeping their customer is confirmed',
-      badge(Object.assign({}, base, {needsLightRecycle: true, recycleKeepingCustomer: true})) === 'confirmed',
+      badge(Object.assign({}, replied, {needsLightRecycle: true, recycleKeepingCustomer: true})) === 'confirmed',
       'their old set comes back AND a new one is built — they are still in the season');
+    /* ⚠ A NEW HANG IS IN WITHOUT A REPLY, because we deliberately never ask them. */
+    check('and a new customer nobody was ever going to ask is confirmed',
+      badge(Object.assign({}, base, {chargeNewMemberFee: true})) === 'confirmed',
+      'requiring an answer to a question we never send is a test nobody can pass');
 
     check('Maybe Next Year stays its own answer rather than collapsing into Pending',
       badge(Object.assign({}, base, {maybeNextYear: true})) === 'maybe' &&
@@ -1412,24 +1645,39 @@ function seasonResetWrite() {
       'Pending is somebody we want who is blocked; Maybe Next Year is somebody who ' +
       'told us no for now, and the office toggles that one by hand');
 
-    /* ⚠ THE INVARIANT SHE ACTUALLY ASKED FOR, and the reason the badge delegates
-       instead of deciding for itself: Confirmed and in-the-season are ONE fact, so no
-       row can read Confirmed while every scheduler in the app has dropped them. */
+    /* ⚠ THE INVARIANT SHE ASKED FOR, IN BOTH DIRECTIONS AND IN BOTH RULE STATES:
+       "anyone who is confirmed is scheduled but if one person is confirmed there
+       should be one person on the schedule." Confirmed and in-the-season are ONE
+       fact, so the count on the badges and the count on the schedule cannot drift —
+       whichever way SEASON_ELIGIBILITY is set. */
     const cases = [
-      {}, {maybeNextYear: true}, {rsvpStatus: 'no'}, {rsvpStatus: 'backnextyear'},
-      {needsLightRecycle: true}, {needsLightRecycle: true, recycleKeepingCustomer: true},
-      {rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z'}
+      {}, yes, {maybeNextYear: true}, {rsvpStatus: 'no'}, {rsvpStatus: 'backnextyear'},
+      Object.assign({needsLightRecycle: true}, yes),
+      Object.assign({needsLightRecycle: true, recycleKeepingCustomer: true}, yes),
+      {chargeNewMemberFee: true}
     ];
-    [['clear', clear], ['owing', owing]].forEach(function(pair){
-      api.setInvoices(pair[1]);
-      cases.forEach(function(extra, i){
-        const d = Object.assign({}, base, extra);
-        check('confirmed means scheduled — ' + pair[0] + ' case ' + i,
-          (badge(d) === 'confirmed') === (out(d) === false),
-          'badge said "' + badge(d) + '" and isOutForSeason said ' + out(d) +
-          ' — the screen and the scheduler must not disagree about one customer');
+    /* ⚠ BOTH LEVERS, because forceRule can only ever turn the rule ON — the page's
+       own constant already has it live, so a `forceRule(false)` mode was silently
+       testing the live rule twice and calling one of them "off". Caught by reading
+       the harness rather than by a failure, which is exactly how a vacuous case
+       survives. */
+    [[true, 'rule live'], [false, 'rule off']].forEach(function(mode){
+      api.forceRule(mode[0]);
+      api.forceOff(!mode[0]);
+      [['clear', clear], ['owing', owing]].forEach(function(pair){
+        api.setInvoices(pair[1]);
+        cases.forEach(function(extra, n){
+          const d = Object.assign({}, base, extra);
+          check('confirmed means scheduled — ' + mode[1] + ', ' + pair[0] + ' case ' + n,
+            (badge(d) === 'confirmed') === (out(d) === false),
+            'badge said "' + badge(d) + '" and isOutForSeason said ' + out(d) +
+            ' — the screen and the scheduler must not disagree about one customer');
+        });
       });
     });
+    api.forceRule(false);
+    api.forceOff(false);
+    api.setInvoices(clear);
   }
 
   /* ---------------------------------------------------------------------

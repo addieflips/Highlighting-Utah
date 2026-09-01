@@ -93,19 +93,20 @@ test.describe('Buttons on the light cards can actually be seen', () => {
     stub.assertNoRealCalls();
   });
 
-  test('and so does the changes question after it', async ({ page }) => {
-    const c = JSON.parse(JSON.stringify(CUSTOMERS.standard));
-    c.record.gateCode = '';
-    const stub = await installFirebaseStub(page, { customers: { standard: c } });
-    await page.goto(`/index.html#/payment?token=${c.token}&rsvp=yes`);
-    await page.locator('#rsvpGateCodeNoBtn').click();
+  /* ⚠ RETIRED 2026-09-01, AND THE COVERAGE LOSS IS STATED RATHER THAN PAPERED OVER.
+     This drove "do you want to make any changes?" and checked its two buttons were
+     legible. That screen no longer exists: RS-31 sends a yes straight into the portal
+     after the gate-code step, so there is nothing between them and their account.
 
-    await expect(page.locator('#rsvpNoChangesBtn')).toBeVisible();
-    await expectReadable(page, 'rsvpOpenPortalBtn');
-    await expectReadable(page, 'rsvpNoChangesBtn');
-
-    stub.assertNoRealCalls();
-  });
+     #rsvpOpenPortalBtn and #rsvpNoChangesBtn still EXIST — they are what the No path
+     falls back to when the portal cannot be opened — and they now carry
+     btn-outline-dark, so the fault this file is about cannot reach them. But that
+     fall-back needs loadPortalByToken to be absent or to throw, which is module-scope
+     and cannot be reached from a spec, so nothing here proves their colour. Two
+     things do still guard it: the card-scoped override main added in #278
+     (#rsvpConfirmCard .btn-outline), and the gate-code check above, which sits on the
+     same card with the same rule. If that fall-back ever becomes reachable, test it
+     here rather than trusting this paragraph. */
 
   /* ⚠ THE ONE WITH MONEY ON IT. Venmo was deliberately demoted behind a dropdown
      (MON-40, "a last resort"), and a last resort that cannot be seen when it is
@@ -134,7 +135,7 @@ test.describe('The RSVP card is centred, not shoved to one side', () => {
     const thrown = [];
     page.on('pageerror', e => thrown.push(String(e)));
     page.on('console', m => { if (m.type() === 'error' && !BLOCKED_RESOURCE.test(m.text())) thrown.push(m.text()); });
-    /* yes, not no: a No now carries straight on into the portal (RS-31), so it is
+    /* yes, not no: a No now carries straight on into the portal (RS-33), so it is
        not on this card long enough to measure. */
     await page.goto(`/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=yes`);
     await expect(page.locator('#rsvpConfirmCard')).toBeVisible();

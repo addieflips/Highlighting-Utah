@@ -89,6 +89,29 @@
   .btn-outline:hover{ background:rgba(255,255,255,.1); }
   .btn-outline-dark{ background:transparent; border-color:var(--ink); color:var(--ink); }
   .btn-outline-dark:hover{ background:var(--ink); color:#fff; }
+  /* ⭐ AN OUTLINE BUTTON ON A WHITE CARD WAS INVISIBLE (Dax, 2026-09-01: "the no/
+     not applicable button blends in with the white"). `.btn-outline` above is built
+     for the DARK hero — `color:#fff` on a 35%-white border — so on these light
+     confirmation cards it rendered white-on-white: the button was there, took its
+     space, and could not be seen or found. Measured in a real browser, not guessed:
+     the gate-code card showed ONE gold button and a strip of empty card underneath,
+     which was the invisible second button having wrapped onto its own line.
+
+     ⚠ SCOPED TO THESE THREE CARDS BY ID, never to `.btn-outline` at large — the same
+     class is correct as it stands on the hero and in the mobile panel, and repainting
+     it globally would turn white text dark on a dark background, which is this bug
+     pointing the other way. Same reason `.btn-outline-dark` exists rather than the
+     base class having been changed when that case first came up. */
+  #rsvpConfirmCard .btn-outline,
+  #backNextYearConfirm .btn-outline,
+  #quoteLinkConfirm .btn-outline{ border-color:var(--ink); color:var(--ink); }
+  #rsvpConfirmCard .btn-outline:hover,
+  #backNextYearConfirm .btn-outline:hover,
+  #quoteLinkConfirm .btn-outline:hover{ background:var(--ink); color:#fff; }
+  /* Two answers to one question read as a pair: equal minimum width so neither
+     looks like the afterthought, and room to sit side by side on a phone rather
+     than wrapping — the wrap is what left the dead strip of card. */
+  #rsvpGateCodeAsk .btn, #rsvpConfirmBtnRow .btn{ min-width:9.5rem; }
   .btn-ember{ background:var(--ember); color:#fff; }
   .btn-ember:hover{ background:#b23d33; }
   .btn-block{ width:100%; }
@@ -1673,6 +1696,7 @@
             <div id="paypal-button-container" style="margin-top:10px;"></div>
             <p class="form-note" id="paypalPaidMsg" style="display:none; text-align:center; color:#2E6B3E; font-weight:600; margin-top:10px;">&#10003; Payment received &mdash; thank you!</p>
             <p class="form-note" id="paypalErrorMsg" style="display:none; text-align:center; color:var(--ember); margin-top:10px;"></p>
+            <p class="form-note" id="paypalSwitchMsg" style="display:none; text-align:center; color:#8a6d1f; background:#FFF8E9; border:1px solid #D89F3D; border-radius:8px; padding:10px 12px; margin-top:10px;"></p>
           </div>
           <!-- ⭐ VENMO IS A LAST RESORT, BEHIND A DROPDOWN (2026-09-01). Addie: "I
                don't want a venmo QR code anymore and I want venmo under other payments
@@ -3946,7 +3970,8 @@ function renderInvoiceBreakdown(record, n){
                (record.arrearsSeason ? escapeHtmlPortal(String(record.arrearsSeason)) + ' season' : 'Last season') +
                ' &mdash; still owing</div>' +
              '<div style="font-size:13px; line-height:1.5; color:#7A5C16; margin-bottom:8px;">' +
-               'Left over from last year. Not a new charge for this year.</div>' +
+               'Left over from last year. Not a new charge for this year. ' +
+               '<strong>We can&rsquo;t book your install until this is settled.</strong></div>' +
              lineHtml('Unpaid balance', lastSeasonGross, false) +
              (paidOffLastSeason > 0 ? lineHtml('Paid or credited so far', paidOffLastSeason, true) : '') +
              '<div class="invoice-line total" style="color:#5A4A1F;"><span>Still owing</span><span>' +
@@ -4530,11 +4555,12 @@ function handleRsvpLink(token, rsvpValue){
   var openPortalBtn = document.getElementById('rsvpOpenPortalBtn');
   var noChangesBtn = document.getElementById('rsvpNoChangesBtn');
   var reasonWrap = document.getElementById('rsvpReasonWrap');
-  /* Set from the server's answer in the yes branch below, and read by
-     showChangesQuestion, which runs later as the gate-code step's callback.
-     Zero until then, so every other path behaves exactly as it did. */
-  var rsvpArrearsLeft = 0;
-  var rsvpArrearsSeason = '';
+  /* ⚠ THERE ARE NO ARREARS VARIABLES HERE ANY MORE, deliberately. `rsvpArrearsLeft`
+     and `rsvpArrearsSeason` were set from portalRsvp's answer and read only by
+     showChangesQuestion, the screen a yes used to stop on. A yes now goes straight
+     into the portal, which draws the "<year> season — still owing" card itself from
+     the invoice — so keeping them here would be two variables written on every yes
+     and read by nothing, which is exactly what §1 of CLAUDE.md is about. */
   if(lookupFormWrap) lookupFormWrap.style.display = 'none';
   if(confirmCard) confirmCard.style.display = 'block';
   if(reasonWrap) reasonWrap.style.display = 'none';
@@ -4562,16 +4588,27 @@ function handleRsvpLink(token, rsvpValue){
       return;
     }
     if(rsvpValue === 'yes'){
-      /* ⭐ WHAT THEY STILL OWE FROM LAST SEASON, so the confirmation below can stop
-         promising an install this app will not deliver. See showChangesQuestion. The
-         server decides the figure (portalRsvp); this page only ever repeats it. */
-      rsvpArrearsLeft = Number(res.arrearsOutstanding) || 0;
-      rsvpArrearsSeason = res.arrearsSeason ? String(res.arrearsSeason) : '';
-      /* ⚠ THE GATE CODE COMES FIRST, and the changes question is handed to it
-         as a callback rather than run alongside — otherwise both are on screen
-         at once and the customer answers whichever they see. Addie's ordering:
-         "Lets do gate code before changes." */
-      showRsvpGateCodeStep(token, res.gateCode || '', showChangesQuestion);
+      /* ⚠ portalRsvp STILL RETURNS arrearsOutstanding AND arrearsSeason and this page
+         no longer reads either. That is deliberate rather than an oversight: the
+         portal's own invoice card is where a debtor is told the figure now, drawn
+         from the invoice rather than repeated from this answer, so there is one
+         place saying it instead of two that can disagree. Do not delete them from
+         the server — renderPortalInvoice is not the only caller. */
+      /* ⚠ THE GATE CODE STILL COMES FIRST, and it is now the ONLY thing between a
+         yes and their portal. Dax, 2026-09-01: "gate codes change so make sure it
+         asks if theres a gate code" — which is why this step survived the change
+         below. showRsvpGateCodeStep already asks every time: it offers "We have
+         1234 as your gate code. Is that still right?" when one is on file and
+         "is there a gate code our crew needs to get in?" when there is not, so a
+         code that changed over the summer is caught on the one screen a customer
+         reliably answers. Do NOT skip it for somebody who already has one stored.
+
+         ⭐ AND THEN STRAIGHT INTO THE PORTAL (Dax, 2026-09-01: the RSVP buttons
+         "should also automatically send the customer to their member portal").
+         It used to hand off to showChangesQuestion, which asked "do you want to
+         make any changes?" and put the portal behind a button — a question whose
+         only useful answer is the place we were about to send them anyway. */
+      showRsvpGateCodeStep(token, res.gateCode || '', openPortalAfterYes);
       return;
     }
     /* Everything below is the "no" path; the yes branch above returns. Kept as
@@ -4698,49 +4735,34 @@ function handleRsvpLink(token, rsvpValue){
      hold. Nought — including an unreadable invoice, which the server reports as nought
      — takes the original wording untouched. Telling somebody they owe money we cannot
      prove they owe is worse than not warning them about a real debt. */
-  function showChangesQuestion(){
-    var owes = rsvpArrearsLeft > 0;
-    /* "the 2025 season" reads correctly; "the last season" does not, so the article
-       belongs to the branch that has a year rather than to both. */
-    var seasonWord = rsvpArrearsSeason ? 'the ' + escapeHtmlPortal(rsvpArrearsSeason) + ' season' : 'last season';
-    if(owes){
-      /* Their answer IS recorded — portalRsvp wrote it before this screen drew — so
-         it is confirmed first and plainly. What follows is about the install, not
-         about whether we heard them. */
-      confirmMsg.innerHTML = "Thanks \u2014 we've got your yes. \uD83C\uDF84<br><br>" +
-        'One thing before we can book you in: <strong>' + escapeHtmlPortal(fmt(rsvpArrearsLeft)) +
-        '</strong> from ' + seasonWord + ' is still outstanding on your account. ' +
-        "We can't schedule your install until that's settled.";
-    } else {
-      confirmMsg.textContent = "You're confirmed for this season! \uD83C\uDF84 Do you want to make any changes?";
-    }
-    if(openPortalBtn){
-      /* Labels set explicitly in BOTH branches. The "no" branch reuses these
-         same two buttons with different wording, so leaving either to the
-         markup default means whichever branch ran second wins. */
-      openPortalBtn.textContent = owes ? "Pay Last Season's Balance" : 'Yes, Take Me to My Portal';
-      if(noChangesBtn) noChangesBtn.textContent = owes ? "I'll Do It Later" : "No, I'm All Set";
-      openPortalBtn.style.display = 'inline-flex';
-      openPortalBtn.onclick = function(){
-        document.body.classList.remove('rsvp-minimal', 'rsvp-back');
-        confirmCard.style.display = 'none';
-        loadPortalByToken(token);
-      };
-    }
-    if(noChangesBtn){
-      noChangesBtn.style.display = 'inline-flex';
-      noChangesBtn.onclick = function(){
-        if(openPortalBtn) openPortalBtn.style.display = 'none';
-        noChangesBtn.style.display = 'none';
-        /* ⚠ THE SECOND SCREEN HAS TO HOLD THE LINE TOO. This was the sentence that
-           actually made the promise, and leaving it while fixing only the one above
-           would put "We'll get you scheduled!" back as the LAST thing they read. */
-        confirmMsg.innerHTML = owes
-          ? "No problem \u2014 your yes is saved.<br>We'll book your install as soon as that " +
-            "balance is settled."
-          : 'Thank you for choosing HighlightingUtah!<br>We\'ll get you scheduled!';
-      };
-    }
+  /* ⭐ A YES ENDS IN THEIR PORTAL, NOT ON A QUESTION (Dax, 2026-09-01: the RSVP
+     buttons "should also automatically send the customer to their member portal").
+     This replaced showChangesQuestion, which asked "You're confirmed! Do you want
+     to make any changes?" and then put the portal behind a button — so the one
+     screen every confirming customer sees ended in a question whose only useful
+     answer was the page we were about to send them to.
+
+     ⚠ ONLY THE YES PATH CHANGED. "No" still gets its message first and reaches the
+     Cancel tab by an optional button, because that ordering is Addie's own ruling
+     of 2026-08-19 — "keep the Cancel tab, but put a message in front of it first
+     so they know why they've landed there" — and a no dropped straight into an
+     account page is exactly what she was fixing. Back Next Year is untouched too.
+
+     ⚠ AND THE MONEY IS NOT LOST BY SKIPPING THE OLD SCREEN. That screen told a
+     debtor what they owed and that we could not book them until it was settled;
+     the portal says the same thing and says it better — renderPortalInvoice draws
+     a "<year> season — still owing" card with the figure, what has been paid off
+     it, and a pay button. The sentence about SCHEDULING is the one thing the card
+     did not carry, so it was added there rather than dropped (see that card). */
+  function openPortalAfterYes(){
+    /* The card is torn down rather than hidden behind the portal: the RSVP body
+       classes drive a cut-down layout, and leaving them on renders the portal
+       inside it. Same three lines the old button handler used. */
+    document.body.classList.remove('rsvp-minimal', 'rsvp-back');
+    if(confirmCard) confirmCard.style.display = 'none';
+    if(openPortalBtn) openPortalBtn.style.display = 'none';
+    if(noChangesBtn) noChangesBtn.style.display = 'none';
+    loadPortalByToken(token);
   }
 
   function rsvpLinkFailed(err){
@@ -5286,8 +5308,32 @@ document.addEventListener('click', function(e){
   var tipInput = document.getElementById('customTipInput');
   if(tipInput && currentTipPct > 0) tipInput.value = currentTipAmount || '';
   updateTipBreakdown();
-  /* PayPal builds its order when the button is pressed, not now — but the SDK
-     caches nothing about the amount, so nothing needs re-rendering here. */
+  /* ⚠ AND THE BUTTONS COME DOWN AND GO BACK UP. The comment that used to sit here said
+     no re-render was needed because PayPal builds its order on press — which is true of
+     the plain button and false of the card one, whose form is opened (and whose order is
+     created) before this choice can change. That was the bug: the card form went on
+     showing last season's amount after switching to the full balance. */
+  /* ⚠ SAID OUT LOUD WHEN A PAYMENT WINDOW WAS ALREADY OPEN. resetPaypalButtons closes
+     it, and that is normally the end of it — but a window PayPal keeps open is still
+     holding an order for the amount chosen before, and completing THAT would charge the
+     old figure while this page shows the new one. Money going one way while the screen
+     says another is the one outcome worth interrupting somebody over, so it is said
+     plainly rather than left to a bank statement. Read BEFORE the teardown, which is
+     what clears the flag. */
+  var hadWindowOpen = paypalFlowOpen;
+  resetPaypalButtons();
+  var swEl = document.getElementById('paypalSwitchMsg');
+  if(swEl){
+    if(hadWindowOpen){
+      swEl.style.display = 'block';
+      swEl.textContent = 'Your card window was set up for a different amount, so it has been closed. ' +
+        'If it is still open, close it and start again \u2014 you will be paying ' +
+        fmt(portalPayableNow()) + '.';
+    } else {
+      swEl.style.display = 'none';
+      swEl.textContent = '';
+    }
+  }
 });
 /* Which payment methods the portal offers. 'venmo' and 'paypal' are one-or-the-
    other; 'both' shows them side by side so the customer picks. PayPal needs a
@@ -5341,6 +5387,52 @@ function updateTipBreakdown(){
 /* ---------------- PayPal Smart Buttons ---------------- */
 var paypalSdkLoadedForClientId = null;
 var paypalButtonsRendered = false;
+/* ⭐ THE RENDERED BUTTON INSTANCES, so they can be TAKEN DOWN when the amount they
+   were built for changes (added 2026-09-01).
+
+   Addie: "if I push on 2025 payment than do credit/debit dropdown but than decide to
+   switch to full payment it does not automatically changed to full payment. It still
+   shows 2025 payment."
+
+   ⚠ THE COMMENT THAT USED TO SIT IN THE CHOICE HANDLER WAS WRONG, and that wrong
+   assumption IS this bug: "PayPal builds its order when the button is pressed, not now
+   — so nothing needs re-rendering here." That is true of the plain PayPal button, which
+   calls createOrder on click. It is NOT true of the card button: pressing that opens an
+   inline card form, and PayPal calls createOrder at THAT moment. From then on the form
+   is bound to an order that already exists, for the amount chosen before it opened.
+   Changing the choice afterwards updated our variable and could not touch the order.
+
+   ⚠ SO THE FIX IS A TEARDOWN, not a bigger variable. Nothing in the browser can revise
+   an order PayPal has already created, and it must not be able to — the amount is the
+   server's decision. Closing the buttons discards the open form, and the next press
+   creates a fresh order from whatever is chosen then. */
+var paypalButtonInstances = [];
+/* ⚠ TRUE FROM THE MOMENT A PAYMENT WINDOW OPENS until it closes. Tearing the buttons
+   down is meant to close that window, and normally does — but if it ever does not, the
+   window is still holding an order for the OLD amount, and completing it would charge
+   that. This is what lets the page say so instead of leaving them to find out on their
+   statement. */
+var paypalFlowOpen = false;
+function resetPaypalButtons(){
+  if(!paypalButtonsRendered) return;
+  paypalButtonInstances.forEach(function(inst){
+    /* ⚠ close() rejects if the button is already gone, and a rejection here would be an
+       unhandled promise that leaves the containers half torn down. The clear below is
+       what actually guarantees the form is gone; close() is the SDK's tidy way of
+       getting there first. */
+    try{
+      var r = inst && inst.close && inst.close();
+      if(r && r.catch) r.catch(function(){ /* quiet on purpose: close() rejects when the button is already gone, which is the state we were asking for. The container clear below is what actually guarantees it, so there is nothing here worth telling anybody. */ });
+    }catch(err){ /* already closed — the clear below finishes the job */ }
+  });
+  paypalButtonInstances = [];
+  var c = document.getElementById('paypal-button-container');
+  var cc = document.getElementById('paypal-card-button-container');
+  if(c) c.innerHTML = '';
+  if(cc) cc.innerHTML = '';
+  paypalButtonsRendered = false;
+  renderPaypalButtons();
+}
 function setupPaypalButtonsIfNeeded(){
   if(!paypalAvailable()) return;
   if(paypalSdkLoadedForClientId === PAYMENT_SETTINGS.paypalClientId && window.paypal){
@@ -5406,6 +5498,15 @@ function renderPaypalButtons(){
   /* One shared config, rendered twice against two funding sources, so the card
      button can sit above the PayPal button instead of PayPal choosing the order. */
   var ppConfig = {
+    /* PayPal calls this the instant the button is pressed — BEFORE createOrder, and
+       before the card window opens. */
+    onClick: function(){ paypalFlowOpen = true; },
+    onCancel: function(){
+      paypalFlowOpen = false;
+      /* They backed out, so whatever they were half way through is gone. Rebuilding
+         means the next press is priced from whatever is chosen NOW. */
+      resetPaypalButtons();
+    },
     createOrder: function(){
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl) errEl.style.display = 'none';
@@ -5421,6 +5522,7 @@ function renderPaypalButtons(){
       });
     },
     onApprove: function(data){
+      paypalFlowOpen = false;
       var phone = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
       return captureOrderFn({ orderID: data.orderID, phone: phone, tipAmount: currentTipAmount }).then(function(){
         /* ⚠ IT USED TO SAY "Paid in Full" AND $0 WHATEVER HAD JUST BEEN PAID, and
@@ -5459,6 +5561,7 @@ function renderPaypalButtons(){
       });
     },
     onError: function(){
+      paypalFlowOpen = false;
       var errEl = document.getElementById('paypalErrorMsg');
       if(errEl){ errEl.style.display = 'block'; errEl.textContent = 'Something went wrong with PayPal — please try again or call/text us at (801) 901-0011.'; }
     }
@@ -5471,7 +5574,7 @@ function renderPaypalButtons(){
       fundingSource: window.paypal.FUNDING.CARD,
       style: { layout: 'vertical', color: 'black' }
     }, ppConfig));
-    if(cardBtn.isEligible()) cardBtn.render('#paypal-card-button-container');
+    if(cardBtn.isEligible()){ paypalButtonInstances.push(cardBtn); cardBtn.render('#paypal-card-button-container'); }
     else cardContainer.style.display = 'none';
   }
   /* fundingSource is set only when the SDK actually exposes FUNDING. The card
@@ -5487,7 +5590,7 @@ function renderPaypalButtons(){
     ppOpts.fundingSource = window.paypal.FUNDING.PAYPAL;
   }
   var ppBtn = window.paypal.Buttons(ppOpts);
-  if(ppBtn.isEligible()) ppBtn.render('#paypal-button-container');
+  if(ppBtn.isEligible()){ paypalButtonInstances.push(ppBtn); ppBtn.render('#paypal-button-container'); }
 }
 document.querySelectorAll('.tip-option-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
@@ -5501,12 +5604,24 @@ document.querySelectorAll('.tip-option-btn').forEach(function(btn){
     input.value = val || '';
     currentTipAmount = val;
     updateTipBreakdown();
+    /* ⚠ THE SAME BUG IN THE OTHER DIRECTION. A tip picked after the card form is open
+       would be left out of an order that already exists — fixing only the choice above
+       would be half a fix. */
+    resetPaypalButtons();
   });
 });
 document.getElementById('customTipInput').addEventListener('input', function(){
   currentTipAmount = Math.max(0, Number(this.value) || 0);
   currentTipPct = 0;   /* typed by hand — never re-worked underneath them */
   updateTipBreakdown();
+});
+/* ⚠ ON `change`, NOT ON `input`. The figure on screen has to keep up with every
+   keystroke, but re-rendering PayPal on each one would tear the buttons down and build
+   them again half a dozen times while somebody types "25" — flickering, slow, and it
+   would close a card form they were in the middle of filling in. `change` fires when
+   they leave the box, which is the moment the number is settled. */
+document.getElementById('customTipInput').addEventListener('change', function(){
+  resetPaypalButtons();
 });
 
 function parseLightsDescription(text){

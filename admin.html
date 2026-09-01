@@ -1867,6 +1867,10 @@
               <div class="form-row"><label>Invoice Status</label><select id="allCustFilterInvStatus"><option value="all">Any / No Invoice</option><option value="none">No Invoice</option><option value="Unpaid">Unpaid</option><option value="Partial Payment">Partial Payment</option><option value="Paid in Full">Paid in Full</option></select></div>
             </div>
             <div class="form-grid-3">
+              <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
+                   Beside Route Status on purpose — Confirmed IS the route answer now
+                   (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">Pending &mdash; blocked by a rule</option><option value="maybe">Maybe Next Year</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -17093,6 +17097,32 @@ function messageFeetEstimate(d){
   }
   return '';
 }
+/* ⭐ THE ROUTINE ROUTE SWEEP IS NOT NEWS (owner's instruction, 2026-09-01: these
+   notices "flood the system messages making it so we cant see messages we actually
+   need to do something with ... make it so we dont see these spam ones but we still
+   see important messages"). The sweep runs on a beat and writes a note every time it
+   tidies anything, so on an ordinary day it IS the System folder and the one notice
+   that mattered — a background check that stopped, a customer number that needs
+   fixing — is somewhere underneath a pile of them.
+
+   What separates the two is already written down and does not need guessing at:
+   noticeRoutesReconciled marks every line that wants a human with a leading ⚠ and
+   sorts those to the top (`urgent` there is exactly this test). So that same mark
+   decides here. A sweep note with no ⚠ moved houses around and needs nobody; one
+   that could not write a record, or that caught itself looping all day, carries ⚠
+   and still comes through at full size.
+
+   ⚠ NOTHING IS DELETED AND NOTHING IS MARKED READ. The notes are a record of days
+   that moved under customers who may already have been told a date — losing them
+   silently would be worse than the flood. They are folded behind one line in the
+   System tab and left out of the two unread badges, and one click still shows them. */
+const ROUTINE_NOTICE_TOPIC = 'Routes Kept Up To Date';
+function noticeIsRoutine(d){
+  d = d || {};
+  if((d.folder || 'Inbox') !== 'System') return false;
+  if(d.topic !== ROUTINE_NOTICE_TOPIC) return false;
+  return String(d.message || '').indexOf('⚠') === -1;
+}
 function renderMessagesList(){
   const list = document.getElementById('messagesList');
   let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => (m.data.folder || 'Inbox') === selectedFolder);
@@ -17117,7 +17147,12 @@ function renderMessagesList(){
         (!!msgDigits && String(d.phone||'').replace(/\D/g,'').indexOf(msgDigits) !== -1);
     });
   }
-  const unreadCount = allMessages.filter(m => !m.data.read).length;
+  /* Counts what somebody actually has to look at: every unread customer message,
+     plus the system notices that are not the routine route sweep. It used to count
+     the sweep as well, so the badge read 91 while the list beneath it — which has
+     never shown System notes, see the folder filter above — held a fraction of that,
+     and a real message arriving moved the number by one and nobody could tell. */
+  const unreadCount = allMessages.filter(m => !m.data.read && !noticeIsRoutine(m.data)).length;
   document.getElementById('badgeMessages').style.display = unreadCount ? 'inline-block' : 'none';
   document.getElementById('badgeMessages').textContent = unreadCount;
   if(!filtered.length){
@@ -28896,7 +28931,25 @@ function thanksgivingDate(year){
    confirmed and put them in schedule", and "make sure they cant have the confirmed
    tag if they are breaking a rule". Confirmed and in-the-season are one fact now,
    so the screen and the scheduler cannot disagree about a customer. */
-const SEASON_ELIGIBILITY = 'all-but-maybe-next-year';
+/* ⭐ AND BACK ON THE SAME DAY, ONCE THE BADGE COULD TELL THE TRUTH (2026-09-01).
+   Addie, shown a season with ~953 people on it: "anyone who is confirmed is scheduled
+   but if one person is confirmed there should be one person on the schedule."
+
+   ⚠ THE COMPLAINT THAT STARTED ALL OF THIS WAS NEVER "schedule everybody". It was
+   that a row said CONFIRMED while every scheduler in the app had dropped that
+   customer — the badge was lying. There are two ways to make those two agree, and
+   turning the rule OFF was the wrong one: it made the badge honest by scheduling
+   everybody, which is not what she meant by confirmed.
+
+   ⭐ THE OTHER WAY IS THE RIGHT ONE, and it only became possible a few hours ago:
+   seasonBadgeKey has a PENDING state now and delegates to isOutForSeason, so with the
+   rule on, somebody who has never replied reads "Pending — no RSVP yet" rather than a
+   false Confirmed. One confirmed, one scheduled, and the badge and the scheduler still
+   cannot disagree. Her invariant holds in both directions.
+
+   ⚠ SO THE 2026-08-27 HARDCODING IS THE LIVE RULE AGAIN and this line is back to what
+   it was; what changed permanently is the badge beside it. */
+const SEASON_ELIGIBILITY = 'confirmed-only';
 /* ⚠ ONE LEVER, AND IT IS NOT A SETTING. `seasonEligibilityWouldDrop` has to run
    isOutForSeason BOTH ways to count who the rule is leaving out — that is the whole of
    why it is trustworthy, since a second opinion about who is in the season is exactly
@@ -42577,6 +42630,10 @@ function renderAllCustomersTable(){
   const diffFilter = document.getElementById('allCustFilterDifficulty').value;
   const invFilter = document.getElementById('allCustFilterInvStatus').value;
   const routeFilter = document.getElementById('allCustFilterRoute').value;
+  /* ⚠ OPTIONAL-CHAINED LIKE THE NEWER ONES. Suite 1 checks every id the JS names
+     exists, but a filter read straight would still throw on a page mid-render. */
+  const seasonEl = document.getElementById('allCustFilterSeason');
+  const seasonFilter = seasonEl ? seasonEl.value : 'all';
   const mapFilter = document.getElementById('allCustFilterMap').value;
   const lightsEl = document.getElementById('allCustFilterLights');
   const lightsFilter = lightsEl ? lightsEl.value : 'all';
@@ -42598,7 +42655,11 @@ function renderAllCustomersTable(){
        all — and is exactly as unroutable. */
     const hasPin = hcHasMapPin(d);
     const enrolled = memberExportDateAdded(d);
-    return {item, d, inv, invStatus, hasMap, hasPin, enrolled, routeStatus: allCustRouteStatus(d)};
+    /* ⚠ ONE CALL, TWO READERS. The filter below and the cell further down both need
+       the badge, and asking twice is two answers to one question about one customer —
+       the exact shape of the bug the badge was rebuilt to close. */
+    return {item, d, inv, invStatus, hasMap, hasPin, enrolled, badge: seasonBadgeKey(d),
+            routeStatus: allCustRouteStatus(d)};
   });
   if(term){
     const phoneDigits = term.replace(/\D/g,'');
@@ -42622,6 +42683,7 @@ function renderAllCustomersTable(){
     const map = {scheduled:'Scheduled', unscheduled:'Unscheduled', completed:'Install Complete', needsfix:'Needs Fix'};
     rows = rows.filter(r => r.routeStatus === map[routeFilter]);
   }
+  if(seasonFilter !== 'all') rows = rows.filter(r => r.badge === seasonFilter);
   if(mapFilter !== 'all') rows = rows.filter(r => mapFilter === 'has' ? r.hasMap : !r.hasMap);
   if(pinFilter !== 'all') rows = rows.filter(r => pinFilter === 'has' ? r.hasPin : !r.hasPin);
   /* ⚠ `custCanBeEmailed` IS THE ONE ANSWER, shared with the chip on the row, so the
@@ -42789,7 +42851,7 @@ function renderAllCustomersTable(){
     /* ⚠ THREE STATES NOW, NOT TWO. Pending is a customer we want who is blocked by a
        rule — today that is owing for a previous season, or a set queued to come back.
        It is DERIVED, so it clears itself the moment the reason does. */
-    const badgeKey = seasonBadgeKey(r.d);
+    const badgeKey = r.badge;
     const maybeCell = badgeKey === 'maybe'
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
@@ -45350,7 +45412,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
    perfectly and could not be reached, and it only appeared to work if you happened
    to touch another filter or the search box afterwards. Found 2026-08-21 while
    adding the Email one. Any select added to that panel has to be named here. */
-['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterNewMember','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
+['allCustFilterCity','allCustFilterDifficulty','allCustFilterInvStatus','allCustFilterSeason','allCustFilterRoute','allCustFilterMap','allCustFilterPin','allCustFilterLights','allCustFilterNewMember','allCustFilterEmail','allCustFilterDateStart','allCustFilterDateEnd'].forEach(function(id){
   const el = document.getElementById(id);
   if(el) el.addEventListener('input', renderAllCustomersTable);
 });
@@ -45367,6 +45429,11 @@ document.getElementById('allCustFilterClear').addEventListener('click', function
   document.getElementById('allCustFilterDifficulty').value = 'all';
   document.getElementById('allCustFilterInvStatus').value = 'all';
   document.getElementById('allCustFilterRoute').value = 'all';
+  /* ⚠ NAMED HERE TOO. This file already records what happens when a new select is
+     left out of one of these two lists: Clear Filters leaves it applied and the list
+     stays mysteriously short, or it never repaints at all. */
+  const clrSeason = document.getElementById('allCustFilterSeason');
+  if(clrSeason) clrSeason.value = 'all';
   document.getElementById('allCustFilterMap').value = 'all';
   /* ⚠ Pin and Lights were never cleared here either, so "Clear Filters" left two of
      them still applied and the list stayed mysteriously short. Every select in the
@@ -49164,6 +49231,55 @@ async function removeCustomerFromUpcomingRoutes(customerId){
   if(stuck.length) await noticeRouteStopStuck('take them off the route', customerId, stuck, lastErr);
   return removed;
 }
+/* ⭐ A RECORD THAT STILL CLAIMS A DAY IT NO LONGER HAS (2026-09-01). Addie, on
+   Addie Eriksen #210: "shes not in the schedule but on here it says shes scheduled
+   make sure that this updates when you recalculate everything too."
+
+   ⚠ HER ROW SAID BOTH THINGS AT ONCE, which is the tell: "Scheduled — Hang Tue,
+   Oct 20" from the stored flags, and "Not scheduled — no RSVP yet" from the live
+   rule, one above the other. `scheduled` / `scheduledDate` / `assignedCrew` are
+   STAMPED when somebody is put on a crew's sheet and cleared when they are taken
+   off it — but a customer who simply stops being in the season is never taken off
+   anything, so the stamp outlives the booking and the row goes on promising a
+   crew that is not coming.
+
+   ⚠ INSTALL FLAGS ONLY. A takedown or a fix is work on lights that are already up,
+   and somebody sitting the season out may still need theirs taking down — clearing
+   those would cancel real work. freeUpFieldForType('install') is the one shape that
+   is safe here, and it is the same one the routes side already writes.
+
+   ⚠ AND ONLY WHERE THERE IS SOMETHING TO CLEAR. Writing false over false on ~950
+   records every press is a lot of writes to say nothing, and every one of them
+   stamps updatedAt — which is what the Overdue clock used to count from.
+
+   ⚠ IT TAKES THEM OFF THE ROUTE TOO, in that order. Clearing the flag while a stop
+   survives is the same contradiction pointing the other way: the crew's sheet still
+   has them and the office screen says they are not booked. */
+async function clearStaleInstallBookings(){
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return 0;
+  if(typeof isOutForSeason !== 'function') return 0;
+  const stale = jobAddresses.filter(function(item){
+    const d = (item && item.data) || null;
+    if(!d) return false;
+    if(!(d.scheduled === true || d.scheduledDate || d.assignedCrew)) return false;
+    return isOutForSeason(d);
+  });
+  let cleared = 0;
+  for(let i = 0; i < stale.length; i++){
+    const item = stale[i];
+    try{
+      if(typeof removeCustomerFromUpcomingRoutes === 'function') await removeCustomerFromUpcomingRoutes(item.id);
+      await updateDoc(doc(db, 'jobAddresses', item.id), freeUpFieldForType('install'));
+      /* The panel repaints from the cache as well as from the listener, so the row
+         stops contradicting itself immediately rather than on the next snapshot. */
+      Object.assign(item.data, freeUpFieldForType('install'));
+      cleared++;
+    }catch(err){
+      console.error('Could not clear a stale booking for', item.id, err);
+    }
+  }
+  return cleared;
+}
 /* The one place that flips a customer between Confirmed and Maybe Next Year, so
    the badge, the Edit Customer toggle and (later) the RSVP email can never drift
    into disagreeing about what the pair of states means. Deliberately writes no
@@ -50864,10 +50980,16 @@ document.querySelectorAll('.inbox-tab').forEach(function(btn){
 function systemMessages(){
   return allMessages.filter(function(m){ return (m.data.folder || 'Inbox') === 'System'; });
 }
+/* Whether the folded-away routine notes are currently open. Deliberately not
+   remembered anywhere: the point is that the folder is quiet again next time. */
+let sysShowRoutine = false;
 function renderSystemMessagesTab(){
   const msgs = systemMessages();
+  /* See noticeIsRoutine: the sweep's own ⚠ decides which side a note falls on. */
+  const routine = msgs.filter(function(m){ return noticeIsRoutine(m.data); });
+  const needsEye = msgs.filter(function(m){ return !noticeIsRoutine(m.data); });
   const badge = document.getElementById('sysMsgBadge');
-  const unread = msgs.filter(function(m){ return !m.data.read; }).length;
+  const unread = needsEye.filter(function(m){ return !m.data.read; }).length;
   if(badge){
     badge.style.display = unread ? 'flex' : 'none';
     badge.textContent = unread > 99 ? '99+' : String(unread);
@@ -50875,7 +50997,41 @@ function renderSystemMessagesTab(){
   const list = document.getElementById('systemMessagesList');
   if(!list) return;
   if(!msgs.length){ list.innerHTML = '<div class="empty-note">No system notices right now.</div>'; return; }
-  list.innerHTML = msgs.map(function(item){
+  const parts = [];
+  if(needsEye.length) parts.push(needsEye.map(systemNoticeRow).join(''));
+  else parts.push('<div class="empty-note">Nothing here needs you right now.</div>');
+  if(routine.length){
+    parts.push(
+      '<div class="row-item" style="align-items:center;">'+
+        '<div class="rmain">'+
+          '<h4>Routine route updates <span class="status-pill">'+routine.length+'</span></h4>'+
+          '<div class="rtext">The scheduler tidied the upcoming days. Nothing in these needs '+
+            'you &mdash; any sweep that hit a problem stays in the list above. They are kept, '+
+            'not deleted, because they record days that moved under customers.</div>'+
+        '</div>'+
+        '<div class="row-actions" style="align-items:center;">'+
+          '<button type="button" class="btn btn-outline btn-sm" id="sysRoutineToggle">'+
+            (sysShowRoutine ? 'Hide' : 'Show')+'</button>'+
+        '</div>'+
+      '</div>'+
+      '<div id="sysRoutineList"'+(sysShowRoutine ? '' : ' hidden')+'>'+
+        routine.map(systemNoticeRow).join('')+
+      '</div>'
+    );
+  }
+  list.innerHTML = parts.join('');
+  const routineToggle = document.getElementById('sysRoutineToggle');
+  if(routineToggle){
+    routineToggle.addEventListener('click', function(){
+      sysShowRoutine = !sysShowRoutine;
+      renderSystemMessagesTab();
+    });
+  }
+  systemNoticeWireRows(list);
+}
+/* One notice's card. Pulled out of renderSystemMessagesTab so the folded routine
+   list and the list above it are rendered by the same code and cannot drift. */
+function systemNoticeRow(item){
     const d = item.data;
     const isUnread = !d.read;
     const address = messageAddressLookup(d);
@@ -50900,7 +51056,10 @@ function renderSystemMessagesTab(){
         '<button class="icon-btn danger" data-del="messages" data-id="'+item.id+'">'+trashIcon()+'</button>'+
       '</div>'+
     '</div>';
-  }).join('');
+}
+/* Wires the buttons on those cards. Called once per render, over the whole list,
+   so the folded routine rows get the same handlers the moment they are shown. */
+function systemNoticeWireRows(list){
   list.querySelectorAll('[data-sysread]').forEach(function(btn){
     btn.addEventListener('click', function(){
       updateDoc(doc(db,'messages',btn.dataset.sysread), {read: btn.dataset.current !== '1'});
@@ -56353,13 +56512,46 @@ function rebuildSeasonDays(){
      ⚠ AND NOT TAKEDOWNS OR FIXES. Both are copies made from an install house and are
      work on lights that are already up — somebody sitting the season out may still
      need theirs taking down. */
-  const left=[];
+  /* ⭐ AND A ROW THAT IS NOT A CUSTOMER AT ALL COMES OFF TOO (2026-09-01). Addie:
+     "play with it until the only customers in the schedule are the confirmed ones
+     and also that all confirmed customers are in the schedule because currently its
+     not working."
+
+     ⚠ MEASURED ON HER OWN PLAN. One customer carried the Confirmed badge and the
+     schedule held SIXTEEN houses. The rule below was working perfectly; the sixteen
+     were not customers. Marcus Nicolls #968, Tamara Jensen #464 and Jamie Harmon
+     #360 are rows left over from an imported schedule file and match nothing in a
+     book of 956 — so `customerForHouse` answered null, the no-record-no-opinion
+     guard kept them, and no Recalculate could ever shift them.
+
+     ⛔ THAT GUARD'S OWN REASONING, kept because it is exactly what this has to be
+     careful about: "Imported CSV rows need not match a record at all, and treating
+     'no customer found' as 'not coming' would empty most of the plan on the first
+     press." That was true when the plan WAS the season and the customer book was
+     half-filled. It is the wrong way round now: every house reaches the plan through
+     customersMissingFromSeason, so a row with nobody behind it is a leftover, and
+     leaving it there is a crew-day built for a house nobody will visit.
+
+     ⚠ SO IT IS GATED ON THE BOOK HAVING LOADED, which is the half of the old
+     reasoning that still holds absolutely. `jobAddresses` is empty for a moment
+     after login and empty again if the listener fails, and an ungated version would
+     read that as "nobody is a customer" and wipe the whole season. Empty book, no
+     opinion, nothing removed.
+
+     ⚠ AND THEY ARE COUNTED SEPARATELY FROM THE ONES WHO LEFT THE SEASON. "Somebody
+     said back next year" and "this row is not a person" need different actions from
+     the office, and one number covering both tells them neither. */
+  const bookLoaded = typeof jobAddresses !== 'undefined' && Array.isArray(jobAddresses) && jobAddresses.length > 0;
+  const left=[], orphans=[];
   for(let i=movable.length-1;i>=0;i--){
     const h=movable[i];
     if(h.isTakedown||h.isFix) continue;
     const cust=(typeof customerForHouse==='function')?customerForHouse(h):null;
     const cd=(cust&&cust.data)||null;
-    if(!cd) continue;
+    if(!cd){
+      if(bookLoaded){ orphans.push(h); movable.splice(i,1); }
+      continue;
+    }
     if(typeof isOutForSeason==='function' && isOutForSeason(cd)){
       left.push(h);
       movable.splice(i,1);
@@ -56508,7 +56700,7 @@ function rebuildSeasonDays(){
   computeDates();
   selSchedule=installDays()[0]?installDays()[0].id:null;
   return {days:newDays.length, houses:movable.length, unplaced:unplaced.length, locked:locked.length, joined:joined.length, waitingOnBuild:waitingOnBuild,
-          left:left.length, stillSet:stillSet,
+          left:left.length, orphans:orphans.length, stillSet:stillSet,
           kept:keep.filter(function(d){return !d.isFixRoute&&!d.isTakedown;}).length,
           first:dates[0], last:dates[dates.length-1]};
 }
@@ -57626,6 +57818,18 @@ RT.addEventListener('click',e=>{const t=e.target;
        is reported at the end rather than abandoning the other two. */
     const r=rebuildSeasonDays();
     const routes=generateAllRoutes();
+    /* ⭐ AND THE RECORDS STOP CLAIMING A DAY THEY NO LONGER HAVE. Addie asked for
+       this to happen on THIS button — "make sure that this updates when you
+       recalculate everything too" — rather than waiting for a sweep on a timer.
+       ⚠ NOT AWAITED, deliberately: it is a Firestore round trip per stale record and
+       the rest of this press is instant. The count arrives in its own toast, so the
+       press never sits there looking hung and never reports a number it does not
+       have yet. */
+    if(typeof clearStaleInstallBookings === 'function'){
+      clearStaleInstallBookings().then(function(n){
+        if(n) toast(n + ' record' + (n===1?'':'s') + ' no longer says booked — they are out for the season');
+      }).catch(function(err){ console.error('Could not clear stale bookings:', err); });
+    }
     preRebuild=before;
     RT.getElementById('undoRebuildBtn').style.display='';
     computeDates();renderAll();scheduleSave();
@@ -57650,6 +57854,11 @@ RT.addEventListener('click',e=>{const t=e.target;
        button working. */
     if(r.left) parts.push(r.left+' taken off — '+(r.left===1?'that customer is':'those customers are')+
       ' out for the season');
+    /* ⭐ AND THE ROWS THAT WERE NEVER CUSTOMERS, said separately. "Taken off because
+       they are out for the season" and "taken off because there is nobody there" are
+       different pieces of news: the first is somebody to ring, the second is an old
+       import finally clearing itself out. */
+    if(r.orphans) parts.push(r.orphans+' row'+(r.orphans===1?'':'s')+' removed — no customer of that name or number is on the books any more');
     /* ⚠ AND THE ONES IT COULD NOT TAKE OFF. They are on a day inside the 48-hour lock
        or one already worked, so the crew may be holding that sheet — a rebuild cannot
        un-print paper, and pretending otherwise is worse than saying so. */

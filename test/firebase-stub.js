@@ -368,9 +368,20 @@ const FAKE_FUNCTIONS_MODULE = `
           if (inv) qArrears = stubArrears(inv);
         }
       }
+      /* ⚠ alreadyMember IS PART OF THE REAL ANSWER and was missing here, so every
+         spec took the new-lead branch and the member path — the one that shows
+         "anything changing this year?" instead of the install form — was never driven
+         at all. Same shape of divergence as the ok:false one this file already
+         carries: a stub answering more simply than production leaves a whole branch
+         untested while everything reports green. Production decides this from an
+         EXPLICIT link, never a phone match. */
+      const isMember = !!(hit.data.existingCustomerId || hit.data.convertedToCustomerAt);
       return { ok: true, quoteId: hit.id, name: hit.data.name,
                arrearsOutstanding: qArrears.outstanding,
                arrearsSeason: qArrears.season,
+               alreadyMember: isMember,
+               memberContact: isMember ? (hit.data.email || hit.data.phone || '') : '',
+               memberDetails: isMember ? { lightColors: hit.data.lightColors || [] } : null,
                formCompleted: !!hit.data.formCompleted };
     },
 
@@ -379,6 +390,19 @@ const FAKE_FUNCTIONS_MODULE = `
      * failure, so a missing fake does not break the page — but it DOES send a
      * request to the real backend, which the guard then reports. Faked as
      * not-configured: notification emails simply do not send in a test. */
+    /* The QT-21 write: a member saying nothing is changing. Faked so a spec can assert
+       the call actually went — an unfaked callable rejects, which would look like the
+       button failing rather than the stub being short. */
+    quoteMemberKeptDetails: function (payload) {
+      const token = String((payload && payload.quoteToken) || '').trim();
+      let hit = null;
+      Object.keys(F.quotes || {}).forEach(function (k) {
+        if (F.quotes[k].data.quoteToken === token) hit = F.quotes[k];
+      });
+      if (!hit) { const e = new Error('Quote not found.'); e.code = 'functions/not-found'; throw e; }
+      return { ok: true };
+    },
+
     publicConfig: () => ({ configured: false })
   };
 
