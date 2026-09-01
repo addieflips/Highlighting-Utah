@@ -46500,6 +46500,99 @@ suite('286. A record stops claiming a day it no longer has');
   }
 }
 
+suite('287. The routine route sweep does not bury the notice that matters');
+{
+  const NL287 = String.fromCharCode(10);
+  const WARN287 = String.fromCharCode(0x26a0);
+  /* ⚠ RUN THE CLASSIFIER, DO NOT MATCH IT. Every claim here is about which pile a
+     notice lands in and what a badge counts — a regex over the source proves the
+     words exist, which this file records as a weaker claim four separate times. */
+  const routineSrc = extractFn(admin, 'noticeIsRoutine');
+  check('S287', 'the rule is findable', !!routineSrc,
+    'written inline in the renderer it could only ever be checked as text');
+  if (routineSrc) {
+    /* ⚠ THE TOPIC CONSTANT IS LIFTED, NEVER RETYPED. Copied into the harness it
+       becomes a second place the topic string lives, and this suite would go on
+       passing after somebody renamed the notice in admin.html. */
+    const topicLine = (admin.match(/const ROUTINE_NOTICE_TOPIC = [^;]+;/) || [''])[0];
+    check('S287', 'the topic it keys on is lifted from the page', !!topicLine,
+      'retyped here, a rename in admin.html would leave this suite green and the folder flooded');
+    const isRoutine = new Function(topicLine + NL287 + routineSrc + NL287 + 'return noticeIsRoutine;')();
+    const sweep = (msg) => ({ folder: 'System', topic: 'Routes Kept Up To Date', message: msg });
+
+    check('S287', 'an ordinary sweep note is routine',
+      isRoutine(sweep('Route changes on Monday:' + NL287 + '25 houses moved to a different day.')) === true,
+      'this is the one that arrives on a beat and buries everything else');
+
+    /* ⚠ THE ONE THAT MUST STILL COME THROUGH. noticeRoutesReconciled marks every line
+       that wants a human with a leading warning sign and sorts those to the top — its
+       `urgent` filter IS this test — so a sweep that could not write a record, or that
+       caught itself looping all day, is not routine however ordinary the rest reads. */
+    check('S287', 'a sweep that failed to write records is NOT routine',
+      isRoutine(sweep('Route changes on Monday:' + NL287 + WARN287 +
+        ' 3 customer records would not update.')) === false,
+      'that is the sweep silently not doing what it said, and it is the whole reason to look');
+    check('S287', 'a sweep that caught itself looping is NOT routine',
+      isRoutine(sweep('Route changes:' + NL287 + WARN287 +
+        ' 4 of these repeated all day rather than happening once.')) === false,
+      'build-evict-rebuild for ever, which reads as an ordinary busy day without this');
+
+    /* ⚠ NOTHING ELSE IN THE FOLDER IS EVER FOLDED AWAY. A background check that
+       stopped, a customer number that needs fixing and a route sheet that is out of
+       date all live in this same folder and are the reason it is read at all. */
+    ['A Background Check Has Stopped', 'Customer Number Needs Fixing',
+     'A Route Sheet Is Out Of Date', 'Light Color Change'].forEach(function (t) {
+      check('S287', 'a "' + t + '" notice is never routine',
+        isRoutine({ folder: 'System', topic: t, message: 'anything at all' }) === false,
+        'folding one of these away is the bug this change exists to avoid, pointed the other way');
+    });
+
+    /* ⚠ AND A CUSTOMER MESSAGE IS NOT A SYSTEM NOTICE. The nav badge asks this rule
+       about every message in the book, so a rule that answered on topic alone would
+       silently drop a real customer message out of the count. */
+    check('S287', 'a customer message is never routine',
+      isRoutine({ folder: 'Inbox', topic: 'Routes Kept Up To Date', message: 'no warning here' }) === false &&
+      isRoutine({ message: 'hello' }) === false,
+      'the badge asks this about every message, not only the ones in the System folder');
+    check('S287', 'a missing record does not throw', isRoutine(null) === false && isRoutine(undefined) === false,
+      'it is called once per message on every render');
+  }
+
+  /* ⚠ THE WIRING IS ASSERTED SEPARATELY FROM THE RULE, because this repo has shipped
+     a correct rule nothing called at least three times — the recycle "bin says" box,
+     the house-tab strip and suite 286's own sweep. A perfect classifier that no badge
+     and no renderer consults changes nothing on screen. */
+  {
+    const navBadge = (admin.split('function renderMessagesList(){')[1] || '').split('function ')[0];
+    check('S287', 'the nav badge leaves the routine sweep out of its count',
+      /allMessages\.filter\([^)]*!noticeIsRoutine\(m\.data\)/.test(navBadge.replace(/\s+/g, ' ')),
+      'it read 91 while the list underneath it — which never shows System notes — held far fewer');
+
+    const sysTab = (admin.split('function renderSystemMessagesTab(){')[1] || '').split(NL287 + 'function ')[0];
+    check('S287', 'the System tab splits the two piles',
+      /noticeIsRoutine\(m\.data\)/.test(sysTab) && /const needsEye/.test(sysTab),
+      'one flat list is the flood');
+    check('S287', 'and its own badge counts only what needs an eye',
+      /needsEye\.filter\(function\(m\)\{ return !m\.data\.read; \}\)\.length/.test(sysTab),
+      'a number that can never reach nought is one nobody reads — HC-03, in a new place');
+    check('S287', 'the routine ones are still rendered, behind a toggle',
+      /routine\.map\(systemNoticeRow\)/.test(sysTab) && /sysRoutineToggle/.test(sysTab),
+      'they record days that moved under customers; hiding them for good is worse than the flood');
+    check('S287', 'and both piles are drawn by the SAME row builder',
+      /needsEye\.map\(systemNoticeRow\)/.test(sysTab),
+      'two renderers for one card is how the folded list quietly stops matching the one above it');
+    /* ⚠ THE HANDLERS HAVE TO REACH THE FOLDED ROWS. Mark-as-read and Send to Warehouse
+       are bound once per render over the whole list; bound only over the visible half,
+       a routine notice would render with dead buttons. */
+    check('S287', 'the row handlers are wired over the whole list',
+      /systemNoticeWireRows\(list\)/.test(sysTab),
+      'a Send to Warehouse button that does nothing is worse than one that is not there');
+    check('S287', 'nothing is deleted or marked read to achieve any of this',
+      !/deleteDoc/.test(sysTab) && !/\{read: true\}/.test(sysTab),
+      'these are the record of days that moved under customers who may already have been told');
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

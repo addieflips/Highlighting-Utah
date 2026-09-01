@@ -904,6 +904,45 @@ invents a town that does not exist and every house on it is evicted each pass, a
 that disagrees with the route it sits on does the same. Both are named by Health Check and
 fixable from a customer record in a minute.
 
+### The digest still shares a folder with the notices that matter
+
+Dax, 2026-09-01: *"these almost spam messages flood the system messages making it so we
+cant see messages we actually need to do something with, make it so we dont see these
+spam ones but we still see important messages that we need to see."*
+
+⚠ **This is not the 2026-08-30 complaint again, and the digest above is not the fix for
+it.** That one was about VOLUME and it worked — ninety-six notices a day became one. This
+is about the folder that one note lands in. `renderSystemMessagesTab` drew every System
+notice in one flat list, so the daily route digest sat in the same column as *A Background
+Check Has Stopped*, *Customer Number Needs Fixing* and *A Route Sheet Is Out Of Date* — and
+being the longest thing there, it is what the eye lands on.
+
+**What decides.** `noticeIsRoutine(d)` — a System notice, topic *Routes Kept Up To Date*,
+and **no `⚠` anywhere in its body**. The mark is not a new convention: `routeDigestFlush`
+already partitions on exactly it (`urgent`), so a digest that could not write a record, or
+that caught a line looping all day, carries one and is **not** routine. One signal, read the
+same way by the thing that writes the note and the thing that files it.
+
+**What it changes.** Routine digests fold behind a single *Routine route updates (N)* row in
+the System tab, one click from being read, and are left out of **both** unread badges.
+Everything else in the folder is untouched and draws exactly as before.
+
+⚠ **The nav badge was counting messages its own list has never shown.**
+`renderMessagesList` has always filtered System notices *out* of the customer list
+(`folder !== 'System'`) while the badge beside it counted `allMessages` unread — System
+notices included. That is why it read 91 over a list holding a fraction of that, and why a
+real customer message arriving moved it by one and nobody could tell.
+
+⚠ **Nothing is deleted and nothing is marked read.** These notes record days that moved
+under customers who may already have been told a date — the closing line of every digest
+says so. Folding is a view, not a write.
+
+⚠ **Both piles are drawn by one `systemNoticeRow`, and the handlers are bound over the
+whole list.** Two renderers for one card is how the folded half quietly stops matching the
+half above it; handlers bound over the visible half only would give a routine notice a dead
+*Send to Warehouse* button. Suite 287 asserts both, and RUNS the classifier rather than
+matching its source — four sabotages red-checked.
+
 ⚠ **Twice is not a loop.** Two sweeps can honestly find the same thing. Three is where it
 stops being a coincidence, and a threshold that fired at two would put a warning on
 ordinary days — which is how a warning gets ignored.
