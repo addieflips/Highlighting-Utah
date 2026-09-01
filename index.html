@@ -4728,6 +4728,41 @@ function setQuoteConfirmSub(html){
   var sub = document.getElementById('quoteLinkConfirmSub');
   if(sub) sub.innerHTML = html || '';
 }
+/* ⭐ APPROVING IS THE SECOND DOOR INTO A YES, AND IT MADE THE SAME PROMISE
+   (2026-09-01). For an existing member, quoteRespond writes seasonYesUpdates —
+   so RS-24 holds them out of the season on the money exactly as it does an RSVP
+   yes, while all three of this page's approval confirmations ended on some form
+   of "we'll be in touch to get you scheduled". Fixing the RSVP door and leaving
+   this one is half a fix by this repo's own name for it, and it would leave two
+   screens making opposite claims about one rule.
+
+   ⚠ THE FIGURE IS THE SERVER'S, from the same arrearsForCustomer both doors
+   call. This page never sums the fee ledger — that rule lives in js/money.js and
+   functions/index.js with money-parity holding them together, and a third copy
+   here would be outside that guard and would be the one talking to the customer.
+
+   ⚠ AND NOUGHT MEANS SAY NOTHING, which is the fail-safe: a customer we cannot
+   identify, an unreadable invoice, or a cleared debt all return the wording that
+   was always here. Telling somebody they owe money we cannot prove they owe is
+   worse than not warning them about a real one. */
+var quoteApproveArrears = { outstanding: 0, season: '' };
+function rememberQuoteArrears(res){
+  quoteApproveArrears = {
+    outstanding: Number(res && res.arrearsOutstanding) || 0,
+    season: (res && res.arrearsSeason) ? String(res.arrearsSeason) : ''
+  };
+}
+/* Swaps the scheduling clause rather than appending to it: a debt sentence bolted
+   onto "we'll be in touch to get you scheduled" leaves the contradiction on screen. */
+function quoteScheduleSub(normalHtml){
+  if(!(quoteApproveArrears.outstanding > 0)) return normalHtml;
+  var when = quoteApproveArrears.season
+    ? 'the ' + escapeHtmlPortal(quoteApproveArrears.season) + ' season'
+    : 'last season';
+  return 'Before we can book the install, <strong>' +
+    escapeHtmlPortal(fmt(quoteApproveArrears.outstanding)) + '</strong> from ' + when +
+    ' is still outstanding on your account. You can pay it in your portal.';
+}
 /* Declining is the one choice a customer can't undo themselves, and it arrives
    from a single tap in an email, so it asks once first. The other two options
    are offered right there rather than leaving them at a dead end - someone who
@@ -4857,7 +4892,7 @@ function offerMemberChangeChoice(contactHint, memberDetails){
       actions.style.display = 'none';
       actions.innerHTML = '';
       if(confirmMsg) confirmMsg.textContent = 'Perfect \u2014 you\u2019re all set. \uD83C\uDF84';
-      setQuoteConfirmSub('We can\u2019t wait to light up your home again this year. We\u2019ll be in touch to get you on the schedule \u2014 there\u2019s nothing else for you to do.');
+      setQuoteConfirmSub(quoteScheduleSub('We can\u2019t wait to light up your home again this year. We\u2019ll be in touch to get you on the schedule \u2014 there\u2019s nothing else for you to do.'));
       /* ⭐ AND IT IS RECORDED (QT-21). Saying "nothing is changing" used to write
          nothing at all, so the office's card sat in Awaiting Response until somebody
          pressed Mark Approved by hand on their behalf.
@@ -4984,6 +5019,9 @@ function handleQuoteLink(token, action, confirmed){
         return;
       }
       quoteDetailQuoteId = res.quoteId || null;
+      /* What they still owe from last season, so the endings below can stop
+         promising an install to somebody RS-24 holds out of the season. */
+      rememberQuoteArrears(res);
       /* Re-asserted here as well: this runs after everything else on the page
          has finished loading, so nothing can wipe it afterwards. */
       quoteDetailToken = token;
@@ -5003,7 +5041,7 @@ function handleQuoteLink(token, action, confirmed){
         document.body.classList.add('quote-minimal');
         if(confirmWrap) confirmWrap.style.display = 'block';
         if(confirmMsg) confirmMsg.textContent = 'Thank you! Your quote is approved.';
-        setQuoteConfirmSub('We already have your details, so there\'s nothing else to do \u2014 we\'ll be in touch to get you scheduled.');
+        setQuoteConfirmSub(quoteScheduleSub('We already have your details, so there\'s nothing else to do \u2014 we\'ll be in touch to get you scheduled.'));
         return;
       }
       var greet = document.getElementById('quoteDetailGreeting');
@@ -6201,7 +6239,17 @@ document.getElementById('quoteApproveBtn').addEventListener('click', async funct
       var reviewCard = document.getElementById('quoteReviewCard');
       if(reviewCard) reviewCard.classList.remove('show');
       var approvedMsg = document.getElementById('quoteApprovedMsg');
-      if(approvedMsg) approvedMsg.style.display = '';
+      if(approvedMsg){
+        approvedMsg.style.display = '';
+        /* ⚠ THE THIRD ENDING, and it is static markup rather than a call to
+           setQuoteConfirmSub — so it needs the swap doing here. Left alone it
+           would go on telling a debtor we are about to schedule their install
+           while the other two doors had stopped. */
+        rememberQuoteArrears(res);
+        if(quoteApproveArrears.outstanding > 0){
+          approvedMsg.innerHTML = '\u2713 Thanks for approving! ' + quoteScheduleSub('');
+        }
+      }
       statusEl.textContent = '';
       return;
     }

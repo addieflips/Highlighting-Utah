@@ -178,3 +178,87 @@ test.describe('RSVP yes from somebody who owes nothing', () => {
     stub.assertNoRealCalls();
   });
 });
+
+/* ---- THE SECOND DOOR INTO A YES -----------------------------------------
+ *
+ * Approving a quote as an existing member writes seasonYesUpdates on the server,
+ * so RS-24 holds a debtor out of the season through this door exactly as it does
+ * through the RSVP link. All three of the approval endings promised an install.
+ *
+ * ⚠ FIXING ONE DOOR AND NOT THE OTHER IS HALF A FIX — this repo's own phrase —
+ * and it would leave two screens making opposite claims about one rule.
+ */
+const { QUOTES } = require('./fixtures');
+
+/* A quote linked to the standard customer BY ID, which is the only join the real
+   quoteRespond accepts. ⚠ NEVER BY PHONE: 17 numbers in the real book are shared
+   and 14 are two genuinely different households, so a phone join hands one house's
+   debt to another family. */
+function memberQuote(overrides) {
+  const q = JSON.parse(JSON.stringify(QUOTES.alreadyApproved));
+  q.id = 'quote-member-arrears';
+  q.data.quoteToken = 'quotetokenarrears001';
+  q.data.existingCustomerId = CUST.id;
+  q.data.formCompleted = true;
+  return Object.assign({ quotes: { memberArrears: q } }, overrides || {});
+}
+
+async function approveByLink(page, overrides) {
+  const stub = await installFirebaseStub(page, overrides);
+  const thrown = [];
+  page.on('pageerror', e => thrown.push('pageerror: ' + e));
+  page.on('console', m => {
+    if (m.type() === 'error' && !BLOCKED_RESOURCE.test(m.text())) thrown.push('console: ' + m.text());
+  });
+  await page.goto('/index.html#/quote-details?token=quotetokenarrears001&action=approve');
+  stub.thrown = thrown;
+  return stub;
+}
+
+test.describe('Approving a quote when last season is still owed', () => {
+
+  test('does not promise to get them scheduled', async ({ page }) => {
+    const stub = await approveByLink(page, memberQuote(withArrears(200, 2025)));
+    const sub = page.locator('#quoteLinkConfirmSub');
+
+    await expect(sub).toContainText(/before we can book the install/i, { timeout: 8000 });
+    await expect(sub).not.toContainText(/be in touch to get you scheduled/i);
+
+    stub.assertNoRealCalls();
+  });
+
+  test('and names the amount and the season', async ({ page }) => {
+    const stub = await approveByLink(page, memberQuote(withArrears(200, 2025)));
+    const sub = page.locator('#quoteLinkConfirmSub');
+
+    await expect(sub).toContainText('$200.00', { timeout: 8000 });
+    await expect(sub).toContainText('2025');
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ THE APPROVAL ITSELF IS UNAFFECTED. RS-24 holds them on the money, never on
+     the answer — and their quote is genuinely approved. */
+  test('the approval is still recorded', async ({ page }) => {
+    const stub = await approveByLink(page, memberQuote(withArrears(200, 2025)));
+    await expect(page.locator('#quoteLinkConfirmSub')).toContainText(/before we can book/i, { timeout: 8000 });
+
+    const calls = await stub.calls();
+    const approve = calls.filter(c => c.name === 'quoteRespond' && c.payload.action === 'approve');
+    expect(approve.length).toBe(1);
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ SILENCE IS THE FAIL-SAFE HERE TOO. A member who owes nothing must read
+     exactly what they always read. */
+  test('a member who owes nothing reads the original wording', async ({ page }) => {
+    const stub = await approveByLink(page, memberQuote());
+    const sub = page.locator('#quoteLinkConfirmSub');
+
+    await expect(sub).toContainText(/be in touch to get you scheduled/i, { timeout: 8000 });
+    await expect(sub).not.toContainText(/outstanding/i);
+
+    stub.assertNoRealCalls();
+  });
+});
