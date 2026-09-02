@@ -45,6 +45,7 @@ const SPEC_TARGETS = {
   'rsvp-gate-code.spec.js': 'index.html',
   'arrears-portal.spec.js': 'index.html',
   'arrears-lock.spec.js': 'index.html',
+  'paid-then-rsvp.spec.js': 'index.html',
   'rsvp-arrears.spec.js': 'index.html',
   'button-contrast.spec.js': 'index.html',
   'rsvp-record.spec.js': 'index.html',

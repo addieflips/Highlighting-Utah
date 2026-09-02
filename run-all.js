@@ -46816,6 +46816,182 @@ suite('287. The routine route sweep does not bury the notice that matters');
     'that button is the closest thing to what she said she wanted to do herself');
 }
 
+/* =====================================================================
+ * Suite 290 — paying is not the same as saying yes
+ *
+ * Dax, 2026-09-02: "make sure that after they pay in the member portal that it
+ * updates in all customers so it doesnt say they are unpaid and moves them to
+ * confirmed(if they already clicked yes) if they went into the member portal and
+ * paid and havent actually clicked yes on the rsvp it should move them to pending
+ * after they pay ... so they have to click yes on rsvp if they want their lights
+ * hung this year."
+ *
+ * ⭐ THE RULES WERE ALREADY RIGHT AND THE SCREEN WAS NOT, which is why the first
+ * block below RUNS them rather than reading them. computeInvoiceStatus,
+ * houseArrearsTag and seasonBadgeKey all derive from the invoice, so a payment
+ * already moves every one of them. What was missing was anybody telling All
+ * Customers to draw again — that is the second block.
+ * ===================================================================== */
+{
+  const liftAdmin = (n) => extractFn(admin, n);
+  const parts = ['seasonBadgeKey', 'isOutForSeason', 'houseArrearsTag',
+                 'effectiveRsvpStatus', 'audienceNeverAsked', 'audienceQuoteJoinYear',
+                 'seasonRuleIsLive', 'houseOwesFromLastSeason', 'paidButNotApproved',
+                 'arrearsPaidNotApproved'].map(liftAdmin);
+  const missing = ['seasonBadgeKey', 'isOutForSeason', 'houseArrearsTag',
+                   'effectiveRsvpStatus', 'audienceNeverAsked', 'audienceQuoteJoinYear',
+                   'seasonRuleIsLive', 'houseOwesFromLastSeason', 'paidButNotApproved',
+                   'arrearsPaidNotApproved'].filter((n, i) => !parts[i]);
+
+  check('S290', 'the season rules could all be lifted out of admin.html',
+    missing.length === 0, 'missing: ' + missing.join(', '));
+
+  if (!missing.length) {
+    pendingAsync.push((async function () {
+      /* The money rules come from js/money.js — the real module the browser loads.
+         A re-typed copy here would agree with itself and prove nothing. */
+      const { pathToFileURL } = require('url');
+      const money = await import(pathToFileURL(require('path').join(__dirname, 'js', 'money.js')).href);
+
+      const invoiceById = new Map();
+      const sandbox = {
+        ARREARS_ASSUMED_SEASON: '2025',
+        seasonRuleOffForMeasurement: false,
+        invoiceById,
+        custInvoiceKey: (d) => String((d && d.phone) || '').replace(/\D/g, ''),
+        computeInvoiceStatus: money.computeInvoiceStatus,
+        owesFromLastSeason: money.owesFromLastSeason,
+        arrearsOnInvoice: money.arrearsOnInvoice,
+        arrearsSettled: money.arrearsSettled,
+        console
+      };
+      const keys = Object.keys(sandbox);
+      const F = new Function(...keys, parts.join('\n') +
+        '\nreturn {seasonBadgeKey, houseArrearsTag, effectiveRsvpStatus, paidButNotApproved};'
+      )(...keys.map(k => sandbox[k]));
+
+      /* One customer, one invoice, three states of the same bill: nothing owed but
+         this year, last season carried and unpaid, and the same after paying. */
+      const KEY = '8015550101';
+      const invoice = (deposit) => ({
+        install: 450, removal: 0, deposit, credits: 0, changeFees: 315,
+        changeFeeNotes: [{ amount: 315, kind: 'arrears', source: 'office', year: '2025',
+                           reason: 'Unpaid balance carried from the 2025 season' }]
+      });
+      const at = (deposit, cust) => {
+        invoiceById.clear();
+        invoiceById.set(KEY, { data: invoice(deposit) });
+        const d = Object.assign({ phone: '(801) 555-0101' }, cust);
+        return {
+          status: money.computeInvoiceStatus(450, 0, deposit, 0, 315),
+          badge: F.seasonBadgeKey(d),
+          tag: F.houseArrearsTag(d),
+          note: F.paidButNotApproved(d, invoice(deposit))
+        };
+      };
+      const YES = { rsvpStatus: 'yes', rsvpRespondedAt: new Date() };
+      const SILENT = {};
+
+      /* ---- before they pay ---- */
+      const owingYes = at(0, YES);
+      check('S290', 'owing for last season reads Unpaid, and holds them out of the season',
+        owingYes.status === 'Unpaid' && owingYes.badge === 'pending' && owingYes.tag === 'Unpaid 2025',
+        'got ' + JSON.stringify(owingYes));
+
+      /* ---- after they pay it off ---- */
+      const paidYes = at(315, YES);
+      check('S290', 'paying it clears the Unpaid tag',
+        paidYes.tag === '', 'this is the "it still says they are unpaid" half: got ' + JSON.stringify(paidYes));
+      check('S290', 'and moves somebody who said yes to Confirmed',
+        paidYes.badge === 'confirmed', 'got ' + paidYes.badge);
+      check('S290', 'and the bill itself stops reading Unpaid',
+        paidYes.status === 'Partial Payment', 'got ' + paidYes.status);
+
+      /* ⭐ THE HALF THE WHOLE SEASON TURNS ON. Money is not consent: somebody who has
+         paid and never answered must NOT become Confirmed, or a crew is sent to a
+         house nobody asked us to do. */
+      const paidSilent = at(315, SILENT);
+      check('S290', 'but somebody who paid and never answered stays Pending',
+        paidSilent.badge === 'pending',
+        'paying is not saying yes — a crew would go to a house nobody asked for');
+      check('S290', 'their tag clears too, so the row is not calling them a debtor',
+        paidSilent.tag === '');
+
+      const allPaidSilent = at(765, SILENT);
+      check('S290', 'and paying the WHOLE bill still does not make them Confirmed',
+        allPaidSilent.badge === 'pending' && allPaidSilent.status === 'Paid in Full',
+        'got ' + JSON.stringify(allPaidSilent));
+
+      /* ---- the note that tells the office to chase them ---- */
+      check('S290', 'a customer who paid and never answered raises the System note',
+        paidSilent.note === true,
+        'Dax: "it should pop up in our system where we can see it so we know to email them"');
+      check('S290', 'somebody who has answered raises nothing',
+        paidYes.note === false, 'an answer is an answer; a note here would be noise');
+      check('S290', 'and neither does somebody who has paid nothing yet',
+        at(0, SILENT).note === false,
+        'a note about a payment must need a payment — this is the empty-invoice case');
+
+      /* ⚠ AND NOW THE CASE WITH NO ARREARS AT ALL, which is the whole point of
+         widening the rule and which the invoice above cannot test: every state so far
+         carries a carried balance, so RS-30's own arrears path answers first and the
+         new branch is never reached. A red-check proved exactly that — two sabotages
+         of the new code went UNCAUGHT until these three arrived. */
+      const plain = (deposit) => ({ install: 450, removal: 0, deposit, credits: 0, changeFees: 0, changeFeeNotes: [] });
+      check('S290', 'somebody with no old debt who pays and never answers raises the note',
+        F.paidButNotApproved({ phone: '(801) 555-0101' }, plain(450)) === true,
+        'this is the ordinary case Dax asked for: paying for the season without a yes behind it');
+      check('S290', 'the same customer raises nothing once they have answered',
+        F.paidButNotApproved({ phone: '(801) 555-0101', rsvpStatus: 'yes', rsvpRespondedAt: new Date() }, plain(450)) === false,
+        'an answer is an answer, and a note here would be noise on a settled row');
+      check('S290', 'and nothing at all before any money has arrived',
+        F.paidButNotApproved({ phone: '(801) 555-0101' }, plain(0)) === false,
+        'a note about a payment must need a payment; every unpriced invoice would raise one');
+
+      /* ⚠ AND A "no" OR A "back next year" IS AN ANSWER, which is Addie's own line
+         in RS-30: "if they said back next year or no we don't need a system email." */
+      check('S290', 'a no is an answer, and raises nothing',
+        at(315, { rsvpStatus: 'no' }).note === false);
+      check('S290', 'so is a back next year',
+        at(315, { rsvpStatus: 'backnextyear' }).note === false);
+
+      /* ⚠ A BARE STORED 'yes' WITH NO REPLY BEHIND IT IS NOT AN ANSWER (RS-19) — an
+         import or the assumed yes written at conversion. That customer is exactly the
+         one this note exists for. */
+      check('S290', 'a stored yes with no reply behind it still counts as unanswered',
+        at(315, { rsvpStatus: 'yes' }).note === true &&
+        at(315, { rsvpStatus: 'yes' }).badge === 'pending',
+        'an imported yes is not somebody telling us they want lights');
+    })().catch(function (e) { e.__suite = 'S290'; throw e; }));
+  }
+
+  /* ---- the screen, which is the part that was actually broken ---- */
+  const invListenerAt = admin.indexOf("const q = query(collection(db,'invoices'), orderBy('updatedAt','desc'));");
+  const invListener = invListenerAt === -1 ? '' :
+    admin.slice(invListenerAt, admin.indexOf('renderDashboard', invListenerAt) + 40);
+  check('S290', 'the invoices listener repaints All Customers',
+    /renderAllCustomersTable/.test(invListener),
+    'THE BUG DAX REPORTED: every figure on that row is derived from the invoice, so a ' +
+    'payment changes all of them — and nothing told the table to draw again, so it went ' +
+    'on saying "Unpaid 2025" until somebody navigated away and back');
+
+  /* ---- and the question the portal asks on the way out ---- */
+  const idxSrc = read('index.html');
+  check('S290', 'a completed payment hands the re-render the RSVP question',
+    /renderCustomerInvoicePage\(reloadKey, \{skipLastNameCheck: true, onPortalReady: showRsvpAskIfUnanswered\}\)/.test(idxSrc),
+    'Dax: "you could just have it ask them after they pay too" — without this the ' +
+    'dialog is built and never raised');
+  check('S290', 'and it is asked only of somebody with no answer on file',
+    /function showRsvpAskIfUnanswered\(\)\{[\s\S]{0,300}?portalHasRealRsvpAnswer\(/.test(stripComments(idxSrc)),
+    'asking somebody who has already said yes reads as us having lost their answer');
+  /* ⚠ THE ANSWERS ARE THE PAGE'S OWN, NOT A SECOND COPY. data-portalrsvp is handled
+     by one delegated listener, so these three buttons run the same code as the RSVP
+     block inside the portal — including the confirm on a "no". */
+  check('S290', 'the three answers reuse the portal\'s own RSVP handler',
+    /id="rsvpAskBtnRow"[\s\S]{0,600}?data-portalrsvp="yes"[\s\S]{0,400}?data-portalrsvp="no"/.test(idxSrc),
+    'a second copy of the answer path is a second thing to keep true');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

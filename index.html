@@ -152,6 +152,26 @@
   #arrearsLockBody{ font-size:14px; line-height:1.55; color:var(--slate); margin-bottom:18px; }
   #arrearsLockModal .btn{ min-width:11rem; }
   #arrearsLockHelp{ font-size:12.5px; color:var(--slate); margin-top:14px; line-height:1.5; }
+
+  /* ---------- The RSVP question, asked straight after a payment ----------
+     ⚠ IT SITS BELOW THE ARREARS LOCK (400 against 401) and that ordering is
+     deliberate: the two can never be right at once — paying is what clears the
+     lock — but if a bug ever raised both, the one that must not be dismissed has
+     to be the one on top. */
+  #rsvpAskModal{ position:fixed; inset:0; z-index:400; display:none;
+                 align-items:center; justify-content:center; padding:20px; }
+  #rsvpAskModal.show{ display:flex; }
+  #rsvpAskBackdrop{ position:absolute; inset:0; background:rgba(17,24,32,.55); }
+  #rsvpAskCard{ position:relative; width:100%; max-width:430px; background:#fff;
+                border-radius:14px; padding:26px 22px; text-align:center;
+                box-shadow:0 18px 50px rgba(0,0,0,.30); }
+  #rsvpAskTitle{ font-size:17px; font-weight:700; color:var(--ink); margin-bottom:10px; }
+  #rsvpAskBody{ font-size:14px; line-height:1.55; color:var(--slate); margin-bottom:18px; }
+  #rsvpAskBtnRow{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  #rsvpAskBtnRow .btn{ min-width:9rem; }
+  /* A plain word, not a fourth button: it is a way out, not a fourth answer. */
+  #rsvpAskLater{ margin-top:16px; background:none; border:0; padding:0; cursor:pointer;
+                 font-size:12.5px; color:var(--slate); text-decoration:underline; font-family:inherit; }
   .btn-ember{ background:var(--ember); color:#fff; }
   .btn-ember:hover{ background:#b23d33; }
   .btn-block{ width:100%; }
@@ -1586,6 +1606,38 @@
              wrong must be able to say so, or an honest dispute turns into somebody who
              just stops answering — so the phone number is on the card, Contact stays
              open behind it, and Cancel does too. -->
+        <!-- ⭐ THE QUESTION THAT DECIDES WHETHER THEY GET LIGHTS, ASKED THE MOMENT THEY
+             PAY (Dax, 2026-09-02: "you could just have it ask them after they pay too and
+             if they dont answer it then it should pop up in our system where we can see it
+             so we know to email them", and "they have to click yes on rsvp if they want
+             their lights hung this year").
+
+             ⚠ THE BUTTONS CARRY data-portalrsvp, WHICH IS THE WHOLE TRICK. A delegated
+             listener on the document already handles that attribute for the RSVP block
+             further down this page — it confirms a "no", calls portalRsvp, updates the
+             record and repaints. These three answers therefore run the SAME code as the
+             ones inside the portal rather than a second copy that can drift.
+
+             ⚠ AND IT CLOSES, unlike the arrears lock above it. That one withholds
+             something until they pay; this one is asked of somebody who has just paid, and
+             trapping them after they have done what we asked would be the wrong way round.
+             The System note is the backstop for anyone who closes it. -->
+        <div id="rsvpAskModal" role="dialog" aria-modal="true" aria-labelledby="rsvpAskTitle">
+          <div id="rsvpAskBackdrop"></div>
+          <div id="rsvpAskCard">
+            <div id="rsvpAskTitle">Thank you &mdash; that&rsquo;s paid.</div>
+            <div id="rsvpAskBody">One last thing, and it&rsquo;s the one that matters:
+              <strong>are you having your lights hung this year?</strong><br><br>
+              We can&rsquo;t put anyone on the schedule until they say yes.</div>
+            <div id="rsvpAskBtnRow">
+              <button type="button" class="btn btn-gold" data-portalrsvp="yes">Yes, I&rsquo;m in</button>
+              <button type="button" class="btn btn-outline-dark" data-portalrsvp="backnextyear">Back next year</button>
+              <button type="button" class="btn btn-outline-dark" data-portalrsvp="no">Not this season</button>
+            </div>
+            <button type="button" id="rsvpAskLater">I&rsquo;ll decide later</button>
+          </div>
+        </div>
+
         <div id="arrearsLockModal" role="dialog" aria-modal="true" aria-labelledby="arrearsLockTitle">
           <div id="arrearsLockBackdrop"></div>
           <div id="arrearsLockCard">
@@ -4280,6 +4332,14 @@ document.addEventListener('click', function(e){
     }
     if(currentJobAddressData) currentJobAddressData.rsvpStatus = answer;
     if(currentLookupRecord) currentLookupRecord.rsvpStatus = answer;
+    /* ⚠ AND THE STAMP, NOT ONLY THE WORD. portalHasRealRsvpAnswer refuses a bare
+       'yes' with nothing behind it, so without this the question would reopen on the
+       next render of a customer who had just answered it. */
+    if(currentJobAddressData) currentJobAddressData.rsvpRespondedAt = new Date();
+    if(currentLookupRecord) currentLookupRecord.rsvpRespondedAt = new Date();
+    /* One answer closes whichever screen asked for it — the block below or the
+       dialog a payment raised. */
+    if(typeof closeRsvpAsk === 'function') closeRsvpAsk();
     renderPortalRsvp();
     renderScheduleStrip(currentJobAddressData || currentLookupRecord);
     if(statusEl) statusEl.textContent = 'Saved — thank you!';
@@ -5677,7 +5737,13 @@ function renderPaypalButtons(){
         paypalButtonsRendered = false;
         var reloadKey = currentPortalPhone || (currentLookupRecord ? currentLookupRecord.phone : '');
         try{
-          renderCustomerInvoicePage(reloadKey, {skipLastNameCheck: true});
+          /* ⭐ AND THE QUESTION IS PUT TO THEM ON THE WAY OUT (Dax, 2026-09-02: "you
+             could just have it ask them after they pay too"). onPortalReady is the last
+             line of a SUCCESSFUL render, so the bill they have just settled is on screen
+             behind it — and a payment that failed to reload raises nothing.
+             ⚠ MONEY IS NEVER HELD UP BY IT: the capture is already recorded on the server
+             by this point, so nothing this dialog does can affect the payment. */
+          renderCustomerInvoicePage(reloadKey, {skipLastNameCheck: true, onPortalReady: showRsvpAskIfUnanswered});
         }catch(reloadErr){
           /* ⚠ NEVER LEAVE THEM LOOKING AT A STALE BALANCE AFTER A REAL PAYMENT. If the
              re-read fails, fall back to the old behaviour of taking the panel down and
@@ -6154,6 +6220,39 @@ function applyArrearsLock(owed, season){
     if(!current || PORTAL_UNLOCKED_TABS.indexOf(current.dataset.tab) === -1) activatePortalTab('payment');
   }
 }
+/* --- The RSVP question, raised by a payment ---------------------------------
+ *
+ * ⚠ ONLY WHEN THERE IS NO ANSWER ON FILE. Somebody who has already said yes is
+ * not asked again — that would read as us having lost their answer — and neither
+ * is somebody who said no or back next year, who has answered and would be being
+ * argued with. Same test the office side uses: an answer is an answer.
+ *
+ * ⚠ AND `yes` ALONE IS NOT AN ANSWER. A bare 'yes' with no `rsvpRespondedAt`
+ * behind it is an import or the assumed yes written at conversion (RS-19), which
+ * is precisely the customer this question exists for. The office's
+ * effectiveRsvpStatus makes the same distinction; this is that rule, on this side. */
+function portalHasRealRsvpAnswer(rec){
+  var d = rec || {};
+  var said = String(d.rsvpStatus || '').trim().toLowerCase();
+  if(said === 'no' || said === 'backnextyear') return true;
+  return said === 'yes' && !!d.rsvpRespondedAt;
+}
+function showRsvpAskIfUnanswered(){
+  var modal = document.getElementById('rsvpAskModal');
+  if(!modal) return;
+  if(portalHasRealRsvpAnswer(currentJobAddressData || currentLookupRecord)) return;
+  modal.classList.add('show');
+}
+function closeRsvpAsk(){
+  var modal = document.getElementById('rsvpAskModal');
+  if(modal) modal.classList.remove('show');
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var later = document.getElementById('rsvpAskLater');
+  if(later) later.addEventListener('click', closeRsvpAsk);
+  var bd = document.getElementById('rsvpAskBackdrop');
+  if(bd) bd.addEventListener('click', closeRsvpAsk);
+});
 function showArrearsLockIfHeld(){
   if(!portalArrearsHold) return;
   var modal = document.getElementById('arrearsLockModal');
