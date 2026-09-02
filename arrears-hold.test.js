@@ -761,8 +761,15 @@ function seasonResetWrite() {
     'that shape is an import or the assumed yes at conversion, not an answer');
 
   const sweep = lift('noticeArrearsPaidNotApproved');
+  /* ⚠ THE TOPIC IS A CHOICE OF TWO NOW (2026-09-02), and both must still be there.
+     The note was widened past arrears — any customer who has paid and never answered
+     raises one — so the arrears wording became one branch of a pair rather than the
+     only sentence. What has not changed, and is what this check is for, is that it
+     lands in the System folder: she asked for the system inbox by name. */
   check('the note goes to the System folder of the Inbox',
-    /folder: 'System'/.test(sweep) && /topic: 'Paid Last Season/.test(sweep),
+    /folder: 'System'/.test(sweep) &&
+    /'Paid Last Season — Still Needs to RSVP'/.test(sweep) &&
+    /'Paid — Still Needs to RSVP'/.test(sweep),
     'she asked for the system inbox by name');
   check('it is raised once per customer per season',
     /if\(d\.arrearsPaidNoticeAt\) continue;/.test(sweep) &&

@@ -132,6 +132,33 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
      year's install price (RS-37), so the buttons carry their portal token and the portal shows the figure.
    - The **test record carries Addie's own phone**, so it is skipped by flag and by name-and-number both.
 
+   ⭐ **AND WHEN THEY PAY, EVERYTHING MOVES — INCLUDING THE OFFICE SCREEN** (2026-09-02, RS-40). Every
+   figure on an All Customers row is derived live from the invoice, so a portal payment already cleared the
+   *Unpaid 2025* tag, moved the bill Unpaid → Partial → Paid in Full, and moved a yes-sayer from **On hold**
+   to **Confirmed**. What was missing was the repaint: the invoices listener drew the invoice list, the
+   routes, the takedowns and the dashboard, and not All Customers — so the row stayed stale until somebody
+   navigated away and back. It repaints now.
+
+   - ⚠ **Money is not consent.** Somebody who pays and has never answered stays **Pending**, whether they
+     paid last season's carry or this year's bill in full. A bare stored `yes` with no `rsvpRespondedAt`
+     behind it does not count either (RS-19). Confirmed would send a crew to a house nobody asked for.
+   - ⭐ **So the question is asked the moment the payment lands** — `#rsvpAskModal` over their own portal,
+     three answers, wired through the page's existing `data-portalrsvp` handler rather than a second copy.
+     It closes, unlike the arrears lock: that one withholds something until they pay, this is asked of
+     somebody who just did.
+   - ⭐ **The backstop is the System note**, widened past RS-30: any customer with money in and no answer
+     raises one, not only somebody who cleared an old debt. A no or a back next year still raises nothing.
+   - ⚠ **`rsvpRespondedAt` is now sent to the portal.** Three server paths wrote it and nobody sent it, so
+     the browser could not tell a real yes from an imported one — the new question would have been put to
+     customers who had already answered. `portal-fields.test.js` caught it.
+
+   ⚠ **A PREBUILT TEMPLATE THAT EXISTS BUT IS EMPTY IS FILLED IN** (2026-09-02, RS-41). The one-time top-up
+   skipped any template whose NAME was already there — so a shell somebody had made by hand stayed blank and
+   would have sent an empty email, with the seed record saying the job was done. It now patches blank fields
+   (body, subject, linkedTokens) on any prebuilt-named template, never replaces written words, and is
+   deliberately not gated on that seed record: the fault is only visible after the name has been recorded as
+   handled.
+
    ⚠ **THE SIDES TAB HAD NEVER OPENED** (fixed 2026-09-02, RS-38). `sides` was missing from `PORTAL_TAB_NAMES`,
    so clicking it hid the other six panels and showed none — a blank card under the tab strip. Found while
    building the hold above; nobody had reported it. Every `data-tab` on the page must now appear in that list.
