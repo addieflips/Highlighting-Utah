@@ -262,3 +262,128 @@ test.describe('Gate code on the RSVP yes', () => {
   });
 
 });
+
+/* ============================================================================
+ * A dialog over the portal, not a page in front of it
+ *
+ * Dax, 2026-09-02: "after they answer the gate code question it should just put
+ * them into their member portal", then "make it so the gate code question is
+ * just a pop up in the member portal but keep the buttons exactly as is instead
+ * of an entire page."
+ *
+ * ⚠ THE WHOLE CLAIM IS ABOUT WHAT IS UNDERNEATH IT. "A pop-up over the portal"
+ * and "a page before the portal" look identical to any spec that only asserts
+ * the question is on screen — the difference is whether the account is already
+ * there behind it. So every test below checks the thing behind, not the thing
+ * in front.
+ * ========================================================================== */
+test.describe('The gate code asks from inside the portal', () => {
+
+  test('the account is already open behind the question', async ({ page }) => {
+    const stub = await openRsvpYes(page, CUSTOMERS.standard.token);
+
+    /* Both at once. Not "the question, then the portal after answering". */
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+    await expect(page.locator('#invBreakdown')).toBeVisible();
+    await expect(page.locator('#portalTabsLayout')).toBeVisible();
+    /* And the screen it used to be part of is gone rather than hidden behind. */
+    await expect(page.locator('#rsvpConfirmCard')).toBeHidden();
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ ON TOP IS A STACKING CLAIM, AND STACKING IS NOT VISIBILITY. A dialog can be
+     "visible" to Playwright and still be painted underneath the page it is meant to
+     cover — z-index is exactly the kind of fault that only a real browser can see.
+     elementFromPoint is the question actually being asked: if a customer taps the
+     middle of this dialog, what do they hit? */
+  test('and the question is what a tap in the middle of it hits', async ({ page }) => {
+    const stub = await openRsvpYes(page, CUSTOMERS.standard.token);
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+
+    const onTop = await page.evaluate(() => {
+      const box = document.getElementById('rsvpGateCodeStep').getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + 8);
+      return !!(hit && hit.closest('#rsvpGateCodeModal'));
+    });
+    expect(onTop, 'something in the portal is painted over the gate-code dialog').toBe(true);
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ THE PHONE IS WHERE THIS BREAKS, and it is the screen nearly every customer
+     reads the RSVP email on. The portal's bottom tab bar is position:fixed with its
+     own z-index, so it is the one thing on the page that can sit above a dialog
+     without anything looking wrong on a desktop. A customer who can tap "Changes"
+     through the backdrop is being asked a question and offered a way round it. */
+  test('and the phone tab bar cannot be tapped through the backdrop', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    const stub = await openRsvpYes(page, CUSTOMERS.standard.token);
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+
+    const covered = await page.evaluate(() => {
+      const bar = document.querySelector('.portal-bottom-nav');
+      if (!bar) return 'no bar';
+      const box = bar.getBoundingClientRect();
+      if (!box.width || !box.height) return 'bar not on screen';
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return !!(hit && hit.closest('#rsvpGateCodeModal'));
+    });
+    /* "no bar" is a real answer, not a skip: it means there is nothing to tap
+       through, which is the same guarantee by a different route. */
+    expect(covered === true || covered === 'no bar' || covered === 'bar not on screen',
+      'the portal tab bar is reachable through the gate-code backdrop: ' + covered).toBe(true);
+
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ ANSWERING MUST NOT COST THEM THE PAGE THEY ARE ON. The old step tore one
+     screen down and built another, so "closing" it meant navigating. Now there is
+     nowhere to go — the portal was already there and has to still be there. */
+  test('answering closes the question and leaves them in the portal', async ({ page }) => {
+    const stub = await openRsvpYes(page, CUSTOMERS.standard.token);
+
+    await page.locator('#rsvpGateCodeYesBtn').click();          // "Yes, that's right"
+    await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
+    await expect(page.locator('#rsvpGateCodeModal')).toBeHidden();
+    await expect(page.locator('#invBreakdown')).toBeVisible();
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ A DIALOG WITH NO WAY OUT LOCKS SOMEBODY OUT OF THEIR OWN ACCOUNT, which is a
+     worse fault than an unanswered gate code. Escape closes it and writes NOTHING —
+     an unanswered question must not look like an answer. */
+  test('Escape closes it, and saves nothing', async ({ page }) => {
+    const stub = await openRsvpYes(page, CUSTOMERS.standard.token);
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
+    await expect(page.locator('#invBreakdown')).toBeVisible();
+
+    const calls = await stub.calls();
+    expect(calls.filter(c => c.name === 'portalSetGateCode')).toEqual([]);
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ AND IT NEVER FLOATS OVER AN ERROR. The question is now the LAST thing to
+     happen, after the destination — so a customer whose portal did not open is left
+     reading why, not answering a question about a gate on top of it. A deactivated
+     account is the real version of that: portalLookup answers, the portal refuses,
+     and there is no account underneath for a dialog to belong to. */
+  test('it is not asked at all when the portal does not open', async ({ page }) => {
+    const stub = await openRsvpYes(page, CUSTOMERS.deactivated.token,
+      { customers: { deactivated: CUSTOMERS.deactivated } });
+
+    await expect(page.locator('#portalDeactivatedMsg')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
+    await expect(page.locator('#rsvpGateCodeModal')).toBeHidden();
+
+    stub.assertNoRealCalls();
+  });
+});

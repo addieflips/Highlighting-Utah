@@ -53,7 +53,7 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
    | Button | Link | Answer saved | What the customer sees |
    |---|---|---|---|
-   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | The gate-code step, then **their member portal opens by itself** — no confirmation screen, no button to press (RS-33) |
+   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | **Their member portal opens by itself**, with the gate-code question as a pop-up over it — no confirmation screen, no button to press (RS-33, RS-35) |
    | **No** | `#/payment?token=…&rsvp=no` | `no` | recorded, then **straight into the member portal** on the Cancel tab (RS-33) |
    | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | a **pop-up card** — "We look forward to seeing you next year!" (RS-34) |
 
@@ -65,15 +65,23 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    `showChangesQuestion` ("You're confirmed! Do you want to make any changes?", with the portal behind a
    button) is replaced by `openPortalAfterYes`, which tears the card down and calls `loadPortalByToken`.
 
-   - ⚠ **The gate-code step stays, and is now the only thing in between.** Dax: *"gate codes change so
-     make sure it asks if theres a gate code."* That is RS-29 reaffirmed, not reversed.
+   - ⚠ **The gate-code question stays, and since 2026-09-02 it is not in between at all** (RS-35). Dax:
+     *"gate codes change so make sure it asks if theres a gate code"* — RS-29 reaffirmed, not reversed —
+     then *"after they answer the gate code question it should just put them into their member portal"*
+     and *"make it so the gate code question is just a pop up in the member portal but keep the buttons
+     exactly as is instead of an entire page."* So the portal loads first and the question arrives **on
+     top of it**, in `#rsvpGateCodeModal`. The buttons, their ids and their wording did not change; the
+     frame around them did. `renderCustomerInvoicePage` calls `opts.onPortalReady` as the last line of a
+     successful render, and that is the only thing that opens the dialog — every early return (deactivated,
+     wrong last name, no invoice) is somebody who did not get in, so the question can never float over an
+     error message. Escape and the backdrop close it and write nothing.
    - ⚠ **Yes only.** No still gets its message before the Cancel tab — Addie's 2026-08-19 ruling, *"put a
      message in front of it first so they know why they've landed there"* — and Back Next Year is untouched.
    - ⚠ **The debt sentence moved rather than being dropped.** The removed screen told a debtor we could not
      book them; that line is now on the portal's own *"<year> season — still owing"* card, where it is true
      whenever they open the page instead of only just after an RSVP.
    - ⚠ **The second answer used to be invisible, and that hid a dead end** (fixed
-     2026-09-01, RS-34). `.btn-outline` is the DARK hero's button — white text on a
+     2026-09-01, RS-32). `.btn-outline` is the DARK hero's button — white text on a
      35%-white border — so on these light cards it rendered white-on-white. On a
      customer who already has a gate code the answers are *Yes, that's right* and
      ***It has changed***, and that second one is the only route to the entry box, so
@@ -86,6 +94,12 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
      account page. The no and back-next-year paths still end on the receipt.
 
    All three are a **receipt, not the website**: the header, footer and hero come off, and nothing else is reachable from the page. That is `body.rsvp-minimal`, which force-shows `#page-payment` (holding `#rsvpConfirmCard`) for the first two, plus the modifier `body.rsvp-minimal.rsvp-back`, which force-shows `#page-home` (holding `#backNextYearConfirm`) for the third.
+
+   ⚠ **AND THAT IS WHY THE GATE-CODE DIALOG IS NOT INSIDE `#rsvpConfirmCard`.** Both answers now leave that
+   card within a moment, so a dialog nested in it would be torn down by the very step that opens it. It sits
+   at the top level of the payment page instead, `position:fixed` with a dimmed backdrop over everything —
+   including the portal's `position:fixed` phone tab bar, which is the one thing on the page that could
+   otherwise be tapped straight through it.
 
    ⚠ **ONE CLASS USED TO SERVE BOTH CARDS AND SHOWED BOTH PAGES** (fixed 2026-09-01). Addie, over a screenshot of a bare *"One moment…"*: *"this is what happens when I open up Yes or No, but back next year seems to be working"* — and that sentence is the whole diagnosis. The two answers land on **different cards in different pages**, and `body.rsvp-minimal` force-showed *both*. So a Yes or a No opened with the Back Next Year card sitting above it, still holding the **static `One moment…` from the markup** that only `handleBackNextYear` ever rewrites. The real confirmation rendered perfectly, below the fold, under a dead card.
    - ⚠ **It looked like a hang and was not.** The answer was recorded, the message was built, and the customer stared at *"One moment…"* for ever — the same shape as the bug this class was *introduced* to fix, which is how it hid inside the fix.
