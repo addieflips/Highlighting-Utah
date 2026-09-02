@@ -17687,6 +17687,27 @@ function isInvoiceOverdue(d){
    stamp lands. A failed write clears the memory entry so it retries rather than being
    lost — a note nobody gets is the whole failure this exists to prevent. */
 const arrearsNoticedThisSession = new Set();
+/* ⭐ WIDENED, WITHOUT DISTURBING THE RULING IT GREW OUT OF (Dax, 2026-09-02: "if
+   they dont answer it then it should pop up in our system where we can see it so we
+   know to email them").
+
+   ⚠ RS-30 IS THE ARREARS CASE AND IS LEFT EXACTLY AS IT WAS — somebody who clears
+   last season's debt and has still never answered. That is the sharpest instance of
+   this and it keeps its own function and its own wording. What is added is the
+   general one: ANY money in, and still no answer.
+
+   ⚠ AND THE HALF ADDIE NAMED HERSELF SURVIVES UNTOUCHED: "if they said back next
+   year or no we don't need a system email." An answer is an answer, whatever it was,
+   and effectiveRsvpStatus is the single place that judges it — including refusing a
+   bare stored 'yes' with no reply behind it. */
+function paidButNotApproved(d, inv){
+  if(!d || !inv) return false;
+  if(effectiveRsvpStatus(d)) return false;
+  if(arrearsOnInvoice(inv) > 0) return arrearsPaidNotApproved(d, inv);
+  /* ⚠ MONEY THAT ACTUALLY ARRIVED, not a balance of zero. An unpriced or empty
+     invoice has paid nothing and must not raise a note about a payment. */
+  return (Number(inv.deposit) || 0) > 0;
+}
 function arrearsPaidNotApproved(d, inv){
   if(!d || !inv) return false;
   /* A bill that never carried last season's debt has nothing to be paid off. */
@@ -17706,17 +17727,29 @@ async function noticeArrearsPaidNotApproved(){
        note and the hold can never be about different invoices. */
     const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
     const inv = key ? invoiceById.get(key) : null;
-    if(!inv || !arrearsPaidNotApproved(d, inv.data || {})) continue;
+    if(!inv || !paidButNotApproved(d, inv.data || {})) continue;
+    /* Which of the two it is decides the sentence, because the office does a
+       different thing with each: one has just cleared an old debt, the other has
+       paid for a season they have not yet said they want. */
+    const wasArrears = arrearsOnInvoice(inv.data || {}) > 0;
     arrearsNoticedThisSession.add(item.id);
     try{
       await addDoc(collection(db,'messages'), {
-        topic: 'Paid Last Season — Still Needs to RSVP', folder: 'System',
+        topic: wasArrears ? 'Paid Last Season — Still Needs to RSVP'
+                          : 'Paid — Still Needs to RSVP', folder: 'System',
         name: d.name || '', phone: d.phone || '', email: d.email || '',
         contactMethod: '',
-        message: (d.name || 'A customer') + ' has now paid off what they owed from last ' +
-          'season, but they have never answered the RSVP — so they are still not being ' +
-          'scheduled.\n\n' +
-          'Their money is no longer the thing holding them: the only step left is a yes.\n\n' +
+        message: (wasArrears
+            ? (d.name || 'A customer') + ' has now paid off what they owed from last ' +
+              'season, but they have never answered the RSVP — so they are still not being ' +
+              'scheduled.\n\nTheir money is no longer the thing holding them: the only ' +
+              'step left is a yes.\n\n'
+            : (d.name || 'A customer') + ' has paid, but they have never answered the ' +
+              'RSVP — so they are still not being scheduled.\n\nThey have paid for a ' +
+              'season they have not yet said they want, which is the wrong way round and ' +
+              'is worth a quick call.\n\n') +
+          'They were asked in the portal the moment the payment went through and did not ' +
+          'answer, so this is the follow-up.\n\n' +
           'Email or text them to ask whether they want their lights up this year. Their ' +
           'answer can be marked on their record (Customers > Edit > RSVP Status), or they ' +
           'can use the RSVP link. The moment it is a yes they join the season on their own.',
@@ -17753,6 +17786,24 @@ function loadInvoices(){
       invoiceById.set(docSnap.id, entry);
     });
     renderInvoicesList();
+    /* ⭐ ALL CUSTOMERS READS INVOICES AND WAS NOT REPAINTED HERE (fixed 2026-09-02).
+       Dax: "make sure that after they pay in the member portal that it updates in all
+       customers so it doesnt say they are unpaid."
+
+       ⚠ THE RULES WERE ALREADY RIGHT — this was only the screen. Every figure on that
+       row is derived live: computeInvoiceStatus works out Unpaid/Partial/Paid from the
+       deposit, houseArrearsTag asks houseOwesFromLastSeason, and seasonBadgeKey moves a
+       customer between On hold and Confirmed off the same invoice. Running them proves
+       a payment does all three. What was missing was anybody telling the table to run
+       them again: this listener repainted the invoice list, the routes, the takedowns
+       and the dashboard, and not the one screen the office actually watches. So a
+       portal payment landed, the data changed underneath, and the row went on saying
+       "Unpaid 2025" until somebody navigated away and back.
+
+       ⚠ IT IS CHEAP TO CALL AND EXPENSIVE TO SKIP: the render already runs on every
+       keystroke in the search box (see the input handlers), so one more repaint when
+       money arrives is well within what it is built for. */
+    if(typeof renderAllCustomersTable === 'function') renderAllCustomersTable();
     if(typeof renderRouteAddressList === 'function') renderRouteAddressList();
     if(typeof renderTakedownsList === 'function') renderTakedownsList();
     if(typeof populateQuickEmailSelect === 'function') populateQuickEmailSelect();

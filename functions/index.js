@@ -734,6 +734,15 @@ const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
   'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
+  /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
+     (added 2026-09-02). A stored yes with nothing behind it is an import or the
+     assumed yes written at conversion (RS-19) — the office already refuses that
+     through effectiveRsvpStatus, and until now the portal COULD NOT make the same
+     distinction: this field was written by three server paths and sent to nobody,
+     so it read as undefined for everybody. The RSVP question raised after a payment
+     would therefore have been put to customers who had already answered it.
+     Caught by portal-fields.test.js, which exists for exactly this shape. */
+  'rsvpRespondedAt',
   'seasonStatus', 'seasonStatusAt', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
   /* Set when they decline a re-quote: somebody has to ask whether last year's
      job will do. In the read list so the portal cannot contradict the office
