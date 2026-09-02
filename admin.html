@@ -1870,7 +1870,7 @@
               <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
                    Beside Route Status on purpose — Confirmed IS the route answer now
                    (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
-              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">Pending &mdash; blocked by a rule</option><option value="maybe">Maybe Next Year</option></select></div>
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Maybe Next Year</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -42862,9 +42862,21 @@ function renderAllCustomersTable(){
     const unpaidPill = unpaidTag
       ? '<br><span class="status-pill" style="background:#FDECEA; color:#B91C1C; font-weight:700; margin-top:4px; display:inline-block;">'+esc(unpaidTag)+'</span>'
       : '';
-    /* ⚠ THREE STATES NOW, NOT TWO. Pending is a customer we want who is blocked by a
+    /* ⚠ THREE STATES NOW, NOT TWO. On hold is a customer we want who is blocked by a
        rule — today that is owing for a previous season, or a set queued to come back.
-       It is DERIVED, so it clears itself the moment the reason does. */
+       It is DERIVED, so it clears itself the moment the reason does.
+       ⚠ IT WAS CALLED "Pending" AND THAT WORD MEANS SOMETHING ELSE ON THIS ROW
+       (renamed 2026-09-02). Addie: "Says yes in one spot but pending in the other."
+       She was reading two pills that answer DIFFERENT questions — the RSVP pill says
+       whether they have approved, this one says whether they are in the season — and
+       "Pending" is the RSVP vocabulary for NOBODY HAS ANSWERED. So a customer who
+       had approved sat under a chip saying, in the other column’s own language, that
+       they had not. Both were correct and together they read as a contradiction.
+       ⚠ THE KEY IS STILL 'pending'. Only the word a person reads changed: r.badge
+       is what the season filter matches on (r.badge === seasonFilter) and the dropdown
+       option values are confirmed/pending/maybe, so renaming the key would silently
+       break that filter. The filter label already said "blocked by a rule" — this
+       makes the chip agree with it. */
     const badgeKey = r.badge;
     const maybeCell = badgeKey === 'maybe'
       ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+unpaidPill+
@@ -42873,7 +42885,7 @@ function renderAllCustomersTable(){
       /* ⚠ THE REASON IS NOT REPEATED HERE. The Route column already prints "Not
          scheduled — owes $X from 2025" from the same helper, and the Unpaid tag sits
          directly under this pill; a third copy is a third thing to keep true. */
-      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="Not scheduled until the reason beside it is cleared — this clears itself">Pending</span>'+unpaidPill+
+      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>'
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
