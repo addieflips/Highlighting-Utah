@@ -4611,9 +4611,15 @@ suite('8. Quote decline / maybe next year');
      confirmed tag if they are breaking a rule so if you break one of the rules they
      automatically change the badge to pending". A blank cell is still what this
      refuses — every customer reads exactly one of the three. */
-  check('quoteresp', 'every customer reads Confirmed, Pending or Maybe Next Year',
+  /* ⚠ THE THIRD WORD IS "On hold" SINCE 2026-09-02, not "Pending". The state is
+     unchanged and so is this check's point — every row shows one of three, because a
+     blank cell is ambiguous between "confirmed" and "nobody has looked yet". What
+     changed is only the word: "Pending" is the RSVP pill's term for NOBODY HAS
+     ANSWERED, and on a row where that pill said Yes the two read as a contradiction.
+     Addie: "Says yes in one spot but pending in the other." */
+  check('quoteresp', 'every customer reads Confirmed, On hold or Maybe Next Year',
     maybeCell.includes('Maybe Next Year<') && maybeCell.includes('Confirmed<') &&
-    maybeCell.includes('Pending<'),
+    maybeCell.includes('On hold<'),
     'a blank cell is ambiguous between "confirmed" and "nobody has looked yet"');
   /* ⚠ AND THE BADGE HAS TO DRIVE THEM. A red-check proved the line above is not
      enough on its own: replacing the `badgeKey === 'pending'` test with `false` leaves

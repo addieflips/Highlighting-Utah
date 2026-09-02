@@ -1482,6 +1482,53 @@ check('badging Back Next Year clears the build but not the recycle',
     'Pending must keep meaning "nobody has answered"; got ' + badgeFn({}));
 }
 
+/* ---------------------------------------------------------------------------
+ * TWO PILLS ON ONE ROW MUST NOT BORROW EACH OTHER'S WORDS (added 2026-09-02)
+ *
+ * Addie: "Says yes in one spot but pending in the other." Both pills were right and
+ * they answer DIFFERENT questions -- the RSVP pill says whether they approved, the
+ * season pill says whether they are in the season -- but the season pill said
+ * "Pending", which is the RSVP vocabulary for NOBODY HAS ANSWERED. So a customer who
+ * had approved sat under a chip stating, in the other column's own language, that
+ * they had not.
+ *
+ * ⚠ THE GUARD IS ABOUT VOCABULARY, NOT LOGIC, because the logic was never wrong.
+ * Nothing here says which state a customer is in; it says the two columns may not
+ * use one word for two different questions.
+ * ------------------------------------------------------------------------- */
+{
+  const labelFn = new Function(fnBraced('rsvpStatusLabel') + 'return rsvpStatusLabel;')();
+  const rsvpWords = ['', 'yes', 'no', 'backnextyear', 'unanswered', 'anything-else']
+    .map(labelFn).map(x => String(x).toLowerCase());
+
+  /* The season cell's three chips, read out of the row builder rather than restated. */
+  const cellAt = admin.indexOf('const maybeCell = badgeKey === ');
+  const cell = cellAt === -1 ? '' : admin.slice(cellAt, admin.indexOf('return \'<tr', cellAt));
+  check('the season status cell was found', !!cell && cell.length > 200,
+    'the checks below slice this — an empty slice would pass them vacuously');
+
+  const chipWords = (cell.match(/font-weight:700;"[^>]*>([^<]+)<\/span>/g) || [])
+    .map(m => (/>([^<]+)<\/span>/.exec(m) || [])[1])
+    .map(x => String(x).trim().toLowerCase())
+    .filter(Boolean);
+
+  check('the season cell still draws its chips', chipWords.length >= 2,
+    'got ' + JSON.stringify(chipWords));
+
+  /* ⚠ "Maybe Next Year" is the ONE deliberate overlap and is excluded by name: it is
+     the same state in both columns, said the same way on purpose. Everything else
+     borrowing an RSVP word is the collision this closes. */
+  const shared = chipWords.filter(w => w !== 'maybe next year' && rsvpWords.indexOf(w) !== -1);
+  check('no season chip uses an RSVP word for a different question',
+    shared.length === 0,
+    'the season cell says ' + JSON.stringify(shared) + ', which the RSVP pill uses to ' +
+    'mean something else on the same row — that is what Addie read as a contradiction');
+
+  check('and the blocked state no longer says Pending',
+    chipWords.indexOf('pending') === -1,
+    'got ' + JSON.stringify(chipWords));
+}
+
 // ---------------------------------------------------------------------------
 const w = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n - 1) + ' ' : s + ' '.repeat(n - s.length); };
 console.log('\n=== Where each RSVP answer ends up ===\n');
