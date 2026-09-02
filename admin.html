@@ -14276,6 +14276,20 @@ const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   'Thanks,\nHighlighting Utah';
 const ET_PREBUILT_TEMPLATES = [
   {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  /* ⭐ THE SAME QUESTION, ASKED OF SOMEBODY WHO OWES FOR LAST SEASON (Dax, 2026-09-02).
+     The plain RSVP Email above cannot do this job: it asks whether they want lights
+     without mentioning that they will not be scheduled whatever they answer, so a yes
+     from a held customer reads as a booking and is not one. It also asks them to check
+     their gate code and outlet, which is a question about a crew visit that is not
+     happening yet — so those two lines are deliberately not carried over.
+     ⚠ IT NAMES NO FIGURE, AND THAT IS DELIBERATE. There is no token for the carried
+     balance, and {{amount_due}} on a manually sent email resolves to THIS year's install
+     price (applyEmailTokens) — so putting it here would print the wrong number in an
+     email about an old debt and read as exactly the double charge MON-37 exists to
+     prevent. The portal holds the one figure we computed, and a yes now lands them on
+     it (RS-31, RS-35).
+     ⚠ THE YEAR IS TYPED, not merged, for the same reason. Re-word it next season. */
+  {name:'Not Paid RSVP', folderName:'RSVP', subject:'{{name}}, your lights this year \u2014 and last season\'s balance', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nOne thing first \u2014 our records show a balance still outstanding from the 2025 season. We aren\'t able to put you on the install schedule until that\'s settled, so it\'s worth sorting now while there\'s still plenty of room in the calendar.\n\nTap Yes below and it will take you straight into your account, where last season\'s amount is on its own line with a button to pay just that. It\'s last season\'s bill, not a second charge for this year.\n\nIf that balance doesn\'t look right to you, reply to this email or text us at (801) 901-0011 and we\'ll go through it with you.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\nThanks,\nHighlighting Utah', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
@@ -14295,7 +14309,7 @@ async function etSeedPrebuiltTemplates(){
       folderId = ref.id;
       folderIdByName[preset.folderName] = folderId;
     }
-    await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
+    await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, subject: preset.subject || '', body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
   }
 }
 let etFoldersLoaded = false;
@@ -14310,29 +14324,65 @@ function loadEmailTemplateFolders(){
   });
 }
 /* etSeedPrebuiltTemplates only ever runs once, the very first time the app
-   sees a completely empty template library — so a prebuilt added later (like
-   Quote Maybe Next Year Follow-up) never reaches an install that already has
-   templates. This is a narrow, one-time top-up for that one case: if it's
-   missing, create it for real so it's an actual editable template instead of
-   just a name in ET_PREBUILT_TEMPLATES nobody can find.
+   sees a completely empty template library — so a prebuilt added later never
+   reaches an install that already has templates. This is the one-time top-up
+   for that: a named prebuilt that is missing is created for real, so it is an
+   actual editable template instead of just a name in ET_PREBUILT_TEMPLATES
+   nobody can find.
    Folders and templates load from two independent listeners, so this is
    called after each one settles and only actually runs once both have -
    otherwise it could create a second "Quotes" folder before the existing
-   one (already used by Quote Ready for Review) has loaded in. */
+   one (already used by Quote Ready for Review) has loaded in.
+
+   ⭐ IT IS A LIST NOW, AND IT REMEMBERS (2026-09-02). It handled exactly one
+   template by name, so adding a second prebuilt meant either copying the whole
+   function or leaving the new one unreachable — which is the gap the paragraph
+   above was already describing.
+
+   ⚠ AND A TOP-UP HAPPENS ONCE PER NAME, EVER, which is the part that needed a
+   STORED record rather than a variable. Without one this cannot tell "she has
+   never been offered this" from "she was offered it and deleted it", so a
+   template the office threw away would come back every morning. The names
+   already handled go into settings/emailTemplateSeed, and a name in that list
+   is never created again however many times it is deleted.
+   ⚠ THE NAME IS RECORDED WHETHER OR NOT ANYTHING WAS CREATED. A template that
+   is already present has been handled too; recording only creations would
+   leave every existing install re-checking the same names for ever. */
+const ET_TOP_UP_NAMES = ['Quote Maybe Next Year Follow-up', 'Not Paid RSVP'];
 let etTemplatesLoaded = false;
 let etMaybeTemplateChecked = false;
 async function etEnsureMaybeTemplateExists(){
   if(etMaybeTemplateChecked || !etFoldersLoaded || !etTemplatesLoaded) return;
   etMaybeTemplateChecked = true;
-  if(emailTemplates.some(t => t.data.name === 'Quote Maybe Next Year Follow-up')) return;
-  const preset = ET_PREBUILT_TEMPLATES.find(t => t.name === 'Quote Maybe Next Year Follow-up');
-  if(!preset) return;
-  let folderId = emailTemplateFolders.find(f => f.name === preset.folderName)?.id;
-  if(!folderId){
-    const ref = await addDoc(collection(db,'emailTemplateFolders'), {name: preset.folderName, createdAt: serverTimestamp()});
-    folderId = ref.id;
+  let alreadyOffered = [];
+  try{
+    const seedSnap = await getDoc(doc(db,'settings','emailTemplateSeed'));
+    const offered = seedSnap.exists() ? seedSnap.data().toppedUp : null;
+    if(Array.isArray(offered)) alreadyOffered = offered.map(String);
+  }catch(e){
+    /* ⚠ FAILS TOWARDS DOING NOTHING — logged, never swallowed (Addie,
+       2026-08-25: "nothing should fail quietly"). If the record cannot be read
+       we do not know what has been offered, and creating on a guess would
+       resurrect deleted templates. A missing template is recoverable by hand;
+       a library that refills itself every morning is not. */
+    console.error('[HU] could not read the template top-up record:', e);
+    return;
   }
-  await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
+  const todo = ET_TOP_UP_NAMES.filter(n => alreadyOffered.indexOf(n) === -1);
+  if(!todo.length) return;
+  for(const name of todo){
+    if(emailTemplates.some(t => t.data.name === name)) continue;
+    const preset = ET_PREBUILT_TEMPLATES.find(t => t.name === name);
+    if(!preset) continue;
+    let folderId = emailTemplateFolders.find(f => f.name === preset.folderName)?.id;
+    if(!folderId){
+      const ref = await addDoc(collection(db,'emailTemplateFolders'), {name: preset.folderName, createdAt: serverTimestamp()});
+      folderId = ref.id;
+    }
+    await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, subject: preset.subject || '', body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
+  }
+  await setDoc(doc(db,'settings','emailTemplateSeed'),
+    {toppedUp: alreadyOffered.concat(todo)}, {merge:true});
 }
 function loadEmailTemplates(){
   onSnapshot(collection(db,'emailTemplates'), async function(snap){

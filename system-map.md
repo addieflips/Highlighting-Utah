@@ -93,6 +93,33 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
      exactly as the old *Take Me to My Portal* button did — a receipt is right for a card, wrong for an
      account page. The no and back-next-year paths still end on the receipt.
 
+   ⭐ **AND SOMEBODY WHO OWES FOR LAST SEASON IS HELD BEFORE ANY OF IT** (2026-09-02, RS-36). Dax:
+   *"make sure it forces them to pay for their last year lights before they can do anything and before
+   anything goes into the system."* Three things hold it, and the screen is the weakest:
+
+   | | What it does | Why it is that one |
+   |---|---|---|
+   | **The pop-up** | `#arrearsLockModal` — the amount, *"we can't put you on this season's schedule until it is paid in full"*, and one button that lands them on the pay buttons | No close, no Escape, no backdrop click, unlike every other dialog here. It comes **after** the gate code, and back on every visit until it clears |
+   | **The tabs** | Information, Sides, Light Colors and Changes are disabled | Payment, **Contact** and **Cancel** stay open — see below |
+   | **`portalSave`** | refuses the write, before it reads a single field | The callable is public; a hidden tab is not a lock. This is the half that makes *"before anything goes into the system"* true |
+
+   - ⚠ **The RSVP answer is never held.** It is recorded before the portal loads (RS-33), and a customer who
+     owes is exactly the one whose yes or no the office most needs.
+   - ⚠ **Cancelling is never held.** Somebody trying to leave must not be told to pay first, or they stop
+     replying and Addie never learns why. `portalSave` exempts `section === 'cancel'` by name.
+   - ⚠ **Contact stays open** because the card itself says to ring if the figure looks wrong; a locked dispute
+     route turns a disagreement into silence.
+   - ⚠ **The gate code still saves**, because it is still asked, and asked first.
+   - ⚠ **It fails open** — an unreadable invoice answers nought and nobody is held, the opposite direction to
+     the season hold. A change slipping through costs a form field; a customer locked out of their own account
+     costs a phone call.
+   - ⚠ **A carried line that has been PAID does not hold anybody.** The note stays on the invoice for ever;
+     what decides it is `arrearsOutstanding`, the server's figure, never a fourth copy of the maths.
+
+   ⚠ **THE SIDES TAB HAD NEVER OPENED** (fixed 2026-09-02, RS-38). `sides` was missing from `PORTAL_TAB_NAMES`,
+   so clicking it hid the other six panels and showed none — a blank card under the tab strip. Found while
+   building the hold above; nobody had reported it. Every `data-tab` on the page must now appear in that list.
+
    All three are a **receipt, not the website**: the header, footer and hero come off, and nothing else is reachable from the page. That is `body.rsvp-minimal`, which force-shows `#page-payment` (holding `#rsvpConfirmCard`) for the first two, plus the modifier `body.rsvp-minimal.rsvp-back`, which force-shows `#page-home` (holding `#backNextYearConfirm`) for the third.
 
    ⚠ **AND THAT IS WHY THE GATE-CODE DIALOG IS NOT INSIDE `#rsvpConfirmCard`.** Both answers now leave that
