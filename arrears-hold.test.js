@@ -1747,6 +1747,97 @@ function seasonResetWrite() {
     'here would sit outside money-parity and would be the one the customer reads');
 
   /* ---------------------------------------------------------------------
+     Nothing goes into the system until last season is paid
+     (Dax, 2026-09-02)
+
+     ⚠ THIS IS THE HALF THE BROWSER TESTS CANNOT SEE. test/arrears-lock.spec.js
+     proves the screen — the pop-up, the shut tabs — but it runs against a fake
+     Firebase, so it would stay green with the server wide open. "Before anything
+     goes into the system" is a claim about the DATABASE: portalSave is a public
+     callable, and a hidden tab is not a lock.
+     --------------------------------------------------------------------- */
+  {
+    const fnSrc = fs.readFileSync(path.join(__dirname, 'functions', 'index.js'), 'utf8');
+    const at = fnSrc.indexOf('exports.portalSave = onCall(');
+    const saveSrc = at === -1 ? '' : stripComments(fnSrc.slice(at, fnSrc.indexOf('\nexports.', at + 10)));
+
+    check('portalSave refuses to write while last season is outstanding',
+      !!saveSrc && /arrearsHoldBlocks\(/.test(saveSrc) && /throw arrearsHoldError\(/.test(saveSrc),
+      'the portal can be driven from a browser console with nothing but a token — ' +
+      'if the write is not refused here, the hold is a suggestion');
+
+    /* ⚠ AND IT REFUSES BEFORE IT READS A SINGLE FIELD. Ordering, not presence:
+       a check that runs after the updates are assembled leaves a version of this
+       function in which a held customer's data has already been touched. */
+    check('and it refuses before it assembles any update',
+      !!saveSrc && saveSrc.indexOf('arrearsHoldBlocks(') !== -1 &&
+      saveSrc.indexOf('arrearsHoldBlocks(') < saveSrc.indexOf('const updates = {}'),
+      'the hold has to come first, or the refusal is decoration on work already done');
+
+    /* ⚠ CANCELLING IS EXEMPT BY NAME. Somebody trying to LEAVE must never be told
+       to pay first — they stop replying instead, and the office never learns why.
+       Dax's own call when the scope was put to him. */
+    check('cancelling is exempt from the hold',
+      !!saveSrc && /section\s*!==\s*'cancel'/.test(saveSrc),
+      'a customer who wants out must be able to say so whatever they owe');
+
+    /* ⚠ AND THE RSVP ANSWER IS NEVER HELD, which is RS-33 and is the reason the
+       whole season still works: the answer is recorded before the portal loads, and
+       a customer who owes money is exactly the one whose yes or no is most needed. */
+    const rsvpAt = fnSrc.indexOf('exports.portalRsvp = onCall(');
+    const rsvpSrc = rsvpAt === -1 ? '' : stripComments(fnSrc.slice(rsvpAt, fnSrc.indexOf('\nexports.', rsvpAt + 10)));
+    check('portalRsvp is never held',
+      !!rsvpSrc && !/arrearsHoldBlocks\(/.test(rsvpSrc),
+      'holding the ANSWER would lose the one thing RS-33 turns on');
+
+    /* ⚠ NOR IS THE GATE CODE, and that is not an oversight either: the gate-code
+       question is put to a held customer on the way past (it is asked BEFORE the
+       pop-up), so a question we insist on asking has to be answerable. */
+    const gcAt = fnSrc.indexOf('exports.portalSetGateCode = onCall(');
+    const gcSrc = gcAt === -1 ? '' : stripComments(fnSrc.slice(gcAt, fnSrc.indexOf('\nexports.', gcAt + 10)));
+    check('portalSetGateCode is never held',
+      !!gcSrc && !/arrearsHoldBlocks\(/.test(gcSrc),
+      'the gate code is still asked of a held customer, so it must still save');
+
+    /* ⚠ AND THE HOLD FAILS OPEN, the opposite direction to the season hold and for
+       the reason arrearsForCustomer already answers nought on an unreadable invoice:
+       refusing a save because we could not READ a bill locks out a customer who may
+       owe nothing at all. */
+    const holdAt = fnSrc.indexOf('async function arrearsHoldBlocks(');
+    const holdSrc = holdAt === -1 ? '' : stripComments(fnSrc.slice(holdAt, fnSrc.indexOf('\n}', holdAt) + 2));
+    check('the hold reads the shared figure rather than its own',
+      !!holdSrc && /arrearsForCustomer\(/.test(holdSrc) && !/changeFeeNotes/.test(holdSrc),
+      'a second copy of the carried-balance maths here would be the copy deciding ' +
+      'whether a customer is locked out of their own account');
+
+    /* ---- and the portal screen reads the server's figure, never its own ---- */
+    const site2 = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+    const lockAt = site2.indexOf('function applyArrearsLock(');
+    const lockSrc = lockAt === -1 ? '' : stripComments(site2.slice(lockAt, site2.indexOf('\n}', lockAt) + 2));
+    check('the portal lock is decided by arrearsOutstanding, not by its own sum',
+      !!lockSrc && !/changeFeeNotes/.test(lockSrc) &&
+      /applyArrearsLock\(Number\(record\.arrearsOutstanding\)/.test(stripComments(site2)),
+      'money-parity holds two copies of this rule together; a third in the page ' +
+      'would be outside it and would be the one a customer meets');
+
+    /* ⚠ THE TAB LIST AND THE TAB BUTTONS HAVE TO AGREE, and this is not a style
+       check: 'sides' was missing from PORTAL_TAB_NAMES and the Sides tab therefore
+       never opened at all — activatePortalTab hid every panel it named and never
+       showed that one. Silent, customer-facing, and invisible to a source read of
+       any single piece. */
+    const namesLine = /var PORTAL_TAB_NAMES = \[([^\]]*)\]/.exec(site2);
+    const named = namesLine ? namesLine[1].split(',').map(x => x.trim().replace(/'/g, '')).filter(Boolean) : [];
+    const onPage = Array.from(new Set(
+      (site2.match(/data-tab="([a-z]+)"/g) || []).map(m => m.replace(/.*"([a-z]+)".*/, '$1'))
+    ));
+    const missing = onPage.filter(t => named.indexOf(t) === -1);
+    check('every tab button on the page is one activatePortalTab knows about',
+      named.length > 0 && missing.length === 0,
+      'these tabs have a button and no entry in PORTAL_TAB_NAMES, so clicking them ' +
+      'blanks the card instead of opening them: ' + missing.join(', '));
+  }
+
+  /* ---------------------------------------------------------------------
      Report
      --------------------------------------------------------------------- */
   console.log('\n=== Last season\'s unpaid bill: carried, and holding the season ===\n');

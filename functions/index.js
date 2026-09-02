@@ -1037,6 +1037,41 @@ async function arrearsForCustomer(custData) {
   }
 }
 
+/* --- Nothing changes hands until last season is settled ---------------------
+ *
+ * Dax, 2026-09-02: "make sure it forces them to pay for their last year lights
+ * before they can do anything and before anything goes into the system."
+ *
+ * ⭐ THE SECOND HALF IS WHY THIS IS HERE AND NOT ONLY IN THE PORTAL. A screen
+ * that hides its own tabs is a suggestion — the callable is public, and anyone
+ * who can open a browser console can call it with a token. "Before anything goes
+ * into the system" is a claim about the DATABASE, so it has to be refused at the
+ * write.
+ *
+ * ⚠ AN ANSWER IS NOT A CHANGE, and the two are deliberately not treated alike.
+ * portalRsvp is never held: RS-33 turns on the answer being recorded whatever
+ * else happens, and a customer who owes money is exactly the one whose yes or no
+ * the office most needs. Cancelling is not held either — somebody trying to LEAVE
+ * must never be told to pay first, or they simply stop replying and Addie never
+ * learns why. Both were Dax's own call when the scope was put to him.
+ *
+ * ⚠ AND IT FAILS OPEN, which is the opposite of the season hold and is chosen for
+ * the same reason arrearsForCustomer answers nought on an unreadable invoice:
+ * refusing a save because we could not READ a bill would block a customer who may
+ * owe nothing at all, and the office still holds them out of the season either
+ * way. A change slipping through costs a form field; a customer locked out of
+ * their own account by a failed read costs a phone call and their trust. */
+async function arrearsHoldBlocks(custData) {
+  const owed = await arrearsForCustomer(custData);
+  return (owed.outstanding || 0) > 0 ? owed : null;
+}
+function arrearsHoldError(owed) {
+  const season = owed && owed.season ? String(owed.season) : '';
+  return new HttpsError('failed-precondition',
+    'There is still a balance owing from ' + (season ? 'the ' + season + ' season' : 'last season') +
+    '. Once that is paid you can make changes here again.');
+}
+
 // Make sure a record has a portalToken, minting one if it predates the system.
 async function ensureToken(id, data) {
   if (data.portalToken) return data.portalToken;
@@ -1515,6 +1550,15 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
 
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  /* ⚠ BEFORE A SINGLE FIELD IS READ OFF THE REQUEST. Checked here rather than
+     after the updates are assembled so there is no version of this function in
+     which a held customer's data has been touched at all.
+     ⚠ 'cancel' IS EXEMPT BY NAME, not by accident — see arrearsHoldBlocks. */
+  if (section !== 'cancel') {
+    const held = await arrearsHoldBlocks(match.data);
+    if (held) throw arrearsHoldError(held);
+  }
 
   const updates = {};
   allowed.forEach(function (f) {

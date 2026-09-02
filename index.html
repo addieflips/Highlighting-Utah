@@ -133,6 +133,25 @@
   #rsvpGateCodeModal #rsvpGateCodeStep{ position:relative; width:100%; max-width:420px;
                       background:#fff; border-radius:14px; padding:26px 22px;
                       text-align:center; box-shadow:0 18px 50px rgba(0,0,0,.30); }
+
+  /* ---------- Last season's balance, over everything ----------
+     ⚠ IT OUT-STACKS THE GATE-CODE DIALOG (z-index 401 against 400) rather than
+     merely sitting at the same height. The two can be raised in the same visit —
+     the gate code is asked first and this follows it — and if a bug ever showed
+     them together, the one with no way out has to be the one on top; buried under
+     a dialog that CAN be dismissed, it would look like it had been dismissed. */
+  #arrearsLockModal{ position:fixed; inset:0; z-index:401; display:none;
+                     align-items:center; justify-content:center; padding:20px; }
+  #arrearsLockModal.show{ display:flex; }
+  #arrearsLockBackdrop{ position:absolute; inset:0; background:rgba(17,24,32,.62); }
+  #arrearsLockCard{ position:relative; width:100%; max-width:420px; background:#fff;
+                    border-radius:14px; padding:26px 22px; text-align:center;
+                    box-shadow:0 18px 50px rgba(0,0,0,.30); }
+  #arrearsLockTitle{ font-size:17px; font-weight:700; color:var(--ink); margin-bottom:10px; }
+  #arrearsLockAmount{ font-size:34px; font-weight:800; color:var(--ink); line-height:1.1; margin-bottom:12px; }
+  #arrearsLockBody{ font-size:14px; line-height:1.55; color:var(--slate); margin-bottom:18px; }
+  #arrearsLockModal .btn{ min-width:11rem; }
+  #arrearsLockHelp{ font-size:12.5px; color:var(--slate); margin-top:14px; line-height:1.5; }
   .btn-ember{ background:var(--ember); color:#fff; }
   .btn-ember:hover{ background:#b23d33; }
   .btn-block{ width:100%; }
@@ -1553,6 +1572,31 @@
              ⚠ THE BUTTONS ARE UNTOUCHED, ids and wording both. Everything that moved
              is the frame around them, so showRsvpGateCodeStep, the contrast guard and
              every spec that clicks #rsvpGateCodeYesBtn still mean what they meant. -->
+        <!-- ⭐ LAST SEASON, ASKED FOR BEFORE THIS ONE (Dax, 2026-09-02: "it should be a
+             pop up that doesnt go away until they pay in full that comes after the gate
+             code and says pay for last season before we put you on the schedule for
+             this one").
+
+             ⚠ IT HAS NO WAY OUT ON PURPOSE — no close button, no Escape, no backdrop
+             click, unlike every other dialog on this page. That is the whole ask. The
+             ONE control on it takes them to the payment buttons, which is paying rather
+             than dismissing, and it is back on the next visit until the balance clears.
+
+             ⚠ AND IT STILL LEAVES THEM A HUMAN. A customer who thinks the figure is
+             wrong must be able to say so, or an honest dispute turns into somebody who
+             just stops answering — so the phone number is on the card, Contact stays
+             open behind it, and Cancel does too. -->
+        <div id="arrearsLockModal" role="dialog" aria-modal="true" aria-labelledby="arrearsLockTitle">
+          <div id="arrearsLockBackdrop"></div>
+          <div id="arrearsLockCard">
+            <div id="arrearsLockTitle">Last season is still open</div>
+            <div id="arrearsLockAmount"></div>
+            <div id="arrearsLockBody"></div>
+            <div><button type="button" class="btn btn-gold" id="arrearsLockPayBtn">Pay it now</button></div>
+            <div id="arrearsLockHelp">Think this is wrong? Call or text us at (801) 901-0011 and we&rsquo;ll go through it with you.</div>
+          </div>
+        </div>
+
         <div id="rsvpGateCodeModal" role="dialog" aria-modal="true" aria-labelledby="rsvpGateCodeQuestion">
           <div id="rsvpGateCodeBackdrop"></div>
           <div id="rsvpGateCodeStep" style="display:none;">
@@ -3836,6 +3880,10 @@ function renderCustomerInvoicePage(raw, opts){
     if(tabsLayout) tabsLayout.style.display = 'flex';
     commitPendingPortalCreds();
     hideLoginPrompt();
+    /* ⚠ BEFORE activateTab, so a tab asked for by the caller still wins. A "no"
+       arrives here with activateTab:'cancel' and must land on Cancel even while
+       they are held — that tab is deliberately still open. */
+    applyArrearsLock(Number(record.arrearsOutstanding) || 0, record.arrearsSeason);
     if(opts.activateTab) activatePortalTab(opts.activateTab);
     /* ⭐ THE LAST LINE OF A SUCCESSFUL RENDER, and the only place it is called.
        Anything that wants to speak to a customer INSIDE their portal — today only
@@ -3844,7 +3892,13 @@ function renderCustomerInvoicePage(raw, opts){
        return in this function is somebody who did NOT get in (deactivated, wrong
        last name, no invoice) and none of them reach it: a dialog floating over an
        error message would be the worst version of this. */
+    /* ⚠ AND THE ARREARS DIALOG COMES AFTER THE GATE CODE, WHICH IS WHY THIS BRANCHES
+       (Dax, 2026-09-02: the pop-up "comes after the gate code"). On an RSVP yes the
+       gate step owns the hand-off and raises it as its own thenFn; on every other way
+       into the portal there is no gate step, so it is raised here. Exactly one of the
+       two runs, which is what stops it being shown twice. */
     if(typeof opts.onPortalReady === 'function') opts.onPortalReady();
+    else showArrearsLockIfHeld();
   }).catch(function(){
     card.classList.remove('show');
     if(tabsLayout) tabsLayout.style.display = 'none';
@@ -4838,7 +4892,11 @@ function handleRsvpLink(token, rsvpValue){
        the customer is left looking at the portal's own error rather than at a
        gate-code box floating over it. */
     loadPortalByToken(token, {onPortalReady: function(){
-      showRsvpGateCodeStep(token, gateCodeOnFile || '');
+      /* ⚠ THE GATE CODE IS STILL ASKED OF SOMEBODY WHO OWES, and it is asked FIRST —
+         Dax put the arrears pop-up after it. It is also why portalSetGateCode is not
+         one of the calls the server holds: a question we insist on asking has to be
+         answerable. */
+      showRsvpGateCodeStep(token, gateCodeOnFile || '', showArrearsLockIfHeld);
     }});
   }
 
@@ -6042,7 +6100,97 @@ document.getElementById('rcClearPattern').addEventListener('click', function(){
 document.getElementById('lightsSaveBtn').addEventListener('click', saveLightsPattern);
 renderRcSequence();
 
-var PORTAL_TAB_NAMES = ['payment','info','lights','changes','contact','cancel'];
+/* ⚠ 'sides' WAS MISSING FROM THIS LIST AND THE TAB SIMPLY DID NOT WORK (fixed
+   2026-09-02, found while building the arrears lock). activatePortalTab hides
+   every panel it names and shows the one asked for — so clicking Sides hid all
+   six of these and never showed #tabPanel-sides, leaving the customer looking at
+   the tab strip above an empty card. Verified in a browser before and after; a
+   source read cannot see it, because the button, the panel and the handler all
+   exist and are all correct on their own.
+   ⚠ THE LIST AND THE BUTTONS MUST AGREE — run-all.js checks that every
+   data-tab on the page appears here, because this is exactly the kind of thing
+   that goes unnoticed until a customer mentions it. */
+var PORTAL_TAB_NAMES = ['payment','info','sides','lights','changes','contact','cancel'];
+/* --- Nothing but paying, until last season is settled -----------------------
+ *
+ * Dax, 2026-09-02: "make sure it forces them to pay for their last year lights
+ * before they can do anything and before anything goes into the system", and
+ * then the shape of it: "a pop up that doesnt go away until they pay in full
+ * that comes after the gate code".
+ *
+ * ⭐ THREE THINGS HOLD IT, AND THE SCREEN IS THE WEAKEST. The tabs below are the
+ * polite half; portalSave refuses the write on the server, which is the half that
+ * makes "before anything goes into the system" true, because a callable is public
+ * and a hidden tab is not a lock. The dialog is what a customer actually meets.
+ *
+ * ⚠ WHAT STAYS OPEN, AND WHY EACH ONE. Payment, obviously. CONTACT, because the
+ * card tells them to get in touch if the figure looks wrong and a dispute route
+ * that is locked turns an argument into silence. CANCEL, because somebody trying
+ * to leave must never be told to pay first — that was Dax's own call when the
+ * scope was put to him, and portalSave exempts the same section for the same
+ * reason. And the RSVP answer itself is never touched: it is recorded before the
+ * portal even loads (RS-33).
+ *
+ * ⚠ IT READS THE SERVER'S FIGURE, never its own sum. record.arrearsOutstanding is
+ * computed by portalInvoice; a fourth copy of the carried-balance rule sitting in
+ * this file would be outside money-parity and would be the copy deciding whether a
+ * customer is locked out. */
+var PORTAL_UNLOCKED_TABS = ['payment','contact','cancel'];
+var portalArrearsHold = null;
+function applyArrearsLock(owed, season){
+  portalArrearsHold = owed > 0 ? {owed: owed, season: String(season || '')} : null;
+  var locked = !!portalArrearsHold;
+  document.querySelectorAll('[data-tab]').forEach(function(btn){
+    var open = !locked || PORTAL_UNLOCKED_TABS.indexOf(btn.dataset.tab) !== -1;
+    btn.disabled = !open;
+    btn.style.opacity = open ? '' : '.45';
+    btn.style.cursor = open ? '' : 'not-allowed';
+    btn.title = open ? '' : 'Available once last season is paid';
+  });
+  /* Somebody already sitting on a tab that has just closed is moved off it rather
+     than left looking at a form that cannot save. */
+  if(locked){
+    var current = document.querySelector('.portal-tab-btn.active');
+    if(!current || PORTAL_UNLOCKED_TABS.indexOf(current.dataset.tab) === -1) activatePortalTab('payment');
+  }
+}
+function showArrearsLockIfHeld(){
+  if(!portalArrearsHold) return;
+  var modal = document.getElementById('arrearsLockModal');
+  var amt   = document.getElementById('arrearsLockAmount');
+  var body  = document.getElementById('arrearsLockBody');
+  var payBtn = document.getElementById('arrearsLockPayBtn');
+  /* ⚠ NO MARKUP, NO DIALOG — and that is the right failure. The tabs are already
+     locked and the server already refuses the writes by this point, so a missing
+     div costs a message rather than the hold itself. */
+  if(!modal || !amt || !body || !payBtn) return;
+  var season = portarrearsSeasonText();
+  amt.textContent = fmt(portalArrearsHold.owed);
+  body.innerHTML = 'This is what is still owing from ' + season +
+    '. <strong>We can&rsquo;t put you on this season&rsquo;s schedule until it is paid in full.</strong>' +
+    '<br><br>It is last season&rsquo;s bill &mdash; not a second charge for this year.';
+  payBtn.textContent = 'Pay ' + fmt(portalArrearsHold.owed) + ' now';
+  modal.classList.add('show');
+}
+function portarrearsSeasonText(){
+  var s = portalArrearsHold && portalArrearsHold.season;
+  return s ? ('the ' + s + ' season') : 'last season';
+}
+/* ⚠ THE ONE CONTROL ON THE CARD, and it is not a dismiss. It puts them on the
+   payment buttons, which is the thing being asked of them; the dialog is back on
+   the next visit, the other tabs are still shut, and the server still refuses the
+   writes, so closing it buys nothing but the chance to pay. */
+document.addEventListener('DOMContentLoaded', function(){
+  var payBtn = document.getElementById('arrearsLockPayBtn');
+  if(!payBtn) return;
+  payBtn.addEventListener('click', function(){
+    var modal = document.getElementById('arrearsLockModal');
+    if(modal) modal.classList.remove('show');
+    activatePortalTab('payment');
+    var wrap = document.getElementById('payButtonsWrap');
+    if(wrap && wrap.scrollIntoView) wrap.scrollIntoView({behavior:'smooth', block:'center'});
+  });
+});
 function activatePortalTab(tabName){
   document.querySelectorAll('.portal-tab-btn').forEach(function(b){
     b.classList.toggle('active', b.dataset.tab === tabName);
