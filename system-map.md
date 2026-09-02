@@ -53,7 +53,7 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
    | Button | Link | Answer saved | What the customer sees |
    |---|---|---|---|
-   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | The gate-code step, then **their member portal opens by itself** — no confirmation screen, no button to press (RS-33) |
+   | **Yes** | `#/payment?token=…&rsvp=yes` | `yes` | **Their member portal opens by itself**, with the gate-code question as a pop-up over it — no confirmation screen, no button to press (RS-33, RS-35) |
    | **No** | `#/payment?token=…&rsvp=no` | `no` | recorded, then **straight into the member portal** on the Cancel tab (RS-33) |
    | **Back Next Year** | `#/?token=…&rsvp=back` | `backnextyear` | a **pop-up card** — "We look forward to seeing you next year!" (RS-34) |
 
@@ -65,15 +65,23 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    `showChangesQuestion` ("You're confirmed! Do you want to make any changes?", with the portal behind a
    button) is replaced by `openPortalAfterYes`, which tears the card down and calls `loadPortalByToken`.
 
-   - ⚠ **The gate-code step stays, and is now the only thing in between.** Dax: *"gate codes change so
-     make sure it asks if theres a gate code."* That is RS-29 reaffirmed, not reversed.
+   - ⚠ **The gate-code question stays, and since 2026-09-02 it is not in between at all** (RS-35). Dax:
+     *"gate codes change so make sure it asks if theres a gate code"* — RS-29 reaffirmed, not reversed —
+     then *"after they answer the gate code question it should just put them into their member portal"*
+     and *"make it so the gate code question is just a pop up in the member portal but keep the buttons
+     exactly as is instead of an entire page."* So the portal loads first and the question arrives **on
+     top of it**, in `#rsvpGateCodeModal`. The buttons, their ids and their wording did not change; the
+     frame around them did. `renderCustomerInvoicePage` calls `opts.onPortalReady` as the last line of a
+     successful render, and that is the only thing that opens the dialog — every early return (deactivated,
+     wrong last name, no invoice) is somebody who did not get in, so the question can never float over an
+     error message. Escape and the backdrop close it and write nothing.
    - ⚠ **Yes only.** No still gets its message before the Cancel tab — Addie's 2026-08-19 ruling, *"put a
      message in front of it first so they know why they've landed there"* — and Back Next Year is untouched.
    - ⚠ **The debt sentence moved rather than being dropped.** The removed screen told a debtor we could not
      book them; that line is now on the portal's own *"<year> season — still owing"* card, where it is true
      whenever they open the page instead of only just after an RSVP.
    - ⚠ **The second answer used to be invisible, and that hid a dead end** (fixed
-     2026-09-01, RS-34). `.btn-outline` is the DARK hero's button — white text on a
+     2026-09-01, RS-32). `.btn-outline` is the DARK hero's button — white text on a
      35%-white border — so on these light cards it rendered white-on-white. On a
      customer who already has a gate code the answers are *Yes, that's right* and
      ***It has changed***, and that second one is the only route to the entry box, so
@@ -85,7 +93,83 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
      exactly as the old *Take Me to My Portal* button did — a receipt is right for a card, wrong for an
      account page. The no and back-next-year paths still end on the receipt.
 
+   ⭐ **AND SOMEBODY WHO OWES FOR LAST SEASON IS HELD BEFORE ANY OF IT** (2026-09-02, RS-36). Dax:
+   *"make sure it forces them to pay for their last year lights before they can do anything and before
+   anything goes into the system."* Three things hold it, and the screen is the weakest:
+
+   | | What it does | Why it is that one |
+   |---|---|---|
+   | **The pop-up** | `#arrearsLockModal` — the amount, *"we can't put you on this season's schedule until it is paid in full"*, and one button that lands them on the pay buttons | No close, no Escape, no backdrop click, unlike every other dialog here. It comes **after** the gate code, and back on every visit until it clears |
+   | **The tabs** | Information, Sides, Light Colors and Changes are disabled | Payment, **Contact** and **Cancel** stay open — see below |
+   | **`portalSave`** | refuses the write, before it reads a single field | The callable is public; a hidden tab is not a lock. This is the half that makes *"before anything goes into the system"* true |
+
+   - ⚠ **The RSVP answer is never held.** It is recorded before the portal loads (RS-33), and a customer who
+     owes is exactly the one whose yes or no the office most needs.
+   - ⚠ **Cancelling is never held.** Somebody trying to leave must not be told to pay first, or they stop
+     replying and Addie never learns why. `portalSave` exempts `section === 'cancel'` by name.
+   - ⚠ **Contact stays open** because the card itself says to ring if the figure looks wrong; a locked dispute
+     route turns a disagreement into silence.
+   - ⚠ **The gate code still saves**, because it is still asked, and asked first.
+   - ⚠ **It fails open** — an unreadable invoice answers nought and nobody is held, the opposite direction to
+     the season hold. A change slipping through costs a form field; a customer locked out of their own account
+     costs a phone call.
+   - ⚠ **A carried line that has been PAID does not hold anybody.** The note stays on the invoice for ever;
+     what decides it is `arrearsOutstanding`, the server's figure, never a fourth copy of the maths.
+
+   ⛔ **AND THE CHASE FOR THAT MONEY IS BUILT BUT SWITCHED OFF** (2026-09-02, RS-39). Dax asked for the
+   unpaid-last-season email to send itself. `sendArrearsRsvpEmails` runs daily at 10:00 AM and returns
+   immediately unless `settings/arrearsRsvpAutomation.enabled` is true — an absent document is **off**, which
+   is the shipped state, because MON-34 is Addie's standing ruling that she would send these herself. Her
+   sentence is printed on the card beside the switch. **Admin › Invoices › Unpaid Last Season** holds the
+   switch and a *Send Once, Now* button that runs the same batch without turning anything on.
+
+   - **Who it writes to:** owes for a previous season **and has never answered the RSVP**. Not a no, not a
+     back-next-year (RS-30 — they have answered), and not a yes (the template asks whether they want lights,
+     which to somebody who already said so reads as us losing their answer).
+   - **Once per customer per season**, via `arrearsRsvpEmailAt`, cleared by Start New Season — and stamped
+     only *after* the send succeeds, so a refused send does not silently drop them for the year.
+   - **No figure in the email.** There is no token for the carried balance and `{{amount_due}}` means this
+     year's install price (RS-37), so the buttons carry their portal token and the portal shows the figure.
+   - The **test record carries Addie's own phone**, so it is skipped by flag and by name-and-number both.
+
+   ⭐ **AND WHEN THEY PAY, EVERYTHING MOVES — INCLUDING THE OFFICE SCREEN** (2026-09-02, RS-40). Every
+   figure on an All Customers row is derived live from the invoice, so a portal payment already cleared the
+   *Unpaid 2025* tag, moved the bill Unpaid → Partial → Paid in Full, and moved a yes-sayer from **On hold**
+   to **Confirmed**. What was missing was the repaint: the invoices listener drew the invoice list, the
+   routes, the takedowns and the dashboard, and not All Customers — so the row stayed stale until somebody
+   navigated away and back. It repaints now.
+
+   - ⚠ **Money is not consent.** Somebody who pays and has never answered stays **Pending**, whether they
+     paid last season's carry or this year's bill in full. A bare stored `yes` with no `rsvpRespondedAt`
+     behind it does not count either (RS-19). Confirmed would send a crew to a house nobody asked for.
+   - ⭐ **So the question is asked the moment the payment lands** — `#rsvpAskModal` over their own portal,
+     three answers, wired through the page's existing `data-portalrsvp` handler rather than a second copy.
+     It closes, unlike the arrears lock: that one withholds something until they pay, this is asked of
+     somebody who just did.
+   - ⭐ **The backstop is the System note**, widened past RS-30: any customer with money in and no answer
+     raises one, not only somebody who cleared an old debt. A no or a back next year still raises nothing.
+   - ⚠ **`rsvpRespondedAt` is now sent to the portal.** Three server paths wrote it and nobody sent it, so
+     the browser could not tell a real yes from an imported one — the new question would have been put to
+     customers who had already answered. `portal-fields.test.js` caught it.
+
+   ⚠ **A PREBUILT TEMPLATE THAT EXISTS BUT IS EMPTY IS FILLED IN** (2026-09-02, RS-41). The one-time top-up
+   skipped any template whose NAME was already there — so a shell somebody had made by hand stayed blank and
+   would have sent an empty email, with the seed record saying the job was done. It now patches blank fields
+   (body, subject, linkedTokens) on any prebuilt-named template, never replaces written words, and is
+   deliberately not gated on that seed record: the fault is only visible after the name has been recorded as
+   handled.
+
+   ⚠ **THE SIDES TAB HAD NEVER OPENED** (fixed 2026-09-02, RS-38). `sides` was missing from `PORTAL_TAB_NAMES`,
+   so clicking it hid the other six panels and showed none — a blank card under the tab strip. Found while
+   building the hold above; nobody had reported it. Every `data-tab` on the page must now appear in that list.
+
    All three are a **receipt, not the website**: the header, footer and hero come off, and nothing else is reachable from the page. That is `body.rsvp-minimal`, which force-shows `#page-payment` (holding `#rsvpConfirmCard`) for the first two, plus the modifier `body.rsvp-minimal.rsvp-back`, which force-shows `#page-home` (holding `#backNextYearConfirm`) for the third.
+
+   ⚠ **AND THAT IS WHY THE GATE-CODE DIALOG IS NOT INSIDE `#rsvpConfirmCard`.** Both answers now leave that
+   card within a moment, so a dialog nested in it would be torn down by the very step that opens it. It sits
+   at the top level of the payment page instead, `position:fixed` with a dimmed backdrop over everything —
+   including the portal's `position:fixed` phone tab bar, which is the one thing on the page that could
+   otherwise be tapped straight through it.
 
    ⚠ **ONE CLASS USED TO SERVE BOTH CARDS AND SHOWED BOTH PAGES** (fixed 2026-09-01). Addie, over a screenshot of a bare *"One moment…"*: *"this is what happens when I open up Yes or No, but back next year seems to be working"* — and that sentence is the whole diagnosis. The two answers land on **different cards in different pages**, and `body.rsvp-minimal` force-showed *both*. So a Yes or a No opened with the Back Next Year card sitting above it, still holding the **static `One moment…` from the markup** that only `handleBackNextYear` ever rewrites. The real confirmation rendered perfectly, below the fold, under a dead card.
    - ⚠ **It looked like a hang and was not.** The answer was recorded, the message was built, and the customer stared at *"One moment…"* for ever — the same shape as the bug this class was *introduced* to fix, which is how it hid inside the fix.
@@ -94,7 +178,7 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
 
    ⚠ **AND THE OFFICE'S OWN DROPDOWN WAS BEING OVERRULED** (fixed 2026-09-02). Addie: *"RSVP still says yes even though I just tried to update it."* Two controls describe one state — the Back Next Year radio and the RSVP dropdown — and the save read an unticked box as *"the office is bringing them back in"*, so it cleared `rsvpStatus` to blank. Right for a **stale** dropdown left reading `backnextyear`; exactly wrong for one just set, which it could not tell apart. Her customer already carried the flag, so choosing Back Next Year blanked the answer — and a blank on a quote-converted customer reads as **Yes**. It now compares against the **stored** value, so a changed dropdown counts as choosing it and sets the flag to match; unticking the box with a stale dropdown still clears it.
 
-   ⚠ **THE OFFICE SPOKE THREE VOCABULARIES FOR THREE ANSWERS** (RS-35). The customer presses **Yes / Back Next Year / No**. The office row said *Maybe Next Year* (the **quote's** word), the season chip said *Pending*, and the dropdown said *"No — Skip This Year"* — which is why Addie read it and said *"I noticed there isn't a no"*. All three now match the email. ⚠ **The quote flow keeps Maybe Next Year** — its `approvalStatus`, its response buttons and the Quote Maybe Next Year Follow-up template are untouched. ⚠ **Pending and Unanswered keep their tails** because they are not answers and have no button: they say who has been *asked*.
+   ⚠ **THE OFFICE SPOKE THREE VOCABULARIES FOR THREE ANSWERS** (RS-42). The customer presses **Yes / Back Next Year / No**. The office row said *Maybe Next Year* (the **quote's** word), the season chip said *Pending*, and the dropdown said *"No — Skip This Year"* — which is why Addie read it and said *"I noticed there isn't a no"*. All three now match the email. ⚠ **The quote flow keeps Maybe Next Year** — its `approvalStatus`, its response buttons and the Quote Maybe Next Year Follow-up template are untouched. ⚠ **Pending and Unanswered keep their tails** because they are not answers and have no button: they say who has been *asked*.
 
    ⚠ **TWO PILLS ON ONE ROW WERE USING ONE WORD FOR TWO QUESTIONS** (renamed 2026-09-02). Addie: *"Says yes in one spot but pending in the other."* Both were correct. The **RSVP pill** answers *have they approved* — Yes, because converting from a quote **is** the approval (the *Approved — new this year* badge). The **season pill** answers *are they in the season* — no, because they were blocked by owing $200 from 2025, which the same row spells out underneath. But that pill said **"Pending"**, which is the RSVP vocabulary for *nobody has answered*, so a customer who had approved sat under a chip stating in the other column's own language that they had not. It says **On hold** now.
    - ⚠ **The key is still `pending`.** Only the word changed: `r.badge` is what the season filter matches on and the dropdown's option values are `confirmed`/`pending`/`maybe`, so renaming the key would silently break that filter. The filter's own label already read *"blocked by a rule"* — the chip now agrees with it.

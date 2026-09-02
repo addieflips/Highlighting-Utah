@@ -128,16 +128,31 @@ test.describe('The RSVP card is centred, not shoved to one side', () => {
 
   /* ⚠ MEASURED, NOT EYEBALLED. rsvp-minimal makes #page-payment a flex container,
      and its only visible child had no width — so it shrank to its content and
-     settled at flex-start. At 1440px the card sat at x=65, w=584. */
+     settled at flex-start. At 1440px the card sat at x=65, w=584.
+
+     ⚠ REACHED THROUGH A FAILED RSVP, and that is the only way left rather than a
+     contrived one. Both answers now leave this card within a moment — a yes lands in
+     the portal with the gate question over it (2026-09-02), a no carries straight
+     through (RS-33) — so the one state a customer is genuinely LEFT sitting on it is
+     an RSVP that could not be recorded. `forceinternal` is the stub's documented
+     sentinel for exactly that. The layout being measured is identical: rsvpLinkFailed
+     reveals this same card with `rsvp-minimal` still on the body, which is the
+     condition the bug needed. */
   test('on a desktop width the card sits in the middle', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const stub = await installFirebaseStub(page, {});
     const thrown = [];
     page.on('pageerror', e => thrown.push(String(e)));
-    page.on('console', m => { if (m.type() === 'error' && !BLOCKED_RESOURCE.test(m.text())) thrown.push(m.text()); });
-    /* yes, not no: a No now carries straight on into the portal (RS-33), so it is
-       not on this card long enough to measure. */
-    await page.goto(`/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=yes`);
+    /* ⚠ ONE EXPECTED LINE IS ALLOWED THROUGH, and only one. This route is a
+       deliberately failed RSVP, and the page is required to say so out loud —
+       "nothing should fail quietly" (Addie, 2026-08-25) — so a console error is the
+       correct behaviour here rather than noise to be silenced. Anything else, and
+       every pageerror, still fails this test. */
+    page.on('console', m => {
+      const t = m.text();
+      if (m.type() === 'error' && !BLOCKED_RESOURCE.test(t) && !/portal call failed/.test(t)) thrown.push(t);
+    });
+    await page.goto('/index.html#/payment?token=forceinternal&rsvp=yes');
     await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
 
     const box = await page.locator('#rsvpConfirmCard').boundingBox();
@@ -148,6 +163,25 @@ test.describe('The RSVP card is centred, not shoved to one side', () => {
       .toBeLessThan(12);
 
     expect(thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ THE SAME COMPLAINT, ABOUT THE THING THAT INHERITED IT. Dax, 2026-09-01:
+     "the whole thing is not centered and pretty". The question he was looking at
+     when he said that has since become a dialog over the portal, so the centring
+     guarantee has to follow it there or it quietly stops being guarded at all. */
+  test('and so does the gate-code dialog, over the portal', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const stub = await installFirebaseStub(page, {});
+    await page.goto(`/index.html#/payment?token=${CUSTOMERS.standard.token}&rsvp=yes`);
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+
+    const box = await page.locator('#rsvpGateCodeStep').boundingBox();
+    const leftGap = box.x;
+    const rightGap = 1440 - (box.x + box.width);
+    expect(Math.abs(leftGap - rightGap), `dialog is off-centre: ${Math.round(leftGap)}px left, ${Math.round(rightGap)}px right`)
+      .toBeLessThan(12);
+
     stub.assertNoRealCalls();
   });
 });

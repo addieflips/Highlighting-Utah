@@ -69,15 +69,29 @@ test.describe('RSVP email links', () => {
       return rsvp.length ? rsvp[rsvp.length - 1].payload.response : null;
     }).toBe('yes');
 
-    /* 2. What they read. The gate-code step still comes first (Addie,
-       2026-08-31: "Lets do gate code before changes") and is the ONLY thing
-       between a yes and the portal now — Dax, 2026-09-01, asked for the buttons
-       to "automatically send the customer to their member portal", so the
-       confirmation card that used to end this flow is gone. */
-    await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
-    await page.locator('#rsvpGateCodeYesBtn').click();
+    /* 2. What they read. Dax, 2026-09-02: the gate code is "just a pop up in the
+       member portal ... instead of an entire page", so the portal is what a yes
+       lands on and the question arrives ON TOP of it. Addie's ruling that it is
+       asked at all, and asked before anything else, is unchanged — it is simply
+       no longer a screen standing in the way of the account.
+
+       ⚠ THE BILL IS ASSERTED FIRST, ON PURPOSE. #invBreakdown proves they are
+       actually IN the portal while the question is still open, which is the whole
+       claim; asserting it only after the click would leave "pop-up over the portal"
+       and "page before the portal" looking identical to this spec. */
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
     await expect(page.locator('#invBreakdown')).toBeVisible();
     await expect(page.locator('#rsvpConfirmCard')).toBeHidden();
+    /* ⚠ THE SECOND BUTTON, because this fixture already HOLDS a code — with one on
+       file the two answers are "Yes, that's right" and "It has changed", and it is
+       the second that opens the box. Clicking Yes here would confirm and close, and
+       prove nothing about the save. */
+    await page.locator('#rsvpGateCodeNoBtn').click();
+    await page.locator('#rsvpGateCodeInput').fill('9182');
+    await page.locator('#rsvpGateCodeSaveBtn').click();
+    /* Answering closes the question and leaves them where they already were. */
+    await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
+    await expect(page.locator('#invBreakdown')).toBeVisible();
 
     /* 3. What they must NOT be looking at. */
     await expectNotTheQuoteForm(page);
@@ -240,10 +254,15 @@ test.describe('One answer shows one card, and nothing else', () => {
 
   const TOKEN = CUSTOMERS.standard.token;
 
+  /* ⚠ ANCHORED ON THE GATE-CODE QUESTION NOW, not on the confirmation card. A yes
+     no longer settles on that card at all (2026-09-02) — it lands in the portal with
+     the question over it — so waiting for the card would wait for something that
+     never comes and time out on correct code. The fault being guarded is unchanged:
+     one answer must not reveal another answer's card. */
   test('Yes does not show the Back Next Year card', async ({ page }) => {
     const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=yes`);
 
-    await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
     await expect(page.locator('#backNextYearConfirm')).toBeHidden();
     /* The sign-in form lives on the same page as the yes/no card, and an RSVP
        answer must never sit above a box asking them to sign in. */
@@ -272,11 +291,11 @@ test.describe('One answer shows one card, and nothing else', () => {
   test('and neither one leaves a stray "One moment" on screen', async ({ page }) => {
     for (const answer of ['yes', 'no']) {
       const stub = await open(page, `/index.html#/payment?token=${TOKEN}&rsvp=${answer}`);
-      /* Yes settles on this card; No carries on into the portal (RS-33). Either way
-         the assertion below is the same one, and it is the point of this test. */
-      await expect(answer === 'yes'
-        ? page.locator('#rsvpConfirmCard')
-        : page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
+      /* Both answers carry on into the portal now — a yes with the gate-code
+         question over it (2026-09-02), a no straight through (RS-33). Waiting on the
+         portal for both is the honest wait; the assertion below is the same one
+         either way, and it is the point of this test. */
+      await expect(page.locator('#portalTabsLayout')).toBeVisible({ timeout: 8000 });
       /* ⚠ VISIBLE ONLY, and that is not a loosening. Both cards legitimately KEEP
          that text in the DOM — it is the markup default each handler overwrites —
          so counting DOM matches asserts something that was never true and fails on

@@ -734,6 +734,15 @@ const PORTAL_READ_FIELDS = [
   'name', 'phone', 'email', 'address', 'phone2', 'email2', 'gateCode',
   'lightsDescription', 'installPreference', 'wireColor', 'outletTimer',
   'specificOutlet', 'specificOutletNotes', 'notes', 'rsvpStatus', 'houseSides',
+  /* ⚠ THE WORD ON ITS OWN IS NOT AN ANSWER, so the portal needs the stamp too
+     (added 2026-09-02). A stored yes with nothing behind it is an import or the
+     assumed yes written at conversion (RS-19) — the office already refuses that
+     through effectiveRsvpStatus, and until now the portal COULD NOT make the same
+     distinction: this field was written by three server paths and sent to nobody,
+     so it read as undefined for everybody. The RSVP question raised after a payment
+     would therefore have been put to customers who had already answered it.
+     Caught by portal-fields.test.js, which exists for exactly this shape. */
+  'rsvpRespondedAt',
   'seasonStatus', 'seasonStatusAt', 'cancellationReason', 'housePhotoUrl', 'houseHighlights',
   /* Set when they decline a re-quote: somebody has to ask whether last year's
      job will do. In the read list so the portal cannot contradict the office
@@ -1035,6 +1044,41 @@ async function arrearsForCustomer(custData) {
     console.error('[HU] arrearsForCustomer failed:', e);
     return none;
   }
+}
+
+/* --- Nothing changes hands until last season is settled ---------------------
+ *
+ * Dax, 2026-09-02: "make sure it forces them to pay for their last year lights
+ * before they can do anything and before anything goes into the system."
+ *
+ * ⭐ THE SECOND HALF IS WHY THIS IS HERE AND NOT ONLY IN THE PORTAL. A screen
+ * that hides its own tabs is a suggestion — the callable is public, and anyone
+ * who can open a browser console can call it with a token. "Before anything goes
+ * into the system" is a claim about the DATABASE, so it has to be refused at the
+ * write.
+ *
+ * ⚠ AN ANSWER IS NOT A CHANGE, and the two are deliberately not treated alike.
+ * portalRsvp is never held: RS-33 turns on the answer being recorded whatever
+ * else happens, and a customer who owes money is exactly the one whose yes or no
+ * the office most needs. Cancelling is not held either — somebody trying to LEAVE
+ * must never be told to pay first, or they simply stop replying and Addie never
+ * learns why. Both were Dax's own call when the scope was put to him.
+ *
+ * ⚠ AND IT FAILS OPEN, which is the opposite of the season hold and is chosen for
+ * the same reason arrearsForCustomer answers nought on an unreadable invoice:
+ * refusing a save because we could not READ a bill would block a customer who may
+ * owe nothing at all, and the office still holds them out of the season either
+ * way. A change slipping through costs a form field; a customer locked out of
+ * their own account by a failed read costs a phone call and their trust. */
+async function arrearsHoldBlocks(custData) {
+  const owed = await arrearsForCustomer(custData);
+  return (owed.outstanding || 0) > 0 ? owed : null;
+}
+function arrearsHoldError(owed) {
+  const season = owed && owed.season ? String(owed.season) : '';
+  return new HttpsError('failed-precondition',
+    'There is still a balance owing from ' + (season ? 'the ' + season + ' season' : 'last season') +
+    '. Once that is paid you can make changes here again.');
 }
 
 // Make sure a record has a portalToken, minting one if it predates the system.
@@ -1515,6 +1559,15 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
 
   const match = await findByToken(token);
   if (!match) throw new HttpsError('not-found', 'Account not found.');
+
+  /* ⚠ BEFORE A SINGLE FIELD IS READ OFF THE REQUEST. Checked here rather than
+     after the updates are assembled so there is no version of this function in
+     which a held customer's data has been touched at all.
+     ⚠ 'cancel' IS EXEMPT BY NAME, not by accident — see arrearsHoldBlocks. */
+  if (section !== 'cancel') {
+    const held = await arrearsHoldBlocks(match.data);
+    if (held) throw arrearsHoldError(held);
+  }
 
   const updates = {};
   allowed.forEach(function (f) {
@@ -4504,6 +4557,149 @@ function properNameServer(raw) {
   if (/^(the|mr|mrs|ms|miss|dr|rev|pastor)\.?$/i.test(first)) return tidied;
   return first;
 }
+
+/* --- The unpaid-last-season chase ------------------------------------------
+ *
+ * Dax, 2026-09-02: "i dont have the automated email set up i told you to do
+ * that for the unpaid."
+ *
+ * ⛔ IT SHIPS OFF, AND THAT IS NOT TIMIDITY — IT IS HER STANDING RULING.
+ * MON-34, Addie, 2026-09-01: "I'll send those emails/text myself", recorded with
+ * "SO DO NOT BUILD AN AUTOMATIC CHASE without asking again". This is the asking:
+ * the machinery is built and wired, and it does nothing at all until somebody
+ * ticks the box in Admin > Invoices > Unpaid Last Season. Flipping that switch is
+ * a person deciding to override her, in front of her own words, which is exactly
+ * the shape the nightly invoice automation already has. Do NOT default it on.
+ *
+ * ⚠ WHO IT WRITES TO, AND THE TWO NEIGHBOURS IT DELIBERATELY LEAVES ALONE.
+ * Somebody who owes for a previous season AND has not answered the RSVP at all.
+ *   - Not somebody who said NO or BACK NEXT YEAR. RS-30 settles this shape: "if
+ *     they said back next year or no we don't need a system email." They have
+ *     answered; an email asking whether they want lights argues with a decision
+ *     already given. They may still owe money, but that is a DEBT chase, which is
+ *     a different email and a different decision.
+ *   - Not somebody who has already said YES. The template's own first line asks
+ *     "will you be getting lights hung again this year?", which reads as though we
+ *     lost their answer. They are held out of the season by the money either way,
+ *     and the portal tells them so the moment they open it (RS-36).
+ *
+ * ⚠ ONCE PER CUSTOMER PER SEASON, EVER. `arrearsRsvpEmailAt` is stamped on the
+ * record and Start New Season clears it, the same shape as arrearsPaidNoticeAt.
+ * A daily schedule with no stamp is a daily email to somebody who owes money,
+ * which is how a chase becomes harassment.
+ *
+ * ⚠ AND IT NEVER GUESSES AT THE FIGURE. The email names no amount — there is no
+ * token for the carried balance and {{amount_due}} means this year's install
+ * price (RS-37) — so the buttons carry their portal token and the portal shows
+ * the one figure we computed. Nothing here recomputes any money.
+ * ------------------------------------------------------------------------- */
+async function runArrearsRsvpBatch(source) {
+  const out = { sent: 0, skipped: 0, errors: [], source: source, stopped: '' };
+
+  const cfgSnap = await db.collection('settings').doc('emailjs').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!cfg.serviceId || !cfg.templateId || !cfg.privateKey) {
+    out.stopped = 'EmailJS is not set up on the server (Automation Emails > EmailJS Setup).';
+    return out;
+  }
+
+  const tplSnap = await findTemplateSnapByName('Not Paid RSVP');
+  if (tplSnap.empty) {
+    out.stopped = 'There is no email template called "Not Paid RSVP". It lives under Automation Emails > Templates > RSVP.';
+    return out;
+  }
+  const tpl = tplSnap.docs[0].data();
+  const templateBody = tpl.body || '';
+  const subject = templateSubjectOr(tpl, 'Your Christmas lights this year — and last season’s balance');
+
+  const snap = await db.collection('jobAddresses').get();
+  for (const docSnap of snap.docs) {
+    const d = docSnap.data() || {};
+    /* Every skip is silent and counted, never logged per customer: this runs over
+       the whole book and a line each would bury the errors that matter. */
+    /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN PHONE, so "skip the test account" is
+       not housekeeping here — it is the difference between a dry run and mailing
+       the owner a chase for a debt she does not have. Same two conditions
+       admin.html's isTestRecordData uses. */
+    if (d.isTestRecord === true) { out.skipped++; continue; }
+    if (digitsOnly(d.phone) === '3853912235' && String(d.name || '').trim().toLowerCase() === 'test') { out.skipped++; continue; }
+    if (d.arrearsRsvpEmailAt) { out.skipped++; continue; }
+    const answered = String(d.rsvpStatus || '').trim();
+    if (answered) { out.skipped++; continue; }
+    const email = String(d.email || '').trim();
+    if (!email) { out.skipped++; continue; }
+
+    const owed = await arrearsForCustomer(d);
+    if (!(owed.outstanding > 0)) { out.skipped++; continue; }
+
+    try {
+      const token = await ensureToken(docSnap.id, d);
+      const base = 'https://highlightingutah.com/#/payment' + (token ? ('?token=' + token) : '');
+      const yesUrl = base + (token ? '&rsvp=yes' : '');
+      const noUrl = base + (token ? '&rsvp=no' : '');
+      const backUrl = 'https://highlightingutah.com/#/' + (token ? ('?token=' + token + '&rsvp=back') : '');
+      /* ⚠ THE SAME THREE BUTTONS admin.html builds, in the same colours and the
+         same order. A chase that looked different from the RSVP email it follows
+         would read as a different question. */
+      const btn = 'display:inline-block; padding:11px 18px; border-radius:8px; text-decoration:none; font-weight:bold; font-family:Arial,sans-serif; font-size:14px; margin:6px 4px;';
+      let body = templateBody;
+      body = body.split('{{name}}').join(properNameServer(d.name) || 'there');
+      body = body.split('{{rsvp_yes_link}}').join(yesUrl);
+      body = body.split('{{rsvp_no_link}}').join(noUrl);
+      body = body.split('{{rsvp_back_link}}').join(backUrl);
+      body = body.split('{{rsvp_yes_button}}').join('<a href="' + yesUrl + '" style="' + btn + ' background:#2E6B3E; color:#ffffff;">Yes</a>');
+      body = body.split('{{rsvp_no_button}}').join('<a href="' + noUrl + '" style="' + btn + ' background:#8A8F9C; color:#ffffff;">No</a>');
+      body = body.split('{{rsvp_back_button}}').join('<a href="' + backUrl + '" style="' + btn + ' background:#D89F3D; color:#1E3B2C;">Back Next Year</a>');
+      body = body.replace(/\n/g, '<br>');
+
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id: cfg.serviceId,
+          template_id: cfg.templateId,
+          user_id: cfg.publicKey || '',
+          accessToken: cfg.privateKey,
+          template_params: {
+            to_email: email, to_name: d.name || '',
+            subject: String(subject).split('{{name}}').join(properNameServer(d.name) || 'there'),
+            body: body, message: body
+          }
+        })
+      });
+      if (!res.ok) {
+        out.errors.push((d.name || docSnap.id) + ': ' + (await res.text()).slice(0, 120));
+        continue;
+      }
+      /* ⚠ STAMPED ONLY AFTER THE SEND SUCCEEDS. Stamping first would lose the
+         customer for the whole season on one bad response from the mail service. */
+      await docSnap.ref.update({ arrearsRsvpEmailAt: admin.firestore.FieldValue.serverTimestamp() });
+      out.sent++;
+    } catch (err) {
+      out.errors.push((d.name || docSnap.id) + ': ' + ((err && err.message) || err));
+    }
+  }
+  return out;
+}
+
+exports.sendArrearsRsvpEmails = onSchedule(
+  { schedule: '0 10 * * *', timeZone: 'America/Denver', memory: '512MiB' },
+  async () => {
+    const autoSnap = await db.collection('settings').doc('arrearsRsvpAutomation').get();
+    if (!autoSnap.exists || !autoSnap.data().enabled) {
+      return; // off — and off is the shipped state. See the block above.
+    }
+    await runArrearsRsvpBatch('schedule');
+  }
+);
+
+/* The same run, on demand, whether the switch is on or off — so the office can
+   send one batch by hand without ever turning the automation on. That is the
+   closest thing to what Addie said she wanted to do herself. */
+exports.runArrearsRsvpNow = onCall({ memory: '512MiB', timeoutSeconds: 300 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.');
+  return await runArrearsRsvpBatch('manual');
+});
 
 exports.sendQuoteNudges = onSchedule(
   { schedule: '0 10 * * *', timeZone: 'America/Denver', memory: '512MiB' },

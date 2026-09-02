@@ -1219,6 +1219,10 @@ check('the path still has every step in it',
     arrearsPaidNoticeAt: 'the once-only guard on the "paid last season, still needs to ' +
       'RSVP" Inbox note — our bookkeeping about a note we raised, not a stage the ' +
       'customer passed through; the events are their payment and their eventual answer',
+    arrearsRsvpEmailAt: 'the once-per-season guard on the unpaid-last-season chase — ' +
+      'the same shape as arrearsPaidNoticeAt above and excused for the same reason: it ' +
+      'records that WE wrote to them, not anything the customer did. Their side of it ' +
+      'is the RSVP answer and the payment, and both are already steps',
     archivedAt: 'on the archivedCustomers document, written as the customer is removed — ' +
       'the customer-side event is the recycle, and a step here could never be read because ' +
       'the jobAddresses record no longer exists',

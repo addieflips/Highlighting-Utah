@@ -2834,6 +2834,7 @@
           <button class="route-tab-btn" data-invtab="importexport" draggable="true">Import / Export</button>
           <button class="route-tab-btn" data-invtab="feecheck" draggable="true">Fee Check</button>
           <button class="route-tab-btn" data-invtab="nightly" draggable="true">Nightly Automation</button>
+          <button class="route-tab-btn" data-invtab="arrearschase" draggable="true">Unpaid Last Season</button>
           <button class="route-tab-btn" data-invtab="newseason" draggable="true">Start New Season</button>
         </div>
         <!-- INVOICE LIST -->
@@ -2943,6 +2944,31 @@
             <div style="margin-top:16px; border-top:1px solid var(--line); padding-top:12px;">
               <h4 style="margin:0 0 8px;">Last 10 nightly runs</h4>
               <div id="nightlyInvoiceLog" class="empty-note">Loading…</div>
+            </div>
+          </div>
+        </div>
+        <!-- UNPAID LAST SEASON — the chase, built and switched OFF -->
+        <div class="route-tab-panel" id="invtab-arrearschase">
+          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+            <h3>Unpaid Last Season &mdash; automatic RSVP chase</h3>
+            <!-- ⛔ HER OWN WORDS SIT ON THE SWITCH, and they are not decoration.
+                 MON-34, 2026-09-01: asked whether a customer held for last season's
+                 debt should be chased automatically, she answered that she would send
+                 those herself. Whoever ticks this box is overriding that, and they
+                 should be able to read it with their hand on the switch. -->
+            <div style="background:#FDECEA; color:#9A2A1F; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin:0 0 12px; font-size:12.5px; line-height:1.55;">
+              <strong>Addie said she would send these herself.</strong> Asked on 1 September whether people held for last season&rsquo;s money should be chased automatically, her answer was &ldquo;I&rsquo;ll send those emails/text myself.&rdquo; This is built and wired but <strong>switched off</strong>. Turning it on overrides that &mdash; worth a word with her first. <em>Send Once, Now</em> below does one batch by hand without turning anything on.
+            </div>
+            <p style="font-size:13px;">Every day at 10:00 AM this looks for customers who still owe for a previous season <strong>and have not answered the RSVP at all</strong>, and emails them the <strong>Not Paid RSVP</strong> template &mdash; the one that says we can&rsquo;t put them on the schedule until last season is settled. Each customer is written to <strong>once per season, ever</strong>, and Start New Season resets that. Anyone who already answered &mdash; yes, no, or back next year &mdash; is left alone, and so is anyone with no email address. Edit the wording under Templates &gt; RSVP.</p>
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
+              <input type="checkbox" id="arrearsChaseEnabled" style="width:18px; height:18px;">
+              Send the unpaid-last-season chase automatically
+            </label>
+            <span id="arrearsChaseStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
+            <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+              <button type="button" class="btn btn-gold" id="arrearsChaseNowBtn">Send Once, Now</button>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Runs the same check right now, whether the switch above is on or off. The once-per-season rule still applies, so pressing it twice does not write to anybody twice.</p>
+              <span id="arrearsChaseNowStatus" style="font-size:13px; margin-top:8px; display:block;"></span>
             </div>
           </div>
         </div>
@@ -8537,6 +8563,10 @@ document.querySelectorAll('input[name="crewsPerDay"]').forEach(function(radio){
   });
 });
 async function loadNightlyInvoiceSettings(){
+  /* Read alongside the nightly switch, because they share a panel and are opened
+     together — a switch that shows its stored state only after some other
+     click is a switch nobody can trust. */
+  loadArrearsChaseSetting();
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
     document.getElementById('nightlyInvoiceEnabled').checked = snap.exists() ? !!snap.data().enabled : false;
@@ -8567,6 +8597,72 @@ document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', asy
     statusEl.style.color = 'var(--ember)';
     this.checked = !this.checked;
   }
+});
+
+/* ---- Unpaid Last Season: the switch, and the one-off run --------------------
+   ⛔ NOTHING HERE DEFAULTS ON. The box reads settings/arrearsRsvpAutomation, and
+   an ABSENT document is off — which is the shipped state, and is the state every
+   install starts in. See the banner on the card, and MON-34. */
+function arrearsChaseSay(on){
+  return on ? '\u2713 On \u2014 the chase goes out every day at 10:00 AM'
+            : 'Off \u2014 nothing is sent automatically';
+}
+async function loadArrearsChaseSetting(){
+  const box = document.getElementById('arrearsChaseEnabled');
+  const statusEl = document.getElementById('arrearsChaseStatus');
+  if(!box) return;
+  let on = false;
+  try{
+    const snap = await getDoc(doc(db,'settings','arrearsRsvpAutomation'));
+    on = !!(snap.exists() && snap.data().enabled);
+  }catch(err){
+    /* Logged, never swallowed (Addie, 2026-08-25: "nothing should fail quietly").
+       ⚠ AND AN UNREADABLE SWITCH SHOWS AS OFF, not as whatever the box was left
+       at — a tick nobody put there is a claim that mail is going out. */
+    console.error('[HU] could not read the unpaid-chase switch:', err);
+    on = false;
+  }
+  box.checked = on;
+  if(statusEl){ statusEl.textContent = arrearsChaseSay(on); statusEl.style.color = on ? 'var(--emerald)' : 'var(--slate)'; }
+}
+document.getElementById('arrearsChaseEnabled')?.addEventListener('change', async function(){
+  const statusEl = document.getElementById('arrearsChaseStatus');
+  try{
+    await setDoc(doc(db,'settings','arrearsRsvpAutomation'), {enabled: this.checked}, {merge:true});
+    statusEl.textContent = arrearsChaseSay(this.checked);
+    statusEl.style.color = this.checked ? 'var(--emerald)' : 'var(--slate)';
+  } catch(err){
+    /* Put back, so the box never claims a state the database does not hold. */
+    this.checked = !this.checked;
+    statusEl.textContent = '\u2717 Couldn\'t save \u2014 try again';
+    statusEl.style.color = 'var(--ember)';
+  }
+});
+document.getElementById('arrearsChaseNowBtn')?.addEventListener('click', async function(){
+  const statusEl = document.getElementById('arrearsChaseNowStatus');
+  this.disabled = true;
+  statusEl.style.color = 'var(--slate)';
+  statusEl.textContent = 'Working\u2026';
+  try{
+    const run = httpsCallable(fbFunctions, 'runArrearsRsvpNow');
+    const res = (await run({})).data || {};
+    /* ⚠ A STOPPED RUN IS NOT A QUIET ZERO. "0 sent" on its own reads as "nobody
+       owes", when it may be a missing template or missing EmailJS keys — so the
+       reason is shown instead of the count. */
+    if(res.stopped){
+      statusEl.textContent = 'Nothing sent \u2014 ' + res.stopped;
+      statusEl.style.color = 'var(--ember)';
+    } else {
+      const failed = (res.errors && res.errors.length) || 0;
+      statusEl.textContent = res.sent + ' sent, ' + res.skipped + ' skipped'
+        + (failed ? (', ' + failed + ' failed: ' + res.errors.slice(0,3).join('; ')) : '');
+      statusEl.style.color = failed ? 'var(--ember)' : 'var(--emerald)';
+    }
+  }catch(err){
+    statusEl.textContent = '\u2717 Couldn\'t run that \u2014 ' + ((err && err.message) || 'try again');
+    statusEl.style.color = 'var(--ember)';
+  }
+  this.disabled = false;
 });
 document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async function(){
   if(!confirm('Send invoices now for every completed Install house that hasn\'t been billed yet? Houses flagged for a fix or marked "Didn\'t Get To" are skipped automatically.')) return;
@@ -8926,6 +9022,12 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              the note is the only prompt to ring somebody whose money is settled and
              whose answer is still missing. */
           arrearsPaidNoticeAt: null,
+          /* ⚠ SEASON-SCOPED FOR THE SAME REASON, and getting this one wrong is worse
+             than getting the notice wrong: left standing, a customer chased for last
+             season's money could never be chased again, because the chase is once per
+             customer per season by design. Cleared here so a new season starts with
+             nobody already written to. */
+          arrearsRsvpEmailAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
           cameBackThisSeasonAt: null,
@@ -14285,6 +14387,20 @@ const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY = 'Hi {{name}},\n\n' +
   'Thanks,\nHighlighting Utah';
 const ET_PREBUILT_TEMPLATES = [
   {name:'RSVP Email', folderName:'RSVP', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nBefore our crew comes out, please check these two are right \u2014 just reply if either is wrong:\n\n{{gate_code_line}}\n{{outlet_line}}\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
+  /* ⭐ THE SAME QUESTION, ASKED OF SOMEBODY WHO OWES FOR LAST SEASON (Dax, 2026-09-02).
+     The plain RSVP Email above cannot do this job: it asks whether they want lights
+     without mentioning that they will not be scheduled whatever they answer, so a yes
+     from a held customer reads as a booking and is not one. It also asks them to check
+     their gate code and outlet, which is a question about a crew visit that is not
+     happening yet — so those two lines are deliberately not carried over.
+     ⚠ IT NAMES NO FIGURE, AND THAT IS DELIBERATE. There is no token for the carried
+     balance, and {{amount_due}} on a manually sent email resolves to THIS year's install
+     price (applyEmailTokens) — so putting it here would print the wrong number in an
+     email about an old debt and read as exactly the double charge MON-37 exists to
+     prevent. The portal holds the one figure we computed, and a yes now lands them on
+     it (RS-31, RS-35).
+     ⚠ THE YEAR IS TYPED, not merged, for the same reason. Re-word it next season. */
+  {name:'Not Paid RSVP', folderName:'RSVP', subject:'{{name}}, your lights this year \u2014 and last season\'s balance', body:'Hi {{name}} \uD83C\uDF84\n\nIt\'s almost time for the Christmas lighting season! Will you be getting lights hung again this year?\n\nOne thing first \u2014 our records show a balance still outstanding from the 2025 season. We aren\'t able to put you on the install schedule until that\'s settled, so it\'s worth sorting now while there\'s still plenty of room in the calendar.\n\nTap Yes below and it will take you straight into your account, where last season\'s amount is on its own line with a button to pay just that. It\'s last season\'s bill, not a second charge for this year.\n\nIf that balance doesn\'t look right to you, reply to this email or text us at (801) 901-0011 and we\'ll go through it with you.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}\n\nThanks,\nHighlighting Utah', linkedTokens:[{code:'rsvp_yes_button', style:'button'},{code:'rsvp_no_button', style:'button'},{code:'rsvp_back_button', style:'button'}]},
   {name:'Post-Install Invoice', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out \u2014 your lights are up! Your balance for this season is {{amount}}. You can pay through your portal or Venmo using the links below.\n\n{{portal_link}}{{venmo_button}}', linkedTokens:[{code:'portal_link', style:'link'},{code:'venmo_button', style:'button'}]},
   {name:'Already Paid - Say Thanks', folderName:'Billing', body:'Hi {{name}},\n\nYour lights are up! Just confirming we received your payment of {{amount}} for this season \u2014 you\'re all set.\n\n{{message_link}}', linkedTokens:[{code:'message_link', style:'link'}]},
   {name:'Nightly Auto-Invoice \u2014 Unpaid', folderName:'Billing', body:'Hi {{name}},\n\nThanks for having us out today \u2014 your lights are up!\n\n{{feet_line}}\n{{new_member_fee_line}}\n{{credit_lines}}\n\nAmount due: {{amount_due}}\nPlease pay by {{due_date}}.\n\nPay your invoice here:\n\n{{pay_button}}{{venmo_button}}', linkedTokens:[{code:'pay_button', style:'button'},{code:'venmo_button', style:'button'}]},
@@ -14304,7 +14420,7 @@ async function etSeedPrebuiltTemplates(){
       folderId = ref.id;
       folderIdByName[preset.folderName] = folderId;
     }
-    await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
+    await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, subject: preset.subject || '', body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
   }
 }
 let etFoldersLoaded = false;
@@ -14319,29 +14435,107 @@ function loadEmailTemplateFolders(){
   });
 }
 /* etSeedPrebuiltTemplates only ever runs once, the very first time the app
-   sees a completely empty template library — so a prebuilt added later (like
-   Quote Maybe Next Year Follow-up) never reaches an install that already has
-   templates. This is a narrow, one-time top-up for that one case: if it's
-   missing, create it for real so it's an actual editable template instead of
-   just a name in ET_PREBUILT_TEMPLATES nobody can find.
+   sees a completely empty template library — so a prebuilt added later never
+   reaches an install that already has templates. This is the one-time top-up
+   for that: a named prebuilt that is missing is created for real, so it is an
+   actual editable template instead of just a name in ET_PREBUILT_TEMPLATES
+   nobody can find.
    Folders and templates load from two independent listeners, so this is
    called after each one settles and only actually runs once both have -
    otherwise it could create a second "Quotes" folder before the existing
-   one (already used by Quote Ready for Review) has loaded in. */
+   one (already used by Quote Ready for Review) has loaded in.
+
+   ⭐ IT IS A LIST NOW, AND IT REMEMBERS (2026-09-02). It handled exactly one
+   template by name, so adding a second prebuilt meant either copying the whole
+   function or leaving the new one unreachable — which is the gap the paragraph
+   above was already describing.
+
+   ⚠ AND A TOP-UP HAPPENS ONCE PER NAME, EVER, which is the part that needed a
+   STORED record rather than a variable. Without one this cannot tell "she has
+   never been offered this" from "she was offered it and deleted it", so a
+   template the office threw away would come back every morning. The names
+   already handled go into settings/emailTemplateSeed, and a name in that list
+   is never created again however many times it is deleted.
+   ⚠ THE NAME IS RECORDED WHETHER OR NOT ANYTHING WAS CREATED. A template that
+   is already present has been handled too; recording only creations would
+   leave every existing install re-checking the same names for ever. */
+const ET_TOP_UP_NAMES = ['Quote Maybe Next Year Follow-up', 'Not Paid RSVP'];
 let etTemplatesLoaded = false;
 let etMaybeTemplateChecked = false;
 async function etEnsureMaybeTemplateExists(){
   if(etMaybeTemplateChecked || !etFoldersLoaded || !etTemplatesLoaded) return;
   etMaybeTemplateChecked = true;
-  if(emailTemplates.some(t => t.data.name === 'Quote Maybe Next Year Follow-up')) return;
-  const preset = ET_PREBUILT_TEMPLATES.find(t => t.name === 'Quote Maybe Next Year Follow-up');
-  if(!preset) return;
-  let folderId = emailTemplateFolders.find(f => f.name === preset.folderName)?.id;
-  if(!folderId){
-    const ref = await addDoc(collection(db,'emailTemplateFolders'), {name: preset.folderName, createdAt: serverTimestamp()});
-    folderId = ref.id;
+  let alreadyOffered = [];
+  try{
+    const seedSnap = await getDoc(doc(db,'settings','emailTemplateSeed'));
+    const offered = seedSnap.exists() ? seedSnap.data().toppedUp : null;
+    if(Array.isArray(offered)) alreadyOffered = offered.map(String);
+  }catch(e){
+    /* ⚠ FAILS TOWARDS DOING NOTHING — logged, never swallowed (Addie,
+       2026-08-25: "nothing should fail quietly"). If the record cannot be read
+       we do not know what has been offered, and creating on a guess would
+       resurrect deleted templates. A missing template is recoverable by hand;
+       a library that refills itself every morning is not. */
+    console.error('[HU] could not read the template top-up record:', e);
+    return;
   }
-  await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
+  /* ⭐ AN EMPTY SHELL IS FILLED IN, AND THAT IS A SEPARATE JOB FROM CREATING ONE
+     (added 2026-09-02, after Dax: "i dont know what you did but this is still not
+     filled out").
+
+     ⚠ WHAT ACTUALLY HAPPENED, because it will happen again. He made the template
+     himself from the wording he had been given — typed the NAME and picked the
+     FOLDER, and stopped. The top-up below then did exactly what it was written to
+     do: saw a template of that name already there, left it alone, and recorded the
+     name as handled. So a template existed, was named correctly, sat in the right
+     folder, and would have sent an EMPTY EMAIL to everybody it reached.
+
+     ⚠ IT ONLY EVER FILLS A BLANK, NEVER REPLACES WORDS. A body somebody has written
+     is theirs — this is the office's tool, not ours, and MON-24 is the general form
+     of that. So each field is patched only when it is empty, which also makes this
+     idempotent: once filled it stops, for ever.
+
+     ⚠ AND IT IS DELIBERATELY NOT GATED ON `alreadyOffered`, unlike creating. By the
+     time this fault is visible the name has already been recorded as handled — that
+     is the whole reason it stayed broken — so gating the repair on the same record
+     would guarantee it never ran. Creating stays gated, so a template the office
+     deletes stays deleted. */
+  for(const preset of ET_PREBUILT_TEMPLATES){
+    const existing = emailTemplates.find(t => t.data.name === preset.name);
+    if(!existing) continue;
+    const patch = {};
+    if(!String(existing.data.body || '').trim() && preset.body) patch.body = preset.body;
+    if(!String(existing.data.subject || '').trim() && preset.subject) patch.subject = preset.subject;
+    /* Without these the RSVP buttons render as raw {{tokens}} in somebody's inbox —
+       the same shape as the 2026-08-17 photo bug, and invisible until it is sent. */
+    if(!(Array.isArray(existing.data.linkedTokens) && existing.data.linkedTokens.length) && preset.linkedTokens){
+      patch.linkedTokens = preset.linkedTokens;
+    }
+    if(!Object.keys(patch).length) continue;
+    try{
+      await updateDoc(doc(db,'emailTemplates', existing.id), patch);
+    }catch(e){
+      /* Logged, never swallowed (Addie, 2026-08-25: "nothing should fail quietly").
+         A refused patch leaves the shell empty, which is where it already was. */
+      console.error('[HU] could not fill in the blank template "' + preset.name + '":', e);
+    }
+  }
+
+  const todo = ET_TOP_UP_NAMES.filter(n => alreadyOffered.indexOf(n) === -1);
+  if(!todo.length) return;
+  for(const name of todo){
+    if(emailTemplates.some(t => t.data.name === name)) continue;
+    const preset = ET_PREBUILT_TEMPLATES.find(t => t.name === name);
+    if(!preset) continue;
+    let folderId = emailTemplateFolders.find(f => f.name === preset.folderName)?.id;
+    if(!folderId){
+      const ref = await addDoc(collection(db,'emailTemplateFolders'), {name: preset.folderName, createdAt: serverTimestamp()});
+      folderId = ref.id;
+    }
+    await addDoc(collection(db,'emailTemplates'), {name: preset.name, folderId: folderId, subject: preset.subject || '', body: preset.body, linkedTokens: preset.linkedTokens, createdAt: serverTimestamp()});
+  }
+  await setDoc(doc(db,'settings','emailTemplateSeed'),
+    {toppedUp: alreadyOffered.concat(todo)}, {merge:true});
 }
 function loadEmailTemplates(){
   onSnapshot(collection(db,'emailTemplates'), async function(snap){
@@ -17544,6 +17738,27 @@ function isInvoiceOverdue(d){
    stamp lands. A failed write clears the memory entry so it retries rather than being
    lost — a note nobody gets is the whole failure this exists to prevent. */
 const arrearsNoticedThisSession = new Set();
+/* ⭐ WIDENED, WITHOUT DISTURBING THE RULING IT GREW OUT OF (Dax, 2026-09-02: "if
+   they dont answer it then it should pop up in our system where we can see it so we
+   know to email them").
+
+   ⚠ RS-30 IS THE ARREARS CASE AND IS LEFT EXACTLY AS IT WAS — somebody who clears
+   last season's debt and has still never answered. That is the sharpest instance of
+   this and it keeps its own function and its own wording. What is added is the
+   general one: ANY money in, and still no answer.
+
+   ⚠ AND THE HALF ADDIE NAMED HERSELF SURVIVES UNTOUCHED: "if they said back next
+   year or no we don't need a system email." An answer is an answer, whatever it was,
+   and effectiveRsvpStatus is the single place that judges it — including refusing a
+   bare stored 'yes' with no reply behind it. */
+function paidButNotApproved(d, inv){
+  if(!d || !inv) return false;
+  if(effectiveRsvpStatus(d)) return false;
+  if(arrearsOnInvoice(inv) > 0) return arrearsPaidNotApproved(d, inv);
+  /* ⚠ MONEY THAT ACTUALLY ARRIVED, not a balance of zero. An unpriced or empty
+     invoice has paid nothing and must not raise a note about a payment. */
+  return (Number(inv.deposit) || 0) > 0;
+}
 function arrearsPaidNotApproved(d, inv){
   if(!d || !inv) return false;
   /* A bill that never carried last season's debt has nothing to be paid off. */
@@ -17563,17 +17778,29 @@ async function noticeArrearsPaidNotApproved(){
        note and the hold can never be about different invoices. */
     const key = String(d.billToPhone || '').replace(/\D/g,'') || custInvoiceKey(d);
     const inv = key ? invoiceById.get(key) : null;
-    if(!inv || !arrearsPaidNotApproved(d, inv.data || {})) continue;
+    if(!inv || !paidButNotApproved(d, inv.data || {})) continue;
+    /* Which of the two it is decides the sentence, because the office does a
+       different thing with each: one has just cleared an old debt, the other has
+       paid for a season they have not yet said they want. */
+    const wasArrears = arrearsOnInvoice(inv.data || {}) > 0;
     arrearsNoticedThisSession.add(item.id);
     try{
       await addDoc(collection(db,'messages'), {
-        topic: 'Paid Last Season — Still Needs to RSVP', folder: 'System',
+        topic: wasArrears ? 'Paid Last Season — Still Needs to RSVP'
+                          : 'Paid — Still Needs to RSVP', folder: 'System',
         name: d.name || '', phone: d.phone || '', email: d.email || '',
         contactMethod: '',
-        message: (d.name || 'A customer') + ' has now paid off what they owed from last ' +
-          'season, but they have never answered the RSVP — so they are still not being ' +
-          'scheduled.\n\n' +
-          'Their money is no longer the thing holding them: the only step left is a yes.\n\n' +
+        message: (wasArrears
+            ? (d.name || 'A customer') + ' has now paid off what they owed from last ' +
+              'season, but they have never answered the RSVP — so they are still not being ' +
+              'scheduled.\n\nTheir money is no longer the thing holding them: the only ' +
+              'step left is a yes.\n\n'
+            : (d.name || 'A customer') + ' has paid, but they have never answered the ' +
+              'RSVP — so they are still not being scheduled.\n\nThey have paid for a ' +
+              'season they have not yet said they want, which is the wrong way round and ' +
+              'is worth a quick call.\n\n') +
+          'They were asked in the portal the moment the payment went through and did not ' +
+          'answer, so this is the follow-up.\n\n' +
           'Email or text them to ask whether they want their lights up this year. Their ' +
           'answer can be marked on their record (Customers > Edit > RSVP Status), or they ' +
           'can use the RSVP link. The moment it is a yes they join the season on their own.',
@@ -17610,6 +17837,24 @@ function loadInvoices(){
       invoiceById.set(docSnap.id, entry);
     });
     renderInvoicesList();
+    /* ⭐ ALL CUSTOMERS READS INVOICES AND WAS NOT REPAINTED HERE (fixed 2026-09-02).
+       Dax: "make sure that after they pay in the member portal that it updates in all
+       customers so it doesnt say they are unpaid."
+
+       ⚠ THE RULES WERE ALREADY RIGHT — this was only the screen. Every figure on that
+       row is derived live: computeInvoiceStatus works out Unpaid/Partial/Paid from the
+       deposit, houseArrearsTag asks houseOwesFromLastSeason, and seasonBadgeKey moves a
+       customer between On hold and Confirmed off the same invoice. Running them proves
+       a payment does all three. What was missing was anybody telling the table to run
+       them again: this listener repainted the invoice list, the routes, the takedowns
+       and the dashboard, and not the one screen the office actually watches. So a
+       portal payment landed, the data changed underneath, and the row went on saying
+       "Unpaid 2025" until somebody navigated away and back.
+
+       ⚠ IT IS CHEAP TO CALL AND EXPENSIVE TO SKIP: the render already runs on every
+       keystroke in the search box (see the input handlers), so one more repaint when
+       money arrives is well within what it is built for. */
+    if(typeof renderAllCustomersTable === 'function') renderAllCustomersTable();
     if(typeof renderRouteAddressList === 'function') renderRouteAddressList();
     if(typeof renderTakedownsList === 'function') renderTakedownsList();
     if(typeof populateQuickEmailSelect === 'function') populateQuickEmailSelect();

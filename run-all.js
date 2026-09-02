@@ -46628,6 +46628,552 @@ suite('287. The routine route sweep does not bury the notice that matters');
   }
 }
 
+/* =====================================================================
+ * Suite 288 — who the unpaid-last-season chase actually writes to
+ *
+ * Dax, 2026-09-02: "i dont have the automated email set up i told you to do
+ * that for the unpaid."
+ *
+ * ⚠ THIS IS THE ONE THAT SENDS MAIL TO REAL PEOPLE, so it is RUN rather than
+ * read. Every check below drives the shipped runArrearsRsvpBatch — lifted out
+ * of functions/index.js, not re-typed — against a fake book and a fake mail
+ * service, and asserts who ended up in the outbox. A regex over the source
+ * cannot tell "skips people who already answered" from "intends to".
+ *
+ * ⚠ AND THE EXPENSIVE MISTAKE IS THE FALSE POSITIVE, not the miss. Somebody
+ * who is emailed and should not have been has been chased for money in front
+ * of their own inbox; somebody missed gets a phone call. So most of what is
+ * below is about who must NOT be written to.
+ * ===================================================================== */
+{
+  const fnsSrcChase = read('functions/index.js');
+  /* extractFn matches on `function <name>(`, which starts the slice AFTER the
+     `async` keyword — so it is put back, or every await inside is a syntax
+     error. §7's rule about anchors, in its smallest form. */
+  const batchBody = extractFn(fnsSrcChase, 'runArrearsRsvpBatch');
+  const batchSrc = batchBody ? 'async ' + batchBody : null;
+
+  check('S288', 'runArrearsRsvpBatch could be lifted out of functions/index.js',
+    !!batchSrc, 'the suite below proves nothing if the function it runs is not the shipped one');
+
+  if (batchSrc) {
+    /* One fake book, rebuilt for each run so a stamp written by one check cannot
+       change the next. Each record is one rule this batch has to get right. */
+    function makeBook() {
+      return [
+        { id: 'owes-silent',   name: 'Dana Petersen', email: 'dana@example.com',  phone: '8015550101', rsvpStatus: '',             owes: 315 },
+        { id: 'owes-yes',      name: 'Yes Yates',     email: 'yes@example.com',   phone: '8015550102', rsvpStatus: 'yes',          owes: 315 },
+        { id: 'owes-no',       name: 'No Nolan',      email: 'no@example.com',    phone: '8015550103', rsvpStatus: 'no',           owes: 315 },
+        { id: 'owes-back',     name: 'Back Barnes',   email: 'back@example.com',  phone: '8015550104', rsvpStatus: 'backnextyear', owes: 315 },
+        { id: 'settled',       name: 'Paid Palmer',   email: 'paid@example.com',  phone: '8015550105', rsvpStatus: '',             owes: 0   },
+        { id: 'no-email',      name: 'Quiet Quinn',   email: '',                  phone: '8015550106', rsvpStatus: '',             owes: 315 },
+        { id: 'already-sent',  name: 'Sent Sawyer',   email: 'sent@example.com',  phone: '8015550107', rsvpStatus: '',             owes: 315, arrearsRsvpEmailAt: 'a-date' },
+        { id: 'test-flagged',  name: 'Rig',           email: 'rig@example.com',   phone: '8015550108', rsvpStatus: '',             owes: 315, isTestRecord: true },
+        { id: 'test-by-phone', name: 'Test',          email: 'test@example.com',  phone: '3853912235', rsvpStatus: '',             owes: 315 }
+      ];
+    }
+
+    /* The sandbox. Everything the lifted function reaches for, and nothing else —
+       an undeclared helper surfaces as a ReferenceError the runner explains. */
+    function runBatch(opts) {
+      opts = opts || {};
+      const book = opts.book || makeBook();
+      const sent = [];
+      const stamped = [];
+      const cfg = opts.cfg === undefined
+        ? { serviceId: 's', templateId: 't', publicKey: 'p', privateKey: 'k' }
+        : opts.cfg;
+      const tplBody = opts.tplBody === undefined
+        ? 'Hi {{name}}\n\nOne thing first.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}'
+        : opts.tplBody;
+
+      const db = {
+        collection(nm) {
+          if (nm === 'settings') {
+            return { doc: () => ({ get: async () => ({ exists: !!cfg, data: () => cfg || {} }) }) };
+          }
+          if (nm === 'jobAddresses') {
+            return {
+              get: async () => ({
+                docs: book.map(r => ({
+                  id: r.id,
+                  data: () => r,
+                  ref: { update: async (u) => { stamped.push(r.id); Object.assign(r, u); } }
+                }))
+              })
+            };
+          }
+          throw new Error('unexpected collection: ' + nm);
+        }
+      };
+      const sandbox = {
+        db: db,
+        admin: { firestore: { FieldValue: { serverTimestamp: () => 'now' } } },
+        findTemplateSnapByName: async () => (tplBody === null
+          ? { empty: true, docs: [] }
+          : { empty: false, docs: [{ data: () => ({ body: tplBody, subject: '' }) }] }),
+        templateSubjectOr: (t, fallback) => (t && t.subject) || fallback,
+        properNameServer: (n) => String(n || '').split(/\s+/)[0],
+        digitsOnly: (v) => String(v || '').replace(/\D/g, ''),
+        arrearsForCustomer: async (d) => ({ outstanding: d.owes || 0, season: '2025' }),
+        ensureToken: async (id) => 'tok-' + id,
+        fetch: async (url, init) => {
+          if (opts.mailFails) return { ok: false, text: async () => 'nope' };
+          sent.push(JSON.parse(init.body).template_params);
+          return { ok: true, text: async () => '' };
+        }
+      };
+      const names = Object.keys(sandbox);
+      const fn = new Function(...names, batchSrc + '\nreturn runArrearsRsvpBatch;')(...names.map(k => sandbox[k]));
+      return fn('test').then(out => ({ out, sent, stamped, book }));
+    }
+
+    pendingAsync.push(runBatch().then(function (r) {
+      const to = r.sent.map(m => m.to_email);
+
+      check('S288', 'somebody who owes and has never answered is written to',
+        to.indexOf('dana@example.com') !== -1,
+        'this is the entire audience — if it is empty the feature does nothing');
+
+      /* ⚠ RS-30 IN ITS OWN WORDS: "if they said back next year or no we don't need
+         a system email." They have answered; asking again argues with a decision
+         already given. They may still owe — that is a DEBT chase, a different email
+         and a different ruling. */
+      check('S288', 'somebody who already said NO is left alone',
+        to.indexOf('no@example.com') === -1,
+        'they answered; an email asking whether they want lights argues with them');
+      check('S288', 'somebody who said BACK NEXT YEAR is left alone',
+        to.indexOf('back@example.com') === -1);
+      check('S288', 'somebody who already said YES is left alone',
+        to.indexOf('yes@example.com') === -1,
+        'the template asks "will you be getting lights hung again this year?" — sent to '
+        + 'somebody who has already said yes, that reads as us losing their answer');
+
+      check('S288', 'somebody who owes NOTHING is never chased',
+        to.indexOf('paid@example.com') === -1,
+        'the most expensive false positive there is: a paid customer told they owe money');
+
+      check('S288', 'somebody already written to this season is not written to again',
+        to.indexOf('sent@example.com') === -1,
+        'a daily schedule with no stamp is a daily email to somebody who owes money');
+
+      check('S288', 'somebody with no email address is skipped rather than crashed on',
+        to.indexOf('') === -1 && r.out.errors.length === 0);
+
+      /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN PHONE. Skipping it is not
+         housekeeping — it is the difference between a dry run and mailing the
+         owner a chase for a debt she does not have. */
+      check('S288', 'the test record is skipped by its flag',
+        to.indexOf('rig@example.com') === -1);
+      check('S288', 'and by the name-and-number pair, the way admin.html spells it',
+        to.indexOf('test@example.com') === -1,
+        'this one is Addie\'s own phone number');
+
+      check('S288', 'exactly one customer was written to',
+        r.sent.length === 1, 'got ' + r.sent.length + ': ' + to.join(', '));
+      check('S288', 'and only that customer was stamped',
+        r.stamped.length === 1 && r.stamped[0] === 'owes-silent',
+        'a stamp on anybody else silently removes them from next season\'s chase too');
+
+      /* ---- what the one email actually says ---- */
+      const body = (r.sent[0] && r.sent[0].body) || '';
+      check('S288', 'all three RSVP buttons carry that customer\'s own token',
+        (body.match(/tok-owes-silent/g) || []).length === 3,
+        'a shared or missing token is an RSVP recorded against the wrong account');
+      check('S288', 'no raw token is left in the body',
+        !/\{\{/.test(body), 'a customer reading "{{rsvp_yes_button}}" is the 2026-08-17 photo bug again');
+      /* ⚠ AND NO FIGURE, WHICH IS RS-37. There is no token for the carried balance
+         and {{amount_due}} means THIS year's install price, so an amount appearing
+         here at all would be the wrong number in an email about an old debt. */
+      check('S288', 'and no money figure is invented anywhere in it',
+        body.indexOf('$') === -1,
+        'the portal holds the one figure we computed; an amount here would be a second one');
+    }).catch(function (e) { e.__suite = 'S288'; throw e; }));
+
+    /* ---- the two ways it must stop, loudly, without writing to anybody ---- */
+    pendingAsync.push(runBatch({ tplBody: null }).then(function (r) {
+      check('S288', 'a missing template stops the run and says so',
+        !!r.out.stopped && /Not Paid RSVP/.test(r.out.stopped) && r.sent.length === 0,
+        'a silent zero here reads as "nobody owes" when the template has been renamed');
+    }).catch(function (e) { e.__suite = 'S288'; throw e; }));
+
+    pendingAsync.push(runBatch({ cfg: null }).then(function (r) {
+      check('S288', 'missing EmailJS keys stop the run and say so',
+        !!r.out.stopped && /EmailJS/.test(r.out.stopped) && r.sent.length === 0);
+    }).catch(function (e) { e.__suite = 'S288'; throw e; }));
+
+    /* ⚠ AND A REFUSED SEND MUST NOT STAMP. Stamping first would lose that customer
+       for the whole season on one bad response from the mail service — the failure
+       would be invisible and permanent. */
+    pendingAsync.push(runBatch({ mailFails: true }).then(function (r) {
+      check('S288', 'a refused send leaves them unstamped, to be tried again',
+        r.stamped.length === 0 && r.out.errors.length === 1 && r.out.sent === 0,
+        'stamped-then-failed is a customer silently dropped for the season');
+    }).catch(function (e) { e.__suite = 'S288'; throw e; }));
+  }
+
+  /* ---- the switch, and the fact that it ships off ---- */
+  check('S288', 'the schedule does nothing unless the switch is on',
+    /arrearsRsvpAutomation'\)\.get\(\);[\s\S]{0,220}?if \(!autoSnap\.exists \|\| !autoSnap\.data\(\)\.enabled\)/.test(fnsSrcChase),
+    'MON-34 is Addie\'s standing ruling that she would send these herself — an ' +
+    'automatic chase that defaults on reverses it behind her back');
+  check('S288', 'and the season reset clears the once-per-season stamp',
+    /arrearsRsvpEmailAt: null/.test(admin),
+    'left standing, nobody could ever be chased again in any later season');
+  check('S288', 'the card carries her own words next to the switch',
+    /I&rsquo;ll send those emails\/text myself/.test(admin),
+    'whoever ticks this box is overriding her, and should be able to read it while doing so');
+  check('S288', 'the manual run is offered so a batch can go out without switching it on',
+    /runArrearsRsvpNow/.test(admin) && /exports\.runArrearsRsvpNow = onCall\(/.test(fnsSrcChase),
+    'that button is the closest thing to what she said she wanted to do herself');
+}
+
+/* =====================================================================
+ * Suite 290 — paying is not the same as saying yes
+ *
+ * Dax, 2026-09-02: "make sure that after they pay in the member portal that it
+ * updates in all customers so it doesnt say they are unpaid and moves them to
+ * confirmed(if they already clicked yes) if they went into the member portal and
+ * paid and havent actually clicked yes on the rsvp it should move them to pending
+ * after they pay ... so they have to click yes on rsvp if they want their lights
+ * hung this year."
+ *
+ * ⭐ THE RULES WERE ALREADY RIGHT AND THE SCREEN WAS NOT, which is why the first
+ * block below RUNS them rather than reading them. computeInvoiceStatus,
+ * houseArrearsTag and seasonBadgeKey all derive from the invoice, so a payment
+ * already moves every one of them. What was missing was anybody telling All
+ * Customers to draw again — that is the second block.
+ * ===================================================================== */
+{
+  const liftAdmin = (n) => extractFn(admin, n);
+  const parts = ['seasonBadgeKey', 'isOutForSeason', 'houseArrearsTag',
+                 'effectiveRsvpStatus', 'audienceNeverAsked', 'audienceQuoteJoinYear',
+                 'seasonRuleIsLive', 'houseOwesFromLastSeason', 'paidButNotApproved',
+                 'arrearsPaidNotApproved'].map(liftAdmin);
+  const missing = ['seasonBadgeKey', 'isOutForSeason', 'houseArrearsTag',
+                   'effectiveRsvpStatus', 'audienceNeverAsked', 'audienceQuoteJoinYear',
+                   'seasonRuleIsLive', 'houseOwesFromLastSeason', 'paidButNotApproved',
+                   'arrearsPaidNotApproved'].filter((n, i) => !parts[i]);
+
+  check('S290', 'the season rules could all be lifted out of admin.html',
+    missing.length === 0, 'missing: ' + missing.join(', '));
+
+  if (!missing.length) {
+    pendingAsync.push((async function () {
+      /* The money rules come from js/money.js — the real module the browser loads.
+         A re-typed copy here would agree with itself and prove nothing. */
+      const { pathToFileURL } = require('url');
+      const money = await import(pathToFileURL(require('path').join(__dirname, 'js', 'money.js')).href);
+
+      const invoiceById = new Map();
+      const sandbox = {
+        ARREARS_ASSUMED_SEASON: '2025',
+        seasonRuleOffForMeasurement: false,
+        invoiceById,
+        custInvoiceKey: (d) => String((d && d.phone) || '').replace(/\D/g, ''),
+        computeInvoiceStatus: money.computeInvoiceStatus,
+        owesFromLastSeason: money.owesFromLastSeason,
+        arrearsOnInvoice: money.arrearsOnInvoice,
+        arrearsSettled: money.arrearsSettled,
+        console
+      };
+      const keys = Object.keys(sandbox);
+      const F = new Function(...keys, parts.join('\n') +
+        '\nreturn {seasonBadgeKey, houseArrearsTag, effectiveRsvpStatus, paidButNotApproved};'
+      )(...keys.map(k => sandbox[k]));
+
+      /* One customer, one invoice, three states of the same bill: nothing owed but
+         this year, last season carried and unpaid, and the same after paying. */
+      const KEY = '8015550101';
+      const invoice = (deposit) => ({
+        install: 450, removal: 0, deposit, credits: 0, changeFees: 315,
+        changeFeeNotes: [{ amount: 315, kind: 'arrears', source: 'office', year: '2025',
+                           reason: 'Unpaid balance carried from the 2025 season' }]
+      });
+      const at = (deposit, cust) => {
+        invoiceById.clear();
+        invoiceById.set(KEY, { data: invoice(deposit) });
+        const d = Object.assign({ phone: '(801) 555-0101' }, cust);
+        return {
+          status: money.computeInvoiceStatus(450, 0, deposit, 0, 315),
+          badge: F.seasonBadgeKey(d),
+          tag: F.houseArrearsTag(d),
+          note: F.paidButNotApproved(d, invoice(deposit))
+        };
+      };
+      const YES = { rsvpStatus: 'yes', rsvpRespondedAt: new Date() };
+      const SILENT = {};
+
+      /* ---- before they pay ---- */
+      const owingYes = at(0, YES);
+      check('S290', 'owing for last season reads Unpaid, and holds them out of the season',
+        owingYes.status === 'Unpaid' && owingYes.badge === 'pending' && owingYes.tag === 'Unpaid 2025',
+        'got ' + JSON.stringify(owingYes));
+
+      /* ---- after they pay it off ---- */
+      const paidYes = at(315, YES);
+      check('S290', 'paying it clears the Unpaid tag',
+        paidYes.tag === '', 'this is the "it still says they are unpaid" half: got ' + JSON.stringify(paidYes));
+      check('S290', 'and moves somebody who said yes to Confirmed',
+        paidYes.badge === 'confirmed', 'got ' + paidYes.badge);
+      check('S290', 'and the bill itself stops reading Unpaid',
+        paidYes.status === 'Partial Payment', 'got ' + paidYes.status);
+
+      /* ⭐ THE HALF THE WHOLE SEASON TURNS ON. Money is not consent: somebody who has
+         paid and never answered must NOT become Confirmed, or a crew is sent to a
+         house nobody asked us to do. */
+      const paidSilent = at(315, SILENT);
+      check('S290', 'but somebody who paid and never answered stays Pending',
+        paidSilent.badge === 'pending',
+        'paying is not saying yes — a crew would go to a house nobody asked for');
+      check('S290', 'their tag clears too, so the row is not calling them a debtor',
+        paidSilent.tag === '');
+
+      const allPaidSilent = at(765, SILENT);
+      check('S290', 'and paying the WHOLE bill still does not make them Confirmed',
+        allPaidSilent.badge === 'pending' && allPaidSilent.status === 'Paid in Full',
+        'got ' + JSON.stringify(allPaidSilent));
+
+      /* ---- the note that tells the office to chase them ---- */
+      check('S290', 'a customer who paid and never answered raises the System note',
+        paidSilent.note === true,
+        'Dax: "it should pop up in our system where we can see it so we know to email them"');
+      check('S290', 'somebody who has answered raises nothing',
+        paidYes.note === false, 'an answer is an answer; a note here would be noise');
+      check('S290', 'and neither does somebody who has paid nothing yet',
+        at(0, SILENT).note === false,
+        'a note about a payment must need a payment — this is the empty-invoice case');
+
+      /* ⚠ AND NOW THE CASE WITH NO ARREARS AT ALL, which is the whole point of
+         widening the rule and which the invoice above cannot test: every state so far
+         carries a carried balance, so RS-30's own arrears path answers first and the
+         new branch is never reached. A red-check proved exactly that — two sabotages
+         of the new code went UNCAUGHT until these three arrived. */
+      const plain = (deposit) => ({ install: 450, removal: 0, deposit, credits: 0, changeFees: 0, changeFeeNotes: [] });
+      check('S290', 'somebody with no old debt who pays and never answers raises the note',
+        F.paidButNotApproved({ phone: '(801) 555-0101' }, plain(450)) === true,
+        'this is the ordinary case Dax asked for: paying for the season without a yes behind it');
+      check('S290', 'the same customer raises nothing once they have answered',
+        F.paidButNotApproved({ phone: '(801) 555-0101', rsvpStatus: 'yes', rsvpRespondedAt: new Date() }, plain(450)) === false,
+        'an answer is an answer, and a note here would be noise on a settled row');
+      check('S290', 'and nothing at all before any money has arrived',
+        F.paidButNotApproved({ phone: '(801) 555-0101' }, plain(0)) === false,
+        'a note about a payment must need a payment; every unpriced invoice would raise one');
+
+      /* ⚠ AND A "no" OR A "back next year" IS AN ANSWER, which is Addie's own line
+         in RS-30: "if they said back next year or no we don't need a system email." */
+      check('S290', 'a no is an answer, and raises nothing',
+        at(315, { rsvpStatus: 'no' }).note === false);
+      check('S290', 'so is a back next year',
+        at(315, { rsvpStatus: 'backnextyear' }).note === false);
+
+      /* ⚠ A BARE STORED 'yes' WITH NO REPLY BEHIND IT IS NOT AN ANSWER (RS-19) — an
+         import or the assumed yes written at conversion. That customer is exactly the
+         one this note exists for. */
+      check('S290', 'a stored yes with no reply behind it still counts as unanswered',
+        at(315, { rsvpStatus: 'yes' }).note === true &&
+        at(315, { rsvpStatus: 'yes' }).badge === 'pending',
+        'an imported yes is not somebody telling us they want lights');
+    })().catch(function (e) { e.__suite = 'S290'; throw e; }));
+  }
+
+  /* ---- the screen, which is the part that was actually broken ---- */
+  const invListenerAt = admin.indexOf("const q = query(collection(db,'invoices'), orderBy('updatedAt','desc'));");
+  const invListener = invListenerAt === -1 ? '' :
+    admin.slice(invListenerAt, admin.indexOf('renderDashboard', invListenerAt) + 40);
+  check('S290', 'the invoices listener repaints All Customers',
+    /renderAllCustomersTable/.test(invListener),
+    'THE BUG DAX REPORTED: every figure on that row is derived from the invoice, so a ' +
+    'payment changes all of them — and nothing told the table to draw again, so it went ' +
+    'on saying "Unpaid 2025" until somebody navigated away and back');
+
+  /* ---- and the question the portal asks on the way out ---- */
+  const idxSrc = read('index.html');
+  check('S290', 'a completed payment hands the re-render the RSVP question',
+    /renderCustomerInvoicePage\(reloadKey, \{skipLastNameCheck: true, onPortalReady: showRsvpAskIfUnanswered\}\)/.test(idxSrc),
+    'Dax: "you could just have it ask them after they pay too" — without this the ' +
+    'dialog is built and never raised');
+  check('S290', 'and it is asked only of somebody with no answer on file',
+    /function showRsvpAskIfUnanswered\(\)\{[\s\S]{0,300}?portalHasRealRsvpAnswer\(/.test(stripComments(idxSrc)),
+    'asking somebody who has already said yes reads as us having lost their answer');
+  /* ⚠ THE ANSWERS ARE THE PAGE'S OWN, NOT A SECOND COPY. data-portalrsvp is handled
+     by one delegated listener, so these three buttons run the same code as the RSVP
+     block inside the portal — including the confirm on a "no". */
+  check('S290', 'the three answers reuse the portal\'s own RSVP handler',
+    /id="rsvpAskBtnRow"[\s\S]{0,600}?data-portalrsvp="yes"[\s\S]{0,400}?data-portalrsvp="no"/.test(idxSrc),
+    'a second copy of the answer path is a second thing to keep true');
+}
+
+/* =====================================================================
+ * Suite 289 — a prebuilt template that exists but is EMPTY
+ *
+ * Dax, 2026-09-02: "i dont know what you did but this is still not filled out",
+ * over an Edit Template screen showing the name "Not Paid RSVP", the folder
+ * "RSVP", and nothing else.
+ *
+ * ⚠ THE FAULT WAS THE SKIP, NOT THE SEEDING. He had made the template himself
+ * from the wording he was given — typed the name, picked the folder, stopped. The
+ * top-up then did exactly what it was written to do: found a template of that name,
+ * left it alone, and recorded the name as handled. Result: a correctly named
+ * template in the right folder that would send an EMPTY EMAIL to everybody it
+ * reached, and a seed record saying the job was done.
+ *
+ * ⚠ SO THESE RUN THE SHIPPED FUNCTION against a fake library, because "fills in a
+ * blank" and "leaves written words alone" are the same line of source read two ways.
+ * ===================================================================== */
+{
+  const fillSrc = extractFn(admin, 'etEnsureMaybeTemplateExists');
+  /* extractFn starts its slice after `async`, which has to go back on or every
+     await inside is a syntax error — §7's anchor rule at its smallest. */
+  const fillFn = fillSrc ? 'async ' + fillSrc : null;
+
+  /* The real presets, lifted rather than re-typed: a fake body here would prove the
+     patch runs and nothing about what it writes. */
+  /* The preset list names a constant declared above it, so that is lifted too:
+     half a dependency is a ReferenceError at eval time, not a failed check. */
+  const maybeAt = admin.indexOf('const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY =');
+  const maybeSrc = maybeAt === -1 ? '' : admin.slice(maybeAt, admin.indexOf("';", maybeAt) + 2);
+  const presetsAt = admin.indexOf('const ET_PREBUILT_TEMPLATES = [');
+  let presetsSrc = null;
+  if (presetsAt !== -1) {
+    let i = admin.indexOf('[', presetsAt), depth = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '[') depth++;
+      else if (admin[i] === ']') { depth--; if (depth === 0) { presetsSrc = admin.slice(presetsAt, i + 1); break; } }
+    }
+  }
+
+  check('S289', 'the top-up and the real preset list could both be lifted',
+    !!fillFn && !!presetsSrc && !!maybeSrc,
+    'the checks below prove nothing about the shipped code if they run a copy of it');
+
+  if (fillFn && presetsSrc) {
+    function runFill(library, offered) {
+      const written = {};
+      const created = [];
+      const sandbox = {
+        emailTemplates: library,
+        emailTemplateFolders: [{ id: 'f-rsvp', name: 'RSVP' }, { id: 'f-quotes', name: 'Quotes' }],
+        etMaybeTemplateChecked: false,
+        etFoldersLoaded: true,
+        etTemplatesLoaded: true,
+        db: {},
+        doc: (_db, coll, id) => ({ coll, id }),
+        collection: (_db, coll) => ({ coll }),
+        getDoc: async () => (offered === 'THROW'
+          ? (function () { throw new Error('offline'); })()
+          : { exists: () => offered !== null, data: () => ({ toppedUp: offered || [] }) }),
+        addDoc: async (ref, data) => { created.push(data); return { id: 'new-' + created.length }; },
+        updateDoc: async (ref, patch) => { written[ref.id] = Object.assign(written[ref.id] || {}, patch); },
+        setDoc: async () => {},
+        serverTimestamp: () => 'now',
+        console: { error: () => {} }
+      };
+      const names = Object.keys(sandbox);
+      const fn = new Function(...names, maybeSrc + '\n' + presetsSrc + '\nconst ET_TOP_UP_NAMES = ' +
+        JSON.stringify(['Quote Maybe Next Year Follow-up', 'Not Paid RSVP']) + ';\n' +
+        fillFn + '\nreturn etEnsureMaybeTemplateExists;')(...names.map(k => sandbox[k]));
+      return fn().then(() => ({ written, created }));
+    }
+
+    /* Exactly the state Dax was looking at: named, foldered, and empty — with the
+       name already recorded as handled, which is what made it stick. */
+    const shell = () => [{ id: 'tpl-shell', data: { name: 'Not Paid RSVP', folderId: 'f-rsvp', subject: '', body: '', linkedTokens: [] } }];
+
+    pendingAsync.push(runFill(shell(), ['Quote Maybe Next Year Follow-up', 'Not Paid RSVP']).then(function (r) {
+      const patch = r.written['tpl-shell'] || {};
+      check('S289', 'an empty template of a prebuilt name gets its body filled in',
+        typeof patch.body === 'string' && /gate|balance|outstanding/i.test(patch.body) && patch.body.length > 200,
+        'this is the whole bug: a named, foldered, empty template that sends an empty email');
+      check('S289', 'and its subject',
+        typeof patch.subject === 'string' && patch.subject.indexOf('{{name}}') !== -1);
+      check('S289', 'and its linked tokens, or the buttons arrive as raw {{tokens}}',
+        Array.isArray(patch.linkedTokens) && patch.linkedTokens.length === 3,
+        'the 2026-08-17 photo bug in a new place: invisible until somebody receives it');
+      check('S289', 'the filled body still carries the three RSVP buttons',
+        /\{\{rsvp_yes_button\}\}/.test(patch.body || '') &&
+        /\{\{rsvp_no_button\}\}/.test(patch.body || '') &&
+        /\{\{rsvp_back_button\}\}/.test(patch.body || ''));
+      /* ⚠ RS-37: no figure. {{amount_due}} here would print THIS year's install
+         price into an email about an old debt. */
+      check('S289', 'and names no money figure',
+        !/\{\{amount_due\}\}/.test(patch.body || '') && (patch.body || '').indexOf('$') === -1,
+        'the portal holds the one figure we computed; a second one here would disagree with it');
+      check('S289', 'nothing is created when the template is already there',
+        r.created.length === 0, 'a second template of the same name is worse than an empty one');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* ⚠ THE HALF THAT PROTECTS HER WORK. This is the office's tool; a body somebody
+       has written is theirs, and a top-up that overwrote it would be far worse than
+       the bug it fixes. */
+    const written = () => [{ id: 'tpl-written', data: { name: 'Not Paid RSVP', folderId: 'f-rsvp', subject: 'Addie wrote this subject', body: 'Addie wrote this body.', linkedTokens: [{ code: 'rsvp_yes_button', style: 'button' }] } }];
+    pendingAsync.push(runFill(written(), ['Not Paid RSVP']).then(function (r) {
+      check('S289', 'a template somebody has written is not touched at all',
+        !r.written['tpl-written'],
+        'overwriting the office\'s own wording is worse than the empty template this fixes');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* Half-filled is the ordinary case after a hand-paste: body typed, subject left
+       blank on purpose or forgotten. Only the blank is filled. */
+    const half = () => [{ id: 'tpl-half', data: { name: 'Not Paid RSVP', folderId: 'f-rsvp', subject: '', body: 'Addie wrote this body.', linkedTokens: [{ code: 'rsvp_yes_button', style: 'button' }] } }];
+    pendingAsync.push(runFill(half(), ['Not Paid RSVP']).then(function (r) {
+      const patch = r.written['tpl-half'] || {};
+      check('S289', 'a blank subject is filled without disturbing a written body',
+        !!patch.subject && patch.body === undefined,
+        'each field is judged on its own, or filling one would flatten the other');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* ⚠ AND THE REPAIR IS NOT GATED ON THE SEED RECORD. By the time this fault is
+       visible the name has already been recorded as handled — that is exactly why it
+       stayed broken — so a repair gated on the same record could never run. */
+    pendingAsync.push(runFill(shell(), ['Not Paid RSVP', 'Quote Maybe Next Year Follow-up']).then(function (r) {
+      check('S289', 'the repair runs even though the name is recorded as already handled',
+        !!(r.written['tpl-shell'] || {}).body,
+        'gating the fix on the record that caused the fault would guarantee it never runs');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* ⚠ AND A SHELL IS FILLED, NEVER DUPLICATED. The name has not been offered before
+       here, so the create path is live — and a template of that name is already
+       sitting there. Two templates with one name is worse than an empty one: the office
+       edits whichever it opens, and the sender picks by name. A red-check found this
+       gap: sabotaging the already-exists guard went UNCAUGHT until this case arrived,
+       because every other case had the name recorded as handled and never reached it. */
+    pendingAsync.push(runFill(shell(), []).then(function (r) {
+      /* ⚠ THE OTHER prebuilt IS legitimately created here — it is missing from this
+         library and has never been offered — so the assertion is about THIS name, not
+         about the count. A blanket "nothing was created" would fail on correct code. */
+      check('S289', 'a shell is filled in rather than duplicated',
+        !!(r.written['tpl-shell'] || {}).body &&
+        !r.created.some(c => c.name === 'Not Paid RSVP'),
+        'two templates of one name is worse than one empty one: the office edits ' +
+        'whichever it opens and the sender picks by name');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* Creating stays gated, so a template the office deleted stays deleted. */
+    pendingAsync.push(runFill([], ['Quote Maybe Next Year Follow-up', 'Not Paid RSVP']).then(function (r) {
+      check('S289', 'a name already recorded as handled is not re-created when missing',
+        r.created.length === 0,
+        'without this a template the office threw away comes back every morning');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    pendingAsync.push(runFill([], []).then(function (r) {
+      check('S289', 'but a name never offered before IS created',
+        r.created.some(c => c.name === 'Not Paid RSVP' && (c.body || '').length > 200),
+        'this is the path that reaches an install which already has templates');
+      check('S289', 'and it is created with its subject and tokens, not just a body',
+        r.created.some(c => c.name === 'Not Paid RSVP' && c.subject && (c.linkedTokens || []).length === 3));
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* ⚠ AN UNREADABLE SEED RECORD MUST CREATE NOTHING — we cannot tell "never
+       offered" from "offered and deleted", and guessing resurrects deleted work. */
+    pendingAsync.push(runFill([], 'THROW').then(function (r) {
+      check('S289', 'an unreadable seed record creates nothing',
+        r.created.length === 0,
+        'a library that refills itself every morning is worse than a missing template');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
