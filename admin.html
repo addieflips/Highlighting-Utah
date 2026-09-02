@@ -39850,7 +39850,21 @@ function effectiveRsvpStatus(d){
   /* ⚠ AN ACTUAL ANSWER, OR THE OFFICE'S BADGE, ALWAYS WINS. Somebody who said no
      stays no whatever else is on their record — the rule below is about people who
      have said nothing, never about overruling somebody who spoke. */
-  if(said === 'no' || said === 'backnextyear' || dd.maybeNextYear) return said;
+  if(said === 'no' || said === 'backnextyear') return said;
+  /* ⚠ AND THE BADGE ON ITS OWN RETURNED THE EMPTY STRING, WHICH READS AS PENDING
+     (fixed 2026-09-02). Addie: "it says pending for RSVP" — over a card carrying the
+     office's own Maybe Next Year badge. `|| dd.maybeNextYear` sat in the test above
+     and then returned `said`, which for a badged customer with no reply of their own
+     is '' — so the one line meant to make the badge WIN handed back the value it was
+     overruling. The office had recorded an answer and every screen called them
+     Pending.
+     ⚠ IT CHANGED NO SEASON BEHAVIOUR, WHICH IS WHY IT HID: isOutForSeason and
+     seasonHold both read `maybeNextYear` DIRECTLY, so these customers were correctly
+     off every route the whole time. Only the words were wrong.
+     ⚠ AND IT DOES NOT TOUCH WHO GETS THE RSVP: that audience is etRsvpAnswered,
+     which reads the stored rsvpStatus and never this function. Checked before
+     changing it, because the RSVP is the one send that has to reach everybody. */
+  if(dd.maybeNextYear) return 'backnextyear';
   /* ⭐ THE NEW-MEMBER FEE, TICKED FOR THIS SEASON, IS AN APPROVAL (2026-08-24). Owner:
      "if someone has new member fee ticked for this year than they should be approved
      for this season if they don't have new member fee ticked for this year than they

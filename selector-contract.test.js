@@ -46,6 +46,7 @@ const SPEC_TARGETS = {
   'arrears-portal.spec.js': 'index.html',
   'rsvp-arrears.spec.js': 'index.html',
   'button-contrast.spec.js': 'index.html',
+  'rsvp-record.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'

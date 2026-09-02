@@ -3128,11 +3128,28 @@ check('flow', 'but a customer typed in by hand still assumes nothing',
        written the other way round, a record carrying a bare yes AND the office's Maybe
        Next Year badge is returned as a plain yes — the one value this function exists to
        distrust, on exactly the customer who is out for the season. */
-    check('flow', 'and a bare yes is emptied before the badge is consulted',
-      eff({ rsvpStatus: 'yes', maybeNextYear: true }) === '' &&
-      eff({ rsvpStatus: 'yes', maybeNextYear: true, chargeNewMemberFee: true }) === '',
-      'badged out for the season AND never actually heard from — that is Pending twice ' +
-      'over, and it must not come out as an approval');
+    /* ⚠ REPOINTED 2026-09-02, TO THE INTENT THIS CHECK ALREADY STATED. It asserted
+       `=== ''`, which is stricter than the sentence underneath it: what must never
+       happen is a bare yes coming out as an APPROVAL. The empty string also meant
+       "Pending", and Addie reported exactly that as a fault — a card carrying the
+       office's own Maybe Next Year badge read as Pending, so a decision somebody had
+       recorded was shown as no decision at all. The badge now answers
+       'backnextyear', which is not an approval and is what every other reader of this
+       function already believed: seasonHold and isOutForSeason both take the badge as
+       back-next-year by reading `maybeNextYear` directly.
+       ⚠ THE ORDERING IT WAS NAMED FOR IS STILL ASSERTED, and separately: the bare yes
+       is emptied FIRST, so what comes back is the badge's answer and never a promoted
+       yes. Written the other way round, this whole family would return 'yes'. */
+    check('flow', 'a bare yes under the badge is never promoted to an approval',
+      eff({ rsvpStatus: 'yes', maybeNextYear: true }) !== 'yes' &&
+      eff({ rsvpStatus: 'yes', maybeNextYear: true, chargeNewMemberFee: true }) !== 'yes',
+      'badged out for the season AND never actually heard from — that must not come ' +
+      'out as an approval');
+    check('flow', 'and the badge answers back next year rather than nothing at all',
+      eff({ rsvpStatus: 'yes', maybeNextYear: true }) === 'backnextyear' &&
+      eff({ maybeNextYear: true }) === 'backnextyear',
+      'the office recorded an answer; returning the empty status shows it as Pending, ' +
+      'which is what Addie reported on 2026-09-02');
   }
   /* ⚠ NO DATE IS INVOLVED, and that is deliberate. The sheet-sync add path stamps
      createdAt with TODAY when no date is typed, so a "since July" cutoff would sweep
