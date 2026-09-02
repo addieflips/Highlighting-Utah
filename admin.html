@@ -1870,7 +1870,7 @@
               <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
                    Beside Route Status on purpose — Confirmed IS the route answer now
                    (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
-              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Maybe Next Year</option></select></div>
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -2009,8 +2009,17 @@
                      mistake for this year’s. -->
                 <option value="">Pending (never asked)</option>
                 <option value="unanswered">Unanswered (asked, no reply yet)</option>
-                <option value="yes">Yes &mdash; Hanging Lights</option>
-                <option value="no">No &mdash; Skip This Year</option>
+                <!-- ⚠ THE THREE ANSWERS ARE NAMED EXACTLY AS THE RSVP EMAIL NAMES THEM
+                     (2026-09-02). Addie, reading this list: "I noticed there isn’t a no".
+                     There was — it said "No — Skip This Year", and the explanatory tail was
+                     doing the damage: the buttons a customer presses are Yes, Back Next Year
+                     and No, so anything else here is a fourth vocabulary for three answers
+                     and the office has to translate. Same fault as the season chip saying
+                     "Pending" and "Maybe Next Year" — one row, several languages.
+                     ⚠ The two states ABOVE keep their tails because they are NOT RSVP
+                     answers and have no button: they say who has been asked. -->
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
                 <option value="backnextyear">Back Next Year</option>
               </select>
             </div>
@@ -2034,11 +2043,11 @@
               </label>
               <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
                 <input type="radio" name="editCustSeason" id="editCustSeasonMaybe" value="maybe" style="width:auto; margin:0;">
-                <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>
+                <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Back Next Year</span>
               </label>
             </div>
           </div>
-          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers. Switching someone to <strong>Maybe Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set it back to Confirmed to put them back in the pool (you'll still need to schedule them yourself).</p>
+          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers. Switching someone to <strong>Back Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set it back to Confirmed to put them back in the pool (you'll still need to schedule them yourself).</p>
           <!-- ===================== HOUSE INFO ===================== -->
           <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
             <h4 style="margin:0 0 14px; font-size:15px;">House Info</h4>
@@ -43124,16 +43133,16 @@ function renderAllCustomersTable(){
        makes the chip agree with it. */
     const badgeKey = r.badge;
     const maybeCell = badgeKey === 'maybe'
-      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+unpaidPill+
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
       : badgeKey === 'pending'
       /* ⚠ THE REASON IS NOT REPEATED HERE. The Route column already prints "Not
          scheduled — owes $X from 2025" from the same helper, and the Unpaid tag sits
          directly under this pill; a third copy is a third thing to keep true. */
       ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>'
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Back next year</button>'
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Back next year</button>';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       /* The customer number is the number painted on their bins in the
          warehouse, so it is how the crew and the warehouse refer to people —
@@ -43165,8 +43174,8 @@ function renderAllCustomersTable(){
       const cust = jobAddresses.find(a => a.id === id);
       const who = (cust && cust.data.name) || 'this customer';
       const ask = toMaybe
-        ? 'Mark ' + who + ' as Maybe Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
-        : 'Confirm ' + who + ' for this season?\n\nThe Maybe Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
+        ? 'Mark ' + who + ' as Back Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
+        : 'Confirm ' + who + ' for this season?\n\nThe Back Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
       if(!confirm(ask)) return;
       btn.disabled = true;
       try{
@@ -44951,8 +44960,33 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the toggle is the explicit statement about this season, and letting the
        two disagree is how someone ends up badged Maybe Next Year while still
        sitting on a route. Money fields are untouched on purpose. */
-    addrUpdates.maybeNextYear = newSeasonMaybe;
-    if(newSeasonMaybe){
+    /* ⭐ THE DROPDOWN COUNTS AS TICKING THE BOX (fixed 2026-09-02). Addie, after
+       setting the RSVP dropdown to Back Next Year: "RSVP still says yes even though I
+       just tried to update it".
+
+       ⚠ HER CHOICE WAS BEING WIPED BY THE BRANCH BELOW. Two controls describe one
+       state — this checkbox and the RSVP dropdown — and the else-if reads an unticked
+       box as "the office is bringing them back in", so it cleared rsvpStatus to blank.
+       That is right for a STALE dropdown still reading backnextyear from an earlier
+       answer, and exactly wrong for one the office has JUST set, which it could not
+       tell apart. Her customer already carried the flag from an earlier test, so
+       picking Back Next Year in the dropdown ran the else-if, blanked the answer, and
+       the blank then read as "Yes" because a quote-converted customer with no answer
+       on file is treated as approved (audienceNeverAsked).
+
+       ⚠ CHANGED, NOT MERELY EQUAL TO backnextyear. Comparing against the STORED value
+       is what separates a fresh choice from a stale one, and keeps the case the old
+       line was written for: unticking the box to bring somebody back still clears a
+       dropdown that was already sitting on backnextyear.
+
+       ⚠ AND IT SETS THE FLAG TOO, rather than storing backnextyear with maybeNextYear
+       false. Those two are one state said two ways — setCustomerSeason writes both
+       together — and leaving them disagreeing is what put the office badge and the
+       RSVP pill on opposite sides of the same row in the first place. */
+    const seasonMaybeFromDropdown = newRsvp === 'backnextyear' && newRsvp !== oldRsvpForRecycle;
+    const seasonMaybeChosen = newSeasonMaybe || seasonMaybeFromDropdown;
+    addrUpdates.maybeNextYear = seasonMaybeChosen;
+    if(seasonMaybeChosen){
       if(!item.data.maybeNextYear) addrUpdates.maybeNextYearAt = serverTimestamp();
       addrUpdates.rsvpStatus = 'backnextyear';
       addrUpdates.rsvpRespondedAt = serverTimestamp();

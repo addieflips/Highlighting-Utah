@@ -1515,10 +1515,16 @@ check('badging Back Next Year clears the build but not the recycle',
   check('the season cell still draws its chips', chipWords.length >= 2,
     'got ' + JSON.stringify(chipWords));
 
-  /* ⚠ "Maybe Next Year" is the ONE deliberate overlap and is excluded by name: it is
-     the same state in both columns, said the same way on purpose. Everything else
-     borrowing an RSVP word is the collision this closes. */
-  const shared = chipWords.filter(w => w !== 'maybe next year' && rsvpWords.indexOf(w) !== -1);
+  /* ⚠ "Back Next Year" IS THE ONE DELIBERATE OVERLAP and is excluded by name — it is
+     the same state in both columns, said the same way on purpose, which is the whole
+     point of the rename below. Everything else borrowing an RSVP word is the collision
+     this closes.
+     ⚠ IT USED TO BE "Maybe Next Year" HERE, and that was the collision rather than the
+     exception. Addie, 2026-09-02: "its back next year the quotes is maybe next year" —
+     the RSVP has three answers (Yes / Back Next Year / No) and Maybe Next Year is the
+     QUOTE's word. The office side was using the quote's vocabulary for an RSVP state,
+     one row speaking two languages, exactly as "Pending" was. */
+  const shared = chipWords.filter(w => w !== 'back next year' && rsvpWords.indexOf(w) !== -1);
   check('no season chip uses an RSVP word for a different question',
     shared.length === 0,
     'the season cell says ' + JSON.stringify(shared) + ', which the RSVP pill uses to ' +
@@ -1527,6 +1533,127 @@ check('badging Back Next Year clears the build but not the recycle',
   check('and the blocked state no longer says Pending',
     chipWords.indexOf('pending') === -1,
     'got ' + JSON.stringify(chipWords));
+
+  /* ⚠ AND THE QUOTE'S WORD STAYS OUT OF THE RSVP COLUMNS. The quote flow keeps
+     "Maybe Next Year" — its own approvalStatus, its response buttons and the
+     Quote Maybe Next Year Follow-up template are all untouched — but the season
+     cell must not borrow it for an RSVP answer. */
+  check('the season cell does not use the quote\u2019s Maybe Next Year wording',
+    chipWords.indexOf('maybe next year') === -1,
+    'the RSVP answers are Yes / Back Next Year / No; Maybe Next Year belongs to ' +
+    'quotes. Got ' + JSON.stringify(chipWords));
+}
+
+/* ---------------------------------------------------------------------------
+ * THE OFFICE'S OWN DROPDOWN WAS BEING OVERRULED (added 2026-09-02)
+ *
+ * Addie, after setting the RSVP dropdown to Back Next Year: "RSVP still says yes even
+ * though I just tried to update it and still says yes."
+ *
+ * ⚠ TWO CONTROLS DESCRIBE ONE STATE -- the Back Next Year checkbox and the RSVP
+ * dropdown -- and the save read an unticked box as "the office is bringing them back
+ * in", so it cleared rsvpStatus to blank. That is right for a STALE dropdown left
+ * reading backnextyear from an earlier answer, and exactly wrong for one the office
+ * has just set; nothing told them apart. Her customer already carried the flag from an
+ * earlier test, so choosing Back Next Year ran that branch, blanked the answer, and the
+ * blank then read as "Yes" because a quote-converted customer with no answer on file is
+ * treated as approved.
+ *
+ * ⚠ THE FIX IS "CHANGED", NOT "EQUALS backnextyear". Comparing against the STORED value
+ * is what separates a fresh choice from a stale one -- and the case the old line was
+ * written for still has to work, which is the second check below.
+ * ------------------------------------------------------------------------- */
+{
+  const at = admin.indexOf('const seasonMaybeFromDropdown =');
+  const endM = "if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }";
+  let src = at === -1 ? '' : admin.slice(at, admin.indexOf(endM, at) + endM.length);
+  check('the season block was found to run', !!src && src.length > 200,
+    'the checks below RUN it — an empty slice would pass them vacuously');
+
+  if (src) {
+    /* The slice stops mid-block, so close what it left open rather than guessing a
+       line count — a fixed window here is exactly what §7 bans. */
+    let depth = 0, q = '', com = '';
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i], prev = src[i - 1], next = src[i + 1];
+      if (com) { if (com === '*' && c === '*' && next === '/') { com = ''; i++; }
+                 else if (com === '/' && c === '\n') com = ''; continue; }
+      if (!q && c === '/' && next === '*') { com = '*'; i++; continue; }
+      if (!q && c === '/' && next === '/') { com = '/'; i++; continue; }
+      if (q) { if (c === q && prev !== '\\') q = ''; continue; }
+      if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+      if (c === '{') depth++; else if (c === '}') depth--;
+    }
+    src += '\n' + '}'.repeat(Math.max(0, depth));
+
+    const run = (prevFlag, checkbox, dropdown, stored) => {
+      const addrUpdates = { rsvpStatus: dropdown };
+      new Function('item', 'newSeasonMaybe', 'newRsvp', 'oldRsvpForRecycle',
+                   'addrUpdates', 'serverTimestamp', src)(
+        { data: { maybeNextYear: prevFlag } }, checkbox, dropdown, stored, addrUpdates,
+        function () { return 'STAMPED'; });
+      return addrUpdates;
+    };
+
+    /* ⭐ HER CASE. The flag was already on, the box is unticked, and the office picks
+       Back Next Year in the dropdown. */
+    const chosen = run(true, false, 'backnextyear', 'yes');
+    check('choosing Back Next Year in the dropdown is not wiped by the unticked box',
+      chosen.rsvpStatus === 'backnextyear',
+      'the office picked an answer and the save threw it away; got ' +
+      JSON.stringify(chosen.rsvpStatus));
+
+    /* ⚠ AND THE TWO CONTROLS END UP AGREEING. Storing backnextyear with the flag off is
+       what put the badge and the RSVP pill on opposite sides of one row. */
+    check('and the badge flag is set to match it',
+      chosen.maybeNextYear === true,
+      'got ' + JSON.stringify(chosen.maybeNextYear));
+
+    /* ⚠ THE CASE THE OLD LINE PROTECTED, which must survive: unticking the box to bring
+       somebody back, with the dropdown still sitting on a stale backnextyear. */
+    const broughtBack = run(true, false, 'backnextyear', 'backnextyear');
+    check('unticking the box still clears a stale Back Next Year dropdown',
+      broughtBack.rsvpStatus === '' && broughtBack.maybeNextYear === false,
+      'coming back in behind a dropdown still reading Back Next Year leaves them ' +
+      'unroutable behind a Confirmed badge; got ' + JSON.stringify(broughtBack));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * THE OFFICE DROPDOWN NAMES THE ANSWERS THE WAY THE EMAIL DOES (added 2026-09-02)
+ *
+ * Addie, reading the RSVP dropdown: "I noticed there isn't a no". There was — it said
+ * "No — Skip This Year", and the explanatory tail was what hid it. The customer presses
+ * Yes / Back Next Year / No, so anything else here is a fourth vocabulary for three
+ * answers and the office has to translate between them.
+ *
+ * ⚠ THE TWO STATES ABOVE KEEP THEIR TAILS, and that is not an inconsistency: Pending
+ * and Unanswered are not RSVP answers and have no button. They say who has been ASKED,
+ * which is Addie's own 2026-08-20 ruling ("add a third for unanswered") and the thing
+ * that makes a stale Yes impossible to mistake for this year's.
+ * ------------------------------------------------------------------------- */
+{
+  const at = admin.indexOf('<select id="editCustRsvp">');
+  const sel = at === -1 ? '' : admin.slice(at, admin.indexOf('</select>', at));
+  check('the RSVP dropdown was found', !!sel && sel.indexOf('<option') !== -1);
+
+  const opts = {};
+  (sel.match(/<option value="([^"]*)"[^>]*>([^<]*)</g) || []).forEach(function (m) {
+    const p = /<option value="([^"]*)"[^>]*>([^<]*)</.exec(m);
+    if (p) opts[p[1]] = p[2].trim();
+  });
+
+  /* The three the customer is actually offered, named exactly as the email names them. */
+  check('the three RSVP answers are named as the email names them',
+    opts.yes === 'Yes' && opts.no === 'No' && opts.backnextyear === 'Back Next Year',
+    'the office has to match these against the buttons a customer pressed; got ' +
+    JSON.stringify({yes: opts.yes, no: opts.no, backnextyear: opts.backnextyear}));
+
+  /* ⚠ AND ALL FIVE STATES ARE STILL OFFERED. Renaming must not quietly drop one —
+     Pending and Unanswered are different questions and both have to be settable. */
+  check('and all five states are still offered',
+    Object.keys(opts).length === 5 && '' in opts && 'unanswered' in opts,
+    'got ' + JSON.stringify(Object.keys(opts)));
 }
 
 // ---------------------------------------------------------------------------

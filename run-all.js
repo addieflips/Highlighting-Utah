@@ -4617,8 +4617,12 @@ suite('8. Quote decline / maybe next year');
      changed is only the word: "Pending" is the RSVP pill's term for NOBODY HAS
      ANSWERED, and on a row where that pill said Yes the two read as a contradiction.
      Addie: "Says yes in one spot but pending in the other." */
-  check('quoteresp', 'every customer reads Confirmed, On hold or Maybe Next Year',
-    maybeCell.includes('Maybe Next Year<') && maybeCell.includes('Confirmed<') &&
+  /* ⚠ THE THIRD WORD IS "Back Next Year" SINCE 2026-09-02. Addie: "its back next year
+     the quotes is maybe next year" — the RSVP's answers are Yes / Back Next Year / No,
+     and Maybe Next Year is the QUOTE's word. The office row was using the quote's
+     vocabulary for an RSVP state. The quote flow keeps its own wording untouched. */
+  check('quoteresp', 'every customer reads Confirmed, On hold or Back Next Year',
+    maybeCell.includes('Back Next Year<') && maybeCell.includes('Confirmed<') &&
     maybeCell.includes('On hold<'),
     'a blank cell is ambiguous between "confirmed" and "nobody has looked yet"');
   /* ⚠ AND THE BADGE HAS TO DRIVE THEM. A red-check proved the line above is not
@@ -4712,10 +4716,14 @@ suite('8. Quote decline / maybe next year');
   check('quoteresp', 'the toggle is loaded when the modal opens',
     /editCustSeasonMaybe' : 'editCustSeasonConfirmed'\)\.checked = true/.test(admin),
     'it would always show Confirmed regardless of the real value');
+  /* ⚠ THE ASSIGNMENT IS `seasonMaybeChosen` SINCE 2026-09-02, not the raw checkbox:
+     a dropdown CHANGED to Back Next Year now counts as choosing it, because reading an
+     unticked box as "bringing them back in" was silently wiping the office's own
+     answer. The ordering this checks is unchanged and is what matters. */
   check('quoteresp', 'saving applies the season fields after the rest',
-    admin.indexOf('addrUpdates.maybeNextYear = newSeasonMaybe') >
+    admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') >
       admin.indexOf('addrUpdates.needsLightBuild = newLightsDescription') &&
-    admin.indexOf('addrUpdates.maybeNextYear = newSeasonMaybe') <
+    admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') <
       admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
     'the RSVP dropdown or the build flag would overwrite it and leave a half state');
   check('quoteresp', 'coming back to Confirmed clears a stale Back Next Year RSVP',
@@ -35080,17 +35088,21 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
 
   /* ---- 3. the Edit Customer save's own copy, run ----------------------- */
   {
-    const a = admin.indexOf('    if(newSeasonMaybe){');
+    /* Renamed 2026-09-02 — see the note on the ordering check above. */
+    const a = admin.indexOf('    if(seasonMaybeChosen){');
     const b = admin.indexOf('    } else if(item.data.maybeNextYear){', a);
     check('S132', 'the Edit Customer Back Next Year branch is findable',
       a !== -1 && b > a,
       'moved or renamed — fix the slice rather than deleting the check');
     if (a !== -1 && b > a) {
       const branch = admin.slice(a, b) + '    }';
-      const runBranch = (newSeasonMaybe, data) => {
+      /* ⚠ THE BRANCH TESTS `seasonMaybeChosen` SINCE 2026-09-02 — the checkbox OR a
+         dropdown just changed to Back Next Year. This harness feeds that name; what it
+         is asserting (that the branch writes no recycle flag either way) is unchanged. */
+      const runBranch = (seasonMaybeChosen, data) => {
         const addrUpdates = {};
-        new Function('newSeasonMaybe', 'item', 'addrUpdates', 'serverTimestamp',
-          branch)(newSeasonMaybe, { data: data }, addrUpdates, () => '@ts');
+        new Function('seasonMaybeChosen', 'item', 'addrUpdates', 'serverTimestamp',
+          branch)(seasonMaybeChosen, { data: data }, addrUpdates, () => '@ts');
         return addrUpdates;
       };
       const out = runBranch(true, { needsLightRecycle: true, maybeNextYear: false });
