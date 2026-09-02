@@ -14470,6 +14470,48 @@ async function etEnsureMaybeTemplateExists(){
     console.error('[HU] could not read the template top-up record:', e);
     return;
   }
+  /* ⭐ AN EMPTY SHELL IS FILLED IN, AND THAT IS A SEPARATE JOB FROM CREATING ONE
+     (added 2026-09-02, after Dax: "i dont know what you did but this is still not
+     filled out").
+
+     ⚠ WHAT ACTUALLY HAPPENED, because it will happen again. He made the template
+     himself from the wording he had been given — typed the NAME and picked the
+     FOLDER, and stopped. The top-up below then did exactly what it was written to
+     do: saw a template of that name already there, left it alone, and recorded the
+     name as handled. So a template existed, was named correctly, sat in the right
+     folder, and would have sent an EMPTY EMAIL to everybody it reached.
+
+     ⚠ IT ONLY EVER FILLS A BLANK, NEVER REPLACES WORDS. A body somebody has written
+     is theirs — this is the office's tool, not ours, and MON-24 is the general form
+     of that. So each field is patched only when it is empty, which also makes this
+     idempotent: once filled it stops, for ever.
+
+     ⚠ AND IT IS DELIBERATELY NOT GATED ON `alreadyOffered`, unlike creating. By the
+     time this fault is visible the name has already been recorded as handled — that
+     is the whole reason it stayed broken — so gating the repair on the same record
+     would guarantee it never ran. Creating stays gated, so a template the office
+     deletes stays deleted. */
+  for(const preset of ET_PREBUILT_TEMPLATES){
+    const existing = emailTemplates.find(t => t.data.name === preset.name);
+    if(!existing) continue;
+    const patch = {};
+    if(!String(existing.data.body || '').trim() && preset.body) patch.body = preset.body;
+    if(!String(existing.data.subject || '').trim() && preset.subject) patch.subject = preset.subject;
+    /* Without these the RSVP buttons render as raw {{tokens}} in somebody's inbox —
+       the same shape as the 2026-08-17 photo bug, and invisible until it is sent. */
+    if(!(Array.isArray(existing.data.linkedTokens) && existing.data.linkedTokens.length) && preset.linkedTokens){
+      patch.linkedTokens = preset.linkedTokens;
+    }
+    if(!Object.keys(patch).length) continue;
+    try{
+      await updateDoc(doc(db,'emailTemplates', existing.id), patch);
+    }catch(e){
+      /* Logged, never swallowed (Addie, 2026-08-25: "nothing should fail quietly").
+         A refused patch leaves the shell empty, which is where it already was. */
+      console.error('[HU] could not fill in the blank template "' + preset.name + '":', e);
+    }
+  }
+
   const todo = ET_TOP_UP_NAMES.filter(n => alreadyOffered.indexOf(n) === -1);
   if(!todo.length) return;
   for(const name of todo){

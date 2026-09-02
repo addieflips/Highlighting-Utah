@@ -46992,6 +46992,176 @@ suite('287. The routine route sweep does not bury the notice that matters');
     'a second copy of the answer path is a second thing to keep true');
 }
 
+/* =====================================================================
+ * Suite 289 — a prebuilt template that exists but is EMPTY
+ *
+ * Dax, 2026-09-02: "i dont know what you did but this is still not filled out",
+ * over an Edit Template screen showing the name "Not Paid RSVP", the folder
+ * "RSVP", and nothing else.
+ *
+ * ⚠ THE FAULT WAS THE SKIP, NOT THE SEEDING. He had made the template himself
+ * from the wording he was given — typed the name, picked the folder, stopped. The
+ * top-up then did exactly what it was written to do: found a template of that name,
+ * left it alone, and recorded the name as handled. Result: a correctly named
+ * template in the right folder that would send an EMPTY EMAIL to everybody it
+ * reached, and a seed record saying the job was done.
+ *
+ * ⚠ SO THESE RUN THE SHIPPED FUNCTION against a fake library, because "fills in a
+ * blank" and "leaves written words alone" are the same line of source read two ways.
+ * ===================================================================== */
+{
+  const fillSrc = extractFn(admin, 'etEnsureMaybeTemplateExists');
+  /* extractFn starts its slice after `async`, which has to go back on or every
+     await inside is a syntax error — §7's anchor rule at its smallest. */
+  const fillFn = fillSrc ? 'async ' + fillSrc : null;
+
+  /* The real presets, lifted rather than re-typed: a fake body here would prove the
+     patch runs and nothing about what it writes. */
+  /* The preset list names a constant declared above it, so that is lifted too:
+     half a dependency is a ReferenceError at eval time, not a failed check. */
+  const maybeAt = admin.indexOf('const DEFAULT_QUOTE_MAYBE_TEMPLATE_BODY =');
+  const maybeSrc = maybeAt === -1 ? '' : admin.slice(maybeAt, admin.indexOf("';", maybeAt) + 2);
+  const presetsAt = admin.indexOf('const ET_PREBUILT_TEMPLATES = [');
+  let presetsSrc = null;
+  if (presetsAt !== -1) {
+    let i = admin.indexOf('[', presetsAt), depth = 0;
+    for (; i < admin.length; i++) {
+      if (admin[i] === '[') depth++;
+      else if (admin[i] === ']') { depth--; if (depth === 0) { presetsSrc = admin.slice(presetsAt, i + 1); break; } }
+    }
+  }
+
+  check('S289', 'the top-up and the real preset list could both be lifted',
+    !!fillFn && !!presetsSrc && !!maybeSrc,
+    'the checks below prove nothing about the shipped code if they run a copy of it');
+
+  if (fillFn && presetsSrc) {
+    function runFill(library, offered) {
+      const written = {};
+      const created = [];
+      const sandbox = {
+        emailTemplates: library,
+        emailTemplateFolders: [{ id: 'f-rsvp', name: 'RSVP' }, { id: 'f-quotes', name: 'Quotes' }],
+        etMaybeTemplateChecked: false,
+        etFoldersLoaded: true,
+        etTemplatesLoaded: true,
+        db: {},
+        doc: (_db, coll, id) => ({ coll, id }),
+        collection: (_db, coll) => ({ coll }),
+        getDoc: async () => (offered === 'THROW'
+          ? (function () { throw new Error('offline'); })()
+          : { exists: () => offered !== null, data: () => ({ toppedUp: offered || [] }) }),
+        addDoc: async (ref, data) => { created.push(data); return { id: 'new-' + created.length }; },
+        updateDoc: async (ref, patch) => { written[ref.id] = Object.assign(written[ref.id] || {}, patch); },
+        setDoc: async () => {},
+        serverTimestamp: () => 'now',
+        console: { error: () => {} }
+      };
+      const names = Object.keys(sandbox);
+      const fn = new Function(...names, maybeSrc + '\n' + presetsSrc + '\nconst ET_TOP_UP_NAMES = ' +
+        JSON.stringify(['Quote Maybe Next Year Follow-up', 'Not Paid RSVP']) + ';\n' +
+        fillFn + '\nreturn etEnsureMaybeTemplateExists;')(...names.map(k => sandbox[k]));
+      return fn().then(() => ({ written, created }));
+    }
+
+    /* Exactly the state Dax was looking at: named, foldered, and empty — with the
+       name already recorded as handled, which is what made it stick. */
+    const shell = () => [{ id: 'tpl-shell', data: { name: 'Not Paid RSVP', folderId: 'f-rsvp', subject: '', body: '', linkedTokens: [] } }];
+
+    pendingAsync.push(runFill(shell(), ['Quote Maybe Next Year Follow-up', 'Not Paid RSVP']).then(function (r) {
+      const patch = r.written['tpl-shell'] || {};
+      check('S289', 'an empty template of a prebuilt name gets its body filled in',
+        typeof patch.body === 'string' && /gate|balance|outstanding/i.test(patch.body) && patch.body.length > 200,
+        'this is the whole bug: a named, foldered, empty template that sends an empty email');
+      check('S289', 'and its subject',
+        typeof patch.subject === 'string' && patch.subject.indexOf('{{name}}') !== -1);
+      check('S289', 'and its linked tokens, or the buttons arrive as raw {{tokens}}',
+        Array.isArray(patch.linkedTokens) && patch.linkedTokens.length === 3,
+        'the 2026-08-17 photo bug in a new place: invisible until somebody receives it');
+      check('S289', 'the filled body still carries the three RSVP buttons',
+        /\{\{rsvp_yes_button\}\}/.test(patch.body || '') &&
+        /\{\{rsvp_no_button\}\}/.test(patch.body || '') &&
+        /\{\{rsvp_back_button\}\}/.test(patch.body || ''));
+      /* ⚠ RS-37: no figure. {{amount_due}} here would print THIS year's install
+         price into an email about an old debt. */
+      check('S289', 'and names no money figure',
+        !/\{\{amount_due\}\}/.test(patch.body || '') && (patch.body || '').indexOf('$') === -1,
+        'the portal holds the one figure we computed; a second one here would disagree with it');
+      check('S289', 'nothing is created when the template is already there',
+        r.created.length === 0, 'a second template of the same name is worse than an empty one');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* ⚠ THE HALF THAT PROTECTS HER WORK. This is the office's tool; a body somebody
+       has written is theirs, and a top-up that overwrote it would be far worse than
+       the bug it fixes. */
+    const written = () => [{ id: 'tpl-written', data: { name: 'Not Paid RSVP', folderId: 'f-rsvp', subject: 'Addie wrote this subject', body: 'Addie wrote this body.', linkedTokens: [{ code: 'rsvp_yes_button', style: 'button' }] } }];
+    pendingAsync.push(runFill(written(), ['Not Paid RSVP']).then(function (r) {
+      check('S289', 'a template somebody has written is not touched at all',
+        !r.written['tpl-written'],
+        'overwriting the office\'s own wording is worse than the empty template this fixes');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* Half-filled is the ordinary case after a hand-paste: body typed, subject left
+       blank on purpose or forgotten. Only the blank is filled. */
+    const half = () => [{ id: 'tpl-half', data: { name: 'Not Paid RSVP', folderId: 'f-rsvp', subject: '', body: 'Addie wrote this body.', linkedTokens: [{ code: 'rsvp_yes_button', style: 'button' }] } }];
+    pendingAsync.push(runFill(half(), ['Not Paid RSVP']).then(function (r) {
+      const patch = r.written['tpl-half'] || {};
+      check('S289', 'a blank subject is filled without disturbing a written body',
+        !!patch.subject && patch.body === undefined,
+        'each field is judged on its own, or filling one would flatten the other');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* ⚠ AND THE REPAIR IS NOT GATED ON THE SEED RECORD. By the time this fault is
+       visible the name has already been recorded as handled — that is exactly why it
+       stayed broken — so a repair gated on the same record could never run. */
+    pendingAsync.push(runFill(shell(), ['Not Paid RSVP', 'Quote Maybe Next Year Follow-up']).then(function (r) {
+      check('S289', 'the repair runs even though the name is recorded as already handled',
+        !!(r.written['tpl-shell'] || {}).body,
+        'gating the fix on the record that caused the fault would guarantee it never runs');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* ⚠ AND A SHELL IS FILLED, NEVER DUPLICATED. The name has not been offered before
+       here, so the create path is live — and a template of that name is already
+       sitting there. Two templates with one name is worse than an empty one: the office
+       edits whichever it opens, and the sender picks by name. A red-check found this
+       gap: sabotaging the already-exists guard went UNCAUGHT until this case arrived,
+       because every other case had the name recorded as handled and never reached it. */
+    pendingAsync.push(runFill(shell(), []).then(function (r) {
+      /* ⚠ THE OTHER prebuilt IS legitimately created here — it is missing from this
+         library and has never been offered — so the assertion is about THIS name, not
+         about the count. A blanket "nothing was created" would fail on correct code. */
+      check('S289', 'a shell is filled in rather than duplicated',
+        !!(r.written['tpl-shell'] || {}).body &&
+        !r.created.some(c => c.name === 'Not Paid RSVP'),
+        'two templates of one name is worse than one empty one: the office edits ' +
+        'whichever it opens and the sender picks by name');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* Creating stays gated, so a template the office deleted stays deleted. */
+    pendingAsync.push(runFill([], ['Quote Maybe Next Year Follow-up', 'Not Paid RSVP']).then(function (r) {
+      check('S289', 'a name already recorded as handled is not re-created when missing',
+        r.created.length === 0,
+        'without this a template the office threw away comes back every morning');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    pendingAsync.push(runFill([], []).then(function (r) {
+      check('S289', 'but a name never offered before IS created',
+        r.created.some(c => c.name === 'Not Paid RSVP' && (c.body || '').length > 200),
+        'this is the path that reaches an install which already has templates');
+      check('S289', 'and it is created with its subject and tokens, not just a body',
+        r.created.some(c => c.name === 'Not Paid RSVP' && c.subject && (c.linkedTokens || []).length === 3));
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+
+    /* ⚠ AN UNREADABLE SEED RECORD MUST CREATE NOTHING — we cannot tell "never
+       offered" from "offered and deleted", and guessing resurrects deleted work. */
+    pendingAsync.push(runFill([], 'THROW').then(function (r) {
+      check('S289', 'an unreadable seed record creates nothing',
+        r.created.length === 0,
+        'a library that refills itself every morning is worse than a missing template');
+    }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
