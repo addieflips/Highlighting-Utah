@@ -1559,13 +1559,23 @@ check('badging Back Next Year clears the build but not the recycle',
  * blank then read as "Yes" because a quote-converted customer with no answer on file is
  * treated as approved.
  *
- * ⚠ THE FIX IS "CHANGED", NOT "EQUALS backnextyear". Comparing against the STORED value
- * is what separates a fresh choice from a stale one -- and the case the old line was
- * written for still has to work, which is the second check below.
+ * ⭐ AND THE SECOND CONTROL IS GONE (2026-09-02). Addie, the next day: "I don't
+ * understand why this is seperate. It should not have two seperate RSVP spots in
+ * costumer." The first fix compared against the STORED value so a fresh choice could be
+ * told from a stale one; that test was only ever needed while a radio could contradict
+ * the dropdown. With one control, backnextyear means backnextyear on every save.
+ *
+ * ⚠ AND "CHANGED" WOULD NOW BE ACTIVELY WRONG, which is the check below: an ordinary
+ * re-save of a Back Next Year customer does not change the dropdown, so a changed-test
+ * would compute false and clear the flag off somebody nobody touched. That is the same
+ * damage the radio did, arriving from the other direction.
  * ------------------------------------------------------------------------- */
 {
-  const at = admin.indexOf('const seasonMaybeFromDropdown =');
-  const endM = "if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }";
+  const at = admin.indexOf('const seasonMaybeChosen =');
+  /* ⚠ THE OLD END ANCHOR WAS THE STALE-DROPDOWN RESCUE, WHICH IS NOW DELETED — it
+     could only fire while two controls could disagree. Anchor on the close of the
+     else-if instead, found by brace-matching below rather than by a line count. */
+  const endM = 'addrUpdates.maybeNextYearAt = null;';
   let src = at === -1 ? '' : admin.slice(at, admin.indexOf(endM, at) + endM.length);
   check('the season block was found to run', !!src && src.length > 200,
     'the checks below RUN it — an empty slice would pass them vacuously');
@@ -1586,36 +1596,51 @@ check('badging Back Next Year clears the build but not the recycle',
     }
     src += '\n' + '}'.repeat(Math.max(0, depth));
 
-    const run = (prevFlag, checkbox, dropdown, stored) => {
+    const run = (prevFlag, dropdown) => {
       const addrUpdates = { rsvpStatus: dropdown };
-      new Function('item', 'newSeasonMaybe', 'newRsvp', 'oldRsvpForRecycle',
-                   'addrUpdates', 'serverTimestamp', src)(
-        { data: { maybeNextYear: prevFlag } }, checkbox, dropdown, stored, addrUpdates,
+      new Function('item', 'newRsvp', 'addrUpdates', 'serverTimestamp', src)(
+        { data: { maybeNextYear: prevFlag } }, dropdown, addrUpdates,
         function () { return 'STAMPED'; });
       return addrUpdates;
     };
 
-    /* ⭐ HER CASE. The flag was already on, the box is unticked, and the office picks
-       Back Next Year in the dropdown. */
-    const chosen = run(true, false, 'backnextyear', 'yes');
-    check('choosing Back Next Year in the dropdown is not wiped by the unticked box',
+    /* ⭐ HER CASE. The flag was already on from earlier testing and the office picks
+       Back Next Year in the dropdown. With the radio still there this came out blank. */
+    const chosen = run(true, 'backnextyear');
+    check('choosing Back Next Year in the dropdown is what gets stored',
       chosen.rsvpStatus === 'backnextyear',
       'the office picked an answer and the save threw it away; got ' +
       JSON.stringify(chosen.rsvpStatus));
 
-    /* ⚠ AND THE TWO CONTROLS END UP AGREEING. Storing backnextyear with the flag off is
+    /* ⚠ THE FLAG AND THE STATUS MOVE TOGETHER. Storing backnextyear with the flag off is
        what put the badge and the RSVP pill on opposite sides of one row. */
     check('and the badge flag is set to match it',
       chosen.maybeNextYear === true,
       'got ' + JSON.stringify(chosen.maybeNextYear));
 
-    /* ⚠ THE CASE THE OLD LINE PROTECTED, which must survive: unticking the box to bring
-       somebody back, with the dropdown still sitting on a stale backnextyear. */
-    const broughtBack = run(true, false, 'backnextyear', 'backnextyear');
-    check('unticking the box still clears a stale Back Next Year dropdown',
-      broughtBack.rsvpStatus === '' && broughtBack.maybeNextYear === false,
-      'coming back in behind a dropdown still reading Back Next Year leaves them ' +
-      'unroutable behind a Confirmed badge; got ' + JSON.stringify(broughtBack));
+    /* ⭐ THE CASE A CHANGED-TEST WOULD BREAK, and the reason the first fix's comparison
+       against the stored value had to GO with the radio: an ordinary re-save of somebody
+       already on Back Next Year changes nothing, so a changed-test computes false and
+       strips the flag off a customer nobody touched. */
+    const resaved = run(true, 'backnextyear');
+    check('re-saving an unchanged Back Next Year customer keeps them out',
+      resaved.maybeNextYear === true && resaved.rsvpStatus === 'backnextyear',
+      'an ordinary save of an untouched record would put them back in the season; got ' +
+      JSON.stringify(resaved));
+
+    /* ⚠ AND COMING BACK IN STILL WORKS — the office picks any other answer and the flag
+       clears. This is what the deleted stale-dropdown line used to do the long way. */
+    const broughtBack = run(true, 'yes');
+    check('picking any other answer brings them back in',
+      broughtBack.maybeNextYear === false && broughtBack.maybeNextYearAt === null,
+      'they would stay off the routes behind a Confirmed badge; got ' +
+      JSON.stringify(broughtBack));
+
+    /* ⚠ AND IT DOES NOT INVENT AN ANSWER ON THE WAY BACK. The dropdown said yes; the
+       block must not overwrite it, which the deleted line did whenever it fired. */
+    check('and the answer they picked is left alone',
+      broughtBack.rsvpStatus === 'yes',
+      'got ' + JSON.stringify(broughtBack.rsvpStatus));
   }
 }
 
