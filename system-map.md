@@ -116,6 +116,22 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    - ⚠ **A carried line that has been PAID does not hold anybody.** The note stays on the invoice for ever;
      what decides it is `arrearsOutstanding`, the server's figure, never a fourth copy of the maths.
 
+   ⛔ **AND THE CHASE FOR THAT MONEY IS BUILT BUT SWITCHED OFF** (2026-09-02, RS-39). Dax asked for the
+   unpaid-last-season email to send itself. `sendArrearsRsvpEmails` runs daily at 10:00 AM and returns
+   immediately unless `settings/arrearsRsvpAutomation.enabled` is true — an absent document is **off**, which
+   is the shipped state, because MON-34 is Addie's standing ruling that she would send these herself. Her
+   sentence is printed on the card beside the switch. **Admin › Invoices › Unpaid Last Season** holds the
+   switch and a *Send Once, Now* button that runs the same batch without turning anything on.
+
+   - **Who it writes to:** owes for a previous season **and has never answered the RSVP**. Not a no, not a
+     back-next-year (RS-30 — they have answered), and not a yes (the template asks whether they want lights,
+     which to somebody who already said so reads as us losing their answer).
+   - **Once per customer per season**, via `arrearsRsvpEmailAt`, cleared by Start New Season — and stamped
+     only *after* the send succeeds, so a refused send does not silently drop them for the year.
+   - **No figure in the email.** There is no token for the carried balance and `{{amount_due}}` means this
+     year's install price (RS-37), so the buttons carry their portal token and the portal shows the figure.
+   - The **test record carries Addie's own phone**, so it is skipped by flag and by name-and-number both.
+
    ⚠ **THE SIDES TAB HAD NEVER OPENED** (fixed 2026-09-02, RS-38). `sides` was missing from `PORTAL_TAB_NAMES`,
    so clicking it hid the other six panels and showed none — a blank card under the tab strip. Found while
    building the hold above; nobody had reported it. Every `data-tab` on the page must now appear in that list.
