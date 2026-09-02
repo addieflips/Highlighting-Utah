@@ -2032,22 +2032,24 @@
                crew is actually being sent. Empty and hidden for anybody who is in the
                season. -->
           <div id="editCustHoldNote" style="display:none; margin:-4px 0 16px; padding:10px 12px; border-radius:8px; font-size:12.5px; line-height:1.5;"></div>
-          <!-- Radio group rather than two checkboxes: the browser enforces that
-               only one can be on, so the pair can never end up both set or both
-               clear the way two checkboxes eventually would. -->
-          <div class="form-row"><label>This Season</label>
-            <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:center; padding:4px 0;">
-              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
-                <input type="radio" name="editCustSeason" id="editCustSeasonConfirmed" value="confirmed" style="width:auto; margin:0;">
-                <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E;">Confirmed</span>
-              </label>
-              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
-                <input type="radio" name="editCustSeason" id="editCustSeasonMaybe" value="maybe" style="width:auto; margin:0;">
-                <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Back Next Year</span>
-              </label>
-            </div>
-          </div>
-          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers. Switching someone to <strong>Back Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set it back to Confirmed to put them back in the pool (you'll still need to schedule them yourself).</p>
+          <!-- ⭐ ONE CONTROL, NOT TWO (2026-09-02). A "This Season" radio pair sat here
+               — Confirmed / Back Next Year — saying the same thing as the RSVP dropdown
+               above. Addie: "I don't understand why this is seperate. It should not have
+               two seperate RSVP spots in costumer."
+               ⚠ THE DUPLICATION WAS NOT COSMETIC, IT WAS THE BUG. One state with two
+               controls means the save has to decide which of them the office meant, and it
+               decided wrong: an UNTICKED radio was read as "bringing them back in", so it
+               blanked rsvpStatus and threw away a Back Next Year she had just picked in the
+               dropdown. The blank then read as Yes, because a quote-converted customer with
+               no answer on file is treated as approved. See RS-43.
+               ⚠ NOTHING WAS LOST WITH IT. The dropdown carries five states against the
+               radio's two, and picking Back Next Year there does everything the radio did
+               — the flag, the timestamp, off the build queue, off the schedule, off any
+               upcoming route. The radio could not express No, Unanswered or Pending at all.
+               ⚠ DO NOT PUT A SECOND CONTROL BACK. run-all.js fails on any element named
+               editCustSeason, which is the check that used to prove the radio pair existed,
+               repointed to prove it does not. -->
+          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers, and it follows the RSVP Status above. Setting that to <strong>Back Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set the RSVP back to Yes (or Pending) to put them back in the pool (you'll still need to schedule them yourself).</p>
           <!-- ===================== HOUSE INFO ===================== -->
           <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
             <h4 style="margin:0 0 14px; font-size:15px;">House Info</h4>
@@ -43696,7 +43698,6 @@ function openEditCustomerModal(id){
   }
   /* Confirmed is the default for anyone not explicitly sitting out, which is
      what an All Customers record has always meant. */
-  document.getElementById(d.maybeNextYear ? 'editCustSeasonMaybe' : 'editCustSeasonConfirmed').checked = true;
   document.getElementById('editCustEarliestInstall').value = (d.earliestInstallDate && d.earliestInstallDate.toDate) ? toDateStr(d.earliestInstallDate.toDate()) : '';
   document.getElementById('editCustFeet').value = d.measuredFeet || '';
   /* Cleared with the form, or the last customer's arithmetic is still sitting
@@ -44558,7 +44559,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newCity = typedCity || extractCleanCity(newAddress) || extractCleanCity(d.city) || '';
   const newEnrolledStr = document.getElementById('editCustEnrolled').value;
   const newRsvp = document.getElementById('editCustRsvp').value;
-  const newSeasonMaybe = document.getElementById('editCustSeasonMaybe').checked;
   const newEarliestInstallStr = document.getElementById('editCustEarliestInstall').value;
   const newHousePrice = Number(document.getElementById('editCustHousePrice').value) || 0;
   const newMeasuredFeet = Number(document.getElementById('editCustFeet').value) || 0;
@@ -44956,35 +44956,33 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        whether the handler contains a call, not whether every path reaches one. It
        surfaced only because a test sandbox lifts that block and died on a name it had
        never been given. */
-    /* Applied last so it beats the RSVP dropdown and the build flag above:
-       the toggle is the explicit statement about this season, and letting the
-       two disagree is how someone ends up badged Maybe Next Year while still
-       sitting on a route. Money fields are untouched on purpose. */
-    /* ⭐ THE DROPDOWN COUNTS AS TICKING THE BOX (fixed 2026-09-02). Addie, after
-       setting the RSVP dropdown to Back Next Year: "RSVP still says yes even though I
-       just tried to update it".
+    /* ⭐ ONE CONTROL DECIDES THIS, AND IT IS THE RSVP DROPDOWN (2026-09-02). Addie:
+       "I don't understand why this is seperate. It should not have two seperate RSVP
+       spots in costumer." She was describing a "This Season" radio pair that sat below
+       the dropdown saying the same thing; both are read here, and reading two controls
+       for one state is what made the bug she reported the day before.
 
-       ⚠ HER CHOICE WAS BEING WIPED BY THE BRANCH BELOW. Two controls describe one
-       state — this checkbox and the RSVP dropdown — and the else-if reads an unticked
-       box as "the office is bringing them back in", so it cleared rsvpStatus to blank.
-       That is right for a STALE dropdown still reading backnextyear from an earlier
-       answer, and exactly wrong for one the office has JUST set, which it could not
-       tell apart. Her customer already carried the flag from an earlier test, so
-       picking Back Next Year in the dropdown ran the else-if, blanked the answer, and
-       the blank then read as "Yes" because a quote-converted customer with no answer
-       on file is treated as approved (audienceNeverAsked).
+       ⚠ WHAT THAT COST, so nobody re-adds the radio as a convenience. The else-if below
+       read an UNTICKED radio as "the office is bringing them back in", so it cleared
+       rsvpStatus to blank. Her customer already carried maybeNextYear from an earlier
+       test, so picking Back Next Year in the dropdown ran that branch, threw the answer
+       away, and the blank then read as "Yes" — a quote-converted customer with no answer
+       on file is treated as approved (audienceNeverAsked). The office set an answer and
+       the save silently replaced it with the opposite one. RS-43.
 
-       ⚠ CHANGED, NOT MERELY EQUAL TO backnextyear. Comparing against the STORED value
-       is what separates a fresh choice from a stale one, and keeps the case the old
-       line was written for: unticking the box to bring somebody back still clears a
-       dropdown that was already sitting on backnextyear.
+       ⚠ THE FIRST FIX WAS "CHANGED TO backnextyear", AND IT IS GONE ON PURPOSE. It
+       compared against the stored value so a fresh choice could be told from a stale
+       one — necessary only while a second control could contradict this one. With the
+       radio gone the dropdown IS the answer: backnextyear means backnextyear on every
+       save, stale or fresh. ⚠ AND THE "CHANGED" TEST WOULD NOW BE ACTIVELY WRONG — an
+       ordinary re-save of a Back Next Year customer does not change the dropdown, so it
+       would compute false and clear the flag off somebody nobody touched.
 
-       ⚠ AND IT SETS THE FLAG TOO, rather than storing backnextyear with maybeNextYear
-       false. Those two are one state said two ways — setCustomerSeason writes both
-       together — and leaving them disagreeing is what put the office badge and the
-       RSVP pill on opposite sides of the same row in the first place. */
-    const seasonMaybeFromDropdown = newRsvp === 'backnextyear' && newRsvp !== oldRsvpForRecycle;
-    const seasonMaybeChosen = newSeasonMaybe || seasonMaybeFromDropdown;
+       ⚠ IT SETS THE FLAG AND THE STATUS TOGETHER, never one without the other. They are
+       one state said two ways — setCustomerSeason writes both — and leaving them
+       disagreeing is what put the office badge and the RSVP pill on opposite sides of
+       the same row. Applied last so it beats the build flag above; money is untouched. */
+    const seasonMaybeChosen = newRsvp === 'backnextyear';
     addrUpdates.maybeNextYear = seasonMaybeChosen;
     if(seasonMaybeChosen){
       if(!item.data.maybeNextYear) addrUpdates.maybeNextYearAt = serverTimestamp();
@@ -45024,10 +45022,16 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
          ever cleared this flag, which is why it went unnoticed. */
       addrUpdates.maybeNextYear = false;
       addrUpdates.maybeNextYearAt = null;
-      /* Coming back in with the dropdown still reading Back Next Year would
-         leave them unroutable behind a Confirmed badge, so reset it to
-         pending unless the office picked something else themselves. */
-      if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }
+      /* ⭐ THE STALE-DROPDOWN RESCUE THAT SAT HERE IS GONE, AND ITS ABSENCE IS THE
+         POINT (2026-09-02). It read: if the dropdown still says backnextyear,
+         blank it. That could only ever fire while a SECOND control could
+         disagree with this one — the office unticking a radio while the
+         dropdown still sat on an old answer. With the radio gone this branch
+         is reached only when the dropdown is NOT backnextyear, so the line
+         was dead code that still read as a live rule.
+         ⚠ DO NOT PUT IT BACK. It is the half of the old pair that wiped her
+         answer, and restoring it alongside a single control would blank the
+         RSVP of everybody the office brings back in. */
     }
     /* ⚠ LAST OF ALL, AFTER EVERYTHING THAT CAN MOVE EITHER FLAG — the colours ternary,
        the wire/timer re-queue, the rejoin-after-recycle, both re-quote answers, and the
@@ -45336,7 +45340,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        recycle had actually completed, or every ordinary yes-after-no would
        drop noise in the Inbox. Not raised when the Maybe Next Year toggle is
        on — that block above overrides the RSVP and pulls them out anyway. */
-    if(rejoinedAfterRecycle && !newSeasonMaybe){
+    if(rejoinedAfterRecycle && !seasonMaybeChosen){
       try{
         await addDoc(collection(db,'messages'), {
           topic: 'Rejoined After Recycling', folder: 'System',
@@ -45434,7 +45438,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        to only cover the Maybe Next Year toggle - setting RSVP straight to No
        from the dropdown here fell through the same gap the portal's own RSVP
        link had (fixed in functions/index.js's portalRsvp). */
-    if((newSeasonMaybe && !item.data.maybeNextYear) ||
+    if((seasonMaybeChosen && !item.data.maybeNextYear) ||
        (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
       await removeCustomerFromUpcomingRoutes(editCustomerId);
     }

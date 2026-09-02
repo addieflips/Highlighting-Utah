@@ -4705,17 +4705,27 @@ suite('8. Quote decline / maybe next year');
     /safeRender\('allCustomersTable'/.test(admin),
     'an Edit Customer save would not show up in the table until you retyped the search');
 
-  // --- the manual toggle in Edit Customer -------------------------------
-  check('quoteresp', 'Edit Customer offers both states',
-    /id="editCustSeasonConfirmed"/.test(admin) && /id="editCustSeasonMaybe"/.test(admin),
+  /* --- ONE CONTROL FOR THIS STATE, NOT TWO (repointed 2026-09-02) ------------
+     These three used to prove a "This Season" radio pair EXISTED beside the RSVP
+     dropdown. Addie: "It should not have two seperate RSVP spots in costumer." The
+     pair is gone, so each is repointed to the invariant that replaced it — never
+     deleted, because the state still has to be settable by hand and still has to be
+     loaded when the form opens; only the control changed. */
+  check('quoteresp', 'Edit Customer can set every RSVP answer by hand',
+    /<option value="backnextyear">/.test(admin) && /<option value="no">/.test(admin) &&
+    /<option value="yes">/.test(admin),
     'there would be no way to set this by hand');
-  check('quoteresp', 'only one state can be active at a time',
-    (admin.match(/name="editCustSeason"/g) || []).length === 2 &&
-    /type="radio" name="editCustSeason"/.test(admin),
-    'two checkboxes would eventually end up both on or both off — a radio group cannot');
-  check('quoteresp', 'the toggle is loaded when the modal opens',
-    /editCustSeasonMaybe' : 'editCustSeasonConfirmed'\)\.checked = true/.test(admin),
-    'it would always show Confirmed regardless of the real value');
+  /* ⭐ THE STRONGEST FORM OF THE OLD CHECK. It counted the radio pair to prove the two
+     could never both be on; a <select> carries exactly one value, so that invariant is
+     now free and this asserts the bigger one instead — that no SECOND control for this
+     state has come back. Two controls is what let an unticked box wipe an answer she
+     had just picked in the dropdown (RS-43). */
+  check('quoteresp', 'one control decides Back Next Year, not two',
+    !/name="editCustSeason"/.test(admin) && !/editCustSeasonMaybe/.test(admin.replace(/<!--[\s\S]*?-->/g, '')),
+    'a second control for this state is what silently overwrote the office\'s own answer');
+  check('quoteresp', 'the state is loaded when the modal opens',
+    /getElementById\('editCustRsvp'\)\.value = d\.rsvpStatus/.test(admin),
+    'it would always show Pending regardless of the real value');
   /* ⚠ THE ASSIGNMENT IS `seasonMaybeChosen` SINCE 2026-09-02, not the raw checkbox:
      a dropdown CHANGED to Back Next Year now counts as choosing it, because reading an
      unticked box as "bringing them back in" was silently wiping the office's own
@@ -4726,11 +4736,19 @@ suite('8. Quote decline / maybe next year');
     admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') <
       admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
     'the RSVP dropdown or the build flag would overwrite it and leave a half state');
-  check('quoteresp', 'coming back to Confirmed clears a stale Back Next Year RSVP',
-    /newRsvp === 'backnextyear'\)\{ addrUpdates\.rsvpStatus = ''/.test(admin),
-    'they would be unroutable behind a Confirmed badge');
-  check('quoteresp', 'saving Maybe Next Year pulls them off upcoming routes',
-    /newSeasonMaybe && !item\.data\.maybeNextYear[\s\S]{0,120}removeCustomerFromUpcomingRoutes/.test(admin),
+  /* ⭐ REPOINTED FROM ITS OPPOSITE (2026-09-02). This used to require the stale-dropdown
+     rescue — "if the dropdown still says backnextyear, blank it" — which could only fire
+     while a second control could disagree with the dropdown. With one control that line
+     is dead code that still reads as a live rule, and restoring it would blank the RSVP
+     of everybody the office brings back in. The guarantee it protected is now structural:
+     the flag is derived from the dropdown, so the two cannot drift apart. */
+  check('quoteresp', 'the badge flag is derived from the RSVP dropdown alone',
+    /const seasonMaybeChosen = newRsvp === 'backnextyear';/.test(admin) &&
+    !/newRsvp === 'backnextyear'\)\{ addrUpdates\.rsvpStatus = ''/.test(admin),
+    'a second opinion about this state is what put the badge and the RSVP pill on ' +
+    'opposite sides of one row');
+  check('quoteresp', 'saving Back Next Year pulls them off upcoming routes',
+    /seasonMaybeChosen && !item\.data\.maybeNextYear[\s\S]{0,120}removeCustomerFromUpcomingRoutes/.test(admin),
     'the badge would say they are out while the crew still turns up');
   const seasonFn = admin.slice(admin.indexOf('async function setCustomerSeason'),
     admin.indexOf('async function setCustomerSeason') + 1400);
@@ -24748,7 +24766,11 @@ suite('Suite 107. Pricing a re-quote from the popup');
      The popup only parks the answer; this block is the half that writes it. */
   {
     const at = admin.indexOf('    if(requoteBuildChoice){');
-    const end = admin.indexOf('    /* Applied last so it beats the RSVP dropdown', at);
+    /* ⚠ ANCHORED ON THE DECLARATION, NOT ON THE COMMENT ABOVE IT (2026-09-02).
+       This read `/* Applied last so it beats the RSVP dropdown` — comment prose —
+       and went red the moment that paragraph was rewritten, on code that is right.
+       The season block genuinely begins at seasonMaybeChosen; that is the boundary. */
+    const end = admin.indexOf('    const seasonMaybeChosen =', at);
     const blk = (at > 0 && end > at) ? admin.slice(at, end) : '';
     check('S107', 'the block that carries the choice out was found', !!blk);
 
@@ -25440,7 +25462,11 @@ suite('Suite 107. Pricing a re-quote from the popup');
      record stay exactly as they are. */
   {
     const at = admin.indexOf('    if(requoteBuildChoice){');
-    const end = admin.indexOf('    /* Applied last so it beats the RSVP dropdown', at);
+    /* ⚠ ANCHORED ON THE DECLARATION, NOT ON THE COMMENT ABOVE IT (2026-09-02).
+       This read `/* Applied last so it beats the RSVP dropdown` — comment prose —
+       and went red the moment that paragraph was rewritten, on code that is right.
+       The season block genuinely begins at seasonMaybeChosen; that is the boundary. */
+    const end = admin.indexOf('    const seasonMaybeChosen =', at);
     const blk = (at > 0 && end > at) ? admin.slice(at, end) : '';
     check('S118', 'the block that carries the choice out was found', !!blk);
     if (blk) {
