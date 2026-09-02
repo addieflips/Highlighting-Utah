@@ -112,6 +112,27 @@
      looks like the afterthought, and room to sit side by side on a phone rather
      than wrapping — the wrap is what left the dead strip of card. */
   #rsvpGateCodeAsk .btn, #rsvpConfirmBtnRow .btn{ min-width:9.5rem; }
+
+  /* ---------- The gate-code question, as a dialog over the portal ----------
+     Dax, 2026-09-02: "make it so the gate code question is just a pop up in the
+     member portal but keep the buttons exactly as is instead of an entire page."
+
+     ⚠ THE PANEL PAINTS ITS OWN WHITE. It used to inherit the confirmation card's
+     background and sit in the page flow; floating over the portal it has whatever
+     happens to be behind it, so a transparent panel would put this question on top
+     of an invoice. That white is also what the contrast guard measures against.
+
+     ⚠ display IS DRIVEN BY THE .show CLASS, never by an inline style, so the JS can
+     open and close it without owning the flex centring. #rsvpGateCodeStep keeps its
+     own inline display exactly as it had inside the card — both have to be on for
+     the question to be seen, so a stale one on its own cannot leak the dialog open. */
+  #rsvpGateCodeModal{ position:fixed; inset:0; z-index:400; display:none;
+                      align-items:center; justify-content:center; padding:20px; }
+  #rsvpGateCodeModal.show{ display:flex; }
+  #rsvpGateCodeBackdrop{ position:absolute; inset:0; background:rgba(17,24,32,.55); }
+  #rsvpGateCodeModal #rsvpGateCodeStep{ position:relative; width:100%; max-width:420px;
+                      background:#fff; border-radius:14px; padding:26px 22px;
+                      text-align:center; box-shadow:0 18px 50px rgba(0,0,0,.30); }
   .btn-ember{ background:var(--ember); color:#fff; }
   .btn-ember:hover{ background:#b23d33; }
   .btn-block{ width:100%; }
@@ -1514,9 +1535,26 @@
 
         <div class="invoice-empty" id="rsvpConfirmCard" style="display:none; text-align:center;">
           <div id="rsvpConfirmMsg" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
-          <!-- ⭐ GATE CODE, ASKED BEFORE "do you want changes?" (Addie, 2026-08-31:
-               "Lets do gate code before changes"). Only reached from the RSVP-yes
-               branch — somebody sitting the season out is never asked. -->
+          <div id="rsvpConfirmBtnRow" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Yes, Take Me to My Portal</button>
+            <button type="button" class="btn btn-outline-dark" id="rsvpNoChangesBtn" style="display:none;">No, I'm All Set</button>
+          </div>
+        </div>
+
+        <!-- ⭐ THE GATE CODE ASKS FROM INSIDE THE PORTAL, OVER IT (Dax, 2026-09-02:
+             "make it so the gate code question is just a pop up in the member portal
+             but keep the buttons exactly as is instead of an entire page").
+
+             ⚠ IT LIVES OUT HERE, NOT IN #rsvpConfirmCard, because that card is torn
+             down on the way into the portal — a dialog nested inside it would be
+             hidden by the very step that opens it. Its own top-level box is the whole
+             reason it can float over a page it is not part of.
+
+             ⚠ THE BUTTONS ARE UNTOUCHED, ids and wording both. Everything that moved
+             is the frame around them, so showRsvpGateCodeStep, the contrast guard and
+             every spec that clicks #rsvpGateCodeYesBtn still mean what they meant. -->
+        <div id="rsvpGateCodeModal" role="dialog" aria-modal="true" aria-labelledby="rsvpGateCodeQuestion">
+          <div id="rsvpGateCodeBackdrop"></div>
           <div id="rsvpGateCodeStep" style="display:none;">
             <div id="rsvpGateCodeQuestion" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
             <div id="rsvpGateCodeAsk" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
@@ -1530,10 +1568,6 @@
               <div><button type="button" class="btn btn-gold" id="rsvpGateCodeSaveBtn">Save</button></div>
               <div id="rsvpGateCodeStatus" role="status" aria-live="polite" style="font-size:12.5px; color:var(--slate); margin-top:8px;"></div>
             </div>
-          </div>
-          <div id="rsvpConfirmBtnRow" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
-            <button type="button" class="btn btn-gold" id="rsvpOpenPortalBtn" style="display:none;">Yes, Take Me to My Portal</button>
-            <button type="button" class="btn btn-outline-dark" id="rsvpNoChangesBtn" style="display:none;">No, I'm All Set</button>
           </div>
         </div>
 
@@ -3803,6 +3837,14 @@ function renderCustomerInvoicePage(raw, opts){
     commitPendingPortalCreds();
     hideLoginPrompt();
     if(opts.activateTab) activatePortalTab(opts.activateTab);
+    /* ⭐ THE LAST LINE OF A SUCCESSFUL RENDER, and the only place it is called.
+       Anything that wants to speak to a customer INSIDE their portal — today only
+       the gate-code dialog — waits here rather than guessing at a delay, because
+       the card has just been shown and the tab has just been chosen. Every earlier
+       return in this function is somebody who did NOT get in (deactivated, wrong
+       last name, no invoice) and none of them reach it: a dialog floating over an
+       error message would be the worst version of this. */
+    if(typeof opts.onPortalReady === 'function') opts.onPortalReady();
   }).catch(function(){
     card.classList.remove('show');
     if(tabsLayout) tabsLayout.style.display = 'none';
@@ -4468,8 +4510,8 @@ function loadPortalByToken(token, extraOpts){
 function showRsvpGateCodeStep(token, existingGateCode, thenFn){
   var step     = document.getElementById('rsvpGateCodeStep');
   var question = document.getElementById('rsvpGateCodeQuestion');
-  var msgEl    = document.getElementById('rsvpConfirmMsg');
-  var btnRow   = document.getElementById('rsvpConfirmBtnRow');
+  var modal    = document.getElementById('rsvpGateCodeModal');
+  var backdrop = document.getElementById('rsvpGateCodeBackdrop');
   var askRow   = document.getElementById('rsvpGateCodeAsk');
   var entryRow = document.getElementById('rsvpGateCodeEntry');
   var input    = document.getElementById('rsvpGateCodeInput');
@@ -4478,15 +4520,17 @@ function showRsvpGateCodeStep(token, existingGateCode, thenFn){
   var noBtn    = document.getElementById('rsvpGateCodeNoBtn');
   var saveBtn  = document.getElementById('rsvpGateCodeSaveBtn');
   /* Fail open: a customer must never be stranded because a div is missing. */
-  if(!step || !question || !askRow || !entryRow || !input || !yesBtn || !noBtn || !saveBtn){
-    thenFn();
+  if(!step || !question || !modal || !askRow || !entryRow || !input || !yesBtn || !noBtn || !saveBtn){
+    if(typeof thenFn === 'function') thenFn();
     return;
   }
 
   var held = String(existingGateCode || '').trim();
 
-  if(msgEl) msgEl.style.display = 'none';
-  if(btnRow) btnRow.style.display = 'none';
+  /* Both switches go on together and come off together. The dialog owns the
+     centring and the dimmed backdrop; the step owns whether the question itself is
+     drawn — the same inline display it carried when it was part of the card. */
+  modal.classList.add('show');
   step.style.display = 'block';
   askRow.style.display = 'flex';
   entryRow.style.display = 'none';
@@ -4505,11 +4549,23 @@ function showRsvpGateCodeStep(token, existingGateCode, thenFn){
     noBtn.textContent = 'No / not applicable';
   }
 
+  /* ⚠ ESCAPE AND THE BACKDROP CLOSE IT, deliberately. This is now the only thing
+     standing on top of a page the customer came here to use, so somebody who cannot
+     get out of it is locked out of their own account. Closing without answering saves
+     nothing and changes nothing — the same as never having been asked — and the
+     field is still there under My Info. Their RSVP was recorded long before this
+     opened, so nothing here can cost them it. */
+  function onKey(e){ if(e.key === 'Escape' || e.key === 'Esc') finish(); }
+  document.addEventListener('keydown', onKey);
+  if(backdrop) backdrop.onclick = finish;
+
   function finish(){
     step.style.display = 'none';
-    if(msgEl) msgEl.style.display = 'block';
-    if(btnRow) btnRow.style.display = 'flex';
-    thenFn();
+    modal.classList.remove('show');
+    /* Taken off again on the way out: this dialog opens once per visit today, but a
+       listener left on the document outlives the screen that added it. */
+    document.removeEventListener('keydown', onKey);
+    if(typeof thenFn === 'function') thenFn();
   }
 
   function openEntry(){
@@ -4608,7 +4664,7 @@ function handleRsvpLink(token, rsvpValue){
          It used to hand off to showChangesQuestion, which asked "do you want to
          make any changes?" and put the portal behind a button — a question whose
          only useful answer is the place we were about to send them anyway. */
-      showRsvpGateCodeStep(token, res.gateCode || '', openPortalAfterYes);
+      openPortalAfterYes(res.gateCode || '');
       return;
     }
     /* Everything below is the "no" path; the yes branch above returns. Kept as
@@ -4754,7 +4810,7 @@ function handleRsvpLink(token, rsvpValue){
      a "<year> season — still owing" card with the figure, what has been paid off
      it, and a pay button. The sentence about SCHEDULING is the one thing the card
      did not carry, so it was added there rather than dropped (see that card). */
-  function openPortalAfterYes(){
+  function openPortalAfterYes(gateCodeOnFile){
     /* The card is torn down rather than hidden behind the portal: the RSVP body
        classes drive a cut-down layout, and leaving them on renders the portal
        inside it. Same three lines the old button handler used. */
@@ -4762,7 +4818,28 @@ function handleRsvpLink(token, rsvpValue){
     if(confirmCard) confirmCard.style.display = 'none';
     if(openPortalBtn) openPortalBtn.style.display = 'none';
     if(noChangesBtn) noChangesBtn.style.display = 'none';
-    loadPortalByToken(token);
+    /* ⭐ THE PORTAL FIRST, THE QUESTION ON TOP OF IT (Dax, 2026-09-02: "after they
+       answer the gate code question it should just put them into their member
+       portal", then "make it so the gate code question is just a pop up in the member
+       portal ... instead of an entire page"). It used to be a whole screen standing
+       in front of the portal, so a customer answered a question about a gate before
+       ever seeing the account they were being let into, and the portal arrived only
+       once they had dealt with it.
+
+       ⚠ THE ORDER IS REVERSED, THE ASKING IS NOT. Addie's ruling still holds — every
+       confirming customer is still asked every year, still confirms a code we already
+       hold rather than being asked whether one exists, and the answer still lands
+       through portalSetGateCode. What changed is where they are standing when they
+       answer it.
+
+       ⚠ AND NOW IT CANNOT STRAND ANYBODY BY CONSTRUCTION, rather than by the careful
+       fail-open paths inside the step. The question is the last thing to happen, after
+       the destination: if the portal never loads, onPortalReady is never called, and
+       the customer is left looking at the portal's own error rather than at a
+       gate-code box floating over it. */
+    loadPortalByToken(token, {onPortalReady: function(){
+      showRsvpGateCodeStep(token, gateCodeOnFile || '');
+    }});
   }
 
   function rsvpLinkFailed(err){

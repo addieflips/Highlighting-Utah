@@ -93,11 +93,15 @@ test.describe('Email links, with a login already remembered', () => {
   test('Yes lands on the portal, never on the install-details form', async ({ page }) => {
     const stub = await openSignedIn(page, `#/payment?token=${CUST.token}&rsvp=yes`);
 
-    /* The confirmation card still appears first — it carries the gate-code
-       step, which is the one thing kept between a yes and the portal. */
-    await expect(page.locator('#rsvpConfirmCard')).toBeVisible();
+    /* ⚠ NOTHING STANDS BETWEEN A YES AND THE ACCOUNT ANY MORE (2026-09-02). The
+       gate code is asked as a dialog once they are already inside, so the bill is
+       what to wait for; the question is checked on top of it rather than in front. */
+    await expect(page.locator('#invBreakdown')).toBeVisible();
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+    /* Yes is the finishing answer for a customer who already has a code on file:
+       it confirms what we hold and closes, without a pointless write. */
     await page.locator('#rsvpGateCodeYesBtn').click();
-
+    await expect(page.locator('#rsvpGateCodeStep')).toBeHidden();
     await expect(page.locator('#invBreakdown')).toBeVisible();
     await expect(page.locator('#page-quote-details')).toBeHidden();
 
