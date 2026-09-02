@@ -64,6 +64,24 @@ const AUTOMATION = [
       'that stops appearing on the history.'
   },
   {
+    id: 'sendArrearsRsvpEmails',
+    title: 'The unpaid-last-season chase',
+    where: 'Cloud Function, on a cron',
+    when: 'every morning at 10 AM Mountain — but only if somebody has switched it on',
+    does: 'Emails the "Not Paid RSVP" template to customers who still owe for a previous ' +
+      'season and have never answered the RSVP. Once per customer per season, ever.',
+    touches: ['jobAddresses', 'invoices', 'emailTemplates', 'settings/arrearsRsvpAutomation'],
+    /* ⛔ IT SHIPS OFF, AND THAT IS THE POINT OF THE ENTRY. MON-34 is Addie's ruling that
+       she would send these herself, so the schedule returns immediately unless
+       settings/arrearsRsvpAutomation.enabled is true and an absent document is off. Anyone
+       reading this list should know it is here and doing nothing, rather than wonder later
+       why customers are being chased. */
+    watched: false,
+    ifItStopped: 'Nothing, today — it is switched off and sends nobody anything. Turned ' +
+      'on and then stopped, held customers would quietly stop being chased, and the only ' +
+      'trace would be arrearsRsvpEmailAt no longer appearing on new records.'
+  },
+  {
     id: 'reconcileTimer',
     title: 'The route sweep',
     where: 'admin.html, while the dashboard is open',
