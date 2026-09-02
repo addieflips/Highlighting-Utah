@@ -274,6 +274,31 @@ const FAKE_FUNCTIONS_MODULE = `
          the server uses: the bill the house is ON (billToPhone) before the house's own
          key. A stub that returns a constant proves only that the page can render a
          number somebody typed into the stub. */
+      /* ⭐ AND IT WRITES THE RECORD, WHICH IT NEVER USED TO (2026-09-02). The real
+         portalRsvp's WHOLE JOB is the write; this fake only ever returned. So every
+         spec could prove the page SENT "no" and not one could prove the customer ends
+         up as a no -- and "it says pending for RSVP, however the last button I pushed
+         was no" is precisely a fault in the half nothing looked at.
+         ⚠ THE SAME FIELDS THE SERVER WRITES, in the same combinations: a no and a back
+         next year are not symmetric (only a no queues the recycle, only a back next
+         year raises maybeNextYear), and a fake that blurred them would hide the one
+         difference between the two answers. */
+      const nowIso = new Date(F.frozenNow).toISOString();
+      if (hit.record) {
+        hit.record.rsvpStatus = response;
+        hit.record.rsvpRespondedAt = nowIso;
+        hit.record.askSameAsLastYear = false;
+        if (response === 'backnextyear') {
+          hit.record.maybeNextYear = true;
+          hit.record.maybeNextYearAt = nowIso;
+        } else {
+          hit.record.maybeNextYear = false;
+          hit.record.maybeNextYearAt = null;
+        }
+        /* Only a no. A back next year must NOT clear a recycle that was already owed
+           -- that is Hole G, written up in the real function. */
+        if (response === 'no') hit.record.needsLightRecycle = true;
+      }
       let arrearsOutstanding = 0;
       let arrearsSeason = '';
       if (response === 'yes') {

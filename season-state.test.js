@@ -73,9 +73,22 @@ function fn(name) {
 const fnBraced = (name) => {
   const at = admin.indexOf('function ' + name + '(');
   if (at === -1) return '';
-  let i = admin.indexOf('{', at), depth = 0, q = '';
+  let i = admin.indexOf('{', at), depth = 0, q = '', com = '';
   for (; i < admin.length; i++) {
-    const c = admin[i], prev = admin[i - 1];
+    const c = admin[i], prev = admin[i - 1], next = admin[i + 1];
+    /* ⚠ COMMENTS ARE SKIPPED, AND THIS FILE EARNED THE RULE (2026-09-02). An
+       apostrophe inside a /* *​/ comment — "the office's own badge" — opened a string
+       that never closed, so the brace counting ran on past the real end and the lift
+       came back as a syntax error hundreds of lines long. Every prose comment in
+       admin.html is a candidate; it only had not bitten yet because the functions
+       lifted so far happened not to contain one. */
+    if (com) {
+      if (com === '*' && c === '*' && next === '/') { com = ''; i++; }
+      else if (com === '/' && c === '\n') com = '';
+      continue;
+    }
+    if (!q && c === '/' && next === '*') { com = '*'; i++; continue; }
+    if (!q && c === '/' && next === '/') { com = '/'; i++; continue; }
     if (q) { if (c === q && prev !== '\\') q = ''; continue; }
     if (c === '"' || c === "'" || c === '`') { q = c; continue; }
     if (c === '{') depth++;
@@ -1413,6 +1426,60 @@ check('badging Back Next Year clears the build but not the recycle',
     /no phone or email on file/.test(admin),
     'somebody with neither has to be visible as such, or they look like a call that ' +
     'was simply not made');
+}
+
+/* ---------------------------------------------------------------------------
+ * WHAT THE OFFICE'S CARD CALLS THEM (added 2026-09-02)
+ *
+ * Addie: "it says pending for RSVP. However the last button I pushed was no."
+ * The No turned out to be fine end to end — but the card in her screenshot also
+ * carried the office's own Maybe Next Year badge, and THAT read as Pending.
+ *
+ * ⚠ ONE LINE, DOING THE OPPOSITE OF WHAT IT SAID. `|| dd.maybeNextYear` sat inside
+ * the test and then `return said` — so for a badged customer with no reply of their
+ * own it handed back '', the very value it was meant to overrule. The comment above
+ * it says the badge always WINS.
+ *
+ * ⚠ IT CHANGED NO SEASON BEHAVIOUR, WHICH IS EXACTLY WHY IT SURVIVED: isOutForSeason
+ * and seasonHold read `maybeNextYear` directly, so these customers were correctly off
+ * every route the whole time. Only the words were wrong, on every screen at once.
+ *
+ * ⚠ AND IT IS ASSERTED AS THE LABEL A PERSON READS, not as the raw status, because
+ * "Pending" is what she saw and what made it a bug worth reporting.
+ * ------------------------------------------------------------------------- */
+{
+  const badgeFn = new Function('audienceNeverAsked', 'seasonRuleIsLive',
+    /* fnBraced, not fn: these are lifted for their VALUES and a slice that runs on
+       past the closing brace would drag in whatever follows. The file's own note
+       above fnBraced explains why the simpler lifter is not safe here. */
+    fnBraced('effectiveRsvpStatus') + fnBraced('rsvpStatusLabel') +
+    'return function(r){ return rsvpStatusLabel(effectiveRsvpStatus(r)); };'
+  )(function(){ return false; }, function(){ return false; });
+
+  check('a customer who pressed No reads as No',
+    badgeFn({ rsvpStatus: 'no', rsvpRespondedAt: 'x' }) === 'No',
+    'got ' + badgeFn({ rsvpStatus: 'no', rsvpRespondedAt: 'x' }));
+
+  check('the office\u2019s Maybe Next Year badge does not read as Pending',
+    badgeFn({ maybeNextYear: true }) === 'Back Next Year',
+    'the office recorded an answer and the card called them Pending; got ' +
+    badgeFn({ maybeNextYear: true }));
+
+  /* ⚠ THE BADGE STILL DOES NOT PROMOTE A BARE YES. That normalisation is the whole
+     reason this function exists, and it must survive the fix above. */
+  check('a bare stored yes under the badge is still not a yes',
+    badgeFn({ rsvpStatus: 'yes', maybeNextYear: true }) === 'Back Next Year',
+    'got ' + badgeFn({ rsvpStatus: 'yes', maybeNextYear: true }));
+
+  /* ⚠ AND A REAL ANSWER STILL BEATS THE BADGE, which is the older rule and the one
+     that must not be traded away for the new one. */
+  check('somebody who actually said no beats the badge',
+    badgeFn({ rsvpStatus: 'no', rsvpRespondedAt: 'x', maybeNextYear: true }) === 'No',
+    'got ' + badgeFn({ rsvpStatus: 'no', rsvpRespondedAt: 'x', maybeNextYear: true }));
+
+  check('and a record with nothing on it is still Pending',
+    badgeFn({}) === 'Pending',
+    'Pending must keep meaning "nobody has answered"; got ' + badgeFn({}));
 }
 
 // ---------------------------------------------------------------------------
