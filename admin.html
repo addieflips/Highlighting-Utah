@@ -2825,6 +2825,7 @@
           <button class="route-tab-btn" data-invtab="importexport" draggable="true">Import / Export</button>
           <button class="route-tab-btn" data-invtab="feecheck" draggable="true">Fee Check</button>
           <button class="route-tab-btn" data-invtab="nightly" draggable="true">Nightly Automation</button>
+          <button class="route-tab-btn" data-invtab="arrearschase" draggable="true">Unpaid Last Season</button>
           <button class="route-tab-btn" data-invtab="newseason" draggable="true">Start New Season</button>
         </div>
         <!-- INVOICE LIST -->
@@ -2934,6 +2935,31 @@
             <div style="margin-top:16px; border-top:1px solid var(--line); padding-top:12px;">
               <h4 style="margin:0 0 8px;">Last 10 nightly runs</h4>
               <div id="nightlyInvoiceLog" class="empty-note">Loading…</div>
+            </div>
+          </div>
+        </div>
+        <!-- UNPAID LAST SEASON — the chase, built and switched OFF -->
+        <div class="route-tab-panel" id="invtab-arrearschase">
+          <div class="card" style="background:#FFF8E9; border-color:var(--gold-dim);">
+            <h3>Unpaid Last Season &mdash; automatic RSVP chase</h3>
+            <!-- ⛔ HER OWN WORDS SIT ON THE SWITCH, and they are not decoration.
+                 MON-34, 2026-09-01: asked whether a customer held for last season's
+                 debt should be chased automatically, she answered that she would send
+                 those herself. Whoever ticks this box is overriding that, and they
+                 should be able to read it with their hand on the switch. -->
+            <div style="background:#FDECEA; color:#9A2A1F; border:1px solid #f0b3ac; border-radius:8px; padding:10px 12px; margin:0 0 12px; font-size:12.5px; line-height:1.55;">
+              <strong>Addie said she would send these herself.</strong> Asked on 1 September whether people held for last season&rsquo;s money should be chased automatically, her answer was &ldquo;I&rsquo;ll send those emails/text myself.&rdquo; This is built and wired but <strong>switched off</strong>. Turning it on overrides that &mdash; worth a word with her first. <em>Send Once, Now</em> below does one batch by hand without turning anything on.
+            </div>
+            <p style="font-size:13px;">Every day at 10:00 AM this looks for customers who still owe for a previous season <strong>and have not answered the RSVP at all</strong>, and emails them the <strong>Not Paid RSVP</strong> template &mdash; the one that says we can&rsquo;t put them on the schedule until last season is settled. Each customer is written to <strong>once per season, ever</strong>, and Start New Season resets that. Anyone who already answered &mdash; yes, no, or back next year &mdash; is left alone, and so is anyone with no email address. Edit the wording under Templates &gt; RSVP.</p>
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
+              <input type="checkbox" id="arrearsChaseEnabled" style="width:18px; height:18px;">
+              Send the unpaid-last-season chase automatically
+            </label>
+            <span id="arrearsChaseStatus" style="font-size:13px; color:var(--slate); margin-top:8px; display:block;"></span>
+            <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+              <button type="button" class="btn btn-gold" id="arrearsChaseNowBtn">Send Once, Now</button>
+              <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Runs the same check right now, whether the switch above is on or off. The once-per-season rule still applies, so pressing it twice does not write to anybody twice.</p>
+              <span id="arrearsChaseNowStatus" style="font-size:13px; margin-top:8px; display:block;"></span>
             </div>
           </div>
         </div>
@@ -8528,6 +8554,10 @@ document.querySelectorAll('input[name="crewsPerDay"]').forEach(function(radio){
   });
 });
 async function loadNightlyInvoiceSettings(){
+  /* Read alongside the nightly switch, because they share a panel and are opened
+     together — a switch that shows its stored state only after some other
+     click is a switch nobody can trust. */
+  loadArrearsChaseSetting();
   try{
     const snap = await getDoc(doc(db,'settings','nightlyInvoiceAutomation'));
     document.getElementById('nightlyInvoiceEnabled').checked = snap.exists() ? !!snap.data().enabled : false;
@@ -8558,6 +8588,72 @@ document.getElementById('nightlyInvoiceEnabled')?.addEventListener('change', asy
     statusEl.style.color = 'var(--ember)';
     this.checked = !this.checked;
   }
+});
+
+/* ---- Unpaid Last Season: the switch, and the one-off run --------------------
+   ⛔ NOTHING HERE DEFAULTS ON. The box reads settings/arrearsRsvpAutomation, and
+   an ABSENT document is off — which is the shipped state, and is the state every
+   install starts in. See the banner on the card, and MON-34. */
+function arrearsChaseSay(on){
+  return on ? '\u2713 On \u2014 the chase goes out every day at 10:00 AM'
+            : 'Off \u2014 nothing is sent automatically';
+}
+async function loadArrearsChaseSetting(){
+  const box = document.getElementById('arrearsChaseEnabled');
+  const statusEl = document.getElementById('arrearsChaseStatus');
+  if(!box) return;
+  let on = false;
+  try{
+    const snap = await getDoc(doc(db,'settings','arrearsRsvpAutomation'));
+    on = !!(snap.exists() && snap.data().enabled);
+  }catch(err){
+    /* Logged, never swallowed (Addie, 2026-08-25: "nothing should fail quietly").
+       ⚠ AND AN UNREADABLE SWITCH SHOWS AS OFF, not as whatever the box was left
+       at — a tick nobody put there is a claim that mail is going out. */
+    console.error('[HU] could not read the unpaid-chase switch:', err);
+    on = false;
+  }
+  box.checked = on;
+  if(statusEl){ statusEl.textContent = arrearsChaseSay(on); statusEl.style.color = on ? 'var(--emerald)' : 'var(--slate)'; }
+}
+document.getElementById('arrearsChaseEnabled')?.addEventListener('change', async function(){
+  const statusEl = document.getElementById('arrearsChaseStatus');
+  try{
+    await setDoc(doc(db,'settings','arrearsRsvpAutomation'), {enabled: this.checked}, {merge:true});
+    statusEl.textContent = arrearsChaseSay(this.checked);
+    statusEl.style.color = this.checked ? 'var(--emerald)' : 'var(--slate)';
+  } catch(err){
+    /* Put back, so the box never claims a state the database does not hold. */
+    this.checked = !this.checked;
+    statusEl.textContent = '\u2717 Couldn\'t save \u2014 try again';
+    statusEl.style.color = 'var(--ember)';
+  }
+});
+document.getElementById('arrearsChaseNowBtn')?.addEventListener('click', async function(){
+  const statusEl = document.getElementById('arrearsChaseNowStatus');
+  this.disabled = true;
+  statusEl.style.color = 'var(--slate)';
+  statusEl.textContent = 'Working\u2026';
+  try{
+    const run = httpsCallable(fbFunctions, 'runArrearsRsvpNow');
+    const res = (await run({})).data || {};
+    /* ⚠ A STOPPED RUN IS NOT A QUIET ZERO. "0 sent" on its own reads as "nobody
+       owes", when it may be a missing template or missing EmailJS keys — so the
+       reason is shown instead of the count. */
+    if(res.stopped){
+      statusEl.textContent = 'Nothing sent \u2014 ' + res.stopped;
+      statusEl.style.color = 'var(--ember)';
+    } else {
+      const failed = (res.errors && res.errors.length) || 0;
+      statusEl.textContent = res.sent + ' sent, ' + res.skipped + ' skipped'
+        + (failed ? (', ' + failed + ' failed: ' + res.errors.slice(0,3).join('; ')) : '');
+      statusEl.style.color = failed ? 'var(--ember)' : 'var(--emerald)';
+    }
+  }catch(err){
+    statusEl.textContent = '\u2717 Couldn\'t run that \u2014 ' + ((err && err.message) || 'try again');
+    statusEl.style.color = 'var(--ember)';
+  }
+  this.disabled = false;
 });
 document.getElementById('sendInvoicesNowBtn')?.addEventListener('click', async function(){
   if(!confirm('Send invoices now for every completed Install house that hasn\'t been billed yet? Houses flagged for a fix or marked "Didn\'t Get To" are skipped automatically.')) return;
@@ -8917,6 +9013,12 @@ document.getElementById('ssnRunBtn')?.addEventListener('click', async function()
              the note is the only prompt to ring somebody whose money is settled and
              whose answer is still missing. */
           arrearsPaidNoticeAt: null,
+          /* ⚠ SEASON-SCOPED FOR THE SAME REASON, and getting this one wrong is worse
+             than getting the notice wrong: left standing, a customer chased for last
+             season's money could never be chased again, because the chase is once per
+             customer per season by design. Cleared here so a new season starts with
+             nobody already written to. */
+          arrearsRsvpEmailAt: null,
           /* The badge is season-scoped: left standing it would say somebody changed
              their mind this year when they did it last year. */
           cameBackThisSeasonAt: null,

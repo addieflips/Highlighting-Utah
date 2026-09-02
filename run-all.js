@@ -46616,6 +46616,206 @@ suite('287. The routine route sweep does not bury the notice that matters');
   }
 }
 
+/* =====================================================================
+ * Suite 288 — who the unpaid-last-season chase actually writes to
+ *
+ * Dax, 2026-09-02: "i dont have the automated email set up i told you to do
+ * that for the unpaid."
+ *
+ * ⚠ THIS IS THE ONE THAT SENDS MAIL TO REAL PEOPLE, so it is RUN rather than
+ * read. Every check below drives the shipped runArrearsRsvpBatch — lifted out
+ * of functions/index.js, not re-typed — against a fake book and a fake mail
+ * service, and asserts who ended up in the outbox. A regex over the source
+ * cannot tell "skips people who already answered" from "intends to".
+ *
+ * ⚠ AND THE EXPENSIVE MISTAKE IS THE FALSE POSITIVE, not the miss. Somebody
+ * who is emailed and should not have been has been chased for money in front
+ * of their own inbox; somebody missed gets a phone call. So most of what is
+ * below is about who must NOT be written to.
+ * ===================================================================== */
+{
+  const fnsSrcChase = read('functions/index.js');
+  /* extractFn matches on `function <name>(`, which starts the slice AFTER the
+     `async` keyword — so it is put back, or every await inside is a syntax
+     error. §7's rule about anchors, in its smallest form. */
+  const batchBody = extractFn(fnsSrcChase, 'runArrearsRsvpBatch');
+  const batchSrc = batchBody ? 'async ' + batchBody : null;
+
+  check('S288', 'runArrearsRsvpBatch could be lifted out of functions/index.js',
+    !!batchSrc, 'the suite below proves nothing if the function it runs is not the shipped one');
+
+  if (batchSrc) {
+    /* One fake book, rebuilt for each run so a stamp written by one check cannot
+       change the next. Each record is one rule this batch has to get right. */
+    function makeBook() {
+      return [
+        { id: 'owes-silent',   name: 'Dana Petersen', email: 'dana@example.com',  phone: '8015550101', rsvpStatus: '',             owes: 315 },
+        { id: 'owes-yes',      name: 'Yes Yates',     email: 'yes@example.com',   phone: '8015550102', rsvpStatus: 'yes',          owes: 315 },
+        { id: 'owes-no',       name: 'No Nolan',      email: 'no@example.com',    phone: '8015550103', rsvpStatus: 'no',           owes: 315 },
+        { id: 'owes-back',     name: 'Back Barnes',   email: 'back@example.com',  phone: '8015550104', rsvpStatus: 'backnextyear', owes: 315 },
+        { id: 'settled',       name: 'Paid Palmer',   email: 'paid@example.com',  phone: '8015550105', rsvpStatus: '',             owes: 0   },
+        { id: 'no-email',      name: 'Quiet Quinn',   email: '',                  phone: '8015550106', rsvpStatus: '',             owes: 315 },
+        { id: 'already-sent',  name: 'Sent Sawyer',   email: 'sent@example.com',  phone: '8015550107', rsvpStatus: '',             owes: 315, arrearsRsvpEmailAt: 'a-date' },
+        { id: 'test-flagged',  name: 'Rig',           email: 'rig@example.com',   phone: '8015550108', rsvpStatus: '',             owes: 315, isTestRecord: true },
+        { id: 'test-by-phone', name: 'Test',          email: 'test@example.com',  phone: '3853912235', rsvpStatus: '',             owes: 315 }
+      ];
+    }
+
+    /* The sandbox. Everything the lifted function reaches for, and nothing else —
+       an undeclared helper surfaces as a ReferenceError the runner explains. */
+    function runBatch(opts) {
+      opts = opts || {};
+      const book = opts.book || makeBook();
+      const sent = [];
+      const stamped = [];
+      const cfg = opts.cfg === undefined
+        ? { serviceId: 's', templateId: 't', publicKey: 'p', privateKey: 'k' }
+        : opts.cfg;
+      const tplBody = opts.tplBody === undefined
+        ? 'Hi {{name}}\n\nOne thing first.\n\n{{rsvp_yes_button}}{{rsvp_no_button}}{{rsvp_back_button}}'
+        : opts.tplBody;
+
+      const db = {
+        collection(nm) {
+          if (nm === 'settings') {
+            return { doc: () => ({ get: async () => ({ exists: !!cfg, data: () => cfg || {} }) }) };
+          }
+          if (nm === 'jobAddresses') {
+            return {
+              get: async () => ({
+                docs: book.map(r => ({
+                  id: r.id,
+                  data: () => r,
+                  ref: { update: async (u) => { stamped.push(r.id); Object.assign(r, u); } }
+                }))
+              })
+            };
+          }
+          throw new Error('unexpected collection: ' + nm);
+        }
+      };
+      const sandbox = {
+        db: db,
+        admin: { firestore: { FieldValue: { serverTimestamp: () => 'now' } } },
+        findTemplateSnapByName: async () => (tplBody === null
+          ? { empty: true, docs: [] }
+          : { empty: false, docs: [{ data: () => ({ body: tplBody, subject: '' }) }] }),
+        templateSubjectOr: (t, fallback) => (t && t.subject) || fallback,
+        properNameServer: (n) => String(n || '').split(/\s+/)[0],
+        digitsOnly: (v) => String(v || '').replace(/\D/g, ''),
+        arrearsForCustomer: async (d) => ({ outstanding: d.owes || 0, season: '2025' }),
+        ensureToken: async (id) => 'tok-' + id,
+        fetch: async (url, init) => {
+          if (opts.mailFails) return { ok: false, text: async () => 'nope' };
+          sent.push(JSON.parse(init.body).template_params);
+          return { ok: true, text: async () => '' };
+        }
+      };
+      const names = Object.keys(sandbox);
+      const fn = new Function(...names, batchSrc + '\nreturn runArrearsRsvpBatch;')(...names.map(k => sandbox[k]));
+      return fn('test').then(out => ({ out, sent, stamped, book }));
+    }
+
+    pendingAsync.push(runBatch().then(function (r) {
+      const to = r.sent.map(m => m.to_email);
+
+      check('S288', 'somebody who owes and has never answered is written to',
+        to.indexOf('dana@example.com') !== -1,
+        'this is the entire audience — if it is empty the feature does nothing');
+
+      /* ⚠ RS-30 IN ITS OWN WORDS: "if they said back next year or no we don't need
+         a system email." They have answered; asking again argues with a decision
+         already given. They may still owe — that is a DEBT chase, a different email
+         and a different ruling. */
+      check('S288', 'somebody who already said NO is left alone',
+        to.indexOf('no@example.com') === -1,
+        'they answered; an email asking whether they want lights argues with them');
+      check('S288', 'somebody who said BACK NEXT YEAR is left alone',
+        to.indexOf('back@example.com') === -1);
+      check('S288', 'somebody who already said YES is left alone',
+        to.indexOf('yes@example.com') === -1,
+        'the template asks "will you be getting lights hung again this year?" — sent to '
+        + 'somebody who has already said yes, that reads as us losing their answer');
+
+      check('S288', 'somebody who owes NOTHING is never chased',
+        to.indexOf('paid@example.com') === -1,
+        'the most expensive false positive there is: a paid customer told they owe money');
+
+      check('S288', 'somebody already written to this season is not written to again',
+        to.indexOf('sent@example.com') === -1,
+        'a daily schedule with no stamp is a daily email to somebody who owes money');
+
+      check('S288', 'somebody with no email address is skipped rather than crashed on',
+        to.indexOf('') === -1 && r.out.errors.length === 0);
+
+      /* ⚠ THE TEST RECORD CARRIES ADDIE'S OWN PHONE. Skipping it is not
+         housekeeping — it is the difference between a dry run and mailing the
+         owner a chase for a debt she does not have. */
+      check('S288', 'the test record is skipped by its flag',
+        to.indexOf('rig@example.com') === -1);
+      check('S288', 'and by the name-and-number pair, the way admin.html spells it',
+        to.indexOf('test@example.com') === -1,
+        'this one is Addie\'s own phone number');
+
+      check('S288', 'exactly one customer was written to',
+        r.sent.length === 1, 'got ' + r.sent.length + ': ' + to.join(', '));
+      check('S288', 'and only that customer was stamped',
+        r.stamped.length === 1 && r.stamped[0] === 'owes-silent',
+        'a stamp on anybody else silently removes them from next season\'s chase too');
+
+      /* ---- what the one email actually says ---- */
+      const body = (r.sent[0] && r.sent[0].body) || '';
+      check('S288', 'all three RSVP buttons carry that customer\'s own token',
+        (body.match(/tok-owes-silent/g) || []).length === 3,
+        'a shared or missing token is an RSVP recorded against the wrong account');
+      check('S288', 'no raw token is left in the body',
+        !/\{\{/.test(body), 'a customer reading "{{rsvp_yes_button}}" is the 2026-08-17 photo bug again');
+      /* ⚠ AND NO FIGURE, WHICH IS RS-37. There is no token for the carried balance
+         and {{amount_due}} means THIS year's install price, so an amount appearing
+         here at all would be the wrong number in an email about an old debt. */
+      check('S288', 'and no money figure is invented anywhere in it',
+        body.indexOf('$') === -1,
+        'the portal holds the one figure we computed; an amount here would be a second one');
+    }).catch(function (e) { e.__suite = 'S288'; throw e; }));
+
+    /* ---- the two ways it must stop, loudly, without writing to anybody ---- */
+    pendingAsync.push(runBatch({ tplBody: null }).then(function (r) {
+      check('S288', 'a missing template stops the run and says so',
+        !!r.out.stopped && /Not Paid RSVP/.test(r.out.stopped) && r.sent.length === 0,
+        'a silent zero here reads as "nobody owes" when the template has been renamed');
+    }).catch(function (e) { e.__suite = 'S288'; throw e; }));
+
+    pendingAsync.push(runBatch({ cfg: null }).then(function (r) {
+      check('S288', 'missing EmailJS keys stop the run and say so',
+        !!r.out.stopped && /EmailJS/.test(r.out.stopped) && r.sent.length === 0);
+    }).catch(function (e) { e.__suite = 'S288'; throw e; }));
+
+    /* ⚠ AND A REFUSED SEND MUST NOT STAMP. Stamping first would lose that customer
+       for the whole season on one bad response from the mail service — the failure
+       would be invisible and permanent. */
+    pendingAsync.push(runBatch({ mailFails: true }).then(function (r) {
+      check('S288', 'a refused send leaves them unstamped, to be tried again',
+        r.stamped.length === 0 && r.out.errors.length === 1 && r.out.sent === 0,
+        'stamped-then-failed is a customer silently dropped for the season');
+    }).catch(function (e) { e.__suite = 'S288'; throw e; }));
+  }
+
+  /* ---- the switch, and the fact that it ships off ---- */
+  check('S288', 'the schedule does nothing unless the switch is on',
+    /arrearsRsvpAutomation'\)\.get\(\);[\s\S]{0,220}?if \(!autoSnap\.exists \|\| !autoSnap\.data\(\)\.enabled\)/.test(fnsSrcChase),
+    'MON-34 is Addie\'s standing ruling that she would send these herself — an ' +
+    'automatic chase that defaults on reverses it behind her back');
+  check('S288', 'and the season reset clears the once-per-season stamp',
+    /arrearsRsvpEmailAt: null/.test(admin),
+    'left standing, nobody could ever be chased again in any later season');
+  check('S288', 'the card carries her own words next to the switch',
+    /I&rsquo;ll send those emails\/text myself/.test(admin),
+    'whoever ticks this box is overriding her, and should be able to read it while doing so');
+  check('S288', 'the manual run is offered so a batch can go out without switching it on',
+    /runArrearsRsvpNow/.test(admin) && /exports\.runArrearsRsvpNow = onCall\(/.test(fnsSrcChase),
+    'that button is the closest thing to what she said she wanted to do herself');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
