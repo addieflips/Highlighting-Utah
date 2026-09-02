@@ -152,6 +152,13 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
      the browser could not tell a real yes from an imported one — the new question would have been put to
      customers who had already answered. `portal-fields.test.js` caught it.
 
+   ⚠ **A PREBUILT TEMPLATE THAT EXISTS BUT IS EMPTY IS FILLED IN** (2026-09-02, RS-41). The one-time top-up
+   skipped any template whose NAME was already there — so a shell somebody had made by hand stayed blank and
+   would have sent an empty email, with the seed record saying the job was done. It now patches blank fields
+   (body, subject, linkedTokens) on any prebuilt-named template, never replaces written words, and is
+   deliberately not gated on that seed record: the fault is only visible after the name has been recorded as
+   handled.
+
    ⚠ **THE SIDES TAB HAD NEVER OPENED** (fixed 2026-09-02, RS-38). `sides` was missing from `PORTAL_TAB_NAMES`,
    so clicking it hid the other six panels and showed none — a blank card under the tab strip. Found while
    building the hold above; nobody had reported it. Every `data-tab` on the page must now appear in that list.
