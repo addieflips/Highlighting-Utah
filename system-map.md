@@ -238,6 +238,25 @@ season on a slow morning. ⚠ They are reported separately from the people who
 left the season — "somebody said back next year" and "this row is not a person"
 need different things from the office.
 
+⭐ **AN RSVP LINK TO TEXT, FOR EVERYONE WITH NO EMAIL** (2026-09-02). The RSVP goes
+out by email, so customers with no address on file were never asked at all.
+**Automation Emails → Text the RSVP** lists them and hands over a ready message
+each — *"Copy their text"* per person, or *"Copy them all for texting"*, one line
+per person with the phone first.
+
+⚠ **One short link is the whole RSVP.** `#/payment?token=…` with no rsvp
+parameter signs them in, and the first block on that page is *"Are you having
+lights this season?"* with all three answers. Nothing new was needed on the
+customer's side — the emailed version needs three links only because it *is* the
+buttons.
+
+⚠ **The token is keyed to the record, not the phone.** The older
+`getOrCreatePortalToken` finds a customer by phone, and seventeen numbers in the
+book are shared by two households — through that door the second household's
+link would open the first one's portal. ⚠ Who is listed mirrors the email's own
+audience, so the two cannot drift about one person; somebody who replied STOP is
+shown but has no button, and drawing the list mints no tokens.
+
 ⭐ **THE CONFIRMED BADGE IS THE GATE** (2026-08-31). Addie: *"it should look for
 anyone who is confirmed and put them in schedule … make sure they cant have the
 confirmed tag if they are breaking a rule so if you break one of the rules they
