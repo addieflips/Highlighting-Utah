@@ -23,7 +23,10 @@
  *      Run for real, not read.
  *   2. Exactly two places stamp the date, and they are the two that mean "a bundle was
  *      made". Every other place that clears the flag is named here with the reason it
- *      must not stamp. A ninth clear site appearing anywhere fails this file.
+ *      must not stamp. A TENTH clear site appearing anywhere fails this file.
+ *      ⚠ The count moved 8 → 9 on 2026-09-03 when "Not needed" was added beside
+ *      Mark Done. Deliberate: a new way off the build list is exactly what this
+ *      census exists to make somebody decide about.
  *
  * ⚠ CLAIM 2 IS A STRUCTURAL CHECK, AND THAT IS A KNOWING EXCEPTION TO R-017. Driving the
  * two warehouse writers for real needs the whole Build tab — the grouped queue, a
@@ -168,6 +171,16 @@ const runFilters = new Function('inSeason', 'houseLightsText',
 const CLEAR_SITES = [
   { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: true,
     why: 'one house marked done — a bundle was made' },
+  /* ⭐ ADDED 2026-09-03 — "Not needed", the companion to Mark Done. Addie found a
+     customer on the build list whose lights had never changed, and Mark Done was the
+     only way off: it stamps, so clearing a wrongly-queued house meant recording a build
+     that never happened on the one field that answers "when was this bundle made".
+     ⚠ IT MUST NOT STAMP, and that is the whole reason it exists as a separate button
+     rather than a second call to the first one. Nothing was built, so nothing is dated;
+     the activity log carries the record instead. If this ever starts stamping, the two
+     buttons have collapsed into one and the distinction is gone. */
+  { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: false,
+    why: 'taken off the list because nothing needed building. Not a build, so no date.' },
   { file: 'admin.html', fn: 'renderWarehouseQueue', stamps: true,
     why: 'a whole colour group marked finished — bundles were made' },
   { file: 'admin.html', fn: 'editCustSaveBtn handler', stamps: false,

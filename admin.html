@@ -40631,6 +40631,46 @@ function cameBackBadge(d){
 
    ⚠ ts IS PASSED IN rather than read from scope, so the parity test can hand both
    copies the same sentinel and compare what they wrote. */
+/* ⭐ DID THEIR OLD SET ACTUALLY COME BACK (added 2026-09-03) -------------------
+   Addie, having confirmed one customer and found him queued for a build: "it should
+   only be sent to warehouse if there is any sort of change from last year. If nothing
+   changes than nothing is affected."
+
+   ⚠ THE RULE INFERRED A RECYCLE FROM THE ABSENCE OF A FLAG, and that is the bug. Four
+   places asked `was 'no' && !needsLightRecycle` and read a clear flag as proof the
+   warehouse had pulled the bundle apart — the old comment says so outright, that a
+   record still reading no with the flag already false "is the ONE signal that the
+   recycle actually happened". It is not. The flag is equally clear when NOBODY EVER
+   QUEUED ONE, which is the ordinary case for somebody marked no by hand or by an
+   import. Confirming them then made a second bundle for a house whose first one is
+   still on the shelf.
+
+   ⭐ `lightsRecycledAt` IS THE POSITIVE SIGNAL, and it did not exist when this rule was
+   written. Every path that COMPLETES a recycle stamps it — Mark Recycled on a customer
+   we are keeping, and the warehouse tick in employee.html — and the plain Mark Recycled
+   removes the customer altogether, so nobody can rejoin down that road. Asking for the
+   stamp is the difference between evidence and an assumption.
+
+   ⚠ THE STRICT DIRECTION IS THE DELIBERATE CHOICE AND IT HAS A COST. A recycle that
+   completed before the stamp existed leaves no evidence, so that customer would come
+   back in with no build queued — a crew at an empty bin, which is worse than a spare
+   bundle. It is accepted because the population is empty in practice: a plain no
+   DELETES the record, the keep-them path has always stamped, and the crew portal is not
+   in use this season. If a house ever does turn up hung with nothing built, this is the
+   line to look at — do not "fix" it by going back to reading the flag's absence.
+
+   ⚠ ONE RULE, FOUR CALLERS, TWO FILES. `rejoinNeedsBuildServer` in functions/index.js is
+   the twin; rejoin-build.test.js runs both over the same states and fails the build the
+   moment they disagree. Whether somebody says yes is the CALLER's question — this
+   answers only whether their glass is gone. */
+function rejoinNeedsBuild(oldData){
+  const d = oldData || {};
+  if(String(d.rsvpStatus || '').trim().toLowerCase() !== 'no') return false;
+  /* Still queued: the warehouse has not been near their bin, so the set is where they
+     left it and cancelling the recycle is the whole of what is needed. */
+  if(d.needsLightRecycle) return false;
+  return !!d.lightsRecycledAt;
+}
 function seasonYesUpdates(oldData, ts){
   const d = oldData || {};
   const was = String(d.rsvpStatus || '').trim().toLowerCase();
@@ -40643,10 +40683,8 @@ function seasonYesUpdates(oldData, ts){
     maybeNextYear: false,
     maybeNextYearAt: null
   };
-  /* Only when the recycle had not started — once the warehouse owns the flag, the
-     bundle really is coming apart and a build has to be re-queued by the warehouse,
-     not guessed at here. */
-  if(was === 'no' && !d.needsLightRecycle) updates.needsLightBuild = true;
+  /* Only where their old set demonstrably came back — see rejoinNeedsBuild. */
+  if(rejoinNeedsBuild(d)) updates.needsLightBuild = true;
   stampBuildQueued(updates, !!d.needsLightBuild);
   if(wasOut){
     updates.needsDayAssignedAt = ts();
@@ -41746,6 +41784,15 @@ function renderWarehouseQueue(){
             '<span style="display:flex; gap:6px; flex:0 0 auto;">'+
               '<button type="button" class="btn btn-outline btn-sm" data-wheditcust="'+h.id+'">Edit</button>'+
               '<button type="button" class="btn btn-outline btn-sm" data-whdonehouse="'+h.id+'">Mark Done</button>'+
+              /* ⭐ A HOUSE THAT SHOULD NEVER HAVE BEEN ON THE LIST (added 2026-09-03).
+                 Mark Done was the only way off, and it stamps `lightsMarkedBuiltAt` —
+                 so clearing a wrongly-queued house meant recording a build that never
+                 happened, on the one field that answers "when was this bundle made".
+                 The audit box beside this list reads that stamp.
+                 ⚠ IT IS NOT A SECOND MARK DONE. It stamps nothing and claims nothing;
+                 it takes the row off and says in the log that no bundle was made. */
+              '<button type="button" class="btn btn-outline btn-sm" data-whnotneeded="'+h.id+'" '+
+                'title="Take this house off the build list without recording a build">Not needed</button>'+
             '</span>'+
           '</div>';
         }).join('')+
@@ -41842,6 +41889,39 @@ function renderWarehouseQueue(){
            around it. Tier 2: they are standing right there. */
         .catch(function(err){
           console.error('[HU] could not mark that build done', err);
+          toast('That did not save — the house is still on the build list. Try again.');
+        });
+    });
+  });
+  /* ⭐ OFF THE LIST, WITHOUT CLAIMING A BUILD (added 2026-09-03). The companion to
+     Mark Done for a house that should never have been queued.
+     ⚠ IT ASKS FIRST, because the two buttons sit side by side and the wrong one leaves
+     a house genuinely needing a bundle with nothing telling anybody.
+     ⚠ AND IT STAMPS NOTHING. `lightsMarkedBuiltAt` is the answer to "when was this made";
+     writing it here would date a bundle that does not exist. `lightsQueuedAt` is cleared
+     with the flag because it is the date of THIS queueing, and the queueing is what is
+     being undone — leaving it would show a house waiting since a date it is no longer
+     waiting from. The log carries the record instead.
+     ⚠ buildTopUpFromFeet AND binLabelNumber ARE LEFT ALONE, unlike Mark Done: those
+     describe a bundle that was actually made or a bin that was actually labelled, and
+     nothing here made or labelled anything. */
+  list.querySelectorAll('[data-whnotneeded]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const id = btn.dataset.whnotneeded;
+      const who = (jobAddresses.find(function(a){ return a.id === id; }) || {data:{}}).data.name || 'this house';
+      if(!confirm('Take ' + who + ' off the build list?\n\nUse this when nothing about their ' +
+        'lights changed and no bundle needs making. It records that NO build was done — ' +
+        'if a bundle really was built, press Mark Done instead.')) return;
+      updateDoc(doc(db,'jobAddresses', id), {needsLightBuild:false, lightsQueuedAt:null})
+        .then(function(){
+          logActivity('Took ' + who + ' off the build list — nothing needed building', 'warehouse', id);
+          toast(who + ' taken off the build list.');
+        })
+        /* Same reasoning as Mark Done's catch: the row staying put reads as the button
+           doing nothing, and somebody standing at the shelf presses it again. */
+        .catch(function(err){
+          console.error('[HU] could not take that house off the build list', err);
           toast('That did not save — the house is still on the build list. Try again.');
         });
     });
@@ -45545,7 +45625,12 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        the pattern has to be built again, and the office has to assign a number
        by hand — same rule as the portal, or the two paths disagree about the
        same situation. No number is taken from the pool automatically. */
-    const rejoinedAfterRecycle = newRsvp === 'yes' && oldRsvpForRecycle === 'no' && !item.data.needsLightRecycle;
+    /* ⚠ THROUGH THE SHARED RULE (2026-09-03). This read the absence of
+       needsLightRecycle as proof the bundle had been pulled apart, and it is the door
+       Addie actually uses — confirming a customer marked no queued a build for a house
+       whose set never moved. Whether this is a yes is still asked here; whether their
+       glass is gone is rejoinNeedsBuild's to answer. */
+    const rejoinedAfterRecycle = newRsvp === 'yes' && rejoinNeedsBuild(item.data);
     if(rejoinedAfterRecycle) addrUpdates.needsLightBuild = true;
     /* ⭐ AND WHAT THE WAREHOUSE WAS TOLD TO DO ABOUT THE RE-QUOTE. Applied after the
        RSVP-derived flags above, because this is the explicit answer to a question

@@ -323,9 +323,16 @@ if (yesSrc) {
      ⚠ LIFTED, because a stub would keep this suite green through a change to whether a
      rejoining customer's build date is recorded at all — which is the one thing these
      checks exist to hold. §3's rule, and the reason sandboxDeps exists in run-all.js. */
-  const yesDeps = liftServerFn('stampBuildQueuedServer') + liftServerFn('stampRecycleRequestedServer');
+  /* ⚠ AND THE REJOIN RULE, ADDED 2026-09-03 for the same reason and it broke the same
+     way. Whether a returning customer needs a bundle rebuilt used to be inlined here;
+     it is rejoinNeedsBuildServer now, so this sandbox has to supply it. LIFTED, not
+     stubbed: a stub keeps these checks green through a change to whether a house that
+     never had its lights recycled gets a second bundle made for it. */
+  const yesDeps = liftServerFn('stampBuildQueuedServer') + liftServerFn('stampRecycleRequestedServer')
+                + liftServerFn('rejoinNeedsBuildServer');
   check('the stamp rules a yes depends on could be lifted too',
-    /stampBuildQueuedServer/.test(yesDeps) && /stampRecycleRequestedServer/.test(yesDeps),
+    /stampBuildQueuedServer/.test(yesDeps) && /stampRecycleRequestedServer/.test(yesDeps) &&
+    /rejoinNeedsBuildServer/.test(yesDeps),
     'without them the lift below dies with a ReferenceError naming neither this suite ' +
     'nor the function it wanted — which is how this failed in CI rather than locally');
   const rawYes = new Function('admin', yesDeps + yesSrc + 'return seasonYesUpdates;')(fakeAdmin);
@@ -342,11 +349,19 @@ if (yesSrc) {
     'in the season and queued to have their lights pulled apart is two opposite ' +
     'things on one record');
   /* ⚠ AND A REBUILD ONLY WHEN THE RECYCLE ACTUALLY HAPPENED. Owner: "we won\'t
-     recycle till end of year so shouldn\'t be taken apart." */
+     recycle till end of year so shouldn\'t be taken apart."
+     ⚠ REPOINTED 2026-09-03, NOT WEAKENED — it asserted the bug. The middle case below
+     used to expect a build: a clear flag was read as proof the bundle had been pulled
+     apart, when it is equally clear for somebody nobody ever queued a recycle for. That
+     is Addie's Jeff Rasmussen — marked no, confirmed for the season, and sent to the
+     warehouse for a second set while his first sat on the shelf. Only the STAMP is
+     evidence; see rejoinNeedsBuild. */
   check('and re-queues the build ONLY when the recycle really happened',
-    yes({ rsvpStatus: 'no', needsLightRecycle: false }).needsLightBuild === true &&
+    yes({ rsvpStatus: 'no', needsLightRecycle: false, lightsRecycledAt: 'THEN' }).needsLightBuild === true &&
+    yes({ rsvpStatus: 'no', needsLightRecycle: false }).needsLightBuild === undefined &&
     yes({ rsvpStatus: 'no', needsLightRecycle: true }).needsLightBuild === undefined,
-    'their set is still in the bin mid-season — a build makes a second one');
+    'their set is still in the bin — a build makes a second one. A flag nobody ever ' +
+    'set is not a recycle that happened.');
   check('and marks a rejoiner from EITHER way out',
     !!yes({ rsvpStatus: 'no' }).needsDayAssignedAt &&
     !!yes({ rsvpStatus: 'backnextyear' }).needsDayAssignedAt &&
@@ -521,19 +536,28 @@ if (portalRsvp) {
     const m = src.match(new RegExp('const ' + name + ' = ([^;]+);'));
     return m ? m[1] : null;
   };
-  const wasNoExpr = grab(server, 'wasNo');
   const svrExpr = grab(server, 'rejoinedAfterRecycle');
   const offExpr = grab(admin, 'rejoinedAfterRecycle');
+  /* ⚠ `wasNo` IS GONE, DELIBERATELY (2026-09-03), and this check was repointed rather
+     than weakened. It required that variable to exist — but it only ever existed to
+     carry half of the inference this change removed, and rejoinNeedsBuildServer asks the
+     status itself. Requiring it would now fail on correct code. The claim that matters is
+     unchanged: the rejoin decision must still be reachable BY NAME, or nothing runs it. */
   check('the server still decides a rejoin, under that name',
-    !!wasNoExpr && !!svrExpr,
+    !!svrExpr,
     'renaming it means nothing runs this rule through a test again');
   check('and the office dropdown has its own copy of the same decision',
     !!offExpr, 'the two copies are what this section exists to compare');
 
-  if (svrExpr && offExpr && wasNoExpr) {
+  if (svrExpr && offExpr) {
+    /* ⚠ BOTH EXPRESSIONS NOW CALL THE SHARED RULE, so each sandbox has to be given the
+       real one. Lifted from its own file, never stubbed: a stub here would let the two
+       copies disagree about whether a house gets a second bundle with this whole
+       section still green. */
     const svr = new Function('oldData', 'response',
-      'const wasNo = ' + wasNoExpr + '; return ' + svrExpr + ';');
+      liftServerFn('rejoinNeedsBuildServer') + 'return ' + svrExpr + ';');
     const off = new Function('item', 'newRsvp',
+      (fn('rejoinNeedsBuild') || '') + '\n' +
       "const oldRsvpForRecycle = String(item.data.rsvpStatus || '').toLowerCase(); " +
       'return ' + offExpr + ';');
     const both = (old, next) => {
@@ -547,23 +571,37 @@ if (portalRsvp) {
       'the warehouse has not been near their bin — a rebuild makes a second set ' +
       'for a house whose lights are already on the shelf');
 
-    const afterRecycle = both({ rsvpStatus: 'no', needsLightRecycle: false }, 'yes');
+    /* ⚠ THE STAMP IS WHAT MAKES THIS THE RECYCLED CASE (2026-09-03). Without it the
+       fixture is somebody nobody ever queued a recycle for, which is the case below. */
+    const afterRecycle = both({ rsvpStatus: 'no', needsLightRecycle: false, lightsRecycledAt: 'THEN' }, 'yes');
     check('but once the recycle really has happened, it does',
       afterRecycle.a === true && afterRecycle.agree,
       'their bundle is gone — putting them on a route without rebuilding sends a ' +
       'crew to an empty bin');
 
+    /* ⭐ THE ONE ADDIE REPORTED. Marked no, never recycled, confirmed for the season:
+       nothing about their lights changed, so nothing should reach the warehouse. */
+    const neverRecycled = both({ rsvpStatus: 'no', needsLightRecycle: false }, 'yes');
+    check('and a no that was never actually recycled queues nothing at all',
+      neverRecycled.a === false && neverRecycled.agree,
+      'a flag nobody ever set is not a bundle that came back — this built a second ' +
+      'set for a house whose first one was still on the shelf');
+
     /* ⚠ AND NEITHER OF THE OTHER ANSWERS REBUILDS. Back Next Year keeps their set in
        their bin, and somebody who never said no has nothing to rejoin. */
     check('and nothing else triggers a rebuild',
-      both({ rsvpStatus: 'no', needsLightRecycle: true }, 'backnextyear').a === false &&
-      both({ rsvpStatus: '', needsLightRecycle: false }, 'yes').a === false &&
-      both({ rsvpStatus: 'yes', needsLightRecycle: false }, 'yes').a === false);
+      both({ rsvpStatus: 'no', needsLightRecycle: true, lightsRecycledAt: 'THEN' }, 'backnextyear').a === false &&
+      both({ rsvpStatus: '', needsLightRecycle: false, lightsRecycledAt: 'THEN' }, 'yes').a === false &&
+      both({ rsvpStatus: 'yes', needsLightRecycle: false, lightsRecycledAt: 'THEN' }, 'yes').a === false);
 
+    /* ⚠ THE SWEEP CARRIES THE STAMP AS A THIRD AXIS NOW. With it fixed either way the
+       two copies could differ on exactly the case this change is about and still agree
+       everywhere the sweep looked. */
     check('the office and the portal agree on every one of them',
       [['no', true], ['no', false], ['', false], ['yes', false], ['backnextyear', false]]
-        .every(([st, fl]) => ['yes', 'no', 'backnextyear']
-          .every(next => both({ rsvpStatus: st, needsLightRecycle: fl }, next).agree)),
+        .every(([st, fl]) => [null, 'THEN']
+          .every(stamp => ['yes', 'no', 'backnextyear']
+            .every(next => both({ rsvpStatus: st, needsLightRecycle: fl, lightsRecycledAt: stamp }, next).agree))),
       'one of the two would build a set nobody needs, or skip one somebody does');
   }
 }
@@ -808,8 +846,14 @@ check('badging Back Next Year clears the build but not the recycle',
     /* ⚠ EACH SIDE NEEDS THE STAMP RULES IT CALLS, and they are named differently —
        stampBuildQueued in the browser, stampBuildQueuedServer on the server. Lifted from
        their own file so the parity below still compares the real rules. */
-    const officeDeps = (fn('stampBuildQueued') || '') + '\n' + (fn('stampRecycleRequested') || '') + '\n';
-    const srvDeps = liftServerFn('stampBuildQueuedServer') + liftServerFn('stampRecycleRequestedServer');
+    /* ⚠ AND THE REJOIN RULE ON EACH SIDE, added 2026-09-03 and named differently again —
+       rejoinNeedsBuild in the browser, rejoinNeedsBuildServer on the server. It decides
+       whether a returning customer's bundle is rebuilt, so a stub here would let the two
+       copies disagree about that with this parity sweep still green. */
+    const officeDeps = (fn('stampBuildQueued') || '') + '\n' + (fn('stampRecycleRequested') || '') + '\n'
+                     + (fn('rejoinNeedsBuild') || '') + '\n';
+    const srvDeps = liftServerFn('stampBuildQueuedServer') + liftServerFn('stampRecycleRequestedServer')
+                  + liftServerFn('rejoinNeedsBuildServer');
     const office = new Function('serverTimestamp', officeDeps + bSrc + 'return seasonYesUpdates;')(() => '<<stamp>>');
     const srv    = new Function('admin', srvDeps + sSrc + 'return seasonYesUpdates;')(
       { firestore: { FieldValue: { serverTimestamp: () => '<<stamp>>' } } });
@@ -841,12 +885,24 @@ check('badging Back Next Year clears the build but not the recycle',
 
     /* ⚠ AND IT IS RIGHT, NOT MERELY EQUAL. Two copies wrong in the same way agree
        perfectly, which is the one thing a parity test cannot see on its own. */
-    const back = office({ rsvpStatus: 'no' }, TS);
+    /* ⚠ REPOINTED 2026-09-03, AND ITS OLD WORDING WAS THE TELL: it read "their set was
+       never pulled apart, so it has to be built again", which argues against itself. A
+       set that was never pulled apart is still in the bin. The rebuild belongs to the
+       customer whose recycle DID complete, and only a stamp says so. */
+    const back = office({ rsvpStatus: 'no', lightsRecycledAt: 'THEN' }, TS);
     check('a yes over a no cancels the recycle and re-queues the build',
       back.rsvpStatus === 'yes' && back.needsLightRecycle === false &&
       back.needsLightBuild === true && !!back.needsDayAssignedAt,
-      'their set was never pulled apart, so it has to be built again — and they need ' +
+      'their set really was pulled apart, so it has to be built again — and they need ' +
       'a day, or they are back in the season with nowhere to go');
+    /* ⭐ AND THE CASE THAT PROMPTED ALL OF THIS. Still a rejoiner, still gets a day —
+       only the warehouse is left out of it. */
+    const untouched = office({ rsvpStatus: 'no' }, TS);
+    check('but a no whose lights were never recycled queues no build',
+      !('needsLightBuild' in untouched) && untouched.needsLightRecycle === false &&
+      !!untouched.needsDayAssignedAt,
+      'nothing about their lights changed, so nothing should reach the warehouse — ' +
+      'but they are still coming back and still need a day');
     const started = office({ rsvpStatus: 'no', needsLightRecycle: true }, TS);
     check('but not when the warehouse had already started', !('needsLightBuild' in started),
       'once the flag is the warehouse\'s, the bundle really is coming apart — ' +

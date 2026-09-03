@@ -205,8 +205,15 @@ module.exports = [
       /* ⭐ DECLARED 2026-08-31. The readers that DECIDE something, rather than draw it. */
       { file: 'admin', fn: 'stopProblem', where: 'Routes › Install', when: 'the sweep decides a house should not be on a day',
         rules: ['A house whose lights are being taken apart must not be on a crew sheet — they would arrive with nothing to hang.'] },
-      { file: 'admin', fn: 'seasonYesUpdates', where: 'Customers › All Customers', when: 'somebody says yes again',
-        rules: ['It reads the queued recycle to know whether the build has to be put back.'] },
+      /* ⭐ REPOINTED 2026-09-03. seasonYesUpdates no longer reads the flag itself — the
+         read moved into rejoinNeedsBuild, which is where the decision now lives.
+         ⚠ AND THE RULE CHANGED WITH IT: a CLEARED flag used to be read as proof the
+         bundle had been pulled apart, and it is equally clear when no recycle was ever
+         queued. The flag now only says "the warehouse is mid-job, leave it alone";
+         lightsRecycledAt is what says a set actually came back. */
+      { file: 'admin', fn: 'rejoinNeedsBuild', where: 'Customers › All Customers', when: 'somebody says yes again',
+        rules: ['A queued recycle means the warehouse owns that bin — no rebuild is decided while it does.',
+                'Its ABSENCE proves nothing: the stamp is what says a bundle came back.'] },
       { file: 'admin', fn: 'stampRecycleRequested', where: 'Warehouse › Recycle', when: 'a recycle is queued',
         rules: ['Dated on the way in, so the queue can say how long something has been waiting.'] },
       { file: 'server', fn: 'stampRecycleRequestedServer', where: 'Member Portal › RSVP', when: 'the server queues a recycle',

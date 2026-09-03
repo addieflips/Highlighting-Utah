@@ -2013,6 +2013,33 @@ exports.portalSave = onCall({ cors: true }, async (request) => {
    ⚠ maybeNextYearAt GOES WITH IT. It is the date the badge was raised; left behind, a
    customer reads as not-sitting-out with a date stamped for when they were. Same rule
    as the office's own un-toggle, which clears it in the same write. */
+/* ⭐ DID THEIR OLD SET ACTUALLY COME BACK (added 2026-09-03).
+ * Addie: "it should only be sent to warehouse if there is any sort of change from last
+ * year. If nothing changes than nothing is affected."
+ *
+ * ⚠ THE RULE INFERRED A RECYCLE FROM THE ABSENCE OF A FLAG. The comment above this
+ * function said a record still reading no with needsLightRecycle already false "is the
+ * ONE signal that the recycle actually happened" — and it is not. The flag is equally
+ * clear when nobody ever queued one, which is the ordinary case for somebody marked no
+ * by hand or by an import; confirming them then built a second bundle for a house whose
+ * first is still on the shelf.
+ *
+ * ⭐ `lightsRecycledAt` IS THE POSITIVE SIGNAL and did not exist when this was written.
+ * Every path that COMPLETES a recycle stamps it; a plain no removes the record entirely,
+ * so nobody rejoins down that road.
+ *
+ * ⚠ ONE RULE, TWO FILES. `rejoinNeedsBuild` in admin.html is the twin, and
+ * rejoin-build.test.js runs both over the same states and fails the build the moment
+ * they disagree. Whether somebody said yes is the CALLER's question — this answers only
+ * whether their glass is gone. The strict direction and its cost are argued in full
+ * beside the browser copy; do not soften one without the other. */
+function rejoinNeedsBuildServer(oldData) {
+  const d = oldData || {};
+  if (String(d.rsvpStatus || '').trim().toLowerCase() !== 'no') return false;
+  /* Still queued: the warehouse has not been near their bin. */
+  if (d.needsLightRecycle) return false;
+  return !!d.lightsRecycledAt;
+}
 function seasonYesUpdates(oldData, ts) {
   const d = oldData || {};
   const was = String(d.rsvpStatus || '').trim().toLowerCase();
@@ -2035,7 +2062,7 @@ function seasonYesUpdates(oldData, ts) {
     maybeNextYear: false,
     maybeNextYearAt: null
   };
-  if (was === 'no' && !d.needsLightRecycle) updates.needsLightBuild = true;
+  if (rejoinNeedsBuildServer(d)) updates.needsLightBuild = true;
   stampBuildQueuedServer(updates, !!d.needsLightBuild);
   if (wasOut) {
     /* Two fields, two jobs. The first is an instruction the planner consumes — put
@@ -2061,10 +2088,11 @@ exports.portalRsvp = onCall({ cors: true }, async (request) => {
   if (!match) throw new HttpsError('not-found', 'Account not found.');
 
   const oldData = match.data || {};
-  const wasNo = String(oldData.rsvpStatus || '').toLowerCase() === 'no';
-  /* Flag still true = the recycle is queued but not done, nothing was pulled,
-     so clearing it is all that is needed and nothing has to be rebuilt. */
-  const rejoinedAfterRecycle = response === 'yes' && wasNo && !oldData.needsLightRecycle;
+  /* ⚠ THROUGH THE SHARED RULE (2026-09-03). A clear flag is not proof the bundle was
+     pulled apart — it is equally clear when no recycle was ever queued. See
+     rejoinNeedsBuildServer, which asks the status itself, so the `wasNo` that used to
+     sit here went with the inference it existed for. */
+  const rejoinedAfterRecycle = response === 'yes' && rejoinNeedsBuildServer(oldData);
 
   /* ⭐ ONE ANSWER FOR A YES, THREE DOORS (2026-08-22). See seasonYesUpdates: the RSVP
      link, the office dropdown and approving a quote all mean the same thing. A no or a

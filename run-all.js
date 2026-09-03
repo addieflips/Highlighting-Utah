@@ -3363,7 +3363,11 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   /* ⚠ AND THE STAMP RULES seasonYesUpdates CALLS. Left out, the lift dies with a bare
      ReferenceError naming neither this suite nor the missing function — which is
      exactly how it failed in CI on 2026-08-28. */
-  const stampSrcs = [extractFn(fnSrc, 'stampBuildQueuedServer'), extractFn(fnSrc, 'stampRecycleRequestedServer')]
+  /* ⚠ AND THE REJOIN RULE (2026-09-03), for the same reason and caught the same way.
+     Whether a returning customer's bundle is rebuilt moved out of an inline test into
+     rejoinNeedsBuildServer; sandboxDeps named it rather than letting the lift die. */
+  const stampSrcs = [extractFn(fnSrc, 'stampBuildQueuedServer'), extractFn(fnSrc, 'stampRecycleRequestedServer'),
+                     extractFn(fnSrc, 'rejoinNeedsBuildServer')]
     .filter(Boolean).join('\n');
   /* ⚠ AND THE ARREARS LOOKUP (2026-09-01). A yes now reads the customer's invoice so
      the RSVP confirmation can stop promising an install to somebody RS-24 holds out
@@ -3457,8 +3461,13 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
   pendingAsync.push((async () => {
     suite('6b. Rejoining after a recycle (portalRsvp actually runs)');
 
-    // 1. Recycle completed (flag already cleared by the warehouse) → rebuild.
-    const done = await runRsvp({ name: 'Rejoiner', phone: '8011112222', rsvpStatus: 'no', needsLightRecycle: false }, 'yes');
+    /* 1. Recycle completed → rebuild.
+       ⚠ THE STAMP IS WHAT MAKES THIS THE COMPLETED CASE (2026-09-03). This fixture used
+       to say "flag already cleared by the warehouse" and carry only the cleared flag —
+       which is indistinguishable from a customer nobody ever queued a recycle for, and
+       reading those as the same thing was the bug. lightsRecycledAt is the evidence. */
+    const done = await runRsvp({ name: 'Rejoiner', phone: '8011112222', rsvpStatus: 'no',
+      needsLightRecycle: false, lightsRecycledAt: 'THEN' }, 'yes');
     check('flow', 'rejoining after a completed recycle queues the lights to be rebuilt',
       done.written.needsLightBuild === true,
       'their lights were physically pulled back into stock — nothing would build a new bundle, ' +
@@ -3575,7 +3584,12 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     /* ⚠ The block stamps rsvpRespondedAt now, so the sandbox has to offer a clock.
        A recognisable sentinel rather than a real date: these checks care THAT a time
        was written, and a real one would make them depend on when they ran. */
-    new Function('item', 'newRsvp', 'addrUpdates', 'serverTimestamp', src)(
+    /* ⚠ WITH THE REJOIN RULE (2026-09-03). The block asks rejoinNeedsBuild now instead
+       of inlining `!item.data.needsLightRecycle` — lifted, never stubbed, because
+       whether a returning customer's bundle is rebuilt is exactly what these checks
+       exist to hold. */
+    new Function('item', 'newRsvp', 'addrUpdates', 'serverTimestamp',
+      (extractFn(admin, 'rejoinNeedsBuild') || '') + '\n' + src)(
       { data: record }, newRsvp, addrUpdates, function(){ return 'STAMPED'; });
     return addrUpdates;
   }
@@ -3594,10 +3608,19 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     'this is the behaviour that is correct — the fix must not stop declines from recycling');
 
   // Bug 1, admin side.
-  const rejoined = runSave({ rsvpStatus: 'no', needsLightRecycle: false }, 'yes');
+  const rejoined = runSave({ rsvpStatus: 'no', needsLightRecycle: false, lightsRecycledAt: 'THEN' }, 'yes');
   check('flow', 'admin rejoin after a completed recycle queues the lights to be rebuilt',
     rejoined.needsLightBuild === true,
     'the portal handles this — the office path has to agree or the same customer gets two outcomes');
+
+  /* ⭐ AND THE CASE ADDIE FOUND (2026-09-03). Marked no, never recycled, confirmed for
+     the season: nothing about their lights changed, so nothing reaches the warehouse.
+     The fixture above differs from this one by the STAMP alone, which is the whole
+     point — without it the two are the same record and the old rule built for both. */
+  const neverRecycled = runSave({ rsvpStatus: 'no', needsLightRecycle: false }, 'yes');
+  check('flow', 'a no whose lights were never recycled queues no build',
+    neverRecycled.needsLightBuild === undefined && neverRecycled.needsLightRecycle === undefined,
+    'their set is still on the shelf — this made a second bundle for a full bin');
 
   // Changing their mind before the warehouse got to them clears the queued job.
   const cancelled = runSave({ rsvpStatus: 'no', needsLightRecycle: true }, 'yes');
@@ -26879,9 +26902,20 @@ suite('Suite 108. The Edit Customer save, actually run');
          in functions/index.js is what season-state.test.js proves it matches. */
       /* ⚠ WITH THE STAMP RULES IT CALLS — a yes can re-queue a build and cancel a
          recycle, and both record a date now. Lifted, never stubbed. */
+      /* ⚠ AND THE REJOIN RULE (2026-09-03). It decides whether a returning customer's
+         bundle is rebuilt — lifted, never stubbed, because a stub would keep this
+         sandbox green through a change to who the warehouse is told to build for.
+         ⚠ SUPPLIED TWICE, DELIBERATELY: the save handler calls it directly for the RSVP
+         dropdown AND seasonYesUpdates calls it for the re-quote branch, so it has to be
+         in this object as well as inside that closure. Giving it only to the closure
+         left the whole handler dying on the dropdown line and 30 checks reporting a
+         write that never happened. */
+      rejoinNeedsBuild: new Function('return ' + extractFn(admin, 'rejoinNeedsBuild') +
+        ';rejoinNeedsBuild')(),
       seasonYesUpdates: new Function('serverTimestamp',
         (extractFn(admin, 'stampBuildQueued') || '') + '\n' +
         (extractFn(admin, 'stampRecycleRequested') || '') + '\n' +
+        (extractFn(admin, 'rejoinNeedsBuild') || '') + '\n' +
         'return ' + extractFn(admin, 'seasonYesUpdates') + ';seasonYesUpdates')(() => 'NOW'),
       /* ⭐ AND THE HANDLER'S OWN TWO STAMP RULES, LIFTED (2026-08-28). They sit at
          the very end of the save, after everything that can move either flag, so
