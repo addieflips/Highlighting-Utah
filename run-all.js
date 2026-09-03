@@ -47587,6 +47587,21 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
     /msgBulkApply\(ids, \{folder: folder, filedByHand: true\}/.test(admin),
     'two of the four ways to move a message would not stick');
 
+  /* ⭐ AND A HOME FOLDER CANNOT BE DELETED (2026-09-03, found in a self-review).
+     Deleting one files everything currently in it into Inbox — but the topic map goes
+     on naming it, so the NEXT cancellation would resolve to a folder with no row and be
+     in no list at all. It would also have looked like a bug either way: the seed puts
+     any missing default back on the next login, so it reappears by itself. */
+  check('S292', 'a folder that a topic is routed to cannot be deleted',
+    /Object\.keys\(MESSAGE_HOME_FOLDER\)[\s\S]{0,200}MESSAGE_HOME_FOLDER\[t\] === folderName/.test(sidebar) &&
+    /if\(homedTopics\.length\)\{[\s\S]{0,400}return;/.test(sidebar),
+    'the next message on that topic would be filed somewhere with nothing to click');
+  /* ⚠ THE REFUSAL COMES BEFORE THE CONFIRM, not after. A dialog that asks and then
+     refuses teaches the office the button is broken rather than that the folder is. */
+  check('S292', 'and it refuses before asking, not after',
+    sidebar.indexOf('if(homedTopics.length)') < sidebar.indexOf("confirm('Delete the"),
+    'asking first and refusing second reads as a broken button');
+
   /* ---- the two new folders are seeded ---------------------------------- */
   const seed = (admin.match(/const DEFAULT_TOPIC_FOLDERS = \[[^\]]*\]/) || [''])[0];
   check('S292', 'both new folders are seeded so they exist to be clicked',
@@ -47609,6 +47624,48 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
       orphan.length === 0,
       'messages would be filed somewhere with nothing to click: ' + orphan.join(', '));
   }
+}
+
+/* ---- every safeRender call actually passes something to render ------------
+   ⚠ FOUND IN A SELF-REVIEW, 2026-09-03, in code written the same night. safeRender's
+   signature is (label, fn) and its FIRST line is `if(typeof fn !== 'function') return;`
+   — so a call passing the label alone is a silent no-op that reads exactly like a
+   repaint. The Reset Test for RSVP button had one.
+
+   ⚠ AND IT WOULD HAVE STAYED HIDDEN, which is why this is worth a gate rather than a
+   one-line fix: the jobAddresses listener redraws on the write a moment later, so the
+   screen ends up right and the dead call never announces itself. That is the shape this
+   repo keeps getting caught by — a message that is in the source and never reaches the
+   page — arriving in a new place.
+   ⚠ THE 1-ARG FORM IS NEVER LEGITIMATE. There is no default renderer to fall back on;
+   the guard exists so a caller may pass a `typeof x === 'function' ? x : null` without
+   crashing, not so the argument may be left off. */
+suite('293. Every safeRender call hands over something to render');
+{
+  const decl = extractFn(admin, 'safeRender') || '';
+  check('S293', 'safeRender still refuses a call with no renderer', 
+    /function safeRender\(label, fn\)/.test(decl) && /typeof fn !== 'function'\)\s*return/.test(decl),
+    'if that guard goes, a one-argument call throws instead of no-opping — which is ' +
+    'louder, but every existing call site relies on the guard for its null form');
+
+  /* Strip comments first: this file explains the trap in prose that would otherwise
+     read as a violation. The rule Suites 58, 274 and 275 each learned separately. */
+  const code = admin.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const calls = code.match(/safeRender\((?:[^()]|\([^()]*\))*\)/g) || [];
+  check('S293', 'the calls were found at all', calls.length > 20,
+    'got ' + calls.length + ' — a matcher that finds nothing reports no violations, ' +
+    'which is a green build for the worst possible reason');
+
+  const oneArg = calls.filter(function (c) {
+    const inner = c.slice('safeRender('.length, -1);
+    /* A comma inside a nested call is not an argument separator; the pattern above
+       already balanced one level of brackets, so blank those out before counting. */
+    return inner.replace(/\([^()]*\)/g, '').indexOf(',') === -1
+      && inner.indexOf('label, fn') === -1;
+  });
+  check('S293', 'no call passes a label with nothing to draw',
+    oneArg.length === 0,
+    'these are silent no-ops that read like a repaint: ' + oneArg.join(' | '));
 }
 
 Promise.all(pendingAsync).then(function () {
