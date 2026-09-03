@@ -3654,11 +3654,22 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
       notes(early.added).length === 0,
       'every ordinary change of mind would drop noise in the office Inbox');
 
-    // 3. THE ONE THAT MATTERS MOST: a flat no must still recycle, every time.
+    /* 3. ⛔ A FLAT NO MUST NOT TOUCH THEIR LIGHTS (inverted 2026-09-03, RS-51).
+       This check used to read "a flat no must still recycle, every time" and it was
+       the strongest guard in the file. Dax reversed the rule: a tap in an email is not
+       consent to take a bundle apart. Nothing destructive is written now — the answer
+       is recorded, the badge already reads Maybe Next Year, and the recycle waits for
+       somebody to actually cancel in the portal. */
     const declining = await runRsvp({ name: 'Decliner', rsvpStatus: '', needsLightRecycle: false }, 'no');
-    check('flow', 'a flat "no" still flags the lights for recycling',
-      declining.written.needsLightRecycle === true && declining.written.needsLightBuild === undefined,
-      'declines would stop reaching the recycle queue and customer numbers would never come back');
+    check('flow', 'a flat "no" leaves their lights alone',
+      declining.written.needsLightRecycle === undefined && declining.written.needsLightBuild === undefined,
+      'one tap in an email would take a bundle apart and hand the customer number back');
+    /* ⚠ AND undefined, NOT false. Writing false here would wipe a collection the
+       warehouse was ALREADY queued for — the same trap backnextyear carries below. */
+    check('flow', 'and does not wipe a recycle somebody already owed',
+      (await runRsvp({ name: 'Decliner 2', rsvpStatus: '', needsLightRecycle: true }, 'no'))
+        .written.needsLightRecycle === undefined,
+      'they cancelled once already; the bin is on the collection list and must stay there');
 
     /* ⚠ portalRsvp carries TWO behaviours built by two different sessions and
        merged together: flagging the lights for recycling (above), and sweeping
@@ -3670,12 +3681,12 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
     const upcoming = [{ id: 'r-future', date: '2999-01-01',
                         stops: [{ id: 'h1', name: 'Decliner' }, { id: 'other', name: 'Neighbour' }] }];
     const sweptNo = await runRsvp({ name: 'Decliner', rsvpStatus: '', needsLightRecycle: false }, 'no', upcoming);
-    check('flow', 'a "no" both recycles the lights AND clears them off a built route',
-      sweptNo.written.needsLightRecycle === true &&
+    check('flow', 'a "no" clears them off a built route without touching their lights',
+      sweptNo.written.needsLightRecycle === undefined &&
       sweptNo.routeWrites.length === 1 &&
       !sweptNo.routeWrites[0].stops.some(st => st.id === 'h1'),
-      'one half was lost — either their lights stay reserved, or a crew turns up to install ' +
-      'lights they said no to');
+      'the sweep is the half that still has to happen on a no — a crew turning up to ' +
+      'install lights somebody declined is the fault this has always guarded');
     check('flow', 'the sweep leaves everyone else on that route alone',
       sweptNo.routeWrites[0] && sweptNo.routeWrites[0].stops.some(st => st.id === 'other'),
       'clearing one customer must not empty the whole day for the crew');
@@ -3715,10 +3726,15 @@ check('flow', 'recycle list shows everyone flagged, even with no lights recorded
       'the Yes sheet excludes anyone carrying the flag, so a customer who ' +
       'confirmed would be on no confirmed list and chased again next year');
     const backThenNo = await runRsvp({ name: 'Out', rsvpStatus: 'backnextyear', maybeNextYear: true, needsLightRecycle: false }, 'no');
-    check('flow', 'as does answering no',
-      backThenNo.written.maybeNextYear === false && backThenNo.written.needsLightRecycle === true,
-      'owner asked this exact sequence: they belong on the recycle list, and ' +
-      'NOT on Contact 2027 as well');
+    /* ⚠ HALF OF THE OWNER'S RULING SURVIVES AND HALF IS REVERSED, said plainly.
+       She asked this exact sequence and the answer was "they belong on the recycle
+       list, and NOT on Contact 2027 as well". The Contact 2027 half is untouched — a
+       no still clears the flag. The recycle half is Dax's reversal of 2026-09-03
+       (RS-51), applied out loud rather than quietly: R-024, the later answer wins. */
+    check('flow', 'as does answering no — but it no longer queues the recycle',
+      backThenNo.written.maybeNextYear === false &&
+      backThenNo.written.needsLightRecycle === undefined,
+      'the Contact 2027 half of her ruling still binds; the recycle half was reversed');
 
     // 5. An ordinary yes from someone who never declined is untouched.
     const plain = await runRsvp({ name: 'Normal', rsvpStatus: '', needsLightRecycle: false }, 'yes');
@@ -7935,9 +7951,14 @@ if (!JSDOM) {
   const psSrc = psStart > -1 ? sectionFrom(fnsSrc, psStart) : '';
   check('cancel-flow', 'portalSave found in functions/index.js', psStart > -1,
     'renamed or removed — update this test rather than deleting it');
-  check('cancel-flow', 'a full cancellation flags needsLightRecycle, same as RSVP no',
+  /* ⛔ AND SINCE 2026-09-03 THIS IS THE ONLY DOOR TO IT (RS-51). The title used to say
+     "same as RSVP no", which is no longer true and was the point of the change: an
+     answer in an email does not take a bundle apart any more, a deliberate cancellation
+     does. So this check stopped being one of two and became the whole of it. */
+  check('cancel-flow', 'a full cancellation is the one thing that flags needsLightRecycle',
     /section === 'cancel'\) \{[\s\S]{0,700}needsLightRecycle = true;/.test(psSrc),
-    'without this a cancelled customer never appears in the Warehouse Recycle queue — their number stays locked forever');
+    'this is now the ONLY way a customer queues their own collection — without it a ' +
+    'cancelled customer never reaches the Warehouse Recycle queue and their number stays locked forever');
   check('cancel-flow', 'a full cancellation is pulled off any already-scheduled route',
     /section === 'cancel'\) \{\s*await removeCustomerFromUpcomingRoutes\(match\.id\);/.test(psSrc),
     'a customer who cancels through the portal would still show up on the crew\'s route, same gap as RSVP no/back-next-year');
@@ -35912,23 +35933,43 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
      keeps only the answer that CREATES a collection. Same behaviour, and season-state
      RUNS the helper to prove it; what is asserted here is that neither half went
      missing in the move. */
-  check('S132', 'it writes the recycle only for the two answers that decide it',
-    /if \(response === 'no'\) updates\.needsLightRecycle = true;/.test(stripComments(fns)) &&
+  /* ⛔ INVERTED 2026-09-03 (RS-51). Dax: "when they click no they move to maybe next
+     year and only go to archive if they actually go through the process of canceling
+     their lights in member portal". Tapping No in an email used to queue the recycle —
+     the step that takes a bundle apart and hands the customer number back — off one
+     tap with no confirmation in front of it. portalRsvp now writes the flag for NO
+     answer; the only door to it is portalSave's cancel section. */
+  check('S132', 'no RSVP answer queues a recycle any more',
+    !/updates\.needsLightRecycle = true;/.test(stripComments(
+      (function () {
+        const at = fns.indexOf('exports.portalRsvp');
+        return at === -1 ? '' : fns.slice(at, fns.indexOf('\n});', at));
+      })())),
+    'a tap in an email must not take somebody\'s lights apart');
+  /* ⚠ AND THE YES HALF DID NOT MOVE. A yes still CANCELS a recycle somebody else
+     queued, which is what lets a customer who cancelled and changed their mind come
+     back without the warehouse collecting their bin anyway. */
+  check('S132', 'but a yes still cancels one',
     /needsLightRecycle: false,/.test(stripComments(extractFn(fns, 'seasonYesUpdates') || '')),
-    "'no' owes a collection, 'yes' cancels the one their no created, and " +
-    "'backnextyear' says nothing either way");
+    'without this, coming back after a cancellation leaves the collection queued');
+  /* ⭐ AND THE DOOR THAT DOES QUEUE IT IS STILL THERE, asserted from the other side —
+     otherwise "nothing recycles" would pass with the feature deleted entirely. */
+  check('S132', 'and cancelling in the portal still queues it',
+    /if \(section === 'cancel'\)\s*\{[\s\S]{0,400}?needsLightRecycle = true;/.test(stripComments(fns)),
+    'this is now the ONLY way a bundle is ever pulled apart by the customer');
   /* ⚠ AND backnextyear STILL SAYS NOTHING. The whole point of hole G, asserted from
      the other side: nothing in that door may write the flag for it. */
   /* ⚠ SCOPED TO portalRsvp'S OWN BODY. A file-wide count catches an unrelated write
      in another function and reports a violation that is not one — which it did on the
      first run. */
-  check('S132', 'and back next year writes no recycle at all, either way',
+  check('S132', 'and no answer writes the flag in either direction',
     (function () {
       const at = fns.indexOf('exports.portalRsvp');
       const body = at === -1 ? '' : stripComments(fns.slice(at, fns.indexOf('\n});', at)));
-      return (body.match(/updates\.needsLightRecycle\s*=/g) || []).length === 1;
+      return (body.match(/updates\.needsLightRecycle\s*=/g) || []).length === 0;
     })(),
-    'portalRsvp should write it in exactly one place — the "no" branch');
+    'writing FALSE is the older half of this trap: it wipes a collection somebody ' +
+    'else already owed, so the bin stays on the shelf and nobody is told to fetch it');
 
   /* ---- 6. the flag may not outlive the answer that set it -------------
      maybeNextYear was sticky: a search of the whole codebase found ONE thing
