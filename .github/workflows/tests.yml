@@ -121,6 +121,16 @@ jobs:
       - name: Whose card is red (seriously behind)
         run: npm run test:redcard
 
+      # Addie, 2026-09-02: "we should have an x next to all discounts and fees to
+      # get rid of those if necessary." Named separately because the one check that
+      # matters here is a REFUSAL: last season's carried debt rides in the same fee
+      # ledger, and waiving that line lifts the hold keeping an unpaid customer off
+      # the schedule — the "hang them anyway" button she was offered and turned down.
+      # "A crew was sent to a house that has not paid" deserves its own red line, not
+      # one buried in a 3,800-check run.
+      - name: Taking a fee or discount off a bill
+        run: npm run test:waive
+
       # Owner, 2026-08-25: "nothing should fail quietly." This one refuses an empty
       # catch block that does not say WHY it is empty — the reason has to be written
       # inside the braces, where it travels with the code rather than three lines

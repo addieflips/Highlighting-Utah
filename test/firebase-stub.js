@@ -186,6 +186,23 @@ const FAKE_FUNCTIONS_MODULE = `
        caller would hide a page that had stopped doing so. */
     record.arrearsOutstanding = Math.min(a.outstanding, balanceDue);
     record.arrearsSeason = a.season;
+    /* ⚠ DERIVED, EXACTLY AS THE REAL portalInvoice DERIVES IT — a boolean of the
+       invoice's own invoicedAt, which is the stamp the nightly run writes in the
+       same pass that sends the bill and Start New Season clears. index.html shows
+       "there is nothing to pay yet" only on an explicit false, so a stub that
+       omitted this would leave that notice untestable AND make the page behave as
+       though we could not tell — the silent half, which is exactly the shape that
+       let the arrears notice go unseen for a fortnight.
+       ⚠ NO BACKTICKS IN HERE. This whole block is a template literal serving the fake
+       ES module, so one backtick in a comment ends the string and every spec in the
+       repo dies with "Missing semicolon" pointing at a comment. */
+    /* ⚠ A DEPLOY WHERE THE SERVER DOES NOT SEND IT AT ALL is a real state rather
+       than a contrivance: the HTML and the Cloud Functions go out on one push but
+       land seconds apart, and a page a customer left open is older still. Setting
+       __noBillIssued on a fixture reproduces it, and it is the only way to drive
+       index.html's "=== false" guard — which is what stops somebody holding a real
+       invoice being told they need not pay it. */
+    if (!inv.__noBillIssued) record.billIssued = !!inv.invoicedAt;
     return { found: true, record };
   }
 

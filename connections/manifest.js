@@ -420,7 +420,13 @@ module.exports = [
                 'Written LAST, after syncPayerInvoice, because that rebuild would overwrite a fee written before it.'] },
       { file: 'server', fn: 'runInvoiceBatch', where: 'Invoices › Nightly Automation', when: 'a carried charge is collected next season',
         rules: ['A fee added after the bill went out is carried to next season on the CUSTOMER — parked on the invoice it would be deleted by Start New Season.'] },
-      { file: 'admin', fn: 'renderInvoicesList', where: 'Invoices › Invoice List', when: 'a fee is edited or removed by hand' },
+      /* ⭐ REPOINTED 2026-09-02. The write moved out of renderInvoicesList when the
+         blunt "Remove light-change fee(s)" button became one × per line: the Invoices
+         panel and the Fees box in Edit Customer now go through the one shared write,
+         which is the whole point of it. */
+      { file: 'admin', fn: 'ledgerWaiveUpdates', where: 'Invoices › Invoice List', when: 'a fee is taken off the bill by hand',
+        rules: ['The carried debt is the one line with no × — waiving it would lift the hold that keeps an unpaid customer off the schedule.',
+                'Found by fingerprint against a fresh read, never by index: the row was drawn from a snapshot, and a stale index removes somebody else\'s money.'] },
       { file: 'admin', el: 'ssnRunBtn', where: 'Customers › All Customers', when: 'Start New Season clears last season\'s fees' },
       { file: 'admin', el: 'routeAddressForm', where: 'Customers › Add a Customer', when: 'a fee is entered with a new customer' },
       { file: 'server', fn: 'portalSave', where: 'Member Portal › My Lights', when: 'a member changes colours late',

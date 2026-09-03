@@ -166,7 +166,14 @@ const INVOICES = {
        so the portal can answer "did you get my payment?" instead of showing a
        balance that looks like the payment never arrived. */
     lastPaymentAt: '2026-11-10T18:30:00-07:00',
-    lastPaymentMethod: 'paypal'
+    lastPaymentMethod: 'paypal',
+    /* ⭐ THIS CUSTOMER HAS BEEN BILLED (added 2026-09-02). `invoicedAt` is stamped by
+       the nightly run in the same pass that emails the invoice, and cleared by Start
+       New Season — so it is what the portal reads to decide whether a balance is
+       actually due yet. It belongs on THIS fixture because a part-paid customer who
+       had never been sent a bill is not a state that exists: they paid against
+       something. The not-yet-billed case is its own fixture in the spec. */
+    invoicedAt: '2026-11-05T02:00:00-07:00'
   },
   'jordan.reyes@example.com': {      // email-only — nothing paid yet
     found: true,

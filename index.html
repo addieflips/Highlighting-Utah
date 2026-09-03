@@ -1729,9 +1729,32 @@
           <div class="invoice-status" id="invStatus" style="display:none;">Balance Due</div>
           <div class="portal-card" id="portalPaymentCard" style="border-top:4px solid var(--gold); box-shadow:var(--shadow);">
           <div style="text-align:center; margin-bottom:6px;">
-            <span style="font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--slate); font-weight:600;">Current Balance</span>
+            <span id="invAmountLabel" style="font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--slate); font-weight:600;">Current Balance</span>
           </div>
           <div style="text-align:center; margin-bottom:18px;"><span id="invAmount" style="font-size:44px; font-weight:700; color:var(--ink); line-height:1;">$0</span></div>
+
+          <!-- ⭐ THEIR PRICE, BUT NOTHING TO PAY YET (added 2026-09-02). Addie: "I want
+               to make it clear to the member that this is there payment however they do
+               not need to pay until after they get an invoice from us."
+
+               ⚠ THE CARD SAID "CURRENT BALANCE" FROM THE MOMENT A HOUSE WAS PRICED,
+               which is months before the nightly run bills anybody. So a customer
+               signing in to check their colours in September read a number that looks
+               due today, above a pay button, with nothing anywhere saying otherwise —
+               and the banner directly above it was cheerfully telling them we would be
+               in touch with their install date.
+
+               ⚠ IT DOES NOT HIDE THE BUTTONS. Paying early is real and allowed —
+               `prepaid` is a value the master sheet already carries — so refusing money
+               somebody is trying to give us would be a worse bug than the confusion.
+               This says what the number is and when it is due, and leaves the choice.
+
+               ⚠ AND IT ONLY APPEARS WHEN WE KNOW. Filled by renderNotBilledYetNotice
+               from `billIssued`, which is a boolean of the invoice's own `invoicedAt` —
+               so an older client that never receives the field shows nothing at all
+               rather than telling a customer with a real invoice in their inbox that
+               they need not pay it. -->
+          <div id="invNotBilledYet" role="status" style="display:none; background:#EAF1FA; border:1px solid #C3D8EC; color:#2B5C8A; border-radius:12px; padding:13px 16px; margin-bottom:16px; font-size:13.5px; line-height:1.55;"></div>
 
           <!-- What that number is made of. The nightly invoice email has always
                itemised this — install, removal, each light-change fee, each
@@ -3869,6 +3892,9 @@ function renderCustomerInvoicePage(raw, opts){
     statusEl.style.background = noInvoiceYet ? '#EAF1FA' : (isPaid ? '#E6F2EA' : '#FDECEA');
     statusEl.style.color = noInvoiceYet ? '#2B5C8A' : (isPaid ? '#2E6B3E' : '#E0574B');
     document.getElementById('invAmount').textContent = fmt(totalDue);
+    /* Before the arrears notice, because a carried debt from LAST season genuinely is
+       payable now — that notice must be the one that speaks if both could. */
+    renderNotBilledYetNotice(record, totalDue);
     renderArrearsNotice(res, totalDue);
     renderPayChoice(res, totalDue);
     renderInvoiceBreakdown(record, {
@@ -4267,6 +4293,48 @@ function renderNoEmailNotice(record){
     'has not arrived \u2014 nothing is wrong with your account. Add one on the ' +
     '<strong>Your Details</strong> tab and we will send it straight over, or call us on ' +
     '(801) 901-0011 and we will take it down for you.</div>';
+  el.style.display = 'block';
+}
+
+/* ⭐ THIS IS YOUR PRICE; THE BILL COMES LATER (added 2026-09-02). Addie: "I want to
+   make it clear to the member that this is there payment however they do not need to
+   pay until after they get an invoice from us."
+
+   ⚠ IT IS DRIVEN BY `billIssued`, A BOOLEAN THE SERVER DERIVES FROM `invoicedAt` —
+   the same stamp the due date and the Overdue flag are measured from, and the one
+   Start New Season clears, so it answers about THIS season. Reading it here as
+   `=== false` rather than `!billIssued` is the whole safety of it: a missing field
+   (an older cached client, a portalInvoice that failed part way) is "we do not know",
+   and we say nothing rather than telling somebody holding a real invoice that they
+   need not pay it.
+
+   ⚠ AND IT SAYS NOTHING ON A $0 CARD. Somebody with no price yet is already told
+   "you don't have a bill yet" by invNoBillYet directly below; two boxes making the
+   same point is how both stop being read.
+
+   ⭐ ⚠ AND IT IS SILENT WHEN THEY OWE FOR LAST SEASON, which is the one case where
+   this message would be a lie that costs money. A carried debt is on this year's bill
+   before this year's bill is issued, so `billIssued` is perfectly false while
+   arrearsOutstanding is real and payable NOW — and that customer is being held off the
+   schedule until they pay it. "There is nothing to pay yet" is exactly the sentence
+   that keeps them off the season. renderArrearsNotice speaks for them instead.
+
+   ⚠ THE EYEBROW MOVES WITH IT. "Current Balance" over a number nobody has been asked
+   for is the actual misstatement — the notice explains it, but the two-word label is
+   what somebody skims. */
+function renderNotBilledYetNotice(record, totalDue){
+  var el = document.getElementById('invNotBilledYet');
+  var label = document.getElementById('invAmountLabel');
+  var rec = record || {};
+  var owedFromBefore = Number(rec.arrearsOutstanding) || 0;
+  var show = rec.billIssued === false && Number(totalDue) > 0 && owedFromBefore <= 0;
+  if(label) label.textContent = show ? 'Your Price This Season' : 'Current Balance';
+  if(!el) return;
+  if(!show){ el.style.display = 'none'; return; }
+  el.innerHTML = '<strong>This is what your lights cost this season — there is nothing to pay yet.</strong>' +
+    '<div style="margin-top:4px;">We will email you an invoice once your lights are up, ' +
+    'and payment is due after that. You are welcome to pay early if you would rather; ' +
+    'nothing is late until your invoice has arrived.</div>';
   el.style.display = 'block';
 }
 
