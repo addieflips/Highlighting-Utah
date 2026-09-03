@@ -1368,10 +1368,19 @@ check('badging Back Next Year clears the build but not the recycle',
      Customers row printed the RAW rsvpStatus, so a record holding a bare 'yes' with no
      reply behind it read "RSVP: Yes" there while the Dashboard said Pending and the
      season rule left them off every route. The badge would have sat on a row already
-     contradicting it. */
-  check('the All Customers row shows the effective status, not the stored field',
-    /const rsvpEff = effectiveRsvpStatus\(r\.d\);/.test(admin) &&
-    !/rsvpStatusLabel\(r\.d\.rsvpStatus\)/.test(bare),
+     contradicting it.
+
+     ⚠ REPOINTED 2026-09-03, AND THE GUARANTEE GOT STRONGER RATHER THAN WEAKER. Addie,
+     highlighting "RSVP: Pending" and "ON HOLD" on one row: "we have two badges or stamps
+     for RSVP we only need the yellow one." The RSVP pill is gone from this row entirely,
+     so the anchor this check used (`const rsvpEff = ...`) went with it — but the thing it
+     was protecting is now impossible rather than merely avoided: the row prints no RSVP
+     status at all, raw or derived. The season badge and the hold line under it carry the
+     answer, and both already ask effectiveRsvpStatus through seasonHold.
+     ⚠ SO THE CHECK IS THE NEGATIVE HALF ONLY. Restoring the positive half would fail on
+     correct code; what must never come back is the RAW field on this row. */
+  check('the All Customers row never prints the raw stored RSVP field',
+    !/rsvpStatusLabel\(r\.d\.rsvpStatus\)/.test(bare) && !/RSVP: '\s*\+\s*r\.d\.rsvpStatus/.test(bare),
     'a bare stored yes is not an answer — printing it raw is one screen calling ' +
     'somebody confirmed while every other one calls them Pending');
 }

@@ -5802,7 +5802,7 @@ import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
+  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, writeBatch,
   onSnapshot as onSnapshotRaw, query, orderBy, where, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
@@ -30060,6 +30060,29 @@ function seasonHold(d){
     const arrYear = (typeof houseArrearsYear === 'function') ? houseArrearsYear(d) : null;
     return {why: 'owes ' + fmtMoney(houseArrearsOutstanding(d)) + ' from ' + (arrYear || 'last season'), money: true};
   }
+  /* ⭐ AN UNDATED YES IS NOT "NO RSVP YET", AND SAYING SO SENT ADDIE HUNTING
+     (2026-09-03). She approved a Test customer through the emailed link, the badge
+     stayed ON HOLD, and the line under it read "no RSVP yet" — so she went looking for
+     a broken approval. The rule was right: the confirmed-only rule needs a DATED reply,
+     and an `rsvpStatus` of 'yes' with no `rsvpRespondedAt` is the ASSUMED yes written
+     when a quote is converted, or carried in by an import. Nobody actually answered.
+
+     ⚠ BUT THE TWO STATES HAVE DIFFERENT REMEDIES, which is why one sentence for both
+     is wrong. "Nothing on file" means chase them for an answer. "A yes nobody dated"
+     means the answer is an artefact — and the office can settle it in a second by
+     picking Yes on the RSVP dropdown, which stamps the date. Told they had never
+     replied, the office chases a customer who may well have.
+
+     ⚠ IT READS THE RAW FIELD, deliberately. `effectiveRsvpStatus` normalises a bare
+     yes away to '' — that is its job, and it is why `said` above cannot see this — so
+     the distinction only exists on the stored value.
+
+     ⚠ AND IT CHANGES NO DECISION. Both still return a hold; this only chooses words,
+     which is what the whole function does. */
+  const stored = String(d.rsvpStatus || '').trim().toLowerCase();
+  if(stored === 'yes' && !d.rsvpRespondedAt){
+    return {why: 'a yes is on file but nothing dated it \u2014 confirm it on their record', money: false};
+  }
   return {why: 'no RSVP yet', money: false};
 }
 /* The same answer as words, for anywhere that just wants the sentence. */
@@ -43712,9 +43735,17 @@ function renderAllCustomersTable(){
        left off every route — the office reading the row would have had no reason to
        ring them. effectiveRsvpStatus is the one answer; the other two pills already
        ask it. */
-    const rsvpEff = effectiveRsvpStatus(r.d);
-    const rsvpLabel = 'RSVP: ' + rsvpStatusLabel(rsvpEff);
-    const rsvpColor = rsvpEff === 'yes' ? '#2E6B3E' : (rsvpEff === 'no' ? '#E0574B' : (rsvpEff === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
+    /* ⭐ THE RSVP PILL IS GONE FROM THIS ROW (2026-09-03). Addie, highlighting
+       "RSVP: Pending" and "ON HOLD" side by side: "we have two badges or stamps for
+       RSVP we only need the yellow one." Two pills answering the same question in two
+       vocabularies is what made this row unreadable — and it is the SECOND time that
+       pairing has been reported, after "Says yes in one spot but pending in the other"
+       on 2026-09-02, which renamed one of them rather than removing it.
+       ⚠ NOTHING IS LOST. The season badge says Confirmed / On hold / Back Next Year,
+       and the hold line under it says WHICH reason — "they said no", "no RSVP yet",
+       "owes $X from 2025". A customer who declined still reads On hold + they said no.
+       ⚠ effectiveRsvpStatus IS STILL THE ONE ANSWER for everything that asks; this row
+       simply stopped asking it twice. */
     /* The date sits directly under the route status it explains — "Scheduled"
        on its own never said what day. Put in the EXISTING Route cell rather
        than a new column on purpose: the responsive rules for this table are
@@ -43735,7 +43766,7 @@ function renderAllCustomersTable(){
       ? '<br><span style="font-size:11px; color:' + (hold.money ? 'var(--ember)' : 'var(--slate)') +
         '; font-weight:' + (hold.money ? '700' : '600') + ';">Not scheduled &mdash; ' + esc(hold.why) + '</span>'
       : '';
-    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>'+approvedOnJoinBadge(r.d)+holdLine;
+    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+approvedOnJoinBadge(r.d)+holdLine;
     /* Shows the normalised MEANING, not the raw shorthand. A row reading "NOV"
        while the scheduler treats it as November is how nobody notices that 190
        customers were being read as having no preference at all. Anything the
@@ -43800,17 +43831,35 @@ function renderAllCustomersTable(){
        break that filter. The filter label already said "blocked by a rule" — this
        makes the chip agree with it. */
     const badgeKey = r.badge;
+    /* ⭐ ONE BADGE, AND NO SWITCH ON THE ROW (2026-09-03). Addie, reading a row carrying
+       both an On hold pill and an Unpaid 2025 pill with a Back next year button under
+       them: "we have two badges or stamps for RSVP we only need the yellow one and I
+       don't know why it shows maybe next year underneath. We can just switch this
+       inside there costumer."
+
+       ⚠ THE UNPAID PILL WAS THE THIRD COPY OF ONE FACT, and the comment that used to
+       sit here was already uneasy about it — the Route column prints "Not scheduled —
+       owes $X from 2025" and the money column prints its own UNPAID (2025) tag, both
+       from the same helper. Three statements of one debt on one row is what made the
+       season column unreadable. The money column keeps it, because that is the column
+       somebody scans to answer "what do they owe"; this one answers "are they in the
+       season" and now says only that.
+
+       ⚠ AND THE TOGGLE MOVED, IT WAS NOT DELETED. Changing an RSVP now happens in one
+       place — Edit Customer's RSVP control — which is what she asked for and what the
+       "One RSVP control in Edit Customer, not two" change already built. Two doors onto
+       one answer is how the row and the form start disagreeing about a customer, and
+       this row's button wrote a decision with no chance to see the record it was about.
+
+       ⚠ THE `maybe` BRANCH LOSES ITS **Confirm** BUTTON TOO, deliberately. It is the
+       same switch pointing the other way, and leaving one direction on the row would
+       mean somebody can put a customer out for the season from the list but has to open
+       the form to bring them back — the asymmetry is worse than either choice alone. */
     const maybeCell = badgeKey === 'maybe'
-      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill
       : badgeKey === 'pending'
-      /* ⚠ THE REASON IS NOT REPEATED HERE. The Route column already prints "Not
-         scheduled — owes $X from 2025" from the same helper, and the Unpaid tag sits
-         directly under this pill; a third copy is a third thing to keep true. */
-      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Back next year</button>'
-      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Back next year</button>';
+      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill
+      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill;
     return '<tr style="border-bottom:1px solid var(--line);">'+
       /* The customer number is the number painted on their bins in the
          warehouse, so it is how the crew and the warehouse refer to people —
@@ -43832,34 +43881,21 @@ function renderAllCustomersTable(){
       openEditCustomerModal(btn.dataset.editcust);
     });
   });
-  /* Flipping to Confirmed deliberately does NOT put anyone back on a route.
-     Rebuilding a route behind the office's back would be a worse surprise than
-     making them re-add one stop by hand, so both directions say what they do. */
-  body.querySelectorAll('[data-seasontoggle]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const id = btn.dataset.seasontoggle;
-      const toMaybe = btn.dataset.to === 'maybe';
-      const cust = jobAddresses.find(a => a.id === id);
-      const who = (cust && cust.data.name) || 'this customer';
-      const ask = toMaybe
-        ? 'Mark ' + who + ' as Back Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
-        : 'Confirm ' + who + ' for this season?\n\nThe Back Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
-      if(!confirm(ask)) return;
-      btn.disabled = true;
-      try{
-        const removed = await setCustomerSeason(id, toMaybe);
-        /* Nothing re-renders this table on a jobAddresses change, so without
-           this the badge stays on screen and the button reads as dead. */
-        renderAllCustomersTable();
-        toast(toMaybe
-          ? who + ' is out for this season' + (removed ? ' — taken off ' + removed + ' upcoming route' + (removed === 1 ? '' : 's') + '.' : '.')
-          : who + ' is back in the pool — schedule them when you\'re ready.');
-      } catch(err){
-        btn.disabled = false;
-        toast('Could not change that — try again.');
-      }
-    });
-  });
+  /* ⚠ AND THE RULE THAT COMMENT CARRIED STILL STANDS, which is why it is kept rather
+     than deleted with the button: flipping somebody back to Confirmed deliberately
+     does NOT put them back on a route. Rebuilding a route behind the office's back
+     would be a worse surprise than making them re-add one stop by hand. The Edit
+     Customer path that replaced this button behaves the same way. */
+  /* ⭐ THE ROW'S OWN SEASON TOGGLE WAS REMOVED (2026-09-03). Addie: "I don't know why
+     it shows maybe next year underneath. We can just switch this inside there
+     costumer." Changing an RSVP now happens in ONE place — Edit Customer's RSVP
+     control — so the list and the form cannot write different answers.
+     ⚠ CHECKED BEFORE REMOVING IT, because this button did more than set a flag: it
+     called setCustomerSeason, which also takes them off upcoming routes. The Edit
+     Customer save does the same on the same transition (`seasonMaybeChosen &&
+     !item.data.maybeNextYear`, then removeCustomerFromUpcomingRoutes), so nothing is
+     stranded on a route by this going. If the button ever comes back, it belongs on
+     setCustomerSeason again rather than on a second copy of that write. */
 }
 let editCustomerId = null;
 /* ⭐ THE RE-QUOTE THE OPEN EDIT MODAL IS ANSWERING. Owner, 2026-08-19: "we
@@ -50331,6 +50367,45 @@ async function resyncSavedRouteStops(customerId, fields){
    as they are - they are history, and rewriting them would change what the crew
    actually did. Mirrors pullCustomerFromSeason in functions/index.js, which does
    the same job when the customer answers "maybe next year" themselves. */
+/* ⭐ EVERY STALE CUSTOMER COMES OFF THE ROUTES IN ONE PASS (added 2026-09-03).
+   Measured on the real book: 956 customers, 952 of them out of the season under
+   SEASON_ELIGIBILITY 'confirmed-only' because only three have actually answered the
+   RSVP yet. Clearing them one at a time asked removeCustomerFromUpcomingRoutes to walk
+   every upcoming route 952 times over — and a route holding twenty of them was written
+   twenty separate times, each write racing the last.
+
+   This walks the routes ONCE and writes each affected route ONCE, whatever it is
+   carrying. Same result, one write per route instead of one per stop.
+
+   PURE-ISH: it reads scheduledRoutesCache and writes only the routes that actually
+   change. Returns what it removed so the caller can report it. */
+async function removeCustomersFromUpcomingRoutes(customerIds){
+  const drop = new Set((customerIds || []).map(String));
+  if(!drop.size) return {removed: 0, routes: 0};
+  const todayStr = toDateStr(new Date());
+  const dates = Object.keys(scheduledRoutesCache || {});
+  let removed = 0, routesTouched = 0;
+  const stuck = []; let lastErr = null;
+  for(let i = 0; i < dates.length; i++){
+    if(dates[i] < todayStr) continue;
+    const routes = scheduledRoutesCache[dates[i]] || [];
+    for(let r = 0; r < routes.length; r++){
+      const route = routes[r];
+      const stops = route.stops || [];
+      const kept = stops.filter(function(st){ return !drop.has(String(st.id)); });
+      if(kept.length === stops.length) continue;          // nothing of ours on it
+      try {
+        await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: kept});
+        removed += stops.length - kept.length; routesTouched++;
+      } catch(err){ stuck.push(dates[i]); lastErr = err; }
+    }
+  }
+  /* ⚠ THE WORSE HALF OF THE TWO, unchanged: a stop that would not come off sends a
+     crew to a house that is not expecting them. Reported once for the whole pass
+     rather than once per customer, or a bad day would raise 952 notices. */
+  if(stuck.length) await noticeRouteStopStuck('take them off the route', Array.from(drop)[0], stuck, lastErr);
+  return {removed: removed, routes: routesTouched};
+}
 async function removeCustomerFromUpcomingRoutes(customerId){
   const todayStr = toDateStr(new Date());
   const dates = Object.keys(scheduledRoutesCache || {});
@@ -50377,7 +50452,19 @@ async function removeCustomerFromUpcomingRoutes(customerId){
    ⚠ IT TAKES THEM OFF THE ROUTE TOO, in that order. Clearing the flag while a stop
    survives is the same contradiction pointing the other way: the crew's sheet still
    has them and the office screen says they are not booked. */
+let clearStaleBookingsInFlight = null;
 async function clearStaleInstallBookings(){
+  /* ⚠ ONE RUN AT A TIME. The button fires this without awaiting it, so pressing
+     Recalculate everything twice used to start two passes over the same nine hundred
+     records. The second press now joins the run already going rather than doubling it. */
+  if(clearStaleBookingsInFlight) return clearStaleBookingsInFlight;
+  clearStaleBookingsInFlight = (async function(){
+    try{ return await clearStaleInstallBookingsRun(); }
+    finally{ clearStaleBookingsInFlight = null; }
+  })();
+  return clearStaleBookingsInFlight;
+}
+async function clearStaleInstallBookingsRun(){
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return 0;
   if(typeof isOutForSeason !== 'function') return 0;
   const stale = jobAddresses.filter(function(item){
@@ -50386,18 +50473,47 @@ async function clearStaleInstallBookings(){
     if(!(d.scheduled === true || d.scheduledDate || d.assignedCrew)) return false;
     return isOutForSeason(d);
   });
+  /* ⭐ BATCHED, BECAUSE THE HONEST NUMBER HERE IS NEARLY A THOUSAND (2026-09-03).
+     Addie: "@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream
+     exhausted maximum allowed queued writes", straight after pressing Recalculate
+     everything.
+
+     ⚠ THIS IS NOT AN EDGE CASE, IT IS THE NORMAL STATE IN SEPTEMBER. Measured on the
+     real book the day she reported it: 956 customers, 955 still carrying a booking
+     stamp from last season, and 952 of them out of THIS season because
+     SEASON_ELIGIBILITY is 'confirmed-only' and only three people have answered the
+     RSVP so far. So one press asked for 951 individual writes. The SDK queues 500 and
+     then refuses, which is the error she saw — and because the run died partway, the
+     next press tried the same nine hundred again.
+
+     ⚠ AND IT WAS FIRED WITHOUT await FROM THE BUTTON, so an impatient second press
+     started a second run of the same nine hundred on top of the first. inFlight below
+     is what stops that; the un-awaited call at the button is deliberate (the press
+     must not sit there looking hung) and is left alone.
+
+     Firestore takes 500 operations in a batch. Chunked at 400 for headroom, 951
+     records become three round trips instead of 951. */
+  const BATCH_LIMIT = 400;
   let cleared = 0;
-  for(let i = 0; i < stale.length; i++){
-    const item = stale[i];
+  /* The routes first, in one pass — see removeCustomersFromUpcomingRoutes. Clearing a
+     flag while the stop survives is the same contradiction pointing the other way. */
+  if(typeof removeCustomersFromUpcomingRoutes === 'function'){
+    try{ await removeCustomersFromUpcomingRoutes(stale.map(function(x){ return x.id; })); }
+    catch(err){ console.error('Could not take stale bookings off their routes', err); }
+  }
+  for(let i = 0; i < stale.length; i += BATCH_LIMIT){
+    const chunk = stale.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+    chunk.forEach(function(item){ batch.update(doc(db, 'jobAddresses', item.id), freeUpFieldForType('install')); });
     try{
-      if(typeof removeCustomerFromUpcomingRoutes === 'function') await removeCustomerFromUpcomingRoutes(item.id);
-      await updateDoc(doc(db, 'jobAddresses', item.id), freeUpFieldForType('install'));
-      /* The panel repaints from the cache as well as from the listener, so the row
-         stops contradicting itself immediately rather than on the next snapshot. */
-      Object.assign(item.data, freeUpFieldForType('install'));
-      cleared++;
+      await batch.commit();
+      /* Only after the write lands. The panel repaints from this cache as well as from
+         the listener, so a chunk that failed must not leave the screen claiming it
+         cleared records that are still stamped. */
+      chunk.forEach(function(item){ Object.assign(item.data, freeUpFieldForType('install')); });
+      cleared += chunk.length;
     }catch(err){
-      console.error('Could not clear a stale booking for', item.id, err);
+      console.error('Could not clear a batch of ' + chunk.length + ' stale bookings', err);
     }
   }
   return cleared;

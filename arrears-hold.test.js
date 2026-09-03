@@ -478,6 +478,34 @@ function seasonResetWrite() {
     'it must never name somebody a crew is on its way to, nor go silent about somebody ' +
     'who is being left out: disagreed on ' + JSON.stringify(disagreed));
 
+  /* ⭐ AN UNDATED YES IS NOT "NO RSVP YET" (2026-09-03). Addie approved a Test customer
+     through the emailed link, the badge stayed On hold, and the line under it said
+     nobody had replied — so she went hunting for a broken approval. The HOLD was right:
+     the confirmed-only rule needs a DATED reply, and a stored 'yes' with no
+     rsvpRespondedAt is the assumed yes written when a quote is converted, or carried in
+     by an import.
+     ⚠ THE TWO HAVE DIFFERENT REMEDIES, which is why one sentence for both is wrong.
+     Nothing on file means chase them; a yes nobody dated means confirm it on the record,
+     which stamps the date. Told they had never replied, the office chases somebody who
+     may well have answered.
+     ⚠ AND IT MUST READ THE RAW FIELD: effectiveRsvpStatus normalises a bare yes away to
+     '', which is exactly why the line could not tell them apart. */
+  /* ⚠ rsvpRespondedAt MUST BE NULLED EXPLICITLY: `clear` carries one, so a spread
+     alone leaves a DATED yes and the record is not held at all — the check then passes
+     on an empty reason and proves nothing. Caught on the first run. */
+  check('a yes nobody dated is not reported as "no RSVP yet"',
+    /nothing dated it/.test(api.seasonHoldReason({ ...clear, rsvpStatus: 'yes', rsvpRespondedAt: null })),
+    'got ' + JSON.stringify(api.seasonHoldReason({ ...clear, rsvpStatus: 'yes', rsvpRespondedAt: null })) +
+    ' — the office would chase a customer who may already have approved');
+  check('and a customer with nothing on file still reads "no RSVP yet"',
+    api.seasonHoldReason({ ...clear, rsvpStatus: '', rsvpRespondedAt: null }) === 'no RSVP yet',
+    'the two states have different remedies and must keep different words; got ' +
+    JSON.stringify(api.seasonHoldReason({ ...clear, rsvpStatus: '', rsvpRespondedAt: null })));
+  /* ⚠ AND A DATED YES IS NOT HELD AT ALL — the case she was actually trying to reach. */
+  check('a dated yes is in the season, so there is no note',
+    api.seasonHold({ ...clear, rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-03T10:00:00Z' }) === null,
+    'approving through the emailed link must clear the hold');
+
   check('somebody in the season gets no note at all',
     api.seasonHold(clear) === null && api.seasonHoldReason(clear) === '',
     'a leftover note on a customer who is going out is worse than none');

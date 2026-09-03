@@ -198,6 +198,13 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    - ⚠ **The key is still `pending`.** Only the word changed: `r.badge` is what the season filter matches on and the dropdown's option values are `confirmed`/`pending`/`maybe`, so renaming the key would silently break that filter. The filter's own label already read *"blocked by a rule"* — the chip now agrees with it.
    - ⚠ **A guard stops the collision coming back**: the season cell's chips are read out of the row builder and compared against every word `rsvpStatusLabel` can produce. *Maybe Next Year* is the one deliberate overlap and is excluded by name — it is the same state in both columns, said the same way on purpose.
 
+   ⭐ **AND ON 2026-09-03 THE SECOND PILL WENT ENTIRELY.** Addie, highlighting *"RSVP: Pending"* and *"ON HOLD"* on one row: *"we have two badges or stamps for RSVP we only need the yellow one."* Renaming one of them (above) had not been enough — two pills answering the same question in two vocabularies is unreadable whatever they are called. **The RSVP pill is gone from the All Customers row.** The season badge (Confirmed / On hold / Back Next Year) carries the answer and the hold line under it says *why* — "they said no", "no RSVP yet", "owes $X from 2025" — so a customer who declined still reads **On hold + they said no**.
+   - ⚠ **The Unpaid 2025 pill stays.** It was removed in a first pass and put back: it answers *what do they owe*, not *have they replied*, and the two RSVP stamps were what she pointed at.
+   - ⭐ **AND THE ROW'S SEASON TOGGLE WENT WITH IT.** Addie: *"I don't know why it shows maybe next year underneath. We can just switch this inside there costumer."* Changing an RSVP now happens in **one place** — Edit Customer's RSVP control — so the list and the form cannot write different answers.
+     - ⚠ **Checked before removing it**, because the button did more than set a flag: it called `setCustomerSeason`, which also takes them off upcoming routes. The Edit Customer save does the same on the same transition (`seasonMaybeChosen && !item.data.maybeNextYear`, then `removeCustomerFromUpcomingRoutes`), so **nothing is stranded on a route** by it going.
+     - ⚠ **The `maybe` branch lost its Confirm button too**, deliberately — it is the same switch pointing the other way, and leaving one direction on the row would mean somebody can be put out of the season from the list but must be brought back through the form.
+     - ⚠ **Confirming still does NOT put anyone back on a route.** That rule survives the button: rebuilding a route behind the office is a worse surprise than re-adding one stop by hand.
+
    ⚠ **AND THE OFFICE'S OWN BADGE READ AS PENDING** (fixed 2026-09-02). Addie: *"it says pending for RSVP"*, over a card carrying the Maybe Next Year badge. `effectiveRsvpStatus` had `|| dd.maybeNextYear` inside its test and then `return said` — so for a badged customer with no reply of their own it handed back `''`, the very value the line existed to overrule. The office had recorded an answer and every screen called them Pending.
    - ⚠ **It changed no season behaviour, which is why it survived so long.** `isOutForSeason` and `seasonHold` read `maybeNextYear` **directly**, so those customers were correctly off every route the whole time. Only the words were wrong — on the card, the Dashboard counts, and *Owes from last year*.
    - ⚠ **It does not touch who gets the RSVP email.** That audience is `etRsvpAnswered`, which reads the stored `rsvpStatus` and never this function. Checked before changing it, because the RSVP is the one send that has to reach everybody.
@@ -243,6 +250,29 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    answer, reply date, Back Next Year badge and new-member tick cleared, nothing else
    touched. Testing the RSVP means testing it three times and watching the badge each
    time, and a reset done by hand between answers is one that gets skipped.
+
+   ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
+   RS-47). Addie approved a Test customer through the emailed link and the badge stayed
+   **On hold**, with *"Not scheduled — no RSVP yet"* under it.
+
+   ⚠ **The hold was right.** `isOutForSeason` asks for a **dated** reply — `rsvpStatus`
+   of `'yes'` with no `rsvpRespondedAt` is the *assumed* yes written when a quote is
+   converted, or carried in by an import, and nobody actually answered. A dated yes
+   reads **Confirmed**; an undated one reads **On hold**.
+
+   ⚠ **The unpaid bill was not the cause.** The portal's hold reads
+   `arrearsOutstanding` — *last* season's debt — so a current bill never touches the
+   season badge. Her $946 was this year's.
+
+   ⚠ **And the emailed Yes does work**, bill outstanding or not:
+   `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
+   Confirmed. A record still on **On hold** never received that write.
+
+   ⭐ **What was wrong was the sentence.** The line said *"no RSVP yet"* for both states.
+   They need different things — nothing on file means chase them, a yes nobody dated
+   means confirm it on the record, which stamps the date — so the second now says so.
+   It reads the **raw** field, because `effectiveRsvpStatus` normalises a bare yes away
+   and that is exactly why the line could not tell them apart.
 
    ⭐ **THE GATE CODE IS ASKED ON THE WAY PAST A YES** (added 2026-08-31). Addie: *"Lets do gate code before changes."* After the yes is recorded and before *"do you want to make any changes?"*, the customer is asked about their gate code — the RSVP is the one email everybody opens and acts on, so it is the cheapest chance each season to catch a wrong code before a crew is standing at a locked gate.
    - **It confirms a code we already hold, and asks nobody else** (narrowed 2026-09-02, RS-44). A code on file is quoted back (*"We have 4417 as your gate code. Is that still right?"*) with **Yes, that's right** / **It has changed**; confirming writes nothing, so `gateCodeUpdatedAt` marks a real change rather than every RSVP.
@@ -870,13 +900,32 @@ written into that customer's history.
     rather than against a named fee, so a late fee written later is waivable the day
     something writes one, with nothing here to change.
 
-⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-56). Addie:
+⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-57). Addie:
 *"I want to make it clear to the member that this is there payment however they do not need
 to pay until after they get an invoice from us."* The payment card said **Current Balance**
 from the moment a house was priced — months before the nightly run bills anybody — so a
 customer signing in during October read a figure that looks due today, above a pay button.
-Until the bill goes out the label reads **Your Price This Season** and a notice under it
-says what the number is and when it is due.
+Until the bill goes out the label reads **Your Price This Season**, and the customer is told
+in as many words what the number is and when it is due.
+  - ⭐ **IT IS A POP-UP, AND ONLY ON RSVP APPROVE** (changed 2026-09-03, MON-59 then
+    MON-60). It shipped as an inline box under the amount; Addie asked for it to be louder
+    — *"make it more obvious... like a popup"* — and then, having seen it fire on every
+    ordinary sign-in, *"This should only pull up when they push RSVP Approve. It should not
+    pop up every time they open there member portal."* It is `#portalPriceModal`, raised
+    only by `openPortalAfterYes` — the RSVP email's yes branch, which is "RSVP Approve" in
+    the one sense this codebase names. One dismiss button, never a second **Pay now**: the
+    real pay buttons are already on the same screen.
+  - ⚠ **THE LABEL IS NOT GATED BY THAT.** "Your Price This Season" still replaces "Current
+    Balance" on an ordinary sign-in — only the interrupting dialog is scoped. Somebody
+    signing in normally reads the right figure under the right heading; they are simply not
+    stopped to be told it.
+  - ⚠ **THE DEFAULT IS SILENCE.** Every other way into the portal — a phone-and-name
+    sign-in, a saved-token auto-login, the post-payment RSVP ask, the in-portal Changes tab
+    — passes nothing, so forgetting the flag means *never shows* rather than *shows every
+    time*. That is the cheap direction to be wrong in.
+  - ⚠ **It sits BELOW the gate-code dialog and the arrears lock** (z-index 399 against 400
+    and 401). All three can be raised on one portal load; the other two outrank it — one is
+    a question they must answer, the other blocks the season.
   - Driven by `billIssued`, a boolean `portalInvoice` derives from the invoice's own
     `invoicedAt` — the same stamp the due date and the Overdue flag are measured from, and
     the one Start New Season clears, so it answers about *this* season.
@@ -1188,6 +1237,62 @@ than about the calendar.
 
 *Proved in* run-all.js **Suite 294**, whose first check is the one that matters: an
 unmarked season is byte-for-byte the season the builder made before.
+
+### Why the schedule looks empty in September, and the write storm behind it
+
+Addie, 2026-09-03: a whole season showing **one day and three houses**, and then
+`@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream exhausted
+maximum allowed queued writes` the moment she pressed **Recalculate everything**.
+
+One cause, both symptoms. **Counted on the live book rather than reasoned about:**
+
+| | |
+|---|---|
+| customers | 956 |
+| blank `rsvpStatus` | 950 |
+| said yes | 5 |
+| **yes AND `rsvpRespondedAt` stamped** | **3** |
+| out of the season | 952 |
+| still carrying a booking stamp from last season | 955 |
+
+`isOutForSeason` ends in the `SEASON_ELIGIBILITY = 'confirmed-only'` branch: somebody
+is in the season only if they said **yes and the reply is stamped**, or they are a new
+hang nobody was ever asked (`audienceNeverAsked`). Three people qualify, so the builder
+places three. **The schedule was right.** This is her own ruling working — *"play with it
+until the only customers in the schedule are the confirmed ones"* — and it is the normal
+state every September, before the RSVPs come back. Worth writing down precisely because
+the screen looks catastrophic when it is behaving.
+
+**The same 952 caused the write storm.** `clearStaleInstallBookings` takes the booking
+stamp off everybody who is out, and 951 of them still carried one. It wrote them one at a
+time. The SDK queues 500 and refuses, so the run died partway — and the next press tried
+the same nine hundred again.
+
+Three faults, all three fixed:
+
+- **The customer records are batched.** `writeBatch` in chunks of 400 — 951 records
+  become 3 commits. This file had no batched write anywhere before; `writeBatch` was not
+  even on the import list.
+- **The routes are swept once for everybody.** `removeCustomersFromUpcomingRoutes`
+  (plural) walks the upcoming routes a single time and writes each affected route once,
+  whatever it is carrying. The old per-customer call walked every route 952 times and
+  rewrote a shared route once per stop removed. The singular version stays — the office
+  edit path and `portalSave` each remove exactly one person.
+- **One run at a time.** The button fires this without awaiting on purpose, so nothing
+  stopped an impatient second press doubling the writes. `clearStaleBookingsInFlight`
+  makes the second press join the run already going.
+
+⚠ **The cache is only updated after a chunk commits.** Assigning first makes a failed
+chunk look cleared: the row stops contradicting itself on screen while the record in
+Firestore still says booked — the exact contradiction this sweep exists to remove.
+
+⚠ **Two wrong theories were measured and discarded before this one.** That the arrears
+hold was emptying the season (only 19 customers owe from last season), and that the
+season-start date bug was to blame (real, but unrelated — see the section above). Both
+were plausible; neither survived counting.
+
+*Proved in* run-all.js **Suite 296**. **Suite 286** still owns the other half — *which*
+records get cleared, and the three kinds that must not be touched.
 
 ### Nothing is hung before the season starts
 
