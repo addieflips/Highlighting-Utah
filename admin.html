@@ -1870,7 +1870,7 @@
               <!-- ⭐ Owner, 2026-09-01: "there is now way to filter who is confirmed fix that."
                    Beside Route Status on purpose — Confirmed IS the route answer now
                    (seasonBadgeKey delegates to isOutForSeason), so the two belong together. -->
-              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Maybe Next Year</option></select></div>
+              <div class="form-row"><label>Season Badge</label><select id="allCustFilterSeason"><option value="all">Any</option><option value="confirmed">Confirmed</option><option value="pending">On hold &mdash; blocked by a rule</option><option value="maybe">Back Next Year</option></select></div>
               <div class="form-row"><label>Route Status</label><select id="allCustFilterRoute"><option value="all">Any</option><option value="scheduled">Scheduled</option><option value="unscheduled">Unscheduled</option><option value="completed">Install Complete</option><option value="needsfix">Needs Fix</option></select></div>
               <div class="form-row"><label>House Map</label><select id="allCustFilterMap"><option value="all">Any</option><option value="has">Has a Map</option><option value="none">No Map Yet</option></select></div>
               <!-- ⭐ FINDING THE OLD STOCK. Owner, 2026-08-19, on why soft is kept under
@@ -2009,8 +2009,17 @@
                      mistake for this year’s. -->
                 <option value="">Pending (never asked)</option>
                 <option value="unanswered">Unanswered (asked, no reply yet)</option>
-                <option value="yes">Yes &mdash; Hanging Lights</option>
-                <option value="no">No &mdash; Skip This Year</option>
+                <!-- ⚠ THE THREE ANSWERS ARE NAMED EXACTLY AS THE RSVP EMAIL NAMES THEM
+                     (2026-09-02). Addie, reading this list: "I noticed there isn’t a no".
+                     There was — it said "No — Skip This Year", and the explanatory tail was
+                     doing the damage: the buttons a customer presses are Yes, Back Next Year
+                     and No, so anything else here is a fourth vocabulary for three answers
+                     and the office has to translate. Same fault as the season chip saying
+                     "Pending" and "Maybe Next Year" — one row, several languages.
+                     ⚠ The two states ABOVE keep their tails because they are NOT RSVP
+                     answers and have no button: they say who has been asked. -->
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
                 <option value="backnextyear">Back Next Year</option>
               </select>
             </div>
@@ -2023,22 +2032,24 @@
                crew is actually being sent. Empty and hidden for anybody who is in the
                season. -->
           <div id="editCustHoldNote" style="display:none; margin:-4px 0 16px; padding:10px 12px; border-radius:8px; font-size:12.5px; line-height:1.5;"></div>
-          <!-- Radio group rather than two checkboxes: the browser enforces that
-               only one can be on, so the pair can never end up both set or both
-               clear the way two checkboxes eventually would. -->
-          <div class="form-row"><label>This Season</label>
-            <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:center; padding:4px 0;">
-              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
-                <input type="radio" name="editCustSeason" id="editCustSeasonConfirmed" value="confirmed" style="width:auto; margin:0;">
-                <span class="status-pill" style="background:#E6F2EA; color:#2E6B3E;">Confirmed</span>
-              </label>
-              <label style="display:flex; align-items:center; gap:7px; font-weight:600; cursor:pointer; margin:0;">
-                <input type="radio" name="editCustSeason" id="editCustSeasonMaybe" value="maybe" style="width:auto; margin:0;">
-                <span class="status-pill" style="background:#FFF3D6; color:#8A6100;">Maybe Next Year</span>
-              </label>
-            </div>
-          </div>
-          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers. Switching someone to <strong>Maybe Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set it back to Confirmed to put them back in the pool (you'll still need to schedule them yourself).</p>
+          <!-- ⭐ ONE CONTROL, NOT TWO (2026-09-02). A "This Season" radio pair sat here
+               — Confirmed / Back Next Year — saying the same thing as the RSVP dropdown
+               above. Addie: "I don't understand why this is seperate. It should not have
+               two seperate RSVP spots in costumer."
+               ⚠ THE DUPLICATION WAS NOT COSMETIC, IT WAS THE BUG. One state with two
+               controls means the save has to decide which of them the office meant, and it
+               decided wrong: an UNTICKED radio was read as "bringing them back in", so it
+               blanked rsvpStatus and threw away a Back Next Year she had just picked in the
+               dropdown. The blank then read as Yes, because a quote-converted customer with
+               no answer on file is treated as approved. See RS-43.
+               ⚠ NOTHING WAS LOST WITH IT. The dropdown carries five states against the
+               radio's two, and picking Back Next Year there does everything the radio did
+               — the flag, the timestamp, off the build queue, off the schedule, off any
+               upcoming route. The radio could not express No, Unanswered or Pending at all.
+               ⚠ DO NOT PUT A SECOND CONTROL BACK. run-all.js fails on any element named
+               editCustSeason, which is the check that used to prove the radio pair existed,
+               repointed to prove it does not. -->
+          <p class="form-note" style="margin:-4px 0 16px;">This is the badge shown next to them in All Customers, and it follows the RSVP Status above. Setting that to <strong>Back Next Year</strong> takes them out of this season &mdash; off the routes, the schedule and the warehouse build list &mdash; and removes them from any upcoming route they are already on. It never touches what they owe. Set the RSVP back to Yes (or Pending) to put them back in the pool (you'll still need to schedule them yourself).</p>
           <!-- ===================== HOUSE INFO ===================== -->
           <div style="border-top:2px solid var(--gold-dim); margin:20px 0 0; padding-top:16px;">
             <h4 style="margin:0 0 14px; font-size:15px;">House Info</h4>
@@ -3031,6 +3042,20 @@
       </div>
       <!-- ===== TEMPLATES TAB ===== -->
       <div class="route-tab-panel active" id="automationtab-templates">
+      <!-- ⭐ Owner, 2026-09-02: "make an rsvp text link for everyone that doesnt have
+           an email on file." The RSVP goes out by email; these are the people it can
+           never reach, and without this they are simply never asked. -->
+      <div class="card" id="rsvpTextCard" style="margin-bottom:22px; border-color:var(--gold-dim);">
+        <h3 style="margin:0 0 4px; font-family:'Fraunces',serif; font-size:17px;">&#128241; Text the RSVP &mdash; no email on file</h3>
+        <p class="form-note" style="margin:0 0 12px;">The RSVP email cannot reach these customers, so they are never asked. Each link signs that person into their own portal, where the first thing on the page is <strong>&ldquo;Are you having lights this season?&rdquo;</strong> with Yes, Back next year and Not this season &mdash; so one short link is the whole RSVP. Nobody who has already answered is listed, and nobody in their first year, for the same reason the email skips them.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+          <button type="button" class="btn btn-outline btn-sm" id="rsvpTextFindBtn">Find who has no email</button>
+          <button type="button" class="btn btn-gold btn-sm" id="rsvpTextCopyAllBtn" style="display:none;">Copy them all for texting</button>
+          <span id="rsvpTextCount" style="font-size:12.5px; color:var(--slate);"></span>
+        </div>
+        <div id="rsvpTextStatus" class="form-note" style="margin:0 0 10px;"></div>
+        <div id="rsvpTextList"></div>
+      </div>
       <!-- Main Templates View -->
       <div style="display:grid; grid-template-columns:200px minmax(0,1fr); gap:20px; margin-bottom:30px;">
         <!-- Folders Sidebar -->
@@ -8059,6 +8084,69 @@ function isScheduleHeld(d){ return scheduleHoldMillis(d) > Date.now(); }
    asked here so a caller cannot honour one and forget the other — which is how the
    route sweep and the builder came to disagree about who was in the season. */
 function isHeldFromRoutes(d){ return isLightsLocked(d) || isScheduleHeld(d); }
+/* ⭐ AN RSVP LINK TO TEXT, FOR EVERYONE WITH NO EMAIL ON FILE (2026-09-02).
+   Addie: "make an rsvp text link for everyone that doesnt have an email on file."
+
+   ⚠ NOTHING NEW HAD TO BE BUILT ON THE CUSTOMER'S SIDE, and that is worth knowing
+   before anybody adds a page for it. `#/payment?token=…` with no rsvp parameter
+   signs them in, and the FIRST block on that page is "Are you having lights this
+   season?" with Yes / Back next year / Not this season. So one short link is a
+   complete RSVP — which is what a text needs, because a text cannot show buttons.
+   The emailed version needs three links only because it IS the buttons.
+
+   ⚠ WHO IS ON THE LIST MIRRORS THE EMAIL'S OWN AUDIENCE. `audienceNeverAsked` is
+   what takes a first-year customer out of the RSVP send — "will you be getting
+   lights hung AGAIN this year?" is nonsense to somebody who never has — and asking
+   it here is what stops the text list and the email list disagreeing about one
+   person. A second definition of who gets asked is how they drift.
+
+   ⚠ AND SOMEBODY WHO HAS ALREADY ANSWERED IS NOT ON IT. effectiveRsvpStatus, not the
+   raw field: a bare 'yes' with no reply behind it is an import or the assumed yes
+   written at conversion, and texting those people is asking a question they think
+   they have answered. */
+function rsvpTextTargets(){
+  if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses)) return [];
+  return jobAddresses.filter(function(item){
+    const d = (item && item.data) || null;
+    if(!d) return false;
+    if(String(d.email || '').trim() || String(d.email2 || '').trim()) return false;
+    if(!String(d.phone || '').replace(/\D/g,'')) return false;
+    if(typeof audienceNeverAsked === 'function' && audienceNeverAsked(d)) return false;
+    if(typeof effectiveRsvpStatus === 'function' && effectiveRsvpStatus(d)) return false;
+    return true;
+  });
+}
+/* ⚠ KEYED TO THE RECORD, NOT TO THE PHONE NUMBER, and this is the one thing here
+   that could do real harm. getOrCreatePortalToken looks a customer up BY PHONE with
+   a .find(), and seventeen numbers in the real book are shared by two households —
+   a parent paying for a child. Through that door, texting the second household their
+   "own" link would sign them into the FIRST one's portal: their address, their
+   price, their answer to change. This takes the item it was given. */
+async function rsvpTextTokenFor(item){
+  if(!item || !item.data) return null;
+  if(item.data.portalToken) return item.data.portalToken;
+  const token = generatePortalToken();
+  try{
+    await updateDoc(doc(db,'jobAddresses', item.id), {portalToken: token});
+    item.data.portalToken = token;
+  }catch(err){
+    /* Still hand back the token: a failed save costs them a second link later,
+       whereas returning null costs them the text entirely. */
+    console.error('Could not save a portal token for', item.id, err);
+  }
+  return token;
+}
+function rsvpTextLinkFrom(token){
+  return token ? ('https://highlightingutah.com/#/payment?token=' + token) : '';
+}
+/* ⚠ PLAIN CHARACTERS, AND THE ADDRESS IS VISIBLE. A text cannot hide a link behind a
+   word, so the URL is the message's last line where it is easy to tap and easy to
+   read out over the phone. Kept short on purpose: 160 characters is one message. */
+function rsvpTextMessageFor(d, link){
+  const first = String((d && d.name) || '').trim().split(/\s+/)[0] || 'there';
+  return 'Hi ' + first + ', it’s Highlighting Utah. Christmas lights this year? '
+    + 'Tell us yes or no: ' + link;
+}
 async function getOrCreatePortalToken(phone){
   const phoneDigits = (phone||'').replace(/\D/g,'');
   if(!phoneDigits) return null;
@@ -15393,6 +15481,83 @@ function arrearsBadgeSuffix(invData){
   const y = arrearsYearOnInvoice(invData);
   return y ? ' (' + esc(y) + ')' : '';
 }
+/* ⭐ THE LIST, AND THE TEXTS IT HANDS OVER (2026-09-02). See rsvpTextTargets for who
+   is on it and why one link is the whole RSVP.
+
+   ⚠ THE TOKENS ARE MADE WHEN SHE ASKS FOR A TEXT, not when the list is drawn.
+   Minting one writes to that customer's record, and drawing a list is not a reason
+   to write to a few hundred of them — a panel that edits the book by being looked at
+   is the kind of thing nobody suspects until an updatedAt sweep goes strange. */
+function rsvpTextRender(){
+  const list = document.getElementById('rsvpTextList');
+  const count = document.getElementById('rsvpTextCount');
+  const copyAll = document.getElementById('rsvpTextCopyAllBtn');
+  if(!list) return;
+  const targets = rsvpTextTargets();
+  if(count) count.textContent = targets.length
+    ? (targets.length + ' customer' + (targets.length === 1 ? '' : 's') + ' with no email')
+    : '';
+  if(copyAll) copyAll.style.display = targets.length ? '' : 'none';
+  if(!targets.length){
+    list.innerHTML = '<p class="form-note" style="margin:0;">Everybody who still needs to answer has an email address on file &mdash; there is nobody to text.</p>';
+    return;
+  }
+  list.innerHTML = targets.map(function(item){
+    const d = item.data || {};
+    /* ⚠ STOP MEANS STOP. Twilio blocks a number that has replied STOP and the office
+       must not be handed a message to paste into Google Voice either — the request
+       was to stop hearing from us, not to stop hearing from one system. */
+    const stopped = !!d.smsOptedOut;
+    return '<div style="display:flex; gap:10px; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--line);">' +
+      '<div style="min-width:0;"><strong>' + esc(d.name || '(no name)') + '</strong>' +
+        (d.customerNumber ? ' <span style="color:var(--slate); font-size:12px;">#' + esc(d.customerNumber) + '</span>' : '') +
+        '<br><span style="font-size:12.5px; color:var(--slate);">' + esc(d.phone || '') + '</span></div>' +
+      (stopped
+        ? '<span class="status-pill" style="background:#FDECEA; color:#B91C1C;">Do not text &mdash; they replied STOP</span>'
+        : '<button type="button" class="btn btn-outline btn-sm" data-rsvptext="' + esc(item.id) + '">Copy their text</button>') +
+    '</div>';
+  }).join('');
+  list.querySelectorAll('[data-rsvptext]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const item = jobAddresses.find(function(x){ return x.id === btn.dataset.rsvptext; });
+      if(!item) return;
+      btn.disabled = true;
+      const was = btn.textContent;
+      btn.textContent = 'Making the link\u2026';
+      try{
+        const token = await rsvpTextTokenFor(item);
+        if(!token){ btn.textContent = 'Could not make a link'; return; }
+        const msg = rsvpTextMessageFor(item.data, rsvpTextLinkFrom(token));
+        await navigator.clipboard.writeText(msg);
+        btn.textContent = '\u2713 Copied \u2014 paste it into a text';
+        setTimeout(function(){ btn.textContent = was; btn.disabled = false; }, 4000);
+      }catch(err){
+        console.error('Could not copy the RSVP text:', err);
+        btn.textContent = 'Could not copy';
+        btn.disabled = false;
+      }
+    });
+  });
+}
+/* ⚠ ONE LINE PER PERSON, PHONE FIRST AND TAB-SEPARATED, which is what pastes into a
+   spreadsheet and into the bulk-texting workflow. A block of prose with the numbers
+   buried in it has to be taken apart again by hand. */
+async function rsvpTextCopyAll(){
+  const statusEl = document.getElementById('rsvpTextStatus');
+  const targets = rsvpTextTargets().filter(function(item){ return !(item.data || {}).smsOptedOut; });
+  if(!targets.length){ if(statusEl) statusEl.textContent = 'Nobody to copy.'; return 0; }
+  const lines = [];
+  for(let i = 0; i < targets.length; i++){
+    if(statusEl) statusEl.textContent = 'Making link ' + (i + 1) + ' of ' + targets.length + '\u2026';
+    const token = await rsvpTextTokenFor(targets[i]);
+    if(!token) continue;
+    lines.push(String(targets[i].data.phone || '') + '\t' + rsvpTextMessageFor(targets[i].data, rsvpTextLinkFrom(token)));
+  }
+  try{ await navigator.clipboard.writeText(lines.join('\n')); }
+  catch(err){ if(statusEl) statusEl.textContent = 'Made the links, but the clipboard refused \u2014 press it again.'; return 0; }
+  if(statusEl) statusEl.textContent = '\u2713 ' + lines.length + ' text' + (lines.length === 1 ? '' : 's') + ' copied \u2014 one line each, phone first.';
+  return lines.length;
+}
 function etPopulateTemplateSelect(){
   const sel = document.getElementById('etSendTemplateSelect');
   if(!sel) return;
@@ -15999,6 +16164,19 @@ function etRenderRecipientList(){
 /* Choosing the template is the deliberate act, so it is the moment to set the
    audience. Runs BEFORE the preview so the recipient list and the preview agree
    about who is being written to. */
+/* ⚠ ON A PRESS, NOT ON EVERY PANEL OPEN. Walking ~950 records to find the handful
+   with no email is cheap, but drawing it unasked puts a list of people in front of
+   somebody who came here to edit a template. */
+(function(){
+  const findBtn = document.getElementById('rsvpTextFindBtn');
+  if(findBtn) findBtn.addEventListener('click', rsvpTextRender);
+  const allBtn = document.getElementById('rsvpTextCopyAllBtn');
+  if(allBtn) allBtn.addEventListener('click', async function(){
+    allBtn.disabled = true;
+    try{ await rsvpTextCopyAll(); }
+    finally{ allBtn.disabled = false; }
+  });
+})();
 document.getElementById('etSendTemplateSelect').addEventListener('change', function(){
   const t = emailTemplates.find(x => x.id === this.value);
   if(etTemplateIsRsvp(t) && etFilterNew !== 'returning'){
@@ -17090,7 +17268,45 @@ document.getElementById('ccSaveBtn').addEventListener('click', async function(){
     statusEl.textContent = 'Something went wrong — try again.';
   }
 });
-const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else'];
+/* ⭐ CANCELLATIONS AND THE MEMBER PORTAL GET THEIR OWN FOLDERS (2026-09-02). Addie:
+   "we need a place for cancelation messages to go. Can we have it go to inbox but these
+   will have it's own no section ... Also can we have inbox for member portal."
+   ⚠ THE FIRST SIX ARE THE CONTACT FORM'S OWN TOPIC LIST and must stay exactly as the
+   form spells them, or a message arrives naming a folder that does not exist. The two
+   added here are ours, and are named after where the message CAME FROM rather than
+   after a topic, which is why they are listed separately. */
+const DEFAULT_TOPIC_FOLDERS = ['Billing / Payment Question','Change My Light Colors','Report an Issue','Reschedule Install or Removal','General Question','Something Else','Cancellations','Member Portal'];
+/* ⭐ WHERE A MESSAGE BELONGS, DERIVED FROM ITS TOPIC (2026-09-02). One table, read by
+   the sidebar counts and the list, so a message cannot be counted in one folder and
+   drawn in another.
+
+   ⚠ DERIVED, NEVER STORED, WHICH IS THE WHOLE REASON IT WORKS ON DAY ONE. Every
+   cancellation already in the book was written folder:'Inbox' — routing only NEW
+   messages would leave her existing ones in the undifferentiated pile and the feature
+   would look broken on the only data she has. Nothing is migrated and nothing is
+   rewritten; the same messages simply sort.
+
+   ⚠ AND IT ONLY EVER DECIDES FOR A MESSAGE NOBODY HAS FILED. `filedByHand` is stamped
+   by every route that MOVES one — the drag, the right-click, Move to…, and a folder
+   being deleted out from under it — so the office's own filing always wins and a
+   message dragged to Inbox stays in Inbox instead of springing back to its topic.
+
+   ⚠ IT SAYS NOTHING ABOUT folder:'System'. That is not a folder in this sidebar, it is
+   what makes a message a system notice at all — the System tab reads it, and the
+   customer list excludes it unconditionally. Deriving that would let a topic quietly
+   move a notice between the two tabs. The raw field decides it, here as before. */
+const MESSAGE_HOME_FOLDER = {
+  'Cancellation Request': 'Cancellations',
+  'Note Added': 'Member Portal',
+  'Existing Customer - Address Changed': 'Member Portal'
+};
+function messageFolderOf(d){
+  d = d || {};
+  const stored = d.folder || 'Inbox';
+  if(stored === 'System') return 'System';
+  if(d.filedByHand) return stored;
+  return MESSAGE_HOME_FOLDER[d.topic] || stored;
+}
 let messageFolders = [];
 let foldersSeeded = false;
 let draggingFolderId = null;
@@ -17120,7 +17336,7 @@ function loadMessageFolders(){
    counted unread (renderMessagesList) while the sidebar counted everything, so the
    two sat there disagreeing about the same folder. */
 function folderUnread(folderName){
-  return allMessages.filter(m => (m.data.folder || 'Inbox') === folderName && !m.data.read).length;
+  return allMessages.filter(m => messageFolderOf(m.data) === folderName && !m.data.read).length;
 }
 /* Every folder nested under this one, at any depth. */
 function folderDescendantNames(folderId){
@@ -17291,7 +17507,10 @@ function renderFolderSidebar(){
         return;
       }
       const messageId = e.dataTransfer.getData('text/plain');
-      if(messageId) updateDoc(doc(db,'messages',messageId), {folder: item.dataset.folder});
+      /* ⚠ filedByHand IS WHAT MAKES THE OFFICE'S FILING STICK. Without it a message
+         dragged out of the folder its topic sends it to would spring straight back on
+         the next render, which reads as the drag not working. See messageFolderOf. */
+      if(messageId) updateDoc(doc(db,'messages',messageId), {folder: item.dataset.folder, filedByHand: true});
     });
   });
   /* Rename. Messages store the folder by NAME (not id), so a rename has to
@@ -17309,9 +17528,25 @@ function renderFolderSidebar(){
       if(newName.toLowerCase() === 'inbox' || newName.toLowerCase() === 'system'){ toast('That name is reserved'); return; }
       if(messageFolders.some(f => f.id !== folderId && f.name.toLowerCase() === newName.toLowerCase())){ toast('A folder with that name already exists'); return; }
       updateDoc(doc(db,'messageFolders',folderId), {name: newName});
+      /* ⚠ A RENAME IS NOT A FILING for a message that is STORED here — it follows the
+         folder rather than overruling the topic, so it does not stamp filedByHand.
+         Stamping every message in a renamed folder would pin the lot against their
+         topic for ever. */
       allMessages.filter(m => m.data.folder === oldName).forEach(function(m){
         updateDoc(doc(db,'messages',m.id), {folder: newName});
       });
+      /* ⭐ BUT A MESSAGE SITTING HERE ONLY BY DERIVATION MUST BE PINNED, OR IT GOES
+         INVISIBLE. Its stored folder is still 'Inbox' — MESSAGE_HOME_FOLDER is what puts
+         it in this row — so the rewrite above cannot see it, and once the folder is
+         renamed the topic map still names the OLD folder, which now has no row in the
+         sidebar. The message is then in no list at all and counted nowhere.
+         ⚠ SO THIS ONE IS A FILING, deliberately and unlike the loop above: the office
+         renamed the folder these are in, so they follow it, and being pinned is what
+         stops the topic dragging them back to a name that no longer exists. */
+      allMessages.filter(m => m.data.folder !== oldName && messageFolderOf(m.data) === oldName)
+        .forEach(function(m){
+          updateDoc(doc(db,'messages',m.id), {folder: newName, filedByHand: true});
+        });
       if(selectedFolder === oldName){
         selectedFolder = newName;
         document.getElementById('currentFolderLabel').textContent = newName;
@@ -17329,8 +17564,15 @@ function renderFolderSidebar(){
       if(!confirm('Are you sure? This can\'t be undone.')) return;
       const deletedFolder = messageFolders.find(f => f.id === folderId);
       // reassign affected messages back to Inbox
-      const affected = allMessages.filter(m => m.data.folder === folderName);
-      affected.forEach(function(m){ updateDoc(doc(db,'messages',m.id), {folder: 'Inbox'}); });
+      /* ⚠ messageFolderOf, NOT THE STORED FIELD. A message sitting here only because its
+         TOPIC sends it here still reads folder:'Inbox', so a stored-field match misses
+         it entirely — and once the folder is gone the topic map goes on naming it, so
+         that message resolves to a folder with no row and is in no list at all. */
+      const affected = allMessages.filter(m => messageFolderOf(m.data) === folderName);
+      /* ⚠ filedByHand HERE TOO, AND FOR A DIFFERENT REASON: without it a message whose
+         TOPIC sends it to the folder being deleted would be re-homed straight back into
+         a folder that no longer exists, and would then be in no list at all. */
+      affected.forEach(function(m){ updateDoc(doc(db,'messages',m.id), {folder: 'Inbox', filedByHand: true}); });
       // any subfolders move up to this folder's own parent (instead of vanishing)
       const children = messageFolders.filter(f => f.parentId === folderId);
       children.forEach(function(c){ updateDoc(doc(db,'messageFolders',c.id), {parentId: deletedFolder ? deletedFolder.parentId : null}); });
@@ -17400,7 +17642,7 @@ function openContextMenu(x, y, messageId){
   contextMenuEl.classList.add('open');
   contextMenuEl.querySelectorAll('[data-movefolder]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      updateDoc(doc(db,'messages',messageId), {folder: btn.dataset.movefolder});
+      updateDoc(doc(db,'messages',messageId), {folder: btn.dataset.movefolder, filedByHand: true});
       contextMenuEl.classList.remove('open');
     });
   });
@@ -17528,7 +17770,7 @@ function noticeIsRoutine(d){
 }
 function renderMessagesList(){
   const list = document.getElementById('messagesList');
-  let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => (m.data.folder || 'Inbox') === selectedFolder);
+  let filtered = msgFilter === 'awaiting' ? allMessages.slice() : allMessages.filter(m => messageFolderOf(m.data) === selectedFolder);
   if(msgFilter === 'unread') filtered = filtered.filter(m => !m.data.read);
   if(msgFilter === 'important') filtered = filtered.filter(m => m.data.important);
   if(msgFilter === 'awaiting') filtered = filtered.filter(m => !m.data.responded);
@@ -17760,7 +18002,7 @@ function pickedIds(){ return Array.from(pickedMsgIds); }
     const folder = mv.value;
     const ids = pickedIds();
     if(!folder || !ids.length){ mv.value = ''; return; }
-    await msgBulkApply(ids, {folder: folder}, 'moved to \u201C' + folder + '\u201D');
+    await msgBulkApply(ids, {folder: folder, filedByHand: true}, 'moved to \u201C' + folder + '\u201D');
   });
   const readBtn = document.getElementById('msgMarkReadBtn');
   if(readBtn) readBtn.addEventListener('click', function(){
@@ -43348,16 +43590,16 @@ function renderAllCustomersTable(){
        makes the chip agree with it. */
     const badgeKey = r.badge;
     const maybeCell = badgeKey === 'maybe'
-      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Maybe Next Year</span>'+unpaidPill+
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill+
         '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
       : badgeKey === 'pending'
       /* ⚠ THE REASON IS NOT REPEATED HERE. The Route column already prints "Not
          scheduled — owes $X from 2025" from the same helper, and the Unpaid tag sits
          directly under this pill; a third copy is a third thing to keep true. */
       ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>'
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Back next year</button>'
       : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Maybe next year</button>';
+        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Back next year</button>';
     return '<tr style="border-bottom:1px solid var(--line);">'+
       /* The customer number is the number painted on their bins in the
          warehouse, so it is how the crew and the warehouse refer to people —
@@ -43389,8 +43631,8 @@ function renderAllCustomersTable(){
       const cust = jobAddresses.find(a => a.id === id);
       const who = (cust && cust.data.name) || 'this customer';
       const ask = toMaybe
-        ? 'Mark ' + who + ' as Maybe Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
-        : 'Confirm ' + who + ' for this season?\n\nThe Maybe Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
+        ? 'Mark ' + who + ' as Back Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
+        : 'Confirm ' + who + ' for this season?\n\nThe Back Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
       if(!confirm(ask)) return;
       btn.disabled = true;
       try{
@@ -43989,7 +44231,6 @@ function openEditCustomerModal(id){
   }
   /* Confirmed is the default for anyone not explicitly sitting out, which is
      what an All Customers record has always meant. */
-  document.getElementById(d.maybeNextYear ? 'editCustSeasonMaybe' : 'editCustSeasonConfirmed').checked = true;
   document.getElementById('editCustEarliestInstall').value = (d.earliestInstallDate && d.earliestInstallDate.toDate) ? toDateStr(d.earliestInstallDate.toDate()) : '';
   document.getElementById('editCustFeet').value = d.measuredFeet || '';
   /* Cleared with the form, or the last customer's arithmetic is still sitting
@@ -44853,7 +45094,6 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
   const newCity = typedCity || extractCleanCity(newAddress) || extractCleanCity(d.city) || '';
   const newEnrolledStr = document.getElementById('editCustEnrolled').value;
   const newRsvp = document.getElementById('editCustRsvp').value;
-  const newSeasonMaybe = document.getElementById('editCustSeasonMaybe').checked;
   const newEarliestInstallStr = document.getElementById('editCustEarliestInstall').value;
   const newHousePrice = Number(document.getElementById('editCustHousePrice').value) || 0;
   const newMeasuredFeet = Number(document.getElementById('editCustFeet').value) || 0;
@@ -45251,12 +45491,35 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        whether the handler contains a call, not whether every path reaches one. It
        surfaced only because a test sandbox lifts that block and died on a name it had
        never been given. */
-    /* Applied last so it beats the RSVP dropdown and the build flag above:
-       the toggle is the explicit statement about this season, and letting the
-       two disagree is how someone ends up badged Maybe Next Year while still
-       sitting on a route. Money fields are untouched on purpose. */
-    addrUpdates.maybeNextYear = newSeasonMaybe;
-    if(newSeasonMaybe){
+    /* ⭐ ONE CONTROL DECIDES THIS, AND IT IS THE RSVP DROPDOWN (2026-09-02). Addie:
+       "I don't understand why this is seperate. It should not have two seperate RSVP
+       spots in costumer." She was describing a "This Season" radio pair that sat below
+       the dropdown saying the same thing; both are read here, and reading two controls
+       for one state is what made the bug she reported the day before.
+
+       ⚠ WHAT THAT COST, so nobody re-adds the radio as a convenience. The else-if below
+       read an UNTICKED radio as "the office is bringing them back in", so it cleared
+       rsvpStatus to blank. Her customer already carried maybeNextYear from an earlier
+       test, so picking Back Next Year in the dropdown ran that branch, threw the answer
+       away, and the blank then read as "Yes" — a quote-converted customer with no answer
+       on file is treated as approved (audienceNeverAsked). The office set an answer and
+       the save silently replaced it with the opposite one. RS-43.
+
+       ⚠ THE FIRST FIX WAS "CHANGED TO backnextyear", AND IT IS GONE ON PURPOSE. It
+       compared against the stored value so a fresh choice could be told from a stale
+       one — necessary only while a second control could contradict this one. With the
+       radio gone the dropdown IS the answer: backnextyear means backnextyear on every
+       save, stale or fresh. ⚠ AND THE "CHANGED" TEST WOULD NOW BE ACTIVELY WRONG — an
+       ordinary re-save of a Back Next Year customer does not change the dropdown, so it
+       would compute false and clear the flag off somebody nobody touched.
+
+       ⚠ IT SETS THE FLAG AND THE STATUS TOGETHER, never one without the other. They are
+       one state said two ways — setCustomerSeason writes both — and leaving them
+       disagreeing is what put the office badge and the RSVP pill on opposite sides of
+       the same row. Applied last so it beats the build flag above; money is untouched. */
+    const seasonMaybeChosen = newRsvp === 'backnextyear';
+    addrUpdates.maybeNextYear = seasonMaybeChosen;
+    if(seasonMaybeChosen){
       if(!item.data.maybeNextYear) addrUpdates.maybeNextYearAt = serverTimestamp();
       addrUpdates.rsvpStatus = 'backnextyear';
       addrUpdates.rsvpRespondedAt = serverTimestamp();
@@ -45294,10 +45557,16 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
          ever cleared this flag, which is why it went unnoticed. */
       addrUpdates.maybeNextYear = false;
       addrUpdates.maybeNextYearAt = null;
-      /* Coming back in with the dropdown still reading Back Next Year would
-         leave them unroutable behind a Confirmed badge, so reset it to
-         pending unless the office picked something else themselves. */
-      if(newRsvp === 'backnextyear'){ addrUpdates.rsvpStatus = ''; addrUpdates.rsvpRespondedAt = null; }
+      /* ⭐ THE STALE-DROPDOWN RESCUE THAT SAT HERE IS GONE, AND ITS ABSENCE IS THE
+         POINT (2026-09-02). It read: if the dropdown still says backnextyear,
+         blank it. That could only ever fire while a SECOND control could
+         disagree with this one — the office unticking a radio while the
+         dropdown still sat on an old answer. With the radio gone this branch
+         is reached only when the dropdown is NOT backnextyear, so the line
+         was dead code that still read as a live rule.
+         ⚠ DO NOT PUT IT BACK. It is the half of the old pair that wiped her
+         answer, and restoring it alongside a single control would blank the
+         RSVP of everybody the office brings back in. */
     }
     /* ⚠ LAST OF ALL, AFTER EVERYTHING THAT CAN MOVE EITHER FLAG — the colours ternary,
        the wire/timer re-queue, the rejoin-after-recycle, both re-quote answers, and the
@@ -45606,7 +45875,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        recycle had actually completed, or every ordinary yes-after-no would
        drop noise in the Inbox. Not raised when the Maybe Next Year toggle is
        on — that block above overrides the RSVP and pulls them out anyway. */
-    if(rejoinedAfterRecycle && !newSeasonMaybe){
+    if(rejoinedAfterRecycle && !seasonMaybeChosen){
       try{
         await addDoc(collection(db,'messages'), {
           topic: 'Rejoined After Recycling', folder: 'System',
@@ -45704,7 +45973,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        to only cover the Maybe Next Year toggle - setting RSVP straight to No
        from the dropdown here fell through the same gap the portal's own RSVP
        link had (fixed in functions/index.js's portalRsvp). */
-    if((newSeasonMaybe && !item.data.maybeNextYear) ||
+    if((seasonMaybeChosen && !item.data.maybeNextYear) ||
        (newRsvp === 'no' && item.data.rsvpStatus !== 'no')){
       await removeCustomerFromUpcomingRoutes(editCustomerId);
     }
@@ -51558,6 +51827,52 @@ function systemMessages(){
 /* Whether the folded-away routine notes are currently open. Deliberately not
    remembered anywhere: the point is that the folder is quiet again next time. */
 let sysShowRoutine = false;
+/* ⭐ WHICH SECTION A SYSTEM NOTICE FALLS IN (2026-09-02). Addie asked for folders in
+   the System tab "instead of just having it all in one spot", and named one of them:
+   "schedule also has it's own folder".
+
+   ⚠ DERIVED FROM THE TOPIC AT RENDER TIME, never stored. Every notice already in the
+   book was written before these sections existed, so storing a section would leave the
+   whole history in none of them — the same argument as messageFolderOf above, and as
+   One Man Installs.
+
+   ⚠ AND THE ORDER OF THIS LIST IS THE ORDER ON SCREEN, most-urgent first: money, then
+   the crews, then quotes, then the warehouse. A section holding nothing is not drawn.
+
+   ⚠ EVERYTHING UNMAPPED FALLS IN "Everything else", WHICH IS THE FAIL-SAFE DIRECTION.
+   A topic added later with no entry here still appears; the alternative is a notice
+   that exists, counts towards the badge, and is in no section on screen. `other` must
+   stay last, and must have no topic list of its own — it is the default, not a group.
+*/
+const SYSTEM_NOTICE_SECTIONS = [
+  {key:'money',     label:'Money',              icon:'\uD83D\uDCB5'},
+  {key:'schedule',  label:'Schedule & Routes',  icon:'\uD83D\uDE90'},
+  {key:'quotes',    label:'Quotes',             icon:'\uD83D\uDCDD'},
+  {key:'warehouse', label:'Warehouse & Lights', icon:'\uD83D\uDCA1'},
+  {key:'other',     label:'Everything else',    icon:'\u2699\uFE0F'}
+];
+const SYSTEM_NOTICE_SECTION_OF = {
+  'Payment With No Bill': 'money',
+  'Cannot Be Billed': 'money',
+  'Paid \u2014 Still Needs to RSVP': 'money',
+  'Routes Kept Up To Date': 'schedule',
+  'Moved To Another Day': 'schedule',
+  'A Route Sheet Is Out Of Date': 'schedule',
+  'Quote Approved': 'quotes',
+  'Quote Declined': 'quotes',
+  'Quote - Maybe Next Year': 'quotes',
+  'Re-quote Declined': 'quotes',
+  'Add-On Declined': 'quotes',
+  'Light Color Change': 'warehouse',
+  'Wire Color Change': 'warehouse',
+  'Outlet Timer Change': 'warehouse',
+  'Lights Changed After Assignment': 'warehouse',
+  'Rejoined After Recycling': 'warehouse',
+  'Customer Number Needs Fixing': 'warehouse'
+};
+function systemNoticeSection(d){
+  return SYSTEM_NOTICE_SECTION_OF[(d || {}).topic] || 'other';
+}
 function renderSystemMessagesTab(){
   const msgs = systemMessages();
   /* See noticeIsRoutine: the sweep's own ⚠ decides which side a note falls on. */
@@ -51573,7 +51888,28 @@ function renderSystemMessagesTab(){
   if(!list) return;
   if(!msgs.length){ list.innerHTML = '<div class="empty-note">No system notices right now.</div>'; return; }
   const parts = [];
-  if(needsEye.length) parts.push(needsEye.map(systemNoticeRow).join(''));
+  if(needsEye.length){
+    /* ⭐ SECTIONS, NOT ONE PILE (2026-09-02). Addie: "Can we make folders in system
+       messages. instead of just having it all in one spot", and "schedule also has
+       it's own folder". Twenty-one different notices were arriving in one undivided
+       list, so the one that needed her was read at the same speed as the one that did
+       not. Grouped by what the notice is ABOUT. */
+    SYSTEM_NOTICE_SECTIONS.forEach(function(sec){
+      const rows = needsEye.filter(function(m){ return systemNoticeSection(m.data) === sec.key; });
+      if(!rows.length) return;
+      const un = rows.filter(function(m){ return !m.data.read; }).length;
+      parts.push('<h4 style="margin:18px 0 6px; font-family:\'Fraunces\',serif; font-size:15px; '+
+        'border-bottom:1px solid var(--line); padding-bottom:5px;">'+
+        sec.icon+' '+esc(sec.label)+
+        /* ⚠ THE COUNT BESIDE A HEADING IS UNREAD, matching the message folder sidebar's
+           own rule, and a nought is drawn as nothing at all — a column of zeroes reads
+           as a broken counter. The section is only drawn when it holds something. */
+        (un ? ' <span class="status-pill status-new">'+un+'</span>' : '')+
+        ' <span style="color:var(--slate); font-weight:400; font-size:12px;">'+rows.length+'</span>'+
+      '</h4>');
+      parts.push(rows.map(systemNoticeRow).join(''));
+    });
+  }
   else parts.push('<div class="empty-note">Nothing here needs you right now.</div>');
   if(routine.length){
     parts.push(

@@ -176,6 +176,16 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    - ⚠ **Back Next Year was leaking too**, and it was only invisible because the right message happened to be on top: that route left `#page-payment` open underneath, so the **sign-in form sat below the goodbye**.
    - ⚠ **The specs asserted what the right card said, and never that no other card was on screen.** That is the gap; `test/rsvp-link.spec.js` now checks each route shows exactly one card and leaves no visible *"One moment"* anywhere. Four sabotages red-checked, including the original bug put back verbatim.
 
+   ⚠ **AND THE OFFICE'S OWN DROPDOWN WAS BEING OVERRULED** (fixed 2026-09-02). Addie: *"RSVP still says yes even though I just tried to update it."* Two controls described one state — a *This Season* **Back Next Year radio** and the **RSVP dropdown** — and the save read an unticked radio as *"the office is bringing them back in"*, so it cleared `rsvpStatus` to blank. Her customer already carried the flag from earlier testing, so choosing Back Next Year blanked the answer — and a blank on a quote-converted customer reads as **Yes** (`audienceNeverAsked`). She set an answer and the save stored its opposite.
+
+   ⭐ **AND THE SECOND CONTROL IS NOW GONE, WHICH IS THE REAL FIX** (RS-43). Addie, the next day: *"I don't understand why this is seperate. It should not have two seperate RSVP spots in costumer."* The radio pair is removed and **`#editCustRsvp` is the only control for this state**; `seasonMaybeChosen` is derived from it alone.
+   - ⚠ **Nothing went with it.** The dropdown carries five states against the radio's two, and picking Back Next Year there already did everything the radio did — the flag, the timestamp, off the build queue, off the schedule, off any upcoming route. The radio could not express **No**, **Unanswered** or **Pending** at all.
+   - ⚠ **The first fix went with it too, on purpose.** That one compared the dropdown against the **stored** value so a fresh choice could be told from a stale one — needed only while a second control could contradict it. Kept, it would now be **actively wrong**: an ordinary re-save of a Back Next Year customer changes nothing, so it computes false and strips the flag off somebody nobody touched.
+   - ⚠ **The stale-dropdown rescue is deleted, not left standing.** It could only fire while two controls could disagree, so it had become dead code that still read as a live rule — and restoring it beside a single control would blank the RSVP of everybody the office brings back in.
+   - ⚠ **The check that proved the radio pair existed now proves no second control has returned.** Repointed, never deleted: the state still has to be settable by hand and still has to be loaded when the form opens — only the control changed. `setCustomerSeason` and this save now write the flag and the status together, so they cannot drift.
+
+   ⚠ **THE OFFICE SPOKE THREE VOCABULARIES FOR THREE ANSWERS** (RS-42). The customer presses **Yes / Back Next Year / No**. The office row said *Maybe Next Year* (the **quote's** word), the season chip said *Pending*, and the dropdown said *"No — Skip This Year"* — which is why Addie read it and said *"I noticed there isn't a no"*. All three now match the email. ⚠ **The quote flow keeps Maybe Next Year** — its `approvalStatus`, its response buttons and the Quote Maybe Next Year Follow-up template are untouched. ⚠ **Pending and Unanswered keep their tails** because they are not answers and have no button: they say who has been *asked*.
+
    ⚠ **TWO PILLS ON ONE ROW WERE USING ONE WORD FOR TWO QUESTIONS** (renamed 2026-09-02). Addie: *"Says yes in one spot but pending in the other."* Both were correct. The **RSVP pill** answers *have they approved* — Yes, because converting from a quote **is** the approval (the *Approved — new this year* badge). The **season pill** answers *are they in the season* — no, because they were blocked by owing $200 from 2025, which the same row spells out underneath. But that pill said **"Pending"**, which is the RSVP vocabulary for *nobody has answered*, so a customer who had approved sat under a chip stating in the other column's own language that they had not. It says **On hold** now.
    - ⚠ **The key is still `pending`.** Only the word changed: `r.badge` is what the season filter matches on and the dropdown's option values are `confirmed`/`pending`/`maybe`, so renaming the key would silently break that filter. The filter's own label already read *"blocked by a rule"* — the chip now agrees with it.
    - ⚠ **A guard stops the collision coming back**: the season cell's chips are read out of the row builder and compared against every word `rsvpStatusLabel` can produce. *Maybe Next Year* is the one deliberate overlap and is excluded by name — it is the same state in both columns, said the same way on purpose.
@@ -264,6 +274,25 @@ empty again if the listener fails, and an ungated version would wipe the whole
 season on a slow morning. ⚠ They are reported separately from the people who
 left the season — "somebody said back next year" and "this row is not a person"
 need different things from the office.
+
+⭐ **AN RSVP LINK TO TEXT, FOR EVERYONE WITH NO EMAIL** (2026-09-02). The RSVP goes
+out by email, so customers with no address on file were never asked at all.
+**Automation Emails → Text the RSVP** lists them and hands over a ready message
+each — *"Copy their text"* per person, or *"Copy them all for texting"*, one line
+per person with the phone first.
+
+⚠ **One short link is the whole RSVP.** `#/payment?token=…` with no rsvp
+parameter signs them in, and the first block on that page is *"Are you having
+lights this season?"* with all three answers. Nothing new was needed on the
+customer's side — the emailed version needs three links only because it *is* the
+buttons.
+
+⚠ **The token is keyed to the record, not the phone.** The older
+`getOrCreatePortalToken` finds a customer by phone, and seventeen numbers in the
+book are shared by two households — through that door the second household's
+link would open the first one's portal. ⚠ Who is listed mirrors the email's own
+audience, so the two cannot drift about one person; somebody who replied STOP is
+shown but has no button, and drawing the list mints no tokens.
 
 ⭐ **THE CONFIRMED BADGE IS THE GATE** (2026-08-31). Addie: *"it should look for
 anyone who is confirmed and put them in schedule … make sure they cant have the
@@ -1117,6 +1146,39 @@ same way by the thing that writes the note and the thing that files it.
 **What it changes.** Routine digests fold behind a single *Routine route updates (N)* row in
 the System tab, one click from being read, and are left out of **both** unread badges.
 Everything else in the folder is untouched and draws exactly as before.
+
+⭐ **AND THE REST OF THE TAB IS NOW IN SECTIONS** (2026-09-02, MSG-07). Addie: *"Can we
+make folders in system messages. instead of just having it all in one spot"*, and
+*"schedule also has it's own folder"*. Twenty notices were arriving in one undivided list,
+so the one that needed her was read at the same speed as the one that did not. They are
+grouped **Money → Schedule & Routes → Quotes → Warehouse & Lights → Everything else**,
+most-urgent first, each with an unread count; a section holding nothing is not drawn.
+
+⚠ **The grouping is derived from the topic at render time, never stored** — every notice
+already in the book predates the sections, so storing one would leave the whole history in
+none of them. ⚠ **An unmapped topic falls in *Everything else***, which is the fail-safe
+direction: a notice that exists, counts towards the badge and is drawn in no section is
+worse than one in the wrong section. ⚠ **The routine digest above stays folded below the
+sections rather than filling the Schedule one** — merging them would undo the fix that
+stopped it burying the notices that need her.
+
+⭐ **CANCELLATIONS AND THE MEMBER PORTAL GET FOLDERS IN CUSTOMER MESSAGES** (2026-09-02,
+MSG-07). *"we need a place for cancelation messages to go … Also can we have inbox for
+member portal."* `messageFolderOf` sends a *Cancellation Request* to **Cancellations**, and
+*Note Added* / *Existing Customer - Address Changed* to **Member Portal**.
+
+⚠ **Derived, so it sorts the messages already written** — every cancellation in the book
+was written `folder:'Inbox'`, and routing only new ones would have left her existing ones in
+the pile. Nothing is migrated. ⚠ **The office's own filing always wins**: `filedByHand` is
+stamped by the drag, the right-click, Move to… and a folder being deleted, so a message
+moved by hand stays put — without it, a dragged message springs back and reads as the drag
+not working. ⚠ **A rename is deliberately not a filing** for a message stored in the folder, so
+renaming does not pin everything inside it for ever — but a message sitting there only
+by *derivation* **is** pinned, because otherwise the topic map would go on naming a
+folder that no longer exists and that message would be in no list at all. Deleting a
+folder files its derived residents into Inbox for the same reason. ⚠ **And `folder:'System'` is untouched by all of it** — that
+field decides which *tab* a message is on, not which folder, and a topic must never be able
+to move a notice between them.
 
 ⚠ **The nav badge was counting messages its own list has never shown.**
 `renderMessagesList` has always filtered System notices *out* of the customer list

@@ -4617,8 +4617,12 @@ suite('8. Quote decline / maybe next year');
      changed is only the word: "Pending" is the RSVP pill's term for NOBODY HAS
      ANSWERED, and on a row where that pill said Yes the two read as a contradiction.
      Addie: "Says yes in one spot but pending in the other." */
-  check('quoteresp', 'every customer reads Confirmed, On hold or Maybe Next Year',
-    maybeCell.includes('Maybe Next Year<') && maybeCell.includes('Confirmed<') &&
+  /* ⚠ THE THIRD WORD IS "Back Next Year" SINCE 2026-09-02. Addie: "its back next year
+     the quotes is maybe next year" — the RSVP's answers are Yes / Back Next Year / No,
+     and Maybe Next Year is the QUOTE's word. The office row was using the quote's
+     vocabulary for an RSVP state. The quote flow keeps its own wording untouched. */
+  check('quoteresp', 'every customer reads Confirmed, On hold or Back Next Year',
+    maybeCell.includes('Back Next Year<') && maybeCell.includes('Confirmed<') &&
     maybeCell.includes('On hold<'),
     'a blank cell is ambiguous between "confirmed" and "nobody has looked yet"');
   /* ⚠ AND THE BADGE HAS TO DRIVE THEM. A red-check proved the line above is not
@@ -4701,28 +4705,50 @@ suite('8. Quote decline / maybe next year');
     /safeRender\('allCustomersTable'/.test(admin),
     'an Edit Customer save would not show up in the table until you retyped the search');
 
-  // --- the manual toggle in Edit Customer -------------------------------
-  check('quoteresp', 'Edit Customer offers both states',
-    /id="editCustSeasonConfirmed"/.test(admin) && /id="editCustSeasonMaybe"/.test(admin),
+  /* --- ONE CONTROL FOR THIS STATE, NOT TWO (repointed 2026-09-02) ------------
+     These three used to prove a "This Season" radio pair EXISTED beside the RSVP
+     dropdown. Addie: "It should not have two seperate RSVP spots in costumer." The
+     pair is gone, so each is repointed to the invariant that replaced it — never
+     deleted, because the state still has to be settable by hand and still has to be
+     loaded when the form opens; only the control changed. */
+  check('quoteresp', 'Edit Customer can set every RSVP answer by hand',
+    /<option value="backnextyear">/.test(admin) && /<option value="no">/.test(admin) &&
+    /<option value="yes">/.test(admin),
     'there would be no way to set this by hand');
-  check('quoteresp', 'only one state can be active at a time',
-    (admin.match(/name="editCustSeason"/g) || []).length === 2 &&
-    /type="radio" name="editCustSeason"/.test(admin),
-    'two checkboxes would eventually end up both on or both off — a radio group cannot');
-  check('quoteresp', 'the toggle is loaded when the modal opens',
-    /editCustSeasonMaybe' : 'editCustSeasonConfirmed'\)\.checked = true/.test(admin),
-    'it would always show Confirmed regardless of the real value');
+  /* ⭐ THE STRONGEST FORM OF THE OLD CHECK. It counted the radio pair to prove the two
+     could never both be on; a <select> carries exactly one value, so that invariant is
+     now free and this asserts the bigger one instead — that no SECOND control for this
+     state has come back. Two controls is what let an unticked box wipe an answer she
+     had just picked in the dropdown (RS-43). */
+  check('quoteresp', 'one control decides Back Next Year, not two',
+    !/name="editCustSeason"/.test(admin) && !/editCustSeasonMaybe/.test(admin.replace(/<!--[\s\S]*?-->/g, '')),
+    'a second control for this state is what silently overwrote the office\'s own answer');
+  check('quoteresp', 'the state is loaded when the modal opens',
+    /getElementById\('editCustRsvp'\)\.value = d\.rsvpStatus/.test(admin),
+    'it would always show Pending regardless of the real value');
+  /* ⚠ THE ASSIGNMENT IS `seasonMaybeChosen` SINCE 2026-09-02, not the raw checkbox:
+     a dropdown CHANGED to Back Next Year now counts as choosing it, because reading an
+     unticked box as "bringing them back in" was silently wiping the office's own
+     answer. The ordering this checks is unchanged and is what matters. */
   check('quoteresp', 'saving applies the season fields after the rest',
-    admin.indexOf('addrUpdates.maybeNextYear = newSeasonMaybe') >
+    admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') >
       admin.indexOf('addrUpdates.needsLightBuild = newLightsDescription') &&
-    admin.indexOf('addrUpdates.maybeNextYear = newSeasonMaybe') <
+    admin.indexOf('addrUpdates.maybeNextYear = seasonMaybeChosen') <
       admin.indexOf("await updateDoc(doc(db,'jobAddresses', editCustomerId), addrUpdates)"),
     'the RSVP dropdown or the build flag would overwrite it and leave a half state');
-  check('quoteresp', 'coming back to Confirmed clears a stale Back Next Year RSVP',
-    /newRsvp === 'backnextyear'\)\{ addrUpdates\.rsvpStatus = ''/.test(admin),
-    'they would be unroutable behind a Confirmed badge');
-  check('quoteresp', 'saving Maybe Next Year pulls them off upcoming routes',
-    /newSeasonMaybe && !item\.data\.maybeNextYear[\s\S]{0,120}removeCustomerFromUpcomingRoutes/.test(admin),
+  /* ⭐ REPOINTED FROM ITS OPPOSITE (2026-09-02). This used to require the stale-dropdown
+     rescue — "if the dropdown still says backnextyear, blank it" — which could only fire
+     while a second control could disagree with the dropdown. With one control that line
+     is dead code that still reads as a live rule, and restoring it would blank the RSVP
+     of everybody the office brings back in. The guarantee it protected is now structural:
+     the flag is derived from the dropdown, so the two cannot drift apart. */
+  check('quoteresp', 'the badge flag is derived from the RSVP dropdown alone',
+    /const seasonMaybeChosen = newRsvp === 'backnextyear';/.test(admin) &&
+    !/newRsvp === 'backnextyear'\)\{ addrUpdates\.rsvpStatus = ''/.test(admin),
+    'a second opinion about this state is what put the badge and the RSVP pill on ' +
+    'opposite sides of one row');
+  check('quoteresp', 'saving Back Next Year pulls them off upcoming routes',
+    /seasonMaybeChosen && !item\.data\.maybeNextYear[\s\S]{0,120}removeCustomerFromUpcomingRoutes/.test(admin),
     'the badge would say they are out while the crew still turns up');
   const seasonFn = admin.slice(admin.indexOf('async function setCustomerSeason'),
     admin.indexOf('async function setCustomerSeason') + 1400);
@@ -24740,7 +24766,11 @@ suite('Suite 107. Pricing a re-quote from the popup');
      The popup only parks the answer; this block is the half that writes it. */
   {
     const at = admin.indexOf('    if(requoteBuildChoice){');
-    const end = admin.indexOf('    /* Applied last so it beats the RSVP dropdown', at);
+    /* ⚠ ANCHORED ON THE DECLARATION, NOT ON THE COMMENT ABOVE IT (2026-09-02).
+       This read `/* Applied last so it beats the RSVP dropdown` — comment prose —
+       and went red the moment that paragraph was rewritten, on code that is right.
+       The season block genuinely begins at seasonMaybeChosen; that is the boundary. */
+    const end = admin.indexOf('    const seasonMaybeChosen =', at);
     const blk = (at > 0 && end > at) ? admin.slice(at, end) : '';
     check('S107', 'the block that carries the choice out was found', !!blk);
 
@@ -25432,7 +25462,11 @@ suite('Suite 107. Pricing a re-quote from the popup');
      record stay exactly as they are. */
   {
     const at = admin.indexOf('    if(requoteBuildChoice){');
-    const end = admin.indexOf('    /* Applied last so it beats the RSVP dropdown', at);
+    /* ⚠ ANCHORED ON THE DECLARATION, NOT ON THE COMMENT ABOVE IT (2026-09-02).
+       This read `/* Applied last so it beats the RSVP dropdown` — comment prose —
+       and went red the moment that paragraph was rewritten, on code that is right.
+       The season block genuinely begins at seasonMaybeChosen; that is the boundary. */
+    const end = admin.indexOf('    const seasonMaybeChosen =', at);
     const blk = (at > 0 && end > at) ? admin.slice(at, end) : '';
     check('S118', 'the block that carries the choice out was found', !!blk);
     if (blk) {
@@ -35080,17 +35114,21 @@ suite('Suite 132. Back Next Year neither creates a recycle nor destroys one');
 
   /* ---- 3. the Edit Customer save's own copy, run ----------------------- */
   {
-    const a = admin.indexOf('    if(newSeasonMaybe){');
+    /* Renamed 2026-09-02 — see the note on the ordering check above. */
+    const a = admin.indexOf('    if(seasonMaybeChosen){');
     const b = admin.indexOf('    } else if(item.data.maybeNextYear){', a);
     check('S132', 'the Edit Customer Back Next Year branch is findable',
       a !== -1 && b > a,
       'moved or renamed — fix the slice rather than deleting the check');
     if (a !== -1 && b > a) {
       const branch = admin.slice(a, b) + '    }';
-      const runBranch = (newSeasonMaybe, data) => {
+      /* ⚠ THE BRANCH TESTS `seasonMaybeChosen` SINCE 2026-09-02 — the checkbox OR a
+         dropdown just changed to Back Next Year. This harness feeds that name; what it
+         is asserting (that the branch writes no recycle flag either way) is unchanged. */
+      const runBranch = (seasonMaybeChosen, data) => {
         const addrUpdates = {};
-        new Function('newSeasonMaybe', 'item', 'addrUpdates', 'serverTimestamp',
-          branch)(newSeasonMaybe, { data: data }, addrUpdates, () => '@ts');
+        new Function('seasonMaybeChosen', 'item', 'addrUpdates', 'serverTimestamp',
+          branch)(seasonMaybeChosen, { data: data }, addrUpdates, () => '@ts');
         return addrUpdates;
       };
       const out = runBranch(true, { needsLightRecycle: true, maybeNextYear: false });
@@ -43486,7 +43524,11 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
    source, because every claim here is about a NUMBER ON SCREEN or a ROW THAT EXISTS,
    which a regex cannot see. */
 {
-  const names = ['folderUnread', 'folderDescendantNames', 'folderCount', 'folderRowHtml', 'renderFolderNode'];
+  /* ⚠ messageFolderOf IS LIFTED, NEVER STUBBED (added 2026-09-02). It is what decides
+     which folder a message counts in — a stub would let this suite go green while the
+     sidebar's numbers and the list underneath them disagreed, which is the one thing
+     the whole suite exists to prove. sandboxDeps caught it missing on the first run. */
+  const names = ['folderUnread', 'folderDescendantNames', 'folderCount', 'folderRowHtml', 'renderFolderNode', 'messageFolderOf'];
   const bodies = names.map(function (n) { return extractFn(admin, n); });
   const missing = names.filter(function (n, i) { return !bodies[i]; });
   check('S273', 'the inbox counting and tree functions are all still in admin.html',
@@ -43499,12 +43541,18 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
     const escSrc = extractFn(admin, 'esc');
     check('S273', 'esc lifted from admin.html for the sandbox', !!escSrc,
       'without the real one the rendered rows prove nothing about escaping');
+    /* MESSAGE_HOME_FOLDER is read out of admin.html rather than retyped: a copy here
+       would agree with itself and say nothing about where a real message lands. */
+    const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
+    check('S273', 'the topic-to-folder table was lifted, not retyped', !!homeMap,
+      'a copy in this file would agree with itself and prove nothing');
     const preamble =
       'let allMessages = [], messageFolders = [], selectedFolder = "Inbox";' +
       'let collapsedFolders = new Set();' +
+      (homeMap || 'const MESSAGE_HOME_FOLDER = {};') +
       (escSrc || 'function esc(x){return String(x==null?"":x);}') + ';';
     const code = preamble + bodies.join(';') + ';' +
-      'return {folderUnread, folderDescendantNames, folderCount, folderRowHtml, renderFolderNode,' +
+      'return {folderUnread, folderDescendantNames, folderCount, folderRowHtml, renderFolderNode, messageFolderOf,' +
       ' set(m, f, c, sel){ allMessages = m; messageFolders = f; collapsedFolders = new Set(c||[]);' +
       ' if(sel) selectedFolder = sel; }};';
     assertSandbox('S273', 'inbox folder tree', code, admin,
@@ -46601,8 +46649,17 @@ suite('287. The routine route sweep does not bury the notice that matters');
     check('S287', 'the routine ones are still rendered, behind a toggle',
       /routine\.map\(systemNoticeRow\)/.test(sysTab) && /sysRoutineToggle/.test(sysTab),
       'they record days that moved under customers; hiding them for good is worse than the flood');
-    check('S287', 'and both piles are drawn by the SAME row builder',
-      /needsEye\.map\(systemNoticeRow\)/.test(sysTab),
+    /* ⚠ REPOINTED 2026-09-02, NOT WEAKENED. This matched `needsEye.map(systemNoticeRow)`
+       — the needs-an-eye half is now drawn a SECTION at a time (`rows.map`), so it went
+       red on code that is right: the §7 slow-fuse shape, pinned to where a name happened
+       to sit. The invariant is that there is exactly ONE row builder, which is what stops
+       the folded list drifting from the one above it. */
+    check('S287', 'and every pile is drawn by the SAME row builder',
+      (sysTab.match(/\.map\(systemNoticeRow\)/g) || []).length >= 2 &&
+      /* ⚠ NOT "no row-item markup" — the routine toggle is legitimately a row-item and
+         is not a notice card. What a SECOND card builder would need is the two lookups
+         systemNoticeRow uses to fill one in; neither belongs in this function. */
+      !/messageAddressLookup|messageFeetEstimate/.test(sysTab),
       'two renderers for one card is how the folded list quietly stops matching the one above it');
     /* ⚠ THE HANDLERS HAVE TO REACH THE FOLDED ROWS. Mark-as-read and Send to Warehouse
        are bound once per render over the whole list; bound only over the visible half,
@@ -46816,6 +46873,157 @@ suite('287. The routine route sweep does not bury the notice that matters');
     'that button is the closest thing to what she said she wanted to do herself');
 }
 
+
+/* ---- an RSVP link to text, for everyone with no email ---------------------
+   ⚠ NUMBERED 291, NOT 287. Two sessions numbered a suite 287 on the same day —
+   main's "The routine route sweep does not bury the notice that matters" landed
+   first, so this one moved. The file already records the same collision at 268/269
+   and at 24/25; it is what parallel work looks like, and the rule is that the one
+   already on main keeps the number.
+   ⭐ Addie, 2026-09-02: "make an rsvp text link for everyone that doesnt have an
+   email on file." The RSVP goes out by email, so these customers are never asked
+   at all.
+
+   ⚠ NOTHING NEW WAS NEEDED ON THE CUSTOMER'S SIDE and the checks say so, because
+   the next person to touch this will be tempted to build a page for it:
+   `#/payment?token=…` with no rsvp parameter signs them in, and the FIRST block on
+   that page asks the question with all three answers on it. */
+suite('291. An RSVP link to text, for everyone with no email');
+{
+  const NL287 = String.fromCharCode(10);
+  const names = ['rsvpTextTargets', 'rsvpTextLinkFrom', 'rsvpTextMessageFor'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S287', 'the three rules are findable', srcs.every(Boolean),
+    names.filter((n, i) => !srcs[i]).join(', ') + ' missing');
+
+  if (srcs.every(Boolean)) {
+    /* ⚠ audienceNeverAsked AND effectiveRsvpStatus ARE LIFTED, NEVER STUBBED. Who is
+       asked is the whole claim — a stub here would let this list and the email's
+       audience drift apart while the suite stayed green, which is the exact failure
+       the shared predicate exists to stop. */
+    const api = new Function('jobAddresses',
+      extractFn(admin, 'audienceNeverAsked') + NL287 +
+      /* ⚠ ITS OWN HELPER TOO. audienceNeverAsked asks audienceQuoteJoinYear, and a
+         sandbox given only the outer function dies with a bare ReferenceError — the
+         sandboxDeps lesson, in a new suite. */
+      extractFn(admin, 'audienceQuoteJoinYear') + NL287 +
+      extractFn(admin, 'enrollmentYearOf') + NL287 +
+      extractFn(admin, 'effectiveRsvpStatus') + NL287 +
+      srcs.join(NL287) + NL287 +
+      'return {targets: rsvpTextTargets, link: rsvpTextLinkFrom, msg: rsvpTextMessageFor};');
+
+    const book = [
+      { id: 'noemail', data: { name: 'Nora Noemail', phone: '8015550001' } },
+      { id: 'hasemail', data: { name: 'Ed Emailed', phone: '8015550002', email: 'ed@x.com' } },
+      { id: 'email2', data: { name: 'Second Address', phone: '8015550003', email2: 'b@x.com' } },
+      { id: 'nophone', data: { name: 'No Way To Reach', phone: '' } },
+      { id: 'answered', data: { name: 'Already Said Yes', phone: '8015550004',
+                                rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' } },
+      { id: 'assumed', data: { name: 'Assumed Yes At Conversion', phone: '8015550005',
+                               rsvpStatus: 'yes' } },
+      { id: 'newthisyear', data: { name: 'First Year', phone: '8015550006',
+                                   chargeNewMemberFee: true } },
+      { id: 'stopped', data: { name: 'Replied STOP', phone: '8015550007', smsOptedOut: true } }
+    ];
+    const ids = api(book).targets().map(x => x.id);
+
+    check('S287', 'somebody with no email and no answer is on the list',
+      ids.indexOf('noemail') !== -1, 'got ' + JSON.stringify(ids));
+    check('S287', 'anybody the email can reach is not',
+      ids.indexOf('hasemail') === -1 && ids.indexOf('email2') === -1,
+      'got ' + JSON.stringify(ids) + ' — a second address is still an address, and ' +
+      'texting somebody the email already reached asks them twice');
+    check('S287', 'and neither is somebody with no phone number',
+      ids.indexOf('nophone') === -1,
+      'a text needs somewhere to go; they are a phone call, not a list entry');
+    check('S287', 'somebody who has really answered is left alone',
+      ids.indexOf('answered') === -1,
+      'texting them asks a question they think they have answered');
+    /* ⚠ THE ASSUMED YES IS THE ONE THAT MATTERS. rsvpStatus can hold a bare 'yes'
+       written at conversion or by an import with nobody having replied — reading the
+       raw field would silently drop those people from the only list that can reach
+       them. */
+    check('S287', 'but a yes with no reply behind it still gets asked',
+      ids.indexOf('assumed') !== -1,
+      'got ' + JSON.stringify(ids) + ' — that yes is an import or the one written at ' +
+      'conversion, and they are exactly who has never been asked');
+    /* ⚠ THIS PROVES THE OUTCOME AND NO MORE, and says so rather than overclaiming.
+       A red-check deleting rsvpTextTargets' own audienceNeverAsked guard leaves this
+       GREEN — because effectiveRsvpStatus, on the line below it, already returns 'yes'
+       for anybody nobody was ever going to ask. The guard is kept for intent, and this
+       check is honest about what it can see: that a first-year customer does not end
+       up on the list, by whichever of the two routes. */
+    check('S287', 'a first-year customer does not end up on the list',
+      ids.indexOf('newthisyear') === -1,
+      '"will you be getting lights hung AGAIN this year?" is nonsense to somebody ' +
+      'who never has — and a second definition of who gets asked is how the two lists drift');
+    /* ⚠ STOP IS HANDLED WHERE THE TEXT IS HANDED OVER, not here: they are still on the
+       list so the office can SEE them, with the button replaced by a warning. Dropping
+       them silently would make somebody wonder who was missing. */
+    check('S287', 'somebody who replied STOP is still shown, and the card refuses to text them',
+      ids.indexOf('stopped') !== -1 &&
+      /Do not text/.test(admin) && /smsOptedOut/.test(extractFn(admin, 'rsvpTextRender') || ''),
+      'dropping them from the list silently is how somebody goes missing without a reason');
+
+    /* ---- the link and the words ---- */
+    /* ⚠ A REAL-LENGTH TOKEN, READ OFF THE GENERATOR. The first version of the
+       one-message check used a six-character token and passed while the shipped text
+       ran to 172 characters on a real one — a fixture that could not fail. The length
+       is taken from generatePortalToken so it cannot drift from the page again. */
+    const tokLen = Number(((extractFn(admin, 'generatePortalToken') || '')
+      .match(/i\s*<\s*(\d+)\s*;/) || [])[1]);
+    check('S287', 'the token length is read off the generator', tokLen > 0,
+      'without it this suite is guessing at the only number that decides whether the ' +
+      'message fits in one text');
+    const realTok = 'a'.repeat(tokLen || 20);
+    const link = api(book).link(realTok);
+    check('S287', 'the link is the portal, with no answer baked into it',
+      link === 'https://highlightingutah.com/#/payment?token=' + realTok,
+      'got ' + link + ' — an rsvp=yes link ANSWERS for them; this one asks');
+    check('S287', 'and no link at all without a token',
+      api(book).link('') === '' && api(book).link(null) === '',
+      'half a URL in a text is worse than no text');
+    const msg = api(book).msg({name: 'Nora Noemail'}, link);
+    check('S287', 'the message names them and ends on the address',
+      /^Hi Nora,/.test(msg) && msg.indexOf(link) === msg.length - link.length,
+      'got ' + JSON.stringify(msg) + ' — a text cannot hide a link behind a word, so ' +
+      'the address has to be visible and easy to tap');
+    check('S287', 'and it fits in one message',
+      msg.length <= 160,
+      'got ' + msg.length + ' characters — over 160 is billed as two');
+    /* ⚠ AND IT STILL FITS FOR SOMEBODY WITH A LONG FIRST NAME. The name is the only
+       part that varies, so a check against one short name proves the least of it. */
+    check('S287', 'and still fits for a long first name',
+      api(book).msg({name: 'Christopherjames Vanderhoeven'}, link).length <= 160,
+      'got ' + api(book).msg({name: 'Christopherjames Vanderhoeven'}, link).length +
+      ' characters for a sixteen-letter first name');
+    check('S287', 'somebody with no name still gets a sentence that reads',
+      /^Hi there,/.test(api(book).msg({}, link)),
+      'got ' + JSON.stringify(api(book).msg({}, link)));
+  }
+
+  /* ⚠ THE TOKEN IS KEYED TO THE RECORD, NOT THE PHONE, and this is the one thing here
+     that could do real harm. getOrCreatePortalToken finds a customer BY PHONE with a
+     .find(), and seventeen numbers in the real book are shared by two households — so
+     through that door the second household's "own" link would sign them into the
+     first one's portal: their address, their price, their answer to change. */
+  const tokenFn = extractFn(admin, 'rsvpTextTokenFor') || '';
+  check('S287', 'the token is made for the record it was handed', !!tokenFn &&
+    /updateDoc\(doc\(db,'jobAddresses', item\.id\)/.test(tokenFn) &&
+    !/getOrCreatePortalToken/.test(tokenFn),
+    'looking the customer up by phone hands a shared-phone household somebody ' +
+    'else\'s portal');
+  check('S287', 'and a failed save still hands back a usable link',
+    /catch\(err\)\{[\s\S]*?\}\s*return token;/.test(tokenFn),
+    'returning null there costs them the text entirely, where a failed save only ' +
+    'costs them a fresh link next time');
+  /* ⚠ AND THE LIST DOES NOT WRITE TO THE BOOK BY BEING LOOKED AT. Minting a token is a
+     write; drawing a list is not a reason to write to a few hundred customer records. */
+  const renderFn = extractFn(admin, 'rsvpTextRender') || '';
+  check('S287', 'drawing the list mints no tokens',
+    !!renderFn && !/rsvpTextTokenFor/.test(renderFn.split('addEventListener')[0]),
+    'a panel that edits the book by being opened is the kind of thing nobody suspects');
+}
 /* =====================================================================
  * Suite 290 — paying is not the same as saying yes
  *
@@ -47159,6 +47367,220 @@ suite('287. The routine route sweep does not bury the notice that matters');
         r.created.length === 0,
         'a library that refills itself every morning is worse than a missing template');
     }).catch(function (e) { e.__suite = 'S289'; throw e; }));
+  }
+}
+
+/* =====================================================================
+ * Suite 292 — cancellations, the member portal, and folders in the System tab
+ *
+ * ⚠ NUMBERED 292, NOT 290. Suites 290 and 291 were taken by two parallel sessions
+ * on the same day; the file already records the same collision at 268/269 and at
+ * 287/291, and the rule is that whatever is already on main keeps the number.
+ *
+ * Addie, 2026-09-02: "we need a place for cancelation messages to go. Can we have it
+ * go to inbox but these will have it's own no section and schedule also has it's own
+ * folder. Can we make folders in system messages. instead of just having it all in
+ * one spot. Also can we have inbox for member portal."
+ *
+ * ⚠ IT RUNS THE RULES rather than matching their source. Every claim here is about
+ * WHICH FOLDER A MESSAGE LANDS IN, which a regex cannot see — and this repo has been
+ * caught four times by a check that read the source of something that could never
+ * reach the screen.
+ * ===================================================================== */
+suite('292. Cancellations, the member portal, and folders in the System tab');
+{
+  const NL292 = String.fromCharCode(10);
+  const homeMap = (admin.match(/const MESSAGE_HOME_FOLDER = \{[\s\S]*?\};/) || [])[0];
+  const folderOf = extractFn(admin, 'messageFolderOf');
+  const sectionOf = extractFn(admin, 'systemNoticeSection');
+  const secMap = (admin.match(/const SYSTEM_NOTICE_SECTION_OF = \{[\s\S]*?\};/) || [])[0];
+  const secList = (admin.match(/const SYSTEM_NOTICE_SECTIONS = \[[\s\S]*?\];/) || [])[0];
+  check('S292', 'the two tables and the two rules were all found',
+    !!homeMap && !!folderOf && !!sectionOf && !!secMap && !!secList,
+    'renamed? update this suite rather than deleting it');
+
+  if (homeMap && folderOf && sectionOf && secMap && secList) {
+    const api = new Function(
+      homeMap + NL292 + folderOf + NL292 + secMap + NL292 + secList + NL292 + sectionOf + NL292 +
+      'return {folderOf: messageFolderOf, sectionOf: systemNoticeSection,' +
+      ' sections: SYSTEM_NOTICE_SECTIONS, home: MESSAGE_HOME_FOLDER};')();
+
+    /* ---- her three asks, run ------------------------------------------- */
+    /* ⭐ THE FIXTURE IS SHAPED THE WAY index.html REALLY WRITES ONE — folder:'Inbox',
+       important:true — because that is the shape of every cancellation already in her
+       book. A fixture carrying the new folder would pass whether the fix exists or not. */
+    check('S292', 'a cancellation lands in its own folder',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox', important: true}) === 'Cancellations',
+      'got ' + api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}));
+    /* ⚠ THE ONES ALREADY WRITTEN ARE THE POINT. Routing only new messages would leave
+       her existing cancellations in the undivided pile, and the feature would look
+       broken on the only data she has. Nothing is migrated; the same rows just sort. */
+    check('S292', 'and so does one written before any of this existed',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox'}) === 'Cancellations',
+      'no message is rewritten, so a stored folder must not be able to win by default');
+    check('S292', 'a member-portal note lands in Member Portal',
+      api.folderOf({topic: 'Note Added', folder: 'Inbox'}) === 'Member Portal' &&
+      api.folderOf({topic: 'Existing Customer - Address Changed', folder: 'Inbox'}) === 'Member Portal',
+      'got ' + api.folderOf({topic: 'Note Added', folder: 'Inbox'}));
+
+    /* ---- the office's own filing always wins ---------------------------- */
+    /* ⚠ WITHOUT THIS A DRAGGED MESSAGE SPRINGS BACK on the next render, which reads as
+       the drag not working — the exact complaint the folder tree was rebuilt for. */
+    check('S292', 'a message the office filed stays where they put it',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Report an Issue', filedByHand: true}) === 'Report an Issue',
+      'got ' + api.folderOf({topic: 'Cancellation Request', folder: 'Report an Issue', filedByHand: true}));
+    check('S292', 'including back to a plain Inbox',
+      api.folderOf({topic: 'Cancellation Request', folder: 'Inbox', filedByHand: true}) === 'Inbox',
+      'unfiling has to be possible or the folder is a one-way trip');
+
+    /* ---- the fail-safe directions -------------------------------------- */
+    check('S292', 'an unmapped topic keeps the folder it was written to',
+      api.folderOf({topic: 'Something nobody has written yet', folder: 'General Question'}) === 'General Question' &&
+      api.folderOf({folder: 'Inbox'}) === 'Inbox' &&
+      api.folderOf({}) === 'Inbox',
+      'a topic added later must not vanish out of every list');
+    /* ⚠ folder:'System' IS NOT A FOLDER IN THIS SIDEBAR — it is what makes a message a
+       system notice at all. Deriving it would let a topic quietly move a notice between
+       the two tabs, and the customer list excludes System unconditionally. */
+    check('S292', 'a system notice is never re-homed into the customer sidebar',
+      api.folderOf({topic: 'Light Color Change', folder: 'System'}) === 'System' &&
+      api.folderOf({topic: 'Cancellation Request', folder: 'System'}) === 'System' &&
+      api.folderOf({topic: 'Note Added', folder: 'System', filedByHand: true}) === 'System',
+      'that field decides which TAB a message is on; a topic must not be able to move it');
+
+    /* ---- the System tab's sections -------------------------------------- */
+    check('S292', 'schedule notices have their own section',
+      api.sectionOf({topic: 'Routes Kept Up To Date'}) === 'schedule' &&
+      api.sectionOf({topic: 'Moved To Another Day'}) === 'schedule' &&
+      api.sectionOf({topic: 'A Route Sheet Is Out Of Date'}) === 'schedule',
+      'she named this one: "schedule also has it\'s own folder"');
+    check('S292', 'money, quotes and the warehouse are separated too',
+      api.sectionOf({topic: 'Payment With No Bill'}) === 'money' &&
+      api.sectionOf({topic: 'Quote Declined'}) === 'quotes' &&
+      api.sectionOf({topic: 'Light Color Change'}) === 'warehouse',
+      'one undivided list is what she asked to be rid of');
+    /* ⚠ THE FAIL-SAFE DIRECTION. A topic added later with no entry must still appear;
+       the alternative is a notice that exists, counts towards the badge, and is drawn
+       in no section at all. */
+    check('S292', 'a topic nobody has mapped still lands somewhere visible',
+      api.sectionOf({topic: 'A Background Check Has Stopped'}) === 'other' &&
+      api.sectionOf({}) === 'other' && api.sectionOf(null) === 'other',
+      'a notice in no section is worse than a notice in the wrong one');
+    check('S292', 'and "Everything else" is last, and is a default rather than a group',
+      api.sections[api.sections.length - 1].key === 'other' &&
+      Object.keys(api.home).length > 0 &&
+      Object.values(JSON.parse(JSON.stringify(
+        (function(){ const o = {}; api.sections.forEach(s => o[s.key] = 1); return o; })()
+      )).constructor === Object ? {} : {}).length === 0 &&
+      !Object.values(api.sections.reduce(function (o, s) { o[s.key] = s; return o; }, {}))
+        .some(function (s) { return s.key === 'other' && s.topics; }),
+      'ordered above a real group it would swallow everything drawn after it');
+
+    /* ⚠ EVERY MAPPED SECTION KEY MUST BE ONE THIS TAB ACTUALLY DRAWS. A typo in the
+       table is invisible: that topic silently falls in no section, because the render
+       walks SYSTEM_NOTICE_SECTIONS and asks for rows matching each key. */
+    const known = api.sections.map(function (s) { return s.key; });
+    const strays = Object.keys(JSON.parse(JSON.stringify(
+      (function () { const o = {}; const m = secMap.match(/'[^']+':\s*'([a-z]+)'/g) || [];
+        m.forEach(function (pair) { o[pair.split(':').pop().trim().replace(/'/g, '')] = 1; });
+        return o; })()))).filter(function (k) { return known.indexOf(k) === -1; });
+    check('S292', 'every section a topic names is one the tab draws',
+      strays.length === 0,
+      'these keys are in no section and their notices would be invisible: ' + strays.join(', '));
+
+    /* ⚠ AND EVERY SYSTEM TOPIC THE APP ACTUALLY WRITES IS ACCOUNTED FOR. Not a
+       requirement that each be MAPPED — "other" is a legitimate home — but the count is
+       what shows somebody that a new topic was added and never considered. */
+    const written = {};
+    [admin, fnsSrc, publicSite].forEach(function (src) {
+      (src.match(/topic: '[^']+'/g) || []).forEach(function (t) {
+        written[t.slice(8, -1)] = 1;
+      });
+    });
+    /* ⚠ THE CUSTOMER-SIDE TOPICS ARE EXCLUDED, OR THIS NOTE CRIES WOLF. Cancellation
+       Request, Note Added and Existing Customer - Address Changed are written to an
+       Inbox folder, never to System, so they have no business in a count of unplaced
+       SYSTEM notices — listing them would put three permanent names in a line whose
+       whole value is that a NEW name appearing in it means somebody added a topic and
+       never placed it. They are identified by having a home folder of their own. */
+    const unmapped = Object.keys(written).filter(function (t) {
+      return api.sectionOf({topic: t}) === 'other' && !api.home[t];
+    });
+    /* ⚠ note() TAKES ONE ARGUMENT. Passing a suite tag first printed a bare "S292" and
+       swallowed the whole count — a note that says nothing is the same as no note. */
+    note('S292: ' + Object.keys(written).length + ' topics are written by the app; ' +
+      Object.keys(api.home).length + ' are customer-side and have their own folder; ' +
+      unmapped.length + (unmapped.length === 1 ? ' system topic falls' : ' system topics fall') +
+      ' in "Everything else"' +
+      (unmapped.length ? ': ' + unmapped.join(', ') : '') +
+      ' — that is a home, not a fault, but a new one appearing here means nobody placed it.');
+  }
+
+  /* ---- the four hand-file sites stamp it, and the rename deliberately does not ---- */
+  /* ⚠ SCOPED TO THE SIDEBAR, because `folder:` appears all over this file. A file-wide
+     count would pass with any one of the four unstamped. */
+  const sidebar = (admin.split('function renderFolderSidebar(){')[1] || '').split(NL292 + 'function ')[0];
+  check('S292', 'dropping a message onto a folder files it by hand',
+    /\{folder: item\.dataset\.folder, filedByHand: true\}/.test(sidebar),
+    'a dragged message would spring back to its topic on the next render');
+  check('S292', 'deleting a folder files its messages into Inbox by hand',
+    /\{folder: 'Inbox', filedByHand: true\}/.test(sidebar),
+    'a message whose topic points at the deleted folder would be re-homed into a ' +
+    'folder that no longer exists, and would be in no list at all');
+  /* ⭐ THE HOLE THIS CLOSES, found by asking what happens when the office deletes or
+     renames one of the two new folders. A message sitting in one only BY DERIVATION
+     still reads folder:'Inbox', so a stored-field match misses it — and once the folder
+     is gone or renamed the topic map goes on naming the old one, which now has no row
+     in the sidebar. That message is then in no list at all and counted nowhere. Both
+     handlers have to ask the derived folder, not the stored field. */
+  check('S292', 'deleting a folder also catches the messages that were only derived into it',
+    /const affected = allMessages\.filter\(m => messageFolderOf\(m\.data\) === folderName\)/.test(sidebar),
+    'a cancellation would survive its folder being deleted and then be in no list at all');
+  check('S292', 'and renaming one pins the derived ones so they follow it',
+    /m\.data\.folder !== oldName && messageFolderOf\(m\.data\) === oldName/.test(sidebar) &&
+    /\{folder: newName, filedByHand: true\}/.test(sidebar),
+    'renaming Cancellations would leave every cancellation resolving to a folder that ' +
+    'no longer exists');
+  /* ⚠ A RENAME IS NOT A FILING. It follows the folder rather than overruling the topic,
+     so stamping it would silently pin every message in a renamed folder for ever. */
+  /* ⚠ SCOPED TO THE STORED-RESIDENTS LOOP, not the whole sidebar. The DERIVED branch
+     below it stamps filedByHand on purpose (see the two checks above), so a file-wide
+     "no filedByHand near newName" would now fail on correct code — the §7 slow-fuse
+     shape, arriving from the other direction. What must stay true is that the loop
+     matching the STORED name does not stamp. */
+  /* ⚠ BOUNDED BY THE DERIVED BRANCH ITSELF, not by a '});' — the updateDoc call ends
+     in one, so splitting there cut the slice in half and it failed on correct code. */
+  const renStored = (sidebar.split('allMessages.filter(m => m.data.folder === oldName)')[1] || '')
+    .split('BUT A MESSAGE SITTING HERE ONLY BY DERIVATION')[0];
+  check('S292', 'a rename does NOT claim the office filed the messages stored in it',
+    !!renStored && /\{folder: newName\}/.test(renStored) && !/filedByHand/.test(renStored),
+    'renaming a folder would pin everything in it against its topic for ever');
+  check('S292', 'the right-click move and Move to… both file by hand',
+    /\{folder: btn\.dataset\.movefolder, filedByHand: true\}/.test(admin) &&
+    /msgBulkApply\(ids, \{folder: folder, filedByHand: true\}/.test(admin),
+    'two of the four ways to move a message would not stick');
+
+  /* ---- the two new folders are seeded ---------------------------------- */
+  const seed = (admin.match(/const DEFAULT_TOPIC_FOLDERS = \[[^\]]*\]/) || [''])[0];
+  check('S292', 'both new folders are seeded so they exist to be clicked',
+    /'Cancellations'/.test(seed) && /'Member Portal'/.test(seed),
+    'the rule would file messages into folders with no row in the sidebar');
+  /* ⚠ THE FIRST SIX ARE THE CONTACT FORM'S OWN TOPIC LIST and a message arrives naming
+     one of them, so renaming one there orphans every message on that topic. */
+  check('S292', 'and the contact form\'s own six are untouched',
+    ["Billing / Payment Question", "Change My Light Colors", "Report an Issue",
+     "Reschedule Install or Removal", "General Question", "Something Else"]
+      .every(function (n) { return seed.indexOf("'" + n + "'") !== -1; }),
+    'a message arrives naming its topic folder; renaming one here orphans it');
+
+  /* ⚠ AND EVERY FOLDER A TOPIC IS SENT TO MUST BE SEEDED. A home folder with no
+     sidebar row is a message nobody can reach — invisible, and counted nowhere. */
+  if (homeMap) {
+    const homes = (homeMap.match(/:\s*'([^']+)'/g) || []).map(function (x) { return x.split("'")[1]; });
+    const orphan = homes.filter(function (f) { return seed.indexOf("'" + f + "'") === -1; });
+    check('S292', 'every folder a topic is sent to has a row in the sidebar',
+      orphan.length === 0,
+      'messages would be filed somewhere with nothing to click: ' + orphan.join(', '));
   }
 }
 
