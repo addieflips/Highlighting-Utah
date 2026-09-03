@@ -3725,9 +3725,14 @@ check('flow', 'and a route sheet left out of date raises a System note',
   /async function noticeRouteStopStuck\(/.test(admin) &&
   /topic: 'A Route Sheet Is Out Of Date'/.test(admin),
   'a console.warn is nobody, and the crew is the one who pays for it');
-check('flow', 'both the resync and the removal report into it',
-  (admin.match(/noticeRouteStopStuck\('/g) || []).length === 2,
-  'found ' + (admin.match(/noticeRouteStopStuck\('/g) || []).length + ' of 2 — a stop ' +
+/* ⚠ THREE SINCE 2026-09-03, not two. removeCustomersFromUpcomingRoutes — the one-pass
+   version that clears the whole book at once (Suite 296) — is a third path that can
+   fail to take a stop off, and a path that cannot report is the failure this check
+   exists to prevent. It reports ONCE for the whole sweep rather than once per
+   customer: nine hundred notices is the same as none. */
+check('flow', 'the resync, the removal and the bulk sweep all report into it',
+  (admin.match(/noticeRouteStopStuck\('/g) || []).length === 3,
+  'found ' + (admin.match(/noticeRouteStopStuck\('/g) || []).length + ' of 3 — a stop ' +
   'that would not come off sends a crew to a house that has cancelled, which is the ' +
   'worse of the two');
 check('flow', 'and one note per save, not one per day the customer is on',
@@ -46663,22 +46668,40 @@ suite('286. A record stops claiming a day it no longer has');
     /* ⚠ isOutForSeason IS LIFTED, NEVER STUBBED. "Which records are stale" IS the rule
        about who is in the season, and a stub would let this sweep and the schedule
        disagree about one customer — the whole family of bug this came out of. */
+    /* ⚠ THE SWEEP BATCHES SINCE 2026-09-03 (Suite 296), so the stub is writeBatch
+       rather than updateDoc — but it records the same {id, payload} shape, because the
+       question THIS suite asks is unchanged and is a different question: 296 asks how
+       many round trips it takes, 286 asks WHO gets cleared and who must not.
+       ⚠ AND THE ROUTES ARE SWEPT ONCE FOR EVERYBODY, so the route stub takes a LIST.
+       Pushing each id keeps the per-customer checks below reading exactly as they did. */
     const mk = (book) => {
-      const writes = [], routeCalls = [];
-      const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomerFromUpcomingRoutes',
-        'jobAddresses', 'console',
+      const writes = [], routeCalls = [], commits = [];
+      const batchStub = () => {
+        const ops = [];
+        return {
+          update: (ref, payload) => { ops.push({ id: ref.id, payload: payload }); },
+          /* Records on COMMIT, not on update — a chunk that never commits must not
+             show up here as written, which is the claim 296 makes about the cache. */
+          commit: async () => { ops.forEach(o => writes.push(o)); commits.push(ops.length); }
+        };
+      };
+      const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomersFromUpcomingRoutes',
+        'writeBatch', 'jobAddresses', 'console',
+        'let clearStaleBookingsInFlight = null;' + NL286 +
         seasonRuleLiveSrc() +
         'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }' + NL286 +
         'function houseOwesFromLastSeason(){ return false; }' + NL286 +
         extractFn(admin, 'isOutForSeason') + NL286 +
         extractFn(admin, 'freeUpFieldForType') + NL286 +
+        sweepLift('clearStaleInstallBookingsRun') + NL286 +
         sweepSrc + NL286 + 'return clearStaleInstallBookings;');
       const run = fn(
         async (ref, payload) => { writes.push({ id: ref.id, payload: payload }); },
         (d, col, id) => ({ col: col, id: id }), {},
-        async (id) => { routeCalls.push(id); return 1; },
+        async (ids) => { (ids || []).forEach(id => routeCalls.push(id)); return {removed: (ids||[]).length, routes: 1}; },
+        batchStub,
         book, { error: function(){} });
-      return { writes, routeCalls, go: () => run() };
+      return { writes, routeCalls, commits, go: () => run() };
     };
     const replied = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
     const booked = { scheduled: true, scheduledDate: '2026-10-20', assignedCrew: 'Crew 1' };
@@ -48059,6 +48082,9 @@ suite('Suite 294. A day the office has short-handed on purpose');
 
 
 /* ---- a charge that missed this season's bill is still on their account ----
+   ⚠ NUMBERED 298. Main took 292 for "Cancellations, the member portal, and folders"
+   while this was being written — the second suite-number collision in two days, and
+   the rule is the same: whichever is already on main keeps the number.
    ⭐ Addie, 2026-09-03: "when you do color change or any other fees/discounts it
    should come up under their account fees and we should be able to waive it but
    when they make a change in member portal it doesnt show it on fees in the edit
@@ -48072,7 +48098,7 @@ suite('Suite 294. A day the office has short-handed on purpose');
    somebody would waive it from.
 
    ⚠ RUN, NOT MATCHED: what a × writes is arithmetic on money. */
-suite('292. A charge carried to next season is still on their account');
+suite('298. A charge carried to next season is still on their account');
 {
   const NL292 = String.fromCharCode(10);
   const parts = ['ledgerWaiveUpdates', 'ledgerLineIsWaivable', 'feeNoteKey', 'ledgerLineLabel'];
@@ -48163,6 +48189,202 @@ suite('292. A charge carried to next season is still on their account');
   check('S292', 'a carried charge is not refused for want of an invoice',
     /ledger !== 'carried' && !inv/.test(clickBlock),
     'refusing it there is the same invisibility again, one screen further on');
+}
+/*
+ * ⭐ SUITE 296. CLEARING LAST SEASON'S BOOKINGS IS ONE WRITE PER FOUR HUNDRED,
+ * NOT ONE PER CUSTOMER.
+ *
+ * Addie, 2026-09-03, straight after pressing Recalculate everything:
+ *
+ *   "@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream
+ *    exhausted maximum allowed queued writes."
+ *
+ * ⚠ THE NUMBERS ARE MEASURED, NOT IMAGINED. Read off the real book that day:
+ * 956 customers, 955 still carrying a booking stamp from last season, and 952 of them
+ * out of THIS season — because SEASON_ELIGIBILITY is 'confirmed-only' and exactly
+ * three people had answered the RSVP. So one press asked for 951 individual writes.
+ * The SDK queues 500 and then refuses.
+ *
+ * ⚠ AND IT IS THE NORMAL STATE IN SEPTEMBER, not an edge case: every season starts
+ * with nobody having answered yet, so every season starts by trying to clear the whole
+ * book one record at a time.
+ *
+ * Three separate faults, three separate checks below — a fix for any one of them alone
+ * still leaves the button able to fell the write stream.
+ */
+suite('Suite 296. Last season\'s bookings are cleared in batches');
+{
+  const run = extractFn(admin, 'clearStaleInstallBookingsRun') || '';
+  const gate = extractFn(admin, 'clearStaleInstallBookings') || '';
+  const sweep = extractFn(admin, 'removeCustomersFromUpcomingRoutes') || '';
+
+  check('S296', 'the batched clearer is there', !!run && !!gate,
+    'clearStaleInstallBookings should now be a one-at-a-time gate in front of ' +
+    'clearStaleInstallBookingsRun');
+
+  /* ① BATCHED. A loop of awaited single updates is what exhausted the stream. */
+  check('S296', 'the customer records are written in batches, not one at a time',
+    /writeBatch\(db\)/.test(run) && /batch\.update\(/.test(run) && /batch\.commit\(\)/.test(run),
+    'one updateDoc per customer is 951 round trips on the real book');
+  check('S296', 'and no lone updateDoc survives in there',
+    !/await updateDoc\(doc\(db, 'jobAddresses'/.test(run),
+    'a single-record write left behind in the loop puts the storm straight back');
+
+  const limit = (run.match(/BATCH_LIMIT\s*=\s*(\d+)/) || [])[1];
+  check('S296', 'the chunk size is inside Firestore\'s limit of 500',
+    !!limit && Number(limit) > 0 && Number(limit) <= 500,
+    'got ' + limit + ' — a batch over 500 is rejected outright, which would turn a ' +
+    'slow press into a press that silently clears nothing');
+
+  /* ② THE CACHE IS ONLY UPDATED ONCE THE WRITE LANDS. The old code assigned per
+     record right after its own await, which was correct; a batched rewrite that
+     assigns before commit would leave the screen claiming rows it had not written. */
+  const commitAt = run.indexOf('batch.commit()');
+  const assignAt = run.indexOf('Object.assign(item.data');
+  check('S296', 'the on-screen cache is only updated after the batch commits',
+    commitAt !== -1 && assignAt > commitAt,
+    'assigning first makes a failed chunk look cleared — the row stops contradicting ' +
+    'itself on screen while the record in Firestore still says booked');
+
+  /* ③ ONE PASS OVER THE ROUTES. Asking per customer walked every upcoming route 952
+     times and rewrote a shared route once per stop removed. */
+  check('S296', 'the routes are swept once for everybody', !!sweep,
+    'removeCustomersFromUpcomingRoutes (plural) is the one-pass version');
+  check('S296', 'and the clearer uses it instead of asking per customer',
+    /removeCustomersFromUpcomingRoutes\(/.test(run) &&
+    !/removeCustomerFromUpcomingRoutes\(item\.id\)/.test(run),
+    'the per-customer call inside the loop is the O(customers x routes) version');
+  check('S296', 'a route nobody was taken off is not rewritten',
+    /kept\.length === stops\.length\) continue/.test(sweep),
+    'writing back an unchanged stop list is a write that says nothing and stamps the route');
+
+  /* ⚠ THE SINGULAR IS KEPT. portalSave and the office edits still take ONE customer
+     off, and deleting it to tidy up would break both. */
+  check('S296', 'the single-customer version still exists for the callers that need it',
+    !!extractFn(admin, 'removeCustomerFromUpcomingRoutes'),
+    'the office edit path and portalSave both remove exactly one person');
+
+  /* ④ ONE RUN AT A TIME. The button fires this without awaiting, so two presses used
+     to start two passes over the same nine hundred records. */
+  check('S296', 'a second press joins the run already going',
+    /clearStaleBookingsInFlight/.test(gate) &&
+    /if\(clearStaleBookingsInFlight\) return clearStaleBookingsInFlight;/.test(gate),
+    'Recalculate everything fires this un-awaited on purpose, so nothing else stops ' +
+    'an impatient second press doubling the writes');
+  check('S296', 'and the flag is cleared even when the run throws',
+    /finally\{[^}]*clearStaleBookingsInFlight = null/.test(gate),
+    'a run that failed must not lock the button out for the rest of the session');
+
+  check('S296', 'writeBatch is actually imported',
+    /import \{[\s\S]{0,400}writeBatch[\s\S]{0,400}\} from "https:\/\/www\.gstatic\.com\/firebasejs\/[\d.]+\/firebase-firestore\.js"/.test(admin),
+    'this file had no batched write anywhere before this change, so the name was ' +
+    'never on the import list');
+
+  /* The batching maths, run rather than read: 951 records must come out as 3 commits
+     and every record must appear exactly once. */
+  const chunks = (total, size) => {
+    const out = [];
+    for (let i = 0; i < total; i += size) out.push(Math.min(size, total - i));
+    return out;
+  };
+  const c = chunks(951, Number(limit || 400));
+  check('S296', 'the real book comes out as a handful of commits',
+    c.length <= 4 && c.reduce((a, b) => a + b, 0) === 951,
+    'got ' + c.length + ' commits of ' + c.join('+') + ' for 951 records');
+  check('S296', 'and a book that fits in one batch makes exactly one commit',
+    chunks(12, Number(limit || 400)).length === 1);
+  check('S296', 'nothing to clear commits nothing at all',
+    chunks(0, Number(limit || 400)).length === 0,
+    'an empty batch is still a round trip, and this runs on every press');
+}
+
+/*
+ * ⭐ SUITE 297. THE SEASON BADGE MOVES WHEN THE OFFICE CONFIRMS AN ANSWER.
+ *
+ * Addie, 2026-09-03: "the badges on the page that says confirmed, maybe next year or
+ * pending, that doesnt update it used to its because we got rid of the thing that was
+ * confirmed and maybe next year badges in add customer and put all that under RSVP
+ * Status but its not working can you fix that for me".
+ *
+ * ⚠ THE BADGE WAS NEVER THE BROKEN PART. seasonBadgeKey delegates to isOutForSeason,
+ * which under 'confirmed-only' wants a yes AND a DATE on it. What was broken is the
+ * only screen that can supply that date: the RSVP Status dropdown stamped
+ * rsvpRespondedAt only when the dropdown VALUE MOVED.
+ *
+ * So the one state the office actually has to repair by hand was the one state it
+ * could not: a record already carrying rsvpStatus 'yes' with nothing dating it — the
+ * ASSUMED yes written when a quote is converted, or carried in by an import. The
+ * dropdown already reads Yes, so picking Yes changes nothing, so nothing is stamped,
+ * so the badge stays Pending for ever. seasonHold even tells them to do it: "a yes is
+ * on file but nothing dated it — confirm it on their record".
+ *
+ * ⚠ MEASURED ON THE LIVE BOOK the day she reported it: five customers said yes and
+ * three were dated. Two people were stuck with no way out from the screen.
+ */
+suite('Suite 297. Confirming an undated RSVP actually confirms it');
+{
+  const save = (admin.split('const oldRsvpForRecycle')[1] || '').split('const rejoinedAfterRecycle')[0];
+  check('S297', 'the RSVP block in the customer save is findable', !!save.trim());
+
+  /* ① The value-changed path still works — this is the ordinary case. */
+  check('S297', 'a changed answer is still stamped, and a cleared one still nulled',
+    /if\(newRsvp !== oldRsvpForRecycle\)\{[\s\S]{0,200}rsvpRespondedAt = realAnswer \? serverTimestamp\(\) : null;/.test(save),
+    'picking Yes on a record that said nothing is the common path and must not regress');
+
+  /* ② The new branch: same value, nothing dating it. */
+  check('S297', 'confirming an answer already on file but undated stamps it',
+    /else if\(realAnswer && !item\.data\.rsvpRespondedAt\)\{[\s\S]{0,120}rsvpRespondedAt = serverTimestamp\(\);/.test(save),
+    'without this there is NO way from any screen to date an assumed yes, and the ' +
+    'badge is stuck on Pending for ever');
+
+  /* ③ ⚠ AND IT MUST NOT RE-STAMP. The date is what the Yes sheet and the customer
+     history read; moving it every time somebody edits a phone number rewrites history. */
+  check('S297', 'an answer that already has a date is left alone',
+    /!item\.data\.rsvpRespondedAt/.test(save),
+    'the guard is the whole difference between repairing a stuck record and ' +
+    'restamping the reply date on every unrelated save');
+
+  /* ④ "Unanswered" is not an answer — asked, no reply. */
+  check('S297', 'Unanswered is not treated as an answer',
+    /realAnswer = !!newRsvp && newRsvp !== 'unanswered'/.test(save),
+    'stamping Unanswered would make "we asked them" read as "they replied", which is ' +
+    'exactly the distinction the dropdown was built to keep');
+
+  /* ---- and now RUN the rule the badge actually reads ---- */
+  const badge = extractFn(admin, 'seasonBadgeKey');
+  const out = extractFn(admin, 'isOutForSeason');
+  check('S297', 'the badge rule is there to run', !!badge && !!out);
+
+  if (badge && out) {
+    const key = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + badge + 'return seasonBadgeKey(d);')(d);
+
+    const dated = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-03T00:00:00Z' };
+
+    check('S297', 'a dated yes reads Confirmed', key(dated) === 'confirmed',
+      'got ' + key(dated));
+    /* ⚠ THE STUCK RECORD. This is what the office was looking at, and why the fix is
+       in the SAVE rather than in the badge: the badge is right, the record was wrong. */
+    check('S297', 'an undated yes reads Pending, which is what she was seeing',
+      key({ rsvpStatus: 'yes' }) === 'pending',
+      'got ' + key({ rsvpStatus: 'yes' }) + ' — an assumed yes is not an answer, and ' +
+      'softening THIS is the wrong fix: it would put people the schedule will not ' +
+      'take back onto a Confirmed badge');
+    check('S297', 'back next year reads Maybe Next Year',
+      key({ rsvpStatus: 'backnextyear' }) === 'maybe', 'got ' + key({ rsvpStatus: 'backnextyear' }));
+    check('S297', 'and so does the hand-toggled flag',
+      key({ maybeNextYear: true }) === 'maybe', 'got ' + key({ maybeNextYear: true }));
+    check('S297', 'a no reads Maybe Next Year too, not Pending',
+      key({ rsvpStatus: 'no' }) === 'maybe',
+      'Pending is somebody we want who is blocked; a no is somebody who told us no');
+    check('S297', 'nothing on file reads Pending', key({}) === 'pending', 'got ' + key({}));
+    check('S297', 'and a brand new hang nobody was ever asked reads Confirmed',
+      key({ chargeNewMemberFee: true }) === 'confirmed',
+      'we never send them the RSVP, so requiring an answer is a test nobody can pass');
+  }
 }
 
 Promise.all(pendingAsync).then(function () {

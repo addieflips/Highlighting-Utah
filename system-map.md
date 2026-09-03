@@ -1254,6 +1254,102 @@ than about the calendar.
 *Proved in* run-all.js **Suite 294**, whose first check is the one that matters: an
 unmarked season is byte-for-byte the season the builder made before.
 
+### Why the schedule looks empty in September, and the write storm behind it
+
+Addie, 2026-09-03: a whole season showing **one day and three houses**, and then
+`@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream exhausted
+maximum allowed queued writes` the moment she pressed **Recalculate everything**.
+
+One cause, both symptoms. **Counted on the live book rather than reasoned about:**
+
+| | |
+|---|---|
+| customers | 956 |
+| blank `rsvpStatus` | 950 |
+| said yes | 5 |
+| **yes AND `rsvpRespondedAt` stamped** | **3** |
+| out of the season | 952 |
+| still carrying a booking stamp from last season | 955 |
+
+`isOutForSeason` ends in the `SEASON_ELIGIBILITY = 'confirmed-only'` branch: somebody
+is in the season only if they said **yes and the reply is stamped**, or they are a new
+hang nobody was ever asked (`audienceNeverAsked`). Three people qualify, so the builder
+places three. **The schedule was right.** This is her own ruling working — *"play with it
+until the only customers in the schedule are the confirmed ones"* — and it is the normal
+state every September, before the RSVPs come back. Worth writing down precisely because
+the screen looks catastrophic when it is behaving.
+
+**The same 952 caused the write storm.** `clearStaleInstallBookings` takes the booking
+stamp off everybody who is out, and 951 of them still carried one. It wrote them one at a
+time. The SDK queues 500 and refuses, so the run died partway — and the next press tried
+the same nine hundred again.
+
+Three faults, all three fixed:
+
+- **The customer records are batched.** `writeBatch` in chunks of 400 — 951 records
+  become 3 commits. This file had no batched write anywhere before; `writeBatch` was not
+  even on the import list.
+- **The routes are swept once for everybody.** `removeCustomersFromUpcomingRoutes`
+  (plural) walks the upcoming routes a single time and writes each affected route once,
+  whatever it is carrying. The old per-customer call walked every route 952 times and
+  rewrote a shared route once per stop removed. The singular version stays — the office
+  edit path and `portalSave` each remove exactly one person.
+- **One run at a time.** The button fires this without awaiting on purpose, so nothing
+  stopped an impatient second press doubling the writes. `clearStaleBookingsInFlight`
+  makes the second press join the run already going.
+
+⚠ **The cache is only updated after a chunk commits.** Assigning first makes a failed
+chunk look cleared: the row stops contradicting itself on screen while the record in
+Firestore still says booked — the exact contradiction this sweep exists to remove.
+
+⚠ **Two wrong theories were measured and discarded before this one.** That the arrears
+hold was emptying the season (only 19 customers owe from last season), and that the
+season-start date bug was to blame (real, but unrelated — see the section above). Both
+were plausible; neither survived counting.
+
+*Proved in* run-all.js **Suite 296**. **Suite 286** still owns the other half — *which*
+records get cleared, and the three kinds that must not be touched.
+
+### Confirming an answer that is already on file
+
+Addie, 2026-09-03: *"the badges on the page that says confirmed, maybe next year or
+pending, that doesnt update it used to its because we got rid of the thing that was
+confirmed and maybe next year badges in add customer and put all that under RSVP Status
+but its not working"*.
+
+**The badge was never the broken part.** `seasonBadgeKey` delegates to
+`isOutForSeason`, which under `SEASON_ELIGIBILITY = 'confirmed-only'` wants a yes
+**and a date on it**. What was broken is the only screen that can supply that date: the
+RSVP Status dropdown stamped `rsvpRespondedAt` **only when the dropdown value moved**.
+
+So the one state the office actually has to repair by hand was the one state it could
+not repair. A record carrying `rsvpStatus` 'yes' with nothing dating it — the assumed
+yes written when a quote is converted, or carried in by an import — already shows **Yes**
+in the dropdown. Picking Yes changes nothing, so nothing is stamped, so the badge stays
+**Pending** for ever. `seasonHold` even prints the instruction: *"a yes is on file but
+nothing dated it — confirm it on their record"*. Following it did nothing.
+
+Measured on the live book the day it was reported: **5 customers said yes, 3 were dated.**
+Two people were stuck with no way out from any screen.
+
+The save now stamps in two cases rather than one:
+
+- the answer **changed** — unchanged behaviour, and still nulls the date when the answer
+  is cleared back to Unanswered;
+- the answer is **the same but nothing dated it** — the office confirming what is already
+  there, which is exactly what the hold message asks them to do.
+
+⚠ **It never re-stamps an answer that already has a date.** That date is what the Yes
+sheet and the customer history both read; moving it every time somebody edits a phone
+number would rewrite history.
+
+⚠ **The fix is in the SAVE, not in the badge.** Softening `isOutForSeason` to accept an
+undated yes would hand a Confirmed badge to people every scheduler in the app still
+refuses — the precise disagreement the badge's own note says it exists to prevent.
+
+*Proved in* run-all.js **Suite 297**, red-checked by deleting the new branch. **Suite 78**
+still owns the value-changed path.
+
 ### One route note a day, not one a sweep
 
 Addie, 2026-08-30: *"system inbox always has a bunch of schedule messages and it's to many to
