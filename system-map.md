@@ -198,6 +198,13 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    - ⚠ **The key is still `pending`.** Only the word changed: `r.badge` is what the season filter matches on and the dropdown's option values are `confirmed`/`pending`/`maybe`, so renaming the key would silently break that filter. The filter's own label already read *"blocked by a rule"* — the chip now agrees with it.
    - ⚠ **A guard stops the collision coming back**: the season cell's chips are read out of the row builder and compared against every word `rsvpStatusLabel` can produce. *Maybe Next Year* is the one deliberate overlap and is excluded by name — it is the same state in both columns, said the same way on purpose.
 
+   ⭐ **AND ON 2026-09-03 THE SECOND PILL WENT ENTIRELY.** Addie, highlighting *"RSVP: Pending"* and *"ON HOLD"* on one row: *"we have two badges or stamps for RSVP we only need the yellow one."* Renaming one of them (above) had not been enough — two pills answering the same question in two vocabularies is unreadable whatever they are called. **The RSVP pill is gone from the All Customers row.** The season badge (Confirmed / On hold / Back Next Year) carries the answer and the hold line under it says *why* — "they said no", "no RSVP yet", "owes $X from 2025" — so a customer who declined still reads **On hold + they said no**.
+   - ⚠ **The Unpaid 2025 pill stays.** It was removed in a first pass and put back: it answers *what do they owe*, not *have they replied*, and the two RSVP stamps were what she pointed at.
+   - ⭐ **AND THE ROW'S SEASON TOGGLE WENT WITH IT.** Addie: *"I don't know why it shows maybe next year underneath. We can just switch this inside there costumer."* Changing an RSVP now happens in **one place** — Edit Customer's RSVP control — so the list and the form cannot write different answers.
+     - ⚠ **Checked before removing it**, because the button did more than set a flag: it called `setCustomerSeason`, which also takes them off upcoming routes. The Edit Customer save does the same on the same transition (`seasonMaybeChosen && !item.data.maybeNextYear`, then `removeCustomerFromUpcomingRoutes`), so **nothing is stranded on a route** by it going.
+     - ⚠ **The `maybe` branch lost its Confirm button too**, deliberately — it is the same switch pointing the other way, and leaving one direction on the row would mean somebody can be put out of the season from the list but must be brought back through the form.
+     - ⚠ **Confirming still does NOT put anyone back on a route.** That rule survives the button: rebuilding a route behind the office is a worse surprise than re-adding one stop by hand.
+
    ⚠ **AND THE OFFICE'S OWN BADGE READ AS PENDING** (fixed 2026-09-02). Addie: *"it says pending for RSVP"*, over a card carrying the Maybe Next Year badge. `effectiveRsvpStatus` had `|| dd.maybeNextYear` inside its test and then `return said` — so for a badged customer with no reply of their own it handed back `''`, the very value the line existed to overrule. The office had recorded an answer and every screen called them Pending.
    - ⚠ **It changed no season behaviour, which is why it survived so long.** `isOutForSeason` and `seasonHold` read `maybeNextYear` **directly**, so those customers were correctly off every route the whole time. Only the words were wrong — on the card, the Dashboard counts, and *Owes from last year*.
    - ⚠ **It does not touch who gets the RSVP email.** That audience is `etRsvpAnswered`, which reads the stored `rsvpStatus` and never this function. Checked before changing it, because the RSVP is the one send that has to reach everybody.
@@ -1133,6 +1140,61 @@ touched in the four source files against this table, and every name in
 *Naming*: `routeDayTowns` is deliberately **not** `dayTownList`. A separate `dayTownList` exists further down for the timing sweep, answering a different question about a different shape of object (a day of `.houses`, not a saved route). Two top-level declarations of one name do not coexist in a browser — the later one wins for the whole page.
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
+
+### A day the office has short-handed on purpose
+
+Addie, 2026-09-03: *"there are some days we will need to have 1 crew or 1 man if a
+crew doesnt show or if a crew takes time off ect, make an option in the day where you
+can force there to be one crew in a day but by default it doesnt care and it keeps the
+math the same with get as many houses in a day as possible."*
+
+Schedule → pick a day → **Crews on this date**: *Normal — as many houses as fit* /
+*One crew only — up to 20 houses* / *One man only — up to 8 houses*. This is an
+**exception list, not a new rule**: every date is Normal until somebody changes it, and
+a season with nothing marked is laid out by exactly the maths described above — two
+crews, twenty each, the day filled up.
+
+**It is keyed by DATE, and saved with the plan** (`dayLimits` on the `routeSchedule`
+document, `'2026-11-10' -> 'crew' | 'man'`). That is what makes **Recalculate
+everything** honour it. Anything stored on a *day* would not: the rebuild replaces every
+day object it makes, which is why `soloCrew` — the office's choice of *which* crew works
+a one-crew day — does not survive one. It also matches what the office is actually
+saying: the crew is away on the 10th, whichever houses end up on the 10th.
+
+**How it reaches the builder.** `rebuildSeasonDays` passes `dayShapeOn` in as
+`planNewCrewDays`'s `dayShape`. That function answers `null` for every unmarked date —
+and `null` means "the ordinary maths", so every untouched code path is the one that was
+there before — and `{crews: 1, cap}` for the handful that are marked. The builder is
+never told what "one man" *means*: the cap comes in as a number, so `ONE_MAN_MAX_HOUSES`
+stays the single definition the One Man Installs tab already reads. Houses that no
+longer fit roll on to the days after it, exactly as an overflowing day always did; the
+season simply runs a little longer.
+
+**The tail sweep had to learn about it twice over.** `packTailCrewDays` relocates whole
+crew-days onto earlier dates "that have a crew spare" and tops crew-days up to the cap,
+and both questions have a different answer on a marked date. It is handed the same
+`dayShape`, and it also **refuses to dissolve a marked date's own crew-day**: a day of
+eight on a one-man date is not dribble the builder left behind, it is the size somebody
+asked for, and sweeping it away leaves that man with nothing to do and the office looking
+at a blank day where they had just put the mark. Every *other* short crew-day is still
+swept up as before.
+
+**What reads the mark, rather than guessing.** `dayCrewCount` returns 1 for a marked
+date whatever the houses say; `isOneManDay` lists a one-man date whatever it is holding;
+`maxTownsPerDay(day)` now takes the day, so a date short-handed to one crew is held to
+one crew's two towns rather than being allowed four. The day list badges it
+`1 CREW · SET` / `1 MAN · SET`, so a day somebody shaped by hand reads differently from
+a day that is merely small — the first will not grow back on the next rebuild, the second
+will.
+
+⚠ **It shapes the next rebuild; it does not move houses on the spot**, and it can never
+touch a day inside the 48-hour lock. The control says both out loud, because a mark that
+appeared to do nothing would read as a broken button. For a crew that has already failed
+to turn up this morning the tool is *not done — reschedule*, which is about houses rather
+than about the calendar.
+
+*Proved in* run-all.js **Suite 294**, whose first check is the one that matters: an
+unmarked season is byte-for-byte the season the builder made before.
 
 ### One route note a day, not one a sweep
 
