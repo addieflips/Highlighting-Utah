@@ -65,6 +65,14 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    `showChangesQuestion` ("You're confirmed! Do you want to make any changes?", with the portal behind a
    button) is replaced by `openPortalAfterYes`, which tears the card down and calls `loadPortalByToken`.
 
+   - ⛔ **THE ARREARS HOLD IS RAISED BY THE RENDER AND IS NOBODY ELSE'S JOB** (2026-09-03). It used to be the
+     gate-code dialog's `thenFn`, and the render only raised it when no caller had supplied an `onPortalReady`
+     — a **payment rule behind a cosmetic dialog**. Narrowing the gate question (RS-44) came within one line of
+     switching it off, and the `else` had already left the post-payment re-render with no hold at all, so a
+     customer who paid part of what they owed landed in a locked portal with nothing saying why.
+     `renderCustomerInvoicePage` now calls `showArrearsLockIfHeld()` unconditionally, and that function **waits
+     for the gate question to close** rather than being called back by it — same ordering, no chain. Do not pass
+     it in as anybody's callback again; run-all Suite 291 fails if you do.
    - ⚠ **Only a customer who ALREADY has a gate code is asked** (2026-09-02, RS-44). Dax: *"only applys to
      people that already have a gate code in the system so not everyone is seeing it."* The value is catching a
      code that went stale over the summer before a crew is stood at a locked gate; asking the majority, who have

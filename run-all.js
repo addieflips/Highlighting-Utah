@@ -50889,6 +50889,56 @@ suite('305. The referral link, from the office side');
   }
 }
 
+/* =====================================================================
+ * Suite 291 — the arrears hold is raised by the render, not by a dialog
+ *
+ * Until 2026-09-03 it was the gate-code step's `thenFn`, and the render only
+ * raised it when no caller had supplied an onPortalReady. A payment rule behind
+ * a cosmetic dialog: narrowing the gate question came within one line of
+ * switching it off, and the `else` had already left the post-payment re-render
+ * with no hold at all.
+ *
+ * ⚠ THESE ARE SOURCE CHECKS AND THAT IS THE POINT. What went wrong was a SHAPE,
+ * not a behaviour — every browser test still passed under the broken design,
+ * because the hold arrived either way until the day it did not. The behaviour is
+ * covered in test/arrears-lock.spec.js.
+ * ===================================================================== */
+{
+  const idx291 = read('index.html');
+  const src291 = stripComments(idx291);
+
+  check('S291', 'the render raises the arrears hold unconditionally',
+    /opts\.onPortalReady\(\);\s*showArrearsLockIfHeld\(\);/.test(src291),
+    'an else here hands a payment rule to whichever caller happened to supply a ' +
+    'callback — which is how the post-payment re-render ended up with no hold');
+
+  check('S291', 'and no caller can take it over as a callback again',
+    !/showRsvpGateCodeStep\([^)]*showArrearsLockIfHeld/.test(src291),
+    'passing it back in as the gate step thenFn is the exact shape this suite exists to stop');
+
+  check('S291', 'the hold waits for the gate question rather than being called back',
+    /function showArrearsLockIfHeld\(\)\{[\s\S]{0,900}?rsvpGateCodeModal[\s\S]{0,300}?setTimeout\(/.test(src291),
+    'the ordering Dax asked for has to survive without the chain that carried it');
+
+  /* ⚠ A RESCHEDULING setTimeout, NOT A setInterval, and that is not style.
+     connections.test.js treats a named setInterval as a standing automatic run that
+     must be declared on the automation list — correctly, because that is what one
+     usually is. This waits for a turn and stops; CI red-flagged the first version. */
+  check('S291', 'and it waits with a one-shot rather than a standing timer',
+    !/arrearsLockWaiter = setInterval\(/.test(src291),
+    'a named setInterval here is an undeclared automation as far as the connections ' +
+    'map is concerned, and it would be right: this does not run on a schedule');
+
+  check('S291', 'and the waiter is cleared once there is nothing owed',
+    /if\(!portalArrearsHold\)\{[\s\S]{0,220}?stopWaitingForGate\(\)/.test(src291) &&
+    /function stopWaitingForGate\(\)\{[\s\S]{0,160}?clearTimeout\(arrearsLockWaiter\)/.test(src291),
+    'a timer left running can raise this dialog on a customer who owes nothing');
+
+  check('S291', 'and it drops its own handle before rescheduling',
+    /arrearsLockWaiter = setTimeout\(function again\(\)\{\s*arrearsLockWaiter = null;/.test(src291),
+    'clearing first is what makes a stale handle impossible to leave behind');
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));

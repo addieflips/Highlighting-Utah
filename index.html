@@ -3887,13 +3887,28 @@ function renderCustomerInvoicePage(raw, opts){
        return in this function is somebody who did NOT get in (deactivated, wrong
        last name, no invoice) and none of them reach it: a dialog floating over an
        error message would be the worst version of this. */
-    /* ⚠ AND THE ARREARS DIALOG COMES AFTER THE GATE CODE, WHICH IS WHY THIS BRANCHES
-       (Dax, 2026-09-02: the pop-up "comes after the gate code"). On an RSVP yes the
-       gate step owns the hand-off and raises it as its own thenFn; on every other way
-       into the portal there is no gate step, so it is raised here. Exactly one of the
-       two runs, which is what stops it being shown twice. */
     if(typeof opts.onPortalReady === 'function') opts.onPortalReady();
-    else showArrearsLockIfHeld();
+    /* ⭐ THE MONEY HOLD IS RAISED HERE, ALWAYS, AND IS NOBODY ELSE'S JOB (2026-09-03).
+       It used to be an `else`: whenever a caller supplied onPortalReady, raising the
+       hold became that caller's responsibility, and the RSVP-yes path passed it on
+       again as the gate-code dialog's thenFn.
+
+       ⚠ THAT SHAPE PUT A PAYMENT RULE BEHIND A COSMETIC DIALOG. Any edit to the
+       gate-code step that returned early, threw, or simply forgot to hand on would
+       switch the hold off silently — and narrowing that question on 2026-09-02 came
+       within one line of doing exactly that. A test caught the one sabotage I thought
+       of, which is not the same as the fault being impossible.
+
+       ⚠ AND THE `else` HAD ALREADY OPENED A REAL HOLE, not just a future one: the
+       re-render after a PayPal capture supplies its own onPortalReady, so a customer
+       who paid PART of what they owed landed back in a portal with its tabs locked and
+       nothing on screen saying why.
+
+       ⭐ ORDERING IS KEPT WITHOUT THE CHAIN. Dax asked for this pop-up to come after
+       the gate-code question; showArrearsLockIfHeld now WAITS for that dialog to close
+       rather than being called back by it, so the order survives and the hold does not
+       depend on anybody remembering anything. */
+    showArrearsLockIfHeld();
   }).catch(function(){
     card.classList.remove('show');
     if(tabsLayout) tabsLayout.style.display = 'none';
@@ -5022,8 +5037,12 @@ function handleRsvpLink(token, rsvpValue){
       /* ⚠ THE GATE CODE IS STILL ASKED OF SOMEBODY WHO OWES, and it is asked FIRST —
          Dax put the arrears pop-up after it. It is also why portalSetGateCode is not
          one of the calls the server holds: a question we insist on asking has to be
-         answerable. */
-      showRsvpGateCodeStep(token, gateCodeOnFile || '', showArrearsLockIfHeld);
+         answerable.
+         ⚠ AND IT NO LONGER CARRIES THE ARREARS HOLD. It used to be handed on as this
+         step's thenFn, which put a payment rule behind a dialog about a gate; the hold
+         is raised by the render and waits for this question to close. Do not pass it
+         back in. */
+      showRsvpGateCodeStep(token, gateCodeOnFile || '');
     }});
   }
 
@@ -6401,8 +6420,46 @@ document.addEventListener('DOMContentLoaded', function(){
   var bd = document.getElementById('rsvpAskBackdrop');
   if(bd) bd.addEventListener('click', closeRsvpAsk);
 });
+/* ⚠ ONE WAITER, NOT ONE PER CALL. The render can run more than once in a visit, and a
+   second would open the same dialog twice and leave a timer behind it.
+
+   ⚠ AND IT IS A RESCHEDULING setTimeout, NOT A setInterval, which is a real
+   distinction rather than a style choice: connections.test.js treats a named
+   setInterval as a standing automatic run that must be declared on the automation
+   list, and it is right to. This is a one-shot that stops as soon as the gate-code
+   dialog is gone — it is waiting for a turn, not running on a schedule — so it says
+   so. CI caught the first version; the gate was correct and the code was not. */
+var arrearsLockWaiter = null;
+function stopWaitingForGate(){
+  if(arrearsLockWaiter){ clearTimeout(arrearsLockWaiter); arrearsLockWaiter = null; }
+}
 function showArrearsLockIfHeld(){
-  if(!portalArrearsHold) return;
+  if(!portalArrearsHold){
+    /* Nothing owed any more — stop waiting for a turn that no longer matters. */
+    stopWaitingForGate();
+    return;
+  }
+  /* ⭐ IT WAITS FOR THE GATE-CODE QUESTION RATHER THAN BEING CALLED BACK BY IT. Dax
+     asked for this to come after that question; doing it by callback made a payment
+     rule depend on a cosmetic dialog handing on. Watching for the dialog to CLOSE
+     gives the same order with none of that: the gate step can be edited, skipped,
+     return early or throw, and this still lands. */
+  var gate = document.getElementById('rsvpGateCodeModal');
+  if(gate && gate.classList.contains('show')){
+    if(arrearsLockWaiter) return;
+    arrearsLockWaiter = setTimeout(function again(){
+      arrearsLockWaiter = null;
+      var g = document.getElementById('rsvpGateCodeModal');
+      /* Still up: ask again later. Cleared FIRST, so the re-entry below is the only
+         thing holding a handle and a stale one can never be left behind. */
+      if(g && g.classList.contains('show')){
+        arrearsLockWaiter = setTimeout(again, 200);
+        return;
+      }
+      showArrearsLockIfHeld();
+    }, 200);
+    return;
+  }
   var modal = document.getElementById('arrearsLockModal');
   var amt   = document.getElementById('arrearsLockAmount');
   var body  = document.getElementById('arrearsLockBody');

@@ -164,6 +164,71 @@ test.describe('A customer who owes for last season', () => {
   });
 });
 
+/* ============================================================================
+ * The hold is nobody else's job
+ *
+ * Until 2026-09-03 the arrears pop-up was raised as the gate-code dialog's
+ * `thenFn`, and the render only raised it itself when no caller had supplied an
+ * onPortalReady. That put a PAYMENT rule behind a dialog about a gate: any edit
+ * to that step which returned early, threw, or forgot to hand on would switch
+ * the hold off silently — and narrowing the gate question on 2026-09-02 came
+ * within one line of doing exactly that.
+ *
+ * ⚠ THE OLD TESTS COULD NOT TELL THE TWO DESIGNS APART, which is why they are
+ * not enough on their own: under the callback design the hold appeared because
+ * the gate step handed on, and under this one it appears because the render
+ * raised it. Same result, different reason. The test below separates them by
+ * pinning the gate dialog OPEN and never closing it from the code under test —
+ * so nothing can hand anything on, and the hold has to arrive on its own.
+ * ========================================================================== */
+test.describe('The arrears hold does not depend on the gate-code dialog', () => {
+
+  test('it waits while that question is open, then arrives with nobody calling it back', async ({ page }) => {
+    const stub = await open(page, `/index.html#/payment?token=${CUST.token}&rsvp=yes`, withArrears(315, 2025));
+
+    /* The gate question is up first, and the hold is correctly holding off — this
+       is the ordering Dax asked for and it must survive the change. */
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+    await expect(page.locator('#arrearsLockCard')).toBeHidden();
+
+    /* ⚠ CLOSED FROM OUTSIDE THE APP, deliberately. Clicking an answer would run the
+       step's own finish(), which is the very hand-off this test exists to prove is
+       no longer needed. Stripping the class is the closest thing to "the dialog went
+       away and told nobody". */
+    await page.evaluate(() => {
+      const m = document.getElementById('rsvpGateCodeModal');
+      m.classList.remove('show');
+      document.getElementById('rsvpGateCodeStep').style.display = 'none';
+    });
+
+    await expect(page.locator('#arrearsLockCard')).toBeVisible({ timeout: 6000 });
+    await expect(page.locator('#arrearsLockAmount')).toHaveText('$315.00');
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+
+  /* ⚠ AND IT STOPS WAITING IF THERE IS NOTHING TO WAIT FOR. A timer left running
+     behind a settled customer is a leak, and one that could pop the dialog up on
+     somebody who no longer owes anything. */
+  test('a customer who owes nothing leaves no waiter running', async ({ page }) => {
+    const stub = await open(page, `/index.html#/payment?token=${CUST.token}&rsvp=yes`);
+    await expect(page.locator('#rsvpGateCodeStep')).toBeVisible();
+
+    await page.evaluate(() => {
+      const m = document.getElementById('rsvpGateCodeModal');
+      m.classList.remove('show');
+      document.getElementById('rsvpGateCodeStep').style.display = 'none';
+    });
+
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#arrearsLockCard')).toBeHidden();
+
+    expect(stub.thrown).toEqual([]);
+    stub.assertNoRealCalls();
+  });
+});
+
 test.describe('A customer who owes nothing', () => {
 
   /* ⚠ THE OTHER HALF OF EVERY HOLD, and the one that is expensive to get wrong:
