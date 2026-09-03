@@ -888,6 +888,36 @@ says what the number is and when it is due.
     not know*, and telling somebody holding a real invoice that they need not pay it is the
     expensive way to be wrong.
 
+⭐ **A RETURNING CUSTOMER IS ONLY BUILT FOR IF THEIR SET ACTUALLY CAME BACK**
+(2026-09-03, WH-24). Addie, after confirming one customer for the season and finding him
+on the warehouse list: *"it should only be sent to warehouse if there is any sort of
+change from last year. If nothing changes than nothing is affected."*
+  - **What was wrong.** Four places — the office RSVP dropdown, quote approval, the RSVP
+    link, and the shared season rule on both sides of the wire — asked
+    `was 'no' && !needsLightRecycle` and read the **cleared** flag as proof the warehouse
+    had pulled the bundle apart. It is equally clear when **nobody ever queued a
+    recycle**, which is the ordinary state of somebody marked no by hand or by an import.
+    Confirming them then built a second bundle for a house whose first was on the shelf.
+  - **What decides it now.** `rejoinNeedsBuild` (admin.html) and `rejoinNeedsBuildServer`
+    (functions/index.js) require `lightsRecycledAt` — the stamp every completing recycle
+    writes. A queued recycle still means "the warehouse owns that bin, leave it alone".
+  - ⚠ **The strict direction has a cost, taken knowingly.** A recycle completed before
+    that stamp existed leaves no evidence, so that customer returns with no build queued
+    — a crew at an empty bin, which is the worse failure. Accepted because the population
+    is empty in practice: a plain no **deletes** the record, the keep-them path has always
+    stamped, and the crew portal is unused this season. If a house is ever hung with
+    nothing built, this is the line to look at — do not go back to reading the flag.
+  - ⚠ **The badge was never broken.** No badge on a warehouse row means `lightsChangedAt`
+    is unset — nobody has changed those colours, through any door. That is how this was
+    diagnosed.
+
+⭐ **AND A HOUSE CAN BE TAKEN OFF THE BUILD LIST WITHOUT CLAIMING A BUILD** (WH-25).
+**Not needed**, beside Mark Done on the warehouse row. Mark Done stamps
+`lightsMarkedBuiltAt`, so it was the only way off and using it dated a bundle nobody
+made. This clears the flag and the queue date, stamps nothing, asks first, and writes the
+reason to the activity log. It leaves `buildTopUpFromFeet` and `binLabelNumber` alone —
+those describe a bundle actually made or a bin actually labelled.
+
 **Last season's unpaid bill is carried, not written off** (2026-08-31, MON-31/MON-32).
 Start New Season used to write `install: newInstall, deposit: 0` over every invoice, so a
 customer who never paid opened the new season owing this year's charge and nothing else —

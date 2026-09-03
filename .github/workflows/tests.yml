@@ -121,6 +121,15 @@ jobs:
       - name: Whose card is red (seriously behind)
         run: npm run test:redcard
 
+      # Addie, 2026-09-03, finding a customer she had just confirmed sitting on the
+      # warehouse list: "it should only be sent to warehouse if there is any sort of
+      # change from last year." The rule read the ABSENCE of a recycle flag as proof a
+      # bundle had been pulled apart — it is equally absent for somebody nobody ever
+      # queued one for. Named separately because both directions cost real money: a
+      # spare bundle built for a full bin, or a crew sent to an empty one.
+      - name: Does a returning customer need a bundle built
+        run: npm run test:rejoin
+
       # Addie, 2026-09-02: "we should have an x next to all discounts and fees to
       # get rid of those if necessary." Named separately because the one check that
       # matters here is a REFUSAL: last season's carried debt rides in the same fee

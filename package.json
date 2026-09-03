@@ -35,6 +35,7 @@
     "test:subject": "node email-subject.test.js",
     "test:gatecode": "node gate-code.test.js",
     "test:redcard": "node red-card.test.js",
+    "test:rejoin": "node rejoin-build.test.js",
     "test:waive": "node fee-waive.test.js"
   },
   "dependencies": {

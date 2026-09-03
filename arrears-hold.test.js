@@ -680,8 +680,18 @@ function seasonResetWrite() {
   check('lifted the real RSVP-yes write off the server, whole',
     yesSrc.length > 0 && (function () { try { new Function(yesSrc + '\nreturn 1;'); return true; } catch (e) { return false; } })(),
     'a fixture shaped like the write would prove nothing about the write');
+  /* ⚠ AND THE REJOIN RULE (2026-09-03). seasonYesUpdates asks rejoinNeedsBuildServer
+     whether a returning customer's bundle has to be rebuilt, so the lift needs it or it
+     dies with a bare ReferenceError naming neither this file nor the function. Lifted
+     from the same source as the rule above rather than stubbed — these checks are about
+     what the REAL write does to a debtor coming back in. */
+  const rejoinAt = serverSrc.indexOf('function rejoinNeedsBuildServer(');
+  const rejoinSrc = rejoinAt === -1 ? '' : serverSrc.slice(rejoinAt, serverSrc.indexOf('\n}', rejoinAt) + 2);
+  check('lifted the rejoin rule the yes write depends on',
+    rejoinSrc.length > 0,
+    'without it the lift below dies naming neither this suite nor the function it wanted');
   const seasonYesUpdates = new Function('stampBuildQueuedServer',
-    yesSrc + '\nreturn seasonYesUpdates;')(function () {});
+    rejoinSrc + '\n' + yesSrc + '\nreturn seasonYesUpdates;')(function () {});
 
   /* ⚠ THEY MUST HAVE BEEN OUT BEFORE, and the first version of this fixture was not —
      seasonYesUpdates only stamps needsDayAssignedAt when the customer was previously out
