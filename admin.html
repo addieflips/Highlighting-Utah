@@ -47854,6 +47854,38 @@ function planNewCrewDays(waiting, taken, opts){
   }
   const cap = o.cap || MAX_STOPS_PER_ROUTE;
   const crews = o.crews || CREWS_PER_DAY;
+  /* ⭐ A DAY THE OFFICE HAS SHORT-HANDED ON PURPOSE (added 2026-09-03).
+     Owner: "there are some days we will need to have 1 crew or 1 man if a crew
+     doesnt show or if a crew takes time off ect, make an option in the day where
+     you can force there to be one crew in a day but by default it doesnt care and
+     it keeps the math the same."
+
+     So this is an EXCEPTION LIST, not a new rule. dayShape is asked about one
+     DATE at a time and answers null for almost every one of them — and null means
+     "the ordinary maths", which is unchanged: two crews, twenty each, as many
+     houses in a day as will fit. Only the handful of dates somebody has actually
+     marked come back with a shape, and those get fewer crew-slots and, for a one
+     man day, a smaller crew-day too. Everything the day cannot hold rolls on to
+     the days after it exactly as an overflowing day always did.
+
+     ⚠ A DATE, NOT A DAY. Somebody being off is a fact about the calendar, so a
+     day pushed later stops being short-handed and whatever lands on that date
+     picks the limit up instead. That is the answer the office wants: the crew is
+     away on the 10th whichever houses end up on it.
+
+     ⚠ AND THE BUILDER IS NOT TOLD WHAT "ONE MAN" MEANS. It reads {crews, cap}
+     and nothing else, so the number of houses one person can hang stays defined in
+     exactly one place — ONE_MAN_MAX_HOUSES, over in the Schedule tab, where the
+     One Man Installs list already reads it. */
+  const dayShape = typeof o.dayShape === 'function' ? o.dayShape : function(){ return null; };
+  const crewsOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.crews > 0) ? Math.min(crews, sh.crews) : crews;
+  };
+  const capOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.cap > 0) ? Math.min(cap, sh.cap) : cap;
+  };
   const maxDays = o.maxDays == null ? 40 : o.maxDays;
   const floor = o.floorDate || toDateStr(nextWorkingDay(seasonFirstDate()));
   const horizon = o.horizonDays == null ? 400 : o.horizonDays;
@@ -47965,8 +47997,12 @@ function planNewCrewDays(waiting, taken, opts){
      It only decides anything once towns start running out, which is where the short
      days were appearing. */
   const fillableCount = function(city, ds){
+    /* The day's own ceiling, which is the ordinary crew-day everywhere except the
+       dates the office has marked — a one man date can only make eight, and a town
+       should not win the slot by promising twenty it will not be allowed to place. */
+    const room = capOnDate(ds);
     const own = allowedStats(city, ds).n;
-    if(own >= cap) return cap;
+    if(own >= room) return room;
     const used = townsUsedOn(ds);
     let best = 0;
     nearbyTowns(city, centres).forEach(function(other){
@@ -47974,7 +48010,7 @@ function planNewCrewDays(waiting, taken, opts){
       const n = allowedCount(other, ds);
       if(n > best) best = n;
     });
-    return Math.min(cap, own + best);
+    return Math.min(room, own + best);
   };
   const out = [];
   let made = 0;
@@ -47985,11 +48021,15 @@ function planNewCrewDays(waiting, taken, opts){
     const anyLeft = Object.keys(byCity).some(function(c){ return byCity[c].length; });
     if(!anyLeft) break;
     const onDay = busy[ds] || {};
+    /* Normally CREWS_PER_DAY and a full crew-day. Only a date somebody has marked
+       short-handed comes back smaller — see dayShape above. */
+    const crewsToday = crewsOnDate(ds);
+    const capToday = capOnDate(ds);
     let freeSlot = false;
-    for(let cr = 1; cr <= crews; cr++) if(!onDay[String(cr)]) freeSlot = true;
+    for(let cr = 1; cr <= crewsToday; cr++) if(!onDay[String(cr)]) freeSlot = true;
     let placedToday = 0;
     if(freeSlot){
-      for(let cr = 1; cr <= crews && made < maxDays; cr++){
+      for(let cr = 1; cr <= crewsToday && made < maxDays; cr++){
         if((busy[ds] || {})[String(cr)]) continue;
         /* ⭐ THE MOST URGENT TOWN, AND AMONG EQUALS THE ONE WITH THE MOST
            STILL WAITING. Counted fresh, ties alphabetical so the same input
@@ -48049,7 +48089,7 @@ function planNewCrewDays(waiting, taken, opts){
            leave a healthier last day was built, shown to her, and overruled — forty
            houses a day early matters more than fifteen at the end, and the short days
            fill themselves from what the crews do not finish. */
-        const take = pickClusteredFromQueue(queue, eligible, cap, null);
+        const take = pickClusteredFromQueue(queue, eligible, capToday, null);
         if(!take.length) break;
         const ids = take.map(function(i){ return queue[i].id; });
         /* Where this crew ends up on the map, kept before the splice — the
@@ -48064,7 +48104,7 @@ function planNewCrewDays(waiting, taken, opts){
            chosen is the neighbour whose most urgent waiting house is the most
            urgent, with distance breaking a tie only. */
         const towns = [city];
-        if(ids.length < cap){
+        if(ids.length < capToday){
           const near = nearbyTowns(city, centres);
           let borrow = null;
           for(let n = 0; n < near.length; n++){
@@ -48091,7 +48131,7 @@ function planNewCrewDays(waiting, taken, opts){
             for(let i = 0; i < borrow.queue.length; i++){
               if(borrow.queue[i].from <= ds) oel.push(i);
             }
-            const lent = pickClusteredFromQueue(borrow.queue, oel, cap - ids.length, anchor);
+            const lent = pickClusteredFromQueue(borrow.queue, oel, capToday - ids.length, anchor);
             if(lent.length){
               lent.forEach(function(i){ ids.push(borrow.queue[i].id); });
               lent.slice().sort(function(a, b){ return b - a; })
@@ -48130,7 +48170,7 @@ function planNewCrewDays(waiting, taken, opts){
   const wById = {};
   waiting.forEach(function(w){ if(w && w.id != null) wById[w.id] = w; });
   const packed = packTailCrewDays(out, {
-    cap: cap, crews: crews, thin: o.thin, taken: taken || {},
+    cap: cap, crews: crews, thin: o.thin, taken: taken || {}, dayShape: o.dayShape,
     from: function(id){ return (wById[id] && wById[id].from) || ''; },
     until: function(id){ return (wById[id] && wById[id].until) || ''; },
     townOf: function(id){ return (wById[id] && wById[id].city) || ''; },
@@ -48203,6 +48243,20 @@ function packTailCrewDays(built, opts){
   const o = opts || {};
   const cap = o.cap || MAX_STOPS_PER_ROUTE;
   const crews = o.crews || CREWS_PER_DAY;
+  /* ⚠ THE SWEEP HAS TO KNOW ABOUT A SHORT-HANDED DATE TOO, or it undoes the
+     build: it moves whole crew-days onto earlier dates that "have a crew spare"
+     and tops crew-days up to the cap, and both questions have a different answer
+     on a date the office has marked. Same function the builder was handed, so the
+     two cannot disagree about which dates those are. */
+  const dayShape = typeof o.dayShape === 'function' ? o.dayShape : function(){ return null; };
+  const crewsOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.crews > 0) ? Math.min(crews, sh.crews) : crews;
+  };
+  const capOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.cap > 0) ? Math.min(cap, sh.cap) : cap;
+  };
   /* Under half a crew’s worth is a leftover worth dissolving. A day already
      holding ten is a day. */
   const thin = o.thin == null ? Math.ceil(cap / 2) : o.thin;
@@ -48302,6 +48356,14 @@ function packTailCrewDays(built, opts){
   for(let i = list.length - 1; i >= 0; i--){
     const src = list[i];
     if(!src.ids.length || src.ids.length >= thin) continue;
+    /* ⭐ AND A DATE THE OFFICE HAS MARKED IS NEVER SWEPT UP (added 2026-09-03).
+       A crew-day of eight on a one man date is not dribble the builder left behind —
+       it is the size somebody asked for. Everything below judges a short crew-day as
+       a wasted morning and dissolves it, which on a marked date empties the very day
+       the office had just said one person would be working, and leaves them looking
+       at a blank where they put the mark. Every OTHER short crew-day is still fair
+       game; this is only the handful somebody shaped by hand. */
+    if(dayShape(src.date)) continue;
 
     /* ① THE WHOLE CREW-DAY RIDES AN EARLIER DATE THAT HAS A CREW SPARE.
        Nothing is mixed, nothing is re-routed, one date disappears. */
@@ -48313,7 +48375,7 @@ function packTailCrewDays(built, opts){
         const d = list[j].date;
         if(d >= src.date || d <= best) continue;   // never later; keep the closest
         if(need && d < need) continue;
-        if(crewsOn(d, src) >= crews) continue;
+        if(crewsOn(d, src) >= crewsOnDate(d)) continue;
         const busyTowns = townsOn(d, src);
         let clash = false;
         for(let t = 0; t < mine.length; t++) if(busyTowns[mine[t]]) clash = true;
@@ -48370,7 +48432,7 @@ function packTailCrewDays(built, opts){
           if(deadline && tgt.date > deadline) continue;
         }
         if(okDate && tgt.date < okDate) continue;        // never before they may be hung
-        if(cap - (tgt.ids.length + extra[j]) <= 0) continue;
+        if(capOnDate(tgt.date) - (tgt.ids.length + extra[j]) <= 0) continue;
         const towns = tgt.towns || [];
         const planned = addTowns[j];
         const has = !!town && (towns.indexOf(town) !== -1 || planned.indexOf(town) !== -1);
@@ -55727,6 +55789,11 @@ let SEASON=[], ORDER=[], BASE_START, globalDelta=0, takeDelta=0;
 let selSchedule=null, selFix=null, selTake=null, activeTab='schedule';
 let fixOpen=true, FIXLIST=[], fixRouteSeq=0, loaded=false, saveTimer=null;
 let preRebuild=null;   // the plan before the last Rebuild days, for one-press undo
+/* ⭐ THE DATES SOMEBODY IS AWAY. Keyed by date — '2026-11-10' -> 'crew' | 'man'.
+   Empty on almost every plan, which is the point: an empty list means the season is
+   laid out by the ordinary maths. See dayLimitOn, and the note in planNewCrewDays
+   for why this is a DATE rather than a day. */
+let DAY_LIMITS={};
 /* ---------- date engine ---------- */
 function startFor(day){return day.isTakedown?TAKE_BASE_START:BASE_START;}
 function deltaFor(day){return day.isTakedown?takeDelta:globalDelta;}
@@ -56528,8 +56595,14 @@ function renderDayList(elId,days,selId,listName){
        so on every one of them is noise. */
     const oneMan=!fr && !day.isTakedown && typeof isOneManDay==='function' && isOneManDay(day);
     const oneCrew=!fr && !day.isTakedown && typeof isOneCrewDay==='function' && isOneCrewDay(day);
-    const sizeBadge=oneMan?'<span class="newbadge">1 MAN</span>'
-      :(oneCrew?'<span class="pinbadge">1 CREW</span>':'');
+    /* A day that is small and a day somebody has short-handed both hold one crew, and
+       the office needs to tell them apart at a glance: the first will grow again on
+       the next rebuild, the second will not until the mark is taken off. */
+    const forcedSize=!fr && !day.isTakedown && typeof dayLimitFor==='function' ? dayLimitFor(day) : '';
+    const setTag=forcedSize?' · SET':'';
+    const sizeBadge=oneMan?'<span class="newbadge">1 MAN'+setTag+'</span>'
+      :(oneCrew?'<span class="pinbadge">1 CREW'+setTag+'</span>'
+      :(forcedSize?'<span class="pinbadge">1 CREW · SET</span>':''));
     return '<div class="day'+(day.id===selId?' sel':'')+(fr?' fixroute':'')+'" data-day="'+day.id+'" data-list="'+listName+'">'+
       '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+sizeBadge+(fr?'<span class="frb">FIX RT</span>':(effectivePin(day)?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
       '<div class="darea">'+esc(dayMainArea(day))+'</div><div class="dmeta"><span>'+dc+' / '+n+'</span><span>'+pct+'%</span></div><div class="dbar"><i style="width:'+pct+'%"></i></div></div>';}).join('');
@@ -56890,6 +56963,40 @@ function renderDayMaps(day){
   }
 }
 
+/* ⭐ "MAKE AN OPTION IN THE DAY WHERE YOU CAN FORCE THERE TO BE ONE CREW."
+   Owner, 2026-09-03. Deliberately a THREE-way choice with the middle one off by
+   default, because the default is the thing she asked to protect: "by default it
+   doesnt care and it keeps the math the same".
+
+   Sat under the date controls rather than beside them, because it is a different
+   kind of statement. Pull/push/Day off move a day around the calendar; this one says
+   who is available on a date and leaves the date alone.
+
+   ⚠ IT SAYS WHAT IT WILL AND WILL NOT DO. Marking a date does not pull houses off
+   the day on the spot — the layout is the rebuild's job — and it can never touch a
+   day inside the 48-hour lock. Both are said here rather than being discovered. */
+function dayCrewLimitControlHTML(day, dt){
+  if(!day || day.isFixRoute || day.isTakedown) return '';
+  const ds = dt ? isoOf(dt) : '';
+  const kind = dayLimitOn(ds);
+  const locked = ds && typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds);
+  const opts = [['', 'Normal — as many houses as fit'],
+                ['crew', 'One crew only — up to ' + crewCap() + ' houses'],
+                ['man', 'One man only — up to ' + oneManMaxHouses() + ' houses']];
+  const note = kind
+    ? ('This date is set to <b>' + dayLimitLabel(kind) + '</b>' +
+       (locked
+         ? ' — but it is inside 48 hours, so Recalculate everything will leave it exactly as it is. Use “not done — reschedule” to move houses off it today.'
+         : ' — press <b>Recalculate everything</b> and the houses that do not fit move to the days after it.'))
+    : 'Leave this alone unless somebody is away. Normal is two crews and as many houses as the day will hold.';
+  return '<div class="daycontrols" style="padding:0 16px 10px">' +
+    '<span class="lbl">Crews on this date</span>' +
+    '<select class="moveday" data-daylimit="' + esc(day.id) + '">' +
+    opts.map(function(o){
+      return '<option value="' + o[0] + '"' + (o[0] === kind ? ' selected' : '') + '>' + o[1] + '</option>';
+    }).join('') + '</select>' +
+    '<span class="read" style="font-weight:600">' + note + '</span></div>';
+}
 function renderPanelInto(elId,day){
   const el=RT.getElementById(elId);
   if(!day){el.innerHTML='<div class="emptyday">'+(elId==='fixPanel'?'Pick a fixer route on the left, or build one from the fix list.':'No day selected.')+'</div>';return;}
@@ -56928,7 +57035,8 @@ function renderPanelInto(elId,day){
   else{h+=weekGuideHTML(day)+'<div class="daycontrols" style="padding:10px 16px">'+
       '<button class="mini" data-pull="'+day.id+'">◀ Pull this + rest earlier</button><button class="mini" data-push="'+day.id+'">Push this + rest later ▶</button>'+
       '<button class="mini warn" data-skip="'+day.id+'">✕ Day off (push rest later)</button><span class="lbl">Force exact date</span><input type="date" class="pin" data-pin="'+day.id+'" value="'+isoOf(dt)+'">'+
-      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(dayOffName(dt)?' ('+dayOffName(dt)+')':''):'')+'</span></div>';}
+      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(dayOffName(dt)?' ('+dayOffName(dt)+')':''):'')+'</span></div>'+
+      dayCrewLimitControlHTML(day, dt);}
   if(!n)h+='<div class="emptyday">No houses on this day.</div>';
   else if(fr)h+=day.houses.map((x,i)=>stopHTML(x,i+1,day.id)).join('');
   else{
@@ -57314,7 +57422,8 @@ function renderOneMan(){
     'day, and those are fine — they are marked on the day list rather than listed ' +
     'here. This list works itself out every time ' +
     'the tab is drawn, so a day that fills up drops off it and a day that empties ' +
-    'joins it. Nothing here needs ticking.</div>';
+    'joins it. Nothing here needs ticking. A date you have set to <b>one man</b> ' +
+    'yourself on the day panel is listed here too, whatever it is holding.</div>';
   if(!days.length){
     el.innerHTML = lead + '<div class="traynote">Nothing is a one man install right now \u2014 ' +
       'every day has more than ' + cap + ' houses on it.</div>';
@@ -57429,6 +57538,10 @@ function serialize(){
     // every device the office opens this on.
     crews:CREWS.map(c=>({name:c.name,city:c.city})),
     fixList:FIXLIST.map(f=>Object.assign({},f,{addedDate:f.addedDate?isoOf(f.addedDate):null})),
+    /* ⚠ KEYED BY DATE AND SAVED WITH THE PLAN, not with the days. That is what lets
+       Recalculate everything honour it: the rebuild replaces every day object, so
+       anything stored on a day (soloCrew) is gone by the time the builder runs. */
+    dayLimits:Object.assign({},DAY_LIMITS),
     /* ⚠ soloCrew RIDES WITH THE DAY. This list is explicit, so a field left out of
        it is a field that silently does not survive a reload. */
     days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:d.soloCrew===1?1:0,
@@ -57804,7 +57917,13 @@ function rebuildSeasonDays(){
     if(after>floor) floor=after;
   });
   const floorStr=isoOf(floor);
-  const built=planNewCrewDays(placeable, {}, {floorDate:floorStr, maxDays:400, horizonDays:400});
+  /* ⭐ AND THE DATES SOMEBODY IS AWAY GO IN WITH IT. This is the whole point of the
+     control on the day panel: the office marks the 10th, presses Recalculate
+     everything, and the 10th comes back holding one crew's worth while everything
+     that did not fit rolls on to the days after it. Every other date is untouched —
+     dayShapeOn returns null for them and the builder does what it always did. */
+  const built=planNewCrewDays(placeable, {}, {floorDate:floorStr, maxDays:400, horizonDays:400,
+                                              dayShape:dayShapeOn});
   const byDate={};
   built.forEach(function(cd){ (byDate[cd.date]=byDate[cd.date]||[]).push(cd); });
   const dates=Object.keys(byDate).sort();
@@ -58192,8 +58311,14 @@ const SCHEDULE_SYNC_FIELDS = [
    so one crew can go in a max of 2 cities." A day holding four towns is perfectly fine
    when it is two crews holding two each. The day-level number below is derived from
    this one and is only ever a summary of it. */
-function maxTownsPerDay(){
-  const crews = (typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? CREWS_PER_DAY : 2;
+function maxTownsPerDay(day){
+  /* Asked with no day it answers for a normal one, which is what the season-wide
+     wording in the stale-plan note wants. Asked about a day the office has marked
+     short-handed it answers for ONE crew — two towns — so that day is held to the
+     same rule everybody else is, rather than being allowed four because the office
+     is nominally running two crews. */
+  const forced = day && typeof dayLimitFor === 'function' && dayLimitFor(day) ? 1 : 0;
+  const crews = forced || ((typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? CREWS_PER_DAY : 2);
   return crews * MAX_TOWNS_PER_CREW;
 }
 function dayTownList(day){
@@ -58420,7 +58545,12 @@ function isOneManDay(day){
   const n = (day.houses || []).length;
   /* An EMPTY day is not a one man install, it is an empty day. Listing it would put
      a job on the board that has nobody to do. */
-  return n > 0 && n <= oneManMaxHouses();
+  if(!n) return false;
+  /* A date the office marked as one man IS one, whatever the count says. It is the
+     only way round: the count is the evidence when there is none, and here there is
+     — somebody said so. See the note above dayLimitOn. */
+  if(dayLimitFor(day) === 'man') return true;
+  return n <= oneManMaxHouses();
 }
 function oneManDays(){
   if(typeof installDays !== 'function') return [];
@@ -58448,6 +58578,9 @@ function dayAssignedHouses(day){
 }
 function dayCrewCount(day){
   if(!day || day.isFixRoute || day.isTakedown) return 1;
+  /* Asked before anything is measured. There is one crew that day because there is
+     one crew that day, and no arrangement of houses and towns changes it. */
+  if(dayLimitFor(day)) return 1;
   const held = dayAssignedHouses(day);
   if(!held.length) return 1;
   if(held.length > oneCrewMaxHouses()) return 2;
@@ -58486,6 +58619,79 @@ function daySoloCrew(day){
   const i = day && day.soloCrew;
   return (i === 1 || i === '1') ? 1 : 0;
 }
+/* ---------- days the office has short-handed on purpose ----------
+   ⭐ Owner, 2026-09-03: "there are some days we will need to have 1 crew or 1 man
+   if a crew doesnt show or if a crew takes time off ect, make an option in the day
+   where you can force there to be one crew in a day but by default it doesnt care
+   and it keeps the math the same with get as many houses in a day as possible."
+
+   TWO HALVES, and both matter:
+
+   • BY DEFAULT IT DOES NOT CARE. Nothing here fires unless somebody has marked a
+     date. dayLimitOn answers '' for every other date and every caller falls straight
+     back to the maths it already had — two crews, twenty each, fill the day up.
+
+   • WHERE IT IS SET IT IS AN INSTRUCTION, NOT A GUESS. dayCrewCount and
+     isOneManDay work the size of a day out from its houses, and that stays true for
+     every unmarked day; on a marked one they are simply told. A crew that did not
+     turn up is not something the house count can be read off.
+
+   ⚠ STORED AGAINST THE DATE, so pressing Recalculate everything cannot lose it.
+   The rebuild throws every day object away and makes new ones, which is exactly why
+   soloCrew — stored on the DAY — does not survive one. A crew being away on the
+   10th is a fact about the 10th, so that is what is written down.
+
+   ⚠ AND IT ONLY REALLY BITES ON A REBUILD. Marking a date says what the next
+   Recalculate everything should do with it; it does not pull houses off a day by
+   itself, and it cannot touch a day inside the 48-hour lock at all. For a crew that
+   has already failed to turn up this morning the tool is "Not all of them got
+   done — reschedule", which is about houses rather than about the calendar. */
+const DAY_LIMIT_KINDS = ['crew', 'man'];
+function dayLimitOn(dateStr){
+  const v = DAY_LIMITS && DAY_LIMITS[dateStr];
+  return DAY_LIMIT_KINDS.indexOf(v) === -1 ? '' : v;
+}
+function dayLimitFor(day){
+  if(!day || day.isFixRoute || day.isTakedown) return '';
+  const dt = dayDate(day);
+  return dt ? dayLimitOn(isoOf(dt)) : '';
+}
+function dayLimitLabel(kind){
+  return kind === 'man' ? 'one man' : (kind === 'crew' ? 'one crew' : '');
+}
+/* What the builder is handed: crew-slots for the date and, for a one man day, the
+   smaller crew-day that goes with it. A cap of 0 means "leave the cap alone", which
+   is what a one-CREW day wants — one person short of a crew still hangs twenty. */
+function dayShapeOn(dateStr){
+  const kind = dayLimitOn(dateStr);
+  if(!kind) return null;
+  return {crews: 1, cap: kind === 'man' ? oneManMaxHouses() : 0};
+}
+/* A date that has gone by can never be short-handed again, so it is dropped rather
+   than left to grow in the saved plan for ever. */
+function pruneDayLimits(){
+  const today = isoOf(new Date());
+  Object.keys(DAY_LIMITS || {}).forEach(function(ds){ if(ds < today) delete DAY_LIMITS[ds]; });
+}
+function setDayLimitOn(dateStr, kind){
+  if(!dateStr) return '';
+  const want = DAY_LIMIT_KINDS.indexOf(kind) === -1 ? '' : kind;
+  if(want) DAY_LIMITS[dateStr] = want;
+  else delete DAY_LIMITS[dateStr];
+  pruneDayLimits();
+  return want;
+}
+/* Only the two words are accepted back off a saved plan, and only against a date
+   that looks like one — this is read straight out of Firestore. */
+function normalizeDayLimits(raw){
+  const out = {};
+  Object.keys(raw || {}).forEach(function(ds){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return;
+    if(DAY_LIMIT_KINDS.indexOf(raw[ds]) === -1) return;
+    out[ds] = raw[ds];
+  });
+  return out;
+}
 function crewDaysOverTownLimit(){
   const over = [];
   if(typeof SEASON === 'undefined') return over;
@@ -58501,7 +58707,7 @@ function crewDaysOverTownLimit(){
        the most a WORKING DAY can legitimately hold. Shared with the timing sweep,
        which has to know the same number so it stops creating the very days this
        exists to report. */
-    if(n > maxTownsPerDay()) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: Object.keys(towns)});
+    if(n > maxTownsPerDay(d)) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: Object.keys(towns)});
   });
   return over;
 }
@@ -58775,6 +58981,9 @@ function hydrate(o){
   // A plan saved before crews existed just gets the defaults back.
   CREWS=normalizeCrews(o.crews);
   FIXLIST=(o.fixList||[]).map(f=>Object.assign({},f,{addedDate:f.addedDate?new Date(f.addedDate):null}));
+  // A plan saved before this existed comes back with nothing marked, which is the
+  // ordinary maths — exactly what it had.
+  DAY_LIMITS=normalizeDayLimits(o.dayLimits); pruneDayLimits();
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:d.soloCrew===1?1:0,
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
   computeDates();
@@ -58916,6 +59125,23 @@ RT.addEventListener('change',e=>{const t=e.target;
         printColorChangeList().length + ' changing', 'No color changes.');
       return;
     }
+    return;
+  }
+  if(t.dataset.daylimit){
+    const d=getDay(t.dataset.daylimit);
+    const dt=d?dayDate(d):null;
+    if(!dt){ toast('That day has no date yet'); return; }
+    const ds=isoOf(dt);
+    const kind=setDayLimitOn(ds, t.value);
+    renderAll(); scheduleSave();
+    /* Says what it did AND what still has to happen, because nothing visible moves
+       until the rebuild runs — without this the office marks a date, sees the same
+       forty houses, and reasonably concludes the control does nothing. */
+    if(!kind){ toast('Back to normal — press Recalculate everything to fill that day up again'); return; }
+    toast(dlabel(dt).full + ' is set to ' + dayLimitLabel(kind) + ' — ' +
+      (typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)
+        ? 'that day is inside 48 hours, so a rebuild will leave it alone'
+        : 'press Recalculate everything to lay the season out around it'));
     return;
   }
   if(t.dataset.solocrew){

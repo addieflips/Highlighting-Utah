@@ -456,6 +456,39 @@ const phantomTownSrc = () =>
   extractFn(admin, 'cityLooksLikeStreet') + '\n' +
   extractFn(admin, 'townIsPhantom') + '\n';
 
+/* ⭐ EVERYTHING THE MARKED-DATE LIST NEEDS, IN ONE PLACE (2026-09-03) — the same
+   answer phantomTownSrc gives above, and for the same reason. The Schedule tab now
+   lets the office say "one crew" or "one man" against a DATE, so rebuildSeasonDays
+   hands the builder dayShapeOn and dayCrewCount / isOneManDay / maxTownsPerDay all ask
+   dayLimitFor. Every sandbox that lifts one of those needs this, and supplying it here
+   makes the next one a single edit rather than a hunt through failing suites.
+
+   ⚠ LIFTED WITH THE REAL RULE, NEVER STUBBED. A stub answering "nothing is marked"
+   would keep those suites green through exactly the breakage this exists to catch —
+   the rebuild forgetting to pass the marked dates on at all.
+
+   ⚠ IT STARTS EMPTY, WHICH IS THE ORDINARY MATHS. "By default it doesnt care" is the
+   owner's own wording, so a suite that marks nothing must see the season it always
+   saw. A suite that wants a marked date assigns DAY_LIMITS inside its own sandbox. */
+/* ⚠ TWO SWITCHES, BECAUSE A REDECLARATION IS A SyntaxError AND READS AS THE WHOLE
+   SUITE DYING. Several of these sandboxes already lift ONE_MAN_MAX_HOUSES with
+   oneManMaxHouses, or are handed isoOf and dayDate as parameters; a second const of
+   the same name in the same scope kills the eval outright. Say which you already
+   have and this supplies the rest. */
+const dayLimitSrc = (opts) => {
+  const o = opts || {};
+  return 'let DAY_LIMITS = {};\n' +
+    (admin.match(/const DAY_LIMIT_KINDS = \[[^\]]*\];/) || [''])[0] + '\n' +
+    (o.haveOneMan ? '' :
+      (admin.match(/const ONE_MAN_MAX_HOUSES = \d+;/) || [''])[0] + '\n' +
+      extractFn(admin, 'oneManMaxHouses') + '\n') +
+    (o.haveDates ? '' :
+      extractFn(admin, 'isoOf') + '\n' + extractFn(admin, 'dayDate') + '\n') +
+    extractFn(admin, 'dayLimitOn') + '\n' +
+    extractFn(admin, 'dayLimitFor') + '\n' +
+    extractFn(admin, 'dayShapeOn') + '\n';
+};
+
 const seasonRuleSrc = (sentAtExpr, live) =>
   'let rsvpSentAtCache = ' + (sentAtExpr || 'null') + ';\n' +
   'let seasonRuleOffForMeasurement = ' + (live ? 'false' : 'true') + ';\n' +
@@ -12018,6 +12051,11 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          missing either throws, and takes the whole suite down with it. */
       'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
       fn('townsAreNeighbours') +
+      /* ⚠ rebuildSeasonDays NOW HANDS THE BUILDER dayShapeOn — the dates the office
+         has marked one crew or one man. Nothing is marked in here, so the season this
+         suite reads is the season it always read; the lift is what proves the rebuild
+         is still passing them on rather than having quietly dropped the argument. */
+      dayLimitSrc() +
       fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
       '\nthis.run=function(seed){SEASON=seed;SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
       'var r=rebuildSeasonDays();return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
@@ -15253,6 +15291,11 @@ suite('Suite 46. Nobody is hung before the month they asked for');
       'Array', 'Date', 'Math', 'JSON', 'Set', 'Map'];
     const SWEEP_BODY =
       'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+      /* ⚠ maxTownsPerDay NOW ASKS dayLimitFor (2026-09-03) — a date the office has
+         marked one crew is allowed two towns, not four. isoOf and dayDate arrive as
+         parameters here, so only the list itself is lifted. Nothing is marked, so
+         every fixture below still gets the four-town answer it was written for. */
+      dayLimitSrc({haveDates: true}) +
       fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
       fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
       src + 'this.run = enforceInstallTiming;';
@@ -15277,7 +15320,8 @@ suite('Suite 46. Nobody is hung before the month they asked for');
            stub of that fix — it would report green over a branch that never ran. It
            brings thanksgivingDate with it, and BASE_START/prefSpecificDate are supplied
            below, because that is what the real function reads. */
-        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
+        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+        dayLimitSrc({haveDates: true}) + fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
         /* ⚠ AND nextInstallDayFor IS LIFTED TOO (2026-08-22). The sweep no longer
            chooses the day itself — it asks the shared picker, which the rejoin placer
            also asks. Leaving it out is a ReferenceError inside a forEach, which
@@ -15511,7 +15555,8 @@ suite('Suite 46. Nobody is hung before the month they asked for');
         /* ⚠ THE LIMIT IS LIFTED TOO. It used to be the number 4 written into this
            function; sharing it with the timing sweep is the point of the change, so a
            stub here would test a constant that no longer exists. */
-        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('maxTownsPerDay') +
+        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+        dayLimitSrc({haveDates: true}) + fn('maxTownsPerDay') +
         src2 + 'this.run = crewDaysOverTownLimit;'
       ).call(sb, [
         { _date: new Date(2026, 9, 1), houses: [
@@ -15834,7 +15879,7 @@ suite('Suite 48. Days within two working days are set');
          shared definition rather than a second opinion of its own — a hand-written
          stub of isOutForSeason would prove the plumbing and nothing about the rule.
          The live setting comes with it for the same reason. */
-      seasonRuleSrc() + fn('isOutForSeason') +
+      seasonRuleSrc() + fn('isOutForSeason') + dayLimitSrc() +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       String.fromCharCode(10) + 'this.book=function(k){jobAddresses=[];for(var i=0;i<k;i++)jobAddresses.push({id:"c"+i,data:{}});};' +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
@@ -22181,10 +22226,18 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
       'an imported row with no town would otherwise inflate every day it sits on');
 
 
+    /* ⚠ IT ASKS ABOUT THE DAY IT IS LOOKING AT (changed 2026-09-03). A date the
+       office has marked one crew is allowed two towns, not four, so the report has to
+       pass the day in rather than asking for the season-wide number. Still the same
+       claim: the warning counts against maxTownsPerDay and never against a 4 written
+       out by hand. */
     check('S98', 'the warning counts against that same limit',
-      /maxTownsPerDay\(\)/.test(extractFn(admin, 'crewDaysOverTownLimit')),
+      /maxTownsPerDay\(d\)/.test(extractFn(admin, 'crewDaysOverTownLimit')),
       'it used to test n > 4 with the number written out, so changing the crew ' +
       'count moved the builder and left the check behind');
+    check('S98', 'and the limit can be asked about one particular day',
+      /function maxTownsPerDay\(day\)/.test(extractFn(admin, 'maxTownsPerDay')),
+      'a day short-handed to one crew has to be held to one crew\'s two towns');
   }
 
   /* ---- the sweep itself, run for real ---- */
@@ -22213,6 +22266,12 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
            also asks. Leaving it out is a ReferenceError inside a forEach, which
            surfaces as the whole suite dying with no failure list; stubbing it would
            make every claim below about WHICH day is chosen a claim about the stub. */
+        /* ⚠ maxTownsPerDay NOW ASKS ABOUT THE DAY (2026-09-03), because a date the
+           office has marked one crew is allowed two towns rather than four. Nothing is
+           marked in this sandbox, so every fixture below still gets the four-town
+           answer it was written against — the lift is what proves the sweep and the
+           report are reading the same rule. */
+        dayLimitSrc({haveDates: true}) +
         extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + lim +
         extractFn(admin, 'nextInstallDayFor') + src +
         'return {report: enforceInstallTiming(), season: SEASON};')(season);
@@ -22358,8 +22417,13 @@ suite('Suite 99. One man installs');
       'a tiny crew setting must not make the one-crew ceiling lower than the one-man ' +
       'floor, or a day would be both at once');
 
+    /* ⚠ isOneManDay NOW HONOURS A DATE THE OFFICE MARKED ONE MAN (2026-09-03).
+       Nothing is marked in here, so every claim below is still a claim about the house
+       COUNT — which is the rule this suite exists for. The list is lifted rather than
+       stubbed so a change that made the count stop mattering would fail here. */
     const is = (day) => new Function('day', 'MAX_STOPS_PER_ROUTE',
-      CONST + capSrc + isSrc + 'return isOneManDay(day);')(day, 20);
+      CONST + capSrc + dayLimitSrc({haveOneMan: true}) + isSrc +
+      'return isOneManDay(day);')(day, 20);
     const houses = (n) => ({houses: Array.from({length: n}, (_, i) => ({id: i}))});
 
     check('S99', 'eight houses is one man', is(houses(8)) === true);
@@ -22507,6 +22571,10 @@ suite('Suite 100. One crew days, and who works them');
       'const MAX_TOWNS_PER_CREW = 2;' + 'const NEARBY_TOWN_MILES = 8;' +
       'const NEARBY_TOWN_LIST = {Lehi: ["Orem"], Orem: ["Lehi"]};' +
       extractFn(admin, 'haversine') + extractFn(admin, 'townsAreNeighbours') +
+      /* ⚠ dayCrewCount ASKS dayLimitFor FIRST NOW (2026-09-03): a date the office
+         marked is one crew whatever the houses say. Nothing is marked here, so the
+         size-and-towns rule below is still what is being graded. */
+      dayLimitSrc({haveOneMan: true}) +
       extractFn(admin, 'oneCrewMaxHouses') + countSrc + 'return dayCrewCount(day);')(day, 20, townsByCrew);
     const day = (n, towns) => ({houses: Array.from({length: n}, (_, k) => ({
       id: k, city: (towns || ['Lehi'])[k % (towns || ['Lehi']).length]}))});
@@ -22568,6 +22636,7 @@ suite('Suite 100. One crew days, and who works them');
       'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
       CONST + extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
       extractFn(admin, 'oneCrewMaxHouses') + extractFn(admin, 'dayAssignedHouses') +
+      dayLimitSrc({haveOneMan: true}) +
       countSrc + extractFn(admin, 'daySoloCrew') +
       extractFn(admin, 'crewCap') + splitSrc + 'return dayCrewHouses(day);')(day, towns, 20);
 
@@ -31004,7 +31073,24 @@ suite('77. Schedule route generator');
     /* Stubbed on purpose: this is a check about GROUPING, and the stop card has
        its own coverage. A card that renders is not the question here. */
     global.stopHTML = (h, n) => '<stop>' + h.name + '#' + n + '</stop>';
-    const panel = eval(admin.slice(crewStart, crewEnd) + '\n' +
+    /* ⚠ THE REAL CLOCK, NOT A FAKE OF IT (2026-09-03). The day panel now carries
+       the "crews on this date" control, and that control says whether the date is
+       inside the 48-hour lock. A hand-written routeDayIsLocked would wear the name of
+       a real function while answering something else — the exact trap the shadow
+       scanner below exists to catch — so the whole three-function clock is lifted.
+       The fixture day is in 2026 and long past, so it reads as locked; the control
+       still draws, which is all this suite asks of it. */
+    const panel = eval(
+      (admin.match(/const ROUTE_LOCK_HOURS = \d+;/) || [''])[0] + '\n' +
+      extractFn(admin, 'mtnNowParts') + '\n' +
+      extractFn(admin, 'hoursUntilDayStarts') + '\n' +
+      extractFn(admin, 'routeDayIsLocked') + '\n' +
+      /* The marked-date list, lifted rather than stubbed — see dayLimitSrc. Empty,
+         so the control draws its "Normal" state and the groupings below are the
+         groupings this suite has always checked. isoOf and dayDate are already
+         supplied as globals just above. */
+      dayLimitSrc({haveDates: true}) + extractFn(admin, 'dayLimitLabel') + '\n' +
+      admin.slice(crewStart, crewEnd) + '\n' +
       admin.slice(panelStart, panelEnd) +
       '\n;({ render: renderPanelInto, setCrews(l){ CREWS = normalizeCrews(l); } })');
     panel.setCrews(null);
@@ -47700,6 +47786,244 @@ suite('293. Every safeRender call hands over something to render');
   check('S293', 'no call passes a label with nothing to draw',
     oneArg.length === 0,
     'these are silent no-ops that read like a repaint: ' + oneArg.join(' | '));
+}
+
+/*
+ * ⭐ SUITE 294. A DAY THE OFFICE HAS SHORT-HANDED ON PURPOSE.
+ *
+ * Owner, 2026-09-03: "there are some days we will need to have 1 crew or 1 man if a
+ * crew doesnt show or if a crew takes time off ect, make an option in the day where
+ * you can force there to be one crew in a day but by default it doesnt care and it
+ * keeps the math the same with get as many houses in a day as possible."
+ *
+ * TWO THINGS TO PROVE, and the second one is the one that will rot first:
+ *   - a marked date really does come back with one crew, and with a one man date's
+ *     smaller crew-day, and NOBODY IS LOST doing it;
+ *   - an unmarked season is byte-for-byte the season the builder made before. "By
+ *     default it doesnt care" is a promise about every other day of the year, and a
+ *     change that quietly narrowed the ordinary maths would look like a pass on the
+ *     first half alone.
+ *
+ * The wiring is checked in source as well as in behaviour, because every link in it
+ * is a place the feature can go silently dead: the builder can be right while the
+ * rebuild forgets to hand it the marked dates, or the plan can forget to save them,
+ * and in both cases the office marks a date, presses the button, and nothing happens.
+ */
+suite('Suite 294. A day the office has short-handed on purpose');
+{
+  const extract = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
+  check('S294', 'the builder is findable', start !== -1 && end > start && nearbyConst !== -1);
+
+  if (start !== -1 && end > start && nearbyConst !== -1) {
+    const api = eval(
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + extract('sameTownName') +
+      extract('townCentres') + '\n' + extract('nearbyTowns') + '\n' +
+      extract('installPriority') + '\n' + admin.slice(start, end) +
+      '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE, crews: CREWS_PER_DAY})');
+
+    /* Six towns far enough apart that nobody borrows from anybody — this suite is
+       about how many crews a DATE gets, and a borrowing rule firing in the middle of
+       it would only make the counts harder to read. */
+    const at = {
+      Lehi: [40.391, -111.851], Draper: [40.524, -111.863], Orem: [40.297, -111.695],
+      Herriman: [40.514, -112.033], Ogden: [41.223, -111.973], Provo: [40.233, -111.658]
+    };
+    const run = (opts) => {
+      const waiting = [];
+      Object.keys(at).forEach(city => {
+        for (let i = 0; i < 40; i++) {
+          waiting.push({ id: city + i, city, priority: 2, from: '2026-10-01',
+                         stop: { lat: at[city][0], lng: at[city][1] } });
+        }
+      });
+      const days = api.plan(waiting, {}, Object.assign(
+        { floorDate: '2026-10-01', maxDays: 400, horizonDays: 400 }, opts || {}));
+      const byDate = {};
+      days.forEach(d => { (byDate[d.date] = byDate[d.date] || []).push(d); });
+      const seen = new Set();
+      days.forEach(d => d.ids.forEach(id => seen.add(id)));
+      return { days, byDate, dates: Object.keys(byDate).sort(),
+               placed: days.reduce((s, d) => s + d.ids.length, 0), unique: seen.size,
+               total: waiting.length };
+    };
+    const shapeOf = (marks) => (ds) => marks[ds] || null;
+    const MARK = '2026-10-02';                       // the second working day of the season
+
+    /* ---- 1. by default it does not care ------------------------------------ */
+    const plain = run();
+    const alsoPlain = run({ dayShape: function(){ return null; } });
+    check('S294', 'an unmarked season is the season the builder always made',
+      JSON.stringify(plain.days) === JSON.stringify(alsoPlain.days),
+      'supplying a dayShape that marks nothing changed the plan — the default path is ' +
+      'no longer the old maths, which is the one thing the owner asked to protect');
+    check('S294', 'and that season is still two full crews a day',
+      plain.byDate[MARK] && plain.byDate[MARK].length === api.crews &&
+      plain.byDate[MARK].every(d => d.ids.length === api.cap),
+      'the fixture no longer produces a full two-crew day, so the checks below prove ' +
+      'nothing: got ' + ((plain.byDate[MARK] || []).map(d => d.ids.length).join('+') || 'no day'));
+
+    /* ---- 2. one crew on a marked date -------------------------------------- */
+    const oneCrew = run({ dayShape: shapeOf({ [MARK]: { crews: 1, cap: 0 } }) });
+    check('S294', 'a date marked one crew gets one crew',
+      (oneCrew.byDate[MARK] || []).length === 1,
+      'got ' + ((oneCrew.byDate[MARK] || []).length) + ' crew-days on ' + MARK);
+    check('S294', 'and that crew still gets a full day of houses',
+      (oneCrew.byDate[MARK] || []).every(d => d.ids.length === api.cap),
+      'one crew short-handed is still one whole crew — a cap of 0 means "leave the ' +
+      'crew-day alone", so twenty is right and anything less is the cap leaking');
+
+    /* ---- 3. one man on a marked date --------------------------------------- */
+    const MAN = 8;
+    const oneMan = run({ dayShape: shapeOf({ [MARK]: { crews: 1, cap: MAN } }) });
+    check('S294', 'a date marked one man gets one crew-day of one man\'s size',
+      (oneMan.byDate[MARK] || []).length === 1 &&
+      (oneMan.byDate[MARK] || []).every(d => d.ids.length <= MAN),
+      'got ' + ((oneMan.byDate[MARK] || []).map(d => d.ids.length).join('+') || 'no day'));
+
+    /* ⚠ THE ONE THAT MATTERS. Capping a day is only ever half a scheduling change;
+       the other half is where the houses that no longer fit went. Silently dropping
+       thirty-two people off the season would pass every check above. */
+    [['one crew', oneCrew], ['one man', oneMan]].forEach(function (pair) {
+      check('S294', 'nobody is lost when a date is marked ' + pair[0],
+        pair[1].unique === pair[1].total && pair[1].placed === pair[1].total,
+        'placed ' + pair[1].placed + ' of ' + pair[1].total + ' (' + pair[1].unique + ' distinct)');
+      check('S294', 'and the season simply runs longer for it — ' + pair[0],
+        pair[1].dates.length >= plain.dates.length,
+        'marking a date cannot make the season shorter; got ' + pair[1].dates.length +
+        ' working days against ' + plain.dates.length);
+    });
+
+    /* ---- 4. the sweep does not undo it -------------------------------------- */
+    /* packTailCrewDays moves whole crew-days onto earlier dates "that have a crew
+       spare" and tops crew-days up to the cap. Both questions have a different answer
+       on a marked date, and a sweep that did not know would hand the marked date back
+       its second crew on the way out. */
+    const tail = (() => {
+      const waiting = [];
+      ['Lehi', 'Draper', 'Orem', 'Herriman'].forEach(city => {
+        for (let i = 0; i < 6; i++) {
+          waiting.push({ id: city + i, city, priority: 2, from: '2026-10-01',
+                         stop: { lat: at[city][0], lng: at[city][1] } });
+        }
+      });
+      const days = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 400, horizonDays: 400,
+        dayShape: shapeOf({ '2026-10-01': { crews: 1, cap: 0 } }) });
+      const byDate = {};
+      days.forEach(d => { (byDate[d.date] = byDate[d.date] || []).push(d); });
+      return byDate;
+    })();
+    check('S294', 'the tail sweep will not put a second crew back on a marked date',
+      (tail['2026-10-01'] || []).length <= 1,
+      'the packer relocated a thin crew-day onto a date the office said had one crew: ' +
+      ((tail['2026-10-01'] || []).length) + ' crew-days on 1 October');
+  }
+
+  /* ---- 5. the helpers, on their own ---------------------------------------- */
+  const helpers = ['dayLimitOn', 'dayLimitFor', 'dayShapeOn', 'setDayLimitOn',
+                   'normalizeDayLimits', 'pruneDayLimits'].map(n => extract(n));
+  check('S294', 'the day-limit helpers are all there', helpers.every(Boolean),
+    'missing: ' + ['dayLimitOn', 'dayLimitFor', 'dayShapeOn', 'setDayLimitOn',
+                   'normalizeDayLimits', 'pruneDayLimits'].filter((n, i) => !helpers[i]).join(', '));
+  if (helpers.every(Boolean)) {
+    const H = eval(
+      'let DAY_LIMITS = {};\n' +
+      (admin.match(/const DAY_LIMIT_KINDS = \[[^\]]*\];/) || [''])[0] + '\n' +
+      'const ONE_MAN_MAX_HOUSES = 8; function oneManMaxHouses(){ return ONE_MAN_MAX_HOUSES; }\n' +
+      extract('isoOf') + '\n' +
+      'function dayDate(d){ return d._date; }\n' +
+      helpers.join('\n') + '\n' +
+      ';({on: dayLimitOn, forDay: dayLimitFor, shape: dayShapeOn, set: setDayLimitOn,' +
+      ' norm: normalizeDayLimits, all: function(){ return DAY_LIMITS; },' +
+      ' reset: function(v){ DAY_LIMITS = v || {}; }})');
+
+    H.reset({});
+    check('S294', 'nothing is marked until somebody marks it',
+      H.on('2027-10-05') === '' && H.shape('2027-10-05') === null,
+      'an empty list has to mean "the ordinary maths", not "one crew everywhere"');
+
+    H.set('2027-10-05', 'crew');
+    check('S294', 'one crew is one crew and leaves the crew-day alone',
+      H.on('2027-10-05') === 'crew' &&
+      H.shape('2027-10-05').crews === 1 && !(H.shape('2027-10-05').cap > 0),
+      'a cap above zero here would shrink a one-CREW day, which is twenty houses');
+
+    H.set('2027-10-06', 'man');
+    check('S294', 'one man carries the one-man day size with it',
+      H.shape('2027-10-06').crews === 1 && H.shape('2027-10-06').cap === 8,
+      'the number one person can hang must come from ONE_MAN_MAX_HOUSES, not from a ' +
+      'second copy of it in the builder');
+
+    check('S294', 'a marked date is read off the day it lands on',
+      H.forDay({ _date: new Date(2027, 9, 5) }) === 'crew' &&
+      H.forDay({ _date: new Date(2027, 9, 7) }) === '',
+      'dayLimitFor is how every badge and every crew count asks the question');
+
+    H.set('2027-10-05', '');
+    check('S294', 'and it can be taken off again',
+      H.on('2027-10-05') === '' && H.on('2027-10-06') === 'man',
+      'clearing one date must not clear the others');
+
+    /* Read straight out of Firestore, so anything at all can arrive here. */
+    const cleaned = H.norm({ '2027-10-05': 'crew', 'nonsense': 'man', '2027-10-06': 'two crews',
+                             '2027-10-07': { crews: 1 } });
+    check('S294', 'only the two words against a real date survive a reload',
+      JSON.stringify(cleaned) === JSON.stringify({ '2027-10-05': 'crew' }),
+      'got ' + JSON.stringify(cleaned));
+
+    /* A date that has gone by can never be short-handed again. */
+    H.reset({});
+    H.set('2000-01-03', 'man');
+    H.set('2099-01-04', 'crew');
+    check('S294', 'a date in the past drops off the list',
+      !H.all()['2000-01-03'] && H.all()['2099-01-04'] === 'crew',
+      'got ' + JSON.stringify(H.all()));
+  }
+
+  /* ---- 6. the wiring, end to end ------------------------------------------- */
+  /* Every one of these is a link that can break without a single test failing on
+     behaviour, because each of them is what carries the office's mark to the code
+     that reads it. Named individually so a failure says which link went. */
+  const wiring = [
+    ['the rebuild hands the marked dates to the builder',
+      /planNewCrewDays\(placeable[\s\S]{0,220}dayShape\s*:\s*dayShapeOn/.test(admin)],
+    ['the builder passes them on to the tail sweep',
+      /packTailCrewDays\(out,\s*\{[\s\S]{0,300}dayShape\s*:\s*o\.dayShape/.test(admin)],
+    ['the marked dates are saved with the plan',
+      /dayLimits\s*:\s*Object\.assign\(\{\},\s*DAY_LIMITS\)/.test(admin)],
+    ['and read back on load',
+      /DAY_LIMITS\s*=\s*normalizeDayLimits\(o\.dayLimits\)/.test(admin)],
+    ['the day panel offers the choice',
+      /data-daylimit="/.test(admin) && !!extract('dayCrewLimitControlHTML')],
+    ['and something acts on it',
+      /t\.dataset\.daylimit/.test(admin) && /setDayLimitOn\(ds,\s*t\.value\)/.test(admin)],
+    ['the crew count on a day obeys the mark',
+      /function dayCrewCount\(day\)\{[\s\S]{0,400}dayLimitFor\(day\)\)\s*return 1;/.test(admin)],
+    ['a date marked one man is listed as one',
+      /function isOneManDay\(day\)\{[\s\S]{0,600}dayLimitFor\(day\)\s*===\s*'man'\)\s*return true;/.test(admin)],
+    ['and the town limit follows the crews that are actually out',
+      /function maxTownsPerDay\(day\)/.test(admin) && /maxTownsPerDay\(d\)\)\s*over\.push/.test(admin)]
+  ];
+  wiring.forEach(function (w) {
+    check('S294', w[0], w[1],
+      'the mark cannot reach the code that reads it, so setting one does nothing visible');
+  });
 }
 
 /*
