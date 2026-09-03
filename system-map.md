@@ -1110,8 +1110,11 @@ was written `folder:'Inbox'`, and routing only new ones would have left her exis
 the pile. Nothing is migrated. ⚠ **The office's own filing always wins**: `filedByHand` is
 stamped by the drag, the right-click, Move to… and a folder being deleted, so a message
 moved by hand stays put — without it, a dragged message springs back and reads as the drag
-not working. ⚠ **A rename is deliberately not a filing**, so renaming a folder does not pin
-everything in it for ever. ⚠ **And `folder:'System'` is untouched by all of it** — that
+not working. ⚠ **A rename is deliberately not a filing** for a message stored in the folder, so
+renaming does not pin everything inside it for ever — but a message sitting there only
+by *derivation* **is** pinned, because otherwise the topic map would go on naming a
+folder that no longer exists and that message would be in no list at all. Deleting a
+folder files its derived residents into Inbox for the same reason. ⚠ **And `folder:'System'` is untouched by all of it** — that
 field decides which *tab* a message is on, not which folder, and a topic must never be able
 to move a notice between them.
 

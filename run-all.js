@@ -47376,11 +47376,33 @@ suite('292. Cancellations, the member portal, and folders in the System tab');
     /\{folder: 'Inbox', filedByHand: true\}/.test(sidebar),
     'a message whose topic points at the deleted folder would be re-homed into a ' +
     'folder that no longer exists, and would be in no list at all');
+  /* ⭐ THE HOLE THIS CLOSES, found by asking what happens when the office deletes or
+     renames one of the two new folders. A message sitting in one only BY DERIVATION
+     still reads folder:'Inbox', so a stored-field match misses it — and once the folder
+     is gone or renamed the topic map goes on naming the old one, which now has no row
+     in the sidebar. That message is then in no list at all and counted nowhere. Both
+     handlers have to ask the derived folder, not the stored field. */
+  check('S292', 'deleting a folder also catches the messages that were only derived into it',
+    /const affected = allMessages\.filter\(m => messageFolderOf\(m\.data\) === folderName\)/.test(sidebar),
+    'a cancellation would survive its folder being deleted and then be in no list at all');
+  check('S292', 'and renaming one pins the derived ones so they follow it',
+    /m\.data\.folder !== oldName && messageFolderOf\(m\.data\) === oldName/.test(sidebar) &&
+    /\{folder: newName, filedByHand: true\}/.test(sidebar),
+    'renaming Cancellations would leave every cancellation resolving to a folder that ' +
+    'no longer exists');
   /* ⚠ A RENAME IS NOT A FILING. It follows the folder rather than overruling the topic,
      so stamping it would silently pin every message in a renamed folder for ever. */
-  check('S292', 'a rename does NOT claim the office filed them',
-    /allMessages\.filter\(m => m\.data\.folder === oldName\)[\s\S]{0,160}\{folder: newName\}\)/.test(sidebar) &&
-    !/\{folder: newName, filedByHand/.test(sidebar),
+  /* ⚠ SCOPED TO THE STORED-RESIDENTS LOOP, not the whole sidebar. The DERIVED branch
+     below it stamps filedByHand on purpose (see the two checks above), so a file-wide
+     "no filedByHand near newName" would now fail on correct code — the §7 slow-fuse
+     shape, arriving from the other direction. What must stay true is that the loop
+     matching the STORED name does not stamp. */
+  /* ⚠ BOUNDED BY THE DERIVED BRANCH ITSELF, not by a '});' — the updateDoc call ends
+     in one, so splitting there cut the slice in half and it failed on correct code. */
+  const renStored = (sidebar.split('allMessages.filter(m => m.data.folder === oldName)')[1] || '')
+    .split('BUT A MESSAGE SITTING HERE ONLY BY DERIVATION')[0];
+  check('S292', 'a rename does NOT claim the office filed the messages stored in it',
+    !!renStored && /\{folder: newName\}/.test(renStored) && !/filedByHand/.test(renStored),
     'renaming a folder would pin everything in it against its topic for ever');
   check('S292', 'the right-click move and Move to… both file by hand',
     /\{folder: btn\.dataset\.movefolder, filedByHand: true\}/.test(admin) &&

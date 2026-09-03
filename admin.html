@@ -17152,13 +17152,25 @@ function renderFolderSidebar(){
       if(newName.toLowerCase() === 'inbox' || newName.toLowerCase() === 'system'){ toast('That name is reserved'); return; }
       if(messageFolders.some(f => f.id !== folderId && f.name.toLowerCase() === newName.toLowerCase())){ toast('A folder with that name already exists'); return; }
       updateDoc(doc(db,'messageFolders',folderId), {name: newName});
-      /* ⚠ A RENAME IS NOT A FILING, so it does NOT stamp filedByHand — it follows the
-         folder rather than overruling the topic. It matches on the STORED name because
-         that is what it is rewriting; a message sitting here only because its topic
-         sends it here has no stored name to fix and needs none. */
+      /* ⚠ A RENAME IS NOT A FILING for a message that is STORED here — it follows the
+         folder rather than overruling the topic, so it does not stamp filedByHand.
+         Stamping every message in a renamed folder would pin the lot against their
+         topic for ever. */
       allMessages.filter(m => m.data.folder === oldName).forEach(function(m){
         updateDoc(doc(db,'messages',m.id), {folder: newName});
       });
+      /* ⭐ BUT A MESSAGE SITTING HERE ONLY BY DERIVATION MUST BE PINNED, OR IT GOES
+         INVISIBLE. Its stored folder is still 'Inbox' — MESSAGE_HOME_FOLDER is what puts
+         it in this row — so the rewrite above cannot see it, and once the folder is
+         renamed the topic map still names the OLD folder, which now has no row in the
+         sidebar. The message is then in no list at all and counted nowhere.
+         ⚠ SO THIS ONE IS A FILING, deliberately and unlike the loop above: the office
+         renamed the folder these are in, so they follow it, and being pinned is what
+         stops the topic dragging them back to a name that no longer exists. */
+      allMessages.filter(m => m.data.folder !== oldName && messageFolderOf(m.data) === oldName)
+        .forEach(function(m){
+          updateDoc(doc(db,'messages',m.id), {folder: newName, filedByHand: true});
+        });
       if(selectedFolder === oldName){
         selectedFolder = newName;
         document.getElementById('currentFolderLabel').textContent = newName;
@@ -17176,7 +17188,11 @@ function renderFolderSidebar(){
       if(!confirm('Are you sure? This can\'t be undone.')) return;
       const deletedFolder = messageFolders.find(f => f.id === folderId);
       // reassign affected messages back to Inbox
-      const affected = allMessages.filter(m => m.data.folder === folderName);
+      /* ⚠ messageFolderOf, NOT THE STORED FIELD. A message sitting here only because its
+         TOPIC sends it here still reads folder:'Inbox', so a stored-field match misses
+         it entirely — and once the folder is gone the topic map goes on naming it, so
+         that message resolves to a folder with no row and is in no list at all. */
+      const affected = allMessages.filter(m => messageFolderOf(m.data) === folderName);
       /* ⚠ filedByHand HERE TOO, AND FOR A DIFFERENT REASON: without it a message whose
          TOPIC sends it to the folder being deleted would be re-homed straight back into
          a folder that no longer exists, and would then be in no list at all. */
