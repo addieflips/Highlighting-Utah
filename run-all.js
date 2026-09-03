@@ -48277,6 +48277,125 @@ suite('Suite 297. Confirming an undated RSVP actually confirms it');
   }
 }
 
+/*
+ * ⭐ SUITE 295. THE SEASON BAR CANNOT CONTRADICT ITSELF.
+ *
+ * Addie, 2026-09-03, reading her own Schedule tab:
+ *
+ *     Season start   10/01/2026
+ *     Plan runs Tue Sep 22 → Sep 22.
+ *
+ * "this is very wrong because the season start date is oct 1".
+ *
+ * Both lines were drawn from the same plan and they disagreed, which is the worst
+ * shape a screen can be in: there is no way to tell from the outside which half to
+ * believe. The box shows BASE_START + globalDelta. A day is laid out at
+ * BASE_START + base + globalDelta + cascade, and NOTHING clamped it — so any day
+ * carrying a negative base or cascade rendered before the season had started.
+ *
+ * Two ways a day gets one, and this fixes both without touching the data:
+ *   - "◀ Pull this + rest earlier" decrements cascade until the date moves, and had
+ *     no floor of its own — every press walked the plan further into September;
+ *   - a rebuild keeps the days it does not re-lay, and those keep a base measured
+ *     against whatever BASE_START was before it moved.
+ *
+ * ⚠ THE PIN IS THE ONE THING THAT MAY STILL GO EARLIER. "Force exact date" is the
+ * office overriding the layout deliberately — the same reason it is allowed to put a
+ * day on a weekend — so a test that clamped it would be testing the wrong rule.
+ */
+suite('Suite 295. Nothing is hung before the season starts');
+{
+  const fn = (name) => extractFn(admin, name);
+  const need = ['layoutSequence', 'computeDates', 'desired', 'effectivePin', 'seasonStartDate'];
+  const missing = need.filter(x => !fn(x));
+  check('S295', 'the date engine is findable', !missing.length, 'missing: ' + missing.join(', '));
+
+  check('S295', 'the floor is passed in rather than assumed',
+    /function layoutSequence\(days,\s*floor\)/.test(fn('layoutSequence') || '') &&
+    /layoutSequence\(SEASON\.filter\(d=>!d\.isFixRoute&&!d\.isTakedown\),\s*seasonStartDate\(\)\)/.test(fn('computeDates') || ''),
+    'a floor hard-coded inside layoutSequence would drag TAKEDOWNS onto the install ' +
+    'season start too — they run off TAKE_BASE_START and are a different season');
+
+  if (!missing.length) {
+    /* The real engine, with only the calendar helpers supplied. isDayOff is the
+       weekend/holiday rule and has its own coverage; a plain weekend test is enough
+       to prove the floor does not fight it. */
+    const build = () => {
+      const sb = {};
+      new Function(
+        'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+        'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+        'function isDayOff(d){return isWeekend(d);}' +
+        'function isoOf(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}' +
+        'let BASE_START=new Date(2026,8,22), TAKE_BASE_START=new Date(2027,0,5);' +
+        'let globalDelta=0, takeDelta=0, SEASON=[], ORDER=[];' +
+        'function startFor(day){return day.isTakedown?TAKE_BASE_START:BASE_START;}' +
+        'function deltaFor(day){return day.isTakedown?takeDelta:globalDelta;}' +
+        'const PIN_HONOURED_BUSINESS_DAYS=2;' +
+        'function pinHorizon(){const d=new Date(2099,0,1);return d;}' +
+        fn('desired') + fn('effectivePin') + fn('seasonStartDate') +
+        fn('layoutSequence') + fn('computeDates') +
+        'this.run=function(season,delta){SEASON=season;globalDelta=delta||0;computeDates();' +
+        'return {box:isoOf(addDays(BASE_START,globalDelta)),' +
+        ' days:SEASON.filter(d=>!d.isTakedown&&!d.isFixRoute).map(d=>isoOf(d._date)),' +
+        ' takes:SEASON.filter(d=>d.isTakedown).map(d=>isoOf(d._date))};};'
+      ).call(sb);
+      return sb.run;
+    };
+    const run = build();
+    const day = (base, extra) => Object.assign({id:'d'+base, base:base, cascade:0, pin:null, houses:[]}, extra||{});
+
+    /* ⭐ HER PLAN. BASE_START is 22 September and globalDelta is 9, so the box reads
+       1 October — and the only install day carries base -9, which is what put it back
+       on the 22nd. Exactly the two lines she pasted. */
+    const hers = run([day(-9)], 9);
+    check('S295', 'the box still reads the season start', hers.box === '2026-10-01',
+      'got ' + hers.box);
+    check('S295', 'and the day no longer sits nine days before it',
+      hers.days[0] === '2026-10-01',
+      'got ' + hers.days[0] + ' — the season bar was reading "Season start 10/01/2026" ' +
+      'above "Plan runs Tue Sep 22", and both came off this same plan');
+
+    /* A plan already saved in that state heals on the next draw — nobody has to go
+       and repair the data, which is the whole reason the floor is here and not in
+       the button that caused it. */
+    const many = run([day(-9), day(-8), day(-7)], 9);
+    check('S295', 'a whole run of early days is pulled back onto the season',
+      many.days.every(d => d >= '2026-10-01'),
+      'got ' + many.days.join(', '));
+    check('S295', 'and they do not all collapse onto one date',
+      new Set(many.days).size === 3, 'got ' + many.days.join(', '));
+
+    /* ⚠ AND THE FLOOR MUST NOT DRAG THE SEASON FORWARD. A day legitimately later
+       than the start is untouched — a floor that clamped in both directions would
+       flatten October onto the 1st. */
+    const later = run([day(-9), day(20)], 9);
+    check('S295', 'a day already inside the season is left where it was',
+      later.days[1] === '2026-10-21', 'got ' + later.days[1]);
+
+    /* Weekends still win: 3 October 2026 is a Saturday, so a day floored onto the
+       start and pushed along must still land on a working day. */
+    const wk = run([day(-9), day(-8), day(-7), day(-6)], 9);
+    check('S295', 'the floored days still skip the weekend',
+      wk.days.every(d => { const t = new Date(d + 'T00:00:00'); return t.getDay() !== 0 && t.getDay() !== 6; }),
+      'got ' + wk.days.join(', '));
+
+    /* ⚠ THE PIN IS DELIBERATELY EXEMPT. */
+    const pinned = run([day(-9, {pin: new Date(2026, 8, 22)})], 9);
+    check('S295', 'a date the office forced by hand is still honoured',
+      pinned.days[0] === '2026-09-22',
+      'got ' + pinned.days[0] + ' — Force exact date is an override, and clamping it ' +
+      'would take away the only way to place a day the layout refuses');
+
+    /* ⚠ TAKEDOWNS ARE A DIFFERENT SEASON. TAKE_BASE_START is January; flooring them
+       at the install start would haul every one of them into October. */
+    const td = run([day(-9), Object.assign(day(0), {isTakedown: true, id: 't0'})], 9);
+    check('S295', 'takedowns keep their own season',
+      td.takes[0] === '2027-01-05',
+      'got ' + td.takes[0] + ' — the install floor must not reach them');
+  }
+}
+
 Promise.all(pendingAsync).then(function () {
   console.log('\n' + '='.repeat(55));
   console.log(pass + ' passed, ' + fail + ' failed' + (warn ? ', ' + warn + ' notes' : ''));
