@@ -48080,6 +48080,116 @@ suite('Suite 294. A day the office has short-handed on purpose');
   });
 }
 
+
+/* ---- a charge that missed this season's bill is still on their account ----
+   ⚠ NUMBERED 298. Main took 292 for "Cancellations, the member portal, and folders"
+   while this was being written — the second suite-number collision in two days, and
+   the rule is the same: whichever is already on main keeps the number.
+   ⭐ Addie, 2026-09-03: "when you do color change or any other fees/discounts it
+   should come up under their account fees and we should be able to waive it but
+   when they make a change in member portal it doesnt show it on fees in the edit
+   customer spot."
+
+   ⚠ WHERE THE FEE GOES DEPENDS ON WHETHER THE BILL HAS GONE OUT, and that is the
+   whole of it. portalSave puts a colour-change fee on the invoice while it is still
+   unsent, and those lines have shown in Edit Customer all along. Once the invoice HAS
+   been sent it becomes `carryoverCharge` on the CUSTOMER instead — and Edit Customer's
+   fee lines only ever read the invoice, so that kind was invisible on the one screen
+   somebody would waive it from.
+
+   ⚠ RUN, NOT MATCHED: what a × writes is arithmetic on money. */
+suite('298. A charge carried to next season is still on their account');
+{
+  const NL292 = String.fromCharCode(10);
+  const parts = ['ledgerWaiveUpdates', 'ledgerLineIsWaivable', 'feeNoteKey', 'ledgerLineLabel'];
+  const srcs = parts.map(n => extractFn(admin, n));
+  check('S292', 'the shared ledger rules are findable', srcs.every(Boolean),
+    parts.filter((n, i) => !srcs[i]).join(', ') + ' missing');
+
+  if (srcs.every(Boolean)) {
+    const api = new Function(
+      (admin.match(/const LEDGERS = \{[\s\S]*?\n\};/) || [''])[0] + NL292 +
+      (admin.match(/const FEE_KIND_LABELS = [^\n]*/) || [''])[0] + NL292 +
+      (admin.match(/const CREDIT_KIND_LABELS = \{[\s\S]*?\};/) || [''])[0] + NL292 +
+      (admin.match(/const CARRIED_KIND_LABELS = [^\n]*/) || [''])[0] + NL292 +
+      "const ARREARS_KIND = 'arrears';" + NL292 +
+      /* ⚠ THE REAL STATUS RULE, LIFTED. ledgerWaiveUpdates re-derives the invoice's
+         status from what is left, so a sandbox without it dies on the first ×. */
+      cnBinsForFeetSrc + NL292 + centsOfSrc + NL292 + computeInvoiceStatusSrc + NL292 +
+      srcs.join(NL292) + NL292 +
+      'return {plan: ledgerWaiveUpdates, waivable: ledgerLineIsWaivable, label: ledgerLineLabel,' +
+      ' key: feeNoteKey, LEDGERS: LEDGERS};')();
+
+    check('S292', 'the carried ledger reads the customer, not the invoice',
+      api.LEDGERS.carried && api.LEDGERS.carried.notes === 'carryoverChargeNotes' &&
+      api.LEDGERS.carried.total === 'carryoverCharge' && api.LEDGERS.carried.onCustomer === true,
+      'got ' + JSON.stringify(api.LEDGERS.carried) + ' — this is the only ledger whose ' +
+      'money lives on the customer record, and the × has to write there');
+
+    /* A customer whose bill had already gone out when they changed their colours: the
+       fee is waiting for next season, on them rather than on the invoice. */
+    const a = { amount: 30, reason: 'Light colour change after the bill went out',
+                date: '2026-09-02T10:00:00Z' };
+    const b = { amount: 30, reason: 'Second colour change', date: '2026-09-03T10:00:00Z' };
+    const cust = { carryoverCharge: 60, carryoverChargeNotes: [a, b] };
+
+    check('S292', 'a carried charge can be waived at all',
+      api.waivable('carried', a) === true,
+      'only an arrears line is un-waivable, and this is not one');
+
+    const plan = api.plan(cust, 'carried', api.key(a));
+    check('S292', 'waiving one leaves the other and re-totals',
+      !!plan && plan.updates.carryoverChargeNotes.length === 1 &&
+      plan.updates.carryoverChargeNotes[0].reason === 'Second colour change' &&
+      plan.updates.carryoverCharge === 30,
+      'got ' + JSON.stringify(plan && plan.updates) + ' — the total is rebuilt from ' +
+      'what is left, never decremented, so it cannot drift from the lines');
+    check('S292', 'and it writes the field by name',
+      !!plan && Object.prototype.hasOwnProperty.call(plan.updates, 'carryoverCharge'),
+      'a computed key is invisible to everything that traces who writes carryoverCharge');
+    /* ⚠ WAIVING THE LAST ONE MUST LEAVE ZERO, not a leftover total. A charge nobody
+       can see but the nightly run still collects is the worst shape this can take. */
+    const both = api.plan({ carryoverCharge: 30, carryoverChargeNotes: [a] }, 'carried', api.key(a));
+    check('S292', 'waiving the last one leaves nothing owed',
+      !!both && both.updates.carryoverCharge === 0 && both.updates.carryoverChargeNotes.length === 0,
+      'got ' + JSON.stringify(both && both.updates) + ' — a total left standing with no ' +
+      'line under it is money the nightly run collects and nobody can see');
+    check('S292', 'a line that is already gone says so rather than writing',
+      api.plan({ carryoverCharge: 0, carryoverChargeNotes: [] }, 'carried', api.key(a)) === null,
+      'two people on the same record must not each take the same charge off');
+    check('S292', 'and it is labelled as what it is',
+      api.label('carried', a) === 'Charge carried to next season',
+      'got ' + api.label('carried', a) + ' — the reason alone does not say WHEN it will ' +
+      'be collected, which is the thing that makes it look missing');
+  }
+
+  /* ---- and the screen ---- */
+  const openFn = extractFn(admin, 'openEditCustomerModal') || '';
+  check('S292', 'Edit Customer draws them from the customer record',
+    /renderEditCustCarriedLines\(/.test(openFn) && /carryoverChargeNotes/.test(openFn),
+    'this is the half that was missing — the fee lines only ever read the invoice');
+  const waiveFn = extractFn(admin, 'waiveCarriedCharge') || '';
+  check('S292', 'the × writes to jobAddresses, and re-reads first',
+    /getDoc\(doc\(db,'jobAddresses', customerId\)\)/.test(waiveFn) &&
+    /updateDoc\(doc\(db,'jobAddresses', customerId\)/.test(waiveFn) &&
+    waiveFn.indexOf('getDoc') < waiveFn.indexOf('updateDoc'),
+    'taking a line off a stale copy is arithmetic on money that has already moved');
+  check('S292', 'and it uses the shared plan rather than its own subtraction',
+    /ledgerWaiveUpdates\(fresh, 'carried', key\)/.test(waiveFn),
+    'a second copy of "drop this note and re-total" is how one ledger starts ' +
+    'disagreeing with the others about what a × does');
+  check('S292', 'and mirrors into the cache, so a Save cannot put it back',
+    /jobAddresses\.find\(a => a\.id === customerId\)/.test(waiveFn),
+    'the panel repaints from the cache before the listener reports the write back');
+  /* ⚠ AND IT MUST NOT BE REFUSED FOR WANT OF AN INVOICE. A carried charge exists
+     BECAUSE this season's bill had already gone out; a customer who has never been
+     invoiced can carry one too. */
+  const clickBlock = (admin.split("['carried', 'editCustCarriedLines', 'editCustCarriedLinesStatus']")[1] || '')
+    .split('renderEditCustCarriedLines')[0];
+  check('S292', 'a carried charge is not refused for want of an invoice',
+    /ledger !== 'carried' && !inv/.test(clickBlock),
+    'refusing it there is the same invisibility again, one screen further on');
+}
 /*
  * ⭐ SUITE 296. CLEARING LAST SEASON'S BOOKINGS IS ONE WRITE PER FOUR HUNDRED,
  * NOT ONE PER CUSTOMER.
