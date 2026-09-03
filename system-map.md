@@ -1134,6 +1134,61 @@ touched in the four source files against this table, and every name in
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
 
+### A day the office has short-handed on purpose
+
+Addie, 2026-09-03: *"there are some days we will need to have 1 crew or 1 man if a
+crew doesnt show or if a crew takes time off ect, make an option in the day where you
+can force there to be one crew in a day but by default it doesnt care and it keeps the
+math the same with get as many houses in a day as possible."*
+
+Schedule → pick a day → **Crews on this date**: *Normal — as many houses as fit* /
+*One crew only — up to 20 houses* / *One man only — up to 8 houses*. This is an
+**exception list, not a new rule**: every date is Normal until somebody changes it, and
+a season with nothing marked is laid out by exactly the maths described above — two
+crews, twenty each, the day filled up.
+
+**It is keyed by DATE, and saved with the plan** (`dayLimits` on the `routeSchedule`
+document, `'2026-11-10' -> 'crew' | 'man'`). That is what makes **Recalculate
+everything** honour it. Anything stored on a *day* would not: the rebuild replaces every
+day object it makes, which is why `soloCrew` — the office's choice of *which* crew works
+a one-crew day — does not survive one. It also matches what the office is actually
+saying: the crew is away on the 10th, whichever houses end up on the 10th.
+
+**How it reaches the builder.** `rebuildSeasonDays` passes `dayShapeOn` in as
+`planNewCrewDays`'s `dayShape`. That function answers `null` for every unmarked date —
+and `null` means "the ordinary maths", so every untouched code path is the one that was
+there before — and `{crews: 1, cap}` for the handful that are marked. The builder is
+never told what "one man" *means*: the cap comes in as a number, so `ONE_MAN_MAX_HOUSES`
+stays the single definition the One Man Installs tab already reads. Houses that no
+longer fit roll on to the days after it, exactly as an overflowing day always did; the
+season simply runs a little longer.
+
+**The tail sweep had to learn about it twice over.** `packTailCrewDays` relocates whole
+crew-days onto earlier dates "that have a crew spare" and tops crew-days up to the cap,
+and both questions have a different answer on a marked date. It is handed the same
+`dayShape`, and it also **refuses to dissolve a marked date's own crew-day**: a day of
+eight on a one-man date is not dribble the builder left behind, it is the size somebody
+asked for, and sweeping it away leaves that man with nothing to do and the office looking
+at a blank day where they had just put the mark. Every *other* short crew-day is still
+swept up as before.
+
+**What reads the mark, rather than guessing.** `dayCrewCount` returns 1 for a marked
+date whatever the houses say; `isOneManDay` lists a one-man date whatever it is holding;
+`maxTownsPerDay(day)` now takes the day, so a date short-handed to one crew is held to
+one crew's two towns rather than being allowed four. The day list badges it
+`1 CREW · SET` / `1 MAN · SET`, so a day somebody shaped by hand reads differently from
+a day that is merely small — the first will not grow back on the next rebuild, the second
+will.
+
+⚠ **It shapes the next rebuild; it does not move houses on the spot**, and it can never
+touch a day inside the 48-hour lock. The control says both out loud, because a mark that
+appeared to do nothing would read as a broken button. For a crew that has already failed
+to turn up this morning the tool is *not done — reschedule*, which is about houses rather
+than about the calendar.
+
+*Proved in* run-all.js **Suite 294**, whose first check is the one that matters: an
+unmarked season is byte-for-byte the season the builder made before.
+
 ### One route note a day, not one a sweep
 
 Addie, 2026-08-30: *"system inbox always has a bunch of schedule messages and it's to many to
