@@ -46854,6 +46854,157 @@ suite('287. The routine route sweep does not bury the notice that matters');
     'that button is the closest thing to what she said she wanted to do herself');
 }
 
+
+/* ---- an RSVP link to text, for everyone with no email ---------------------
+   ⚠ NUMBERED 291, NOT 287. Two sessions numbered a suite 287 on the same day —
+   main's "The routine route sweep does not bury the notice that matters" landed
+   first, so this one moved. The file already records the same collision at 268/269
+   and at 24/25; it is what parallel work looks like, and the rule is that the one
+   already on main keeps the number.
+   ⭐ Addie, 2026-09-02: "make an rsvp text link for everyone that doesnt have an
+   email on file." The RSVP goes out by email, so these customers are never asked
+   at all.
+
+   ⚠ NOTHING NEW WAS NEEDED ON THE CUSTOMER'S SIDE and the checks say so, because
+   the next person to touch this will be tempted to build a page for it:
+   `#/payment?token=…` with no rsvp parameter signs them in, and the FIRST block on
+   that page asks the question with all three answers on it. */
+suite('291. An RSVP link to text, for everyone with no email');
+{
+  const NL287 = String.fromCharCode(10);
+  const names = ['rsvpTextTargets', 'rsvpTextLinkFrom', 'rsvpTextMessageFor'];
+  const srcs = names.map(n => extractFn(admin, n));
+  check('S287', 'the three rules are findable', srcs.every(Boolean),
+    names.filter((n, i) => !srcs[i]).join(', ') + ' missing');
+
+  if (srcs.every(Boolean)) {
+    /* ⚠ audienceNeverAsked AND effectiveRsvpStatus ARE LIFTED, NEVER STUBBED. Who is
+       asked is the whole claim — a stub here would let this list and the email's
+       audience drift apart while the suite stayed green, which is the exact failure
+       the shared predicate exists to stop. */
+    const api = new Function('jobAddresses',
+      extractFn(admin, 'audienceNeverAsked') + NL287 +
+      /* ⚠ ITS OWN HELPER TOO. audienceNeverAsked asks audienceQuoteJoinYear, and a
+         sandbox given only the outer function dies with a bare ReferenceError — the
+         sandboxDeps lesson, in a new suite. */
+      extractFn(admin, 'audienceQuoteJoinYear') + NL287 +
+      extractFn(admin, 'enrollmentYearOf') + NL287 +
+      extractFn(admin, 'effectiveRsvpStatus') + NL287 +
+      srcs.join(NL287) + NL287 +
+      'return {targets: rsvpTextTargets, link: rsvpTextLinkFrom, msg: rsvpTextMessageFor};');
+
+    const book = [
+      { id: 'noemail', data: { name: 'Nora Noemail', phone: '8015550001' } },
+      { id: 'hasemail', data: { name: 'Ed Emailed', phone: '8015550002', email: 'ed@x.com' } },
+      { id: 'email2', data: { name: 'Second Address', phone: '8015550003', email2: 'b@x.com' } },
+      { id: 'nophone', data: { name: 'No Way To Reach', phone: '' } },
+      { id: 'answered', data: { name: 'Already Said Yes', phone: '8015550004',
+                                rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' } },
+      { id: 'assumed', data: { name: 'Assumed Yes At Conversion', phone: '8015550005',
+                               rsvpStatus: 'yes' } },
+      { id: 'newthisyear', data: { name: 'First Year', phone: '8015550006',
+                                   chargeNewMemberFee: true } },
+      { id: 'stopped', data: { name: 'Replied STOP', phone: '8015550007', smsOptedOut: true } }
+    ];
+    const ids = api(book).targets().map(x => x.id);
+
+    check('S287', 'somebody with no email and no answer is on the list',
+      ids.indexOf('noemail') !== -1, 'got ' + JSON.stringify(ids));
+    check('S287', 'anybody the email can reach is not',
+      ids.indexOf('hasemail') === -1 && ids.indexOf('email2') === -1,
+      'got ' + JSON.stringify(ids) + ' — a second address is still an address, and ' +
+      'texting somebody the email already reached asks them twice');
+    check('S287', 'and neither is somebody with no phone number',
+      ids.indexOf('nophone') === -1,
+      'a text needs somewhere to go; they are a phone call, not a list entry');
+    check('S287', 'somebody who has really answered is left alone',
+      ids.indexOf('answered') === -1,
+      'texting them asks a question they think they have answered');
+    /* ⚠ THE ASSUMED YES IS THE ONE THAT MATTERS. rsvpStatus can hold a bare 'yes'
+       written at conversion or by an import with nobody having replied — reading the
+       raw field would silently drop those people from the only list that can reach
+       them. */
+    check('S287', 'but a yes with no reply behind it still gets asked',
+      ids.indexOf('assumed') !== -1,
+      'got ' + JSON.stringify(ids) + ' — that yes is an import or the one written at ' +
+      'conversion, and they are exactly who has never been asked');
+    /* ⚠ THIS PROVES THE OUTCOME AND NO MORE, and says so rather than overclaiming.
+       A red-check deleting rsvpTextTargets' own audienceNeverAsked guard leaves this
+       GREEN — because effectiveRsvpStatus, on the line below it, already returns 'yes'
+       for anybody nobody was ever going to ask. The guard is kept for intent, and this
+       check is honest about what it can see: that a first-year customer does not end
+       up on the list, by whichever of the two routes. */
+    check('S287', 'a first-year customer does not end up on the list',
+      ids.indexOf('newthisyear') === -1,
+      '"will you be getting lights hung AGAIN this year?" is nonsense to somebody ' +
+      'who never has — and a second definition of who gets asked is how the two lists drift');
+    /* ⚠ STOP IS HANDLED WHERE THE TEXT IS HANDED OVER, not here: they are still on the
+       list so the office can SEE them, with the button replaced by a warning. Dropping
+       them silently would make somebody wonder who was missing. */
+    check('S287', 'somebody who replied STOP is still shown, and the card refuses to text them',
+      ids.indexOf('stopped') !== -1 &&
+      /Do not text/.test(admin) && /smsOptedOut/.test(extractFn(admin, 'rsvpTextRender') || ''),
+      'dropping them from the list silently is how somebody goes missing without a reason');
+
+    /* ---- the link and the words ---- */
+    /* ⚠ A REAL-LENGTH TOKEN, READ OFF THE GENERATOR. The first version of the
+       one-message check used a six-character token and passed while the shipped text
+       ran to 172 characters on a real one — a fixture that could not fail. The length
+       is taken from generatePortalToken so it cannot drift from the page again. */
+    const tokLen = Number(((extractFn(admin, 'generatePortalToken') || '')
+      .match(/i\s*<\s*(\d+)\s*;/) || [])[1]);
+    check('S287', 'the token length is read off the generator', tokLen > 0,
+      'without it this suite is guessing at the only number that decides whether the ' +
+      'message fits in one text');
+    const realTok = 'a'.repeat(tokLen || 20);
+    const link = api(book).link(realTok);
+    check('S287', 'the link is the portal, with no answer baked into it',
+      link === 'https://highlightingutah.com/#/payment?token=' + realTok,
+      'got ' + link + ' — an rsvp=yes link ANSWERS for them; this one asks');
+    check('S287', 'and no link at all without a token',
+      api(book).link('') === '' && api(book).link(null) === '',
+      'half a URL in a text is worse than no text');
+    const msg = api(book).msg({name: 'Nora Noemail'}, link);
+    check('S287', 'the message names them and ends on the address',
+      /^Hi Nora,/.test(msg) && msg.indexOf(link) === msg.length - link.length,
+      'got ' + JSON.stringify(msg) + ' — a text cannot hide a link behind a word, so ' +
+      'the address has to be visible and easy to tap');
+    check('S287', 'and it fits in one message',
+      msg.length <= 160,
+      'got ' + msg.length + ' characters — over 160 is billed as two');
+    /* ⚠ AND IT STILL FITS FOR SOMEBODY WITH A LONG FIRST NAME. The name is the only
+       part that varies, so a check against one short name proves the least of it. */
+    check('S287', 'and still fits for a long first name',
+      api(book).msg({name: 'Christopherjames Vanderhoeven'}, link).length <= 160,
+      'got ' + api(book).msg({name: 'Christopherjames Vanderhoeven'}, link).length +
+      ' characters for a sixteen-letter first name');
+    check('S287', 'somebody with no name still gets a sentence that reads',
+      /^Hi there,/.test(api(book).msg({}, link)),
+      'got ' + JSON.stringify(api(book).msg({}, link)));
+  }
+
+  /* ⚠ THE TOKEN IS KEYED TO THE RECORD, NOT THE PHONE, and this is the one thing here
+     that could do real harm. getOrCreatePortalToken finds a customer BY PHONE with a
+     .find(), and seventeen numbers in the real book are shared by two households — so
+     through that door the second household's "own" link would sign them into the
+     first one's portal: their address, their price, their answer to change. */
+  const tokenFn = extractFn(admin, 'rsvpTextTokenFor') || '';
+  check('S287', 'the token is made for the record it was handed', !!tokenFn &&
+    /updateDoc\(doc\(db,'jobAddresses', item\.id\)/.test(tokenFn) &&
+    !/getOrCreatePortalToken/.test(tokenFn),
+    'looking the customer up by phone hands a shared-phone household somebody ' +
+    'else\'s portal');
+  check('S287', 'and a failed save still hands back a usable link',
+    /catch\(err\)\{[\s\S]*?\}\s*return token;/.test(tokenFn),
+    'returning null there costs them the text entirely, where a failed save only ' +
+    'costs them a fresh link next time');
+  /* ⚠ AND THE LIST DOES NOT WRITE TO THE BOOK BY BEING LOOKED AT. Minting a token is a
+     write; drawing a list is not a reason to write to a few hundred customer records. */
+  const renderFn = extractFn(admin, 'rsvpTextRender') || '';
+  check('S287', 'drawing the list mints no tokens',
+    !!renderFn && !/rsvpTextTokenFor/.test(renderFn.split('addEventListener')[0]),
+    'a panel that edits the book by being opened is the kind of thing nobody suspects');
+}
 /* =====================================================================
  * Suite 290 — paying is not the same as saying yes
  *
