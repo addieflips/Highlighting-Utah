@@ -2170,6 +2170,10 @@
                  wait for Save — because the ledger is rebuilt from the invoice on
                  save, so a pending removal would be put straight back. -->
             <div id="editCustFeeLines" style="margin-top:8px;"></div>
+            <!-- ⭐ Charges that missed this season's bill and are waiting for next
+                 season's. They live on the customer, not the invoice — see LEDGERS. -->
+            <div id="editCustCarriedLines" style="margin-top:2px;"></div>
+            <div id="editCustCarriedLinesStatus" class="form-note" style="margin:2px 0 0;"></div>
             <div id="editCustFeeLinesStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added on top of the total. Saving replaces the manual fee; automatic fees are left alone. Press &times; on any line to waive it &mdash; that saves straight away and is recorded in their history.</p>
           </div>
@@ -5805,7 +5809,7 @@ import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
+  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, writeBatch,
   onSnapshot as onSnapshotRaw, query, orderBy, where, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
@@ -7212,16 +7216,37 @@ function historyRequoteRows(requotes){
    writing it twice: two removers is two chances for a bill to stop adding up. */
 const LEDGERS = {
   fee:    { notes: 'changeFeeNotes', total: 'changeFees', sign: '+', word: 'fee' },
-  credit: { notes: 'creditNotes',    total: 'credits',    sign: '−', word: 'discount' }
+  credit: { notes: 'creditNotes',    total: 'credits',    sign: '−', word: 'discount' },
+  /* ⭐ AND THE ONES THAT MISSED THIS SEASON'S BILL (2026-09-03). Addie: "when you do
+     color change or any other fees/discounts it should come up under their account
+     fees and we should be able to waive it but when they make a change in member
+     portal it doesnt show it on fees in the edit customer spot."
+
+     ⚠ WHERE THE FEE GOES DEPENDS ON WHETHER THE BILL HAS GONE OUT, and that is the
+     whole of the bug. portalSave puts a colour-change fee on the invoice while it is
+     still unsent — and those lines have shown here all along — but once the invoice
+     HAS been sent it becomes `carryoverCharge` on the CUSTOMER instead, to be
+     collected next season. Edit Customer's fee lines only ever read the invoice, so
+     that second kind was invisible on the one screen where somebody would waive it.
+
+     ⚠ IT IS THE ONLY LEDGER THAT LIVES ON THE CUSTOMER, which is why it carries the
+     flag rather than being told apart by name somewhere else. Everything that renders
+     a line is shared with the other two; only the document the × writes to differs. */
+  carried: { notes: 'carryoverChargeNotes', total: 'carryoverCharge', sign: '+',
+             word: 'charge', onCustomer: true }
 };
 /* ⚠ A LIGHT-CHANGE FEE CARRIES NO `kind` AT ALL — both writers of one (portalSave
    and the nightly carry-forward, in functions/index.js) push `{amount, reason,
    date}` and nothing else. So kindless IS the light-change fee, and that is why
    this is the default rather than a case. The same is true of an old credit. */
 const FEE_KIND_LABELS = { manual: 'Fee', arrears: 'Unpaid balance carried forward', late: 'Late fee' };
+/* A carried charge is one kind of thing, so its label says what it IS rather than
+   leaving the reason to speak for a row somebody has to decide about. */
+const CARRIED_KIND_LABELS = {};
 const CREDIT_KIND_LABELS = { manual: 'Discount', referral: 'Referral credit',
                              carried: 'Payment carried from their old bill' };
 function ledgerLineLabel(ledger, n){
+  if(ledger === 'carried') return (n && CARRIED_KIND_LABELS[n.kind]) || 'Charge carried to next season';
   return ledger === 'credit'
     ? ((n && CREDIT_KIND_LABELS[n.kind]) || 'Credit')
     : ((n && FEE_KIND_LABELS[n.kind]) || 'Light-change fee');
@@ -7276,6 +7301,9 @@ function ledgerWaiveUpdates(inv, ledger, key){
      the map is what somebody reads to find out who writes `changeFees`. One rule
      with two named outputs beats one rule nothing can see. */
   const updates = {};
+  /* ⚠ NAMED OUTPUTS HERE TOO, for the reason spelled out above: a computed key is
+     invisible to everything that traces who writes `carryoverCharge`. */
+  if(ledger === 'carried'){ updates.carryoverChargeNotes = kept; updates.carryoverCharge = total; }
   if(ledger === 'fee'){ updates.changeFeeNotes = kept; updates.changeFees = total; }
   else { updates.creditNotes = kept; updates.credits = total; }
   updates.status = computeInvoiceStatus(inv && inv.install, inv && inv.removal, inv && inv.deposit, credits, fees);
@@ -7315,6 +7343,35 @@ function feeLinesHtml(notes){ return ledgerLinesHtml('fee', notes); }
    than guessing when the line has moved, and LOGS it — a fee that is charged leaves
    a dated line and a fee that is waived used to leave nothing at all, which is the
    asymmetry the light-change waiver log already names. */
+/* ⭐ TAKING A CARRIED CHARGE OFF (2026-09-03). The same × as the other two ledgers,
+   writing to the CUSTOMER instead of the invoice — see LEDGERS.carried for why that
+   is where this money lives.
+
+   ⚠ THE PLAN IS BUILT BY THE SHARED RULE, ledgerWaiveUpdates. A second copy of "drop
+   this note and re-total the rest" is how one ledger starts disagreeing with the
+   others about what a × does — and this one is the only ledger whose total is not
+   also recomputed by the Edit Customer save, so a hand-rolled subtraction here would
+   have nothing checking it.
+
+   ⚠ RE-READ FIRST, exactly as the invoice one does. The record may have changed since
+   the row was drawn, and taking a line off a stale copy is arithmetic on money that
+   has already moved. */
+async function waiveCarriedCharge(customerId, key){
+  if(!customerId) return { ok:false, why:'No customer to take it off.' };
+  const snap = await getDoc(doc(db,'jobAddresses', customerId));
+  if(!snap.exists()) return { ok:false, why:'That customer no longer exists.' };
+  const fresh = snap.data();
+  const plan = ledgerWaiveUpdates(fresh, 'carried', key);
+  if(!plan) return { ok:false, why:'That charge is no longer on this customer — someone may have taken it off already.' };
+  await updateDoc(doc(db,'jobAddresses', customerId),
+    Object.assign({}, plan.updates, { updatedAt: serverTimestamp(), lastEditedBy: auth.currentUser ? auth.currentUser.email : '' }));
+  /* ⚠ MIRRORED INTO THE CACHE, for the same reason the invoice one is: the panel
+     repaints from jobAddresses, and a Save between this write and the listener
+     reporting it back would draw the crossed-off line again. */
+  const cached = jobAddresses.find(a => a.id === customerId);
+  if(cached && cached.data) Object.assign(cached.data, plan.updates);
+  return { ok:true, removed: plan.removed };
+}
 async function waiveLedgerLine(invoiceId, ledger, key){
   const spec = LEDGERS[ledger];
   if(!spec) return { ok:false, why:'Nothing to take off.' };
@@ -30079,6 +30136,29 @@ function seasonHold(d){
     const arrYear = (typeof houseArrearsYear === 'function') ? houseArrearsYear(d) : null;
     return {why: 'owes ' + fmtMoney(houseArrearsOutstanding(d)) + ' from ' + (arrYear || 'last season'), money: true};
   }
+  /* ⭐ AN UNDATED YES IS NOT "NO RSVP YET", AND SAYING SO SENT ADDIE HUNTING
+     (2026-09-03). She approved a Test customer through the emailed link, the badge
+     stayed ON HOLD, and the line under it read "no RSVP yet" — so she went looking for
+     a broken approval. The rule was right: the confirmed-only rule needs a DATED reply,
+     and an `rsvpStatus` of 'yes' with no `rsvpRespondedAt` is the ASSUMED yes written
+     when a quote is converted, or carried in by an import. Nobody actually answered.
+
+     ⚠ BUT THE TWO STATES HAVE DIFFERENT REMEDIES, which is why one sentence for both
+     is wrong. "Nothing on file" means chase them for an answer. "A yes nobody dated"
+     means the answer is an artefact — and the office can settle it in a second by
+     picking Yes on the RSVP dropdown, which stamps the date. Told they had never
+     replied, the office chases a customer who may well have.
+
+     ⚠ IT READS THE RAW FIELD, deliberately. `effectiveRsvpStatus` normalises a bare
+     yes away to '' — that is its job, and it is why `said` above cannot see this — so
+     the distinction only exists on the stored value.
+
+     ⚠ AND IT CHANGES NO DECISION. Both still return a hold; this only chooses words,
+     which is what the whole function does. */
+  const stored = String(d.rsvpStatus || '').trim().toLowerCase();
+  if(stored === 'yes' && !d.rsvpRespondedAt){
+    return {why: 'a yes is on file but nothing dated it \u2014 confirm it on their record', money: false};
+  }
   return {why: 'no RSVP yet', money: false};
 }
 /* The same answer as words, for anywhere that just wants the sentence. */
@@ -43731,9 +43811,17 @@ function renderAllCustomersTable(){
        left off every route — the office reading the row would have had no reason to
        ring them. effectiveRsvpStatus is the one answer; the other two pills already
        ask it. */
-    const rsvpEff = effectiveRsvpStatus(r.d);
-    const rsvpLabel = 'RSVP: ' + rsvpStatusLabel(rsvpEff);
-    const rsvpColor = rsvpEff === 'yes' ? '#2E6B3E' : (rsvpEff === 'no' ? '#E0574B' : (rsvpEff === 'backnextyear' ? '#D89F3D' : 'var(--slate)'));
+    /* ⭐ THE RSVP PILL IS GONE FROM THIS ROW (2026-09-03). Addie, highlighting
+       "RSVP: Pending" and "ON HOLD" side by side: "we have two badges or stamps for
+       RSVP we only need the yellow one." Two pills answering the same question in two
+       vocabularies is what made this row unreadable — and it is the SECOND time that
+       pairing has been reported, after "Says yes in one spot but pending in the other"
+       on 2026-09-02, which renamed one of them rather than removing it.
+       ⚠ NOTHING IS LOST. The season badge says Confirmed / On hold / Back Next Year,
+       and the hold line under it says WHICH reason — "they said no", "no RSVP yet",
+       "owes $X from 2025". A customer who declined still reads On hold + they said no.
+       ⚠ effectiveRsvpStatus IS STILL THE ONE ANSWER for everything that asks; this row
+       simply stopped asking it twice. */
     /* The date sits directly under the route status it explains — "Scheduled"
        on its own never said what day. Put in the EXISTING Route cell rather
        than a new column on purpose: the responsive rules for this table are
@@ -43754,7 +43842,7 @@ function renderAllCustomersTable(){
       ? '<br><span style="font-size:11px; color:' + (hold.money ? 'var(--ember)' : 'var(--slate)') +
         '; font-weight:' + (hold.money ? '700' : '600') + ';">Not scheduled &mdash; ' + esc(hold.why) + '</span>'
       : '';
-    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+'<br><span style="font-size:11px; color:'+rsvpColor+'; font-weight:600;">'+rsvpLabel+'</span>'+approvedOnJoinBadge(r.d)+holdLine;
+    const routeCell = '<span class="status-pill diff-'+(r.d.difficulty||'Unrated')+'">'+(r.d.difficulty||'Unrated')+'</span><br><span style="font-size:11.5px; color:var(--slate);">'+r.routeStatus+'</span>'+(visitChip ? '<br>'+visitChip : '')+approvedOnJoinBadge(r.d)+holdLine;
     /* Shows the normalised MEANING, not the raw shorthand. A row reading "NOV"
        while the scheduler treats it as November is how nobody notices that 190
        customers were being read as having no preference at all. Anything the
@@ -43819,17 +43907,35 @@ function renderAllCustomersTable(){
        break that filter. The filter label already said "blocked by a rule" — this
        makes the chip agree with it. */
     const badgeKey = r.badge;
+    /* ⭐ ONE BADGE, AND NO SWITCH ON THE ROW (2026-09-03). Addie, reading a row carrying
+       both an On hold pill and an Unpaid 2025 pill with a Back next year button under
+       them: "we have two badges or stamps for RSVP we only need the yellow one and I
+       don't know why it shows maybe next year underneath. We can just switch this
+       inside there costumer."
+
+       ⚠ THE UNPAID PILL WAS THE THIRD COPY OF ONE FACT, and the comment that used to
+       sit here was already uneasy about it — the Route column prints "Not scheduled —
+       owes $X from 2025" and the money column prints its own UNPAID (2025) tag, both
+       from the same helper. Three statements of one debt on one row is what made the
+       season column unreadable. The money column keeps it, because that is the column
+       somebody scans to answer "what do they owe"; this one answers "are they in the
+       season" and now says only that.
+
+       ⚠ AND THE TOGGLE MOVED, IT WAS NOT DELETED. Changing an RSVP now happens in one
+       place — Edit Customer's RSVP control — which is what she asked for and what the
+       "One RSVP control in Edit Customer, not two" change already built. Two doors onto
+       one answer is how the row and the form start disagreeing about a customer, and
+       this row's button wrote a decision with no chance to see the record it was about.
+
+       ⚠ THE `maybe` BRANCH LOSES ITS **Confirm** BUTTON TOO, deliberately. It is the
+       same switch pointing the other way, and leaving one direction on the row would
+       mean somebody can put a customer out for the season from the list but has to open
+       the form to bring them back — the asymmetry is worse than either choice alone. */
     const maybeCell = badgeKey === 'maybe'
-      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="confirmed" style="margin-top:4px; font-size:11px;">Confirm</button>'
+      ? '<span class="status-pill" style="background:#FFF3D6; color:#8A6100; font-weight:700;">Back Next Year</span>'+unpaidPill
       : badgeKey === 'pending'
-      /* ⚠ THE REASON IS NOT REPEATED HERE. The Route column already prints "Not
-         scheduled — owes $X from 2025" from the same helper, and the Unpaid tag sits
-         directly under this pill; a third copy is a third thing to keep true. */
-      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Back next year</button>'
-      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill+
-        '<br><button type="button" class="btn btn-outline btn-sm" data-seasontoggle="'+r.item.id+'" data-to="maybe" style="margin-top:4px; font-size:11px;">Back next year</button>';
+      ? '<span class="status-pill" style="background:#FDF3E3; color:#7A5B1E; font-weight:700;" title="In for the season but blocked by the reason beside it — this clears itself the moment that does">On hold</span>'+unpaidPill
+      : '<span class="status-pill" style="background:#E6F2EA; color:#2E6B3E; font-weight:700;">Confirmed</span>'+unpaidPill;
     return '<tr style="border-bottom:1px solid var(--line);">'+
       /* The customer number is the number painted on their bins in the
          warehouse, so it is how the crew and the warehouse refer to people —
@@ -43851,34 +43957,21 @@ function renderAllCustomersTable(){
       openEditCustomerModal(btn.dataset.editcust);
     });
   });
-  /* Flipping to Confirmed deliberately does NOT put anyone back on a route.
-     Rebuilding a route behind the office's back would be a worse surprise than
-     making them re-add one stop by hand, so both directions say what they do. */
-  body.querySelectorAll('[data-seasontoggle]').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const id = btn.dataset.seasontoggle;
-      const toMaybe = btn.dataset.to === 'maybe';
-      const cust = jobAddresses.find(a => a.id === id);
-      const who = (cust && cust.data.name) || 'this customer';
-      const ask = toMaybe
-        ? 'Mark ' + who + ' as Back Next Year?\n\nThey stay in All Customers and keep everything they owe, but they come off the routes, the schedule and the warehouse build list — including any upcoming route they are already on.'
-        : 'Confirm ' + who + ' for this season?\n\nThe Back Next Year badge is removed and their RSVP goes back to pending, so they can be routed again. They are NOT added back to any route — you\'ll need to schedule them like anyone else.';
-      if(!confirm(ask)) return;
-      btn.disabled = true;
-      try{
-        const removed = await setCustomerSeason(id, toMaybe);
-        /* Nothing re-renders this table on a jobAddresses change, so without
-           this the badge stays on screen and the button reads as dead. */
-        renderAllCustomersTable();
-        toast(toMaybe
-          ? who + ' is out for this season' + (removed ? ' — taken off ' + removed + ' upcoming route' + (removed === 1 ? '' : 's') + '.' : '.')
-          : who + ' is back in the pool — schedule them when you\'re ready.');
-      } catch(err){
-        btn.disabled = false;
-        toast('Could not change that — try again.');
-      }
-    });
-  });
+  /* ⚠ AND THE RULE THAT COMMENT CARRIED STILL STANDS, which is why it is kept rather
+     than deleted with the button: flipping somebody back to Confirmed deliberately
+     does NOT put them back on a route. Rebuilding a route behind the office's back
+     would be a worse surprise than making them re-add one stop by hand. The Edit
+     Customer path that replaced this button behaves the same way. */
+  /* ⭐ THE ROW'S OWN SEASON TOGGLE WAS REMOVED (2026-09-03). Addie: "I don't know why
+     it shows maybe next year underneath. We can just switch this inside there
+     costumer." Changing an RSVP now happens in ONE place — Edit Customer's RSVP
+     control — so the list and the form cannot write different answers.
+     ⚠ CHECKED BEFORE REMOVING IT, because this button did more than set a flag: it
+     called setCustomerSeason, which also takes them off upcoming routes. The Edit
+     Customer save does the same on the same transition (`seasonMaybeChosen &&
+     !item.data.maybeNextYear`, then removeCustomerFromUpcomingRoutes), so nothing is
+     stranded on a route by this going. If the button ever comes back, it belongs on
+     setCustomerSeason again rather than on a second copy of that write. */
 }
 let editCustomerId = null;
 /* ⭐ THE RE-QUOTE THE OPEN EDIT MODAL IS ANSWERING. Owner, 2026-08-19: "we
@@ -43979,6 +44072,10 @@ function renderEditCustFeeLines(feeNotes){
 function renderEditCustCreditLines(creditNotes){
   renderEditCustLedgerLines('credit', 'editCustCreditLines', 'editCustCreditLinesStatus', creditNotes);
 }
+/* ⭐ And the charges waiting for next season's bill, from the CUSTOMER record. */
+function renderEditCustCarriedLines(carriedNotes){
+  renderEditCustLedgerLines('carried', 'editCustCarriedLines', 'editCustCarriedLinesStatus', carriedNotes);
+}
 function renderEditCustLedgerLines(ledger, listId, statusId, notes){
   const el = document.getElementById(listId);
   if(!el) return;
@@ -44047,19 +44144,25 @@ document.addEventListener('DOMContentLoaded', function(){
      second listener on a live one — the failure that once put 2815 Firestore writes
      behind one drag in the Inbox. */
   [['fee', 'editCustFeeLines', 'editCustFeeLinesStatus'],
-   ['credit', 'editCustCreditLines', 'editCustCreditLinesStatus']].forEach(function(spec){
+   ['credit', 'editCustCreditLines', 'editCustCreditLinesStatus'],
+   ['carried', 'editCustCarriedLines', 'editCustCarriedLinesStatus']].forEach(function(spec){
     const ledger = spec[0], listEl = document.getElementById(spec[1]);
     if(!listEl) return;
     listEl.addEventListener('click', async function(e){
       const x = e.target.closest ? e.target.closest('.fee-waive') : null;
       if(!x || !listEl.contains(x)) return;
       const st = document.getElementById(spec[2]);
-      const inv = editCustInvoiceNow();
-      if(!inv){ if(st) st.textContent = 'No invoice for this customer yet, so there is nothing to take off.'; return; }
+      /* ⚠ A CARRIED CHARGE NEEDS NO INVOICE, and must not be refused for want of one.
+         It is on the customer precisely BECAUSE this season's bill had already gone
+         out — and a customer who has never been invoiced can carry one too. */
+      const inv = ledger === 'carried' ? null : editCustInvoiceNow();
+      if(ledger !== 'carried' && !inv){ if(st) st.textContent = 'No invoice for this customer yet, so there is nothing to take off.'; return; }
       x.disabled = true;
       if(st) st.textContent = 'Taking it off…';
       try{
-        const res = await waiveLedgerLine(inv.id, ledger, feeTokenToKey(x.dataset.feetoken));
+        const res = ledger === 'carried'
+          ? await waiveCarriedCharge(editCustomerId, feeTokenToKey(x.dataset.feetoken))
+          : await waiveLedgerLine(inv.id, ledger, feeTokenToKey(x.dataset.feetoken));
         if(!res.ok){ x.disabled = false; if(st) st.textContent = res.why; return; }
         /* ⚠ AND THE BOXES ABOVE HAVE TO LET GO OF IT. Both the manual fee and the
            manual discount are rebuilt FROM their boxes on save, and the referral
@@ -44084,6 +44187,10 @@ document.addEventListener('DOMContentLoaded', function(){
         const d2 = (after && after.data) || {};
         renderEditCustFeeLines(d2.changeFeeNotes || []);
         renderEditCustCreditLines(d2.creditNotes || []);
+        /* Redrawn from the customer, which is where this ledger lives. */
+        const cust2 = jobAddresses.find(a => a.id === editCustomerId);
+        renderEditCustCarriedLines((cust2 && Array.isArray(cust2.data.carryoverChargeNotes))
+          ? cust2.data.carryoverChargeNotes : []);
         if(st) st.textContent = 'Took ' + fmtMoney(Number(res.removed.amount) || 0) + ' off — saved.' + (res.note || '');
       }catch(err){
         console.error('[HU] taking a ledger line off failed:', err);
@@ -44539,6 +44646,9 @@ function openEditCustomerModal(id){
   updateEditCustFeeSummary();
   renderEditCustFeeLines(ecFeeNotes);
   renderEditCustCreditLines(ecNotes);
+  /* ⚠ FROM THE CUSTOMER, NOT THE INVOICE. This is the half that was missing: a
+     colour change made after the bill went out never reaches changeFeeNotes. */
+  renderEditCustCarriedLines(Array.isArray(d.carryoverChargeNotes) ? d.carryoverChargeNotes : []);
   setEditCustExpanded(editCustExpandedPref());
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   document.getElementById('editCustWantsTexted').checked = !!d.wantsTextedInvoice;
@@ -45626,9 +45736,36 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        Responded date on the Schedule and could not be told apart from a customer
        who was ASSUMED yes when their quote was converted.
        That distinction is what the Yes sheet leans on, so it has to be true. */
+    /* ⭐ AND CONFIRMING AN ANSWER THAT IS ALREADY ON FILE COUNTS AS ANSWERING IT
+       (fixed 2026-09-03). Addie: "the badges on the page that says confirmed, maybe next
+       year or pending, that doesnt update... we got rid of the thing that was confirmed
+       and maybe next year badges in add customer and put all that under RSVP Status but
+       its not working."
+
+       ⚠ THE STAMP WAS BEHIND `newRsvp !== oldRsvpForRecycle`, so it only ever fired
+       when the dropdown VALUE MOVED. That misses the one case the office actually has
+       to fix by hand: a record already carrying rsvpStatus 'yes' with NO
+       rsvpRespondedAt — the ASSUMED yes written when a quote is converted, or carried
+       in by an import. Nobody answered, so the confirmed-only rule holds them out and
+       the badge reads Pending. The office opens the record, sees Yes already selected,
+       picks Yes, saves — and nothing happens, because the value did not change. There
+       was no way out of that state from the screen at all.
+
+       ⚠ AND seasonHold ALREADY TELLS THEM TO DO EXACTLY THIS: "a yes is on file but
+       nothing dated it — confirm it on their record". Following that instruction did
+       nothing, which is worse than no instruction.
+
+       ⚠ MEASURED, NOT IMAGINED: on the live book the day she reported it, five
+       customers said yes and only three were dated. Two people were stuck.
+
+       ⚠ IT NEVER RE-STAMPS AN ANSWER THAT ALREADY HAS A DATE. Editing a phone number
+       must not move the day they replied — that date is what the Yes sheet and the
+       customer history both read. Only a record with NOTHING dating it is stamped. */
+    const realAnswer = !!newRsvp && newRsvp !== 'unanswered';
     if(newRsvp !== oldRsvpForRecycle){
-      const realAnswer = !!newRsvp && newRsvp !== 'unanswered';
       addrUpdates.rsvpRespondedAt = realAnswer ? serverTimestamp() : null;
+    } else if(realAnswer && !item.data.rsvpRespondedAt){
+      addrUpdates.rsvpRespondedAt = serverTimestamp();
     }
     if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){
       addrUpdates.needsLightRecycle = true;
@@ -47873,6 +48010,38 @@ function planNewCrewDays(waiting, taken, opts){
   }
   const cap = o.cap || MAX_STOPS_PER_ROUTE;
   const crews = o.crews || CREWS_PER_DAY;
+  /* ⭐ A DAY THE OFFICE HAS SHORT-HANDED ON PURPOSE (added 2026-09-03).
+     Owner: "there are some days we will need to have 1 crew or 1 man if a crew
+     doesnt show or if a crew takes time off ect, make an option in the day where
+     you can force there to be one crew in a day but by default it doesnt care and
+     it keeps the math the same."
+
+     So this is an EXCEPTION LIST, not a new rule. dayShape is asked about one
+     DATE at a time and answers null for almost every one of them — and null means
+     "the ordinary maths", which is unchanged: two crews, twenty each, as many
+     houses in a day as will fit. Only the handful of dates somebody has actually
+     marked come back with a shape, and those get fewer crew-slots and, for a one
+     man day, a smaller crew-day too. Everything the day cannot hold rolls on to
+     the days after it exactly as an overflowing day always did.
+
+     ⚠ A DATE, NOT A DAY. Somebody being off is a fact about the calendar, so a
+     day pushed later stops being short-handed and whatever lands on that date
+     picks the limit up instead. That is the answer the office wants: the crew is
+     away on the 10th whichever houses end up on it.
+
+     ⚠ AND THE BUILDER IS NOT TOLD WHAT "ONE MAN" MEANS. It reads {crews, cap}
+     and nothing else, so the number of houses one person can hang stays defined in
+     exactly one place — ONE_MAN_MAX_HOUSES, over in the Schedule tab, where the
+     One Man Installs list already reads it. */
+  const dayShape = typeof o.dayShape === 'function' ? o.dayShape : function(){ return null; };
+  const crewsOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.crews > 0) ? Math.min(crews, sh.crews) : crews;
+  };
+  const capOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.cap > 0) ? Math.min(cap, sh.cap) : cap;
+  };
   const maxDays = o.maxDays == null ? 40 : o.maxDays;
   const floor = o.floorDate || toDateStr(nextWorkingDay(seasonFirstDate()));
   const horizon = o.horizonDays == null ? 400 : o.horizonDays;
@@ -47984,8 +48153,12 @@ function planNewCrewDays(waiting, taken, opts){
      It only decides anything once towns start running out, which is where the short
      days were appearing. */
   const fillableCount = function(city, ds){
+    /* The day's own ceiling, which is the ordinary crew-day everywhere except the
+       dates the office has marked — a one man date can only make eight, and a town
+       should not win the slot by promising twenty it will not be allowed to place. */
+    const room = capOnDate(ds);
     const own = allowedStats(city, ds).n;
-    if(own >= cap) return cap;
+    if(own >= room) return room;
     const used = townsUsedOn(ds);
     let best = 0;
     nearbyTowns(city, centres).forEach(function(other){
@@ -47993,7 +48166,7 @@ function planNewCrewDays(waiting, taken, opts){
       const n = allowedCount(other, ds);
       if(n > best) best = n;
     });
-    return Math.min(cap, own + best);
+    return Math.min(room, own + best);
   };
   const out = [];
   let made = 0;
@@ -48004,11 +48177,15 @@ function planNewCrewDays(waiting, taken, opts){
     const anyLeft = Object.keys(byCity).some(function(c){ return byCity[c].length; });
     if(!anyLeft) break;
     const onDay = busy[ds] || {};
+    /* Normally CREWS_PER_DAY and a full crew-day. Only a date somebody has marked
+       short-handed comes back smaller — see dayShape above. */
+    const crewsToday = crewsOnDate(ds);
+    const capToday = capOnDate(ds);
     let freeSlot = false;
-    for(let cr = 1; cr <= crews; cr++) if(!onDay[String(cr)]) freeSlot = true;
+    for(let cr = 1; cr <= crewsToday; cr++) if(!onDay[String(cr)]) freeSlot = true;
     let placedToday = 0;
     if(freeSlot){
-      for(let cr = 1; cr <= crews && made < maxDays; cr++){
+      for(let cr = 1; cr <= crewsToday && made < maxDays; cr++){
         if((busy[ds] || {})[String(cr)]) continue;
         /* ⭐ THE MOST URGENT TOWN, AND AMONG EQUALS THE ONE WITH THE MOST
            STILL WAITING. Counted fresh, ties alphabetical so the same input
@@ -48068,7 +48245,7 @@ function planNewCrewDays(waiting, taken, opts){
            leave a healthier last day was built, shown to her, and overruled — forty
            houses a day early matters more than fifteen at the end, and the short days
            fill themselves from what the crews do not finish. */
-        const take = pickClusteredFromQueue(queue, eligible, cap, null);
+        const take = pickClusteredFromQueue(queue, eligible, capToday, null);
         if(!take.length) break;
         const ids = take.map(function(i){ return queue[i].id; });
         /* Where this crew ends up on the map, kept before the splice — the
@@ -48083,7 +48260,7 @@ function planNewCrewDays(waiting, taken, opts){
            chosen is the neighbour whose most urgent waiting house is the most
            urgent, with distance breaking a tie only. */
         const towns = [city];
-        if(ids.length < cap){
+        if(ids.length < capToday){
           const near = nearbyTowns(city, centres);
           let borrow = null;
           for(let n = 0; n < near.length; n++){
@@ -48110,7 +48287,7 @@ function planNewCrewDays(waiting, taken, opts){
             for(let i = 0; i < borrow.queue.length; i++){
               if(borrow.queue[i].from <= ds) oel.push(i);
             }
-            const lent = pickClusteredFromQueue(borrow.queue, oel, cap - ids.length, anchor);
+            const lent = pickClusteredFromQueue(borrow.queue, oel, capToday - ids.length, anchor);
             if(lent.length){
               lent.forEach(function(i){ ids.push(borrow.queue[i].id); });
               lent.slice().sort(function(a, b){ return b - a; })
@@ -48149,7 +48326,7 @@ function planNewCrewDays(waiting, taken, opts){
   const wById = {};
   waiting.forEach(function(w){ if(w && w.id != null) wById[w.id] = w; });
   const packed = packTailCrewDays(out, {
-    cap: cap, crews: crews, thin: o.thin, taken: taken || {},
+    cap: cap, crews: crews, thin: o.thin, taken: taken || {}, dayShape: o.dayShape,
     from: function(id){ return (wById[id] && wById[id].from) || ''; },
     until: function(id){ return (wById[id] && wById[id].until) || ''; },
     townOf: function(id){ return (wById[id] && wById[id].city) || ''; },
@@ -48222,6 +48399,20 @@ function packTailCrewDays(built, opts){
   const o = opts || {};
   const cap = o.cap || MAX_STOPS_PER_ROUTE;
   const crews = o.crews || CREWS_PER_DAY;
+  /* ⚠ THE SWEEP HAS TO KNOW ABOUT A SHORT-HANDED DATE TOO, or it undoes the
+     build: it moves whole crew-days onto earlier dates that "have a crew spare"
+     and tops crew-days up to the cap, and both questions have a different answer
+     on a date the office has marked. Same function the builder was handed, so the
+     two cannot disagree about which dates those are. */
+  const dayShape = typeof o.dayShape === 'function' ? o.dayShape : function(){ return null; };
+  const crewsOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.crews > 0) ? Math.min(crews, sh.crews) : crews;
+  };
+  const capOnDate = function(ds){
+    const sh = dayShape(ds);
+    return (sh && sh.cap > 0) ? Math.min(cap, sh.cap) : cap;
+  };
   /* Under half a crew’s worth is a leftover worth dissolving. A day already
      holding ten is a day. */
   const thin = o.thin == null ? Math.ceil(cap / 2) : o.thin;
@@ -48321,6 +48512,14 @@ function packTailCrewDays(built, opts){
   for(let i = list.length - 1; i >= 0; i--){
     const src = list[i];
     if(!src.ids.length || src.ids.length >= thin) continue;
+    /* ⭐ AND A DATE THE OFFICE HAS MARKED IS NEVER SWEPT UP (added 2026-09-03).
+       A crew-day of eight on a one man date is not dribble the builder left behind —
+       it is the size somebody asked for. Everything below judges a short crew-day as
+       a wasted morning and dissolves it, which on a marked date empties the very day
+       the office had just said one person would be working, and leaves them looking
+       at a blank where they put the mark. Every OTHER short crew-day is still fair
+       game; this is only the handful somebody shaped by hand. */
+    if(dayShape(src.date)) continue;
 
     /* ① THE WHOLE CREW-DAY RIDES AN EARLIER DATE THAT HAS A CREW SPARE.
        Nothing is mixed, nothing is re-routed, one date disappears. */
@@ -48332,7 +48531,7 @@ function packTailCrewDays(built, opts){
         const d = list[j].date;
         if(d >= src.date || d <= best) continue;   // never later; keep the closest
         if(need && d < need) continue;
-        if(crewsOn(d, src) >= crews) continue;
+        if(crewsOn(d, src) >= crewsOnDate(d)) continue;
         const busyTowns = townsOn(d, src);
         let clash = false;
         for(let t = 0; t < mine.length; t++) if(busyTowns[mine[t]]) clash = true;
@@ -48389,7 +48588,7 @@ function packTailCrewDays(built, opts){
           if(deadline && tgt.date > deadline) continue;
         }
         if(okDate && tgt.date < okDate) continue;        // never before they may be hung
-        if(cap - (tgt.ids.length + extra[j]) <= 0) continue;
+        if(capOnDate(tgt.date) - (tgt.ids.length + extra[j]) <= 0) continue;
         const towns = tgt.towns || [];
         const planned = addTowns[j];
         const has = !!town && (towns.indexOf(town) !== -1 || planned.indexOf(town) !== -1);
@@ -50288,6 +50487,45 @@ async function resyncSavedRouteStops(customerId, fields){
    as they are - they are history, and rewriting them would change what the crew
    actually did. Mirrors pullCustomerFromSeason in functions/index.js, which does
    the same job when the customer answers "maybe next year" themselves. */
+/* ⭐ EVERY STALE CUSTOMER COMES OFF THE ROUTES IN ONE PASS (added 2026-09-03).
+   Measured on the real book: 956 customers, 952 of them out of the season under
+   SEASON_ELIGIBILITY 'confirmed-only' because only three have actually answered the
+   RSVP yet. Clearing them one at a time asked removeCustomerFromUpcomingRoutes to walk
+   every upcoming route 952 times over — and a route holding twenty of them was written
+   twenty separate times, each write racing the last.
+
+   This walks the routes ONCE and writes each affected route ONCE, whatever it is
+   carrying. Same result, one write per route instead of one per stop.
+
+   PURE-ISH: it reads scheduledRoutesCache and writes only the routes that actually
+   change. Returns what it removed so the caller can report it. */
+async function removeCustomersFromUpcomingRoutes(customerIds){
+  const drop = new Set((customerIds || []).map(String));
+  if(!drop.size) return {removed: 0, routes: 0};
+  const todayStr = toDateStr(new Date());
+  const dates = Object.keys(scheduledRoutesCache || {});
+  let removed = 0, routesTouched = 0;
+  const stuck = []; let lastErr = null;
+  for(let i = 0; i < dates.length; i++){
+    if(dates[i] < todayStr) continue;
+    const routes = scheduledRoutesCache[dates[i]] || [];
+    for(let r = 0; r < routes.length; r++){
+      const route = routes[r];
+      const stops = route.stops || [];
+      const kept = stops.filter(function(st){ return !drop.has(String(st.id)); });
+      if(kept.length === stops.length) continue;          // nothing of ours on it
+      try {
+        await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: kept});
+        removed += stops.length - kept.length; routesTouched++;
+      } catch(err){ stuck.push(dates[i]); lastErr = err; }
+    }
+  }
+  /* ⚠ THE WORSE HALF OF THE TWO, unchanged: a stop that would not come off sends a
+     crew to a house that is not expecting them. Reported once for the whole pass
+     rather than once per customer, or a bad day would raise 952 notices. */
+  if(stuck.length) await noticeRouteStopStuck('take them off the route', Array.from(drop)[0], stuck, lastErr);
+  return {removed: removed, routes: routesTouched};
+}
 async function removeCustomerFromUpcomingRoutes(customerId){
   const todayStr = toDateStr(new Date());
   const dates = Object.keys(scheduledRoutesCache || {});
@@ -50334,7 +50572,19 @@ async function removeCustomerFromUpcomingRoutes(customerId){
    ⚠ IT TAKES THEM OFF THE ROUTE TOO, in that order. Clearing the flag while a stop
    survives is the same contradiction pointing the other way: the crew's sheet still
    has them and the office screen says they are not booked. */
+let clearStaleBookingsInFlight = null;
 async function clearStaleInstallBookings(){
+  /* ⚠ ONE RUN AT A TIME. The button fires this without awaiting it, so pressing
+     Recalculate everything twice used to start two passes over the same nine hundred
+     records. The second press now joins the run already going rather than doubling it. */
+  if(clearStaleBookingsInFlight) return clearStaleBookingsInFlight;
+  clearStaleBookingsInFlight = (async function(){
+    try{ return await clearStaleInstallBookingsRun(); }
+    finally{ clearStaleBookingsInFlight = null; }
+  })();
+  return clearStaleBookingsInFlight;
+}
+async function clearStaleInstallBookingsRun(){
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return 0;
   if(typeof isOutForSeason !== 'function') return 0;
   const stale = jobAddresses.filter(function(item){
@@ -50343,18 +50593,47 @@ async function clearStaleInstallBookings(){
     if(!(d.scheduled === true || d.scheduledDate || d.assignedCrew)) return false;
     return isOutForSeason(d);
   });
+  /* ⭐ BATCHED, BECAUSE THE HONEST NUMBER HERE IS NEARLY A THOUSAND (2026-09-03).
+     Addie: "@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream
+     exhausted maximum allowed queued writes", straight after pressing Recalculate
+     everything.
+
+     ⚠ THIS IS NOT AN EDGE CASE, IT IS THE NORMAL STATE IN SEPTEMBER. Measured on the
+     real book the day she reported it: 956 customers, 955 still carrying a booking
+     stamp from last season, and 952 of them out of THIS season because
+     SEASON_ELIGIBILITY is 'confirmed-only' and only three people have answered the
+     RSVP so far. So one press asked for 951 individual writes. The SDK queues 500 and
+     then refuses, which is the error she saw — and because the run died partway, the
+     next press tried the same nine hundred again.
+
+     ⚠ AND IT WAS FIRED WITHOUT await FROM THE BUTTON, so an impatient second press
+     started a second run of the same nine hundred on top of the first. inFlight below
+     is what stops that; the un-awaited call at the button is deliberate (the press
+     must not sit there looking hung) and is left alone.
+
+     Firestore takes 500 operations in a batch. Chunked at 400 for headroom, 951
+     records become three round trips instead of 951. */
+  const BATCH_LIMIT = 400;
   let cleared = 0;
-  for(let i = 0; i < stale.length; i++){
-    const item = stale[i];
+  /* The routes first, in one pass — see removeCustomersFromUpcomingRoutes. Clearing a
+     flag while the stop survives is the same contradiction pointing the other way. */
+  if(typeof removeCustomersFromUpcomingRoutes === 'function'){
+    try{ await removeCustomersFromUpcomingRoutes(stale.map(function(x){ return x.id; })); }
+    catch(err){ console.error('Could not take stale bookings off their routes', err); }
+  }
+  for(let i = 0; i < stale.length; i += BATCH_LIMIT){
+    const chunk = stale.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+    chunk.forEach(function(item){ batch.update(doc(db, 'jobAddresses', item.id), freeUpFieldForType('install')); });
     try{
-      if(typeof removeCustomerFromUpcomingRoutes === 'function') await removeCustomerFromUpcomingRoutes(item.id);
-      await updateDoc(doc(db, 'jobAddresses', item.id), freeUpFieldForType('install'));
-      /* The panel repaints from the cache as well as from the listener, so the row
-         stops contradicting itself immediately rather than on the next snapshot. */
-      Object.assign(item.data, freeUpFieldForType('install'));
-      cleared++;
+      await batch.commit();
+      /* Only after the write lands. The panel repaints from this cache as well as from
+         the listener, so a chunk that failed must not leave the screen claiming it
+         cleared records that are still stamped. */
+      chunk.forEach(function(item){ Object.assign(item.data, freeUpFieldForType('install')); });
+      cleared += chunk.length;
     }catch(err){
-      console.error('Could not clear a stale booking for', item.id, err);
+      console.error('Could not clear a batch of ' + chunk.length + ' stale bookings', err);
     }
   }
   return cleared;
@@ -55746,6 +56025,11 @@ let SEASON=[], ORDER=[], BASE_START, globalDelta=0, takeDelta=0;
 let selSchedule=null, selFix=null, selTake=null, activeTab='schedule';
 let fixOpen=true, FIXLIST=[], fixRouteSeq=0, loaded=false, saveTimer=null;
 let preRebuild=null;   // the plan before the last Rebuild days, for one-press undo
+/* ⭐ THE DATES SOMEBODY IS AWAY. Keyed by date — '2026-11-10' -> 'crew' | 'man'.
+   Empty on almost every plan, which is the point: an empty list means the season is
+   laid out by the ordinary maths. See dayLimitOn, and the note in planNewCrewDays
+   for why this is a DATE rather than a day. */
+let DAY_LIMITS={};
 /* ---------- date engine ---------- */
 function startFor(day){return day.isTakedown?TAKE_BASE_START:BASE_START;}
 function deltaFor(day){return day.isTakedown?takeDelta:globalDelta;}
@@ -55776,13 +56060,37 @@ function effectivePin(day){
   const p=new Date(day.pin);
   return p<=pinHorizon()?p:null;
 }
-function layoutSequence(days){
+/* ⭐ NOTHING IS HUNG BEFORE THE SEASON STARTS. Addie, 2026-09-03, reading a plan whose
+   Season start box said 1 October above a first day of Tue Sep 22: "this is very wrong
+   because the season start date is oct 1".
+
+   ⚠ THE BOX AND THE DAYS WERE ANSWERING TWO DIFFERENT QUESTIONS. The box shows
+   BASE_START + globalDelta; a day is laid out at BASE_START + base + globalDelta +
+   cascade. Nothing anywhere clamped the second one, so any day carrying a negative
+   base or cascade simply rendered before the season — and the two lines of the season
+   bar contradicted each other with no way to tell which was right.
+
+   ⚠ HOW A DAY GETS THERE: "◀ Pull this + rest earlier" decrements cascade until the
+   date moves and had no floor of its own, so it walks a day into September a press at
+   a time; a rebuild also leaves the days it KEEPS carrying a base measured against the
+   BASE_START it had before. Flooring here fixes both at once, and fixes a plan that is
+   ALREADY in that state on the next draw rather than needing the data repaired.
+
+   ⚠ A PINNED DAY IS NEVER CLAMPED. "Force exact date" is the office overriding the
+   layout on purpose — the same reason it may place a day on a weekend — and the pin
+   branch returns above this line without ever consulting the floor.
+
+   This is the same rule seasonFirstDate already states for the BUILDER ("with no
+   floor, building the season in August books Christmas installs for August"). It was
+   simply never applied to a plan that already existed. */
+function layoutSequence(days,floor){
   const arr=days.sort((a,b)=>{const pa=effectivePin(a),pb=effectivePin(b);const ka=pa||desired(a),kb=pb||desired(b);return ka-kb||a.base-b.base;});
   let cursor=null;
   for(const day of arr){
     const pin=effectivePin(day);
     if(pin){day._date=new Date(pin);if(!cursor||day._date>cursor)cursor=new Date(day._date);continue;}
     let d=desired(day);
+    if(floor&&d<floor)d=new Date(floor);
     if(cursor&&d<=cursor)d=addDays(cursor,1);
     while(isDayOff(d))d=addDays(d,1);
     while(cursor&&d<=cursor){d=addDays(d,1);while(isDayOff(d))d=addDays(d,1);}
@@ -55790,7 +56098,10 @@ function layoutSequence(days){
   }
 }
 function computeDates(){
-  layoutSequence(SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown));
+  /* Install days are floored at the season start. Takedowns are NOT: they run off
+     TAKE_BASE_START, which is a different season with a different first day, and
+     borrowing the install floor would drag every takedown forward onto it. */
+  layoutSequence(SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown), seasonStartDate());
   layoutSequence(SEASON.filter(d=>d.isTakedown));
   SEASON.filter(d=>d.isFixRoute).forEach(d=>{d._date=new Date(d.pin);});
   ORDER=SEASON.slice().sort((a,b)=>a._date-b._date||((a.isFixRoute?1:0)-(b.isFixRoute?1:0))||a.base-b.base);
@@ -56520,8 +56831,14 @@ function renderDayList(elId,days,selId,listName){
        so on every one of them is noise. */
     const oneMan=!fr && !day.isTakedown && typeof isOneManDay==='function' && isOneManDay(day);
     const oneCrew=!fr && !day.isTakedown && typeof isOneCrewDay==='function' && isOneCrewDay(day);
-    const sizeBadge=oneMan?'<span class="newbadge">1 MAN</span>'
-      :(oneCrew?'<span class="pinbadge">1 CREW</span>':'');
+    /* A day that is small and a day somebody has short-handed both hold one crew, and
+       the office needs to tell them apart at a glance: the first will grow again on
+       the next rebuild, the second will not until the mark is taken off. */
+    const forcedSize=!fr && !day.isTakedown && typeof dayLimitFor==='function' ? dayLimitFor(day) : '';
+    const setTag=forcedSize?' · SET':'';
+    const sizeBadge=oneMan?'<span class="newbadge">1 MAN'+setTag+'</span>'
+      :(oneCrew?'<span class="pinbadge">1 CREW'+setTag+'</span>'
+      :(forcedSize?'<span class="pinbadge">1 CREW · SET</span>':''));
     return '<div class="day'+(day.id===selId?' sel':'')+(fr?' fixroute':'')+'" data-day="'+day.id+'" data-list="'+listName+'">'+
       '<div class="drow"><span class="dname">'+lab.wd+' '+lab.full+sizeBadge+(fr?'<span class="frb">FIX RT</span>':(effectivePin(day)?'<span class="pinbadge">SET</span>':''))+(full?'<span class="check-badge">✓</span>':'')+'</span><span class="dcount">'+(full?'done':left+' left')+'</span></div>'+
       '<div class="darea">'+esc(dayMainArea(day))+'</div><div class="dmeta"><span>'+dc+' / '+n+'</span><span>'+pct+'%</span></div><div class="dbar"><i style="width:'+pct+'%"></i></div></div>';}).join('');
@@ -56882,6 +57199,40 @@ function renderDayMaps(day){
   }
 }
 
+/* ⭐ "MAKE AN OPTION IN THE DAY WHERE YOU CAN FORCE THERE TO BE ONE CREW."
+   Owner, 2026-09-03. Deliberately a THREE-way choice with the middle one off by
+   default, because the default is the thing she asked to protect: "by default it
+   doesnt care and it keeps the math the same".
+
+   Sat under the date controls rather than beside them, because it is a different
+   kind of statement. Pull/push/Day off move a day around the calendar; this one says
+   who is available on a date and leaves the date alone.
+
+   ⚠ IT SAYS WHAT IT WILL AND WILL NOT DO. Marking a date does not pull houses off
+   the day on the spot — the layout is the rebuild's job — and it can never touch a
+   day inside the 48-hour lock. Both are said here rather than being discovered. */
+function dayCrewLimitControlHTML(day, dt){
+  if(!day || day.isFixRoute || day.isTakedown) return '';
+  const ds = dt ? isoOf(dt) : '';
+  const kind = dayLimitOn(ds);
+  const locked = ds && typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds);
+  const opts = [['', 'Normal — as many houses as fit'],
+                ['crew', 'One crew only — up to ' + crewCap() + ' houses'],
+                ['man', 'One man only — up to ' + oneManMaxHouses() + ' houses']];
+  const note = kind
+    ? ('This date is set to <b>' + dayLimitLabel(kind) + '</b>' +
+       (locked
+         ? ' — but it is inside 48 hours, so Recalculate everything will leave it exactly as it is. Use “not done — reschedule” to move houses off it today.'
+         : ' — press <b>Recalculate everything</b> and the houses that do not fit move to the days after it.'))
+    : 'Leave this alone unless somebody is away. Normal is two crews and as many houses as the day will hold.';
+  return '<div class="daycontrols" style="padding:0 16px 10px">' +
+    '<span class="lbl">Crews on this date</span>' +
+    '<select class="moveday" data-daylimit="' + esc(day.id) + '">' +
+    opts.map(function(o){
+      return '<option value="' + o[0] + '"' + (o[0] === kind ? ' selected' : '') + '>' + o[1] + '</option>';
+    }).join('') + '</select>' +
+    '<span class="read" style="font-weight:600">' + note + '</span></div>';
+}
 function renderPanelInto(elId,day){
   const el=RT.getElementById(elId);
   if(!day){el.innerHTML='<div class="emptyday">'+(elId==='fixPanel'?'Pick a fixer route on the left, or build one from the fix list.':'No day selected.')+'</div>';return;}
@@ -56920,7 +57271,8 @@ function renderPanelInto(elId,day){
   else{h+=weekGuideHTML(day)+'<div class="daycontrols" style="padding:10px 16px">'+
       '<button class="mini" data-pull="'+day.id+'">◀ Pull this + rest earlier</button><button class="mini" data-push="'+day.id+'">Push this + rest later ▶</button>'+
       '<button class="mini warn" data-skip="'+day.id+'">✕ Day off (push rest later)</button><span class="lbl">Force exact date</span><input type="date" class="pin" data-pin="'+day.id+'" value="'+isoOf(dt)+'">'+
-      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(dayOffName(dt)?' ('+dayOffName(dt)+')':''):'')+'</span></div>';}
+      (day.pin?'<button class="mini" data-unpin="'+day.id+'">clear</button>':'')+'<span class="read">'+(shift!==0?'shifted '+(shift>0?'+':'')+shift+'d':'on plan date')+(day.pin?' · manual date'+(dayOffName(dt)?' ('+dayOffName(dt)+')':''):'')+'</span></div>'+
+      dayCrewLimitControlHTML(day, dt);}
   if(!n)h+='<div class="emptyday">No houses on this day.</div>';
   else if(fr)h+=day.houses.map((x,i)=>stopHTML(x,i+1,day.id)).join('');
   else{
@@ -57306,7 +57658,8 @@ function renderOneMan(){
     'day, and those are fine — they are marked on the day list rather than listed ' +
     'here. This list works itself out every time ' +
     'the tab is drawn, so a day that fills up drops off it and a day that empties ' +
-    'joins it. Nothing here needs ticking.</div>';
+    'joins it. Nothing here needs ticking. A date you have set to <b>one man</b> ' +
+    'yourself on the day panel is listed here too, whatever it is holding.</div>';
   if(!days.length){
     el.innerHTML = lead + '<div class="traynote">Nothing is a one man install right now \u2014 ' +
       'every day has more than ' + cap + ' houses on it.</div>';
@@ -57421,6 +57774,10 @@ function serialize(){
     // every device the office opens this on.
     crews:CREWS.map(c=>({name:c.name,city:c.city})),
     fixList:FIXLIST.map(f=>Object.assign({},f,{addedDate:f.addedDate?isoOf(f.addedDate):null})),
+    /* ⚠ KEYED BY DATE AND SAVED WITH THE PLAN, not with the days. That is what lets
+       Recalculate everything honour it: the rebuild replaces every day object, so
+       anything stored on a day (soloCrew) is gone by the time the builder runs. */
+    dayLimits:Object.assign({},DAY_LIMITS),
     /* ⚠ soloCrew RIDES WITH THE DAY. This list is explicit, so a field left out of
        it is a field that silently does not survive a reload. */
     days:SEASON.map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?isoOf(d.pin):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:d.soloCrew===1?1:0,
@@ -57796,7 +58153,13 @@ function rebuildSeasonDays(){
     if(after>floor) floor=after;
   });
   const floorStr=isoOf(floor);
-  const built=planNewCrewDays(placeable, {}, {floorDate:floorStr, maxDays:400, horizonDays:400});
+  /* ⭐ AND THE DATES SOMEBODY IS AWAY GO IN WITH IT. This is the whole point of the
+     control on the day panel: the office marks the 10th, presses Recalculate
+     everything, and the 10th comes back holding one crew's worth while everything
+     that did not fit rolls on to the days after it. Every other date is untouched —
+     dayShapeOn returns null for them and the builder does what it always did. */
+  const built=planNewCrewDays(placeable, {}, {floorDate:floorStr, maxDays:400, horizonDays:400,
+                                              dayShape:dayShapeOn});
   const byDate={};
   built.forEach(function(cd){ (byDate[cd.date]=byDate[cd.date]||[]).push(cd); });
   const dates=Object.keys(byDate).sort();
@@ -58184,8 +58547,14 @@ const SCHEDULE_SYNC_FIELDS = [
    so one crew can go in a max of 2 cities." A day holding four towns is perfectly fine
    when it is two crews holding two each. The day-level number below is derived from
    this one and is only ever a summary of it. */
-function maxTownsPerDay(){
-  const crews = (typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? CREWS_PER_DAY : 2;
+function maxTownsPerDay(day){
+  /* Asked with no day it answers for a normal one, which is what the season-wide
+     wording in the stale-plan note wants. Asked about a day the office has marked
+     short-handed it answers for ONE crew — two towns — so that day is held to the
+     same rule everybody else is, rather than being allowed four because the office
+     is nominally running two crews. */
+  const forced = day && typeof dayLimitFor === 'function' && dayLimitFor(day) ? 1 : 0;
+  const crews = forced || ((typeof CREWS_PER_DAY === 'number' && CREWS_PER_DAY > 0) ? CREWS_PER_DAY : 2);
   return crews * MAX_TOWNS_PER_CREW;
 }
 function dayTownList(day){
@@ -58412,7 +58781,12 @@ function isOneManDay(day){
   const n = (day.houses || []).length;
   /* An EMPTY day is not a one man install, it is an empty day. Listing it would put
      a job on the board that has nobody to do. */
-  return n > 0 && n <= oneManMaxHouses();
+  if(!n) return false;
+  /* A date the office marked as one man IS one, whatever the count says. It is the
+     only way round: the count is the evidence when there is none, and here there is
+     — somebody said so. See the note above dayLimitOn. */
+  if(dayLimitFor(day) === 'man') return true;
+  return n <= oneManMaxHouses();
 }
 function oneManDays(){
   if(typeof installDays !== 'function') return [];
@@ -58440,6 +58814,9 @@ function dayAssignedHouses(day){
 }
 function dayCrewCount(day){
   if(!day || day.isFixRoute || day.isTakedown) return 1;
+  /* Asked before anything is measured. There is one crew that day because there is
+     one crew that day, and no arrangement of houses and towns changes it. */
+  if(dayLimitFor(day)) return 1;
   const held = dayAssignedHouses(day);
   if(!held.length) return 1;
   if(held.length > oneCrewMaxHouses()) return 2;
@@ -58478,6 +58855,79 @@ function daySoloCrew(day){
   const i = day && day.soloCrew;
   return (i === 1 || i === '1') ? 1 : 0;
 }
+/* ---------- days the office has short-handed on purpose ----------
+   ⭐ Owner, 2026-09-03: "there are some days we will need to have 1 crew or 1 man
+   if a crew doesnt show or if a crew takes time off ect, make an option in the day
+   where you can force there to be one crew in a day but by default it doesnt care
+   and it keeps the math the same with get as many houses in a day as possible."
+
+   TWO HALVES, and both matter:
+
+   • BY DEFAULT IT DOES NOT CARE. Nothing here fires unless somebody has marked a
+     date. dayLimitOn answers '' for every other date and every caller falls straight
+     back to the maths it already had — two crews, twenty each, fill the day up.
+
+   • WHERE IT IS SET IT IS AN INSTRUCTION, NOT A GUESS. dayCrewCount and
+     isOneManDay work the size of a day out from its houses, and that stays true for
+     every unmarked day; on a marked one they are simply told. A crew that did not
+     turn up is not something the house count can be read off.
+
+   ⚠ STORED AGAINST THE DATE, so pressing Recalculate everything cannot lose it.
+   The rebuild throws every day object away and makes new ones, which is exactly why
+   soloCrew — stored on the DAY — does not survive one. A crew being away on the
+   10th is a fact about the 10th, so that is what is written down.
+
+   ⚠ AND IT ONLY REALLY BITES ON A REBUILD. Marking a date says what the next
+   Recalculate everything should do with it; it does not pull houses off a day by
+   itself, and it cannot touch a day inside the 48-hour lock at all. For a crew that
+   has already failed to turn up this morning the tool is "Not all of them got
+   done — reschedule", which is about houses rather than about the calendar. */
+const DAY_LIMIT_KINDS = ['crew', 'man'];
+function dayLimitOn(dateStr){
+  const v = DAY_LIMITS && DAY_LIMITS[dateStr];
+  return DAY_LIMIT_KINDS.indexOf(v) === -1 ? '' : v;
+}
+function dayLimitFor(day){
+  if(!day || day.isFixRoute || day.isTakedown) return '';
+  const dt = dayDate(day);
+  return dt ? dayLimitOn(isoOf(dt)) : '';
+}
+function dayLimitLabel(kind){
+  return kind === 'man' ? 'one man' : (kind === 'crew' ? 'one crew' : '');
+}
+/* What the builder is handed: crew-slots for the date and, for a one man day, the
+   smaller crew-day that goes with it. A cap of 0 means "leave the cap alone", which
+   is what a one-CREW day wants — one person short of a crew still hangs twenty. */
+function dayShapeOn(dateStr){
+  const kind = dayLimitOn(dateStr);
+  if(!kind) return null;
+  return {crews: 1, cap: kind === 'man' ? oneManMaxHouses() : 0};
+}
+/* A date that has gone by can never be short-handed again, so it is dropped rather
+   than left to grow in the saved plan for ever. */
+function pruneDayLimits(){
+  const today = isoOf(new Date());
+  Object.keys(DAY_LIMITS || {}).forEach(function(ds){ if(ds < today) delete DAY_LIMITS[ds]; });
+}
+function setDayLimitOn(dateStr, kind){
+  if(!dateStr) return '';
+  const want = DAY_LIMIT_KINDS.indexOf(kind) === -1 ? '' : kind;
+  if(want) DAY_LIMITS[dateStr] = want;
+  else delete DAY_LIMITS[dateStr];
+  pruneDayLimits();
+  return want;
+}
+/* Only the two words are accepted back off a saved plan, and only against a date
+   that looks like one — this is read straight out of Firestore. */
+function normalizeDayLimits(raw){
+  const out = {};
+  Object.keys(raw || {}).forEach(function(ds){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return;
+    if(DAY_LIMIT_KINDS.indexOf(raw[ds]) === -1) return;
+    out[ds] = raw[ds];
+  });
+  return out;
+}
 function crewDaysOverTownLimit(){
   const over = [];
   if(typeof SEASON === 'undefined') return over;
@@ -58493,7 +58943,7 @@ function crewDaysOverTownLimit(){
        the most a WORKING DAY can legitimately hold. Shared with the timing sweep,
        which has to know the same number so it stops creating the very days this
        exists to report. */
-    if(n > maxTownsPerDay()) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: Object.keys(towns)});
+    if(n > maxTownsPerDay(d)) over.push({date: dayDate(d) ? isoOf(dayDate(d)) : '?', towns: Object.keys(towns)});
   });
   return over;
 }
@@ -58767,6 +59217,9 @@ function hydrate(o){
   // A plan saved before crews existed just gets the defaults back.
   CREWS=normalizeCrews(o.crews);
   FIXLIST=(o.fixList||[]).map(f=>Object.assign({},f,{addedDate:f.addedDate?new Date(f.addedDate):null}));
+  // A plan saved before this existed comes back with nothing marked, which is the
+  // ordinary maths — exactly what it had.
+  DAY_LIMITS=normalizeDayLimits(o.dayLimits); pruneDayLimits();
   SEASON=(o.days||[]).map(d=>({id:d.id,base:d.base,cascade:d.cascade,pin:d.pin?new Date(d.pin+'T00:00:00'):null,isFixRoute:!!d.isFixRoute,isTakedown:!!d.isTakedown,soloCrew:d.soloCrew===1?1:0,
     houses:(d.houses||[]).map(h=>{const x=Object.assign({},h);if(x.addedDate)x.addedDate=new Date(x.addedDate);return x;})}));
   computeDates();
@@ -58908,6 +59361,23 @@ RT.addEventListener('change',e=>{const t=e.target;
         printColorChangeList().length + ' changing', 'No color changes.');
       return;
     }
+    return;
+  }
+  if(t.dataset.daylimit){
+    const d=getDay(t.dataset.daylimit);
+    const dt=d?dayDate(d):null;
+    if(!dt){ toast('That day has no date yet'); return; }
+    const ds=isoOf(dt);
+    const kind=setDayLimitOn(ds, t.value);
+    renderAll(); scheduleSave();
+    /* Says what it did AND what still has to happen, because nothing visible moves
+       until the rebuild runs — without this the office marks a date, sees the same
+       forty houses, and reasonably concludes the control does nothing. */
+    if(!kind){ toast('Back to normal — press Recalculate everything to fill that day up again'); return; }
+    toast(dlabel(dt).full + ' is set to ' + dayLimitLabel(kind) + ' — ' +
+      (typeof routeDayIsLocked === 'function' && routeDayIsLocked(ds)
+        ? 'that day is inside 48 hours, so a rebuild will leave it alone'
+        : 'press Recalculate everything to lay the season out around it'));
     return;
   }
   if(t.dataset.solocrew){
@@ -59095,7 +59565,14 @@ function cascade(id,delta,msg){
   const day0=getDay(id);if(!day0)return;const seq=phaseDays(day0);const idx=seq.indexOf(day0);if(idx<0)return;
   const affected=seq.slice(idx);const before=day0._date.getTime();let steps=0;
   do{affected.forEach(d=>d.cascade+=delta);computeDates();steps++;}while(getDay(id)._date.getTime()===before&&steps<10);
-  if(getDay(id)._date.getTime()===before){affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();toast(delta<0?'No earlier slot — no gap before this day':'Could not push later');return;}
+  /* ⚠ THE REVERT IS WHAT KEEPS "Pull earlier" INSIDE THE SEASON. With the floor in
+     computeDates the date simply stops moving once the day is sitting on the season
+     start, this branch puts the cascade back, and the press does nothing instead of
+     silently walking the plan into September. Worth saying WHICH wall was hit — "no
+     gap before this day" sent the office looking for a day to delete. */
+  if(getDay(id)._date.getTime()===before){affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();
+    const atFloor=delta<0&&!day0.isTakedown&&getDay(id)._date.getTime()<=seasonStartDate().getTime();
+    toast(delta<0?(atFloor?'That is the season start — nothing goes earlier than '+dlabel(seasonStartDate()).full:'No earlier slot — no gap before this day'):'Could not push later');return;}
   renderAll();toast(msg||(delta<0?'Pulled a working day earlier — the rest moved up':'Pushed a working day later — the rest moved back'));
 }
 function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=getDay(dayId);if(!target||target===f.day)return;

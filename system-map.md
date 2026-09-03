@@ -198,6 +198,13 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    - ⚠ **The key is still `pending`.** Only the word changed: `r.badge` is what the season filter matches on and the dropdown's option values are `confirmed`/`pending`/`maybe`, so renaming the key would silently break that filter. The filter's own label already read *"blocked by a rule"* — the chip now agrees with it.
    - ⚠ **A guard stops the collision coming back**: the season cell's chips are read out of the row builder and compared against every word `rsvpStatusLabel` can produce. *Maybe Next Year* is the one deliberate overlap and is excluded by name — it is the same state in both columns, said the same way on purpose.
 
+   ⭐ **AND ON 2026-09-03 THE SECOND PILL WENT ENTIRELY.** Addie, highlighting *"RSVP: Pending"* and *"ON HOLD"* on one row: *"we have two badges or stamps for RSVP we only need the yellow one."* Renaming one of them (above) had not been enough — two pills answering the same question in two vocabularies is unreadable whatever they are called. **The RSVP pill is gone from the All Customers row.** The season badge (Confirmed / On hold / Back Next Year) carries the answer and the hold line under it says *why* — "they said no", "no RSVP yet", "owes $X from 2025" — so a customer who declined still reads **On hold + they said no**.
+   - ⚠ **The Unpaid 2025 pill stays.** It was removed in a first pass and put back: it answers *what do they owe*, not *have they replied*, and the two RSVP stamps were what she pointed at.
+   - ⭐ **AND THE ROW'S SEASON TOGGLE WENT WITH IT.** Addie: *"I don't know why it shows maybe next year underneath. We can just switch this inside there costumer."* Changing an RSVP now happens in **one place** — Edit Customer's RSVP control — so the list and the form cannot write different answers.
+     - ⚠ **Checked before removing it**, because the button did more than set a flag: it called `setCustomerSeason`, which also takes them off upcoming routes. The Edit Customer save does the same on the same transition (`seasonMaybeChosen && !item.data.maybeNextYear`, then `removeCustomerFromUpcomingRoutes`), so **nothing is stranded on a route** by it going.
+     - ⚠ **The `maybe` branch lost its Confirm button too**, deliberately — it is the same switch pointing the other way, and leaving one direction on the row would mean somebody can be put out of the season from the list but must be brought back through the form.
+     - ⚠ **Confirming still does NOT put anyone back on a route.** That rule survives the button: rebuilding a route behind the office is a worse surprise than re-adding one stop by hand.
+
    ⚠ **AND THE OFFICE'S OWN BADGE READ AS PENDING** (fixed 2026-09-02). Addie: *"it says pending for RSVP"*, over a card carrying the Maybe Next Year badge. `effectiveRsvpStatus` had `|| dd.maybeNextYear` inside its test and then `return said` — so for a badged customer with no reply of their own it handed back `''`, the very value the line existed to overrule. The office had recorded an answer and every screen called them Pending.
    - ⚠ **It changed no season behaviour, which is why it survived so long.** `isOutForSeason` and `seasonHold` read `maybeNextYear` **directly**, so those customers were correctly off every route the whole time. Only the words were wrong — on the card, the Dashboard counts, and *Owes from last year*.
    - ⚠ **It does not touch who gets the RSVP email.** That audience is `etRsvpAnswered`, which reads the stored `rsvpStatus` and never this function. Checked before changing it, because the RSVP is the one send that has to reach everybody.
@@ -243,6 +250,29 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    answer, reply date, Back Next Year badge and new-member tick cleared, nothing else
    touched. Testing the RSVP means testing it three times and watching the badge each
    time, and a reset done by hand between answers is one that gets skipped.
+
+   ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
+   RS-47). Addie approved a Test customer through the emailed link and the badge stayed
+   **On hold**, with *"Not scheduled — no RSVP yet"* under it.
+
+   ⚠ **The hold was right.** `isOutForSeason` asks for a **dated** reply — `rsvpStatus`
+   of `'yes'` with no `rsvpRespondedAt` is the *assumed* yes written when a quote is
+   converted, or carried in by an import, and nobody actually answered. A dated yes
+   reads **Confirmed**; an undated one reads **On hold**.
+
+   ⚠ **The unpaid bill was not the cause.** The portal's hold reads
+   `arrearsOutstanding` — *last* season's debt — so a current bill never touches the
+   season badge. Her $946 was this year's.
+
+   ⚠ **And the emailed Yes does work**, bill outstanding or not:
+   `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
+   Confirmed. A record still on **On hold** never received that write.
+
+   ⭐ **What was wrong was the sentence.** The line said *"no RSVP yet"* for both states.
+   They need different things — nothing on file means chase them, a yes nobody dated
+   means confirm it on the record, which stamps the date — so the second now says so.
+   It reads the **raw** field, because `effectiveRsvpStatus` normalises a bare yes away
+   and that is exactly why the line could not tell them apart.
 
    ⭐ **THE GATE CODE IS ASKED ON THE WAY PAST A YES** (added 2026-08-31). Addie: *"Lets do gate code before changes."* After the yes is recorded and before *"do you want to make any changes?"*, the customer is asked about their gate code — the RSVP is the one email everybody opens and acts on, so it is the cheapest chance each season to catch a wrong code before a crew is standing at a locked gate.
    - **It confirms a code we already hold, and asks nobody else** (narrowed 2026-09-02, RS-44). A code on file is quoted back (*"We have 4417 as your gate code. Is that still right?"*) with **Yes, that's right** / **It has changed**; confirming writes nothing, so `gateCodeUpdatedAt` marks a real change rather than every RSVP.
@@ -841,6 +871,22 @@ owed = (install + removal + changeFees) − credits − deposit, floored at 0
 ```
 This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFees)` in admin.html and is mirrored server-side in `functions/index.js`. As of this pass, every place in the app that computes a balance or status uses the full formula — that was **not** true before this pass (see the P0 fix in git history: `changeFees` had been left out of roughly 15 different call sites, including the actual PayPal charge amount).
 
+⭐ **EVERY FEE AND DISCOUNT IS ON THEIR ACCOUNT, AND EVERY ONE CAN BE WAIVED**
+(2026-09-03). Edit Customer lists them as lines with a ✕ each: the fees on the
+invoice, the discounts, and — new — **charges carried to next season**.
+
+⚠ **That last one is where a portal colour change was disappearing.** Where the
+fee goes depends on whether the bill has already been sent: unsent, it is a line
+on the invoice; already sent, it becomes `carryoverCharge` on the CUSTOMER, to be
+collected next season. Edit Customer's fee lines only ever read the invoice, so
+the second kind was invisible on the one screen anybody would waive it from.
+
+⚠ It is the only ledger whose money lives on the customer rather than the invoice,
+so its ✕ writes to `jobAddresses` — but the plan is built by the same shared rule
+as the other two, because a second copy of "drop this line and re-total" is how
+one ledger starts disagreeing about what a ✕ does. ⚠ And it is never refused for
+want of an invoice: it exists precisely because the bill had already gone out.
+
 **Two separate fees, easy to conflate — the set-up fee is $25, the light-change fee
 is $30** (she moved the set-up one on 2026-09-03: *"make the set up fee $25"*). They
 are separate charges: a new member who changes their colours late pays both.
@@ -887,13 +933,32 @@ written into that customer's history.
     rather than against a named fee, so a late fee written later is waivable the day
     something writes one, with nothing here to change.
 
-⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-56). Addie:
+⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-57). Addie:
 *"I want to make it clear to the member that this is there payment however they do not need
 to pay until after they get an invoice from us."* The payment card said **Current Balance**
 from the moment a house was priced — months before the nightly run bills anybody — so a
 customer signing in during October read a figure that looks due today, above a pay button.
-Until the bill goes out the label reads **Your Price This Season** and a notice under it
-says what the number is and when it is due.
+Until the bill goes out the label reads **Your Price This Season**, and the customer is told
+in as many words what the number is and when it is due.
+  - ⭐ **IT IS A POP-UP, AND ONLY ON RSVP APPROVE** (changed 2026-09-03, MON-59 then
+    MON-60). It shipped as an inline box under the amount; Addie asked for it to be louder
+    — *"make it more obvious... like a popup"* — and then, having seen it fire on every
+    ordinary sign-in, *"This should only pull up when they push RSVP Approve. It should not
+    pop up every time they open there member portal."* It is `#portalPriceModal`, raised
+    only by `openPortalAfterYes` — the RSVP email's yes branch, which is "RSVP Approve" in
+    the one sense this codebase names. One dismiss button, never a second **Pay now**: the
+    real pay buttons are already on the same screen.
+  - ⚠ **THE LABEL IS NOT GATED BY THAT.** "Your Price This Season" still replaces "Current
+    Balance" on an ordinary sign-in — only the interrupting dialog is scoped. Somebody
+    signing in normally reads the right figure under the right heading; they are simply not
+    stopped to be told it.
+  - ⚠ **THE DEFAULT IS SILENCE.** Every other way into the portal — a phone-and-name
+    sign-in, a saved-token auto-login, the post-payment RSVP ask, the in-portal Changes tab
+    — passes nothing, so forgetting the flag means *never shows* rather than *shows every
+    time*. That is the cheap direction to be wrong in.
+  - ⚠ **It sits BELOW the gate-code dialog and the arrears lock** (z-index 399 against 400
+    and 401). All three can be raised on one portal load; the other two outrank it — one is
+    a question they must answer, the other blocks the season.
   - Driven by `billIssued`, a boolean `portalInvoice` derives from the invoice's own
     `invoicedAt` — the same stamp the due date and the Overdue flag are measured from, and
     the one Start New Season clears, so it answers about *this* season.
@@ -1150,6 +1215,203 @@ touched in the four source files against this table, and every name in
 *Naming*: `routeDayTowns` is deliberately **not** `dayTownList`. A separate `dayTownList` exists further down for the timing sweep, answering a different question about a different shape of object (a day of `.houses`, not a saved route). Two top-level declarations of one name do not coexist in a browser — the later one wins for the whole page.
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
+
+### A day the office has short-handed on purpose
+
+Addie, 2026-09-03: *"there are some days we will need to have 1 crew or 1 man if a
+crew doesnt show or if a crew takes time off ect, make an option in the day where you
+can force there to be one crew in a day but by default it doesnt care and it keeps the
+math the same with get as many houses in a day as possible."*
+
+Schedule → pick a day → **Crews on this date**: *Normal — as many houses as fit* /
+*One crew only — up to 20 houses* / *One man only — up to 8 houses*. This is an
+**exception list, not a new rule**: every date is Normal until somebody changes it, and
+a season with nothing marked is laid out by exactly the maths described above — two
+crews, twenty each, the day filled up.
+
+**It is keyed by DATE, and saved with the plan** (`dayLimits` on the `routeSchedule`
+document, `'2026-11-10' -> 'crew' | 'man'`). That is what makes **Recalculate
+everything** honour it. Anything stored on a *day* would not: the rebuild replaces every
+day object it makes, which is why `soloCrew` — the office's choice of *which* crew works
+a one-crew day — does not survive one. It also matches what the office is actually
+saying: the crew is away on the 10th, whichever houses end up on the 10th.
+
+**How it reaches the builder.** `rebuildSeasonDays` passes `dayShapeOn` in as
+`planNewCrewDays`'s `dayShape`. That function answers `null` for every unmarked date —
+and `null` means "the ordinary maths", so every untouched code path is the one that was
+there before — and `{crews: 1, cap}` for the handful that are marked. The builder is
+never told what "one man" *means*: the cap comes in as a number, so `ONE_MAN_MAX_HOUSES`
+stays the single definition the One Man Installs tab already reads. Houses that no
+longer fit roll on to the days after it, exactly as an overflowing day always did; the
+season simply runs a little longer.
+
+**The tail sweep had to learn about it twice over.** `packTailCrewDays` relocates whole
+crew-days onto earlier dates "that have a crew spare" and tops crew-days up to the cap,
+and both questions have a different answer on a marked date. It is handed the same
+`dayShape`, and it also **refuses to dissolve a marked date's own crew-day**: a day of
+eight on a one-man date is not dribble the builder left behind, it is the size somebody
+asked for, and sweeping it away leaves that man with nothing to do and the office looking
+at a blank day where they had just put the mark. Every *other* short crew-day is still
+swept up as before.
+
+**What reads the mark, rather than guessing.** `dayCrewCount` returns 1 for a marked
+date whatever the houses say; `isOneManDay` lists a one-man date whatever it is holding;
+`maxTownsPerDay(day)` now takes the day, so a date short-handed to one crew is held to
+one crew's two towns rather than being allowed four. The day list badges it
+`1 CREW · SET` / `1 MAN · SET`, so a day somebody shaped by hand reads differently from
+a day that is merely small — the first will not grow back on the next rebuild, the second
+will.
+
+⚠ **It shapes the next rebuild; it does not move houses on the spot**, and it can never
+touch a day inside the 48-hour lock. The control says both out loud, because a mark that
+appeared to do nothing would read as a broken button. For a crew that has already failed
+to turn up this morning the tool is *not done — reschedule*, which is about houses rather
+than about the calendar.
+
+*Proved in* run-all.js **Suite 294**, whose first check is the one that matters: an
+unmarked season is byte-for-byte the season the builder made before.
+
+### Why the schedule looks empty in September, and the write storm behind it
+
+Addie, 2026-09-03: a whole season showing **one day and three houses**, and then
+`@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream exhausted
+maximum allowed queued writes` the moment she pressed **Recalculate everything**.
+
+One cause, both symptoms. **Counted on the live book rather than reasoned about:**
+
+| | |
+|---|---|
+| customers | 956 |
+| blank `rsvpStatus` | 950 |
+| said yes | 5 |
+| **yes AND `rsvpRespondedAt` stamped** | **3** |
+| out of the season | 952 |
+| still carrying a booking stamp from last season | 955 |
+
+`isOutForSeason` ends in the `SEASON_ELIGIBILITY = 'confirmed-only'` branch: somebody
+is in the season only if they said **yes and the reply is stamped**, or they are a new
+hang nobody was ever asked (`audienceNeverAsked`). Three people qualify, so the builder
+places three. **The schedule was right.** This is her own ruling working — *"play with it
+until the only customers in the schedule are the confirmed ones"* — and it is the normal
+state every September, before the RSVPs come back. Worth writing down precisely because
+the screen looks catastrophic when it is behaving.
+
+**The same 952 caused the write storm.** `clearStaleInstallBookings` takes the booking
+stamp off everybody who is out, and 951 of them still carried one. It wrote them one at a
+time. The SDK queues 500 and refuses, so the run died partway — and the next press tried
+the same nine hundred again.
+
+Three faults, all three fixed:
+
+- **The customer records are batched.** `writeBatch` in chunks of 400 — 951 records
+  become 3 commits. This file had no batched write anywhere before; `writeBatch` was not
+  even on the import list.
+- **The routes are swept once for everybody.** `removeCustomersFromUpcomingRoutes`
+  (plural) walks the upcoming routes a single time and writes each affected route once,
+  whatever it is carrying. The old per-customer call walked every route 952 times and
+  rewrote a shared route once per stop removed. The singular version stays — the office
+  edit path and `portalSave` each remove exactly one person.
+- **One run at a time.** The button fires this without awaiting on purpose, so nothing
+  stopped an impatient second press doubling the writes. `clearStaleBookingsInFlight`
+  makes the second press join the run already going.
+
+⚠ **The cache is only updated after a chunk commits.** Assigning first makes a failed
+chunk look cleared: the row stops contradicting itself on screen while the record in
+Firestore still says booked — the exact contradiction this sweep exists to remove.
+
+⚠ **Two wrong theories were measured and discarded before this one.** That the arrears
+hold was emptying the season (only 19 customers owe from last season), and that the
+season-start date bug was to blame (real, but unrelated — see the section above). Both
+were plausible; neither survived counting.
+
+*Proved in* run-all.js **Suite 296**. **Suite 286** still owns the other half — *which*
+records get cleared, and the three kinds that must not be touched.
+
+### Confirming an answer that is already on file
+
+Addie, 2026-09-03: *"the badges on the page that says confirmed, maybe next year or
+pending, that doesnt update it used to its because we got rid of the thing that was
+confirmed and maybe next year badges in add customer and put all that under RSVP Status
+but its not working"*.
+
+**The badge was never the broken part.** `seasonBadgeKey` delegates to
+`isOutForSeason`, which under `SEASON_ELIGIBILITY = 'confirmed-only'` wants a yes
+**and a date on it**. What was broken is the only screen that can supply that date: the
+RSVP Status dropdown stamped `rsvpRespondedAt` **only when the dropdown value moved**.
+
+So the one state the office actually has to repair by hand was the one state it could
+not repair. A record carrying `rsvpStatus` 'yes' with nothing dating it — the assumed
+yes written when a quote is converted, or carried in by an import — already shows **Yes**
+in the dropdown. Picking Yes changes nothing, so nothing is stamped, so the badge stays
+**Pending** for ever. `seasonHold` even prints the instruction: *"a yes is on file but
+nothing dated it — confirm it on their record"*. Following it did nothing.
+
+Measured on the live book the day it was reported: **5 customers said yes, 3 were dated.**
+Two people were stuck with no way out from any screen.
+
+The save now stamps in two cases rather than one:
+
+- the answer **changed** — unchanged behaviour, and still nulls the date when the answer
+  is cleared back to Unanswered;
+- the answer is **the same but nothing dated it** — the office confirming what is already
+  there, which is exactly what the hold message asks them to do.
+
+⚠ **It never re-stamps an answer that already has a date.** That date is what the Yes
+sheet and the customer history both read; moving it every time somebody edits a phone
+number would rewrite history.
+
+⚠ **The fix is in the SAVE, not in the badge.** Softening `isOutForSeason` to accept an
+undated yes would hand a Confirmed badge to people every scheduler in the app still
+refuses — the precise disagreement the badge's own note says it exists to prevent.
+
+*Proved in* run-all.js **Suite 297**, red-checked by deleting the new branch. **Suite 78**
+still owns the value-changed path.
+
+### Nothing is hung before the season starts
+
+Addie, 2026-09-03, reading two lines of her own season bar:
+
+    Season start   10/01/2026
+    Plan runs Tue Sep 22 → Sep 22.
+
+*"this is very wrong because the season start date is oct 1"*.
+
+Both lines come off the same plan and they were computed differently. The box is
+`BASE_START + globalDelta`. A day is laid out at `BASE_START + base + globalDelta +
+cascade` — and nothing clamped it, so **any day carrying a negative `base` or
+`cascade` rendered before the season had started**, with no way from the outside to
+tell which half of the bar to believe.
+
+`layoutSequence` now takes a **floor** and `computeDates` passes it
+`seasonStartDate()` for install days. Three things about where that floor sits:
+
+- **It is in the layout, not in the button that caused it.** A plan already saved in
+  that state heals on the next draw; nobody has to go and repair the data.
+- **It only ever pushes forward.** A day legitimately later than the start is left
+  exactly where it was — a clamp working in both directions would flatten October onto
+  the 1st.
+- **A pinned day never sees it.** *Force exact date* is the office overriding the
+  layout deliberately, the same reason it is allowed to place a day on a weekend, and
+  the pin branch returns before the floor is consulted.
+
+⚠ **Takedowns are not floored.** They run off `TAKE_BASE_START` — a different season
+with a different first day — and lending them the install floor would haul every one of
+them into October.
+
+**Two ways a day acquires a negative offset, and the floor catches both.**
+*◀ Pull this + rest earlier* (`cascade(id, -1)`) decrements until the date moves and
+had no floor of its own, so each press walked the plan further into September; with the
+floor in place the date stops moving, the existing revert puts the cascade back, and the
+toast now names the wall it hit rather than saying "no gap before this day". Separately,
+`rebuildSeasonDays` keeps the days it does not re-lay, and those go on carrying a
+`base` measured against whatever `BASE_START` was before the rebuild moved it.
+
+This is the rule `seasonFirstDate` already states for the **builder** — *"with no
+floor, building the season in August books Christmas installs for August"* — finally
+applied to a plan that already exists.
+
+*Proved in* run-all.js **Suite 295**, red-checked by deleting the floor line: the two
+checks that reproduce her exact season bar go red and nothing else does.
 
 ### One route note a day, not one a sweep
 

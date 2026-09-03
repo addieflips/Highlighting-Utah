@@ -456,6 +456,39 @@ const phantomTownSrc = () =>
   extractFn(admin, 'cityLooksLikeStreet') + '\n' +
   extractFn(admin, 'townIsPhantom') + '\n';
 
+/* ⭐ EVERYTHING THE MARKED-DATE LIST NEEDS, IN ONE PLACE (2026-09-03) — the same
+   answer phantomTownSrc gives above, and for the same reason. The Schedule tab now
+   lets the office say "one crew" or "one man" against a DATE, so rebuildSeasonDays
+   hands the builder dayShapeOn and dayCrewCount / isOneManDay / maxTownsPerDay all ask
+   dayLimitFor. Every sandbox that lifts one of those needs this, and supplying it here
+   makes the next one a single edit rather than a hunt through failing suites.
+
+   ⚠ LIFTED WITH THE REAL RULE, NEVER STUBBED. A stub answering "nothing is marked"
+   would keep those suites green through exactly the breakage this exists to catch —
+   the rebuild forgetting to pass the marked dates on at all.
+
+   ⚠ IT STARTS EMPTY, WHICH IS THE ORDINARY MATHS. "By default it doesnt care" is the
+   owner's own wording, so a suite that marks nothing must see the season it always
+   saw. A suite that wants a marked date assigns DAY_LIMITS inside its own sandbox. */
+/* ⚠ TWO SWITCHES, BECAUSE A REDECLARATION IS A SyntaxError AND READS AS THE WHOLE
+   SUITE DYING. Several of these sandboxes already lift ONE_MAN_MAX_HOUSES with
+   oneManMaxHouses, or are handed isoOf and dayDate as parameters; a second const of
+   the same name in the same scope kills the eval outright. Say which you already
+   have and this supplies the rest. */
+const dayLimitSrc = (opts) => {
+  const o = opts || {};
+  return 'let DAY_LIMITS = {};\n' +
+    (admin.match(/const DAY_LIMIT_KINDS = \[[^\]]*\];/) || [''])[0] + '\n' +
+    (o.haveOneMan ? '' :
+      (admin.match(/const ONE_MAN_MAX_HOUSES = \d+;/) || [''])[0] + '\n' +
+      extractFn(admin, 'oneManMaxHouses') + '\n') +
+    (o.haveDates ? '' :
+      extractFn(admin, 'isoOf') + '\n' + extractFn(admin, 'dayDate') + '\n') +
+    extractFn(admin, 'dayLimitOn') + '\n' +
+    extractFn(admin, 'dayLimitFor') + '\n' +
+    extractFn(admin, 'dayShapeOn') + '\n';
+};
+
 const seasonRuleSrc = (sentAtExpr, live) =>
   'let rsvpSentAtCache = ' + (sentAtExpr || 'null') + ';\n' +
   'let seasonRuleOffForMeasurement = ' + (live ? 'false' : 'true') + ';\n' +
@@ -3715,9 +3748,14 @@ check('flow', 'and a route sheet left out of date raises a System note',
   /async function noticeRouteStopStuck\(/.test(admin) &&
   /topic: 'A Route Sheet Is Out Of Date'/.test(admin),
   'a console.warn is nobody, and the crew is the one who pays for it');
-check('flow', 'both the resync and the removal report into it',
-  (admin.match(/noticeRouteStopStuck\('/g) || []).length === 2,
-  'found ' + (admin.match(/noticeRouteStopStuck\('/g) || []).length + ' of 2 — a stop ' +
+/* ⚠ THREE SINCE 2026-09-03, not two. removeCustomersFromUpcomingRoutes — the one-pass
+   version that clears the whole book at once (Suite 296) — is a third path that can
+   fail to take a stop off, and a path that cannot report is the failure this check
+   exists to prevent. It reports ONCE for the whole sweep rather than once per
+   customer: nine hundred notices is the same as none. */
+check('flow', 'the resync, the removal and the bulk sweep all report into it',
+  (admin.match(/noticeRouteStopStuck\('/g) || []).length === 3,
+  'found ' + (admin.match(/noticeRouteStopStuck\('/g) || []).length + ' of 3 — a stop ' +
   'that would not come off sends a crew to a house that has cancelled, which is the ' +
   'worse of the two');
 check('flow', 'and one note per save, not one per day the customer is on',
@@ -4735,18 +4773,28 @@ suite('8. Quote decline / maybe next year');
     !/20\d\d/.test(stripComments(seasonCell)),
     'a hardcoded year is wrong the moment a season turns, and wrong in the ' +
     'direction that matters — it would call a 2026 debt a 2025 one');
-  check('quoteresp', 'the badge can be flipped both ways from All Customers',
-    /data-seasontoggle/.test(admin) && /data-to="maybe"/.test(admin) && /data-to="confirmed"/.test(admin),
+  /* ⚠ REPOINTED 2026-09-03. The row's own season toggle is gone — Addie: "I don't know
+     why it shows maybe next year underneath. We can just switch this inside there
+     costumer." The CLAIM is unchanged and still worth a check: the office must be able to
+     set the answer BOTH ways, or somebody can be put out of the season and not brought
+     back. It is the Edit Customer dropdown that has to offer both now.
+     ⚠ CHECKED BEFORE THE BUTTON WENT: it called setCustomerSeason, which also takes them
+     off upcoming routes, and the Edit Customer save does the same on the same transition
+     (removeCustomerFromUpcomingRoutes). Nothing is stranded on a route by the removal. */
+  check('quoteresp', 'the office can still set the season both ways, from Edit Customer',
+    /<select id="editCustRsvp">/.test(admin) &&
+    /value="backnextyear"/.test(admin) && /value="yes"/.test(admin),
     'the office could only ever set it one way');
   check('quoteresp', 'confirming does not silently re-route them',
     /NOT put them back on a route|NOT added back to any route/.test(admin),
     'quietly rebuilding a route behind the office is worse than re-adding a stop');
-  // Caught live: the write landed but the row kept showing the badge until the
-  // search was retyped, so the button read as dead — the same failure the quote
-  // email had. Nothing re-renders this table on a jobAddresses change.
-  check('quoteresp', 'the toggle repaints the row it just changed',
-    /renderAllCustomersTable\(\);[\s\S]{0,200}toast\(toMaybe/.test(admin),
-    'the badge would stay on screen after the click and the button would look dead');
+  /* ⚠ THIS CHECKED THE ROW TOGGLE'S OWN REPAINT AND THE TOGGLE IS GONE (2026-09-03), so
+     the anchor went with it. The failure it was written for — "the write landed but the
+     row kept showing the badge until the search was retyped" — is now covered by the
+     check directly below instead: All Customers redraws on ANY customer change, which is
+     the general form of the same guarantee and covers the Edit Customer save that
+     replaced the button. Kept as a comment rather than deleted so the incident is still
+     findable from here. */
   // All Customers was the only list left out of the jobAddresses snapshot sweep,
   // so a saved edit sat stale until the search was retyped. Caught live.
   check('quoteresp', 'All Customers refreshes on any customer change',
@@ -12043,6 +12091,11 @@ suite('Suite 28. The Schedule season rebuilt from its houses');
          missing either throws, and takes the whole suite down with it. */
       'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
       fn('townsAreNeighbours') +
+      /* ⚠ rebuildSeasonDays NOW HANDS THE BUILDER dayShapeOn — the dates the office
+         has marked one crew or one man. Nothing is marked in here, so the season this
+         suite reads is the season it always read; the lift is what proves the rebuild
+         is still passing them on rather than having quietly dropped the argument. */
+      dayLimitSrc() +
       fn('rebuildSeasonDays') + fn('dayAreas') + fn('dayCrewTowns') + fn('crewTownsFor') +
       '\nthis.run=function(seed){SEASON=seed;SEASON.forEach(function(d){d._date=new Date(2026,9,1+d.base);});' +
       'var r=rebuildSeasonDays();return {r:r,days:SEASON.filter(function(d){return !d.isFixRoute&&!d.isTakedown;})' +
@@ -15278,6 +15331,11 @@ suite('Suite 46. Nobody is hung before the month they asked for');
       'Array', 'Date', 'Math', 'JSON', 'Set', 'Map'];
     const SWEEP_BODY =
       'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+      /* ⚠ maxTownsPerDay NOW ASKS dayLimitFor (2026-09-03) — a date the office has
+         marked one crew is allowed two towns, not four. isoOf and dayDate arrive as
+         parameters here, so only the list itself is lifted. Nothing is marked, so
+         every fixture below still gets the four-town answer it was written for. */
+      dayLimitSrc({haveDates: true}) +
       fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
       fn('thanksgivingDate') + fn('houseDeadline') + fn('nextInstallDayFor') +
       src + 'this.run = enforceInstallTiming;';
@@ -15302,7 +15360,8 @@ suite('Suite 46. Nobody is hung before the month they asked for');
            stub of that fix — it would report green over a branch that never ran. It
            brings thanksgivingDate with it, and BASE_START/prefSpecificDate are supplied
            below, because that is what the real function reads. */
-        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
+        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+        dayLimitSrc({haveDates: true}) + fn('dayTownList') + fn('dayTownCount') + fn('maxTownsPerDay') +
         /* ⚠ AND nextInstallDayFor IS LIFTED TOO (2026-08-22). The sweep no longer
            chooses the day itself — it asks the shared picker, which the rejoin placer
            also asks. Leaving it out is a ReferenceError inside a forEach, which
@@ -15536,7 +15595,8 @@ suite('Suite 46. Nobody is hung before the month they asked for');
         /* ⚠ THE LIMIT IS LIFTED TOO. It used to be the number 4 written into this
            function; sharing it with the timing sweep is the point of the change, so a
            stub here would test a constant that no longer exists. */
-        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' + fn('maxTownsPerDay') +
+        'const MAX_TOWNS_PER_CREW=' + (admin.match(/const MAX_TOWNS_PER_CREW = (\d+);/)||[])[1] + ';' +
+        dayLimitSrc({haveDates: true}) + fn('maxTownsPerDay') +
         src2 + 'this.run = crewDaysOverTownLimit;'
       ).call(sb, [
         { _date: new Date(2026, 9, 1), houses: [
@@ -15859,7 +15919,7 @@ suite('Suite 48. Days within two working days are set');
          shared definition rather than a second opinion of its own — a hand-written
          stub of isOutForSeason would prove the plumbing and nothing about the rule.
          The live setting comes with it for the same reason. */
-      seasonRuleSrc() + fn('isOutForSeason') +
+      seasonRuleSrc() + fn('isOutForSeason') + dayLimitSrc() +
       fn('rebuildSeasonDays').replace('const today=new Date();', 'const today=new Date(__TODAY);') +
       String.fromCharCode(10) + 'this.book=function(k){jobAddresses=[];for(var i=0;i<k;i++)jobAddresses.push({id:"c"+i,data:{}});};' +
       '\nthis.run=function(seed){SEASON=seed;return {r:rebuildSeasonDays(), season:SEASON};};'
@@ -22206,10 +22266,18 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
       'an imported row with no town would otherwise inflate every day it sits on');
 
 
+    /* ⚠ IT ASKS ABOUT THE DAY IT IS LOOKING AT (changed 2026-09-03). A date the
+       office has marked one crew is allowed two towns, not four, so the report has to
+       pass the day in rather than asking for the season-wide number. Still the same
+       claim: the warning counts against maxTownsPerDay and never against a 4 written
+       out by hand. */
     check('S98', 'the warning counts against that same limit',
-      /maxTownsPerDay\(\)/.test(extractFn(admin, 'crewDaysOverTownLimit')),
+      /maxTownsPerDay\(d\)/.test(extractFn(admin, 'crewDaysOverTownLimit')),
       'it used to test n > 4 with the number written out, so changing the crew ' +
       'count moved the builder and left the check behind');
+    check('S98', 'and the limit can be asked about one particular day',
+      /function maxTownsPerDay\(day\)/.test(extractFn(admin, 'maxTownsPerDay')),
+      'a day short-handed to one crew has to be held to one crew\'s two towns');
   }
 
   /* ---- the sweep itself, run for real ---- */
@@ -22238,6 +22306,12 @@ suite('Suite 98. The timing sweep is what was making the crowded days');
            also asks. Leaving it out is a ReferenceError inside a forEach, which
            surfaces as the whole suite dying with no failure list; stubbing it would
            make every claim below about WHICH day is chosen a claim about the stub. */
+        /* ⚠ maxTownsPerDay NOW ASKS ABOUT THE DAY (2026-09-03), because a date the
+           office has marked one crew is allowed two towns rather than four. Nothing is
+           marked in this sandbox, so every fixture below still gets the four-town
+           answer it was written against — the lift is what proves the sweep and the
+           report are reading the same rule. */
+        dayLimitSrc({haveDates: true}) +
         extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + lim +
         extractFn(admin, 'nextInstallDayFor') + src +
         'return {report: enforceInstallTiming(), season: SEASON};')(season);
@@ -22383,8 +22457,13 @@ suite('Suite 99. One man installs');
       'a tiny crew setting must not make the one-crew ceiling lower than the one-man ' +
       'floor, or a day would be both at once');
 
+    /* ⚠ isOneManDay NOW HONOURS A DATE THE OFFICE MARKED ONE MAN (2026-09-03).
+       Nothing is marked in here, so every claim below is still a claim about the house
+       COUNT — which is the rule this suite exists for. The list is lifted rather than
+       stubbed so a change that made the count stop mattering would fail here. */
     const is = (day) => new Function('day', 'MAX_STOPS_PER_ROUTE',
-      CONST + capSrc + isSrc + 'return isOneManDay(day);')(day, 20);
+      CONST + capSrc + dayLimitSrc({haveOneMan: true}) + isSrc +
+      'return isOneManDay(day);')(day, 20);
     const houses = (n) => ({houses: Array.from({length: n}, (_, i) => ({id: i}))});
 
     check('S99', 'eight houses is one man', is(houses(8)) === true);
@@ -22532,6 +22611,10 @@ suite('Suite 100. One crew days, and who works them');
       'const MAX_TOWNS_PER_CREW = 2;' + 'const NEARBY_TOWN_MILES = 8;' +
       'const NEARBY_TOWN_LIST = {Lehi: ["Orem"], Orem: ["Lehi"]};' +
       extractFn(admin, 'haversine') + extractFn(admin, 'townsAreNeighbours') +
+      /* ⚠ dayCrewCount ASKS dayLimitFor FIRST NOW (2026-09-03): a date the office
+         marked is one crew whatever the houses say. Nothing is marked here, so the
+         size-and-towns rule below is still what is being graded. */
+      dayLimitSrc({haveOneMan: true}) +
       extractFn(admin, 'oneCrewMaxHouses') + countSrc + 'return dayCrewCount(day);')(day, 20, townsByCrew);
     const day = (n, towns) => ({houses: Array.from({length: n}, (_, k) => ({
       id: k, city: (towns || ['Lehi'])[k % (towns || ['Lehi']).length]}))});
@@ -22593,6 +22676,7 @@ suite('Suite 100. One crew days, and who works them');
       'const extractCleanCity = function(c){ return String(c == null ? "" : c).trim(); };' +
       CONST + extractFn(admin, 'dayTownList') + extractFn(admin, 'dayTownCount') + extractFn(admin, 'oneManMaxHouses') +
       extractFn(admin, 'oneCrewMaxHouses') + extractFn(admin, 'dayAssignedHouses') +
+      dayLimitSrc({haveOneMan: true}) +
       countSrc + extractFn(admin, 'daySoloCrew') +
       extractFn(admin, 'crewCap') + splitSrc + 'return dayCrewHouses(day);')(day, towns, 20);
 
@@ -31029,7 +31113,24 @@ suite('77. Schedule route generator');
     /* Stubbed on purpose: this is a check about GROUPING, and the stop card has
        its own coverage. A card that renders is not the question here. */
     global.stopHTML = (h, n) => '<stop>' + h.name + '#' + n + '</stop>';
-    const panel = eval(admin.slice(crewStart, crewEnd) + '\n' +
+    /* ⚠ THE REAL CLOCK, NOT A FAKE OF IT (2026-09-03). The day panel now carries
+       the "crews on this date" control, and that control says whether the date is
+       inside the 48-hour lock. A hand-written routeDayIsLocked would wear the name of
+       a real function while answering something else — the exact trap the shadow
+       scanner below exists to catch — so the whole three-function clock is lifted.
+       The fixture day is in 2026 and long past, so it reads as locked; the control
+       still draws, which is all this suite asks of it. */
+    const panel = eval(
+      (admin.match(/const ROUTE_LOCK_HOURS = \d+;/) || [''])[0] + '\n' +
+      extractFn(admin, 'mtnNowParts') + '\n' +
+      extractFn(admin, 'hoursUntilDayStarts') + '\n' +
+      extractFn(admin, 'routeDayIsLocked') + '\n' +
+      /* The marked-date list, lifted rather than stubbed — see dayLimitSrc. Empty,
+         so the control draws its "Normal" state and the groupings below are the
+         groupings this suite has always checked. isoOf and dayDate are already
+         supplied as globals just above. */
+      dayLimitSrc({haveDates: true}) + extractFn(admin, 'dayLimitLabel') + '\n' +
+      admin.slice(crewStart, crewEnd) + '\n' +
       admin.slice(panelStart, panelEnd) +
       '\n;({ render: renderPanelInto, setCrews(l){ CREWS = normalizeCrews(l); } })');
     panel.setCrews(null);
@@ -43659,6 +43760,27 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
     ];
     F.set(MSGS, FOLDERS, []);
 
+    /* ⭐ THE COUNT AND THE LIST MUST ASK THE SAME QUESTION (added 2026-09-03, after a
+       red-check with a corrected detector found this uncovered). folderUnread was moved
+       onto messageFolderOf with MSG-07 so a message derived into a folder is counted
+       there — but nothing failed when it was reverted to the raw field, which is the
+       sidebar saying one number while the list underneath shows another.
+       ⚠ THE FIXTURE MUST BE A MESSAGE THAT IS ONLY THERE BY DERIVATION — stored
+       folder:'Inbox', no filedByHand. One already carrying folder:'Cancellations' is
+       counted correctly either way and the check proves nothing. */
+    F.set(MSGS.concat([
+      { id: 'derived', data: { folder: 'Inbox', topic: 'Cancellation Request', read: false } }
+    ]), FOLDERS.concat([{ id: 'x1', name: 'Cancellations', parentId: null }]), []);
+    check('S273', 'a message derived into a folder is counted in THAT folder',
+      F.folderUnread('Cancellations') === 1,
+      'got ' + F.folderUnread('Cancellations') + ' — the sidebar would show nothing ' +
+      'beside Cancellations while the list inside it holds an unread message');
+    check('S273', 'and it is no longer counted in the folder it is stored in',
+      F.folderUnread('Inbox') === 2,
+      'got ' + F.folderUnread('Inbox') + ' — counted twice, the count and the list ' +
+      'disagree in the other direction');
+    F.set(MSGS, FOLDERS, []);
+
     check('S273', 'the number beside a folder is UNREAD, not every message in it',
       F.folderUnread('Inbox') === 2 && F.folderCount('Inbox') === 2,
       'Inbox holds 3 messages of which 2 are unread — got ' + F.folderCount('Inbox') +
@@ -46571,22 +46693,40 @@ suite('286. A record stops claiming a day it no longer has');
     /* ⚠ isOutForSeason IS LIFTED, NEVER STUBBED. "Which records are stale" IS the rule
        about who is in the season, and a stub would let this sweep and the schedule
        disagree about one customer — the whole family of bug this came out of. */
+    /* ⚠ THE SWEEP BATCHES SINCE 2026-09-03 (Suite 296), so the stub is writeBatch
+       rather than updateDoc — but it records the same {id, payload} shape, because the
+       question THIS suite asks is unchanged and is a different question: 296 asks how
+       many round trips it takes, 286 asks WHO gets cleared and who must not.
+       ⚠ AND THE ROUTES ARE SWEPT ONCE FOR EVERYBODY, so the route stub takes a LIST.
+       Pushing each id keeps the per-customer checks below reading exactly as they did. */
     const mk = (book) => {
-      const writes = [], routeCalls = [];
-      const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomerFromUpcomingRoutes',
-        'jobAddresses', 'console',
+      const writes = [], routeCalls = [], commits = [];
+      const batchStub = () => {
+        const ops = [];
+        return {
+          update: (ref, payload) => { ops.push({ id: ref.id, payload: payload }); },
+          /* Records on COMMIT, not on update — a chunk that never commits must not
+             show up here as written, which is the claim 296 makes about the cache. */
+          commit: async () => { ops.forEach(o => writes.push(o)); commits.push(ops.length); }
+        };
+      };
+      const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomersFromUpcomingRoutes',
+        'writeBatch', 'jobAddresses', 'console',
+        'let clearStaleBookingsInFlight = null;' + NL286 +
         seasonRuleLiveSrc() +
         'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }' + NL286 +
         'function houseOwesFromLastSeason(){ return false; }' + NL286 +
         extractFn(admin, 'isOutForSeason') + NL286 +
         extractFn(admin, 'freeUpFieldForType') + NL286 +
+        sweepLift('clearStaleInstallBookingsRun') + NL286 +
         sweepSrc + NL286 + 'return clearStaleInstallBookings;');
       const run = fn(
         async (ref, payload) => { writes.push({ id: ref.id, payload: payload }); },
         (d, col, id) => ({ col: col, id: id }), {},
-        async (id) => { routeCalls.push(id); return 1; },
+        async (ids) => { (ids || []).forEach(id => routeCalls.push(id)); return {removed: (ids||[]).length, routes: 1}; },
+        batchStub,
         book, { error: function(){} });
-      return { writes, routeCalls, go: () => run() };
+      return { writes, routeCalls, commits, go: () => run() };
     };
     const replied = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
     const booked = { scheduled: true, scheduledDate: '2026-10-20', assignedCrew: 'Crew 1' };
@@ -47725,6 +47865,670 @@ suite('293. Every safeRender call hands over something to render');
   check('S293', 'no call passes a label with nothing to draw',
     oneArg.length === 0,
     'these are silent no-ops that read like a repaint: ' + oneArg.join(' | '));
+}
+
+/*
+ * ⭐ SUITE 294. A DAY THE OFFICE HAS SHORT-HANDED ON PURPOSE.
+ *
+ * Owner, 2026-09-03: "there are some days we will need to have 1 crew or 1 man if a
+ * crew doesnt show or if a crew takes time off ect, make an option in the day where
+ * you can force there to be one crew in a day but by default it doesnt care and it
+ * keeps the math the same with get as many houses in a day as possible."
+ *
+ * TWO THINGS TO PROVE, and the second one is the one that will rot first:
+ *   - a marked date really does come back with one crew, and with a one man date's
+ *     smaller crew-day, and NOBODY IS LOST doing it;
+ *   - an unmarked season is byte-for-byte the season the builder made before. "By
+ *     default it doesnt care" is a promise about every other day of the year, and a
+ *     change that quietly narrowed the ordinary maths would look like a pass on the
+ *     first half alone.
+ *
+ * The wiring is checked in source as well as in behaviour, because every link in it
+ * is a place the feature can go silently dead: the builder can be right while the
+ * rebuild forgets to hand it the marked dates, or the plan can forget to save them,
+ * and in both cases the office marks a date, presses the button, and nothing happens.
+ */
+suite('Suite 294. A day the office has short-handed on purpose');
+{
+  const extract = (name) => {
+    const i = admin.indexOf('function ' + name + '(');
+    if (i === -1) return null;
+    let d = 0;
+    for (let j = admin.indexOf('{', i); j < admin.length; j++) {
+      if (admin[j] === '{') d++;
+      else if (admin[j] === '}') { d--; if (!d) return admin.slice(i, j + 1); }
+    }
+    return null;
+  };
+  const start = admin.indexOf('function planNewCrewDays(waiting, taken, opts)');
+  const end = admin.indexOf('/* Top every day up to the cap.', start);
+  const nearbyConst = admin.indexOf('const NEARBY_TOWN_MILES');
+  check('S294', 'the builder is findable', start !== -1 && end > start && nearbyConst !== -1);
+
+  if (start !== -1 && end > start && nearbyConst !== -1) {
+    const api = eval(
+      'function haversine(a,b,c,d){const R=3958.8,t=x=>x*Math.PI/180;const dl=t(c-a),dg=t(d-b);' +
+      'const q=Math.sin(dl/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(dg/2)**2;' +
+      'return 2*R*Math.asin(Math.sqrt(q));}\n' +
+      admin.slice(admin.indexOf('const MAX_STOPS_PER_ROUTE'), admin.indexOf('function installPriority')) + '\n' +
+      admin.slice(nearbyConst, admin.indexOf('function townCentres')) + '\n' +
+      'let NEARBY_TOWN_LIST={};' + phantomTownSrc() + extract('sameTownName') +
+      extract('townCentres') + '\n' + extract('nearbyTowns') + '\n' +
+      extract('installPriority') + '\n' + admin.slice(start, end) +
+      '\n;({plan: planNewCrewDays, cap: MAX_STOPS_PER_ROUTE, crews: CREWS_PER_DAY})');
+
+    /* Six towns far enough apart that nobody borrows from anybody — this suite is
+       about how many crews a DATE gets, and a borrowing rule firing in the middle of
+       it would only make the counts harder to read. */
+    const at = {
+      Lehi: [40.391, -111.851], Draper: [40.524, -111.863], Orem: [40.297, -111.695],
+      Herriman: [40.514, -112.033], Ogden: [41.223, -111.973], Provo: [40.233, -111.658]
+    };
+    const run = (opts) => {
+      const waiting = [];
+      Object.keys(at).forEach(city => {
+        for (let i = 0; i < 40; i++) {
+          waiting.push({ id: city + i, city, priority: 2, from: '2026-10-01',
+                         stop: { lat: at[city][0], lng: at[city][1] } });
+        }
+      });
+      const days = api.plan(waiting, {}, Object.assign(
+        { floorDate: '2026-10-01', maxDays: 400, horizonDays: 400 }, opts || {}));
+      const byDate = {};
+      days.forEach(d => { (byDate[d.date] = byDate[d.date] || []).push(d); });
+      const seen = new Set();
+      days.forEach(d => d.ids.forEach(id => seen.add(id)));
+      return { days, byDate, dates: Object.keys(byDate).sort(),
+               placed: days.reduce((s, d) => s + d.ids.length, 0), unique: seen.size,
+               total: waiting.length };
+    };
+    const shapeOf = (marks) => (ds) => marks[ds] || null;
+    const MARK = '2026-10-02';                       // the second working day of the season
+
+    /* ---- 1. by default it does not care ------------------------------------ */
+    const plain = run();
+    const alsoPlain = run({ dayShape: function(){ return null; } });
+    check('S294', 'an unmarked season is the season the builder always made',
+      JSON.stringify(plain.days) === JSON.stringify(alsoPlain.days),
+      'supplying a dayShape that marks nothing changed the plan — the default path is ' +
+      'no longer the old maths, which is the one thing the owner asked to protect');
+    check('S294', 'and that season is still two full crews a day',
+      plain.byDate[MARK] && plain.byDate[MARK].length === api.crews &&
+      plain.byDate[MARK].every(d => d.ids.length === api.cap),
+      'the fixture no longer produces a full two-crew day, so the checks below prove ' +
+      'nothing: got ' + ((plain.byDate[MARK] || []).map(d => d.ids.length).join('+') || 'no day'));
+
+    /* ---- 2. one crew on a marked date -------------------------------------- */
+    const oneCrew = run({ dayShape: shapeOf({ [MARK]: { crews: 1, cap: 0 } }) });
+    check('S294', 'a date marked one crew gets one crew',
+      (oneCrew.byDate[MARK] || []).length === 1,
+      'got ' + ((oneCrew.byDate[MARK] || []).length) + ' crew-days on ' + MARK);
+    check('S294', 'and that crew still gets a full day of houses',
+      (oneCrew.byDate[MARK] || []).every(d => d.ids.length === api.cap),
+      'one crew short-handed is still one whole crew — a cap of 0 means "leave the ' +
+      'crew-day alone", so twenty is right and anything less is the cap leaking');
+
+    /* ---- 3. one man on a marked date --------------------------------------- */
+    const MAN = 8;
+    const oneMan = run({ dayShape: shapeOf({ [MARK]: { crews: 1, cap: MAN } }) });
+    check('S294', 'a date marked one man gets one crew-day of one man\'s size',
+      (oneMan.byDate[MARK] || []).length === 1 &&
+      (oneMan.byDate[MARK] || []).every(d => d.ids.length <= MAN),
+      'got ' + ((oneMan.byDate[MARK] || []).map(d => d.ids.length).join('+') || 'no day'));
+
+    /* ⚠ THE ONE THAT MATTERS. Capping a day is only ever half a scheduling change;
+       the other half is where the houses that no longer fit went. Silently dropping
+       thirty-two people off the season would pass every check above. */
+    [['one crew', oneCrew], ['one man', oneMan]].forEach(function (pair) {
+      check('S294', 'nobody is lost when a date is marked ' + pair[0],
+        pair[1].unique === pair[1].total && pair[1].placed === pair[1].total,
+        'placed ' + pair[1].placed + ' of ' + pair[1].total + ' (' + pair[1].unique + ' distinct)');
+      check('S294', 'and the season simply runs longer for it — ' + pair[0],
+        pair[1].dates.length >= plain.dates.length,
+        'marking a date cannot make the season shorter; got ' + pair[1].dates.length +
+        ' working days against ' + plain.dates.length);
+    });
+
+    /* ---- 4. the sweep does not undo it -------------------------------------- */
+    /* packTailCrewDays moves whole crew-days onto earlier dates "that have a crew
+       spare" and tops crew-days up to the cap. Both questions have a different answer
+       on a marked date, and a sweep that did not know would hand the marked date back
+       its second crew on the way out. */
+    const tail = (() => {
+      const waiting = [];
+      ['Lehi', 'Draper', 'Orem', 'Herriman'].forEach(city => {
+        for (let i = 0; i < 6; i++) {
+          waiting.push({ id: city + i, city, priority: 2, from: '2026-10-01',
+                         stop: { lat: at[city][0], lng: at[city][1] } });
+        }
+      });
+      const days = api.plan(waiting, {}, { floorDate: '2026-10-01', maxDays: 400, horizonDays: 400,
+        dayShape: shapeOf({ '2026-10-01': { crews: 1, cap: 0 } }) });
+      const byDate = {};
+      days.forEach(d => { (byDate[d.date] = byDate[d.date] || []).push(d); });
+      return byDate;
+    })();
+    check('S294', 'the tail sweep will not put a second crew back on a marked date',
+      (tail['2026-10-01'] || []).length <= 1,
+      'the packer relocated a thin crew-day onto a date the office said had one crew: ' +
+      ((tail['2026-10-01'] || []).length) + ' crew-days on 1 October');
+  }
+
+  /* ---- 5. the helpers, on their own ---------------------------------------- */
+  const helpers = ['dayLimitOn', 'dayLimitFor', 'dayShapeOn', 'setDayLimitOn',
+                   'normalizeDayLimits', 'pruneDayLimits'].map(n => extract(n));
+  check('S294', 'the day-limit helpers are all there', helpers.every(Boolean),
+    'missing: ' + ['dayLimitOn', 'dayLimitFor', 'dayShapeOn', 'setDayLimitOn',
+                   'normalizeDayLimits', 'pruneDayLimits'].filter((n, i) => !helpers[i]).join(', '));
+  if (helpers.every(Boolean)) {
+    const H = eval(
+      'let DAY_LIMITS = {};\n' +
+      (admin.match(/const DAY_LIMIT_KINDS = \[[^\]]*\];/) || [''])[0] + '\n' +
+      'const ONE_MAN_MAX_HOUSES = 8; function oneManMaxHouses(){ return ONE_MAN_MAX_HOUSES; }\n' +
+      extract('isoOf') + '\n' +
+      'function dayDate(d){ return d._date; }\n' +
+      helpers.join('\n') + '\n' +
+      ';({on: dayLimitOn, forDay: dayLimitFor, shape: dayShapeOn, set: setDayLimitOn,' +
+      ' norm: normalizeDayLimits, all: function(){ return DAY_LIMITS; },' +
+      ' reset: function(v){ DAY_LIMITS = v || {}; }})');
+
+    H.reset({});
+    check('S294', 'nothing is marked until somebody marks it',
+      H.on('2027-10-05') === '' && H.shape('2027-10-05') === null,
+      'an empty list has to mean "the ordinary maths", not "one crew everywhere"');
+
+    H.set('2027-10-05', 'crew');
+    check('S294', 'one crew is one crew and leaves the crew-day alone',
+      H.on('2027-10-05') === 'crew' &&
+      H.shape('2027-10-05').crews === 1 && !(H.shape('2027-10-05').cap > 0),
+      'a cap above zero here would shrink a one-CREW day, which is twenty houses');
+
+    H.set('2027-10-06', 'man');
+    check('S294', 'one man carries the one-man day size with it',
+      H.shape('2027-10-06').crews === 1 && H.shape('2027-10-06').cap === 8,
+      'the number one person can hang must come from ONE_MAN_MAX_HOUSES, not from a ' +
+      'second copy of it in the builder');
+
+    check('S294', 'a marked date is read off the day it lands on',
+      H.forDay({ _date: new Date(2027, 9, 5) }) === 'crew' &&
+      H.forDay({ _date: new Date(2027, 9, 7) }) === '',
+      'dayLimitFor is how every badge and every crew count asks the question');
+
+    H.set('2027-10-05', '');
+    check('S294', 'and it can be taken off again',
+      H.on('2027-10-05') === '' && H.on('2027-10-06') === 'man',
+      'clearing one date must not clear the others');
+
+    /* Read straight out of Firestore, so anything at all can arrive here. */
+    const cleaned = H.norm({ '2027-10-05': 'crew', 'nonsense': 'man', '2027-10-06': 'two crews',
+                             '2027-10-07': { crews: 1 } });
+    check('S294', 'only the two words against a real date survive a reload',
+      JSON.stringify(cleaned) === JSON.stringify({ '2027-10-05': 'crew' }),
+      'got ' + JSON.stringify(cleaned));
+
+    /* A date that has gone by can never be short-handed again. */
+    H.reset({});
+    H.set('2000-01-03', 'man');
+    H.set('2099-01-04', 'crew');
+    check('S294', 'a date in the past drops off the list',
+      !H.all()['2000-01-03'] && H.all()['2099-01-04'] === 'crew',
+      'got ' + JSON.stringify(H.all()));
+  }
+
+  /* ---- 6. the wiring, end to end ------------------------------------------- */
+  /* Every one of these is a link that can break without a single test failing on
+     behaviour, because each of them is what carries the office's mark to the code
+     that reads it. Named individually so a failure says which link went. */
+  const wiring = [
+    ['the rebuild hands the marked dates to the builder',
+      /planNewCrewDays\(placeable[\s\S]{0,220}dayShape\s*:\s*dayShapeOn/.test(admin)],
+    ['the builder passes them on to the tail sweep',
+      /packTailCrewDays\(out,\s*\{[\s\S]{0,300}dayShape\s*:\s*o\.dayShape/.test(admin)],
+    ['the marked dates are saved with the plan',
+      /dayLimits\s*:\s*Object\.assign\(\{\},\s*DAY_LIMITS\)/.test(admin)],
+    ['and read back on load',
+      /DAY_LIMITS\s*=\s*normalizeDayLimits\(o\.dayLimits\)/.test(admin)],
+    ['the day panel offers the choice',
+      /data-daylimit="/.test(admin) && !!extract('dayCrewLimitControlHTML')],
+    ['and something acts on it',
+      /t\.dataset\.daylimit/.test(admin) && /setDayLimitOn\(ds,\s*t\.value\)/.test(admin)],
+    ['the crew count on a day obeys the mark',
+      /function dayCrewCount\(day\)\{[\s\S]{0,400}dayLimitFor\(day\)\)\s*return 1;/.test(admin)],
+    ['a date marked one man is listed as one',
+      /function isOneManDay\(day\)\{[\s\S]{0,600}dayLimitFor\(day\)\s*===\s*'man'\)\s*return true;/.test(admin)],
+    ['and the town limit follows the crews that are actually out',
+      /function maxTownsPerDay\(day\)/.test(admin) && /maxTownsPerDay\(d\)\)\s*over\.push/.test(admin)]
+  ];
+  wiring.forEach(function (w) {
+    check('S294', w[0], w[1],
+      'the mark cannot reach the code that reads it, so setting one does nothing visible');
+  });
+}
+
+
+/* ---- a charge that missed this season's bill is still on their account ----
+   ⚠ NUMBERED 298. Main took 292 for "Cancellations, the member portal, and folders"
+   while this was being written — the second suite-number collision in two days, and
+   the rule is the same: whichever is already on main keeps the number.
+   ⭐ Addie, 2026-09-03: "when you do color change or any other fees/discounts it
+   should come up under their account fees and we should be able to waive it but
+   when they make a change in member portal it doesnt show it on fees in the edit
+   customer spot."
+
+   ⚠ WHERE THE FEE GOES DEPENDS ON WHETHER THE BILL HAS GONE OUT, and that is the
+   whole of it. portalSave puts a colour-change fee on the invoice while it is still
+   unsent, and those lines have shown in Edit Customer all along. Once the invoice HAS
+   been sent it becomes `carryoverCharge` on the CUSTOMER instead — and Edit Customer's
+   fee lines only ever read the invoice, so that kind was invisible on the one screen
+   somebody would waive it from.
+
+   ⚠ RUN, NOT MATCHED: what a × writes is arithmetic on money. */
+suite('298. A charge carried to next season is still on their account');
+{
+  const NL292 = String.fromCharCode(10);
+  const parts = ['ledgerWaiveUpdates', 'ledgerLineIsWaivable', 'feeNoteKey', 'ledgerLineLabel'];
+  const srcs = parts.map(n => extractFn(admin, n));
+  check('S292', 'the shared ledger rules are findable', srcs.every(Boolean),
+    parts.filter((n, i) => !srcs[i]).join(', ') + ' missing');
+
+  if (srcs.every(Boolean)) {
+    const api = new Function(
+      (admin.match(/const LEDGERS = \{[\s\S]*?\n\};/) || [''])[0] + NL292 +
+      (admin.match(/const FEE_KIND_LABELS = [^\n]*/) || [''])[0] + NL292 +
+      (admin.match(/const CREDIT_KIND_LABELS = \{[\s\S]*?\};/) || [''])[0] + NL292 +
+      (admin.match(/const CARRIED_KIND_LABELS = [^\n]*/) || [''])[0] + NL292 +
+      "const ARREARS_KIND = 'arrears';" + NL292 +
+      /* ⚠ THE REAL STATUS RULE, LIFTED. ledgerWaiveUpdates re-derives the invoice's
+         status from what is left, so a sandbox without it dies on the first ×. */
+      cnBinsForFeetSrc + NL292 + centsOfSrc + NL292 + computeInvoiceStatusSrc + NL292 +
+      srcs.join(NL292) + NL292 +
+      'return {plan: ledgerWaiveUpdates, waivable: ledgerLineIsWaivable, label: ledgerLineLabel,' +
+      ' key: feeNoteKey, LEDGERS: LEDGERS};')();
+
+    check('S292', 'the carried ledger reads the customer, not the invoice',
+      api.LEDGERS.carried && api.LEDGERS.carried.notes === 'carryoverChargeNotes' &&
+      api.LEDGERS.carried.total === 'carryoverCharge' && api.LEDGERS.carried.onCustomer === true,
+      'got ' + JSON.stringify(api.LEDGERS.carried) + ' — this is the only ledger whose ' +
+      'money lives on the customer record, and the × has to write there');
+
+    /* A customer whose bill had already gone out when they changed their colours: the
+       fee is waiting for next season, on them rather than on the invoice. */
+    const a = { amount: 30, reason: 'Light colour change after the bill went out',
+                date: '2026-09-02T10:00:00Z' };
+    const b = { amount: 30, reason: 'Second colour change', date: '2026-09-03T10:00:00Z' };
+    const cust = { carryoverCharge: 60, carryoverChargeNotes: [a, b] };
+
+    check('S292', 'a carried charge can be waived at all',
+      api.waivable('carried', a) === true,
+      'only an arrears line is un-waivable, and this is not one');
+
+    const plan = api.plan(cust, 'carried', api.key(a));
+    check('S292', 'waiving one leaves the other and re-totals',
+      !!plan && plan.updates.carryoverChargeNotes.length === 1 &&
+      plan.updates.carryoverChargeNotes[0].reason === 'Second colour change' &&
+      plan.updates.carryoverCharge === 30,
+      'got ' + JSON.stringify(plan && plan.updates) + ' — the total is rebuilt from ' +
+      'what is left, never decremented, so it cannot drift from the lines');
+    check('S292', 'and it writes the field by name',
+      !!plan && Object.prototype.hasOwnProperty.call(plan.updates, 'carryoverCharge'),
+      'a computed key is invisible to everything that traces who writes carryoverCharge');
+    /* ⚠ WAIVING THE LAST ONE MUST LEAVE ZERO, not a leftover total. A charge nobody
+       can see but the nightly run still collects is the worst shape this can take. */
+    const both = api.plan({ carryoverCharge: 30, carryoverChargeNotes: [a] }, 'carried', api.key(a));
+    check('S292', 'waiving the last one leaves nothing owed',
+      !!both && both.updates.carryoverCharge === 0 && both.updates.carryoverChargeNotes.length === 0,
+      'got ' + JSON.stringify(both && both.updates) + ' — a total left standing with no ' +
+      'line under it is money the nightly run collects and nobody can see');
+    check('S292', 'a line that is already gone says so rather than writing',
+      api.plan({ carryoverCharge: 0, carryoverChargeNotes: [] }, 'carried', api.key(a)) === null,
+      'two people on the same record must not each take the same charge off');
+    check('S292', 'and it is labelled as what it is',
+      api.label('carried', a) === 'Charge carried to next season',
+      'got ' + api.label('carried', a) + ' — the reason alone does not say WHEN it will ' +
+      'be collected, which is the thing that makes it look missing');
+  }
+
+  /* ---- and the screen ---- */
+  const openFn = extractFn(admin, 'openEditCustomerModal') || '';
+  check('S292', 'Edit Customer draws them from the customer record',
+    /renderEditCustCarriedLines\(/.test(openFn) && /carryoverChargeNotes/.test(openFn),
+    'this is the half that was missing — the fee lines only ever read the invoice');
+  const waiveFn = extractFn(admin, 'waiveCarriedCharge') || '';
+  check('S292', 'the × writes to jobAddresses, and re-reads first',
+    /getDoc\(doc\(db,'jobAddresses', customerId\)\)/.test(waiveFn) &&
+    /updateDoc\(doc\(db,'jobAddresses', customerId\)/.test(waiveFn) &&
+    waiveFn.indexOf('getDoc') < waiveFn.indexOf('updateDoc'),
+    'taking a line off a stale copy is arithmetic on money that has already moved');
+  check('S292', 'and it uses the shared plan rather than its own subtraction',
+    /ledgerWaiveUpdates\(fresh, 'carried', key\)/.test(waiveFn),
+    'a second copy of "drop this note and re-total" is how one ledger starts ' +
+    'disagreeing with the others about what a × does');
+  check('S292', 'and mirrors into the cache, so a Save cannot put it back',
+    /jobAddresses\.find\(a => a\.id === customerId\)/.test(waiveFn),
+    'the panel repaints from the cache before the listener reports the write back');
+  /* ⚠ AND IT MUST NOT BE REFUSED FOR WANT OF AN INVOICE. A carried charge exists
+     BECAUSE this season's bill had already gone out; a customer who has never been
+     invoiced can carry one too. */
+  const clickBlock = (admin.split("['carried', 'editCustCarriedLines', 'editCustCarriedLinesStatus']")[1] || '')
+    .split('renderEditCustCarriedLines')[0];
+  check('S292', 'a carried charge is not refused for want of an invoice',
+    /ledger !== 'carried' && !inv/.test(clickBlock),
+    'refusing it there is the same invisibility again, one screen further on');
+}
+/*
+ * ⭐ SUITE 296. CLEARING LAST SEASON'S BOOKINGS IS ONE WRITE PER FOUR HUNDRED,
+ * NOT ONE PER CUSTOMER.
+ *
+ * Addie, 2026-09-03, straight after pressing Recalculate everything:
+ *
+ *   "@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream
+ *    exhausted maximum allowed queued writes."
+ *
+ * ⚠ THE NUMBERS ARE MEASURED, NOT IMAGINED. Read off the real book that day:
+ * 956 customers, 955 still carrying a booking stamp from last season, and 952 of them
+ * out of THIS season — because SEASON_ELIGIBILITY is 'confirmed-only' and exactly
+ * three people had answered the RSVP. So one press asked for 951 individual writes.
+ * The SDK queues 500 and then refuses.
+ *
+ * ⚠ AND IT IS THE NORMAL STATE IN SEPTEMBER, not an edge case: every season starts
+ * with nobody having answered yet, so every season starts by trying to clear the whole
+ * book one record at a time.
+ *
+ * Three separate faults, three separate checks below — a fix for any one of them alone
+ * still leaves the button able to fell the write stream.
+ */
+suite('Suite 296. Last season\'s bookings are cleared in batches');
+{
+  const run = extractFn(admin, 'clearStaleInstallBookingsRun') || '';
+  const gate = extractFn(admin, 'clearStaleInstallBookings') || '';
+  const sweep = extractFn(admin, 'removeCustomersFromUpcomingRoutes') || '';
+
+  check('S296', 'the batched clearer is there', !!run && !!gate,
+    'clearStaleInstallBookings should now be a one-at-a-time gate in front of ' +
+    'clearStaleInstallBookingsRun');
+
+  /* ① BATCHED. A loop of awaited single updates is what exhausted the stream. */
+  check('S296', 'the customer records are written in batches, not one at a time',
+    /writeBatch\(db\)/.test(run) && /batch\.update\(/.test(run) && /batch\.commit\(\)/.test(run),
+    'one updateDoc per customer is 951 round trips on the real book');
+  check('S296', 'and no lone updateDoc survives in there',
+    !/await updateDoc\(doc\(db, 'jobAddresses'/.test(run),
+    'a single-record write left behind in the loop puts the storm straight back');
+
+  const limit = (run.match(/BATCH_LIMIT\s*=\s*(\d+)/) || [])[1];
+  check('S296', 'the chunk size is inside Firestore\'s limit of 500',
+    !!limit && Number(limit) > 0 && Number(limit) <= 500,
+    'got ' + limit + ' — a batch over 500 is rejected outright, which would turn a ' +
+    'slow press into a press that silently clears nothing');
+
+  /* ② THE CACHE IS ONLY UPDATED ONCE THE WRITE LANDS. The old code assigned per
+     record right after its own await, which was correct; a batched rewrite that
+     assigns before commit would leave the screen claiming rows it had not written. */
+  const commitAt = run.indexOf('batch.commit()');
+  const assignAt = run.indexOf('Object.assign(item.data');
+  check('S296', 'the on-screen cache is only updated after the batch commits',
+    commitAt !== -1 && assignAt > commitAt,
+    'assigning first makes a failed chunk look cleared — the row stops contradicting ' +
+    'itself on screen while the record in Firestore still says booked');
+
+  /* ③ ONE PASS OVER THE ROUTES. Asking per customer walked every upcoming route 952
+     times and rewrote a shared route once per stop removed. */
+  check('S296', 'the routes are swept once for everybody', !!sweep,
+    'removeCustomersFromUpcomingRoutes (plural) is the one-pass version');
+  check('S296', 'and the clearer uses it instead of asking per customer',
+    /removeCustomersFromUpcomingRoutes\(/.test(run) &&
+    !/removeCustomerFromUpcomingRoutes\(item\.id\)/.test(run),
+    'the per-customer call inside the loop is the O(customers x routes) version');
+  check('S296', 'a route nobody was taken off is not rewritten',
+    /kept\.length === stops\.length\) continue/.test(sweep),
+    'writing back an unchanged stop list is a write that says nothing and stamps the route');
+
+  /* ⚠ THE SINGULAR IS KEPT. portalSave and the office edits still take ONE customer
+     off, and deleting it to tidy up would break both. */
+  check('S296', 'the single-customer version still exists for the callers that need it',
+    !!extractFn(admin, 'removeCustomerFromUpcomingRoutes'),
+    'the office edit path and portalSave both remove exactly one person');
+
+  /* ④ ONE RUN AT A TIME. The button fires this without awaiting, so two presses used
+     to start two passes over the same nine hundred records. */
+  check('S296', 'a second press joins the run already going',
+    /clearStaleBookingsInFlight/.test(gate) &&
+    /if\(clearStaleBookingsInFlight\) return clearStaleBookingsInFlight;/.test(gate),
+    'Recalculate everything fires this un-awaited on purpose, so nothing else stops ' +
+    'an impatient second press doubling the writes');
+  check('S296', 'and the flag is cleared even when the run throws',
+    /finally\{[^}]*clearStaleBookingsInFlight = null/.test(gate),
+    'a run that failed must not lock the button out for the rest of the session');
+
+  check('S296', 'writeBatch is actually imported',
+    /import \{[\s\S]{0,400}writeBatch[\s\S]{0,400}\} from "https:\/\/www\.gstatic\.com\/firebasejs\/[\d.]+\/firebase-firestore\.js"/.test(admin),
+    'this file had no batched write anywhere before this change, so the name was ' +
+    'never on the import list');
+
+  /* The batching maths, run rather than read: 951 records must come out as 3 commits
+     and every record must appear exactly once. */
+  const chunks = (total, size) => {
+    const out = [];
+    for (let i = 0; i < total; i += size) out.push(Math.min(size, total - i));
+    return out;
+  };
+  const c = chunks(951, Number(limit || 400));
+  check('S296', 'the real book comes out as a handful of commits',
+    c.length <= 4 && c.reduce((a, b) => a + b, 0) === 951,
+    'got ' + c.length + ' commits of ' + c.join('+') + ' for 951 records');
+  check('S296', 'and a book that fits in one batch makes exactly one commit',
+    chunks(12, Number(limit || 400)).length === 1);
+  check('S296', 'nothing to clear commits nothing at all',
+    chunks(0, Number(limit || 400)).length === 0,
+    'an empty batch is still a round trip, and this runs on every press');
+}
+
+/*
+ * ⭐ SUITE 297. THE SEASON BADGE MOVES WHEN THE OFFICE CONFIRMS AN ANSWER.
+ *
+ * Addie, 2026-09-03: "the badges on the page that says confirmed, maybe next year or
+ * pending, that doesnt update it used to its because we got rid of the thing that was
+ * confirmed and maybe next year badges in add customer and put all that under RSVP
+ * Status but its not working can you fix that for me".
+ *
+ * ⚠ THE BADGE WAS NEVER THE BROKEN PART. seasonBadgeKey delegates to isOutForSeason,
+ * which under 'confirmed-only' wants a yes AND a DATE on it. What was broken is the
+ * only screen that can supply that date: the RSVP Status dropdown stamped
+ * rsvpRespondedAt only when the dropdown VALUE MOVED.
+ *
+ * So the one state the office actually has to repair by hand was the one state it
+ * could not: a record already carrying rsvpStatus 'yes' with nothing dating it — the
+ * ASSUMED yes written when a quote is converted, or carried in by an import. The
+ * dropdown already reads Yes, so picking Yes changes nothing, so nothing is stamped,
+ * so the badge stays Pending for ever. seasonHold even tells them to do it: "a yes is
+ * on file but nothing dated it — confirm it on their record".
+ *
+ * ⚠ MEASURED ON THE LIVE BOOK the day she reported it: five customers said yes and
+ * three were dated. Two people were stuck with no way out from the screen.
+ */
+suite('Suite 297. Confirming an undated RSVP actually confirms it');
+{
+  const save = (admin.split('const oldRsvpForRecycle')[1] || '').split('const rejoinedAfterRecycle')[0];
+  check('S297', 'the RSVP block in the customer save is findable', !!save.trim());
+
+  /* ① The value-changed path still works — this is the ordinary case. */
+  check('S297', 'a changed answer is still stamped, and a cleared one still nulled',
+    /if\(newRsvp !== oldRsvpForRecycle\)\{[\s\S]{0,200}rsvpRespondedAt = realAnswer \? serverTimestamp\(\) : null;/.test(save),
+    'picking Yes on a record that said nothing is the common path and must not regress');
+
+  /* ② The new branch: same value, nothing dating it. */
+  check('S297', 'confirming an answer already on file but undated stamps it',
+    /else if\(realAnswer && !item\.data\.rsvpRespondedAt\)\{[\s\S]{0,120}rsvpRespondedAt = serverTimestamp\(\);/.test(save),
+    'without this there is NO way from any screen to date an assumed yes, and the ' +
+    'badge is stuck on Pending for ever');
+
+  /* ③ ⚠ AND IT MUST NOT RE-STAMP. The date is what the Yes sheet and the customer
+     history read; moving it every time somebody edits a phone number rewrites history. */
+  check('S297', 'an answer that already has a date is left alone',
+    /!item\.data\.rsvpRespondedAt/.test(save),
+    'the guard is the whole difference between repairing a stuck record and ' +
+    'restamping the reply date on every unrelated save');
+
+  /* ④ "Unanswered" is not an answer — asked, no reply. */
+  check('S297', 'Unanswered is not treated as an answer',
+    /realAnswer = !!newRsvp && newRsvp !== 'unanswered'/.test(save),
+    'stamping Unanswered would make "we asked them" read as "they replied", which is ' +
+    'exactly the distinction the dropdown was built to keep');
+
+  /* ---- and now RUN the rule the badge actually reads ---- */
+  const badge = extractFn(admin, 'seasonBadgeKey');
+  const out = extractFn(admin, 'isOutForSeason');
+  check('S297', 'the badge rule is there to run', !!badge && !!out);
+
+  if (badge && out) {
+    const key = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + badge + 'return seasonBadgeKey(d);')(d);
+
+    const dated = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-03T00:00:00Z' };
+
+    check('S297', 'a dated yes reads Confirmed', key(dated) === 'confirmed',
+      'got ' + key(dated));
+    /* ⚠ THE STUCK RECORD. This is what the office was looking at, and why the fix is
+       in the SAVE rather than in the badge: the badge is right, the record was wrong. */
+    check('S297', 'an undated yes reads Pending, which is what she was seeing',
+      key({ rsvpStatus: 'yes' }) === 'pending',
+      'got ' + key({ rsvpStatus: 'yes' }) + ' — an assumed yes is not an answer, and ' +
+      'softening THIS is the wrong fix: it would put people the schedule will not ' +
+      'take back onto a Confirmed badge');
+    check('S297', 'back next year reads Maybe Next Year',
+      key({ rsvpStatus: 'backnextyear' }) === 'maybe', 'got ' + key({ rsvpStatus: 'backnextyear' }));
+    check('S297', 'and so does the hand-toggled flag',
+      key({ maybeNextYear: true }) === 'maybe', 'got ' + key({ maybeNextYear: true }));
+    check('S297', 'a no reads Maybe Next Year too, not Pending',
+      key({ rsvpStatus: 'no' }) === 'maybe',
+      'Pending is somebody we want who is blocked; a no is somebody who told us no');
+    check('S297', 'nothing on file reads Pending', key({}) === 'pending', 'got ' + key({}));
+    check('S297', 'and a brand new hang nobody was ever asked reads Confirmed',
+      key({ chargeNewMemberFee: true }) === 'confirmed',
+      'we never send them the RSVP, so requiring an answer is a test nobody can pass');
+  }
+}
+
+/*
+ * ⭐ SUITE 295. THE SEASON BAR CANNOT CONTRADICT ITSELF.
+ *
+ * Addie, 2026-09-03, reading her own Schedule tab:
+ *
+ *     Season start   10/01/2026
+ *     Plan runs Tue Sep 22 → Sep 22.
+ *
+ * "this is very wrong because the season start date is oct 1".
+ *
+ * Both lines were drawn from the same plan and they disagreed, which is the worst
+ * shape a screen can be in: there is no way to tell from the outside which half to
+ * believe. The box shows BASE_START + globalDelta. A day is laid out at
+ * BASE_START + base + globalDelta + cascade, and NOTHING clamped it — so any day
+ * carrying a negative base or cascade rendered before the season had started.
+ *
+ * Two ways a day gets one, and this fixes both without touching the data:
+ *   - "◀ Pull this + rest earlier" decrements cascade until the date moves, and had
+ *     no floor of its own — every press walked the plan further into September;
+ *   - a rebuild keeps the days it does not re-lay, and those keep a base measured
+ *     against whatever BASE_START was before it moved.
+ *
+ * ⚠ THE PIN IS THE ONE THING THAT MAY STILL GO EARLIER. "Force exact date" is the
+ * office overriding the layout deliberately — the same reason it is allowed to put a
+ * day on a weekend — so a test that clamped it would be testing the wrong rule.
+ */
+suite('Suite 295. Nothing is hung before the season starts');
+{
+  const fn = (name) => extractFn(admin, name);
+  const need = ['layoutSequence', 'computeDates', 'desired', 'effectivePin', 'seasonStartDate'];
+  const missing = need.filter(x => !fn(x));
+  check('S295', 'the date engine is findable', !missing.length, 'missing: ' + missing.join(', '));
+
+  check('S295', 'the floor is passed in rather than assumed',
+    /function layoutSequence\(days,\s*floor\)/.test(fn('layoutSequence') || '') &&
+    /layoutSequence\(SEASON\.filter\(d=>!d\.isFixRoute&&!d\.isTakedown\),\s*seasonStartDate\(\)\)/.test(fn('computeDates') || ''),
+    'a floor hard-coded inside layoutSequence would drag TAKEDOWNS onto the install ' +
+    'season start too — they run off TAKE_BASE_START and are a different season');
+
+  if (!missing.length) {
+    /* The real engine, with only the calendar helpers supplied. isDayOff is the
+       weekend/holiday rule and has its own coverage; a plain weekend test is enough
+       to prove the floor does not fight it. */
+    const build = () => {
+      const sb = {};
+      new Function(
+        'function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}' +
+        'function isWeekend(d){const k=d.getDay();return k===0||k===6;}' +
+        'function isDayOff(d){return isWeekend(d);}' +
+        'function isoOf(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}' +
+        'let BASE_START=new Date(2026,8,22), TAKE_BASE_START=new Date(2027,0,5);' +
+        'let globalDelta=0, takeDelta=0, SEASON=[], ORDER=[];' +
+        'function startFor(day){return day.isTakedown?TAKE_BASE_START:BASE_START;}' +
+        'function deltaFor(day){return day.isTakedown?takeDelta:globalDelta;}' +
+        'const PIN_HONOURED_BUSINESS_DAYS=2;' +
+        'function pinHorizon(){const d=new Date(2099,0,1);return d;}' +
+        fn('desired') + fn('effectivePin') + fn('seasonStartDate') +
+        fn('layoutSequence') + fn('computeDates') +
+        'this.run=function(season,delta){SEASON=season;globalDelta=delta||0;computeDates();' +
+        'return {box:isoOf(addDays(BASE_START,globalDelta)),' +
+        ' days:SEASON.filter(d=>!d.isTakedown&&!d.isFixRoute).map(d=>isoOf(d._date)),' +
+        ' takes:SEASON.filter(d=>d.isTakedown).map(d=>isoOf(d._date))};};'
+      ).call(sb);
+      return sb.run;
+    };
+    const run = build();
+    const day = (base, extra) => Object.assign({id:'d'+base, base:base, cascade:0, pin:null, houses:[]}, extra||{});
+
+    /* ⭐ HER PLAN. BASE_START is 22 September and globalDelta is 9, so the box reads
+       1 October — and the only install day carries base -9, which is what put it back
+       on the 22nd. Exactly the two lines she pasted. */
+    const hers = run([day(-9)], 9);
+    check('S295', 'the box still reads the season start', hers.box === '2026-10-01',
+      'got ' + hers.box);
+    check('S295', 'and the day no longer sits nine days before it',
+      hers.days[0] === '2026-10-01',
+      'got ' + hers.days[0] + ' — the season bar was reading "Season start 10/01/2026" ' +
+      'above "Plan runs Tue Sep 22", and both came off this same plan');
+
+    /* A plan already saved in that state heals on the next draw — nobody has to go
+       and repair the data, which is the whole reason the floor is here and not in
+       the button that caused it. */
+    const many = run([day(-9), day(-8), day(-7)], 9);
+    check('S295', 'a whole run of early days is pulled back onto the season',
+      many.days.every(d => d >= '2026-10-01'),
+      'got ' + many.days.join(', '));
+    check('S295', 'and they do not all collapse onto one date',
+      new Set(many.days).size === 3, 'got ' + many.days.join(', '));
+
+    /* ⚠ AND THE FLOOR MUST NOT DRAG THE SEASON FORWARD. A day legitimately later
+       than the start is untouched — a floor that clamped in both directions would
+       flatten October onto the 1st. */
+    const later = run([day(-9), day(20)], 9);
+    check('S295', 'a day already inside the season is left where it was',
+      later.days[1] === '2026-10-21', 'got ' + later.days[1]);
+
+    /* Weekends still win: 3 October 2026 is a Saturday, so a day floored onto the
+       start and pushed along must still land on a working day. */
+    const wk = run([day(-9), day(-8), day(-7), day(-6)], 9);
+    check('S295', 'the floored days still skip the weekend',
+      wk.days.every(d => { const t = new Date(d + 'T00:00:00'); return t.getDay() !== 0 && t.getDay() !== 6; }),
+      'got ' + wk.days.join(', '));
+
+    /* ⚠ THE PIN IS DELIBERATELY EXEMPT. */
+    const pinned = run([day(-9, {pin: new Date(2026, 8, 22)})], 9);
+    check('S295', 'a date the office forced by hand is still honoured',
+      pinned.days[0] === '2026-09-22',
+      'got ' + pinned.days[0] + ' — Force exact date is an override, and clamping it ' +
+      'would take away the only way to place a day the layout refuses');
+
+    /* ⚠ TAKEDOWNS ARE A DIFFERENT SEASON. TAKE_BASE_START is January; flooring them
+       at the install start would haul every one of them into October. */
+    const td = run([day(-9), Object.assign(day(0), {isTakedown: true, id: 't0'})], 9);
+    check('S295', 'takedowns keep their own season',
+      td.takes[0] === '2027-01-05',
+      'got ' + td.takes[0] + ' — the install floor must not reach them');
+  }
 }
 
 Promise.all(pendingAsync).then(function () {
