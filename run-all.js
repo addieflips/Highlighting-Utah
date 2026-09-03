@@ -48189,6 +48189,95 @@ suite('Suite 296. Last season\'s bookings are cleared in batches');
 }
 
 /*
+ * ⭐ SUITE 297. THE SEASON BADGE MOVES WHEN THE OFFICE CONFIRMS AN ANSWER.
+ *
+ * Addie, 2026-09-03: "the badges on the page that says confirmed, maybe next year or
+ * pending, that doesnt update it used to its because we got rid of the thing that was
+ * confirmed and maybe next year badges in add customer and put all that under RSVP
+ * Status but its not working can you fix that for me".
+ *
+ * ⚠ THE BADGE WAS NEVER THE BROKEN PART. seasonBadgeKey delegates to isOutForSeason,
+ * which under 'confirmed-only' wants a yes AND a DATE on it. What was broken is the
+ * only screen that can supply that date: the RSVP Status dropdown stamped
+ * rsvpRespondedAt only when the dropdown VALUE MOVED.
+ *
+ * So the one state the office actually has to repair by hand was the one state it
+ * could not: a record already carrying rsvpStatus 'yes' with nothing dating it — the
+ * ASSUMED yes written when a quote is converted, or carried in by an import. The
+ * dropdown already reads Yes, so picking Yes changes nothing, so nothing is stamped,
+ * so the badge stays Pending for ever. seasonHold even tells them to do it: "a yes is
+ * on file but nothing dated it — confirm it on their record".
+ *
+ * ⚠ MEASURED ON THE LIVE BOOK the day she reported it: five customers said yes and
+ * three were dated. Two people were stuck with no way out from the screen.
+ */
+suite('Suite 297. Confirming an undated RSVP actually confirms it');
+{
+  const save = (admin.split('const oldRsvpForRecycle')[1] || '').split('const rejoinedAfterRecycle')[0];
+  check('S297', 'the RSVP block in the customer save is findable', !!save.trim());
+
+  /* ① The value-changed path still works — this is the ordinary case. */
+  check('S297', 'a changed answer is still stamped, and a cleared one still nulled',
+    /if\(newRsvp !== oldRsvpForRecycle\)\{[\s\S]{0,200}rsvpRespondedAt = realAnswer \? serverTimestamp\(\) : null;/.test(save),
+    'picking Yes on a record that said nothing is the common path and must not regress');
+
+  /* ② The new branch: same value, nothing dating it. */
+  check('S297', 'confirming an answer already on file but undated stamps it',
+    /else if\(realAnswer && !item\.data\.rsvpRespondedAt\)\{[\s\S]{0,120}rsvpRespondedAt = serverTimestamp\(\);/.test(save),
+    'without this there is NO way from any screen to date an assumed yes, and the ' +
+    'badge is stuck on Pending for ever');
+
+  /* ③ ⚠ AND IT MUST NOT RE-STAMP. The date is what the Yes sheet and the customer
+     history read; moving it every time somebody edits a phone number rewrites history. */
+  check('S297', 'an answer that already has a date is left alone',
+    /!item\.data\.rsvpRespondedAt/.test(save),
+    'the guard is the whole difference between repairing a stuck record and ' +
+    'restamping the reply date on every unrelated save');
+
+  /* ④ "Unanswered" is not an answer — asked, no reply. */
+  check('S297', 'Unanswered is not treated as an answer',
+    /realAnswer = !!newRsvp && newRsvp !== 'unanswered'/.test(save),
+    'stamping Unanswered would make "we asked them" read as "they replied", which is ' +
+    'exactly the distinction the dropdown was built to keep');
+
+  /* ---- and now RUN the rule the badge actually reads ---- */
+  const badge = extractFn(admin, 'seasonBadgeKey');
+  const out = extractFn(admin, 'isOutForSeason');
+  check('S297', 'the badge rule is there to run', !!badge && !!out);
+
+  if (badge && out) {
+    const key = (d) => new Function('d',
+      seasonRuleLiveSrc() +
+      'function audienceNeverAsked(x){ return x && x.chargeNewMemberFee === true; }' +
+      'function houseOwesFromLastSeason(){ return false; }' +
+      out + badge + 'return seasonBadgeKey(d);')(d);
+
+    const dated = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-03T00:00:00Z' };
+
+    check('S297', 'a dated yes reads Confirmed', key(dated) === 'confirmed',
+      'got ' + key(dated));
+    /* ⚠ THE STUCK RECORD. This is what the office was looking at, and why the fix is
+       in the SAVE rather than in the badge: the badge is right, the record was wrong. */
+    check('S297', 'an undated yes reads Pending, which is what she was seeing',
+      key({ rsvpStatus: 'yes' }) === 'pending',
+      'got ' + key({ rsvpStatus: 'yes' }) + ' — an assumed yes is not an answer, and ' +
+      'softening THIS is the wrong fix: it would put people the schedule will not ' +
+      'take back onto a Confirmed badge');
+    check('S297', 'back next year reads Maybe Next Year',
+      key({ rsvpStatus: 'backnextyear' }) === 'maybe', 'got ' + key({ rsvpStatus: 'backnextyear' }));
+    check('S297', 'and so does the hand-toggled flag',
+      key({ maybeNextYear: true }) === 'maybe', 'got ' + key({ maybeNextYear: true }));
+    check('S297', 'a no reads Maybe Next Year too, not Pending',
+      key({ rsvpStatus: 'no' }) === 'maybe',
+      'Pending is somebody we want who is blocked; a no is somebody who told us no');
+    check('S297', 'nothing on file reads Pending', key({}) === 'pending', 'got ' + key({}));
+    check('S297', 'and a brand new hang nobody was ever asked reads Confirmed',
+      key({ chargeNewMemberFee: true }) === 'confirmed',
+      'we never send them the RSVP, so requiring an answer is a test nobody can pass');
+  }
+}
+
+/*
  * ⭐ SUITE 295. THE SEASON BAR CANNOT CONTRADICT ITSELF.
  *
  * Addie, 2026-09-03, reading her own Schedule tab:

@@ -1294,6 +1294,46 @@ were plausible; neither survived counting.
 *Proved in* run-all.js **Suite 296**. **Suite 286** still owns the other half — *which*
 records get cleared, and the three kinds that must not be touched.
 
+### Confirming an answer that is already on file
+
+Addie, 2026-09-03: *"the badges on the page that says confirmed, maybe next year or
+pending, that doesnt update it used to its because we got rid of the thing that was
+confirmed and maybe next year badges in add customer and put all that under RSVP Status
+but its not working"*.
+
+**The badge was never the broken part.** `seasonBadgeKey` delegates to
+`isOutForSeason`, which under `SEASON_ELIGIBILITY = 'confirmed-only'` wants a yes
+**and a date on it**. What was broken is the only screen that can supply that date: the
+RSVP Status dropdown stamped `rsvpRespondedAt` **only when the dropdown value moved**.
+
+So the one state the office actually has to repair by hand was the one state it could
+not repair. A record carrying `rsvpStatus` 'yes' with nothing dating it — the assumed
+yes written when a quote is converted, or carried in by an import — already shows **Yes**
+in the dropdown. Picking Yes changes nothing, so nothing is stamped, so the badge stays
+**Pending** for ever. `seasonHold` even prints the instruction: *"a yes is on file but
+nothing dated it — confirm it on their record"*. Following it did nothing.
+
+Measured on the live book the day it was reported: **5 customers said yes, 3 were dated.**
+Two people were stuck with no way out from any screen.
+
+The save now stamps in two cases rather than one:
+
+- the answer **changed** — unchanged behaviour, and still nulls the date when the answer
+  is cleared back to Unanswered;
+- the answer is **the same but nothing dated it** — the office confirming what is already
+  there, which is exactly what the hold message asks them to do.
+
+⚠ **It never re-stamps an answer that already has a date.** That date is what the Yes
+sheet and the customer history both read; moving it every time somebody edits a phone
+number would rewrite history.
+
+⚠ **The fix is in the SAVE, not in the badge.** Softening `isOutForSeason` to accept an
+undated yes would hand a Confirmed badge to people every scheduler in the app still
+refuses — the precise disagreement the badge's own note says it exists to prevent.
+
+*Proved in* run-all.js **Suite 297**, red-checked by deleting the new branch. **Suite 78**
+still owns the value-changed path.
+
 ### Nothing is hung before the season starts
 
 Addie, 2026-09-03, reading two lines of her own season bar:
