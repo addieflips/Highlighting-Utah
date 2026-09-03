@@ -85,6 +85,16 @@ const PARTS = {
      a re-quote row tells somebody. */
   REQUOTE_KIND_WORDS: liftBlock('REQUOTE_KIND_WORDS', '{', '}'),
   historyRequoteRows: liftBlock('historyRequoteRows', '{', '}'),
+  /* ⚠ LIFTED, NEVER STUBBED (added 2026-09-02). historyNoteRows used to lead every
+     line in the fee ledger with the words "Light-change fee", which is wrong for a
+     manual fee and badly wrong for a carried debt — it named last season's unpaid
+     balance as a colour change. It asks the shared labeller now, so this file has to
+     supply it: a stub would keep the gate green through a change to what the history
+     CALLS somebody's money, which is the whole claim these rows make. */
+  FEE_KIND_LABELS: liftBlock('FEE_KIND_LABELS', '{', '}'),
+  CREDIT_KIND_LABELS: liftBlock('CREDIT_KIND_LABELS', '{', '}'),
+  ledgerLineLabel: liftBlock('ledgerLineLabel', '{', '}'),
+  feeNoteLabel: liftBlock('feeNoteLabel', '{', '}'),
   historyNoteRows: liftBlock('historyNoteRows', '{', '}'),
   customerHistory: liftBlock('customerHistory', '{', '}')
 };

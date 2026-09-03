@@ -3476,6 +3476,28 @@ exports.portalInvoice = onCall({ cors: true }, async (request) => {
   record.arrearsOutstanding = arrearsOutstandingServer(data);
   record.arrearsSeason = arrearsYearServer(data) || '';
 
+  /* ⭐ HAS THEIR BILL ACTUALLY GONE OUT YET (added 2026-09-02). Addie: "I want to make
+   * it clear to the member that this is their payment however they do not need to pay
+   * until after they get an invoice from us."
+   *
+   * ⚠ THE PORTAL HAD NO WAY TO KNOW. It shows "Current Balance" and a pay button the
+   * moment a house is priced, which is months before the nightly run bills anybody —
+   * so a customer signing in to check their colours in September was being shown a
+   * number that reads as due now, with nothing on the page saying otherwise.
+   *
+   * ⭐ `invoicedAt` IS THE ANSWER AND IT IS ALREADY THE ONE SOURCE OF TRUTH for when a
+   * bill starts counting: runInvoiceBatch stamps it in the same pass that sends the
+   * email, the due date and the Overdue flag are both measured from it, and Start New
+   * Season clears it, so it means THIS season's bill. Deriving a second "have we
+   * billed them" answer from invoiceEmailSent on the houses would be a third opinion
+   * about one fact, and the two would eventually disagree on a multi-house bill.
+   *
+   * ⚠ COMPUTED, NOT WHITELISTED. Only the yes/no crosses the wire; the timestamp
+   * itself stays server-side, exactly as lightChangeFreeUntil does two blocks above.
+   * ⚠ AND IT IS A BOOLEAN OF A STAMP, so an invoice written by the office before any
+   * nightly run correctly answers false — that customer has genuinely not been billed. */
+  record.billIssued = !!data.invoicedAt;
+
   /* ⭐ WHO THIS BILL IS FOR, sent from HERE and not only from portalLookup.
    *
    * portalLookup already returned `houses`, but only the token link and the

@@ -2149,7 +2149,17 @@
               <div class="form-row"><label>Reason</label><input type="text" id="editCustFeeReason" placeholder="e.g. extra strand, second trip"></div>
             </div>
             <div id="editCustFeeSummary" style="font-size:13px; font-weight:600; color:var(--ember); margin-top:8px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added on top of the total. Saving replaces the manual fee; automatic light-change fees are left alone.</p>
+            <!-- ⭐ EVERY FEE ON THEIR BILL, EACH WITH AN × (added 2026-09-02). Addie:
+                 "a spot we push x on the late fee ... both in invoice and costumers
+                 under fee." The box above only ever held the one manual fee the office
+                 types; a fee the SYSTEM added was invisible here, so the one place
+                 somebody looks to answer "why is this bill higher" could not show it,
+                 let alone take it off. ⚠ An × here writes immediately — it does not
+                 wait for Save — because the ledger is rebuilt from the invoice on
+                 save, so a pending removal would be put straight back. -->
+            <div id="editCustFeeLines" style="margin-top:8px;"></div>
+            <div id="editCustFeeLinesStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added on top of the total. Saving replaces the manual fee; automatic fees are left alone. Press &times; on any line to waive it &mdash; that saves straight away and is recorded in their history.</p>
           </div>
           <div style="margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
             <label style="display:block; font-size:12.5px; font-weight:600; margin-bottom:8px;">Discounts</label>
@@ -2158,7 +2168,12 @@
               <div class="form-row"><label>Reason</label><input type="text" id="editCustDiscountReason" placeholder="e.g. loyalty, price match"></div>
             </div>
             <div id="editCustDiscountSummary" style="font-size:13px; font-weight:600; color:var(--dusk); margin-top:8px;"></div>
-            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Saving replaces the referral and manual discount credits on this invoice; any other credits already on it are left alone.</p>
+            <!-- Same × as the Fees box above, on the other ledger. Addie: "we should
+                 have an x next to all discounts and fees to get rid of those if
+                 necessary." -->
+            <div id="editCustCreditLines" style="margin-top:8px;"></div>
+            <div id="editCustCreditLinesStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
+            <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Referrals are credited at $25 each. Saving replaces the referral and manual discount credits on this invoice; any other credits already on it are left alone. Press &times; on any line to take it off &mdash; that saves straight away and is recorded in their history.</p>
           </div>
           <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
             <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
@@ -7122,6 +7137,197 @@ function historyRequoteRows(requotes){
       what: 'Re-quoted' + (why ? ' \u2014 ' + why : '') + (note ? ' (' + note + ')' : '') };
   });
 }
+/* ⭐ CROSSING ONE FEE OFF A BILL (added 2026-09-02) ---------------------------
+   Addie: "right now we don't have a way to waive a late invoice fee", and on the
+   shape of it: "we can just have a spot we push x on the late fee and can be
+   place both in invoice and costumers under fee."
+
+   ⚠ NO LATE FEE IS CHARGED TODAY AND THIS DOES NOT BUILD ONE. That rule is
+   decided and unbuilt — $25 if they have paid something, $40 if they have paid
+   nothing (questions map PROC-32, and the "preview only, not built" card on the
+   Fee Check tab). What is built here is the WAIVER, and it is deliberately built
+   against the LEDGER rather than against one named fee: every charge on a bill is
+   already a `changeFeeNotes` entry, so a late fee written by Phase 5 arrives with
+   its × already working and nothing here to remember to change.
+
+   ⭐ ONE RULE AND ONE WRITE PATH, TWO SCREENS. She asked for it in Invoices and in
+   Customers, and two copies of "take a fee off and re-total the bill" is exactly
+   how two screens start disagreeing about what somebody owes. `feeWaiveUpdates` is
+   pure and is what the gate RUNS; `waiveInvoiceFee` is the thin write around it.
+
+   ⚠ AN ARREARS LINE GETS NO ×, AND THAT IS THE WHOLE OF THE CARE HERE. Last
+   season's carried debt rides in this same ledger, and `arrearsOutstanding` is what
+   holds that customer off the schedule — so an × on that row is the "hang them
+   anyway" button Addie was offered and turned down (js/money.js, arrearsSettled:
+   "Addie asked for no 'hang them anyway' button and there is none"). It is edited
+   in the carried-debt box in Edit Customer, which names the season and says where
+   the figure came from: that box is the office correcting a FIGURE, not cancelling
+   a hold in one click from a row that looks like every other fee.
+
+   ⚠ FOUND BY FINGERPRINT, NEVER BY INDEX. The row is drawn from a snapshot and the
+   write re-reads fresh, so by the time an index is used it can point at a different
+   line — and the line it would remove is somebody else's money. A fingerprint that
+   finds nothing REFUSES and says so on screen, which is the safe half of the same
+   problem.
+
+   ⚠ AND THE 48-HOUR WINDOW IS ONLY CLEARED WHEN THE LAST LIGHT-CHANGE FEE GOES.
+   `lastLightChangeFeeAt` is what makes a customer's next colour change free;
+   clearing it while another light-change fee is still on the bill hands out a free
+   window nobody granted. */
+/* ⭐ AND THE SAME × ON DISCOUNTS. Addie, an hour later: "to be honest we should
+   have an x next to all discounts and fees to get rid of those if necessary." A
+   credit is the same shape as a fee in the other direction — `creditNotes` is a
+   kind-tagged ledger summing to `credits` exactly as `changeFeeNotes` sums to
+   `changeFees` — so this is one rule over two ledgers rather than two rules. Both
+   totals feed the same `computeInvoiceStatus`, which is the real argument for not
+   writing it twice: two removers is two chances for a bill to stop adding up. */
+const LEDGERS = {
+  fee:    { notes: 'changeFeeNotes', total: 'changeFees', sign: '+', word: 'fee' },
+  credit: { notes: 'creditNotes',    total: 'credits',    sign: '−', word: 'discount' }
+};
+/* ⚠ A LIGHT-CHANGE FEE CARRIES NO `kind` AT ALL — both writers of one (portalSave
+   and the nightly carry-forward, in functions/index.js) push `{amount, reason,
+   date}` and nothing else. So kindless IS the light-change fee, and that is why
+   this is the default rather than a case. The same is true of an old credit. */
+const FEE_KIND_LABELS = { manual: 'Fee', arrears: 'Unpaid balance carried forward', late: 'Late fee' };
+const CREDIT_KIND_LABELS = { manual: 'Discount', referral: 'Referral credit',
+                             carried: 'Payment carried from their old bill' };
+function ledgerLineLabel(ledger, n){
+  return ledger === 'credit'
+    ? ((n && CREDIT_KIND_LABELS[n.kind]) || 'Credit')
+    : ((n && FEE_KIND_LABELS[n.kind]) || 'Light-change fee');
+}
+function feeNoteLabel(n){ return ledgerLineLabel('fee', n); }
+function feeNoteIsLightChange(n){ return !n || !n.kind; }
+/* ⚠ ONE LINE IS NOT WAIVABLE AND IT IS THE CARRIED DEBT — see the block above.
+   Everything else on either ledger may be crossed off: Addie asked for "all
+   discounts and fees", and a whitelist of kinds fails silently, leaving whatever
+   was invented next with no × and a screen that looks like nobody was charged. */
+function ledgerLineIsWaivable(ledger, n){
+  return !!n && !(ledger === 'fee' && n.kind === ARREARS_KIND);
+}
+function feeNoteIsWaivable(n){ return ledgerLineIsWaivable('fee', n); }
+/* Identity for one line. Ledger notes carry no id of their own, so this is what a
+   × hands back to the write. */
+function feeNoteKey(n){
+  /* ⚠ JSON, NOT A JOINED STRING. A reason is free text somebody typed, so any
+     separator character can appear inside one — and two lines that straddled it
+     would then share a fingerprint, which is a × removing the wrong money. */
+  return JSON.stringify([String((n && n.kind) || ''), Number(n && n.amount) || 0,
+                         String((n && n.reason) || ''), String((n && n.date) || '')]);
+}
+/* Attribute-safe, because a reason is free text somebody typed. */
+function feeNoteToken(n){ return btoa(encodeURIComponent(feeNoteKey(n))); }
+function feeTokenToKey(tok){ try{ return decodeURIComponent(atob(String(tok||''))); }catch(e){ return ''; } }
+/* The whole rule, pure, so the gate can RUN it rather than read it: what this
+   invoice looks like with one line crossed off either ledger. Null means the line
+   is not there or may not be waived — the caller reports that instead of writing.
+
+   ⚠ THE OTHER LEDGER'S TOTAL IS TAKEN AS STORED, never re-summed from its notes.
+   The Invoices panel can set an amount by hand, so re-deriving the untouched side
+   would quietly undo an office correction while somebody was only crossing off a
+   discount. One press changes one thing. */
+function ledgerWaiveUpdates(inv, ledger, key){
+  const spec = LEDGERS[ledger];
+  if(!spec) return null;
+  const notes = (inv && Array.isArray(inv[spec.notes])) ? inv[spec.notes] : [];
+  let idx = -1;
+  for(let i = 0; i < notes.length; i++){
+    if(ledgerLineIsWaivable(ledger, notes[i]) && feeNoteKey(notes[i]) === key){ idx = i; break; }
+  }
+  if(idx === -1) return null;
+  const removed = notes[idx];
+  const kept = notes.slice(0, idx).concat(notes.slice(idx + 1));
+  const total = kept.reduce(function(sum, f){ return sum + (Number(f.amount) || 0); }, 0);
+  const fees    = ledger === 'fee'    ? total : (Number(inv && inv.changeFees) || 0);
+  const credits = ledger === 'credit' ? total : (Number(inv && inv.credits) || 0);
+  /* ⚠ THE FIELD NAMES ARE WRITTEN OUT, NOT LOOKED UP OFF `spec`. A computed key
+     (`updates[spec.total] = total`) works perfectly and is invisible to every tool
+     that traces a field by name — connections.test.js caught exactly that here, and
+     the map is what somebody reads to find out who writes `changeFees`. One rule
+     with two named outputs beats one rule nothing can see. */
+  const updates = {};
+  if(ledger === 'fee'){ updates.changeFeeNotes = kept; updates.changeFees = total; }
+  else { updates.creditNotes = kept; updates.credits = total; }
+  updates.status = computeInvoiceStatus(inv && inv.install, inv && inv.removal, inv && inv.deposit, credits, fees);
+  if(ledger === 'fee' && feeNoteIsLightChange(removed) && !kept.some(feeNoteIsLightChange)){
+    updates.lastLightChangeFeeAt = null;
+  }
+  return { ledger: ledger, updates: updates, removed: removed };
+}
+function feeWaiveUpdates(inv, key){ return ledgerWaiveUpdates(inv, 'fee', key); }
+/* One row per line, with a × on the ones that may go. Shared by the Invoices panel
+   and both boxes in Edit Customer so no two screens can describe one bill
+   differently. */
+function ledgerLinesHtml(ledger, notes){
+  const spec = LEDGERS[ledger];
+  const list = Array.isArray(notes) ? notes : [];
+  if(!spec || !list.length) return '';
+  return list.map(function(f){
+    const amt = Number(f && f.amount) || 0;
+    const why = (f && f.reason) || ledgerLineLabel(ledger, f);
+    const x = ledgerLineIsWaivable(ledger, f)
+      ? '<button type="button" class="fee-waive" data-ledger="'+esc(ledger)+'" data-feetoken="'+esc(feeNoteToken(f))+'" '+
+        'title="Take this '+esc(spec.word)+' off the bill" '+
+        'style="border:1px solid var(--line); background:var(--card); color:var(--ember); border-radius:6px; '+
+        'width:22px; height:22px; line-height:1; cursor:pointer; font-weight:700;">&times;</button>'
+      /* ⚠ NOT AN EMPTY CELL. A row with no × beside rows that have one reads as a
+         bug; saying where it IS edited is the difference between a rule and a
+         glitch. */
+      : '<span style="font-size:11px; color:var(--slate); white-space:nowrap;">edit below</span>';
+    return '<div style="font-size:12.5px; color:var(--dusk); display:flex; align-items:center; justify-content:space-between; gap:8px; padding:2px 0;">'+
+      '<span>'+esc(why)+'</span>'+
+      '<span style="display:flex; align-items:center; gap:8px;"><span>'+spec.sign+fmtMoney(amt)+'</span>'+x+'</span>'+
+    '</div>';
+  }).join('');
+}
+function feeLinesHtml(notes){ return ledgerLinesHtml('fee', notes); }
+/* The write. Re-reads fresh so a concurrent edit is not stomped, refuses rather
+   than guessing when the line has moved, and LOGS it — a fee that is charged leaves
+   a dated line and a fee that is waived used to leave nothing at all, which is the
+   asymmetry the light-change waiver log already names. */
+async function waiveLedgerLine(invoiceId, ledger, key){
+  const spec = LEDGERS[ledger];
+  if(!spec) return { ok:false, why:'Nothing to take off.' };
+  const snap = await getDoc(doc(db,'invoices', invoiceId));
+  if(!snap.exists()) return { ok:false, why:'That invoice no longer exists.' };
+  const fresh = snap.data();
+  const plan = ledgerWaiveUpdates(fresh, ledger, key);
+  if(!plan) return { ok:false, why:'That ' + spec.word + ' is no longer on this invoice — someone may have taken it off already.' };
+  await updateDoc(doc(db,'invoices', invoiceId), Object.assign({}, plan.updates, { updatedAt: serverTimestamp() }));
+  /* ⚠ MIRRORED INTO THE CACHE BEFORE ANYTHING REPAINTS. Edit Customer's Save
+     rebuilds both ledgers from `allInvoicesCache`, so between this write and the
+     listener reporting it back a Save would put the crossed-off line straight back. */
+  const cached = allInvoicesCache.find(i => i.id === invoiceId);
+  if(cached && cached.data) Object.assign(cached.data, plan.updates);
+  /* ⭐ A REFERRAL CREDIT IS NOT STORED, IT IS DERIVED — `referralCount` on the
+     customer is rebuilt into a credit on every Edit Customer save. So taking the
+     line off without zeroing the count is a × that visibly works and is undone by
+     the next save of that customer, from a screen that never showed the count.
+     ⚠ ONLY THE ONES THAT ACTUALLY HOLD A COUNT, and each write stands alone: a
+     failure here must not lose the removal that already succeeded. */
+  let alsoNote = '';
+  if(ledger === 'credit' && plan.removed && plan.removed.kind === 'referral'){
+    const onBill = jobAddresses.filter(function(a){
+      const ad = a.data || {};
+      const bill = String(ad.billToPhone || '').replace(/\D/g, '');
+      return (bill ? bill === invoiceId : custInvoiceKey(ad) === invoiceId) && (Number(ad.referralCount) || 0) > 0;
+    });
+    for(const a of onBill){
+      try{
+        await updateDoc(doc(db,'jobAddresses', a.id), { referralCount: 0 });
+        a.data.referralCount = 0;
+      }catch(e){
+        console.error('[HU] could not clear referralCount for', a.id, e);
+        alsoNote = ' — but their referral count could not be cleared, so check Edit Customer or it will come back';
+      }
+    }
+  }
+  logActivity('Took the ' + fmtMoney(Number(plan.removed.amount) || 0) + ' ' + ledgerLineLabel(ledger, plan.removed).toLowerCase() +
+    ' off ' + (fresh.name || invoiceId) + '’s bill' + (plan.removed.reason ? ' — ' + plan.removed.reason : ''), 'invoices', invoiceId);
+  return { ok:true, ledger: ledger, removed: plan.removed, note: alsoNote };
+}
+function waiveInvoiceFee(invoiceId, key){ return waiveLedgerLine(invoiceId, 'fee', key); }
 function historyNoteRows(invoice, cust){
   const out = [];
   const money = (n) => fmtMoney(Number(n) || 0);
@@ -7129,7 +7335,10 @@ function historyNoteRows(invoice, cust){
   const add = (n, lead) => out.push({ at: n && n.date,
     what: lead + ' ' + money(n && n.amount) + (n && n.reason ? ' — ' + n.reason : ''),
     kind: 'money' });
-  list(invoice, 'changeFeeNotes').forEach(n => add(n, 'Light-change fee'));
+  /* ⚠ NAMED BY ITS KIND, not "Light-change fee" for everything in the ledger. This
+     line called a carried debt and a manual fee a light-change fee, so the history
+     contradicted the waiver log sitting next to it. */
+  list(invoice, 'changeFeeNotes').forEach(n => add(n, feeNoteLabel(n)));
   list(invoice, 'creditNotes').forEach(n => add(n, 'Credit'));
   /* ⚠ THE CARRYOVER NOTES ARE ON THE CUSTOMER, NOT THE INVOICE, and that is deliberate
      rather than untidy: Start New Season zeroes changeFees and creditNotes on every
@@ -18388,7 +18597,7 @@ function renderInvoicesList(){
         '<div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line);">'+
           '<div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Credits &amp; Discounts</div>'+
           (creditNotesForPanel.length
-            ? creditNotesForPanel.map(function(c){ return '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>'+esc(c.reason||'Credit')+'</span><span>&minus;'+fmtMoney(Number(c.amount)||0)+'</span></div>'; }).join('')
+            ? ledgerLinesHtml('credit', creditNotesForPanel)
             : '<div style="font-size:12px; color:var(--slate);">No credits on this invoice yet.</div>')+
           (carryoverForPanel ? '<div style="font-size:12px; color:var(--dusk); margin-top:4px; font-weight:600;">Credit on file toward next invoice: '+fmtMoney(carryoverForPanel)+'</div>' : '')+
           /* Charged next season, not now — their bill for this year had already gone
@@ -18405,14 +18614,17 @@ function renderInvoicesList(){
           '<div class="ie-credit-status" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>'+
         '</div>'+
         '<div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line);">'+
-          '<div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Light-Change Fees</div>'+
+          '<div style="font-weight:700; font-size:12.5px; margin-bottom:6px;">Fees</div>'+
           (changeFeesForPanel > 0
             ? (changeFeeNotesForPanel.length
-                ? changeFeeNotesForPanel.map(function(f){ return '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>'+esc(f.reason||'Light change fee')+'</span><span>+'+fmtMoney(Number(f.amount)||0)+'</span></div>'; }).join('')
-                : '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>Light-change fee</span><span>+'+fmtMoney(changeFeesForPanel)+'</span></div>')
-              + '<button type="button" class="btn btn-outline btn-sm ie-clear-fees" style="margin-top:8px;">Remove light-change fee(s)</button>'
+                ? feeLinesHtml(changeFeeNotesForPanel)
+                /* An older invoice can carry a total with no ledger behind it. There
+                   is no line to cross off, so it says so rather than drawing a × that
+                   would have nothing to remove. */
+                : '<div style="font-size:12.5px; color:var(--dusk); display:flex; justify-content:space-between; gap:8px;"><span>Light-change fee</span><span>+'+fmtMoney(changeFeesForPanel)+'</span></div>'+
+                  '<div style="font-size:11.5px; color:var(--slate); margin-top:4px;">Added before fees were itemised, so there is no single line to waive. Adjust the amount above.</div>')
               + '<div class="ie-fee-status" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>'
-            : '<div style="font-size:12px; color:var(--slate);">No light-change fees on this invoice. These are added automatically when a customer changes their lights in the portal.</div>')+
+            : '<div style="font-size:12px; color:var(--slate);">No fees on this invoice. Light-change fees are added automatically when a customer changes their lights in the portal; a one-off fee is added in <strong>Customers &gt; Edit Customer &gt; Fees</strong>.</div>')+
         '</div>';
       if(isMultiHouse){
         // Display only — nothing here saves until Save Changes is clicked.
@@ -18467,25 +18679,37 @@ function renderInvoicesList(){
         logActivity('Added a ' + fmtMoney(amount) + ' credit for ' + (d.name || id) + (reason ? ' — ' + reason : ''), 'invoices', id);
         panel.style.display = 'none';
       });
-      const clearFeesBtn = panel.querySelector('.ie-clear-fees');
-      if(clearFeesBtn){
-        clearFeesBtn.addEventListener('click', async function(){
-          const st = panel.querySelector('.ie-fee-status');
-          st.textContent = 'Removing…';
-          const freshSnap = await getDoc(doc(db,'invoices', id));
-          const fresh = freshSnap.exists() ? freshSnap.data() : d;
-          await updateDoc(doc(db,'invoices', id), {
-            changeFees: 0,
-            changeFeeNotes: [],
-            lastLightChangeFeeAt: null,       // clears the 48h window so their next change starts fresh
-            status: computeInvoiceStatus(fresh.install, fresh.removal, fresh.deposit, fresh.credits, 0),
-            updatedAt: serverTimestamp()
-          });
-          toast('Light-change fee(s) removed');
-          logActivity('Removed the light-change fee(s) from ' + (d.name || id), 'invoices', id);
-          panel.style.display = 'none';
+      /* ⭐ ONE × PER FEE, REPLACING A BUTTON THAT CLEARED THE LOT (2026-09-02).
+         The old "Remove light-change fee(s)" wrote `changeFeeNotes: []`, and by then
+         that array had stopped being light-change fees alone — a manual fee and, far
+         worse, last season's carried debt both ride in it. So a button labelled as
+         removing a light-change fee also wrote off a real debt AND lifted the hold
+         keeping that customer off the schedule, silently, in one press. Waiving is
+         per line now, and the carried line is not waivable at all. */
+      panel.querySelectorAll('.fee-waive').forEach(function(x){
+        x.addEventListener('click', async function(){
+          const ledger = x.dataset.ledger || 'fee';
+          /* The message belongs beside the list that was pressed, not always under
+             the fees — a discount coming off with its confirmation two blocks away
+             reads as nothing having happened. */
+          const st = panel.querySelector(ledger === 'credit' ? '.ie-credit-status' : '.ie-fee-status');
+          x.disabled = true;
+          if(st) st.textContent = 'Taking it off…';
+          try{
+            const res = await waiveLedgerLine(id, ledger, feeTokenToKey(x.dataset.feetoken));
+            if(!res.ok){ x.disabled = false; if(st) st.textContent = res.why; return; }
+            toast('Took the ' + fmtMoney(Number(res.removed.amount) || 0) + ' ' +
+              ledgerLineLabel(ledger, res.removed).toLowerCase() + ' off the bill' + (res.note || ''));
+            panel.style.display = 'none';
+          }catch(e){
+            /* ⚠ SAID OUT LOUD. Addie, 2026-08-25: "nothing should fail quietly" — and a
+               × that silently does nothing reads exactly like money that came off. */
+            console.error('[HU] taking a ledger line off failed:', e);
+            x.disabled = false;
+            if(st) st.textContent = 'That did not save — ' + (e && e.message ? e.message : 'try again') + '.';
+          }
         });
-      }
+      });
       renderPaymentHistory(panel, id);
       panel.querySelector('.ie-save').addEventListener('click', async function(){
         if(isMultiHouse){
@@ -43273,6 +43497,35 @@ function updateEditCustFeeSummary(){
   const fee = Math.max(0, Number(document.getElementById('editCustFee').value) || 0);
   el.textContent = fee > 0 ? ('+ ' + fmtMoney(fee) + ' added to their total') : '';
 }
+/* Every fee already on this customer's bill, each with its own ×. The Fee box above
+   shows only the manual one the office types; this is the rest — the light-change
+   fees the portal adds, and whatever Phase 5's late fee turns out to be. */
+function renderEditCustFeeLines(feeNotes){
+  renderEditCustLedgerLines('fee', 'editCustFeeLines', 'editCustFeeLinesStatus', feeNotes);
+}
+/* And the discounts, on the same rule. */
+function renderEditCustCreditLines(creditNotes){
+  renderEditCustLedgerLines('credit', 'editCustCreditLines', 'editCustCreditLinesStatus', creditNotes);
+}
+function renderEditCustLedgerLines(ledger, listId, statusId, notes){
+  const el = document.getElementById(listId);
+  if(!el) return;
+  const list = Array.isArray(notes) ? notes : [];
+  el.innerHTML = list.length
+    ? '<div style="border-top:1px solid var(--line); padding-top:6px;">'+ledgerLinesHtml(ledger, list)+'</div>'
+    : '';
+  const st = document.getElementById(statusId);
+  if(st) st.textContent = '';
+}
+/* ⚠ RE-READ AT CLICK TIME, never captured when the form opened: the house tabs
+   repoint this form at a sibling without closing it, so a captured invoice would
+   waive a fee off the wrong household's bill. Same reason the carried-debt line
+   below re-reads on every keystroke. */
+function editCustInvoiceNow(){
+  if(typeof editCustomerId === 'undefined' || !editCustomerId) return null;
+  const cust = jobAddresses.find(x => x.id === editCustomerId);
+  return cust ? (allCustInvoiceFor(cust.data) || null) : null;
+}
 function updateEditCustDiscountSummary(){
   const el = document.getElementById('editCustDiscountSummary');
   if(!el) return;
@@ -43318,6 +43571,55 @@ document.addEventListener('DOMContentLoaded', function(){
   });
   const editFeeEl = document.getElementById('editCustFee');
   if(editFeeEl) editFeeEl.addEventListener('input', updateEditCustFeeSummary);
+  /* ⭐ DELEGATED, so a repaint of the list cannot leave a dead × behind or stack a
+     second listener on a live one — the failure that once put 2815 Firestore writes
+     behind one drag in the Inbox. */
+  [['fee', 'editCustFeeLines', 'editCustFeeLinesStatus'],
+   ['credit', 'editCustCreditLines', 'editCustCreditLinesStatus']].forEach(function(spec){
+    const ledger = spec[0], listEl = document.getElementById(spec[1]);
+    if(!listEl) return;
+    listEl.addEventListener('click', async function(e){
+      const x = e.target.closest ? e.target.closest('.fee-waive') : null;
+      if(!x || !listEl.contains(x)) return;
+      const st = document.getElementById(spec[2]);
+      const inv = editCustInvoiceNow();
+      if(!inv){ if(st) st.textContent = 'No invoice for this customer yet, so there is nothing to take off.'; return; }
+      x.disabled = true;
+      if(st) st.textContent = 'Taking it off…';
+      try{
+        const res = await waiveLedgerLine(inv.id, ledger, feeTokenToKey(x.dataset.feetoken));
+        if(!res.ok){ x.disabled = false; if(st) st.textContent = res.why; return; }
+        /* ⚠ AND THE BOXES ABOVE HAVE TO LET GO OF IT. Both the manual fee and the
+           manual discount are rebuilt FROM their boxes on save, and the referral
+           credit from the count — so crossing a line off while its value still sits
+           in a box puts it straight back the moment Save is pressed. An × that
+           visibly worked and then quietly undid itself is worse than no × at all. */
+        const kind = res.removed && res.removed.kind;
+        if(ledger === 'fee' && kind === 'manual'){
+          document.getElementById('editCustFee').value = '';
+          document.getElementById('editCustFeeReason').value = '';
+          updateEditCustFeeSummary();
+        }
+        if(ledger === 'credit' && kind === 'manual'){
+          document.getElementById('editCustManualDiscount').value = '';
+          document.getElementById('editCustDiscountReason').value = '';
+        }
+        if(ledger === 'credit' && kind === 'referral'){
+          document.getElementById('editCustReferralCount').value = '';
+        }
+        if(ledger === 'credit') updateEditCustDiscountSummary();
+        const after = editCustInvoiceNow();
+        const d2 = (after && after.data) || {};
+        renderEditCustFeeLines(d2.changeFeeNotes || []);
+        renderEditCustCreditLines(d2.creditNotes || []);
+        if(st) st.textContent = 'Took ' + fmtMoney(Number(res.removed.amount) || 0) + ' off — saved.' + (res.note || '');
+      }catch(err){
+        console.error('[HU] taking a ledger line off failed:', err);
+        x.disabled = false;
+        if(st) st.textContent = 'That did not save — ' + (err && err.message ? err.message : 'try again') + '.';
+      }
+    });
+  });
   /* ⚠ RE-READ FROM THE INVOICE ON EVERY KEYSTROKE, never from a value captured when the
      form opened — the house tabs repoint this form at a sibling without closing it, so a
      captured figure would show the previous customer's carried amount. */
@@ -43764,6 +44066,8 @@ function openEditCustomerModal(id){
   updateEditCustArrearsSummary(ecFeeNotes);
   updateEditCustDiscountSummary();
   updateEditCustFeeSummary();
+  renderEditCustFeeLines(ecFeeNotes);
+  renderEditCustCreditLines(ecNotes);
   setEditCustExpanded(editCustExpandedPref());
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   document.getElementById('editCustWantsTexted').checked = !!d.wantsTextedInvoice;

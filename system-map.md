@@ -778,7 +778,50 @@ This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFe
 
 **Two separate $30 fees, easy to conflate:**
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
-- **Light-change fee** (`changeFees`, with itemized `changeFeeNotes`) — added by `portalSave` when a member changes their light colors outside a 48-hour grace window. Tracked as its own field, separate from `install`, so it can be waived/removed independently (there's a dedicated "Remove light-change fee(s)" button in the Invoices panel).
+- **Light-change fee** (`changeFees`, with itemized `changeFeeNotes`) — added by `portalSave` when a member changes their light colors outside a 48-hour grace window. Tracked as its own field, separate from `install`, so it can be waived independently — see the × below.
+
+⭐ **ANY FEE OR DISCOUNT CAN BE CROSSED OFF WITH AN ×** (added 2026-09-02, MON-53/54/55).
+Addie: *"right now we don't have a way to waive a late invoice fee"*, and then *"to be
+honest we should have an x next to all discounts and fees to get rid of those if
+necessary."* Every line on either ledger — `changeFeeNotes` (fees) and `creditNotes`
+(discounts) — is drawn with an × beside it, in **two** places: the Invoices panel, and
+the Fees / Discounts boxes in **Edit Customer**. Pressing one saves straight away and is
+written into that customer's history.
+  - ⚠ **The carried debt is the one line with no ×.** It rides in the same fee ledger, and
+    `arrearsOutstanding` is what holds an unpaid customer off the schedule — so removing
+    it lifts the hold, which is the "hang them anyway" button Addie was offered and turned
+    down. Its row says where it *is* edited (the carried-debt box below it) rather than
+    showing an empty gap. **Nothing on the discount side is protected**: a credit can only
+    ever be money coming off.
+  - ⚠ **This replaced a button that cleared the lot.** "Remove light-change fee(s)" wrote
+    `changeFeeNotes: []`, and by then that array held manual fees and the carried debt as
+    well — so a control labelled as removing a colour-change fee also wrote off a real
+    debt and released the hold, silently, in one press.
+  - ⚠ **A referral discount also clears the referral count.** That credit is *derived* from
+    `referralCount` and rebuilt on every Edit Customer save, so taking the line off without
+    zeroing the count is an × that visibly works and is undone by the next save.
+  - ⚠ **No late fee is charged today.** The rule is decided and unbuilt ($25 if they have
+    paid something, $40 if they have not — PROC-32). The × is built against the ledger
+    rather than against a named fee, so a late fee written later is waivable the day
+    something writes one, with nothing here to change.
+
+⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-56). Addie:
+*"I want to make it clear to the member that this is there payment however they do not need
+to pay until after they get an invoice from us."* The payment card said **Current Balance**
+from the moment a house was priced — months before the nightly run bills anybody — so a
+customer signing in during October read a figure that looks due today, above a pay button.
+Until the bill goes out the label reads **Your Price This Season** and a notice under it
+says what the number is and when it is due.
+  - Driven by `billIssued`, a boolean `portalInvoice` derives from the invoice's own
+    `invoicedAt` — the same stamp the due date and the Overdue flag are measured from, and
+    the one Start New Season clears, so it answers about *this* season.
+  - ⚠ **It never hides the pay buttons.** Paying early is real and allowed.
+  - ⚠ **It is silent when they owe for last season.** A carried debt is on this year's bill
+    before this year's bill is issued, so the flag is honestly false while the money is
+    payable *now* — and that customer is being held off the schedule until they pay it.
+  - ⚠ **Read as `=== false`, never `!billIssued`.** A field that never arrived means *we do
+    not know*, and telling somebody holding a real invoice that they need not pay it is the
+    expensive way to be wrong.
 
 **Last season's unpaid bill is carried, not written off** (2026-08-31, MON-31/MON-32).
 Start New Season used to write `install: newInstall, deposit: 0` over every invoice, so a
