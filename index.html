@@ -1654,8 +1654,8 @@
           <div id="rsvpGateCodeStep" style="display:none;">
             <div id="rsvpGateCodeQuestion" style="font-size:16px; font-weight:600; margin-bottom:14px;"></div>
             <div id="rsvpGateCodeAsk" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
-              <button type="button" class="btn btn-gold" id="rsvpGateCodeYesBtn">Yes, I have one</button>
-              <button type="button" class="btn btn-outline-dark" id="rsvpGateCodeNoBtn">No / not applicable</button>
+              <button type="button" class="btn btn-gold" id="rsvpGateCodeYesBtn">Yes, that&rsquo;s right</button>
+              <button type="button" class="btn btn-outline-dark" id="rsvpGateCodeNoBtn">It has changed</button>
             </div>
             <div id="rsvpGateCodeEntry" style="display:none; margin-top:14px;">
               <label for="rsvpGateCodeInput" style="display:block; font-size:13px; color:var(--slate); margin-bottom:6px;">Gate code</label>
@@ -4676,10 +4676,12 @@ function loadPortalByToken(token, extraOpts){
    code before a crew is standing at a locked gate — which is the same argument
    behind checklist row 218, from the other end.
 
-   ⚠ IT CONFIRMS WHEN WE ALREADY HOLD ONE, AND ASKS WHEN WE DO NOT. Asking "do
-   you have a gate code?" of somebody who gave us 4417 last year invites them to
-   answer a question we already know, and a customer who taps No there has told
-   us nothing while looking like they removed it. Two questions, one step.
+   ⚠ IT CONFIRMS A CODE WE ALREADY HOLD, AND ASKS NOBODY ELSE (narrowed 2026-09-02,
+   RS-44). Dax: "only applys to people that already have a gate code in the system so
+   not everyone is seeing it." The value is in catching a code that went stale over
+   the summer before a crew is stood at a locked gate; asking the majority, who have
+   no gate at all, a question whose honest answer is "no" is a toll on the way into
+   their own portal. The earlier shape asked both — see showRsvpGateCodeStep.
 
    ⚠ IT FAILS OPEN, EVERY WAY OUT. Missing markup, a refused save, a thrown
    call — all of them move on to the changes question rather than stranding
@@ -4709,6 +4711,28 @@ function showRsvpGateCodeStep(token, existingGateCode, thenFn){
 
   var held = String(existingGateCode || '').trim();
 
+  /* ⭐ ONLY SOMEBODY WHO ALREADY HAS A GATE CODE IS ASKED (Dax, 2026-09-02: "make it
+     so the gate code question after they accept gate code only applys to people that
+     already have a gate code in the system so not everyone is seeing it").
+
+     ⚠ THIS NARROWS RS-29 RATHER THAN REVERSING IT, and the half that survives is the
+     half Addie was after: a code we hold going stale over the summer is the thing that
+     puts a crew at a locked gate, and it is still confirmed on the one screen every
+     confirming customer sees. What is dropped is asking the majority — who have no
+     gate at all — a question whose honest answer is "no", on the way into their portal.
+
+     ⚠ AND NOTHING IS LOST FOR THE PEOPLE WHO NOW SKIP IT. Gate code is on My Info in
+     the portal and on the customer record in the office, so somebody who fits a gate
+     later can still tell us; this only decides who is INTERRUPTED to be asked.
+
+     ⚠ IT RETURNS BEFORE ANYTHING IS SHOWN, not after — the dialog must never flash up
+     and vanish — and it still hands on to thenFn, which is what raises the arrears
+     pop-up behind it. Skipping the question must not skip what follows it. */
+  if(!held){
+    if(typeof thenFn === 'function') thenFn();
+    return;
+  }
+
   /* Both switches go on together and come off together. The dialog owns the
      centring and the dimmed backdrop; the step owns whether the question itself is
      drawn — the same inline display it carried when it was part of the card. */
@@ -4719,17 +4743,13 @@ function showRsvpGateCodeStep(token, existingGateCode, thenFn){
   input.value = held;
   if(status) status.textContent = '';
 
-  if(held){
-    /* textContent, never innerHTML — a gate code is customer-supplied text and
-       goes on screen. */
-    question.textContent = 'We have ' + held + ' as your gate code. Is that still right?';
-    yesBtn.textContent = "Yes, that's right";
-    noBtn.textContent = 'It has changed';
-  } else {
-    question.textContent = 'Quick one \u2014 is there a gate code our crew needs to get in?';
-    yesBtn.textContent = 'Yes, I have one';
-    noBtn.textContent = 'No / not applicable';
-  }
+  /* textContent, never innerHTML — a gate code is customer-supplied text and goes
+     on screen.
+     ⚠ THERE IS ONE WORDING NOW, because there is one case: the branch that asked
+     somebody with no code whether they had one went with the question itself. */
+  question.textContent = 'We have ' + held + ' as your gate code. Is that still right?';
+  yesBtn.textContent = "Yes, that's right";
+  noBtn.textContent = 'It has changed';
 
   /* ⚠ ESCAPE AND THE BACKDROP CLOSE IT, deliberately. This is now the only thing
      standing on top of a page the customer came here to use, so somebody who cannot
@@ -4832,14 +4852,19 @@ function handleRsvpLink(token, rsvpValue){
          from the invoice rather than repeated from this answer, so there is one
          place saying it instead of two that can disagree. Do not delete them from
          the server — renderPortalInvoice is not the only caller. */
-      /* ⚠ THE GATE CODE STILL COMES FIRST, and it is now the ONLY thing between a
-         yes and their portal. Dax, 2026-09-01: "gate codes change so make sure it
-         asks if theres a gate code" — which is why this step survived the change
-         below. showRsvpGateCodeStep already asks every time: it offers "We have
-         1234 as your gate code. Is that still right?" when one is on file and
-         "is there a gate code our crew needs to get in?" when there is not, so a
-         code that changed over the summer is caught on the one screen a customer
-         reliably answers. Do NOT skip it for somebody who already has one stored.
+      /* ⚠ THE GATE CODE STILL COMES FIRST, and for the customers it is put to it is
+         the ONLY thing between a yes and their portal. Dax, 2026-09-01: "gate codes
+         change so make sure it asks if theres a gate code" — which is why this step
+         survived the change below.
+
+         ⚠ BUT IT IS NO LONGER ASKED OF EVERYBODY (narrowed 2026-09-02, RS-44). Dax:
+         "only applys to people that already have a gate code in the system so not
+         everyone is seeing it." showRsvpGateCodeStep offers "We have 1234 as your gate
+         code. Is that still right?" to somebody who has one on file, and returns
+         without drawing anything for somebody who has not. So a code that changed over
+         the summer is still caught on the one screen a customer reliably answers, and
+         nobody else is stopped on the way in. Do NOT skip it for somebody who already
+         has one stored — that is the whole remaining point of it.
 
          ⭐ AND THEN STRAIGHT INTO THE PORTAL (Dax, 2026-09-01: the RSVP buttons
          "should also automatically send the customer to their member portal").
@@ -5008,11 +5033,14 @@ function handleRsvpLink(token, rsvpValue){
        ever seeing the account they were being let into, and the portal arrived only
        once they had dealt with it.
 
-       ⚠ THE ORDER IS REVERSED, THE ASKING IS NOT. Addie's ruling still holds — every
-       confirming customer is still asked every year, still confirms a code we already
-       hold rather than being asked whether one exists, and the answer still lands
-       through portalSetGateCode. What changed is where they are standing when they
-       answer it.
+       ⚠ THE ORDER IS REVERSED, THE ASKING IS NOT — for the customers it is still put
+       to. Addie's ruling holds where it counts: a confirming customer who ALREADY has
+       a gate code is still asked every year, still confirms the code we hold rather
+       than being asked whether one exists, and the answer still lands through
+       portalSetGateCode. What changed here is where they are standing when they answer
+       it; what changed in RS-44 is that somebody with no code on file is not asked at
+       all, because the value was always in catching a stale code rather than in
+       collecting a "no" from people with no gate.
 
        ⚠ AND NOW IT CANNOT STRAND ANYBODY BY CONSTRUCTION, rather than by the careful
        fail-open paths inside the step. The question is the last thing to happen, after

@@ -80,8 +80,13 @@ async function expectReadable(page, id) {
 test.describe('Buttons on the light cards can actually be seen', () => {
 
   test('the gate-code question offers TWO visible answers', async ({ page }) => {
+    /* ⚠ THE FIXTURE KEEPS ITS GATE CODE NOW (2026-09-02, RS-44). This used to clear it
+       to reach the "do you have one?" wording — the branch Addie was in when the
+       white-on-white button was reported. That branch is gone: only a customer who
+       ALREADY has a code is asked. The fault this test exists for is unchanged and if
+       anything sharper, because on this path the second answer, "It has changed", is
+       the only route to the entry box. */
     const c = JSON.parse(JSON.stringify(CUSTOMERS.standard));
-    c.record.gateCode = '';                 // the branch Addie was in
     const stub = await installFirebaseStub(page, { customers: { standard: c } });
     await page.goto(`/index.html#/payment?token=${c.token}&rsvp=yes`);
 

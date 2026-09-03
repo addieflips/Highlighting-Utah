@@ -65,8 +65,16 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    `showChangesQuestion` ("You're confirmed! Do you want to make any changes?", with the portal behind a
    button) is replaced by `openPortalAfterYes`, which tears the card down and calls `loadPortalByToken`.
 
+   - ⚠ **Only a customer who ALREADY has a gate code is asked** (2026-09-02, RS-44). Dax: *"only applys to
+     people that already have a gate code in the system so not everyone is seeing it."* The value is catching a
+     code that went stale over the summer before a crew is stood at a locked gate; asking the majority, who have
+     no gate at all, was a toll on the way into their own portal. `showRsvpGateCodeStep` returns before drawing
+     anything when there is no code on file — **and still calls `thenFn`**, because that is what raises the
+     arrears pop-up behind it. The entry box is now reached only by *It has changed*, which makes RS-32's
+     contrast fix load-bearing rather than cosmetic.
    - ⚠ **The gate-code question stays, and since 2026-09-02 it is not in between at all** (RS-35). Dax:
-     *"gate codes change so make sure it asks if theres a gate code"* — RS-29 reaffirmed, not reversed —
+     *"gate codes change so make sure it asks if theres a gate code"* — RS-29 reaffirmed, not reversed, and
+     since narrowed to customers who already have one (RS-44) —
      then *"after they answer the gate code question it should just put them into their member portal"*
      and *"make it so the gate code question is just a pop up in the member portal but keep the buttons
      exactly as is instead of an entire page."* So the portal loads first and the question arrives **on
