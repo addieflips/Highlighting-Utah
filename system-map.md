@@ -1104,6 +1104,39 @@ same way by the thing that writes the note and the thing that files it.
 the System tab, one click from being read, and are left out of **both** unread badges.
 Everything else in the folder is untouched and draws exactly as before.
 
+⭐ **AND THE REST OF THE TAB IS NOW IN SECTIONS** (2026-09-02, MSG-07). Addie: *"Can we
+make folders in system messages. instead of just having it all in one spot"*, and
+*"schedule also has it's own folder"*. Twenty notices were arriving in one undivided list,
+so the one that needed her was read at the same speed as the one that did not. They are
+grouped **Money → Schedule & Routes → Quotes → Warehouse & Lights → Everything else**,
+most-urgent first, each with an unread count; a section holding nothing is not drawn.
+
+⚠ **The grouping is derived from the topic at render time, never stored** — every notice
+already in the book predates the sections, so storing one would leave the whole history in
+none of them. ⚠ **An unmapped topic falls in *Everything else***, which is the fail-safe
+direction: a notice that exists, counts towards the badge and is drawn in no section is
+worse than one in the wrong section. ⚠ **The routine digest above stays folded below the
+sections rather than filling the Schedule one** — merging them would undo the fix that
+stopped it burying the notices that need her.
+
+⭐ **CANCELLATIONS AND THE MEMBER PORTAL GET FOLDERS IN CUSTOMER MESSAGES** (2026-09-02,
+MSG-07). *"we need a place for cancelation messages to go … Also can we have inbox for
+member portal."* `messageFolderOf` sends a *Cancellation Request* to **Cancellations**, and
+*Note Added* / *Existing Customer - Address Changed* to **Member Portal**.
+
+⚠ **Derived, so it sorts the messages already written** — every cancellation in the book
+was written `folder:'Inbox'`, and routing only new ones would have left her existing ones in
+the pile. Nothing is migrated. ⚠ **The office's own filing always wins**: `filedByHand` is
+stamped by the drag, the right-click, Move to… and a folder being deleted, so a message
+moved by hand stays put — without it, a dragged message springs back and reads as the drag
+not working. ⚠ **A rename is deliberately not a filing** for a message stored in the folder, so
+renaming does not pin everything inside it for ever — but a message sitting there only
+by *derivation* **is** pinned, because otherwise the topic map would go on naming a
+folder that no longer exists and that message would be in no list at all. Deleting a
+folder files its derived residents into Inbox for the same reason. ⚠ **And `folder:'System'` is untouched by all of it** — that
+field decides which *tab* a message is on, not which folder, and a topic must never be able
+to move a notice between them.
+
 ⚠ **The nav badge was counting messages its own list has never shown.**
 `renderMessagesList` has always filtered System notices *out* of the customer list
 (`folder !== 'System'`) while the badge beside it counted `allMessages` unread — System
