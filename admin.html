@@ -45643,9 +45643,36 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
        Responded date on the Schedule and could not be told apart from a customer
        who was ASSUMED yes when their quote was converted.
        That distinction is what the Yes sheet leans on, so it has to be true. */
+    /* ⭐ AND CONFIRMING AN ANSWER THAT IS ALREADY ON FILE COUNTS AS ANSWERING IT
+       (fixed 2026-09-03). Addie: "the badges on the page that says confirmed, maybe next
+       year or pending, that doesnt update... we got rid of the thing that was confirmed
+       and maybe next year badges in add customer and put all that under RSVP Status but
+       its not working."
+
+       ⚠ THE STAMP WAS BEHIND `newRsvp !== oldRsvpForRecycle`, so it only ever fired
+       when the dropdown VALUE MOVED. That misses the one case the office actually has
+       to fix by hand: a record already carrying rsvpStatus 'yes' with NO
+       rsvpRespondedAt — the ASSUMED yes written when a quote is converted, or carried
+       in by an import. Nobody answered, so the confirmed-only rule holds them out and
+       the badge reads Pending. The office opens the record, sees Yes already selected,
+       picks Yes, saves — and nothing happens, because the value did not change. There
+       was no way out of that state from the screen at all.
+
+       ⚠ AND seasonHold ALREADY TELLS THEM TO DO EXACTLY THIS: "a yes is on file but
+       nothing dated it — confirm it on their record". Following that instruction did
+       nothing, which is worse than no instruction.
+
+       ⚠ MEASURED, NOT IMAGINED: on the live book the day she reported it, five
+       customers said yes and only three were dated. Two people were stuck.
+
+       ⚠ IT NEVER RE-STAMPS AN ANSWER THAT ALREADY HAS A DATE. Editing a phone number
+       must not move the day they replied — that date is what the Yes sheet and the
+       customer history both read. Only a record with NOTHING dating it is stamped. */
+    const realAnswer = !!newRsvp && newRsvp !== 'unanswered';
     if(newRsvp !== oldRsvpForRecycle){
-      const realAnswer = !!newRsvp && newRsvp !== 'unanswered';
       addrUpdates.rsvpRespondedAt = realAnswer ? serverTimestamp() : null;
+    } else if(realAnswer && !item.data.rsvpRespondedAt){
+      addrUpdates.rsvpRespondedAt = serverTimestamp();
     }
     if(newRsvp === 'no' && oldRsvpForRecycle !== 'no'){
       addrUpdates.needsLightRecycle = true;
