@@ -50,6 +50,7 @@ const SPEC_TARGETS = {
   'rsvp-arrears.spec.js': 'index.html',
   'button-contrast.spec.js': 'index.html',
   'rsvp-record.spec.js': 'index.html',
+  'rsvp-unpaid-this-year.spec.js': 'index.html',
   'public.spec.js': 'index.html',
   'admin.spec.js': 'admin.html',
   'crew.spec.js': 'employee.html'

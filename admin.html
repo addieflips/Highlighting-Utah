@@ -30060,6 +30060,29 @@ function seasonHold(d){
     const arrYear = (typeof houseArrearsYear === 'function') ? houseArrearsYear(d) : null;
     return {why: 'owes ' + fmtMoney(houseArrearsOutstanding(d)) + ' from ' + (arrYear || 'last season'), money: true};
   }
+  /* ⭐ AN UNDATED YES IS NOT "NO RSVP YET", AND SAYING SO SENT ADDIE HUNTING
+     (2026-09-03). She approved a Test customer through the emailed link, the badge
+     stayed ON HOLD, and the line under it read "no RSVP yet" — so she went looking for
+     a broken approval. The rule was right: the confirmed-only rule needs a DATED reply,
+     and an `rsvpStatus` of 'yes' with no `rsvpRespondedAt` is the ASSUMED yes written
+     when a quote is converted, or carried in by an import. Nobody actually answered.
+
+     ⚠ BUT THE TWO STATES HAVE DIFFERENT REMEDIES, which is why one sentence for both
+     is wrong. "Nothing on file" means chase them for an answer. "A yes nobody dated"
+     means the answer is an artefact — and the office can settle it in a second by
+     picking Yes on the RSVP dropdown, which stamps the date. Told they had never
+     replied, the office chases a customer who may well have.
+
+     ⚠ IT READS THE RAW FIELD, deliberately. `effectiveRsvpStatus` normalises a bare
+     yes away to '' — that is its job, and it is why `said` above cannot see this — so
+     the distinction only exists on the stored value.
+
+     ⚠ AND IT CHANGES NO DECISION. Both still return a hold; this only chooses words,
+     which is what the whole function does. */
+  const stored = String(d.rsvpStatus || '').trim().toLowerCase();
+  if(stored === 'yes' && !d.rsvpRespondedAt){
+    return {why: 'a yes is on file but nothing dated it \u2014 confirm it on their record', money: false};
+  }
   return {why: 'no RSVP yet', money: false};
 }
 /* The same answer as words, for anywhere that just wants the sentence. */
