@@ -871,6 +871,22 @@ owed = (install + removal + changeFees) − credits − deposit, floored at 0
 ```
 This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFees)` in admin.html and is mirrored server-side in `functions/index.js`. As of this pass, every place in the app that computes a balance or status uses the full formula — that was **not** true before this pass (see the P0 fix in git history: `changeFees` had been left out of roughly 15 different call sites, including the actual PayPal charge amount).
 
+⭐ **EVERY FEE AND DISCOUNT IS ON THEIR ACCOUNT, AND EVERY ONE CAN BE WAIVED**
+(2026-09-03). Edit Customer lists them as lines with a ✕ each: the fees on the
+invoice, the discounts, and — new — **charges carried to next season**.
+
+⚠ **That last one is where a portal colour change was disappearing.** Where the
+fee goes depends on whether the bill has already been sent: unsent, it is a line
+on the invoice; already sent, it becomes `carryoverCharge` on the CUSTOMER, to be
+collected next season. Edit Customer's fee lines only ever read the invoice, so
+the second kind was invisible on the one screen anybody would waive it from.
+
+⚠ It is the only ledger whose money lives on the customer rather than the invoice,
+so its ✕ writes to `jobAddresses` — but the plan is built by the same shared rule
+as the other two, because a second copy of "drop this line and re-total" is how
+one ledger starts disagreeing about what a ✕ does. ⚠ And it is never refused for
+want of an invoice: it exists precisely because the bill had already gone out.
+
 **Two separate $30 fees, easy to conflate:**
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
 - **Light-change fee** (`changeFees`, with itemized `changeFeeNotes`) — added by `portalSave` when a member changes their light colors outside a 48-hour grace window. Tracked as its own field, separate from `install`, so it can be waived independently — see the × below.

@@ -2185,6 +2185,10 @@
                  wait for Save — because the ledger is rebuilt from the invoice on
                  save, so a pending removal would be put straight back. -->
             <div id="editCustFeeLines" style="margin-top:8px;"></div>
+            <!-- ⭐ Charges that missed this season's bill and are waiting for next
+                 season's. They live on the customer, not the invoice — see LEDGERS. -->
+            <div id="editCustCarriedLines" style="margin-top:2px;"></div>
+            <div id="editCustCarriedLinesStatus" class="form-note" style="margin:2px 0 0;"></div>
             <div id="editCustFeeLinesStatus" style="font-size:12px; color:var(--slate); margin-top:4px;"></div>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added on top of the total. Saving replaces the manual fee; automatic fees are left alone. Press &times; on any line to waive it &mdash; that saves straight away and is recorded in their history.</p>
           </div>
@@ -7224,16 +7228,37 @@ function historyRequoteRows(requotes){
    writing it twice: two removers is two chances for a bill to stop adding up. */
 const LEDGERS = {
   fee:    { notes: 'changeFeeNotes', total: 'changeFees', sign: '+', word: 'fee' },
-  credit: { notes: 'creditNotes',    total: 'credits',    sign: '−', word: 'discount' }
+  credit: { notes: 'creditNotes',    total: 'credits',    sign: '−', word: 'discount' },
+  /* ⭐ AND THE ONES THAT MISSED THIS SEASON'S BILL (2026-09-03). Addie: "when you do
+     color change or any other fees/discounts it should come up under their account
+     fees and we should be able to waive it but when they make a change in member
+     portal it doesnt show it on fees in the edit customer spot."
+
+     ⚠ WHERE THE FEE GOES DEPENDS ON WHETHER THE BILL HAS GONE OUT, and that is the
+     whole of the bug. portalSave puts a colour-change fee on the invoice while it is
+     still unsent — and those lines have shown here all along — but once the invoice
+     HAS been sent it becomes `carryoverCharge` on the CUSTOMER instead, to be
+     collected next season. Edit Customer's fee lines only ever read the invoice, so
+     that second kind was invisible on the one screen where somebody would waive it.
+
+     ⚠ IT IS THE ONLY LEDGER THAT LIVES ON THE CUSTOMER, which is why it carries the
+     flag rather than being told apart by name somewhere else. Everything that renders
+     a line is shared with the other two; only the document the × writes to differs. */
+  carried: { notes: 'carryoverChargeNotes', total: 'carryoverCharge', sign: '+',
+             word: 'charge', onCustomer: true }
 };
 /* ⚠ A LIGHT-CHANGE FEE CARRIES NO `kind` AT ALL — both writers of one (portalSave
    and the nightly carry-forward, in functions/index.js) push `{amount, reason,
    date}` and nothing else. So kindless IS the light-change fee, and that is why
    this is the default rather than a case. The same is true of an old credit. */
 const FEE_KIND_LABELS = { manual: 'Fee', arrears: 'Unpaid balance carried forward', late: 'Late fee' };
+/* A carried charge is one kind of thing, so its label says what it IS rather than
+   leaving the reason to speak for a row somebody has to decide about. */
+const CARRIED_KIND_LABELS = {};
 const CREDIT_KIND_LABELS = { manual: 'Discount', referral: 'Referral credit',
                              carried: 'Payment carried from their old bill' };
 function ledgerLineLabel(ledger, n){
+  if(ledger === 'carried') return (n && CARRIED_KIND_LABELS[n.kind]) || 'Charge carried to next season';
   return ledger === 'credit'
     ? ((n && CREDIT_KIND_LABELS[n.kind]) || 'Credit')
     : ((n && FEE_KIND_LABELS[n.kind]) || 'Light-change fee');
@@ -7288,6 +7313,9 @@ function ledgerWaiveUpdates(inv, ledger, key){
      the map is what somebody reads to find out who writes `changeFees`. One rule
      with two named outputs beats one rule nothing can see. */
   const updates = {};
+  /* ⚠ NAMED OUTPUTS HERE TOO, for the reason spelled out above: a computed key is
+     invisible to everything that traces who writes `carryoverCharge`. */
+  if(ledger === 'carried'){ updates.carryoverChargeNotes = kept; updates.carryoverCharge = total; }
   if(ledger === 'fee'){ updates.changeFeeNotes = kept; updates.changeFees = total; }
   else { updates.creditNotes = kept; updates.credits = total; }
   updates.status = computeInvoiceStatus(inv && inv.install, inv && inv.removal, inv && inv.deposit, credits, fees);
@@ -7327,6 +7355,35 @@ function feeLinesHtml(notes){ return ledgerLinesHtml('fee', notes); }
    than guessing when the line has moved, and LOGS it — a fee that is charged leaves
    a dated line and a fee that is waived used to leave nothing at all, which is the
    asymmetry the light-change waiver log already names. */
+/* ⭐ TAKING A CARRIED CHARGE OFF (2026-09-03). The same × as the other two ledgers,
+   writing to the CUSTOMER instead of the invoice — see LEDGERS.carried for why that
+   is where this money lives.
+
+   ⚠ THE PLAN IS BUILT BY THE SHARED RULE, ledgerWaiveUpdates. A second copy of "drop
+   this note and re-total the rest" is how one ledger starts disagreeing with the
+   others about what a × does — and this one is the only ledger whose total is not
+   also recomputed by the Edit Customer save, so a hand-rolled subtraction here would
+   have nothing checking it.
+
+   ⚠ RE-READ FIRST, exactly as the invoice one does. The record may have changed since
+   the row was drawn, and taking a line off a stale copy is arithmetic on money that
+   has already moved. */
+async function waiveCarriedCharge(customerId, key){
+  if(!customerId) return { ok:false, why:'No customer to take it off.' };
+  const snap = await getDoc(doc(db,'jobAddresses', customerId));
+  if(!snap.exists()) return { ok:false, why:'That customer no longer exists.' };
+  const fresh = snap.data();
+  const plan = ledgerWaiveUpdates(fresh, 'carried', key);
+  if(!plan) return { ok:false, why:'That charge is no longer on this customer — someone may have taken it off already.' };
+  await updateDoc(doc(db,'jobAddresses', customerId),
+    Object.assign({}, plan.updates, { updatedAt: serverTimestamp(), lastEditedBy: auth.currentUser ? auth.currentUser.email : '' }));
+  /* ⚠ MIRRORED INTO THE CACHE, for the same reason the invoice one is: the panel
+     repaints from jobAddresses, and a Save between this write and the listener
+     reporting it back would draw the crossed-off line again. */
+  const cached = jobAddresses.find(a => a.id === customerId);
+  if(cached && cached.data) Object.assign(cached.data, plan.updates);
+  return { ok:true, removed: plan.removed };
+}
 async function waiveLedgerLine(invoiceId, ledger, key){
   const spec = LEDGERS[ledger];
   if(!spec) return { ok:false, why:'Nothing to take off.' };
@@ -44011,6 +44068,10 @@ function renderEditCustFeeLines(feeNotes){
 function renderEditCustCreditLines(creditNotes){
   renderEditCustLedgerLines('credit', 'editCustCreditLines', 'editCustCreditLinesStatus', creditNotes);
 }
+/* ⭐ And the charges waiting for next season's bill, from the CUSTOMER record. */
+function renderEditCustCarriedLines(carriedNotes){
+  renderEditCustLedgerLines('carried', 'editCustCarriedLines', 'editCustCarriedLinesStatus', carriedNotes);
+}
 function renderEditCustLedgerLines(ledger, listId, statusId, notes){
   const el = document.getElementById(listId);
   if(!el) return;
@@ -44079,19 +44140,25 @@ document.addEventListener('DOMContentLoaded', function(){
      second listener on a live one — the failure that once put 2815 Firestore writes
      behind one drag in the Inbox. */
   [['fee', 'editCustFeeLines', 'editCustFeeLinesStatus'],
-   ['credit', 'editCustCreditLines', 'editCustCreditLinesStatus']].forEach(function(spec){
+   ['credit', 'editCustCreditLines', 'editCustCreditLinesStatus'],
+   ['carried', 'editCustCarriedLines', 'editCustCarriedLinesStatus']].forEach(function(spec){
     const ledger = spec[0], listEl = document.getElementById(spec[1]);
     if(!listEl) return;
     listEl.addEventListener('click', async function(e){
       const x = e.target.closest ? e.target.closest('.fee-waive') : null;
       if(!x || !listEl.contains(x)) return;
       const st = document.getElementById(spec[2]);
-      const inv = editCustInvoiceNow();
-      if(!inv){ if(st) st.textContent = 'No invoice for this customer yet, so there is nothing to take off.'; return; }
+      /* ⚠ A CARRIED CHARGE NEEDS NO INVOICE, and must not be refused for want of one.
+         It is on the customer precisely BECAUSE this season's bill had already gone
+         out — and a customer who has never been invoiced can carry one too. */
+      const inv = ledger === 'carried' ? null : editCustInvoiceNow();
+      if(ledger !== 'carried' && !inv){ if(st) st.textContent = 'No invoice for this customer yet, so there is nothing to take off.'; return; }
       x.disabled = true;
       if(st) st.textContent = 'Taking it off…';
       try{
-        const res = await waiveLedgerLine(inv.id, ledger, feeTokenToKey(x.dataset.feetoken));
+        const res = ledger === 'carried'
+          ? await waiveCarriedCharge(editCustomerId, feeTokenToKey(x.dataset.feetoken))
+          : await waiveLedgerLine(inv.id, ledger, feeTokenToKey(x.dataset.feetoken));
         if(!res.ok){ x.disabled = false; if(st) st.textContent = res.why; return; }
         /* ⚠ AND THE BOXES ABOVE HAVE TO LET GO OF IT. Both the manual fee and the
            manual discount are rebuilt FROM their boxes on save, and the referral
@@ -44116,6 +44183,10 @@ document.addEventListener('DOMContentLoaded', function(){
         const d2 = (after && after.data) || {};
         renderEditCustFeeLines(d2.changeFeeNotes || []);
         renderEditCustCreditLines(d2.creditNotes || []);
+        /* Redrawn from the customer, which is where this ledger lives. */
+        const cust2 = jobAddresses.find(a => a.id === editCustomerId);
+        renderEditCustCarriedLines((cust2 && Array.isArray(cust2.data.carryoverChargeNotes))
+          ? cust2.data.carryoverChargeNotes : []);
         if(st) st.textContent = 'Took ' + fmtMoney(Number(res.removed.amount) || 0) + ' off — saved.' + (res.note || '');
       }catch(err){
         console.error('[HU] taking a ledger line off failed:', err);
@@ -44586,6 +44657,9 @@ function openEditCustomerModal(id){
   updateEditCustFeeSummary();
   renderEditCustFeeLines(ecFeeNotes);
   renderEditCustCreditLines(ecNotes);
+  /* ⚠ FROM THE CUSTOMER, NOT THE INVOICE. This is the half that was missing: a
+     colour change made after the bill went out never reaches changeFeeNotes. */
+  renderEditCustCarriedLines(Array.isArray(d.carryoverChargeNotes) ? d.carryoverChargeNotes : []);
   setEditCustExpanded(editCustExpandedPref());
   document.getElementById('editCustWantsMailed').checked = !!d.wantsMailedInvoice;
   document.getElementById('editCustWantsTexted').checked = !!d.wantsTextedInvoice;
