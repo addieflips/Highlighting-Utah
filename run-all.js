@@ -3725,9 +3725,14 @@ check('flow', 'and a route sheet left out of date raises a System note',
   /async function noticeRouteStopStuck\(/.test(admin) &&
   /topic: 'A Route Sheet Is Out Of Date'/.test(admin),
   'a console.warn is nobody, and the crew is the one who pays for it');
-check('flow', 'both the resync and the removal report into it',
-  (admin.match(/noticeRouteStopStuck\('/g) || []).length === 2,
-  'found ' + (admin.match(/noticeRouteStopStuck\('/g) || []).length + ' of 2 — a stop ' +
+/* ⚠ THREE SINCE 2026-09-03, not two. removeCustomersFromUpcomingRoutes — the one-pass
+   version that clears the whole book at once (Suite 296) — is a third path that can
+   fail to take a stop off, and a path that cannot report is the failure this check
+   exists to prevent. It reports ONCE for the whole sweep rather than once per
+   customer: nine hundred notices is the same as none. */
+check('flow', 'the resync, the removal and the bulk sweep all report into it',
+  (admin.match(/noticeRouteStopStuck\('/g) || []).length === 3,
+  'found ' + (admin.match(/noticeRouteStopStuck\('/g) || []).length + ' of 3 — a stop ' +
   'that would not come off sends a crew to a house that has cancelled, which is the ' +
   'worse of the two');
 check('flow', 'and one note per save, not one per day the customer is on',
@@ -46632,22 +46637,40 @@ suite('286. A record stops claiming a day it no longer has');
     /* ⚠ isOutForSeason IS LIFTED, NEVER STUBBED. "Which records are stale" IS the rule
        about who is in the season, and a stub would let this sweep and the schedule
        disagree about one customer — the whole family of bug this came out of. */
+    /* ⚠ THE SWEEP BATCHES SINCE 2026-09-03 (Suite 296), so the stub is writeBatch
+       rather than updateDoc — but it records the same {id, payload} shape, because the
+       question THIS suite asks is unchanged and is a different question: 296 asks how
+       many round trips it takes, 286 asks WHO gets cleared and who must not.
+       ⚠ AND THE ROUTES ARE SWEPT ONCE FOR EVERYBODY, so the route stub takes a LIST.
+       Pushing each id keeps the per-customer checks below reading exactly as they did. */
     const mk = (book) => {
-      const writes = [], routeCalls = [];
-      const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomerFromUpcomingRoutes',
-        'jobAddresses', 'console',
+      const writes = [], routeCalls = [], commits = [];
+      const batchStub = () => {
+        const ops = [];
+        return {
+          update: (ref, payload) => { ops.push({ id: ref.id, payload: payload }); },
+          /* Records on COMMIT, not on update — a chunk that never commits must not
+             show up here as written, which is the claim 296 makes about the cache. */
+          commit: async () => { ops.forEach(o => writes.push(o)); commits.push(ops.length); }
+        };
+      };
+      const fn = new Function('updateDoc', 'doc', 'db', 'removeCustomersFromUpcomingRoutes',
+        'writeBatch', 'jobAddresses', 'console',
+        'let clearStaleBookingsInFlight = null;' + NL286 +
         seasonRuleLiveSrc() +
         'function audienceNeverAsked(d){ return d && d.chargeNewMemberFee === true; }' + NL286 +
         'function houseOwesFromLastSeason(){ return false; }' + NL286 +
         extractFn(admin, 'isOutForSeason') + NL286 +
         extractFn(admin, 'freeUpFieldForType') + NL286 +
+        sweepLift('clearStaleInstallBookingsRun') + NL286 +
         sweepSrc + NL286 + 'return clearStaleInstallBookings;');
       const run = fn(
         async (ref, payload) => { writes.push({ id: ref.id, payload: payload }); },
         (d, col, id) => ({ col: col, id: id }), {},
-        async (id) => { routeCalls.push(id); return 1; },
+        async (ids) => { (ids || []).forEach(id => routeCalls.push(id)); return {removed: (ids||[]).length, routes: 1}; },
+        batchStub,
         book, { error: function(){} });
-      return { writes, routeCalls, go: () => run() };
+      return { writes, routeCalls, commits, go: () => run() };
     };
     const replied = { rsvpStatus: 'yes', rsvpRespondedAt: '2026-09-01T00:00:00Z' };
     const booked = { scheduled: true, scheduledDate: '2026-10-20', assignedCrew: 'Crew 1' };
@@ -48024,6 +48047,114 @@ suite('Suite 294. A day the office has short-handed on purpose');
     check('S294', w[0], w[1],
       'the mark cannot reach the code that reads it, so setting one does nothing visible');
   });
+}
+
+/*
+ * ⭐ SUITE 296. CLEARING LAST SEASON'S BOOKINGS IS ONE WRITE PER FOUR HUNDRED,
+ * NOT ONE PER CUSTOMER.
+ *
+ * Addie, 2026-09-03, straight after pressing Recalculate everything:
+ *
+ *   "@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream
+ *    exhausted maximum allowed queued writes."
+ *
+ * ⚠ THE NUMBERS ARE MEASURED, NOT IMAGINED. Read off the real book that day:
+ * 956 customers, 955 still carrying a booking stamp from last season, and 952 of them
+ * out of THIS season — because SEASON_ELIGIBILITY is 'confirmed-only' and exactly
+ * three people had answered the RSVP. So one press asked for 951 individual writes.
+ * The SDK queues 500 and then refuses.
+ *
+ * ⚠ AND IT IS THE NORMAL STATE IN SEPTEMBER, not an edge case: every season starts
+ * with nobody having answered yet, so every season starts by trying to clear the whole
+ * book one record at a time.
+ *
+ * Three separate faults, three separate checks below — a fix for any one of them alone
+ * still leaves the button able to fell the write stream.
+ */
+suite('Suite 296. Last season\'s bookings are cleared in batches');
+{
+  const run = extractFn(admin, 'clearStaleInstallBookingsRun') || '';
+  const gate = extractFn(admin, 'clearStaleInstallBookings') || '';
+  const sweep = extractFn(admin, 'removeCustomersFromUpcomingRoutes') || '';
+
+  check('S296', 'the batched clearer is there', !!run && !!gate,
+    'clearStaleInstallBookings should now be a one-at-a-time gate in front of ' +
+    'clearStaleInstallBookingsRun');
+
+  /* ① BATCHED. A loop of awaited single updates is what exhausted the stream. */
+  check('S296', 'the customer records are written in batches, not one at a time',
+    /writeBatch\(db\)/.test(run) && /batch\.update\(/.test(run) && /batch\.commit\(\)/.test(run),
+    'one updateDoc per customer is 951 round trips on the real book');
+  check('S296', 'and no lone updateDoc survives in there',
+    !/await updateDoc\(doc\(db, 'jobAddresses'/.test(run),
+    'a single-record write left behind in the loop puts the storm straight back');
+
+  const limit = (run.match(/BATCH_LIMIT\s*=\s*(\d+)/) || [])[1];
+  check('S296', 'the chunk size is inside Firestore\'s limit of 500',
+    !!limit && Number(limit) > 0 && Number(limit) <= 500,
+    'got ' + limit + ' — a batch over 500 is rejected outright, which would turn a ' +
+    'slow press into a press that silently clears nothing');
+
+  /* ② THE CACHE IS ONLY UPDATED ONCE THE WRITE LANDS. The old code assigned per
+     record right after its own await, which was correct; a batched rewrite that
+     assigns before commit would leave the screen claiming rows it had not written. */
+  const commitAt = run.indexOf('batch.commit()');
+  const assignAt = run.indexOf('Object.assign(item.data');
+  check('S296', 'the on-screen cache is only updated after the batch commits',
+    commitAt !== -1 && assignAt > commitAt,
+    'assigning first makes a failed chunk look cleared — the row stops contradicting ' +
+    'itself on screen while the record in Firestore still says booked');
+
+  /* ③ ONE PASS OVER THE ROUTES. Asking per customer walked every upcoming route 952
+     times and rewrote a shared route once per stop removed. */
+  check('S296', 'the routes are swept once for everybody', !!sweep,
+    'removeCustomersFromUpcomingRoutes (plural) is the one-pass version');
+  check('S296', 'and the clearer uses it instead of asking per customer',
+    /removeCustomersFromUpcomingRoutes\(/.test(run) &&
+    !/removeCustomerFromUpcomingRoutes\(item\.id\)/.test(run),
+    'the per-customer call inside the loop is the O(customers x routes) version');
+  check('S296', 'a route nobody was taken off is not rewritten',
+    /kept\.length === stops\.length\) continue/.test(sweep),
+    'writing back an unchanged stop list is a write that says nothing and stamps the route');
+
+  /* ⚠ THE SINGULAR IS KEPT. portalSave and the office edits still take ONE customer
+     off, and deleting it to tidy up would break both. */
+  check('S296', 'the single-customer version still exists for the callers that need it',
+    !!extractFn(admin, 'removeCustomerFromUpcomingRoutes'),
+    'the office edit path and portalSave both remove exactly one person');
+
+  /* ④ ONE RUN AT A TIME. The button fires this without awaiting, so two presses used
+     to start two passes over the same nine hundred records. */
+  check('S296', 'a second press joins the run already going',
+    /clearStaleBookingsInFlight/.test(gate) &&
+    /if\(clearStaleBookingsInFlight\) return clearStaleBookingsInFlight;/.test(gate),
+    'Recalculate everything fires this un-awaited on purpose, so nothing else stops ' +
+    'an impatient second press doubling the writes');
+  check('S296', 'and the flag is cleared even when the run throws',
+    /finally\{[^}]*clearStaleBookingsInFlight = null/.test(gate),
+    'a run that failed must not lock the button out for the rest of the session');
+
+  check('S296', 'writeBatch is actually imported',
+    /import \{[\s\S]{0,400}writeBatch[\s\S]{0,400}\} from "https:\/\/www\.gstatic\.com\/firebasejs\/[\d.]+\/firebase-firestore\.js"/.test(admin),
+    'this file had no batched write anywhere before this change, so the name was ' +
+    'never on the import list');
+
+  /* The batching maths, run rather than read: 951 records must come out as 3 commits
+     and every record must appear exactly once. */
+  const chunks = (total, size) => {
+    const out = [];
+    for (let i = 0; i < total; i += size) out.push(Math.min(size, total - i));
+    return out;
+  };
+  const c = chunks(951, Number(limit || 400));
+  check('S296', 'the real book comes out as a handful of commits',
+    c.length <= 4 && c.reduce((a, b) => a + b, 0) === 951,
+    'got ' + c.length + ' commits of ' + c.join('+') + ' for 951 records');
+  check('S296', 'and a book that fits in one batch makes exactly one commit',
+    chunks(12, Number(limit || 400)).length === 1);
+  check('S296', 'nothing to clear commits nothing at all',
+    chunks(0, Number(limit || 400)).length === 0,
+    'an empty batch is still a round trip, and this runs on every press');
 }
 
 Promise.all(pendingAsync).then(function () {
