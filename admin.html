@@ -5802,7 +5802,7 @@ import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
+  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, writeBatch,
   onSnapshot as onSnapshotRaw, query, orderBy, where, serverTimestamp, getDoc, getDocs, limit, Timestamp, increment, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
@@ -50394,6 +50394,45 @@ async function resyncSavedRouteStops(customerId, fields){
    as they are - they are history, and rewriting them would change what the crew
    actually did. Mirrors pullCustomerFromSeason in functions/index.js, which does
    the same job when the customer answers "maybe next year" themselves. */
+/* ⭐ EVERY STALE CUSTOMER COMES OFF THE ROUTES IN ONE PASS (added 2026-09-03).
+   Measured on the real book: 956 customers, 952 of them out of the season under
+   SEASON_ELIGIBILITY 'confirmed-only' because only three have actually answered the
+   RSVP yet. Clearing them one at a time asked removeCustomerFromUpcomingRoutes to walk
+   every upcoming route 952 times over — and a route holding twenty of them was written
+   twenty separate times, each write racing the last.
+
+   This walks the routes ONCE and writes each affected route ONCE, whatever it is
+   carrying. Same result, one write per route instead of one per stop.
+
+   PURE-ISH: it reads scheduledRoutesCache and writes only the routes that actually
+   change. Returns what it removed so the caller can report it. */
+async function removeCustomersFromUpcomingRoutes(customerIds){
+  const drop = new Set((customerIds || []).map(String));
+  if(!drop.size) return {removed: 0, routes: 0};
+  const todayStr = toDateStr(new Date());
+  const dates = Object.keys(scheduledRoutesCache || {});
+  let removed = 0, routesTouched = 0;
+  const stuck = []; let lastErr = null;
+  for(let i = 0; i < dates.length; i++){
+    if(dates[i] < todayStr) continue;
+    const routes = scheduledRoutesCache[dates[i]] || [];
+    for(let r = 0; r < routes.length; r++){
+      const route = routes[r];
+      const stops = route.stops || [];
+      const kept = stops.filter(function(st){ return !drop.has(String(st.id)); });
+      if(kept.length === stops.length) continue;          // nothing of ours on it
+      try {
+        await updateDoc(doc(db,'scheduledRoutes', route.id), {stops: kept});
+        removed += stops.length - kept.length; routesTouched++;
+      } catch(err){ stuck.push(dates[i]); lastErr = err; }
+    }
+  }
+  /* ⚠ THE WORSE HALF OF THE TWO, unchanged: a stop that would not come off sends a
+     crew to a house that is not expecting them. Reported once for the whole pass
+     rather than once per customer, or a bad day would raise 952 notices. */
+  if(stuck.length) await noticeRouteStopStuck('take them off the route', Array.from(drop)[0], stuck, lastErr);
+  return {removed: removed, routes: routesTouched};
+}
 async function removeCustomerFromUpcomingRoutes(customerId){
   const todayStr = toDateStr(new Date());
   const dates = Object.keys(scheduledRoutesCache || {});
@@ -50440,7 +50479,19 @@ async function removeCustomerFromUpcomingRoutes(customerId){
    ⚠ IT TAKES THEM OFF THE ROUTE TOO, in that order. Clearing the flag while a stop
    survives is the same contradiction pointing the other way: the crew's sheet still
    has them and the office screen says they are not booked. */
+let clearStaleBookingsInFlight = null;
 async function clearStaleInstallBookings(){
+  /* ⚠ ONE RUN AT A TIME. The button fires this without awaiting it, so pressing
+     Recalculate everything twice used to start two passes over the same nine hundred
+     records. The second press now joins the run already going rather than doubling it. */
+  if(clearStaleBookingsInFlight) return clearStaleBookingsInFlight;
+  clearStaleBookingsInFlight = (async function(){
+    try{ return await clearStaleInstallBookingsRun(); }
+    finally{ clearStaleBookingsInFlight = null; }
+  })();
+  return clearStaleBookingsInFlight;
+}
+async function clearStaleInstallBookingsRun(){
   if(typeof jobAddresses === 'undefined' || !Array.isArray(jobAddresses) || !jobAddresses.length) return 0;
   if(typeof isOutForSeason !== 'function') return 0;
   const stale = jobAddresses.filter(function(item){
@@ -50449,18 +50500,47 @@ async function clearStaleInstallBookings(){
     if(!(d.scheduled === true || d.scheduledDate || d.assignedCrew)) return false;
     return isOutForSeason(d);
   });
+  /* ⭐ BATCHED, BECAUSE THE HONEST NUMBER HERE IS NEARLY A THOUSAND (2026-09-03).
+     Addie: "@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream
+     exhausted maximum allowed queued writes", straight after pressing Recalculate
+     everything.
+
+     ⚠ THIS IS NOT AN EDGE CASE, IT IS THE NORMAL STATE IN SEPTEMBER. Measured on the
+     real book the day she reported it: 956 customers, 955 still carrying a booking
+     stamp from last season, and 952 of them out of THIS season because
+     SEASON_ELIGIBILITY is 'confirmed-only' and only three people have answered the
+     RSVP so far. So one press asked for 951 individual writes. The SDK queues 500 and
+     then refuses, which is the error she saw — and because the run died partway, the
+     next press tried the same nine hundred again.
+
+     ⚠ AND IT WAS FIRED WITHOUT await FROM THE BUTTON, so an impatient second press
+     started a second run of the same nine hundred on top of the first. inFlight below
+     is what stops that; the un-awaited call at the button is deliberate (the press
+     must not sit there looking hung) and is left alone.
+
+     Firestore takes 500 operations in a batch. Chunked at 400 for headroom, 951
+     records become three round trips instead of 951. */
+  const BATCH_LIMIT = 400;
   let cleared = 0;
-  for(let i = 0; i < stale.length; i++){
-    const item = stale[i];
+  /* The routes first, in one pass — see removeCustomersFromUpcomingRoutes. Clearing a
+     flag while the stop survives is the same contradiction pointing the other way. */
+  if(typeof removeCustomersFromUpcomingRoutes === 'function'){
+    try{ await removeCustomersFromUpcomingRoutes(stale.map(function(x){ return x.id; })); }
+    catch(err){ console.error('Could not take stale bookings off their routes', err); }
+  }
+  for(let i = 0; i < stale.length; i += BATCH_LIMIT){
+    const chunk = stale.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+    chunk.forEach(function(item){ batch.update(doc(db, 'jobAddresses', item.id), freeUpFieldForType('install')); });
     try{
-      if(typeof removeCustomerFromUpcomingRoutes === 'function') await removeCustomerFromUpcomingRoutes(item.id);
-      await updateDoc(doc(db, 'jobAddresses', item.id), freeUpFieldForType('install'));
-      /* The panel repaints from the cache as well as from the listener, so the row
-         stops contradicting itself immediately rather than on the next snapshot. */
-      Object.assign(item.data, freeUpFieldForType('install'));
-      cleared++;
+      await batch.commit();
+      /* Only after the write lands. The panel repaints from this cache as well as from
+         the listener, so a chunk that failed must not leave the screen claiming it
+         cleared records that are still stamped. */
+      chunk.forEach(function(item){ Object.assign(item.data, freeUpFieldForType('install')); });
+      cleared += chunk.length;
     }catch(err){
-      console.error('Could not clear a stale booking for', item.id, err);
+      console.error('Could not clear a batch of ' + chunk.length + ' stale bookings', err);
     }
   }
   return cleared;

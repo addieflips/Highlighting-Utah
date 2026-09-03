@@ -1238,6 +1238,62 @@ than about the calendar.
 *Proved in* run-all.js **Suite 294**, whose first check is the one that matters: an
 unmarked season is byte-for-byte the season the builder made before.
 
+### Why the schedule looks empty in September, and the write storm behind it
+
+Addie, 2026-09-03: a whole season showing **one day and three houses**, and then
+`@firebase/firestore: FirebaseError: [code=resource-exhausted]: Write stream exhausted
+maximum allowed queued writes` the moment she pressed **Recalculate everything**.
+
+One cause, both symptoms. **Counted on the live book rather than reasoned about:**
+
+| | |
+|---|---|
+| customers | 956 |
+| blank `rsvpStatus` | 950 |
+| said yes | 5 |
+| **yes AND `rsvpRespondedAt` stamped** | **3** |
+| out of the season | 952 |
+| still carrying a booking stamp from last season | 955 |
+
+`isOutForSeason` ends in the `SEASON_ELIGIBILITY = 'confirmed-only'` branch: somebody
+is in the season only if they said **yes and the reply is stamped**, or they are a new
+hang nobody was ever asked (`audienceNeverAsked`). Three people qualify, so the builder
+places three. **The schedule was right.** This is her own ruling working — *"play with it
+until the only customers in the schedule are the confirmed ones"* — and it is the normal
+state every September, before the RSVPs come back. Worth writing down precisely because
+the screen looks catastrophic when it is behaving.
+
+**The same 952 caused the write storm.** `clearStaleInstallBookings` takes the booking
+stamp off everybody who is out, and 951 of them still carried one. It wrote them one at a
+time. The SDK queues 500 and refuses, so the run died partway — and the next press tried
+the same nine hundred again.
+
+Three faults, all three fixed:
+
+- **The customer records are batched.** `writeBatch` in chunks of 400 — 951 records
+  become 3 commits. This file had no batched write anywhere before; `writeBatch` was not
+  even on the import list.
+- **The routes are swept once for everybody.** `removeCustomersFromUpcomingRoutes`
+  (plural) walks the upcoming routes a single time and writes each affected route once,
+  whatever it is carrying. The old per-customer call walked every route 952 times and
+  rewrote a shared route once per stop removed. The singular version stays — the office
+  edit path and `portalSave` each remove exactly one person.
+- **One run at a time.** The button fires this without awaiting on purpose, so nothing
+  stopped an impatient second press doubling the writes. `clearStaleBookingsInFlight`
+  makes the second press join the run already going.
+
+⚠ **The cache is only updated after a chunk commits.** Assigning first makes a failed
+chunk look cleared: the row stops contradicting itself on screen while the record in
+Firestore still says booked — the exact contradiction this sweep exists to remove.
+
+⚠ **Two wrong theories were measured and discarded before this one.** That the arrears
+hold was emptying the season (only 19 customers owe from last season), and that the
+season-start date bug was to blame (real, but unrelated — see the section above). Both
+were plausible; neither survived counting.
+
+*Proved in* run-all.js **Suite 296**. **Suite 286** still owns the other half — *which*
+records get cleared, and the three kinds that must not be touched.
+
 ### Confirming an answer that is already on file
 
 Addie, 2026-09-03: *"the badges on the page that says confirmed, maybe next year or
