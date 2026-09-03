@@ -134,6 +134,30 @@
                       background:#fff; border-radius:14px; padding:26px 22px;
                       text-align:center; box-shadow:0 18px 50px rgba(0,0,0,.30); }
 
+  /* ---------- Your price, before the bill goes out — as a pop-up ----------
+     Replaces the inline #invNotBilledYet box (2026-09-03). Addie: "make it more
+     obvious... like a popup," then asked for the plain-notice version with one
+     dismiss button rather than a second "Pay now" competing with the real pay
+     buttons already on the same screen.
+
+     ⚠ IT SITS BELOW THE GATE-CODE DIALOG AND THE ARREARS LOCK (399 against 400
+     and 401). A customer can raise this on the very same portal load as either
+     of those, and both outrank it — one is a question they must answer, the
+     other blocks the season. This one is neither; it waits its turn, revealed
+     once the dialog on top of it is dismissed. */
+  #portalPriceModal{ position:fixed; inset:0; z-index:399; display:none;
+                     align-items:center; justify-content:center; padding:20px; }
+  #portalPriceModal.show{ display:flex; }
+  #portalPriceModalBackdrop{ position:absolute; inset:0; background:rgba(17,24,32,.55); }
+  #portalPriceModalCard{ position:relative; width:100%; max-width:400px; background:#fff;
+                    border-radius:14px; padding:26px 22px; text-align:center;
+                    box-shadow:0 18px 50px rgba(0,0,0,.30); }
+  #portalPriceModalEyebrow{ font-size:12.5px; letter-spacing:.05em; text-transform:uppercase;
+                    color:var(--slate); font-weight:600; margin-bottom:6px; }
+  #portalPriceModalAmount{ font-size:40px; font-weight:800; color:var(--ink); line-height:1.1; margin-bottom:14px; }
+  #portalPriceModalTitle{ font-size:16px; font-weight:700; color:var(--ink); margin-bottom:8px; }
+  #portalPriceModalBody{ font-size:14px; line-height:1.55; color:var(--slate); margin-bottom:18px; }
+
   /* ---------- Last season's balance, over everything ----------
      ⚠ IT OUT-STACKS THE GATE-CODE DIALOG (z-index 401 against 400) rather than
      merely sitting at the same height. The two can be raised in the same visit —
@@ -1667,6 +1691,23 @@
           </div>
         </div>
 
+        <!-- ⭐ THIS IS YOUR PRICE; THE BILL COMES LATER — as a pop-up (2026-09-03).
+             Addie asked for this to be more obvious than the inline box it replaces,
+             then for a plain notice rather than a second "Pay now" button competing
+             with the real pay buttons already on this screen.
+             Filled and raised by renderNotBilledYetNotice(). See that function for
+             the gate (billIssued, arrears, $0) — this markup carries none of it. -->
+        <div id="portalPriceModal" role="dialog" aria-modal="true" aria-labelledby="portalPriceModalTitle">
+          <div id="portalPriceModalBackdrop"></div>
+          <div id="portalPriceModalCard">
+            <div id="portalPriceModalEyebrow">Your price this season</div>
+            <div id="portalPriceModalAmount"></div>
+            <div id="portalPriceModalTitle">No payment due yet</div>
+            <div id="portalPriceModalBody">An invoice will be emailed once your lights are installed. If you&rsquo;d prefer to pay in advance, payment options are available below.</div>
+            <div><button type="button" class="btn btn-outline-dark" id="portalPriceModalCloseBtn">Got it</button></div>
+          </div>
+        </div>
+
         <div class="invoice-card" id="invoiceCard">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; font-size:13px; flex-wrap:wrap; gap:8px;">
             <a href="#/" style="color:var(--slate); text-decoration:none;">&larr; Back to site</a>
@@ -1733,28 +1774,9 @@
           </div>
           <div style="text-align:center; margin-bottom:18px;"><span id="invAmount" style="font-size:44px; font-weight:700; color:var(--ink); line-height:1;">$0</span></div>
 
-          <!-- ⭐ THEIR PRICE, BUT NOTHING TO PAY YET (added 2026-09-02). Addie: "I want
-               to make it clear to the member that this is there payment however they do
-               not need to pay until after they get an invoice from us."
-
-               ⚠ THE CARD SAID "CURRENT BALANCE" FROM THE MOMENT A HOUSE WAS PRICED,
-               which is months before the nightly run bills anybody. So a customer
-               signing in to check their colours in September read a number that looks
-               due today, above a pay button, with nothing anywhere saying otherwise —
-               and the banner directly above it was cheerfully telling them we would be
-               in touch with their install date.
-
-               ⚠ IT DOES NOT HIDE THE BUTTONS. Paying early is real and allowed —
-               `prepaid` is a value the master sheet already carries — so refusing money
-               somebody is trying to give us would be a worse bug than the confusion.
-               This says what the number is and when it is due, and leaves the choice.
-
-               ⚠ AND IT ONLY APPEARS WHEN WE KNOW. Filled by renderNotBilledYetNotice
-               from `billIssued`, which is a boolean of the invoice's own `invoicedAt` —
-               so an older client that never receives the field shows nothing at all
-               rather than telling a customer with a real invoice in their inbox that
-               they need not pay it. -->
-          <div id="invNotBilledYet" role="status" style="display:none; background:#EAF1FA; border:1px solid #C3D8EC; color:#2B5C8A; border-radius:12px; padding:13px 16px; margin-bottom:16px; font-size:13.5px; line-height:1.55;"></div>
+          <!-- ⭐ THEIR PRICE, BUT NOTHING TO PAY YET — now a pop-up, not an inline box
+               (2026-09-03). The markup for it lives with the other portal dialogs, as
+               #portalPriceModal; see renderNotBilledYetNotice() for the gate. -->
 
           <!-- What that number is made of. The nightly invoice email has always
                itemised this — install, removal, each light-change fee, each
@@ -3894,7 +3916,7 @@ function renderCustomerInvoicePage(raw, opts){
     document.getElementById('invAmount').textContent = fmt(totalDue);
     /* Before the arrears notice, because a carried debt from LAST season genuinely is
        payable now — that notice must be the one that speaks if both could. */
-    renderNotBilledYetNotice(record, totalDue);
+    renderNotBilledYetNotice(record, totalDue, !!(opts && opts.showPriceModalOnLoad));
     renderArrearsNotice(res, totalDue);
     renderPayChoice(res, totalDue);
     renderInvoiceBreakdown(record, {
@@ -4296,9 +4318,37 @@ function renderNoEmailNotice(record){
   el.style.display = 'block';
 }
 
-/* ⭐ THIS IS YOUR PRICE; THE BILL COMES LATER (added 2026-09-02). Addie: "I want to
-   make it clear to the member that this is there payment however they do not need to
-   pay until after they get an invoice from us."
+/* ⭐ THIS IS YOUR PRICE; THE BILL COMES LATER — a pop-up, and only on RSVP Approve
+   (rebuilt 2026-09-03 twice over; was an inline box added 2026-09-02). Addie: "I
+   want to make it clear to the member that this is there payment however they do
+   not need to pay until after they get an invoice from us," then, once the inline
+   box shipped, "make it more obvious... like a popup" — and, seeing the mockup,
+   asked for one plain dismiss button rather than a second "Pay now" that would sit
+   above the real pay buttons already on this same screen and mean nothing when
+   pressed. Then, same day, having seen it fire on every ordinary sign-in: "This
+   should only pull up when they push RSVP Approve. It should not pop up every time
+   they open there member portal." [[MON-60]]
+
+   ⚠ EVERY MONEY GATE BELOW IS UNCHANGED THROUGHOUT ALL OF THAT. Only two things
+   have moved: where the message is drawn (a modal instead of a div in the page
+   flow), and now WHEN it is allowed to open at all.
+
+   ⚠ THE THIRD ARGUMENT IS THE WHOLE OF THE NEW RULE. `allowPopup` is true for
+   exactly one caller: openPortalAfterYes, reached only from handleRsvpLink's yes
+   branch — the RSVP email link, the same "RSVP Approve" action the gate-code
+   confirmation already lives behind. Every other caller of renderCustomerInvoicePage
+   (a phone+name sign-in, a saved-token auto-login, a plain portal link with no rsvp
+   param, the post-payment "are you in?" ask, the in-portal Changes-tab RSVP toggle)
+   passes nothing, so `allowPopup` is falsy by default — the SAFE default, since
+   forgetting to pass it now means "never shows" rather than "shows every time,"
+   which is the direction that would have generated a support call, not the
+   direction that costs nothing to be wrong about.
+
+   ⚠ THE LABEL IS NOT GATED BY THIS. "Your Price This Season" vs "Current Balance"
+   still switches on ordinary logins too — only the interrupting pop-up is now
+   restricted to the RSVP-approve moment. Someone who signs in normally still SEES
+   the correct eyebrow and the correct figure; they are simply not interrupted by a
+   dialog to be told what they can already read on the card.
 
    ⚠ IT IS DRIVEN BY `billIssued`, A BOOLEAN THE SERVER DERIVES FROM `invoicedAt` —
    the same stamp the due date and the Overdue flag are measured from, and the one
@@ -4319,24 +4369,39 @@ function renderNoEmailNotice(record){
    schedule until they pay it. "There is nothing to pay yet" is exactly the sentence
    that keeps them off the season. renderArrearsNotice speaks for them instead.
 
-   ⚠ THE EYEBROW MOVES WITH IT. "Current Balance" over a number nobody has been asked
-   for is the actual misstatement — the notice explains it, but the two-word label is
-   what somebody skims. */
-function renderNotBilledYetNotice(record, totalDue){
-  var el = document.getElementById('invNotBilledYet');
+   ⚠ IT SHOWS AT MOST ONCE PER PAGE LOAD (portalPriceModalShown), even within the one
+   flow that is now allowed to raise it. renderCustomerInvoicePage runs once when
+   openPortalAfterYes first opens the portal, and can run again if that same page
+   later re-renders — re-opening a dialog somebody just dismissed reads as the
+   dismiss button not working. If the condition goes false again (an invoice goes
+   out while the tab is still open) the modal is force-closed regardless of the
+   flag; it must never keep claiming nothing is due once a real bill exists. */
+var portalPriceModalShown = false;
+function renderNotBilledYetNotice(record, totalDue, allowPopup){
+  var modal = document.getElementById('portalPriceModal');
   var label = document.getElementById('invAmountLabel');
   var rec = record || {};
   var owedFromBefore = Number(rec.arrearsOutstanding) || 0;
   var show = rec.billIssued === false && Number(totalDue) > 0 && owedFromBefore <= 0;
   if(label) label.textContent = show ? 'Your Price This Season' : 'Current Balance';
-  if(!el) return;
-  if(!show){ el.style.display = 'none'; return; }
-  el.innerHTML = '<strong>This is what your lights cost this season — there is nothing to pay yet.</strong>' +
-    '<div style="margin-top:4px;">We will email you an invoice once your lights are up, ' +
-    'and payment is due after that. You are welcome to pay early if you would rather; ' +
-    'nothing is late until your invoice has arrived.</div>';
-  el.style.display = 'block';
+  if(!modal) return;
+  if(!show){ modal.classList.remove('show'); return; }
+  if(!allowPopup || portalPriceModalShown) return;
+  var amt = document.getElementById('portalPriceModalAmount');
+  if(amt) amt.textContent = fmt(totalDue);
+  modal.classList.add('show');
 }
+function closePortalPriceModal(){
+  var modal = document.getElementById('portalPriceModal');
+  if(modal) modal.classList.remove('show');
+  portalPriceModalShown = true;
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var closeBtn = document.getElementById('portalPriceModalCloseBtn');
+  var bd = document.getElementById('portalPriceModalBackdrop');
+  if(closeBtn) closeBtn.addEventListener('click', closePortalPriceModal);
+  if(bd) bd.addEventListener('click', closePortalPriceModal);
+});
 
 /* "Did you get my payment?" lastPaymentAt and lastPaymentMethod were written by
    every payment path from the start and simply never sent to the browser. */
@@ -5046,8 +5111,19 @@ function handleRsvpLink(token, rsvpValue){
        fail-open paths inside the step. The question is the last thing to happen, after
        the destination: if the portal never loads, onPortalReady is never called, and
        the customer is left looking at the portal's own error rather than at a
-       gate-code box floating over it. */
-    loadPortalByToken(token, {onPortalReady: function(){
+       gate-code box floating over it.
+
+       ⭐ AND THIS IS THE ONE PLACE showPriceModalOnLoad IS EVER SET (Addie,
+       2026-09-03: "This should only pull up when they push RSVP Approve. It should
+       not pop up every time they open there member portal"). openPortalAfterYes is
+       reached only from handleRsvpLink's yes branch — the RSVP email link — so this
+       is "RSVP Approve" in the one sense that has no other name in this codebase.
+       loadPortalByToken threads extraOpts straight into renderCustomerInvoicePage,
+       which is where renderNotBilledYetNotice reads it back out; nothing else in
+       this file ever sets this flag, so every other way into the portal (a plain
+       sign-in, a saved-token auto-load, the post-payment RSVP ask, the in-portal
+       Changes-tab RSVP toggle) leaves it unset and the pop-up silent. [[MON-60]] */
+    loadPortalByToken(token, {showPriceModalOnLoad: true, onPortalReady: function(){
       /* ⚠ THE GATE CODE IS STILL ASKED OF SOMEBODY WHO OWES, and it is asked FIRST —
          Dax put the arrears pop-up after it. It is also why portalSetGateCode is not
          one of the calls the server holds: a question we insist on asking has to be
