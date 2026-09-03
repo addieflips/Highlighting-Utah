@@ -251,6 +251,29 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    touched. Testing the RSVP means testing it three times and watching the badge each
    time, and a reset done by hand between answers is one that gets skipped.
 
+   ⭐ **"ON HOLD AFTER I APPROVED" IS THE CONFIRMED-ONLY RULE WANTING A DATE** (2026-09-03,
+   RS-47). Addie approved a Test customer through the emailed link and the badge stayed
+   **On hold**, with *"Not scheduled — no RSVP yet"* under it.
+
+   ⚠ **The hold was right.** `isOutForSeason` asks for a **dated** reply — `rsvpStatus`
+   of `'yes'` with no `rsvpRespondedAt` is the *assumed* yes written when a quote is
+   converted, or carried in by an import, and nobody actually answered. A dated yes
+   reads **Confirmed**; an undated one reads **On hold**.
+
+   ⚠ **The unpaid bill was not the cause.** The portal's hold reads
+   `arrearsOutstanding` — *last* season's debt — so a current bill never touches the
+   season badge. Her $946 was this year's.
+
+   ⚠ **And the emailed Yes does work**, bill outstanding or not:
+   `test/rsvp-unpaid-this-year.spec.js` drives it in a real browser and the badge goes
+   Confirmed. A record still on **On hold** never received that write.
+
+   ⭐ **What was wrong was the sentence.** The line said *"no RSVP yet"* for both states.
+   They need different things — nothing on file means chase them, a yes nobody dated
+   means confirm it on the record, which stamps the date — so the second now says so.
+   It reads the **raw** field, because `effectiveRsvpStatus` normalises a bare yes away
+   and that is exactly why the line could not tell them apart.
+
    ⭐ **THE GATE CODE IS ASKED ON THE WAY PAST A YES** (added 2026-08-31). Addie: *"Lets do gate code before changes."* After the yes is recorded and before *"do you want to make any changes?"*, the customer is asked about their gate code — the RSVP is the one email everybody opens and acts on, so it is the cheapest chance each season to catch a wrong code before a crew is standing at a locked gate.
    - **It confirms a code we already hold, and asks nobody else** (narrowed 2026-09-02, RS-44). A code on file is quoted back (*"We have 4417 as your gate code. Is that still right?"*) with **Yes, that's right** / **It has changed**; confirming writes nothing, so `gateCodeUpdatedAt` marks a real change rather than every RSVP.
    - ⚠ **This line used to say it also ASKED anybody without a code, and that half is gone.** Dax: *"make it so the gate code question after they accept gate code only applys to people that already have a gate code in the system so not everyone is seeing it."* It narrows RS-29 rather than reversing it — the value was always in catching a code that went stale over the summer, and asking the majority, who have no gate at all, a question whose honest answer is *no* was a toll on the way into their own portal. ⚠ **Nothing is lost for the people who now skip it**: gate code is on My Info and on the office record, so somebody who fits a gate later can still tell us. ⚠ **And the early return still hands on to `thenFn`** — that is what raises the arrears pop-up behind it, so skipping the question must never skip what follows it.

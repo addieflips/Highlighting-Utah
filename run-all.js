@@ -43730,6 +43730,27 @@ suite('273. Inbox - the count is unread, and a message can be filed without a mo
     ];
     F.set(MSGS, FOLDERS, []);
 
+    /* ⭐ THE COUNT AND THE LIST MUST ASK THE SAME QUESTION (added 2026-09-03, after a
+       red-check with a corrected detector found this uncovered). folderUnread was moved
+       onto messageFolderOf with MSG-07 so a message derived into a folder is counted
+       there — but nothing failed when it was reverted to the raw field, which is the
+       sidebar saying one number while the list underneath shows another.
+       ⚠ THE FIXTURE MUST BE A MESSAGE THAT IS ONLY THERE BY DERIVATION — stored
+       folder:'Inbox', no filedByHand. One already carrying folder:'Cancellations' is
+       counted correctly either way and the check proves nothing. */
+    F.set(MSGS.concat([
+      { id: 'derived', data: { folder: 'Inbox', topic: 'Cancellation Request', read: false } }
+    ]), FOLDERS.concat([{ id: 'x1', name: 'Cancellations', parentId: null }]), []);
+    check('S273', 'a message derived into a folder is counted in THAT folder',
+      F.folderUnread('Cancellations') === 1,
+      'got ' + F.folderUnread('Cancellations') + ' — the sidebar would show nothing ' +
+      'beside Cancellations while the list inside it holds an unread message');
+    check('S273', 'and it is no longer counted in the folder it is stored in',
+      F.folderUnread('Inbox') === 2,
+      'got ' + F.folderUnread('Inbox') + ' — counted twice, the count and the list ' +
+      'disagree in the other direction');
+    F.set(MSGS, FOLDERS, []);
+
     check('S273', 'the number beside a folder is UNREAD, not every message in it',
       F.folderUnread('Inbox') === 2 && F.folderCount('Inbox') === 2,
       'Inbox holds 3 messages of which 2 are unread — got ' + F.folderCount('Inbox') +
