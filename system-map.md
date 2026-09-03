@@ -234,6 +234,11 @@ Written for Addie (non-coder) by Claude Code from a full read-through of the rea
    we asked this season and they have not replied. ⚠ **And they are still routable**: it
    sets no flag and is not `no`, so `isOutForSeason` keeps them in the season.
 
+   ⚠ **A folder a topic is filed into cannot be deleted** (MSG-08). Deleting one files
+   what is in it into Inbox, but the topic map goes on naming it — so the next
+   cancellation would land in a folder with no row and be in no list at all. It refuses
+   before asking, and names the topics that arrive there.
+
    ⭐ **Customers → Reset Test for RSVP** puts every test record back to that state —
    answer, reply date, Back Next Year badge and new-member tick cleared, nothing else
    touched. Testing the RSVP means testing it three times and watching the badge each

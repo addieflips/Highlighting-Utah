@@ -12276,7 +12276,11 @@ _tpBtn.addEventListener('click', async function(){
         failed++;
       }
     }
-    safeRender('allCustomersTable');
+    /* ⚠ safeRender TAKES (label, fn) AND RETURNS SILENTLY WITHOUT ONE. The first
+       version of this line passed the label alone, so it was a no-op that read like
+       a repaint — the jobAddresses listener would have redrawn a moment later and
+       hidden it. Same shape as every other call site. */
+    safeRender('allCustomersTable', typeof renderAllCustomersTable === 'function' ? renderAllCustomersTable : null);
     let msg = done + ' test record' + (done === 1 ? '' : 's') + ' reset \u2014 they now read Unanswered.';
     if(stillRecycling) msg += ' ' + stillRecycling + ' still queued to recycle from an earlier "no" \u2014 left alone on purpose.';
     if(failed) msg += ' ' + failed + ' could not be saved \u2014 see the console.';
@@ -17669,6 +17673,24 @@ function renderFolderSidebar(){
       e.stopPropagation();
       const folderId = btn.dataset.delfolder;
       const folderName = btn.dataset.delname;
+      /* ⭐ A FOLDER A TOPIC IS ROUTED TO CANNOT BE DELETED (2026-09-03, found in a
+         self-review of MSG-07). Deleting one files everything CURRENTLY in it into
+         Inbox — but the topic map goes on naming it, so the NEXT cancellation to
+         arrive would resolve to a folder with no row and be in no list at all.
+         ⚠ AND IT WOULD HAVE LOOKED LIKE A BUG EITHER WAY: loadMessageFolders re-seeds
+         any missing default on the next login, so the folder reappears by itself and
+         the office is left deleting something that keeps coming back, with a window
+         in between where new messages are invisible. Refusing is the honest answer.
+         ⚠ It names the topics, because "you cannot delete this" with no reason is the
+         kind of refusal people work around by making a duplicate folder. */
+      const homedTopics = Object.keys(MESSAGE_HOME_FOLDER)
+        .filter(function(t){ return MESSAGE_HOME_FOLDER[t] === folderName; });
+      if(homedTopics.length){
+        alert('\u201C' + folderName + '\u201D cannot be deleted \u2014 messages are filed ' +
+          'into it automatically.\n\nThese arrive here on their own: ' + homedTopics.join(', ') +
+          '.\n\nYou can rename it, and you can move any message out of it by hand.');
+        return;
+      }
       if(!confirm('Delete the "'+folderName+'" folder? Messages inside will move back to Inbox, and any subfolders will move up to where this one was.')) return;
       if(!confirm('Are you sure? This can\'t be undone.')) return;
       const deletedFolder = messageFolders.find(f => f.id === folderId);
