@@ -877,13 +877,32 @@ written into that customer's history.
     rather than against a named fee, so a late fee written later is waivable the day
     something writes one, with nothing here to change.
 
-⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-56). Addie:
+⭐ **THE PORTAL SAYS WHEN A BALANCE IS ACTUALLY DUE** (added 2026-09-02, MON-57). Addie:
 *"I want to make it clear to the member that this is there payment however they do not need
 to pay until after they get an invoice from us."* The payment card said **Current Balance**
 from the moment a house was priced — months before the nightly run bills anybody — so a
 customer signing in during October read a figure that looks due today, above a pay button.
-Until the bill goes out the label reads **Your Price This Season** and a notice under it
-says what the number is and when it is due.
+Until the bill goes out the label reads **Your Price This Season**, and the customer is told
+in as many words what the number is and when it is due.
+  - ⭐ **IT IS A POP-UP, AND ONLY ON RSVP APPROVE** (changed 2026-09-03, MON-59 then
+    MON-60). It shipped as an inline box under the amount; Addie asked for it to be louder
+    — *"make it more obvious... like a popup"* — and then, having seen it fire on every
+    ordinary sign-in, *"This should only pull up when they push RSVP Approve. It should not
+    pop up every time they open there member portal."* It is `#portalPriceModal`, raised
+    only by `openPortalAfterYes` — the RSVP email's yes branch, which is "RSVP Approve" in
+    the one sense this codebase names. One dismiss button, never a second **Pay now**: the
+    real pay buttons are already on the same screen.
+  - ⚠ **THE LABEL IS NOT GATED BY THAT.** "Your Price This Season" still replaces "Current
+    Balance" on an ordinary sign-in — only the interrupting dialog is scoped. Somebody
+    signing in normally reads the right figure under the right heading; they are simply not
+    stopped to be told it.
+  - ⚠ **THE DEFAULT IS SILENCE.** Every other way into the portal — a phone-and-name
+    sign-in, a saved-token auto-login, the post-payment RSVP ask, the in-portal Changes tab
+    — passes nothing, so forgetting the flag means *never shows* rather than *shows every
+    time*. That is the cheap direction to be wrong in.
+  - ⚠ **It sits BELOW the gate-code dialog and the arrears lock** (z-index 399 against 400
+    and 401). All three can be raised on one portal load; the other two outrank it — one is
+    a question they must answer, the other blocks the season.
   - Driven by `billIssued`, a boolean `portalInvoice` derives from the invoice's own
     `invoicedAt` — the same stamp the due date and the Overdue flag are measured from, and
     the one Start New Season clears, so it answers about *this* season.
