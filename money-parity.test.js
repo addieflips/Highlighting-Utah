@@ -147,6 +147,12 @@ const serverLightSrc = extractFn(fnsSrc, 'applyLightChangeServer');
    and proving nothing. A stubbed $30 would agree with itself forever. */
 const clientFeeSrc = extractConst(moneySrc, 'LIGHT_CHANGE_FEE');
 const serverFeeSrc = extractConst(fnsSrc, 'LIGHT_CHANGE_FEE');
+/* ⭐ AND THE SET-UP FEE, WHICH IS THE SAME ARGUMENT (2026-09-03). Addie moved it from
+   $30 to $25, and it lives in two files because functions/index.js cannot import a
+   browser module. Two numbers that must be equal, with real money on both sides: the
+   office screen quotes one and the nightly billing run charges the other. */
+const clientSetupSrc = extractConst(moneySrc, 'NEW_MEMBER_FEE');
+const serverSetupSrc = extractConst(fnsSrc, 'NEW_MEMBER_FEE');
 const clientWinSrc = extractConst(moneySrc, 'LIGHT_WINDOW_MS');
 const serverWinSrc = extractConst(fnsSrc, 'LIGHT_WINDOW_MS');
 
@@ -162,6 +168,8 @@ const found = {
   'functions/index.js applyLightChangeServer': serverLightSrc,
   'js/money.js LIGHT_CHANGE_FEE': clientFeeSrc,
   'functions/index.js LIGHT_CHANGE_FEE': serverFeeSrc,
+  'js/money.js NEW_MEMBER_FEE': clientSetupSrc,
+  'functions/index.js NEW_MEMBER_FEE': serverSetupSrc,
   'js/money.js LIGHT_WINDOW_MS': clientWinSrc,
   'functions/index.js LIGHT_WINDOW_MS': serverWinSrc
 };
@@ -187,6 +195,23 @@ const clientKey = compile([clientKeySrc], 'custInvoiceKey');
 const serverKey = compile([digitsOnlySrc, serverKeySrc], 'invoiceKeyFor');
 const clientLight = compile([clientFeeSrc, clientWinSrc, clientLightSrc], 'applyLightChange');
 const serverLight = compile([serverFeeSrc, serverWinSrc, serverLightSrc], 'applyLightChangeServer');
+
+/* ⭐ THE SET-UP FEE IS COMPARED AS A NUMBER, because unlike the light-change fee it
+   has no shared function to sweep — it is added straight into `install` by the nightly
+   run and subtracted straight back out by the office. So the only thing that can be
+   proved is that the two copies agree, and that is exactly what matters: the screen
+   quoting one figure while the billing run charges another. */
+{
+  const num = (src) => Number((String(src || '').match(/=\s*([0-9.]+)\s*;/) || [])[1]);
+  const c = num(clientSetupSrc), sv = num(serverSetupSrc);
+  check('the set-up fee is a real number in both files',
+    Number.isFinite(c) && Number.isFinite(sv) && c > 0,
+    'js/money.js says ' + c + ', functions/index.js says ' + sv);
+  check('and the office and the nightly run charge the SAME set-up fee',
+    c === sv,
+    'js/money.js says ' + c + ' and functions/index.js says ' + sv +
+    ' — one of these is what the customer is quoted and the other is what their card is charged');
+}
 
 // ---------------------------------------------------------------------------
 // 2. Invoice status — sweep the whole realistic money space.

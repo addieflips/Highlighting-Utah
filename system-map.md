@@ -841,7 +841,24 @@ owed = (install + removal + changeFees) − credits − deposit, floored at 0
 ```
 This lives as `computeInvoiceStatus(install, removal, deposit, credits, changeFees)` in admin.html and is mirrored server-side in `functions/index.js`. As of this pass, every place in the app that computes a balance or status uses the full formula — that was **not** true before this pass (see the P0 fix in git history: `changeFees` had been left out of roughly 15 different call sites, including the actual PayPal charge amount).
 
-**Two separate $30 fees, easy to conflate:**
+**Two separate fees, easy to conflate — the set-up fee is $25, the light-change fee
+is $30** (she moved the set-up one on 2026-09-03: *"make the set up fee $25"*). They
+are separate charges: a new member who changes their colours late pays both.
+
+⚠ **The set-up fee is one number in one place now** — `NEW_MEMBER_FEE`, in
+`js/money.js` and mirrored in `functions/index.js` because the server cannot import
+a browser module. `money-parity.test.js` fails the build the moment the two differ,
+which is the thing that matters: the office quoting one figure while the nightly run
+charges another. Every sentence that prints it reads it, the invoice line and the
+emailed one included. It used to be a bare `30` in twelve places.
+
+⚠ **An invoice already carrying the old fee is recomputed to the new one** the next
+time it syncs — one price for the season. The exception is Start New Season, which
+*strips* the fee rather than recomputing, so an old $30 invoice carries $5 too much;
+that is written down at the line rather than fixed, because the fix is storing the
+amount on the invoice when it is charged.
+
+**The two, in detail:**
 - **New-member fee** — added once by the nightly Cloud Function for a customer's first season, flagged `newMemberFeeApplied` so it's never double-charged. It's folded directly into `install`, not tracked as a separate line.
 - **Light-change fee** (`changeFees`, with itemized `changeFeeNotes`) — added by `portalSave` when a member changes their light colors outside a 48-hour grace window. Tracked as its own field, separate from `install`, so it can be waived independently — see the × below.
 

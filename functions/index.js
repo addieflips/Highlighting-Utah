@@ -3687,6 +3687,11 @@ function computeInvoiceStatusServer(install, removal, deposit, credits, changeFe
  * by becoming a customer and by a charged change; a first-time colour is not a
  * change; and a fee lands on the current invoice unless it has already been
  * sent, in which case it goes to next season. */
+/* ⚠ THE SERVER'S COPY OF THE SET-UP FEE. js/money.js is the other one and
+   money-parity.test.js runs them side by side — this file cannot import a browser
+   module, which is the whole reason there are two. Change one, change the other, in
+   the same push. */
+const NEW_MEMBER_FEE = 25;
 const LIGHT_CHANGE_FEE = 30;
 const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -3882,12 +3887,12 @@ async function runInvoiceBatch(triggeredBy) {
            because newMemberFeeApplied is already true. syncPayerInvoice in
            admin.html does exactly this; the two must agree. */
         if (invSnap.exists && active.length > 1) {
-          inv.install = groupSum + (inv.newMemberFeeApplied ? 30 : 0);
+          inv.install = groupSum + (inv.newMemberFeeApplied ? NEW_MEMBER_FEE : 0);
         }
 
         const isNewMember = active.some(function (h) { return looksLikeNewMember(h.data); });
         if (isNewMember && !inv.newMemberFeeApplied) {
-          inv.install = (Number(inv.install) || 0) + 30;
+          inv.install = (Number(inv.install) || 0) + NEW_MEMBER_FEE;
           inv.newMemberFeeApplied = true;
           /* ⭐ WHEN THE $30 JOIN FEE WAS CHARGED (added 2026-08-28). Addie: "Everything
              that can be changed for members or added to members account including 30

@@ -130,6 +130,26 @@ export function computeInvoiceStatus(install, removal, deposit, credits, changeF
  * ⚠ functions/index.js has its own copy (applyLightChangeServer). Change both,
  * in the same push — money-parity.test.js runs them side by side and fails if
  * they ever disagree. */
+/* ⭐ THE SET-UP FEE, AND IT IS ONE NUMBER IN ONE PLACE (2026-09-03). Addie: "make
+ * the set up fee $25." It was 30, written out as a bare literal in EIGHT places
+ * across two files — six in admin.html, two in functions/index.js — plus a dozen
+ * sentences on screen that said "$30" in words. Changing a price meant finding all
+ * of them, and missing one meant the office screen and the nightly billing run
+ * disagreeing about what somebody owes.
+ *
+ * ⚠ THE SERVER CARRIES ITS OWN COPY, as it must — functions/index.js cannot import
+ * a browser module — and money-parity.test.js fails the build the moment the two
+ * numbers differ. Change it here and change it there, in the same push.
+ *
+ * ⚠ IT IS THE JOIN FEE, NOT THE LIGHT-CHANGE FEE. Both were $30 and they are
+ * separate charges: a new member who changes their colours late pays both. Moving
+ * one must never move the other, which is most of what this constant is for.
+ *
+ * ⚠ AND IT IS NOT HISTORY. An invoice that already carries the old fee is
+ * recomputed against this number the next time it syncs, so a customer charged $30
+ * before today comes out at $25 — one price for the season, which is the answer
+ * that does not need explaining to whoever rings up. */
+export const NEW_MEMBER_FEE = 25;
 export const LIGHT_CHANGE_FEE = 30;
 export const LIGHT_WINDOW_MS = 48 * 60 * 60 * 1000;
 

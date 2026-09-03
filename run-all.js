@@ -549,6 +549,12 @@ if (!THX_CONST) throw new Error('PRE_THANKSGIVING_DAYS has gone from admin.html'
 const money = read('js/money.js');
 const computeInvoiceStatusSrc = extractFn(money, 'computeInvoiceStatus');
 const cnBinsForFeetSrc = extractFn(money, 'cnBinsForFeet');
+/* ⚠ THE SET-UP FEE, LIFTED (2026-09-03). Seven checks pinned the literal 30 — in
+   fixtures, in expected sentences and in regexes over the source — so moving the
+   price from $30 to $25 failed all seven on code that was right. They read this
+   now, which means they follow the price instead of fixing it. */
+const NEW_MEMBER_FEE_NUM = Number((money.match(/export const NEW_MEMBER_FEE = ([0-9.]+);/) || [])[1]);
+const feeMoney = '$' + NEW_MEMBER_FEE_NUM.toFixed(2);
 /* ⚠ THE CONSTANT TRAVELS WITH THE FUNCTION. cnBinsForFeet reads
    CN_DOUBLE_BIN_FEET, so a sandbox given the function alone dies with a bare
    ReferenceError the first time a sheet counts a bin — which kills the whole
@@ -1703,6 +1709,11 @@ if (JSDOM) {
   global.esc = real('esc');
   global.fmtDate = real('fmtDate');
   global.fmtMoney = n => '$' + Number(n).toFixed(2);
+  /* ⚠ LIFTED FROM js/money.js, NEVER TYPED (2026-09-03). The quote card's set-up fee
+     checkbox prints the amount now, so this sandbox needs the number — and a copy
+     written here would agree with itself while the page said something else, which is
+     exactly what moving the fee from $30 to $25 was cleaning up. */
+  global.NEW_MEMBER_FEE = NEW_MEMBER_FEE_NUM;
   global.daysSince = real('daysSince');
   /* The real staleness rule, with its own chain handed in: it asks whether the quote
      is still waiting on the CUSTOMER, which reaches quoteStage, the already-a-customer
@@ -2096,8 +2107,8 @@ if (JSDOM) {
       check('render', 'convert popup — a complete quote raises no warning',
         !popup().textContent.includes('The quote has no'),
         'crying wolf on a quote that has everything trains the warning to be ignored');
-      check('render', 'convert popup — says the $30 fee carries',
-        popup().textContent.includes('$30 set-up fee'),
+      check('render', 'convert popup — says the set-up fee carries',
+        popup().textContent.includes(feeMoney + ' set-up fee'),
         'the fee is money the customer sees on their bill — say it before converting');
 
       const thin = { name: 'Sam Reyes', street: '', city: '', phone: '', email: '' };
@@ -2741,7 +2752,7 @@ check('flow', 'quote is closed when converted to a customer',
   /* ⚠ AND THE INVOICE DOCUMENT TOO, which is a third builder with its own row and was
      renamed in the same pass. A customer who opens the printable invoice and the
      emailed one should not see two different names for one charge. */
-  const docRow = (/row\('([^']*)', '\$30'\)/.exec(admin) || [])[1] || '';
+  const docRow = (/row\('([^']*)', fmtMoney\(NEW_MEMBER_FEE\)\)/.exec(admin) || [])[1] || '';
   check('flow', 'and the printable invoice document matches them',
     !!docRow && docRow.split('=')[0].trim() === office,
     'the document says "' + docRow + '", the email says "' + office + '"');
@@ -3233,9 +3244,21 @@ check('flow', 'the dashboard outstanding figure uses the one balance formula',
   /return s \+ balanceDueAmount\(i\.data\)/.test(admin),
   'the last hand-rolled balance — it left light-change fees out of the total owed');
 
-check('flow', 'the nightly re-sum keeps the $30 join fee',
-  /inv\.install = groupSum \+ \(inv\.newMemberFeeApplied \? 30 : 0\)/.test(read('functions/index.js')),
+check('flow', 'the nightly re-sum keeps the join fee',
+  /inv\.install = groupSum \+ \(inv\.newMemberFeeApplied \? NEW_MEMBER_FEE : 0\)/.test(read('functions/index.js')),
   'a multi-house payer silently lost the join fee on any re-run; the browser copy gets this right');
+/* ⚠ AND THE CHARGE ITSELF, WHICH NOTHING WATCHED (added 2026-09-03). A red-check put
+   a bare 30 back on the line that actually adds the fee and every check stayed green —
+   the re-sum above was guarded and the charge was not. That is the line that decides
+   what a card is charged. */
+check('flow', 'and the nightly run charges the shared fee, not a number of its own',
+  /inv\.install = \(Number\(inv\.install\) \|\| 0\) \+ NEW_MEMBER_FEE;/.test(read('functions/index.js')),
+  'a literal here is the office quoting one figure and the card being charged another');
+/* ⚠ AND THE SENTENCE THE CUSTOMER READS. The invoice document was guarded; the emailed
+   line beside it was not, and it is the one that arrives in their inbox. */
+check('flow', 'and the emailed installation-fee line reads the same number',
+  /Installation fee = ' \+ fmtMoney\(NEW_MEMBER_FEE\)/.test(admin),
+  'a price written into an email is a price that goes stale the next time it moves');
 
 // syncPayerInvoice used to look houses up by phone ONLY. An invoice is keyed by
 // custInvoiceKey — the phone when there is one, the lowercased email when there
@@ -3651,8 +3674,8 @@ check('flow', 'Site Settings offers the Both payment option',
   'the portal supports it but there would be no way to turn it on');
 
 // the two fixes above have subtleties that must not regress
-check('flow', 'price sync preserves the $30 new member fee',
-  /newMemberFeeApplied \? 30 : 0/.test(editSave),
+check('flow', 'price sync preserves the new member fee',
+  /newMemberFeeApplied \? NEW_MEMBER_FEE : 0/.test(editSave),
   'a plain install overwrite would silently wipe the fee off anyone who has it');
 check('flow', 'price only syncs when it actually changed',
   /newHousePrice !== oldHousePrice/.test(editSave),
@@ -3830,9 +3853,11 @@ console.log('\n=== 7. Health check engine ===');
 
   hc.set({
     j: [{ id: 'a', data: { name: 'Smith', phone: '8011112222', housePrice: 400, customerNumber: '101', measuredFeet: 100 } }],
-    i: [{ id: '8011112222', data: { install: 430, removal: 0, deposit: 0, status: 'Unpaid', newMemberFeeApplied: true } }]
+    /* ⚠ THE HOUSES PLUS THE FEE, not a number that happens to be 430. Written out,
+       this fixture stops proving anything the moment the fee moves. */
+    i: [{ id: '8011112222', data: { install: 400 + NEW_MEMBER_FEE_NUM, removal: 0, deposit: 0, status: 'Unpaid', newMemberFeeApplied: true } }]
   });
-  check('health', '$30 new member fee is not mistaken for drift',
+  check('health', 'the new member fee is not mistaken for drift',
     get(hc.run(), 'totalDrift').rows.length === 0,
     'install carries the fee on top of house prices');
 
@@ -6372,10 +6397,10 @@ suite('13. Season prep — crew portal (§4)');
 
     // The $30 join fee is not part of any house price, so a rebuild that
     // forgets it silently un-charges the fee.
-    const h3 = makeHarness(houses, { install: 730, newMemberFeeApplied: true });
+    const h3 = makeHarness(houses, { install: 700 + NEW_MEMBER_FEE_NUM, newMemberFeeApplied: true });
     await h3.fn('8011112222');
-    check('sync', 'the $30 join fee survives a rebuild',
-      (h3.written[0] || {}).install === 730,
+    check('sync', 'the join fee survives a rebuild',
+      (h3.written[0] || {}).install === 700 + NEW_MEMBER_FEE_NUM,
       'the fee would be quietly refunded on the next price edit');
 
     /* ---- money already paid against a house follows that house ----
@@ -28684,7 +28709,7 @@ pendingAsync.push((async () => {
   }
   {
     const r = await run79([cust('ada', '8015550001', 400)],
-      [inv('8015550001', {install: 430, removal: 0, deposit: 0, newMemberFeeApplied: true})]);
+      [inv('8015550001', {install: 400 + NEW_MEMBER_FEE_NUM, removal: 0, deposit: 0, newMemberFeeApplied: true})]);
     check('S79', 'but the new member fee is NOT read as drift',
       r.res.resynced === 0,
       'the $30 is a real charge on top of the houses — counting it as drift would ' +

@@ -1521,7 +1521,7 @@
             <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
               <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
                 <input type="checkbox" id="addCustNewMemberFee">
-                <span>Charge $30 new member installation fee</span>
+                <span>Charge <span class="setup-fee-amount">$30</span> new member installation fee</span>
               </label>
               <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Off by default. Turn this on only for customers who should pay the one-time join fee. It is added to their invoice automatically the night their install is marked complete. Ticking it also marks the house as a <strong>New Hang</strong> on the Routes list and the map until the install is scheduled.</p>
             </div>
@@ -2190,7 +2190,7 @@
           <div style="margin-top:14px; padding:14px; border:2px solid var(--dusk); border-radius:10px; background:#EAF7EE;">
             <label class="pill-check" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; font-weight:700;">
               <input type="checkbox" id="editCustNewMemberFee">
-              <span>Charge $30 new member installation fee</span>
+              <span>Charge <span class="setup-fee-amount">$30</span> new member installation fee</span>
             </label>
             <p style="font-size:12px; color:var(--slate); margin:6px 0 0;">Added to their invoice automatically the night their install is marked complete. If it has already been applied, unticking this won't remove it &mdash; adjust the invoice amount directly. Ticking it also marks the house as a <strong>New Hang</strong> on the Routes list and the map until the install is scheduled.</p>
           </div>
@@ -2913,7 +2913,7 @@
               <div class="form-row"><label>Credits / discounts</label><input type="number" id="fcCredits" value="0" step="5"></div>
               <div class="form-row"><label>Amount paid</label><input type="number" id="fcDeposit" value="0" step="5"></div>
               <div class="form-row"><label>New member?</label>
-                <select id="fcNewMember"><option value="no">No</option><option value="yes">Yes (adds $30)</option></select></div>
+                <select id="fcNewMember"><option value="no">No</option><option value="yes">Yes (adds the set-up fee)</option></select></div>
             </div>
             <div id="fcResult" style="margin-top:8px;"></div>
           </div>
@@ -5794,7 +5794,10 @@ import {
      fraction short. The guard above it meant the two could not yet disagree, but
      a second copy of a money rule is precisely what this repo forbids: the next
      change to the rule would have moved one of them. */
-  arrearsOutstanding
+  arrearsOutstanding,
+  /* The set-up fee. One number, shared with the server through
+     money-parity.test.js — see its note in js/money.js. */
+  NEW_MEMBER_FEE
 } from './js/money.js';
 import { fetchPano as rmFetchPano, cameraHeight as rmDepthCameraHeight } from './js/svdepth.js';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -7085,7 +7088,7 @@ const HISTORY_STEPS = [
      the first, which reads as proof of something it does not prove. */
   { field: 'invoicedAt',               from: 'inv',   what: 'Invoice raised' },
   { field: 'invoiceEmailSentAt',       from: 'cust',  what: 'Invoice emailed to them' },
-  { field: 'newMemberFeeAppliedAt',    from: 'inv',   what: 'New member fee charged ($30)' }
+  { field: 'newMemberFeeAppliedAt',    from: 'inv',   what: 'New member fee charged (' + fmtMoney(NEW_MEMBER_FEE) + ')' }
 ];
 /* ⚠ THE RSVP LINE SAYS WHAT THEY ANSWERED, not merely that they answered — "answered
    the RSVP" beside a date leaves the one question anybody is asking unanswered. */
@@ -9007,7 +9010,13 @@ function ssnBuildPlan(){
   invKeys.forEach(function(k){
     const inv = allInvoicesCache.find(i => i.id === k);
     if(!inv) return;
-    const fee = inv.data.newMemberFeeApplied ? 30 : 0;          // drop the one-time join fee
+    /* ⚠ THE CURRENT FEE, NOT THE ONE THAT WAS CHARGED. This strips the join fee out
+       rather than recomputing the bill, so an invoice raised at the old $30 has $25
+       taken off it here and carries $5 too much into next season. It is written down
+       rather than fixed because the fix is storing the amount ON the invoice when it
+       is charged, which is its own change; and because the exposure today is nil —
+       nobody has been billed this season. If the fee moves again mid-season, store it. */
+    const fee = inv.data.newMemberFeeApplied ? NEW_MEMBER_FEE : 0;          // drop the one-time join fee
     const removal = Number(inv.data.removal) || 0;
     const newInstall = Math.max(0, (Number(inv.data.install) || 0) - fee);
     const lastPaid = Number(inv.data.deposit) || 0;
@@ -9128,7 +9137,7 @@ document.getElementById('ssnCheckBtn')?.addEventListener('click', function(){
     /* ⚠ THE CARRIED DEBT IS IN THE "owes this year" FIGURE, because that is what the
        invoice will say. Showing it only in the note column would put a number on this
        screen that the bill then disagrees with. */
-    const note = [x.fee ? 'drops $30 join fee' : '',
+    const note = [x.fee ? ('drops ' + fmtMoney(NEW_MEMBER_FEE) + ' join fee') : '',
                   x.arrears > 0 ? 'carries ' + fmtMoney(x.arrears) + ' unpaid from ' + new Date().getFullYear() : '']
                  .filter(Boolean).join(' \u00b7 ');
     return '<tr><td style="padding:4px 8px;">'+esc(x.name || x.id)+'</td><td style="padding:4px 8px; text-align:right;">'+fmtMoney(x.lastPaid)+'</td><td style="padding:4px 8px; text-align:right;">'+fmtMoney(x.newInstall + x.removal + x.arrears)+'</td><td style="padding:4px 8px; color:'+(x.arrears > 0 ? 'var(--ember)' : 'var(--slate)')+'; font-size:11.5px;">'+esc(note)+'</td></tr>';
@@ -11943,7 +11952,7 @@ function autoConvertQuoteToCustomer(quoteId, d){
     addCustAutoConvert = false;
   }
   toast('Converting ' + (d.name || 'this quote') + ' to a customer' +
-    (carried.chargesSetupFee ? ', with the $30 set-up fee' : '') +
+    (carried.chargesSetupFee ? (', with the ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee') : '') +
     (carried.photoCount ? ', photo' + (carried.photoCount > 1 ? 's' : '') + ' included' : '') + '…');
 }
 /* ⭐ APPLYING A RE-QUOTE TO THE CUSTOMER IT CAME FROM. Owner, 2026-08-19:
@@ -12976,7 +12985,7 @@ function showConvertQuoteChoice(quoteId, d){
       ? '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
           'The quote has no '+gaps.map(function(g){ return esc(g); }).join(', ')+'. Converting automatically saves them without '+(gaps.length===1?'it':'those')+'.</p>'
       : '')+
-    (chargesSetupFee ? '<p style="font-size:12.5px; color:var(--slate);">The $30 set-up fee is ticked on this quote, so it carries across either way.</p>' : '')+
+    (chargesSetupFee ? '<p style="font-size:12.5px; color:var(--slate);">The ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee is ticked on this quote, so it carries across either way.</p>' : '')+
     (hasLights ? '' :
       '<p style="font-size:12.5px; color:var(--ember); background:#FDECEA; border:1px solid #F3C8C2; border-radius:9px; padding:8px 11px;">'+
         '<strong>No light colours on this quote.</strong> Colours are required for a customer, because without them nothing goes to the Warehouse to be built. Fill this one in manually and pick their colours.</p>')+
@@ -13710,7 +13719,7 @@ function renderQuoteRows(filtered){
        Cloudinary, so nothing is attached and it costs nothing extra. It sits
        BELOW the buttons because some mail apps hide images until tapped. */
     const chargesSetupFee = quoteChargesSetupFee(d);
-    let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice), setupFeeLine: chargesSetupFee ? 'Plus a one-time $30 set-up fee.' : ''});
+    let html = await resolveLinkTokens(body, d.phone, 0, {name: properName(d.name) || 'there', price: fmtMoney(d.quotedPrice), setupFeeLine: chargesSetupFee ? ('Plus a one-time ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee.') : ''});
     /* The photo goes directly under the price and above the buttons - where it
        does its work, next to the number it justifies. It used to sit below the
        sign-off, which almost nobody scrolls to. If the template says where it
@@ -15671,6 +15680,16 @@ async function rsvpTextCopyAll(){
   if(statusEl) statusEl.textContent = '\u2713 ' + lines.length + ' text' + (lines.length === 1 ? '' : 's') + ' copied \u2014 one line each, phone first.';
   return lines.length;
 }
+/* ⭐ THE TWO CHECKBOX LABELS ARE STAMPED FROM THE CONSTANT (2026-09-03). They are
+   static markup, so they cannot interpolate it the way every other sentence about the
+   fee now does — and a price written into the page is a price that goes stale the
+   next time somebody moves it, on the one box the office ticks to charge it. */
+function paintSetupFeeLabels(){
+  document.querySelectorAll('.setup-fee-amount').forEach(function(el){
+    el.textContent = fmtMoney(NEW_MEMBER_FEE);
+  });
+}
+document.addEventListener('DOMContentLoaded', paintSetupFeeLabels);
 function etPopulateTemplateSelect(){
   const sel = document.getElementById('etSendTemplateSelect');
   if(!sel) return;
@@ -16547,7 +16566,7 @@ function buildInvoiceDocHtml(member){
         '<tbody>'+
           lineItems+
           (removal > 0 ? row('Removal service', fmtMoney(removal)) : '')+
-          (showNewMemberLine ? row('Installation fee', '$30') : '')+
+          (showNewMemberLine ? row('Installation fee', fmtMoney(NEW_MEMBER_FEE)) : '')+
           changeFeeNotes.map(function(f){ return row(esc(f.reason||'Light change fee'), fmtMoney(Number(f.amount)||0)); }).join('')+
           creditNotes.map(function(c){ return row(esc(c.reason||'Credit'), '\u2212'+fmtMoney(Number(c.amount)||0), 'var(--dusk)'); }).join('')+
         '</tbody>'+
@@ -16837,7 +16856,7 @@ async function invTestSend(){
       .map(function(f){ return (f.reason||'Light change fee') + ' = ' + fmtMoney(Number(f.amount)||0); }).join('<br>');
     let body = tpl.data.body || '';
     body = body.split('{{feet_line}}').join(feetLine);
-    body = body.split('{{new_member_fee_line}}').join(inv.newMemberFeeApplied ? 'Installation fee = $30.00' : '');
+    body = body.split('{{new_member_fee_line}}').join(inv.newMemberFeeApplied ? ('Installation fee = ' + fmtMoney(NEW_MEMBER_FEE)) : '');
     body = body.split('{{credit_lines}}').join(creditLines);
     body = body.split('{{fee_lines}}').join(feeLines);
     body = body.split('{{amount_due}}').join(fmtMoney(amountDue));
@@ -18927,7 +18946,7 @@ function renderInvoicesList(){
             '<div class="form-row"><label>Amount Paid So Far ($)</label><input type="number" class="ie-paid" min="0" step="1" value="'+(d.deposit||0)+'"></div>'+
           '</div>'
         : (function(){
-            const feeAmt = d.newMemberFeeApplied ? 30 : 0;
+            const feeAmt = d.newMemberFeeApplied ? NEW_MEMBER_FEE : 0;
             const derivedTotal = groupHouses.reduce(function(s,h){ return s+(Number(h.data.housePrice)||0); }, 0) + feeAmt;
             return '<div class="form-row"><label>Price per property ($)</label>'+
               '<div class="prop-rows">'+
@@ -18939,7 +18958,7 @@ function renderInvoicesList(){
                     '<input type="number" class="ie-house-price" data-houseid="'+h.id+'" min="0" step="1" value="'+(Number(hd.housePrice)||0)+'">'+
                   '</div>';
                 }).join('')+
-                (feeAmt ? '<div class="pr-foot"><span class="pr-fee">Installation fee</span><span>+$30</span></div>' : '')+
+                (feeAmt ? '<div class="pr-foot"><span class="pr-fee">Installation fee</span><span>+' + fmtMoney(NEW_MEMBER_FEE) + '</span></div>' : '')+
               '</div>'+
               '<p class="why">Each price saves to that house. Changing one here changes it on the customer too, so the two can\'t drift apart.</p>'+
             '</div>'+
@@ -19005,7 +19024,7 @@ function renderInvoicesList(){
         const resumHousePrices = function(){
           let sum = 0;
           panel.querySelectorAll('.ie-house-price').forEach(function(inp){ sum += Number(inp.value) || 0; });
-          lockedAmountInput.value = sum + (d.newMemberFeeApplied ? 30 : 0);
+          lockedAmountInput.value = sum + (d.newMemberFeeApplied ? NEW_MEMBER_FEE : 0);
         };
         panel.querySelectorAll('.ie-house-price').forEach(function(inp){ inp.addEventListener('input', resumHousePrices); });
       }
@@ -19088,7 +19107,7 @@ function renderInvoicesList(){
         if(isMultiHouse){
           const priceInputs = Array.from(panel.querySelectorAll('.ie-house-price'));
           const sum = priceInputs.reduce(function(s,inp){ return s + Math.max(0, Number(inp.value) || 0); }, 0);
-          const derivedTotal = sum + (d.newMemberFeeApplied ? 30 : 0);
+          const derivedTotal = sum + (d.newMemberFeeApplied ? NEW_MEMBER_FEE : 0);
           /* Clamp the payment against the REAL charge, not just the install
              total. A payer who sent $130 against a $100 install plus a $30
              light-change fee would otherwise have their payment quietly cut to
@@ -19160,7 +19179,7 @@ function renderInvoicesList(){
         const matched = jobAddresses.find(a => custInvoiceKey(a.data) === id);
         const isGroup = Array.isArray(d.billedHouseIds) && d.billedHouseIds.length > 1;
         if(matched && !isGroup){
-          const basePrice = Math.max(0, newAmount - (d.newMemberFeeApplied ? 30 : 0));
+          const basePrice = Math.max(0, newAmount - (d.newMemberFeeApplied ? NEW_MEMBER_FEE : 0));
           await updateDoc(doc(db,'jobAddresses', matched.id), { housePrice: basePrice });
           syncedNote = ' — house price synced to the customer';
         } else if(isGroup){
@@ -31286,7 +31305,7 @@ async function syncPayerInvoice(payerKey){
   // prices doesn't include it, so rebuilding install without it would silently
   // undo the fee (and the Health Check total-drift test, which expects it, would
   // never go green).
-  const memberFee = existing.newMemberFeeApplied ? 30 : 0;
+  const memberFee = existing.newMemberFeeApplied ? NEW_MEMBER_FEE : 0;
   const installTotal = total + memberFee;
   /* ⭐ MONEY ALREADY PAID AGAINST A HOUSE FOLLOWS THAT HOUSE ONTO THIS BILL
      (added 2026-08-26). See paidBeforeBillTo in the Edit Customer save for the
@@ -31915,7 +31934,7 @@ document.getElementById('routeAddressForm').addEventListener('submit', onceAtATi
         /* Always true now — a save without colours returns long before this,
            so there is no colourless-customer case left to report. */
         ' — in the Warehouse to be built' +
-        (chargeNewMemberFee ? ' — $30 set-up fee applied' : '') +
+        (chargeNewMemberFee ? (' \u2014 ' + fmtMoney(NEW_MEMBER_FEE) + ' set-up fee applied') : '') +
         (missingFields.length ? ' — still missing ' + missingFields.join(', ') : '') + '.');
     }
   } catch(err){
@@ -46285,7 +46304,7 @@ document.getElementById('editCustSaveBtn').addEventListener('click', async funct
         // price would drop the others, so recompute the whole group instead.
         const isGroupInvoice = Array.isArray(inv.data.billedHouseIds) && inv.data.billedHouseIds.length > 1;
         if(newHousePrice !== oldHousePrice && !isGroupInvoice){
-          const memberFee = inv.data.newMemberFeeApplied ? 30 : 0;
+          const memberFee = inv.data.newMemberFeeApplied ? NEW_MEMBER_FEE : 0;
           invoiceUpdates.install = newHousePrice + memberFee;
           invoiceUpdates.status = computeInvoiceStatus(invoiceUpdates.install, inv.data.removal || 0, inv.data.deposit || 0, rebuiltCredits, rebuiltFees);
           invoiceUpdates.updatedAt = serverTimestamp();
@@ -46542,7 +46561,7 @@ document.getElementById('allCustExportBtn').addEventListener('click', function()
          than by the footage, so it is the one somebody needs to audit — and until this
          it appeared nowhere in the export at all. Same predicate as the billing, so the
          spreadsheet cannot disagree with the invoice. */
-      'Installation Fee': audienceIsNew(d) ? 'Yes ($30)' : ''
+      'Installation Fee': audienceIsNew(d) ? ('Yes (' + fmtMoney(NEW_MEMBER_FEE) + ')') : ''
     };
   });
   if(!rows.length){ toast('Nothing to export \u2014 no customers match the filters.'); return; }
@@ -53733,22 +53752,22 @@ function hcRunChecks(){
     why: 'A price was changed somewhere and the invoice never caught up, so you would bill the wrong amount.',
     fix: 'totalDrift',
     fixLabel: 'Resync totals',
-    fixNote: 'Safe to fix: recalculates from the house prices, keeping the $30 new member fee.',
+    fixNote: 'Safe to fix: recalculates from the house prices, keeping the ' + fmtMoney(NEW_MEMBER_FEE) + ' new member fee.',
     rows: Object.keys(groups).filter(function(payer){
       const inv = invById[payer];
       if(!inv) return false;
       const d = inv.data || {};
       const expected = groups[payer].reduce(function(sum, c){ return sum + (Number((c.data || {}).housePrice) || 0); }, 0)
-                     + (d.newMemberFeeApplied ? 30 : 0);
+                     + (d.newMemberFeeApplied ? NEW_MEMBER_FEE : 0);
       return Math.abs(expected - (Number(d.install) || 0)) > 0.005;
     }).map(function(payer){
       const d = invById[payer].data || {};
       const expected = groups[payer].reduce(function(sum, c){ return sum + (Number((c.data || {}).housePrice) || 0); }, 0)
-                     + (d.newMemberFeeApplied ? 30 : 0);
+                     + (d.newMemberFeeApplied ? NEW_MEMBER_FEE : 0);
       return {
         label: (d.name || payer),
         detail: 'invoice says $' + (Number(d.install)||0) + ', houses add up to $' + expected
-              + (d.newMemberFeeApplied ? ' (incl. $30 new member fee)' : '')
+              + (d.newMemberFeeApplied ? ' (incl. ' + fmtMoney(NEW_MEMBER_FEE) + ' new member fee)' : '')
               + (groups[payer].length > 1 ? ' across ' + groups[payer].length + ' houses' : ''),
         payer: payer
       };
@@ -54379,7 +54398,7 @@ async function invoiceAutoSync(){
       /* The new-member fee is a real charge on top of the houses, so it is added
          back before comparing " + M + " otherwise every customer who paid it reads as
          drifted, for ever. */
-      const fee = Number(d.newMemberFeeApplied ? 30 : 0);
+      const fee = Number(d.newMemberFeeApplied ? NEW_MEMBER_FEE : 0);
       if(houses > 0 && Math.round((Number(d.install) || 0) * 100) !== Math.round((houses + fee) * 100)){
         needSync.push({payer: payer, why: "resynced"});
       }
