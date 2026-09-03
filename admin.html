@@ -55757,13 +55757,37 @@ function effectivePin(day){
   const p=new Date(day.pin);
   return p<=pinHorizon()?p:null;
 }
-function layoutSequence(days){
+/* ⭐ NOTHING IS HUNG BEFORE THE SEASON STARTS. Addie, 2026-09-03, reading a plan whose
+   Season start box said 1 October above a first day of Tue Sep 22: "this is very wrong
+   because the season start date is oct 1".
+
+   ⚠ THE BOX AND THE DAYS WERE ANSWERING TWO DIFFERENT QUESTIONS. The box shows
+   BASE_START + globalDelta; a day is laid out at BASE_START + base + globalDelta +
+   cascade. Nothing anywhere clamped the second one, so any day carrying a negative
+   base or cascade simply rendered before the season — and the two lines of the season
+   bar contradicted each other with no way to tell which was right.
+
+   ⚠ HOW A DAY GETS THERE: "◀ Pull this + rest earlier" decrements cascade until the
+   date moves and had no floor of its own, so it walks a day into September a press at
+   a time; a rebuild also leaves the days it KEEPS carrying a base measured against the
+   BASE_START it had before. Flooring here fixes both at once, and fixes a plan that is
+   ALREADY in that state on the next draw rather than needing the data repaired.
+
+   ⚠ A PINNED DAY IS NEVER CLAMPED. "Force exact date" is the office overriding the
+   layout on purpose — the same reason it may place a day on a weekend — and the pin
+   branch returns above this line without ever consulting the floor.
+
+   This is the same rule seasonFirstDate already states for the BUILDER ("with no
+   floor, building the season in August books Christmas installs for August"). It was
+   simply never applied to a plan that already existed. */
+function layoutSequence(days,floor){
   const arr=days.sort((a,b)=>{const pa=effectivePin(a),pb=effectivePin(b);const ka=pa||desired(a),kb=pb||desired(b);return ka-kb||a.base-b.base;});
   let cursor=null;
   for(const day of arr){
     const pin=effectivePin(day);
     if(pin){day._date=new Date(pin);if(!cursor||day._date>cursor)cursor=new Date(day._date);continue;}
     let d=desired(day);
+    if(floor&&d<floor)d=new Date(floor);
     if(cursor&&d<=cursor)d=addDays(cursor,1);
     while(isDayOff(d))d=addDays(d,1);
     while(cursor&&d<=cursor){d=addDays(d,1);while(isDayOff(d))d=addDays(d,1);}
@@ -55771,7 +55795,10 @@ function layoutSequence(days){
   }
 }
 function computeDates(){
-  layoutSequence(SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown));
+  /* Install days are floored at the season start. Takedowns are NOT: they run off
+     TAKE_BASE_START, which is a different season with a different first day, and
+     borrowing the install floor would drag every takedown forward onto it. */
+  layoutSequence(SEASON.filter(d=>!d.isFixRoute&&!d.isTakedown), seasonStartDate());
   layoutSequence(SEASON.filter(d=>d.isTakedown));
   SEASON.filter(d=>d.isFixRoute).forEach(d=>{d._date=new Date(d.pin);});
   ORDER=SEASON.slice().sort((a,b)=>a._date-b._date||((a.isFixRoute?1:0)-(b.isFixRoute?1:0))||a.base-b.base);
@@ -59076,7 +59103,14 @@ function cascade(id,delta,msg){
   const day0=getDay(id);if(!day0)return;const seq=phaseDays(day0);const idx=seq.indexOf(day0);if(idx<0)return;
   const affected=seq.slice(idx);const before=day0._date.getTime();let steps=0;
   do{affected.forEach(d=>d.cascade+=delta);computeDates();steps++;}while(getDay(id)._date.getTime()===before&&steps<10);
-  if(getDay(id)._date.getTime()===before){affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();toast(delta<0?'No earlier slot — no gap before this day':'Could not push later');return;}
+  /* ⚠ THE REVERT IS WHAT KEEPS "Pull earlier" INSIDE THE SEASON. With the floor in
+     computeDates the date simply stops moving once the day is sitting on the season
+     start, this branch puts the cascade back, and the press does nothing instead of
+     silently walking the plan into September. Worth saying WHICH wall was hit — "no
+     gap before this day" sent the office looking for a day to delete. */
+  if(getDay(id)._date.getTime()===before){affected.forEach(d=>d.cascade-=delta*steps);computeDates();renderAll();
+    const atFloor=delta<0&&!day0.isTakedown&&getDay(id)._date.getTime()<=seasonStartDate().getTime();
+    toast(delta<0?(atFloor?'That is the season start — nothing goes earlier than '+dlabel(seasonStartDate()).full:'No earlier slot — no gap before this day'):'Could not push later');return;}
   renderAll();toast(msg||(delta<0?'Pulled a working day earlier — the rest moved up':'Pushed a working day later — the rest moved back'));
 }
 function moveHouse(id,dayId){const f=findHouse(id);if(!f)return;const target=getDay(dayId);if(!target||target===f.day)return;

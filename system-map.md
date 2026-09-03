@@ -1134,6 +1134,52 @@ touched in the four source files against this table, and every name in
 
 **Duplicate System notices**: `reconcileNoteIsRepeat` suppresses a word-for-word identical "Routes Kept Up To Date" note inside an hour (`RECONCILE_NOTE_REPEAT_MS`). It is guarded twice — an in-memory record, and a scan of `allMessages` so a reload, a second tab or the other office machine doesn't reopen the hole. It suppresses the *notice*, not the sweep: a backstop, not the fix, and it logs a console warning naming the loop rather than going quiet.
 
+### Nothing is hung before the season starts
+
+Addie, 2026-09-03, reading two lines of her own season bar:
+
+    Season start   10/01/2026
+    Plan runs Tue Sep 22 → Sep 22.
+
+*"this is very wrong because the season start date is oct 1"*.
+
+Both lines come off the same plan and they were computed differently. The box is
+`BASE_START + globalDelta`. A day is laid out at `BASE_START + base + globalDelta +
+cascade` — and nothing clamped it, so **any day carrying a negative `base` or
+`cascade` rendered before the season had started**, with no way from the outside to
+tell which half of the bar to believe.
+
+`layoutSequence` now takes a **floor** and `computeDates` passes it
+`seasonStartDate()` for install days. Three things about where that floor sits:
+
+- **It is in the layout, not in the button that caused it.** A plan already saved in
+  that state heals on the next draw; nobody has to go and repair the data.
+- **It only ever pushes forward.** A day legitimately later than the start is left
+  exactly where it was — a clamp working in both directions would flatten October onto
+  the 1st.
+- **A pinned day never sees it.** *Force exact date* is the office overriding the
+  layout deliberately, the same reason it is allowed to place a day on a weekend, and
+  the pin branch returns before the floor is consulted.
+
+⚠ **Takedowns are not floored.** They run off `TAKE_BASE_START` — a different season
+with a different first day — and lending them the install floor would haul every one of
+them into October.
+
+**Two ways a day acquires a negative offset, and the floor catches both.**
+*◀ Pull this + rest earlier* (`cascade(id, -1)`) decrements until the date moves and
+had no floor of its own, so each press walked the plan further into September; with the
+floor in place the date stops moving, the existing revert puts the cascade back, and the
+toast now names the wall it hit rather than saying "no gap before this day". Separately,
+`rebuildSeasonDays` keeps the days it does not re-lay, and those go on carrying a
+`base` measured against whatever `BASE_START` was before the rebuild moved it.
+
+This is the rule `seasonFirstDate` already states for the **builder** — *"with no
+floor, building the season in August books Christmas installs for August"* — finally
+applied to a plan that already exists.
+
+*Proved in* run-all.js **Suite 295**, red-checked by deleting the floor line: the two
+checks that reproduce her exact season bar go red and nothing else does.
+
 ### One route note a day, not one a sweep
 
 Addie, 2026-08-30: *"system inbox always has a bunch of schedule messages and it's to many to
